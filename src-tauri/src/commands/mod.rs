@@ -5,6 +5,7 @@ pub mod career_detail;
 pub mod career_types;
 pub mod config;
 pub mod convocation;
+pub mod historical_draft;
 pub mod news_helpers;
 pub mod news_tab;
 pub mod race;

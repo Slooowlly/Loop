@@ -146,7 +146,7 @@ cargo test config::app_config
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add src-tauri/src/commands/career_types.rs src-tauri/src/config/app_config.rs
@@ -164,7 +164,7 @@ git commit -m "feat: add save lifecycle metadata"
 - Modify: `src-tauri/src/lib.rs`
 - Modify: `src-tauri/src/commands/career_types.rs`
 
-- [ ] **Step 1: Add API types**
+- [x] **Step 1: Add API types**
 
 In `career_types.rs`, add:
 
@@ -210,7 +210,7 @@ pub struct CareerDraftState {
 }
 ```
 
-- [ ] **Step 2: Stub backend functions**
+- [x] **Step 2: Stub backend functions**
 
 Create `historical_draft.rs` with stubs:
 
@@ -225,15 +225,15 @@ pub(crate) fn create_historical_career_draft_in_base_dir(
 
 Add matching stubs for get, discard, and finalize.
 
-- [ ] **Step 3: Add Tauri wrappers**
+- [x] **Step 3: Add Tauri wrappers**
 
 In `career_commands.rs`, add async/sync wrappers using `app_data_dir`.
 
-- [ ] **Step 4: Register module and commands**
+- [x] **Step 4: Register module and commands**
 
 Update `commands/mod.rs` and `lib.rs`.
 
-- [ ] **Step 5: Run compile check**
+- [x] **Step 5: Run compile check**
 
 Run:
 

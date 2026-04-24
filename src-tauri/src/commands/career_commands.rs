@@ -16,9 +16,14 @@ use crate::commands::career::{
     PlayerProposalView, ProposalResponse,
 };
 use crate::commands::career_types::{
-    BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData, CareerResumeView,
-    CreateCareerInput, CreateCareerResult, DriverDetail, DriverSummary, FreeAgentPreview,
-    RaceSummary, SaveInfo, TeamHistoryDossier, TeamStanding,
+    BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData, CareerDraftState,
+    CareerResumeView, CreateCareerInput, CreateCareerResult, CreateHistoricalDraftInput,
+    DriverDetail, DriverSummary, FinalizeHistoricalDraftInput, FreeAgentPreview, RaceSummary,
+    SaveInfo, TeamHistoryDossier, TeamStanding,
+};
+use crate::commands::historical_draft::{
+    create_historical_career_draft_in_base_dir, discard_career_draft_in_base_dir,
+    finalize_career_draft_in_base_dir, get_career_draft_in_base_dir,
 };
 use crate::commands::race_history::{DriverRaceHistory, PreviousChampions};
 use crate::evolution::pipeline::EndOfSeasonResult;
@@ -39,6 +44,36 @@ pub async fn create_career(
 ) -> Result<CreateCareerResult, String> {
     let base_dir = app_data_dir(&app)?;
     create_career_in_base_dir(&base_dir, input)
+}
+
+#[tauri::command]
+pub async fn create_historical_career_draft(
+    app: AppHandle,
+    input: CreateHistoricalDraftInput,
+) -> Result<CareerDraftState, String> {
+    let base_dir = app_data_dir(&app)?;
+    create_historical_career_draft_in_base_dir(&base_dir, input)
+}
+
+#[tauri::command]
+pub fn get_career_draft(app: AppHandle) -> Result<CareerDraftState, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_career_draft_in_base_dir(&base_dir)
+}
+
+#[tauri::command]
+pub async fn discard_career_draft(app: AppHandle) -> Result<(), String> {
+    let base_dir = app_data_dir(&app)?;
+    discard_career_draft_in_base_dir(&base_dir)
+}
+
+#[tauri::command]
+pub async fn finalize_career_draft(
+    app: AppHandle,
+    input: FinalizeHistoricalDraftInput,
+) -> Result<CreateCareerResult, String> {
+    let base_dir = app_data_dir(&app)?;
+    finalize_career_draft_in_base_dir(&base_dir, input)
 }
 
 #[tauri::command]

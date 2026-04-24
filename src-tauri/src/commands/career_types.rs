@@ -44,6 +44,46 @@ pub struct CreateCareerResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateHistoricalDraftInput {
+    pub player_name: String,
+    pub player_nationality: String,
+    pub player_age: Option<i32>,
+    pub difficulty: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalizeHistoricalDraftInput {
+    pub career_id: String,
+    pub category: String,
+    pub team_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DraftTeamOption {
+    pub id: String,
+    pub nome: String,
+    pub nome_curto: String,
+    pub categoria: String,
+    pub cor_primaria: String,
+    pub cor_secundaria: String,
+    pub car_performance: f64,
+    pub reputacao: f64,
+    pub n1_nome: Option<String>,
+    pub n2_nome: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CareerDraftState {
+    pub exists: bool,
+    pub career_id: Option<String>,
+    pub lifecycle_status: SaveLifecycleStatus,
+    pub progress_year: Option<u32>,
+    pub error: Option<String>,
+    pub categories: Vec<String>,
+    pub teams: Vec<DraftTeamOption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveInfo {
     pub career_id: String,
     pub player_name: String,
