@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tooltip Opcao E - Lower Third</title>
+  <style>
+    :root { --accent: #e73f47; --accent-rgb: 231, 63, 71; --text: #edf4ff; --muted: #96a3b7; --panel: rgba(13, 19, 32, .94); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: var(--text); font-family: "Segoe UI", "Trebuchet MS", sans-serif; background: radial-gradient(circle at 18% 35%, rgba(var(--accent-rgb), .24), transparent 30%), radial-gradient(circle at 85% 60%, rgba(32,214,199,.16), transparent 28%), linear-gradient(180deg, #050912, #09111d 52%, #05070d); }
+    .page { width: min(1180px, calc(100vw - 32px)); padding: 28px 0 42px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+    nav a { color: var(--text); text-decoration: none; border: 1px solid rgba(255,255,255,.13); border-radius: 999px; padding: 9px 13px; background: rgba(255,255,255,.045); }
+    nav a.active { border-color: rgba(var(--accent-rgb), .75); background: rgba(var(--accent-rgb), .18); }
+    h1 { margin: 0 0 8px; font: 700 clamp(36px, 6vw, 76px)/.92 Georgia, serif; letter-spacing: -.055em; }
+    .lead { max-width: 720px; margin: 0 0 32px; color: var(--muted); line-height: 1.55; }
+    .tooltip { width: min(920px, 100%); margin: 0 auto; display: grid; grid-template-columns: 300px 1fr; gap: 26px; align-items: center; overflow: hidden; padding: 28px 34px 28px 28px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: radial-gradient(circle at 15% 50%, rgba(var(--accent-rgb), .28), transparent 33%), var(--panel); box-shadow: 0 38px 110px rgba(0,0,0,.48); backdrop-filter: blur(22px); }
+    .logo { width: 300px; height: 190px; object-fit: contain; filter: drop-shadow(0 18px 42px rgba(var(--accent-rgb), .45)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
+    .meta { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 13px; font-weight: 800; }
+    .pill { color: #fff; border: 1px solid rgba(var(--accent-rgb), .4); border-radius: 999px; padding: 7px 12px; background: rgba(var(--accent-rgb), .18); }
+    .track { margin: 12px 0 0; font-size: 38px; font-weight: 950; line-height: .95; letter-spacing: -.055em; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .detail { padding: 12px; border-radius: 18px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.052); }
+    .detail b { display: block; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+    .detail span { display: block; margin-top: 5px; font-size: 13px; font-weight: 850; }
+    @media (max-width: 820px) { .tooltip { grid-template-columns: 1fr; border-radius: 38px; } .logo { width: 100%; height: 190px; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <nav>
+      <a href="./2026-04-21-tooltip-option-a.html">Opcao A</a>
+      <a href="./2026-04-21-tooltip-option-b.html">Opcao B</a>
+      <a href="./2026-04-21-tooltip-option-c.html">Opcao C</a>
+      <a href="./2026-04-21-tooltip-option-d.html">Opcao D</a>
+      <a class="active" href="./2026-04-21-tooltip-option-e.html">Opcao E</a>
+      <a href="./2026-04-21-other-category-tooltip-lab.html">Comparativo</a>
+    </nav>
+    <h1>Opcao E: lower-third compacto.</h1>
+    <p class="lead">Mais horizontal e leve. Continua com logo grande, mas ocupa menos altura no calendario.</p>
+    <section class="tooltip">
+      <img class="logo" src="../../../public/categorias/MX5%20CUP.png" alt="Mazda MX-5 Championship" />
+      <div>
+        <div class="meta"><span class="pill">R2</span><span>Mazda MX-5 Championship</span></div>
+        <p class="track">Laguna Seca</p>
+        <div class="grid">
+          <div class="detail"><b>Duração</b><span>25 min</span></div>
+          <div class="detail"><b>Clima</b><span>A definir</span></div>
+          <div class="detail"><b>Status</b><span>Pendente</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

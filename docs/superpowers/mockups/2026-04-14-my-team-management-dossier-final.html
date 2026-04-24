@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minha Equipe - Direção Final</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(88,166,255,.12), transparent 22%),
+        linear-gradient(180deg, #071019 0%, #0b131d 100%);
+      color: #edf3fb;
+    }
+    .page { max-width: 1280px; margin: 0 auto; padding: 36px 28px 64px; }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    h1 { margin: 0; font-size: 35px; letter-spacing: -.03em; }
+    .subtitle {
+      margin: 10px 0 0;
+      color: #9db0c0;
+      font-size: 16px;
+      line-height: 1.55;
+      max-width: 860px;
+    }
+    .badge {
+      border: 1px solid rgba(88,166,255,.26);
+      background: rgba(88,166,255,.1);
+      color: #a8d5ff;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 11px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .screen {
+      border-radius: 30px;
+      border: 1px solid rgba(255,255,255,.1);
+      background:
+        radial-gradient(circle at top left, rgba(88,166,255,.08), transparent 24%),
+        linear-gradient(180deg, rgba(10,16,24,.98), rgba(7,11,17,.98));
+      padding: 18px;
+      box-shadow: 0 22px 60px rgba(0,0,0,.35);
+    }
+    .hero {
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 18px;
+      background: linear-gradient(135deg, rgba(88,166,255,.14), rgba(255,255,255,.02));
+    }
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .kicker {
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .16em;
+      font-size: 10px;
+    }
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #58a6ff;
+      box-shadow: 0 0 16px rgba(88,166,255,.85);
+      margin-right: 8px;
+    }
+    .team-name { margin-top: 10px; font-size: 28px; font-weight: 700; }
+    .hero-copy {
+      margin-top: 8px;
+      color: #c2cfda;
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 620px;
+    }
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      min-width: 330px;
+    }
+    .hero-metric {
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.18);
+      padding: 12px;
+    }
+    .label {
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 10px;
+    }
+    .hero-metric b {
+      display: block;
+      margin-top: 10px;
+      font-size: 22px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: .72fr 1.28fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .stack { display: grid; gap: 10px; }
+    .panel {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      padding: 12px;
+    }
+    .panel-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 10px;
+    }
+    .driver-name { font-size: 14px; font-weight: 600; margin-top: 4px; }
+    .driver-sub { color: #95a8bb; font-size: 12px; margin-bottom: 7px; }
+    .bar {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .fill-blue, .fill-green, .fill-red, .fill-amber { height: 100%; border-radius: 999px; }
+    .fill-blue { background: linear-gradient(90deg, #58a6ff, #8fd0ff); }
+    .fill-green { background: linear-gradient(90deg, #2ec27e, #70e6b2); }
+    .fill-red { background: linear-gradient(90deg, #ff7b72, #ffb0aa); }
+    .fill-amber { background: linear-gradient(90deg, #ffb44a, #ffd48b); }
+    .mini-grid,
+    .salary-split,
+    .finance-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .mini-grid { grid-template-columns: 1fr 1fr; }
+    .salary-split { grid-template-columns: 1fr 1fr; }
+    .finance-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .mini-stat,
+    .salary-card,
+    .finance-card,
+    .tech-card {
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.18);
+      padding: 10px;
+    }
+    .mini-stat b,
+    .salary-card strong,
+    .finance-card b {
+      display: block;
+      margin-top: 6px;
+      font-size: 15px;
+    }
+    .finance-card b { font-size: 21px; }
+    .salary-card small,
+    .finance-card small {
+      display: block;
+      margin-top: 4px;
+      color: #9db0c0;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .detail-list {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+    }
+    .detail-row {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+      color: #d7e3ef;
+      line-height: 1.35;
+    }
+    .detail-row span:last-child {
+      color: #9db0c0;
+      text-align: right;
+    }
+    .pill-row,
+    .tab-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+    }
+    .pill,
+    .tab-pill {
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      padding: 6px 9px;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #c9d7e4;
+    }
+    .pill.blue,
+    .tab-pill.active {
+      border-color: rgba(88,166,255,.26);
+      color: #9ed0ff;
+      background: rgba(88,166,255,.12);
+    }
+    .pill.green { border-color: rgba(46,194,126,.24); color: #89ebbf; background: rgba(46,194,126,.1); }
+    .pill.amber { border-color: rgba(255,180,74,.24); color: #ffd48b; background: rgba(255,180,74,.1); }
+    .section-cut {
+      margin-top: 11px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .tech-card h4 {
+      margin: 0 0 8px;
+      color: #dfe9f4;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      line-height: 1.35;
+    }
+    .ledger {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .ledger-block,
+    .timeline-main,
+    .donut-box,
+    .notes-box {
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.18);
+      padding: 12px;
+    }
+    .ledger-head,
+    .chart-title {
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 10px;
+      margin-bottom: 10px;
+    }
+    .ledger-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ledger-row {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      font-size: 13px;
+    }
+    .ledger-row span:first-child { color: #dce7f3; }
+    .positive { color: #70e6b2; font-weight: 600; }
+    .negative { color: #ffb0aa; font-weight: 600; }
+    .timeline-main { margin-top: 12px; }
+    .line-chart {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      height: 230px;
+      padding: 12px 8px 0;
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)),
+        repeating-linear-gradient(
+          to top,
+          rgba(255,255,255,.04) 0px,
+          rgba(255,255,255,.04) 1px,
+          transparent 1px,
+          transparent 38px
+        );
+    }
+    .line-col {
+      flex: 1;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+    }
+    .line-bar {
+      width: 100%;
+      max-width: 42px;
+      border-radius: 14px 14px 4px 4px;
+      background: linear-gradient(180deg, rgba(88,166,255,.95), rgba(88,166,255,.36));
+      box-shadow: 0 0 18px rgba(88,166,255,.16);
+    }
+    .line-col span { color: #90a5b7; font-size: 11px; }
+    .line-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .line-summary .finance-card b { font-size: 18px; }
+    .cost-row {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 12px;
+    }
+    .donut-wrap {
+      display: grid;
+      grid-template-columns: 132px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+    .donut {
+      width: 132px;
+      height: 132px;
+      border-radius: 50%;
+      background: conic-gradient(#58a6ff 0 28%, #2ec27e 28% 51%, #ffb44a 51% 73%, #ff7b72 73% 100%);
+      position: relative;
+      margin: 0 auto;
+    }
+    .donut::after {
+      content: "Custos";
+      position: absolute;
+      inset: 21px;
+      border-radius: 50%;
+      background: #0d141d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #dbe7f3;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .legend { display: grid; gap: 8px; }
+    .legend-row {
+      display: grid;
+      grid-template-columns: 12px minmax(0,1fr) auto;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .swatch { width: 12px; height: 12px; border-radius: 4px; }
+    .notes-box p {
+      margin: 0;
+      color: #b2c0cc;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .notes-box p + p { margin-top: 10px; }
+    .bottom-ranking {
+      margin-top: 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,.08);
+      overflow: hidden;
+      background: rgba(255,255,255,.02);
+    }
+    .ranking-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      font-size: 12px;
+    }
+    th {
+      background: rgba(255,255,255,.03);
+      color: #8ea6bd;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-size: 10px;
+    }
+    .me-row { background: rgba(88,166,255,.12); }
+    .feedback {
+      margin-top: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      padding: 16px;
+      color: #acbac7;
+      line-height: 1.55;
+    }
+    .feedback strong { color: #edf3fb; }
+    @media (max-width: 1100px) {
+      .topbar, .hero-top { flex-direction: column; }
+      .hero-metrics,
+      .layout,
+      .finance-grid,
+      .ledger,
+      .line-summary,
+      .cost-row { grid-template-columns: 1fr; }
+      .donut-wrap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <div>
+        <h1>Direção final aprovada</h1>
+        <p class="subtitle">Base da antiga `Opção B`, com o ranking no fim, laterais mais compactas e uma linha do tempo de caixa acumulado mais larga e dominante. Agora a lateral mostra salários individuais dos pilotos e a operação técnica em modo compacto por abas.</p>
+      </div>
+      <div class="badge">versão final</div>
+    </div>
+
+    <div class="screen">
+      <div class="hero">
+        <div class="hero-top">
+          <div>
+            <div class="kicker"><span class="dot"></span>Central de gestão</div>
+            <div class="team-name">Aurora GT</div>
+            <div class="hero-copy">A equipe continua competitiva, mas a temporada é lida principalmente pelo lado da operação: quanto entrou, quanto saiu, como o caixa reagiu rodada a rodada e se a estrutura esportiva consegue sustentar a ambição do projeto.</div>
+          </div>
+          <div class="hero-metrics">
+            <div class="hero-metric"><span class="label">Posição</span><b>5º</b></div>
+            <div class="hero-metric"><span class="label">Pontos</span><b>96</b></div>
+            <div class="hero-metric"><span class="label">Estado</span><b>Saudável</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div class="stack">
+          <div class="panel">
+            <div class="panel-title"><span>Dupla de pilotos</span><span>compacto</span></div>
+            <div class="driver-name">N1 · Você</div>
+            <div class="bar"><div class="fill-blue" style="width:81%"></div></div>
+            <div class="driver-name" style="margin-top:8px;">N2 · Colega IA</div>
+            <div class="bar"><div class="fill-blue" style="width:73%"></div></div>
+
+            <div class="section-cut">
+              <div class="panel-title" style="margin-bottom:8px;"><span>Contribuição da dupla</span><span>temporada</span></div>
+              <div class="mini-grid">
+                <div class="mini-stat"><span class="label">Pontos N1</span><b>61</b></div>
+                <div class="mini-stat"><span class="label">Pontos N2</span><b>35</b></div>
+                <div class="mini-stat"><span class="label">% dos pontos</span><b>64% / 36%</b></div>
+                <div class="mini-stat"><span class="label">Média da dupla</span><b>P7,4</b></div>
+              </div>
+              <div class="salary-split">
+                <div class="salary-card">
+                  <span class="label">Salário N1</span>
+                  <strong>R$ 82 mil</strong>
+                  <small>59% da folha salarial dos pilotos.</small>
+                </div>
+                <div class="salary-card">
+                  <span class="label">Salário N2</span>
+                  <strong>R$ 58 mil</strong>
+                  <small>41% da folha salarial dos pilotos.</small>
+                </div>
+              </div>
+              <div class="detail-list">
+                <div class="detail-row"><span>Média de chegada da dupla</span><span>7,4</span></div>
+                <div class="detail-row"><span>Melhor corrida conjunta</span><span>R8 · 18 pts</span></div>
+                <div class="detail-row"><span>Contratos expiram em</span><span>1 e 2 temporadas</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title"><span>Operação técnica</span><span>compacto</span></div>
+            <div class="driver-sub">Carro</div>
+            <div class="bar"><div class="fill-blue" style="width:70%"></div></div>
+            <div class="driver-sub" style="margin-top:8px;">Confiabilidade</div>
+            <div class="bar"><div class="fill-green" style="width:72%"></div></div>
+            <div class="driver-sub" style="margin-top:8px;">Pit crew</div>
+            <div class="bar"><div class="fill-amber" style="width:68%"></div></div>
+
+            <div class="section-cut">
+              <div class="panel-title" style="margin-bottom:8px;"><span>Eixos técnicos</span><span>modo compacto</span></div>
+              <div class="tab-row">
+                <span class="tab-pill active">Desenvolvimento</span>
+                <span class="tab-pill">Confiabilidade</span>
+                <span class="tab-pill">Pit e corrida</span>
+              </div>
+              <div class="tech-card">
+                <h4>Desenvolvimento</h4>
+                <div class="detail-list">
+                  <div class="detail-row"><span>Tipo atual</span><span>Balanceado</span></div>
+                  <div class="detail-row"><span>Foco</span><span>refrigeração</span></div>
+                  <div class="detail-row"><span>Próximo upgrade</span><span>pit + aero</span></div>
+                  <div class="detail-row"><span>Custo</span><span>R$ 220 mil</span></div>
+                  <div class="detail-row"><span>Janela ideal</span><span>R11-R12</span></div>
+                </div>
+              </div>
+              <div class="pill-row">
+                <span class="pill blue">upgrade pronto em 2 rodadas</span>
+                <span class="pill green">mecânica estável</span>
+                <span class="pill amber">pit ainda é caro</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>Dossiê financeiro</span><span>rodada atual + acumulado</span></div>
+
+          <div class="finance-grid">
+            <div class="finance-card">
+              <span class="label">Caixa atual</span>
+              <b>R$ 6,5 mi</b>
+              <small>Saldo vivo da operação.</small>
+            </div>
+            <div class="finance-card">
+              <span class="label">Resultado da rodada</span>
+              <b>+R$ 125 mil</b>
+              <small>Último evento fechou no azul.</small>
+            </div>
+            <div class="finance-card">
+              <span class="label">Teto salarial</span>
+              <b>R$ 420 mil</b>
+              <small>Limite atual de retenção.</small>
+            </div>
+            <div class="finance-card">
+              <span class="label">Poder de gasto</span>
+              <b>+R$ 2,8 mi</b>
+              <small>Margem atual de investimento.</small>
+            </div>
+          </div>
+
+          <div class="ledger">
+            <div class="ledger-block">
+              <div class="ledger-head"><span>Entradas da rodada</span><span>categorias</span></div>
+              <div class="ledger-row"><span>Patrocínios</span><span class="positive">+R$ 310 mil</span></div>
+              <div class="ledger-row"><span>Bônus de resultado</span><span class="positive">+R$ 120 mil</span></div>
+              <div class="ledger-row"><span>Prêmio parcial</span><span class="positive">+R$ 68 mil</span></div>
+              <div class="ledger-row"><span>Auxílios</span><span class="positive">+R$ 0</span></div>
+            </div>
+
+            <div class="ledger-block">
+              <div class="ledger-head"><span>Saídas da rodada</span><span>categorias</span></div>
+              <div class="ledger-row"><span>Salários</span><span class="negative">-R$ 140 mil</span></div>
+              <div class="ledger-row"><span>Operação do evento</span><span class="negative">-R$ 96 mil</span></div>
+              <div class="ledger-row"><span>Manutenção estrutural</span><span class="negative">-R$ 82 mil</span></div>
+              <div class="ledger-row"><span>Investimento técnico</span><span class="negative">-R$ 55 mil</span></div>
+            </div>
+          </div>
+
+          <div class="timeline-main">
+            <div class="chart-title">Linha do tempo do caixa acumulado</div>
+            <div class="line-chart">
+              <div class="line-col"><div class="line-bar" style="height:56px;"></div><span>R1</span></div>
+              <div class="line-col"><div class="line-bar" style="height:76px;"></div><span>R2</span></div>
+              <div class="line-col"><div class="line-bar" style="height:90px;"></div><span>R3</span></div>
+              <div class="line-col"><div class="line-bar" style="height:86px;"></div><span>R4</span></div>
+              <div class="line-col"><div class="line-bar" style="height:112px;"></div><span>R5</span></div>
+              <div class="line-col"><div class="line-bar" style="height:128px;"></div><span>R6</span></div>
+              <div class="line-col"><div class="line-bar" style="height:120px;"></div><span>R7</span></div>
+              <div class="line-col"><div class="line-bar" style="height:140px;"></div><span>R8</span></div>
+              <div class="line-col"><div class="line-bar" style="height:154px;"></div><span>R9</span></div>
+              <div class="line-col"><div class="line-bar" style="height:168px;"></div><span>R10</span></div>
+            </div>
+
+            <div class="line-summary">
+              <div class="finance-card"><span class="label">Pico de caixa</span><b>R$ 6,8 mi</b><small>Melhor ponto da temporada até agora.</small></div>
+              <div class="finance-card"><span class="label">Pior trecho</span><b>R$ 2,1 mi</b><small>Vale financeiro no início do ano.</small></div>
+              <div class="finance-card"><span class="label">Média por rodada</span><b>+R$ 91 mil</b><small>Ritmo líquido recente da equipe.</small></div>
+              <div class="finance-card"><span class="label">Tendência</span><b>Alta</b><small>Caixa reagindo nas últimas corridas.</small></div>
+            </div>
+          </div>
+
+          <div class="cost-row">
+            <div class="donut-box">
+              <div class="chart-title">Distribuição dos custos acumulados</div>
+              <div class="donut-wrap">
+                <div class="donut"></div>
+                <div class="legend">
+                  <div class="legend-row"><span class="swatch" style="background:#58a6ff;"></span><span>Salários</span><strong>28%</strong></div>
+                  <div class="legend-row"><span class="swatch" style="background:#2ec27e;"></span><span>Operação por rodada</span><strong>23%</strong></div>
+                  <div class="legend-row"><span class="swatch" style="background:#ffb44a;"></span><span>Manutenção e estrutura</span><strong>22%</strong></div>
+                  <div class="legend-row"><span class="swatch" style="background:#ff7b72;"></span><span>Investimento técnico</span><strong>27%</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="notes-box">
+              <div class="chart-title">Leitura executiva</div>
+              <p>O caixa subiu nas últimas rodadas porque patrocínio e resultado começaram a superar o pacote de salários e operação.</p>
+              <p>A equipe ainda não tem a folga estrutural das líderes, mas o ritmo recente sugere crescimento sustentável se a confiabilidade continuar alta.</p>
+              <p>O ranking no fim da página fecha essa história mostrando onde a Aurora realmente se posiciona frente a dinheiro, carro e pontos do resto do grid.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bottom-ranking">
+        <div class="ranking-head">
+          <span>Ranking da categoria</span>
+          <span>comparativo de gestão e performance</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Equipe</th><th>Dinheiro</th><th>Nível do carro</th><th>Tipo</th><th>Pontos</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>01.</td><td>Falcon Motorsport</td><td>R$ 132.565.957</td><td>9</td><td>P</td><td>188</td></tr>
+            <tr><td>02.</td><td>Nordic Apex</td><td>R$ 128.309.183</td><td>8</td><td>H</td><td>174</td></tr>
+            <tr><td>03.</td><td>Vulcan GP</td><td>R$ 119.210.342</td><td>7</td><td>B</td><td>161</td></tr>
+            <tr><td>04.</td><td>Silver Wave</td><td>R$ 18.442.210</td><td>7</td><td>A</td><td>108</td></tr>
+            <tr class="me-row"><td>05.</td><td>Aurora GT</td><td>R$ 6.500.000</td><td>7</td><td>B</td><td>96</td></tr>
+            <tr><td>06.</td><td>Vector Racing</td><td>R$ 4.812.400</td><td>6</td><td>A</td><td>87</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="feedback">
+      <strong>Estado da direção:</strong> consolidada. Agora a lateral mostra salários individuais com peso na folha e uma operação técnica mais compacta com seleção por abas.
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resumo historico da equipe - Drawer</title>
+  <style>
+    :root {
+      --bg: #07101d;
+      --panel: rgba(12, 20, 33, 0.88);
+      --panel-strong: rgba(10, 16, 28, 0.96);
+      --line: rgba(255, 255, 255, 0.11);
+      --line-soft: rgba(255, 255, 255, 0.07);
+      --text: #eef6ff;
+      --muted: #8fa2b8;
+      --soft: #c7d5e6;
+      --blue: #58a6ff;
+      --green: #5ee7a8;
+      --yellow: #f2c46d;
+      --red: #ff6b6b;
+      --shadow: rgba(0, 0, 0, 0.42);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 20%, rgba(88, 166, 255, 0.18), transparent 26rem),
+        radial-gradient(circle at 84% 4%, rgba(94, 231, 168, 0.10), transparent 24rem),
+        linear-gradient(145deg, #040812 0%, var(--bg) 52%, #02050b 100%);
+      color: var(--text);
+      font-family: "Bahnschrift", "Aptos", "Segoe UI", sans-serif;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 20px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)),
+        var(--panel);
+      padding: 24px;
+      box-shadow: 0 22px 70px var(--shadow);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-size: clamp(30px, 5vw, 46px);
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .copy {
+      max-width: 680px;
+      margin-bottom: 0;
+      color: var(--soft);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .hint {
+      border: 1px solid rgba(88, 166, 255, 0.28);
+      border-radius: 999px;
+      background: rgba(88, 166, 255, 0.10);
+      padding: 10px 14px;
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .table-card {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--panel);
+      box-shadow: 0 22px 70px var(--shadow);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    td {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line-soft);
+      color: var(--soft);
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .team-name {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      padding: 0;
+      font-weight: 800;
+    }
+
+    .team-name:hover {
+      color: var(--blue);
+    }
+
+    .team-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--team);
+      box-shadow: 0 0 18px color-mix(in srgb, var(--team) 60%, transparent);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.05);
+      padding: 5px 9px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 220ms ease;
+    }
+
+    .overlay.open {
+      pointer-events: auto;
+      opacity: 1;
+    }
+
+    .backdrop {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      background: rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(2px);
+      cursor: pointer;
+    }
+
+    .drawer {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: min(520px, 100vw);
+      background:
+        radial-gradient(circle at 12% 4%, rgba(88, 166, 255, 0.20), transparent 18rem),
+        linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.02)),
+        var(--panel-strong);
+      border-right: 1px solid var(--line);
+      box-shadow: 28px 0 70px rgba(0, 0, 0, 0.44);
+      transform: translateX(-104%);
+      transition: transform 260ms cubic-bezier(.2,.8,.2,1);
+      overflow-y: auto;
+    }
+
+    .overlay.open .drawer {
+      transform: translateX(0);
+    }
+
+    .team-stripe {
+      height: 5px;
+      background: linear-gradient(90deg, var(--team), rgba(255,255,255,0.1));
+    }
+
+    .drawer-inner {
+      padding: 24px;
+    }
+
+    .close {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .close:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.09);
+    }
+
+    .drawer-header {
+      padding-right: 42px;
+    }
+
+    .drawer-header h2 {
+      margin: 8px 0 7px;
+      font-size: 34px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .stat-card {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.045);
+      padding: 13px;
+    }
+
+    .stat-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .stat-card strong {
+      display: block;
+      margin-top: 8px;
+      color: var(--text);
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 22px;
+    }
+
+    .section {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.035);
+      padding: 18px;
+    }
+
+    .section h3 {
+      margin-bottom: 14px;
+      color: var(--blue);
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .trophy-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .trophy {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid var(--line-soft);
+      padding-bottom: 10px;
+    }
+
+    .trophy:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .trophy-icon {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border-radius: 13px;
+      background: rgba(242, 196, 109, 0.13);
+      color: var(--yellow);
+      font-size: 18px;
+    }
+
+    .trophy strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .trophy span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .year {
+      color: var(--yellow);
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 0;
+      margin-top: 2px;
+    }
+
+    .event {
+      position: relative;
+      display: grid;
+      grid-template-columns: 66px minmax(0, 1fr);
+      gap: 12px;
+      padding: 0 0 16px;
+    }
+
+    .event:before {
+      content: "";
+      position: absolute;
+      left: 60px;
+      top: 4px;
+      bottom: -4px;
+      width: 1px;
+      background: var(--line);
+    }
+
+    .event:last-child:before {
+      display: none;
+    }
+
+    .event-year {
+      color: var(--yellow);
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .event-body {
+      position: relative;
+      padding-left: 16px;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .event-body:before {
+      content: "";
+      position: absolute;
+      left: -17px;
+      top: 4px;
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--team);
+      box-shadow: 0 0 18px color-mix(in srgb, var(--team) 65%, transparent);
+    }
+
+    .season-table {
+      width: 100%;
+      font-size: 13px;
+    }
+
+    .season-table td,
+    .season-table th {
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .season-table th {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .season-table td:last-child,
+    .season-table th:last-child {
+      text-align: right;
+    }
+
+    @media (max-width: 760px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        min-width: 720px;
+      }
+
+      .table-card {
+        overflow-x: auto;
+      }
+
+      .stat-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Comparativo de gestao e legado</p>
+        <h1>Ranking da categoria</h1>
+        <p class="copy">Demonstração da interacao: de um duplo clique no nome de uma equipe para abrir o resumo historico em uma gaveta lateral.</p>
+      </div>
+      <div class="hint">Duplo clique no nome</div>
+    </section>
+
+    <section class="table-card" aria-label="Ranking de equipes">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Equipe</th>
+            <th>Dinheiro</th>
+            <th>Nivel do carro</th>
+            <th>Estado</th>
+            <th>Pontos</th>
+          </tr>
+        </thead>
+        <tbody id="teamRows"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div class="overlay" id="overlay" aria-hidden="true">
+    <button class="backdrop" type="button" id="backdrop" aria-label="Fechar historico da equipe"></button>
+    <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <div class="team-stripe" id="teamStripe"></div>
+      <button class="close" type="button" id="closeDrawer" aria-label="Fechar">x</button>
+      <div class="drawer-inner" id="drawerContent"></div>
+    </aside>
+  </div>
+
+  <script>
+    const teams = [
+      {
+        id: "falcon",
+        name: "Falcon Motorsport",
+        short: "FAL",
+        color: "#facc15",
+        country: "EUA",
+        founded: 2019,
+        cash: "R$ 132.565.957",
+        car: 9,
+        state: "Elite financeira",
+        points: 188,
+        titles: 4,
+        wins: 31,
+        podiums: 96,
+        trophies: [
+          ["GT4 Series - Campea de equipes", "Dominio de consistencia e pit stops", "2025"],
+          ["BMW M2 Cup - Promocao esportiva", "Subiu apos temporada de 11 podios", "2023"],
+          ["Mazda Championship - Titulo de construtores", "Primeiro grande trofeu da escuderia", "2021"]
+        ],
+        seasons: [
+          ["2025", "GT4", "1o", "188 pts"],
+          ["2024", "GT4", "3o", "144 pts"],
+          ["2023", "BMW M2", "1o", "171 pts"]
+        ],
+        timeline: [
+          ["2021", "Primeiro titulo nacional, ainda com estrutura pequena e caixa restrito."],
+          ["2023", "Promocao para a GT4 apos vencer o bloco intermediario."],
+          ["2025", "Consolidou o melhor pacote tecnico da categoria e virou referencia de gestao."]
+        ]
+      },
+      {
+        id: "aurora",
+        name: "Aurora GT",
+        short: "AUR",
+        color: "#58a6ff",
+        country: "Brasil",
+        founded: 2022,
+        cash: "R$ 6.500.000",
+        car: 7,
+        state: "Saudavel",
+        points: 96,
+        titles: 1,
+        wins: 9,
+        podiums: 34,
+        trophies: [
+          ["Toyota GR86 Cup - Vice-campea", "Temporada que revelou o projeto da equipe", "2023"],
+          ["GT4 Series - Melhor salto tecnico", "Carro evoluiu dois niveis em um ano", "2025"],
+          ["Premio de gestao sustentavel", "Fechou a temporada sem contrair divida", "2024"]
+        ],
+        seasons: [
+          ["2025", "GT4", "5o", "96 pts"],
+          ["2024", "GT4", "7o", "82 pts"],
+          ["2023", "Toyota", "2o", "151 pts"]
+        ],
+        timeline: [
+          ["2022", "Entrada no grid com proposta de baixo custo e foco em desenvolvimento."],
+          ["2023", "Primeira briga real por titulo, terminando como vice-campea."],
+          ["2025", "Atingiu estabilidade financeira e virou equipe desejada por pilotos jovens."]
+        ]
+      },
+      {
+        id: "vector",
+        name: "Vector Racing",
+        short: "VEC",
+        color: "#22c55e",
+        country: "Reino Unido",
+        founded: 2018,
+        cash: "R$ 4.112.450",
+        car: 6,
+        state: "Pressionada",
+        points: 87,
+        titles: 2,
+        wins: 18,
+        podiums: 57,
+        trophies: [
+          ["Mazda MX-5 - Campea", "Campanha de estreante historica", "2019"],
+          ["GT4 Series - Copa privada", "Melhor equipe independente", "2022"],
+          ["Recorde de recuperacao", "Saiu de 12o para 4o na segunda metade", "2024"]
+        ],
+        seasons: [
+          ["2025", "GT4", "6o", "87 pts"],
+          ["2024", "GT4", "4o", "118 pts"],
+          ["2022", "GT4", "3o", "133 pts"]
+        ],
+        timeline: [
+          ["2019", "Titulo precoce transformou a equipe em promessa do paddock."],
+          ["2022", "Chegada na GT4 com podiums constantes e caixa agressivo."],
+          ["2025", "Momento atual exige cortar custos sem perder identidade tecnica."]
+        ]
+      }
+    ];
+
+    const rows = document.getElementById("teamRows");
+    const overlay = document.getElementById("overlay");
+    const drawerContent = document.getElementById("drawerContent");
+    const teamStripe = document.getElementById("teamStripe");
+    const closeDrawer = document.getElementById("closeDrawer");
+    const backdrop = document.getElementById("backdrop");
+
+    function renderRows() {
+      rows.innerHTML = teams.map((team, index) => `
+        <tr>
+          <td>${String(index + 1).padStart(2, "0")}</td>
+          <td>
+            <button class="team-name" type="button" data-team="${team.id}" style="--team: ${team.color}">
+              <span class="team-dot"></span>
+              ${team.name}
+            </button>
+          </td>
+          <td>${team.cash}</td>
+          <td>${team.car}</td>
+          <td><span class="tag">${team.state}</span></td>
+          <td>${team.points}</td>
+        </tr>
+      `).join("");
+
+      document.querySelectorAll("[data-team]").forEach((button) => {
+        button.addEventListener("dblclick", () => openDrawer(button.dataset.team));
+        button.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") openDrawer(button.dataset.team);
+        });
+      });
+    }
+
+    function openDrawer(teamId) {
+      const team = teams.find((item) => item.id === teamId) || teams[0];
+      teamStripe.style.setProperty("--team", team.color);
+      drawerContent.style.setProperty("--team", team.color);
+      drawerContent.innerHTML = `
+        <header class="drawer-header">
+          <p class="eyebrow">Arquivo historico</p>
+          <h2 id="drawerTitle">${team.name}</h2>
+          <p class="copy">${team.country} | Fundada em ${team.founded} | ${team.short}</p>
+          <div class="meta-row">
+            <span class="tag">${team.state}</span>
+            <span class="tag">Carro nivel ${team.car}</span>
+            <span class="tag">${team.points} pontos atuais</span>
+          </div>
+        </header>
+
+        <section class="stat-grid" aria-label="Resumo de conquistas">
+          <div class="stat-card"><span>Titulos</span><strong>${team.titles}</strong></div>
+          <div class="stat-card"><span>Vitorias</span><strong>${team.wins}</strong></div>
+          <div class="stat-card"><span>Podios</span><strong>${team.podiums}</strong></div>
+        </section>
+
+        <section class="section">
+          <h3>Sala de trofeus</h3>
+          <div class="trophy-list">
+            ${team.trophies.map(([title, detail, year]) => `
+              <div class="trophy">
+                <div class="trophy-icon">🏆</div>
+                <div>
+                  <strong>${title}</strong>
+                  <span>${detail}</span>
+                </div>
+                <div class="year">${year}</div>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+
+        <section class="section">
+          <h3>Melhores temporadas</h3>
+          <table class="season-table">
+            <thead>
+              <tr><th>Ano</th><th>Categoria</th><th>Pos.</th><th>Pontos</th></tr>
+            </thead>
+            <tbody>
+              ${team.seasons.map(([year, category, position, points]) => `
+                <tr><td>${year}</td><td>${category}</td><td>${position}</td><td>${points}</td></tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section">
+          <h3>Linha do tempo</h3>
+          <div class="timeline">
+            ${team.timeline.map(([year, text]) => `
+              <div class="event">
+                <div class="event-year">${year}</div>
+                <div class="event-body">${text}</div>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+      `;
+      overlay.classList.add("open");
+      overlay.setAttribute("aria-hidden", "false");
+    }
+
+    function close() {
+      overlay.classList.remove("open");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+
+    closeDrawer.addEventListener("click", close);
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+    });
+
+    renderRows();
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+REVISÃO DE COMMITS — iRacerApp V1
+Data de início: 2026-04-15
+============================================================
+
+[x] 9d15556 — feat: base driver salaries on real money
+[x] 0f7de82 — feat: expose real money finance plan to UI
+[x] 72f58ad — feat: show real money finance plan in team tab
+[x] f1d900d — refactor: keep legacy budget derived from money
+[x] a8e239a — fix: preserve player preseason fallback proposals
+
+============================================================
+LEGENDA: [ ] = pendente | [x] = revisado | [!] = pendente ação

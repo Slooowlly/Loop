@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar Other Categories Variants</title>
+  <style>
+    :root {
+      --bg: #07111b;
+      --panel: rgba(12, 19, 31, 0.9);
+      --panel-soft: rgba(255, 255, 255, 0.03);
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #e7edf5;
+      --muted: #99a8b8;
+      --gold: #f0c56c;
+      --gold-strong: #d49f39;
+      --blue: #7db7ff;
+      --green: #58cb84;
+      --orange: #eea35d;
+      --purple: #b68dff;
+      --red: #f18a8a;
+      --teal: #66d7d1;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+      --sans: "Segoe UI", system-ui, sans-serif;
+      --serif: "Georgia", "Times New Roman", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--sans);
+      background:
+        radial-gradient(circle at top left, rgba(125, 183, 255, 0.12), transparent 28%),
+        radial-gradient(circle at 84% 15%, rgba(240, 197, 108, 0.11), transparent 24%),
+        radial-gradient(circle at bottom, rgba(182, 141, 255, 0.12), transparent 24%),
+        linear-gradient(180deg, #040a12 0%, #07111b 48%, #05080f 100%);
+    }
+
+    .page {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 32px 28px 56px;
+    }
+
+    .hero {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 11px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--blue);
+    }
+
+    h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: clamp(32px, 5vw, 52px);
+      line-height: 0.98;
+    }
+
+    .hero p {
+      max-width: 780px;
+      margin: 10px 0 0;
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 16px 18px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(9, 15, 26, 0.72);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+
+    .controls strong {
+      margin-right: 6px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .chip {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+    }
+
+    .chip:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .chip.active {
+      border-color: rgba(240, 197, 108, 0.55);
+      background: rgba(240, 197, 108, 0.14);
+      color: #fff2cf;
+      box-shadow: 0 0 24px rgba(240, 197, 108, 0.18);
+    }
+
+    .variants {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 22px;
+    }
+
+    .variant {
+      position: relative;
+      overflow: hidden;
+      padding: 18px;
+      border-radius: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(14, 21, 33, 0.96), rgba(10, 16, 26, 0.92));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .variant::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top right, rgba(125, 183, 255, 0.08), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(240, 197, 108, 0.05), transparent 20%);
+      pointer-events: none;
+    }
+
+    .variant header {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 16px;
+    }
+
+    .tag {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .variant h2 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 21px;
+      font-weight: 700;
+    }
+
+    .variant p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .calendar-shell {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .month {
+      position: relative;
+      overflow: hidden;
+      min-height: 278px;
+      padding: 14px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--panel-soft);
+      transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .month.market { background: linear-gradient(180deg, rgba(240, 197, 108, 0.07), rgba(255,255,255,0.03)); }
+    .month.regular { background: linear-gradient(180deg, rgba(125, 183, 255, 0.05), rgba(255,255,255,0.03)); }
+    .month.special { background: linear-gradient(180deg, rgba(182, 141, 255, 0.08), rgba(255,255,255,0.03)); }
+
+    .month.active {
+      border-color: rgba(240, 197, 108, 0.34);
+      background:
+        linear-gradient(180deg, rgba(240, 197, 108, 0.1), rgba(255,255,255,0.03) 34%, rgba(255,255,255,0.02)),
+        var(--panel-soft);
+      box-shadow: 0 18px 42px rgba(240, 197, 108, 0.1);
+    }
+
+    .month.active::before {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: 16px;
+      border: 1px solid rgba(240, 197, 108, 0.18);
+    }
+
+    .month-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .month-title strong {
+      font-size: 15px;
+    }
+
+    .month.active .month-title strong {
+      color: #ffe3a3;
+    }
+
+    .phase {
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .weekdays,
+    .days {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .weekdays {
+      margin-bottom: 6px;
+      color: rgba(153, 168, 184, 0.72);
+      font-size: 9px;
+      text-align: center;
+    }
+
+    .day {
+      position: relative;
+      min-height: 32px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.03);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: rgba(231, 237, 245, 0.86);
+      overflow: hidden;
+    }
+
+    .day.empty {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .day.convocation {
+      background: rgba(238, 163, 93, 0.16);
+      border-color: rgba(238, 163, 93, 0.22);
+    }
+
+    .day.special-phase {
+      background: rgba(182, 141, 255, 0.08);
+      border-color: rgba(182, 141, 255, 0.12);
+    }
+
+    .day.pre-special {
+      background: rgba(255, 255, 255, 0.03);
+      border-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .day.main-race {
+      border-color: rgba(125, 183, 255, 0.18);
+    }
+
+    .day.current {
+      background: linear-gradient(135deg, rgba(240, 197, 108, 0.98), rgba(212, 159, 57, 0.94));
+      border-color: rgba(240, 197, 108, 0.95);
+      color: #201708;
+      transform: scale(1.04);
+      box-shadow: 0 0 24px rgba(240, 197, 108, 0.22);
+      z-index: 2;
+    }
+
+    .today-label {
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      padding: 2px 4px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.34);
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .day.current .today-label {
+      background: rgba(32, 23, 8, 0.18);
+      color: rgba(32, 23, 8, 0.82);
+    }
+
+    .main-chip {
+      position: absolute;
+      left: 4px;
+      bottom: 4px;
+      padding: 2px 4px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.36);
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .variant-a .other-dots {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      opacity: 0.42;
+    }
+
+    .variant-a .other-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+    }
+
+    .variant-a .other-more {
+      font-size: 7px;
+      color: rgba(255,255,255,0.56);
+    }
+
+    .variant-b .ghost-badges {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: end;
+      gap: 2px;
+      opacity: 0.46;
+    }
+
+    .variant-b .ghost-badge {
+      padding: 2px 4px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.6);
+      font-size: 7px;
+      line-height: 1;
+      letter-spacing: 0.04em;
+    }
+
+    .variant-c .ghost-halo {
+      position: absolute;
+      inset: 4px;
+      border-radius: 8px;
+      opacity: 0.34;
+      pointer-events: none;
+    }
+
+    .variant-c .ghost-count {
+      position: absolute;
+      right: 4px;
+      top: 4px;
+      font-size: 7px;
+      color: rgba(255,255,255,0.52);
+      letter-spacing: 0.06em;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend i {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .notes {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1180px) {
+      .variants { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .page { padding: 20px 16px 40px; }
+      .calendar-shell { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Visual Companion</p>
+        <h1>Outras categorias no mesmo calendário.</h1>
+        <p>Estas variações mantêm a sua categoria como protagonista e mostram as corridas das demais categorias com menos peso visual. O objetivo aqui é sentir o limite de densidade quando entram <strong>todas</strong> as categorias.</p>
+      </div>
+      <div class="controls">
+        <strong>Densidade</strong>
+        <button class="chip active" data-mode="light">leve</button>
+        <button class="chip" data-mode="medium">média</button>
+        <button class="chip" data-mode="heavy">alta</button>
+      </div>
+    </section>
+
+    <section class="variants">
+      <article class="variant variant-a">
+        <header>
+          <div class="tag">Opção A</div>
+          <h2>Pontos fantasmas</h2>
+          <p>Cada dia com outras corridas recebe só pequenos pontos semitransparentes. É a leitura mais discreta e menos invasiva.</p>
+        </header>
+        <div class="calendar-shell"></div>
+      </article>
+
+      <article class="variant variant-b">
+        <header>
+          <div class="tag">Opção B</div>
+          <h2>Mini etiquetas apagadas</h2>
+          <p>As outras categorias aparecem como tags mínimas com opacidade baixa. Fica mais informativo, mas já começa a chamar atenção.</p>
+        </header>
+        <div class="calendar-shell"></div>
+      </article>
+
+      <article class="variant variant-c">
+        <header>
+          <div class="tag">Opção C</div>
+          <h2>Névoa de contexto</h2>
+          <p>Não tenta listar tudo. Só sugere “há muito movimento aqui” com uma aura sutil e uma contagem, deixando a célula limpa.</p>
+        </header>
+        <div class="calendar-shell"></div>
+      </article>
+    </section>
+
+    <div class="legend">
+      <span><i style="background: var(--gold);"></i> dia atual</span>
+      <span><i style="background: var(--blue);"></i> corrida da sua categoria</span>
+      <span><i style="background: var(--orange);"></i> convocação</span>
+      <span><i style="background: var(--purple);"></i> bloco especial</span>
+      <span><i style="background: rgba(255,255,255,0.38);"></i> outras categorias com opacidade baixa</span>
+    </div>
+
+    <p class="notes">
+      O foco aqui é deliberadamente agressivo no volume: simulamos vários dias com <strong>muitas</strong> categorias correndo no mesmo período para você perceber rápido se essa camada adicional melhora o calendário ou o deixa carregado demais.
+    </p>
+  </div>
+
+  <script>
+    const monthDefs = [
+      { key: "2026-03", name: "Março", phase: "Regular", phaseClass: "regular", daysInMonth: 31, firstWeekday: 0 },
+      { key: "2026-04", name: "Abril", phase: "Regular", phaseClass: "regular", daysInMonth: 30, firstWeekday: 3 },
+      { key: "2026-09", name: "Setembro", phase: "Especial", phaseClass: "special", daysInMonth: 30, firstWeekday: 2 },
+      { key: "2026-10", name: "Outubro", phase: "Especial", phaseClass: "special", daysInMonth: 31, firstWeekday: 4 }
+    ];
+
+    const weekdayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
+    const currentDate = "2026-03-14";
+
+    const palettes = ["var(--green)", "var(--orange)", "var(--purple)", "var(--red)", "var(--teal)", "rgba(255,255,255,0.65)"];
+
+    const baseEvents = {
+      "2026-03-12": { main: true, label: "R1", others: 2 },
+      "2026-03-14": { current: true, others: 4 },
+      "2026-03-17": { main: true, label: "R2", others: 3 },
+      "2026-03-21": { others: 5 },
+      "2026-03-28": { others: 1 },
+      "2026-04-05": { others: 4 },
+      "2026-04-11": { main: true, label: "R3", others: 2 },
+      "2026-04-16": { others: 6 },
+      "2026-04-24": { main: true, label: "R4", others: 3 },
+      "2026-09-07": { convocation: true, others: 2 },
+      "2026-09-08": { convocation: true, others: 3 },
+      "2026-09-09": { convocation: true, others: 2 },
+      "2026-09-10": { convocation: true, current: false, others: 4 },
+      "2026-09-13": { main: true, special: true, label: "Esp", others: 5 },
+      "2026-09-20": { others: 6 },
+      "2026-10-04": { main: true, special: true, label: "Esp", others: 4 },
+      "2026-10-11": { others: 5 },
+      "2026-10-18": { others: 3 }
+    };
+
+    const densityFactors = {
+      light: 0.45,
+      medium: 0.75,
+      heavy: 1
+    };
+
+    let currentMode = "light";
+
+    function pad(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function getOtherCount(baseCount) {
+      return Math.max(0, Math.round(baseCount * densityFactors[currentMode]));
+    }
+
+    function getEvent(key) {
+      const base = baseEvents[key];
+      if (!base) return null;
+      return { ...base, others: getOtherCount(base.others || 0) };
+    }
+
+    function buildOtherDots(count) {
+      if (!count) return "";
+      const dots = Math.min(count, 3);
+      let html = '<div class="other-dots">';
+      for (let i = 0; i < dots; i += 1) {
+        html += `<span class="other-dot" style="background:${palettes[i % palettes.length]}"></span>`;
+      }
+      if (count > 3) {
+        html += `<span class="other-more">+${count - 3}</span>`;
+      }
+      html += "</div>";
+      return html;
+    }
+
+    function buildGhostBadges(count) {
+      if (!count) return "";
+      const badges = [];
+      if (count >= 1) badges.push("GT4");
+      if (count >= 2) badges.push("GT3");
+      if (count >= 3) badges.push("BMW");
+      if (count >= 4) badges.push("Toyota");
+      if (count >= 5) badges.push("Mazda");
+      if (count >= 6) badges.push("+");
+      return `<div class="ghost-badges">${badges.slice(0, 3).map((label) => `<span class="ghost-badge">${label}</span>`).join("")}</div>`;
+    }
+
+    function buildGhostHalo(count) {
+      if (!count) return "";
+      const alpha = Math.min(0.08 + (count * 0.04), 0.28);
+      return `
+        <span class="ghost-halo" style="background: radial-gradient(circle, rgba(255,255,255,${alpha}) 0%, rgba(125,183,255,${alpha * 0.7}) 55%, rgba(255,255,255,0) 100%);"></span>
+        <span class="ghost-count">${count} cat.</span>
+      `;
+    }
+
+    function dayMarkup(variantClass, day, monthKey) {
+      const key = `${monthKey}-${pad(day)}`;
+      const event = getEvent(key);
+      const classes = ["day"];
+
+      if (event?.convocation) classes.push("convocation");
+      if (monthKey >= "2026-09") classes.push("special-phase");
+      if (monthKey === "2026-09" && day < 7) classes.push("pre-special");
+      if (event?.main) classes.push("main-race");
+      if (key === currentDate) classes.push("current");
+
+      let extra = "";
+      if (variantClass === "variant-a") extra = buildOtherDots(event?.others || 0);
+      if (variantClass === "variant-b") extra = buildGhostBadges(event?.others || 0);
+      if (variantClass === "variant-c") extra = buildGhostHalo(event?.others || 0);
+
+      return `
+        <div class="${classes.join(" ")}">
+          <span>${day}</span>
+          ${key === currentDate ? '<span class="today-label">Hoje</span>' : ""}
+          ${event?.label ? `<span class="main-chip">${event.label}</span>` : ""}
+          ${extra}
+        </div>
+      `;
+    }
+
+    function buildMonth(variantClass, month) {
+      const isActive = currentDate.startsWith(month.key);
+      let html = `
+        <section class="month ${month.phaseClass} ${isActive ? "active" : ""}">
+          <div class="month-title">
+            <strong>${month.name}</strong>
+            <span class="phase">${month.phase}</span>
+          </div>
+          <div class="weekdays">${weekdayLabels.map((label) => `<div>${label}</div>`).join("")}</div>
+          <div class="days">
+      `;
+
+      for (let i = 0; i < month.firstWeekday; i += 1) {
+        html += '<div class="day empty"></div>';
+      }
+
+      for (let day = 1; day <= month.daysInMonth; day += 1) {
+        html += dayMarkup(variantClass, day, month.key);
+      }
+
+      html += "</div></section>";
+      return html;
+    }
+
+    function render() {
+      document.querySelectorAll(".variant").forEach((variant) => {
+        const shell = variant.querySelector(".calendar-shell");
+        shell.innerHTML = monthDefs.map((month) => buildMonth(variant.classList[1], month)).join("");
+      });
+
+      document.querySelectorAll(".chip").forEach((chip) => {
+        chip.classList.toggle("active", chip.dataset.mode === currentMode);
+      });
+    }
+
+    document.querySelectorAll(".chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        currentMode = chip.dataset.mode;
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

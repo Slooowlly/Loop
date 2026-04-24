@@ -1,0 +1,493 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #0e0e10;
+  --app-card: #1c1c1e;
+  --text-primary: #e6edf3;
+  --text-secondary: #b6c2cf;
+  --text-muted: #7e8a97;
+  --accent-primary: #58a6ff;
+  --accent-hover: #79b8ff;
+  --status-green: #3fb950;
+  --status-red: #f85149;
+  --status-yellow: #d29922;
+  --status-purple: #bc8cff;
+  --border: #21262d;
+}
+
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: "Space Grotesk Variable", "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+}
+
+/* ─── App Shell ──────────────────────────────────────────────────────────── */
+
+.app-shell {
+  background:
+    radial-gradient(circle at top, rgba(111, 212, 255, 0.14), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(73, 154, 255, 0.1), transparent 24%),
+    radial-gradient(circle at bottom, rgba(56, 111, 214, 0.08), transparent 24%),
+    linear-gradient(180deg, #040812 0%, #08111d 48%, #050910 100%);
+}
+
+.app-backdrop {
+  background:
+    radial-gradient(circle at 12% 12%, rgba(255, 255, 255, 0.07), transparent 36%),
+    radial-gradient(circle at 88% 88%, rgba(88, 166, 255, 0.1), transparent 36%);
+}
+
+/* ─── Typography ─────────────────────────────────────────────────────────── */
+
+.text-title-lg {
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.text-title-md {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.text-title-sm {
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.text-body-lg {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.text-body {
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.text-body-sm {
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.num-highlight {
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.num-medium {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+/* ─── Glass System ───────────────────────────────────────────────────────── */
+
+.glass-light {
+  background: rgba(10, 15, 28, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass {
+  background: rgba(10, 15, 28, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── Glows ──────────────────────────────────────────────────────────────── */
+
+.glow-blue {
+  box-shadow: 0 0 30px rgba(88, 166, 255, 0.18), 0 0 60px rgba(88, 166, 255, 0.08);
+}
+
+.glow-green {
+  box-shadow: 0 0 30px rgba(63, 185, 80, 0.18), 0 0 60px rgba(63, 185, 80, 0.08);
+}
+
+/* ─── Transitions ────────────────────────────────────────────────────────── */
+
+.transition-glass {
+  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────── */
+
+/* Global (mantido para compatibilidade com componentes existentes) */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0e0e10;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Escopado para novos componentes */
+.scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scroll-area::-webkit-scrollbar-track {
+  background: #0e0e10;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* ─── Entry / Launcher Shell ─────────────────────────────────────────────── */
+
+.entry-shell {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at top, rgba(111, 212, 255, 0.20), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(73, 154, 255, 0.14), transparent 26%),
+    radial-gradient(circle at bottom, rgba(56, 111, 214, 0.12), transparent 24%),
+    linear-gradient(180deg, #040812 0%, #07111f 46%, #04070f 100%);
+}
+
+.entry-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.05), transparent 18%),
+    radial-gradient(circle at bottom right, rgba(98, 197, 255, 0.12), transparent 24%);
+  pointer-events: none;
+}
+
+.entry-glow {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.entry-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+.entry-action {
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  background: rgba(112, 175, 255, 0.08);
+  border: 1px solid rgba(137, 201, 255, 0.12);
+  color: #e6edf3;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+}
+
+.entry-action:hover {
+  transform: translateY(-1px);
+  background: rgba(112, 175, 255, 0.14);
+  border-color: rgba(111, 212, 255, 0.30);
+}
+
+/* ─── Wizard ─────────────────────────────────────────────────────────────── */
+
+.wizard-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.wizard-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top right, rgba(111, 212, 255, 0.12), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(73, 154, 255, 0.08), transparent 28%);
+  pointer-events: none;
+}
+
+/* ─── Card Hover ─────────────────────────────────────────────────────────── */
+
+.card-hover {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 0 40px rgba(88, 166, 255, 0.18), 0 0 80px rgba(88, 166, 255, 0.06);
+}
+
+/* ─── Animated Background ────────────────────────────────────────────────── */
+
+.bg-gradient-animated {
+  background: linear-gradient(
+    135deg,
+    #030810 0%,
+    #060e1c 25%,
+    #071428 50%,
+    #060e1c 75%,
+    #030810 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
+}
+
+/* ─── Keyframes (camelCase — usados pelo novo PreSeasonView) ─────────────── */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes drawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawerInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes edgeRailIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes edgeRailInRight {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ─── Keyframes (kebab-case — mantidos para componentes existentes) ───────── */
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes drawer-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes drawer-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+
+@keyframes edge-rail-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes news-scope-drawer-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes wizard-step-enter {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bootLogoReveal {
+  0% { opacity: 0; transform: translateY(18px) scale(0.88); filter: blur(10px); }
+  22% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  78% { opacity: 1; transform: translateY(0) scale(1.02); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(-10px) scale(1.06); filter: blur(4px); }
+}
+
+@keyframes calendar-race-arrival-glow {
+  0% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 rgba(88, 166, 255, 0), 0 0 0 rgba(88, 166, 255, 0);
+  }
+  38% {
+    opacity: 1;
+    box-shadow: inset 0 0 18px rgba(88, 166, 255, 0.36), 0 0 16px rgba(88, 166, 255, 0.34);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 6px rgba(88, 166, 255, 0), 0 0 0 rgba(88, 166, 255, 0);
+  }
+}
+
+/* ─── Animation Classes (camelCase keyframes) ────────────────────────────── */
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 250ms ease-out;
+}
+
+.animate-drawer-in {
+  animation: drawerIn 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-drawer-in-left {
+  animation: drawerInLeft 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-edge-rail-in {
+  animation: edge-rail-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-edge-rail-in-right {
+  animation: edgeRailInRight 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── Animation Classes (legado — mantidos para outros componentes) ───────── */
+
+.animate-fade-out {
+  animation: fade-out 0.28s ease-in forwards;
+}
+
+.animate-drawer-out {
+  animation: drawer-out 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.animate-news-scope-drawer-in {
+  animation: news-scope-drawer-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top left;
+}
+
+.wizard-step-enter {
+  animation: wizard-step-enter 0.35s ease;
+}
+
+.calendar-race-arrival-flash {
+  animation: calendar-race-arrival-glow 0.28s ease-out 1 forwards;
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ─── Tailwind @layer components ─────────────────────────────────────────── */
+
+@layer components {
+  .glass-card {
+    @apply bg-app-card/80 backdrop-blur-md border border-border rounded-lg;
+  }
+
+  .glass-card-hover {
+    @apply glass-card hover:bg-app-card-hover hover:border-border-hover transition-all duration-200;
+  }
+}

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tooltip Opcao D - Credencial</title>
+  <style>
+    :root { --accent: #e73f47; --accent-rgb: 231, 63, 71; --text: #edf4ff; --muted: #96a3b7; --panel: rgba(13, 19, 32, .94); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: var(--text); font-family: "Segoe UI", "Trebuchet MS", sans-serif; background: radial-gradient(circle at 74% 10%, rgba(var(--accent-rgb), .22), transparent 30%), linear-gradient(180deg, #050912, #09111d 52%, #05070d); }
+    .page { width: min(1050px, calc(100vw - 32px)); padding: 28px 0 42px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+    nav a { color: var(--text); text-decoration: none; border: 1px solid rgba(255,255,255,.13); border-radius: 999px; padding: 9px 13px; background: rgba(255,255,255,.045); }
+    nav a.active { border-color: rgba(var(--accent-rgb), .75); background: rgba(var(--accent-rgb), .18); }
+    h1 { margin: 0 0 8px; font: 700 clamp(36px, 6vw, 76px)/.92 Georgia, serif; letter-spacing: -.055em; }
+    .lead { max-width: 720px; margin: 0 0 32px; color: var(--muted); line-height: 1.55; }
+    .tooltip { width: min(640px, 100%); margin: 0 auto; overflow: hidden; border: 1px solid rgba(255,255,255,.18); border-radius: 30px; background: linear-gradient(90deg, rgba(var(--accent-rgb), .34) 0 16px, transparent 16px), var(--panel); box-shadow: 0 38px 110px rgba(0,0,0,.48); backdrop-filter: blur(22px); }
+    .top { padding: 30px 26px 20px 46px; border-bottom: 1px dashed rgba(255,255,255,.2); }
+    .logo { display: block; width: min(470px, 100%); height: 230px; margin: 0 auto; object-fit: contain; filter: drop-shadow(0 18px 42px rgba(var(--accent-rgb), .45)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
+    .body { padding: 22px 26px 28px 46px; }
+    .meta { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 13px; font-weight: 800; }
+    .pill { color: #fff; border: 1px solid rgba(var(--accent-rgb), .4); border-radius: 999px; padding: 7px 12px; background: rgba(var(--accent-rgb), .18); }
+    .track { margin: 14px 0 0; font-size: 34px; font-weight: 950; line-height: .95; letter-spacing: -.055em; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 20px; }
+    .detail { padding: 13px; border-radius: 18px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.052); }
+    .detail b { display: block; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+    .detail span { display: block; margin-top: 5px; font-size: 14px; font-weight: 850; }
+    .barcode { height: 38px; margin-top: 22px; opacity: .34; background: linear-gradient(90deg, #fff 0 3px, transparent 3px 8px, #fff 8px 10px, transparent 10px 18px, #fff 18px 24px, transparent 24px 31px, #fff 31px 33px, transparent 33px 42px, #fff 42px 50px, transparent 50px 54px, #fff 54px 57px, transparent 57px 68px, #fff 68px 76px, transparent 76px 84px); background-size: 92px 100%; }
+    @media (max-width: 720px) { .top, .body { padding-left: 32px; } .logo { height: 180px; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <nav>
+      <a href="./2026-04-21-tooltip-option-a.html">Opcao A</a>
+      <a href="./2026-04-21-tooltip-option-b.html">Opcao B</a>
+      <a href="./2026-04-21-tooltip-option-c.html">Opcao C</a>
+      <a class="active" href="./2026-04-21-tooltip-option-d.html">Opcao D</a>
+      <a href="./2026-04-21-tooltip-option-e.html">Opcao E</a>
+      <a href="./2026-04-21-other-category-tooltip-lab.html">Comparativo</a>
+    </nav>
+    <h1>Opcao D: credencial de corrida.</h1>
+    <p class="lead">Mais tematica, como um ingresso ou passe de paddock. Forte visualmente, com mais ornamento.</p>
+    <section class="tooltip">
+      <div class="top"><img class="logo" src="../../../public/categorias/MX5%20CUP.png" alt="Mazda MX-5 Championship" /></div>
+      <div class="body">
+        <div class="meta"><span class="pill">R2</span><span>25 min</span></div>
+        <p class="track">Laguna Seca</p>
+        <div class="grid">
+          <div class="detail"><b>Categoria</b><span>Mazda MX-5 Championship</span></div>
+          <div class="detail"><b>Status</b><span>Pendente</span></div>
+        </div>
+        <div class="barcode" aria-hidden="true"></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
