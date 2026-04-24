@@ -21,6 +21,13 @@ pub struct WorldData {
     pub player_contract: Contract,
 }
 
+#[derive(Debug, Clone)]
+pub struct HistoricalWorldData {
+    pub drivers: Vec<Driver>,
+    pub teams: Vec<Team>,
+    pub contracts: Vec<Contract>,
+}
+
 #[derive(Debug, Default)]
 struct LocalIdAllocator {
     next_driver: u32,
@@ -74,6 +81,135 @@ pub fn generate_world(
         difficulty,
         &mut rng,
     )
+}
+
+pub fn generate_historical_world(
+    difficulty: &str,
+    start_year: i32,
+) -> Result<HistoricalWorldData, String> {
+    let mut rng = rand::thread_rng();
+    generate_historical_world_with_rng(difficulty, start_year, &mut rng)
+}
+
+pub(crate) fn generate_historical_world_with_rng<R: Rng>(
+    difficulty: &str,
+    start_year: i32,
+    rng: &mut R,
+) -> Result<HistoricalWorldData, String> {
+    let mut ids = LocalIdAllocator::new();
+    let mut existing_names = HashSet::new();
+    let mut drivers = Vec::new();
+    let mut teams = Vec::new();
+    let mut contracts = Vec::new();
+
+    for category in get_all_categories() {
+        let mut team_id_generator = || ids.next_team_id();
+        let mut category_teams =
+            generate_teams_for_category(category.id, start_year, &mut team_id_generator);
+
+        if is_especial(category.id) {
+            category_teams.retain(|team| {
+                team.classe
+                    .as_deref()
+                    .and_then(|class_name| {
+                        category
+                            .classes
+                            .iter()
+                            .find(|class| class.class_name == class_name)
+                    })
+                    .is_some_and(|class| get_category_config(class.car_categoria).is_none())
+            });
+            teams.extend(category_teams);
+            continue;
+        }
+
+        let total_slots = category_teams.len() * category.pilotos_por_equipe as usize;
+        let mut driver_id_generator = || ids.next_driver_id();
+        let mut ai_drivers = Driver::generate_for_category_with_id_factory(
+            category.id,
+            category.tier,
+            difficulty,
+            total_slots,
+            &mut existing_names,
+            &mut driver_id_generator,
+            rng,
+        );
+
+        ai_drivers.sort_by(|left, right| {
+            right
+                .atributos
+                .skill
+                .total_cmp(&left.atributos.skill)
+                .then_with(|| left.nome.cmp(&right.nome))
+        });
+
+        let team_count = category_teams.len();
+        let mut n1_pool = ai_drivers.into_iter();
+        let n1_drivers: Vec<Driver> = n1_pool.by_ref().take(team_count).collect();
+        let mut n2_drivers = n1_pool;
+
+        let mut team_order: Vec<usize> = (0..category_teams.len()).collect();
+        team_order.sort_by(|left, right| {
+            category_teams[*right]
+                .car_performance
+                .total_cmp(&category_teams[*left].car_performance)
+                .then(Ordering::Equal)
+        });
+
+        for (rank, team_index) in team_order.into_iter().enumerate() {
+            let team = &mut category_teams[team_index];
+            let n1_driver = n1_drivers
+                .get(rank)
+                .cloned()
+                .ok_or_else(|| format!("Missing N1 driver for team {}", team.id))?;
+            let n2_driver = n2_drivers
+                .next()
+                .ok_or_else(|| format!("Missing N2 driver for team {}", team.id))?;
+
+            team.piloto_1_id = Some(n1_driver.id.clone());
+            team.piloto_2_id = Some(n2_driver.id.clone());
+            team.hierarquia_n1_id = Some(n1_driver.id.clone());
+            team.hierarquia_n2_id = Some(n2_driver.id.clone());
+            team.hierarquia_status = "estavel".to_string();
+            team.hierarquia_tensao = 0.0;
+            team.is_player_team = false;
+
+            drivers.push(n1_driver.clone());
+            contracts.push(generate_initial_contract(
+                ids.next_contract_id(),
+                &n1_driver.id,
+                &n1_driver.nome,
+                &team.id,
+                &team.nome,
+                TeamRole::Numero1,
+                category.id,
+                1,
+            ));
+
+            drivers.push(n2_driver.clone());
+            contracts.push(generate_initial_contract(
+                ids.next_contract_id(),
+                &n2_driver.id,
+                &n2_driver.nome,
+                &team.id,
+                &team.nome,
+                TeamRole::Numero2,
+                category.id,
+                1,
+            ));
+        }
+
+        teams.extend(category_teams);
+    }
+
+    let pool_drivers = generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
+    drivers.extend(pool_drivers);
+
+    Ok(HistoricalWorldData {
+        drivers,
+        teams,
+        contracts,
+    })
 }
 
 pub(crate) fn generate_world_with_rng<R: Rng>(

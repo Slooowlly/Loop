@@ -244,7 +244,7 @@ cargo check
 
 Expected: pass after stubs compile.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src-tauri/src/commands src-tauri/src/lib.rs
@@ -260,7 +260,7 @@ git commit -m "feat: add historical draft command surface"
 - Modify: `src-tauri/src/commands/historical_draft.rs`
 - Test: `src-tauri/src/commands/historical_draft.rs`
 
-- [ ] **Step 1: Write failing test for draft base world**
+- [x] **Step 1: Write failing test for draft base world**
 
 In `historical_draft.rs` tests:
 
@@ -280,7 +280,7 @@ fn create_draft_base_world_has_no_player_and_starts_in_2000() {
 }
 ```
 
-- [ ] **Step 2: Run test and confirm it fails**
+- [x] **Step 2: Run test and confirm it fails**
 
 Run:
 
@@ -289,7 +289,7 @@ cd src-tauri
 cargo test commands::historical_draft::tests::create_draft_base_world_has_no_player_and_starts_in_2000
 ```
 
-- [ ] **Step 3: Add playerless world generator**
+- [x] **Step 3: Add playerless world generator**
 
 Refactor `generate_world_with_rng` so player creation is optional, or add a separate function:
 
@@ -305,7 +305,7 @@ pub fn generate_historical_world(
 
 If `WorldData` is too player-centric, introduce `GeneratedWorld` with optional player fields while keeping `generate_world` compatible.
 
-- [ ] **Step 4: Persist draft meta**
+- [x] **Step 4: Persist draft meta**
 
 Create meta with:
 
@@ -316,7 +316,7 @@ Create meta with:
 - pending player identity fields;
 - current season/year initially `1`/`2000`.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
