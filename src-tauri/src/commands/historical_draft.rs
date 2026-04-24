@@ -55,10 +55,8 @@ pub(crate) fn create_historical_career_draft_in_base_dir(
         PLAYABLE_START_YEAR,
     )?;
 
-    Ok(CareerDraftState {
-        progress_year: Some(PLAYABLE_START_YEAR as u32),
-        ..state
-    })
+    let meta = read_save_meta(&career_dir.join("meta.json"))?;
+    build_draft_state(&career_id, &career_dir, &meta)
 }
 
 pub(crate) fn get_career_draft_in_base_dir(base_dir: &Path) -> Result<CareerDraftState, String> {
@@ -531,6 +529,13 @@ fn build_draft_state(
     Ok(state)
 }
 
+fn read_save_meta(meta_path: &Path) -> Result<SaveMeta, String> {
+    let content = std::fs::read_to_string(meta_path)
+        .map_err(|e| format!("Falha ao ler meta do draft: {e}"))?;
+    serde_json::from_str::<SaveMeta>(&content)
+        .map_err(|e| format!("Falha ao parsear meta do draft: {e}"))
+}
+
 fn optional_driver_name(conn: &rusqlite::Connection, driver_id: Option<&str>) -> Option<String> {
     driver_id.and_then(|id| {
         driver_queries::get_driver(conn, id)
@@ -560,10 +565,8 @@ pub(crate) fn create_historical_career_draft_for_range_for_test(
 
     simulate_historical_range(&mut db, &career_dir, start_year, end_year, playable_year)?;
 
-    Ok(CareerDraftState {
-        progress_year: Some(playable_year as u32),
-        ..state
-    })
+    let meta = read_save_meta(&career_dir.join("meta.json"))?;
+    build_draft_state(&career_id, &career_dir, &meta)
 }
 
 fn simulate_historical_range(
@@ -731,6 +734,29 @@ mod tests {
         assert!(state.teams.iter().any(|team| {
             team.categoria == "mazda_rookie" && team.n1_nome.is_some() && team.n2_nome.is_some()
         }));
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn create_draft_response_includes_generated_categories_and_teams() {
+        let base_dir = unique_test_dir("create_draft_response");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+                .expect("draft should be created");
+
+        assert!(state.categories.contains(&"mazda_rookie".to_string()));
+        assert!(state.categories.contains(&"toyota_rookie".to_string()));
+        assert!(state
+            .teams
+            .iter()
+            .any(|team| team.categoria == "mazda_rookie"));
+        assert!(state
+            .teams
+            .iter()
+            .any(|team| team.categoria == "toyota_rookie"));
 
         let _ = std::fs::remove_dir_all(base_dir);
     }
