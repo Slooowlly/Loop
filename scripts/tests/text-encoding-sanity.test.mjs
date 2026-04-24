@@ -10,6 +10,17 @@ const projectRoot = path.resolve(__dirname, "..", "..");
 
 const TARGET_DIRECTORIES = ["src", "src-tauri", ".claude"];
 const TEXT_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".rs", ".md", ".json"]);
+const SKIPPED_DIRECTORY_NAMES = new Set([
+  ".git",
+  ".git-backups",
+  ".superpowers",
+  ".worktrees",
+  "dist",
+  "gen",
+  "node_modules",
+  "target",
+  "target-verify",
+]);
 const SUSPICIOUS_PATTERNS = [
   /\u00c3[\u0080-\u00bf\u00a0-\u00ff]/u,
   /\u00c2[\u0080-\u00bf\u00a0-\u00ff]/u,
@@ -19,9 +30,36 @@ const SUSPICIOUS_PATTERNS = [
   /\u00ef\u00bb\u00bf/u,
 ];
 
+test("encoding scan skips generated and dependency directories", () => {
+  assert.equal(shouldSkipDirectory("src-tauri/target"), true);
+  assert.equal(shouldSkipDirectory("src-tauri/target-verify"), true);
+  assert.equal(shouldSkipDirectory("dist"), true);
+  assert.equal(shouldSkipDirectory("node_modules"), true);
+  assert.equal(shouldSkipDirectory("src/pages"), false);
+});
+
+function shouldSkipDirectory(relativeDir) {
+  return relativeDir
+    .split(/[\\/]/u)
+    .some((part) => SKIPPED_DIRECTORY_NAMES.has(part));
+}
+
 async function collectFiles(relativeDir) {
+  if (shouldSkipDirectory(relativeDir)) {
+    return [];
+  }
+
   const dir = path.join(projectRoot, relativeDir);
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
   const files = await Promise.all(
     entries.map(async (entry) => {
       const entryPath = path.join(dir, entry.name);

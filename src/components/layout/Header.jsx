@@ -348,10 +348,10 @@ function getTrackImageSrc(trackName) {
   );
 
   if (entry) {
-    return `/tracks/${encodeURIComponent(entry.file)}`;
+    return `/utilities/tracks/${encodeURIComponent(entry.file)}`;
   }
 
-  return `/tracks/${encodeURIComponent(trackName)}.png`;
+  return `/utilities/tracks/${encodeURIComponent(trackName)}.png`;
 }
 
 function normalizeTrackName(trackName) {

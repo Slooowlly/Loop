@@ -109,7 +109,7 @@ describe("Header", () => {
     render(<Header activeTab="standings" onTabChange={vi.fn()} />);
 
     const image = screen.getByAltText("Charlotte Motor Speedway - Roval");
-    expect(image).toHaveAttribute("src", "/tracks/charlotte.png");
+    expect(image).toHaveAttribute("src", "/utilities/tracks/charlotte.png");
   });
 
   it("hides the standings race banner while the pre-race briefing is open", () => {

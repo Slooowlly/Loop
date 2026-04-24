@@ -241,7 +241,7 @@ function WindowControlsDrawer() {
 
               <div className="pointer-events-none mt-0 w-full text-center">
                 <p className="text-[13px] font-semibold tracking-[0.12em] text-text-primary/86">
-                  iRacerApp
+                  Loop
                 </p>
                 <p className="mt-0 text-[8px] font-medium tracking-[0.12em] text-text-secondary/75">
                   v0.10

@@ -169,11 +169,11 @@ describe("RaceResultView", () => {
 
     expect(productionLogo).toHaveAttribute(
       "src",
-      "/categorias/recortadas/PRODUCTION.png",
+      "/utilities/categorias/recortadas/PRODUCTION.png",
     );
     expect(enduranceLogo).toHaveAttribute(
       "src",
-      "/categorias/recortadas/ENDURANCE.png",
+      "/utilities/categorias/recortadas/ENDURANCE.png",
     );
     expect(productionLogo.className).toContain("h-full");
     expect(enduranceLogo.className).toContain("h-full");
@@ -236,7 +236,7 @@ describe("RaceResultView", () => {
     const logoStrip = screen.getByTestId("other-categories-logo-strip");
     const mazdaLogo = within(logoStrip).getByAltText("Mazda MX-5 Championship");
 
-    expect(mazdaLogo).toHaveAttribute("src", "/categorias/recortadas/MX5%20CUP.png");
+    expect(mazdaLogo).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20CUP.png");
     expect(mazdaLogo.parentElement?.className ?? "").toContain("overflow-hidden");
     expect(mazdaLogo.style.clipPath).toContain("inset(");
     expect(mazdaLogo.style.transform).toBe("");

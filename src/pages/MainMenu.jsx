@@ -11,8 +11,8 @@ function MainMenu() {
 
       <div className="entry-panel text-center">
         <img
-          src="/logo-nova.png"
-          alt="Logo iRacerApp"
+          src="/utilities/logo-nova.png"
+          alt="Logo Loop"
           className="h-24 w-24 object-contain drop-shadow-[0_16px_36px_rgba(88,166,255,0.12)]"
         />
 

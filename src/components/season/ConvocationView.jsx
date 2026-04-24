@@ -12,8 +12,8 @@ const CATEGORY_LABELS = {
 };
 
 const CATEGORY_LOGOS = {
-  production_challenger: "/categorias/recortadas/PRODUCTION.png",
-  endurance: "/categorias/recortadas/ENDURANCE.png",
+  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
+  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
 };
 
 const CATEGORY_COLORS = {

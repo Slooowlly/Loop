@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 27;
+const CURRENT_VERSION: u32 = 28;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -37,6 +37,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v25(conn)?;
     migrate_v26(conn)?;
     migrate_v27(conn)?;
+    migrate_v28(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -151,6 +152,10 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     if version < 27 {
         migrate_v27(conn)?;
         set_schema_version(conn, 27)?;
+    }
+    if version < 28 {
+        migrate_v28(conn)?;
+        set_schema_version(conn, 28)?;
     }
     Ok(())
 }
@@ -908,6 +913,39 @@ fn ensure_column(
     Ok(())
 }
 
+fn rename_column_if_exists(
+    conn: &Connection,
+    table_name: &str,
+    old_column_name: &str,
+    new_column_name: &str,
+) -> Result<(), DbError> {
+    if table_has_column(conn, table_name, old_column_name)?
+        && !table_has_column(conn, table_name, new_column_name)?
+    {
+        conn.execute_batch(&format!(
+            "ALTER TABLE {} RENAME COLUMN {} TO {};",
+            table_name, old_column_name, new_column_name
+        ))?;
+    }
+
+    Ok(())
+}
+
+fn drop_column_if_exists(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<(), DbError> {
+    if table_has_column(conn, table_name, column_name)? {
+        conn.execute_batch(&format!(
+            "ALTER TABLE {} DROP COLUMN {};",
+            table_name, column_name
+        ))?;
+    }
+
+    Ok(())
+}
+
 fn table_has_column(
     conn: &Connection,
     table_name: &str,
@@ -1648,6 +1686,88 @@ fn migrate_v27(conn: &Connection) -> Result<(), DbError> {
             ON special_team_entries(team_id);
         ",
     )?;
+
+    Ok(())
+}
+
+fn migrate_v28(conn: &Connection) -> Result<(), DbError> {
+    if !table_exists(conn, "teams")? {
+        return Ok(());
+    }
+
+    if table_has_column(conn, "teams", "temp_vitorias")? {
+        conn.execute_batch(
+            "
+            UPDATE teams
+            SET stats_vitorias = CASE
+                    WHEN stats_vitorias = 0 THEN COALESCE(temp_vitorias, 0)
+                    ELSE stats_vitorias
+                END;
+            ",
+        )?;
+    }
+
+    if table_has_column(conn, "teams", "temp_pontos")? {
+        conn.execute_batch(
+            "
+            UPDATE teams
+            SET stats_pontos = CASE
+                    WHEN stats_pontos = 0 THEN CAST(ROUND(COALESCE(temp_pontos, 0.0)) AS INTEGER)
+                    ELSE stats_pontos
+                END;
+            ",
+        )?;
+    }
+
+    if table_has_column(conn, "teams", "carreira_vitorias")? {
+        conn.execute_batch(
+            "
+            UPDATE teams
+            SET historico_vitorias = CASE
+                    WHEN historico_vitorias = 0 THEN COALESCE(carreira_vitorias, 0)
+                    ELSE historico_vitorias
+                END;
+            ",
+        )?;
+    }
+
+    rename_column_if_exists(conn, "teams", "reliability", "confiabilidade")?;
+    rename_column_if_exists(conn, "teams", "prestige", "reputacao")?;
+
+    ensure_column(
+        conn,
+        "teams",
+        "confiabilidade",
+        "REAL NOT NULL DEFAULT 50.0",
+    )?;
+    ensure_column(conn, "teams", "reputacao", "REAL NOT NULL DEFAULT 50.0")?;
+
+    if table_has_column(conn, "teams", "reliability")?
+        && table_has_column(conn, "teams", "confiabilidade")?
+    {
+        conn.execute_batch(
+            "
+            UPDATE teams
+            SET confiabilidade = reliability;
+            ",
+        )?;
+    }
+
+    if table_has_column(conn, "teams", "prestige")? && table_has_column(conn, "teams", "reputacao")?
+    {
+        conn.execute_batch(
+            "
+            UPDATE teams
+            SET reputacao = prestige;
+            ",
+        )?;
+    }
+
+    drop_column_if_exists(conn, "teams", "reliability")?;
+    drop_column_if_exists(conn, "teams", "prestige")?;
+    drop_column_if_exists(conn, "teams", "temp_pontos")?;
+    drop_column_if_exists(conn, "teams", "temp_vitorias")?;
+    drop_column_if_exists(conn, "teams", "carreira_vitorias")?;
 
     Ok(())
 }
@@ -3169,6 +3289,81 @@ mod tests {
             .map(|count| count > 0)
             .expect("index query");
         assert!(idx_ativa_exists);
+    }
+
+    #[test]
+    fn test_run_pending_v28_normalizes_team_schema_names_and_removes_legacy_stats() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+
+        conn.execute_batch(
+            "
+            CREATE TABLE meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO meta (key, value) VALUES ('schema_version', '27');
+
+            CREATE TABLE teams (
+                id TEXT PRIMARY KEY,
+                nome TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                car_performance REAL NOT NULL DEFAULT 50.0,
+                reliability REAL NOT NULL DEFAULT 72.0,
+                prestige REAL NOT NULL DEFAULT 64.0,
+                stats_vitorias INTEGER NOT NULL DEFAULT 0,
+                stats_pontos INTEGER NOT NULL DEFAULT 0,
+                temp_pontos REAL NOT NULL DEFAULT 0.0,
+                temp_vitorias INTEGER NOT NULL DEFAULT 0,
+                historico_vitorias INTEGER NOT NULL DEFAULT 0,
+                carreira_vitorias INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+
+            INSERT INTO teams (
+                id, nome, categoria, car_performance, reliability, prestige,
+                stats_vitorias, stats_pontos, temp_pontos, temp_vitorias,
+                historico_vitorias, carreira_vitorias, created_at, updated_at
+            ) VALUES (
+                'T001', 'Equipe Legada', 'gt3', 81.0, 72.0, 64.0,
+                3, 42, 42.0, 3, 9, 9, '2026-01-01', '2026-01-01'
+            );
+            ",
+        )
+        .expect("legacy v27 schema should be created");
+
+        run_pending(&conn).expect("migration should succeed");
+
+        assert_eq!(
+            get_schema_version(&conn).expect("schema version"),
+            CURRENT_VERSION
+        );
+        assert!(column_exists(&conn, "teams", "confiabilidade"));
+        assert!(column_exists(&conn, "teams", "reputacao"));
+        assert!(!column_exists(&conn, "teams", "reliability"));
+        assert!(!column_exists(&conn, "teams", "prestige"));
+        assert!(!column_exists(&conn, "teams", "temp_pontos"));
+        assert!(!column_exists(&conn, "teams", "temp_vitorias"));
+        assert!(!column_exists(&conn, "teams", "carreira_vitorias"));
+
+        let row: (f64, f64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT confiabilidade, reputacao, stats_vitorias, stats_pontos, historico_vitorias
+                 FROM teams WHERE id = 'T001'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("normalized team row");
+
+        assert_eq!(row, (72.0, 64.0, 3, 42, 9));
     }
 
     #[test]

@@ -1,8 +1,8 @@
-# 🏎️ iRacerApp V1
+# 🏎️ Loop
 
 > **Um simulador de carreira nas corridas** — gerencie seu piloto, conquiste contratos, survive rivalidades e seja campeão.
 
-Construído com **Tauri v2** (Rust) + **React** + **Vite**, o iRacerApp é uma aplicação desktop que simula uma carreira completa no automobilismo. Você começa como um piloto desconhecido, assina com uma equipe, disputa temporadas completas e acompanha cada detalhe da sua trajetória através de um dashboard moderno e imersivo.
+Construído com **Tauri v2** (Rust) + **React** + **Vite**, o Loop é uma aplicação desktop que simula uma carreira completa no automobilismo. Você começa como um piloto desconhecido, assina com uma equipe, disputa temporadas completas e acompanha cada detalhe da sua trajetória através de um dashboard moderno e imersivo.
 
 ---
 
@@ -57,7 +57,7 @@ Construído com **Tauri v2** (Rust) + **React** + **Vite**, o iRacerApp é uma a
 ## 🗂️ Estrutura do Projeto
 
 ```
-iRacerApp V1/
+Loop/
 ├── src/                        # Frontend React
 │   ├── components/             # Componentes por domínio (news, race, season, market...)
 │   ├── pages/                  # Abas principais da UI (tabs)

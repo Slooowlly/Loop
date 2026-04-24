@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use rusqlite::{params, types::FromSql, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 use crate::finance::planning::sync_legacy_budget_index;
-use crate::models::team::{placeholder_team_from_db, Team, TeamHierarchyClimate};
+use crate::models::team::{Team, TeamHierarchyClimate};
 use crate::simulation::car_build::CarBuildProfile;
 
 pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
@@ -16,36 +16,36 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
         "INSERT INTO teams (
             id, nome, nome_curto, cor_primaria, cor_secundaria, pais_sede,
             ano_fundacao, categoria, ativa, marca, classe, piloto_1_id, piloto_2_id,
-            is_player_team, car_performance, car_build_profile, reliability, pit_strategy_risk,
+            is_player_team, car_performance, car_build_profile, confiabilidade, pit_strategy_risk,
             pit_crew_quality, budget, cash_balance, debt_balance, financial_state,
             season_strategy, last_round_income, last_round_expenses, last_round_net,
             parachute_payment_remaining, facilities,
-            engineering, prestige, morale, aerodinamica, motor, chassi,
+            engineering, reputacao, morale, aerodinamica, motor, chassi,
             hierarquia_n1_id, hierarquia_n2_id, hierarquia_status, hierarquia_tensao,
             hierarquia_duelos_total, hierarquia_duelos_n2_vencidos, hierarquia_sequencia_n2,
             hierarquia_sequencia_n1, hierarquia_inversoes_temporada,
             parent_team_id, aceita_rookies, meta_posicao, stats_vitorias, stats_podios,
-            stats_poles, stats_pontos, stats_melhor_resultado, temp_pontos,
-            temp_posicao, temp_vitorias, historico_vitorias, historico_podios,
+            stats_poles, stats_pontos, stats_melhor_resultado,
+            temp_posicao, historico_vitorias, historico_podios,
             historico_poles, historico_pontos, historico_titulos_pilotos,
-            carreira_titulos, carreira_vitorias, temporada_atual, created_at, updated_at,
+            carreira_titulos, temporada_atual, created_at, updated_at,
             categoria_anterior
         ) VALUES (
             :id, :nome, :nome_curto, :cor_primaria, :cor_secundaria, :pais_sede,
             :ano_fundacao, :categoria, :ativa, :marca, :classe, :piloto_1_id, :piloto_2_id,
-            :is_player_team, :car_performance, :car_build_profile, :reliability, :pit_strategy_risk,
+            :is_player_team, :car_performance, :car_build_profile, :confiabilidade, :pit_strategy_risk,
             :pit_crew_quality, :budget, :cash_balance, :debt_balance, :financial_state,
             :season_strategy, :last_round_income, :last_round_expenses, :last_round_net,
             :parachute_payment_remaining, :facilities,
-            :engineering, :prestige, :morale, :aerodinamica, :motor, :chassi,
+            :engineering, :reputacao, :morale, :aerodinamica, :motor, :chassi,
             :hierarquia_n1_id, :hierarquia_n2_id, :hierarquia_status, :hierarquia_tensao,
             :hierarquia_duelos_total, :hierarquia_duelos_n2_vencidos, :hierarquia_sequencia_n2,
             :hierarquia_sequencia_n1, :hierarquia_inversoes_temporada,
             :parent_team_id, :aceita_rookies, :meta_posicao, :stats_vitorias, :stats_podios,
-            :stats_poles, :stats_pontos, :stats_melhor_resultado, :temp_pontos,
-            :temp_posicao, :temp_vitorias, :historico_vitorias, :historico_podios,
+            :stats_poles, :stats_pontos, :stats_melhor_resultado,
+            :temp_posicao, :historico_vitorias, :historico_podios,
             :historico_poles, :historico_pontos, :historico_titulos_pilotos,
-            :carreira_titulos, :carreira_vitorias, :temporada_atual, :created_at, :updated_at,
+            :carreira_titulos, :temporada_atual, :created_at, :updated_at,
             :categoria_anterior
         )",
         rusqlite::named_params! {
@@ -65,7 +65,7 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":is_player_team": team.is_player_team as i64,
             ":car_performance": team.car_performance,
             ":car_build_profile": team.car_build_profile.as_str(),
-            ":reliability": team.confiabilidade,
+            ":confiabilidade": team.confiabilidade,
             ":pit_strategy_risk": team.pit_strategy_risk,
             ":pit_crew_quality": team.pit_crew_quality,
             ":budget": team.budget,
@@ -79,7 +79,7 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":parachute_payment_remaining": team.parachute_payment_remaining,
             ":facilities": team.facilities,
             ":engineering": team.engineering,
-            ":prestige": team.reputacao,
+            ":reputacao": team.reputacao,
             ":morale": team.morale,
             ":aerodinamica": team.aerodinamica,
             ":motor": team.motor,
@@ -101,16 +101,13 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":stats_poles": team.stats_poles,
             ":stats_pontos": team.stats_pontos,
             ":stats_melhor_resultado": team.stats_melhor_resultado,
-            ":temp_pontos": team.stats_pontos as f64,
             ":temp_posicao": team.temp_posicao,
-            ":temp_vitorias": team.stats_vitorias,
             ":historico_vitorias": team.historico_vitorias,
             ":historico_podios": team.historico_podios,
             ":historico_poles": team.historico_poles,
             ":historico_pontos": team.historico_pontos,
             ":historico_titulos_pilotos": team.historico_titulos_pilotos,
             ":carreira_titulos": team.historico_titulos_construtores,
-            ":carreira_vitorias": team.historico_vitorias,
             ":temporada_atual": team.temporada_atual,
             ":created_at": &team.created_at,
             ":updated_at": &team.updated_at,
@@ -214,7 +211,7 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             is_player_team = :is_player_team,
             car_performance = :car_performance,
             car_build_profile = :car_build_profile,
-            reliability = :reliability,
+            confiabilidade = :confiabilidade,
             pit_strategy_risk = :pit_strategy_risk,
             pit_crew_quality = :pit_crew_quality,
             budget = :budget,
@@ -228,7 +225,7 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             parachute_payment_remaining = :parachute_payment_remaining,
             facilities = :facilities,
             engineering = :engineering,
-            prestige = :prestige,
+            reputacao = :reputacao,
             morale = :morale,
             aerodinamica = :aerodinamica,
             motor = :motor,
@@ -250,16 +247,13 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             stats_poles = :stats_poles,
             stats_pontos = :stats_pontos,
             stats_melhor_resultado = :stats_melhor_resultado,
-            temp_pontos = :temp_pontos,
             temp_posicao = :temp_posicao,
-            temp_vitorias = :temp_vitorias,
             historico_vitorias = :historico_vitorias,
             historico_podios = :historico_podios,
             historico_poles = :historico_poles,
             historico_pontos = :historico_pontos,
             historico_titulos_pilotos = :historico_titulos_pilotos,
             carreira_titulos = :carreira_titulos,
-            carreira_vitorias = :carreira_vitorias,
             temporada_atual = :temporada_atual,
             updated_at = :updated_at,
             categoria_anterior = :categoria_anterior
@@ -281,7 +275,7 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":is_player_team": team.is_player_team as i64,
             ":car_performance": team.car_performance,
             ":car_build_profile": team.car_build_profile.as_str(),
-            ":reliability": team.confiabilidade,
+            ":confiabilidade": team.confiabilidade,
             ":pit_strategy_risk": team.pit_strategy_risk,
             ":pit_crew_quality": team.pit_crew_quality,
             ":budget": team.budget,
@@ -295,7 +289,7 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":parachute_payment_remaining": team.parachute_payment_remaining,
             ":facilities": team.facilities,
             ":engineering": team.engineering,
-            ":prestige": team.reputacao,
+            ":reputacao": team.reputacao,
             ":morale": team.morale,
             ":aerodinamica": team.aerodinamica,
             ":motor": team.motor,
@@ -317,16 +311,13 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":stats_poles": team.stats_poles,
             ":stats_pontos": team.stats_pontos,
             ":stats_melhor_resultado": team.stats_melhor_resultado,
-            ":temp_pontos": team.stats_pontos as f64,
             ":temp_posicao": team.temp_posicao,
-            ":temp_vitorias": team.stats_vitorias,
             ":historico_vitorias": team.historico_vitorias,
             ":historico_podios": team.historico_podios,
             ":historico_poles": team.historico_poles,
             ":historico_pontos": team.historico_pontos,
             ":historico_titulos_pilotos": team.historico_titulos_pilotos,
             ":carreira_titulos": team.historico_titulos_construtores,
-            ":carreira_vitorias": team.historico_vitorias,
             ":temporada_atual": team.temporada_atual,
             ":updated_at": &team.updated_at,
             ":categoria_anterior": &team.categoria_anterior,
@@ -523,19 +514,9 @@ pub fn update_team_season_stats(
              stats_podios = ?2,
              stats_poles = ?3,
              stats_pontos = ?4,
-             stats_melhor_resultado = ?5,
-             temp_vitorias = ?1,
-             temp_pontos = ?6
-         WHERE id = ?7",
-        params![
-            vitorias,
-            podios,
-            poles,
-            pontos,
-            melhor_resultado,
-            pontos as f64,
-            team_id
-        ],
+             stats_melhor_resultado = ?5
+         WHERE id = ?6",
+        params![vitorias, podios, poles, pontos, melhor_resultado, team_id],
     )?;
     ensure_team_rows_affected(affected, team_id, "atualizar estatisticas da equipe")?;
     Ok(())
@@ -549,8 +530,6 @@ pub fn reset_team_season_stats(conn: &Connection, team_id: &str) -> Result<(), D
              stats_poles = 0,
              stats_pontos = 0,
              stats_melhor_resultado = 99,
-             temp_vitorias = 0,
-             temp_pontos = 0.0,
              temp_posicao = 0
          WHERE id = ?1",
         params![team_id],
@@ -594,122 +573,92 @@ fn collect_teams(
 }
 
 fn team_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Team> {
-    let id: String = row.get("id")?;
-    let nome: String = row.get("nome")?;
-    let categoria: String = row.get("categoria")?;
-    let created_at: String = row.get("created_at")?;
-    let mut team = placeholder_team_from_db(id, nome, categoria, created_at);
+    let car_build_profile_value: String = row.get("car_build_profile")?;
+    let car_build_profile =
+        CarBuildProfile::from_str_strict(&car_build_profile_value).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+            )
+        })?;
 
-    team.is_player_team = optional_column::<i64>(row, "is_player_team")?.unwrap_or(0) != 0;
-    team.car_performance = optional_column::<f64>(row, "car_performance")?.unwrap_or(50.0);
-    team.car_build_profile = optional_column::<String>(row, "car_build_profile")?
-        .map(|value| {
-            CarBuildProfile::from_str_strict(&value).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Text,
-                    Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
-                )
-            })
-        })
-        .transpose()?
-        .unwrap_or(CarBuildProfile::Balanced);
-    team.confiabilidade = optional_column::<f64>(row, "reliability")?.unwrap_or(50.0);
-    team.pit_strategy_risk = optional_column::<f64>(row, "pit_strategy_risk")?.unwrap_or(50.0);
-    team.pit_crew_quality = optional_column::<f64>(row, "pit_crew_quality")?.unwrap_or(50.0);
-    team.budget = optional_column::<f64>(row, "budget")?.unwrap_or(50.0);
-    team.cash_balance = optional_column::<f64>(row, "cash_balance")?.unwrap_or(0.0);
-    team.debt_balance = optional_column::<f64>(row, "debt_balance")?.unwrap_or(0.0);
-    team.financial_state =
-        optional_column::<String>(row, "financial_state")?.unwrap_or_else(|| "stable".to_string());
-    team.season_strategy = optional_column::<String>(row, "season_strategy")?
-        .unwrap_or_else(|| "balanced".to_string());
-    team.last_round_income = optional_column::<f64>(row, "last_round_income")?.unwrap_or(0.0);
-    team.last_round_expenses = optional_column::<f64>(row, "last_round_expenses")?.unwrap_or(0.0);
-    team.last_round_net = optional_column::<f64>(row, "last_round_net")?.unwrap_or(0.0);
-    team.parachute_payment_remaining =
-        optional_column::<f64>(row, "parachute_payment_remaining")?.unwrap_or(0.0);
-    team.facilities = optional_column::<f64>(row, "facilities")?.unwrap_or(50.0);
-    team.engineering = optional_column::<f64>(row, "engineering")?.unwrap_or(50.0);
-    team.reputacao = optional_column::<f64>(row, "prestige")?.unwrap_or(50.0);
-    team.morale = optional_column::<f64>(row, "morale")?.unwrap_or(1.0);
-    team.aerodinamica = optional_column::<f64>(row, "aerodinamica")?.unwrap_or(50.0);
-    team.motor = optional_column::<f64>(row, "motor")?.unwrap_or(50.0);
-    team.chassi = optional_column::<f64>(row, "chassi")?.unwrap_or(50.0);
-    team.hierarquia_status = optional_column::<String>(row, "hierarquia_status")?
-        .map(|value| {
-            TeamHierarchyClimate::from_str_strict(&value)
-                .map(|status| status.as_str().to_string())
-                .map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
-                    )
-                })
-        })
-        .transpose()?
-        .unwrap_or_else(|| TeamHierarchyClimate::Estavel.as_str().to_string());
-    team.parent_team_id = optional_column(row, "parent_team_id")?;
-    team.aceita_rookies = optional_i32_column(row, "aceita_rookies")?.unwrap_or(1) != 0;
-    team.meta_posicao = optional_i32_column(row, "meta_posicao")?.unwrap_or(10);
-    team.stats_pontos = optional_i32_column(row, "stats_pontos")?
-        .or_else(|| {
-            optional_f64_column(row, "temp_pontos")
-                .ok()
-                .flatten()
-                .and_then(|value| rounded_f64_to_i32("temp_pontos", value).ok())
-        })
-        .unwrap_or(0);
-    team.temp_posicao = optional_i32_column(row, "temp_posicao")?.unwrap_or(0);
-    team.stats_vitorias = optional_i32_column(row, "stats_vitorias")?
-        .unwrap_or(optional_i32_column(row, "temp_vitorias")?.unwrap_or(0));
-    team.historico_titulos_construtores =
-        optional_i32_column(row, "carreira_titulos")?.unwrap_or(0);
-    team.historico_vitorias = optional_i32_column(row, "historico_vitorias")?
-        .unwrap_or(optional_i32_column(row, "carreira_vitorias")?.unwrap_or(0));
+    let hierarquia_status_value: String = row.get("hierarquia_status")?;
+    let hierarquia_status = TeamHierarchyClimate::from_str_strict(&hierarquia_status_value)
+        .map(|status| status.as_str().to_string())
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+            )
+        })?;
 
-    team.nome_curto =
-        optional_column::<String>(row, "nome_curto")?.unwrap_or_else(|| team.nome.clone());
-    team.cor_primaria =
-        optional_column::<String>(row, "cor_primaria")?.unwrap_or_else(|| "#FFFFFF".to_string());
-    team.cor_secundaria =
-        optional_column::<String>(row, "cor_secundaria")?.unwrap_or_else(|| "#000000".to_string());
-    team.pais_sede =
-        optional_column::<String>(row, "pais_sede")?.unwrap_or_else(|| "Unknown".to_string());
-    team.ano_fundacao = optional_column::<i64>(row, "ano_fundacao")?.unwrap_or(2024) as i32;
-    team.ativa = optional_column::<i64>(row, "ativa")?.unwrap_or(1) != 0;
-    team.marca = optional_column(row, "marca")?;
-    team.classe = optional_column(row, "classe")?;
-    team.categoria_anterior = optional_column(row, "categoria_anterior")?;
-    team.piloto_1_id = optional_column(row, "piloto_1_id")?;
-    team.piloto_2_id = optional_column(row, "piloto_2_id")?;
-    team.hierarquia_n1_id = optional_column(row, "hierarquia_n1_id")?;
-    team.hierarquia_n2_id = optional_column(row, "hierarquia_n2_id")?;
-    team.hierarquia_tensao = optional_f64_column(row, "hierarquia_tensao")?.unwrap_or(0.0);
-    team.hierarquia_duelos_total =
-        optional_i32_column(row, "hierarquia_duelos_total")?.unwrap_or(0);
-    team.hierarquia_duelos_n2_vencidos =
-        optional_i32_column(row, "hierarquia_duelos_n2_vencidos")?.unwrap_or(0);
-    team.hierarquia_sequencia_n2 =
-        optional_i32_column(row, "hierarquia_sequencia_n2")?.unwrap_or(0);
-    team.hierarquia_sequencia_n1 =
-        optional_i32_column(row, "hierarquia_sequencia_n1")?.unwrap_or(0);
-    team.hierarquia_inversoes_temporada =
-        optional_i32_column(row, "hierarquia_inversoes_temporada")?.unwrap_or(0);
-    team.stats_podios = optional_i32_column(row, "stats_podios")?.unwrap_or(0);
-    team.stats_poles = optional_i32_column(row, "stats_poles")?.unwrap_or(0);
-    team.stats_melhor_resultado = optional_i32_column(row, "stats_melhor_resultado")?.unwrap_or(99);
-    team.historico_podios = optional_i32_column(row, "historico_podios")?.unwrap_or(0);
-    team.historico_poles = optional_i32_column(row, "historico_poles")?.unwrap_or(0);
-    team.historico_pontos = optional_i32_column(row, "historico_pontos")?.unwrap_or(0);
-    team.historico_titulos_pilotos =
-        optional_i32_column(row, "historico_titulos_pilotos")?.unwrap_or(0);
-    team.temporada_atual = optional_i32_column(row, "temporada_atual")?.unwrap_or(1);
-    team.updated_at =
-        optional_column::<String>(row, "updated_at")?.unwrap_or_else(|| team.created_at.clone());
-
-    Ok(team)
+    Ok(Team {
+        id: row.get("id")?,
+        nome: row.get("nome")?,
+        nome_curto: row.get("nome_curto")?,
+        cor_primaria: row.get("cor_primaria")?,
+        cor_secundaria: row.get("cor_secundaria")?,
+        pais_sede: row.get("pais_sede")?,
+        ano_fundacao: required_i32_column(row, "ano_fundacao")?,
+        categoria: row.get("categoria")?,
+        ativa: row.get::<_, i64>("ativa")? != 0,
+        marca: row.get("marca")?,
+        classe: row.get("classe")?,
+        piloto_1_id: row.get("piloto_1_id")?,
+        piloto_2_id: row.get("piloto_2_id")?,
+        car_performance: row.get("car_performance")?,
+        car_build_profile,
+        confiabilidade: row.get("confiabilidade")?,
+        pit_strategy_risk: row.get("pit_strategy_risk")?,
+        pit_crew_quality: row.get("pit_crew_quality")?,
+        budget: row.get("budget")?,
+        cash_balance: row.get("cash_balance")?,
+        debt_balance: row.get("debt_balance")?,
+        financial_state: row.get("financial_state")?,
+        season_strategy: row.get("season_strategy")?,
+        last_round_income: row.get("last_round_income")?,
+        last_round_expenses: row.get("last_round_expenses")?,
+        last_round_net: row.get("last_round_net")?,
+        parachute_payment_remaining: row.get("parachute_payment_remaining")?,
+        facilities: row.get("facilities")?,
+        engineering: row.get("engineering")?,
+        reputacao: row.get("reputacao")?,
+        morale: row.get("morale")?,
+        aerodinamica: row.get("aerodinamica")?,
+        motor: row.get("motor")?,
+        chassi: row.get("chassi")?,
+        hierarquia_n1_id: row.get("hierarquia_n1_id")?,
+        hierarquia_n2_id: row.get("hierarquia_n2_id")?,
+        hierarquia_status,
+        hierarquia_tensao: row.get("hierarquia_tensao")?,
+        hierarquia_duelos_total: required_i32_column(row, "hierarquia_duelos_total")?,
+        hierarquia_duelos_n2_vencidos: required_i32_column(row, "hierarquia_duelos_n2_vencidos")?,
+        hierarquia_sequencia_n2: required_i32_column(row, "hierarquia_sequencia_n2")?,
+        hierarquia_sequencia_n1: required_i32_column(row, "hierarquia_sequencia_n1")?,
+        hierarquia_inversoes_temporada: required_i32_column(row, "hierarquia_inversoes_temporada")?,
+        stats_vitorias: required_i32_column(row, "stats_vitorias")?,
+        stats_podios: required_i32_column(row, "stats_podios")?,
+        stats_poles: required_i32_column(row, "stats_poles")?,
+        stats_pontos: required_i32_column(row, "stats_pontos")?,
+        stats_melhor_resultado: required_i32_column(row, "stats_melhor_resultado")?,
+        historico_vitorias: required_i32_column(row, "historico_vitorias")?,
+        historico_podios: required_i32_column(row, "historico_podios")?,
+        historico_poles: required_i32_column(row, "historico_poles")?,
+        historico_pontos: required_i32_column(row, "historico_pontos")?,
+        historico_titulos_pilotos: required_i32_column(row, "historico_titulos_pilotos")?,
+        historico_titulos_construtores: required_i32_column(row, "carreira_titulos")?,
+        temporada_atual: required_i32_column(row, "temporada_atual")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        is_player_team: row.get::<_, i64>("is_player_team")? != 0,
+        parent_team_id: row.get("parent_team_id")?,
+        aceita_rookies: required_i32_column(row, "aceita_rookies")? != 0,
+        meta_posicao: required_i32_column(row, "meta_posicao")?,
+        temp_posicao: required_i32_column(row, "temp_posicao")?,
+        categoria_anterior: row.get("categoria_anterior")?,
+    })
 }
 
 fn ensure_team_rows_affected(
@@ -725,49 +674,9 @@ fn ensure_team_rows_affected(
     Ok(())
 }
 
-fn optional_column<T>(row: &rusqlite::Row<'_>, column_name: &str) -> rusqlite::Result<Option<T>>
-where
-    T: FromSql,
-{
-    match row.get::<_, Option<T>>(column_name) {
-        Ok(value) => Ok(value),
-        Err(rusqlite::Error::InvalidColumnName(_)) => Ok(None),
-        Err(rusqlite::Error::InvalidColumnIndex(_)) => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
-fn optional_f64_column(
-    row: &rusqlite::Row<'_>,
-    column_name: &str,
-) -> rusqlite::Result<Option<f64>> {
-    optional_column::<f64>(row, column_name)
-}
-
-fn optional_i32_column(
-    row: &rusqlite::Row<'_>,
-    column_name: &str,
-) -> rusqlite::Result<Option<i32>> {
-    optional_column::<i64>(row, column_name)?
-        .map(|value| {
-            i32::try_from(value).map_err(|_| invalid_integer_conversion_error(column_name, value))
-        })
-        .transpose()
-}
-
-fn rounded_f64_to_i32(column_name: &str, value: f64) -> rusqlite::Result<i32> {
-    let rounded = value.round();
-    if !rounded.is_finite() || rounded < i32::MIN as f64 || rounded > i32::MAX as f64 {
-        return Err(rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Real,
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("coluna '{column_name}' fora do range i32: {value}"),
-            )),
-        ));
-    }
-    Ok(rounded as i32)
+fn required_i32_column(row: &rusqlite::Row<'_>, column_name: &str) -> rusqlite::Result<i32> {
+    let value = row.get::<_, i64>(column_name)?;
+    i32::try_from(value).map_err(|_| invalid_integer_conversion_error(column_name, value))
 }
 
 fn invalid_integer_conversion_error(column_name: &str, value: i64) -> rusqlite::Error {
@@ -898,6 +807,36 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_and_get_team_uses_current_team_schema_without_legacy_columns() {
+        let conn = setup_test_db().expect("test db");
+        assert!(test_column_exists(&conn, "teams", "confiabilidade"));
+        assert!(test_column_exists(&conn, "teams", "reputacao"));
+        assert!(!test_column_exists(&conn, "teams", "reliability"));
+        assert!(!test_column_exists(&conn, "teams", "prestige"));
+        assert!(!test_column_exists(&conn, "teams", "temp_pontos"));
+        assert!(!test_column_exists(&conn, "teams", "temp_vitorias"));
+        assert!(!test_column_exists(&conn, "teams", "carreira_vitorias"));
+
+        let mut team = sample_team("gt4", "T_SCHEMA");
+        team.confiabilidade = 71.0;
+        team.reputacao = 63.0;
+        team.stats_vitorias = 4;
+        team.stats_pontos = 98;
+        team.historico_vitorias = 12;
+
+        insert_team(&conn, &team).expect("insert team with current schema");
+        let loaded = get_team_by_id(&conn, "T_SCHEMA")
+            .expect("get team")
+            .expect("team should exist");
+
+        assert_eq!(loaded.confiabilidade, 71.0);
+        assert_eq!(loaded.reputacao, 63.0);
+        assert_eq!(loaded.stats_vitorias, 4);
+        assert_eq!(loaded.stats_pontos, 98);
+        assert_eq!(loaded.historico_vitorias, 12);
+    }
+
+    #[test]
     fn test_get_teams_by_category() {
         let conn = setup_test_db().expect("test db");
         insert_team(&conn, &sample_team("gt3", "T001")).expect("insert team 1");
@@ -954,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blob_in_optional_text_field_returns_error() {
+    fn test_blob_in_required_text_field_returns_error() {
         let conn = setup_test_db().expect("test db");
         conn.execute(
             "INSERT INTO teams (id, nome, nome_curto, cor_primaria, categoria, created_at, updated_at)
@@ -974,12 +913,12 @@ mod tests {
         let result = get_team_by_id(&conn, "T_BLOB_TEXT");
         assert!(
             result.is_err(),
-            "BLOB em campo opcional TEXT deve retornar erro"
+            "BLOB em campo obrigatorio TEXT deve retornar erro"
         );
     }
 
     #[test]
-    fn test_blob_in_optional_real_field_returns_error() {
+    fn test_blob_in_required_real_field_returns_error() {
         let conn = setup_test_db().expect("test db");
         conn.execute(
             "INSERT INTO teams (
@@ -1000,7 +939,7 @@ mod tests {
         let result = get_team_by_id(&conn, "T_BLOB_REAL");
         assert!(
             result.is_err(),
-            "BLOB em campo opcional REAL deve retornar erro"
+            "BLOB em campo obrigatorio REAL deve retornar erro"
         );
     }
 
@@ -1100,7 +1039,7 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_team_row_without_car_build_profile_falls_back_to_balanced() {
+    fn test_raw_legacy_team_row_without_current_schema_returns_error() {
         let conn = Connection::open_in_memory().expect("legacy db");
         conn.execute_batch(
             "CREATE TABLE teams (
@@ -1114,13 +1053,11 @@ mod tests {
         )
         .expect("legacy schema");
 
-        let loaded = get_team_by_id(&conn, "T_OLD")
-            .expect("query team")
-            .expect("team should exist");
-
-        assert_eq!(loaded.car_build_profile, CarBuildProfile::Balanced);
-        assert_eq!(loaded.pit_strategy_risk, 50.0);
-        assert_eq!(loaded.pit_crew_quality, 50.0);
+        let result = get_team_by_id(&conn, "T_OLD");
+        assert!(
+            result.is_err(),
+            "raw legacy teams schema must be migrated before query mapping"
+        );
     }
 
     fn sample_team(category_id: &str, team_id: &str) -> Team {
@@ -1149,7 +1086,7 @@ mod tests {
                 is_player_team INTEGER NOT NULL DEFAULT 0,
                 car_performance REAL NOT NULL DEFAULT 0.0,
                 car_build_profile TEXT NOT NULL DEFAULT 'balanced',
-                reliability REAL NOT NULL DEFAULT 60.0,
+                confiabilidade REAL NOT NULL DEFAULT 60.0,
                 pit_strategy_risk REAL NOT NULL DEFAULT 50.0,
                 pit_crew_quality REAL NOT NULL DEFAULT 50.0,
                 budget REAL NOT NULL DEFAULT 50.0,
@@ -1163,7 +1100,7 @@ mod tests {
                 parachute_payment_remaining REAL NOT NULL DEFAULT 0.0,
                 facilities REAL NOT NULL DEFAULT 50.0,
                 engineering REAL NOT NULL DEFAULT 50.0,
-                prestige REAL NOT NULL DEFAULT 50.0,
+                reputacao REAL NOT NULL DEFAULT 50.0,
                 morale REAL NOT NULL DEFAULT 1.0,
                 aerodinamica REAL NOT NULL DEFAULT 50.0,
                 motor REAL NOT NULL DEFAULT 50.0,
@@ -1185,16 +1122,13 @@ mod tests {
                 stats_poles INTEGER NOT NULL DEFAULT 0,
                 stats_pontos INTEGER NOT NULL DEFAULT 0,
                 stats_melhor_resultado INTEGER NOT NULL DEFAULT 99,
-                temp_pontos REAL NOT NULL DEFAULT 0.0,
                 temp_posicao INTEGER NOT NULL DEFAULT 0,
-                temp_vitorias INTEGER NOT NULL DEFAULT 0,
                 historico_vitorias INTEGER NOT NULL DEFAULT 0,
                 historico_podios INTEGER NOT NULL DEFAULT 0,
                 historico_poles INTEGER NOT NULL DEFAULT 0,
                 historico_pontos INTEGER NOT NULL DEFAULT 0,
                 historico_titulos_pilotos INTEGER NOT NULL DEFAULT 0,
                 carreira_titulos INTEGER NOT NULL DEFAULT 0,
-                carreira_vitorias INTEGER NOT NULL DEFAULT 0,
                 temporada_atual INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT '',
@@ -1202,5 +1136,21 @@ mod tests {
             );",
         )?;
         Ok(conn)
+    }
+
+    fn test_column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({})", table))
+            .expect("pragma table_info");
+        let mut rows = stmt.query([]).expect("query pragma");
+
+        while let Some(row) = rows.next().expect("next row") {
+            let name: String = row.get("name").expect("column name");
+            if name == column {
+                return true;
+            }
+        }
+
+        false
     }
 }

@@ -1,6 +1,6 @@
-import bronzeTrophy from "../../assets/trophies/bronze.png";
-import goldTrophy from "../../assets/trophies/ouro.png";
-import silverTrophy from "../../assets/trophies/prata.png";
+import bronzeTrophy from "../../assets/utilities/trophies/bronze.png";
+import goldTrophy from "../../assets/utilities/trophies/ouro.png";
+import silverTrophy from "../../assets/utilities/trophies/prata.png";
 
 const trophyImages = {
   ouro: goldTrophy,

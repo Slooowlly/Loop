@@ -1,6 +1,6 @@
 import { extractFlag, extractNationalityCode } from "../../utils/formatters";
 
-const flagModules = import.meta.glob("../../assets/flag-icons/*.png", {
+const flagModules = import.meta.glob("../../assets/utilities/flag-icons/*.png", {
   eager: true,
   import: "default",
 });

@@ -1,12 +1,12 @@
 [package]
-name = "iracing-career-simulator"
+name = "loop"
 version = "0.1.0"
-description = "iRacing Career Simulator"
+description = "Loop"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "iracing_career_simulator_lib"
+name = "loop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

@@ -5,18 +5,18 @@ import useCareerStore from "../../stores/useCareerStore";
 import { formatGap, formatLapTime } from "../../utils/formatters";
 
 const CATEGORY_SUMMARY_LOGOS = {
-  mazda: "/categorias/recortadas/MX5%20CUP.png",
-  mazda_amador: "/categorias/recortadas/MX5%20CUP.png",
-  mazda_rookie: "/categorias/recortadas/MX5%20ROOKIE.png",
-  toyota: "/categorias/recortadas/GR%20CUP.png",
-  toyota_amador: "/categorias/recortadas/GR%20CUP.png",
-  toyota_rookie: "/categorias/recortadas/GR%20ROOKIE.png",
-  bmw: "/categorias/recortadas/M2%20CUP.png",
-  bmw_m2: "/categorias/recortadas/M2%20CUP.png",
-  gt4: "/categorias/recortadas/GT4.png",
-  gt3: "/categorias/recortadas/GT3.png",
-  production_challenger: "/categorias/recortadas/PRODUCTION.png",
-  endurance: "/categorias/recortadas/ENDURANCE.png",
+  mazda: "/utilities/categorias/recortadas/MX5%20CUP.png",
+  mazda_amador: "/utilities/categorias/recortadas/MX5%20CUP.png",
+  mazda_rookie: "/utilities/categorias/recortadas/MX5%20ROOKIE.png",
+  toyota: "/utilities/categorias/recortadas/GR%20CUP.png",
+  toyota_amador: "/utilities/categorias/recortadas/GR%20CUP.png",
+  toyota_rookie: "/utilities/categorias/recortadas/GR%20ROOKIE.png",
+  bmw: "/utilities/categorias/recortadas/M2%20CUP.png",
+  bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.png",
+  gt4: "/utilities/categorias/recortadas/GT4.png",
+  gt3: "/utilities/categorias/recortadas/GT3.png",
+  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
+  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
 };
 
 const CATEGORY_SUMMARY_FITS = {

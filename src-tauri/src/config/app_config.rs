@@ -44,7 +44,7 @@ pub struct AppConfig {
     pub airosters_path: Option<PathBuf>,
     pub aiseasons_path: Option<PathBuf>,
 
-    /// Diretório base do app (AppData/Local/iracing-career-simulator).
+    /// Diretório base do app (AppData/Local/Loop).
     /// Não persiste no JSON — preenchido em tempo de execução.
     #[serde(skip)]
     pub base_dir: PathBuf,

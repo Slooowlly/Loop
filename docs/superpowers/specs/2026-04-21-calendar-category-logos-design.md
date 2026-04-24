@@ -49,9 +49,9 @@ Diretrizes visuais:
 
 ### Assets
 
-Servir as logos como assets publicos em `/categorias/...`, seguindo o mesmo padrao ja usado por `/tracks/...`.
+Servir as logos como assets publicos em `/utilities/categorias/...`, seguindo o mesmo padrao ja usado por `/utilities/tracks/...`.
 
-As imagens fornecidas em `image/categorias` devem ser disponibilizadas em `public/categorias` com nomes estaveis.
+As imagens fornecidas em `image/categorias` devem ser disponibilizadas em `public/utilities/categorias` com nomes estaveis.
 
 ### Mapeamento
 
@@ -67,7 +67,7 @@ Criar um mapa `CATEGORY_LOGOS` no frontend, inicialmente no proprio `CalendarTab
 - `gt3`
 - `endurance`
 
-Cada categoria aponta para o arquivo correspondente em `/categorias/...`.
+Cada categoria aponta para o arquivo correspondente em `/utilities/categorias/...`.
 
 ### Renderizacao
 

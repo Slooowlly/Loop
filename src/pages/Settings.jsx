@@ -303,7 +303,7 @@ function Settings() {
             Salvar
           </GlassButton>
           <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-text-muted">
-            iRacing Career Simulator — v{config.version}
+            Loop — v{config.version}
           </p>
         </div>
       </div>

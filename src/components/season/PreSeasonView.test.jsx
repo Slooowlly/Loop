@@ -214,7 +214,7 @@ describe("PreSeasonView", () => {
 
     expect(teamName).toHaveClass("text-[19px]", "font-bold");
     expect(categoryHeader).toHaveClass("flex-col", "items-center");
-    expect(categoryLogo).toHaveAttribute("src", "/categorias/recortadas/GT4.png");
+    expect(categoryLogo).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.png");
     expect(primaryDriver).toHaveClass("text-[15px]", "font-bold");
     expect(primaryDriver).toHaveClass("text-[color:var(--text-primary)]");
     expect(screen.getByText("3 anos")).toBeInTheDocument();
@@ -281,7 +281,7 @@ describe("PreSeasonView", () => {
     const title = within(header).getByAltText("GT4 Championship");
     const count = await screen.findByText("3 vagas");
 
-    expect(title).toHaveAttribute("src", "/categorias/recortadas/GT4.png");
+    expect(title).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.png");
     expect(count).toHaveAttribute("data-testid", "preseason-category-count");
     expect(count).toHaveStyle({ color: "#3080FF", borderColor: "#3080FF55" });
   });
@@ -349,8 +349,8 @@ describe("PreSeasonView", () => {
     const mazdaCupHeader = await screen.findByTestId("preseason-category-header-mazda_amador");
     const mazdaRookieHeader = await screen.findByTestId("preseason-category-header-mazda_rookie");
 
-    expect(within(mazdaCupHeader).getByAltText("Mazda Cup")).toHaveAttribute("src", "/categorias/recortadas/MX5%20CUP.png");
-    expect(within(mazdaRookieHeader).getByAltText("Mazda Rookie")).toHaveAttribute("src", "/categorias/recortadas/MX5%20ROOKIE.png");
+    expect(within(mazdaCupHeader).getByAltText("Mazda Cup")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20CUP.png");
+    expect(within(mazdaRookieHeader).getByAltText("Mazda Rookie")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20ROOKIE.png");
     expect(within(mazdaCupHeader).getByTestId("preseason-category-count")).toHaveTextContent("1 vaga");
     expect(within(mazdaRookieHeader).getByTestId("preseason-category-count")).toHaveTextContent("1 vaga");
   });

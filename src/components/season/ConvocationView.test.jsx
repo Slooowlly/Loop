@@ -340,8 +340,8 @@ describe("ConvocationView", () => {
 
     render(<ConvocationView />);
 
-    expect(screen.getByAltText(/production/i)).toHaveAttribute("src", "/categorias/recortadas/PRODUCTION.png");
-    expect(screen.getByAltText(/endurance/i)).toHaveAttribute("src", "/categorias/recortadas/ENDURANCE.png");
+    expect(screen.getByAltText(/production/i)).toHaveAttribute("src", "/utilities/categorias/recortadas/PRODUCTION.png");
+    expect(screen.getByAltText(/endurance/i)).toHaveAttribute("src", "/utilities/categorias/recortadas/ENDURANCE.png");
 
     const sectionTitles = screen.getAllByTestId("convocation-class-title").map((node) => node.textContent);
     expect(sectionTitles).toEqual(["BMW", "TOYOTA", "MAZDA", "LMP2", "GT3", "GT4"]);

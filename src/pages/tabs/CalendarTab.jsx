@@ -9,28 +9,28 @@ import { categoryLabel } from "../../utils/formatters";
 
 // Imagens por track_id
 const TRACK_IMAGES = {
-  8: "/tracks/summitpoint.png",
-  9: "/tracks/summitpoint.png",
-  14: "/tracks/limerock.jpeg",
-  47: "/tracks/lagunaseca.png",
-  166: "/tracks/okayama.png",
-  261: "/tracks/oultonpark.jpeg",
+  8: "/utilities/tracks/summitpoint.png",
+  9: "/utilities/tracks/summitpoint.png",
+  14: "/utilities/tracks/limerock.jpeg",
+  47: "/utilities/tracks/lagunaseca.png",
+  166: "/utilities/tracks/okayama.png",
+  261: "/utilities/tracks/oultonpark.jpeg",
   300: null,
   301: null,
-  325: "/tracks/Tsukuba.png",
-  341: "/tracks/oultonpark.jpeg",
-  449: "/tracks/motorsport arena.png",
-  451: "/tracks/rudskogen.jpeg",
-  489: "/tracks/ledenon.png",
-  202: "/tracks/oranpark.png",
-  440: "/tracks/winton.jpeg",
-  515: "/tracks/Navarra.png",
-  554: "/tracks/charlotte.png",
+  325: "/utilities/tracks/Tsukuba.png",
+  341: "/utilities/tracks/oultonpark.jpeg",
+  449: "/utilities/tracks/motorsport arena.png",
+  451: "/utilities/tracks/rudskogen.jpeg",
+  489: "/utilities/tracks/ledenon.png",
+  202: "/utilities/tracks/oranpark.png",
+  440: "/utilities/tracks/winton.jpeg",
+  515: "/utilities/tracks/Navarra.png",
+  554: "/utilities/tracks/charlotte.png",
   45: null,
   51: null,
   52: null,
   53: null,
-  58: "/tracks/virginia.jpeg",
+  58: "/utilities/tracks/virginia.jpeg",
   67: null,
 };
 
@@ -53,15 +53,15 @@ const TRACK_IMAGE_FILES = [
 ];
 
 const CATEGORY_LOGOS = {
-  mazda_rookie: "/categorias/MX5%20ROOKIE.png",
-  toyota_rookie: "/categorias/GR%20ROOKIE.png",
-  mazda_amador: "/categorias/MX5%20CUP.png",
-  toyota_amador: "/categorias/GR%20CUP.png",
-  bmw_m2: "/categorias/M2%20CUP.png",
-  production_challenger: "/categorias/PRODUCTION.png",
-  gt4: "/categorias/GT4.png",
-  gt3: "/categorias/GT3.png",
-  endurance: "/categorias/ENDURANCE.png",
+  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.png",
+  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.png",
+  mazda_amador: "/utilities/categorias/MX5%20CUP.png",
+  toyota_amador: "/utilities/categorias/GR%20CUP.png",
+  bmw_m2: "/utilities/categorias/M2%20CUP.png",
+  production_challenger: "/utilities/categorias/PRODUCTION.png",
+  gt4: "/utilities/categorias/GT4.png",
+  gt3: "/utilities/categorias/GT3.png",
+  endurance: "/utilities/categorias/ENDURANCE.png",
 };
 
 // Constantes visuais
@@ -208,10 +208,10 @@ function weatherLabel(value) {
 
 function getTrackAssetPath(file) {
   if (!file) return null;
-  if (file.startsWith("/tracks/")) {
-    return `/tracks/${encodeURIComponent(file.slice("/tracks/".length))}`;
+  if (file.startsWith("/utilities/tracks/")) {
+    return `/utilities/tracks/${encodeURIComponent(file.slice("/utilities/tracks/".length))}`;
   }
-  return `/tracks/${encodeURIComponent(file)}`;
+  return `/utilities/tracks/${encodeURIComponent(file)}`;
 }
 
 function normalizeTrackName(trackName) {

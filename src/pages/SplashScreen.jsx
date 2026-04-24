@@ -17,8 +17,8 @@ function SplashScreen() {
 
       <div className="entry-panel text-center">
         <img
-          src="/logo-nova.png"
-          alt="Logo iRacerApp"
+          src="/utilities/logo-nova.png"
+          alt="Logo Loop"
           className="h-28 w-28 object-contain drop-shadow-[0_16px_40px_rgba(88,166,255,0.14)]"
         />
 
@@ -27,7 +27,7 @@ function SplashScreen() {
             Launcher
           </p>
           <h1 className="text-3xl font-semibold tracking-[0.08em] text-text-primary">
-            iRacerApp
+            Loop
           </h1>
           <p className="text-xs uppercase tracking-[0.28em] text-text-secondary">
             v0.1.0
