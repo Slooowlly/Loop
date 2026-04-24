@@ -534,7 +534,7 @@ git commit -m "feat: finalize historical draft with player insertion"
 - Modify: `src/stores/useCareerStore.js` if needed.
 - Test: `src/pages/NewCareer.test.jsx`
 
-- [ ] **Step 1: Write UI test for generation-first flow**
+- [x] **Step 1: Write UI test for generation-first flow**
 
 ```jsx
 it("generates the world before showing category and team selection", async () => {
@@ -546,7 +546,7 @@ it("generates the world before showing category and team selection", async () =>
 });
 ```
 
-- [ ] **Step 2: Write UI test for back navigation preserving draft**
+- [x] **Step 2: Write UI test for back navigation preserving draft**
 
 ```jsx
 it("does not regenerate the draft when navigating back after generation", async () => {
@@ -556,7 +556,7 @@ it("does not regenerate the draft when navigating back after generation", async 
 });
 ```
 
-- [ ] **Step 3: Run tests and confirm they fail**
+- [x] **Step 3: Run tests and confirm they fail**
 
 Run:
 
@@ -566,7 +566,7 @@ npm test -- NewCareer
 
 If no matching script exists, use the existing project test command and document it in the implementation notes.
 
-- [ ] **Step 4: Update wizard steps**
+- [x] **Step 4: Update wizard steps**
 
 Target step sequence:
 
@@ -577,7 +577,7 @@ Target step sequence:
 5. team selection from draft;
 6. confirmation/finalization.
 
-- [ ] **Step 5: Wire commands**
+- [x] **Step 5: Wire commands**
 
 Use `invoke` for:
 
@@ -586,7 +586,7 @@ Use `invoke` for:
 - `discard_career_draft` on discard;
 - `finalize_career_draft` on final confirmation.
 
-- [ ] **Step 6: Load active career after finalization**
+- [x] **Step 6: Load active career after finalization**
 
 After finalization:
 
@@ -595,7 +595,7 @@ await loadCareer(result.career_id);
 navigate("/dashboard");
 ```
 
-- [ ] **Step 7: Run frontend tests**
+- [x] **Step 7: Run frontend tests**
 
 Run:
 
@@ -604,7 +604,7 @@ npm test -- NewCareer
 npm test -- LoadSave
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add src/pages/NewCareer.jsx src/pages/NewCareer.test.jsx src/utils/constants.js src/stores/useCareerStore.js

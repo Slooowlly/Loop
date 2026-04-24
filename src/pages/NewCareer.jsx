@@ -17,24 +17,25 @@ import {
   LOADING_MESSAGES,
   NATIONALITIES,
   STARTING_CATEGORIES,
-  TEAM_PREVIEWS,
   WIZARD_STEPS,
 } from "../utils/constants";
 
 const STEP_TITLES = {
   1: "Escolha a dificuldade",
   2: "Dados do piloto",
-  3: "Escolha sua categoria",
-  4: "Escolha sua equipe",
-  5: "Confirmar dados",
+  3: "Gerar passado histórico",
+  4: "Escolha sua categoria",
+  5: "Escolha sua equipe",
+  6: "Confirmar dados",
 };
 
 const STEP_DESCRIPTIONS = {
   1: "Defina o teto da IA antes de entrar no paddock.",
   2: "Monte a identidade do seu piloto para o save inicial.",
-  3: "A sua jornada começa em uma das duas rookies.",
-  4: "Selecione a equipe onde voc? vai estrear como segundo piloto.",
-  5: "Confira tudo antes de criar o mundo completo da carreira.",
+  3: "Simule 2000 a 2024 antes de escolher onde entrar no grid de 2025.",
+  4: "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
+  5: "Selecione a equipe onde você vai estrear como segundo piloto.",
+  6: "Confira tudo antes de transformar o rascunho histórico em save jogável.",
 };
 
 const INITIAL_FORM = {
@@ -43,7 +44,7 @@ const INITIAL_FORM = {
   nationality: "br",
   age: 20,
   category: "mazda_rookie",
-  teamIndex: 0,
+  teamId: "",
 };
 
 function NewCareer() {
@@ -54,6 +55,27 @@ function NewCareer() {
   const [loading, setLoading] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [error, setError] = useState("");
+  const [draftState, setDraftState] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDraft() {
+      try {
+        const state = await invoke("get_career_draft");
+        if (cancelled || !state?.exists) return;
+        applyDraftState(state, { resume: true });
+      } catch {
+        // Draft lookup is opportunistic; creation still works if no draft can be resumed.
+      }
+    }
+
+    loadDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -68,17 +90,48 @@ function NewCareer() {
     return () => window.clearInterval(timer);
   }, [loading]);
 
+  const draftCategories = STARTING_CATEGORIES.filter((category) =>
+    draftState?.categories?.includes(category.id),
+  );
+  const categoryOptions = draftCategories.length > 0 ? draftCategories : [];
   const selectedCategory =
     STARTING_CATEGORIES.find((category) => category.id === formData.category) ??
+    categoryOptions[0] ??
     STARTING_CATEGORIES[0];
-  const availableTeams = TEAM_PREVIEWS[formData.category] ?? [];
+  const availableTeams = (draftState?.teams ?? []).filter(
+    (team) => team.categoria === formData.category,
+  );
   const selectedTeam =
-    availableTeams.find((team) => team.index === formData.teamIndex) ?? availableTeams[0];
+    availableTeams.find((team) => team.id === formData.teamId) ?? availableTeams[0];
   const selectedDifficulty =
     DIFFICULTIES.find((difficulty) => difficulty.id === formData.difficulty) ?? DIFFICULTIES[1];
   const selectedNationality =
     NATIONALITIES.find((nationality) => nationality.id === formData.nationality) ??
     NATIONALITIES[0];
+  const hasGeneratedDraft =
+    draftState?.exists &&
+    draftState.lifecycle_status === "draft" &&
+    (draftState.teams?.length ?? 0) > 0;
+
+  function applyDraftState(state, options = {}) {
+    setDraftState(state);
+    const firstCategory = state.categories?.[0] ?? INITIAL_FORM.category;
+    const firstTeam = state.teams?.find((team) => team.categoria === firstCategory);
+    setFormData((current) => ({
+      ...current,
+      category: current.category && state.categories?.includes(current.category)
+        ? current.category
+        : firstCategory,
+      teamId:
+        current.teamId && state.teams?.some((team) => team.id === current.teamId)
+          ? current.teamId
+          : firstTeam?.id ?? "",
+    }));
+
+    if (options.resume && state.lifecycle_status === "draft" && state.teams?.length) {
+      setStep(4);
+    }
+  }
 
   function updateForm(patch) {
     setFormData((current) => ({ ...current, ...patch }));
@@ -95,11 +148,15 @@ function NewCareer() {
       }
     }
 
-    if (step === 3 && !formData.category) {
+    if (step === 3 && !hasGeneratedDraft) {
+      return "Gere o histórico antes de escolher categoria e equipe.";
+    }
+
+    if (step === 4 && !formData.category) {
       return "Selecione uma categoria inicial.";
     }
 
-    if (step === 4 && !availableTeams.some((team) => team.index === formData.teamIndex)) {
+    if (step === 5 && !availableTeams.some((team) => team.id === formData.teamId)) {
       return "Selecione uma equipe válida.";
     }
 
@@ -114,7 +171,7 @@ function NewCareer() {
     }
 
     setError("");
-    setStep((current) => Math.min(current + 1, 5));
+    setStep((current) => Math.min(current + 1, 6));
   }
 
   function handleBack() {
@@ -126,19 +183,48 @@ function NewCareer() {
     setStep((current) => Math.max(current - 1, 1));
   }
 
-  async function handleCreateCareer() {
+  async function handleGenerateDraft() {
     setError("");
     setLoading(true);
 
     try {
-      const result = await invoke("create_career", {
+      const state = await invoke("create_historical_career_draft", {
         input: {
           player_name: formData.playerName.trim(),
           player_nationality: formData.nationality,
           player_age: Number(formData.age),
-          category: formData.category,
-          team_index: formData.teamIndex,
           difficulty: formData.difficulty,
+        },
+      });
+
+      applyDraftState(state);
+      setStep(4);
+    } catch (invokeError) {
+      setError(
+        typeof invokeError === "string"
+          ? invokeError
+          : "Não foi possível gerar o histórico. Tente novamente.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateCareer() {
+    setError("");
+    if (!draftState?.career_id) {
+      setError("Gere o histórico antes de finalizar a carreira.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await invoke("finalize_career_draft", {
+        input: {
+          career_id: draftState.career_id,
+          category: formData.category,
+          team_id: formData.teamId,
         },
       });
 
@@ -148,11 +234,25 @@ function NewCareer() {
       setError(
         typeof invokeError === "string"
           ? invokeError
-          : "Não foi possível criar a carreira. Tente novamente.",
+          : "Não foi possível finalizar a carreira. Tente novamente.",
       );
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleResetWizard() {
+    setError("");
+    if (draftState?.exists) {
+      try {
+        await invoke("discard_career_draft");
+      } catch {
+        // If discard fails, keep the UI reset local and let the next get/create surface errors.
+      }
+    }
+    setStep(1);
+    setFormData(INITIAL_FORM);
+    setDraftState(null);
   }
 
   function renderStepContent() {
@@ -241,8 +341,76 @@ function NewCareer() {
 
     if (step === 3) {
       return (
+        <div className="grid gap-6 xl:grid-cols-[1fr_0.45fr]">
+          <GlassCard hover={false} className="glass-light rounded-[28px]">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
+              Rascunho histórico
+            </p>
+            <h3 className="mt-4 text-3xl font-semibold text-text-primary">
+              25 temporadas antes da estreia
+            </h3>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-text-secondary">
+              O jogo vai simular de 2000 até 2024 sem o jogador no grid, guardando resultados,
+              carreiras, trocas de equipe e evolução do mundo. Ao terminar, você entra em 2025
+              substituindo o N2 da equipe escolhida.
+            </p>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              <div className="glass-light rounded-2xl p-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+                  Início
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-text-primary">2000</p>
+              </div>
+              <div className="glass-light rounded-2xl p-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+                  Jogável
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-text-primary">2025</p>
+              </div>
+              <div className="glass-light rounded-2xl p-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+                  Status
+                </p>
+                <p className="mt-2 text-lg font-semibold text-text-primary">
+                  {hasGeneratedDraft ? "Gerado" : "Pendente"}
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard hover={false} className="glass-light rounded-[28px]">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
+              Piloto pendente
+            </p>
+            <h3 className="mt-4 text-2xl font-semibold text-text-primary">
+              {formData.playerName.trim() || "Seu piloto"}
+            </h3>
+            <div className="mt-5 space-y-4 text-sm text-text-secondary">
+              <div>
+                <p className="text-text-muted">Nacionalidade</p>
+                <p className="mt-1 text-text-primary">{selectedNationality.label}</p>
+              </div>
+              <div>
+                <p className="text-text-muted">Dificuldade</p>
+                <p className="mt-1 text-text-primary">{selectedDifficulty.name}</p>
+              </div>
+              <div>
+                <p className="text-text-muted">Progresso</p>
+                <p className="mt-1 text-text-primary">
+                  {draftState?.progress_year ? `Ano ${draftState.progress_year}` : "Não iniciado"}
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
+      );
+    }
+
+    if (step === 4) {
+      return (
         <div className="grid gap-5 lg:grid-cols-2">
-          {STARTING_CATEGORIES.map((category) => (
+          {categoryOptions.map((category) => (
             <CategoryCard
               key={category.id}
               category={category}
@@ -250,7 +418,8 @@ function NewCareer() {
               onSelect={(categoryId) =>
                 updateForm({
                   category: categoryId,
-                  teamIndex: 0,
+                  teamId:
+                    draftState?.teams?.find((team) => team.categoria === categoryId)?.id ?? "",
                 })
               }
             />
@@ -259,15 +428,15 @@ function NewCareer() {
       );
     }
 
-    if (step === 4) {
+    if (step === 5) {
       return (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {availableTeams.map((team) => (
             <TeamCard
-              key={`${formData.category}-${team.index}`}
+              key={team.id}
               team={team}
-              selected={formData.teamIndex === team.index}
-              onSelect={(teamIndex) => updateForm({ teamIndex })}
+              selected={formData.teamId === team.id}
+              onSelect={(teamId) => updateForm({ teamId })}
             />
           ))}
         </div>
@@ -304,7 +473,7 @@ function NewCareer() {
                   Equipe
                 </p>
                 <p className="mt-2 text-base font-semibold text-text-primary">
-                  {selectedTeam?.name}
+                  {selectedTeam?.nome}
                 </p>
               </div>
               <div className="glass-light rounded-2xl p-4">
@@ -318,8 +487,8 @@ function NewCareer() {
             </div>
 
             <div className="rounded-2xl border border-status-yellow/30 bg-status-yellow/10 px-4 py-4 text-sm text-text-secondary">
-              Esta ação criar? um novo save completo com 196 pilotos, 71 equipes e o calendário
-              inicial da carreira.
+              Esta ação ativa o save em 2025, insere o jogador como N2 e mantém o histórico
+              simulado salvo para futuras telas de legado.
             </div>
           </div>
         </GlassCard>
@@ -335,7 +504,7 @@ function NewCareer() {
             </div>
             <div>
               <p className="text-text-muted">Equipe escolhida</p>
-              <p className="mt-1 text-text-primary">{selectedTeam?.country}</p>
+              <p className="mt-1 text-text-primary">{selectedTeam?.nome_curto}</p>
             </div>
             <div>
               <p className="text-text-muted">Perfil da IA</p>
@@ -379,7 +548,9 @@ function NewCareer() {
                 <p className="mt-2 text-base font-semibold text-text-primary">
                   {formData.playerName.trim() || "Piloto novo"}
                 </p>
-                <p className="mt-1">{selectedCategory.name}</p>
+                <p className="mt-1">
+                  {hasGeneratedDraft ? selectedCategory.name : "Histórico pendente"}
+                </p>
               </GlassCard>
             </div>
 
@@ -401,22 +572,25 @@ function NewCareer() {
               <div className="flex flex-col items-stretch gap-3 sm:flex-row">
                 <GlassButton
                   variant="secondary"
-                  onClick={() => {
-                    setError("");
-                    setStep(1);
-                    setFormData(INITIAL_FORM);
-                  }}
+                  onClick={handleResetWizard}
                 >
                   Reiniciar
                 </GlassButton>
 
-                {step < 5 ? (
+                {step === 3 ? (
+                  <GlassButton
+                    variant="primary"
+                    onClick={hasGeneratedDraft ? handleNext : handleGenerateDraft}
+                  >
+                    {hasGeneratedDraft ? "Escolher categoria" : "Gerar histórico"}
+                  </GlassButton>
+                ) : step < 6 ? (
                   <GlassButton variant="primary" onClick={handleNext}>
                     Próximo
                   </GlassButton>
                 ) : (
                   <GlassButton variant="success" onClick={handleCreateCareer}>
-                    Criar carreira
+                    Finalizar carreira
                   </GlassButton>
                 )}
               </div>
@@ -427,7 +601,7 @@ function NewCareer() {
 
       <LoadingOverlay
         open={loading}
-        title="Criando carreira"
+        title={step === 6 ? "Finalizando carreira" : "Gerando histórico"}
         message={LOADING_MESSAGES[loadingMessageIndex]}
       />
     </div>

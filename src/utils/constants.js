@@ -3,6 +3,7 @@
 export const WIZARD_STEPS = [
   "Dificuldade",
   "Piloto",
+  "Historico",
   "Categoria",
   "Equipe",
   "Confirmacao",
@@ -84,9 +85,9 @@ export const TEAM_PREVIEWS = {
 };
 
 export const LOADING_MESSAGES = [
-  "Criando pilotos...",
-  "Gerando equipes...",
-  "Montando contratos...",
-  "Preparando calendario...",
-  "Finalizando save...",
+  "Simulando temporadas antigas...",
+  "Registrando resultados historicos...",
+  "Movimentando pilotos e equipes...",
+  "Preparando o grid de 2025...",
+  "Finalizando o rascunho do save...",
 ];

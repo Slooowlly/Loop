@@ -8,7 +8,10 @@ function StepIndicator({ currentStep, steps }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-5 gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
+      >
         {steps.map((step, index) => {
           const stepNumber = index + 1;
           const isActive = stepNumber === currentStep;
