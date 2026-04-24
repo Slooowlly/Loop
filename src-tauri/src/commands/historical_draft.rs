@@ -16,7 +16,13 @@ use crate::db::queries::meta as meta_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::evolution::pipeline::run_end_of_season;
+use crate::generators::ids::{next_id, IdType};
+use crate::generators::nationality::format_nationality;
 use crate::generators::world::generate_historical_world;
+use crate::market::pipeline::fill_all_remaining_vacancies;
+use crate::models::contract::generate_initial_contract;
+use crate::models::driver::Driver;
+use crate::models::enums::{ContractStatus, TeamRole};
 use crate::models::license::grant_driver_license_for_category_if_needed;
 use crate::models::season::Season;
 
@@ -70,10 +76,10 @@ pub(crate) fn discard_career_draft_in_base_dir(_base_dir: &Path) -> Result<(), S
 }
 
 pub(crate) fn finalize_career_draft_in_base_dir(
-    _base_dir: &Path,
-    _input: FinalizeHistoricalDraftInput,
+    base_dir: &Path,
+    input: FinalizeHistoricalDraftInput,
 ) -> Result<CreateCareerResult, String> {
-    Err("Finalizacao de draft historico ainda nao implementada.".to_string())
+    finalize_career_draft(base_dir, input)
 }
 
 #[cfg(test)]
@@ -274,6 +280,142 @@ fn career_number_from_id(career_id: &str) -> Option<u32> {
     career_id.strip_prefix("career_")?.parse::<u32>().ok()
 }
 
+fn finalize_career_draft(
+    base_dir: &Path,
+    input: FinalizeHistoricalDraftInput,
+) -> Result<CreateCareerResult, String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let career_dir = config.saves_dir().join(&input.career_id);
+    let db_path = career_dir.join("career.db");
+    let meta_path = career_dir.join("meta.json");
+    if !career_dir.exists() {
+        return Err("Draft nao encontrado.".to_string());
+    }
+
+    let meta_content = std::fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Falha ao ler meta do draft: {e}"))?;
+    let mut meta: crate::config::app_config::SaveMeta = serde_json::from_str(&meta_content)
+        .map_err(|e| format!("Falha ao parsear meta do draft: {e}"))?;
+    if meta.lifecycle_status != SaveLifecycleStatus::Draft {
+        return Err("Somente drafts podem ser finalizados.".to_string());
+    }
+
+    let mut db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco do draft: {e}"))?;
+    let active_season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa do draft: {e}"))?
+        .ok_or_else(|| "Temporada ativa do draft nao encontrada.".to_string())?;
+    let mut selected_team = team_queries::get_team_by_id(&db.conn, &input.team_id)
+        .map_err(|e| format!("Falha ao buscar equipe selecionada: {e}"))?
+        .ok_or_else(|| "Equipe selecionada nao encontrada.".to_string())?;
+    if selected_team.categoria != input.category {
+        return Err("Equipe selecionada nao pertence a categoria escolhida.".to_string());
+    }
+    let displaced_n2 = selected_team
+        .piloto_2_id
+        .clone()
+        .ok_or_else(|| "Equipe selecionada nao possui N2 para substituir.".to_string())?;
+
+    let pending_nationality = meta
+        .pending_player_nationality
+        .clone()
+        .unwrap_or_else(|| "br".to_string());
+    let player_age = meta.pending_player_age.unwrap_or(20).clamp(16, 60);
+    let player_nationality = format_nationality(&pending_nationality, "M", "pt-BR");
+    let player_name = meta.player_name.clone();
+
+    let (player_id, player_team_id, player_team_name, total_drivers, total_teams, total_races) = db
+        .transaction(|tx| {
+            let player_id = next_id(tx, IdType::Driver)?;
+            let contract_id = next_id(tx, IdType::Contract)?;
+            let mut player = Driver::new_player(
+                player_id.clone(),
+                player_name.clone(),
+                player_nationality,
+                player_age as u32,
+                active_season.ano.max(0) as u32,
+            );
+            player.categoria_atual = Some(input.category.clone());
+            driver_queries::insert_driver(tx, &player)?;
+            grant_driver_license_for_category_if_needed(tx, &player.id, &input.category)
+                .map_err(DbError::Migration)?;
+
+            if let Some(displaced_contract) =
+                contract_queries::get_active_regular_contract_for_pilot(tx, &displaced_n2)?
+            {
+                contract_queries::update_contract_status(
+                    tx,
+                    &displaced_contract.id,
+                    &ContractStatus::Rescindido,
+                )?;
+            }
+
+            selected_team.piloto_2_id = Some(player.id.clone());
+            selected_team.hierarquia_n2_id = Some(player.id.clone());
+            selected_team.is_player_team = true;
+            team_queries::update_team(tx, &selected_team)?;
+
+            let player_contract = generate_initial_contract(
+                contract_id,
+                &player.id,
+                &player.nome,
+                &selected_team.id,
+                &selected_team.nome,
+                TeamRole::Numero2,
+                &input.category,
+                active_season.numero,
+            );
+            contract_queries::insert_contract(tx, &player_contract)?;
+
+            let total_drivers = driver_queries::count_drivers(tx)? as usize;
+            let total_teams = count_rows(tx, "teams")?;
+            let total_races = count_rows(tx, "calendar")?;
+
+            Ok((
+                player.id.clone(),
+                selected_team.id.clone(),
+                selected_team.nome.clone(),
+                total_drivers,
+                total_teams,
+                total_races,
+            ))
+        })
+        .map_err(|e| format!("Falha ao finalizar draft: {e}"))?;
+
+    meta.lifecycle_status = SaveLifecycleStatus::Active;
+    meta.current_season = active_season.numero.max(1) as u32;
+    meta.current_year = active_season.ano.max(0) as u32;
+    meta.team_name = Some(player_team_name.clone());
+    meta.category = input.category;
+    meta.total_races = total_races as i32;
+    meta.draft_progress_year = None;
+    meta.draft_error = None;
+    let payload = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Falha ao serializar meta finalizado: {e}"))?;
+    std::fs::write(&meta_path, payload)
+        .map_err(|e| format!("Falha ao gravar meta finalizado: {e}"))?;
+
+    Ok(CreateCareerResult {
+        success: true,
+        career_id: input.career_id,
+        save_path: career_dir.to_string_lossy().to_string(),
+        player_id,
+        player_team_id,
+        player_team_name,
+        season_id: active_season.id,
+        total_drivers,
+        total_teams,
+        total_races,
+        message: "Carreira historica criada com sucesso".to_string(),
+    })
+}
+
+fn count_rows(conn: &rusqlite::Connection, table: &str) -> Result<usize, DbError> {
+    let sql = format!("SELECT COUNT(*) FROM {table}");
+    let count: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
+    Ok(count as usize)
+}
+
 #[cfg(test)]
 pub(crate) fn create_historical_career_draft_for_range_for_test(
     base_dir: &Path,
@@ -314,6 +456,10 @@ fn simulate_historical_range(
             .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
             .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
         run_end_of_season(&mut db.conn, &season, career_dir)?;
+        let next_season = season_queries::get_active_season(&db.conn)
+            .map_err(|e| format!("Falha ao buscar proxima temporada historica: {e}"))?
+            .ok_or_else(|| "Proxima temporada historica nao encontrada.".to_string())?;
+        fill_all_remaining_vacancies(&db.conn, next_season.numero, &mut rand::thread_rng())?;
         clear_historical_news(&db.conn)?;
         clear_historical_preseason_plan(career_dir)?;
         update_draft_progress(career_dir, (season.ano + 1) as u32)?;
@@ -382,11 +528,14 @@ mod tests {
         create_historical_career_draft_base_for_test,
         create_historical_career_draft_for_range_for_test,
     };
-    use crate::commands::career_types::{CreateHistoricalDraftInput, SaveLifecycleStatus};
+    use crate::commands::career_types::{
+        CreateHistoricalDraftInput, FinalizeHistoricalDraftInput, SaveLifecycleStatus,
+    };
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
     use crate::db::queries::drivers as driver_queries;
     use crate::db::queries::seasons as season_queries;
+    use crate::db::queries::{contracts as contract_queries, teams as team_queries};
 
     #[test]
     fn create_draft_base_world_has_no_player_and_starts_in_2000() {
@@ -436,6 +585,66 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM news", [], |row| row.get(0))
             .expect("news count");
         assert_eq!(news_count, 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn finalize_draft_inserts_player_as_n2_and_displaces_existing_n2() {
+        let base_dir = unique_test_dir("finalize_draft");
+        let state = create_historical_career_draft_for_range_for_test(
+            &base_dir,
+            sample_draft_input(),
+            2000,
+            2000,
+            2001,
+        )
+        .expect("draft should be created");
+        let career_id = state.career_id.clone().expect("draft career id");
+        let db = open_draft_db(&base_dir, &career_id);
+        let selected_team = team_queries::get_teams_by_category(&db.conn, "mazda_rookie")
+            .expect("teams by category")
+            .into_iter()
+            .next()
+            .expect("at least one rookie team");
+        let displaced_n2 = selected_team
+            .piloto_2_id
+            .clone()
+            .expect("team should have N2 before finalization");
+        drop(db);
+
+        let result = super::finalize_career_draft_in_base_dir(
+            &base_dir,
+            FinalizeHistoricalDraftInput {
+                career_id: career_id.clone(),
+                category: selected_team.categoria.clone(),
+                team_id: selected_team.id.clone(),
+            },
+        )
+        .expect("finalize should succeed");
+
+        assert!(result.success);
+        let db = open_draft_db(&base_dir, &career_id);
+        let player = driver_queries::get_player_driver(&db.conn).expect("player should exist");
+        assert_eq!(player.stats_temporada.corridas, 0);
+        assert_eq!(player.stats_carreira.corridas, 0);
+        let refreshed_team = team_queries::get_team_by_id(&db.conn, &selected_team.id)
+            .expect("team query")
+            .expect("selected team");
+        assert_eq!(
+            refreshed_team.piloto_2_id.as_deref(),
+            Some(player.id.as_str())
+        );
+        assert_eq!(
+            refreshed_team.hierarquia_n2_id.as_deref(),
+            Some(player.id.as_str())
+        );
+        assert!(refreshed_team.is_player_team);
+        assert!(
+            contract_queries::get_active_regular_contract_for_pilot(&db.conn, &displaced_n2)
+                .expect("displaced contract query")
+                .is_none()
+        );
 
         let _ = std::fs::remove_dir_all(base_dir);
     }

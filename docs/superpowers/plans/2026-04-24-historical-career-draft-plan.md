@@ -430,7 +430,7 @@ cd src-tauri
 cargo test commands::historical_draft evolution::pipeline commands::race::tests::test_simulate_race_weekend_updates_state
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add src-tauri/src/commands/historical_draft.rs src-tauri/src/evolution src-tauri/src/db/migrations.rs
@@ -447,7 +447,7 @@ git commit -m "feat: simulate historical seasons for draft careers"
 - Modify: `src-tauri/src/db/queries/contracts.rs` if a helper for active-contract rescind is missing.
 - Modify: `src-tauri/src/db/queries/teams.rs` if a helper for replacing N2 is missing.
 
-- [ ] **Step 1: Write failing finalization test**
+- [x] **Step 1: Write failing finalization test**
 
 ```rust
 #[test]
@@ -473,7 +473,7 @@ fn finalize_draft_inserts_player_as_n2_and_displaces_existing_n2() {
 }
 ```
 
-- [ ] **Step 2: Run test and confirm it fails**
+- [x] **Step 2: Run test and confirm it fails**
 
 Run:
 
@@ -482,7 +482,7 @@ cd src-tauri
 cargo test commands::historical_draft::tests::finalize_draft_inserts_player_as_n2_and_displaces_existing_n2
 ```
 
-- [ ] **Step 3: Implement finalization transaction**
+- [x] **Step 3: Implement finalization transaction**
 
 Inside a database transaction:
 
@@ -499,7 +499,7 @@ Inside a database transaction:
 - insert player contract as `Numero2`;
 - update meta lifecycle to `active`.
 
-- [ ] **Step 4: Keep player stats zero**
+- [x] **Step 4: Keep player stats zero**
 
 Assert/ensure:
 
@@ -508,7 +508,7 @@ player.stats_temporada == DriverSeasonStats::default();
 player.stats_carreira == DriverCareerStats::default();
 ```
 
-- [ ] **Step 5: Run finalization tests**
+- [x] **Step 5: Run finalization tests**
 
 Run:
 
@@ -517,7 +517,7 @@ cd src-tauri
 cargo test commands::historical_draft::tests::finalize_draft
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src-tauri/src/commands/historical_draft.rs src-tauri/src/models src-tauri/src/db/queries
