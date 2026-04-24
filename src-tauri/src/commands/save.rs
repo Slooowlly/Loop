@@ -2,6 +2,7 @@ use chrono::Local;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
+use crate::commands::career_types::SaveLifecycleStatus;
 use crate::config::app_config::{AppConfig, SaveMeta};
 use crate::db::connection::Database;
 use crate::db::queries::contracts as contract_queries;
@@ -527,6 +528,14 @@ fn rebuild_meta_from_restored_db(career_dir: &Path) -> Result<(), String> {
             .unwrap_or_default(),
         difficulty: "medio".to_string(),
         total_races,
+        lifecycle_status: SaveLifecycleStatus::Active,
+        history_start_year: None,
+        history_end_year: None,
+        playable_start_year: None,
+        draft_progress_year: None,
+        draft_error: None,
+        pending_player_nationality: None,
+        pending_player_age: None,
     });
 
     meta.player_name = player.nome;

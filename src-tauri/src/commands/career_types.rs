@@ -4,6 +4,20 @@ use crate::commands::race_history::{RoundResult, TrophyInfo};
 use crate::event_interest::EventInterestSummary;
 use crate::evolution::pipeline::EndOfSeasonResult;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SaveLifecycleStatus {
+    Draft,
+    Failed,
+    Active,
+}
+
+impl Default for SaveLifecycleStatus {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCareerInput {
     pub player_name: String,

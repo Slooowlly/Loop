@@ -57,7 +57,7 @@
 - Modify: `src-tauri/src/commands/career_types.rs`
 - Modify: `src-tauri/src/config/app_config.rs`
 
-- [ ] **Step 1: Write tests for legacy active behavior**
+- [x] **Step 1: Write tests for legacy active behavior**
 
 Add or extend tests in `src-tauri/src/config/app_config.rs`:
 
@@ -69,7 +69,7 @@ fn list_saves_treats_missing_lifecycle_as_active() {
 }
 ```
 
-- [ ] **Step 2: Write tests for draft filtering**
+- [x] **Step 2: Write tests for draft filtering**
 
 ```rust
 #[test]
@@ -79,7 +79,7 @@ fn list_saves_excludes_draft_and_failed_saves() {
 }
 ```
 
-- [ ] **Step 3: Run tests and confirm they fail**
+- [x] **Step 3: Run tests and confirm they fail**
 
 Run:
 
@@ -90,7 +90,7 @@ cargo test config::app_config::tests::list_saves_treats_missing_lifecycle_as_act
 
 Expected: fail because lifecycle fields/filtering do not exist.
 
-- [ ] **Step 4: Add lifecycle metadata**
+- [x] **Step 4: Add lifecycle metadata**
 
 Add in `career_types.rs`:
 
@@ -131,11 +131,11 @@ pub pending_player_nationality: Option<String>,
 pub pending_player_age: Option<i32>,
 ```
 
-- [ ] **Step 5: Filter normal save listing**
+- [x] **Step 5: Filter normal save listing**
 
 In `AppConfig::list_saves`, only push metas with `lifecycle_status == SaveLifecycleStatus::Active`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -686,4 +686,3 @@ git commit -m "test: verify historical career draft flow"
 - If `race_results.json` becomes too large or too slow, prefer moving UI reads to SQLite instead of dropping historical facts.
 - If the current market preseason cannot run without a player, keep a historical AI-only vacancy filling path in `historical_draft.rs` and document the limitation.
 - Do not generate historical news as a shortcut for future history UI. Preserve facts first.
-

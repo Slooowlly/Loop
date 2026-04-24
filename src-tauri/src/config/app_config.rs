@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::commands::career_types::SaveLifecycleStatus;
+
 // ── SaveMeta — espelha career_NNN/meta.json ───────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +25,22 @@ pub struct SaveMeta {
     pub difficulty: String,
     #[serde(default)]
     pub total_races: i32,
+    #[serde(default)]
+    pub lifecycle_status: SaveLifecycleStatus,
+    #[serde(default)]
+    pub history_start_year: Option<u32>,
+    #[serde(default)]
+    pub history_end_year: Option<u32>,
+    #[serde(default)]
+    pub playable_start_year: Option<u32>,
+    #[serde(default)]
+    pub draft_progress_year: Option<u32>,
+    #[serde(default)]
+    pub draft_error: Option<String>,
+    #[serde(default)]
+    pub pending_player_nationality: Option<String>,
+    #[serde(default)]
+    pub pending_player_age: Option<i32>,
 }
 
 // ── AppConfig — espelha config.json ──────────────────────────────────────────
@@ -158,7 +176,9 @@ impl AppConfig {
                 let meta_path = entry.path().join("meta.json");
                 if let Ok(content) = std::fs::read_to_string(&meta_path) {
                     if let Ok(meta) = serde_json::from_str::<SaveMeta>(&content) {
-                        result.push(meta);
+                        if meta.lifecycle_status == SaveLifecycleStatus::Active {
+                            result.push(meta);
+                        }
                     }
                 }
             }
@@ -183,6 +203,66 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("iracer_app_config_{label}_{unique}"));
         fs::create_dir_all(&dir).expect("create temp config dir");
         dir
+    }
+
+    fn write_save_meta(
+        base_dir: &PathBuf,
+        career_id: &str,
+        player_name: &str,
+        lifecycle: Option<&str>,
+    ) {
+        let career_dir = base_dir.join("saves").join(career_id);
+        fs::create_dir_all(&career_dir).expect("create career dir");
+
+        let lifecycle_field = lifecycle
+            .map(|status| format!(r#","lifecycle_status":"{status}""#))
+            .unwrap_or_default();
+        let meta = format!(
+            r#"{{
+                "career_number": 1,
+                "player_name": "{player_name}",
+                "current_season": 1,
+                "current_year": 2025,
+                "created_at": "2026-04-24T10:00:00",
+                "last_played": "2026-04-24T10:00:00",
+                "team_name": "Equipe Teste",
+                "category": "mazda_rookie",
+                "difficulty": "medio",
+                "total_races": 58
+                {lifecycle_field}
+            }}"#
+        );
+        fs::write(career_dir.join("meta.json"), meta).expect("write save meta");
+    }
+
+    #[test]
+    fn list_saves_treats_missing_lifecycle_as_active() {
+        let base_dir = create_temp_base_dir("legacy_save_lifecycle");
+        write_save_meta(&base_dir, "career_001", "Piloto Legado", None);
+
+        let config = AppConfig::load_or_default(&base_dir);
+        let saves = config.list_saves();
+
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0].player_name, "Piloto Legado");
+
+        let _ = fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn list_saves_excludes_draft_and_failed_saves() {
+        let base_dir = create_temp_base_dir("draft_save_filter");
+        write_save_meta(&base_dir, "career_001", "Piloto Ativo", Some("active"));
+        write_save_meta(&base_dir, "career_002", "Piloto Draft", Some("draft"));
+        write_save_meta(&base_dir, "career_003", "Piloto Falho", Some("failed"));
+
+        let config = AppConfig::load_or_default(&base_dir);
+        let saves = config.list_saves();
+
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0].player_name, "Piloto Ativo");
+
+        let _ = fs::remove_dir_all(base_dir);
     }
 
     #[test]
