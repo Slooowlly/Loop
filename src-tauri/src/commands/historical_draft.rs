@@ -1,13 +1,14 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::Local;
 
 use crate::calendar::{generate_all_calendars_with_year, CalendarEntry};
 use crate::commands::career_types::{
-    CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, FinalizeHistoricalDraftInput,
-    SaveLifecycleStatus,
+    CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, DraftTeamOption,
+    FinalizeHistoricalDraftInput, SaveLifecycleStatus,
 };
 use crate::config::app_config::AppConfig;
+use crate::config::app_config::SaveMeta;
 use crate::db::connection::{Database, DbError};
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
@@ -29,6 +30,7 @@ use crate::models::season::Season;
 const HISTORY_START_YEAR: i32 = 2000;
 const HISTORY_END_YEAR: i32 = 2024;
 const PLAYABLE_START_YEAR: i32 = 2025;
+const STARTING_CATEGORY_IDS: [&str; 2] = ["mazda_rookie", "toyota_rookie"];
 
 pub(crate) fn create_historical_career_draft_in_base_dir(
     base_dir: &Path,
@@ -59,20 +61,34 @@ pub(crate) fn create_historical_career_draft_in_base_dir(
     })
 }
 
-pub(crate) fn get_career_draft_in_base_dir(_base_dir: &Path) -> Result<CareerDraftState, String> {
-    Ok(CareerDraftState {
-        exists: false,
-        career_id: None,
-        lifecycle_status: SaveLifecycleStatus::Active,
-        progress_year: None,
-        error: None,
-        categories: Vec::new(),
-        teams: Vec::new(),
-    })
+pub(crate) fn get_career_draft_in_base_dir(base_dir: &Path) -> Result<CareerDraftState, String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let Some((career_id, career_dir, meta)) = find_latest_draft(&config)? else {
+        return Ok(empty_draft_state());
+    };
+
+    build_draft_state(&career_id, &career_dir, &meta)
 }
 
-pub(crate) fn discard_career_draft_in_base_dir(_base_dir: &Path) -> Result<(), String> {
-    Err("Descarte de draft historico ainda nao implementado.".to_string())
+pub(crate) fn discard_career_draft_in_base_dir(base_dir: &Path) -> Result<(), String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let Some((_career_id, career_dir, _meta)) = find_latest_draft(&config)? else {
+        return Ok(());
+    };
+
+    let saves_dir = config
+        .saves_dir()
+        .canonicalize()
+        .map_err(|e| format!("Falha ao resolver diretorio de saves: {e}"))?;
+    let target_dir = career_dir
+        .canonicalize()
+        .map_err(|e| format!("Falha ao resolver diretorio do draft: {e}"))?;
+    if !target_dir.starts_with(&saves_dir) {
+        return Err("Diretorio do draft fora da pasta de saves.".to_string());
+    }
+
+    std::fs::remove_dir_all(&target_dir)
+        .map_err(|e| format!("Falha ao descartar draft historico: {e}"))
 }
 
 pub(crate) fn finalize_career_draft_in_base_dir(
@@ -416,6 +432,113 @@ fn count_rows(conn: &rusqlite::Connection, table: &str) -> Result<usize, DbError
     Ok(count as usize)
 }
 
+fn empty_draft_state() -> CareerDraftState {
+    CareerDraftState {
+        exists: false,
+        career_id: None,
+        lifecycle_status: SaveLifecycleStatus::Active,
+        progress_year: None,
+        error: None,
+        categories: Vec::new(),
+        teams: Vec::new(),
+    }
+}
+
+fn find_latest_draft(config: &AppConfig) -> Result<Option<(String, PathBuf, SaveMeta)>, String> {
+    let saves_dir = config.saves_dir();
+    if !saves_dir.exists() {
+        return Ok(None);
+    }
+
+    let entries = std::fs::read_dir(&saves_dir)
+        .map_err(|e| format!("Falha ao listar saves para buscar draft: {e}"))?;
+    let mut candidates = Vec::new();
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let career_dir = entry.path();
+        let career_id = entry.file_name().to_string_lossy().to_string();
+        if !career_id.starts_with("career_") {
+            continue;
+        }
+        let meta_path = career_dir.join("meta.json");
+        let Ok(content) = std::fs::read_to_string(&meta_path) else {
+            continue;
+        };
+        let Ok(meta) = serde_json::from_str::<SaveMeta>(&content) else {
+            continue;
+        };
+        if matches!(
+            meta.lifecycle_status,
+            SaveLifecycleStatus::Draft | SaveLifecycleStatus::Failed
+        ) {
+            candidates.push((career_id, career_dir, meta));
+        }
+    }
+
+    candidates.sort_by(|a, b| b.2.last_played.cmp(&a.2.last_played));
+    Ok(candidates.into_iter().next())
+}
+
+fn build_draft_state(
+    career_id: &str,
+    career_dir: &Path,
+    meta: &SaveMeta,
+) -> Result<CareerDraftState, String> {
+    let mut state = CareerDraftState {
+        exists: true,
+        career_id: Some(career_id.to_string()),
+        lifecycle_status: meta.lifecycle_status,
+        progress_year: meta.draft_progress_year,
+        error: meta.draft_error.clone(),
+        categories: Vec::new(),
+        teams: Vec::new(),
+    };
+
+    if meta.lifecycle_status == SaveLifecycleStatus::Failed {
+        return Ok(state);
+    }
+
+    let db_path = career_dir.join("career.db");
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco do draft: {e}"))?;
+    let teams = team_queries::get_all_teams(&db.conn)
+        .map_err(|e| format!("Falha ao listar equipes do draft: {e}"))?;
+
+    for category_id in STARTING_CATEGORY_IDS {
+        let mut category_has_team = false;
+        for team in teams
+            .iter()
+            .filter(|team| team.ativa && team.categoria == category_id)
+        {
+            category_has_team = true;
+            state.teams.push(DraftTeamOption {
+                id: team.id.clone(),
+                nome: team.nome.clone(),
+                nome_curto: team.nome_curto.clone(),
+                categoria: team.categoria.clone(),
+                cor_primaria: team.cor_primaria.clone(),
+                cor_secundaria: team.cor_secundaria.clone(),
+                car_performance: team.car_performance,
+                reputacao: team.reputacao,
+                n1_nome: optional_driver_name(&db.conn, team.piloto_1_id.as_deref()),
+                n2_nome: optional_driver_name(&db.conn, team.piloto_2_id.as_deref()),
+            });
+        }
+        if category_has_team {
+            state.categories.push(category_id.to_string());
+        }
+    }
+
+    Ok(state)
+}
+
+fn optional_driver_name(conn: &rusqlite::Connection, driver_id: Option<&str>) -> Option<String> {
+    driver_id.and_then(|id| {
+        driver_queries::get_driver(conn, id)
+            .ok()
+            .map(|driver| driver.nome)
+    })
+}
+
 #[cfg(test)]
 pub(crate) fn create_historical_career_draft_for_range_for_test(
     base_dir: &Path,
@@ -526,7 +649,8 @@ mod tests {
 
     use super::{
         create_historical_career_draft_base_for_test,
-        create_historical_career_draft_for_range_for_test,
+        create_historical_career_draft_for_range_for_test, discard_career_draft_in_base_dir,
+        get_career_draft_in_base_dir,
     };
     use crate::commands::career_types::{
         CreateHistoricalDraftInput, FinalizeHistoricalDraftInput, SaveLifecycleStatus,
@@ -585,6 +709,49 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM news", [], |row| row.get(0))
             .expect("news count");
         assert_eq!(news_count, 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn get_draft_returns_generated_starting_categories_and_teams() {
+        let base_dir = unique_test_dir("get_draft");
+        let input = sample_draft_input();
+        let created =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+                .expect("draft should be created");
+
+        let state = get_career_draft_in_base_dir(&base_dir).expect("draft state");
+
+        assert!(state.exists);
+        assert_eq!(state.career_id, created.career_id);
+        assert_eq!(state.lifecycle_status, SaveLifecycleStatus::Draft);
+        assert!(state.categories.contains(&"mazda_rookie".to_string()));
+        assert!(state.categories.contains(&"toyota_rookie".to_string()));
+        assert!(state.teams.iter().any(|team| {
+            team.categoria == "mazda_rookie" && team.n1_nome.is_some() && team.n2_nome.is_some()
+        }));
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn discard_draft_removes_rascunho_save() {
+        let base_dir = unique_test_dir("discard_draft");
+        let input = sample_draft_input();
+        let created =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+                .expect("draft should be created");
+        let career_id = created.career_id.expect("draft career id");
+        let config = AppConfig::load_or_default(&base_dir);
+        let career_dir = config.saves_dir().join(&career_id);
+        assert!(career_dir.exists());
+
+        discard_career_draft_in_base_dir(&base_dir).expect("discard should succeed");
+
+        assert!(!career_dir.exists());
+        let state = get_career_draft_in_base_dir(&base_dir).expect("draft state");
+        assert!(!state.exists);
 
         let _ = std::fs::remove_dir_all(base_dir);
     }
