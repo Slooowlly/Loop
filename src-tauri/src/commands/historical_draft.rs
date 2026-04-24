@@ -15,6 +15,7 @@ use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::meta as meta_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
+use crate::evolution::pipeline::run_end_of_season;
 use crate::generators::world::generate_historical_world;
 use crate::models::license::grant_driver_license_for_category_if_needed;
 use crate::models::season::Season;
@@ -27,7 +28,29 @@ pub(crate) fn create_historical_career_draft_in_base_dir(
     base_dir: &Path,
     input: CreateHistoricalDraftInput,
 ) -> Result<CareerDraftState, String> {
-    create_historical_career_draft_base(base_dir, input)
+    let state = create_historical_career_draft_base(base_dir, input)?;
+    let career_id = state
+        .career_id
+        .clone()
+        .ok_or_else(|| "Draft sem career_id".to_string())?;
+    let config = AppConfig::load_or_default(base_dir);
+    let career_dir = config.saves_dir().join(&career_id);
+    let db_path = career_dir.join("career.db");
+    let mut db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco do draft: {e}"))?;
+
+    simulate_historical_range(
+        &mut db,
+        &career_dir,
+        HISTORY_START_YEAR,
+        HISTORY_END_YEAR,
+        PLAYABLE_START_YEAR,
+    )?;
+
+    Ok(CareerDraftState {
+        progress_year: Some(PLAYABLE_START_YEAR as u32),
+        ..state
+    })
 }
 
 pub(crate) fn get_career_draft_in_base_dir(_base_dir: &Path) -> Result<CareerDraftState, String> {
@@ -252,10 +275,113 @@ fn career_number_from_id(career_id: &str) -> Option<u32> {
 }
 
 #[cfg(test)]
+pub(crate) fn create_historical_career_draft_for_range_for_test(
+    base_dir: &Path,
+    input: CreateHistoricalDraftInput,
+    start_year: i32,
+    end_year: i32,
+    playable_year: i32,
+) -> Result<CareerDraftState, String> {
+    let state = create_historical_career_draft_base(base_dir, input)?;
+    let career_id = state
+        .career_id
+        .clone()
+        .ok_or_else(|| "Draft sem career_id".to_string())?;
+    let config = AppConfig::load_or_default(base_dir);
+    let career_dir = config.saves_dir().join(&career_id);
+    let db_path = career_dir.join("career.db");
+    let mut db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco do draft: {e}"))?;
+
+    simulate_historical_range(&mut db, &career_dir, start_year, end_year, playable_year)?;
+
+    Ok(CareerDraftState {
+        progress_year: Some(playable_year as u32),
+        ..state
+    })
+}
+
+fn simulate_historical_range(
+    db: &mut Database,
+    career_dir: &Path,
+    start_year: i32,
+    end_year: i32,
+    playable_year: i32,
+) -> Result<(), String> {
+    for _year in start_year..=end_year {
+        simulate_current_historical_season(db)?;
+        let season = season_queries::get_active_season(&db.conn)
+            .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
+            .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
+        run_end_of_season(&mut db.conn, &season, career_dir)?;
+        clear_historical_news(&db.conn)?;
+        clear_historical_preseason_plan(career_dir)?;
+        update_draft_progress(career_dir, (season.ano + 1) as u32)?;
+    }
+
+    let active_season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada jogavel ativa: {e}"))?
+        .ok_or_else(|| "Temporada jogavel ativa nao encontrada.".to_string())?;
+    if active_season.ano != playable_year {
+        return Err(format!(
+            "Ano jogavel esperado {playable_year}, encontrado {}.",
+            active_season.ano
+        ));
+    }
+    Ok(())
+}
+
+fn update_draft_progress(career_dir: &Path, progress_year: u32) -> Result<(), String> {
+    let meta_path = career_dir.join("meta.json");
+    let content = std::fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Falha ao ler meta do draft: {e}"))?;
+    let mut meta: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Falha ao parsear meta do draft: {e}"))?;
+    meta["draft_progress_year"] = serde_json::json!(progress_year);
+    meta["current_year"] = serde_json::json!(progress_year);
+    let payload = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Falha ao serializar progresso do draft: {e}"))?;
+    std::fs::write(&meta_path, payload)
+        .map_err(|e| format!("Falha ao gravar progresso do draft: {e}"))
+}
+
+fn clear_historical_news(conn: &rusqlite::Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM news", [])
+        .map_err(|e| format!("Falha ao limpar noticias historicas: {e}"))?;
+    Ok(())
+}
+
+fn clear_historical_preseason_plan(career_dir: &Path) -> Result<(), String> {
+    let path = career_dir.join("preseason_plan.json");
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Falha ao limpar plano de pre-temporada historico: {e}"))?;
+    }
+    Ok(())
+}
+
+fn simulate_current_historical_season(db: &mut Database) -> Result<(), String> {
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
+        .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
+    let pending_races = calendar_queries::get_pending_races(&db.conn, &season.id)
+        .map_err(|e| format!("Falha ao buscar corridas historicas pendentes: {e}"))?;
+
+    for race in &pending_races {
+        crate::commands::race::simulate_category_race(db, race, false)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::create_historical_career_draft_base_for_test;
+    use super::{
+        create_historical_career_draft_base_for_test,
+        create_historical_career_draft_for_range_for_test,
+    };
     use crate::commands::career_types::{CreateHistoricalDraftInput, SaveLifecycleStatus};
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
@@ -278,6 +404,38 @@ mod tests {
             .expect("season query")
             .expect("active season");
         assert_eq!(season.ano, 2000);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_reaches_playable_year_with_results_and_no_news() {
+        let base_dir = unique_test_dir("historical_short");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2001, 2002)
+                .expect("historical generation should finish");
+
+        assert_eq!(state.lifecycle_status, SaveLifecycleStatus::Draft);
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("season query")
+            .expect("active season");
+        assert_eq!(season.ano, 2002);
+
+        let result_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM race_results", [], |row| row.get(0))
+            .expect("race result count");
+        assert!(result_count > 0);
+
+        let news_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM news", [], |row| row.get(0))
+            .expect("news count");
+        assert_eq!(news_count, 0);
 
         let _ = std::fs::remove_dir_all(base_dir);
     }

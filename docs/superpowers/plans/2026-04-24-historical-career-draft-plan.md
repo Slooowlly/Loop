@@ -325,7 +325,7 @@ cd src-tauri
 cargo test commands::historical_draft::tests::create_draft_base_world_has_no_player_and_starts_in_2000 generators::world
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src-tauri/src/generators/world.rs src-tauri/src/commands/historical_draft.rs
@@ -342,7 +342,7 @@ git commit -m "feat: create playerless historical draft world"
 - Modify: `src-tauri/src/evolution/season_transition.rs`
 - Modify: `src-tauri/src/db/migrations.rs` if team archive is added now.
 
-- [ ] **Step 1: Write reduced-range test first**
+- [x] **Step 1: Write reduced-range test first**
 
 Use a test-only helper to simulate a shorter range, such as 2000-2001, to keep tests fast:
 
@@ -366,7 +366,7 @@ fn historical_simulation_reaches_playable_year_with_results_and_no_news() {
 }
 ```
 
-- [ ] **Step 2: Run test and confirm it fails**
+- [x] **Step 2: Run test and confirm it fails**
 
 Run:
 
@@ -375,7 +375,7 @@ cd src-tauri
 cargo test commands::historical_draft::tests::historical_simulation_reaches_playable_year_with_results_and_no_news
 ```
 
-- [ ] **Step 3: Implement historical season loop**
+- [x] **Step 3: Implement historical season loop**
 
 In `historical_draft.rs`, add an internal function:
 
@@ -396,15 +396,15 @@ fn simulate_historical_range(
 }
 ```
 
-- [ ] **Step 4: Simulate races without news**
+- [x] **Step 4: Simulate races without news**
 
 Use `crate::commands::race::simulate_category_race(&mut db, &race, false)` for each pending race. Append to `race_results.json` only if current UI needs it.
 
-- [ ] **Step 5: Handle special phases**
+- [x] **Step 5: Handle special phases**
 
 Use the same phase transitions as `skip_all_pending_races_in_base_dir`, but without player-specific branches.
 
-- [ ] **Step 6: Add historical end-of-season option if needed**
+- [x] **Step 6: Add historical end-of-season option if needed**
 
 If `run_end_of_season` creates playable-only side effects, add:
 
@@ -417,11 +417,11 @@ pub struct EndOfSeasonOptions {
 
 Keep existing `run_end_of_season` behavior by delegating to an options version with playable defaults.
 
-- [ ] **Step 7: Ensure no historical backups/news**
+- [x] **Step 7: Ensure no historical backups/news**
 
 Do not call `advance_season_in_base_dir` for historical years because it creates backups and resume context.
 
-- [ ] **Step 8: Run focused backend tests**
+- [x] **Step 8: Run focused backend tests**
 
 Run:
 
