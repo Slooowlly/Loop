@@ -2,7 +2,9 @@ use rand::Rng;
 
 use crate::constants::categories::get_category_config;
 use crate::finance::salary::calculate_offer_salary_from_money;
-use crate::market::proposals::{MarketProposal, ProposalStatus, Vacancy};
+use crate::market::proposals::{
+    is_real_career_debut_category, MarketProposal, ProposalStatus, Vacancy,
+};
 use crate::market::visibility::{
     derive_market_visibility_profile, MarketVisibilityProfile, MarketVisibilityTier,
 };
@@ -43,6 +45,8 @@ pub fn generate_team_proposals(
                 && !available.driver.is_jogador
                 && available.category_tier.abs_diff(vacancy.category_tier) <= 1
                 && license_ok
+                && (is_real_career_debut_category(&vacancy.categoria)
+                    || available.driver.stats_carreira.corridas > 0)
         })
         .collect();
 
@@ -206,6 +210,22 @@ mod tests {
     }
 
     #[test]
+    fn test_proposals_do_not_offer_non_rookie_seat_to_career_debutant() {
+        let vacancy = sample_vacancy(4);
+        let mut debutant = sample_available_driver("P001", "gt3", 4, 7.5, 82.0);
+        debutant.driver.stats_carreira.corridas = 0;
+        debutant.max_license_level = Some(10);
+        let mut rng = StdRng::seed_from_u64(12);
+
+        let proposals = generate_team_proposals(&vacancy, &[debutant], 2, &mut rng);
+
+        assert!(
+            proposals.is_empty(),
+            "piloto com zero corridas nao deve receber proposta direta para categoria acima de rookie"
+        );
+    }
+
+    #[test]
     fn test_proposals_respect_tier_limit() {
         let vacancy = sample_vacancy(2);
         let available = vec![
@@ -321,6 +341,8 @@ mod tests {
         );
         driver.atributos.skill = skill;
         driver.atributos.consistencia = 65.0;
+        driver.stats_carreira.corridas = 24;
+        driver.stats_carreira.temporadas = 3;
         AvailableDriver {
             driver,
             visibility,

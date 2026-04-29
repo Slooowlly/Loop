@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::constants::categories::is_especial;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
-use crate::promotion::block1::execute_block1;
+use crate::promotion::block1::execute_block1_for_year;
 use crate::promotion::block2::execute_block2_with_exclusions;
 use crate::promotion::block3::execute_block3;
 use crate::promotion::effects::{
@@ -45,13 +45,22 @@ pub fn run_promotion_relegation(
     season_number: i32,
     rng: &mut impl Rng,
 ) -> Result<PromotionResult, String> {
+    run_promotion_relegation_for_year(conn, season_number, i32::MAX, rng)
+}
+
+pub(crate) fn run_promotion_relegation_for_year(
+    conn: &Connection,
+    season_number: i32,
+    season_year: i32,
+    rng: &mut impl Rng,
+) -> Result<PromotionResult, String> {
     if season_number < 1 {
         return Ok(PromotionResult::empty());
     }
 
     with_savepoint(conn, "promotion_run", || {
         let mut all_movements = Vec::new();
-        let block1_movements = execute_block1(conn, rng)?;
+        let block1_movements = execute_block1_for_year(conn, season_year, rng)?;
         let excluded_from_block2: HashSet<String> = block1_movements
             .iter()
             .filter(|movement| {

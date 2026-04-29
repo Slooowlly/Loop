@@ -26,12 +26,12 @@ pub fn calculate_relegation_effects(team: &Team, rng: &mut impl Rng) -> TeamAttr
         team_id: team.id.clone(),
         team_name: team.nome.clone(),
         movement_type: MovementType::Rebaixamento,
-        car_performance_delta: rng.gen_range(-8.0..=-3.0),
-        budget_delta: rng.gen_range(-15.0..=-5.0),
-        facilities_delta: rng.gen_range(-3.0..=0.0),
-        engineering_delta: rng.gen_range(-5.0..=-1.0),
-        morale_multiplier: 0.75,
-        reputacao_delta: rng.gen_range(-10.0..=-5.0),
+        car_performance_delta: rng.gen_range(-16.0..=-10.0),
+        budget_delta: rng.gen_range(-30.0..=-20.0),
+        facilities_delta: rng.gen_range(-15.0..=-8.0),
+        engineering_delta: rng.gen_range(-15.0..=-8.0),
+        morale_multiplier: 0.60,
+        reputacao_delta: rng.gen_range(-25.0..=-15.0),
     }
 }
 
@@ -108,6 +108,21 @@ mod tests {
         assert!(delta.engineering_delta < 0.0);
         assert!(delta.morale_multiplier < 1.0);
         assert!(delta.reputacao_delta < 0.0);
+    }
+
+    #[test]
+    fn test_relegation_effects_are_heavy_enough_to_limit_immediate_bounce_back() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let team = sample_team("mazda_rookie", "T001");
+
+        let delta = calculate_relegation_effects(&team, &mut rng);
+
+        assert!(delta.car_performance_delta <= -10.0);
+        assert!(delta.budget_delta <= -20.0);
+        assert!(delta.facilities_delta <= -8.0);
+        assert!(delta.engineering_delta <= -8.0);
+        assert!(delta.morale_multiplier <= 0.65);
+        assert!(delta.reputacao_delta <= -15.0);
     }
 
     #[test]

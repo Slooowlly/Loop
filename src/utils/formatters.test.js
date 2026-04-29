@@ -20,4 +20,9 @@ describe("nationality flag formatting", () => {
     expect(extractFlag("Brasil")).toBe("\u{1F1E7}\u{1F1F7}");
     expect(extractNationalityCode("Portugal")).toBe("pt");
   });
+
+  it("recognizes stored Argentine country-code labels", () => {
+    expect(extractNationalityCode("AR Argentino")).toBe("ar");
+    expect(extractFlag("AR Argentino")).toBe("\u{1F1E6}\u{1F1F7}");
+  });
 });

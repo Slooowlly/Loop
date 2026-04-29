@@ -14,6 +14,7 @@ import TeamCard from "../components/wizard/TeamCard";
 import useCareerStore from "../stores/useCareerStore";
 import {
   DIFFICULTIES,
+  LOADING_MESSAGE_INTERVAL_MS,
   LOADING_MESSAGES,
   NATIONALITIES,
   STARTING_CATEGORIES,
@@ -85,7 +86,7 @@ function NewCareer() {
 
     const timer = window.setInterval(() => {
       setLoadingMessageIndex((current) => (current + 1) % LOADING_MESSAGES.length);
-    }, 900);
+    }, LOADING_MESSAGE_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
   }, [loading]);

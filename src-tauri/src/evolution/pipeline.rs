@@ -24,22 +24,45 @@ use crate::evolution::season_transition::{
 };
 use crate::evolution::standings::build_and_persist_standings;
 use crate::generators::ids::{next_ids, IdType};
-use crate::market::preseason::{initialize_preseason, save_preseason_plan};
+use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::enums::DriverStatus;
 use crate::models::season::Season;
 use crate::models::team::Team;
-use crate::promotion::pipeline::run_promotion_relegation;
+use crate::promotion::pipeline::run_promotion_relegation_for_year;
 use crate::rivalry::apply_season_end_rivalry_decay;
 
 // Reexports para compatibilidade — callsites externos usam crate::evolution::pipeline::*
 pub use crate::evolution::context::{EndOfSeasonResult, RetirementInfo, RookieInfo};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndOfSeasonMode {
+    Playable,
+    HistoricalDraft,
+}
+
 pub fn run_end_of_season(
     conn: &mut Connection,
     season: &Season,
     save_path: &Path,
+) -> Result<EndOfSeasonResult, String> {
+    run_end_of_season_with_mode(conn, season, save_path, EndOfSeasonMode::Playable)
+}
+
+pub(crate) fn run_historical_end_of_season(
+    conn: &mut Connection,
+    season: &Season,
+    save_path: &Path,
+) -> Result<EndOfSeasonResult, String> {
+    run_end_of_season_with_mode(conn, season, save_path, EndOfSeasonMode::HistoricalDraft)
+}
+
+fn run_end_of_season_with_mode(
+    conn: &mut Connection,
+    season: &Season,
+    save_path: &Path,
+    mode: EndOfSeasonMode,
 ) -> Result<EndOfSeasonResult, String> {
     let mut rng = StdRng::seed_from_u64(((season.numero as u64) << 32) | season.ano as u64);
     let tx = conn
@@ -76,8 +99,9 @@ pub fn run_end_of_season(
 
     let rookies_generated = process_rookie_phase(&tx, existing_names, &mut rng)?;
 
-    let promotion_result = run_promotion_relegation(&tx, season.numero, &mut rng)
-        .map_err(|e| format!("Erro na promocao/rebaixamento: {e}"))?;
+    let promotion_result =
+        run_promotion_relegation_for_year(&tx, season.numero, season.ano, &mut rng)
+            .map_err(|e| format!("Erro na promocao/rebaixamento: {e}"))?;
 
     apply_season_end_rivalry_decay(&tx, season.numero)
         .map_err(|e| format!("Erro no decaimento de rivalidades: {e}"))?;
@@ -85,7 +109,7 @@ pub fn run_end_of_season(
     let new_season = create_next_season_phase(&tx, season, &mut rng)?;
 
     let (preseason_initialized, preseason_total_weeks) =
-        initialize_preseason_phase(&tx, &new_season, save_path, &mut rng)?;
+        initialize_preseason_phase(&tx, &new_season, save_path, &mut rng, mode)?;
 
     tx.commit().map_err(|e| {
         let _ = std::fs::remove_file(save_path.join("preseason_plan.json"));
@@ -293,11 +317,19 @@ fn initialize_preseason_phase(
     new_season: &Season,
     save_path: &Path,
     rng: &mut impl Rng,
+    mode: EndOfSeasonMode,
 ) -> Result<(bool, i32), String> {
-    let preseason_plan = initialize_preseason(conn, new_season.numero, rng)
+    let mut preseason_plan = initialize_preseason(conn, new_season.numero, rng)
         .map_err(|e| format!("Erro ao inicializar pre-temporada: {e}"))?;
-    save_preseason_plan(save_path, &preseason_plan)
-        .map_err(|e| format!("Erro ao salvar plano da pre-temporada: {e}"))?;
+    if mode == EndOfSeasonMode::Playable {
+        save_preseason_plan(save_path, &preseason_plan)
+            .map_err(|e| format!("Erro ao salvar plano da pre-temporada: {e}"))?;
+    } else {
+        while !preseason_plan.state.is_complete {
+            advance_week(conn, &mut preseason_plan)
+                .map_err(|e| format!("Erro ao executar pre-temporada historica: {e}"))?;
+        }
+    }
     Ok((true, preseason_plan.state.total_weeks))
 }
 

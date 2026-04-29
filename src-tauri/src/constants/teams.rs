@@ -571,8 +571,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("BMW"),
         classe: None,
         car_performance_base: 8.0,
-        budget_base: 62.0,
-        reputacao_base: 57.0,
+        budget_base: 66.0,
+        reputacao_base: 64.0,
     },
     TeamTemplate {
         nome: "Toksport World Racing",
@@ -583,9 +583,9 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "🇩🇪 Alemanha",
         marca: Some("BMW"),
         classe: None,
-        car_performance_base: 5.0,
-        budget_base: 50.0,
-        reputacao_base: 46.0,
+        car_performance_base: 4.5,
+        budget_base: 44.0,
+        reputacao_base: 42.0,
     },
     TeamTemplate {
         nome: "Stuttgart Racing Academy",
@@ -597,8 +597,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Porsche"),
         classe: None,
         car_performance_base: 9.0,
-        budget_base: 67.0,
-        reputacao_base: 62.0,
+        budget_base: 72.0,
+        reputacao_base: 70.0,
     },
     TeamTemplate {
         nome: "Grove Drive Racing",
@@ -610,8 +610,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Porsche"),
         classe: None,
         car_performance_base: 6.0,
-        budget_base: 53.0,
-        reputacao_base: 49.0,
+        budget_base: 54.0,
+        reputacao_base: 52.0,
     },
     TeamTemplate {
         nome: "Formosa Corsa",
@@ -623,8 +623,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Mercedes-AMG"),
         classe: None,
         car_performance_base: 7.0,
-        budget_base: 58.0,
-        reputacao_base: 53.0,
+        budget_base: 60.0,
+        reputacao_base: 58.0,
     },
     TeamTemplate {
         nome: "Silver Peak Performance",
@@ -636,8 +636,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Mercedes-AMG"),
         classe: None,
         car_performance_base: 4.0,
-        budget_base: 44.0,
-        reputacao_base: 40.0,
+        budget_base: 40.0,
+        reputacao_base: 38.0,
     },
     TeamTemplate {
         nome: "Heart of Racing",
@@ -649,8 +649,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Aston Martin"),
         classe: None,
         car_performance_base: 9.5,
-        budget_base: 69.0,
-        reputacao_base: 64.0,
+        budget_base: 75.0,
+        reputacao_base: 72.0,
     },
     TeamTemplate {
         nome: "North Sea Motorsport",
@@ -662,8 +662,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("McLaren"),
         classe: None,
         car_performance_base: 7.5,
-        budget_base: 61.0,
-        reputacao_base: 56.0,
+        budget_base: 63.0,
+        reputacao_base: 61.0,
     },
     TeamTemplate {
         nome: "Aures Racing",
@@ -675,8 +675,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("McLaren"),
         classe: None,
         car_performance_base: 3.5,
-        budget_base: 42.0,
-        reputacao_base: 38.0,
+        budget_base: 38.0,
+        reputacao_base: 36.0,
     },
     TeamTemplate {
         nome: "Aichi Works",
@@ -688,8 +688,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Toyota"),
         classe: None,
         car_performance_base: 6.0,
-        budget_base: 54.0,
-        reputacao_base: 50.0,
+        budget_base: 55.0,
+        reputacao_base: 53.0,
     },
     TeamTemplate {
         nome: "Mercedes-AMG",
@@ -701,21 +701,8 @@ static TEAMS: &[TeamTemplate] = &[
         marca: Some("Mercedes-AMG"),
         classe: None,
         car_performance_base: 15.0,
-        budget_base: 83.0,
-        reputacao_base: 87.0,
-    },
-    TeamTemplate {
-        nome: "Lamborghini",
-        nome_curto: "LAM",
-        categoria: "gt3",
-        cor_primaria: "#ffd100",
-        cor_secundaria: "#ffd100",
-        pais_sede: "🇺🇸 EUA",
-        marca: Some("Lamborghini"),
-        classe: None,
-        car_performance_base: 14.0,
-        budget_base: 80.0,
-        reputacao_base: 84.0,
+        budget_base: 86.0,
+        reputacao_base: 88.0,
     },
     TeamTemplate {
         nome: "Porsche",
@@ -726,61 +713,9 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "🇺🇸 EUA",
         marca: Some("Porsche"),
         classe: None,
-        car_performance_base: 13.0,
-        budget_base: 77.0,
-        reputacao_base: 81.0,
-    },
-    TeamTemplate {
-        nome: "Aston Martin",
-        nome_curto: "AST",
-        categoria: "gt3",
-        cor_primaria: "#005f48",
-        cor_secundaria: "#005f48",
-        pais_sede: "🇺🇸 EUA",
-        marca: Some("Aston Martin"),
-        classe: None,
-        car_performance_base: 11.0,
-        budget_base: 72.0,
-        reputacao_base: 75.0,
-    },
-    TeamTemplate {
-        nome: "McLaren",
-        nome_curto: "MCL",
-        categoria: "gt3",
-        cor_primaria: "#ff8700",
-        cor_secundaria: "#ff8700",
-        pais_sede: "🇺🇸 EUA",
-        marca: Some("McLaren"),
-        classe: None,
-        car_performance_base: 10.5,
-        budget_base: 70.0,
-        reputacao_base: 73.0,
-    },
-    TeamTemplate {
-        nome: "Audi",
-        nome_curto: "AUD",
-        categoria: "gt3",
-        cor_primaria: "#bb0a21",
-        cor_secundaria: "#bb0a21",
-        pais_sede: "Alemanha",
-        marca: Some("Audi"),
-        classe: None,
-        car_performance_base: 9.0,
-        budget_base: 65.0,
-        reputacao_base: 68.0,
-    },
-    TeamTemplate {
-        nome: "BMW",
-        nome_curto: "BMW",
-        categoria: "gt3",
-        cor_primaria: "#0057b8",
-        cor_secundaria: "#0057b8",
-        pais_sede: "🇺🇸 EUA",
-        marca: Some("BMW"),
-        classe: None,
-        car_performance_base: 8.5,
-        budget_base: 63.0,
-        reputacao_base: 65.0,
+        car_performance_base: 14.5,
+        budget_base: 84.0,
+        reputacao_base: 86.0,
     },
     TeamTemplate {
         nome: "Ferrari",
@@ -791,9 +726,74 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "🇮🇹 Itália",
         marca: Some("Ferrari"),
         classe: None,
-        car_performance_base: 6.5,
-        budget_base: 55.0,
-        reputacao_base: 57.0,
+        car_performance_base: 14.0,
+        budget_base: 83.0,
+        reputacao_base: 85.0,
+    },
+    TeamTemplate {
+        nome: "McLaren",
+        nome_curto: "MCL",
+        categoria: "gt3",
+        cor_primaria: "#ff8700",
+        cor_secundaria: "#ff8700",
+        pais_sede: "🇺🇸 EUA",
+        marca: Some("McLaren"),
+        classe: None,
+        car_performance_base: 13.5,
+        budget_base: 81.0,
+        reputacao_base: 84.0,
+    },
+    TeamTemplate {
+        nome: "Lamborghini",
+        nome_curto: "LAM",
+        categoria: "gt3",
+        cor_primaria: "#ffd100",
+        cor_secundaria: "#ffd100",
+        pais_sede: "🇺🇸 EUA",
+        marca: Some("Lamborghini"),
+        classe: None,
+        car_performance_base: 13.0,
+        budget_base: 80.0,
+        reputacao_base: 83.0,
+    },
+    TeamTemplate {
+        nome: "BMW",
+        nome_curto: "BMW",
+        categoria: "gt3",
+        cor_primaria: "#0057b8",
+        cor_secundaria: "#0057b8",
+        pais_sede: "🇺🇸 EUA",
+        marca: Some("BMW"),
+        classe: None,
+        car_performance_base: 10.0,
+        budget_base: 68.0,
+        reputacao_base: 70.0,
+    },
+    TeamTemplate {
+        nome: "Audi",
+        nome_curto: "AUD",
+        categoria: "gt3",
+        cor_primaria: "#bb0a21",
+        cor_secundaria: "#bb0a21",
+        pais_sede: "Alemanha",
+        marca: Some("Audi"),
+        classe: None,
+        car_performance_base: 9.5,
+        budget_base: 66.0,
+        reputacao_base: 68.0,
+    },
+    TeamTemplate {
+        nome: "Aston Martin",
+        nome_curto: "AST",
+        categoria: "gt3",
+        cor_primaria: "#005f48",
+        cor_secundaria: "#005f48",
+        pais_sede: "🇺🇸 EUA",
+        marca: Some("Aston Martin"),
+        classe: None,
+        car_performance_base: 8.5,
+        budget_base: 64.0,
+        reputacao_base: 66.0,
     },
     TeamTemplate {
         nome: "Chevrolet",
@@ -804,9 +804,9 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "EUA",
         marca: Some("Chevrolet"),
         classe: None,
-        car_performance_base: 5.5,
-        budget_base: 50.0,
-        reputacao_base: 52.0,
+        car_performance_base: 7.0,
+        budget_base: 54.0,
+        reputacao_base: 56.0,
     },
     TeamTemplate {
         nome: "Ford Mustang",
@@ -817,9 +817,9 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "EUA",
         marca: Some("Ford Mustang"),
         classe: None,
-        car_performance_base: 4.5,
-        budget_base: 46.0,
-        reputacao_base: 48.0,
+        car_performance_base: 6.0,
+        budget_base: 52.0,
+        reputacao_base: 54.0,
     },
     TeamTemplate {
         nome: "Acura",
@@ -830,9 +830,9 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "EUA",
         marca: Some("Acura"),
         classe: None,
-        car_performance_base: 3.5,
-        budget_base: 44.0,
-        reputacao_base: 46.0,
+        car_performance_base: 4.5,
+        budget_base: 48.0,
+        reputacao_base: 50.0,
     },
     TeamTemplate {
         nome: "Obsidian",
@@ -844,7 +844,7 @@ static TEAMS: &[TeamTemplate] = &[
         marca: None,
         classe: None,
         car_performance_base: 2.0,
-        budget_base: 39.0,
+        budget_base: 38.0,
         reputacao_base: 36.0,
     },
     TeamTemplate {
@@ -857,7 +857,7 @@ static TEAMS: &[TeamTemplate] = &[
         marca: None,
         classe: None,
         car_performance_base: 1.0,
-        budget_base: 36.0,
+        budget_base: 35.0,
         reputacao_base: 33.0,
     },
     TeamTemplate {
@@ -869,8 +869,8 @@ static TEAMS: &[TeamTemplate] = &[
         pais_sede: "Noruega",
         marca: None,
         classe: None,
-        car_performance_base: -1.0,
-        budget_base: 35.0,
+        car_performance_base: 0.0,
+        budget_base: 33.0,
         reputacao_base: 31.0,
     },
     TeamTemplate {
@@ -1005,6 +1005,144 @@ mod tests {
         assert_eq!(get_team_templates("gt3").len(), 14);
     }
 
+    fn assert_category_tiers(
+        category: &str,
+        top_min_performance: f64,
+        mid_min_performance: f64,
+        expected_top: usize,
+        expected_mid: usize,
+        expected_bottom: usize,
+    ) {
+        let teams = get_team_templates(category);
+
+        let top: Vec<_> = teams
+            .iter()
+            .copied()
+            .filter(|team| team.car_performance_base >= top_min_performance)
+            .collect();
+        let mid: Vec<_> = teams
+            .iter()
+            .copied()
+            .filter(|team| {
+                team.car_performance_base >= mid_min_performance
+                    && team.car_performance_base < top_min_performance
+            })
+            .collect();
+        let bottom: Vec<_> = teams
+            .iter()
+            .copied()
+            .filter(|team| team.car_performance_base < mid_min_performance)
+            .collect();
+
+        assert_eq!(
+            top.len(),
+            expected_top,
+            "{category} deve ter {expected_top} equipes de topo"
+        );
+        assert_eq!(
+            mid.len(),
+            expected_mid,
+            "{category} deve ter {expected_mid} equipes de meio"
+        );
+        assert_eq!(
+            bottom.len(),
+            expected_bottom,
+            "{category} deve ter {expected_bottom} equipes abaixo da media"
+        );
+
+        let weakest_top_budget = top
+            .iter()
+            .map(|team| team.budget_base)
+            .fold(f64::INFINITY, f64::min);
+        let strongest_mid_budget = mid
+            .iter()
+            .map(|team| team.budget_base)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let weakest_mid_budget = mid
+            .iter()
+            .map(|team| team.budget_base)
+            .fold(f64::INFINITY, f64::min);
+        let strongest_bottom_budget = bottom
+            .iter()
+            .map(|team| team.budget_base)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let weakest_top_reputation = top
+            .iter()
+            .map(|team| team.reputacao_base)
+            .fold(f64::INFINITY, f64::min);
+        let strongest_mid_reputation = mid
+            .iter()
+            .map(|team| team.reputacao_base)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let weakest_mid_reputation = mid
+            .iter()
+            .map(|team| team.reputacao_base)
+            .fold(f64::INFINITY, f64::min);
+        let strongest_bottom_reputation = bottom
+            .iter()
+            .map(|team| team.reputacao_base)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        assert!(
+            weakest_top_budget > strongest_mid_budget,
+            "{category} deve manter orcamento de topo acima do meio"
+        );
+        assert!(
+            weakest_mid_budget > strongest_bottom_budget,
+            "{category} deve manter orcamento de meio acima das equipes fracas"
+        );
+        assert!(
+            weakest_top_reputation > strongest_mid_reputation,
+            "{category} deve manter reputacao de topo acima do meio"
+        );
+        assert!(
+            weakest_mid_reputation > strongest_bottom_reputation,
+            "{category} deve manter reputacao de meio acima das equipes fracas"
+        );
+    }
+
+    #[test]
+    fn test_gt4_team_templates_have_balanced_tiers() {
+        assert_category_tiers("gt4", 8.0, 5.0, 3, 4, 3);
+    }
+
+    #[test]
+    fn test_gt3_team_templates_have_balanced_tiers() {
+        assert_category_tiers("gt3", 13.0, 4.0, 5, 6, 3);
+    }
+
+    #[test]
+    fn test_gt3_factory_giants_are_title_contenders() {
+        let teams = get_team_templates("gt3");
+
+        for brand in [
+            "Mercedes-AMG",
+            "Porsche",
+            "Ferrari",
+            "McLaren",
+            "Lamborghini",
+        ] {
+            let team = teams
+                .iter()
+                .find(|team| team.marca == Some(brand))
+                .expect("GT3 factory brand should exist");
+
+            assert!(
+                team.car_performance_base >= 13.0,
+                "{brand} deve estar no grupo de disputa pelo titulo"
+            );
+            assert!(
+                team.budget_base >= 80.0,
+                "{brand} deve ter orcamento de equipe grande"
+            );
+            assert!(
+                team.reputacao_base >= 83.0,
+                "{brand} deve ter reputacao de equipe grande"
+            );
+        }
+    }
+
     #[test]
     fn test_gt3_contains_required_manufacturers() {
         let brands: std::collections::HashSet<_> = get_team_templates("gt3")
@@ -1083,13 +1221,13 @@ mod tests {
             names,
             vec![
                 "Mercedes-AMG",
-                "Lamborghini",
                 "Porsche",
-                "Aston Martin",
-                "McLaren",
-                "Audi",
-                "BMW",
                 "Ferrari",
+                "McLaren",
+                "Lamborghini",
+                "BMW",
+                "Audi",
+                "Aston Martin",
                 "Chevrolet",
                 "Ford Mustang",
                 "Acura",

@@ -1,14 +1,24 @@
 use rand::Rng;
 use rusqlite::Connection;
 
+use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::promotion::standings::calculate_constructor_standings;
 use crate::promotion::{MovementType, TeamMovement};
 
 pub fn execute_block1(conn: &Connection, _rng: &mut impl Rng) -> Result<Vec<TeamMovement>, String> {
+    execute_block1_for_year(conn, i32::MAX, _rng)
+}
+
+pub(crate) fn execute_block1_for_year(
+    conn: &Connection,
+    year: i32,
+    _rng: &mut impl Rng,
+) -> Result<Vec<TeamMovement>, String> {
     let mut movements = Vec::new();
     append_pair_movements(
         &mut movements,
         conn,
+        year,
         "mazda_rookie",
         "mazda_amador",
         "Campea de construtores do Rookie",
@@ -16,6 +26,7 @@ pub fn execute_block1(conn: &Connection, _rng: &mut impl Rng) -> Result<Vec<Team
     append_pair_movements(
         &mut movements,
         conn,
+        year,
         "toyota_rookie",
         "toyota_amador",
         "Campea de construtores do Rookie",
@@ -26,10 +37,17 @@ pub fn execute_block1(conn: &Connection, _rng: &mut impl Rng) -> Result<Vec<Team
 fn append_pair_movements(
     movements: &mut Vec<TeamMovement>,
     conn: &Connection,
+    year: i32,
     rookie_category: &str,
     amateur_category: &str,
     promotion_reason: &str,
 ) -> Result<(), String> {
+    if !is_category_active_in_year(rookie_category, year)
+        || !is_category_active_in_year(amateur_category, year)
+    {
+        return Ok(());
+    }
+
     let rookie_standings = calculate_constructor_standings(conn, rookie_category)?;
     let amateur_standings = calculate_constructor_standings(conn, amateur_category)?;
     let promoted = rookie_standings
@@ -139,6 +157,22 @@ mod tests {
         assert_eq!(mazda_rookie_in, 1);
         assert_eq!(toyota_rookie_out, 1);
         assert_eq!(toyota_rookie_in, 1);
+    }
+
+    #[test]
+    fn test_block1_does_not_relegate_into_rookie_before_rookie_inauguration() {
+        let conn = setup_block1_db();
+        let mut rng = StdRng::seed_from_u64(13);
+
+        let movements =
+            execute_block1_for_year(&conn, 2019, &mut rng).expect("block1 timeline should run");
+
+        assert!(movements
+            .iter()
+            .all(|movement| movement.to_category != "mazda_rookie"));
+        assert!(movements
+            .iter()
+            .all(|movement| movement.to_category != "toyota_rookie"));
     }
 
     fn setup_block1_db() -> Connection {

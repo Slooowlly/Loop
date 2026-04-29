@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_for_category_rookie_has_prodigies() {
+    fn test_generate_for_category_rookie_grid_is_mostly_flawed() {
         let mut rng = StdRng::seed_from_u64(99);
         let mut existing_names = HashSet::new();
         let drivers = Driver::generate_for_category(
@@ -386,11 +386,80 @@ mod tests {
             &mut rng,
         );
 
-        let prodigies = drivers
+        let flawed = drivers
             .iter()
-            .filter(|driver| driver.atributos.skill >= 60.0 && driver.idade <= 19)
+            .filter(|driver| count_low_non_skill_attributes(driver, 32.0) >= 2)
             .count();
-        assert!(prodigies >= 2);
+        let heavily_flawed = drivers
+            .iter()
+            .filter(|driver| count_low_non_skill_attributes(driver, 24.0) >= 3)
+            .count();
+        let normal = drivers
+            .iter()
+            .filter(|driver| count_low_non_skill_attributes(driver, 32.0) < 2)
+            .count();
+
+        assert_eq!(flawed, 10);
+        assert_eq!(heavily_flawed, 2);
+        assert_eq!(normal, 2);
+    }
+
+    #[test]
+    fn test_generate_for_category_rookie_prodigies_are_rare_not_guaranteed() {
+        let mut rng = StdRng::seed_from_u64(20260429);
+        let mut existing_names = HashSet::new();
+        let mut prodigies = 0;
+
+        for batch in 0..10 {
+            let drivers = Driver::generate_for_category(
+                "toyota_rookie",
+                0,
+                "medio",
+                12,
+                &mut existing_names,
+                &mut rng,
+            );
+            assert_eq!(
+                drivers.len(),
+                12,
+                "batch {batch} should generate a full grid"
+            );
+            prodigies += drivers
+                .iter()
+                .filter(|driver| driver.atributos.skill >= 63.0 && driver.idade <= 19)
+                .count();
+        }
+
+        assert!(
+            prodigies <= 12,
+            "rookie prodigies should be rare, got {prodigies}"
+        );
+    }
+
+    #[test]
+    fn test_generate_for_category_lendario_rookie_can_still_be_low_level() {
+        let mut rng = StdRng::seed_from_u64(12345);
+        let mut existing_names = HashSet::new();
+        let drivers = Driver::generate_for_category(
+            "mazda_rookie",
+            0,
+            "lendario",
+            12,
+            &mut existing_names,
+            &mut rng,
+        );
+
+        assert!(
+            drivers.iter().any(|driver| driver.atributos.skill <= 45.0),
+            "rookie generation should allow genuinely low-skill drivers even on lendario"
+        );
+        assert_eq!(
+            drivers
+                .iter()
+                .filter(|driver| count_low_non_skill_attributes(driver, 32.0) >= 2)
+                .count(),
+            10
+        );
     }
 
     #[test]
@@ -405,6 +474,22 @@ mod tests {
             driver.atributos.skill >= range.skill_min as f64
                 && driver.atributos.skill <= range.skill_max as f64
         }));
+    }
+
+    #[test]
+    fn test_generate_for_category_does_not_fallback_when_difficulty_and_tier_do_not_overlap() {
+        let mut rng = StdRng::seed_from_u64(20260430);
+        let mut existing_names = HashSet::new();
+        let drivers =
+            Driver::generate_for_category("gt3", 4, "facil", 28, &mut existing_names, &mut rng);
+
+        assert!(
+            drivers.iter().any(|driver| driver.atributos.skill < 65.0),
+            "facil GT3 should not fallback to the elite tier range when ranges do not overlap"
+        );
+        assert!(drivers
+            .iter()
+            .all(|driver| driver.atributos.skill >= 20.0 && driver.atributos.skill <= 60.0));
     }
 
     #[test]
@@ -425,5 +510,14 @@ mod tests {
             .entries()
             .into_iter()
             .all(|(_, value)| value == 50.0));
+    }
+
+    fn count_low_non_skill_attributes(driver: &Driver, threshold: f64) -> usize {
+        driver
+            .atributos
+            .entries()
+            .into_iter()
+            .filter(|(attribute, value)| *attribute != "skill" && *value <= threshold)
+            .count()
     }
 }

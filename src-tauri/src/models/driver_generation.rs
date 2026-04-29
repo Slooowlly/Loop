@@ -2,12 +2,19 @@ use std::collections::HashSet;
 
 use rand::Rng;
 
-use crate::constants::{scoring, skill_ranges};
+use crate::constants::{
+    categories::{get_category_config, CategoryConfig},
+    scoring, skill_ranges,
+};
 use crate::generators::driver_helpers::{
     career_start_year_from_age, random_primary_personality, random_secondary_personality,
 };
 use crate::generators::names::generate_pilot_identity;
 use crate::models::driver::{Driver, DriverAttributes};
+
+const ROOKIE_PRODIGY_CHANCE_PERCENT: u8 = 5;
+const ROOKIE_COMMON_FLAW_MAX: u8 = 32;
+const ROOKIE_HEAVY_FLAW_MAX: u8 = 24;
 
 pub fn generate_for_category(
     category_id: &str,
@@ -56,14 +63,15 @@ where
         .expect("difficulty config should exist");
 
     let mut drivers = Vec::with_capacity(count);
-    let guaranteed_prodigies = if normalized_tier == 0 {
-        count.min(2)
-    } else {
-        0
-    };
 
     for index in 0..count {
-        let rookie_prodigy = index < guaranteed_prodigies;
+        let rookie_profile = if normalized_tier == 0 {
+            Some(rookie_profile_for_slot(index, count))
+        } else {
+            None
+        };
+        let rookie_prodigy =
+            rookie_profile.is_some() && rng.gen_range(0_u8..100_u8) < ROOKIE_PRODIGY_CHANCE_PERCENT;
         let identity = generate_pilot_identity(existing_names, rng);
         existing_names.insert(identity.nome_completo.clone());
 
@@ -74,10 +82,14 @@ where
             rng.gen_range(min_age..=max_age)
         };
 
-        let (skill_min, skill_max) =
-            effective_skill_bounds(skill_range, difficulty_config, rookie_prodigy);
+        let (skill_min, skill_max) = effective_skill_bounds(
+            skill_range,
+            difficulty_config,
+            rookie_profile.is_some(),
+            rookie_prodigy,
+        );
         let skill = if rookie_prodigy {
-            roll_stat(rng, 60, 70)
+            roll_stat(rng, 63, 74)
         } else {
             roll_stat(rng, skill_min, skill_max)
         };
@@ -112,7 +124,7 @@ where
         driver.personalidade_primaria = Some(random_primary_personality(rng));
         driver.personalidade_secundaria = Some(random_secondary_personality(rng));
         driver.motivacao = roll_stat(rng, 50, 80) as f64;
-        driver.atributos = DriverAttributes {
+        let mut atributos = DriverAttributes {
             skill: skill as f64,
             consistencia: consistencia as f64,
             racecraft: racecraft as f64,
@@ -131,10 +143,70 @@ where
             mentalidade: mentalidade as f64,
             confianca: confianca as f64,
         };
+        if let Some(profile) = rookie_profile {
+            apply_rookie_profile(&mut atributos, profile, rookie_prodigy, rng);
+        }
+        driver.atributos = atributos;
+        seed_initial_career_history(&mut driver, category_id, normalized_tier, rng);
         drivers.push(driver);
     }
 
     drivers
+}
+
+fn seed_initial_career_history(
+    driver: &mut Driver,
+    category_id: &str,
+    tier: u8,
+    rng: &mut impl Rng,
+) {
+    if is_career_debut_category(category_id) {
+        return;
+    }
+
+    let category = get_category_config(category_id);
+    let races_per_season = category
+        .map(|config| config.corridas_por_temporada.max(1) as u32)
+        .unwrap_or(8);
+    let seasons = initial_seasons_for_profile(driver.idade, tier, category, rng);
+    let missed_races = rng.gen_range(0..=races_per_season.min(3));
+    let career_races = (seasons * races_per_season)
+        .saturating_sub(missed_races)
+        .max(1);
+    let category_seasons = seasons.min(3).max(1);
+    let category_races = (category_seasons * races_per_season)
+        .saturating_sub(missed_races.min(races_per_season / 2))
+        .max(1);
+
+    driver.stats_carreira.temporadas = seasons;
+    driver.stats_carreira.corridas = career_races;
+    driver.temporadas_na_categoria = category_seasons;
+    driver.corridas_na_categoria = category_races;
+}
+
+fn is_career_debut_category(category_id: &str) -> bool {
+    matches!(category_id, "mazda_rookie" | "toyota_rookie")
+}
+
+fn initial_seasons_for_profile(
+    age: u32,
+    tier: u8,
+    category: Option<&CategoryConfig>,
+    rng: &mut impl Rng,
+) -> u32 {
+    let minimum = tier.max(1) as u32;
+    let age_room = age.saturating_sub(18).max(1);
+    let foundation_bias = category
+        .map(|config| {
+            if config.licenca_necessaria.is_some() {
+                1
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0);
+    let maximum = (minimum + age_room / 2 + foundation_bias).clamp(minimum, 8);
+    rng.gen_range(minimum..=maximum)
 }
 
 fn normalize_difficulty_id(input: &str) -> &'static str {
@@ -150,10 +222,15 @@ fn normalize_difficulty_id(input: &str) -> &'static str {
 fn effective_skill_bounds(
     range: &skill_ranges::SkillRangeConfig,
     difficulty: &scoring::DifficultyConfig,
+    rookie: bool,
     rookie_prodigy: bool,
 ) -> (u8, u8) {
     if rookie_prodigy {
-        return (60, 70);
+        return (63, 74);
+    }
+
+    if rookie {
+        return (25, 62);
     }
 
     let min = range.skill_min.max(difficulty.skill_min_ia);
@@ -161,8 +238,172 @@ fn effective_skill_bounds(
     if min <= max {
         (min, max)
     } else {
-        (range.skill_min, range.skill_max)
+        (difficulty.skill_min_ia, difficulty.skill_max_ia)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RookieProfile {
+    Normal,
+    Flawed,
+    HeavyFlawed,
+}
+
+fn rookie_profile_for_slot(index: usize, count: usize) -> RookieProfile {
+    let normal_slots = rookie_normal_slots(count);
+    let heavy_slots = rookie_heavy_slots(count);
+
+    if index < normal_slots {
+        RookieProfile::Normal
+    } else if index < normal_slots + heavy_slots {
+        RookieProfile::HeavyFlawed
+    } else {
+        RookieProfile::Flawed
+    }
+}
+
+fn rookie_normal_slots(count: usize) -> usize {
+    if count == 0 {
+        0
+    } else if count >= 10 {
+        2
+    } else if count >= 5 {
+        1
+    } else {
+        0
+    }
+}
+
+fn rookie_heavy_slots(count: usize) -> usize {
+    if count >= 10 {
+        2
+    } else if count >= 5 {
+        1
+    } else {
+        0
+    }
+}
+
+fn apply_rookie_profile(
+    atributos: &mut DriverAttributes,
+    profile: RookieProfile,
+    rookie_prodigy: bool,
+    rng: &mut impl Rng,
+) {
+    normalize_rookie_baseline(atributos);
+
+    match profile {
+        RookieProfile::Normal => {}
+        RookieProfile::Flawed | RookieProfile::HeavyFlawed if rookie_prodigy => {
+            apply_rookie_archetype(atributos, rng.gen_range(0_usize..12_usize), false, rng);
+        }
+        RookieProfile::Flawed => {
+            apply_rookie_archetype(atributos, rng.gen_range(0_usize..12_usize), false, rng);
+        }
+        RookieProfile::HeavyFlawed => {
+            let first = rng.gen_range(0_usize..12_usize);
+            let mut second = rng.gen_range(0_usize..12_usize);
+            if second == first {
+                second = (second + 1) % 12;
+            }
+            apply_rookie_archetype(atributos, first, true, rng);
+            apply_rookie_archetype(atributos, second, true, rng);
+        }
+    }
+}
+
+fn normalize_rookie_baseline(atributos: &mut DriverAttributes) {
+    atributos.consistencia = atributos.consistencia.max(36.0);
+    atributos.racecraft = atributos.racecraft.max(36.0);
+    atributos.defesa = atributos.defesa.max(36.0);
+    atributos.ritmo_classificacao = atributos.ritmo_classificacao.max(36.0);
+    atributos.gestao_pneus = atributos.gestao_pneus.max(36.0);
+    atributos.habilidade_largada = atributos.habilidade_largada.max(36.0);
+    atributos.adaptabilidade = atributos.adaptabilidade.max(36.0);
+    atributos.fator_chuva = atributos.fator_chuva.max(36.0);
+    atributos.fitness = atributos.fitness.max(36.0);
+    atributos.experiencia = atributos.experiencia.max(36.0);
+    atributos.desenvolvimento = atributos.desenvolvimento.max(36.0);
+    atributos.aggression = atributos.aggression.max(36.0);
+    atributos.smoothness = atributos.smoothness.max(36.0);
+    atributos.midia = atributos.midia.max(36.0);
+    atributos.mentalidade = atributos.mentalidade.max(36.0);
+    atributos.confianca = atributos.confianca.max(36.0);
+}
+
+fn apply_rookie_archetype(
+    atributos: &mut DriverAttributes,
+    archetype: usize,
+    severe: bool,
+    rng: &mut impl Rng,
+) {
+    let max = if severe {
+        ROOKIE_HEAVY_FLAW_MAX
+    } else {
+        ROOKIE_COMMON_FLAW_MAX
+    };
+
+    match archetype % 12 {
+        0 => {
+            atributos.gestao_pneus = low_rookie_stat(max, rng);
+            atributos.smoothness = low_rookie_stat(max, rng);
+        }
+        1 => {
+            atributos.fator_chuva = low_rookie_stat(max, rng);
+            atributos.adaptabilidade = low_rookie_stat(max, rng);
+        }
+        2 => {
+            atributos.habilidade_largada = low_rookie_stat(max, rng);
+            atributos.confianca = low_rookie_stat(max, rng);
+        }
+        3 => {
+            atributos.mentalidade = low_rookie_stat(max, rng);
+            atributos.confianca = low_rookie_stat(max, rng);
+        }
+        4 => {
+            atributos.racecraft = low_rookie_stat(max, rng);
+            atributos.defesa = low_rookie_stat(max, rng);
+        }
+        5 => {
+            atributos.consistencia = low_rookie_stat(max, rng);
+            atributos.mentalidade = low_rookie_stat(max, rng);
+        }
+        6 => {
+            atributos.fitness = low_rookie_stat(max, rng);
+            atributos.consistencia = low_rookie_stat(max, rng);
+        }
+        7 => {
+            atributos.smoothness = low_rookie_stat(max, rng);
+            atributos.defesa = low_rookie_stat(max, rng);
+            atributos.aggression = roll_stat(rng, 78, 95) as f64;
+        }
+        8 => {
+            atributos.midia = low_rookie_stat(max, rng);
+            atributos.mentalidade = low_rookie_stat(max, rng);
+        }
+        9 => {
+            atributos.racecraft = low_rookie_stat(max, rng);
+            atributos.gestao_pneus = low_rookie_stat(max, rng);
+            atributos.ritmo_classificacao = atributos
+                .ritmo_classificacao
+                .max(roll_stat(rng, 55, 70) as f64);
+        }
+        10 => {
+            atributos.defesa = low_rookie_stat(max, rng);
+            atributos.habilidade_largada = low_rookie_stat(max, rng);
+            atributos.aggression = roll_stat(rng, 5, max.min(28)) as f64;
+        }
+        _ => {
+            atributos.experiencia = low_rookie_stat(max, rng);
+            atributos.adaptabilidade = low_rookie_stat(max, rng);
+            atributos.confianca = low_rookie_stat(max, rng);
+        }
+    }
+}
+
+fn low_rookie_stat(max: u8, rng: &mut impl Rng) -> f64 {
+    let min = if max <= ROOKIE_HEAVY_FLAW_MAX { 5 } else { 25 };
+    roll_stat(rng, min, max) as f64
 }
 
 fn roll_stat(rng: &mut impl Rng, min: u8, max: u8) -> u8 {

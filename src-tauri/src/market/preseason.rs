@@ -383,7 +383,8 @@ pub fn initialize_preseason(
         &temp_drivers_by_id,
         current_week,
     )?;
-    if rookie_events.is_empty() {
+    let has_rookie_placement_week = rookie_events.iter().any(|event| event.week == current_week);
+    if rookie_events.is_empty() || !has_rookie_placement_week {
         planned_events.push(PlannedEvent {
             week: current_week,
             event: PendingAction::PhaseMarker {
@@ -391,9 +392,8 @@ pub fn initialize_preseason(
             },
             executed: false,
         });
-    } else {
-        planned_events.extend(rookie_events);
     }
+    planned_events.extend(rookie_events);
     current_week += 1;
     let hierarchy_events = build_hierarchy_events(
         &temp_teams,
@@ -932,16 +932,33 @@ fn build_rookie_events(
     week: i32,
 ) -> Result<Vec<PlannedEvent>, String> {
     let mut events = Vec::new();
-    for signing in signings.iter().filter(|signing| signing.tipo == "rookie") {
+    for signing in signings
+        .iter()
+        .filter(|signing| signing.tipo == "rookie" || signing.tipo == "emergencial")
+    {
         let contract = simulated_contracts_by_driver
             .get(&signing.driver_id)
-            .ok_or_else(|| format!("Contrato de rookie '{}' nao encontrado", signing.driver_id))?;
+            .ok_or_else(|| {
+                format!(
+                    "Contrato planejado de '{}' nao encontrado",
+                    signing.driver_id
+                )
+            })?;
         let driver = temp_drivers_by_id
             .get(&signing.driver_id)
             .cloned()
-            .ok_or_else(|| format!("Rookie '{}' nao encontrado no clone", signing.driver_id))?;
+            .ok_or_else(|| {
+                format!(
+                    "Piloto planejado '{}' nao encontrado no clone",
+                    signing.driver_id
+                )
+            })?;
         events.push(PlannedEvent {
-            week,
+            week: if signing.tipo == "emergencial" {
+                3
+            } else {
+                week
+            },
             event: PendingAction::PlaceRookie {
                 driver,
                 team_id: signing.team_id.clone(),
@@ -1274,6 +1291,15 @@ fn execute_action(
             role,
             ..
         } => {
+            let target_team = team_queries::get_team_by_id(conn, to_team_id)
+                .map_err(|e| {
+                    format!(
+                        "Falha ao buscar equipe '{}' para transferencia: {e}",
+                        to_team_id
+                    )
+                })?
+                .ok_or_else(|| format!("Equipe '{}' nao encontrada", to_team_id))?;
+            grant_driver_license_for_category_if_needed(conn, driver_id, &target_team.categoria)?;
             sign_driver_to_team(
                 conn,
                 driver_id,
@@ -1284,10 +1310,7 @@ fn execute_action(
                 *duration,
                 role,
             )?;
-            let to_category = team_queries::get_team_by_id(conn, to_team_id)
-                .ok()
-                .flatten()
-                .map(|team| team.categoria);
+            let to_category = Some(target_team.categoria.clone());
             events.push(MarketEvent {
                 event_type: MarketEventType::TransferCompleted,
                 headline: format!("{driver_name} assina com {to_team_name}"),

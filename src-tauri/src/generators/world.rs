@@ -6,6 +6,9 @@ use std::collections::HashSet;
 use rand::Rng;
 
 use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
+use crate::constants::historical_timeline::{
+    apply_historical_performance_band, historical_team_foundation_year,
+};
 use crate::models::contract::{generate_initial_contract, Contract};
 use crate::models::driver::Driver;
 use crate::models::enums::TeamRole;
@@ -106,6 +109,7 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
         let mut team_id_generator = || ids.next_team_id();
         let mut category_teams =
             generate_teams_for_category(category.id, start_year, &mut team_id_generator);
+        apply_historical_foundation_years(&mut category_teams, category.id);
 
         if is_especial(category.id) {
             category_teams.retain(|team| {
@@ -210,6 +214,24 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
         teams,
         contracts,
     })
+}
+
+fn apply_historical_foundation_years(teams: &mut [Team], category_id: &str) {
+    let mut order: Vec<usize> = (0..teams.len()).collect();
+    order.sort_by(|left, right| {
+        teams[*right]
+            .car_performance
+            .total_cmp(&teams[*left].car_performance)
+            .then_with(|| teams[*left].nome.cmp(&teams[*right].nome))
+    });
+    let total = order.len();
+
+    for (rank_index, team_index) in order.into_iter().enumerate() {
+        let team = &mut teams[team_index];
+        team.ano_fundacao =
+            historical_team_foundation_year(&team.nome, category_id, rank_index, total);
+        apply_historical_performance_band(team);
+    }
 }
 
 pub(crate) fn generate_world_with_rng<R: Rng>(
@@ -629,6 +651,80 @@ mod tests {
             } else {
                 assert_eq!(count, category.num_equipes as usize);
             }
+        }
+    }
+
+    #[test]
+    fn test_generate_historical_world_assigns_timeline_foundation_years() {
+        let mut rng = StdRng::seed_from_u64(20260426);
+        let world = generate_historical_world_with_rng("medio", 2000, &mut rng)
+            .expect("historical world should generate");
+
+        let mazda_rookie_teams: Vec<_> = world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == "mazda_rookie")
+            .collect();
+        assert_eq!(mazda_rookie_teams.len(), 6);
+        assert!(mazda_rookie_teams
+            .iter()
+            .all(|team| (2020..=2024).contains(&team.ano_fundacao)));
+
+        let mazda_cup_teams: Vec<_> = world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == "mazda_amador")
+            .collect();
+        assert_eq!(mazda_cup_teams.len(), 10);
+        assert!(mazda_cup_teams
+            .iter()
+            .all(|team| (2016..=2020).contains(&team.ano_fundacao)));
+
+        let ferrari = world
+            .teams
+            .iter()
+            .find(|team| team.nome == "Ferrari")
+            .expect("Ferrari should exist");
+        let obsidian = world
+            .teams
+            .iter()
+            .find(|team| team.nome == "Obsidian")
+            .expect("fictional GT3 team should exist");
+        assert_eq!(ferrari.ano_fundacao, 1929);
+        assert!(obsidian.ano_fundacao > 1999);
+    }
+
+    #[test]
+    fn test_historical_world_non_rookie_categories_start_with_experienced_drivers() {
+        let mut rng = StdRng::seed_from_u64(20260429);
+        let world = generate_historical_world_with_rng("medio", 2000, &mut rng)
+            .expect("historical world should generate");
+
+        assert!(world.drivers.iter().any(|driver| {
+            matches!(
+                driver.categoria_atual.as_deref(),
+                Some("mazda_rookie" | "toyota_rookie")
+            ) && driver.stats_carreira.corridas == 0
+        }));
+
+        for driver in world.drivers.iter().filter(|driver| {
+            !matches!(
+                driver.categoria_atual.as_deref(),
+                None | Some("mazda_rookie" | "toyota_rookie")
+            )
+        }) {
+            assert!(
+                driver.stats_carreira.corridas > 0,
+                "{} nasceu em {:?} sem corridas de carreira",
+                driver.nome,
+                driver.categoria_atual
+            );
+            assert!(
+                driver.corridas_na_categoria > 0,
+                "{} nasceu em {:?} sem corridas na categoria",
+                driver.nome,
+                driver.categoria_atual
+            );
         }
     }
 }

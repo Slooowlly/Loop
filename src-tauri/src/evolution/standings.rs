@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::constants::categories::get_all_categories;
+use crate::constants::historical_timeline::{is_category_active_in_year, is_team_active_in_year};
 use crate::db::queries::drivers as driver_queries;
+use crate::db::queries::teams as team_queries;
 use crate::evolution::context::StandingEntry;
 use crate::evolution::growth::SeasonStats;
 use crate::models::contract::Contract;
@@ -21,9 +23,24 @@ pub(crate) fn build_and_persist_standings(
     .map_err(|e| format!("Falha ao limpar standings existentes: {e}"))?;
 
     let mut all_standings = Vec::new();
+    let teams_by_id: HashMap<String, crate::models::team::Team> = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao buscar equipes para standings historicos: {e}"))?
+        .into_iter()
+        .map(|team| (team.id.clone(), team))
+        .collect();
+
     for category in get_all_categories() {
+        if !is_category_active_in_year(category.id, season.ano) {
+            continue;
+        }
         let mut drivers = driver_queries::get_drivers_by_category(conn, category.id)
             .map_err(|e| format!("Falha ao buscar pilotos de '{}': {e}", category.id))?;
+        drivers.retain(|driver| {
+            contracts_by_driver
+                .get(&driver.id)
+                .and_then(|contract| teams_by_id.get(&contract.equipe_id))
+                .is_none_or(|team| is_team_active_in_year(team, season.ano))
+        });
         if drivers.is_empty() {
             continue;
         }
