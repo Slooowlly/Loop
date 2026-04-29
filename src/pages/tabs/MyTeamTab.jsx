@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
+import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel, extractNationalityLabel, getCategoryTier } from "../../utils/formatters";
 
@@ -30,6 +31,33 @@ const TEAM_HISTORY_TABS = [
   { id: "management", label: "Gestão" },
   { id: "categories", label: "Categorias" },
 ];
+
+const KNOWN_TEAM_FOUNDING_YEARS = [
+  { names: ["ferrari"], year: 1929 },
+  { names: ["porsche", "wright motorsports", "ebimotors", "gpx racing"], year: 1931 },
+  { names: ["ford mustang", "multimatic motorsports"], year: 1903 },
+  { names: ["chevrolet", "corvette"], year: 1911 },
+  { names: ["bmw", "tr3 racing"], year: 1916 },
+  { names: ["mercedes-amg", "sunenergy1", "team korthoff"], year: 1967 },
+  { names: ["lamborghini", "paul miller"], year: 1963 },
+  { names: ["mclaren", "k-pax", "balfe endurance"], year: 1963 },
+  { names: ["acura team penske"], year: 1966 },
+  { names: ["acura"], year: 1986 },
+  { names: ["aston martin", "heart of racing gt3"], year: 1913 },
+  { names: ["audi", "r8g esports"], year: 1909 },
+];
+
+const CATEGORY_FOUNDING_BASE_YEARS = {
+  mazda_rookie: 2020,
+  mazda_amador: 2016,
+  toyota_rookie: 2021,
+  toyota_amador: 2012,
+  bmw_m2: 2015,
+  gt4: 2002,
+  gt3: 1999,
+  production_challenger: 2018,
+  endurance: 1998,
+};
 
 function MyTeamTab() {
   const careerId = useCareerStore((state) => state.careerId);
@@ -149,22 +177,20 @@ function HeaderFinanceStat({ team, standing }) {
   return (
     <div
       data-testid="header-finance-stat"
-      className="rounded-[24px] border border-accent-primary/35 bg-[linear-gradient(135deg,rgba(88,166,255,0.18),rgba(88,166,255,0.055))] px-5 py-3 shadow-[0_0_30px_rgba(88,166,255,0.12)]"
+      className="justify-self-stretch text-right lg:justify-self-end"
     >
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-[190px]">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-primary">Saldo</p>
-          <p className={`mt-1 font-mono text-2xl font-semibold tracking-[-0.04em] ${moneyTone(team?.cash_balance ?? 0)}`}>
+      <div className="flex min-w-0 flex-col items-end">
+        <div className="max-w-full">
+          <p className={`break-words font-mono text-5xl font-semibold leading-none ${moneyTone(team?.cash_balance ?? 0)}`}>
             {formatMoney(team?.cash_balance ?? 0)}
           </p>
-          <p className="mt-1 text-xs text-text-secondary">Caixa disponível</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 pb-1">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateTone}`}>
             {financialState(team?.financial_state)}
           </span>
-          <span className="border-l border-white/12 pl-3 text-[10px] uppercase tracking-[0.16em] text-text-muted">
-              Posição <span className="font-mono text-sm font-bold text-status-yellow">{formatOrdinal(standing?.posicao)}</span>
+          <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
+            Posição <span className="font-mono text-sm font-bold text-status-yellow">{formatOrdinal(standing?.posicao)}</span>
           </span>
         </div>
       </div>
@@ -779,20 +805,26 @@ export function TeamHistoryDrawer({
 
         <div className="px-6 pb-7 pt-6">
           <section className="rounded-[26px] border border-[color-mix(in_srgb,var(--team)_42%,transparent)] bg-[#0c1626]/95 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.32)]">
-            <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">Arquivo compacto</p>
-            <h2 id="team-history-title" className="mt-2 pr-10 text-3xl font-semibold leading-none tracking-[-0.04em] text-text-primary">
-              {dossier.name}
-            </h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
-                {dossier.state}
-              </span>
-              <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
-                Fundada em {dossier.founded}
-              </span>
-              <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
-                {dossier.currentCategory}
-              </span>
+            <div className="grid min-w-0 gap-5 pr-10 sm:grid-cols-[168px_minmax(0,1fr)] sm:items-center">
+              <TeamLogoMark
+                teamName={dossier.name}
+                color={dossier.color}
+                size="hero"
+                testId="team-history-logo"
+              />
+              <div className="min-w-0">
+                <h2 id="team-history-title" className="min-w-0 truncate text-3xl font-semibold leading-none tracking-[-0.04em] text-text-primary">
+                  {dossier.name}
+                </h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
+                    {dossier.state}
+                  </span>
+                  <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
+                    Fundada em {dossier.founded}
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -931,13 +963,15 @@ function TeamHistoryIdentity({ dossier }) {
 }
 
 function TeamHistoryManagement({ dossier }) {
+  const operationTone = operationHealthTone(dossier.management.operationHealth);
+
   return (
     <section>
       <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Gestão e dinheiro</h3>
       <div className="mt-4 grid gap-3">
-        <div className="rounded-[22px] border border-status-green/30 bg-[#0b1d19] bg-[radial-gradient(circle_at_12%_10%,rgba(94,231,168,0.14),transparent_12rem),linear-gradient(145deg,rgba(12,35,30,0.96),rgba(7,16,29,0.99))] p-4">
+        <div className={`rounded-[22px] border p-4 ${operationTone.card}`}>
           <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Saúde da operação</span>
-          <strong className="mt-2 block font-mono text-2xl text-status-green">{dossier.management.efficiency}</strong>
+          <strong className={`mt-2 block text-2xl font-semibold ${operationTone.text}`}>{dossier.management.operationHealth}</strong>
           <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.management.summary}</p>
         </div>
         <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
@@ -953,9 +987,8 @@ function TeamHistoryManagement({ dossier }) {
             <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.management.worstCrisisDetail}</p>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <HistoryInfoCard label="Anos saudáveis" value={dossier.management.healthyYears} detail={dossier.management.healthyYearsDetail} />
-          <HistoryInfoCard label="Eficiência" value="Detalhada" detail={dossier.management.efficiencyDetail} />
+        <div className="grid gap-3 md:grid-cols-2">
+          <HistoryInfoCard label="Temporadas saudáveis" value={dossier.management.healthyYears} detail={dossier.management.healthyYearsDetail} />
           <HistoryInfoCard label="Saldo recorde" value={dossier.management.peakCash} detail="Melhor folga já registrada pela operação." />
         </div>
         <HistoryInfoCard label="Maior investimento técnico" value={dossier.management.biggestInvestment} detail={dossier.management.investmentDetail} />
@@ -1084,17 +1117,16 @@ function buildTeamHistoryDossier(
   const rankingIndex = rankedTeams.findIndex((entry) => entry.id === mergedTeam?.id);
   const currentPosition = mergedTeam?.posicao ?? (rankingIndex >= 0 ? rankingIndex + 1 : 1);
   const rival = findHistoricRival(mergedTeam, rankedTeams);
-  const efficiency = managementEfficiency(mergedTeam);
   const peakCash = Math.max(mergedTeam?.cash_balance ?? 0, (mergedTeam?.cash_balance ?? 0) + Math.max(mergedTeam?.last_round_income ?? 0, 0) * 3);
   const debt = mergedTeam?.debt_balance ?? estimateHistoricDebt(mergedTeam);
-  const founded = mergedTeam?.founded_year ?? Math.max(2018, 2026 - Math.max(3, currentPosition + 1));
+  const founded = resolveTeamFoundedYear(mergedTeam, rankedTeams, currentPosition, category);
   const origin = originCategoryLabel(category, currentPosition);
   const profile = teamHistoryProfile(mergedTeam, currentPosition);
 
   return {
     name: mergedTeam?.nome ?? "Equipe",
     color: mergedTeam?.cor_primaria ?? "#58a6ff",
-    state: financialState(mergedTeam?.financial_state),
+    state: teamHeritageLabel(founded),
     founded,
     currentCategory: categoryName,
     recordScope: realHistory?.recordScope ?? categoryGroupLabel(category),
@@ -1120,15 +1152,16 @@ function buildTeamHistoryDossier(
       symbolDriverDetail: "Nome mais associado ao momento competitivo recente da escuderia.",
     },
     management: realHistory?.management ?? {
+      operationHealth: financialState(mergedTeam?.financial_state),
       peakCash: formatMoney(peakCash),
       worstCrisis: debt > 0 ? `${formatMoney(debt)} de dívida` : "Sem dívida relevante",
-      healthyYears: `${healthySeasonEstimate(mergedTeam, founded)} temporadas`,
-      efficiency,
+      healthyYears: `${healthySeasonEstimate(mergedTeam, founded)} Temporadas`,
+      efficiency: managementEfficiency(mergedTeam),
       biggestInvestment: `${2026 - Math.min(1, currentPosition - 1)} - pacote técnico`,
-      summary: managementSummary(mergedTeam, efficiency),
+      summary: managementSummary(mergedTeam),
       peakCashDetail: "Pico estimado a partir do caixa atual, prêmio recente e força de patrocínio.",
       worstCrisisDetail: debt > 0 ? "Período de maior pressão financeira registrado no ciclo recente." : "Operação sem crise financeira severa no recorte atual.",
-      healthyYearsDetail: "Temporadas encerradas ou projetadas com caixa em zona segura.",
+      healthyYearsDetail: "Histórico sem dívida relevante.",
       efficiencyDetail: "Pontos conquistados em relação ao dinheiro disponível.",
       investmentDetail: "Ano em que a equipe mais converteu recursos em evolução do carro.",
     },
@@ -1185,6 +1218,7 @@ function normalizeTeamHistoryPayload(payload) {
       symbolDriverDetail: identity.symbol_driver_detail ?? identity.symbolDriverDetail ?? "Sem resultados suficientes.",
     },
     management: {
+      operationHealth: management.operation_health ?? management.operationHealth ?? "Monitorada",
       peakCash: management.peak_cash ?? management.peakCash ?? "Sem saldo registrado",
       worstCrisis: management.worst_crisis ?? management.worstCrisis ?? "Sem crise registrada",
       healthyYears: management.healthy_years ?? management.healthyYears ?? "Sem temporadas registradas",
@@ -1198,6 +1232,47 @@ function normalizeTeamHistoryPayload(payload) {
       investmentDetail: management.investment_detail ?? management.investmentDetail ?? "Sem detalhe de investimento registrado.",
     },
   };
+}
+
+function resolveTeamFoundedYear(team, rankedTeams, currentPosition, category) {
+  const explicitYear = Number(team?.founded_year);
+  if (Number.isFinite(explicitYear) && explicitYear > 1800) {
+    return explicitYear;
+  }
+
+  const knownYear = knownTeamFoundedYear(team?.nome);
+  if (knownYear) {
+    return knownYear;
+  }
+
+  const totalTeams = Math.max(1, rankedTeams.length);
+  const rankIndex = clamp((currentPosition || 1) - 1, 0, totalTeams - 1);
+  const rankRatio = totalTeams > 1 ? rankIndex / (totalTeams - 1) : 0.5;
+  const baseYear = CATEGORY_FOUNDING_BASE_YEARS[category] ?? 2016;
+
+  return Math.round(baseYear + rankRatio * 4);
+}
+
+function knownTeamFoundedYear(teamName) {
+  const normalizedName = normalizeTeamNameForHistory(teamName);
+  const match = KNOWN_TEAM_FOUNDING_YEARS.find(({ names }) =>
+    names.some((name) => normalizedName.includes(name)),
+  );
+  return match?.year ?? null;
+}
+
+function normalizeTeamNameForHistory(teamName) {
+  return String(teamName ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function teamHeritageLabel(founded) {
+  if (founded <= 1970) {
+    return "Equipe histórica";
+  }
+  return "Projeto consolidado";
 }
 
 function emptyRealSport() {
@@ -1339,9 +1414,9 @@ function identitySummary(team, profile, position) {
   return `${team?.nome ?? "A equipe"} ocupa o bloco de disputa constante, perto o bastante para crescer e longe o bastante para precisar escolher bem seus investimentos.`;
 }
 
-function managementSummary(team, efficiency) {
+function managementSummary(team) {
   const state = financialState(team?.financial_state).toLowerCase();
-  return `Operação ${state}, com eficiência atual de ${efficiency} e leitura baseada no caixa, dívida e pontos da temporada.`;
+  return `Operação ${state}, com leitura baseada no caixa, dívida e pressão financeira atual.`;
 }
 
 function MetricBar({ label, value, rawValue }) {
@@ -1504,6 +1579,32 @@ function financialState(state) {
     crisis: "Em crise",
     collapse: "Colapso",
   }[state] ?? "Estável";
+}
+
+function operationHealthTone(label) {
+  const normalized = String(label ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (normalized.includes("pressionada") || normalized.includes("critica") || normalized.includes("crise") || normalized.includes("colapso")) {
+    return {
+      card: "border-status-red/30 bg-[#241014]/95 bg-[radial-gradient(circle_at_12%_10%,rgba(255,103,103,0.14),transparent_12rem),linear-gradient(145deg,rgba(45,16,21,0.96),rgba(7,16,29,0.99))]",
+      text: "text-status-red",
+    };
+  }
+
+  if (normalized.includes("estavel") || normalized.includes("monitorada")) {
+    return {
+      card: "border-status-yellow/30 bg-[#201a0b]/95 bg-[radial-gradient(circle_at_12%_10%,rgba(242,196,109,0.14),transparent_12rem),linear-gradient(145deg,rgba(35,29,12,0.96),rgba(7,16,29,0.99))]",
+      text: "text-status-yellow",
+    };
+  }
+
+  return {
+    card: "border-status-green/30 bg-[#0b1d19] bg-[radial-gradient(circle_at_12%_10%,rgba(94,231,168,0.14),transparent_12rem),linear-gradient(145deg,rgba(12,35,30,0.96),rgba(7,16,29,0.99))]",
+    text: "text-status-green",
+  };
 }
 
 function financialStateTone(state) {

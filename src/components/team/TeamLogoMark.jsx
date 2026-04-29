@@ -130,7 +130,9 @@ export function getTeamLogoSrc(teamName) {
 export default function TeamLogoMark({ teamName, color, size = "md", testId = "standings-team-logo" }) {
   const logoSrc = getTeamLogoSrc(teamName);
   const sizeClass =
-    size === "sm"
+    size === "hero"
+      ? "h-28 w-[168px]"
+      : size === "sm"
       ? "h-7 w-[42px]"
       : size === "xs"
         ? "h-6 w-[36px]"
@@ -142,6 +144,7 @@ export default function TeamLogoMark({ teamName, color, size = "md", testId = "s
     return (
       <span
         aria-hidden="true"
+        data-testid={testId}
         className={[
           "shrink-0 rounded-lg border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
           sizeClass,
@@ -153,13 +156,13 @@ export default function TeamLogoMark({ teamName, color, size = "md", testId = "s
 
   return (
     <span
+      data-testid={testId}
       className={[
         "flex aspect-[3/2] shrink-0 items-center justify-center overflow-visible",
         sizeClass,
       ].join(" ")}
     >
       <img
-        data-testid={testId}
         src={logoSrc}
         alt={label}
         className="h-full w-full object-contain"

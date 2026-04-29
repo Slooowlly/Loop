@@ -61,9 +61,10 @@ function buildHistoryDossier(teamId = "T010") {
         : "16 corridas, 7 vitórias, 12 pódios pela equipe.",
     },
     management: {
+      operation_health: isVector ? "Saudável real" : "Pressionada real",
       peak_cash: isVector ? "R$ 8.800.000" : "R$ 9.900.000",
       worst_crisis: isVector ? "Sem dívida real registrada" : "R$ 1.200.000 de dívida real",
-      healthy_years: isVector ? "3 Temporadas saudáveis reais" : "4 Temporadas saudáveis reais",
+      healthy_years: isVector ? "3 Temporadas" : "4 Temporadas",
       efficiency: isVector ? "18,4 pts/R$ mi real" : "22,1 pts/R$ mi real",
       biggest_investment: isVector ? "Nível 8 - pacote real" : "Nível 9 - pacote real",
       summary: isVector
@@ -217,14 +218,16 @@ describe("MyTeamTab", () => {
 
     const header = await screen.findByTestId("my-team-command-header");
     const financeStat = within(header).getByTestId("header-finance-stat");
-    expect(within(header).getByText(/Saldo/i)).toBeInTheDocument();
     expect(within(financeStat).getByText("R$ 6.500.000")).toBeInTheDocument();
     expect(within(financeStat).getByText(/Saudável/i)).toBeInTheDocument();
     expect(within(financeStat).getByText(/Posição/i)).toBeInTheDocument();
     expect(within(financeStat).getByText("5º")).toBeInTheDocument();
-    expect(within(financeStat).getByText(/Caixa disponível/i)).toBeInTheDocument();
-    expect(financeStat).toHaveClass("border-accent-primary/35");
-    expect(financeStat).toHaveClass("py-3");
+    expect(within(financeStat).queryByText(/Saldo/i)).not.toBeInTheDocument();
+    expect(within(financeStat).queryByText(/Caixa disponível/i)).not.toBeInTheDocument();
+    expect(financeStat).not.toHaveClass("border-accent-primary/35");
+    expect(financeStat).not.toHaveClass("rounded-[24px]");
+    expect(financeStat).not.toHaveClass("py-5");
+    expect(within(financeStat).getByText("R$ 6.500.000")).toHaveClass("text-5xl");
     expect(financeStat.querySelector("[data-testid='header-finance-ornament']")).not.toBeInTheDocument();
     expect(within(financeStat).queryByText(/^Estado$/i)).not.toBeInTheDocument();
     expect(within(header).queryByTestId("header-position-stat")).not.toBeInTheDocument();
@@ -419,6 +422,17 @@ describe("MyTeamTab", () => {
     fireEvent.doubleClick(within(ranking).getByText("Falcon Motorsport"));
 
     const drawer = await screen.findByRole("dialog", { name: /Falcon Motorsport/i });
+    const teamLogo = within(drawer).getByTestId("team-history-logo");
+    const teamTitle = within(drawer).getByRole("heading", { name: /Falcon Motorsport/i });
+
+    expect(teamLogo.compareDocumentPosition(teamTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(teamLogo).toHaveClass("h-28", "w-[168px]");
+    expect(within(drawer).queryByText(/Arquivo compacto/i)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("GT4 Series")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Estável")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Operação moderna")).not.toBeInTheDocument();
+    expect(within(drawer).getByText("Projeto consolidado")).toBeInTheDocument();
+    expect(within(drawer).getByText("Fundada em 2002")).toBeInTheDocument();
     expect(within(ranking).getByText("Falcon Motorsport").closest("tr")).toHaveClass("ring-1");
     expect(drawer.closest("[data-testid='team-history-layer']")).toHaveClass("z-[90]");
     expect(drawer).toHaveClass("w-[min(50vw,720px)]");
@@ -443,6 +457,14 @@ describe("MyTeamTab", () => {
       teamId: "T010",
       category: "gt4",
     });
+
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Gestão/i }));
+
+    const pressuredHealth = within(drawer).getByText("Pressionada real");
+    expect(pressuredHealth).toHaveClass("text-status-red");
+    expect(pressuredHealth.closest("div")).toHaveClass("border-status-red/30");
+    expect(within(drawer).queryByText("22,1 pts/R$ mi real")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Eficiência real da Falcon.")).not.toBeInTheDocument();
 
     fireEvent.click(within(drawer).getByRole("tab", { name: /Esportivo/i }));
 
@@ -480,7 +502,8 @@ describe("MyTeamTab", () => {
     fireEvent.click(within(drawer).getByRole("tab", { name: /Gestão/i }));
 
     expect(within(drawer).getByText(/Saúde da operação/i)).toBeInTheDocument();
-    expect(within(drawer).getByText("18,4 pts/R$ mi real")).toBeInTheDocument();
+    expect(within(drawer).getByText("Saudável real")).toBeInTheDocument();
+    expect(within(drawer).queryByText("18,4 pts/R$ mi real")).not.toBeInTheDocument();
     expect(within(drawer).getByText("Gestão real da Vector calculada no backend.")).toBeInTheDocument();
     expect(within(drawer).getByText(/Maior saldo histórico/i)).toBeInTheDocument();
     expect(within(drawer).getAllByText("R$ 8.800.000")).not.toHaveLength(0);
@@ -488,10 +511,138 @@ describe("MyTeamTab", () => {
     expect(within(drawer).getByText(/Pior crise financeira/i)).toBeInTheDocument();
     expect(within(drawer).getByText("Sem dívida real registrada")).toBeInTheDocument();
     expect(within(drawer).getByText("Crise real da Vector vinda do backend.")).toBeInTheDocument();
-    expect(within(drawer).getByText("3 Temporadas saudáveis reais")).toBeInTheDocument();
-    expect(within(drawer).getByText("Eficiência real da Vector.")).toBeInTheDocument();
+    expect(within(drawer).getByText("3 Temporadas")).toBeInTheDocument();
+    expect(within(drawer).queryByText("Eficiência real da Vector.")).not.toBeInTheDocument();
     expect(within(drawer).getByText(/Maior investimento técnico/i)).toBeInTheDocument();
     expect(within(drawer).getByText("Nível 8 - pacote real")).toBeInTheDocument();
     expect(within(drawer).getByText("Investimento real da Vector.")).toBeInTheDocument();
+  });
+
+  it("uses real GT3 heritage dates instead of generated founding years", async () => {
+    invoke.mockImplementation((command, args = {}) => {
+      if (command === "get_drivers_by_category") {
+        return Promise.resolve([]);
+      }
+
+      if (command === "get_teams_standings") {
+        return Promise.resolve([
+          {
+            posicao: 1,
+            id: "TFER",
+            nome: "Ferrari",
+            nome_curto: "FER",
+            cor_primaria: "#dc0000",
+            cash_balance: 42_000_000,
+            car_performance: 10,
+            car_build_profile: "power_extreme",
+            pontos: 240,
+          },
+          {
+            posicao: 12,
+            id: "TOBS",
+            nome: "Obsidian",
+            nome_curto: "OBS",
+            cor_primaria: "#3f3f46",
+            cash_balance: 800_000,
+            car_performance: 5,
+            car_build_profile: "balanced",
+            pontos: 14,
+          },
+        ]);
+      }
+
+      if (command === "get_team_history_dossier") {
+        return Promise.resolve({
+          ...buildHistoryDossier(args.teamId),
+          title_categories: [{ category: "GT3", year: "2003", color: "#dc0000" }],
+        });
+      }
+
+      return Promise.resolve([]);
+    });
+
+    mockState.playerTeam = {
+      ...mockState.playerTeam,
+      id: "TFER",
+      nome: "Ferrari",
+      nome_curto: "FER",
+      cor_primaria: "#dc0000",
+      categoria: "gt3",
+    };
+
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    fireEvent.doubleClick(within(ranking).getByText("Ferrari"));
+
+    const drawer = await screen.findByRole("dialog", { name: /Ferrari/i });
+    expect(within(drawer).getByText("Equipe histórica")).toBeInTheDocument();
+    expect(within(drawer).getByText("Fundada em 1929")).toBeInTheDocument();
+    expect(within(drawer).queryByText("GT3 Series")).not.toBeInTheDocument();
+  });
+
+  it("uses recent founding years for rookie teams", async () => {
+    invoke.mockImplementation((command, args = {}) => {
+      if (command === "get_drivers_by_category") {
+        return Promise.resolve([]);
+      }
+
+      if (command === "get_teams_standings") {
+        return Promise.resolve([
+          {
+            posicao: 1,
+            id: "TRKA",
+            nome: "Nova Rookie",
+            nome_curto: "NVR",
+            cor_primaria: "#38bdf8",
+            cash_balance: 1_100_000,
+            car_performance: 5,
+            car_build_profile: "balanced",
+            pontos: 0,
+          },
+          {
+            posicao: 6,
+            id: "TRKB",
+            nome: "Startup Cup",
+            nome_curto: "STC",
+            cor_primaria: "#fb7185",
+            cash_balance: 850_000,
+            car_performance: 4,
+            car_build_profile: "balanced",
+            pontos: 0,
+          },
+        ]);
+      }
+
+      if (command === "get_team_history_dossier") {
+        return Promise.resolve({
+          ...buildHistoryDossier(args.teamId),
+          category: "mazda_rookie",
+          record_scope: "Mazda Rookie",
+          title_categories: [],
+        });
+      }
+
+      return Promise.resolve([]);
+    });
+
+    mockState.playerTeam = {
+      ...mockState.playerTeam,
+      id: "TRKA",
+      nome: "Nova Rookie",
+      nome_curto: "NVR",
+      cor_primaria: "#38bdf8",
+      categoria: "mazda_rookie",
+    };
+
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    fireEvent.doubleClick(within(ranking).getByText("Nova Rookie"));
+
+    const drawer = await screen.findByRole("dialog", { name: /Nova Rookie/i });
+    expect(within(drawer).getByText("Projeto consolidado")).toBeInTheDocument();
+    expect(within(drawer).getByText("Fundada em 2020")).toBeInTheDocument();
+    expect(within(drawer).queryByText("Operação moderna")).not.toBeInTheDocument();
   });
 });
