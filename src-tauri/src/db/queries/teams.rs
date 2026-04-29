@@ -160,9 +160,6 @@ pub fn get_teams_by_category_and_class(
 
 /// Limpa `piloto_1_id` e `piloto_2_id` de todas as equipes especiais.
 /// Afeta production_challenger (mazda/toyota/bmw) e endurance (gt4/gt3/lmp2).
-/// Equipes LMP2 nunca recebem lineup neste redesign inicial, portanto a operação
-/// sobre elas é inócua — o WHERE não as exclui explicitamente para manter a
-/// semântica de "limpar tudo das categorias especiais".
 pub fn clear_special_team_lineups(conn: &Connection) -> Result<usize, DbError> {
     let n = conn.execute(
         "UPDATE teams SET piloto_1_id = NULL, piloto_2_id = NULL
@@ -173,8 +170,6 @@ pub fn clear_special_team_lineups(conn: &Connection) -> Result<usize, DbError> {
 }
 
 /// Reseta todos os campos de hierarquia das equipes especiais.
-/// Mesma nota de LMP2: afeta toda a categoria endurance, mas LMP2 está sempre
-/// sem lineup, então o reset é inócuo para essas equipes.
 pub fn reset_special_team_hierarchies(conn: &Connection) -> Result<(), DbError> {
     conn.execute(
         "UPDATE teams SET

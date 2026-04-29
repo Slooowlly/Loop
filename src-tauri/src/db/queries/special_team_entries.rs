@@ -226,7 +226,8 @@ fn hydrate_entry_teams(
 ) -> Result<Vec<Team>, DbError> {
     let mut teams = Vec::new();
     for entry in entries {
-        if let Some(team) = team_queries::get_team_by_id(conn, &entry.team_id)? {
+        if let Some(mut team) = team_queries::get_team_by_id(conn, &entry.team_id)? {
+            team.classe = Some(entry.class_name);
             teams.push(team);
         }
     }

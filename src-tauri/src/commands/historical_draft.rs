@@ -9,6 +9,9 @@ use crate::commands::career_types::{
 };
 use crate::config::app_config::AppConfig;
 use crate::config::app_config::SaveMeta;
+use crate::constants::historical_timeline::{
+    apply_historical_performance_band, is_category_active_in_year,
+};
 use crate::db::connection::{Database, DbError};
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
@@ -16,7 +19,9 @@ use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::meta as meta_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
-use crate::evolution::pipeline::run_end_of_season;
+use crate::evolution::pipeline::run_historical_end_of_season;
+use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
+use crate::finance::state::{choose_season_strategy, refresh_team_financial_state};
 use crate::generators::ids::{next_id, IdType};
 use crate::generators::nationality::format_nationality;
 use crate::generators::world::generate_historical_world;
@@ -26,6 +31,7 @@ use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, TeamRole};
 use crate::models::license::grant_driver_license_for_category_if_needed;
 use crate::models::season::Season;
+use crate::models::team::Team;
 
 const HISTORY_START_YEAR: i32 = 2000;
 const HISTORY_END_YEAR: i32 = 2024;
@@ -577,19 +583,23 @@ fn simulate_historical_range(
     playable_year: i32,
 ) -> Result<(), String> {
     for _year in start_year..=end_year {
+        stabilize_historical_performance_bands(&db.conn)?;
         simulate_current_historical_season(db)?;
+        simulate_current_historical_special_block(db)?;
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
             .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
-        run_end_of_season(&mut db.conn, &season, career_dir)?;
+        run_historical_end_of_season(&mut db.conn, &season, career_dir)?;
         let next_season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar proxima temporada historica: {e}"))?
             .ok_or_else(|| "Proxima temporada historica nao encontrada.".to_string())?;
         fill_all_remaining_vacancies(&db.conn, next_season.numero, &mut rand::thread_rng())?;
+        stabilize_historical_performance_bands(&db.conn)?;
         clear_historical_news(&db.conn)?;
-        clear_historical_preseason_plan(career_dir)?;
         update_draft_progress(career_dir, (season.ano + 1) as u32)?;
     }
+
+    reset_historical_finance_for_playable_start(&db.conn)?;
 
     let active_season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada jogavel ativa: {e}"))?
@@ -601,6 +611,104 @@ fn simulate_historical_range(
         ));
     }
     Ok(())
+}
+
+fn simulate_current_historical_special_block(db: &mut Database) -> Result<(), String> {
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
+        .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
+
+    crate::convocation::advance_to_convocation_window(&db.conn)
+        .map_err(|e| format!("Falha ao abrir janela especial historica: {e}"))?;
+    crate::convocation::run_convocation_window(&db.conn)
+        .map_err(|e| format!("Falha ao gerar convocacoes especiais historicas: {e}"))?;
+    crate::convocation::iniciar_bloco_especial(&db.conn)
+        .map_err(|e| format!("Falha ao iniciar bloco especial historico: {e}"))?;
+
+    for category_id in ["production_challenger", "endurance"] {
+        if !is_category_active_in_year(category_id, season.ano) {
+            continue;
+        }
+
+        let pending =
+            calendar_queries::get_pending_races_for_category(&db.conn, &season.id, category_id)
+                .map_err(|e| {
+                    format!("Falha ao buscar corridas especiais historicas de {category_id}: {e}")
+                })?;
+
+        for race in &pending {
+            crate::commands::race::simulate_historical_category_race(db, race)?;
+        }
+    }
+
+    crate::convocation::encerrar_bloco_especial(&db.conn)
+        .map_err(|e| format!("Falha ao encerrar bloco especial historico: {e}"))?;
+    crate::convocation::run_pos_especial(&db.conn)
+        .map_err(|e| format!("Falha ao limpar pos-especial historico: {e}"))?;
+
+    Ok(())
+}
+
+fn stabilize_historical_performance_bands(conn: &rusqlite::Connection) -> Result<(), String> {
+    let teams = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao carregar equipes para estabilidade historica: {e}"))?;
+
+    for team in teams {
+        let mut updated_team = team;
+        let before = updated_team.car_performance;
+        apply_historical_performance_band(&mut updated_team);
+        if (updated_team.car_performance - before).abs() < f64::EPSILON {
+            continue;
+        }
+
+        team_queries::update_team(conn, &updated_team).map_err(|e| {
+            format!(
+                "Falha ao estabilizar faixa historica da equipe {}: {e}",
+                updated_team.nome
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn reset_historical_finance_for_playable_start(conn: &rusqlite::Connection) -> Result<(), String> {
+    let teams = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao carregar equipes para limpar financeiro historico: {e}"))?;
+
+    for team in teams {
+        let mut updated_team = team;
+        updated_team.cash_balance = playable_start_cash_balance(&updated_team);
+        updated_team.debt_balance = 0.0;
+        updated_team.last_round_income = 0.0;
+        updated_team.last_round_expenses = 0.0;
+        updated_team.last_round_net = 0.0;
+        updated_team.parachute_payment_remaining = 0.0;
+        refresh_team_financial_state(&mut updated_team);
+        updated_team.season_strategy = choose_season_strategy(&updated_team).to_string();
+        updated_team.budget = derive_budget_index_from_money(&updated_team);
+        team_queries::update_team(conn, &updated_team).map_err(|e| {
+            format!(
+                "Falha ao limpar financeiro historico da equipe {}: {e}",
+                updated_team.nome
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn playable_start_cash_balance(team: &Team) -> f64 {
+    let scale = category_finance_scale(&team.categoria);
+    let category_window = (scale.cash_max - scale.cash_min).max(1.0);
+    let reputation_weight = (team.reputacao / 100.0).clamp(0.0, 1.0);
+    let performance_weight = ((team.car_performance + 5.0) / 21.0).clamp(0.0, 1.0);
+    let structure_weight = ((team.facilities + team.engineering) / 200.0).clamp(0.0, 1.0);
+    let position =
+        (0.20 + reputation_weight * 0.35 + performance_weight * 0.20 + structure_weight * 0.25)
+            .clamp(0.20, 0.90);
+
+    scale.cash_min + category_window * position
 }
 
 fn update_draft_progress(career_dir: &Path, progress_year: u32) -> Result<(), String> {
@@ -623,15 +731,6 @@ fn clear_historical_news(conn: &rusqlite::Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn clear_historical_preseason_plan(career_dir: &Path) -> Result<(), String> {
-    let path = career_dir.join("preseason_plan.json");
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Falha ao limpar plano de pre-temporada historico: {e}"))?;
-    }
-    Ok(())
-}
-
 fn simulate_current_historical_season(db: &mut Database) -> Result<(), String> {
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
@@ -640,7 +739,16 @@ fn simulate_current_historical_season(db: &mut Database) -> Result<(), String> {
         .map_err(|e| format!("Falha ao buscar corridas historicas pendentes: {e}"))?;
 
     for race in &pending_races {
-        crate::commands::race::simulate_category_race(db, race, false)?;
+        if !is_category_active_in_year(&race.categoria, season.ano) {
+            calendar_queries::mark_race_completed(&db.conn, &race.id).map_err(|e| {
+                format!(
+                    "Falha ao fechar corrida historica inativa '{}' de {}: {e}",
+                    race.id, race.categoria
+                )
+            })?;
+            continue;
+        }
+        crate::commands::race::simulate_historical_category_race(db, race)?;
     }
 
     Ok(())
@@ -653,7 +761,7 @@ mod tests {
     use super::{
         create_historical_career_draft_base_for_test,
         create_historical_career_draft_for_range_for_test, discard_career_draft_in_base_dir,
-        get_career_draft_in_base_dir,
+        get_career_draft_in_base_dir, simulate_historical_range,
     };
     use crate::commands::career_types::{
         CreateHistoricalDraftInput, FinalizeHistoricalDraftInput, SaveLifecycleStatus,
@@ -663,6 +771,8 @@ mod tests {
     use crate::db::queries::drivers as driver_queries;
     use crate::db::queries::seasons as season_queries;
     use crate::db::queries::{contracts as contract_queries, teams as team_queries};
+    use crate::finance::planning::category_finance_scale;
+    use std::collections::HashMap;
 
     #[test]
     fn create_draft_base_world_has_no_player_and_starts_in_2000() {
@@ -695,6 +805,10 @@ mod tests {
 
         assert_eq!(state.lifecycle_status, SaveLifecycleStatus::Draft);
         let career_id = state.career_id.as_deref().expect("draft career id");
+        let career_dir = AppConfig::load_or_default(&base_dir)
+            .saves_dir()
+            .join(career_id);
+        assert!(!career_dir.join("preseason_plan.json").exists());
         let db = open_draft_db(&base_dir, career_id);
         let season = season_queries::get_active_season(&db.conn)
             .expect("season query")
@@ -712,6 +826,307 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM news", [], |row| row.get(0))
             .expect("news count");
         assert_eq!(news_count, 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_generates_special_event_archive() {
+        let base_dir = unique_test_dir("historical_special_events");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+
+        let special_contracts: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE tipo = 'Especial' AND status = 'Expirado'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("special contract count");
+        let active_special_contracts: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE tipo = 'Especial' AND status = 'Ativo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active special contract count");
+        let special_races: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM calendar
+                 WHERE categoria IN ('production_challenger', 'endurance')
+                   AND status = 'Concluida'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("special calendar count");
+        let special_results: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM race_results rr
+                 JOIN calendar c ON c.id = rr.race_id
+                 WHERE c.categoria IN ('production_challenger', 'endurance')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("special race result count");
+
+        assert!(special_contracts > 0);
+        assert_eq!(active_special_contracts, 0);
+        assert!(special_races > 0);
+        assert!(special_results > 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_completes_preseason_lineups_for_gt3() {
+        let base_dir = unique_test_dir("historical_gt3_lineups");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2002, 2003)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+
+        let empty_slots: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM teams
+                 WHERE categoria = 'gt3'
+                   AND ativa = 1
+                   AND (piloto_1_id IS NULL OR piloto_2_id IS NULL)",
+                [],
+                |row| row.get(0),
+            )
+            .expect("gt3 empty slot count");
+
+        assert_eq!(
+            empty_slots, 0,
+            "historical GT3 simulation must auto-complete preseason transfers before the next season"
+        );
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_gt3_heritage_teams_remain_winners_across_archive() {
+        let base_dir = unique_test_dir("historical_gt3_heritage_results");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2024, 2025)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+
+        let heritage_wins: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM race_results rr
+                 JOIN calendar c ON c.id = rr.race_id
+                 JOIN teams t ON t.id = rr.equipe_id
+                 WHERE c.categoria = 'gt3'
+                   AND rr.posicao_final = 1
+                   AND t.nome IN ('Mercedes-AMG', 'Ferrari', 'Lamborghini', 'McLaren')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("heritage wins");
+        let challenger_wins: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM race_results rr
+                 JOIN calendar c ON c.id = rr.race_id
+                 JOIN teams t ON t.id = rr.equipe_id
+                 WHERE c.categoria = 'gt3'
+                   AND rr.posicao_final = 1
+                   AND t.nome IN ('Audi', 'Acura')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("challenger wins");
+
+        assert!(
+            heritage_wins > challenger_wins,
+            "GT3 heritage teams should not be out-won by Audi/Acura in the generated archive: heritage={heritage_wins}, challengers={challenger_wins}"
+        );
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_skips_categories_before_their_inaugural_year() {
+        let base_dir = unique_test_dir("historical_category_timeline");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2001, 2002)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+
+        let rookie_results: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM race_results rr
+                 JOIN races r ON r.id = rr.race_id
+                 JOIN calendar c ON c.id = r.calendar_id
+                 WHERE c.categoria = 'mazda_rookie'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("rookie race result count");
+        let rookie_standings: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM standings WHERE categoria = 'mazda_rookie'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("rookie standings count");
+
+        assert_eq!(rookie_results, 0);
+        assert_eq!(rookie_standings, 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_skips_teams_before_their_foundation_year() {
+        let base_dir = unique_test_dir("historical_team_timeline");
+        let input = sample_draft_input();
+        let state = create_historical_career_draft_base_for_test(&base_dir, input)
+            .expect("draft base should be created");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let career_dir = AppConfig::load_or_default(&base_dir)
+            .saves_dir()
+            .join(career_id);
+        let db_path = career_dir.join("career.db");
+        let mut db = Database::open_existing(&db_path).expect("db");
+        let team_id: String = db
+            .conn
+            .query_row(
+                "SELECT id FROM teams WHERE categoria = 'gt3' ORDER BY car_performance DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("gt3 team id");
+        db.conn
+            .execute(
+                "UPDATE teams SET ano_fundacao = 2002 WHERE id = ?1",
+                rusqlite::params![&team_id],
+            )
+            .expect("update team foundation");
+
+        simulate_historical_range(&mut db, &career_dir, 2000, 2000, 2001)
+            .expect("historical range should finish");
+
+        let team_results: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM race_results WHERE equipe_id = ?1",
+                rusqlite::params![&team_id],
+                |row| row.get(0),
+            )
+            .expect("team race result count");
+        let team_standings: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM standings WHERE equipe_id = ?1",
+                rusqlite::params![&team_id],
+                |row| row.get(0),
+            )
+            .expect("team standings count");
+
+        assert_eq!(team_results, 0);
+        assert_eq!(team_standings, 0);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_simulation_starts_playable_year_with_clean_team_finances() {
+        let base_dir = unique_test_dir("historical_clean_finance");
+        let input = sample_draft_input();
+
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+        let teams = team_queries::get_all_teams(&db.conn).expect("teams");
+
+        assert!(teams.iter().all(|team| team.debt_balance == 0.0));
+        assert!(teams.iter().all(|team| team.last_round_income == 0.0));
+        assert!(teams.iter().all(|team| team.last_round_expenses == 0.0));
+        assert!(teams.iter().all(|team| team.last_round_net == 0.0));
+        assert!(teams.iter().all(|team| {
+            let scale = category_finance_scale(&team.categoria);
+            team.cash_balance >= scale.cash_min && team.cash_balance <= scale.cash_max
+        }));
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_races_preserve_team_finance_snapshot() {
+        let base_dir = unique_test_dir("historical_race_finance_snapshot");
+        let state = create_historical_career_draft_base_for_test(&base_dir, sample_draft_input())
+            .expect("draft base should be created");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let mut db = open_draft_db(&base_dir, career_id);
+        let before: HashMap<String, (f64, f64, f64, f64, f64)> =
+            team_queries::get_all_teams(&db.conn)
+                .expect("teams before")
+                .into_iter()
+                .map(|team| {
+                    (
+                        team.id,
+                        (
+                            team.cash_balance,
+                            team.debt_balance,
+                            team.last_round_income,
+                            team.last_round_expenses,
+                            team.last_round_net,
+                        ),
+                    )
+                })
+                .collect();
+
+        super::simulate_current_historical_season(&mut db)
+            .expect("historical season simulation should finish");
+
+        let after = team_queries::get_all_teams(&db.conn).expect("teams after");
+        assert!(after.iter().all(|team| {
+            before
+                .get(&team.id)
+                .is_some_and(|(cash, debt, income, expenses, net)| {
+                    team.cash_balance == *cash
+                        && team.debt_balance == *debt
+                        && team.last_round_income == *income
+                        && team.last_round_expenses == *expenses
+                        && team.last_round_net == *net
+                })
+        }));
 
         let _ = std::fs::remove_dir_all(base_dir);
     }

@@ -8,6 +8,8 @@ use tauri::{AppHandle, Manager};
 use crate::commands::race_history::append_race_result;
 use crate::config::app_config::{AppConfig, SaveMeta};
 use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
+use crate::constants::historical_timeline::is_team_active_in_year;
+use crate::constants::scoring::{get_points_for_position, BONUS_FASTEST_LAP};
 use crate::db::connection::Database;
 use crate::db::connection::DbError;
 use crate::db::queries::calendar as calendar_queries;
@@ -47,6 +49,12 @@ use crate::{calendar::CalendarEntry, models::team::Team};
 pub struct RaceWeekendResult {
     pub player_race: RaceResult,
     pub other_categories: SimultaneousResults,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RacePersistenceMode {
+    Playable,
+    HistoricalDraft,
 }
 
 fn calculate_team_round_finance_context(
@@ -531,12 +539,33 @@ pub(crate) fn simulate_category_race(
     race_entry: &CalendarEntry,
     advance_player_round: bool,
 ) -> Result<(RaceResult, Vec<Injury>), String> {
+    simulate_category_race_with_mode(
+        db,
+        race_entry,
+        advance_player_round,
+        RacePersistenceMode::Playable,
+    )
+}
+
+pub(crate) fn simulate_historical_category_race(
+    db: &mut Database,
+    race_entry: &CalendarEntry,
+) -> Result<(RaceResult, Vec<Injury>), String> {
+    simulate_category_race_with_mode(db, race_entry, false, RacePersistenceMode::HistoricalDraft)
+}
+
+fn simulate_category_race_with_mode(
+    db: &mut Database,
+    race_entry: &CalendarEntry,
+    advance_player_round: bool,
+    persistence_mode: RacePersistenceMode,
+) -> Result<(RaceResult, Vec<Injury>), String> {
     let category = get_category_config(&race_entry.categoria)
         .ok_or_else(|| "Categoria da corrida nao encontrada.".to_string())?;
     let active_season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
         .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
-    let teams = if is_especial(&race_entry.categoria) {
+    let mut teams = if is_especial(&race_entry.categoria) {
         special_entry_queries::get_entry_teams_for_category(
             &db.conn,
             &active_season.id,
@@ -546,6 +575,9 @@ pub(crate) fn simulate_category_race(
         team_queries::get_teams_by_category(&db.conn, &race_entry.categoria)
     }
     .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
+    if persistence_mode == RacePersistenceMode::HistoricalDraft {
+        teams.retain(|team| is_team_active_in_year(team, active_season.ano));
+    }
     let drivers = driver_queries::get_drivers_by_active_category(&db.conn, &race_entry.categoria)
         .map_err(|e| format!("Falha ao buscar pilotos da categoria: {e}"))?;
 
@@ -564,6 +596,7 @@ pub(crate) fn simulate_category_race(
                 team,
                 race_entry.track_id,
             )),
+            None if persistence_mode == RacePersistenceMode::HistoricalDraft => None,
             None => {
                 orphaned_drivers.push(format!("{} ({})", driver.nome, driver.id));
                 None
@@ -594,13 +627,16 @@ pub(crate) fn simulate_category_race(
     );
     let mut rng = rand::thread_rng();
     let catalog = IncidentCatalog::load(&db.conn).unwrap_or_else(|_| IncidentCatalog::empty());
-    let result = run_full_race(
+    let mut result = run_full_race(
         &sim_drivers,
         &ctx,
         category.id == "endurance",
         &catalog,
         &mut rng,
     );
+    if is_especial(&race_entry.categoria) {
+        apply_special_class_scoring(&mut result, &teams, category.id == "endurance");
+    }
     let next_round = if advance_player_round {
         Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32))
     } else {
@@ -614,7 +650,14 @@ pub(crate) fn simulate_category_race(
 
         // 2. Aplica pontuações normais
         let economic_health = global_economic_health_for_season(active_season.numero as i32);
-        apply_race_result_to_database(tx, &result, &teams, economic_health, &race_entry.categoria)?;
+        apply_race_result_to_database(
+            tx,
+            &result,
+            &teams,
+            economic_health,
+            &race_entry.categoria,
+            persistence_mode,
+        )?;
 
         // 3. Verifica os incidentes recém-gerados e processa possíveis lesões
         let flat_incidents: Vec<_> = result
@@ -825,8 +868,8 @@ fn apply_race_result_to_database(
     teams: &[Team],
     economic_health: GlobalEconomicHealth,
     race_category: &str,
+    persistence_mode: RacePersistenceMode,
 ) -> Result<(), DbError> {
-    let active_contracts = contract_queries::get_all_active_regular_contracts(tx)?;
     for race_driver in &result.race_results {
         let mut driver = driver_queries::get_driver(tx, &race_driver.pilot_id)?;
         let mut season_stats = driver.stats_temporada.clone();
@@ -834,8 +877,8 @@ fn apply_race_result_to_database(
 
         let previous_races = season_stats.corridas;
         season_stats.pontos += race_driver.points_earned as f64;
-        season_stats.vitorias += u32::from(race_driver.finish_position == 1);
-        season_stats.podios += u32::from(race_driver.finish_position <= 3);
+        season_stats.vitorias += u32::from(!race_driver.is_dnf && race_driver.finish_position == 1);
+        season_stats.podios += u32::from(!race_driver.is_dnf && race_driver.finish_position <= 3);
         season_stats.poles += u32::from(race_driver.pilot_id == result.pole_sitter_id);
         season_stats.corridas += 1;
         season_stats.dnfs += u32::from(race_driver.is_dnf);
@@ -846,8 +889,8 @@ fn apply_race_result_to_database(
         );
 
         career_stats.pontos_total += race_driver.points_earned as f64;
-        career_stats.vitorias += u32::from(race_driver.finish_position == 1);
-        career_stats.podios += u32::from(race_driver.finish_position <= 3);
+        career_stats.vitorias += u32::from(!race_driver.is_dnf && race_driver.finish_position == 1);
+        career_stats.podios += u32::from(!race_driver.is_dnf && race_driver.finish_position <= 3);
         career_stats.poles += u32::from(race_driver.pilot_id == result.pole_sitter_id);
         career_stats.corridas += 1;
         career_stats.dnfs += u32::from(race_driver.is_dnf);
@@ -874,6 +917,11 @@ fn apply_race_result_to_database(
         return Ok(());
     }
 
+    let active_contracts = if persistence_mode == RacePersistenceMode::Playable {
+        Some(contract_queries::get_all_active_regular_contracts(tx)?)
+    } else {
+        None
+    };
     let race_results_by_team = group_results_by_team(result);
     let category_id = teams
         .first()
@@ -921,6 +969,10 @@ fn apply_race_result_to_database(
             team.stats_pontos + added_points,
             current_best.min(best_result),
         )?;
+
+        let Some(active_contracts) = active_contracts.as_ref() else {
+            continue;
+        };
 
         let team_salary_total: f64 = active_contracts
             .iter()
@@ -1011,6 +1063,66 @@ fn build_special_team_lookup<'a>(
     }
 
     Ok(lookup)
+}
+
+fn apply_special_class_scoring(
+    result: &mut RaceResult,
+    teams: &[crate::models::team::Team],
+    is_endurance: bool,
+) {
+    let class_by_team: HashMap<&str, &str> = teams
+        .iter()
+        .map(|team| {
+            (
+                team.id.as_str(),
+                team.classe.as_deref().unwrap_or(team.categoria.as_str()),
+            )
+        })
+        .collect();
+    let mut result_indexes_by_class: HashMap<String, Vec<usize>> = HashMap::new();
+
+    for (index, entry) in result.race_results.iter().enumerate() {
+        let class_name = class_by_team
+            .get(entry.team_id.as_str())
+            .copied()
+            .unwrap_or("geral");
+        result_indexes_by_class
+            .entry(class_name.to_string())
+            .or_default()
+            .push(index);
+    }
+
+    let fastest_lap_id = result.fastest_lap_id.clone();
+    for indexes in result_indexes_by_class.values_mut() {
+        indexes.sort_by(|left, right| {
+            let left_result = &result.race_results[*left];
+            let right_result = &result.race_results[*right];
+            left_result
+                .is_dnf
+                .cmp(&right_result.is_dnf)
+                .then_with(|| {
+                    left_result
+                        .finish_position
+                        .cmp(&right_result.finish_position)
+                })
+                .then_with(|| left_result.pilot_name.cmp(&right_result.pilot_name))
+        });
+
+        for (class_index, result_index) in indexes.iter().enumerate() {
+            let class_position = class_index as i32 + 1;
+            let entry = &mut result.race_results[*result_index];
+            entry.finish_position = class_position;
+            entry.positions_gained = entry.grid_position - class_position;
+            entry.points_earned = if entry.is_dnf {
+                0
+            } else {
+                get_points_for_position(class_position as u8, is_endurance) as i32
+            };
+            if !entry.is_dnf && entry.pilot_id == fastest_lap_id && class_position <= 10 {
+                entry.points_earned += BONUS_FASTEST_LAP as i32;
+            }
+        }
+    }
 }
 
 fn group_results_by_team<'a>(
@@ -1392,6 +1504,7 @@ mod tests {
     use crate::db::queries::calendar::get_next_race;
     use crate::db::queries::news as news_queries;
     use crate::models::team::placeholder_team_from_db;
+    use crate::simulation::race::{ClassificationStatus, RaceDriverResult};
 
     #[test]
     fn round_finance_context_uses_real_money_instead_of_raw_budget() {
@@ -1438,6 +1551,102 @@ mod tests {
 
         assert!(rich_context.sponsorship_income > poor_context.sponsorship_income);
         assert!(poor_context.debt_service_cost > rich_context.debt_service_cost);
+    }
+
+    fn sample_driver_result(
+        pilot_id: &str,
+        team_id: &str,
+        finish_position: i32,
+    ) -> RaceDriverResult {
+        RaceDriverResult {
+            pilot_id: pilot_id.to_string(),
+            pilot_name: pilot_id.to_string(),
+            team_id: team_id.to_string(),
+            team_name: team_id.to_string(),
+            grid_position: finish_position,
+            finish_position,
+            positions_gained: 0,
+            best_lap_time_ms: 90_000.0 + finish_position as f64,
+            total_race_time_ms: 900_000.0 + finish_position as f64,
+            gap_to_winner_ms: if finish_position == 1 {
+                0.0
+            } else {
+                finish_position as f64
+            },
+            is_dnf: false,
+            dnf_reason: None,
+            dnf_segment: None,
+            incidents_count: 0,
+            incidents: Vec::new(),
+            has_fastest_lap: false,
+            points_earned: 0,
+            is_jogador: false,
+            laps_completed: 20,
+            final_tire_wear: 0.5,
+            final_physical: 0.8,
+            classification_status: ClassificationStatus::Finished,
+            notable_incident: None,
+            dnf_catalog_id: None,
+            damage_origin_segment: None,
+        }
+    }
+
+    fn sample_special_team(team_id: &str, class_name: &str) -> Team {
+        let mut team = placeholder_team_from_db(
+            team_id.to_string(),
+            team_id.to_string(),
+            "endurance".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.classe = Some(class_name.to_string());
+        team
+    }
+
+    #[test]
+    fn special_results_are_scored_by_class_position() {
+        let teams = vec![
+            sample_special_team("LMP-A", "lmp2"),
+            sample_special_team("LMP-B", "lmp2"),
+            sample_special_team("GT3-A", "gt3"),
+            sample_special_team("GT4-A", "gt4"),
+        ];
+        let mut result = RaceResult {
+            qualifying_results: Vec::new(),
+            race_results: vec![
+                sample_driver_result("P-LMP-A", "LMP-A", 1),
+                sample_driver_result("P-GT3-A", "GT3-A", 2),
+                sample_driver_result("P-GT4-A", "GT4-A", 3),
+                sample_driver_result("P-LMP-B", "LMP-B", 4),
+            ],
+            pole_sitter_id: "P-LMP-A".to_string(),
+            winner_id: "P-LMP-A".to_string(),
+            fastest_lap_id: String::new(),
+            total_laps: 20,
+            weather: "dry".to_string(),
+            track_name: "Test".to_string(),
+            total_incidents: 0,
+            total_dnfs: 0,
+            main_incident_count: 0,
+            notable_incident_pilot_ids: Vec::new(),
+            most_positions_gained_id: None,
+        };
+
+        apply_special_class_scoring(&mut result, &teams, true);
+
+        let by_pilot: std::collections::HashMap<_, _> = result
+            .race_results
+            .iter()
+            .map(|entry| (entry.pilot_id.as_str(), entry))
+            .collect();
+
+        assert_eq!(by_pilot["P-LMP-A"].finish_position, 1);
+        assert_eq!(by_pilot["P-LMP-A"].points_earned, 35);
+        assert_eq!(by_pilot["P-LMP-B"].finish_position, 2);
+        assert_eq!(by_pilot["P-LMP-B"].points_earned, 28);
+        assert_eq!(by_pilot["P-GT3-A"].finish_position, 1);
+        assert_eq!(by_pilot["P-GT3-A"].points_earned, 35);
+        assert_eq!(by_pilot["P-GT4-A"].finish_position, 1);
+        assert_eq!(by_pilot["P-GT4-A"].points_earned, 35);
     }
 
     #[test]

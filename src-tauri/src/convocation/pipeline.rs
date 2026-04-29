@@ -52,7 +52,7 @@ struct PendingOp {
 
 // ── Classes convocadas ────────────────────────────────────────────────────────
 
-/// Classes que participam da convocação (LMP2 excluído).
+/// Classes que participam da convocação especial.
 struct ClasseConfig {
     special_category: &'static str,
     class_name: &'static str,
@@ -84,6 +84,11 @@ const CLASSES_CONVOCADAS: &[ClasseConfig] = &[
         special_category: "endurance",
         class_name: "gt3",
         feeder_category: "gt3",
+    },
+    ClasseConfig {
+        special_category: "endurance",
+        class_name: "lmp2",
+        feeder_category: "lmp2",
     },
 ];
 
@@ -237,6 +242,34 @@ fn ensure_special_team_entries(
         let target_slots = target_slots_for_class(conn, cfg)?;
         let mut entries = Vec::new();
         let mut used_team_ids = std::collections::HashSet::new();
+
+        let legacy_special_teams = team_queries::get_teams_by_category_and_class(
+            conn,
+            cfg.special_category,
+            cfg.class_name,
+        )?;
+        if !legacy_special_teams.is_empty() {
+            for team in legacy_special_teams.into_iter().take(target_slots) {
+                if !used_team_ids.insert(team.id.clone()) {
+                    continue;
+                }
+                entries.push(special_entry_queries::NewSpecialTeamEntry {
+                    team_id: team.id,
+                    source_category: cfg.special_category.to_string(),
+                    qualified_via: "ClasseEspecial".to_string(),
+                    guaranteed_next_year: false,
+                });
+            }
+
+            special_entry_queries::replace_entries_for_class(
+                conn,
+                season_id,
+                cfg.special_category,
+                cfg.class_name,
+                &entries,
+            )?;
+            continue;
+        }
 
         for team_id in special_entry_queries::get_previous_guaranteed_team_ids(
             conn,
@@ -1246,6 +1279,9 @@ fn aplicar_persistencia_grids(conn: &Connection, ops: &[PendingOp]) -> Result<()
     team_queries::clear_special_team_lineups(conn)?;
     team_queries::reset_special_team_hierarchies(conn)?;
 
+    let mut team_lineups: std::collections::HashMap<String, (Option<String>, Option<String>)> =
+        std::collections::HashMap::new();
+
     for op in ops {
         contract_queries::insert_contract(conn, &op.contract)?;
         driver_queries::update_driver_especial_category(
@@ -1253,6 +1289,28 @@ fn aplicar_persistencia_grids(conn: &Connection, ops: &[PendingOp]) -> Result<()
             &op.driver_id,
             Some(&op.special_category),
         )?;
+
+        let lineup = team_lineups
+            .entry(op.contract.equipe_id.clone())
+            .or_insert((None, None));
+        match op.contract.papel {
+            TeamRole::Numero1 => lineup.0 = Some(op.driver_id.clone()),
+            TeamRole::Numero2 => lineup.1 = Some(op.driver_id.clone()),
+        }
+    }
+
+    for (team_id, (n1, n2)) in &team_lineups {
+        team_queries::update_team_pilots(conn, team_id, n1.as_deref(), n2.as_deref())?;
+        if let (Some(n1_id), Some(n2_id)) = (n1, n2) {
+            team_queries::update_team_hierarchy(
+                conn,
+                team_id,
+                Some(n1_id.as_str()),
+                Some(n2_id.as_str()),
+                "Claro",
+                0.0,
+            )?;
+        }
     }
 
     Ok(())
@@ -1684,24 +1742,102 @@ mod tests {
     }
 
     #[test]
-    fn test_lmp2_teams_remain_empty() {
+    fn test_lmp2_class_gets_special_grid() {
         let (conn, _) = setup_world_db();
         advance_to_convocation_window(&conn).expect("advance");
         run_convocation_window(&conn).expect("convocação");
 
-        // Equipes LMP2 não devem ter pilotos
-        let lmp2_with_pilots: i64 = conn
+        // Equipes LMP2 tambem entram no bloco especial mesmo sem categoria regular propria.
+        let lmp2_with_two_pilots: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM teams WHERE categoria='endurance' AND classe='lmp2' AND piloto_1_id IS NOT NULL",
+                "SELECT COUNT(*)
+                 FROM teams
+                 WHERE categoria='endurance'
+                   AND classe='lmp2'
+                   AND piloto_1_id IS NOT NULL
+                   AND piloto_2_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let lmp2_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE tipo='Especial'
+                   AND categoria='endurance'
+                   AND classe='lmp2'
+                   AND status='Ativo'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let lmp2_entries: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM special_team_entries
+                 WHERE special_category='endurance'
+                   AND class_name='lmp2'",
                 [],
                 |row| row.get(0),
             )
             .unwrap_or(0);
 
+        assert!(lmp2_with_two_pilots > 0, "LMP2 deveria montar grid proprio");
+        assert!(lmp2_contracts > 0, "LMP2 deveria gerar contratos especiais");
+        assert!(
+            lmp2_entries > 0,
+            "LMP2 deveria registrar equipes classificadas"
+        );
+    }
+
+    #[test]
+    fn test_special_window_team_sections_expose_class_for_each_car() {
+        let (conn, season_id) = setup_world_db();
+        let player = dq::get_player_driver(&conn).expect("player");
+        advance_to_convocation_window(&conn).expect("advance");
+        run_convocation_window(&conn).expect("convocação");
+
+        let payload = special_window::load_special_window_payload(&conn, &season_id, &player.id)
+            .expect("payload");
+        let mut classes_by_category: std::collections::HashMap<
+            String,
+            std::collections::HashSet<String>,
+        > = std::collections::HashMap::new();
+        let mut missing_class_teams = Vec::new();
+
+        for section in payload.team_sections {
+            for team in section.teams {
+                match team.classe {
+                    Some(class_name) => {
+                        classes_by_category
+                            .entry(section.category.clone())
+                            .or_default()
+                            .insert(class_name);
+                    }
+                    None => missing_class_teams.push(team.nome),
+                }
+            }
+        }
+
+        assert!(
+            missing_class_teams.is_empty(),
+            "todas as equipes da janela especial devem expor classe/carro: {:?}",
+            missing_class_teams
+        );
         assert_eq!(
-            lmp2_with_pilots, 0,
-            "equipes lmp2 com pilotos: {}",
-            lmp2_with_pilots
+            classes_by_category
+                .get("production_challenger")
+                .expect("production section")
+                .len(),
+            3
+        );
+        assert_eq!(
+            classes_by_category
+                .get("endurance")
+                .expect("endurance section")
+                .len(),
+            3
         );
     }
 

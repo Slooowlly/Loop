@@ -809,7 +809,7 @@ fn load_visible_team_sections(
                     cor_primaria: team.cor_primaria.clone(),
                     cor_secundaria: team.cor_secundaria.clone(),
                     categoria: team.categoria.clone(),
-                    classe: team.classe.clone(),
+                    classe: Some(class_info.class_name.to_string()),
                     piloto_1_id: pilot_1
                         .as_ref()
                         .map(|assignment| assignment.driver_id.clone()),
