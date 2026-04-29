@@ -25,6 +25,10 @@ test("driver detail drawer stays above the app layers and closes with a coordina
     path.join(projectRoot, "src/index.css"),
     "utf8",
   );
+  const dossierSectionsSource = await readFile(
+    path.join(projectRoot, "src/components/driver/DriverDetailModalSections.jsx"),
+    "utf8",
+  );
 
   assert.match(
     standingsSource,
@@ -124,42 +128,32 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   assert.match(
     drawerSource,
     /function Section\(\{ title, headerLeft = null, headerRight = null, children, className = "" \}\)/,
-    "expected sections to support both an inline-left slot and a centered right-side slot for header metadata",
+    "expected sections to support inline-left and right-side header metadata slots",
   );
   assert.match(
     drawerSource,
-    /relative mb-3 min-h-\[26px\] border-b border-\[#21262d\] pb-1\.5[\s\S]*relative z-\[1\] flex items-center gap-2 pr-8[\s\S]*\{headerLeft\}[\s\S]*absolute inset-x-0 top-1\/2 flex -translate-y-1\/2 justify-center/,
-    "expected section headers to keep left metadata anchored while centering secondary header content against the whole modal width",
+    /mb-5 overflow-hidden rounded-xl border border-white\/10 bg-\[#0a0f1c\]\/60[\s\S]*flex min-h-\[44px\] items-center justify-between[\s\S]*\{headerLeft\}[\s\S]*\{headerRight\}/,
+    "expected sections to render as framed dossier cards with a compact header row",
   );
   assert.match(
     drawerSource,
-    /const profileHeaderMeta = \([\s\S]*flex w-full items-center justify-center[\s\S]*<MotivationBar[\s\S]*value=\{competitivo\?\.motivacao\}[\s\S]*compact[\s\S]*\/>[\s\S]*\);/,
-    "expected the Perfil header meta area to center only the compact motivation bar",
+    /<Section[\s\S]*title="Perfil"[\s\S]*headerRight=\{licenseLevelBadge \? <BadgePill badge=\{licenseLevelBadge\} \/> : null\}/,
+    "expected the Perfil section to place the license badge on the right side of the card header",
   );
   assert.match(
     drawerSource,
-    /<Section[\s\S]*title="Perfil"[\s\S]*headerLeft=\{licenseLevelBadge \? <BadgePill badge=\{licenseLevelBadge\} \/> : null\}/,
-    "expected the Perfil section to place the Rookie badge beside the title instead of next to motivation",
+    /title="Perfil"[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
+    "expected the Perfil body to place motivation above the pros-and-cons panel on the right",
   );
   assert.match(
     drawerSource,
-    /<MotivationBar[\s\S]*className="min-w-\[220px\] sm:min-w-\[320px\] lg:min-w-\[420px\]"/,
-    "expected the header motivation bar to stretch wider across the top area",
+    /function DossierTabs[\s\S]*grid grid-cols-2[\s\S]*sm:grid-cols-4[\s\S]*min-h-9 rounded-lg border px-3 text-sm font-medium/,
+    "expected dossier tabs to render as four equal-width controls below the profile card",
   );
   assert.match(
     drawerSource,
-    /<Section[\s\S]*title="Perfil"[\s\S]*headerRight=\{profileHeaderMeta\}/,
-    "expected the Perfil section header to surface both the badge and motivation in the top bar",
-  );
-  assert.match(
-    drawerSource,
-    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*flex-1[\s\S]*Motivacao/,
-    "expected the motivation component to support a slimmer borderless compact header variant",
-  );
-  assert.doesNotMatch(
-    drawerSource,
-    /if \(compact\) \{[\s\S]*w-9 text-right font-mono text-\[10px\][\s\S]*\{normalized\}%/,
-    "expected the compact motivation bar in the header to rely on the visual fill only, without a text percentage",
+    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*Motivacao[\s\S]*\{normalized\}%/,
+    "expected the compact motivation component to show both the label, fill, and percentage in the profile body",
   );
   assert.match(
     drawerSource,
@@ -170,6 +164,11 @@ test("driver detail drawer stays above the app layers and closes with a coordina
     drawerSource,
     /perfil\?\.idade \?\? detail\.idade\} anos/,
     "expected the driver's age to move into the main header line near the name",
+  );
+  assert.match(
+    drawerSource,
+    /<h2[\s\S]*truncate[\s\S]*\{detail\.nome\}/,
+    "expected long driver names to stay on the name line instead of wrapping below the flag",
   );
   assert.match(
     drawerSource,
@@ -283,8 +282,8 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /const profileHeaderMeta = \([\s\S]*<MotivationBar[\s\S]*value=\{competitivo\?\.motivacao\}[\s\S]*compact/,
-    "expected motivation to move into the Perfil header meta area to save vertical space",
+    /title="Perfil"[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>/,
+    "expected motivation to sit in the right side of the Perfil card body",
   );
   assert.match(
     drawerSource,
@@ -303,28 +302,28 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*lg:grid-cols-\[300px_minmax\(0,1fr\)\][\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="h-\[118px\] w-full lg:h-\[118px\]" \/>/,
+    /title="Perfil"[\s\S]*lg:grid-cols-\[300px_minmax\(0,1fr\)\][\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
     "expected the drawer header to use the dead space beside the name for the pros-and-cons panel",
   );
   assert.match(
     drawerSource,
-    /function ProsConsPanel[\s\S]*h-\[138px\][\s\S]*grid-cols-2[\s\S]*Qualidades[\s\S]*Pontos de atencao[\s\S]*overflow-y-auto/,
+    /function ProsConsPanel[\s\S]*grid h-\[118px\] min-h-0 grid-cols-2[\s\S]*Pontos fortes[\s\S]*Atencao[\s\S]*overflow-y-auto/,
     "expected the pros-and-cons panel near the header to keep a fixed height and split pros/cons side by side with internal scrolling",
   );
   assert.match(
     drawerSource,
-    /function ProsConsPanel[\s\S]*"flex h-\[138px\] min-h-0 flex-col lg:h-full"/,
-    "expected the header pros-and-cons area to use a plain text layout instead of a glass card wrapper",
+    /function ProsConsPanel[\s\S]*rounded-xl border border-white\/8 bg-white\/\[0\.045\] p-3/,
+    "expected the header pros-and-cons area to use two small framed boxes like the refined mockup",
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*lg:min-h-\[146px\]/,
+    /title="Perfil"[\s\S]*lg:min-h-\[170px\]/,
     "expected the profile header area to keep a fixed desktop height instead of growing with the content",
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*lg:pt-4[\s\S]*<ProsConsPanel competitivo=\{competitivo\}/,
-    "expected the header pros-and-cons area to start lower so it aligns with the driver's name block instead of sticking to the top-right corner",
+    /title="Perfil"[\s\S]*grid min-w-0 gap-3 lg:pt-4[\s\S]*<MotivationBar[\s\S]*<ProsConsPanel competitivo=\{competitivo\}/,
+    "expected the right side of the profile body to align motivation and pros-and-cons below the card header",
   );
   assert.doesNotMatch(
     drawerSource,
@@ -368,28 +367,58 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /Vigencia[\s\S]*Temporada .* ate /,
-    "expected contract duration to read as 'Temporada X ate Y'",
+    /Vigencia[\s\S]*formatContractPeriod\(contract\)/,
+    "expected contract duration to read as calendar years",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /Temporada \$\{contract\.temporada_inicio\} ate \$\{contract\.temporada_fim\}/,
+    "expected current contract duration to stop rendering as season numbers",
   );
   assert.match(
     drawerSource,
-    /function formatContractRole[\s\S]*Piloto N1[\s\S]*Piloto N2[\s\S]*label="Funcao"[\s\S]*formatContractRole\(contract\.papel\)/,
-    "expected the contract role to be normalized to Piloto N1/N2",
+    /formatContractPeriod\(contract\)/,
+    "expected current contract duration to render as calendar years",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function formatContractPeriod\(contract\)[\s\S]*contract\.ano_inicio[\s\S]*contract\.ano_fim/,
+    "expected the Mercado tab to format contract duration with calendar years",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /Temp \{detail\.contrato_mercado\.contrato\.temporada_inicio\}/,
+    "expected the Mercado tab to stop rendering duration as season numbers",
   );
   assert.match(
     drawerSource,
-    /const\s+\[\s*activeTab,\s*setActiveTab\s*\]\s*=\s*useState\(["']atual["']\)/,
-    "expected the drawer to initialize its internal navigation on the Atual tab",
+    /function formatContractRole[\s\S]*return "N1"[\s\S]*return "N2"[\s\S]*label="Funcao"[\s\S]*formatContractRole\(contract\.papel\)/,
+    "expected the contract role to be normalized to N1/N2 without redundant wording",
   );
   assert.match(
     drawerSource,
-    /"Atual".*"Forma".*"Carreira".*"Mercado"|["']Atual["'][\s\S]*["']Forma["'][\s\S]*["']Carreira["'][\s\S]*["']Mercado["']/,
-    "expected the drawer to declare the four dossier tabs",
+    /const\s+\[\s*activeTab,\s*setActiveTab\s*\]\s*=\s*useState\(["']resumo["']\)/,
+    "expected the drawer to initialize its internal navigation on the Resumo tab",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /useEffect\(\(\) => \{[\s\S]*setActiveTab\("resumo"\)[\s\S]*\}, \[driverId\]\)/,
+    "expected adjacent-driver navigation to preserve the selected dossier tab",
   );
   assert.match(
     drawerSource,
-    /activeTab\s*===\s*["']carreira["']/,
-    "expected the career content to be hidden behind the Carreira tab instead of rendering by default",
+    /["']Resumo["'][\s\S]*["']Historico["'][\s\S]*["']Rivais["'][\s\S]*["']Mercado["']/,
+    "expected the drawer to declare the consolidated dossier tabs",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /id:\s*["']qualidade["']|id:\s*["']leitura["']/,
+    "expected quality and performance reading to stop being standalone tabs",
+  );
+  assert.match(
+    drawerSource,
+    /activeTab\s*===\s*["']historico["']/,
+    "expected the career content to be hidden behind the Historico tab instead of rendering by default",
   );
   assert.match(
     drawerSource,
@@ -412,6 +441,11 @@ test("driver detail drawer stays above the app layers and closes with a coordina
     "expected the dossier to focus the primary performance cards on race information only",
   );
   assert.doesNotMatch(
+    drawerSource,
+    /LIDER/,
+    "expected the redundant leader badge nomenclature to be removed from the driver dossier",
+  );
+  assert.doesNotMatch(
     standingsSource,
     /xl:pr-\[30rem\]/,
     "expected StandingsTab to stop pushing the whole grid for the drawer",
@@ -422,6 +456,22 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   const drawerSource = await readFile(
     path.join(projectRoot, "src/components/driver/DriverDetailModal.jsx"),
     "utf8",
+  );
+  const dossierSectionsSource = await readFile(
+    path.join(projectRoot, "src/components/driver/DriverDetailModalSections.jsx"),
+    "utf8",
+  );
+  const rookieDossierSource = dossierSectionsSource.slice(
+    dossierSectionsSource.indexOf("function RookieDossierState"),
+    dossierSectionsSource.indexOf("function RookieUnavailableSection"),
+  );
+  const rookieUnavailableSource = dossierSectionsSource.slice(
+    dossierSectionsSource.indexOf("function RookieUnavailableSection"),
+    dossierSectionsSource.indexOf("function FormMetric"),
+  );
+  const recentFormChartSource = dossierSectionsSource.slice(
+    dossierSectionsSource.indexOf("function resultColor"),
+    dossierSectionsSource.indexOf("function TimelineItem"),
   );
 
   assert.match(
@@ -436,18 +486,218 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     drawerSource,
-    /<FormSection detail=\{detail\} moment=\{moment\} \/>/,
-    "expected the form tab to use the extracted section component",
+    /<SummarySection detail=\{detail\} moment=\{moment\} \/>/,
+    "expected the summary tab to use the extracted section component",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /activeTab\s*===\s*["']qualidade["']|activeTab\s*===\s*["']leitura["']/,
+    "expected quality and performance reading to render inside Mercado instead of their own tabs",
   );
   assert.match(
     drawerSource,
-    /<CareerSection detail=\{detail\} trajetoria=\{trajetoria\} \/>/,
-    "expected the career tab to use the extracted section component",
+    /<HistorySection detail=\{detail\} trajetoria=\{trajetoria\} \/>/,
+    "expected the history tab to use the extracted section component",
+  );
+  assert.match(
+    drawerSource,
+    /<RivalsSection detail=\{detail\} \/>/,
+    "expected the rivals tab to use the extracted section component",
   );
   assert.match(
     drawerSource,
     /<MarketSection detail=\{detail\} market=\{market\} \/>/,
     "expected the market tab to use the extracted section component",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /export function MarketSection\(\{ SectionComponent, detail, market \}\)[\s\S]*<QualitySection SectionComponent=\{SectionComponent\} detail=\{detail\} \/>[\s\S]*<PerformanceReadSection SectionComponent=\{SectionComponent\} detail=\{detail\} \/>/,
+    "expected Mercado to integrate the quality map and performance reading sections",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /const QUALITY_LEVELS = \[[\s\S]*"Muito fraco"[\s\S]*"Fraco"[\s\S]*"Abaixo do esperado"[\s\S]*"Inst[aá]vel"[\s\S]*"Competente"[\s\S]*"Forte"[\s\S]*"Muito forte"[\s\S]*"Elite"[\s\S]*\]/,
+    "expected the quality tab to stop deriving technical readings locally",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /function QualityLevelRow\(\{ label, value \}\)[\s\S]*qualityLevelFromValue\(value\)/,
+    "expected technical quality rows to stop deriving levels from local numeric values",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /const technicalReadings = detail\.leitura_tecnica\?\.itens \?\? \[\]/,
+    "expected the quality tab to consume backend technical readings",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function QualityLevelRow\(\{ item \}\)[\s\S]*\{item\.label\}[\s\S]*\{item\.nivel\}/,
+    "expected technical quality rows to render backend textual levels",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /<StatCard label="Motivacao"|<StatCard label="Motivação"/,
+    "expected the quality base block to avoid the redundant motivation card",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /title="Pontos Fortes e Atencao"|title="Pontos Fortes e Atenção"/,
+    "expected the quality tab to avoid duplicating the header's strengths and attention block",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function CareerRankStat\(\{ label, value, rank, tone = "text-\[#e6edf3\]" \}\)[\s\S]*text-\[11px\][\s\S]*formatRank\(rank\)/,
+    "expected career history ordinals to render smaller than the absolute values",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RookieFormState\(\)[\s\S]*ESTREANTE[\s\S]*>0<[\s\S]*corridas/,
+    "expected rookie recent form to communicate the state visually without requiring a paragraph read",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function InsufficientFormState\(\)[\s\S]*Dados insuficientes/,
+    "expected non-rookie missing form data to use a distinct empty state",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /precisa completar algumas corridas antes de o histórico revelar uma tendência confiável/,
+    "expected the rookie state to avoid burying the key fact in a long sentence",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RecentFormChart\(\{ entries, rookie, context \}\)[\s\S]*areaPolygon[\s\S]*<defs>[\s\S]*<linearGradient[\s\S]*<polygon[\s\S]*<polyline/,
+    "expected recent form to render as a polished area chart instead of a raw line",
+  );
+  assert.match(
+    recentFormChartSource,
+    /className="-m-3\.5 overflow-hidden bg-\[#070b12\]"/,
+    "expected the recent-form chart to expand toward the section edges instead of sitting as a compact inner card",
+  );
+  assert.doesNotMatch(
+    recentFormChartSource,
+    /rounded-xl border border-\[#58a6ff\]\/14/,
+    "expected the recent-form chart to avoid a nested card shell",
+  );
+  assert.match(
+    recentFormChartSource,
+    /<rect x="0" y="0" width=\{width\} height=\{height\} rx="0" fill="#0b111c" \/>/,
+    "expected the chart canvas to fill the expanded area without rounded-card corners",
+  );
+  assert.doesNotMatch(
+    recentFormChartSource,
+    /preserveAspectRatio="none"/,
+    "expected the recent-form svg to keep natural proportions instead of deforming the chart",
+  );
+  assert.match(
+    recentFormChartSource,
+    /const width = 760;[\s\S]*const height = 220;[\s\S]*const chartLeft = 14;[\s\S]*const chartRight = 746;/,
+    "expected the recent-form chart to use a wider native coordinate system",
+  );
+  assert.match(
+    recentFormChartSource,
+    /className="block h-auto w-full"/,
+    "expected the recent-form svg to fill width while deriving height from its own proportions",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /<RecentFormChart entries=\{form\.ultimas_10 \?\? form\.ultimas_5 \?\? \[\]\} rookie=\{rookie\} context=\{form\.contexto\} \/>/,
+    "expected the summary recent-form chart to prefer the last 10 results while keeping old payload fallback",
+  );
+  assert.match(
+    recentFormChartSource,
+    /function resultColor\(entry\)[\s\S]*entry\?\.dnf[\s\S]*#f85149[\s\S]*finish === 1[\s\S]*#d29922[\s\S]*finish <= 3[\s\S]*#3fb950[\s\S]*finish <= 10[\s\S]*#58a6ff[\s\S]*#8b949e/,
+    "expected recent-form point colors to distinguish P1, podiums, top 10s, muted finishes, and DNFs",
+  );
+  assert.match(
+    recentFormChartSource,
+    /function resultOpacity\(entry\)[\s\S]*entry\?\.dnf[\s\S]*return 1[\s\S]*finish > 10 \? 0\.36 : 1/,
+    "expected recent-form results outside the top 10 to render with reduced opacity",
+  );
+  assert.match(
+    recentFormChartSource,
+    /function resultLabel\(entry\)[\s\S]*entry\?\.dnf[\s\S]*"DNF"[\s\S]*`P\$\{entry\.chegada\}`/,
+    "expected recent-form points to expose a position label for each result",
+  );
+  assert.match(
+    recentFormChartSource,
+    /stroke=\{resultColor\(point\.entry\)\}/,
+    "expected each recent-form point to use the semantic result color",
+  );
+  assert.match(
+    recentFormChartSource,
+    /opacity=\{resultOpacity\(point\.entry\)\}/,
+    "expected each recent-form point to apply semantic opacity",
+  );
+  assert.match(
+    recentFormChartSource,
+    /y=\{Math\.max\(14, point\.y - 12\)\}[\s\S]*fill=\{resultColor\(point\.entry\)\}[\s\S]*\{resultLabel\(point\.entry\)\}/,
+    "expected each recent-form point to show its result number above the dot",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /function FormChip|<FormChip/,
+    "expected the old recent-form chips to be removed",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function isCareerDebutantDetail\(detail\)[\s\S]*stats_carreira\?\.corridas[\s\S]*=== 0/,
+    "expected the rookie empty state to depend only on zero career races",
+  );
+  assert.doesNotMatch(
+    dossierSectionsSource,
+    /function isCareerDebutantDetail[\s\S]*ROOKIE/,
+    "expected category/license rookie badges to stop marking experienced drivers as debutants",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RookieDossierState\(\{ SectionComponent, title = "Resumo Atual" \}\)[\s\S]*Estreante[\s\S]*Expectativa desconhecida/,
+    "expected the summary tab to show a clear rookie dossier state instead of a normal verdict",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RookieDossierState\(\{ SectionComponent, title = "Resumo Atual" \}\)[\s\S]*flex min-h-\[180px\] flex-col items-center justify-center text-center/,
+    "expected the rookie summary message to be centered instead of styled as a stat card",
+  );
+  assert.doesNotMatch(
+    rookieDossierSource,
+    /rounded-xl border/,
+    "expected the rookie summary message to avoid an inner card shell",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /export function SummarySection\(\{ SectionComponent, detail, moment \}\)[\s\S]*if \(rookie\) return <RookieDossierState SectionComponent=\{SectionComponent\} \/>;/,
+    "expected rookie summary to skip the regular current-performance cards",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RookieUnavailableSection\(\{ SectionComponent, title \}\)[\s\S]*Indispon[ií]vel para estreante[\s\S]*Sem passado competitivo/,
+    "expected history-dependent tabs to communicate that rookie analysis is unavailable",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /function RookieUnavailableSection\(\{ SectionComponent, title \}\)[\s\S]*flex min-h-\[180px\] flex-col items-center justify-center text-center/,
+    "expected unavailable rookie tabs to show a centered text-only state",
+  );
+  assert.doesNotMatch(
+    rookieUnavailableSource,
+    /rounded-xl border/,
+    "expected unavailable rookie tabs to avoid an inner card shell",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /export function PerformanceReadSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Leitura de Desempenho" \/>;/,
+    "expected the performance-reading tab to be unavailable for rookies",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /export function HistorySection\(\{ SectionComponent, detail, trajetoria \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Historico de Carreira" \/>;/,
+    "expected the career-history tab to be unavailable for rookies",
+  );
+  assert.match(
+    dossierSectionsSource,
+    /export function RivalsSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Rivais" \/>;/,
+    "expected the rivals tab to be unavailable for rookies",
   );
 });
 

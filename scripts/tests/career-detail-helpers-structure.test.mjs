@@ -36,6 +36,26 @@ test("career driver-detail helpers live in a dedicated sibling module", async ()
     /pub\(crate\) fn build_driver_detail_payload\(/,
     "expected career_detail.rs to define the extracted driver-detail payload builder",
   );
+  assert.match(
+    careerDetailSource,
+    /leitura_tecnica:\s*build_driver_technical_read_block\(driver\)/,
+    "expected driver detail payload to provide backend-owned technical readings",
+  );
+  assert.match(
+    careerDetailSource,
+    /mercado:\s*Some\(build_driver_market_block\([\s\S]*driver,[\s\S]*contract,[\s\S]*team,[\s\S]*season\.numero,[\s\S]*\)\)/,
+    "expected driver detail payload to fill market data instead of leaving it disconnected",
+  );
+  assert.match(
+    careerDetailSource,
+    /if driver\.stats_carreira\.corridas == 0 && results\.is_empty\(\) \{[\s\S]*veredito:\s*"Estreante"\.to_string\(\),[\s\S]*tom:\s*"info"\.to_string\(\)/,
+    "expected backend summary to expose a distinct rookie verdict when no history exists",
+  );
+  assert.match(
+    careerDetailSource,
+    /let recent_form_source:[\s\S]*\.take\(10\)[\s\S]*ultimas_10:/,
+    "expected driver detail form to expose the last 10 races for the recent-form chart",
+  );
   assert.doesNotMatch(
     careerSource,
     /fn convert_tags\(/,

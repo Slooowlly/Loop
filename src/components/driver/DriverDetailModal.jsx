@@ -7,37 +7,38 @@ import FlagIcon from "../ui/FlagIcon";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatSalary } from "../../utils/formatters";
 import {
-  CareerSection as CareerSectionContent,
-  FormSection as FormSectionContent,
+  HistorySection as HistorySectionContent,
   MarketSection as MarketSectionContent,
-  PerformanceSection as PerformanceSectionContent,
+  RivalsSection as RivalsSectionContent,
+  SummarySection as SummarySectionContent,
   formatMoment,
 } from "./DriverDetailModalSections";
 
 const DOSSIER_TABS = [
-  { id: "atual", label: "Atual" },
-  { id: "forma", label: "Forma" },
-  { id: "carreira", label: "Carreira" },
+  { id: "resumo", label: "Resumo" },
+  { id: "historico", label: "Historico" },
+  { id: "rivais", label: "Rivais" },
   { id: "mercado", label: "Mercado" },
 ];
 
 function Section({ title, headerLeft = null, headerRight = null, children, className = "" }) {
   return (
-    <section className={["mb-5", className].join(" ")}>
-      <div className="relative mb-3 min-h-[26px] border-b border-[#21262d] pb-1.5">
-        <div className="relative z-[1] flex items-center gap-2 pr-8">
+    <section
+      className={[
+        "mb-5 overflow-hidden rounded-xl border border-white/10 bg-[#0a0f1c]/60 shadow-[0_18px_44px_rgba(0,0,0,0.18)]",
+        className,
+      ].join(" ")}
+    >
+      <div className="flex min-h-[44px] items-center justify-between gap-3 border-b border-white/8 px-3.5">
+        <div className="flex min-w-0 items-center gap-2">
           <h3 className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#7d8590]">
             {title}
           </h3>
           {headerLeft}
         </div>
-        {headerRight ? (
-          <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center px-4 sm:px-8">
-            {headerRight}
-          </div>
-        ) : null}
+        {headerRight ? <div className="flex flex-shrink-0 items-center">{headerRight}</div> : null}
       </div>
-      {children}
+      <div className="p-3.5">{children}</div>
     </section>
   );
 }
@@ -76,24 +77,22 @@ function BadgePill({ badge }) {
 
 function DossierTabs({ activeTab, onChange }) {
   return (
-    <div className="sticky top-0 z-10 -mx-1 mb-5 border-b border-white/6 bg-[rgba(13,17,23,0.88)] px-1 pb-4 pt-2 backdrop-blur-xl">
-      <div className="flex flex-wrap gap-2">
-        {DOSSIER_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => onChange(tab.id)}
-            className={[
-              "rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] transition-all",
-              activeTab === tab.id
-                ? "border-[#58a6ff]/30 bg-[#58a6ff]/14 text-[#58a6ff]"
-                : "border-white/10 bg-white/5 text-[#7d8590] hover:border-white/20 hover:text-[#c9d1d9]",
-            ].join(" ")}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {DOSSIER_TABS.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={[
+            "min-h-9 rounded-lg border px-3 text-sm font-medium transition-all",
+            activeTab === tab.id
+              ? "border-[#58a6ff]/45 bg-[#58a6ff]/18 text-[#e6edf3] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+              : "border-white/10 bg-white/[0.055] text-[#b6c2cf] hover:border-white/20 hover:bg-white/10 hover:text-[#e6edf3]",
+          ].join(" ")}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -147,7 +146,7 @@ function HeaderPersonalityList({ competitivo }) {
 
 function TagRow({ tag }) {
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div className="flex items-center gap-2 py-0.5">
       <span
         className="h-2 w-2 flex-shrink-0 rounded-full"
         style={{ backgroundColor: tag.color }}
@@ -164,40 +163,38 @@ function ProsConsPanel({ competitivo, className = "" }) {
   return (
     <div
       className={[
-        "flex h-[138px] min-h-0 flex-col lg:h-full",
+        "grid h-[118px] min-h-0 grid-cols-2 gap-2.5",
         className,
       ].join(" ")}
     >
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-5">
-        <div className="min-h-0 overflow-y-auto pr-1">
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#7d8590]">
-            Qualidades
-          </div>
-          {competitivo?.qualidades?.length ? (
-            competitivo.qualidades.map((tag) => (
-              <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
-            ))
-          ) : (
-            <p className="text-xs text-[#7d8590]">Sem qualidades visiveis.</p>
-          )}
+      <div className="min-h-0 overflow-y-auto rounded-xl border border-white/8 bg-white/[0.045] p-3">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#3fb950]">
+          Pontos fortes
         </div>
+        {competitivo?.qualidades?.length ? (
+          competitivo.qualidades.map((tag) => (
+            <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
+          ))
+        ) : (
+          <p className="text-xs text-[#7d8590]">Sem qualidades visiveis.</p>
+        )}
+      </div>
 
-        <div className="min-h-0 overflow-y-auto border-l border-white/8 pl-5 pr-1">
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#7d8590]">
-            Pontos de atencao
-          </div>
-          {competitivo?.defeitos?.length ? (
-            competitivo.defeitos.map((tag) => (
-              <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
-            ))
-          ) : competitivo?.neutro ? (
-            <p className="text-xs italic text-[#7d8590]">
-              Piloto equilibrado, sem fraquezas gritantes.
-            </p>
-          ) : (
-            <p className="text-xs text-[#7d8590]">Sem defeitos visiveis.</p>
-          )}
+      <div className="min-h-0 overflow-y-auto rounded-xl border border-white/8 bg-white/[0.045] p-3">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f85149]">
+          Atencao
         </div>
+        {competitivo?.defeitos?.length ? (
+          competitivo.defeitos.map((tag) => (
+            <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
+          ))
+        ) : competitivo?.neutro ? (
+          <p className="text-xs italic text-[#7d8590]">
+            Piloto equilibrado, sem fraquezas gritantes.
+          </p>
+        ) : (
+          <p className="text-xs text-[#7d8590]">Sem defeitos visiveis.</p>
+        )}
       </div>
     </div>
   );
@@ -211,14 +208,17 @@ function MotivationBar({ value, compact = false, className = "" }) {
     return (
       <div
         className={[
-          "flex items-center gap-2.5 rounded-full bg-transparent px-0 py-1",
+          "w-full rounded-none bg-transparent px-0 py-0",
           className,
         ].join(" ")}
       >
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7d8590]">
-          Motivacao
-        </span>
-        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#21262d]">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
+          <span>Motivacao</span>
+          <span className="font-mono" style={{ color }}>
+            {normalized}%
+          </span>
+        </div>
+        <div className="h-2 min-w-0 overflow-hidden rounded-full bg-[#21262d]">
           <div
             className="h-full rounded-full transition-all duration-700"
             style={{ width: `${normalized}%`, backgroundColor: color }}
@@ -317,9 +317,17 @@ function DriverEdgeNavigator({
 }
 
 function formatContractRole(role) {
-  if (role === "Numero1" || role === "N1" || role === "Piloto N1") return "Piloto N1";
-  if (role === "Numero2" || role === "N2" || role === "Piloto N2") return "Piloto N2";
+  if (role === "Numero1" || role === "N1" || role === "Piloto N1") return "N1";
+  if (role === "Numero2" || role === "N2" || role === "Piloto N2") return "N2";
   return role || "-";
+}
+
+function formatContractPeriod(contract) {
+  if (!contract) return "-";
+
+  const start = contract.ano_inicio ?? contract.temporada_inicio;
+  const end = contract.ano_fim ?? contract.temporada_fim;
+  return `${start} - ${end}`;
 }
 
 function DetailRow({ label, value, valueClassName = "text-[#e6edf3]" }) {
@@ -329,10 +337,6 @@ function DetailRow({ label, value, valueClassName = "text-[#e6edf3]" }) {
       <span className={["text-right text-sm font-medium", valueClassName].join(" ")}>{value}</span>
     </div>
   );
-}
-
-function PerformanceSection({ title, stats }) {
-  return <PerformanceSectionContent SectionComponent={Section} title={title} stats={stats} />;
 }
 
 function CurrentMomentSection({ forma, moment, contract }) {
@@ -378,7 +382,7 @@ function CurrentMomentSection({ forma, moment, contract }) {
               />
               <DetailRow
                 label="Vigencia"
-                value={`Temporada ${contract.temporada_inicio} ate ${contract.temporada_fim}`}
+                value={formatContractPeriod(contract)}
               />
             </div>
           ) : (
@@ -390,12 +394,16 @@ function CurrentMomentSection({ forma, moment, contract }) {
   );
 }
 
-function FormSection({ detail, moment }) {
-  return <FormSectionContent SectionComponent={Section} detail={detail} moment={moment} />;
+function SummarySection({ detail, moment }) {
+  return <SummarySectionContent SectionComponent={Section} detail={detail} moment={moment} />;
 }
 
-function CareerSection({ detail, trajetoria }) {
-  return <CareerSectionContent SectionComponent={Section} detail={detail} trajetoria={trajetoria} />;
+function HistorySection({ detail, trajetoria }) {
+  return <HistorySectionContent SectionComponent={Section} detail={detail} trajetoria={trajetoria} />;
+}
+
+function RivalsSection({ detail }) {
+  return <RivalsSectionContent SectionComponent={Section} detail={detail} />;
 }
 
 function MarketSection({ detail, market }) {
@@ -442,7 +450,7 @@ export default function DriverDetailModal({
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("atual");
+  const [activeTab, setActiveTab] = useState("resumo");
   const [isClosing, setIsClosing] = useState(false);
   const [showEdgeNavigator, setShowEdgeNavigator] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -508,7 +516,6 @@ export default function DriverDetailModal({
   }, []);
 
   useEffect(() => {
-    setActiveTab("atual");
     setIsClosing(false);
     window.clearTimeout(closeTimeoutRef.current);
     window.clearTimeout(edgeNavigatorTimeoutRef.current);
@@ -568,15 +575,6 @@ export default function DriverDetailModal({
     currentDriverIndex >= 0 && currentDriverIndex < driverIds.length - 1
       ? driverIds[currentDriverIndex + 1]
       : null;
-  const profileHeaderMeta = (
-    <div className="flex w-full items-center justify-center">
-      <MotivationBar
-        value={competitivo?.motivacao}
-        compact
-        className="min-w-[220px] sm:min-w-[320px] lg:min-w-[420px]"
-      />
-    </div>
-  );
   const drawerWidth =
     viewportWidth >= 1280
       ? Math.floor(viewportWidth * 0.5)
@@ -652,22 +650,21 @@ export default function DriverDetailModal({
 
             <Section
               title="Perfil"
-              headerLeft={licenseLevelBadge ? <BadgePill badge={licenseLevelBadge} /> : null}
-              headerRight={profileHeaderMeta}
+              headerRight={licenseLevelBadge ? <BadgePill badge={licenseLevelBadge} /> : null}
             >
               <div className="pr-8">
-                <div className="grid gap-4 lg:min-h-[146px] lg:h-[146px] lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
-                  <div className="min-w-0 lg:flex lg:h-full lg:max-w-[300px] lg:flex-col">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div className="grid gap-4 lg:min-h-[170px] lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
+                  <div className="min-w-0 lg:flex lg:min-h-[170px] lg:max-w-[300px] lg:flex-col">
+                    <div className="mb-2 grid grid-cols-[36px_minmax(0,1fr)] items-center gap-2">
                       <FlagIcon
                         nacionalidade={nationalityForFlag(perfil, detail)}
-                        className="h-6 w-9 rounded-md"
+                        className="h-6 w-9 rounded-md flex-shrink-0"
                       />
-                      <div className="inline-flex items-center gap-2 self-center leading-none">
-                        <h2 className="text-2xl font-bold leading-none text-[#e6edf3]">
+                      <div className="flex min-w-0 items-baseline gap-2 leading-none">
+                        <h2 className="min-w-0 truncate text-2xl font-bold leading-none text-[#e6edf3]">
                           {detail.nome}
                         </h2>
-                        <span className="relative top-[3px] self-center text-sm leading-none text-[#7d8590]">
+                        <span className="relative top-[3px] flex-shrink-0 self-center text-sm leading-none text-[#7d8590]">
                           {perfil?.idade ?? detail.idade} anos
                         </span>
                       </div>
@@ -693,8 +690,9 @@ export default function DriverDetailModal({
                     <HeaderPersonalityList competitivo={competitivo} />
                   </div>
 
-                  <div className="lg:flex lg:h-full lg:items-start lg:pt-4">
-                    <ProsConsPanel competitivo={competitivo} className="h-[118px] w-full lg:h-[118px]" />
+                  <div className="grid min-w-0 gap-3 lg:pt-4">
+                    <MotivationBar value={competitivo?.motivacao} compact />
+                    <ProsConsPanel competitivo={competitivo} className="w-full" />
                   </div>
                 </div>
               </div>
@@ -702,18 +700,13 @@ export default function DriverDetailModal({
 
             <DossierTabs activeTab={activeTab} onChange={setActiveTab} />
 
-            {activeTab === "atual" ? (
-              <>
-                <PerformanceSection title="Temporada" stats={detail.performance?.temporada} />
-                <CurrentMomentSection forma={forma} moment={moment} contract={contract} />
-              </>
+            {activeTab === "resumo" ? <SummarySection detail={detail} moment={moment} /> : null}
+
+            {activeTab === "historico" ? (
+              <HistorySection detail={detail} trajetoria={trajetoria} />
             ) : null}
 
-            {activeTab === "forma" ? <FormSection detail={detail} moment={moment} /> : null}
-
-            {activeTab === "carreira" ? (
-              <CareerSection detail={detail} trajetoria={trajetoria} />
-            ) : null}
+            {activeTab === "rivais" ? <RivalsSection detail={detail} /> : null}
 
             {activeTab === "mercado" ? (
               <MarketSection detail={detail} market={market} />

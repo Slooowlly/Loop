@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ficha de Piloto - Alternativas fiéis</title>
+    <style>
+      :root {
+        --bg: #050910;
+        --panel: rgba(10, 15, 28, 0.62);
+        --panel-soft: rgba(255, 255, 255, 0.055);
+        --panel-strong: rgba(255, 255, 255, 0.09);
+        --border: rgba(255, 255, 255, 0.11);
+        --border-strong: rgba(255, 255, 255, 0.18);
+        --text: #e6edf3;
+        --secondary: #b6c2cf;
+        --muted: #7e8a97;
+        --blue: #58a6ff;
+        --blue-soft: rgba(88, 166, 255, 0.15);
+        --green: #3fb950;
+        --red: #f85149;
+        --yellow: #d29922;
+        --team: #dc0000;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        overflow: auto;
+        color: var(--text);
+        font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(111, 212, 255, 0.14), transparent 30%),
+          radial-gradient(circle at 82% 18%, rgba(73, 154, 255, 0.10), transparent 24%),
+          radial-gradient(circle at bottom, rgba(56, 111, 214, 0.08), transparent 24%),
+          linear-gradient(180deg, #040812 0%, #08111d 48%, #050910 100%);
+      }
+
+      button { font: inherit; }
+
+      .page {
+        width: 100%;
+        margin: 0;
+        padding: 28px 0 42px;
+      }
+
+      .page-header {
+        width: min(1320px, calc(100vw - 32px));
+        margin: 0 auto 18px;
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 18px;
+      }
+
+      .page-header p {
+        margin: 0 0 6px;
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+      }
+
+      .page-header h1 {
+        margin: 0;
+        font-size: clamp(26px, 3vw, 42px);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .variant-switch {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .variant-switch button,
+      .tabs button {
+        min-height: 36px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.055);
+        color: var(--secondary);
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .variant-switch button.active,
+      .tabs button.active {
+        color: var(--text);
+        border-color: rgba(88,166,255,0.42);
+        background: var(--blue-soft);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+      }
+
+      .stage {
+        width: 100%;
+      }
+
+      .variant {
+        display: none;
+        min-height: calc(100vh - 150px);
+      }
+
+      .variant.active { display: block; }
+
+      .drawer {
+        width: 50vw;
+        min-height: calc(100vh - 150px);
+        margin-left: auto;
+        border-left: 1px solid var(--border-strong);
+        background: rgba(255,255,255,0.08);
+        backdrop-filter: blur(20px);
+        box-shadow: -24px 0 70px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.10);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .drawer.wide {
+        width: 50vw;
+      }
+
+      .team-strip {
+        height: 4px;
+        background: var(--team);
+      }
+
+      .drawer-body {
+        padding: 24px;
+      }
+
+      .close {
+        position: absolute;
+        right: 16px;
+        top: 16px;
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .section {
+        margin-bottom: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .section-header {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 14px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+
+      .section-title {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+      }
+
+      .section-content {
+        padding: 14px;
+      }
+
+      .profile-head {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 16px;
+        min-height: 146px;
+      }
+
+      .name-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .flag {
+        width: 36px;
+        height: 24px;
+        object-fit: cover;
+        border-radius: 6px;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .age {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .role {
+        margin-top: 10px;
+        color: var(--secondary);
+        font-size: 14px;
+      }
+
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 13px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.06);
+        color: var(--secondary);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .badge.info {
+        border-color: rgba(88,166,255,0.34);
+        background: rgba(88,166,255,0.12);
+        color: #9ccfff;
+      }
+
+      .badge.good {
+        border-color: rgba(63,185,80,0.34);
+        background: rgba(63,185,80,0.11);
+        color: #8ee99f;
+      }
+
+      .motivation {
+        width: min(420px, 100%);
+      }
+
+      .motivation-top {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+      }
+
+      .track {
+        height: 9px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.08);
+      }
+
+      .fill {
+        height: 100%;
+        width: 84%;
+        background: linear-gradient(90deg, var(--blue), var(--green));
+      }
+
+      .pros {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .pro-box {
+        height: 118px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 12px;
+        background: rgba(255,255,255,0.045);
+      }
+
+      .pro-box strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .pro-box ul {
+        margin: 0;
+        padding-left: 16px;
+        color: var(--secondary);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .content-grid {
+        display: grid;
+        grid-template-columns: 1.35fr 0.65fr;
+        gap: 12px;
+      }
+
+      .stat-group,
+      .moment-box,
+      .form-chip,
+      .timeline-item,
+      .market-row {
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.045);
+        border-radius: 10px;
+        padding: 12px;
+      }
+
+      .stat-group h3,
+      .moment-box h3 {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+      }
+
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+
+      .stat {
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 8px;
+        background: rgba(0,0,0,0.10);
+        padding: 10px;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .moment-box {
+        min-height: 116px;
+      }
+
+      .moment-value {
+        font-size: 30px;
+        font-weight: 800;
+        color: var(--green);
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+      }
+
+      .form-chip {
+        text-align: center;
+        min-height: 80px;
+      }
+
+      .form-chip strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 10px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 70px 1fr;
+        gap: 10px;
+      }
+
+      .market-list {
+        display: grid;
+        gap: 9px;
+      }
+
+      .market-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--secondary);
+        font-size: 13px;
+      }
+
+      .variant-note {
+        width: min(1320px, calc(100vw - 32px));
+        margin: 0 auto 12px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .compact-header .profile-head {
+        grid-template-columns: 1fr;
+        min-height: 0;
+      }
+
+      .compact-header .profile-summary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 14px;
+      }
+
+      .wide-layout .main-layout {
+        display: grid;
+        grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+        gap: 16px;
+      }
+
+      .wide-layout .side-rail {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+      }
+
+      .wide-layout .tabs {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(10,15,28,0.72);
+        backdrop-filter: blur(14px);
+        padding: 8px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+      }
+
+      @media (max-width: 1599px) {
+        .wide-layout .main-layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 1279px) {
+        .drawer,
+        .drawer.wide {
+          width: 72vw;
+        }
+      }
+
+      @media (max-width: 1023px) {
+        .page-header,
+        .profile-head,
+        .compact-header .profile-summary,
+        .content-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .page-header {
+          display: grid;
+        }
+
+        .variant-switch {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 767px) {
+        .page {
+          padding-top: 18px;
+        }
+
+        .drawer,
+        .drawer.wide {
+          width: 100vw;
+          border-left: 0;
+        }
+
+        .drawer-body {
+          padding: 20px 16px;
+        }
+
+        .tabs {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div>
+          <p>Mockup fiel ao app</p>
+          <h1>Ficha de piloto - alternativas sobre a base atual</h1>
+        </div>
+        <nav class="variant-switch" aria-label="Alternativas de layout">
+          <button class="active" data-variant="v1">1. Refinar atual</button>
+          <button data-variant="v2">2. Header compacto</button>
+          <button data-variant="v3">3. Duas colunas</button>
+        </nav>
+      </header>
+
+      <div class="stage">
+        <section id="v1" class="variant active" aria-label="Alternativa 1">
+          <p class="variant-note">
+            Mantém praticamente a estrutura atual: header de perfil em cima, motivação no cabeçalho,
+            prós/contras à direita e abas logo abaixo. O drawer usa o mesmo cálculo de tamanho da tela real.
+          </p>
+          <div class="drawer">
+            <div class="team-strip"></div>
+            <button class="close" aria-label="Fechar">x</button>
+            <div class="drawer-body">
+              <article class="section">
+                <div class="section-header">
+                  <span class="section-title">Perfil</span>
+                  <span class="badge info">Licença 4</span>
+                </div>
+                <div class="section-content profile-head">
+                  <div>
+                    <div class="name-row">
+                      <img class="flag" src="../../src/assets/utilities/flag-icons/ar.png" alt="Argentina" />
+                      <h2>Mateo Rivas</h2>
+                      <span class="age">24 anos</span>
+                    </div>
+                    <div class="role">N1 - Ferrari</div>
+                    <div class="badges">
+                      <span class="badge good">Em alta</span>
+                      <span class="badge">Agressivo</span>
+                      <span class="badge">Largada forte</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="motivation">
+                      <div class="motivation-top"><span>Motivação</span><span>84%</span></div>
+                      <div class="track"><div class="fill"></div></div>
+                    </div>
+                    <div class="pros" style="margin-top: 14px">
+                      <div class="pro-box"><strong style="color:var(--green)">Pontos fortes</strong><ul><li>Classificação</li><li>Stint longo</li></ul></div>
+                      <div class="pro-box"><strong style="color:var(--red)">Atenção</strong><ul><li>Risco em tráfego</li><li>DNF recente</li></ul></div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <nav class="tabs"><button class="active">Atual</button><button>Forma</button><button>Carreira</button><button>Mercado</button></nav>
+
+              <article class="section">
+                <div class="section-header"><span class="section-title">Temporada</span></div>
+                <div class="section-content content-grid">
+                  <div class="stat-group">
+                    <h3>Corrida</h3>
+                    <div class="stat-grid">
+                      <div class="stat"><strong>3</strong><span>Vitórias</span></div>
+                      <div class="stat"><strong>8</strong><span>Pódios</span></div>
+                      <div class="stat"><strong>11</strong><span>Top 10</span></div>
+                      <div class="stat"><strong>2</strong><span>DNFs</span></div>
+                    </div>
+                  </div>
+                  <div class="moment-box">
+                    <h3>Momento</h3>
+                    <div class="moment-value">Em alta</div>
+                    <p style="color:var(--muted); margin:8px 0 0; font-size:13px">Média de chegada 4.8 nas últimas 5 corridas.</p>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="v2" class="variant" aria-label="Alternativa 2">
+          <p class="variant-note">
+            Mantém header e abas, mas deixa o perfil mais compacto para a aba Atual aparecer antes,
+            reduzindo rolagem e dando mais peso ao momento da temporada.
+          </p>
+          <div class="drawer compact-header">
+            <div class="team-strip"></div>
+            <button class="close" aria-label="Fechar">x</button>
+            <div class="drawer-body">
+              <article class="section">
+                <div class="section-header">
+                  <span class="section-title">Perfil</span>
+                  <div class="motivation" style="max-width:260px">
+                    <div class="motivation-top"><span>Motivação</span><span>84%</span></div>
+                    <div class="track"><div class="fill"></div></div>
+                  </div>
+                </div>
+                <div class="section-content profile-summary">
+                  <div>
+                    <div class="name-row">
+                      <img class="flag" src="../../src/assets/utilities/flag-icons/ar.png" alt="Argentina" />
+                      <h2>Mateo Rivas</h2>
+                      <span class="age">24 anos</span>
+                    </div>
+                    <div class="role">N1 - Ferrari</div>
+                    <div class="badges"><span class="badge info">Licença 4</span><span class="badge good">Em alta</span><span class="badge">Agressivo</span></div>
+                  </div>
+                  <div class="pro-box" style="height:auto">
+                    <strong style="color:var(--blue)">Resumo rápido</strong>
+                    <ul><li>3 vitórias no ano</li><li>Mercado valorizado</li><li>Contrato até 2028</li></ul>
+                  </div>
+                </div>
+              </article>
+
+              <nav class="tabs"><button class="active">Atual</button><button>Forma</button><button>Carreira</button><button>Mercado</button></nav>
+
+              <article class="section">
+                <div class="section-header"><span class="section-title">Atual</span><span class="badge good">Pico recente</span></div>
+                <div class="section-content">
+                  <div class="content-grid">
+                    <div class="stat-group">
+                      <h3>Temporada</h3>
+                      <div class="stat-grid">
+                        <div class="stat"><strong>12</strong><span>Corridas</span></div>
+                        <div class="stat"><strong>3</strong><span>Vitórias</span></div>
+                        <div class="stat"><strong>8</strong><span>Pódios</span></div>
+                        <div class="stat"><strong>2</strong><span>Voltas rápidas</span></div>
+                      </div>
+                    </div>
+                    <div class="market-list">
+                      <div class="market-row"><span>Equipe</span><strong>Ferrari</strong></div>
+                      <div class="market-row"><span>Papel</span><strong>N1</strong></div>
+                      <div class="market-row"><span>Salário</span><strong>$820,000</strong></div>
+                      <div class="market-row"><span>Valor</span><strong>$1.2M</strong></div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="v3" class="variant" aria-label="Alternativa 3">
+          <p class="variant-note">
+            Mantém a ficha como drawer e preserva as abas, mas usa duas colunas internas: perfil
+            fixo à esquerda e conteúdo da aba à direita somente quando o mesmo tamanho real do drawer comporta isso.
+          </p>
+          <div class="drawer wide wide-layout">
+            <div class="team-strip"></div>
+            <button class="close" aria-label="Fechar">x</button>
+            <div class="drawer-body main-layout">
+              <aside class="side-rail">
+                <article class="section">
+                  <div class="section-header"><span class="section-title">Perfil</span></div>
+                  <div class="section-content">
+                    <div class="name-row">
+                      <img class="flag" src="../../src/assets/utilities/flag-icons/ar.png" alt="Argentina" />
+                      <h2>Mateo<br />Rivas</h2>
+                    </div>
+                    <div class="role">24 anos - N1 - Ferrari</div>
+                    <div class="badges"><span class="badge info">Licença 4</span><span class="badge good">Em alta</span></div>
+                    <div class="motivation" style="margin-top:16px">
+                      <div class="motivation-top"><span>Motivação</span><span>84%</span></div>
+                      <div class="track"><div class="fill"></div></div>
+                    </div>
+                  </div>
+                </article>
+                <div class="pro-box" style="height:auto"><strong style="color:var(--green)">Pontos fortes</strong><ul><li>Classificação</li><li>Ritmo em stint longo</li></ul></div>
+                <div class="pro-box" style="height:auto"><strong style="color:var(--red)">Atenção</strong><ul><li>Risco em disputas</li><li>Pressão por título</li></ul></div>
+              </aside>
+
+              <section>
+                <nav class="tabs"><button class="active">Atual</button><button>Forma</button><button>Carreira</button><button>Mercado</button></nav>
+                <article class="section">
+                  <div class="section-header"><span class="section-title">Forma Atual</span><span class="badge">Últimas 5</span></div>
+                  <div class="section-content">
+                    <div class="form-row">
+                      <div class="form-chip"><strong style="color:var(--green)">P2</strong><span>Spa</span></div>
+                      <div class="form-chip"><strong style="color:var(--green)">P1</strong><span>Monza</span></div>
+                      <div class="form-chip"><strong style="color:var(--red)">DNF</strong><span>Road</span></div>
+                      <div class="form-chip"><strong>P4</strong><span>Brands</span></div>
+                      <div class="form-chip"><strong style="color:var(--yellow)">P3</strong><span>Suzuka</span></div>
+                    </div>
+                  </div>
+                </article>
+                <article class="section">
+                  <div class="section-header"><span class="section-title">Carreira</span></div>
+                  <div class="section-content timeline">
+                    <div class="timeline-item"><strong>2024</strong><span>Estreia na Mazda Rookie, duas poles e primeiro pódio.</span></div>
+                    <div class="timeline-item"><strong>2026</strong><span>Título na Mazda Cup e promoção para GT4.</span></div>
+                    <div class="timeline-item"><strong>2028</strong><span>Chega ao GT3 como N1 da Ferrari.</span></div>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const buttons = document.querySelectorAll("[data-variant]");
+      const variants = document.querySelectorAll(".variant");
+
+      function showVariant(variantId) {
+        const next = document.getElementById(variantId) ? variantId : "v1";
+        buttons.forEach((item) => item.classList.toggle("active", item.dataset.variant === next));
+        variants.forEach((item) => item.classList.toggle("active", item.id === next));
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          showVariant(button.dataset.variant);
+          history.replaceState(null, "", `#${button.dataset.variant}`);
+        });
+      });
+
+      showVariant(window.location.hash.slice(1));
+    </script>
+  </body>
+</html>

@@ -581,9 +581,19 @@ pub struct DriverDetail {
     pub contrato: Option<ContractDetail>,
     pub perfil: DriverProfileBlock,
     pub competitivo: DriverCompetitiveBlock,
+    #[serde(default)]
+    pub leitura_tecnica: DriverTechnicalReadBlock,
     pub performance: DriverPerformanceBlock,
     pub forma: DriverFormBlock,
+    #[serde(default)]
+    pub resumo_atual: DriverCurrentSummaryBlock,
+    #[serde(default)]
+    pub leitura_desempenho: DriverPerformanceReadBlock,
     pub trajetoria: DriverCareerPathBlock,
+    #[serde(default)]
+    pub rankings_carreira: DriverCareerRankBlock,
+    #[serde(default)]
+    pub rivais: DriverRivalsBlock,
     pub contrato_mercado: DriverContractMarketBlock,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relacionamentos: Option<DriverRelationshipsBlock>,
@@ -626,6 +636,8 @@ pub struct ContractDetail {
     pub salario_anual: f64,
     pub temporada_inicio: i32,
     pub temporada_fim: i32,
+    pub ano_inicio: i32,
+    pub ano_fim: i32,
     pub anos_restantes: i32,
     pub status: String,
 }
@@ -669,6 +681,19 @@ pub struct DriverCompetitiveBlock {
     pub neutro: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverTechnicalReadBlock {
+    pub itens: Vec<DriverTechnicalReadItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverTechnicalReadItem {
+    pub chave: String,
+    pub label: String,
+    pub nivel: String,
+    pub tom: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverPerformanceBlock {
     pub temporada: PerformanceStatsBlock,
@@ -690,10 +715,38 @@ pub struct PerformanceStatsBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverFormBlock {
+    pub ultimas_10: Vec<FormResultEntry>,
     pub ultimas_5: Vec<FormResultEntry>,
     pub media_chegada: Option<f64>,
     pub tendencia: String,
     pub momento: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contexto: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCurrentSummaryBlock {
+    pub veredito: String,
+    pub tom: String,
+    pub posicao_campeonato: Option<i32>,
+    pub pontos: i32,
+    pub vitorias: i32,
+    pub podios: i32,
+    pub top_10: Option<i32>,
+    pub media_recente: Option<f64>,
+    pub tendencia: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverPerformanceReadBlock {
+    pub esperado_posicao: Option<i32>,
+    pub entregue_posicao: Option<i32>,
+    pub delta_posicao: Option<i32>,
+    pub car_performance: Option<f64>,
+    pub companheiro_nome: Option<String>,
+    pub companheiro_pontos: Option<i32>,
+    pub piloto_pontos: i32,
+    pub leitura: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -708,11 +761,131 @@ pub struct DriverCareerPathBlock {
     pub ano_estreia: i32,
     pub equipe_estreia: Option<String>,
     pub categoria_atual: Option<String>,
+    #[serde(default)]
+    pub categorias_timeline: Vec<DriverCareerCategoryStint>,
     pub temporadas_na_categoria: i32,
     pub corridas_na_categoria: i32,
     pub titulos: i32,
     pub foi_campeao: bool,
+    #[serde(default)]
+    pub historico: DriverCareerHistoryBlock,
     pub marcos: Vec<CareerMilestone>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerCategoryStint {
+    pub categoria: String,
+    pub ano_inicio: i32,
+    pub ano_fim: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerHistoryBlock {
+    pub presenca: DriverCareerPresenceBlock,
+    pub primeiros_marcos: DriverCareerFirstMarksBlock,
+    pub auge: DriverCareerPeakBlock,
+    pub mobilidade: DriverCareerMobilityBlock,
+    pub eventos_especiais: DriverCareerSpecialEventsBlock,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerPresenceBlock {
+    pub tempo_carreira: i32,
+    pub temporadas_disputadas: i32,
+    pub anos_desempregado: i32,
+    pub periodos_desempregado: Vec<String>,
+    pub corridas: i32,
+    pub categorias_disputadas: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerFirstMarksBlock {
+    pub primeiro_podio_corrida: Option<i32>,
+    pub primeira_vitoria_corrida: Option<i32>,
+    pub primeiro_dnf_corrida: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerPeakBlock {
+    pub melhor_temporada: Option<DriverBestSeasonBlock>,
+    pub maior_sequencia_vitorias: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverBestSeasonBlock {
+    pub ano: i32,
+    pub categoria: String,
+    pub posicao_campeonato: Option<i32>,
+    pub pontos: i32,
+    pub vitorias: i32,
+    pub podios: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerMobilityBlock {
+    pub promocoes: i32,
+    pub rebaixamentos: i32,
+    pub equipes_defendidas: i32,
+    pub tempo_medio_por_equipe: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerSpecialEventsBlock {
+    pub participacoes: i32,
+    pub convocacoes: i32,
+    pub vitorias: i32,
+    pub podios: i32,
+    #[serde(default)]
+    pub rankings: DriverSpecialEventRankBlock,
+    pub melhor_campanha: Option<DriverSpecialCampaignBlock>,
+    pub ultimo_evento: Option<DriverSpecialEventEntry>,
+    pub timeline: Vec<DriverSpecialEventEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverSpecialEventRankBlock {
+    pub participacoes: Option<i32>,
+    pub convocacoes: Option<i32>,
+    pub vitorias: Option<i32>,
+    pub podios: Option<i32>,
+}
+
+impl Default for DriverSpecialEventRankBlock {
+    fn default() -> Self {
+        Self {
+            participacoes: None,
+            convocacoes: None,
+            vitorias: None,
+            podios: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverSpecialCampaignBlock {
+    pub ano: i32,
+    pub categoria: String,
+    pub classe: Option<String>,
+    pub equipe: Option<String>,
+    pub pontos: i32,
+    pub vitorias: i32,
+    pub podios: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverSpecialEventEntry {
+    pub ano: i32,
+    pub categoria: String,
+    pub classe: Option<String>,
+    pub equipe: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerRankBlock {
+    pub corridas: Option<i32>,
+    pub vitorias: Option<i32>,
+    pub podios: Option<i32>,
+    pub titulos: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -742,6 +915,21 @@ pub struct DriverRelationshipsBlock {
     pub rival_principal: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverRivalsBlock {
+    pub itens: Vec<DriverRivalInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverRivalInfo {
+    pub driver_id: String,
+    pub nome: String,
+    pub tipo: String,
+    pub intensidade: u8,
+    pub intensidade_historica: u8,
+    pub atividade_recente: u8,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverReputationBlock {
     pub popularidade: Option<u8>,
@@ -765,6 +953,8 @@ pub struct TeamStanding {
     pub car_performance: f64,
     #[serde(default)]
     pub car_build_profile: String,
+    #[serde(default)]
+    pub founded_year: i32,
     pub pontos: i32,
     pub vitorias: i32,
     pub piloto_1_nome: Option<String>,
@@ -831,6 +1021,7 @@ pub struct TeamHistoryRival {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamHistoryManagement {
+    pub operation_health: String,
     pub peak_cash: String,
     pub worst_crisis: String,
     pub healthy_years: String,
