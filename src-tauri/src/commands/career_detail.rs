@@ -5,24 +5,28 @@ use rusqlite::Connection;
 
 use crate::commands::career::count_calendar_entries;
 use crate::commands::career_types::{
-    CareerMilestone, ContractDetail, DriverBadge, DriverBestSeasonBlock, DriverCareerCategoryStint,
-    DriverCareerFirstMarksBlock, DriverCareerHistoryBlock, DriverCareerMobilityBlock,
-    DriverCareerPathBlock, DriverCareerPeakBlock, DriverCareerPresenceBlock, DriverCareerRankBlock,
+    CareerMilestone, ContractDetail, DriverActiveInjuryBlock, DriverBadge, DriverBestSeasonBlock,
+    DriverCareerCategoryStint, DriverCareerFirstMarksBlock, DriverCareerHistoryBlock,
+    DriverCareerInjuryBlock, DriverCareerMobilityBlock, DriverCareerPathBlock,
+    DriverCareerPeakBlock, DriverCareerPresenceBlock, DriverCareerRankBlock,
     DriverCareerSpecialEventsBlock, DriverCompetitiveBlock, DriverContractMarketBlock,
-    DriverCurrentSummaryBlock, DriverDetail, DriverFormBlock, DriverLicenseInfo, DriverMarketBlock,
-    DriverPerformanceBlock, DriverPerformanceReadBlock, DriverProfileBlock, DriverRivalInfo,
-    DriverRivalsBlock, DriverSpecialCampaignBlock, DriverSpecialEventEntry,
+    DriverCurrentSummaryBlock, DriverDetail, DriverFormBlock, DriverHealthBlock, DriverLicenseInfo,
+    DriverMarketBlock, DriverPerformanceBlock, DriverPerformanceReadBlock, DriverProfileBlock,
+    DriverRivalInfo, DriverRivalsBlock, DriverSpecialCampaignBlock, DriverSpecialEventEntry,
     DriverSpecialEventRankBlock, DriverTechnicalReadBlock, DriverTechnicalReadItem,
     FormResultEntry, PerformanceStatsBlock, PersonalityInfo, StatsBlock, TagInfo,
 };
 use crate::commands::race_history::build_driver_histories;
 use crate::constants::categories;
+use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::drivers as driver_queries;
+use crate::db::queries::injuries as injury_queries;
 use crate::models::contract::Contract;
 use crate::models::driver::{AttributeTag, Driver, TagLevel};
-use crate::models::enums::{DriverStatus, PrimaryPersonality, SecondaryPersonality};
+use crate::models::enums::{DriverStatus, InjuryType, PrimaryPersonality, SecondaryPersonality};
 use crate::models::season::Season;
 use crate::models::team::Team;
+use crate::simulation::injuries::injury_name_pool;
 
 #[derive(Debug, Clone)]
 struct HistoricalRaceResult {
@@ -123,6 +127,7 @@ pub(crate) fn build_driver_detail_payload(
         .flatten();
     let teammate = find_teammate(conn, driver, team)?;
     let badges = build_driver_badges(driver, category_id.as_deref());
+    let health = build_driver_health_block(conn, driver)?;
 
     Ok(DriverDetail {
         id: driver.id.clone(),
@@ -191,8 +196,62 @@ pub(crate) fn build_driver_detail_payload(
         },
         relacionamentos: None,
         reputacao: None,
-        saude: None,
+        saude: health,
     })
+}
+
+fn build_driver_health_block(
+    conn: &Connection,
+    driver: &Driver,
+) -> Result<Option<DriverHealthBlock>, String> {
+    let Some(injury) = injury_queries::get_active_injury_for_pilot(conn, &driver.id)
+        .map_err(|e| format!("Falha ao buscar lesao ativa do piloto: {e}"))?
+    else {
+        return Ok(None);
+    };
+
+    let race = calendar_queries::get_calendar_entry_by_id(conn, &injury.race_occurred)
+        .map_err(|e| format!("Falha ao buscar corrida da lesao ativa: {e}"))?;
+    let occurred_label = race.as_ref().map(|entry| {
+        format!(
+            "R{} - {}",
+            entry.rodada,
+            if entry.track_name.is_empty() {
+                entry.nome.as_str()
+            } else {
+                entry.track_name.as_str()
+            }
+        )
+    });
+    let injury_name = injury.injury_name.trim().to_string();
+    let injury_name = if injury_name.is_empty() {
+        fallback_injury_display_name(&injury.injury_type, &injury.id).to_string()
+    } else {
+        injury_name
+    };
+
+    Ok(Some(DriverHealthBlock {
+        saude_geral: None,
+        lesao_ativa: Some(DriverActiveInjuryBlock {
+            nome: Some(injury_name),
+            tipo: injury.injury_type.as_str().to_string(),
+            corrida_ocorrida_id: injury.race_occurred,
+            corrida_ocorrida_rotulo: occurred_label,
+            corrida_ocorrida_rodada: race.as_ref().map(|entry| entry.rodada),
+            corrida_ocorrida_pista: race.as_ref().map(|entry| entry.track_name.clone()),
+            corridas_total: injury.races_total,
+            corridas_restantes: injury.races_remaining,
+        }),
+    }))
+}
+
+fn fallback_injury_display_name(injury_type: &InjuryType, key: &str) -> &'static str {
+    let pool = injury_name_pool(injury_type.clone());
+    let index = key
+        .bytes()
+        .fold(0usize, |acc, byte| acc.wrapping_add(byte as usize))
+        % pool.len();
+    pool[index]
 }
 
 fn convert_tags(tags: &[AttributeTag]) -> Vec<TagInfo> {
@@ -355,11 +414,18 @@ fn resolve_driver_category(
     contract: Option<&Contract>,
     team: Option<&Team>,
 ) -> Option<String> {
-    driver
-        .categoria_atual
-        .clone()
-        .or_else(|| contract.map(|value| value.categoria.clone()))
-        .or_else(|| team.map(|value| value.categoria.clone()))
+    regular_category(driver.categoria_atual.as_deref())
+        .or_else(|| contract.and_then(|value| regular_category(Some(&value.categoria))))
+        .or_else(|| team.and_then(|value| regular_category(Some(&value.categoria))))
+}
+
+fn regular_category(category: Option<&str>) -> Option<String> {
+    let category = category?.trim();
+    if category.is_empty() || categories::is_especial(category) {
+        None
+    } else {
+        Some(category.to_string())
+    }
 }
 
 fn split_driver_tags(tags: &[TagInfo]) -> (Vec<TagInfo>, Vec<TagInfo>) {
@@ -1130,6 +1196,13 @@ fn build_career_history_block(
         equipes_defendidas: team_summary.0,
         tempo_medio_por_equipe: team_summary.1,
     };
+    let injury_counts = injury_queries::count_injuries_by_severity_for_pilot(conn, driver_id)
+        .map_err(|e| format!("Falha ao contar lesoes historicas do piloto: {e}"))?;
+    let lesoes = DriverCareerInjuryBlock {
+        leves: injury_counts.leves,
+        moderadas: injury_counts.moderadas,
+        graves: injury_counts.graves,
+    };
     let eventos_especiais = build_special_events_block(conn, driver_id)?;
 
     Ok(DriverCareerHistoryBlock {
@@ -1137,6 +1210,7 @@ fn build_career_history_block(
         primeiros_marcos,
         auge,
         mobilidade,
+        lesoes,
         eventos_especiais,
     })
 }
@@ -1454,6 +1528,24 @@ fn career_duration_from_archive(seasons: &[CareerSeasonArchiveRow]) -> i32 {
     (last_year - first_year + 1).max(0)
 }
 
+fn career_debut_year_from_archive(seasons: &[CareerSeasonArchiveRow], fallback_year: i32) -> i32 {
+    let archive_year = seasons
+        .iter()
+        .filter(|season| {
+            let category = season.categoria.trim();
+            season.corridas > 0 && !category.is_empty() && !categories::is_especial(category)
+        })
+        .map(|season| season.ano)
+        .min();
+
+    match (archive_year, fallback_year > 0) {
+        (Some(year), true) => fallback_year.min(year),
+        (Some(year), false) => year,
+        (None, true) => fallback_year,
+        (None, false) => 0,
+    }
+}
+
 fn format_year_period(start: i32, end: i32) -> String {
     if start == end {
         start.to_string()
@@ -1652,7 +1744,10 @@ fn build_category_timeline(
 ) -> Vec<DriverCareerCategoryStint> {
     let mut active_seasons: Vec<&CareerSeasonArchiveRow> = seasons
         .iter()
-        .filter(|season| season.corridas > 0 && !season.categoria.trim().is_empty())
+        .filter(|season| {
+            let category = season.categoria.trim();
+            season.corridas > 0 && !category.is_empty() && !categories::is_especial(category)
+        })
         .collect();
     active_seasons.sort_by_key(|season| season.ano);
 
@@ -1673,17 +1768,17 @@ fn build_category_timeline(
         });
     }
 
-    if let Some(category) = current_category.filter(|value| !value.trim().is_empty()) {
+    if let Some(category) = regular_category(current_category) {
         match timeline.last_mut() {
             Some(last) if last.categoria == category => {
                 last.ano_fim = last.ano_fim.max(current_year);
             }
             Some(last) if last.ano_inicio == current_year => {
-                last.categoria = category.to_string();
+                last.categoria = category;
                 last.ano_fim = current_year;
             }
             _ => timeline.push(DriverCareerCategoryStint {
-                categoria: category.to_string(),
+                categoria: category,
                 ano_inicio: current_year,
                 ano_fim: current_year,
             }),
@@ -1701,10 +1796,13 @@ fn build_driver_career_path_block(
     category_id: Option<&str>,
     current_year: i32,
 ) -> Result<DriverCareerPathBlock, String> {
+    let season_archive = load_career_season_archive_rows(conn, &driver.id)?;
+    let debut_year =
+        career_debut_year_from_archive(&season_archive, driver.ano_inicio_carreira as i32);
     let mut marcos = vec![CareerMilestone {
         tipo: "estreia".to_string(),
         titulo: "Estreia".to_string(),
-        descricao: format!("Iniciou a carreira em {}", driver.ano_inicio_carreira),
+        descricao: format!("Iniciou a carreira em {debut_year}"),
     }];
 
     if driver.stats_carreira.titulos > 0 {
@@ -1724,12 +1822,10 @@ fn build_driver_career_path_block(
     }
 
     let mut historico = build_career_history_block(conn, &driver.id)?;
-    historico.presenca.tempo_carreira =
-        (current_year - driver.ano_inicio_carreira as i32 + 1).max(1);
-    let season_archive = load_career_season_archive_rows(conn, &driver.id)?;
+    historico.presenca.tempo_carreira = (current_year - debut_year + 1).max(1);
 
     Ok(DriverCareerPathBlock {
-        ano_estreia: driver.ano_inicio_carreira as i32,
+        ano_estreia: debut_year,
         equipe_estreia: contract
             .filter(|value| value.temporada_inicio <= 1)
             .map(|value| value.equipe_nome.clone())
@@ -1750,9 +1846,11 @@ mod tests {
     use super::{
         build_archived_recent_results_for_driver, build_career_history_block,
         build_category_timeline, build_current_summary_block, build_driver_form_block,
-        CareerSeasonArchiveRow, HistoricalRaceResult,
+        career_debut_year_from_archive, fallback_injury_display_name, CareerSeasonArchiveRow,
+        HistoricalRaceResult,
     };
     use crate::models::driver::Driver;
+    use crate::models::enums::InjuryType;
 
     fn sample_driver() -> Driver {
         let mut driver = Driver::new(
@@ -1775,6 +1873,18 @@ mod tests {
             is_dnf: false,
             has_fastest_lap: false,
         }
+    }
+
+    #[test]
+    fn fallback_injury_display_name_uses_the_severity_pool() {
+        assert_eq!(
+            fallback_injury_display_name(&InjuryType::Moderada, "A"),
+            "Ombro machucado"
+        );
+        assert_eq!(
+            fallback_injury_display_name(&InjuryType::Moderada, "B"),
+            "Pescoço travado"
+        );
     }
 
     #[test]
@@ -1997,6 +2107,33 @@ mod tests {
         assert_eq!(timeline[1].ano_inicio, 2022);
         assert_eq!(timeline[2].categoria, "mazda_rookie");
         assert_eq!(timeline[2].ano_inicio, 2025);
+    }
+
+    #[test]
+    fn category_timeline_ignores_current_special_category() {
+        let seasons = vec![
+            season_archive_row(2022, "mazda_rookie", 5),
+            season_archive_row(2023, "", 0),
+            season_archive_row(2024, "gt3", 14),
+        ];
+
+        let timeline = build_category_timeline(&seasons, Some("endurance"), 2025);
+
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0].categoria, "mazda_rookie");
+        assert_eq!(timeline[1].categoria, "gt3");
+        assert!(timeline.iter().all(|item| item.categoria != "endurance"));
+    }
+
+    #[test]
+    fn career_debut_year_uses_earliest_competitive_archive_entry() {
+        let seasons = vec![
+            season_archive_row(2022, "mazda_rookie", 5),
+            season_archive_row(2023, "", 0),
+            season_archive_row(2024, "gt3", 14),
+        ];
+
+        assert_eq!(career_debut_year_from_archive(&seasons, 2024), 2022);
     }
 
     #[test]

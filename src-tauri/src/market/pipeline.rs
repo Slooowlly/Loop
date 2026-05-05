@@ -4,7 +4,7 @@ use chrono::Local;
 use rand::Rng;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::constants::categories::get_category_config;
+use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
@@ -77,6 +77,7 @@ pub fn run_market(
         let mut report = MarketReport::default();
         reset_market_state(conn, &new_season.id)?;
         repair_missing_licenses_for_current_categories(conn)?;
+        seed_market_free_agent_pool(conn, rng)?;
 
         let all_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao carregar pilotos: {e}"))?;
@@ -353,14 +354,7 @@ pub fn fill_all_remaining_vacancies(
         let vacancies = find_vacancies(conn)?;
 
         // Filtra apenas vagas de categorias regulares (evita slots de convidados/especiais se houver)
-        let regular_vacancies: Vec<_> = vacancies
-            .into_iter()
-            .filter(|v| {
-                get_category_config(&v.categoria)
-                    .map(|c| !c.id.contains("especial"))
-                    .unwrap_or(true)
-            })
-            .collect();
+        let regular_vacancies: Vec<_> = vacancies.into_iter().filter(is_regular_vacancy).collect();
 
         if regular_vacancies.is_empty() {
             break;
@@ -375,6 +369,15 @@ pub fn fill_all_remaining_vacancies(
             break;
         }
     }
+
+    let current_drivers = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao recarregar pilotos para sincronizacao final: {e}"))?;
+    let current_by_id: HashMap<String, Driver> = current_drivers
+        .iter()
+        .cloned()
+        .map(|driver| (driver.id.clone(), driver))
+        .collect();
+    sync_team_slots(conn, &teams, &current_by_id)?;
 
     Ok(())
 }
@@ -431,6 +434,48 @@ fn persist_market_state(conn: &Connection, season_id: &str) -> Result<(), String
     )
     .map_err(|e| format!("Falha ao persistir estado do mercado: {e}"))?;
     Ok(())
+}
+
+fn seed_market_free_agent_pool(conn: &Connection, rng: &mut impl Rng) -> Result<usize, String> {
+    let existing_drivers = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar pilotos para pool de mercado: {e}"))?;
+    let mut names: HashSet<String> = existing_drivers
+        .into_iter()
+        .map(|driver| driver.nome)
+        .collect();
+    let mut inserted = 0;
+
+    for category in get_all_categories()
+        .iter()
+        .filter(|category| !is_especial(category.id))
+    {
+        let count = category.grid_total as usize;
+        let mut ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            ids.push(
+                next_id(conn, IdType::Driver)
+                    .map_err(|e| format!("Falha ao gerar ID de piloto do pool: {e}"))?,
+            );
+        }
+        let mut id_iter = ids.into_iter();
+        let mut category_drivers = Driver::generate_for_category_with_id_factory(
+            category.id,
+            category.tier,
+            "medio",
+            count,
+            &mut names,
+            &mut || id_iter.next().expect("pool id prealocado"),
+            rng,
+        );
+        for driver in &mut category_drivers {
+            driver.categoria_atual = None;
+            driver_queries::insert_driver(conn, driver)
+                .map_err(|e| format!("Falha ao inserir piloto do pool '{}': {e}", driver.nome))?;
+            inserted += 1;
+        }
+    }
+
+    Ok(inserted)
 }
 
 fn load_market_contexts(
@@ -541,6 +586,9 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
     let mut vacancies = Vec::new();
 
     for team in teams {
+        if is_especial(&team.categoria) {
+            continue;
+        }
         let category_tier = get_category_config(&team.categoria)
             .map(|config| config.tier)
             .unwrap_or(0);
@@ -863,7 +911,7 @@ fn generate_player_proposals(
                     piloto_nome: player.nome.clone(),
                     categoria: vacancy.categoria.clone(),
                     papel: vacancy.papel_necessario.clone(),
-                    salario_oferecido: calculate_emergency_salary(&vacancy, &player),
+                    salario_oferecido: calculate_fallback_salary(&vacancy, &player),
                     duracao_anos: 1,
                     status: crate::market::proposals::ProposalStatus::Pendente,
                     motivo_recusa: None,
@@ -984,7 +1032,7 @@ fn fill_remaining_vacancies_with_rookies(
     teams: &[crate::models::team::Team],
     new_season_number: i32,
     report: &mut MarketReport,
-    rng: &mut impl Rng,
+    _rng: &mut impl Rng,
 ) -> Result<(), String> {
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
@@ -995,26 +1043,24 @@ fn fill_remaining_vacancies_with_rookies(
             .map(|driver| (driver.id.clone(), driver))
             .collect();
         sync_team_slots(conn, teams, &current_by_id)?;
-        let vacancies = find_vacancies(conn)?;
+        let vacancies: Vec<_> = find_vacancies(conn)?
+            .into_iter()
+            .filter(is_regular_vacancy)
+            .collect();
         if vacancies.is_empty() {
             break;
         }
 
         let mut available = find_available_drivers(conn, &HashMap::new())?;
         for vacancy in vacancies {
-            let emergency_index = available
+            let fallback_index = available
                 .iter()
                 .enumerate()
-                .filter(|(_, candidate)| emergency_candidate_matches_vacancy(candidate, &vacancy))
-                .max_by(|(_, a), (_, b)| {
-                    a.driver
-                        .atributos
-                        .skill
-                        .total_cmp(&b.driver.atributos.skill)
-                })
+                .filter(|(_, candidate)| candidate.driver.categoria_atual.is_none())
+                .max_by(|(_, a), (_, b)| compare_pool_fallback_candidates(a, b, &vacancy))
                 .map(|(index, _)| index);
 
-            if let Some(index) = emergency_index {
+            if let Some(index) = fallback_index {
                 let candidate = available.remove(index);
                 grant_driver_license_for_category_if_needed(
                     conn,
@@ -1026,7 +1072,7 @@ fn fill_remaining_vacancies_with_rookies(
                     &candidate.driver,
                     &vacancy,
                     new_season_number,
-                    calculate_emergency_salary(&vacancy, &candidate.driver),
+                    calculate_fallback_salary(&vacancy, &candidate.driver),
                     1,
                     vacancy.papel_necessario.clone(),
                 )?;
@@ -1048,50 +1094,65 @@ fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
-            let emergency = generate_emergency_driver(conn, &vacancy.categoria, rng)?;
-            sign_driver_to_team(
-                conn,
-                &emergency,
-                &vacancy,
-                new_season_number,
-                calculate_emergency_salary(&vacancy, &emergency),
-                1,
-                vacancy.papel_necessario.clone(),
-            )?;
-            let signing_type = if is_real_career_debut_category(&vacancy.categoria) {
-                report.rookies_placed += 1;
-                "rookie"
-            } else {
-                "emergencial"
-            };
-            report.new_signings.push(SigningInfo {
-                driver_id: emergency.id.clone(),
-                driver_name: emergency.nome.clone(),
-                team_id: vacancy.team_id.clone(),
-                team_name: vacancy.team_name.clone(),
-                categoria: vacancy.categoria.clone(),
-                papel: vacancy.papel_necessario.as_str().to_string(),
-                tipo: signing_type.to_string(),
-            });
+            return Err(format!(
+                "Sem pilotos desempregados no pool de pilotos para preencher a vaga {} da equipe '{}' em {}",
+                vacancy.papel_necessario.as_str(),
+                vacancy.team_name,
+                vacancy.categoria
+            ));
         }
     }
 
     Ok(())
 }
 
-fn emergency_candidate_matches_vacancy(candidate: &AvailableDriver, vacancy: &Vacancy) -> bool {
-    if candidate.driver.categoria_atual.is_some() {
-        return false;
-    }
+fn is_regular_vacancy(vacancy: &Vacancy) -> bool {
+    get_category_config(&vacancy.categoria)
+        .map(|category| !is_especial(category.id))
+        .unwrap_or(true)
+}
 
-    if is_real_career_debut_category(&vacancy.categoria) {
+fn compare_pool_fallback_candidates(
+    a: &AvailableDriver,
+    b: &AvailableDriver,
+    vacancy: &Vacancy,
+) -> std::cmp::Ordering {
+    pool_fallback_candidate_rank(a, vacancy)
+        .cmp(&pool_fallback_candidate_rank(b, vacancy))
+        .then_with(|| {
+            a.driver
+                .atributos
+                .skill
+                .total_cmp(&b.driver.atributos.skill)
+        })
+}
+
+fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) -> (u8, u8, u8) {
+    let preferred_experience = if is_real_career_debut_category(&vacancy.categoria) {
         candidate.driver.stats_carreira.corridas == 0
     } else {
         candidate.driver.stats_carreira.corridas > 0
-    }
+    };
+    let required_license = get_category_config(&vacancy.categoria)
+        .and_then(|category| category.licenca_necessaria)
+        .unwrap_or(0);
+    let has_required_license = candidate
+        .max_license_level
+        .map(|level| level >= required_license)
+        .unwrap_or(required_license == 0);
+    let license_level = candidate
+        .max_license_level
+        .unwrap_or(0)
+        .min(required_license);
+
+    (
+        u8::from(preferred_experience),
+        u8::from(has_required_license),
+        license_level,
+    )
 }
 
-fn calculate_emergency_salary(vacancy: &Vacancy, driver: &Driver) -> f64 {
+fn calculate_fallback_salary(vacancy: &Vacancy, driver: &Driver) -> f64 {
     let tier_base = match vacancy.category_tier {
         0 => 9_000.0,
         1 => 18_000.0,
@@ -1101,55 +1162,6 @@ fn calculate_emergency_salary(vacancy: &Vacancy, driver: &Driver) -> f64 {
         _ => 50_000.0,
     };
     (tier_base * (driver.atributos.skill / 75.0).max(0.7)).max(5_000.0)
-}
-
-fn generate_emergency_driver(
-    conn: &Connection,
-    category_id: &str,
-    rng: &mut impl Rng,
-) -> Result<Driver, String> {
-    let existing_drivers = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar nomes para rookie emergencial: {e}"))?;
-    let mut names: HashSet<String> = existing_drivers
-        .into_iter()
-        .map(|driver| driver.nome)
-        .collect();
-    let mut driver = if is_real_career_debut_category(category_id) {
-        let mut rookies = crate::evolution::rookies::generate_rookies(1, &mut names, rng);
-        rookies
-            .pop()
-            .ok_or_else(|| "Falha ao gerar rookie emergencial".to_string())?
-    } else {
-        let category_tier = get_category_config(category_id)
-            .map(|category| category.tier)
-            .unwrap_or(1);
-        let mut generated_id = 1_usize;
-        let mut id_factory = || {
-            let id = format!("PEMER-{}-{:03}", category_id, generated_id);
-            generated_id += 1;
-            id
-        };
-        Driver::generate_for_category_with_id_factory(
-            category_id,
-            category_tier,
-            "medio",
-            1,
-            &mut names,
-            &mut id_factory,
-            rng,
-        )
-        .pop()
-        .ok_or_else(|| "Falha ao gerar piloto emergencial".to_string())?
-    };
-    driver.id = next_id(conn, IdType::Driver)
-        .map_err(|e| format!("Falha ao gerar ID de piloto emergencial: {e}"))?;
-    if is_real_career_debut_category(category_id) {
-        driver.categoria_atual = None;
-    }
-    driver_queries::insert_driver(conn, &driver)
-        .map_err(|e| format!("Falha ao persistir piloto emergencial: {e}"))?;
-    grant_driver_license_for_category_if_needed(conn, &driver.id, category_id)?;
-    Ok(driver)
 }
 
 fn refresh_team_hierarchy(
@@ -1258,6 +1270,93 @@ mod tests {
     }
 
     #[test]
+    fn test_final_vacancy_fill_ignores_special_category_slots() {
+        let conn = setup_market_fixture();
+        let mut rng = StdRng::seed_from_u64(312);
+        let mut team_rng = StdRng::seed_from_u64(313);
+        let mut special_team = sample_team("gt4", "T900", &mut team_rng);
+        special_team.categoria = "production_challenger".to_string();
+        team_queries::insert_team(&conn, &special_team).expect("special team");
+
+        fill_all_remaining_vacancies(&conn, 2, &mut rng).expect("fill regular vacancies");
+
+        let regular_empty_slots: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM teams
+                 WHERE categoria = 'gt4'
+                   AND (piloto_1_id IS NULL OR piloto_2_id IS NULL)",
+                [],
+                |row| row.get(0),
+            )
+            .expect("regular empty slots");
+        let special_empty_slots: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM teams
+                 WHERE id = 'T900'
+                   AND piloto_1_id IS NULL
+                   AND piloto_2_id IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("special empty slots");
+
+        assert_eq!(regular_empty_slots, 0);
+        assert_eq!(special_empty_slots, 1);
+    }
+
+    #[test]
+    fn test_regular_market_vacancy_discovery_ignores_special_category_slots() {
+        let conn = setup_market_fixture();
+        let mut team_rng = StdRng::seed_from_u64(316);
+        let mut special_team = sample_team("gt4", "T902", &mut team_rng);
+        special_team.categoria = "endurance".to_string();
+        special_team.piloto_1_id = None;
+        special_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &special_team).expect("special team");
+
+        let vacancies = find_vacancies(&conn).expect("vacancies");
+
+        assert!(vacancies
+            .iter()
+            .all(|vacancy| !is_especial(&vacancy.categoria)));
+    }
+
+    #[test]
+    fn test_market_does_not_create_regular_contracts_for_special_category_slots() {
+        let conn = setup_market_fixture();
+        let mut rng = StdRng::seed_from_u64(314);
+        let mut team_rng = StdRng::seed_from_u64(315);
+        let mut special_team = sample_team("gt4", "T901", &mut team_rng);
+        special_team.categoria = "endurance".to_string();
+        special_team.piloto_1_id = None;
+        special_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &special_team).expect("special team");
+
+        run_market(&conn, 2, &mut rng).expect("market should run");
+
+        let active_regular_special_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE status = 'Ativo'
+                   AND tipo = 'Regular'
+                   AND categoria IN ('production_challenger', 'endurance')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("regular special contracts");
+        let special_team_after = team_queries::get_team_by_id(&conn, "T901")
+            .expect("team query")
+            .expect("special team after market");
+
+        assert_eq!(active_regular_special_contracts, 0);
+        assert!(special_team_after.piloto_1_id.is_none());
+        assert!(special_team_after.piloto_2_id.is_none());
+    }
+
+    #[test]
     fn test_market_hierarchy_updated() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(303);
@@ -1317,7 +1416,7 @@ mod tests {
     }
 
     #[test]
-    fn test_emergency_non_rookie_vacancy_uses_experienced_lower_license_before_debutant() {
+    fn test_pool_fallback_for_non_rookie_vacancy_uses_experienced_lower_license_before_debutant() {
         let conn = Connection::open_in_memory().expect("in-memory db");
         migrations::run_all(&conn).expect("schema");
 
@@ -1401,6 +1500,67 @@ mod tests {
                 .expect("fallback license should be granted"),
             "piloto experiente de carteira inferior deve ser regularizado ao ser usado como fallback"
         );
+    }
+
+    #[test]
+    fn test_final_vacancy_fill_never_generates_driver_when_pool_is_empty() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+
+        let mut team_rng = StdRng::seed_from_u64(621);
+        let team = sample_team("gt3", "T910", &mut team_rng);
+        team_queries::insert_team(&conn, &team).expect("insert gt3 team");
+
+        let mut existing = sample_driver(
+            "P910",
+            "Piloto Titular",
+            Some("gt3"),
+            72.0,
+            DriverStatus::Ativo,
+        );
+        existing.stats_carreira.corridas = 80;
+        driver_queries::insert_driver(&conn, &existing).expect("insert driver");
+
+        let contract = Contract::new(
+            "C910".to_string(),
+            existing.id.clone(),
+            existing.nome.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            1,
+            2,
+            120_000.0,
+            TeamRole::Numero1,
+            "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insert contract");
+        team_queries::update_team_pilots(&conn, &team.id, Some(&existing.id), None)
+            .expect("seed lineup");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P910', '3', 'gt3', '2024-12-31T00:00:00', 2)",
+            [],
+        )
+        .expect("insert license");
+        conn.execute(
+            "UPDATE meta SET value = '911' WHERE key = 'next_driver_id'",
+            [],
+        )
+        .expect("driver counter");
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut report = MarketReport::default();
+        let mut rng = StdRng::seed_from_u64(622);
+
+        let error = fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+            .expect_err("pool exhaustion must not generate a new driver");
+        let driver_count = driver_queries::count_drivers(&conn).expect("driver count");
+
+        assert!(
+            error.contains("pool de pilotos"),
+            "erro deve explicar que o pool acabou: {error}"
+        );
+        assert_eq!(driver_count, 1);
     }
 
     #[test]
@@ -1650,7 +1810,7 @@ mod tests {
             &driver,
             &vacancy,
             2,
-            calculate_emergency_salary(&vacancy, &driver),
+            calculate_fallback_salary(&vacancy, &driver),
             1,
             TeamRole::Numero2,
         )

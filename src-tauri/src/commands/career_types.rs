@@ -146,6 +146,12 @@ pub struct DriverSummary {
     #[serde(default)]
     pub classe: Option<String>,
     pub is_jogador: bool,
+    #[serde(default)]
+    pub is_estreante: bool,
+    #[serde(default)]
+    pub is_estreante_da_vida: bool,
+    #[serde(default)]
+    pub lesao_ativa_tipo: Option<String>,
     pub pontos: i32,
     pub vitorias: i32,
     pub podios: i32,
@@ -603,6 +609,74 @@ pub struct DriverDetail {
     pub saude: Option<DriverHealthBlock>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalDriverRankingPayload {
+    pub selected_driver_id: Option<String>,
+    pub player_driver: Option<GlobalDriverRankingRow>,
+    pub rows: Vec<GlobalDriverRankingRow>,
+    pub leaders: GlobalDriverRankingLeaders,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalDriverRankingLeaders {
+    pub historical_index_driver_id: Option<String>,
+    pub wins_driver_id: Option<String>,
+    pub titles_driver_id: Option<String>,
+    pub injuries_driver_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalDriverRankingRow {
+    pub id: String,
+    pub nome: String,
+    pub nacionalidade: String,
+    pub idade: i32,
+    pub status: String,
+    pub status_tone: String,
+    pub is_jogador: bool,
+    pub is_lesionado: bool,
+    pub lesao_ativa_tipo: Option<String>,
+    pub equipe_nome: Option<String>,
+    pub equipe_cor_primaria: Option<String>,
+    pub categoria_atual: Option<String>,
+    pub categorias_historicas: Vec<String>,
+    pub salario_anual: Option<f64>,
+    pub ano_inicio_carreira: Option<i32>,
+    pub anos_carreira: Option<i32>,
+    pub temporada_aposentadoria: Option<String>,
+    pub anos_aposentado: Option<i32>,
+    pub historical_index: f64,
+    pub historical_rank: i32,
+    pub historical_rank_delta: Option<i32>,
+    pub wins_rank: i32,
+    pub titles_rank: i32,
+    pub podiums_rank: i32,
+    pub injuries_rank: i32,
+    pub corridas: i32,
+    pub pontos: i32,
+    pub vitorias: i32,
+    pub podios: i32,
+    pub poles: i32,
+    pub titulos: i32,
+    #[serde(default)]
+    pub titulos_por_categoria: Vec<GlobalDriverTitleCategorySummary>,
+    pub dnfs: i32,
+    pub lesoes: i32,
+    pub lesoes_leves: i32,
+    pub lesoes_moderadas: i32,
+    pub lesoes_graves: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalDriverTitleCategorySummary {
+    pub categoria: String,
+    #[serde(default)]
+    pub classe: Option<String>,
+    pub titulos: i32,
+    #[serde(default)]
+    pub anos: Vec<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonalityInfo {
     pub tipo: String,
@@ -785,6 +859,7 @@ pub struct DriverCareerHistoryBlock {
     pub primeiros_marcos: DriverCareerFirstMarksBlock,
     pub auge: DriverCareerPeakBlock,
     pub mobilidade: DriverCareerMobilityBlock,
+    pub lesoes: DriverCareerInjuryBlock,
     pub eventos_especiais: DriverCareerSpecialEventsBlock,
 }
 
@@ -827,6 +902,13 @@ pub struct DriverCareerMobilityBlock {
     pub rebaixamentos: i32,
     pub equipes_defendidas: i32,
     pub tempo_medio_por_equipe: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverCareerInjuryBlock {
+    pub leves: i32,
+    pub moderadas: i32,
+    pub graves: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -938,6 +1020,24 @@ pub struct DriverReputationBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverHealthBlock {
     pub saude_geral: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lesao_ativa: Option<DriverActiveInjuryBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverActiveInjuryBlock {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nome: Option<String>,
+    pub tipo: String,
+    pub corrida_ocorrida_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corrida_ocorrida_rotulo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corrida_ocorrida_rodada: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corrida_ocorrida_pista: Option<String>,
+    pub corridas_total: i32,
+    pub corridas_restantes: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
