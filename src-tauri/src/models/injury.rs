@@ -6,6 +6,7 @@ pub struct Injury {
     pub id: String,
     pub pilot_id: String,
     pub injury_type: InjuryType,
+    pub injury_name: String,
     pub modifier: f64,
     pub races_total: i32,
     pub races_remaining: i32,

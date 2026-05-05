@@ -42,6 +42,28 @@ vi.mock("./tabs/CalendarTab", () => ({
   ),
 }));
 
+vi.mock("./tabs/StandingsTab", () => ({
+  default: ({ onOpenGlobalDrivers }) => (
+    <div>
+      <div>Classificacao de pilotos</div>
+      <button type="button" onClick={() => onOpenGlobalDrivers?.("D001")}>
+        Abrir panorama
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("./tabs/GlobalDriversTab", () => ({
+  default: ({ selectedDriverId, onBack }) => (
+    <div>
+      <div>Panorama {selectedDriverId}</div>
+      <button type="button" onClick={onBack}>
+        Voltar
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("../components/season/ConvocationView", () => ({
   default: () => <div>Janela de convocacao</div>,
 }));
@@ -74,6 +96,23 @@ describe("Dashboard", () => {
     render(<Dashboard />);
 
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "standings");
+    expect(screen.getByText("Classificacao de pilotos")).toBeInTheDocument();
+  });
+
+  it("opens the hidden global drivers tab from the standings callback and returns", () => {
+    mockState.showRaceBriefing = false;
+
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Abrir panorama/i }));
+
+    expect(screen.getByText("Panorama D001")).toBeInTheDocument();
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "global-drivers");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Voltar$/i }));
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "standings");
+    expect(screen.getByText("Classificacao de pilotos")).toBeInTheDocument();
   });
 
   it("hides the main header while showing the final classification screen", () => {

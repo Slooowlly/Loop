@@ -123,6 +123,7 @@ fn rain_collision_mult(weather: WeatherCondition) -> f64 {
 fn compute_irm(incident_type: IncidentType, severity: IncidentSeverity) -> f64 {
     match (incident_type, severity) {
         (IncidentType::Collision, IncidentSeverity::Critical) => 1.5,
+        (IncidentType::Collision, IncidentSeverity::Major) => 0.45,
         (IncidentType::DriverError, IncidentSeverity::Critical) => 1.0,
         (IncidentType::Mechanical, IncidentSeverity::Critical) => 0.6,
         _ => 0.0,
@@ -1200,17 +1201,18 @@ mod tests {
     }
 
     #[test]
-    fn test_irm_zero_for_non_critical() {
+    fn test_irm_keeps_collision_major_eligible_but_other_non_critical_zero() {
         assert_eq!(
             compute_irm(IncidentType::Collision, IncidentSeverity::Minor),
             0.0
         );
+        assert!(compute_irm(IncidentType::Collision, IncidentSeverity::Major) > 0.0);
         assert_eq!(
-            compute_irm(IncidentType::Collision, IncidentSeverity::Major),
+            compute_irm(IncidentType::DriverError, IncidentSeverity::Minor),
             0.0
         );
         assert_eq!(
-            compute_irm(IncidentType::DriverError, IncidentSeverity::Minor),
+            compute_irm(IncidentType::DriverError, IncidentSeverity::Major),
             0.0
         );
         assert_eq!(

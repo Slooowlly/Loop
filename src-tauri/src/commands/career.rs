@@ -1524,9 +1524,26 @@ fn normalize_regular_contracts_for_team(
             .into_iter()
             .filter(|contract| contract.tipo == crate::models::enums::ContractType::Regular)
             .collect::<Vec<_>>();
+    let drivers_by_id = active_regular_contracts
+        .iter()
+        .filter_map(|contract| {
+            driver_queries::get_driver(conn, &contract.piloto_id)
+                .ok()
+                .map(|driver| (contract.piloto_id.clone(), driver))
+        })
+        .collect::<HashMap<_, _>>();
     active_regular_contracts.sort_by(|a, b| {
-        b.temporada_inicio
-            .cmp(&a.temporada_inicio)
+        let a_is_player = drivers_by_id
+            .get(&a.piloto_id)
+            .map(|driver| driver.is_jogador)
+            .unwrap_or(false);
+        let b_is_player = drivers_by_id
+            .get(&b.piloto_id)
+            .map(|driver| driver.is_jogador)
+            .unwrap_or(false);
+        b_is_player
+            .cmp(&a_is_player)
+            .then_with(|| b.temporada_inicio.cmp(&a.temporada_inicio))
             .then_with(|| b.created_at.cmp(&a.created_at))
             .then_with(|| b.id.cmp(&a.id))
     });
@@ -1537,30 +1554,6 @@ fn normalize_regular_contracts_for_team(
     let mut contract_ids_in_slots = HashSet::new();
     let mut role_fixed = false;
 
-    if let Some(expected_n1) = team.piloto_1_id.as_deref() {
-        if let Some(contract) = active_regular_contracts
-            .iter()
-            .find(|contract| contract.piloto_id == expected_n1)
-            .cloned()
-        {
-            contract_ids_in_slots.insert(contract.id.clone());
-            keep_n1 = Some(contract);
-        }
-    }
-
-    if let Some(expected_n2) = team.piloto_2_id.as_deref() {
-        if let Some(contract) = active_regular_contracts
-            .iter()
-            .find(|contract| {
-                contract.piloto_id == expected_n2 && !contract_ids_in_slots.contains(&contract.id)
-            })
-            .cloned()
-        {
-            contract_ids_in_slots.insert(contract.id.clone());
-            keep_n2 = Some(contract);
-        }
-    }
-
     for contract in active_regular_contracts {
         if contract_ids_in_slots.contains(&contract.id) {
             continue;
@@ -1570,18 +1563,31 @@ fn normalize_regular_contracts_for_team(
             TeamRole::Numero2 => &mut keep_n2,
         };
         if slot.is_none() {
+            contract_ids_in_slots.insert(contract.id.clone());
             *slot = Some(contract);
             continue;
         }
 
-        contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
-            .map_err(|e| {
-            format!(
-                "Falha ao rescindir contrato regular excedente '{}': {e}",
-                contract.id
+        if keep_n1.is_none() {
+            contract_ids_in_slots.insert(contract.id.clone());
+            keep_n1 = Some(contract);
+        } else if keep_n2.is_none() {
+            contract_ids_in_slots.insert(contract.id.clone());
+            keep_n2 = Some(contract);
+        } else {
+            contract_queries::update_contract_status(
+                conn,
+                &contract.id,
+                &ContractStatus::Rescindido,
             )
-        })?;
-        displaced_driver_ids.insert(contract.piloto_id);
+            .map_err(|e| {
+                format!(
+                    "Falha ao rescindir contrato regular excedente '{}': {e}",
+                    contract.id
+                )
+            })?;
+            displaced_driver_ids.insert(contract.piloto_id);
+        }
     }
 
     if let Some(contract) = &keep_n1 {
@@ -4692,7 +4698,7 @@ mod tests {
 
         let result = create_career_in_base_dir(&base_dir, input).expect("career should be created");
         assert!(result.success);
-        assert_eq!(result.total_drivers, 196);
+        assert_eq!(result.total_drivers, 460);
         assert_eq!(result.total_teams, 71);
         // Categorias especiais (production_challenger=10, endurance=6) não geram calendário
         // no BlocoRegular — calendário delas é criado na JanelaConvocação (Passos 6+).
@@ -4725,7 +4731,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM calendar", [], |row| row.get(0))
             .expect("calendar count");
 
-        assert_eq!(drivers_count, 196);
+        assert_eq!(drivers_count, 460);
         assert_eq!(teams_count, 71);
         // 132 contratos: categorias especiais (production_challenger, endurance) não geram contratos
         assert_eq!(contracts_count, 132);
@@ -5205,7 +5211,14 @@ mod tests {
 
         assert!(track_history.has_data);
         assert_eq!(track_history.starts, 1);
-        assert_eq!(track_history.best_finish, Some(player_finish));
+        assert_eq!(
+            track_history.best_finish,
+            if player_dnf {
+                None
+            } else {
+                Some(player_finish)
+            }
+        );
         assert_eq!(track_history.last_finish, Some(player_finish));
         assert_eq!(track_history.dnfs, if player_dnf { 1 } else { 0 });
         assert_eq!(track_history.last_visit_season, Some(1));
@@ -7485,31 +7498,23 @@ mod tests {
             .expect("season query")
             .expect("active season");
         let current_contract = latest_regular_contract_for_driver(&db.conn, &player.id);
-        let target_team =
+        let target_team_seed =
             team_queries::get_teams_by_category(&db.conn, &current_contract.categoria)
                 .expect("teams by category")
                 .into_iter()
-                .find(|team| {
-                    if team.id == current_contract.equipe_id
-                        || team.piloto_1_id.is_none()
-                        || team.piloto_2_id.is_none()
-                    {
-                        return false;
-                    }
-
-                    contract_queries::get_active_contracts_for_team(&db.conn, &team.id)
-                        .map(|contracts| {
-                            contracts
-                                .into_iter()
-                                .filter(|contract| {
-                                    contract.tipo == crate::models::enums::ContractType::Regular
-                                })
-                                .count()
-                                == 2
-                        })
-                        .unwrap_or(false)
-                })
-                .expect("full target team");
+                .find(|team| team.id != current_contract.equipe_id)
+                .expect("target team");
+        backfill_team_vacancy(&db.conn, &target_team_seed.id, season.numero)
+            .expect("first target vacancy backfill");
+        backfill_team_vacancy(&db.conn, &target_team_seed.id, season.numero)
+            .expect("second target vacancy backfill");
+        let target_team = team_queries::get_team_by_id(&db.conn, &target_team_seed.id)
+            .expect("target team query")
+            .expect("target team");
+        assert!(
+            target_team.piloto_1_id.is_some() && target_team.piloto_2_id.is_some(),
+            "target team should be explicitly filled before accepting the proposal"
+        );
         let displaced_driver_id = target_team
             .piloto_1_id
             .clone()

@@ -525,7 +525,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao processar convocacao."),
+        error: getErrorMessage(error, "Erro ao processar convocação."),
       });
       throw error;
     }
@@ -702,7 +702,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao responder convocacao especial."),
+        error: getErrorMessage(error, "Erro ao responder convocação especial."),
       });
       throw error;
     }
@@ -754,7 +754,7 @@ const useCareerStore = create((set, get) => ({
 
       return state;
     } catch (error) {
-      const message = getErrorMessage(error, "Erro ao entrar na pre-temporada.");
+      const message = getErrorMessage(error, "Erro ao entrar na pré-temporada.");
       set({ isEnteringPreseason: false, error: message });
       throw error;
     }
@@ -804,7 +804,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isAdvancingWeek: false,
-        error: getErrorMessage(error, "Erro ao avançar semana da pr?-temporada."),
+        error: getErrorMessage(error, "Erro ao avançar semana da pré-temporada."),
       });
       throw error;
     }
@@ -1002,7 +1002,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isCalendarAdvancing: false,
-        error: getErrorMessage(error, "Erro ao avancar calendario."),
+        error: getErrorMessage(error, "Erro ao avançar calendário."),
       });
       throw error;
     }

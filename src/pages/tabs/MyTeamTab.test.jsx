@@ -234,6 +234,20 @@ describe("MyTeamTab", () => {
     expect(within(header).queryByText(/Pontos/i)).not.toBeInTheDocument();
   });
 
+  it("shows the team logo in the management command header", async () => {
+    mockState.playerTeam.nome = "Ferrari";
+    mockState.playerTeam.cor_primaria = "#dc0000";
+
+    render(<MyTeamTab />);
+
+    const header = await screen.findByTestId("my-team-command-header");
+    const logo = within(header).getByTestId("my-team-command-logo");
+    expect(within(logo).getByAltText("Ferrari logo")).toBeInTheDocument();
+    expect(logo.parentElement).not.toHaveClass("rounded-2xl");
+    expect(logo.parentElement).not.toHaveClass("border");
+    expect(logo.parentElement).not.toHaveClass("bg-white/[0.03]");
+  });
+
   it("colors the financial state pill according to the real team state", async () => {
     mockState.playerTeam.financial_state = "crisis";
 
@@ -269,6 +283,66 @@ describe("MyTeamTab", () => {
     expect(await screen.findByText(/Ranking da categoria/i)).toBeInTheDocument();
     expect(screen.getByText("Falcon Motorsport")).toBeInTheDocument();
     expect(screen.getAllByText("Aurora GT").length).toBeGreaterThan(0);
+  });
+
+  it("shows team logos in the category ranking while keeping team history double click", async () => {
+    invoke.mockImplementation((command, args = {}) => {
+      if (command === "get_drivers_by_category") {
+        return Promise.resolve([]);
+      }
+
+      if (command === "get_teams_standings") {
+        return Promise.resolve([
+          {
+            posicao: 1,
+            id: "TFER",
+            nome: "Ferrari",
+            nome_curto: "FER",
+            cor_primaria: "#dc0000",
+            cash_balance: 12_000_000,
+            car_performance: 9,
+            car_build_profile: "power_intermediate",
+            pontos: 144,
+          },
+          {
+            posicao: 2,
+            id: "TAMG",
+            nome: "Mercedes-AMG",
+            nome_curto: "AMG",
+            cor_primaria: "#00d2be",
+            cash_balance: 10_000_000,
+            car_performance: 8,
+            car_build_profile: "balanced",
+            pontos: 132,
+          },
+        ]);
+      }
+
+      if (command === "get_team_history_dossier") {
+        return Promise.resolve(buildHistoryDossier(args.teamId));
+      }
+
+      return Promise.resolve([]);
+    });
+
+    mockState.playerTeam = {
+      ...mockState.playerTeam,
+      id: "TFER",
+      nome: "Ferrari",
+      nome_curto: "FER",
+      cor_primaria: "#dc0000",
+      categoria: "gt3",
+    };
+
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    expect(within(ranking).getByAltText("Ferrari logo")).toBeInTheDocument();
+    expect(within(ranking).getByAltText("Mercedes-AMG logo")).toBeInTheDocument();
+
+    fireEvent.doubleClick(within(ranking).getByText("Ferrari"));
+
+    expect(await screen.findByRole("dialog", { name: /Ferrari/i })).toBeInTheDocument();
   });
 
   it("uses polished management labels for standings and technical development", async () => {

@@ -63,6 +63,34 @@ pub(crate) fn sync_team_slots_from_active_regular_contracts(
             .first()
             .map(|contract| contract.piloto_id.as_str());
         let piloto_2 = contracts.get(1).map(|contract| contract.piloto_id.as_str());
+
+        for contract in contracts.iter().take(2) {
+            conn.execute(
+                "UPDATE drivers SET categoria_atual = ?1 WHERE id = ?2",
+                rusqlite::params![&contract.categoria, &contract.piloto_id],
+            )
+            .map_err(|e| {
+                format!(
+                    "Falha ao sincronizar categoria atual do piloto '{}': {e}",
+                    contract.piloto_id
+                )
+            })?;
+        }
+
+        for contract in contracts.iter().skip(2) {
+            contract_queries::update_contract_status(
+                conn,
+                &contract.id,
+                &ContractStatus::Rescindido,
+            )
+            .map_err(|e| {
+                format!(
+                    "Falha ao rescindir contrato excedente '{}': {e}",
+                    contract.id
+                )
+            })?;
+        }
+
         team_queries::update_team_pilots(conn, &team.id, piloto_1, piloto_2).map_err(|e| {
             format!(
                 "Falha ao sincronizar pilotos da equipe '{}': {e}",
@@ -71,10 +99,29 @@ pub(crate) fn sync_team_slots_from_active_regular_contracts(
         })?;
     }
 
+    for contracts in valid_contracts.values() {
+        for contract in contracts {
+            contract_queries::update_contract_status(
+                conn,
+                &contract.id,
+                &ContractStatus::Rescindido,
+            )
+            .map_err(|e| {
+                format!(
+                    "Falha ao rescindir contrato fora da grade sincronizada '{}': {e}",
+                    contract.id
+                )
+            })?;
+        }
+    }
+
     conn.execute(
         "UPDATE drivers SET categoria_atual = NULL
          WHERE categoria_atual IS NOT NULL
-         AND id NOT IN (SELECT piloto_id FROM contracts WHERE status = 'Ativo')",
+         AND id NOT IN (
+             SELECT piloto_id FROM contracts
+             WHERE status = 'Ativo' AND tipo = 'Regular'
+         )",
         [],
     )
     .map_err(|e| format!("Falha ao limpar categoria_atual de pilotos sem contrato: {e}"))?;

@@ -22,10 +22,10 @@ describe("LOADING_MESSAGES", () => {
     const findIndex = (pattern) => LOADING_MESSAGES.findIndex((message) => pattern.test(message));
 
     const baseWorld = findIndex(/base.*2000/i);
-    const firstSeason = findIndex(/primeiras temporadas|inicio do arquivo/i);
-    const market = findIndex(/movimentando contratos|janela de evolucao/i);
-    const transition = findIndex(/promocoes|rebaixamentos/i);
-    const archive = findIndex(/arquivos historicos|memoria/i);
+    const firstSeason = findIndex(/primeiras temporadas|início do arquivo/i);
+    const market = findIndex(/movimentando contratos|janela de evolução/i);
+    const transition = findIndex(/promoções|rebaixamentos/i);
+    const archive = findIndex(/arquivos históricos|memória/i);
     const playableYear = findIndex(/2025/i);
 
     expect(baseWorld).toBeGreaterThanOrEqual(0);

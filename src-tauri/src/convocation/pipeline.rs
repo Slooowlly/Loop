@@ -2,6 +2,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::calendar::generate_and_insert_special_calendars;
+use crate::constants::categories::get_category_config;
 use crate::db::connection::DbError;
 use crate::db::queries::{
     calendar as calendar_queries, contracts as contract_queries, drivers as driver_queries,
@@ -581,6 +582,7 @@ fn build_player_special_offers(
         TeamRole::Numero2
     };
     let current_category = player.categoria_atual.as_deref();
+    let current_category_is_regular = current_category.and_then(get_category_config).is_some();
     let has_active_regular_contract =
         contract_queries::has_active_regular_contract(conn, &player.id)?;
     let contract_history = contract_queries::get_contracts_for_pilot(conn, &player.id)?;
@@ -602,7 +604,9 @@ fn build_player_special_offers(
                 driver_has_required_license_for_category(conn, &player.id, cfg.special_category)
                     .map_err(DbError::InvalidData)?;
 
-            let preferred_priority = if primary_current_fit {
+            let preferred_priority = if team_history && !current_category_is_regular {
+                Some(520)
+            } else if primary_current_fit {
                 Some(500)
             } else if rookie_exception {
                 Some(460)

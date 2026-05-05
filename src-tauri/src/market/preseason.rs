@@ -9,6 +9,7 @@ use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::categories::is_especial;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
@@ -291,6 +292,7 @@ pub fn initialize_preseason(
                 &simulated_contracts_by_driver,
                 &market_report.new_signings,
                 &original_contracts_by_driver,
+                &temp_drivers,
             )?;
             Ok((
                 market_report,
@@ -339,7 +341,10 @@ pub fn initialize_preseason(
         });
     }
 
-    if transfer_events.is_empty() {
+    let has_transfer_phase_event = transfer_events
+        .iter()
+        .any(|event| phase_for_action(&event.event) == PreSeasonPhase::Transfers);
+    if !has_transfer_phase_event {
         planned_events.push(PlannedEvent {
             week: 3,
             event: PendingAction::PhaseMarker {
@@ -347,9 +352,8 @@ pub fn initialize_preseason(
             },
             executed: false,
         });
-    } else {
-        planned_events.extend(transfer_events);
     }
+    planned_events.extend(transfer_events);
 
     let mut current_week = planned_events
         .iter()
@@ -893,8 +897,14 @@ fn build_transfer_events(
     simulated_contracts_by_driver: &std::collections::HashMap<String, Contract>,
     signings: &[crate::market::proposals::SigningInfo],
     original_contracts_by_driver: &std::collections::HashMap<String, Contract>,
+    temp_drivers: &[Driver],
 ) -> Result<Vec<PlannedEvent>, String> {
     let mut events = Vec::new();
+    let temp_drivers_by_id = temp_drivers
+        .iter()
+        .cloned()
+        .map(|driver| (driver.id.clone(), driver))
+        .collect::<std::collections::HashMap<_, _>>();
     for (index, signing) in signings
         .iter()
         .filter(|signing| signing.tipo == "transferencia")
@@ -905,6 +915,30 @@ fn build_transfer_events(
             .get(&signing.driver_id)
             .ok_or_else(|| format!("Contrato de '{}' nao encontrado", signing.driver_id))?;
         let previous_team = original_contracts_by_driver.get(&signing.driver_id);
+        if previous_team.is_none() {
+            let driver = temp_drivers_by_id
+                .get(&signing.driver_id)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "Piloto livre planejado '{}' nao encontrado no clone",
+                        signing.driver_id
+                    )
+                })?;
+            events.push(PlannedEvent {
+                week: 3 + (index / 3).min(2) as i32,
+                event: PendingAction::PlaceRookie {
+                    driver,
+                    team_id: signing.team_id,
+                    team_name: signing.team_name,
+                    salary: contract.salario_anual,
+                    duration: contract.duracao_anos,
+                    role: contract.papel.as_str().to_string(),
+                },
+                executed: false,
+            });
+            continue;
+        }
         events.push(PlannedEvent {
             week: 3 + (index / 3).min(2) as i32,
             event: PendingAction::Transfer {
@@ -981,6 +1015,9 @@ fn build_hierarchy_events(
 ) -> Vec<PlannedEvent> {
     let mut events = Vec::new();
     for team in temp_teams {
+        if is_especial(&team.categoria) {
+            continue;
+        }
         let changed = original_teams_by_id.get(&team.id).is_none_or(|current| {
             current.piloto_1_id != team.piloto_1_id
                 || current.piloto_2_id != team.piloto_2_id
@@ -1402,10 +1439,23 @@ fn execute_action(
             } else {
                 MarketEventType::TransferCompleted
             };
+            let headline = if event_type == MarketEventType::RookieSigned {
+                format!("Rookie {} assina com {team_name}", driver.nome)
+            } else {
+                format!("{} assina com {team_name}", driver.nome)
+            };
+            let description = if event_type == MarketEventType::RookieSigned {
+                format!("{} e o novo piloto da {team_name}.", driver.nome)
+            } else {
+                format!(
+                    "{} chega ao mercado livre e assina com {team_name}.",
+                    driver.nome
+                )
+            };
             events.push(MarketEvent {
                 event_type: event_type.clone(),
-                headline: format!("Rookie {} assina com {team_name}", driver.nome),
-                description: format!("{} e o novo piloto da {team_name}.", driver.nome),
+                headline,
+                description,
                 driver_id: Some(driver.id.clone()),
                 driver_name: Some(driver.nome.clone()),
                 team_id: Some(team_id.clone()),
@@ -1714,6 +1764,62 @@ fn sign_driver_to_team(
     ensure_driver_can_join_category(conn, driver_id, driver_name, &team.categoria)?;
     let role = TeamRole::from_str_strict(role)
         .map_err(|e| format!("Falha ao interpretar papel da assinatura: {e}"))?;
+    if let Some(existing_contract) =
+        contract_queries::get_active_regular_contract_for_pilot(conn, driver_id)
+            .map_err(|e| format!("Falha ao buscar contrato ativo de '{}': {e}", driver_id))?
+    {
+        contract_queries::update_contract_status(
+            conn,
+            &existing_contract.id,
+            &ContractStatus::Rescindido,
+        )
+        .map_err(|e| {
+            format!(
+                "Falha ao rescindir contrato ativo legado de '{}': {e}",
+                driver_id
+            )
+        })?;
+        team_queries::remove_pilot_from_team(conn, driver_id, &existing_contract.equipe_id)
+            .map_err(|e| {
+                format!(
+                    "Falha ao remover piloto '{}' da equipe legada '{}': {e}",
+                    driver_id, existing_contract.equipe_id
+                )
+            })?;
+    }
+    for incumbent_contract in contract_queries::get_active_contracts_for_team(conn, team_id)
+        .map_err(|e| {
+            format!(
+                "Falha ao buscar contratos ativos da equipe '{}': {e}",
+                team_id
+            )
+        })?
+        .into_iter()
+        .filter(|contract| {
+            contract.tipo == crate::models::enums::ContractType::Regular
+                && contract.papel == role
+                && contract.piloto_id != driver_id
+        })
+    {
+        contract_queries::update_contract_status(
+            conn,
+            &incumbent_contract.id,
+            &ContractStatus::Rescindido,
+        )
+        .map_err(|e| {
+            format!(
+                "Falha ao rescindir ocupante do papel {:?} na equipe '{}': {e}",
+                role, team_id
+            )
+        })?;
+        team_queries::remove_pilot_from_team(conn, &incumbent_contract.piloto_id, team_id)
+            .map_err(|e| {
+                format!(
+                    "Falha ao remover ocupante '{}' da equipe '{}': {e}",
+                    incumbent_contract.piloto_id, team_id
+                )
+            })?;
+    }
     let contract = Contract::new(
         next_id(conn, IdType::Contract)
             .map_err(|e| format!("Falha ao gerar ID de contrato: {e}"))?,
@@ -1724,17 +1830,42 @@ fn sign_driver_to_team(
         season_number,
         duration,
         salary,
-        role,
+        role.clone(),
         team.categoria.clone(),
     );
     contract_queries::insert_contract(conn, &contract)
         .map_err(|e| format!("Falha ao assinar contrato de '{}': {e}", driver_id))?;
+    place_driver_in_signed_role(conn, team_id, driver_id, &role)?;
 
     let mut updated_driver = driver;
     updated_driver.categoria_atual = Some(team.categoria.clone());
     driver_queries::update_driver(conn, &updated_driver)
         .map_err(|e| format!("Falha ao atualizar piloto contratado '{}': {e}", driver_id))?;
     Ok(())
+}
+
+fn place_driver_in_signed_role(
+    conn: &Connection,
+    team_id: &str,
+    driver_id: &str,
+    role: &TeamRole,
+) -> Result<(), String> {
+    let team = team_queries::get_team_by_id(conn, team_id)
+        .map_err(|e| {
+            format!(
+                "Falha ao buscar equipe '{}' para atualizar lineup: {e}",
+                team_id
+            )
+        })?
+        .ok_or_else(|| format!("Equipe '{}' nao encontrada", team_id))?;
+    let mut piloto_1 = team.piloto_1_id.filter(|id| id != driver_id);
+    let mut piloto_2 = team.piloto_2_id.filter(|id| id != driver_id);
+    match role {
+        TeamRole::Numero1 => piloto_1 = Some(driver_id.to_string()),
+        TeamRole::Numero2 => piloto_2 = Some(driver_id.to_string()),
+    }
+    team_queries::update_team_pilots(conn, team_id, piloto_1.as_deref(), piloto_2.as_deref())
+        .map_err(|e| format!("Falha ao atualizar lineup da equipe '{}': {e}", team_id))
 }
 
 fn clear_driver_from_team(conn: &Connection, team_id: &str, driver_id: &str) -> Result<(), String> {
@@ -2291,6 +2422,54 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_driver_to_team_rehomes_existing_active_regular_contract() {
+        let conn = setup_market_fixture();
+        let driver = driver_queries::get_driver(&conn, "P001").expect("driver");
+        let old_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P001")
+            .expect("active contract query")
+            .expect("driver should start contracted");
+
+        sign_driver_to_team(
+            &conn,
+            &driver.id,
+            &driver.nome,
+            "T002",
+            2,
+            95_000.0,
+            2,
+            TeamRole::Numero1.as_str(),
+        )
+        .expect("signing should migrate active contract");
+
+        let active_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM contracts WHERE piloto_id = 'P001' AND status = 'Ativo' AND tipo = 'Regular'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active contract count");
+        let refreshed_contract =
+            contract_queries::get_active_regular_contract_for_pilot(&conn, "P001")
+                .expect("active contract query after signing")
+                .expect("driver should stay contracted");
+        let old_contract_status = contract_queries::get_contract_by_id(&conn, &old_contract.id)
+            .expect("old contract query")
+            .expect("old contract should exist");
+        let old_team = team_queries::get_team_by_id(&conn, "T001")
+            .expect("old team query")
+            .expect("old team");
+
+        assert_eq!(active_contracts, 1);
+        assert_eq!(refreshed_contract.equipe_id, "T002");
+        assert_eq!(old_contract_status.status, ContractStatus::Rescindido);
+        assert!(
+            old_team.piloto_1_id.as_deref() != Some("P001")
+                && old_team.piloto_2_id.as_deref() != Some("P001"),
+            "driver should be removed from the previous team slot"
+        );
+    }
+
+    #[test]
     fn test_transfer_week() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(508);
@@ -2406,6 +2585,13 @@ mod tests {
             &simulated_contracts_by_driver,
             &signings,
             &original_contracts_by_driver,
+            &[sample_driver(
+                "P100",
+                "Piloto Transfer",
+                Some("gt4"),
+                70.0,
+                DriverStatus::Ativo,
+            )],
         )
         .expect("transfer events");
 
@@ -2541,7 +2727,7 @@ mod tests {
         let license_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM licenses WHERE piloto_id = ?1 AND CAST(nivel AS INTEGER) >= 2",
-                [&rookie.id],
+                rusqlite::params![rookie.id.as_str()],
                 |row| row.get(0),
             )
             .expect("rookie license count");
@@ -2550,7 +2736,7 @@ mod tests {
         let active_contracts: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM contracts WHERE piloto_id = ?1 AND status = 'Ativo'",
-                [&rookie.id],
+                rusqlite::params![rookie.id.as_str()],
                 |row| row.get(0),
             )
             .expect("rookie active contract count");

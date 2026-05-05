@@ -147,12 +147,17 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /function DossierTabs[\s\S]*grid grid-cols-2[\s\S]*sm:grid-cols-4[\s\S]*min-h-9 rounded-lg border px-3 text-sm font-medium/,
-    "expected dossier tabs to render as four equal-width controls below the profile card",
+    /function DossierTabs\(\{ activeTab, onChange, tabs = DOSSIER_TABS \}\)[\s\S]*tabs\.length === 1[\s\S]*grid-cols-1[\s\S]*grid-cols-2 sm:grid-cols-4[\s\S]*min-h-9 rounded-lg border px-3 text-sm font-medium/,
+    "expected dossier tabs to support the retired one-tab layout and the active four-tab layout",
   );
   assert.match(
     drawerSource,
-    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*Motivacao[\s\S]*\{normalized\}%/,
+    /const RETIRED_DOSSIER_TABS = \[\{ id: ["']historico["'], label: ["']Histórico["'] \}\][\s\S]*isRetiredDetail[\s\S]*effectiveActiveTab = isRetiredDriver \? ["']historico["'] : activeTab/,
+    "expected retired driver dossiers to force the Histórico tab only",
+  );
+  assert.match(
+    drawerSource,
+    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*Motivação[\s\S]*\{normalized\}%/,
     "expected the compact motivation component to show both the label, fill, and percentage in the profile body",
   );
   assert.match(
@@ -179,6 +184,36 @@ test("driver detail drawer stays above the app layers and closes with a coordina
     drawerSource,
     /function selectAdjacentDriver\(targetDriverId\) \{[\s\S]*if \(!targetDriverId \|\| !onSelectDriver \|\| isClosing\) return;[\s\S]*onSelectDriver\(targetDriverId\);[\s\S]*\}/,
     "expected adjacent-driver navigation to use a guarded shared selection handler",
+  );
+  assert.match(
+    drawerSource,
+    /const drawerScrollRef = useRef\(null\);[\s\S]*const preservedScrollTopRef = useRef\(0\);[\s\S]*const shouldRestoreScrollRef = useRef\(false\);/,
+    "expected the drawer to keep refs for preserving scroll while comparing adjacent drivers",
+  );
+  assert.match(
+    drawerSource,
+    /const \[loadedDetailDriverId, setLoadedDetailDriverId\] = useState\(null\);/,
+    "expected the drawer to track which pilot detail finished loading before restoring scroll",
+  );
+  assert.match(
+    drawerSource,
+    /function selectAdjacentDriver\(targetDriverId\) \{[\s\S]*preservedScrollTopRef\.current = drawerScrollRef\.current\?\.scrollTop \?\? 0;[\s\S]*shouldRestoreScrollRef\.current = true;[\s\S]*onSelectDriver\(targetDriverId\);[\s\S]*\}/,
+    "expected adjacent-driver navigation to save the current drawer scroll before switching pilots",
+  );
+  assert.match(
+    drawerSource,
+    /useEffect\(\(\) => \{[\s\S]*if \(!shouldRestoreScrollRef\.current \|\| loading \|\| !detail \|\| loadedDetailDriverId !== driverId\) return;[\s\S]*window\.requestAnimationFrame[\s\S]*drawerScrollRef\.current\.scrollTop = Math\.min\([\s\S]*preservedScrollTopRef\.current[\s\S]*\}, \[loading, detail, loadedDetailDriverId, driverId\]\);/,
+    "expected the drawer to restore the saved scroll after the next pilot detail finishes loading",
+  );
+  assert.match(
+    drawerSource,
+    /const data = await invoke\("get_driver_detail", \{ careerId, driverId \}\);[\s\S]*setDetail\(data\);[\s\S]*setLoadedDetailDriverId\(driverId\);/,
+    "expected the loaded detail driver id to be marked only after that pilot's data arrives",
+  );
+  assert.match(
+    drawerSource,
+    /ref=\{drawerScrollRef\}[\s\S]*className=\{\[[\s\S]*fixed inset-y-0 right-0 overflow-y-auto/,
+    "expected the scrollable drawer shell itself to receive the scroll preservation ref",
   );
   assert.match(
     drawerSource,
@@ -247,7 +282,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /label="Proximo"[\s\S]*disabled=\{!nextDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(nextDriverId\)\}/,
+    /label="Próximo"[\s\S]*disabled=\{!nextDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(nextDriverId\)\}/,
     "expected the external navigator to disable the next button at the bottom of the list",
   );
   assert.match(
@@ -307,7 +342,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /function ProsConsPanel[\s\S]*grid h-\[118px\] min-h-0 grid-cols-2[\s\S]*Pontos fortes[\s\S]*Atencao[\s\S]*overflow-y-auto/,
+    /function ProsConsPanel[\s\S]*grid h-\[118px\] min-h-0 grid-cols-2[\s\S]*Pontos fortes[\s\S]*Atenção[\s\S]*overflow-y-auto/,
     "expected the pros-and-cons panel near the header to keep a fixed height and split pros/cons side by side with internal scrolling",
   );
   assert.match(
@@ -324,6 +359,61 @@ test("driver detail drawer stays above the app layers and closes with a coordina
     drawerSource,
     /title="Perfil"[\s\S]*grid min-w-0 gap-3 lg:pt-4[\s\S]*<MotivationBar[\s\S]*<ProsConsPanel competitivo=\{competitivo\}/,
     "expected the right side of the profile body to align motivation and pros-and-cons below the card header",
+  );
+  assert.match(
+    drawerSource,
+    /function injuryDisplayName\(injury\)[\s\S]*injury\?\.nome[\s\S]*injury\?\.tipo/,
+    "expected the injury popup to prefer the specific injury name while keeping severity as fallback",
+  );
+  assert.match(
+    drawerSource,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*Lesão ativa[\s\S]*\{injuryDisplayName\(injury\)\}[\s\S]*Ocorreu[\s\S]*Melhora prevista[\s\S]*Gravidade[\s\S]*\{injury\.tipo\}[\s\S]*onClick=\{onConfirm\}[\s\S]*OK/,
+    "expected injured drivers to see the specific injury name in a centered popup before reading the dossier",
+  );
+  assert.match(
+    drawerSource,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*fixed inset-y-0 right-0[\s\S]*items-center justify-center[\s\S]*style=\{\{ width: `\$\{drawerWidth\}px` \}\}/,
+    "expected the injury popup to be centered in the visible drawer viewport instead of the full scrollable dossier height",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*absolute inset-0/,
+    "expected the injury popup to avoid absolute centering against the full dossier content height",
+  );
+  assert.match(
+    drawerSource,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*bg-\[#05070d\]\/90[\s\S]*bg-\[#0b1018\][\s\S]*shadow-\[0_30px_90px_rgba\(0,0,0,0\.62\)\]/,
+    "expected the injury popup surface to be opaque enough to stay readable over the blurred dossier",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*bg-\[#0b1018\]\/|function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*bg-\[#05070d\]\/35/,
+    "expected the injury popup to avoid transparent surfaces that make the text hard to read",
+  );
+  assert.match(
+    drawerSource,
+    /const activeInjury = detail\?\.saude\?\.lesao_ativa \?\? null;/,
+    "expected the drawer to read active injury information from the health block",
+  );
+  assert.match(
+    drawerSource,
+    /const showInjuryPopup = Boolean\(activeInjury && !injuryAcknowledged\);/,
+    "expected the drawer to show the injury popup every time an injured driver opens until OK is clicked",
+  );
+  assert.match(
+    drawerSource,
+    /useEffect\(\(\) => \{[\s\S]*setInjuryAcknowledged\(false\);[\s\S]*\}, \[driverId\]\)/,
+    "expected injury acknowledgement to reset whenever a driver detail opens",
+  );
+  assert.match(
+    drawerSource,
+    /showInjuryPopup[\s\S]*blur-\[5px\][\s\S]*pointer-events-none/,
+    "expected the driver dossier under the injury popup to be blurred and non-interactive",
+  );
+  assert.match(
+    drawerSource,
+    /\{showInjuryPopup \? \([\s\S]*<InjuryPopup[\s\S]*injury=\{activeInjury\}[\s\S]*drawerWidth=\{drawerWidth\}[\s\S]*onConfirm=\{\(\) => setInjuryAcknowledged\(true\)\}[\s\S]*\/>/,
+    "expected the active injury popup to be centered inside the driver drawer and dismissed by OK",
   );
   assert.doesNotMatch(
     drawerSource,
@@ -407,7 +497,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /["']Resumo["'][\s\S]*["']Historico["'][\s\S]*["']Rivais["'][\s\S]*["']Mercado["']/,
+    /["']Resumo["'][\s\S]*["']Histórico["'][\s\S]*["']Rivais["'][\s\S]*["']Mercado["']/,
     "expected the drawer to declare the consolidated dossier tabs",
   );
   assert.doesNotMatch(
@@ -417,8 +507,8 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /activeTab\s*===\s*["']historico["']/,
-    "expected the career content to be hidden behind the Historico tab instead of rendering by default",
+    /effectiveActiveTab\s*===\s*["']historico["']/,
+    "expected the career content to be hidden behind the Histórico tab instead of rendering by default",
   );
   assert.match(
     drawerSource,
@@ -691,7 +781,7 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     dossierSectionsSource,
-    /export function HistorySection\(\{ SectionComponent, detail, trajetoria \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Historico de Carreira" \/>;/,
+    /export function HistorySection\(\{ SectionComponent, detail, trajetoria \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Histórico de Carreira" \/>;/,
     "expected the career-history tab to be unavailable for rookies",
   );
   assert.match(

@@ -157,6 +157,7 @@ mod tests {
             id: format!("INJ_{pilot_id}"),
             pilot_id: pilot_id.to_string(),
             injury_type: InjuryType::Leve,
+            injury_name: "Dor no braço".to_string(),
             modifier: 0.95,
             races_total: 2,
             races_remaining: 2,

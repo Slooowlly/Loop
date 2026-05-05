@@ -132,6 +132,8 @@ export default function TeamLogoMark({ teamName, color, size = "md", testId = "s
   const sizeClass =
     size === "hero"
       ? "h-28 w-[168px]"
+      : size === "lg"
+      ? "h-16 w-24"
       : size === "sm"
       ? "h-7 w-[42px]"
       : size === "xs"

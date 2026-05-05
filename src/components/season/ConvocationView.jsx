@@ -857,12 +857,12 @@ export default function ConvocationView() {
 
             <div className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
-                Proximo passo
+                Próximo passo
               </p>
               <p className="mt-2 text-body text-[color:var(--text-secondary)]">
                 {specialWindowState?.is_finished
-                  ? "A janela terminou. Agora voc? pode confirmar sua entrada no bloco especial ou seguir sem participar."
-                  : "Escolha no maximo uma proposta para o dia e use o botao principal do topo para avancar o mercado."}
+                  ? "A janela terminou. Agora você pode confirmar sua entrada no bloco especial ou seguir sem participar."
+                  : "Escolha no máximo uma proposta para o dia e use o botão principal do topo para avançar o mercado."}
               </p>
             </div>
           </aside>

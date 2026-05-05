@@ -12,6 +12,16 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("../../components/driver/DriverDetailModal", () => ({
+  default: ({ driverId, onClose }) => (
+    <div role="dialog" aria-label={`Ficha ${driverId}`}>
+      <button type="button" onClick={onClose}>
+        Fechar ficha
+      </button>
+    </div>
+  ),
+}));
+
 function specialTeam({
   id,
   nome,
@@ -58,6 +68,10 @@ describe("StandingsTab", () => {
         fase: "BlocoEspecial",
       },
     };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("reloads standings when the season phase changes after skipping the special block", async () => {
@@ -479,6 +493,157 @@ describe("StandingsTab", () => {
     expect(mercedesLogos[0].parentElement.className).not.toContain("border");
   });
 
+  it("shows driver status markers beside driver names", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        categoria: "mazda_rookie",
+      },
+      season: {
+        ano: 2025,
+        rodada_atual: 1,
+        total_rodadas: 8,
+        fase: "BlocoRegular",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          {
+            id: "D01",
+            nome: "Rafa Rookie",
+            nacionalidade: "br",
+            idade: 18,
+            equipe_id: "TROO",
+            equipe_nome: "Rookie Team",
+            equipe_nome_curto: "ROO",
+            equipe_cor: "#58a6ff",
+            is_estreante: true,
+            is_estreante_da_vida: true,
+            lesao_ativa_tipo: "Moderada",
+            pontos: 12,
+            vitorias: 0,
+            podios: 1,
+            posicao_campeonato: 1,
+            results: [],
+          },
+          {
+            id: "D02",
+            nome: "Vera Veteran",
+            nacionalidade: "pt",
+            idade: 25,
+            equipe_id: "TVET",
+            equipe_nome: "Veteran Team",
+            equipe_nome_curto: "VET",
+            equipe_cor: "#f2cc60",
+            is_estreante: false,
+            is_estreante_da_vida: false,
+            lesao_ativa_tipo: "Grave",
+            pontos: 10,
+            vitorias: 0,
+            podios: 0,
+            posicao_campeonato: 2,
+            results: [],
+          },
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+
+    const rookieRow = (await screen.findByText("Rafa Rookie")).closest("tr");
+    const veteranRow = screen.getByText("Vera Veteran").closest("tr");
+
+    expect(within(rookieRow).getByTitle("Estreante da vida")).toBeInTheDocument();
+    expect(within(rookieRow).queryByTitle("Estreante")).not.toBeInTheDocument();
+    expect(within(rookieRow).getByTitle("Lesão ativa")).toBeInTheDocument();
+    expect(within(veteranRow).queryByTitle("Estreante")).not.toBeInTheDocument();
+    expect(within(veteranRow).getByTitle("Lesão grave")).toBeInTheDocument();
+  });
+
+  it("distinguishes career debut from category debut", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        categoria: "mazda_rookie",
+      },
+      season: {
+        ano: 2025,
+        rodada_atual: 1,
+        total_rodadas: 8,
+        fase: "BlocoRegular",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          {
+            id: "D11",
+            nome: "Lia Seed",
+            nacionalidade: "br",
+            idade: 17,
+            equipe_id: "TSED",
+            equipe_nome: "Seed Team",
+            equipe_nome_curto: "SED",
+            equipe_cor: "#58a6ff",
+            is_estreante: true,
+            is_estreante_da_vida: true,
+            lesao_ativa_tipo: null,
+            pontos: 0,
+            vitorias: 0,
+            podios: 0,
+            posicao_campeonato: 1,
+            results: [],
+          },
+          {
+            id: "D12",
+            nome: "Nuno Switch",
+            nacionalidade: "pt",
+            idade: 24,
+            equipe_id: "TSWT",
+            equipe_nome: "Switch Team",
+            equipe_nome_curto: "SWT",
+            equipe_cor: "#f2cc60",
+            is_estreante: true,
+            is_estreante_da_vida: false,
+            lesao_ativa_tipo: null,
+            pontos: 0,
+            vitorias: 0,
+            podios: 0,
+            posicao_campeonato: 2,
+            results: [],
+          },
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+
+    const lifeDebutRow = (await screen.findByText("Lia Seed")).closest("tr");
+    const categoryDebutRow = screen.getByText("Nuno Switch").closest("tr");
+
+    expect(within(lifeDebutRow).getByTitle("Estreante da vida")).toBeInTheDocument();
+    expect(within(lifeDebutRow).queryByTitle("Estreante")).not.toBeInTheDocument();
+    expect(within(categoryDebutRow).queryByTitle("Estreante da vida")).not.toBeInTheDocument();
+    expect(within(categoryDebutRow).getByTitle("Estreante")).toBeInTheDocument();
+  });
+
   it("shows team logos for previous BMW and GT3 team names stored in existing saves", async () => {
     mockState = {
       ...mockState,
@@ -754,6 +919,116 @@ describe("StandingsTab", () => {
       teamId: "T020",
       category: "gt4",
     });
+  });
+
+  it("opens the driver detail on a single click after the click delay", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "gt4" },
+      season: {
+        ano: 2025,
+        rodada_atual: 8,
+        total_rodadas: 8,
+        fase: "BlocoRegular",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          {
+            id: "D1",
+            nome: "Alex Stone",
+            nacionalidade: "br",
+            idade: 25,
+            equipe_id: "T001",
+            equipe_nome: "Aurora GT",
+            equipe_nome_curto: "AUR",
+            equipe_cor: "#58a6ff",
+            pontos: 96,
+            vitorias: 2,
+            podios: 6,
+            posicao_campeonato: 4,
+            results: [{ position: 4, is_dnf: false }],
+          },
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+
+    const driverName = await screen.findByText("Alex Stone");
+    vi.useFakeTimers();
+
+    fireEvent.click(driverName);
+    expect(screen.queryByRole("dialog", { name: /Ficha D1/i })).not.toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(221);
+
+    expect(screen.getByRole("dialog", { name: /Ficha D1/i })).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("opens the hidden global driver panorama on double click without opening the driver detail", async () => {
+    const onOpenGlobalDrivers = vi.fn();
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "gt4" },
+      season: {
+        ano: 2025,
+        rodada_atual: 8,
+        total_rodadas: 8,
+        fase: "BlocoRegular",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          {
+            id: "D1",
+            nome: "Alex Stone",
+            nacionalidade: "br",
+            idade: 25,
+            equipe_id: "T001",
+            equipe_nome: "Aurora GT",
+            equipe_nome_curto: "AUR",
+            equipe_cor: "#58a6ff",
+            pontos: 96,
+            vitorias: 2,
+            podios: 6,
+            posicao_campeonato: 4,
+            results: [{ position: 4, is_dnf: false }],
+          },
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab onOpenGlobalDrivers={onOpenGlobalDrivers} />);
+
+    const driverName = await screen.findByText("Alex Stone");
+    vi.useFakeTimers();
+
+    fireEvent.doubleClick(driverName);
+    await vi.advanceTimersByTimeAsync(221);
+
+    expect(onOpenGlobalDrivers).toHaveBeenCalledWith("D1");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("uses the selected standings category when opening a team history drawer from another category", async () => {

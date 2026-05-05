@@ -66,6 +66,8 @@ impl LocalIdAllocator {
     }
 }
 
+const REGULAR_FREE_AGENT_POOL_MULTIPLIER: usize = 2;
+
 pub fn generate_world(
     player_name: &str,
     player_nationality: &str,
@@ -206,8 +208,12 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
         teams.extend(category_teams);
     }
 
-    let pool_drivers = generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(pool_drivers);
+    let regular_pool_drivers =
+        generate_regular_free_agent_pool(&mut ids, &mut existing_names, difficulty, rng);
+    drivers.extend(regular_pool_drivers);
+    let specialist_pool_drivers =
+        generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
+    drivers.extend(specialist_pool_drivers);
 
     Ok(HistoricalWorldData {
         drivers,
@@ -418,11 +424,13 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
         teams.extend(category_teams);
     }
 
-    // Gerar pool de especialistas livres para convocação especial de meio de ano.
-    // Para cada categoria especial, gerar drivers por classe com categoria_atual
-    // apontando para a categoria regular de referência da classe (sem equipe nem contrato).
-    let pool_drivers = generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(pool_drivers);
+    // Gerar pool de pilotos livres para mercado regular e convocacao especial.
+    let regular_pool_drivers =
+        generate_regular_free_agent_pool(&mut ids, &mut existing_names, difficulty, rng);
+    drivers.extend(regular_pool_drivers);
+    let specialist_pool_drivers =
+        generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
+    drivers.extend(specialist_pool_drivers);
 
     let player_team_id =
         player_team_id.ok_or_else(|| "Player team was not assigned".to_string())?;
@@ -439,11 +447,40 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
     })
 }
 
-/// Gera pilotos livres para o pool de convocação especial.
+/// Gera pilotos livres para o mercado regular.
+/// Eles nascem no pool do save, sem contrato e sem categoria ativa.
+fn generate_regular_free_agent_pool<R: Rng>(
+    ids: &mut LocalIdAllocator,
+    existing_names: &mut HashSet<String>,
+    difficulty: &str,
+    rng: &mut R,
+) -> Vec<Driver> {
+    let mut pool = Vec::new();
+
+    for category in get_all_categories().iter().filter(|c| !is_especial(c.id)) {
+        let count = category.grid_total as usize * REGULAR_FREE_AGENT_POOL_MULTIPLIER;
+        let mut driver_id_gen = || ids.next_driver_id();
+        let mut category_drivers = Driver::generate_for_category_with_id_factory(
+            category.id,
+            category.tier,
+            difficulty,
+            count,
+            existing_names,
+            &mut driver_id_gen,
+            rng,
+        );
+        for driver in &mut category_drivers {
+            driver.categoria_atual = None;
+        }
+        pool.extend(category_drivers);
+    }
+
+    pool
+}
+
+/// Gera pilotos livres para o pool de convocacao especial.
 /// Para cada categoria especial, itera sobre suas classes e gera drivers
-/// usando a categoria regular de referência da classe como `categoria_atual`.
-/// Os drivers não têm equipe nem contrato — ficam disponíveis para a janela
-/// de convocação de meio de ano (Passos 6+).
+/// usando a categoria regular de referencia da classe como base de habilidade.
 fn generate_specialist_pool<R: Rng>(
     ids: &mut LocalIdAllocator,
     existing_names: &mut HashSet<String>,
@@ -512,9 +549,8 @@ mod tests {
         let world = sample_world();
         // 66 equipes regulares + 5 LMP2 sem feeder regular.
         assert_eq!(world.teams.len(), 71);
-        // 196 pilotos: 132 com contrato (regular) + 64 no pool (livres)
-        // production_challenger: 15 equipes × 2 = 30; endurance: 17 equipes × 2 = 34 → 64 pool
-        assert_eq!(world.drivers.len(), 196);
+        // 132 com contrato + 264 livres no pool regular + 64 livres no pool especial.
+        assert_eq!(world.drivers.len(), 460);
         // Apenas 132 contratos — categorias especiais não geram contratos
         assert_eq!(world.contracts.len(), 132);
     }

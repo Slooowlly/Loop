@@ -45,6 +45,7 @@ pub(crate) fn archive_driver_season(
         let team_id = standing.and_then(|s| s.team_id.as_deref());
         let posicao_campeonato = standing.map(|s| s.position);
         let total_pilotos = standing.map(|s| s.total_drivers);
+        let titulos = if posicao_campeonato == Some(1) { 1 } else { 0 };
 
         let snapshot = serde_json::json!({
             "piloto_id":            driver.id,
@@ -62,6 +63,7 @@ pub(crate) fn archive_driver_season(
             "vitorias":             driver.stats_temporada.vitorias,
             "podios":               driver.stats_temporada.podios,
             "poles":                driver.stats_temporada.poles,
+            "titulos":              titulos,
             "corridas":             driver.stats_temporada.corridas,
             "dnfs":                 driver.stats_temporada.dnfs,
             "posicao_media":        driver.stats_temporada.posicao_media,

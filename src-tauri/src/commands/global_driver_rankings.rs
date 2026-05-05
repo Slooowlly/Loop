@@ -2136,7 +2136,14 @@ mod tests {
     #[test]
     fn payload_marks_driver_without_active_regular_contract_as_free_even_with_last_category() {
         let conn = setup_conn();
-        let free = driver_with_stats("D_FREE_STALE", "Livre Com Categoria", Some("bmw_m2"), 1, 2, 0);
+        let free = driver_with_stats(
+            "D_FREE_STALE",
+            "Livre Com Categoria",
+            Some("bmw_m2"),
+            1,
+            2,
+            0,
+        );
         insert_driver(&conn, &free).expect("insert free");
 
         let payload = build_global_driver_rankings(&conn, None).expect("payload");
@@ -2164,7 +2171,14 @@ mod tests {
             ),
         )
         .expect("insert team");
-        let mut rookie = driver_with_stats("D_ROOKIE_ZERO", "Rookie Sem Historico", Some("mazda_rookie"), 0, 0, 0);
+        let mut rookie = driver_with_stats(
+            "D_ROOKIE_ZERO",
+            "Rookie Sem Historico",
+            Some("mazda_rookie"),
+            0,
+            0,
+            0,
+        );
         rookie.stats_carreira.corridas = 0;
         rookie.stats_carreira.pontos_total = 0.0;
         insert_driver(&conn, &rookie).expect("insert rookie");
@@ -2264,7 +2278,13 @@ mod tests {
             driver_with_stats("D_INJ_STATUS", "Piloto Lesionado", Some("gt4"), 4, 8, 0);
         injured.status = DriverStatus::Lesionado;
         insert_driver(&conn, &injured).expect("insert injured");
-        insert_active_regular_contract(&conn, "C_INJ_STATUS", "D_INJ_STATUS", "Piloto Lesionado", "gt4");
+        insert_active_regular_contract(
+            &conn,
+            "C_INJ_STATUS",
+            "D_INJ_STATUS",
+            "Piloto Lesionado",
+            "gt4",
+        );
         let tx = conn.transaction().expect("tx");
         crate::db::queries::injuries::insert_injury(
             &tx,

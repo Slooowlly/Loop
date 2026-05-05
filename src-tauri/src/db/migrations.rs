@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 28;
+const CURRENT_VERSION: u32 = 31;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -38,6 +38,9 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v26(conn)?;
     migrate_v27(conn)?;
     migrate_v28(conn)?;
+    migrate_v29(conn)?;
+    migrate_v30(conn)?;
+    migrate_v31(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -156,6 +159,18 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     if version < 28 {
         migrate_v28(conn)?;
         set_schema_version(conn, 28)?;
+    }
+    if version < 29 {
+        migrate_v29(conn)?;
+        set_schema_version(conn, 29)?;
+    }
+    if version < 30 {
+        migrate_v30(conn)?;
+        set_schema_version(conn, 30)?;
+    }
+    if version < 31 {
+        migrate_v31(conn)?;
+        set_schema_version(conn, 31)?;
     }
     Ok(())
 }
@@ -646,6 +661,7 @@ fn migrate_v6(conn: &Connection) -> Result<(), DbError> {
             id                  TEXT PRIMARY KEY,
             pilot_id            TEXT NOT NULL,
             type                TEXT NOT NULL,
+            injury_name         TEXT NOT NULL DEFAULT '',
             modifier            REAL NOT NULL DEFAULT 1.0,
             races_total         INTEGER NOT NULL,
             races_remaining     INTEGER NOT NULL,
@@ -676,6 +692,7 @@ fn migrate_v6(conn: &Connection) -> Result<(), DbError> {
                 "id",
                 "pilot_id",
                 "type",
+                "injury_name",
                 "modifier",
                 "races_total",
                 "races_remaining",
@@ -693,6 +710,7 @@ fn migrate_v6(conn: &Connection) -> Result<(), DbError> {
                 )?,
                 column_expr(conn, "injuries_legacy", &["pilot_id", "piloto_id"], "''")?,
                 column_expr(conn, "injuries_legacy", &["type", "tipo"], "'Leve'")?,
+                column_expr(conn, "injuries_legacy", &["injury_name"], "''")?,
                 column_expr(conn, "injuries_legacy", &["modifier"], "1.0")?,
                 column_expr(
                     conn,
@@ -1769,6 +1787,97 @@ fn migrate_v28(conn: &Connection) -> Result<(), DbError> {
     drop_column_if_exists(conn, "teams", "temp_vitorias")?;
     drop_column_if_exists(conn, "teams", "carreira_vitorias")?;
 
+    Ok(())
+}
+
+fn migrate_v29(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "injuries")? {
+        ensure_column(conn, "injuries", "injury_name", "TEXT NOT NULL DEFAULT ''")?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v30(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "injuries")?
+        && table_has_column(conn, "injuries", "injury_name")?
+        && table_has_column(conn, "injuries", "type")?
+    {
+        conn.execute_batch(
+            "
+            UPDATE injuries
+            SET injury_name = CASE
+                WHEN TRIM(injury_name) = '' AND type = 'Leve' AND ((rowid - 1) % 4) = 0 THEN 'Dor no braço'
+                WHEN TRIM(injury_name) = '' AND type = 'Leve' AND ((rowid - 1) % 4) = 1 THEN 'Dor no ombro'
+                WHEN TRIM(injury_name) = '' AND type = 'Leve' AND ((rowid - 1) % 4) = 2 THEN 'Dor no pescoço'
+                WHEN TRIM(injury_name) = '' AND type = 'Leve' THEN 'Dor nas costas'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 0 THEN 'Braço machucado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 1 THEN 'Ombro machucado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 2 THEN 'Pescoço travado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 3 THEN 'Costas travadas'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 4 THEN 'Joelho machucado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 5 THEN 'Pulso machucado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' AND ((rowid - 1) % 8) = 6 THEN 'Tornozelo machucado'
+                WHEN TRIM(injury_name) = '' AND type = 'Moderada' THEN 'Dor forte nas costas'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 0 THEN 'Braço fraturado'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 1 THEN 'Costela fraturada'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 2 THEN 'Ombro lesionado'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 3 THEN 'Joelho lesionado'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 4 THEN 'Tornozelo lesionado'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') AND ((rowid - 1) % 7) = 5 THEN 'Lesão nas costas'
+                WHEN TRIM(injury_name) = '' AND type IN ('Grave', 'Critica') THEN 'Lesão no pescoço'
+                WHEN injury_name = 'Contusão leve' THEN 'Dor no braço'
+                WHEN injury_name = 'Torção no punho' THEN 'Pulso machucado'
+                WHEN injury_name = 'Dor cervical' THEN 'Dor no pescoço'
+                WHEN injury_name = 'Fadiga muscular' THEN 'Dor nas costas'
+                WHEN injury_name = 'Escoriações' THEN 'Dor no braço'
+                WHEN injury_name = 'Distensão lombar' THEN 'Dor forte nas costas'
+                WHEN injury_name = 'Lesão no ombro' THEN 'Ombro machucado'
+                WHEN injury_name = 'Concussão leve' THEN 'Pescoço travado'
+                WHEN injury_name = 'Entorse no joelho' THEN 'Joelho machucado'
+                WHEN injury_name = 'Inflamação no cotovelo' THEN 'Braço machucado'
+                WHEN injury_name = 'Fratura na costela' THEN 'Costela fraturada'
+                WHEN injury_name = 'Concussão séria' THEN 'Lesão no pescoço'
+                WHEN injury_name = 'Lesão ligamentar' THEN 'Joelho lesionado'
+                WHEN injury_name = 'Fratura no braço' THEN 'Braço fraturado'
+                WHEN injury_name = 'Trauma no tornozelo' THEN 'Tornozelo lesionado'
+                ELSE injury_name
+            END;
+            ",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v31(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS team_season_archive (
+            team_id TEXT NOT NULL,
+            season_number INTEGER NOT NULL,
+            ano INTEGER NOT NULL,
+            categoria TEXT NOT NULL,
+            classe TEXT,
+            posicao_campeonato INTEGER,
+            pontos REAL NOT NULL DEFAULT 0.0,
+            vitorias INTEGER NOT NULL DEFAULT 0,
+            podios INTEGER NOT NULL DEFAULT 0,
+            poles INTEGER NOT NULL DEFAULT 0,
+            corridas INTEGER NOT NULL DEFAULT 0,
+            titulos_construtores INTEGER NOT NULL DEFAULT 0,
+            piloto_1_id TEXT,
+            piloto_2_id TEXT,
+            snapshot_json TEXT NOT NULL DEFAULT '{}',
+            archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (team_id, season_number, categoria)
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_season_archive_team
+            ON team_season_archive(team_id);
+        CREATE INDEX IF NOT EXISTS idx_team_season_archive_season
+            ON team_season_archive(season_number, categoria);
+        ",
+    )?;
     Ok(())
 }
 
@@ -3367,6 +3476,65 @@ mod tests {
     }
 
     #[test]
+    fn test_run_pending_v30_simplifies_legacy_injury_names() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+
+        conn.execute_batch(
+            "
+            CREATE TABLE meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO meta (key, value) VALUES ('schema_version', '29');
+
+            CREATE TABLE injuries (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                injury_name TEXT NOT NULL DEFAULT ''
+            );
+
+            INSERT INTO injuries (id, type, injury_name) VALUES
+                ('I001', 'Leve', 'Contusão leve'),
+                ('I002', 'Moderada', 'Distensão lombar'),
+                ('I003', 'Grave', 'Fratura na costela'),
+                ('I004', 'Leve', 'Dor no ombro'),
+                ('I005', 'Moderada', ''),
+                ('I006', 'Moderada', '');
+            ",
+        )
+        .expect("legacy v29 injury rows should be created");
+
+        run_pending(&conn).expect("migration should succeed");
+
+        assert_eq!(
+            get_schema_version(&conn).expect("schema version"),
+            CURRENT_VERSION
+        );
+
+        let rows: Vec<(String, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, injury_name FROM injuries ORDER BY id")
+                .expect("prepare injury names query");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("query injury names")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect injury names")
+        };
+
+        assert_eq!(
+            rows,
+            vec![
+                ("I001".to_string(), "Dor no braço".to_string()),
+                ("I002".to_string(), "Dor forte nas costas".to_string()),
+                ("I003".to_string(), "Costela fraturada".to_string()),
+                ("I004".to_string(), "Dor no ombro".to_string()),
+                ("I005".to_string(), "Joelho machucado".to_string()),
+                ("I006".to_string(), "Pulso machucado".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn test_run_pending_v25_adds_team_finance_columns_with_safe_defaults() {
         let conn = Connection::open_in_memory().expect("in-memory db");
 
@@ -3945,6 +4113,46 @@ mod tests {
         assert!(err
             .to_string()
             .contains("lesoes ativas duplicadas em injuries"));
+    }
+
+    #[test]
+    fn test_team_season_archive_schema() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+
+        run_all(&conn).expect("schema");
+
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'team_season_archive'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("table count");
+        assert_eq!(table_count, 1);
+
+        for column in [
+            "team_id",
+            "season_number",
+            "ano",
+            "categoria",
+            "classe",
+            "posicao_campeonato",
+            "pontos",
+            "vitorias",
+            "podios",
+            "poles",
+            "corridas",
+            "titulos_construtores",
+            "piloto_1_id",
+            "piloto_2_id",
+            "snapshot_json",
+        ] {
+            assert!(
+                column_exists(&conn, "team_season_archive", column),
+                "missing team_season_archive.{column}"
+            );
+        }
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {

@@ -32,6 +32,7 @@ use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::promotion::pipeline::run_promotion_relegation_for_year;
 use crate::rivalry::apply_season_end_rivalry_decay;
+use crate::world::team_archive::archive_team_season;
 
 // Reexports para compatibilidade — callsites externos usam crate::evolution::pipeline::*
 pub use crate::evolution::context::{EndOfSeasonResult, RetirementInfo, RookieInfo};
@@ -96,6 +97,8 @@ fn run_end_of_season_with_mode(
 
     archive_driver_season(&tx, season, &standings_by_driver)
         .map_err(|e| format!("Falha ao arquivar temporada dos pilotos: {e}"))?;
+    archive_team_season(&tx, season)
+        .map_err(|e| format!("Falha ao arquivar temporada das equipes: {e}"))?;
 
     let rookies_generated = process_rookie_phase(&tx, existing_names, &mut rng)?;
 
@@ -353,7 +356,7 @@ fn persist_retired_driver(
         rusqlite::params![
             &driver.id,
             &driver.nome,
-            season.numero.to_string(),
+            season.ano.to_string(),
             final_category,
             stats_json,
             reason,

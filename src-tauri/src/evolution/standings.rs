@@ -33,7 +33,7 @@ pub(crate) fn build_and_persist_standings(
         if !is_category_active_in_year(category.id, season.ano) {
             continue;
         }
-        let mut drivers = driver_queries::get_drivers_by_category(conn, category.id)
+        let mut drivers = driver_queries::get_drivers_by_active_category(conn, category.id)
             .map_err(|e| format!("Falha ao buscar pilotos de '{}': {e}", category.id))?;
         drivers.retain(|driver| {
             contracts_by_driver
@@ -41,6 +41,7 @@ pub(crate) fn build_and_persist_standings(
                 .and_then(|contract| teams_by_id.get(&contract.equipe_id))
                 .is_none_or(|team| is_team_active_in_year(team, season.ano))
         });
+        drivers.retain(has_season_participation);
         if drivers.is_empty() {
             continue;
         }
@@ -104,6 +105,14 @@ pub(crate) fn build_and_persist_standings(
     Ok(all_standings)
 }
 
+fn has_season_participation(driver: &crate::models::driver::Driver) -> bool {
+    driver.stats_temporada.corridas > 0
+        || driver.stats_temporada.pontos > 0.0
+        || driver.stats_temporada.vitorias > 0
+        || driver.stats_temporada.podios > 0
+        || driver.stats_temporada.poles > 0
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -154,5 +163,44 @@ mod tests {
             persisted_team_id.is_none(),
             "driver without regular contract should still be persisted"
         );
+    }
+
+    #[test]
+    fn test_build_and_persist_standings_ignores_drivers_without_season_participation() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+
+        let season = Season::new("S001".to_string(), 1, 2026);
+        season_queries::insert_season(&conn, &season).expect("season insert");
+
+        let mut participant = Driver::new(
+            "P001".to_string(),
+            "Participante".to_string(),
+            "Brasil".to_string(),
+            "M".to_string(),
+            24,
+            2024,
+        );
+        participant.categoria_atual = Some("gt3".to_string());
+        participant.stats_temporada.corridas = 3;
+        participant.stats_temporada.pontos = 42.0;
+        driver_queries::insert_driver(&conn, &participant).expect("participant insert");
+
+        let mut inactive = Driver::new(
+            "P002".to_string(),
+            "Sem Corrida".to_string(),
+            "Brasil".to_string(),
+            "M".to_string(),
+            24,
+            2024,
+        );
+        inactive.categoria_atual = Some("gt3".to_string());
+        driver_queries::insert_driver(&conn, &inactive).expect("inactive insert");
+
+        let standings = build_and_persist_standings(&conn, &season, &HashMap::new())
+            .expect("standings should build");
+
+        assert!(standings.iter().any(|entry| entry.driver_id == "P001"));
+        assert!(!standings.iter().any(|entry| entry.driver_id == "P002"));
     }
 }

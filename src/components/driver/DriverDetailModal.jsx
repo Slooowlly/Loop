@@ -16,10 +16,11 @@ import {
 
 const DOSSIER_TABS = [
   { id: "resumo", label: "Resumo" },
-  { id: "historico", label: "Historico" },
+  { id: "historico", label: "Histórico" },
   { id: "rivais", label: "Rivais" },
   { id: "mercado", label: "Mercado" },
 ];
+const RETIRED_DOSSIER_TABS = [{ id: "historico", label: "Histórico" }];
 
 function Section({ title, headerLeft = null, headerRight = null, children, className = "" }) {
   return (
@@ -75,10 +76,10 @@ function BadgePill({ badge }) {
   );
 }
 
-function DossierTabs({ activeTab, onChange }) {
+function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
   return (
-    <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-      {DOSSIER_TABS.map((tab) => (
+    <div className={["mb-5 grid gap-2", tabs.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"].join(" ")}>
+      {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
@@ -101,7 +102,7 @@ function PersonalityCard({ personality }) {
   if (!personality) {
     return (
       <div className="glass-light rounded-xl p-3">
-        <p className="text-xs text-[#7d8590]">Sem tracos publicos visiveis.</p>
+        <p className="text-xs text-[#7d8590]">Sem traços públicos visíveis.</p>
       </div>
     );
   }
@@ -176,13 +177,13 @@ function ProsConsPanel({ competitivo, className = "" }) {
             <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
           ))
         ) : (
-          <p className="text-xs text-[#7d8590]">Sem qualidades visiveis.</p>
+          <p className="text-xs text-[#7d8590]">Sem qualidades visíveis.</p>
         )}
       </div>
 
       <div className="min-h-0 overflow-y-auto rounded-xl border border-white/8 bg-white/[0.045] p-3">
         <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f85149]">
-          Atencao
+          Atenção
         </div>
         {competitivo?.defeitos?.length ? (
           competitivo.defeitos.map((tag) => (
@@ -193,8 +194,56 @@ function ProsConsPanel({ competitivo, className = "" }) {
             Piloto equilibrado, sem fraquezas gritantes.
           </p>
         ) : (
-          <p className="text-xs text-[#7d8590]">Sem defeitos visiveis.</p>
+          <p className="text-xs text-[#7d8590]">Sem defeitos visíveis.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function formatInjuryOccurrence(injury) {
+  return injury?.corrida_ocorrida_rotulo || injury?.corrida_ocorrida_id || "-";
+}
+
+function formatInjuryRecovery(injury) {
+  const remaining = injury?.corridas_restantes;
+  if (!Number.isFinite(remaining)) return "-";
+  if (remaining <= 0) return "Reavaliação liberada";
+  return `Em ${remaining} corrida${remaining === 1 ? "" : "s"}`;
+}
+
+function injuryDisplayName(injury) {
+  return injury?.nome || injury?.tipo || "-";
+}
+
+function InjuryPopup({ injury, onConfirm, drawerWidth }) {
+  if (!injury) return null;
+
+  return (
+    <div
+      className="pointer-events-auto fixed inset-y-0 right-0 z-30 flex items-center justify-center bg-[#05070d]/90 px-5 py-8"
+      style={{ width: `${drawerWidth}px` }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Aviso de lesão ativa"
+    >
+      <div className="w-full max-w-[390px] rounded-2xl border border-[#f85149]/30 bg-[#0b1018] p-5 shadow-[0_30px_90px_rgba(0,0,0,0.62)]">
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[#f85149]">
+          Lesão ativa
+        </div>
+        <div className="text-2xl font-bold text-[#e6edf3]">{injuryDisplayName(injury)}</div>
+        <div className="mt-4 grid gap-1.5 text-sm">
+          <DetailRow label="Ocorreu" value={formatInjuryOccurrence(injury)} />
+          <DetailRow label="Melhora prevista" value={formatInjuryRecovery(injury)} />
+          <DetailRow label="Gravidade" value={injury.tipo} valueClassName="text-[#f85149]" />
+        </div>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="mt-5 h-10 w-full rounded-lg border border-[#f85149]/35 bg-[#f85149]/18 text-sm font-bold uppercase tracking-[0.16em] text-[#ffd7d4] transition-colors hover:bg-[#f85149]/28 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f85149]"
+        >
+          OK
+        </button>
       </div>
     </div>
   );
@@ -213,7 +262,7 @@ function MotivationBar({ value, compact = false, className = "" }) {
         ].join(" ")}
       >
         <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-          <span>Motivacao</span>
+          <span>Motivação</span>
           <span className="font-mono" style={{ color }}>
             {normalized}%
           </span>
@@ -230,7 +279,7 @@ function MotivationBar({ value, compact = false, className = "" }) {
 
   return (
     <div className={["glass-light flex items-center gap-3 rounded-xl border border-white/6 px-4 py-3", className].join(" ")}>
-      <span className="w-20 text-xs text-[#7d8590]">Motivacao</span>
+      <span className="w-20 text-xs text-[#7d8590]">Motivação</span>
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#21262d]">
         <div
           className="h-full rounded-full transition-all duration-700"
@@ -307,7 +356,7 @@ function DriverEdgeNavigator({
         onClick={() => onSelectDriver(previousDriverId)}
       />
       <DriverNavigatorButton
-        label="Proximo"
+        label="Próximo"
         direction="down"
         disabled={!nextDriverId || isClosing}
         onClick={() => onSelectDriver(nextDriverId)}
@@ -359,7 +408,7 @@ function CurrentMomentSection({ forma, moment, contract }) {
             </div>
             <div className="rounded-xl border border-white/6 bg-black/10 p-3">
               <DetailRow label="Status de forma" value={moment.label} valueClassName={moment.color} />
-              <DetailRow label="Tendencia" value={forma?.tendencia || "->"} />
+              <DetailRow label="Tendência" value={forma?.tendencia || "->"} />
             </div>
           </div>
         </div>
@@ -439,6 +488,10 @@ function formatAverage(value) {
   return value.toFixed(1);
 }
 
+function isRetiredDetail(detail) {
+  return detail?.status === "aposentado" || detail?.perfil?.status === "aposentado";
+}
+
 export default function DriverDetailModal({
   driverId,
   driverIds = [],
@@ -448,12 +501,17 @@ export default function DriverDetailModal({
   const CLOSE_ANIMATION_MS = 280;
   const careerId = useCareerStore((state) => state.careerId);
   const [detail, setDetail] = useState(null);
+  const [loadedDetailDriverId, setLoadedDetailDriverId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("resumo");
   const [isClosing, setIsClosing] = useState(false);
   const [showEdgeNavigator, setShowEdgeNavigator] = useState(false);
+  const [injuryAcknowledged, setInjuryAcknowledged] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const drawerScrollRef = useRef(null);
+  const preservedScrollTopRef = useRef(0);
+  const shouldRestoreScrollRef = useRef(false);
   const closeTimeoutRef = useRef(null);
   const edgeNavigatorTimeoutRef = useRef(null);
   const hasShownEdgeNavigatorRef = useRef(false);
@@ -467,6 +525,7 @@ export default function DriverDetailModal({
           setLoading(false);
           setError("");
           setDetail(null);
+          setLoadedDetailDriverId(null);
         }
         return;
       }
@@ -474,12 +533,17 @@ export default function DriverDetailModal({
       setLoading(true);
       setError("");
       setDetail(null);
+      setLoadedDetailDriverId(null);
 
       try {
         const data = await invoke("get_driver_detail", { careerId, driverId });
-        if (active) setDetail(data);
+        if (active) {
+          setDetail(data);
+          setLoadedDetailDriverId(driverId);
+        }
       } catch (fetchError) {
         if (active) {
+          setLoadedDetailDriverId(null);
           setError(
             typeof fetchError === "string"
               ? fetchError
@@ -496,6 +560,24 @@ export default function DriverDetailModal({
       active = false;
     };
   }, [careerId, driverId]);
+
+  useEffect(() => {
+    if (!shouldRestoreScrollRef.current || loading || !detail || loadedDetailDriverId !== driverId) return;
+
+    const restoreFrame = window.requestAnimationFrame(() => {
+      const drawer = drawerScrollRef.current;
+      if (!drawer) return;
+
+      const maxScrollTop = Math.max(0, drawer.scrollHeight - drawer.clientHeight);
+      drawerScrollRef.current.scrollTop = Math.min(
+        preservedScrollTopRef.current,
+        maxScrollTop,
+      );
+      shouldRestoreScrollRef.current = false;
+    });
+
+    return () => window.cancelAnimationFrame(restoreFrame);
+  }, [loading, detail, loadedDetailDriverId, driverId]);
 
   useEffect(() => {
     function handleEsc(event) {
@@ -517,6 +599,7 @@ export default function DriverDetailModal({
 
   useEffect(() => {
     setIsClosing(false);
+    setInjuryAcknowledged(false);
     window.clearTimeout(closeTimeoutRef.current);
     window.clearTimeout(edgeNavigatorTimeoutRef.current);
 
@@ -541,6 +624,8 @@ export default function DriverDetailModal({
 
     setIsClosing(true);
     setShowEdgeNavigator(false);
+    shouldRestoreScrollRef.current = false;
+    preservedScrollTopRef.current = 0;
     window.clearTimeout(closeTimeoutRef.current);
     window.clearTimeout(edgeNavigatorTimeoutRef.current);
     closeTimeoutRef.current = window.setTimeout(() => {
@@ -550,16 +635,23 @@ export default function DriverDetailModal({
 
   function selectAdjacentDriver(targetDriverId) {
     if (!targetDriverId || !onSelectDriver || isClosing) return;
+    preservedScrollTopRef.current = drawerScrollRef.current?.scrollTop ?? 0;
+    shouldRestoreScrollRef.current = true;
     onSelectDriver(targetDriverId);
   }
 
   const perfil = detail?.perfil;
   const competitivo = detail?.competitivo;
+  const activeInjury = detail?.saude?.lesao_ativa ?? null;
+  const showInjuryPopup = Boolean(activeInjury && !injuryAcknowledged);
   const forma = detail ? detail.forma : null;
   const trajetoria = detail ? detail.trajetoria : null;
   const contract = detail?.contrato_mercado?.contrato;
   const market = detail?.contrato_mercado?.mercado;
   const moment = formatMoment(detail ? detail.forma?.momento : null);
+  const isRetiredDriver = isRetiredDetail(detail);
+  const dossierTabs = isRetiredDriver ? RETIRED_DOSSIER_TABS : DOSSIER_TABS;
+  const effectiveActiveTab = isRetiredDriver ? "historico" : activeTab;
   const titleCount = trajetoria?.titulos ?? 0;
   const hasChampionship = Boolean(trajetoria?.foi_campeao);
   const licenseLevelBadge = detail?.perfil?.licenca?.nivel
@@ -605,6 +697,7 @@ export default function DriverDetailModal({
       />
 
       <div
+        ref={drawerScrollRef}
         className={[
           "glass-strong pointer-events-auto fixed inset-y-0 right-0 overflow-y-auto border-l border-white/10 shadow-[-24px_0_60px_rgba(0,0,0,0.34)]",
           isClosing ? "animate-drawer-out" : "animate-drawer-in",
@@ -639,6 +732,12 @@ export default function DriverDetailModal({
 
         {!loading && !error && detail ? (
           <div className="relative min-h-full p-6 sm:p-7">
+            <div
+              className={[
+                "transition duration-200",
+                showInjuryPopup ? "blur-[5px] pointer-events-none select-none" : "",
+              ].join(" ")}
+            >
             <button
               type="button"
               onClick={requestClose}
@@ -698,18 +797,27 @@ export default function DriverDetailModal({
               </div>
             </Section>
 
-            <DossierTabs activeTab={activeTab} onChange={setActiveTab} />
+            <DossierTabs activeTab={effectiveActiveTab} onChange={setActiveTab} tabs={dossierTabs} />
 
-            {activeTab === "resumo" ? <SummarySection detail={detail} moment={moment} /> : null}
+            {effectiveActiveTab === "resumo" ? <SummarySection detail={detail} moment={moment} /> : null}
 
-            {activeTab === "historico" ? (
+            {effectiveActiveTab === "historico" ? (
               <HistorySection detail={detail} trajetoria={trajetoria} />
             ) : null}
 
-            {activeTab === "rivais" ? <RivalsSection detail={detail} /> : null}
+            {effectiveActiveTab === "rivais" ? <RivalsSection detail={detail} /> : null}
 
-            {activeTab === "mercado" ? (
+            {effectiveActiveTab === "mercado" ? (
               <MarketSection detail={detail} market={market} />
+            ) : null}
+            </div>
+
+            {showInjuryPopup ? (
+              <InjuryPopup
+                injury={activeInjury}
+                drawerWidth={drawerWidth}
+                onConfirm={() => setInjuryAcknowledged(true)}
+              />
             ) : null}
           </div>
         ) : null}

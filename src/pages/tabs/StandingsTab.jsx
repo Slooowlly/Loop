@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import DriverDetailModal from "../../components/driver/DriverDetailModal";
@@ -66,6 +66,44 @@ const PRODUCTION_SPECIAL_FEEDERS = new Set([
   "bmw_m2",
 ]);
 const ENDURANCE_SPECIAL_FEEDERS = new Set(["gt4", "gt3"]);
+const SEVERE_INJURY_TYPES = new Set(["Grave", "Critica"]);
+const DRIVER_CLICK_DELAY_MS = 220;
+
+function injuryStatusMarker(injuryType) {
+  if (!injuryType) {
+    return null;
+  }
+
+  if (SEVERE_INJURY_TYPES.has(injuryType)) {
+    return { emoji: "🚑", title: "Lesão grave" };
+  }
+
+  return { emoji: "🩸", title: "Lesão ativa" };
+}
+
+function DriverStatusMarkers({ driver }) {
+  const injuryMarker = injuryStatusMarker(driver.lesao_ativa_tipo);
+
+  return (
+    <>
+      {driver.is_estreante_da_vida ? (
+        <span className="shrink-0 text-xs" title="Estreante da vida" aria-label="Estreante da vida">
+          {"\u{1F331}"}
+        </span>
+      ) : null}
+      {driver.is_estreante && !driver.is_estreante_da_vida ? (
+        <span className="shrink-0 text-xs" title="Estreante" aria-label="Estreante">
+          {"\u2B50"}
+        </span>
+      ) : null}
+      {injuryMarker ? (
+        <span className="shrink-0 text-xs" title={injuryMarker.title} aria-label={injuryMarker.title}>
+          {injuryMarker.emoji}
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 function getForcedSpecialStandingCategory(phase, playerTeamCategory, acceptedSpecialOffer) {
   if (phase !== "BlocoEspecial") {
@@ -96,7 +134,7 @@ function getForcedSpecialStandingCategory(phase, playerTeamCategory, acceptedSpe
   return null;
 }
 
-function StandingsTab() {
+function StandingsTab({ onOpenGlobalDrivers = null }) {
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
@@ -116,6 +154,7 @@ function StandingsTab() {
   const [hoveredDriverId, setHoveredDriverId] = useState(null);
   const [selectedHistoryTeam, setSelectedHistoryTeam] = useState(null);
   const [activeHistoryTab, setActiveHistoryTab] = useState("records");
+  const driverClickTimeoutRef = useRef(null);
 
   const categoryIndex = ALL_CATEGORIES.indexOf(viewCategory);
   function goUpCategory() {
@@ -146,6 +185,35 @@ function StandingsTab() {
       setViewCategory(forcedSpecialCategory);
     }
   }, [forcedSpecialCategory, viewCategory]);
+
+  useEffect(() => () => {
+    clearDriverClickTimeout();
+  }, []);
+
+  function clearDriverClickTimeout() {
+    if (driverClickTimeoutRef.current) {
+      clearTimeout(driverClickTimeoutRef.current);
+      driverClickTimeoutRef.current = null;
+    }
+  }
+
+  function openDriverDetail(driverId) {
+    setSelectedDriverId((prev) => (prev === driverId ? null : driverId));
+  }
+
+  function handleDriverClick(driverId) {
+    clearDriverClickTimeout();
+    driverClickTimeoutRef.current = setTimeout(() => {
+      openDriverDetail(driverId);
+      driverClickTimeoutRef.current = null;
+    }, DRIVER_CLICK_DELAY_MS);
+  }
+
+  function handleDriverDoubleClick(driverId) {
+    clearDriverClickTimeout();
+    setSelectedDriverId(null);
+    onOpenGlobalDrivers?.(driverId);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -356,13 +424,13 @@ function StandingsTab() {
                       tabIndex={0}
                       onMouseEnter={() => setHoveredDriverId(driver.id)}
                       onMouseLeave={() => setHoveredDriverId(null)}
-                      onClick={() =>
-                        setSelectedDriverId((prev) => (prev === driver.id ? null : driver.id))
-                      }
+                      onClick={() => handleDriverClick(driver.id)}
+                      onDoubleClick={() => handleDriverDoubleClick(driver.id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          setSelectedDriverId((prev) => (prev === driver.id ? null : driver.id));
+                          clearDriverClickTimeout();
+                          openDriverDetail(driver.id);
                         }
                       }}
                       className={[
@@ -409,6 +477,7 @@ function StandingsTab() {
                             {driver.nome}
                             {driver.is_jogador ? " ◂" : ""}
                           </span>
+                          <DriverStatusMarkers driver={driver} />
                           {driver.id === previousChampionId ? (
                             <span className="shrink-0 text-sm" title="Campeão da temporada anterior">
                               🏆

@@ -121,23 +121,23 @@ const championshipParagraphPools = {
   leader: combineVariants(
     [
       ({ trackName }) => `A equipe desembarca em ${trackName} com você na ponta da tabela.`,
-      ({ trackName }) => `Chegar lider a ${trackName} muda o peso de toda a preparação da rodada.`,
+      ({ trackName }) => `Chegar líder a ${trackName} muda o peso de toda a preparação da rodada.`,
       ({ trackName }) => `O box chega a ${trackName} defendendo a primeira colocação.`,
       ({ trackName }) => `A liderança transforma ${trackName} em um teste de gestão de pressão.`,
-      ({ trackName }) => `Com você no topo, ${trackName} deixa de ser apenas mais uma etapa do calendario.`,
+      ({ trackName }) => `Com você no topo, ${trackName} deixa de ser apenas mais uma etapa do calendário.`,
     ],
     [
-      () => "O trabalho da rodada e controlar a pressão imediata sem ceder o comando da narrativa esportiva.",
-      () => "A missao do fim de semana e sair daqui ainda ditando o ritmo do campeonato.",
+      () => "O trabalho da rodada é controlar a pressão imediata sem ceder o comando da narrativa esportiva.",
+      () => "A missão do fim de semana é sair daqui ainda ditando o ritmo do campeonato.",
     ],
   ),
   chase: combineVariants(
     [
-      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atras da liderança.`,
-      ({ playerStanding, gapToLeader }) => `A ${playerStanding.posicao_campeonato}ª posição ainda mantem a disputa aberta, mas os ${gapToLeader} pontos de diferenca cobram agressividade limpa.`,
+      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atrás da liderança.`,
+      ({ playerStanding, gapToLeader }) => `A ${playerStanding.posicao_campeonato}ª posição ainda mantém a disputa aberta, mas os ${gapToLeader} pontos de diferença cobram agressividade limpa.`,
       ({ playerStanding, gapToLeader }) => `Você abre a rodada na ${playerStanding.posicao_campeonato}ª colocação, com ${gapToLeader} pontos separando a campanha da ponta.`,
-      ({ playerStanding, gapToLeader }) => `A leitura do campeonato coloca você na ${playerStanding.posicao_campeonato}ª colocação e a ${gapToLeader} pontos do lider.`,
-      ({ playerStanding, gapToLeader }) => `Entrar nesta etapa na ${playerStanding.posicao_campeonato}ª posição e com ${gapToLeader} pontos de desvantagem mantem a conta do título viva, mas apertada.`,
+      ({ playerStanding, gapToLeader }) => `A leitura do campeonato coloca você na ${playerStanding.posicao_campeonato}ª colocação e a ${gapToLeader} pontos do líder.`,
+      ({ playerStanding, gapToLeader }) => `Entrar nesta etapa na ${playerStanding.posicao_campeonato}ª posição e com ${gapToLeader} pontos de desvantagem mantém a conta do título viva, mas apertada.`,
     ],
     [
       () => "Cada resultado limpo agora pesa diretamente na luta pelo título.",
@@ -150,7 +150,7 @@ const championshipParagraphPools = {
       () => "A sua posição no campeonato passa por uma rodada de defesa esportiva.",
       () => "O campeonato empurrou você para um fim de semana de contenção e resposta.",
       () => "A corrida chega com uma tarefa clara: impedir que a tabela aperte ainda mais.",
-      () => "O momento da temporada não abre espaço para administração passiva da pontuacao.",
+      () => "O momento da temporada não abre espaço para administração passiva da pontuação.",
     ],
     [
       () => "A rodada carrega pontos demais para permitir um fim de semana burocratico.",
@@ -159,14 +159,14 @@ const championshipParagraphPools = {
   ),
   outsider: combineVariants(
     [
-      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atras da liderança.`,
+      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atrás da liderança.`,
       ({ playerStanding, gapToLeader }) => `A ${playerStanding.posicao_campeonato}ª colocação e a distância de ${gapToLeader} pontos mudam a escala da ambição para esta rodada.`,
       ({ playerStanding, gapToLeader }) => `Você abre a etapa na ${playerStanding.posicao_campeonato}ª posição, com ${gapToLeader} pontos de desvantagem para a ponta.`,
       ({ playerStanding, gapToLeader }) => `O recorte do campeonato coloca você longe da liderança: ${playerStanding.posicao_campeonato}ª colocação e ${gapToLeader} pontos de margem.`,
       ({ playerStanding, gapToLeader }) => `Entrar nesta rodada a ${gapToLeader} pontos do topo e na ${playerStanding.posicao_campeonato}ª colocação exige uma leitura mais realista da campanha.`,
     ],
     [
-      () => "O foco realista agora e somar forte, recuperar confianca e evitar que a reta final escape de vez do controle.",
+      () => "O foco realista agora é somar forte, recuperar confiança e evitar que a reta final escape de vez do controle.",
       () => "A tarefa esportiva virou recuperar consistência e voltar a produzir rodadas com peso competitivo.",
     ],
   ),
@@ -179,8 +179,8 @@ const championshipParagraphPools = {
       ({ trackName }) => `A visita a ${trackName} abre um ponto de inflexão importante para a equipe.`,
     ],
     [
-      () => "O objetivo esportivo da rodada e recuperar consistência antes que a temporada aperte ainda mais.",
-      () => "Mais do que o resultado final, o campeonato pede uma corrida que devolva direcao ao projeto.",
+      () => "O objetivo esportivo da rodada é recuperar consistência antes que a temporada aperte ainda mais.",
+      () => "Mais do que o resultado final, o campeonato pede uma corrida que devolva direção ao projeto.",
     ],
   ),
 };
@@ -189,10 +189,10 @@ const weekendParagraphPools = {
   weekend_hot: combineVariants(
     [
       ({ rivalName }) => `${rivalName} chega como referência direta em um fim de semana tratado pelo paddock como ponto de virada.`,
-      ({ rivalName }) => `O paddock le a rodada como um confronto aberto, com ${rivalName} no centro da tensão competitiva.`,
+      ({ rivalName }) => `O paddock lê a rodada como um confronto aberto, com ${rivalName} no centro da tensão competitiva.`,
       ({ rivalName }) => `${rivalName} entra na etapa como figura dominante de um fim de semana que ganhou temperatura cedo.`,
-      ({ rivalName }) => `A leitura externa aponta para uma rodada quente, e ${rivalName} aparece como termometro imediato da disputa.`,
-      ({ rivalName }) => `Ha clima de duelo grande no paddock, com ${rivalName} puxando a referência da frente.`,
+      ({ rivalName }) => `A leitura externa aponta para uma rodada quente, e ${rivalName} aparece como termômetro imediato da disputa.`,
+      ({ rivalName }) => `Há clima de duelo grande no paddock, com ${rivalName} puxando a referência da frente.`,
     ],
     [
       ({ formSentence, remainingRounds }) => `${formSentence} ${remainingRounds > 0 ? `Depois desta corrida ainda restam ${remainingRounds} etapas para mexer na tabela.` : "Esta corrida fecha a conta da temporada."}`,
@@ -481,7 +481,7 @@ const actionHintPools = {
     ],
     [
       () => "Simule agora para transformar a liderança em resultado.",
-      () => "Levar a etapa para a simulacao agora e o passo natural desta defesa de campeonato.",
+      () => "Levar a etapa para a simulação agora é o passo natural desta defesa de campeonato.",
     ],
   ),
   outsider: combineVariants(
@@ -507,7 +507,7 @@ const actionHintPools = {
     ],
     [
       () => "Simular agora leva o fim de semana direto para a tela de resultados.",
-      () => "Levar a etapa para a simulacao agora coloca esse confronto em campo imediatamente.",
+      () => "Levar a etapa para a simulação agora coloca esse confronto em campo imediatamente.",
     ],
   ),
   pressure: combineVariants(
@@ -520,7 +520,7 @@ const actionHintPools = {
     ],
     [
       () => "Simular agora coloca a briga decisiva da etapa em movimento.",
-      () => "Levar a corrida para a simulacao agora e o passo seguinte dessa defesa de terreno.",
+      () => "Levar a corrida para a simulação agora é o passo seguinte dessa defesa de terreno.",
     ],
   ),
   fallback: combineVariants(
@@ -533,7 +533,7 @@ const actionHintPools = {
     ],
     [
       () => "simule a corrida para fechar o fim de semana e atualizar o campeonato.",
-      () => "leve a corrida para a simulacao e transforme a previa em classificação real.",
+      () => "leve a corrida para a simulação e transforme a prévia em classificação real.",
     ],
   ),
 };

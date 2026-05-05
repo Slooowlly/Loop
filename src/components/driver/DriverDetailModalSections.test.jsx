@@ -108,6 +108,11 @@ describe("HistorySection", () => {
               equipes_defendidas: 3,
               tempo_medio_por_equipe: 1.3,
             },
+            lesoes: {
+              leves: 2,
+              moderadas: 1,
+              graves: 3,
+            },
             eventos_especiais: {
               participacoes: 2,
               convocacoes: 2,
@@ -164,6 +169,13 @@ describe("HistorySection", () => {
     expect(screen.getByText("2024, BMW M2")).toBeInTheDocument();
     expect(screen.getByText("MOBILIDADE")).toBeInTheDocument();
     expect(screen.getByText("Promoções")).toBeInTheDocument();
+    expect(screen.getByText("LESÕES")).toBeInTheDocument();
+    expect(screen.getByText("Leves")).toBeInTheDocument();
+    expect(screen.getByText("Moderadas")).toBeInTheDocument();
+    expect(screen.getByText("Graves")).toBeInTheDocument();
+    expect(dossier).toHaveTextContent(/Leves\s*2/);
+    expect(dossier).toHaveTextContent(/Moderadas\s*1/);
+    expect(dossier).toHaveTextContent(/Graves\s*3/);
     expect(screen.getByText("EVENTOS ESPECIAIS")).toBeInTheDocument();
     expect(screen.getByText("Participações")).toBeInTheDocument();
     expect(screen.getAllByText("2 (5\u00ba)").length).toBeGreaterThan(0);

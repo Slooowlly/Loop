@@ -111,7 +111,7 @@ const FAVORITE_EXPECTATION_GROUPS = {
     controlled: [
       phrase(
         "p3-controlled-1",
-        "Chega no bloco de pódio com base tecnica forte, apoiado por resultados recentes que o mantem perto da frente.",
+      "Chega no bloco de pódio com base técnica forte, apoiado por resultados recentes que o mantém perto da frente.",
       ),
       phrase(
         "p3-controlled-2",

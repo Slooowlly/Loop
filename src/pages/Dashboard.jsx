@@ -12,6 +12,7 @@ import MyTeamTab from "./tabs/MyTeamTab";
 import NewsTab from "./tabs/NewsTab";
 import NextRaceTab from "./tabs/NextRaceTab";
 import StandingsTab from "./tabs/StandingsTab";
+import GlobalDriversTab from "./tabs/GlobalDriversTab";
 
 const RACE_ARRIVAL_FEEDBACK_MS = 280;
 
@@ -26,6 +27,7 @@ function Dashboard() {
   const showConvocation = useCareerStore((state) => state.showConvocation);
   const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
   const [activeTab, setActiveTab] = useState("standings");
+  const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
   const previousShowRaceBriefingRef = useRef(showRaceBriefing);
   const raceArrivalFeedbackTimeoutRef = useRef(null);
@@ -70,6 +72,13 @@ function Dashboard() {
 
   function renderTab() {
     switch (activeTab) {
+      case "global-drivers":
+        return (
+          <GlobalDriversTab
+            selectedDriverId={globalDriversSelectedId}
+            onBack={() => setActiveTab("standings")}
+          />
+        );
       case "news":
         return <NewsTab />;
       case "my-team":
@@ -83,8 +92,13 @@ function Dashboard() {
         );
       case "standings":
       default:
-        return <StandingsTab />;
+        return <StandingsTab onOpenGlobalDrivers={openGlobalDrivers} />;
     }
+  }
+
+  function openGlobalDrivers(driverId) {
+    setGlobalDriversSelectedId(driverId);
+    setActiveTab("global-drivers");
   }
 
   if (showResult && lastRaceResult) {

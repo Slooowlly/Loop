@@ -48,6 +48,9 @@ const INITIAL_FORM = {
   teamId: "",
 };
 
+const DRAFT_PROGRESS_POLL_MS = 1000;
+const IDENTITY_FIELDS = new Set(["difficulty", "playerName", "nationality", "age"]);
+
 function NewCareer() {
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
@@ -89,6 +92,35 @@ function NewCareer() {
     }, LOADING_MESSAGE_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!loading) return undefined;
+
+    let cancelled = false;
+
+    async function pollDraftProgress() {
+      try {
+        const state = await invoke("get_career_draft");
+        if (cancelled || !state?.exists) return;
+        setDraftState((current) => ({
+          ...(current ?? state),
+          progress_year: state.progress_year ?? current?.progress_year ?? null,
+          error: state.error ?? current?.error ?? null,
+          lifecycle_status: state.lifecycle_status ?? current?.lifecycle_status,
+        }));
+      } catch {
+        // Progress polling is best-effort while the blocking generation command runs.
+      }
+    }
+
+    pollDraftProgress();
+    const timer = window.setInterval(pollDraftProgress, DRAFT_PROGRESS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [loading]);
 
   const draftCategories = STARTING_CATEGORIES.filter((category) =>
@@ -135,7 +167,24 @@ function NewCareer() {
   }
 
   function updateForm(patch) {
-    setFormData((current) => ({ ...current, ...patch }));
+    const shouldDiscardDraft = shouldDiscardDraftForPatch(formData, patch, draftState);
+    if (shouldDiscardDraft) {
+      invoke("discard_career_draft").catch(() => {
+        // The next generation/finalization call will surface persistent cleanup errors.
+      });
+      setDraftState(null);
+    }
+
+    setFormData((current) => ({
+      ...current,
+      ...patch,
+      ...(shouldDiscardDraft
+        ? {
+            category: INITIAL_FORM.category,
+            teamId: "",
+          }
+        : {}),
+    }));
   }
 
   function validateCurrentStep() {
@@ -603,10 +652,24 @@ function NewCareer() {
       <LoadingOverlay
         open={loading}
         title={step === 6 ? "Finalizando carreira" : "Gerando histórico"}
-        message={LOADING_MESSAGES[loadingMessageIndex]}
+        message={
+          step === 6
+            ? LOADING_MESSAGES[loadingMessageIndex]
+            : draftState?.progress_year
+              ? `Simulando temporada ${draftState.progress_year}`
+              : LOADING_MESSAGES[loadingMessageIndex]
+        }
       />
     </div>
   );
+}
+
+function shouldDiscardDraftForPatch(currentForm, patch, draftState) {
+  if (!draftState?.exists) return false;
+  return Object.entries(patch).some(([key, value]) => {
+    if (!IDENTITY_FIELDS.has(key)) return false;
+    return String(currentForm[key] ?? "") !== String(value ?? "");
+  });
 }
 
 export default NewCareer;

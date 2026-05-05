@@ -586,10 +586,20 @@ fn simulate_category_race_with_mode(
     } else {
         build_team_lookup(&teams)
     };
-    let mut orphaned_drivers = Vec::new();
-    let sim_drivers: Vec<SimDriver> = drivers
+    let healthy_drivers: Vec<_> = drivers
         .iter()
-        .filter(|d| d.status != crate::models::enums::DriverStatus::Lesionado)
+        .filter(|driver| driver.status != crate::models::enums::DriverStatus::Lesionado)
+        .collect();
+    let historical_injury_fallback =
+        persistence_mode == RacePersistenceMode::HistoricalDraft && healthy_drivers.is_empty();
+    let driver_pool: Vec<_> = if historical_injury_fallback {
+        drivers.iter().collect()
+    } else {
+        healthy_drivers
+    };
+    let mut orphaned_drivers = Vec::new();
+    let sim_drivers: Vec<SimDriver> = driver_pool
+        .into_iter()
         .filter_map(|driver| match team_by_driver.get(&driver.id) {
             Some(team) => Some(SimDriver::from_driver_team_and_track(
                 driver,
@@ -767,11 +777,6 @@ fn simulate_other_categories(
                 target_week,
             )
             .map_err(|e| format!("Falha ao buscar corridas pendentes de {}: {e}", category.id))?
-            .into_iter()
-            .filter(|entry| {
-                !target_display_date.trim().is_empty() && entry.display_date == target_display_date
-            })
-            .collect()
         };
 
         if races_to_simulate.is_empty() {
@@ -804,9 +809,12 @@ fn simulate_other_categories(
                 "Falha ao registrar historico de DNF de outra categoria",
             );
 
-            let is_visible_same_day =
-                !target_display_date.trim().is_empty() && entry.display_date == target_display_date;
-            if !is_visible_same_day {
+            let is_visible_to_player = if is_last_player_race {
+                !target_display_date.trim().is_empty() && entry.display_date == target_display_date
+            } else {
+                true
+            };
+            if !is_visible_to_player {
                 continue;
             }
 
@@ -1681,7 +1689,10 @@ mod tests {
             .expect("simulate");
 
         assert_eq!(result.player_race.race_results.len(), 12);
-        assert_eq!(result.other_categories.total_races_simulated, 0);
+        assert!(
+            result.other_categories.total_races_simulated >= 1,
+            "same-week categories should be simulated with the player's race"
+        );
 
         let updated_db = Database::open_existing(&db_path).expect("reopen db");
         let season_after = season_queries::get_active_season(&updated_db.conn)
@@ -2129,28 +2140,30 @@ mod tests {
             .expect("simulate");
 
         assert_eq!(result.player_race.track_name, next_race.track_name);
-        assert_eq!(result.other_categories.total_races_simulated, 1);
+        assert!(
+            result.other_categories.total_races_simulated >= 1,
+            "at least one other category should simulate in the same week"
+        );
         assert!(result
             .other_categories
             .categories_simulated
             .iter()
             .all(|category| category.category_id != "mazda_rookie"));
-        assert_eq!(
+        assert!(
             result
                 .other_categories
                 .categories_simulated
                 .iter()
-                .map(|category| category.category_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["gt3"]
+                .any(|category| category.category_id == "gt3"),
+            "gt3 should be included among the simulated same-week categories"
         );
 
         let _ = fs::remove_dir_all(base_dir);
     }
 
     #[test]
-    fn test_simulate_race_weekend_only_processes_same_day_categories() {
-        let base_dir = unique_test_dir("simulate_same_day_only");
+    fn test_simulate_race_weekend_processes_same_week_categories_even_on_different_days() {
+        let base_dir = unique_test_dir("simulate_same_week_categories");
         fs::create_dir_all(&base_dir).expect("base dir");
 
         create_career_in_base_dir(
@@ -2181,26 +2194,41 @@ mod tests {
         let gt3_race = get_next_race(&db.conn, &season.id, "gt3")
             .expect("gt3 race")
             .expect("pending gt3 race");
-        db.conn
-            .execute(
-                "UPDATE calendar SET data = ?1 WHERE id = ?2",
-                rusqlite::params![next_race.display_date, toyota_race.id],
-            )
-            .expect("align toyota to same day");
+        assert_eq!(
+            toyota_race.week_of_year, next_race.week_of_year,
+            "toyota should share the same calendar week as the player race"
+        );
+        assert_eq!(
+            gt3_race.week_of_year, next_race.week_of_year,
+            "gt3 should share the same calendar week as the player race"
+        );
+        assert_ne!(
+            toyota_race.display_date, next_race.display_date,
+            "toyota should stay on a different day within the same week"
+        );
+        assert_ne!(
+            gt3_race.display_date, next_race.display_date,
+            "gt3 should stay on a different day within the same week"
+        );
         drop(db);
 
         let result = simulate_race_weekend_in_base_dir(&base_dir, "career_001", &next_race.id)
             .expect("simulate");
 
-        assert_eq!(result.other_categories.total_races_simulated, 1);
-        assert_eq!(
-            result
-                .other_categories
-                .categories_simulated
-                .iter()
-                .map(|category| category.category_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["toyota_rookie"]
+        let simulated_categories = result
+            .other_categories
+            .categories_simulated
+            .iter()
+            .map(|category| category.category_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            simulated_categories.contains(&"toyota_rookie"),
+            "toyota rookie should simulate in the same week even on a different day"
+        );
+        assert!(
+            simulated_categories.contains(&"gt3"),
+            "gt3 should simulate in the same week even on a different day"
         );
 
         let updated_db = Database::open_existing(&db_path).expect("updated db");
@@ -2213,7 +2241,7 @@ mod tests {
             .expect("gt3 entry");
 
         assert_eq!(toyota_after.status.as_str(), "Concluida");
-        assert_eq!(gt3_after.status.as_str(), "Pendente");
+        assert_eq!(gt3_after.status.as_str(), "Concluida");
 
         let _ = fs::remove_dir_all(base_dir);
     }

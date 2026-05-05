@@ -1,0 +1,69 @@
+%% iRacerApp database module flow
+%% Purpose: show side systems around the core season loop.
+
+flowchart TB
+    SEASONS[seasons]
+    DRIVERS[drivers]
+    TEAMS[teams]
+    CONTRACTS[contracts]
+    CALENDAR[calendar]
+    RACE_RESULTS[race_results]
+
+    subgraph MARKET_FLOW[market flow]
+        MARKET[market]
+        MARKET_PROPOSALS[market_proposals]
+    end
+
+    subgraph SPECIAL_WINDOW_FLOW[special window flow]
+        SPECIAL_STATE[special_window_state]
+        SPECIAL_POOL[special_window_candidate_pool]
+        SPECIAL_ASSIGNMENTS[special_window_assignments]
+        PLAYER_OFFERS[player_special_offers]
+        SPECIAL_TEAMS[special_team_entries]
+        SPECIAL_LOG[special_window_daily_log]
+    end
+
+    subgraph NARRATIVE_FLOW[narrative and history]
+        NEWS[news]
+        RIVALRIES[rivalries]
+        TRACK_DNF[track_dnf_history]
+        INCIDENT_CATALOG[incident_catalog]
+        INJURIES[injuries]
+        RETIRED[retired]
+    end
+
+    SEASONS --> MARKET
+    MARKET --> MARKET_PROPOSALS
+    TEAMS --> MARKET_PROPOSALS
+    DRIVERS --> MARKET_PROPOSALS
+    MARKET_PROPOSALS --> CONTRACTS
+
+    SEASONS --> SPECIAL_STATE
+    SEASONS --> SPECIAL_POOL
+    DRIVERS --> SPECIAL_POOL
+    SPECIAL_POOL --> SPECIAL_ASSIGNMENTS
+    TEAMS --> SPECIAL_ASSIGNMENTS
+    DRIVERS --> SPECIAL_ASSIGNMENTS
+    SPECIAL_ASSIGNMENTS --> PLAYER_OFFERS
+    PLAYER_OFFERS --> CONTRACTS
+    TEAMS --> SPECIAL_TEAMS
+    SPECIAL_TEAMS --> CALENDAR
+    SPECIAL_STATE --> SPECIAL_LOG
+
+    CALENDAR --> NEWS
+    RACE_RESULTS --> NEWS
+    RACE_RESULTS --> RIVALRIES
+    RACE_RESULTS --> TRACK_DNF
+    INCIDENT_CATALOG --> RACE_RESULTS
+    RACE_RESULTS --> INJURIES
+    DRIVERS --> RETIRED
+
+    classDef core fill:#eef2ff,stroke:#475569,color:#0f172a
+    classDef market fill:#ecfdf5,stroke:#15803d,color:#0f172a
+    classDef special fill:#fefce8,stroke:#a16207,color:#0f172a
+    classDef narrative fill:#fdf2f8,stroke:#be185d,color:#0f172a
+
+    class SEASONS,DRIVERS,TEAMS,CONTRACTS,CALENDAR,RACE_RESULTS core
+    class MARKET,MARKET_PROPOSALS market
+    class SPECIAL_STATE,SPECIAL_POOL,SPECIAL_ASSIGNMENTS,PLAYER_OFFERS,SPECIAL_TEAMS,SPECIAL_LOG special
+    class NEWS,RIVALRIES,TRACK_DNF,INCIDENT_CATALOG,INJURIES,RETIRED narrative

@@ -10,12 +10,12 @@ const trophyImages = {
 
 function TrophyBadge({ trofeu }) {
   const src = trophyImages[trofeu?.tipo] ?? goldTrophy;
-  const label = trofeu?.tipo ?? "trofeu";
+  const label = trofeu?.tipo ?? "troféu";
 
   return (
     <span
       className="relative inline-flex h-5 w-5 items-center justify-center"
-      title={`Trofeu ${label}${trofeu?.is_defending ? " (campeao defensor)" : ""}`}
+      title={`Troféu ${label}${trofeu?.is_defending ? " (campeão defensor)" : ""}`}
     >
       <img
         src={src}
@@ -23,7 +23,7 @@ function TrophyBadge({ trofeu }) {
         className="h-4 w-4 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.16)]"
       />
       {trofeu?.is_defending ? (
-        <span className="absolute -right-1 -top-1 text-[8px] font-bold text-status-green">▲</span>
+        <span className="absolute -right-1 -top-1 text-[8px] font-bold text-status-green">&#9650;</span>
       ) : null}
     </span>
   );

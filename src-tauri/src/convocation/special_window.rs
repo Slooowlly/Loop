@@ -53,6 +53,11 @@ const CLASSES_CONVOCADAS: &[ClassConfig] = &[
         class_name: "gt3",
         feeder_category: "gt3",
     },
+    ClassConfig {
+        special_category: "endurance",
+        class_name: "lmp2",
+        feeder_category: "lmp2",
+    },
 ];
 
 #[derive(Debug, Clone)]

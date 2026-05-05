@@ -1,0 +1,356 @@
+%% iRacerApp database network - full ER view
+%% Source of truth inspected: src-tauri/src/db/migrations.rs
+%% Schema version inspected: 30
+%%
+%% Legend:
+%% - FK in entity fields = declared or strongly modeled database relationship.
+%% - SEM in entity fields = semantic relationship used by app logic but not always declared as FK.
+%% - The runtime flow currently treats CALENDAR rows as race events; RACES is legacy/unused.
+
+erDiagram
+    %% Core career loop
+    DRIVERS ||--o{ CONTRACTS : signs
+    TEAMS ||--o{ CONTRACTS : hires
+
+    SEASONS ||--o{ CALENDAR : schedules
+    SEASONS ||--o{ RACES : legacy_season
+    CALENDAR ||--o{ RACES : legacy_calendar_event
+    CALENDAR ||--o{ RACE_RESULTS : produces
+    DRIVERS ||--o{ RACE_RESULTS : competes
+    TEAMS ||--o{ RACE_RESULTS : represents
+    INCIDENT_CATALOG ||--o{ RACE_RESULTS : classifies_dnf
+
+    SEASONS ||--o{ STANDINGS : has
+    DRIVERS ||--o{ STANDINGS : scores
+    TEAMS ||--o{ STANDINGS : scores
+
+    DRIVERS ||--o{ LICENSES : earns
+    DRIVERS ||--o{ INJURIES : suffers
+    DRIVERS ||--o{ DRIVER_SEASON_ARCHIVE : archived_as
+
+    %% Team hierarchy and lineups
+    TEAMS ||--o{ TEAMS : parent_team
+    DRIVERS ||--o{ TEAMS : piloto_1
+    DRIVERS ||--o{ TEAMS : piloto_2
+    DRIVERS ||--o{ TEAMS : hierarchy_n1
+    DRIVERS ||--o{ TEAMS : hierarchy_n2
+
+    %% Market and special contracts
+    SEASONS ||--o{ MARKET : opens
+    SEASONS ||--o{ MARKET_PROPOSALS : contains
+    TEAMS ||--o{ MARKET_PROPOSALS : offers
+    DRIVERS ||--o{ MARKET_PROPOSALS : receives
+
+    SEASONS ||--o{ PLAYER_SPECIAL_OFFERS : contains
+    DRIVERS ||--o{ PLAYER_SPECIAL_OFFERS : receives
+    TEAMS ||--o{ PLAYER_SPECIAL_OFFERS : offers
+
+    SEASONS ||--o{ SPECIAL_WINDOW_STATE : controls
+    SEASONS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : organizes
+    TEAMS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : fields
+    DRIVERS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : participates
+
+    SEASONS ||--o{ SPECIAL_WINDOW_CANDIDATE_POOL : pools
+    DRIVERS ||--o{ SPECIAL_WINDOW_CANDIDATE_POOL : candidate
+
+    SEASONS ||--o{ SPECIAL_WINDOW_DAILY_LOG : logs
+    TEAMS ||--o{ SPECIAL_WINDOW_DAILY_LOG : referenced_team
+    DRIVERS ||--o{ SPECIAL_WINDOW_DAILY_LOG : referenced_driver
+
+    SEASONS ||--o{ SPECIAL_TEAM_ENTRIES : qualifies
+    TEAMS ||--o{ SPECIAL_TEAM_ENTRIES : enters
+
+    %% Narrative and history
+    DRIVERS ||--o{ RIVALRIES : piloto1
+    DRIVERS ||--o{ RIVALRIES : piloto2
+    DRIVERS ||--o{ TRACK_DNF_HISTORY : dnf_history
+    SEASONS ||--o{ NEWS : publishes
+    SEASONS ||--o{ HISTORY_SEASONS : closes
+    DRIVERS ||--o{ HISTORY_SEASONS : champion_driver
+    TEAMS ||--o{ HISTORY_SEASONS : champion_team
+    DRIVERS ||--o{ RETIRED : retires_as_snapshot
+
+    DRIVERS {
+        TEXT id PK
+        TEXT nome
+        INTEGER is_jogador
+        TEXT categoria_atual
+        TEXT categoria_especial_ativa
+        TEXT status
+        REAL skill
+        REAL motivacao
+    }
+
+    TEAMS {
+        TEXT id PK
+        TEXT nome
+        TEXT nome_curto
+        TEXT categoria
+        INTEGER is_player_team
+        TEXT parent_team_id SEM
+        TEXT piloto_1_id FK
+        TEXT piloto_2_id FK
+        TEXT hierarquia_n1_id SEM
+        TEXT hierarquia_n2_id SEM
+        INTEGER ativa
+        REAL car_performance
+        REAL confiabilidade
+        REAL reputacao
+        REAL cash_balance
+    }
+
+    CONTRACTS {
+        TEXT id PK
+        TEXT piloto_id FK
+        TEXT equipe_id FK
+        TEXT piloto_nome
+        TEXT equipe_nome
+        TEXT status
+        TEXT papel
+        TEXT tipo
+        TEXT categoria
+        TEXT classe
+        INTEGER temporada_inicio
+        INTEGER temporada_fim
+    }
+
+    SEASONS {
+        TEXT id PK
+        INTEGER numero
+        INTEGER ano
+        TEXT status
+        TEXT fase
+        INTEGER rodada_atual
+    }
+
+    CALENDAR {
+        TEXT id PK
+        TEXT temporada_id FK
+        TEXT season_id SEM
+        INTEGER rodada
+        TEXT categoria
+        TEXT nome
+        TEXT track_name
+        TEXT clima
+        TEXT season_phase
+        TEXT status
+    }
+
+    RACES {
+        TEXT id PK
+        TEXT temporada_id FK
+        TEXT calendar_id FK
+        INTEGER rodada
+        TEXT status
+    }
+
+    RACE_RESULTS {
+        INTEGER id PK
+        TEXT race_id FK
+        TEXT piloto_id FK
+        TEXT equipe_id FK
+        INTEGER posicao_largada
+        INTEGER posicao_final
+        REAL pontos
+        INTEGER dnf
+        TEXT dnf_reason
+        TEXT dnf_catalog_id SEM
+    }
+
+    STANDINGS {
+        INTEGER id PK
+        TEXT temporada_id FK
+        TEXT piloto_id FK
+        TEXT equipe_id FK
+        TEXT categoria
+        INTEGER posicao
+        REAL pontos
+    }
+
+    LICENSES {
+        INTEGER id PK
+        TEXT piloto_id FK
+        TEXT nivel
+        TEXT categoria_origem
+        TEXT data_obtencao
+    }
+
+    INJURIES {
+        TEXT id PK
+        TEXT pilot_id FK
+        TEXT type
+        TEXT injury_name
+        REAL modifier
+        INTEGER races_total
+        INTEGER races_remaining
+        INTEGER season SEM
+        TEXT race_occurred SEM
+        INTEGER active
+    }
+
+    MARKET {
+        INTEGER id PK
+        TEXT temporada_id FK
+        TEXT status
+        TEXT fase
+        TEXT inicio
+        TEXT fim
+    }
+
+    MARKET_PROPOSALS {
+        TEXT id PK
+        TEXT temporada_id FK
+        TEXT equipe_id FK
+        TEXT piloto_id FK
+        TEXT papel
+        REAL salario
+        TEXT status
+    }
+
+    PLAYER_SPECIAL_OFFERS {
+        TEXT id PK
+        TEXT season_id FK
+        TEXT player_driver_id FK
+        TEXT team_id FK
+        TEXT special_category
+        TEXT class_name
+        TEXT papel
+        TEXT status
+        INTEGER available_from_day
+        INTEGER selected_for_day
+    }
+
+    SPECIAL_WINDOW_STATE {
+        TEXT season_id PK
+        INTEGER current_day
+        INTEGER total_days
+        TEXT status
+        TEXT active_offer_id SEM
+        TEXT player_result
+    }
+
+    SPECIAL_WINDOW_ASSIGNMENTS {
+        TEXT id PK
+        TEXT season_id SEM
+        TEXT special_category
+        TEXT class_name
+        TEXT team_id SEM
+        TEXT driver_id SEM
+        TEXT papel
+        INTEGER reveal_day
+        INTEGER revealed
+        INTEGER is_player
+    }
+
+    SPECIAL_WINDOW_CANDIDATE_POOL {
+        TEXT season_id PK
+        TEXT driver_id PK
+        TEXT driver_name
+        TEXT origin_category
+        INTEGER license_level
+        INTEGER desirability
+        TEXT status
+    }
+
+    SPECIAL_WINDOW_DAILY_LOG {
+        TEXT id PK
+        TEXT season_id SEM
+        INTEGER day_number
+        TEXT event_type
+        TEXT message
+        TEXT team_id SEM
+        TEXT driver_id SEM
+    }
+
+    SPECIAL_TEAM_ENTRIES {
+        TEXT season_id PK
+        TEXT special_category PK
+        TEXT class_name PK
+        TEXT team_id PK
+        TEXT source_category
+        TEXT qualified_via
+        INTEGER guaranteed_next_year
+    }
+
+    RIVALRIES {
+        TEXT id PK
+        TEXT piloto1_id FK
+        TEXT piloto2_id FK
+        REAL intensidade
+        REAL historical_intensity
+        REAL recent_activity
+        TEXT tipo
+    }
+
+    INCIDENT_CATALOG {
+        TEXT id PK
+        TEXT vehicle_class
+        TEXT race_format
+        TEXT incident_source
+        TEXT trigger_type
+        TEXT severity_context
+    }
+
+    DRIVER_SEASON_ARCHIVE {
+        INTEGER id PK
+        TEXT piloto_id SEM
+        INTEGER season_number
+        INTEGER ano
+        TEXT categoria
+        INTEGER posicao_campeonato
+        REAL pontos
+        TEXT snapshot_json
+    }
+
+    TRACK_DNF_HISTORY {
+        TEXT id PK
+        TEXT piloto_id SEM
+        TEXT track_name
+        INTEGER season_num
+        INTEGER round
+        TEXT dnf_reason
+    }
+
+    NEWS {
+        TEXT id PK
+        TEXT tipo
+        TEXT titulo
+        TEXT chave_dedup UK
+        TEXT temporada_id SEM
+        INTEGER rodada
+        INTEGER lida
+    }
+
+    RETIRED {
+        TEXT piloto_id PK
+        TEXT nome
+        TEXT temporada_aposentadoria
+        TEXT categoria_final
+        TEXT estatisticas
+    }
+
+    HISTORY_SEASONS {
+        INTEGER id PK
+        TEXT temporada_id SEM
+        INTEGER ano
+        TEXT categoria
+        TEXT campeao_piloto_id SEM
+        TEXT campeao_equipe_id SEM
+        TEXT classificacao_final
+    }
+
+    META {
+        TEXT key PK
+        TEXT value
+    }
+
+    CONFIG {
+        TEXT key PK
+        TEXT value
+    }
+
+    HISTORY_GENERAL {
+        TEXT key PK
+        TEXT value
+        TEXT updated_at
+    }

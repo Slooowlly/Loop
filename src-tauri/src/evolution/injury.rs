@@ -112,6 +112,7 @@ mod tests {
             id: "INJ-1".to_string(),
             pilot_id: "P001".to_string(),
             injury_type: InjuryType::Leve,
+            injury_name: "Dor no braço".to_string(),
             modifier: 0.95,
             races_total: 2,
             races_remaining: 2,
@@ -243,6 +244,7 @@ mod tests {
             id: "INJ-1".to_string(),
             pilot_id: "P001".to_string(),
             injury_type: InjuryType::Leve,
+            injury_name: "Dor no braço".to_string(),
             modifier: 0.95,
             races_total: 1,
             races_remaining: 1,
@@ -255,6 +257,7 @@ mod tests {
             id: "INJ-2".to_string(),
             pilot_id: "P001".to_string(),
             injury_type: InjuryType::Moderada,
+            injury_name: "Braço machucado".to_string(),
             modifier: 0.88,
             races_total: 3,
             races_remaining: 3,
@@ -268,12 +271,13 @@ mod tests {
             .unwrap();
         tx.execute(
             "INSERT INTO injuries (
-                id, pilot_id, type, modifier, races_total, races_remaining, skill_penalty, season, race_occurred, active
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                id, pilot_id, type, injury_name, modifier, races_total, races_remaining, skill_penalty, season, race_occurred, active
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             rusqlite::params![
                 second.id,
                 second.pilot_id,
                 second.injury_type.as_str(),
+                second.injury_name,
                 second.modifier,
                 second.races_total,
                 second.races_remaining,
@@ -319,6 +323,7 @@ mod tests {
             id: "INJ-EXISTING".to_string(),
             pilot_id: "P001".to_string(),
             injury_type: InjuryType::Grave,
+            injury_name: "Braço fraturado".to_string(),
             modifier: 0.75,
             races_total: 8,
             races_remaining: 5,

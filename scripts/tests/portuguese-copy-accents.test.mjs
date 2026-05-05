@@ -8,10 +8,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..", "..");
 
+function mojibake(text) {
+  return Buffer.from(text, "utf8").toString("latin1");
+}
+
 const FILES_AND_FORBIDDEN_COPY = [
   {
     file: "src/utils/formatters.js",
-    forbidden: ["Proxima corrida", "amanha", "1 mes", "Sem licenÃ§a", "ConvocaÃ§Ã£o", "ConsistÃªncia"],
+    forbidden: [
+      "Proxima corrida",
+      "amanha",
+      "1 mes",
+      mojibake("Sem licença"),
+      mojibake("Convocação"),
+      mojibake("Consistência"),
+    ],
   },
   {
     file: "src/pages/NewCareer.jsx",

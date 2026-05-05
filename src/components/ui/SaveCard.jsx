@@ -43,9 +43,9 @@ function SaveCard({ save, onLoad, onDelete, loading = false }) {
           </div>
 
           <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
-            <span>Ultimo jogo: {formatDateTime(save.last_played)}</span>
+            <span>Último jogo: {formatDateTime(save.last_played)}</span>
             <span>Criado: {formatDateTime(save.created)}</span>
-            <span>{save.total_races} corridas no calendario</span>
+            <span>{save.total_races} corridas no calendário</span>
           </div>
         </div>
 

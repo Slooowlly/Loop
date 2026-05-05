@@ -156,10 +156,12 @@ function CommandHeader({ team, standing }) {
   return (
     <GlassCard hover={false} className="rounded-[30px]" data-testid="my-team-command-header">
       <div className="grid gap-5 lg:grid-cols-[1.18fr_0.82fr] lg:items-center">
-        <div className="flex items-start gap-4">
-          <span
-            className="mt-2 h-4 w-4 rounded-full border border-white/20"
-            style={{ backgroundColor: team?.cor_primaria ?? "#58a6ff" }}
+        <div className="flex items-center gap-4">
+          <TeamLogoMark
+            teamName={team?.nome}
+            color={team?.cor_primaria}
+            size="lg"
+            testId="my-team-command-logo"
           />
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Central de gestão</p>
@@ -595,16 +597,24 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
               >
                 <td className="py-3 pr-4 font-mono text-xs text-text-muted">{String(team.posicao ?? index + 1).padStart(2, "0")}</td>
                 <td className="px-4 py-3 font-semibold">
-                  <button
-                    type="button"
-                    data-testid="ranking-team-name"
-                    onDoubleClick={() => onTeamHistoryOpen?.(team)}
-                    className="rounded-lg text-left transition-glass hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-accent-primary/45"
-                    style={{ color: team.cor_primaria ?? "#f0f6fc" }}
-                    title="Duplo clique para abrir o histórico da equipe"
-                  >
-                    {team.nome}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <TeamLogoMark
+                      teamName={team.nome}
+                      color={team.cor_primaria}
+                      size="sm"
+                      testId="ranking-team-logo"
+                    />
+                    <button
+                      type="button"
+                      data-testid="ranking-team-name"
+                      onDoubleClick={() => onTeamHistoryOpen?.(team)}
+                      className="rounded-lg text-left transition-glass hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-accent-primary/45"
+                      style={{ color: team.cor_primaria ?? "#f0f6fc" }}
+                      title="Duplo clique para abrir o histórico da equipe"
+                    >
+                      {team.nome}
+                    </button>
+                  </div>
                 </td>
                 <td className="px-4 py-3 font-mono">{formatMoney(team.cash_balance ?? 0)}</td>
                 <td className="px-4 py-3 font-mono">{carLevel(team.car_performance)}</td>

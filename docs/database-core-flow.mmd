@@ -1,0 +1,56 @@
+%% iRacerApp database core flow
+%% Purpose: show the main season loop without module noise.
+
+flowchart LR
+    CONFIG[config]
+    META[meta]
+
+    DRIVERS[drivers]
+    TEAMS[teams]
+    CONTRACTS[contracts]
+
+    SEASONS[seasons]
+    CALENDAR[calendar]
+    RACE_RESULTS[race_results]
+    STANDINGS[standings]
+
+    LICENSES[licenses]
+    DRIVER_ARCHIVE[driver_season_archive]
+    HISTORY_SEASONS[history_seasons]
+    HISTORY_GENERAL[history_general]
+
+    CONFIG --> META
+    META --> SEASONS
+
+    DRIVERS --> CONTRACTS
+    TEAMS --> CONTRACTS
+    CONTRACTS --> CALENDAR
+
+    SEASONS --> CALENDAR
+    CALENDAR --> RACE_RESULTS
+    DRIVERS --> RACE_RESULTS
+    TEAMS --> RACE_RESULTS
+
+    RACE_RESULTS --> STANDINGS
+    SEASONS --> STANDINGS
+    DRIVERS --> STANDINGS
+    TEAMS --> STANDINGS
+
+    STANDINGS --> LICENSES
+    DRIVERS --> LICENSES
+
+    STANDINGS --> DRIVER_ARCHIVE
+    DRIVERS --> DRIVER_ARCHIVE
+
+    STANDINGS --> HISTORY_SEASONS
+    HISTORY_SEASONS --> HISTORY_GENERAL
+
+    classDef state fill:#eef2ff,stroke:#475569,color:#0f172a
+    classDef actor fill:#ecfeff,stroke:#0f766e,color:#0f172a
+    classDef event fill:#fff7ed,stroke:#c2410c,color:#0f172a
+    classDef history fill:#f8fafc,stroke:#64748b,color:#0f172a
+
+    class CONFIG,META,SEASONS state
+    class DRIVERS,TEAMS,CONTRACTS actor
+    class CALENDAR,RACE_RESULTS,STANDINGS,LICENSES event
+    class DRIVER_ARCHIVE,HISTORY_SEASONS,HISTORY_GENERAL history

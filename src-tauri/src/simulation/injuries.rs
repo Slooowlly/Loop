@@ -5,6 +5,42 @@ use crate::models::enums::InjuryType;
 use crate::models::injury::Injury;
 use crate::simulation::incidents::{injury_base_chance, IncidentResult};
 
+pub(crate) fn injury_name_pool(injury_type: InjuryType) -> &'static [&'static str] {
+    match injury_type {
+        InjuryType::Leve => &[
+            "Dor no braço",
+            "Dor no ombro",
+            "Dor no pescoço",
+            "Dor nas costas",
+        ],
+        InjuryType::Moderada => &[
+            "Braço machucado",
+            "Ombro machucado",
+            "Pescoço travado",
+            "Costas travadas",
+            "Joelho machucado",
+            "Pulso machucado",
+            "Tornozelo machucado",
+            "Dor forte nas costas",
+        ],
+        InjuryType::Grave | InjuryType::Critica => &[
+            "Braço fraturado",
+            "Costela fraturada",
+            "Ombro lesionado",
+            "Joelho lesionado",
+            "Tornozelo lesionado",
+            "Lesão nas costas",
+            "Lesão no pescoço",
+        ],
+    }
+}
+
+fn select_injury_name(injury_type: InjuryType, rng: &mut impl Rng) -> String {
+    let pool = injury_name_pool(injury_type);
+    let index = rng.gen_range(0..pool.len());
+    pool[index].to_string()
+}
+
 /// Generates a persistent Injury from a simulated incident.
 /// Uses `injury_risk_multiplier` as the source of truth for incident eligibility.
 /// Returns None if the incident is not eligible or if the driver gets lucky.
@@ -37,6 +73,7 @@ pub fn generate_injury_from_incident(
         Some(Injury {
             id: Uuid::new_v4().to_string(),
             pilot_id: incident.pilot_id.clone(),
+            injury_name: select_injury_name(injury_type.clone(), rng),
             injury_type,
             modifier,
             races_total,
@@ -63,6 +100,7 @@ mod tests {
         use crate::simulation::incidents::IncidentResult;
         let irm = match (incident_type, severity) {
             (IncidentType::Collision, IncidentSeverity::Critical) => 1.5,
+            (IncidentType::Collision, IncidentSeverity::Major) => 0.45,
             (IncidentType::DriverError, IncidentSeverity::Critical) => 1.0,
             (IncidentType::Mechanical, IncidentSeverity::Critical) => 0.6,
             _ => 0.0,
@@ -165,5 +203,61 @@ mod tests {
             injured > 0,
             "positive IRM should allow injuries for eligible incidents, injured={injured}"
         );
+    }
+
+    #[test]
+    fn test_collision_critical_generates_more_injuries_than_collision_major() {
+        let collision_critical = make_incident(IncidentType::Collision, IncidentSeverity::Critical);
+        let collision_major = make_incident(IncidentType::Collision, IncidentSeverity::Major);
+
+        let mut rng = StdRng::seed_from_u64(20260501);
+        let mut critical_injuries = 0;
+        let mut major_injuries = 0;
+        let runs = 1000;
+
+        for _ in 0..runs {
+            if generate_injury_from_incident(&collision_critical, 2026, "R001", &mut rng).is_some()
+            {
+                critical_injuries += 1;
+            }
+            if generate_injury_from_incident(&collision_major, 2026, "R001", &mut rng).is_some() {
+                major_injuries += 1;
+            }
+        }
+
+        assert!(
+            major_injuries > 0,
+            "major collision should now be eligible for injuries, major_injuries={major_injuries}"
+        );
+        assert!(
+            critical_injuries > major_injuries,
+            "critical injuries={critical_injuries} should stay above major injuries={major_injuries}"
+        );
+    }
+
+    #[test]
+    fn test_injury_name_pools_are_separated_by_severity() {
+        let light_pool = injury_name_pool(InjuryType::Leve);
+        let moderate_pool = injury_name_pool(InjuryType::Moderada);
+        let grave_pool = injury_name_pool(InjuryType::Grave);
+
+        assert!(light_pool.contains(&"Dor no braço"));
+        assert!(moderate_pool.contains(&"Braço machucado"));
+        assert!(grave_pool.contains(&"Braço fraturado"));
+        assert!(!light_pool.contains(&"Braço fraturado"));
+        assert!(!grave_pool.contains(&"Dor no braço"));
+    }
+
+    #[test]
+    fn test_generated_injury_receives_specific_name_from_its_pool() {
+        let incident = make_incident(IncidentType::Collision, IncidentSeverity::Critical);
+        let mut rng = StdRng::seed_from_u64(20260502);
+
+        let injury = (0..100)
+            .find_map(|_| generate_injury_from_incident(&incident, 2026, "R001", &mut rng))
+            .expect("expected deterministic seed to produce an injury");
+
+        assert!(!injury.injury_name.is_empty());
+        assert!(injury_name_pool(injury.injury_type).contains(&injury.injury_name.as_str()));
     }
 }

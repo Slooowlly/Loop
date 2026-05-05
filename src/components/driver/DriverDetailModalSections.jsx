@@ -41,7 +41,7 @@ function formatContractRole(role) {
 export function formatMoment(momento) {
   const map = {
     forte: { label: "Em alta", color: "text-[#3fb950]" },
-    estavel: { label: "Estavel", color: "text-[#d29922]" },
+    estavel: { label: "Estável", color: "text-[#d29922]" },
     em_baixa: { label: "Em baixa", color: "text-[#f85149]" },
     sem_dados: { label: "Sem dados", color: "text-[#7d8590]" },
   };
@@ -393,7 +393,7 @@ function CategoryTimeline({ items }) {
   const timeline = Array.isArray(items) ? items.filter((item) => item?.categoria) : [];
 
   if (!timeline.length) {
-    return <p className="text-xs text-[#7d8590]">Sem categorias visiveis por enquanto.</p>;
+    return <p className="text-xs text-[#7d8590]">Sem categorias visíveis por enquanto.</p>;
   }
 
   return (
@@ -560,6 +560,7 @@ function CareerHistoryDossier({ history }) {
   const firstMarks = history.primeiros_marcos ?? {};
   const peak = history.auge ?? {};
   const mobility = history.mobilidade ?? {};
+  const injuries = history.lesoes ?? {};
   const specialEvents = history.eventos_especiais ?? {};
   const specialRanks = specialEvents.rankings ?? {};
   const bestSeason = peak.melhor_temporada;
@@ -601,6 +602,14 @@ function CareerHistoryDossier({ history }) {
             { label: "Rebaixamentos", value: mobility.rebaixamentos ?? 0 },
             { label: "Equipes defendidas", value: mobility.equipes_defendidas ?? 0 },
             { label: "Tempo médio por equipe", value: formatYearsAverage(mobility.tempo_medio_por_equipe) },
+          ]}
+        />
+        <CareerHistoryGroup
+          title="LESÕES"
+          rows={[
+            { label: "Leves", value: injuries.leves ?? 0 },
+            { label: "Moderadas", value: injuries.moderadas ?? 0 },
+            { label: "Graves", value: injuries.graves ?? 0 },
           ]}
         />
         <div className="border-t border-white/8 pt-3 md:col-span-2">
@@ -678,8 +687,8 @@ export function SummarySection({ SectionComponent, detail, moment }) {
                 value={resumo.posicao_campeonato ? `P${resumo.posicao_campeonato}` : "-"}
               />
               <DetailRow label="Status de forma" value={moment.label} valueClassName={moment.color} />
-              <DetailRow label="Media recente" value={formatAverage(resumo.media_recente)} />
-              <DetailRow label="Tendencia" value={resumo.tendencia || form.tendencia || "->"} />
+              <DetailRow label="Média recente" value={formatAverage(resumo.media_recente)} />
+              <DetailRow label="Tendência" value={resumo.tendencia || form.tendencia || "->"} />
             </div>
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               <StatCard label="Vitórias" value={resumo.vitorias ?? stats.vitorias} />
@@ -774,7 +783,7 @@ export function PerformanceReadSection({ SectionComponent, detail }) {
 }
 
 export function HistorySection({ SectionComponent, detail, trajetoria }) {
-  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title="Historico de Carreira" />;
+  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title="Histórico de Carreira" />;
 
   const ranks = detail.rankings_carreira ?? {};
 
@@ -856,7 +865,7 @@ export function RivalsSection({ SectionComponent, detail }) {
               <ProgressRow label="Recente" value={primary.atividade_recente} color="#f85149" />
             </div>
           ) : (
-            <p className="text-sm text-[#7d8590]">Ainda nao ha rival principal para comparar.</p>
+            <p className="text-sm text-[#7d8590]">Ainda não há rival principal para comparar.</p>
           )}
         </div>
       </div>
