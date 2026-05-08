@@ -227,7 +227,8 @@ fn build_current_driver_entry(
         category.as_deref(),
         &extra_historical_categories,
     );
-    let debut_year = active_driver_debut_year(conn, driver)?;
+    let debut_year = active_driver_debut_year(conn, driver, current_year)?;
+    let career_years = active_driver_career_years(driver, debut_year, current_year);
 
     let row = GlobalDriverRankingRow {
         id: driver.id.clone(),
@@ -245,7 +246,7 @@ fn build_current_driver_entry(
         categorias_historicas: historical_categories,
         salario_anual: contract.as_ref().map(|value| value.salario_anual),
         ano_inicio_carreira: Some(debut_year),
-        anos_carreira: years_since(debut_year, current_year),
+        anos_carreira: career_years,
         temporada_aposentadoria: None,
         anos_aposentado: None,
         historical_index: round_one(historical_index),
@@ -273,6 +274,14 @@ fn build_current_driver_entry(
         row,
         stats_by_category,
     })
+}
+
+fn active_driver_career_years(driver: &Driver, debut_year: i32, current_year: i32) -> Option<i32> {
+    if driver.stats_carreira.corridas == 0 && driver.stats_carreira.temporadas == 0 {
+        return Some(0);
+    }
+
+    years_since(debut_year, current_year)
 }
 
 fn build_retired_driver_entry(retired: RetiredDriverSnapshot, current_year: i32) -> RankingEntry {
@@ -477,10 +486,18 @@ fn regular_category(category: Option<&str>) -> Option<String> {
     }
 }
 
-fn active_driver_debut_year(conn: &Connection, driver: &Driver) -> Result<i32, String> {
+fn active_driver_debut_year(
+    conn: &Connection,
+    driver: &Driver,
+    current_year: i32,
+) -> Result<i32, String> {
     let fallback_year = driver.ano_inicio_carreira as i32;
     if !table_exists(conn, "driver_season_archive")? {
-        return Ok(fallback_year);
+        return Ok(inferred_active_driver_debut_year(
+            driver,
+            current_year,
+            fallback_year,
+        ));
     }
 
     let mut stmt = conn
@@ -515,12 +532,29 @@ fn active_driver_debut_year(conn: &Connection, driver: &Driver) -> Result<i32, S
         archive_year = Some(archive_year.map_or(year, |current| current.min(year)));
     }
 
-    Ok(match (archive_year, fallback_year > 0) {
-        (Some(year), true) => fallback_year.min(year),
-        (Some(year), false) => year,
-        (None, true) => fallback_year,
-        (None, false) => 0,
+    Ok(match archive_year {
+        Some(year) => year,
+        None => inferred_active_driver_debut_year(driver, current_year, fallback_year),
     })
+}
+
+fn inferred_active_driver_debut_year(
+    driver: &Driver,
+    current_year: i32,
+    fallback_year: i32,
+) -> i32 {
+    if current_year > 0 {
+        let career_seasons = driver.stats_carreira.temporadas as i32;
+        if career_seasons > 0 {
+            return (current_year - career_seasons + 1).max(1);
+        }
+        if driver.stats_carreira.corridas > 0 {
+            return fallback_year.max(1);
+        }
+        return current_year;
+    }
+
+    fallback_year.max(0)
 }
 
 fn has_competitive_archive_participation(snapshot: &Value) -> bool {
@@ -763,10 +797,15 @@ fn inferred_ladder_for_category(driver_id: &str, category: &str) -> Vec<String> 
             ladder.push("gt4".to_string());
             ladder
         }
-        "endurance" => {
+        "lmp2" => {
             let mut ladder = inferred_gt4_foundation(driver_id);
             ladder.push("gt4".to_string());
             ladder.push("gt3".to_string());
+            ladder
+        }
+        "endurance" => {
+            let mut ladder = inferred_ladder_for_category(driver_id, "lmp2");
+            ladder.push("lmp2".to_string());
             ladder
         }
         other => get_feeder_categories(other)
@@ -831,7 +870,8 @@ fn category_multiplier(category: &str) -> f64 {
         "gt4" => 1.08,
         "production_challenger" => 1.12,
         "gt3" => 1.22,
-        "endurance" => 1.25,
+        "lmp2" => 1.28,
+        "endurance" => 1.30,
         _ => 1.0,
     }
 }
@@ -2419,6 +2459,39 @@ mod tests {
 
         assert_eq!(row.ano_inicio_carreira, Some(2022));
         assert_eq!(row.anos_carreira, Some(4));
+    }
+
+    #[test]
+    fn active_driver_debut_year_uses_current_year_for_new_debutants() {
+        let conn = setup_conn();
+        conn.execute("DELETE FROM seasons", [])
+            .expect("clear seeded seasons");
+        insert_season(&conn, &Season::new("S_TEST".to_string(), 1, 2024))
+            .expect("insert active season");
+
+        let mut driver =
+            driver_with_stats("D_NEW_ROOKIE", "Novo Rookie", Some("mazda_rookie"), 0, 0, 0);
+        driver.ano_inicio_carreira = 2020;
+        driver.stats_carreira.corridas = 0;
+        driver.stats_carreira.temporadas = 0;
+        insert_driver(&conn, &driver).expect("insert driver");
+        insert_active_regular_contract(
+            &conn,
+            "C_NEW_ROOKIE",
+            "D_NEW_ROOKIE",
+            "Novo Rookie",
+            "mazda_rookie",
+        );
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let row = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_NEW_ROOKIE")
+            .unwrap();
+
+        assert_eq!(row.ano_inicio_carreira, Some(2024));
+        assert_eq!(row.anos_carreira, Some(0));
     }
 
     #[test]

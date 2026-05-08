@@ -61,6 +61,12 @@ pub fn category_finance_scale(category: &str) -> CategoryFinanceScale {
             operating_cost_min: 4_000_000.0,
             operating_cost_max: 12_000_000.0,
         },
+        "lmp2" => CategoryFinanceScale {
+            cash_min: 10_000_000.0,
+            cash_max: 45_000_000.0,
+            operating_cost_min: 7_000_000.0,
+            operating_cost_max: 20_000_000.0,
+        },
         "endurance" => CategoryFinanceScale {
             cash_min: 12_000_000.0,
             cash_max: 60_000_000.0,

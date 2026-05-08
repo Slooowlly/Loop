@@ -156,36 +156,34 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
 
   return (
     <div className="space-y-5">
-      <GlassCard hover={false} className="rounded-[30px]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Ranking mundial</p>
-            <h2 className="mt-2 text-3xl font-semibold text-text-primary">Panorama global de pilotos</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary transition-glass hover:text-text-primary"
-          >
-            Voltar para Classificacao
-          </button>
+      <header className="flex flex-wrap items-start justify-between gap-4 px-1">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Ranking mundial</p>
+          <h2 className="mt-2 text-3xl font-semibold text-text-primary">Panorama global de pilotos</h2>
         </div>
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10 hover:text-text-primary"
+        >
+          Voltar para Classificacao
+        </button>
+      </header>
 
-        {focusedDriver ? (
-          <div className="mt-6 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-            <FocusedDriverCard
-              row={focusedDriver}
-              ranks={focusedDriverRanks}
-              userRow={userDriver}
-              userRanks={userDriverRanks}
-            />
-            <ChampionshipChampionPanel
-              sections={championshipChampionSections}
-              onOpenChampionship={setChampionshipModal}
-            />
-          </div>
-        ) : null}
-      </GlassCard>
+      {focusedDriver ? (
+        <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.22fr)_minmax(330px,0.78fr)]" aria-label="Resumo do ranking mundial">
+          <FocusedDriverCard
+            row={focusedDriver}
+            ranks={focusedDriverRanks}
+            userRow={userDriver}
+            userRanks={userDriverRanks}
+          />
+          <ChampionshipChampionPanel
+            sections={championshipChampionSections}
+            onOpenChampionship={setChampionshipModal}
+          />
+        </section>
+      ) : null}
 
       {error ? (
         <div className="rounded-2xl border border-status-red/30 bg-status-red/10 px-4 py-3 text-sm text-status-red">
@@ -202,12 +200,14 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
           <p className="text-sm text-text-secondary">{`${filteredRows.length} de ${rows.length} pilotos`}</p>
         </div>
 
-        <FilterBar
-          filters={filters}
-          options={filterOptions}
-          onChange={updateFilter}
-          onReset={() => setFilters(DEFAULT_FILTERS)}
-        />
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <FilterBar
+            filters={filters}
+            options={filterOptions}
+            onChange={updateFilter}
+            onReset={() => setFilters(DEFAULT_FILTERS)}
+          />
+        </div>
 
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-full text-left text-sm" aria-label="Ranking mundial de pilotos">
@@ -316,42 +316,39 @@ function GlobalDriversLoading({ onBack }) {
 
 function FocusedDriverCard({ row, ranks, userRow, userRanks }) {
   const metrics = [
+    { label: "Indice", value: formatIndex(row.historical_index), rank: row.historical_rank },
     { label: "Corridas", value: row.corridas, rank: ranks.races },
     { label: "Vitorias", value: row.vitorias, rank: ranks.wins },
-    { label: "Titulos", value: row.titulos, rank: ranks.titles },
     { label: "Podios", value: row.podios, rank: ranks.podiums },
     { label: "Carreira", value: formatYears(row.anos_carreira), rank: ranks.careerYears },
   ];
 
   return (
-    <div className="rounded-[24px] border border-accent-primary/30 bg-accent-primary/10 p-5">
-      <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">
-        Piloto em foco: {row.nome}
-      </p>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Indice Historico</p>
-          <p className="mt-1 font-mono text-3xl font-semibold text-text-primary">
-            {formatIndex(row.historical_index)}
-          </p>
+    <GlassCard hover={false} as="article" className="flex h-full flex-col overflow-hidden rounded-[28px] border-accent-primary/25 p-0">
+      <div className="flex flex-1 flex-col p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Piloto em foco</p>
+            <h3 className="mt-2 text-2xl font-semibold text-text-primary">{row.nome}</h3>
+          </div>
+          <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 font-mono text-xs text-accent-primary">
+            Rank #{row.historical_rank}
+          </span>
         </div>
-        <span className="mb-1 rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 font-mono text-xs text-accent-primary">
-          Rank #{row.historical_rank}
-        </span>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <span className={statusClass(row)}>{row.status}</span>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-text-secondary">
-          {teamCategoryLabel(row)}
-        </span>
-      </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-5 lg:grid-cols-3 xl:grid-cols-5">
-        {metrics.map((metric) => (
-          <FocusStat key={metric.label} {...metric} />
-        ))}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className={statusClass(row)}>{row.status}</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-text-secondary">
+            {teamCategoryLabel(row)}
+          </span>
+        </div>
+        <div className="mt-5 grid flex-1 content-end gap-2 sm:grid-cols-5">
+          {metrics.map((metric) => (
+            <FocusStat key={metric.label} {...metric} />
+          ))}
+        </div>
       </div>
       {userRow ? <UserDriverFocusCard row={userRow} ranks={userRanks} /> : null}
-    </div>
+    </GlassCard>
   );
 }
 
@@ -364,13 +361,12 @@ function UserDriverFocusCard({ row, ranks }) {
   ];
 
   return (
-    <div className="mt-4 rounded-[20px] border border-white/10 bg-black/15 p-4">
+    <section className="border-t border-white/10 bg-black/15 px-5 py-4 sm:px-6" aria-label="Seu piloto no ranking mundial">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-            Seu piloto: {row.nome}
-          </p>
-          <p className="mt-2 text-sm text-text-secondary">{teamCategoryLabel(row)}</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Seu piloto</p>
+          <h4 className="mt-2 text-lg font-semibold text-text-primary">{row.nome}</h4>
+          <p className="mt-1 text-sm text-text-secondary">{teamCategoryLabel(row)}</p>
         </div>
         <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 font-mono text-xs text-accent-primary">
           Rank #{row.historical_rank}
@@ -378,7 +374,7 @@ function UserDriverFocusCard({ row, ranks }) {
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
         {stats.map((stat) => (
-          <div key={stat.label} className="min-h-14 rounded-2xl border border-white/8 bg-white/[0.035] px-3 py-2">
+          <div key={stat.label} className="min-h-14 border-l border-white/10 pl-3">
             <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">{stat.label}</p>
             <p className="mt-1 font-mono text-sm font-semibold text-text-primary">{stat.value}</p>
           </div>
@@ -388,13 +384,13 @@ function UserDriverFocusCard({ row, ranks }) {
         Top #{row.historical_rank || "--"} geral
         {ranks.wins ? ` / Top #${ranks.wins} em vitorias` : ""}
       </p>
-    </div>
+    </section>
   );
 }
 
 function FocusStat({ label, value, rank }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/10 p-3">
+    <div className="min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3">
       <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</p>
       <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value ?? 0}</p>
       <p className="mt-1 text-xs text-accent-primary">Top #{rank || "--"}</p>
@@ -406,18 +402,19 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
   const totalGroups = sections.reduce((total, section) => total + section.groups.length, 0);
 
   return (
-    <div className="rounded-[24px] border border-white/10 bg-white/[0.035] p-5">
-      <div className="flex items-start justify-between gap-3">
+    <GlassCard hover={false} as="aside" className="flex max-h-[430px] flex-col overflow-hidden rounded-[28px] p-5 sm:p-6">
+      <div className="flex shrink-0 items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Campeoes por campeonato</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Campeoes</p>
+          <h3 className="mt-2 text-xl font-semibold text-text-primary">Campeoes por campeonato</h3>
           <p className="mt-2 text-sm text-text-secondary">Categorias com historico de campeoes no ranking.</p>
         </div>
         <span className="rounded-full border border-white/10 px-3 py-1 font-mono text-xs text-text-muted">
-          {totalGroups}
+          {totalGroups} grupos
         </span>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="scroll-area mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {totalGroups > 0 ? (
           sections.map((section) => (
             <div key={section.key} className="space-y-2">
@@ -437,11 +434,16 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
                     type="button"
                     aria-label={`Ver campeoes de ${group.label}`}
                     onClick={() => onOpenChampionship(group)}
-                    className="rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-left transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10"
+                    className="flex min-h-20 items-center justify-between gap-4 rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-left transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10"
                   >
-                    <span className="block text-sm font-semibold text-text-primary">{group.label}</span>
-                    <span className="mt-1 block font-mono text-xs text-accent-secondary">
-                      {group.championCount} {group.championCount === 1 ? "campeao" : "campeoes"}
+                    <span>
+                      <span className="block text-sm font-semibold text-text-primary">{group.label}</span>
+                      <span className="mt-1 block text-xs text-text-muted">
+                        {group.champions.slice(0, 2).map((champion) => champion.name).join(", ") || "Sem nomes"}
+                      </span>
+                    </span>
+                    <span className="rounded-full border border-accent-secondary/25 bg-accent-secondary/10 px-3 py-1 font-mono text-xs text-accent-secondary">
+                      {group.championCount}
                     </span>
                   </button>
                 ))}
@@ -454,13 +456,13 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
           </p>
         )}
       </div>
-    </div>
+    </GlassCard>
   );
 }
 
 function FilterBar({ filters, options, onChange, onReset }) {
   return (
-    <div className="mt-5 grid gap-3 rounded-[20px] border border-white/8 bg-white/[0.03] p-4 md:grid-cols-2 xl:grid-cols-7">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
       <FilterSelect
         label="Status"
         value={filters.status}
@@ -1166,7 +1168,7 @@ function formatIndex(value) {
 }
 
 function formatYears(value) {
-  return value == null || value <= 0 ? "-" : `${value} anos`;
+  return value == null || value < 0 ? "-" : `${value} anos`;
 }
 
 function formatMoney(value) {

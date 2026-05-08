@@ -273,14 +273,15 @@ describe("GlobalDriversTab", () => {
   it("renders the compact selected driver focus beside championship champion summaries", async () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 
-    const focusLabel = await screen.findByText(/Piloto em foco: Piloto Selecionado/i);
+    const focusHeading = await screen.findByRole("heading", { name: "Piloto Selecionado" });
     expect(invoke).toHaveBeenCalledWith("get_global_driver_rankings", {
       careerId: "career-1",
       selectedDriverId: "D001",
     });
     const table = screen.getByRole("table", { name: /Ranking mundial de pilotos/i });
-    const focusCard = focusLabel.parentElement;
-    expect(focusLabel.closest(".mt-6")).toHaveClass("lg:grid-cols-[0.95fr_1.05fr]");
+    const focusCard = focusHeading.closest("article");
+    expect(screen.getByLabelText(/Resumo do ranking mundial/i)).toHaveClass("lg:grid-cols-[minmax(0,1.22fr)_minmax(330px,0.78fr)]");
+    expect(within(focusCard).getByText("Piloto em foco")).toBeInTheDocument();
     expect(within(focusCard).getByText("510,2")).toBeInTheDocument();
     expect(within(focusCard).getByText(/Rank #2/i)).toBeInTheDocument();
     expect(within(focusCard).getByText("Corridas")).toBeInTheDocument();
@@ -290,25 +291,26 @@ describe("GlobalDriversTab", () => {
     expect(within(focusCard).getAllByText("Titulos").length).toBeGreaterThan(0);
     expect(within(focusCard).getByText("Podios")).toBeInTheDocument();
     expect(within(focusCard).getAllByText("Carreira").length).toBeGreaterThan(0);
-    expect(within(focusCard).getByText(/Seu piloto: Piloto Usuario/i)).toBeInTheDocument();
+    expect(within(focusCard).getByText("Seu piloto")).toBeInTheDocument();
+    expect(within(focusCard).getByRole("heading", { name: "Piloto Usuario" })).toBeInTheDocument();
     expect(within(focusCard).getByText(/Rank #4/i)).toBeInTheDocument();
     expect(within(focusCard).getByText("220,0")).toBeInTheDocument();
     expect(screen.getByText(/Campeoes por campeonato/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ver campeoes de GT3/i })).toHaveTextContent("GT3");
-    expect(screen.getByRole("button", { name: /Ver campeoes de GT3/i })).toHaveTextContent("1 campeao");
+    expect(screen.getByRole("button", { name: /Ver campeoes de GT3/i })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: /Ver campeoes de Production\/Mazda/i })).toHaveTextContent("Production/Mazda");
     expect(screen.getByText(/Eventos especiais/i)).toBeInTheDocument();
     const championshipButtons = screen.getAllByRole("button", { name: /Ver campeoes de/i });
     expect(championshipButtons.map((button) => button.textContent)).toEqual([
-      "GT31 campeao",
-      "GT41 campeao",
-      "Mazda Rookie1 campeao",
-      "Production/Mazda1 campeao",
+      "GT3Lenda Aposentada1",
+      "GT4Piloto Selecionado1",
+      "Mazda RookiePiloto Livre1",
+      "Production/MazdaLenda Aposentada1",
     ]);
     expect(within(table).getByText("Piloto Selecionado").closest("tr")).toHaveClass("bg-accent-primary/12");
     expect(within(table).getByText("Piloto Livre").closest("tr")).toHaveClass("opacity-60");
     expect(within(table).getByText("Lenda Aposentada").closest("tr")).toHaveClass("opacity-50");
-    expect(screen.getAllByText("Lenda Aposentada")).toHaveLength(1);
+    expect(within(table).getAllByText("Lenda Aposentada")).toHaveLength(1);
     expect(within(table).getByText("Lesionado")).toBeInTheDocument();
     expect(within(table).queryByText(/Lesionado: Moderada/i)).not.toBeInTheDocument();
   });
@@ -324,11 +326,12 @@ describe("GlobalDriversTab", () => {
 
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 
-    const focusLabel = await screen.findByText(/Piloto em foco: Piloto Selecionado/i);
-    const focusCard = focusLabel.parentElement;
+    const focusHeading = await screen.findByRole("heading", { name: "Piloto Selecionado" });
+    const focusCard = focusHeading.closest("article");
     const table = screen.getByRole("table", { name: /Ranking mundial de pilotos/i });
 
-    expect(within(focusCard).getByText(/Seu piloto: Piloto Usuario/i)).toBeInTheDocument();
+    expect(within(focusCard).getByText("Seu piloto")).toBeInTheDocument();
+    expect(within(focusCard).getByRole("heading", { name: "Piloto Usuario" })).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Usuario")).not.toBeInTheDocument();
   });
 
@@ -441,12 +444,13 @@ describe("GlobalDriversTab", () => {
   it("changes the focused driver when a ranking row is clicked and keeps player emphasis", async () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 
-    expect(await screen.findByText(/Piloto em foco: Piloto Selecionado/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Piloto Livre"));
-
-    expect(screen.getByText(/Piloto em foco: Piloto Livre/i)).toBeInTheDocument();
-    expect(screen.getByText(/Seu piloto: Piloto Usuario/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Piloto Selecionado" })).toBeInTheDocument();
     const table = screen.getByRole("table", { name: /Ranking mundial de pilotos/i });
+    fireEvent.click(within(table).getByText("Piloto Livre"));
+
+    expect(screen.getByRole("heading", { name: "Piloto Livre" })).toBeInTheDocument();
+    expect(screen.getByText("Seu piloto")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Piloto Usuario" })).toBeInTheDocument();
     expect(within(table).getByText("Piloto Usuario").closest("tr")).toHaveClass("border-l-accent-primary/70");
     expect(screen.getByText(/Voce/i)).toBeInTheDocument();
   });

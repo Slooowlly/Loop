@@ -1546,6 +1546,33 @@ fn career_debut_year_from_archive(seasons: &[CareerSeasonArchiveRow], fallback_y
     }
 }
 
+fn inferred_debut_year_from_driver(driver: &Driver, current_year: i32) -> i32 {
+    if current_year <= 0 {
+        return driver.ano_inicio_carreira as i32;
+    }
+
+    let career_seasons = driver.stats_carreira.temporadas as i32;
+    if career_seasons > 0 {
+        (current_year - career_seasons + 1).max(1)
+    } else if driver.stats_carreira.corridas > 0 {
+        (driver.ano_inicio_carreira as i32).max(1)
+    } else {
+        current_year
+    }
+}
+
+fn career_years_from_debut(driver: &Driver, current_year: i32, debut_year: i32) -> i32 {
+    if current_year <= 0 || debut_year <= 0 {
+        return 0;
+    }
+
+    if driver.stats_carreira.corridas == 0 && driver.stats_carreira.temporadas == 0 {
+        return 0;
+    }
+
+    (current_year - debut_year + 1).max(0)
+}
+
 fn format_year_period(start: i32, end: i32) -> String {
     if start == end {
         start.to_string()
@@ -1797,8 +1824,12 @@ fn build_driver_career_path_block(
     current_year: i32,
 ) -> Result<DriverCareerPathBlock, String> {
     let season_archive = load_career_season_archive_rows(conn, &driver.id)?;
-    let debut_year =
-        career_debut_year_from_archive(&season_archive, driver.ano_inicio_carreira as i32);
+    let archive_debut_year = career_debut_year_from_archive(&season_archive, 0);
+    let debut_year = if archive_debut_year > 0 {
+        archive_debut_year
+    } else {
+        inferred_debut_year_from_driver(driver, current_year)
+    };
     let mut marcos = vec![CareerMilestone {
         tipo: "estreia".to_string(),
         titulo: "Estreia".to_string(),
@@ -1822,7 +1853,7 @@ fn build_driver_career_path_block(
     }
 
     let mut historico = build_career_history_block(conn, &driver.id)?;
-    historico.presenca.tempo_carreira = (current_year - debut_year + 1).max(1);
+    historico.presenca.tempo_carreira = career_years_from_debut(driver, current_year, debut_year);
 
     Ok(DriverCareerPathBlock {
         ano_estreia: debut_year,
@@ -1845,9 +1876,9 @@ fn build_driver_career_path_block(
 mod tests {
     use super::{
         build_archived_recent_results_for_driver, build_career_history_block,
-        build_category_timeline, build_current_summary_block, build_driver_form_block,
-        career_debut_year_from_archive, fallback_injury_display_name, CareerSeasonArchiveRow,
-        HistoricalRaceResult,
+        build_category_timeline, build_current_summary_block, build_driver_career_path_block,
+        build_driver_form_block, career_debut_year_from_archive, fallback_injury_display_name,
+        CareerSeasonArchiveRow, HistoricalRaceResult,
     };
     use crate::models::driver::Driver;
     use crate::models::enums::InjuryType;
@@ -2134,6 +2165,110 @@ mod tests {
         ];
 
         assert_eq!(career_debut_year_from_archive(&seasons, 2024), 2022);
+    }
+
+    #[test]
+    fn career_path_without_archive_uses_current_season_for_debutants() {
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE driver_season_archive (
+                piloto_id TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                ano INTEGER NOT NULL,
+                nome TEXT NOT NULL,
+                categoria TEXT NOT NULL DEFAULT '',
+                posicao_campeonato INTEGER,
+                pontos REAL,
+                snapshot_json TEXT NOT NULL
+            );
+            CREATE TABLE seasons (
+                id TEXT PRIMARY KEY,
+                numero INTEGER NOT NULL,
+                ano INTEGER NOT NULL
+            );
+            CREATE TABLE calendar (
+                id TEXT PRIMARY KEY,
+                temporada_id TEXT NOT NULL,
+                season_id TEXT,
+                rodada INTEGER NOT NULL,
+                categoria TEXT NOT NULL
+            );
+            CREATE TABLE race_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id TEXT NOT NULL,
+                piloto_id TEXT NOT NULL,
+                equipe_id TEXT NOT NULL,
+                posicao_final INTEGER NOT NULL,
+                dnf INTEGER NOT NULL DEFAULT 0,
+                pontos REAL NOT NULL DEFAULT 0.0
+            );
+            ",
+        )
+        .expect("history schema");
+
+        let mut rookie = sample_driver();
+        rookie.ano_inicio_carreira = 2020;
+        rookie.stats_carreira.corridas = 0;
+        rookie.stats_carreira.temporadas = 0;
+
+        let path =
+            build_driver_career_path_block(&conn, &rookie, None, None, Some("mazda_rookie"), 2024)
+                .expect("career path");
+
+        assert_eq!(path.ano_estreia, 2024);
+        assert_eq!(path.historico.presenca.tempo_carreira, 0);
+    }
+
+    #[test]
+    fn career_path_without_archive_uses_seeded_seasons_for_veterans() {
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE driver_season_archive (
+                piloto_id TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                ano INTEGER NOT NULL,
+                nome TEXT NOT NULL,
+                categoria TEXT NOT NULL DEFAULT '',
+                posicao_campeonato INTEGER,
+                pontos REAL,
+                snapshot_json TEXT NOT NULL
+            );
+            CREATE TABLE seasons (
+                id TEXT PRIMARY KEY,
+                numero INTEGER NOT NULL,
+                ano INTEGER NOT NULL
+            );
+            CREATE TABLE calendar (
+                id TEXT PRIMARY KEY,
+                temporada_id TEXT NOT NULL,
+                season_id TEXT,
+                rodada INTEGER NOT NULL,
+                categoria TEXT NOT NULL
+            );
+            CREATE TABLE race_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id TEXT NOT NULL,
+                piloto_id TEXT NOT NULL,
+                equipe_id TEXT NOT NULL,
+                posicao_final INTEGER NOT NULL,
+                dnf INTEGER NOT NULL DEFAULT 0,
+                pontos REAL NOT NULL DEFAULT 0.0
+            );
+            ",
+        )
+        .expect("history schema");
+
+        let mut veteran = sample_driver();
+        veteran.stats_carreira.temporadas = 3;
+        veteran.stats_carreira.corridas = 24;
+
+        let path = build_driver_career_path_block(&conn, &veteran, None, None, Some("gt4"), 2024)
+            .expect("career path");
+
+        assert_eq!(path.ano_estreia, 2022);
+        assert_eq!(path.historico.presenca.tempo_carreira, 3);
     }
 
     #[test]

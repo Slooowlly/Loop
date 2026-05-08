@@ -6,6 +6,7 @@ pub mod career_types;
 pub mod config;
 pub mod convocation;
 pub mod global_driver_rankings;
+pub mod global_team_history;
 pub mod historical_draft;
 pub mod news_helpers;
 pub mod news_tab;

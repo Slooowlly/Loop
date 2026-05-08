@@ -17,7 +17,7 @@ static TOYOTA_CATS: [&str; 3] = ["toyota_rookie", "toyota_amador", "production_c
 static BMW_M2_CATS: [&str; 2] = ["bmw_m2", "production_challenger"];
 static GT4_CATS: [&str; 2] = ["gt4", "endurance"];
 static GT3_CATS: [&str; 2] = ["gt3", "endurance"];
-static LMP2_CATS: [&str; 1] = ["endurance"];
+static LMP2_CATS: [&str; 2] = ["lmp2", "endurance"];
 
 static CARS: &[CarInfo] = &[
     CarInfo {

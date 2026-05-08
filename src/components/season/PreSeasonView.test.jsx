@@ -433,6 +433,7 @@ describe("PreSeasonView", () => {
     };
 
     const categoryTeams = {
+      lmp2: "LMP2 Grid",
       gt3: "GT3 Grid",
       gt4: "GT4 Grid",
       bmw_m2: "BMW Grid",
@@ -479,6 +480,7 @@ describe("PreSeasonView", () => {
       .closest("section");
 
     expect(orderedHeaders).toEqual([
+      "lmp2",
       "gt3",
       "gt4",
       "bmw_m2",
@@ -487,6 +489,10 @@ describe("PreSeasonView", () => {
       "toyota_rookie",
       "mazda_rookie",
     ]);
+    expect(within(screen.getByTestId("preseason-category-header-lmp2")).getByAltText("LMP2 Prototype Championship")).toHaveAttribute(
+      "src",
+      "/utilities/categorias/recortadas/LMP2.png",
+    );
     expect(toyotaRookieSection).toHaveClass("mt-14");
   });
 
@@ -499,6 +505,7 @@ describe("PreSeasonView", () => {
     };
 
     const categoryTeams = {
+      lmp2: "LMP2 Grid",
       gt3: "GT3 Grid",
       gt4: "GT4 Grid",
       bmw_m2: "BMW Grid",
@@ -539,6 +546,7 @@ describe("PreSeasonView", () => {
       .getByTestId("preseason-category-logo");
 
     expect(await getLogo("toyota_amador")).toHaveStyle({ transform: "translateX(0.75%)" });
+    expect(await getLogo("lmp2")).toHaveAttribute("src", "/utilities/categorias/recortadas/LMP2.png");
     const mazdaCupLogo = await getLogo("mazda_amador");
     const bmwLogo = await getLogo("bmw_m2");
 

@@ -3,7 +3,8 @@ use rand::Rng;
 use crate::constants::categories::get_category_config;
 use crate::finance::salary::calculate_offer_salary_from_money;
 use crate::market::proposals::{
-    is_real_career_debut_category, MarketProposal, ProposalStatus, Vacancy,
+    is_real_career_debut_category, is_rookie_market_candidate, MarketProposal, ProposalStatus,
+    Vacancy,
 };
 use crate::market::visibility::{
     derive_market_visibility_profile, MarketVisibilityProfile, MarketVisibilityTier,
@@ -45,8 +46,7 @@ pub fn generate_team_proposals(
                 && !available.driver.is_jogador
                 && available.category_tier.abs_diff(vacancy.category_tier) <= 1
                 && license_ok
-                && (is_real_career_debut_category(&vacancy.categoria)
-                    || available.driver.stats_carreira.corridas > 0)
+                && category_experience_ok(vacancy, available)
         })
         .collect();
 
@@ -141,6 +141,28 @@ fn proposal_attention_weight(profile: &MarketVisibilityProfile) -> f64 {
     profile.marketability_bias
 }
 
+fn category_experience_ok(vacancy: &Vacancy, available: &AvailableDriver) -> bool {
+    if is_real_career_debut_category(&vacancy.categoria) {
+        let candidate_category = if available.categoria_atual.trim().is_empty() {
+            available
+                .driver
+                .categoria_atual
+                .as_deref()
+                .unwrap_or_default()
+        } else {
+            available.categoria_atual.as_str()
+        };
+        return is_rookie_market_candidate(
+            &vacancy.categoria,
+            candidate_category,
+            available.driver.stats_carreira.corridas,
+            available.driver.stats_carreira.temporadas,
+        );
+    }
+
+    available.driver.stats_carreira.corridas > 0
+}
+
 fn candidate_score(available: &AvailableDriver) -> f64 {
     let age_bonus = age_market_bonus(available.driver.idade);
 
@@ -226,6 +248,42 @@ mod tests {
     }
 
     #[test]
+    fn test_rookie_vacancy_prefers_entry_level_candidates_over_amateur_veterans() {
+        let vacancy = sample_vacancy(0);
+        let mut debutant = sample_available_driver("P001", "", 0, 6.0, 56.0);
+        debutant.driver.stats_carreira.corridas = 0;
+        debutant.driver.stats_carreira.temporadas = 0;
+        debutant.categoria_atual = String::new();
+
+        let mut retrying_rookie = sample_available_driver("P002", "mazda_rookie", 0, 5.0, 52.0);
+        retrying_rookie.driver.stats_carreira.corridas = 8;
+        retrying_rookie.driver.stats_carreira.temporadas = 1;
+
+        let mut amateur_veteran = sample_available_driver("P003", "mazda_amador", 1, 8.0, 90.0);
+        amateur_veteran.driver.stats_carreira.corridas = 30;
+        amateur_veteran.driver.stats_carreira.temporadas = 3;
+
+        let mut rng = StdRng::seed_from_u64(13);
+        let proposals = generate_team_proposals(
+            &vacancy,
+            &[amateur_veteran, retrying_rookie, debutant],
+            2,
+            &mut rng,
+        );
+
+        let proposed_ids = proposals
+            .iter()
+            .map(|proposal| proposal.piloto_id.as_str())
+            .collect::<Vec<_>>();
+        assert!(proposed_ids.contains(&"P001"));
+        assert!(proposed_ids.contains(&"P002"));
+        assert!(
+            !proposed_ids.contains(&"P003"),
+            "vaga rookie nao deve chamar veterano vindo da categoria amadora: {proposed_ids:?}"
+        );
+    }
+
+    #[test]
     fn test_proposals_respect_tier_limit() {
         let vacancy = sample_vacancy(2);
         let available = vec![
@@ -304,6 +362,7 @@ mod tests {
             2 => "bmw_m2",
             3 => "gt4",
             4 => "gt3",
+            5 => "lmp2",
             _ => "endurance",
         };
         let finance_scale = category_finance_scale(categoria);

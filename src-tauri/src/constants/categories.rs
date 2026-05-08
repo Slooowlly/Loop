@@ -73,7 +73,7 @@ static ENDURANCE_CLASSES: [MultiClassInfo; 3] = [
 
 static EMPTY_CLASSES: [MultiClassInfo; 0] = [];
 
-pub static CATEGORIES: [CategoryConfig; 9] = [
+pub static CATEGORIES: [CategoryConfig; 10] = [
     CategoryConfig {
         id: "mazda_rookie",
         nome: "Mazda MX-5 Rookie Cup",
@@ -227,19 +227,38 @@ pub static CATEGORIES: [CategoryConfig; 9] = [
         classes: &EMPTY_CLASSES,
     },
     CategoryConfig {
+        id: "lmp2",
+        nome: "LMP2 Prototype Championship",
+        nome_curto: "LMP2",
+        tier: 5,
+        nivel: "Elite",
+        num_equipes: 5,
+        pilotos_por_equipe: 2,
+        grid_total: 10,
+        corridas_por_temporada: 10,
+        duracao_corrida_min: 60,
+        monomarca: false,
+        multi_classe: false,
+        licenca_necessaria: Some(4),
+        usa_pistas_gratuitas: false,
+        pistas_fixas: 4,
+        pistas_variaveis: 6,
+        classes: &EMPTY_CLASSES,
+    },
+    CategoryConfig {
         id: "endurance",
         nome: "Endurance Championship",
         nome_curto: "Endurance",
-        tier: 5,
+        tier: 6,
         nivel: "Especial",
-        num_equipes: 17,
+        num_equipes: 12,
         pilotos_por_equipe: 2,
-        grid_total: 34,
+        grid_total: 24,
         corridas_por_temporada: 6,
         duracao_corrida_min: 0,
         monomarca: false,
         multi_classe: true,
-        licenca_necessaria: Some(3),
+        licenca_necessaria: Some(4),
         usa_pistas_gratuitas: false,
         pistas_fixas: 2,
         pistas_variaveis: 4,
@@ -290,7 +309,8 @@ pub fn get_feeder_categories(id: &str) -> Vec<&'static str> {
             "toyota_amador",
         ],
         "gt3" => vec!["gt4"],
-        "endurance" => vec!["gt3"],
+        "lmp2" => vec!["gt3"],
+        "endurance" => vec!["lmp2"],
         _ => vec![],
     }
 }
@@ -308,7 +328,8 @@ pub fn get_target_categories(id: &str) -> Vec<&'static str> {
         "bmw_m2" => vec!["gt4"],
         "production_challenger" => vec!["gt4"],
         "gt4" => vec!["gt3"],
-        "gt3" => vec!["endurance"],
+        "gt3" => vec!["lmp2"],
+        "lmp2" => vec!["endurance"],
         _ => vec![],
     }
 }
@@ -363,13 +384,34 @@ mod tests {
 
     #[test]
     fn test_all_categories_count() {
-        assert_eq!(get_all_categories().len(), 9);
+        assert_eq!(get_all_categories().len(), 10);
+    }
+
+    #[test]
+    fn test_lmp2_is_regular_category_between_gt3_and_endurance() {
+        let gt3_config = get_category_config("gt3").expect("gt3 should exist");
+        let config = get_category_config("lmp2").expect("lmp2 should exist");
+        assert_eq!(gt3_config.licenca_necessaria, Some(3));
+        assert_eq!(config.nome_curto, "LMP2");
+        assert_eq!(config.tier, 5);
+        assert_eq!(config.nivel, "Elite");
+        assert!(!config.multi_classe);
+        assert_eq!(config.classes.len(), 0);
+        assert_eq!(config.licenca_necessaria, Some(4));
+        let endurance = get_category_config("endurance").expect("endurance should exist");
+        assert!(endurance
+            .classes
+            .iter()
+            .any(|class| class.class_name == "lmp2" && class.car_categoria == "lmp2"));
+        assert_eq!(get_target_categories("gt3"), vec!["lmp2"]);
+        assert_eq!(get_feeder_categories("endurance"), vec!["lmp2"]);
     }
 
     #[test]
     fn test_is_especial() {
         assert!(is_especial("production_challenger"));
         assert!(is_especial("endurance"));
+        assert!(!is_especial("lmp2"));
         assert!(!is_especial("gt3"));
         assert!(!is_especial("mazda_rookie"));
     }

@@ -95,7 +95,7 @@ struct RankedEligibleCandidate {
 }
 
 const VISIBLE_PRODUCTION_ORIGINS: &[&str] = &["mazda_amador", "toyota_amador", "bmw_m2"];
-const VISIBLE_ENDURANCE_ORIGINS: &[&str] = &["gt4", "gt3"];
+const VISIBLE_ENDURANCE_ORIGINS: &[&str] = &["gt4", "gt3", "lmp2"];
 const VISIBLE_SHORTLIST_LIMIT_PER_ORIGIN: usize = 12;
 
 pub fn initialize_special_window(

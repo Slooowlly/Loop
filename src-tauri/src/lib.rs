@@ -261,6 +261,7 @@ pub fn run() {
             commands::career_commands::get_driver,
             commands::career_commands::get_driver_detail,
             commands::career_commands::get_global_driver_rankings,
+            commands::career_commands::get_global_team_history,
             commands::career_commands::get_briefing_phrase_history,
             commands::career_commands::save_briefing_phrase_history,
             commands::career_commands::get_preseason_free_agents,

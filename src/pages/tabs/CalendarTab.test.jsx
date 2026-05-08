@@ -477,6 +477,41 @@ describe("CalendarTab", () => {
     expect(otherLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.png");
   });
 
+  it("shows the LMP2 logo inside calendar tooltip race details", async () => {
+    invoke.mockImplementation((command, payload) => {
+      if (command === "get_calendar_for_category" && payload?.category === "lmp2") {
+        return Promise.resolve([
+          {
+            id: "lmp2-race-1",
+            rodada: 1,
+            track_id: 554,
+            track_name: "Charlotte",
+            categoria: "lmp2",
+            season_phase: "BlocoRegular",
+            status: "Pendente",
+            display_date: "2026-03-12",
+            duracao_corrida_min: 60,
+            clima: "Clear",
+          },
+        ]);
+      }
+
+      return Promise.resolve([]);
+    });
+    mockState.playerTeam = { categoria: "lmp2" };
+
+    render(<CalendarTab activeTab="calendar" />);
+
+    const raceDay = await screen.findByTestId("calendar-day-2026-03-12");
+    fireEvent.mouseEnter(raceDay);
+
+    const tooltip = await screen.findByTestId("calendar-tooltip");
+    const lmp2Logo = within(tooltip).getByTestId("calendar-tooltip-category-logo");
+
+    expect(lmp2Logo).toHaveAttribute("alt", "LMP2 Prototype Championship");
+    expect(lmp2Logo).toHaveAttribute("src", "/utilities/categorias/LMP2.png");
+  });
+
   it("renders other-category races as compact ticket tooltips", async () => {
     render(<CalendarTab activeTab="calendar" />);
 

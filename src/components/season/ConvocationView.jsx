@@ -33,9 +33,10 @@ const CATEGORY_FILTERS = [
 ];
 
 const CATEGORY_ORDER = ["production_challenger", "endurance"];
-const CANDIDATE_GROUP_ORDER = ["gt3", "gt4", "bmw_m2", "toyota_amador", "mazda_amador"];
+const CANDIDATE_GROUP_ORDER = ["lmp2", "gt3", "gt4", "bmw_m2", "toyota_amador", "mazda_amador"];
 
 const CANDIDATE_GROUP_LABELS = {
+  lmp2: "LMP2 Prototype Championship",
   gt3: "GT3 Championship",
   gt4: "GT4 Series",
   bmw_m2: "BMW M2 Cup",
@@ -54,6 +55,7 @@ const CLASS_COLORS = {
 };
 
 const CANDIDATE_GROUP_COLORS = {
+  lmp2: "#d29922",
   gt3: "#f85149",
   gt4: "#58a6ff",
   bmw_m2: "#6B4FBB",
@@ -61,7 +63,7 @@ const CANDIDATE_GROUP_COLORS = {
   mazda_amador: "#C8102E",
 };
 
-const DAILY_LOG_CLASS_ORDER = ["gt3", "gt4", "lmp2", "bmw", "toyota", "mazda", "geral"];
+const DAILY_LOG_CLASS_ORDER = ["lmp2", "gt3", "gt4", "bmw", "toyota", "mazda", "geral"];
 const TEAM_CLASS_ORDER = {
   production_challenger: ["bmw", "toyota", "mazda"],
   endurance: ["lmp2", "gt3", "gt4"],

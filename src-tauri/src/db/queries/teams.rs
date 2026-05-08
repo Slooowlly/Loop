@@ -863,7 +863,7 @@ mod tests {
         let conn = setup_test_db().expect("test db");
         insert_team(&conn, &sample_team("gt3", "T001")).expect("insert team 1");
         insert_team(&conn, &sample_team("gt3", "T002")).expect("insert team 2");
-        insert_team(&conn, &sample_team("endurance", "T003")).expect("insert team 3");
+        insert_team(&conn, &sample_team("lmp2", "T003")).expect("insert team 3");
 
         let count = count_teams_by_category(&conn, "gt3").expect("count teams");
 

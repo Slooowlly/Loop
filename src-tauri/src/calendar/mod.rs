@@ -712,11 +712,12 @@ fn build_calendar_entry<R: Rng>(
         horario: SCHEDULE_HOURS[rng.gen_range(0..SCHEDULE_HOURS.len())].to_string(),
         week_of_year,
         season_phase,
-        display_date: display_date_for_category_week(
+        display_date: display_date_for_category_round(
             season_year,
             week_of_year,
             categoria,
             season_phase,
+            rodada,
         ),
         thematic_slot,
     }
@@ -754,6 +755,25 @@ pub(crate) fn display_date_for_category_week(
         week,
         resolve_calendar_weekday(category_id, season_phase),
     )
+}
+
+pub(crate) fn display_date_for_category_round(
+    year: i32,
+    week: i32,
+    category_id: &str,
+    season_phase: SeasonPhase,
+    rodada: i32,
+) -> String {
+    if season_phase == SeasonPhase::BlocoRegular && category_id == "lmp2" {
+        let weekday = if rodada % 2 == 1 {
+            Weekday::Sat
+        } else {
+            Weekday::Sun
+        };
+        return display_date_for_weekday(year, week, weekday);
+    }
+
+    display_date_for_category_week(year, week, category_id, season_phase)
 }
 
 fn resolve_calendar_weekday(category_id: &str, season_phase: SeasonPhase) -> Weekday {
@@ -1169,6 +1189,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_weekday_policy_lmp2_alternates_saturday_and_sunday() {
+        let mut rng = StdRng::seed_from_u64(144);
+        let calendar = generate_calendar_for_category_with_year("S001", 2028, "lmp2", &mut rng)
+            .expect("lmp2 calendar");
+
+        assert!(!calendar.is_empty());
+        for entry in &calendar {
+            let date = NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
+            let expected = if entry.rodada % 2 == 1 {
+                Weekday::Sat
+            } else {
+                Weekday::Sun
+            };
+            assert_eq!(
+                date.weekday(),
+                expected,
+                "lmp2 rodada {} gerou {}",
+                entry.rodada,
+                entry.display_date
+            );
+            assert!(
+                (2..=8).contains(&date.month()),
+                "lmp2 saiu da janela fevereiro-agosto em {}",
+                entry.display_date
+            );
+        }
+    }
+
+    #[test]
+    fn test_lmp2_calendar_uses_gt3_endurance_mixed_pool() {
+        let mut rng = StdRng::seed_from_u64(145);
+        let calendar =
+            generate_calendar_for_category("S001", "lmp2", &mut rng).expect("lmp2 calendar");
+        let mixed_pool: HashSet<u32> = generator::lmp2_curated_pool().iter().copied().collect();
+
+        assert_eq!(calendar.len(), 10);
+        assert!(calendar
+            .iter()
+            .all(|entry| mixed_pool.contains(&entry.track_id)));
     }
 
     #[test]

@@ -876,12 +876,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "United Autosports",
         nome_curto: "UNT",
-        categoria: "endurance",
+        categoria: "lmp2",
         cor_primaria: "#1f4fff",
         cor_secundaria: "#1f4fff",
         pais_sede: "🇬🇧 Reino Unido",
         marca: None,
-        classe: Some("lmp2"),
+        classe: None,
         car_performance_base: 16.0,
         budget_base: 90.0,
         reputacao_base: 88.0,
@@ -889,12 +889,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Jota Sport",
         nome_curto: "JOT",
-        categoria: "endurance",
+        categoria: "lmp2",
         cor_primaria: "#f5c400",
         cor_secundaria: "#f5c400",
         pais_sede: "🇬🇧 Reino Unido",
         marca: None,
-        classe: Some("lmp2"),
+        classe: None,
         car_performance_base: 15.0,
         budget_base: 87.0,
         reputacao_base: 85.0,
@@ -902,12 +902,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Belgian Racing Team",
         nome_curto: "BRT",
-        categoria: "endurance",
+        categoria: "lmp2",
         cor_primaria: "#0b3d91",
         cor_secundaria: "#0b3d91",
         pais_sede: "🇧🇪 Bélgica",
         marca: None,
-        classe: Some("lmp2"),
+        classe: None,
         car_performance_base: 14.5,
         budget_base: 85.0,
         reputacao_base: 83.0,
@@ -915,12 +915,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Prema Powerteam",
         nome_curto: "PRM",
-        categoria: "endurance",
+        categoria: "lmp2",
         cor_primaria: "#ff2e2e",
         cor_secundaria: "#ff2e2e",
         pais_sede: "🇮🇹 Itália",
         marca: None,
-        classe: Some("lmp2"),
+        classe: None,
         car_performance_base: 14.0,
         budget_base: 84.0,
         reputacao_base: 82.0,
@@ -928,12 +928,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Cool Racing",
         nome_curto: "CRL",
-        categoria: "endurance",
+        categoria: "lmp2",
         cor_primaria: "#00bfff",
         cor_secundaria: "#00bfff",
         pais_sede: "🇨🇭 Suíça",
         marca: None,
-        classe: Some("lmp2"),
+        classe: None,
         car_performance_base: 13.5,
         budget_base: 82.0,
         reputacao_base: 80.0,
@@ -968,6 +968,7 @@ pub fn get_reference_team_template(
         ("production_challenger", Some("bmw")) => Some("bmw_m2"),
         ("endurance", Some("gt4")) => Some("gt4"),
         ("endurance", Some("gt3")) => Some("gt3"),
+        ("endurance", Some("lmp2")) => Some("lmp2"),
         _ => None,
     }?;
 
@@ -1290,12 +1291,13 @@ mod tests {
     }
 
     #[test]
-    fn test_team_templates_endurance_only_has_lmp2_templates() {
-        let endurance_templates = get_team_templates("endurance");
-        assert_eq!(endurance_templates.len(), 5);
-        assert!(endurance_templates
+    fn test_team_templates_lmp2_are_regular_category_templates() {
+        let lmp2_templates = get_team_templates("lmp2");
+        assert_eq!(lmp2_templates.len(), 5);
+        assert!(lmp2_templates
             .iter()
-            .all(|team| team.classe == Some("lmp2")));
+            .all(|team| team.categoria == "lmp2" && team.classe.is_none()));
+        assert_eq!(get_team_templates("endurance").len(), 0);
     }
 
     #[test]
@@ -1310,8 +1312,8 @@ mod tests {
             Some("gt4")
         );
         assert_eq!(
-            get_reference_team_template("endurance", Some("lmp2")).map(|team| team.classe),
-            Some(Some("lmp2"))
+            get_reference_team_template("endurance", Some("lmp2")).map(|team| team.categoria),
+            Some("lmp2")
         );
     }
 }

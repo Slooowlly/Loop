@@ -65,6 +65,11 @@ const TEAM_LOGO_SRC = {
   Obsidian: new URL("../../assets/utilities/source-images/TimesNormalized/gt3/obsidian.png", import.meta.url).href,
   Kitsune: new URL("../../assets/utilities/source-images/TimesNormalized/gt3/kitsune.png", import.meta.url).href,
   Valkyrie: new URL("../../assets/utilities/source-images/TimesNormalized/gt3/valkirye.png", import.meta.url).href,
+  "United Autosports": new URL("../../assets/utilities/source-images/TimesNormalized/lmp2/united autosports.png", import.meta.url).href,
+  "Jota Sport": new URL("../../assets/utilities/source-images/TimesNormalized/lmp2/jota sport.png", import.meta.url).href,
+  "Belgian Racing Team": new URL("../../assets/utilities/source-images/TimesNormalized/lmp2/belgian racing team.png", import.meta.url).href,
+  "Prema Powerteam": new URL("../../assets/utilities/source-images/TimesNormalized/lmp2/prema powerteam.png", import.meta.url).href,
+  "Cool Racing": new URL("../../assets/utilities/source-images/TimesNormalized/lmp2/cool racing.png", import.meta.url).href,
 };
 
 const TEAM_LOGO_ALIASES = {

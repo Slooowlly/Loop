@@ -194,16 +194,20 @@ fn verify_team_driver_consistency(conn: &Connection, movements: &[TeamMovement])
 }
 
 fn verify_category_sizes(conn: &Connection) -> Result<Vec<String>, String> {
-    let expected_sizes = [
-        ("mazda_rookie", 6),
-        ("toyota_rookie", 6),
-        ("mazda_amador", 10),
-        ("toyota_amador", 10),
-        ("bmw_m2", 10),
-        ("gt4", 10),
-        ("gt3", 14),
-    ];
+    let expected_sizes = [("bmw_m2", 10), ("gt4", 10), ("gt3", 14)];
     let mut errors = Vec::new();
+    errors.extend(verify_ladder_pool_size(
+        conn,
+        "mazda_rookie",
+        "mazda_amador",
+        16,
+    )?);
+    errors.extend(verify_ladder_pool_size(
+        conn,
+        "toyota_rookie",
+        "toyota_amador",
+        16,
+    )?);
     for (category, expected) in expected_sizes {
         let actual = team_queries::count_teams_by_category(conn, category)
             .map_err(|e| format!("Falha ao contar equipes em '{category}': {e}"))?;
@@ -214,6 +218,26 @@ fn verify_category_sizes(conn: &Connection) -> Result<Vec<String>, String> {
         }
     }
     Ok(errors)
+}
+
+fn verify_ladder_pool_size(
+    conn: &Connection,
+    rookie_category: &str,
+    amateur_category: &str,
+    expected_total: i32,
+) -> Result<Vec<String>, String> {
+    let rookie_count = team_queries::count_teams_by_category(conn, rookie_category)
+        .map_err(|e| format!("Falha ao contar equipes em '{rookie_category}': {e}"))?;
+    let amateur_count = team_queries::count_teams_by_category(conn, amateur_category)
+        .map_err(|e| format!("Falha ao contar equipes em '{amateur_category}': {e}"))?;
+    let actual_total = rookie_count + amateur_count;
+    if actual_total == expected_total {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![format!(
+        "INVARIANTE VIOLADO: {rookie_category}/{amateur_category} tem {actual_total} equipes (esperado {expected_total})"
+    )])
 }
 
 #[cfg(test)]
@@ -341,6 +365,25 @@ mod tests {
             err.contains("Falha ao contar equipes"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn test_verify_category_sizes_allows_historical_ladder_redistribution() {
+        let conn = setup_promotion_db();
+        conn.execute(
+            "UPDATE teams SET categoria = 'mazda_rookie' WHERE id IN ('MA7', 'MA8', 'MA9', 'MA10')",
+            [],
+        )
+        .expect("move mazda teams into historical feeder pool");
+        conn.execute(
+            "UPDATE teams SET categoria = 'toyota_rookie' WHERE id IN ('TA7', 'TA8', 'TA9', 'TA10')",
+            [],
+        )
+        .expect("move toyota teams into historical feeder pool");
+
+        let errors = verify_category_sizes(&conn).expect("size verification should run");
+
+        assert!(errors.is_empty(), "unexpected size errors: {errors:?}");
     }
 
     fn setup_promotion_db() -> Connection {

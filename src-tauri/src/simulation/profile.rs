@@ -153,7 +153,8 @@ fn car_family_for(category_id: &str) -> &'static str {
         "bmw_m2" | "production_challenger" => "bmw_m2",
         "gt4" => "gt4",
         "gt3" => "gt3",
-        "endurance" => "lmp2",
+        "lmp2" => "lmp2",
+        "endurance" => "gt3",
         _ => "gt4",
     }
 }
@@ -168,7 +169,7 @@ fn car_family_for(category_id: &str) -> &'static str {
 //   bmw_m2 → bmw_m2 / production_challenger
 //   gt4    → gt4
 //   gt3    → gt3
-//   lmp2   → endurance
+//   lmp2   → lmp2
 // ---------------------------------------------------------------------------
 
 fn base_lap_time_ms_for(car_family: &str, track_id: u32) -> Option<f64> {

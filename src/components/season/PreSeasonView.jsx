@@ -14,6 +14,7 @@ const CATEGORIES = [
   { id: "sep1", isSeparator: true },
   { id: "gt4",       dbIds: ["gt4"],       label: "GT4",       color: "#3080FF" },
   { id: "gt3",       dbIds: ["gt3"],       label: "GT3",       color: "#00FFFF" },
+  { id: "lmp2",      dbIds: ["lmp2"],      label: "LMP2",      color: "#F2CC60" },
 ];
 
 const SUBCAT_LABELS = {
@@ -28,6 +29,7 @@ const SUBCAT_LABELS = {
   production_challenger: "Production Challenger",
   gt3: "GT3 Championship",
   gt4: "GT4 Championship",
+  lmp2: "LMP2 Prototype Championship",
   endurance: "Endurance Championship",
 };
 
@@ -42,6 +44,7 @@ const SUBCAT_LOGOS = {
   bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.png",
   gt4: "/utilities/categorias/recortadas/GT4.png",
   gt3: "/utilities/categorias/recortadas/GT3.png",
+  lmp2: "/utilities/categorias/recortadas/LMP2.png",
 };
 
 const DEFAULT_LOGO_FIT = {
@@ -90,6 +93,10 @@ const SUBCAT_LOGO_FITS = {
     frameClassName: "h-36 lg:h-40",
     imageStyle: { transform: "translateX(-1%) scale(1.5)", transformOrigin: "top center" },
   },
+  lmp2: {
+    frameClassName: "h-36 lg:h-40",
+    imageStyle: {},
+  },
 };
 
 const SUBCAT_COLORS = {
@@ -104,11 +111,13 @@ const SUBCAT_COLORS = {
   production_challenger: "#3fb950",
   gt4: "#3080FF",
   gt3: "#00FFFF",
+  lmp2: "#F2CC60",
   endurance: "#3671C6",
 };
 
 // Ordem usada no grid central quando todas as categorias estao visiveis.
 const CLASS_PRIORITY = [
+  "lmp2",
   "gt3",
   "gt4",
   "bmw_m2", "bmw",
@@ -123,6 +132,7 @@ const CLASS_PRIORITY = [
 // Ordem do painel "Mercado de Pilotos": maior categoria primeiro,
 // dentro de cada marca Cup > Amador > Rookie
 const FREE_AGENT_ORDER = [
+  "lmp2",
   "gt3",
   "gt4",
   "bmw_m2", "bmw",
@@ -138,6 +148,7 @@ const REGULAR_MARKET_CATEGORY_IDS = new Set([
   "bmw_m2",
   "gt4",
   "gt3",
+  "lmp2",
 ]);
 
 const WEEKLY_CLOSING_EVENT_TYPES = new Set([
@@ -156,7 +167,8 @@ const CATEGORY_TIER = {
   production_challenger: 3,
   gt4: 4,
   gt3: 5,
-  endurance: 6,
+  lmp2: 6,
+  endurance: 7,
 };
 
 const WEEKLY_MARKET_MOVEMENT_BADGES = {

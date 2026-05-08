@@ -1,6 +1,7 @@
 use rand::Rng;
 use rusqlite::Connection;
 
+use crate::constants::categories::get_category_config;
 use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::promotion::standings::calculate_constructor_standings;
 use crate::promotion::{MovementType, TeamMovement};
@@ -53,9 +54,9 @@ fn append_pair_movements(
     let promoted = rookie_standings
         .first()
         .ok_or_else(|| format!("Sem equipes em '{rookie_category}' para promover"))?;
-    let relegated = amateur_standings
-        .last()
-        .ok_or_else(|| format!("Sem equipes em '{amateur_category}' para rebaixar"))?;
+    let amateur_capacity = get_category_config(amateur_category)
+        .map(|config| config.num_equipes as usize)
+        .unwrap_or(amateur_standings.len());
 
     movements.push(TeamMovement {
         team_id: promoted.team_id.clone(),
@@ -65,14 +66,19 @@ fn append_pair_movements(
         movement_type: MovementType::Promocao,
         reason: promotion_reason.to_string(),
     });
-    movements.push(TeamMovement {
-        team_id: relegated.team_id.clone(),
-        team_name: relegated.team_name.clone(),
-        from_category: amateur_category.to_string(),
-        to_category: rookie_category.to_string(),
-        movement_type: MovementType::Rebaixamento,
-        reason: "Ultima colocada no campeonato de construtores".to_string(),
-    });
+    if amateur_standings.len() >= amateur_capacity {
+        let relegated = amateur_standings
+            .last()
+            .ok_or_else(|| format!("Sem equipes em '{amateur_category}' para rebaixar"))?;
+        movements.push(TeamMovement {
+            team_id: relegated.team_id.clone(),
+            team_name: relegated.team_name.clone(),
+            from_category: amateur_category.to_string(),
+            to_category: rookie_category.to_string(),
+            movement_type: MovementType::Rebaixamento,
+            reason: "Ultima colocada no campeonato de construtores".to_string(),
+        });
+    }
 
     Ok(())
 }
@@ -160,12 +166,36 @@ mod tests {
     }
 
     #[test]
+    fn test_block1_expands_amateur_grid_before_relegating() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        insert_ranked_teams(&conn, "mazda_rookie", "MR", 10, None);
+        insert_ranked_teams(&conn, "mazda_amador", "MA", 6, None);
+        insert_ranked_teams(&conn, "toyota_rookie", "TR", 10, None);
+        insert_ranked_teams(&conn, "toyota_amador", "TA", 6, None);
+        let mut rng = StdRng::seed_from_u64(1212);
+
+        let movements =
+            execute_block1_for_year(&conn, 2016, &mut rng).expect("block1 timeline should run");
+
+        assert!(movements.iter().any(|movement| {
+            movement.team_id == "MR1"
+                && movement.from_category == "mazda_rookie"
+                && movement.to_category == "mazda_amador"
+                && movement.movement_type == MovementType::Promocao
+        }));
+        assert!(movements
+            .iter()
+            .all(|movement| movement.from_category != "mazda_amador"));
+    }
+
+    #[test]
     fn test_block1_does_not_relegate_into_rookie_before_rookie_inauguration() {
         let conn = setup_block1_db();
         let mut rng = StdRng::seed_from_u64(13);
 
         let movements =
-            execute_block1_for_year(&conn, 2019, &mut rng).expect("block1 timeline should run");
+            execute_block1_for_year(&conn, 2007, &mut rng).expect("block1 timeline should run");
 
         assert!(movements
             .iter()

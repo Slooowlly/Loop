@@ -20,6 +20,7 @@ const ALL_CATEGORIES = [
   "production_challenger",
   "gt4",
   "gt3",
+  "lmp2",
   "endurance",
 ];
 
@@ -56,6 +57,7 @@ const PROMOTION_ONLY_TEAM_ZONE_CATEGORIES = new Set([
   "bmw_m2",
   "gt4",
   "gt3",
+  "lmp2",
 ]);
 const NO_MOVEMENT_TEAM_ZONE_CATEGORIES = new Set(["endurance"]);
 const PRODUCTION_SPECIAL_FEEDERS = new Set([
@@ -65,9 +67,10 @@ const PRODUCTION_SPECIAL_FEEDERS = new Set([
   "toyota_amador",
   "bmw_m2",
 ]);
-const ENDURANCE_SPECIAL_FEEDERS = new Set(["gt4", "gt3"]);
+const ENDURANCE_SPECIAL_FEEDERS = new Set(["lmp2", "gt3", "gt4"]);
 const SEVERE_INJURY_TYPES = new Set(["Grave", "Critica"]);
 const DRIVER_CLICK_DELAY_MS = 220;
+const TEAM_CLICK_DELAY_MS = 220;
 
 function injuryStatusMarker(injuryType) {
   if (!injuryType) {
@@ -134,7 +137,7 @@ function getForcedSpecialStandingCategory(phase, playerTeamCategory, acceptedSpe
   return null;
 }
 
-function StandingsTab({ onOpenGlobalDrivers = null }) {
+function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) {
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
@@ -155,6 +158,7 @@ function StandingsTab({ onOpenGlobalDrivers = null }) {
   const [selectedHistoryTeam, setSelectedHistoryTeam] = useState(null);
   const [activeHistoryTab, setActiveHistoryTab] = useState("records");
   const driverClickTimeoutRef = useRef(null);
+  const teamClickTimeoutRef = useRef(null);
 
   const categoryIndex = ALL_CATEGORIES.indexOf(viewCategory);
   function goUpCategory() {
@@ -188,6 +192,7 @@ function StandingsTab({ onOpenGlobalDrivers = null }) {
 
   useEffect(() => () => {
     clearDriverClickTimeout();
+    clearTeamClickTimeout();
   }, []);
 
   function clearDriverClickTimeout() {
@@ -213,6 +218,36 @@ function StandingsTab({ onOpenGlobalDrivers = null }) {
     clearDriverClickTimeout();
     setSelectedDriverId(null);
     onOpenGlobalDrivers?.(driverId);
+  }
+
+  function clearTeamClickTimeout() {
+    if (teamClickTimeoutRef.current) {
+      clearTimeout(teamClickTimeoutRef.current);
+      teamClickTimeoutRef.current = null;
+    }
+  }
+
+  function openTeamDossier(team) {
+    setSelectedHistoryTeam(team);
+    setActiveHistoryTab("records");
+  }
+
+  function handleTeamClick(team) {
+    clearTeamClickTimeout();
+    teamClickTimeoutRef.current = setTimeout(() => {
+      openTeamDossier(team);
+      teamClickTimeoutRef.current = null;
+    }, TEAM_CLICK_DELAY_MS);
+  }
+
+  function handleTeamDoubleClick(team) {
+    clearTeamClickTimeout();
+    setSelectedHistoryTeam(null);
+    onOpenGlobalTeams?.({
+      ...team,
+      categoria: team.categoria ?? viewCategory,
+      classe: team.classe ?? team.class_name ?? null,
+    });
   }
 
   useEffect(() => {
@@ -552,10 +587,8 @@ function StandingsTab({ onOpenGlobalDrivers = null }) {
                         index={index}
                         isRelegationZone={isRelegationZone}
                         isHistoryActive={selectedHistoryTeam?.id === team.id}
-                        onTeamHistoryOpen={(selectedTeam) => {
-                          setSelectedHistoryTeam(selectedTeam);
-                          setActiveHistoryTab("records");
-                        }}
+                        onTeamDossierOpen={handleTeamClick}
+                        onTeamGlobalHistoryOpen={handleTeamDoubleClick}
                       />
                     );
                   })}
@@ -575,10 +608,8 @@ function StandingsTab({ onOpenGlobalDrivers = null }) {
                 items.push(
                   <div
                     key={team.id}
-                    onDoubleClick={() => {
-                      setSelectedHistoryTeam(team);
-                      setActiveHistoryTab("records");
-                    }}
+                    onClick={() => handleTeamClick(team)}
+                    onDoubleClick={() => handleTeamDoubleClick(team)}
                     className={[
                       "flex items-center justify-between rounded-2xl border px-4 py-3 transition-glass hover:bg-white/[0.05]",
                       selectedHistoryTeam?.id === team.id
@@ -771,7 +802,15 @@ function SpecialClassHeader({ section, sticky = false }) {
   );
 }
 
-function TeamStandingCard({ team, position, index, isRelegationZone = false, isHistoryActive = false, onTeamHistoryOpen }) {
+function TeamStandingCard({
+  team,
+  position,
+  index,
+  isRelegationZone = false,
+  isHistoryActive = false,
+  onTeamDossierOpen,
+  onTeamGlobalHistoryOpen,
+}) {
   const cardClassName = [
     "flex items-center justify-between rounded-2xl border px-4 py-3 transition-glass",
     isHistoryActive
@@ -786,7 +825,8 @@ function TeamStandingCard({ team, position, index, isRelegationZone = false, isH
 
   return (
     <div
-      onDoubleClick={() => onTeamHistoryOpen?.(team)}
+      onClick={() => onTeamDossierOpen?.(team)}
+      onDoubleClick={() => onTeamGlobalHistoryOpen?.(team)}
       className={cardClassName}
       data-relegation-zone={isRelegationZone ? "true" : undefined}
     >

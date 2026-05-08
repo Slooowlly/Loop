@@ -7,6 +7,7 @@ const CATEGORY_COLORS = {
   production_challenger: "#8020D0",
   gt4: "#2070F0",
   gt3: "#00F0F0",
+  lmp2: "#F2CC60",
   endurance: "#3fb950",
 };
 

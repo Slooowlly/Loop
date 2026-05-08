@@ -237,7 +237,7 @@ pub fn run_convocation_window(conn: &Connection) -> Result<ConvocationResult, Db
 fn ensure_special_team_entries(
     conn: &Connection,
     season_id: &str,
-    season_number: i32,
+    _season_number: i32,
 ) -> Result<(), DbError> {
     for cfg in CLASSES_CONVOCADAS {
         let target_slots = target_slots_for_class(conn, cfg)?;
@@ -270,26 +270,6 @@ fn ensure_special_team_entries(
                 &entries,
             )?;
             continue;
-        }
-
-        for team_id in special_entry_queries::get_previous_guaranteed_team_ids(
-            conn,
-            season_number,
-            cfg.special_category,
-            cfg.class_name,
-        )? {
-            let Some(team) = team_queries::get_team_by_id(conn, &team_id)? else {
-                continue;
-            };
-            if team.categoria != cfg.feeder_category || !used_team_ids.insert(team_id.clone()) {
-                continue;
-            }
-            entries.push(special_entry_queries::NewSpecialTeamEntry {
-                team_id,
-                source_category: cfg.feeder_category.to_string(),
-                qualified_via: "GarantiaEspecial".to_string(),
-                guaranteed_next_year: true,
-            });
         }
 
         let regular_standings = calculate_constructor_standings(conn, cfg.feeder_category)
@@ -971,8 +951,10 @@ mod player_convocation_offer_additional_tests {
     #[test]
     fn test_team_history_can_unlock_offer_outside_current_car_lane() {
         let (conn, season_id) = setup_world_db();
-        let player_id = make_player_eligible_for_specials(&conn, "lmp2");
-        let player = driver_queries::get_driver(&conn, &player_id).expect("player");
+        let player_id = make_player_eligible_for_specials(&conn, "gt3");
+        let mut player = driver_queries::get_driver(&conn, &player_id).expect("player");
+        player.categoria_atual = None;
+        driver_queries::update_driver(&conn, &player).expect("clear player category");
         let toyota_team = get_special_class_entry_teams(
             &conn,
             &season_id,
@@ -1368,16 +1350,6 @@ pub fn run_pos_especial(conn: &Connection) -> Result<PosEspecialResult, DbError>
     // Cleanup em uma transação
     let tx = conn.unchecked_transaction()?;
 
-    for cfg in CLASSES_CONVOCADAS {
-        special_entry_queries::update_guarantees_for_class(
-            &tx,
-            &season.id,
-            cfg.special_category,
-            cfg.class_name,
-            2,
-        )?;
-    }
-
     let contratos_encerrados = contract_queries::expire_especial_contracts(&tx, season.numero)?;
     let pilotos_liberados = driver_queries::clear_all_categoria_especial_ativa(&tx)?;
     let equipes_limpas = team_queries::clear_special_team_lineups(&tx)?;
@@ -1751,13 +1723,12 @@ mod tests {
         advance_to_convocation_window(&conn).expect("advance");
         run_convocation_window(&conn).expect("convocação");
 
-        // Equipes LMP2 tambem entram no bloco especial mesmo sem categoria regular propria.
+        // LMP2 e categoria regular e tambem uma classe convocada no bloco especial de Endurance.
         let lmp2_with_two_pilots: i64 = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM teams
-                 WHERE categoria='endurance'
-                   AND classe='lmp2'
+                 WHERE categoria='lmp2'
                    AND piloto_1_id IS NOT NULL
                    AND piloto_2_id IS NOT NULL",
                 [],
@@ -1792,6 +1763,86 @@ mod tests {
         assert!(
             lmp2_entries > 0,
             "LMP2 deveria registrar equipes classificadas"
+        );
+    }
+
+    #[test]
+    fn test_special_entries_ignore_previous_special_guarantees() {
+        let (conn, season_id) = setup_world_db();
+        let mut previous_season = crate::models::season::Season::new("S000".to_string(), 0, 2023);
+        previous_season.finalizar();
+        sq::insert_season(&conn, &previous_season).expect("insert previous season");
+
+        let feeder_category = "mazda_amador";
+        let mut team_ids: Vec<String> = conn
+            .prepare("SELECT id FROM teams WHERE categoria = ?1 ORDER BY nome ASC")
+            .expect("prepare team query")
+            .query_map(rusqlite::params![feeder_category], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("query teams")
+            .map(|row| row.expect("team id"))
+            .collect();
+        assert!(
+            team_ids.len() > 5,
+            "teste precisa de mais equipes regulares que vagas especiais"
+        );
+
+        let previously_guaranteed_team_id = team_ids.pop().expect("guaranteed team");
+        special_entry_queries::replace_entries_for_class(
+            &conn,
+            "S000",
+            "production_challenger",
+            "mazda",
+            &[special_entry_queries::NewSpecialTeamEntry {
+                team_id: previously_guaranteed_team_id.clone(),
+                source_category: feeder_category.to_string(),
+                qualified_via: "GarantiaEspecial".to_string(),
+                guaranteed_next_year: true,
+            }],
+        )
+        .expect("previous guarantee");
+
+        conn.execute(
+            "UPDATE teams SET stats_pontos = 0, stats_vitorias = 0, stats_melhor_resultado = 99
+             WHERE categoria = ?1",
+            rusqlite::params![feeder_category],
+        )
+        .expect("reset standings");
+        for (index, team_id) in team_ids.iter().take(5).enumerate() {
+            conn.execute(
+                "UPDATE teams
+                 SET stats_pontos = ?2, stats_vitorias = ?3, stats_melhor_resultado = 1
+                 WHERE id = ?1",
+                rusqlite::params![team_id, 100 - index as i32, 5 - index as i32],
+            )
+            .expect("seed regular contender");
+        }
+
+        ensure_special_team_entries(&conn, &season_id, 1).expect("ensure entries");
+
+        let entries = special_entry_queries::get_entries_for_class(
+            &conn,
+            &season_id,
+            "production_challenger",
+            "mazda",
+        )
+        .expect("entries");
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.qualified_via.starts_with("RegularP")),
+            "todas as vagas especiais devem vir da temporada regular: {:?}",
+            entries
+                .iter()
+                .map(|entry| entry.qualified_via.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.team_id != previously_guaranteed_team_id),
+            "equipe com garantia antiga nao pode furar a fila regular"
         );
     }
 

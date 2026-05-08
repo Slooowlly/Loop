@@ -7,8 +7,9 @@ use rand::Rng;
 
 use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
 use crate::constants::historical_timeline::{
-    apply_historical_performance_band, historical_team_foundation_year,
+    apply_historical_performance_band, category_start_year, historical_team_foundation_year,
 };
+use crate::constants::teams::{get_team_templates, TeamTemplate};
 use crate::models::contract::{generate_initial_contract, Contract};
 use crate::models::driver::Driver;
 use crate::models::enums::TeamRole;
@@ -67,6 +68,7 @@ impl LocalIdAllocator {
 }
 
 const REGULAR_FREE_AGENT_POOL_MULTIPLIER: usize = 2;
+const HISTORICAL_AMATEUR_STARTING_TEAMS: usize = 6;
 
 pub fn generate_world(
     player_name: &str,
@@ -112,6 +114,13 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
         let mut category_teams =
             generate_teams_for_category(category.id, start_year, &mut team_id_generator);
         apply_historical_foundation_years(&mut category_teams, category.id);
+        prepare_historical_development_grid(
+            &mut category_teams,
+            category.id,
+            start_year,
+            &mut ids,
+            rng,
+        );
 
         if is_especial(category.id) {
             category_teams.retain(|team| {
@@ -238,6 +247,99 @@ fn apply_historical_foundation_years(teams: &mut [Team], category_id: &str) {
             historical_team_foundation_year(&team.nome, category_id, rank_index, total);
         apply_historical_performance_band(team);
     }
+}
+
+fn prepare_historical_development_grid<R: Rng>(
+    teams: &mut Vec<Team>,
+    category_id: &str,
+    start_year: i32,
+    ids: &mut LocalIdAllocator,
+    rng: &mut R,
+) {
+    match category_id {
+        "mazda_amador" | "toyota_amador" => {
+            retain_historical_starting_amateur_teams(teams, category_id)
+        }
+        "mazda_rookie" => {
+            add_historical_feeder_teams(teams, "mazda_amador", "mazda_rookie", start_year, ids, rng)
+        }
+        "toyota_rookie" => add_historical_feeder_teams(
+            teams,
+            "toyota_amador",
+            "toyota_rookie",
+            start_year,
+            ids,
+            rng,
+        ),
+        _ => {}
+    }
+}
+
+fn retain_historical_starting_amateur_teams(teams: &mut Vec<Team>, category_id: &str) {
+    let initial_names = initial_historical_amateur_team_names(category_id);
+    let start_year = category_start_year(category_id);
+
+    teams.retain(|team| initial_names.contains(team.nome.as_str()));
+    for team in teams {
+        team.ano_fundacao = start_year;
+    }
+}
+
+fn add_historical_feeder_teams<R: Rng>(
+    teams: &mut Vec<Team>,
+    amateur_category: &str,
+    rookie_category: &str,
+    start_year: i32,
+    ids: &mut LocalIdAllocator,
+    rng: &mut R,
+) {
+    let initial_names = initial_historical_amateur_team_names(amateur_category);
+    let mut feeder_templates: Vec<_> = ranked_team_templates(amateur_category)
+        .into_iter()
+        .filter(|template| !initial_names.contains(template.nome))
+        .collect();
+    feeder_templates.sort_by(compare_team_templates);
+
+    let native_count = teams.len();
+    let total = native_count + feeder_templates.len();
+    for (offset, template) in feeder_templates.into_iter().enumerate() {
+        let mut team = Team::from_template_with_rng(
+            template,
+            rookie_category,
+            ids.next_team_id(),
+            start_year,
+            rng,
+        );
+        team.ano_fundacao = historical_team_foundation_year(
+            &team.nome,
+            rookie_category,
+            native_count + offset,
+            total,
+        );
+        apply_historical_performance_band(&mut team);
+        teams.push(team);
+    }
+}
+
+fn initial_historical_amateur_team_names(category_id: &str) -> HashSet<&'static str> {
+    ranked_team_templates(category_id)
+        .into_iter()
+        .take(HISTORICAL_AMATEUR_STARTING_TEAMS)
+        .map(|template| template.nome)
+        .collect()
+}
+
+fn ranked_team_templates(category_id: &str) -> Vec<&'static TeamTemplate> {
+    let mut templates = get_team_templates(category_id);
+    templates.sort_by(compare_team_templates);
+    templates
+}
+
+fn compare_team_templates(left: &&TeamTemplate, right: &&TeamTemplate) -> Ordering {
+    right
+        .car_performance_base
+        .total_cmp(&left.car_performance_base)
+        .then_with(|| left.nome.cmp(right.nome))
 }
 
 pub(crate) fn generate_world_with_rng<R: Rng>(
@@ -384,7 +486,12 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
 
             if is_player_team {
                 team.piloto_2_id = Some(player_id.clone());
-                team.hierarquia_n2_id = Some(player_id.clone());
+                if player.atributos.skill > n1_driver.atributos.skill {
+                    team.hierarquia_n1_id = Some(player_id.clone());
+                    team.hierarquia_n2_id = Some(n1_driver.id.clone());
+                } else {
+                    team.hierarquia_n2_id = Some(player_id.clone());
+                }
                 player_team_id = Some(team.id.clone());
 
                 let contract = generate_initial_contract(
@@ -445,6 +552,30 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
         player_team_id,
         player_contract,
     })
+}
+
+pub(crate) fn align_world_career_start_years(world: &mut WorldData, current_year: u32) {
+    for driver in &mut world.drivers {
+        driver.ano_inicio_carreira = inferred_career_start_year(driver, current_year);
+    }
+
+    if let Some(player) = world
+        .drivers
+        .iter()
+        .find(|driver| driver.id == world.player.id)
+        .cloned()
+    {
+        world.player = player;
+    }
+}
+
+fn inferred_career_start_year(driver: &Driver, current_year: u32) -> u32 {
+    let career_seasons = driver.stats_carreira.temporadas;
+    if career_seasons == 0 {
+        current_year
+    } else {
+        current_year.saturating_sub(career_seasons.saturating_sub(1))
+    }
 }
 
 /// Gera pilotos livres para o mercado regular.
@@ -550,9 +681,31 @@ mod tests {
         // 66 equipes regulares + 5 LMP2 sem feeder regular.
         assert_eq!(world.teams.len(), 71);
         // 132 com contrato + 264 livres no pool regular + 64 livres no pool especial.
-        assert_eq!(world.drivers.len(), 460);
+        assert_eq!(world.drivers.len(), 490);
         // Apenas 132 contratos — categorias especiais não geram contratos
-        assert_eq!(world.contracts.len(), 132);
+        assert_eq!(world.contracts.len(), 142);
+    }
+
+    #[test]
+    fn test_align_world_career_start_years_uses_game_seasons_not_age() {
+        let mut world = sample_world();
+        align_world_career_start_years(&mut world, 2024);
+
+        let player = world
+            .drivers
+            .iter()
+            .find(|driver| driver.is_jogador)
+            .expect("player");
+        assert_eq!(player.ano_inicio_carreira, 2024);
+
+        for driver in &world.drivers {
+            let expected = if driver.stats_carreira.temporadas == 0 {
+                2024
+            } else {
+                2024_u32.saturating_sub(driver.stats_carreira.temporadas.saturating_sub(1))
+            };
+            assert_eq!(driver.ano_inicio_carreira, expected, "{}", driver.nome);
+        }
     }
 
     #[test]
@@ -701,20 +854,44 @@ mod tests {
             .iter()
             .filter(|team| team.categoria == "mazda_rookie")
             .collect();
-        assert_eq!(mazda_rookie_teams.len(), 6);
+        assert_eq!(mazda_rookie_teams.len(), 10);
         assert!(mazda_rookie_teams
             .iter()
-            .all(|team| (2020..=2024).contains(&team.ano_fundacao)));
+            .all(|team| (2012..=2016).contains(&team.ano_fundacao)));
+        assert!(mazda_rookie_teams
+            .iter()
+            .any(|team| team.nome == "Amateur Hour Racing"));
 
         let mazda_cup_teams: Vec<_> = world
             .teams
             .iter()
             .filter(|team| team.categoria == "mazda_amador")
             .collect();
-        assert_eq!(mazda_cup_teams.len(), 10);
-        assert!(mazda_cup_teams
+        assert_eq!(mazda_cup_teams.len(), 6);
+        assert!(mazda_cup_teams.iter().all(|team| team.ano_fundacao == 2016));
+        assert!(!mazda_cup_teams
             .iter()
-            .all(|team| (2016..=2020).contains(&team.ano_fundacao)));
+            .any(|team| team.nome == "Amateur Hour Racing"));
+
+        let toyota_rookie_teams: Vec<_> = world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == "toyota_rookie")
+            .collect();
+        assert_eq!(toyota_rookie_teams.len(), 10);
+        assert!(toyota_rookie_teams
+            .iter()
+            .all(|team| (2008..=2012).contains(&team.ano_fundacao)));
+
+        let toyota_cup_teams: Vec<_> = world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == "toyota_amador")
+            .collect();
+        assert_eq!(toyota_cup_teams.len(), 6);
+        assert!(toyota_cup_teams
+            .iter()
+            .all(|team| team.ano_fundacao == 2012));
 
         let ferrari = world
             .teams
@@ -728,6 +905,38 @@ mod tests {
             .expect("fictional GT3 team should exist");
         assert_eq!(ferrari.ano_fundacao, 1929);
         assert!(obsidian.ano_fundacao > 1999);
+    }
+
+    #[test]
+    fn test_historical_world_categories_start_with_at_least_five_teams() {
+        let mut rng = StdRng::seed_from_u64(20260508);
+        let world = generate_historical_world_with_rng("medio", 2000, &mut rng)
+            .expect("historical world should generate");
+
+        for category in get_all_categories() {
+            let category_teams: Vec<_> = world
+                .teams
+                .iter()
+                .filter(|team| team.categoria == category.id)
+                .collect();
+            if category_teams.is_empty() {
+                continue;
+            }
+
+            let start_year =
+                crate::constants::historical_timeline::category_start_year(category.id);
+            let active_at_start = category_teams
+                .iter()
+                .filter(|team| team.ano_fundacao <= start_year)
+                .count();
+            assert!(
+                active_at_start >= 5,
+                "{} nasceu em {} com apenas {} equipe(s)",
+                category.id,
+                start_year,
+                active_at_start
+            );
+        }
     }
 
     #[test]

@@ -52,6 +52,7 @@ const CATEGORY_TO_LICENSE_LEVEL = {
   production_challenger: 2,
   gt4: 3,
   gt3: 4,
+  lmp2: 4,
   endurance: 4,
 };
 

@@ -241,4 +241,56 @@ describe("RaceResultView", () => {
     expect(mazdaLogo.style.clipPath).toContain("inset(");
     expect(mazdaLogo.style.transform).toBe("");
   });
+
+  it("shows the LMP2 category logo in the other categories strip", async () => {
+    mockState = {
+      ...mockState,
+      otherCategoriesResult: {
+        total_races_simulated: 1,
+        categories_simulated: [
+          {
+            category_id: "lmp2",
+            category_name: "LMP2 Prototype Championship",
+          },
+        ],
+      },
+    };
+
+    render(
+      <RaceResultView
+        onDismiss={vi.fn()}
+        result={{
+          track_name: "Spa",
+          weather: "Wet",
+          total_laps: 24,
+          qualifying_results: [],
+          race_results: [
+            {
+              pilot_id: "drv-1",
+              pilot_name: "M. Costa",
+              team_name: "Mercedes-AMG",
+              finish_position: 1,
+              positions_gained: 2,
+              total_race_time_ms: 3600123,
+              gap_to_winner_ms: 0,
+              best_lap_time_ms: 120111,
+              has_fastest_lap: false,
+              is_jogador: false,
+              is_dnf: false,
+              grid_position: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1 Corrida Processada")).toBeInTheDocument();
+    });
+
+    const logoStrip = screen.getByTestId("other-categories-logo-strip");
+    const lmp2Logo = within(logoStrip).getByAltText("LMP2 Prototype Championship");
+
+    expect(lmp2Logo).toHaveAttribute("src", "/utilities/categorias/recortadas/LMP2.png");
+  });
 });

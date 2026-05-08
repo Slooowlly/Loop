@@ -61,6 +61,7 @@ const CATEGORY_LOGOS = {
   production_challenger: "/utilities/categorias/PRODUCTION.png",
   gt4: "/utilities/categorias/GT4.png",
   gt3: "/utilities/categorias/GT3.png",
+  lmp2: "/utilities/categorias/LMP2.png",
   endurance: "/utilities/categorias/ENDURANCE.png",
 };
 
@@ -80,6 +81,7 @@ const ALL_CALENDAR_CATEGORIES = [
   "production_challenger",
   "gt4",
   "gt3",
+  "lmp2",
   "endurance",
 ];
 // Fase de cada mes segundo as regras do jogo:

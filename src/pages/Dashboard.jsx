@@ -13,6 +13,7 @@ import NewsTab from "./tabs/NewsTab";
 import NextRaceTab from "./tabs/NextRaceTab";
 import StandingsTab from "./tabs/StandingsTab";
 import GlobalDriversTab from "./tabs/GlobalDriversTab";
+import GlobalTeamsTab from "./tabs/GlobalTeamsTab";
 
 const RACE_ARRIVAL_FEEDBACK_MS = 280;
 
@@ -28,6 +29,7 @@ function Dashboard() {
   const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
   const [activeTab, setActiveTab] = useState("standings");
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
+  const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
   const previousShowRaceBriefingRef = useRef(showRaceBriefing);
   const raceArrivalFeedbackTimeoutRef = useRef(null);
@@ -79,6 +81,15 @@ function Dashboard() {
             onBack={() => setActiveTab("standings")}
           />
         );
+      case "global-teams":
+        return (
+          <GlobalTeamsTab
+            selectedTeamId={globalTeamsSelection?.id ?? globalTeamsSelection}
+            selectedTeamCategory={globalTeamsSelection?.categoria ?? globalTeamsSelection?.category ?? null}
+            selectedTeamClassName={globalTeamsSelection?.classe ?? globalTeamsSelection?.class_name ?? null}
+            onBack={() => setActiveTab("standings")}
+          />
+        );
       case "news":
         return <NewsTab />;
       case "my-team":
@@ -92,13 +103,23 @@ function Dashboard() {
         );
       case "standings":
       default:
-        return <StandingsTab onOpenGlobalDrivers={openGlobalDrivers} />;
+        return (
+          <StandingsTab
+            onOpenGlobalDrivers={openGlobalDrivers}
+            onOpenGlobalTeams={openGlobalTeams}
+          />
+        );
     }
   }
 
   function openGlobalDrivers(driverId) {
     setGlobalDriversSelectedId(driverId);
     setActiveTab("global-drivers");
+  }
+
+  function openGlobalTeams(team) {
+    setGlobalTeamsSelection(typeof team === "string" ? { id: team } : team);
+    setActiveTab("global-teams");
   }
 
   if (showResult && lastRaceResult) {

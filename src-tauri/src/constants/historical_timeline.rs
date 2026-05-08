@@ -6,13 +6,14 @@ pub fn category_start_year(category_id: &str) -> i32 {
     match category_id {
         "gt3" => 1999,
         "endurance" => 2000,
+        "lmp2" => 2004,
         "gt4" => 2002,
         "toyota_amador" => 2012,
         "bmw_m2" => 2015,
         "mazda_amador" => 2016,
         "production_challenger" => 2018,
-        "mazda_rookie" => 2020,
-        "toyota_rookie" => 2021,
+        "mazda_rookie" => 2012,
+        "toyota_rookie" => 2008,
         _ => 2000,
     }
 }
@@ -36,12 +37,18 @@ pub fn historical_team_foundation_year(
     }
 
     let base_year = category_start_year(category_id);
+    if rank_index < 5 {
+        return base_year;
+    }
+
     let max_offset = match category_id {
         "mazda_rookie" | "toyota_rookie" | "mazda_amador" | "toyota_amador" => 4,
         _ => 6,
     };
-    let denominator = total_teams.saturating_sub(1).max(1) as f64;
-    let rank_ratio = rank_index as f64 / denominator;
+    let remaining_rank = rank_index.saturating_sub(5);
+    let remaining_total = total_teams.saturating_sub(5).max(1);
+    let denominator = remaining_total.saturating_sub(1).max(1) as f64;
+    let rank_ratio = remaining_rank as f64 / denominator;
     base_year + (rank_ratio * f64::from(max_offset)).round() as i32
 }
 

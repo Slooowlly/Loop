@@ -678,6 +678,70 @@ pub struct GlobalDriverTitleCategorySummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryPayload {
+    pub selected_family: String,
+    pub min_year: i32,
+    pub max_year: i32,
+    pub window_start: i32,
+    pub window_end: i32,
+    pub window_size: i32,
+    pub families: Vec<GlobalTeamHistoryFamily>,
+    pub bands: Vec<GlobalTeamHistoryBand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryFamily {
+    pub id: String,
+    pub label: String,
+    pub bands: Vec<GlobalTeamHistoryFamilyBand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryFamilyBand {
+    pub key: String,
+    pub label: String,
+    pub category: String,
+    #[serde(default)]
+    pub class_name: Option<String>,
+    pub starts_year: i32,
+    pub is_special: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryBand {
+    pub key: String,
+    pub label: String,
+    pub category: String,
+    #[serde(default)]
+    pub class_name: Option<String>,
+    pub starts_year: i32,
+    pub is_special: bool,
+    pub rows: Vec<GlobalTeamHistoryTeamRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryTeamRow {
+    pub team_id: String,
+    pub nome: String,
+    pub nome_curto: String,
+    pub cor_primaria: String,
+    pub cor_secundaria: String,
+    pub base_position: i32,
+    pub delta: i32,
+    pub points: Vec<GlobalTeamHistoryPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalTeamHistoryPoint {
+    pub year: i32,
+    pub slot: String,
+    pub position: i32,
+    pub points: i32,
+    pub wins: i32,
+    pub titles: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonalityInfo {
     pub tipo: String,
     pub emoji: String,

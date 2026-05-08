@@ -75,12 +75,7 @@ where
         let identity = generate_pilot_identity(existing_names, rng);
         existing_names.insert(identity.nome_completo.clone());
 
-        let idade = if rookie_prodigy {
-            rng.gen_range(17..=19)
-        } else {
-            let (min_age, max_age) = tier_age_range(normalized_tier);
-            rng.gen_range(min_age..=max_age)
-        };
+        let idade = roll_age_for_profile(normalized_tier, rookie_prodigy, rng);
 
         let (skill_min, skill_max) = effective_skill_bounds(
             skill_range,
@@ -426,12 +421,29 @@ fn clamp_stat(value: i16) -> u8 {
 
 fn tier_age_range(tier: u8) -> (u32, u32) {
     match tier {
-        0 => (18, 24),
+        0 => (16, 22),
         1 => (20, 28),
         2 => (22, 31),
         3 => (24, 35),
         _ => (26, 40),
     }
+}
+
+fn roll_age_for_profile(tier: u8, rookie_prodigy: bool, rng: &mut impl Rng) -> u32 {
+    if tier == 0 {
+        if rng.gen_range(0_u8..100_u8) < 3 {
+            return 15;
+        }
+        return if rookie_prodigy {
+            rng.gen_range(16..=19)
+        } else {
+            let (min_age, max_age) = tier_age_range(tier);
+            rng.gen_range(min_age..=max_age)
+        };
+    }
+
+    let (min_age, max_age) = tier_age_range(tier);
+    rng.gen_range(min_age..=max_age)
 }
 
 fn fitness_for_age(rng: &mut impl Rng, age: u32) -> u8 {
@@ -458,5 +470,53 @@ fn development_for_profile(rng: &mut impl Rng, age: u32, skill: u8, rookie_prodi
         roll_stat(rng, 20, 50)
     } else {
         roll_stat(rng, 40, 60)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_for_category_with_id_factory;
+    use rand::{rngs::StdRng, SeedableRng};
+    use std::collections::HashSet;
+
+    #[test]
+    fn rookie_category_can_generate_very_young_drivers() {
+        let mut saw_age_15 = false;
+        let mut saw_age_16 = false;
+
+        for seed in 0..300 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut existing_names = HashSet::new();
+            let mut next_id = 1_u32;
+            let drivers = generate_for_category_with_id_factory(
+                "mazda_rookie",
+                0,
+                "medio",
+                12,
+                &mut existing_names,
+                &mut || {
+                    let id = format!("P{next_id:03}");
+                    next_id += 1;
+                    id
+                },
+                &mut rng,
+            );
+
+            for driver in drivers {
+                assert!(
+                    (15..=22).contains(&driver.idade),
+                    "idade rookie fora da faixa esperada: {}",
+                    driver.idade
+                );
+                saw_age_15 |= driver.idade == 15;
+                saw_age_16 |= driver.idade == 16;
+            }
+        }
+
+        assert!(saw_age_16, "geracao rookie deveria permitir 16 anos");
+        assert!(
+            saw_age_15,
+            "geracao rookie deveria permitir raros pilotos de 15 anos"
+        );
     }
 }

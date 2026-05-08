@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::calendar::{calendar_week_for_round, display_date_for_category_week, CalendarEntry};
+use crate::calendar::{calendar_week_for_round, display_date_for_category_round, CalendarEntry};
 use crate::db::connection::DbError;
 use crate::models::enums::{RaceStatus, SeasonPhase, ThematicSlot, WeatherCondition};
 use crate::models::temporal::SeasonTemporalSummary;
@@ -127,8 +127,13 @@ pub fn normalize_calendar_display_dates_for_weekday_policy(
         } else {
             week_of_year
         };
-        let expected_date =
-            display_date_for_category_week(season_year, expected_week, &categoria, season_phase);
+        let expected_date = display_date_for_category_round(
+            season_year,
+            expected_week,
+            &categoria,
+            season_phase,
+            rodada,
+        );
 
         if week_of_year == expected_week && current_date.as_deref() == Some(expected_date.as_str())
         {
@@ -562,6 +567,7 @@ fn parse_display_date(value: &str) -> Option<NaiveDate> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Datelike;
     use rand::{rngs::StdRng, SeedableRng};
     use rusqlite::Connection;
 
@@ -607,6 +613,37 @@ mod tests {
 
         assert!(updated >= 1);
         assert_eq!(repaired[0].display_date, expected_date);
+    }
+
+    #[test]
+    fn test_normalize_calendar_display_dates_preserves_lmp2_weekend_alternation() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+        let mut rng = StdRng::seed_from_u64(188);
+        let entries = generate_calendar_for_category("S001", "lmp2", &mut rng).expect("calendar");
+
+        insert_calendar_entries(&conn, &entries).expect("insert");
+        conn.execute("UPDATE calendar SET data = '2024-03-02'", [])
+            .expect("legacy saturday dates");
+
+        let updated = normalize_calendar_display_dates_for_weekday_policy(&conn, "S001", 2024)
+            .expect("normalize dates");
+        let repaired = get_calendar(&conn, "S001", "lmp2").expect("calendar");
+
+        assert!(updated >= 1);
+        assert_eq!(
+            parse_display_date(&repaired[0].display_date)
+                .expect("round 1 date")
+                .weekday(),
+            chrono::Weekday::Sat
+        );
+        assert_eq!(
+            parse_display_date(&repaired[1].display_date)
+                .expect("round 2 date")
+                .weekday(),
+            chrono::Weekday::Sun
+        );
     }
 
     #[test]

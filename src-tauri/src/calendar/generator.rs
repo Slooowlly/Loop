@@ -18,6 +18,7 @@ pub(crate) enum CalendarFamily {
     FreeRegional,
     FreeSpecialMix,
     GtInternational,
+    Lmp2Prototype,
     EnduranceCurated,
 }
 
@@ -29,6 +30,7 @@ pub(crate) fn calendar_family_for_category(category_id: &str) -> Option<Calendar
         }
         "production_challenger" => Some(CalendarFamily::FreeSpecialMix),
         "gt4" | "gt3" => Some(CalendarFamily::GtInternational),
+        "lmp2" => Some(CalendarFamily::Lmp2Prototype),
         "endurance" => Some(CalendarFamily::EnduranceCurated),
         _ => None,
     }
@@ -150,6 +152,24 @@ pub(crate) fn gt3_curated_pool() -> &'static [u32] {
     ]
 }
 
+/// Pool LMP2: mistura palcos fortes de GT3 com provas clássicas de endurance.
+pub(crate) fn lmp2_curated_pool() -> &'static [u32] {
+    &[
+        45,  // Daytona International Speedway – Road Course
+        238, // Sebring International Raceway
+        188, // Circuit de Spa-Francorchamps
+        287, // Circuit de la Sarthe – Le Mans 24H
+        249, // Road Atlanta – Full Course
+        67,  // Watkins Glen International – Boot
+        106, // Silverstone Circuit – Grand Prix
+        93,  // Autodromo Nazionale Monza
+        164, // Suzuka International Racing Course
+        373, // Fuji International Speedway
+        199, // Autódromo José Carlos Pace (Interlagos)
+        455, // Autodromo Enzo e Dino Ferrari (Imola)
+    ]
+}
+
 /// Pool Endurance: pequeno e rotativo, apenas grandes palcos.
 pub(crate) fn endurance_curated_pool() -> &'static [u32] {
     &[
@@ -192,6 +212,12 @@ pub(crate) fn strong_gt4_tracks() -> &'static [u32] {
 pub(crate) fn strong_gt3_tracks() -> &'static [u32] {
     &[188, 93, 164, 199, 45, 238, 67, 119, 106]
     // Spa, Monza, Suzuka, Interlagos, Daytona, Sebring, Watkins Glen, Bathurst, Silverstone
+}
+
+/// Pistas fortes LMP2: abertura e final devem parecer evento principal.
+pub(crate) fn strong_lmp2_tracks() -> &'static [u32] {
+    &[45, 238, 188, 287, 249, 67, 106]
+    // Daytona, Sebring, Spa, Le Mans, Road Atlanta, Watkins Glen, Silverstone
 }
 
 /// Âncoras Endurance: final + âncora de miolo devem sair deste conjunto.
@@ -380,6 +406,32 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
             })
         }
 
+        CalendarFamily::Lmp2Prototype => {
+            let candidate_ids: Vec<u32> = lmp2_curated_pool()
+                .iter()
+                .copied()
+                .filter(|&id| {
+                    use crate::constants::tracks::get_track;
+                    get_track(id).is_some()
+                })
+                .collect();
+            let strong_ids: Vec<u32> = strong_lmp2_tracks()
+                .iter()
+                .copied()
+                .filter(|id| candidate_ids.contains(id))
+                .collect();
+            Some(ThematicPool {
+                candidate_ids,
+                strong_ids,
+                visitor_id: None,
+                narrative_rounds: NarrativeRounds {
+                    strong_first: true,
+                    strong_last: true,
+                    strong_penult: false,
+                },
+            })
+        }
+
         CalendarFamily::EnduranceCurated => {
             let candidate_ids: Vec<u32> = endurance_curated_pool()
                 .iter()
@@ -530,6 +582,17 @@ mod tests {
     fn gt3_pool_large_enough_for_season() {
         // GT3 tem 14 rodadas — pool deve ter >= 14 tracks
         assert!(gt3_curated_pool().len() >= 14);
+    }
+
+    #[test]
+    fn lmp2_uses_own_gt3_endurance_mixed_family() {
+        assert_eq!(
+            calendar_family_for_category("lmp2"),
+            Some(CalendarFamily::Lmp2Prototype)
+        );
+        assert!(lmp2_curated_pool().contains(&188)); // Spa
+        assert!(lmp2_curated_pool().contains(&287)); // Le Mans
+        assert!(lmp2_curated_pool().len() >= 10);
     }
 
     #[test]

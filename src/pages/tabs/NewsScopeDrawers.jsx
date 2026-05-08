@@ -54,11 +54,9 @@ const FAMILY_CONFIG = [
   {
     id: "lmp2",
     label: "LMP2",
-    defaultScopeId: "endurance",
-    defaultScopeClass: "lmp2",
+    defaultScopeId: "lmp2",
     items: [
-      { type: "label", label: "Rookie" },
-      { type: "scope", scopeId: "endurance", scopeClass: "lmp2", label: "Endurance" },
+      { type: "scope", scopeId: "lmp2", label: "Prototype" },
     ],
   },
 ];

@@ -17,6 +17,7 @@ const CATEGORY_SUMMARY_LOGOS = {
   gt3: "/utilities/categorias/recortadas/GT3.png",
   production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
   endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
+  lmp2: "/utilities/categorias/recortadas/LMP2.png",
 };
 
 const CATEGORY_SUMMARY_FITS = {

@@ -43,11 +43,17 @@ vi.mock("./tabs/CalendarTab", () => ({
 }));
 
 vi.mock("./tabs/StandingsTab", () => ({
-  default: ({ onOpenGlobalDrivers }) => (
+  default: ({ onOpenGlobalDrivers, onOpenGlobalTeams }) => (
     <div>
       <div>Classificacao de pilotos</div>
       <button type="button" onClick={() => onOpenGlobalDrivers?.("D001")}>
         Abrir panorama
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenGlobalTeams?.({ id: "T001", categoria: "gt3", classe: "gt3" })}
+      >
+        Abrir equipes mundiais
       </button>
     </div>
   ),
@@ -59,6 +65,19 @@ vi.mock("./tabs/GlobalDriversTab", () => ({
       <div>Panorama {selectedDriverId}</div>
       <button type="button" onClick={onBack}>
         Voltar
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("./tabs/GlobalTeamsTab", () => ({
+  default: ({ selectedTeamId, selectedTeamCategory, selectedTeamClassName, onBack }) => (
+    <div>
+      <div>
+        Equipes mundiais {selectedTeamId} {selectedTeamCategory} {selectedTeamClassName}
+      </div>
+      <button type="button" onClick={onBack}>
+        Voltar equipes
       </button>
     </div>
   ),
@@ -110,6 +129,22 @@ describe("Dashboard", () => {
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "global-drivers");
 
     fireEvent.click(screen.getByRole("button", { name: /^Voltar$/i }));
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "standings");
+    expect(screen.getByText("Classificacao de pilotos")).toBeInTheDocument();
+  });
+
+  it("opens the hidden global teams tab from the standings callback and returns", () => {
+    mockState.showRaceBriefing = false;
+
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Abrir equipes mundiais/i }));
+
+    expect(screen.getByText("Equipes mundiais T001 gt3 gt3")).toBeInTheDocument();
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "global-teams");
+
+    fireEvent.click(screen.getByRole("button", { name: /Voltar equipes/i }));
 
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "standings");
     expect(screen.getByText("Classificacao de pilotos")).toBeInTheDocument();

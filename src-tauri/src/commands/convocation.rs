@@ -680,7 +680,7 @@ mod tests {
         assert!(state.eligible_candidates.iter().all(|candidate| {
             matches!(
                 candidate.origin_category.as_str(),
-                "mazda_amador" | "toyota_amador" | "bmw_m2" | "gt4" | "gt3"
+                "mazda_amador" | "toyota_amador" | "bmw_m2" | "gt4" | "gt3" | "lmp2"
             )
         }));
         assert!(

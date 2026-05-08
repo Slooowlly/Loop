@@ -1386,7 +1386,8 @@ function originCategoryLabel(category, position) {
   if (category?.includes("mazda")) return "Mazda MX-5";
   if (category === "bmw_m2") return "Mazda MX-5";
   if (category === "gt4") return position <= 3 ? "BMW M2" : "Toyota GR86";
-  if (category === "gt3" || category === "endurance") return "GT4 Series";
+  if (category === "gt3") return "GT4 Series";
+  if (category === "lmp2" || category === "endurance") return "GT3 Championship";
   return "Mazda MX-5";
 }
 
@@ -1396,6 +1397,7 @@ function categoryGroupLabel(category) {
   if (category === "bmw_m2") return "Grupo BMW";
   if (category === "gt4") return "Grupo GT4";
   if (category === "gt3") return "Grupo GT3";
+  if (category === "lmp2") return "Grupo LMP2";
   if (category === "endurance") return "Grupo Endurance";
   return "Grupo da categoria";
 }

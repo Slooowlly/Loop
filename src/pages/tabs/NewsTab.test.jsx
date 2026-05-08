@@ -82,6 +82,13 @@ function buildBootstrap() {
         special: false,
       },
       {
+        id: "lmp2",
+        label: "LMP2 Prototype Championship",
+        short_label: "LMP2",
+        scope_type: "category",
+        special: false,
+      },
+      {
         id: "endurance",
         label: "Endurance Championship",
         short_label: "Endurance",
@@ -224,6 +231,7 @@ function scopeLabelFor(scopeId) {
     production_challenger: "Production Car Challenger",
     gt4: "GT4 Series",
     gt3: "GT3 Championship",
+    lmp2: "LMP2 Prototype Championship",
     endurance: "Endurance Championship",
     mais_famosos: "Mais famosos",
   };
@@ -579,8 +587,8 @@ describe("NewsTab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "LMP2" }));
     await waitFor(() => {
-      expect(screen.getByText("Rookie")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Endurance" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Prototype" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Endurance" })).not.toBeInTheDocument();
     });
   });
 

@@ -8,6 +8,23 @@ pub fn is_real_career_debut_category(category_id: &str) -> bool {
     matches!(category_id, "mazda_rookie" | "toyota_rookie")
 }
 
+pub fn is_rookie_market_candidate(
+    target_category: &str,
+    candidate_category: &str,
+    career_races: u32,
+    career_seasons: u32,
+) -> bool {
+    if !is_real_career_debut_category(target_category) {
+        return false;
+    }
+
+    if career_races == 0 && career_seasons == 0 {
+        return true;
+    }
+
+    candidate_category == target_category && career_seasons <= 2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketProposal {
     pub id: String,

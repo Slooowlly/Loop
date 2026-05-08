@@ -19,9 +19,11 @@ use crate::commands::career_types::{
     BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData, CareerDraftState,
     CareerResumeView, CreateCareerInput, CreateCareerResult, CreateHistoricalDraftInput,
     DriverDetail, DriverSummary, FinalizeHistoricalDraftInput, FreeAgentPreview,
-    GlobalDriverRankingPayload, RaceSummary, SaveInfo, TeamHistoryDossier, TeamStanding,
+    GlobalDriverRankingPayload, GlobalTeamHistoryPayload, RaceSummary, SaveInfo,
+    TeamHistoryDossier, TeamStanding,
 };
 use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
+use crate::commands::global_team_history::get_global_team_history_in_base_dir;
 use crate::commands::historical_draft::{
     create_historical_career_draft_in_base_dir, discard_career_draft_in_base_dir,
     finalize_career_draft_in_base_dir, get_career_draft_in_base_dir,
@@ -259,6 +261,24 @@ pub async fn get_global_driver_rankings(
 ) -> Result<GlobalDriverRankingPayload, String> {
     let base_dir = app_data_dir(&app)?;
     get_global_driver_rankings_in_base_dir(&base_dir, &career_id, selected_driver_id.as_deref())
+}
+
+#[tauri::command]
+pub async fn get_global_team_history(
+    app: AppHandle,
+    career_id: String,
+    family: Option<String>,
+    start_year: Option<i32>,
+    window_size: Option<i32>,
+) -> Result<GlobalTeamHistoryPayload, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_global_team_history_in_base_dir(
+        &base_dir,
+        &career_id,
+        family.as_deref(),
+        start_year,
+        window_size,
+    )
 }
 
 #[tauri::command]

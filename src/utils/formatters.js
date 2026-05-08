@@ -80,6 +80,7 @@ export function categoryLabel(id) {
     production_challenger: "Production Car Challenger",
     gt4: "GT4 Series",
     gt3: "GT3 Championship",
+    lmp2: "LMP2 Prototype Championship",
     endurance: "Endurance Championship",
   };
   return labels[id] || id;
@@ -99,7 +100,8 @@ export function getCategoryTier(id) {
     production_challenger: 3,
     gt4: 4,
     gt3: 5,
-    endurance: 6,
+    lmp2: 6,
+    endurance: 7,
   };
   return tiers[id] || 0;
 }

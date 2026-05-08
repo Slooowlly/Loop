@@ -15,6 +15,7 @@ describe("categoryColors", () => {
     expect(getCategoryColor("production_challenger")).toBe("#8020D0");
     expect(getCategoryColor("gt4")).toBe("#2070F0");
     expect(getCategoryColor("gt3")).toBe("#00F0F0");
+    expect(getCategoryColor("lmp2")).toBe("#F2CC60");
     expect(getCategoryColor("endurance")).toBe("#3fb950");
   });
 });

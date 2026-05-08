@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::Local;
+use chrono::{Datelike, Local};
 use rand::Rng;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -8,11 +8,13 @@ use crate::constants::categories::{get_all_categories, get_category_config, is_e
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
+use crate::evolution::rookies::generate_rookies;
 use crate::generators::ids::{next_id, IdType};
 use crate::market::driver_ai::evaluate_proposal;
 use crate::market::evaluation::{estimate_expected_position, evaluate_driver_performance};
 use crate::market::proposals::{
-    is_real_career_debut_category, MarketProposal, MarketReport, SigningInfo, Vacancy,
+    is_real_career_debut_category, is_rookie_market_candidate, MarketProposal, MarketReport,
+    SigningInfo, Vacancy,
 };
 use crate::market::renewal::should_renew_contract;
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
@@ -1032,8 +1034,12 @@ fn fill_remaining_vacancies_with_rookies(
     teams: &[crate::models::team::Team],
     new_season_number: i32,
     report: &mut MarketReport,
-    _rng: &mut impl Rng,
+    rng: &mut impl Rng,
 ) -> Result<(), String> {
+    let debut_year = get_season_by_number(conn, new_season_number)?
+        .map(|season| season.ano)
+        .unwrap_or_else(|| Local::now().year());
+
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
@@ -1051,12 +1057,19 @@ fn fill_remaining_vacancies_with_rookies(
             break;
         }
 
-        let mut available = find_available_drivers(conn, &HashMap::new())?;
+        let previous_season = get_season_by_number(conn, new_season_number - 1)?;
+        let market_contexts = load_market_contexts(
+            conn,
+            previous_season.as_ref().map(|season| season.id.as_str()),
+            &current_by_id,
+            &HashMap::new(),
+        )?;
+        let mut available = find_available_drivers(conn, &market_contexts)?;
         for vacancy in vacancies {
             let fallback_index = available
                 .iter()
                 .enumerate()
-                .filter(|(_, candidate)| candidate.driver.categoria_atual.is_none())
+                .filter(|(_, candidate)| is_pool_fallback_candidate(candidate, &vacancy))
                 .max_by(|(_, a), (_, b)| compare_pool_fallback_candidates(a, b, &vacancy))
                 .map(|(index, _)| index);
 
@@ -1094,6 +1107,27 @@ fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
+            if is_real_career_debut_category(&vacancy.categoria) {
+                let rookie = generate_and_sign_rookie_for_vacancy(
+                    conn,
+                    &vacancy,
+                    new_season_number,
+                    debut_year,
+                    rng,
+                )?;
+                report.rookies_placed += 1;
+                report.new_signings.push(SigningInfo {
+                    driver_id: rookie.id.clone(),
+                    driver_name: rookie.nome.clone(),
+                    team_id: vacancy.team_id.clone(),
+                    team_name: vacancy.team_name.clone(),
+                    categoria: vacancy.categoria.clone(),
+                    papel: vacancy.papel_necessario.as_str().to_string(),
+                    tipo: "rookie".to_string(),
+                });
+                continue;
+            }
+
             return Err(format!(
                 "Sem pilotos desempregados no pool de pilotos para preencher a vaga {} da equipe '{}' em {}",
                 vacancy.papel_necessario.as_str(),
@@ -1104,6 +1138,42 @@ fn fill_remaining_vacancies_with_rookies(
     }
 
     Ok(())
+}
+
+fn generate_and_sign_rookie_for_vacancy(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    new_season_number: i32,
+    debut_year: i32,
+    rng: &mut impl Rng,
+) -> Result<Driver, String> {
+    let mut existing_names: HashSet<String> = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar nomes existentes para rookie: {e}"))?
+        .into_iter()
+        .map(|driver| driver.nome)
+        .collect();
+    let mut rookie = generate_rookies(1, debut_year, &mut existing_names, rng)
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Falha ao gerar rookie para vaga final.".to_string())?;
+    rookie.id =
+        next_id(conn, IdType::Driver).map_err(|e| format!("Falha ao gerar ID de rookie: {e}"))?;
+    rookie.categoria_atual = None;
+
+    driver_queries::insert_driver(conn, &rookie)
+        .map_err(|e| format!("Falha ao inserir rookie '{}': {e}", rookie.nome))?;
+    grant_driver_license_for_category_if_needed(conn, &rookie.id, &vacancy.categoria)?;
+    sign_driver_to_team(
+        conn,
+        &rookie,
+        vacancy,
+        new_season_number,
+        calculate_fallback_salary(vacancy, &rookie),
+        1,
+        vacancy.papel_necessario.clone(),
+    )?;
+
+    Ok(rookie)
 }
 
 fn is_regular_vacancy(vacancy: &Vacancy) -> bool {
@@ -1127,11 +1197,32 @@ fn compare_pool_fallback_candidates(
         })
 }
 
+fn is_pool_fallback_candidate(candidate: &AvailableDriver, vacancy: &Vacancy) -> bool {
+    if is_real_career_debut_category(&vacancy.categoria) {
+        return is_rookie_market_candidate(
+            &vacancy.categoria,
+            candidate_category_for_rookie(candidate),
+            candidate.driver.stats_carreira.corridas,
+            candidate.driver.stats_carreira.temporadas,
+        );
+    }
+
+    candidate.driver.categoria_atual.is_none()
+}
+
 fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) -> (u8, u8, u8) {
     let preferred_experience = if is_real_career_debut_category(&vacancy.categoria) {
-        candidate.driver.stats_carreira.corridas == 0
+        if candidate.driver.stats_carreira.corridas == 0
+            && candidate.driver.stats_carreira.temporadas == 0
+        {
+            2
+        } else if candidate_category_for_rookie(candidate) == vacancy.categoria {
+            1
+        } else {
+            0
+        }
     } else {
-        candidate.driver.stats_carreira.corridas > 0
+        u8::from(candidate.driver.stats_carreira.corridas > 0)
     };
     let required_license = get_category_config(&vacancy.categoria)
         .and_then(|category| category.licenca_necessaria)
@@ -1146,10 +1237,22 @@ fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) 
         .min(required_license);
 
     (
-        u8::from(preferred_experience),
+        preferred_experience,
         u8::from(has_required_license),
         license_level,
     )
+}
+
+fn candidate_category_for_rookie(candidate: &AvailableDriver) -> &str {
+    if candidate.categoria_atual.trim().is_empty() {
+        candidate
+            .driver
+            .categoria_atual
+            .as_deref()
+            .unwrap_or_default()
+    } else {
+        candidate.categoria_atual.as_str()
+    }
 }
 
 fn calculate_fallback_salary(vacancy: &Vacancy, driver: &Driver) -> f64 {
@@ -1500,6 +1603,205 @@ mod tests {
                 .expect("fallback license should be granted"),
             "piloto experiente de carteira inferior deve ser regularizado ao ser usado como fallback"
         );
+    }
+
+    #[test]
+    fn test_pool_fallback_for_rookie_vacancy_keeps_retrying_rookie_before_veteran() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        let previous = Season::new("S001".to_string(), 1, 2024);
+        let next = Season::new("S002".to_string(), 2, 2025);
+        season_queries::insert_season(&conn, &previous).expect("previous season");
+        season_queries::finalize_season(&conn, &previous.id).expect("finalize previous");
+        season_queries::insert_season(&conn, &next).expect("next season");
+
+        let mut team_rng = StdRng::seed_from_u64(613);
+        let team = sample_team("mazda_rookie", "T920", &mut team_rng);
+        team_queries::insert_team(&conn, &team).expect("insert rookie team");
+
+        let mut existing = sample_driver(
+            "P920",
+            "Piloto Titular",
+            Some("mazda_rookie"),
+            62.0,
+            DriverStatus::Ativo,
+        );
+        existing.stats_carreira.corridas = 0;
+        existing.stats_carreira.temporadas = 0;
+        let mut retrying_rookie = sample_driver(
+            "P921",
+            "Rookie Tentando",
+            Some("mazda_rookie"),
+            50.0,
+            DriverStatus::Ativo,
+        );
+        retrying_rookie.stats_carreira.corridas = 8;
+        retrying_rookie.stats_carreira.temporadas = 1;
+        let mut amateur_veteran =
+            sample_driver("P922", "Veterano Amador", None, 95.0, DriverStatus::Ativo);
+        amateur_veteran.stats_carreira.corridas = 40;
+        amateur_veteran.stats_carreira.temporadas = 4;
+
+        for driver in [&existing, &retrying_rookie, &amateur_veteran] {
+            driver_queries::insert_driver(&conn, driver).expect("insert driver");
+        }
+
+        let contract = Contract::new(
+            "C920".to_string(),
+            existing.id.clone(),
+            existing.nome.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            1,
+            2,
+            15_000.0,
+            TeamRole::Numero1,
+            "mazda_rookie".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insert contract");
+        team_queries::update_team_pilots(&conn, &team.id, Some(&existing.id), None)
+            .expect("seed lineup");
+        insert_standing(
+            &conn,
+            &previous.id,
+            &retrying_rookie.id,
+            &team.id,
+            "mazda_rookie",
+            12,
+            8.0,
+            0,
+            0,
+        );
+        insert_standing(
+            &conn,
+            &previous.id,
+            &amateur_veteran.id,
+            &team.id,
+            "mazda_amador",
+            8,
+            30.0,
+            0,
+            0,
+        );
+        conn.execute(
+            "UPDATE meta SET value = '921' WHERE key = 'next_contract_id'",
+            [],
+        )
+        .expect("contract counter");
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut report = MarketReport::default();
+        let mut rng = StdRng::seed_from_u64(614);
+
+        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+            .expect("fill vacancy");
+
+        let refreshed = team_queries::get_team_by_id(&conn, &team.id)
+            .expect("team query")
+            .expect("team");
+        let lineup = [
+            refreshed.piloto_1_id.as_deref(),
+            refreshed.piloto_2_id.as_deref(),
+        ];
+        assert!(lineup.contains(&Some("P921")), "lineup: {lineup:?}");
+        assert!(!lineup.contains(&Some("P922")), "lineup: {lineup:?}");
+    }
+
+    #[test]
+    fn test_pool_fallback_for_rookie_vacancy_generates_new_rookie_before_veteran() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        let previous = Season::new("S001".to_string(), 1, 2024);
+        let next = Season::new("S002".to_string(), 2, 2025);
+        season_queries::insert_season(&conn, &previous).expect("previous season");
+        season_queries::finalize_season(&conn, &previous.id).expect("finalize previous");
+        season_queries::insert_season(&conn, &next).expect("next season");
+
+        let mut team_rng = StdRng::seed_from_u64(615);
+        let team = sample_team("mazda_rookie", "T930", &mut team_rng);
+        team_queries::insert_team(&conn, &team).expect("insert rookie team");
+
+        let mut existing = sample_driver(
+            "P930",
+            "Piloto Titular",
+            Some("mazda_rookie"),
+            62.0,
+            DriverStatus::Ativo,
+        );
+        existing.stats_carreira.corridas = 0;
+        existing.stats_carreira.temporadas = 0;
+        let mut amateur_veteran =
+            sample_driver("P931", "Veterano Amador", None, 95.0, DriverStatus::Ativo);
+        amateur_veteran.stats_carreira.corridas = 40;
+        amateur_veteran.stats_carreira.temporadas = 4;
+
+        for driver in [&existing, &amateur_veteran] {
+            driver_queries::insert_driver(&conn, driver).expect("insert driver");
+        }
+
+        let contract = Contract::new(
+            "C930".to_string(),
+            existing.id.clone(),
+            existing.nome.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            1,
+            2,
+            15_000.0,
+            TeamRole::Numero1,
+            "mazda_rookie".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insert contract");
+        team_queries::update_team_pilots(&conn, &team.id, Some(&existing.id), None)
+            .expect("seed lineup");
+        insert_standing(
+            &conn,
+            &previous.id,
+            &amateur_veteran.id,
+            &team.id,
+            "mazda_amador",
+            8,
+            30.0,
+            0,
+            0,
+        );
+        conn.execute(
+            "UPDATE meta SET value = '931' WHERE key = 'next_contract_id'",
+            [],
+        )
+        .expect("contract counter");
+        conn.execute(
+            "UPDATE meta SET value = '932' WHERE key = 'next_driver_id'",
+            [],
+        )
+        .expect("driver counter");
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut report = MarketReport::default();
+        let mut rng = StdRng::seed_from_u64(616);
+
+        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+            .expect("fill vacancy");
+
+        let refreshed = team_queries::get_team_by_id(&conn, &team.id)
+            .expect("team query")
+            .expect("team");
+        let lineup = [
+            refreshed.piloto_1_id.as_deref(),
+            refreshed.piloto_2_id.as_deref(),
+        ];
+        assert!(!lineup.contains(&Some("P931")), "lineup: {lineup:?}");
+        assert_eq!(report.rookies_placed, 1);
+
+        let generated_id = lineup
+            .iter()
+            .flatten()
+            .find(|driver_id| **driver_id != "P930")
+            .expect("generated rookie in lineup");
+        let generated = driver_queries::get_driver(&conn, generated_id).expect("generated driver");
+        assert_eq!(generated.stats_carreira.corridas, 0);
+        assert_eq!(generated.stats_carreira.temporadas, 0);
+        assert_eq!(generated.ano_inicio_carreira, 2025);
     }
 
     #[test]

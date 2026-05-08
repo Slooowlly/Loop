@@ -2,9 +2,7 @@ use std::collections::HashSet;
 
 use rand::Rng;
 
-use crate::generators::driver_helpers::{
-    career_start_year_from_age, random_primary_personality, random_secondary_personality,
-};
+use crate::generators::driver_helpers::{random_primary_personality, random_secondary_personality};
 use crate::generators::names::generate_pilot_identity;
 use crate::models::driver::{Driver, DriverAttributes};
 use crate::models::enums::DriverStatus;
@@ -18,11 +16,12 @@ enum RookieType {
 
 pub fn generate_rookies(
     count: usize,
+    debut_year: i32,
     existing_names: &mut HashSet<String>,
     rng: &mut impl Rng,
 ) -> Vec<Driver> {
     (0..count)
-        .map(|index| generate_single_rookie(index, existing_names, rng))
+        .map(|index| generate_single_rookie(index, debut_year, existing_names, rng))
         .collect()
 }
 
@@ -38,6 +37,7 @@ pub fn classify_rookie(skill: u8) -> &'static str {
 
 fn generate_single_rookie(
     index: usize,
+    debut_year: i32,
     existing_names: &mut HashSet<String>,
     rng: &mut impl Rng,
 ) -> Driver {
@@ -45,7 +45,7 @@ fn generate_single_rookie(
     let identity = generate_pilot_identity(existing_names, rng);
     existing_names.insert(identity.nome_completo.clone());
 
-    let age = rng.gen_range(16..=20);
+    let age = roll_rookie_age(rng);
     let skill = match rookie_type {
         RookieType::Comum => rng.gen_range(25..=45),
         RookieType::Talento => rng.gen_range(40..=55),
@@ -64,7 +64,7 @@ fn generate_single_rookie(
         18..=19 => rng.gen_range(70..=85),
         _ => rng.gen_range(65..=82),
     } as f64;
-    let ano_inicio = career_start_year_from_age(age as u32);
+    let ano_inicio = debut_year.max(0) as u32;
 
     let mut driver = Driver::new(
         format!("ROOKIE-TMP-{:03}", index + 1),
@@ -101,6 +101,14 @@ fn generate_single_rookie(
     driver
 }
 
+fn roll_rookie_age(rng: &mut impl Rng) -> u32 {
+    if rng.gen_range(0_u8..100_u8) < 3 {
+        15
+    } else {
+        rng.gen_range(16..=20)
+    }
+}
+
 fn roll_rookie_type(rng: &mut impl Rng) -> RookieType {
     let roll = rng.gen::<f64>();
     if roll < 0.05 {
@@ -127,7 +135,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1);
         let mut existing_names = HashSet::new();
 
-        let rookies = generate_rookies(4, &mut existing_names, &mut rng);
+        let rookies = generate_rookies(4, 2025, &mut existing_names, &mut rng);
 
         assert_eq!(rookies.len(), 4);
     }
@@ -137,11 +145,14 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(2);
         let mut existing_names = HashSet::new();
 
-        let rookies = generate_rookies(20, &mut existing_names, &mut rng);
+        let rookies = generate_rookies(20, 2025, &mut existing_names, &mut rng);
 
         assert!(rookies
             .iter()
-            .all(|rookie| (16..=20).contains(&(rookie.idade as i32))));
+            .all(|rookie| (15..=20).contains(&(rookie.idade as i32))));
+        assert!(rookies
+            .iter()
+            .all(|rookie| rookie.ano_inicio_carreira == 2025));
         assert!(rookies
             .iter()
             .all(|rookie| rookie.categoria_atual.is_none()));
@@ -156,7 +167,7 @@ mod tests {
         for seed in 0..400 {
             let mut rng = StdRng::seed_from_u64(seed);
             let mut existing_names = HashSet::new();
-            let rookie = generate_rookies(1, &mut existing_names, &mut rng)
+            let rookie = generate_rookies(1, 2025, &mut existing_names, &mut rng)
                 .into_iter()
                 .next()
                 .expect("rookie");

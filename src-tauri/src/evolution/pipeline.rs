@@ -100,7 +100,7 @@ fn run_end_of_season_with_mode(
     archive_team_season(&tx, season)
         .map_err(|e| format!("Falha ao arquivar temporada das equipes: {e}"))?;
 
-    let rookies_generated = process_rookie_phase(&tx, existing_names, &mut rng)?;
+    let rookies_generated = process_rookie_phase(&tx, season.ano + 1, existing_names, &mut rng)?;
 
     let promotion_result =
         run_promotion_relegation_for_year(&tx, season.numero, season.ano, &mut rng)
@@ -278,11 +278,12 @@ fn process_driver_evolution(
 
 fn process_rookie_phase(
     conn: &Connection,
+    debut_year: i32,
     mut existing_names: HashSet<String>,
     rng: &mut impl Rng,
 ) -> Result<Vec<RookieInfo>, String> {
     let rookie_count = rng.gen_range(2..=4);
-    let mut rookies = generate_rookies(rookie_count, &mut existing_names, rng);
+    let mut rookies = generate_rookies(rookie_count, debut_year, &mut existing_names, rng);
     let rookie_ids = next_ids(conn, IdType::Driver, rookie_count as u32)
         .map_err(|e| format!("Falha ao gerar IDs de rookies: {e}"))?;
     let mut rookies_generated = Vec::new();

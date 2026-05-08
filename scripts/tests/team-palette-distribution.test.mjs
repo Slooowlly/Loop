@@ -17,7 +17,7 @@ const LOW_AND_MID_CATEGORIES = [
   "production_challenger",
 ];
 
-const TOP_TIER_CATEGORIES = ["gt4", "gt3", "endurance"];
+const TOP_TIER_CATEGORIES = ["gt4", "gt3", "lmp2", "endurance"];
 
 function getStringField(block, field) {
   const match = block.match(new RegExp(`${field}:\\s*(?:Some\\()?\"([^\"]*)\"`));

@@ -140,6 +140,122 @@ describe("StandingsTab", () => {
     );
   });
 
+  it("orders endurance standings as LMP2, GT3 and GT4 without an Outros group", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        categoria: "gt4",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          {
+            id: "D-LMP2",
+            nome: "Lia Prototype",
+            nacionalidade: "br",
+            idade: 27,
+            equipe_id: "TLMP2",
+            equipe_nome: "Prototype Works",
+            equipe_nome_curto: "LMP",
+            equipe_cor: "#f2cc60",
+            classe: "lmp2",
+            pontos: 92,
+            vitorias: 2,
+            podios: 4,
+            posicao_campeonato: 1,
+            results: [{ position: 1, is_dnf: false }],
+          },
+          {
+            id: "D-GT3",
+            nome: "Gabi GT3",
+            nacionalidade: "pt",
+            idade: 25,
+            equipe_id: "TGT3",
+            equipe_nome: "GT3 Squad",
+            equipe_nome_curto: "GT3",
+            equipe_cor: "#e73f47",
+            classe: "gt3",
+            pontos: 81,
+            vitorias: 1,
+            podios: 3,
+            posicao_campeonato: 2,
+            results: [{ position: 2, is_dnf: false }],
+          },
+          {
+            id: "D-GT4",
+            nome: "Gui GT4",
+            nacionalidade: "br",
+            idade: 23,
+            equipe_id: "TGT4",
+            equipe_nome: "GT4 Squad",
+            equipe_nome_curto: "GT4",
+            equipe_cor: "#58a6ff",
+            classe: "gt4",
+            pontos: 74,
+            vitorias: 1,
+            podios: 2,
+            posicao_campeonato: 3,
+            results: [{ position: 3, is_dnf: false }],
+          },
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [
+          specialTeam({
+            id: "TLMP2",
+            nome: "Prototype Works",
+            classe: "lmp2",
+            pontos: 140,
+            piloto1: "Lia Prototype",
+            piloto2: "Leo Prototype",
+            cor: "#f2cc60",
+          }),
+          specialTeam({
+            id: "TGT3",
+            nome: "GT3 Squad",
+            classe: "gt3",
+            pontos: 124,
+            piloto1: "Gabi GT3",
+            piloto2: "Gael GT3",
+            cor: "#e73f47",
+          }),
+          specialTeam({
+            id: "TGT4",
+            nome: "GT4 Squad",
+            classe: "gt4",
+            pontos: 112,
+            piloto1: "Gui GT4",
+            piloto2: "Gio GT4",
+            cor: "#58a6ff",
+          }),
+        ];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+
+    await screen.findByText("Lia Prototype");
+    const driverTable = screen.getByRole("table");
+    const classHeader = (label) =>
+      within(driverTable)
+        .getAllByText(label)
+        .find((element) => element.className.includes("font-black"));
+    const lmp2Header = classHeader("LMP2");
+    const gt3Header = classHeader("GT3");
+    const gt4Header = classHeader("GT4");
+
+    expect(lmp2Header.compareDocumentPosition(gt3Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(gt3Header.compareDocumentPosition(gt4Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(driverTable).queryByText("Outros")).not.toBeInTheDocument();
+    expect(within(screen.getByText("Lia Prototype").closest("tr")).getByText("1")).toBeInTheDocument();
+  });
+
   it("groups special driver and team standings by car class", async () => {
     invoke.mockImplementation(async (command) => {
       if (command === "get_drivers_by_category") {
@@ -753,7 +869,7 @@ describe("StandingsTab", () => {
     expect(screen.getAllByAltText("Ferrari AF Corse logo")).toHaveLength(2);
   });
 
-  it("opens the team history drawer directly from the team standings on double click", async () => {
+  it("opens the team history drawer directly from the team standings on single click", async () => {
     mockState = {
       ...mockState,
       playerTeam: {
@@ -901,7 +1017,10 @@ describe("StandingsTab", () => {
     render(<StandingsTab />);
 
     const vectorTeam = await screen.findByText("Vector Racing");
-    fireEvent.doubleClick(vectorTeam);
+    vi.useFakeTimers();
+    fireEvent.click(vectorTeam);
+    await vi.advanceTimersByTimeAsync(221);
+    vi.useRealTimers();
 
     const drawer = await screen.findByRole("dialog", { name: /Vector Racing/i });
     expect(within(drawer).getByText(/Records históricos/i)).toBeInTheDocument();
@@ -1028,6 +1147,86 @@ describe("StandingsTab", () => {
 
     expect(onOpenGlobalDrivers).toHaveBeenCalledWith("D1");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("opens team dossier on single click and global team history on double click", async () => {
+    const onOpenGlobalTeams = vi.fn();
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        id: "T001",
+        categoria: "mazda_amador",
+        nome: "Sunday Speed Club",
+        cor_primaria: "#5ee7a8",
+      },
+      season: {
+        ano: 2025,
+        rodada_atual: 8,
+        total_rodadas: 8,
+        fase: "BlocoRegular",
+      },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [];
+      }
+      if (command === "get_teams_standings") {
+        return [
+          {
+            id: "T001",
+            nome: "Sunday Speed Club",
+            nome_curto: "SSC",
+            cor_primaria: "#5ee7a8",
+            pontos: 120,
+            vitorias: 4,
+            posicao: 1,
+            piloto_1_nome: "Alex Stone",
+            piloto_2_nome: "Cole Vega",
+          },
+        ];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      if (command === "get_team_history_dossier") {
+        return {
+          team_id: "T001",
+          category: "mazda_amador",
+          record_scope: "Grupo Mazda",
+          has_history: false,
+          records: [],
+          sport: {},
+          identity: {},
+          management: {},
+          timeline: [],
+          title_categories: [],
+          category_path: [],
+        };
+      }
+      return [];
+    });
+
+    render(<StandingsTab onOpenGlobalTeams={onOpenGlobalTeams} />);
+
+    const teamName = await screen.findByText("Sunday Speed Club");
+    vi.useFakeTimers();
+
+    fireEvent.click(teamName);
+    expect(screen.queryByTestId("team-history-layer")).not.toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(221);
+    expect(screen.getByTestId("team-history-layer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Fechar histórico da equipe/i));
+    fireEvent.doubleClick(teamName);
+    await vi.advanceTimersByTimeAsync(221);
+
+    expect(onOpenGlobalTeams).toHaveBeenCalledWith(expect.objectContaining({
+      id: "T001",
+      categoria: "mazda_amador",
+      classe: null,
+    }));
     vi.useRealTimers();
   });
 
@@ -1190,7 +1389,10 @@ describe("StandingsTab", () => {
     fireEvent.click(screen.getByTitle("Categoria superior"));
 
     const gt3Team = await screen.findByText("GT3 Titan");
-    fireEvent.doubleClick(gt3Team);
+    vi.useFakeTimers();
+    fireEvent.click(gt3Team);
+    await vi.advanceTimersByTimeAsync(221);
+    vi.useRealTimers();
 
     const drawer = await screen.findByRole("dialog", { name: /GT3 Titan/i });
     fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
