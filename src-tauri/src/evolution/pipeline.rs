@@ -19,15 +19,15 @@ use crate::evolution::motivation::{
 use crate::evolution::retirement::{check_retirement, process_retirement};
 use crate::evolution::rookies::{classify_rookie, generate_rookies};
 use crate::evolution::season_transition::{
-    archive_driver_season, create_and_persist_new_season, reset_driver_season_stats,
-    reset_team_season_stats, seed_new_calendar, update_meta_for_new_season,
+    archive_driver_season, create_next_season_9d, reset_driver_season_stats,
+    reset_team_season_stats, update_meta_for_new_season,
 };
 use crate::evolution::standings::build_and_persist_standings;
 use crate::generators::ids::{next_ids, IdType};
 use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
-use crate::models::enums::DriverStatus;
+use crate::models::enums::{DriverStatus, SeasonPhase};
 use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::promotion::pipeline::run_promotion_relegation_for_year;
@@ -73,11 +73,21 @@ fn run_end_of_season_with_mode(
     let (teams_by_id, contracts_by_driver) = build_context(&tx)?;
 
     let standings = build_and_persist_standings(&tx, season, &contracts_by_driver)?;
-    let standings_by_driver: HashMap<String, StandingEntry> = standings
+    // Pilotos de lmp2 aparecem em dois standings (lmp2 regular + classe lmp2 da
+    // Endurance); o campeonato regular é o de referência para evolução/arquivo.
+    let mut standings_by_driver: HashMap<String, StandingEntry> = HashMap::new();
+    for entry in standings
         .iter()
-        .cloned()
-        .map(|entry| (entry.driver_id.clone(), entry))
-        .collect();
+        .filter(|entry| crate::constants::categories::is_multiclass_category(&entry.category))
+    {
+        standings_by_driver.insert(entry.driver_id.clone(), entry.clone());
+    }
+    for entry in standings
+        .iter()
+        .filter(|entry| !crate::constants::categories::is_multiclass_category(&entry.category))
+    {
+        standings_by_driver.insert(entry.driver_id.clone(), entry.clone());
+    }
 
     let licenses_earned = persist_licenses(&tx, &standings, &standings_by_driver)
         .map_err(|e| format!("Falha ao persistir licencas: {e}"))?;
@@ -85,11 +95,19 @@ fn run_end_of_season_with_mode(
     season_queries::finalize_season(&tx, &season.id)
         .map_err(|e| format!("Falha ao finalizar temporada: {e}"))?;
 
+    // Títulos contam por campeonato vencido: nas categorias especiais cada classe
+    // (mazda/toyota/bmw, gt4/gt3/lmp2) tem o próprio campeão — não há título geral.
+    let mut titles_by_driver: HashMap<String, i32> = HashMap::new();
+    for entry in standings.iter().filter(|entry| entry.position == 1) {
+        *titles_by_driver.entry(entry.driver_id.clone()).or_insert(0) += 1;
+    }
+
     let (growth_reports, motivation_reports, retirements, existing_names) =
         process_driver_evolution(
             &tx,
             season,
             &standings_by_driver,
+            &titles_by_driver,
             &contracts_by_driver,
             &teams_by_id,
             &mut rng,
@@ -109,7 +127,7 @@ fn run_end_of_season_with_mode(
     apply_season_end_rivalry_decay(&tx, season.numero)
         .map_err(|e| format!("Erro no decaimento de rivalidades: {e}"))?;
 
-    let new_season = create_next_season_phase(&tx, season, &mut rng)?;
+    let new_season = create_next_season_phase(&tx, season, &mut rng, mode)?;
 
     let (preseason_initialized, preseason_total_weeks) =
         initialize_preseason_phase(&tx, &new_season, save_path, &mut rng, mode)?;
@@ -155,6 +173,7 @@ fn process_driver_evolution(
     conn: &Connection,
     season: &Season,
     standings_by_driver: &HashMap<String, StandingEntry>,
+    titles_by_driver: &HashMap<String, i32>,
     contracts_by_driver: &HashMap<String, Contract>,
     teams_by_id: &HashMap<String, Team>,
     rng: &mut impl Rng,
@@ -230,11 +249,8 @@ fn process_driver_evolution(
         }
 
         driver.accumulate_career_stats();
-        if standings_by_driver
-            .get(&driver.id)
-            .is_some_and(|standing| standing.position == 1)
-        {
-            driver.stats_carreira.titulos += 1;
+        if let Some(titles) = titles_by_driver.get(&driver.id) {
+            driver.stats_carreira.titulos += *titles as u32;
         }
 
         let retirement =
@@ -307,11 +323,16 @@ fn create_next_season_phase(
     conn: &Connection,
     season: &Season,
     rng: &mut impl Rng,
+    mode: EndOfSeasonMode,
 ) -> Result<Season, String> {
-    let new_season = create_and_persist_new_season(conn, season)?;
+    let fase_inicial = match mode {
+        EndOfSeasonMode::Playable => SeasonPhase::PreTemporada,
+        EndOfSeasonMode::HistoricalDraft => SeasonPhase::Temporada,
+    };
+    let seed: u64 = rng.gen();
+    let new_season = create_next_season_9d(conn, season, fase_inicial, seed)?;
     reset_driver_season_stats(conn)?;
     reset_team_season_stats(conn, new_season.numero)?;
-    seed_new_calendar(conn, &new_season.id, new_season.ano, rng)?;
     update_meta_for_new_season(conn, new_season.numero, new_season.ano)?;
     Ok(new_season)
 }
@@ -558,26 +579,28 @@ mod tests {
 
     #[test]
     fn test_promotion_initializes_preseason_after_movements() {
-        let (mut conn, season, promoted_team_id, _freed_driver_id) =
+        let (mut conn, season, promoted_team_id, _second_driver_id) =
             setup_promotion_order_fixture();
         let save_path = unique_test_dir("eos_preseason_order");
 
         let result =
             run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
+        // Fase 4B: a campea do gt4 sobe para a Endurance classe gt4 levando os
+        // pilotos; nenhum movimento toca LMP2.
         assert!(result
             .promotion_result
             .movements
             .iter()
-            .all(|movement| movement.to_category != "endurance"
-                && movement.from_category != "endurance"));
+            .all(|movement| movement.from_category != "lmp2" && movement.to_category != "lmp2"));
         assert!(result.preseason_initialized);
         assert!(result.preseason_total_weeks >= 3);
 
         let promoted_team = team_queries::get_team_by_id(&conn, &promoted_team_id)
             .expect("team query")
             .expect("promoted team");
-        assert_eq!(promoted_team.categoria, "gt4");
+        assert_eq!(promoted_team.categoria, "endurance");
+        assert_eq!(promoted_team.classe.as_deref(), Some("gt4"));
         assert!(promoted_team.piloto_1_id.is_some() || promoted_team.piloto_2_id.is_some());
 
         assert!(save_path.join("preseason_plan.json").exists());
@@ -728,14 +751,14 @@ mod tests {
         insert_ranked_teams(conn, "mazda_amador", "MA", 10, None);
         insert_ranked_teams(conn, "toyota_amador", "TA", 10, None);
         insert_ranked_teams(conn, "bmw_m2", "BM", 10, None);
-        insert_ranked_teams(conn, "production_challenger", "PM", 5, Some("mazda"));
-        insert_ranked_teams(conn, "production_challenger", "PT", 5, Some("toyota"));
-        insert_ranked_teams(conn, "production_challenger", "PB", 5, Some("bmw"));
+        insert_ranked_teams(conn, "production_challenger", "PM", 6, Some("mazda"));
+        insert_ranked_teams(conn, "production_challenger", "PT", 6, Some("toyota"));
+        insert_ranked_teams(conn, "production_challenger", "PB", 6, Some("bmw"));
         insert_ranked_teams(conn, "gt4", "GT4", 9, None);
         insert_ranked_teams(conn, "gt3", "GT3", 14, None);
         insert_ranked_teams(conn, "endurance", "EG4", 6, Some("gt4"));
         insert_ranked_teams(conn, "endurance", "EG3", 6, Some("gt3"));
-        insert_ranked_teams(conn, "endurance", "LMP", 5, Some("lmp2"));
+        insert_ranked_teams(conn, "endurance", "LMP", 6, Some("lmp2"));
 
         let mut promoted_team = sample_named_team("gt4", "GT4PROMO", "GT4 Promo Team", None, 9001);
         promoted_team.stats_pontos = 999;
@@ -750,14 +773,14 @@ mod tests {
         insert_ranked_teams(conn, "mazda_amador", "MA", 10, None);
         insert_ranked_teams(conn, "toyota_amador", "TA", 10, None);
         insert_ranked_teams(conn, "bmw_m2", "BM", 10, None);
-        insert_ranked_teams(conn, "production_challenger", "PM", 5, Some("mazda"));
-        insert_ranked_teams(conn, "production_challenger", "PT", 5, Some("toyota"));
-        insert_ranked_teams(conn, "production_challenger", "PB", 5, Some("bmw"));
+        insert_ranked_teams(conn, "production_challenger", "PM", 6, Some("mazda"));
+        insert_ranked_teams(conn, "production_challenger", "PT", 6, Some("toyota"));
+        insert_ranked_teams(conn, "production_challenger", "PB", 6, Some("bmw"));
         insert_ranked_teams(conn, "gt4", "GT4", 10, None);
         insert_ranked_teams(conn, "gt3", "GT3", 14, None);
         insert_ranked_teams(conn, "endurance", "EG4", 6, Some("gt4"));
         insert_ranked_teams(conn, "endurance", "EG3", 6, Some("gt3"));
-        insert_ranked_teams(conn, "endurance", "LMP", 5, Some("lmp2"));
+        insert_ranked_teams(conn, "endurance", "LMP", 6, Some("lmp2"));
     }
 
     fn seed_gt4_promotion_drivers(conn: &Connection) {

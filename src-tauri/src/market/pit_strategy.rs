@@ -34,6 +34,7 @@ pub fn category_risk_modifier(category: &str) -> f64 {
     }
 }
 
+#[cfg(test)]
 pub fn seed_pit_crew_quality(
     category: &str,
     budget: f64,
@@ -41,21 +42,6 @@ pub fn seed_pit_crew_quality(
     facilities: f64,
 ) -> f64 {
     pit_crew_target_quality(category, budget, engineering, facilities, 0.0)
-}
-
-pub fn seed_pit_strategy_risk(
-    category: &str,
-    budget: f64,
-    car_performance: f64,
-    team_id: &str,
-) -> f64 {
-    let budget_strength = (budget / 100.0).clamp(0.0, 1.0);
-    let car_strength = ((car_performance + 5.0) / 21.0).clamp(0.0, 1.0);
-    let identity = team_risk_identity(team_id);
-    (45.0 - budget_strength * 10.0 - car_strength * 8.0
-        + category_risk_modifier(category)
-        + identity * 6.0)
-        .clamp(0.0, 100.0)
 }
 
 pub fn seed_pit_crew_quality_from_team(team: &Team) -> f64 {

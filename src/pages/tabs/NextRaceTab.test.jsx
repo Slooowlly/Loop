@@ -408,6 +408,59 @@ describe("NextRaceTab", () => {
     expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
   });
 
+  it("avanÃ§a Encerramento no modelo 9D sem abrir convocaÃ§Ã£o", async () => {
+    mockState.nextRace = null;
+    mockState.season = {
+      ...mockState.season,
+      fase: "Encerramento",
+    };
+    mockState.temporalSummary = {
+      current_display_date: "2026-11-21",
+      next_event_display_date: null,
+      days_until_next_event: null,
+      pending_in_phase: 0,
+    };
+
+    render(<NextRaceTab />);
+
+    expect(screen.getByRole("heading", { name: /fim de temporada/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /avançar para pré-temporada/i }));
+
+    await waitFor(() => {
+      expect(mockAdvanceSeason).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRunConvocationWindow).not.toHaveBeenCalled();
+    expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
+  });
+
+  it("mostra a prÃ³xima corrida da Endurance LMP2 no modelo 9D", async () => {
+    mockState.playerTeam = {
+      ...mockState.playerTeam,
+      categoria: "endurance",
+      classe: "lmp2",
+      nome: "Vector Endurance",
+    };
+    mockState.season = {
+      ...mockState.season,
+      fase: "Temporada",
+    };
+    mockState.nextRace = {
+      ...mockState.nextRace,
+      id: "race-end-lmp2",
+      categoria: "endurance",
+      classe: "lmp2",
+      track_name: "Le Mans",
+      rodada: 1,
+      display_date: "2026-02-14",
+    };
+
+    render(<NextRaceTab />);
+
+    expect(await screen.findByRole("heading", { name: /^le mans$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/convocaÃ§Ã£o/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bloco especial/i)).not.toBeInTheDocument();
+  });
+
   it("mostra o erro detalhado ao falhar ao pular a temporada sem equipe", async () => {
     mockState.nextRace = null;
     mockState.playerTeam = null;

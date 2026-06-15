@@ -2,10 +2,13 @@
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::calendar::{calendar_week_for_round, display_date_for_category_round, CalendarEntry};
+use crate::calendar::{
+    calendar_week_for_round, display_date_for_category_round, display_date_for_season_week,
+    CalendarEntry,
+};
 use crate::db::connection::DbError;
 use crate::models::enums::{RaceStatus, SeasonPhase, ThematicSlot, WeatherCondition};
 use crate::models::temporal::SeasonTemporalSummary;
@@ -16,12 +19,12 @@ pub fn insert_calendar_entry(conn: &Connection, entry: &CalendarEntry) -> Result
             id, temporada_id, season_id, categoria, rodada, nome,
             pista, track_id, track_name, track_config, clima, temperatura,
             voltas, duracao, duracao_corrida_min, duracao_classificacao_min,
-            status, horario, data, week_of_year, season_phase, thematic_slot
+            status, horario, data, week_of_year, season_phase, thematic_slot, season_week
         ) VALUES (
             :id, :temporada_id, :season_id, :categoria, :rodada, :nome,
             :pista, :track_id, :track_name, :track_config, :clima, :temperatura,
             :voltas, :duracao, :duracao_corrida_min, :duracao_classificacao_min,
-            :status, :horario, :data, :week_of_year, :season_phase, :thematic_slot
+            :status, :horario, :data, :week_of_year, :season_phase, :thematic_slot, :season_week
         )",
         rusqlite::named_params! {
             ":id": &entry.id,
@@ -46,6 +49,7 @@ pub fn insert_calendar_entry(conn: &Connection, entry: &CalendarEntry) -> Result
             ":week_of_year": entry.week_of_year,
             ":season_phase": entry.season_phase.as_str(),
             ":thematic_slot": entry.thematic_slot.as_str(),
+            ":season_week": entry.season_week.map(|v| v as i64),
         },
     )?;
     Ok(())
@@ -73,6 +77,13 @@ pub fn get_calendar(
     )?;
     let mapped = stmt.query_map(params![season_id, categoria], calendar_from_row)?;
     collect_entries(mapped)
+}
+
+pub(crate) fn calendar_entry_season_week(entry: &CalendarEntry) -> i32 {
+    entry
+        .season_week
+        .map(|week| week as i32)
+        .unwrap_or(entry.week_of_year + 4)
 }
 
 pub fn normalize_calendar_display_dates_for_weekday_policy(
@@ -160,7 +171,7 @@ pub fn get_next_race(
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND categoria = ?2
            AND status = 'Pendente'
-         ORDER BY rodada ASC
+         ORDER BY COALESCE(season_week, week_of_year + 4) ASC, data ASC, rodada ASC
          LIMIT 1",
     )?;
     let entry = stmt
@@ -216,7 +227,7 @@ pub fn get_pending_races_for_category(
     collect_entries(mapped)
 }
 
-/// Retorna corridas pendentes de uma categoria com week_of_year entre 1 e target_week,
+/// Retorna corridas pendentes de uma categoria com season_week até target_week,
 /// ordenadas cronologicamente. Entradas com week_of_year = 0 (saves legados) são ignoradas.
 pub fn get_pending_races_up_to_week(
     conn: &Connection,
@@ -230,8 +241,8 @@ pub fn get_pending_races_up_to_week(
            AND categoria = ?2
            AND status = 'Pendente'
            AND week_of_year > 0
-           AND week_of_year <= ?3
-         ORDER BY week_of_year ASC, rodada ASC",
+           AND COALESCE(season_week, week_of_year + 4) <= ?3
+         ORDER BY COALESCE(season_week, week_of_year + 4) ASC, rodada ASC",
     )?;
     let mapped = stmt.query_map(
         params![season_id, category_id, target_week],
@@ -257,14 +268,14 @@ pub fn count_races_by_status(
     Ok(count)
 }
 
-/// MAX(week_of_year) das corridas concluídas na temporada (todas as categorias).
+/// MAX(season_week) das corridas concluídas na temporada (todas as categorias).
 /// None se nenhuma corrida foi concluída ainda.
 pub fn get_current_effective_week(
     conn: &Connection,
     season_id: &str,
 ) -> Result<Option<i32>, DbError> {
     let result = conn.query_row(
-        "SELECT MAX(week_of_year) FROM calendar
+        "SELECT MAX(COALESCE(season_week, week_of_year + 4)) FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND status = 'Concluida'
            AND week_of_year > 0",
@@ -301,7 +312,7 @@ pub fn get_next_any_race_in_phase(
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND season_phase = ?2
            AND status = 'Pendente'
-         ORDER BY week_of_year ASC, data ASC
+         ORDER BY COALESCE(season_week, week_of_year + 4) ASC, data ASC
          LIMIT 1",
     )?;
     let entry = stmt
@@ -318,13 +329,28 @@ pub fn get_season_temporal_summary(
     player_category: &str,
     current_phase: &SeasonPhase,
 ) -> Result<SeasonTemporalSummary, DbError> {
-    let effective_week = get_current_effective_week(conn, season_id)?;
-    let next_player_event = get_next_race(conn, season_id, player_category)?;
-    let pending_in_phase = count_pending_races_in_phase(conn, season_id, current_phase)?;
+    let effective_week = if current_phase.is_legacy() {
+        get_current_effective_week_legacy(conn, season_id)?
+    } else {
+        get_current_effective_week(conn, season_id)?
+    };
+    let next_player_event = if *current_phase == SeasonPhase::Encerramento {
+        None
+    } else {
+        get_next_race(conn, season_id, player_category)?
+    };
+    let pending_in_phase = match current_phase {
+        SeasonPhase::Temporada => count_pending_races_for_season(conn, season_id)?,
+        SeasonPhase::Encerramento => 0,
+        _ => count_pending_races_in_phase(conn, season_id, current_phase)?,
+    };
 
     // Se não há mais eventos do jogador mas há corridas pendentes na fase,
     // buscamos o próximo evento genérico para que o calendário não trave.
-    let next_any_event = if next_player_event.is_none() && pending_in_phase > 0 {
+    let next_any_event = if *current_phase != SeasonPhase::Encerramento
+        && next_player_event.is_none()
+        && pending_in_phase > 0
+    {
         get_next_any_race_in_phase(conn, season_id, current_phase)?
     } else {
         None
@@ -335,6 +361,7 @@ pub fn get_season_temporal_summary(
         season_id,
         effective_week,
         next_player_event.as_ref().or(next_any_event.as_ref()),
+        current_phase,
     )?;
 
     let next_event_display_date = next_player_event
@@ -355,6 +382,17 @@ pub fn get_season_temporal_summary(
         days_until_next_event,
         pending_in_phase,
     })
+}
+
+fn count_pending_races_for_season(conn: &Connection, season_id: &str) -> Result<i32, DbError> {
+    let count = conn.query_row(
+        "SELECT COUNT(*) FROM calendar
+         WHERE COALESCE(season_id, temporada_id) = ?1
+           AND status = 'Pendente'",
+        params![season_id],
+        |row| row.get(0),
+    )?;
+    Ok(count)
 }
 
 pub fn delete_calendar_for_season(conn: &Connection, season_id: &str) -> Result<(), DbError> {
@@ -432,6 +470,13 @@ fn calendar_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CalendarEntry>
                 ThematicSlot::from_str_strict(&s).map_err(rusqlite::Error::InvalidParameterName)?
             }
         },
+        // Coluna adicionada em v33; None para saves anteriores ou entradas pré-backfill.
+        // unwrap_or(None) absorve InvalidColumnName quando a coluna ainda não existe
+        // (ex.: testes que criam schema mínimo sem rodar run_all).
+        season_week: row
+            .get::<_, Option<i64>>("season_week")
+            .unwrap_or(None)
+            .and_then(|v| if v > 0 { Some(v as u32) } else { None }),
     })
 }
 
@@ -505,18 +550,29 @@ fn optional_f64(row: &rusqlite::Row<'_>, column_name: &str) -> rusqlite::Result<
 fn resolve_current_display_date(
     conn: &Connection,
     season_id: &str,
-    effective_week: Option<i32>,
+    effective_season_week: Option<i32>,
     next_player_event: Option<&CalendarEntry>,
+    current_phase: &SeasonPhase,
 ) -> Result<String, DbError> {
-    if let Some(week) = effective_week {
-        if let Some(date) = latest_completed_display_date_for_week(conn, season_id, week)? {
+    if let Some(week) = effective_season_week {
+        let date = if current_phase.is_legacy() {
+            latest_completed_display_date_for_legacy_week(conn, season_id, week)?
+        } else {
+            latest_completed_display_date_for_season_week(conn, season_id, week)?
+        };
+        if let Some(date) = date {
             return Ok(date);
         }
     }
 
-    if let Some(date) =
-        next_player_event.and_then(|entry| infer_pre_event_display_date(&entry.display_date))
-    {
+    let inferred_date = next_player_event.and_then(|entry| {
+        if current_phase.is_legacy() {
+            infer_pre_event_display_date_legacy(&entry.display_date)
+        } else {
+            infer_pre_event_display_date(entry)
+        }
+    });
+    if let Some(date) = inferred_date {
         return Ok(date);
     }
 
@@ -525,7 +581,42 @@ fn resolve_current_display_date(
         .unwrap_or_default())
 }
 
-fn latest_completed_display_date_for_week(
+fn get_current_effective_week_legacy(
+    conn: &Connection,
+    season_id: &str,
+) -> Result<Option<i32>, DbError> {
+    let result = conn.query_row(
+        "SELECT MAX(week_of_year) FROM calendar
+         WHERE COALESCE(season_id, temporada_id) = ?1
+           AND status = 'Concluida'
+           AND week_of_year > 0",
+        params![season_id],
+        |row| row.get::<_, Option<i32>>(0),
+    )?;
+    Ok(result)
+}
+
+fn latest_completed_display_date_for_season_week(
+    conn: &Connection,
+    season_id: &str,
+    season_week: i32,
+) -> Result<Option<String>, DbError> {
+    conn.query_row(
+        "SELECT data
+         FROM calendar
+         WHERE COALESCE(season_id, temporada_id) = ?1
+           AND status = 'Concluida'
+           AND COALESCE(season_week, week_of_year + 4) = ?2
+         ORDER BY data DESC
+         LIMIT 1",
+        params![season_id, season_week],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn latest_completed_display_date_for_legacy_week(
     conn: &Connection,
     season_id: &str,
     week_of_year: i32,
@@ -545,7 +636,21 @@ fn latest_completed_display_date_for_week(
     .map_err(Into::into)
 }
 
-fn infer_pre_event_display_date(display_date: &str) -> Option<String> {
+fn infer_pre_event_display_date(entry: &CalendarEntry) -> Option<String> {
+    let season_week = calendar_entry_season_week(entry);
+    if !(2..=51).contains(&season_week) {
+        return infer_pre_event_display_date_legacy(&entry.display_date);
+    }
+    let date = parse_display_date(&entry.display_date)?;
+    let season_year = if season_week <= 4 {
+        date.year() + 1
+    } else {
+        date.year()
+    };
+    display_date_for_season_week((season_week - 1) as u8, season_year, date.weekday()).ok()
+}
+
+fn infer_pre_event_display_date_legacy(display_date: &str) -> Option<String> {
     let date = parse_display_date(display_date)?;
     Some(
         date.checked_sub_signed(chrono::Duration::days(7))?
@@ -576,6 +681,38 @@ mod tests {
     use crate::db::migrations;
     use crate::db::queries::seasons::insert_season;
     use crate::models::season::Season;
+
+    fn test_entry(
+        id: &str,
+        season_id: &str,
+        categoria: &str,
+        rodada: i32,
+        week_of_year: i32,
+        season_week: Option<u32>,
+    ) -> CalendarEntry {
+        CalendarEntry {
+            id: id.to_string(),
+            season_id: season_id.to_string(),
+            categoria: categoria.to_string(),
+            rodada,
+            nome: format!("Round {rodada}"),
+            track_id: rodada as u32,
+            track_name: format!("Track {rodada}"),
+            track_config: "Full".to_string(),
+            clima: WeatherCondition::Dry,
+            temperatura: 22.0,
+            voltas: 20,
+            duracao_corrida_min: 30,
+            duracao_classificacao_min: 15,
+            status: RaceStatus::Pendente,
+            horario: "14:00".to_string(),
+            week_of_year,
+            season_phase: SeasonPhase::Temporada,
+            display_date: format!("2024-{:02}-01", rodada.clamp(1, 12)),
+            thematic_slot: ThematicSlot::NaoClassificado,
+            season_week,
+        }
+    }
 
     #[test]
     fn test_insert_and_get_calendar() {
@@ -616,12 +753,13 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_calendar_display_dates_preserves_lmp2_weekend_alternation() {
+    fn test_normalize_calendar_display_dates_preserves_endurance_special_policy() {
         let conn = Connection::open_in_memory().expect("db");
         migrations::run_all(&conn).expect("schema");
         insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
         let mut rng = StdRng::seed_from_u64(188);
-        let entries = generate_calendar_for_category("S001", "lmp2", &mut rng).expect("calendar");
+        let entries =
+            generate_calendar_for_category("S001", "endurance", &mut rng).expect("calendar");
 
         insert_calendar_entries(&conn, &entries).expect("insert");
         conn.execute("UPDATE calendar SET data = '2024-03-02'", [])
@@ -629,21 +767,15 @@ mod tests {
 
         let updated = normalize_calendar_display_dates_for_weekday_policy(&conn, "S001", 2024)
             .expect("normalize dates");
-        let repaired = get_calendar(&conn, "S001", "lmp2").expect("calendar");
+        let repaired = get_calendar(&conn, "S001", "endurance").expect("calendar");
 
         assert!(updated >= 1);
-        assert_eq!(
-            parse_display_date(&repaired[0].display_date)
-                .expect("round 1 date")
-                .weekday(),
-            chrono::Weekday::Sat
-        );
-        assert_eq!(
-            parse_display_date(&repaired[1].display_date)
-                .expect("round 2 date")
-                .weekday(),
-            chrono::Weekday::Sun
-        );
+        assert!(repaired
+            .iter()
+            .all(|entry| parse_display_date(&entry.display_date)
+                .expect("endurance date")
+                .weekday()
+                == chrono::Weekday::Sun));
     }
 
     #[test]
@@ -690,6 +822,25 @@ mod tests {
             .expect("next race")
             .expect("entry");
         assert_eq!(next.rodada, 1);
+    }
+
+    #[test]
+    fn test_get_next_race_orders_by_season_week_not_round_or_week_of_year() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let entries = [
+            test_entry("R_LATE_ROUND", "S001", "gt3", 1, 6, Some(10)),
+            test_entry("R_EARLY_SEASON_WEEK", "S001", "gt3", 2, 49, Some(1)),
+        ];
+        insert_calendar_entries(&conn, &entries).expect("insert");
+
+        let next = get_next_race(&conn, "S001", "gt3")
+            .expect("next race")
+            .expect("entry");
+
+        assert_eq!(next.id, "R_EARLY_SEASON_WEEK");
     }
 
     #[test]
@@ -748,10 +899,52 @@ mod tests {
         let all = get_pending_races_up_to_week(&conn, "S001", "gt3", 52).expect("query");
         for window in all.windows(2) {
             assert!(
-                window[0].week_of_year <= window[1].week_of_year,
-                "results must be ordered by week_of_year ASC"
+                calendar_entry_season_week(&window[0]) <= calendar_entry_season_week(&window[1]),
+                "results must be ordered by season_week ASC"
             );
         }
+    }
+
+    #[test]
+    fn test_pending_races_up_to_week_uses_season_week_window_and_order() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let entries = [
+            test_entry("R_SW10", "S001", "gt3", 1, 6, Some(10)),
+            test_entry("R_SW01", "S001", "gt3", 2, 49, Some(1)),
+            test_entry("R_SW05", "S001", "gt3", 3, 1, Some(5)),
+        ];
+        insert_calendar_entries(&conn, &entries).expect("insert");
+
+        let up_to_five = get_pending_races_up_to_week(&conn, "S001", "gt3", 5).expect("query");
+        let ids: Vec<_> = up_to_five.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["R_SW01", "R_SW05"]);
+
+        let all = get_pending_races_up_to_week(&conn, "S001", "gt3", 10).expect("query");
+        let ids: Vec<_> = all.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, vec!["R_SW01", "R_SW05", "R_SW10"]);
+    }
+
+    #[test]
+    fn test_legacy_backfill_fallback_preserves_week_of_year_order() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let entries = [
+            test_entry("R_WOY49", "S001", "production_challenger", 1, 49, None),
+            test_entry("R_WOY48", "S001", "production_challenger", 2, 48, None),
+            test_entry("R_WOY52", "S001", "production_challenger", 3, 52, None),
+        ];
+        insert_calendar_entries(&conn, &entries).expect("insert");
+
+        let all = get_pending_races_up_to_week(&conn, "S001", "production_challenger", 56)
+            .expect("query");
+        let ids: Vec<_> = all.iter().map(|entry| entry.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["R_WOY48", "R_WOY49", "R_WOY52"]);
     }
 
     #[test]
@@ -859,14 +1052,16 @@ mod tests {
 
         let first_special_week: i32 = conn
             .query_row(
-                "SELECT MIN(week_of_year) FROM calendar WHERE categoria = 'production_challenger'",
+                "SELECT MIN(COALESCE(season_week, week_of_year + 4))
+                 FROM calendar WHERE categoria = 'production_challenger'",
                 [],
                 |row| row.get(0),
             )
             .expect("first special week");
         let last_special_week: i32 = conn
             .query_row(
-                "SELECT MAX(week_of_year) FROM calendar WHERE categoria = 'production_challenger'",
+                "SELECT MAX(COALESCE(season_week, week_of_year + 4))
+                 FROM calendar WHERE categoria = 'production_challenger'",
                 [],
                 |row| row.get(0),
             )
@@ -954,9 +1149,8 @@ mod tests {
             .expect("query")
             .expect("should have a value");
 
-        let expected_max = entries[0]
-            .week_of_year
-            .max(entries[entries.len() - 1].week_of_year);
+        let expected_max = calendar_entry_season_week(&entries[0])
+            .max(calendar_entry_season_week(&entries[entries.len() - 1]));
         assert_eq!(result, expected_max);
     }
 
@@ -1037,6 +1231,100 @@ mod tests {
     }
 
     #[test]
+    fn test_temporal_summary_temporada_uses_season_week_and_full_pending_count() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let mut completed = test_entry("GT3_DONE", "S001", "gt3", 1, 6, Some(10));
+        completed.status = RaceStatus::Concluida;
+        completed.display_date = "2024-02-10".to_string();
+        let mut player_next = test_entry("GT3_NEXT", "S001", "gt3", 2, 49, Some(11));
+        player_next.display_date = "2024-02-17".to_string();
+        let other_next = test_entry("END_NEXT", "S001", "endurance", 1, 1, Some(12));
+        insert_calendar_entries(&conn, &[completed.clone(), player_next.clone(), other_next])
+            .expect("insert");
+
+        let summary = get_season_temporal_summary(&conn, "S001", "gt3", &SeasonPhase::Temporada)
+            .expect("summary");
+
+        assert_eq!(summary.effective_week, Some(10));
+        assert_eq!(
+            summary.next_player_event.as_ref().map(|e| e.id.as_str()),
+            Some("GT3_NEXT")
+        );
+        assert_eq!(summary.pending_in_phase, 2);
+        assert_eq!(summary.current_display_date, completed.display_date);
+        assert_eq!(
+            summary.next_event_display_date.as_deref(),
+            Some(player_next.display_date.as_str())
+        );
+        assert_eq!(summary.days_until_next_event, Some(7));
+    }
+
+    #[test]
+    fn test_temporal_summary_temporada_resolves_real_9d_divisions() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let gt3 = test_entry("GT3_NEXT", "S001", "gt3", 1, 6, Some(10));
+        let production = test_entry(
+            "PRODUCTION_TOYOTA_NEXT",
+            "S001",
+            "production_challenger",
+            1,
+            7,
+            Some(11),
+        );
+        let endurance = test_entry("ENDURANCE_LMP2_NEXT", "S001", "endurance", 1, 8, Some(12));
+        insert_calendar_entries(&conn, &[gt3.clone(), production.clone(), endurance.clone()])
+            .expect("insert");
+
+        for (category, expected_id) in [
+            ("gt3", gt3.id.as_str()),
+            ("production_challenger", production.id.as_str()),
+            ("endurance", endurance.id.as_str()),
+        ] {
+            let summary =
+                get_season_temporal_summary(&conn, "S001", category, &SeasonPhase::Temporada)
+                    .expect("summary");
+            assert_eq!(
+                summary
+                    .next_player_event
+                    .as_ref()
+                    .map(|entry| entry.id.as_str()),
+                Some(expected_id),
+                "summary should resolve next event for {category}"
+            );
+            assert_eq!(summary.pending_in_phase, 3);
+        }
+    }
+
+    #[test]
+    fn test_temporal_summary_encerramento_exposes_year_end_state() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        insert_season(&conn, &Season::new("S001".to_string(), 1, 2024)).expect("season");
+
+        let mut completed = test_entry("GT3_DONE", "S001", "gt3", 1, 47, Some(51));
+        completed.status = RaceStatus::Concluida;
+        completed.display_date = "2024-11-23".to_string();
+        insert_calendar_entry(&conn, &completed).expect("insert");
+
+        let summary = get_season_temporal_summary(&conn, "S001", "gt3", &SeasonPhase::Encerramento)
+            .expect("summary");
+
+        assert_eq!(summary.fase, SeasonPhase::Encerramento);
+        assert_eq!(summary.effective_week, Some(51));
+        assert!(summary.next_player_event.is_none());
+        assert_eq!(summary.next_event_display_date, None);
+        assert_eq!(summary.days_until_next_event, None);
+        assert_eq!(summary.pending_in_phase, 0);
+        assert_eq!(summary.current_display_date, completed.display_date);
+    }
+
+    #[test]
     fn test_get_temporal_summary_uses_next_any_event_when_player_has_no_pending_race() {
         let conn = Connection::open_in_memory().expect("db");
         migrations::run_all(&conn).expect("schema");
@@ -1048,8 +1336,8 @@ mod tests {
         let next_any = get_next_any_race_in_phase(&conn, "S001", &SeasonPhase::BlocoEspecial)
             .expect("next any")
             .expect("special event");
-        let expected_current =
-            infer_pre_event_display_date(&next_any.display_date).expect("pre event display date");
+        let expected_current = infer_pre_event_display_date_legacy(&next_any.display_date)
+            .expect("pre event display date");
 
         let summary =
             get_season_temporal_summary(&conn, "S001", "gt3", &SeasonPhase::BlocoEspecial)

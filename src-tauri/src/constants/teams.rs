@@ -562,6 +562,240 @@ static TEAMS: &[TeamTemplate] = &[
         reputacao_base: 36.0,
     },
     TeamTemplate {
+        nome: "Aperture",
+        nome_curto: "APR",
+        categoria: "production_challenger",
+        cor_primaria: "#CB997E",
+        cor_secundaria: "#CB997E",
+        pais_sede: "EUA",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 7.0,
+        budget_base: 60.0,
+        reputacao_base: 56.0,
+    },
+    TeamTemplate {
+        nome: "Backmesa",
+        nome_curto: "BKM",
+        categoria: "production_challenger",
+        cor_primaria: "#A7C957",
+        cor_secundaria: "#A7C957",
+        pais_sede: "Canada",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 6.2,
+        budget_base: 56.0,
+        reputacao_base: 52.0,
+    },
+    TeamTemplate {
+        nome: "Northgate",
+        nome_curto: "NGT",
+        categoria: "production_challenger",
+        cor_primaria: "#023047",
+        cor_secundaria: "#023047",
+        pais_sede: "Reino Unido",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 5.4,
+        budget_base: 52.0,
+        reputacao_base: 48.0,
+    },
+    TeamTemplate {
+        nome: "Kestrel",
+        nome_curto: "KST",
+        categoria: "production_challenger",
+        cor_primaria: "#E76F51",
+        cor_secundaria: "#E76F51",
+        pais_sede: "Australia",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 4.8,
+        budget_base: 49.0,
+        reputacao_base: 45.0,
+    },
+    TeamTemplate {
+        nome: "Overland",
+        nome_curto: "OVL",
+        categoria: "production_challenger",
+        cor_primaria: "#90BE6D",
+        cor_secundaria: "#90BE6D",
+        pais_sede: "EUA",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 4.2,
+        budget_base: 46.0,
+        reputacao_base: 42.0,
+    },
+    TeamTemplate {
+        nome: "Rookfield",
+        nome_curto: "RKF",
+        categoria: "production_challenger",
+        cor_primaria: "#577590",
+        cor_secundaria: "#577590",
+        pais_sede: "Reino Unido",
+        marca: Some("Mazda"),
+        classe: Some("mazda"),
+        car_performance_base: 3.6,
+        budget_base: 43.0,
+        reputacao_base: 39.0,
+    },
+    TeamTemplate {
+        nome: "Komorebi",
+        nome_curto: "KMB",
+        categoria: "production_challenger",
+        cor_primaria: "#6D597A",
+        cor_secundaria: "#6D597A",
+        pais_sede: "Japao",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 7.2,
+        budget_base: 61.0,
+        reputacao_base: 57.0,
+    },
+    TeamTemplate {
+        nome: "Nakatomi",
+        nome_curto: "NKT",
+        categoria: "production_challenger",
+        cor_primaria: "#355070",
+        cor_secundaria: "#355070",
+        pais_sede: "Japao",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 6.4,
+        budget_base: 57.0,
+        reputacao_base: 53.0,
+    },
+    TeamTemplate {
+        nome: "Hikari",
+        nome_curto: "HKR",
+        categoria: "production_challenger",
+        cor_primaria: "#EAAC8B",
+        cor_secundaria: "#EAAC8B",
+        pais_sede: "Japao",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 5.6,
+        budget_base: 53.0,
+        reputacao_base: 49.0,
+    },
+    TeamTemplate {
+        nome: "Redwell",
+        nome_curto: "RDW",
+        categoria: "production_challenger",
+        cor_primaria: "#B5838D",
+        cor_secundaria: "#B5838D",
+        pais_sede: "EUA",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 5.0,
+        budget_base: 50.0,
+        reputacao_base: 46.0,
+    },
+    TeamTemplate {
+        nome: "Ashford",
+        nome_curto: "ASF",
+        categoria: "production_challenger",
+        cor_primaria: "#43AA8B",
+        cor_secundaria: "#43AA8B",
+        pais_sede: "Reino Unido",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 4.4,
+        budget_base: 47.0,
+        reputacao_base: 43.0,
+    },
+    TeamTemplate {
+        nome: "Tetsu",
+        nome_curto: "TET",
+        categoria: "production_challenger",
+        cor_primaria: "#F9DB6D",
+        cor_secundaria: "#F9DB6D",
+        pais_sede: "Japao",
+        marca: Some("Toyota"),
+        classe: Some("toyota"),
+        car_performance_base: 3.8,
+        budget_base: 44.0,
+        reputacao_base: 40.0,
+    },
+    TeamTemplate {
+        nome: "Nachtwerk",
+        nome_curto: "NKW",
+        categoria: "production_challenger",
+        cor_primaria: "#001D3D",
+        cor_secundaria: "#001D3D",
+        pais_sede: "Alemanha",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 8.0,
+        budget_base: 64.0,
+        reputacao_base: 60.0,
+    },
+    TeamTemplate {
+        nome: "Adler",
+        nome_curto: "ADL",
+        categoria: "production_challenger",
+        cor_primaria: "#C77DFF",
+        cor_secundaria: "#C77DFF",
+        pais_sede: "Alemanha",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 7.2,
+        budget_base: 60.0,
+        reputacao_base: 56.0,
+    },
+    TeamTemplate {
+        nome: "Eisen",
+        nome_curto: "ESN",
+        categoria: "production_challenger",
+        cor_primaria: "#FFB703",
+        cor_secundaria: "#FFB703",
+        pais_sede: "Alemanha",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 6.4,
+        budget_base: 56.0,
+        reputacao_base: 52.0,
+    },
+    TeamTemplate {
+        nome: "Kronstadt",
+        nome_curto: "KRN",
+        categoria: "production_challenger",
+        cor_primaria: "#7F5539",
+        cor_secundaria: "#7F5539",
+        pais_sede: "Austria",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 5.8,
+        budget_base: 53.0,
+        reputacao_base: 49.0,
+    },
+    TeamTemplate {
+        nome: "Vektor",
+        nome_curto: "VKT",
+        categoria: "production_challenger",
+        cor_primaria: "#ADB5BD",
+        cor_secundaria: "#ADB5BD",
+        pais_sede: "Suica",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 5.2,
+        budget_base: 50.0,
+        reputacao_base: 46.0,
+    },
+    TeamTemplate {
+        nome: "Lindenhaus",
+        nome_curto: "LNH",
+        categoria: "production_challenger",
+        cor_primaria: "#3D405B",
+        cor_secundaria: "#3D405B",
+        pais_sede: "Alemanha",
+        marca: Some("BMW"),
+        classe: Some("bmw"),
+        car_performance_base: 4.6,
+        budget_base: 47.0,
+        reputacao_base: 43.0,
+    },
+    TeamTemplate {
         nome: "Rahal Letterman Racing",
         nome_curto: "RLR",
         categoria: "gt4",
@@ -690,6 +924,84 @@ static TEAMS: &[TeamTemplate] = &[
         car_performance_base: 6.0,
         budget_base: 55.0,
         reputacao_base: 53.0,
+    },
+    TeamTemplate {
+        nome: "Waypoint",
+        nome_curto: "WPT",
+        categoria: "endurance",
+        cor_primaria: "#A47148",
+        cor_secundaria: "#A47148",
+        pais_sede: "EUA",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 10.0,
+        budget_base: 74.0,
+        reputacao_base: 72.0,
+    },
+    TeamTemplate {
+        nome: "Farpoint",
+        nome_curto: "FPT",
+        categoria: "endurance",
+        cor_primaria: "#386641",
+        cor_secundaria: "#386641",
+        pais_sede: "Canada",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 9.2,
+        budget_base: 70.0,
+        reputacao_base: 68.0,
+    },
+    TeamTemplate {
+        nome: "Northstar",
+        nome_curto: "NTS",
+        categoria: "endurance",
+        cor_primaria: "#48CAE4",
+        cor_secundaria: "#48CAE4",
+        pais_sede: "Reino Unido",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 8.4,
+        budget_base: 66.0,
+        reputacao_base: 64.0,
+    },
+    TeamTemplate {
+        nome: "Mammoth",
+        nome_curto: "MMT",
+        categoria: "endurance",
+        cor_primaria: "#F4A261",
+        cor_secundaria: "#F4A261",
+        pais_sede: "Australia",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 7.8,
+        budget_base: 63.0,
+        reputacao_base: 61.0,
+    },
+    TeamTemplate {
+        nome: "Atlas",
+        nome_curto: "ATL",
+        categoria: "endurance",
+        cor_primaria: "#4A4E69",
+        cor_secundaria: "#4A4E69",
+        pais_sede: "EUA",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 7.2,
+        budget_base: 60.0,
+        reputacao_base: 58.0,
+    },
+    TeamTemplate {
+        nome: "Outpost",
+        nome_curto: "OPT",
+        categoria: "endurance",
+        cor_primaria: "#9A8C98",
+        cor_secundaria: "#9A8C98",
+        pais_sede: "Reino Unido",
+        marca: None,
+        classe: Some("gt4"),
+        car_performance_base: 6.6,
+        budget_base: 57.0,
+        reputacao_base: 55.0,
     },
     TeamTemplate {
         nome: "Mercedes-AMG",
@@ -874,14 +1186,92 @@ static TEAMS: &[TeamTemplate] = &[
         reputacao_base: 31.0,
     },
     TeamTemplate {
+        nome: "Solaris",
+        nome_curto: "SLS",
+        categoria: "endurance",
+        cor_primaria: "#FFB4A2",
+        cor_secundaria: "#FFB4A2",
+        pais_sede: "Italia",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 16.0,
+        budget_base: 92.0,
+        reputacao_base: 90.0,
+    },
+    TeamTemplate {
+        nome: "Peregrine",
+        nome_curto: "PRG",
+        categoria: "endurance",
+        cor_primaria: "#E0E1DD",
+        cor_secundaria: "#E0E1DD",
+        pais_sede: "Reino Unido",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 15.2,
+        budget_base: 88.0,
+        reputacao_base: 86.0,
+    },
+    TeamTemplate {
+        nome: "Arclight",
+        nome_curto: "ARL",
+        categoria: "endurance",
+        cor_primaria: "#5E60CE",
+        cor_secundaria: "#5E60CE",
+        pais_sede: "EUA",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 14.4,
+        budget_base: 84.0,
+        reputacao_base: 82.0,
+    },
+    TeamTemplate {
+        nome: "Blackwell",
+        nome_curto: "BWL",
+        categoria: "endurance",
+        cor_primaria: "#2B9348",
+        cor_secundaria: "#2B9348",
+        pais_sede: "Canada",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 13.8,
+        budget_base: 81.0,
+        reputacao_base: 79.0,
+    },
+    TeamTemplate {
+        nome: "Stratos",
+        nome_curto: "STR",
+        categoria: "endurance",
+        cor_primaria: "#0B132B",
+        cor_secundaria: "#0B132B",
+        pais_sede: "Alemanha",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 13.2,
+        budget_base: 78.0,
+        reputacao_base: 76.0,
+    },
+    TeamTemplate {
+        nome: "Helion",
+        nome_curto: "HLN",
+        categoria: "endurance",
+        cor_primaria: "#FCA311",
+        cor_secundaria: "#FCA311",
+        pais_sede: "Franca",
+        marca: None,
+        classe: Some("gt3"),
+        car_performance_base: 12.6,
+        budget_base: 75.0,
+        reputacao_base: 73.0,
+    },
+    TeamTemplate {
         nome: "United Autosports",
         nome_curto: "UNT",
-        categoria: "lmp2",
+        categoria: "endurance",
         cor_primaria: "#1f4fff",
         cor_secundaria: "#1f4fff",
         pais_sede: "🇬🇧 Reino Unido",
         marca: None,
-        classe: None,
+        classe: Some("lmp2"),
         car_performance_base: 16.0,
         budget_base: 90.0,
         reputacao_base: 88.0,
@@ -889,12 +1279,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Jota Sport",
         nome_curto: "JOT",
-        categoria: "lmp2",
+        categoria: "endurance",
         cor_primaria: "#f5c400",
         cor_secundaria: "#f5c400",
         pais_sede: "🇬🇧 Reino Unido",
         marca: None,
-        classe: None,
+        classe: Some("lmp2"),
         car_performance_base: 15.0,
         budget_base: 87.0,
         reputacao_base: 85.0,
@@ -902,12 +1292,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Belgian Racing Team",
         nome_curto: "BRT",
-        categoria: "lmp2",
+        categoria: "endurance",
         cor_primaria: "#0b3d91",
         cor_secundaria: "#0b3d91",
         pais_sede: "🇧🇪 Bélgica",
         marca: None,
-        classe: None,
+        classe: Some("lmp2"),
         car_performance_base: 14.5,
         budget_base: 85.0,
         reputacao_base: 83.0,
@@ -915,12 +1305,12 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Prema Powerteam",
         nome_curto: "PRM",
-        categoria: "lmp2",
+        categoria: "endurance",
         cor_primaria: "#ff2e2e",
         cor_secundaria: "#ff2e2e",
         pais_sede: "🇮🇹 Itália",
         marca: None,
-        classe: None,
+        classe: Some("lmp2"),
         car_performance_base: 14.0,
         budget_base: 84.0,
         reputacao_base: 82.0,
@@ -928,15 +1318,28 @@ static TEAMS: &[TeamTemplate] = &[
     TeamTemplate {
         nome: "Cool Racing",
         nome_curto: "CRL",
-        categoria: "lmp2",
+        categoria: "endurance",
         cor_primaria: "#00bfff",
         cor_secundaria: "#00bfff",
         pais_sede: "🇨🇭 Suíça",
         marca: None,
-        classe: None,
+        classe: Some("lmp2"),
         car_performance_base: 13.5,
         budget_base: 82.0,
         reputacao_base: 80.0,
+    },
+    TeamTemplate {
+        nome: "Meridian",
+        nome_curto: "MRD",
+        categoria: "endurance",
+        cor_primaria: "#B5179E",
+        cor_secundaria: "#B5179E",
+        pais_sede: "EUA",
+        marca: None,
+        classe: Some("lmp2"),
+        car_performance_base: 13.0,
+        budget_base: 80.0,
+        reputacao_base: 78.0,
     },
 ];
 
@@ -1287,17 +1690,160 @@ mod tests {
 
     #[test]
     fn test_team_templates_production_count() {
-        assert_eq!(get_team_templates("production_challenger").len(), 0);
+        assert_eq!(get_team_templates("production_challenger").len(), 18);
+        assert_eq!(
+            templates_for_class("production_challenger", "mazda").len(),
+            6
+        );
+        assert_eq!(
+            templates_for_class("production_challenger", "toyota").len(),
+            6
+        );
+        assert_eq!(templates_for_class("production_challenger", "bmw").len(), 6);
     }
 
     #[test]
-    fn test_team_templates_lmp2_are_regular_category_templates() {
-        let lmp2_templates = get_team_templates("lmp2");
-        assert_eq!(lmp2_templates.len(), 5);
+    fn test_team_templates_lmp2_are_endurance_class_templates() {
+        let lmp2_templates = templates_for_class("endurance", "lmp2");
+        assert_eq!(lmp2_templates.len(), 6);
         assert!(lmp2_templates
             .iter()
-            .all(|team| team.categoria == "lmp2" && team.classe.is_none()));
-        assert_eq!(get_team_templates("endurance").len(), 0);
+            .all(|team| team.categoria == "endurance" && team.classe == Some("lmp2")));
+        assert!(get_team_templates("lmp2").is_empty());
+    }
+
+    #[test]
+    fn test_new_production_and_endurance_templates_match_planned_rosters() {
+        assert_named_color_roster(
+            "production_challenger",
+            "mazda",
+            &[
+                ("Aperture", "APR", "#CB997E"),
+                ("Backmesa", "BKM", "#A7C957"),
+                ("Northgate", "NGT", "#023047"),
+                ("Kestrel", "KST", "#E76F51"),
+                ("Overland", "OVL", "#90BE6D"),
+                ("Rookfield", "RKF", "#577590"),
+            ],
+        );
+        assert_named_color_roster(
+            "production_challenger",
+            "toyota",
+            &[
+                ("Komorebi", "KMB", "#6D597A"),
+                ("Nakatomi", "NKT", "#355070"),
+                ("Hikari", "HKR", "#EAAC8B"),
+                ("Redwell", "RDW", "#B5838D"),
+                ("Ashford", "ASF", "#43AA8B"),
+                ("Tetsu", "TET", "#F9DB6D"),
+            ],
+        );
+        assert_named_color_roster(
+            "production_challenger",
+            "bmw",
+            &[
+                ("Nachtwerk", "NKW", "#001D3D"),
+                ("Adler", "ADL", "#C77DFF"),
+                ("Eisen", "ESN", "#FFB703"),
+                ("Kronstadt", "KRN", "#7F5539"),
+                ("Vektor", "VKT", "#ADB5BD"),
+                ("Lindenhaus", "LNH", "#3D405B"),
+            ],
+        );
+        assert_named_color_roster(
+            "endurance",
+            "gt4",
+            &[
+                ("Waypoint", "WPT", "#A47148"),
+                ("Farpoint", "FPT", "#386641"),
+                ("Northstar", "NTS", "#48CAE4"),
+                ("Mammoth", "MMT", "#F4A261"),
+                ("Atlas", "ATL", "#4A4E69"),
+                ("Outpost", "OPT", "#9A8C98"),
+            ],
+        );
+        assert_named_color_roster(
+            "endurance",
+            "gt3",
+            &[
+                ("Solaris", "SLS", "#FFB4A2"),
+                ("Peregrine", "PRG", "#E0E1DD"),
+                ("Arclight", "ARL", "#5E60CE"),
+                ("Blackwell", "BWL", "#2B9348"),
+                ("Stratos", "STR", "#0B132B"),
+                ("Helion", "HLN", "#FCA311"),
+            ],
+        );
+
+        let meridian = templates_for_class("endurance", "lmp2")
+            .into_iter()
+            .find(|team| team.nome == "Meridian")
+            .expect("Meridian LMP2 template should exist");
+        assert_eq!(meridian.nome_curto, "MRD");
+        assert_eq!(meridian.cor_primaria, "#B5179E");
+        assert_eq!(meridian.cor_secundaria, "#B5179E");
+    }
+
+    #[test]
+    fn test_special_category_templates_have_classes_and_unique_short_names() {
+        let special_templates: Vec<_> = get_all_team_templates()
+            .iter()
+            .filter(|team| matches!(team.categoria, "production_challenger" | "endurance"))
+            .collect();
+        let production_templates = get_team_templates("production_challenger");
+        let endurance_templates = get_team_templates("endurance");
+        let production_classes: std::collections::HashSet<_> = production_templates
+            .iter()
+            .filter_map(|team| team.classe)
+            .collect();
+        let endurance_classes: std::collections::HashSet<_> = endurance_templates
+            .iter()
+            .filter_map(|team| team.classe)
+            .collect();
+
+        assert_eq!(count_teams(), 102);
+        assert_eq!(special_templates.len(), 36);
+        assert_eq!(production_templates.len(), 18);
+        assert_eq!(endurance_templates.len(), 18);
+        assert!(special_templates.iter().all(|team| team.classe.is_some()));
+        assert_eq!(
+            production_classes,
+            std::collections::HashSet::from(["mazda", "toyota", "bmw"])
+        );
+        assert_eq!(
+            endurance_classes,
+            std::collections::HashSet::from(["gt4", "gt3", "lmp2"])
+        );
+
+        let mut short_names = std::collections::HashSet::new();
+        for team in get_all_team_templates() {
+            assert!(
+                short_names.insert(team.nome_curto),
+                "sigla duplicada em templates: {} ({})",
+                team.nome_curto,
+                team.nome
+            );
+        }
+    }
+
+    fn templates_for_class(category: &str, class_name: &str) -> Vec<&'static TeamTemplate> {
+        get_team_templates(category)
+            .into_iter()
+            .filter(|team| team.classe == Some(class_name))
+            .collect()
+    }
+
+    fn assert_named_color_roster(
+        category: &str,
+        class_name: &str,
+        expected: &[(&str, &str, &str)],
+    ) {
+        let actual: Vec<_> = templates_for_class(category, class_name)
+            .into_iter()
+            .map(|team| (team.nome, team.nome_curto, team.cor_primaria))
+            .collect();
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1305,15 +1851,15 @@ mod tests {
         assert_eq!(
             get_reference_team_template("production_challenger", Some("mazda"))
                 .map(|team| team.categoria),
-            Some("mazda_amador")
+            Some("production_challenger")
         );
         assert_eq!(
             get_reference_team_template("endurance", Some("gt4")).map(|team| team.categoria),
-            Some("gt4")
+            Some("endurance")
         );
         assert_eq!(
             get_reference_team_template("endurance", Some("lmp2")).map(|team| team.categoria),
-            Some("lmp2")
+            Some("endurance")
         );
     }
 }

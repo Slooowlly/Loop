@@ -12,9 +12,10 @@ const CATEGORIES = [
   { id: "toyota",     dbIds: ["toyota_rookie", "toyota_amador"], label: "Toyota",     color: "#FF1010" },
   { id: "bmw",        dbIds: ["bmw_m2"],                         label: "BMW M2",     color: "#F00010" },
   { id: "sep1", isSeparator: true },
+  { id: "production_challenger", dbIds: ["production_challenger"], label: "Production", color: "#3fb950" },
   { id: "gt4",       dbIds: ["gt4"],       label: "GT4",       color: "#3080FF" },
   { id: "gt3",       dbIds: ["gt3"],       label: "GT3",       color: "#00FFFF" },
-  { id: "lmp2",      dbIds: ["lmp2"],      label: "LMP2",      color: "#F2CC60" },
+  { id: "endurance", dbIds: ["endurance"], label: "Endurance", color: "#3671C6" },
 ];
 
 const SUBCAT_LABELS = {
@@ -44,7 +45,8 @@ const SUBCAT_LOGOS = {
   bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.png",
   gt4: "/utilities/categorias/recortadas/GT4.png",
   gt3: "/utilities/categorias/recortadas/GT3.png",
-  lmp2: "/utilities/categorias/recortadas/LMP2.png",
+  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
+  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
 };
 
 const DEFAULT_LOGO_FIT = {
@@ -93,7 +95,11 @@ const SUBCAT_LOGO_FITS = {
     frameClassName: "h-36 lg:h-40",
     imageStyle: { transform: "translateX(-1%) scale(1.5)", transformOrigin: "top center" },
   },
-  lmp2: {
+  production_challenger: {
+    frameClassName: "h-36 lg:h-40",
+    imageStyle: {},
+  },
+  endurance: {
     frameClassName: "h-36 lg:h-40",
     imageStyle: {},
   },
@@ -117,24 +123,24 @@ const SUBCAT_COLORS = {
 
 // Ordem usada no grid central quando todas as categorias estao visiveis.
 const CLASS_PRIORITY = [
-  "lmp2",
+  "endurance",
   "gt3",
   "gt4",
+  "production_challenger",
   "bmw_m2", "bmw",
   "toyota_amador", "toyota",
   "mazda_amador", "mazda",
   "toyota_rookie",
   "mazda_rookie",
-  "production_challenger",
-  "endurance",
 ];
 
 // Ordem do painel "Mercado de Pilotos": maior categoria primeiro,
 // dentro de cada marca Cup > Amador > Rookie
 const FREE_AGENT_ORDER = [
-  "lmp2",
+  "endurance",
   "gt3",
   "gt4",
+  "production_challenger",
   "bmw_m2", "bmw",
   "toyota", "toyota_amador", "toyota_rookie",
   "mazda", "mazda_amador", "mazda_rookie",
@@ -146,9 +152,10 @@ const REGULAR_MARKET_CATEGORY_IDS = new Set([
   "toyota_rookie",
   "toyota_amador",
   "bmw_m2",
+  "production_challenger",
   "gt4",
   "gt3",
-  "lmp2",
+  "endurance",
 ]);
 
 const WEEKLY_CLOSING_EVENT_TYPES = new Set([
@@ -270,8 +277,10 @@ function playerCatToFilter(categoria) {
   if (categoria === "mazda_rookie" || categoria === "mazda_amador") return "mazda";
   if (categoria === "toyota_rookie" || categoria === "toyota_amador") return "toyota";
   if (categoria === "bmw_m2") return "bmw";
+  if (categoria === "production_challenger") return "production_challenger";
   if (categoria === "gt4") return "gt4";
   if (categoria === "gt3") return "gt3";
+  if (categoria === "endurance") return "endurance";
   return "all";
 }
 
@@ -695,7 +704,9 @@ export default function PreSeasonView() {
   const groupedTeams = useMemo(() => {
     const grouped = {};
     gridData.forEach((team) => {
-      const key = team.classe || team._categoria || "outras";
+      const key = team._categoria === "endurance" || team._categoria === "production_challenger"
+        ? team._categoria
+        : team.classe || team._categoria || "outras";
       grouped[key] = grouped[key] ?? [];
       grouped[key].push(team);
     });

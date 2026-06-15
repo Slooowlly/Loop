@@ -103,9 +103,10 @@ impl AppConfig {
                 }
             }
         }
-        let mut cfg = AppConfig::default();
-        cfg.base_dir = base_dir.to_path_buf();
-        cfg
+        AppConfig {
+            base_dir: base_dir.to_path_buf(),
+            ..Default::default()
+        }
     }
 
     /// Persistir config.json no disco.
@@ -151,11 +152,8 @@ impl AppConfig {
                     .filter_map(|e| {
                         let name = e.file_name();
                         let s = name.to_string_lossy();
-                        if s.starts_with("career_") {
-                            s[7..].parse::<u32>().ok()
-                        } else {
-                            None
-                        }
+                        s.strip_prefix("career_")
+                            .and_then(|rest| rest.parse::<u32>().ok())
                     })
                     .max()
                     .unwrap_or(0)

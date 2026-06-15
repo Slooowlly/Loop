@@ -735,7 +735,7 @@ fn scope_team_standings(
 
 fn feeder_category_for_scope_class(category_id: &str, scope_class: &str) -> Option<&'static str> {
     let category = categories::get_category_config(category_id)?;
-    if !categories::is_especial(category_id) {
+    if !categories::is_multiclass_category(category_id) {
         return None;
     }
 
@@ -1151,7 +1151,7 @@ fn filter_items_for_primary(
         .into_iter()
         .filter(|item| story_matches_primary_filter(context, scope_id, item, primary_filter))
         .collect::<Vec<_>>();
-    filtered.sort_by(|left, right| story_sort_key(right).cmp(&story_sort_key(left)));
+    filtered.sort_by_key(|right| std::cmp::Reverse(story_sort_key(right)));
     filtered
 }
 
@@ -1865,13 +1865,13 @@ fn compose_race_story_bundle(
             .or_else(|| context.category_prev_leaders.get(category_id).cloned()),
         RaceTrigger::ViceWon => historical_standings
             .as_ref()
-            .and_then(|standings| standings.get(0))
+            .and_then(|standings| standings.first())
             .map(|(driver_id, _, _)| driver_id.clone())
             .or_else(|| {
                 context
                     .category_standings_top
                     .get(category_id)
-                    .and_then(|standings| standings.get(0))
+                    .and_then(|standings| standings.first())
                     .cloned()
             }),
         _ => None,
@@ -1956,7 +1956,7 @@ fn should_generate_second_story(ctx: &RaceStoryContext, trigger: RaceTrigger) ->
         && (ctx.rival_dnf
             || ctx
                 .rival_finish_position
-                .map_or(false, |p| p >= LEADER_BAD_RESULT_THRESHOLD))
+                .is_some_and(|p| p >= LEADER_BAD_RESULT_THRESHOLD))
 }
 
 fn compose_leader_bad_result_story(ctx: &LeaderBadResultContext) -> ComposedRaceStory {
@@ -2026,7 +2026,7 @@ fn detect_race_trigger(ctx: &RaceStoryContext, importancia: &NewsImportance) -> 
 /// Converte uma sequência bruta de vitórias num bucket de 1 a 11.
 /// 0 ou 1 → bucket 1; 2-10 → bucket igual; 11+ → bucket 11.
 fn streak_bucket(streak: u32) -> u32 {
-    streak.max(1).min(11)
+    streak.clamp(1, 11)
 }
 
 fn compose_leader_won_body(d: &str, c: &str, bucket: u32, v: usize) -> String {
@@ -2792,7 +2792,7 @@ fn detect_pilot_modifiers(ctx: &PilotStoryContext, trigger: PilotTrigger) -> Vec
     let is_near_top = matches!(ctx.driver_position, Some(p) if p <= 5)
         && ctx
             .points_gap_to_leader
-            .map_or(false, |gap| gap <= TOP_TABLE_GAP_THRESHOLD);
+            .is_some_and(|gap| gap <= TOP_TABLE_GAP_THRESHOLD);
     if is_near_top {
         modifiers.push(PilotModifier::TopTableProximity);
     }
@@ -3279,8 +3279,8 @@ fn detect_market_modifiers(
 }
 
 fn compose_market_modifier_preseason_phase(week: Option<i32>, v: usize) -> String {
-    let is_late = week.map_or(false, |w| w >= 5);
-    let is_mid = week.map_or(false, |w| w >= 3 && w < 5);
+    let is_late = week.is_some_and(|w| w >= 5);
+    let is_mid = week.is_some_and(|w| (3..5).contains(&w));
     if is_late {
         match v % 3 {
             0 => "A fase da pré-temporada reduz a margem para esse movimento seguir só no rumor.",

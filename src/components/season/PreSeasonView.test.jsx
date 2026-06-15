@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import PreSeasonView from "./PreSeasonView";
 
@@ -424,7 +424,7 @@ describe("PreSeasonView", () => {
     expect(mazdaRookieCount).toHaveStyle({ color: "#FFE000", borderColor: "#FFE00055" });
   });
 
-  it("orders all regular market categories from GT3 to rookies when showing all filters", async () => {
+  it("orders all regular market categories from Endurance to rookies when showing all filters", async () => {
     mockState = {
       ...mockState,
       playerTeam: {
@@ -433,9 +433,10 @@ describe("PreSeasonView", () => {
     };
 
     const categoryTeams = {
-      lmp2: "LMP2 Grid",
+      endurance: "Endurance Grid",
       gt3: "GT3 Grid",
       gt4: "GT4 Grid",
+      production_challenger: "Production Grid",
       bmw_m2: "BMW Grid",
       toyota_amador: "Toyota Cup Grid",
       mazda_amador: "Mazda Cup Grid",
@@ -461,7 +462,7 @@ describe("PreSeasonView", () => {
           piloto_2_nome: null,
           piloto_2_tenure_seasons: 0,
           trofeus: [],
-          classe: category,
+          classe: category === "endurance" ? "lmp2" : category,
           temp_posicao: 1,
           categoria_anterior: null,
         },
@@ -480,18 +481,23 @@ describe("PreSeasonView", () => {
       .closest("section");
 
     expect(orderedHeaders).toEqual([
-      "lmp2",
+      "endurance",
       "gt3",
       "gt4",
+      "production_challenger",
       "bmw_m2",
       "toyota_amador",
       "mazda_amador",
       "toyota_rookie",
       "mazda_rookie",
     ]);
-    expect(within(screen.getByTestId("preseason-category-header-lmp2")).getByAltText("LMP2 Prototype Championship")).toHaveAttribute(
+    expect(within(screen.getByTestId("preseason-category-header-endurance")).getByAltText("Endurance Championship")).toHaveAttribute(
       "src",
-      "/utilities/categorias/recortadas/LMP2.png",
+      "/utilities/categorias/recortadas/ENDURANCE.png",
+    );
+    expect(within(screen.getByTestId("preseason-category-header-production_challenger")).getByAltText("Production Challenger")).toHaveAttribute(
+      "src",
+      "/utilities/categorias/recortadas/PRODUCTION.png",
     );
     expect(toyotaRookieSection).toHaveClass("mt-14");
   });
@@ -505,9 +511,10 @@ describe("PreSeasonView", () => {
     };
 
     const categoryTeams = {
-      lmp2: "LMP2 Grid",
+      endurance: "Endurance Grid",
       gt3: "GT3 Grid",
       gt4: "GT4 Grid",
+      production_challenger: "Production Grid",
       bmw_m2: "BMW Grid",
       toyota_amador: "Toyota Cup Grid",
       mazda_amador: "Mazda Cup Grid",
@@ -533,7 +540,7 @@ describe("PreSeasonView", () => {
           piloto_2_nome: null,
           piloto_2_tenure_seasons: 0,
           trofeus: [],
-          classe: category,
+          classe: category === "endurance" ? "lmp2" : category,
           temp_posicao: 1,
           categoria_anterior: null,
         },
@@ -546,7 +553,8 @@ describe("PreSeasonView", () => {
       .getByTestId("preseason-category-logo");
 
     expect(await getLogo("toyota_amador")).toHaveStyle({ transform: "translateX(0.75%)" });
-    expect(await getLogo("lmp2")).toHaveAttribute("src", "/utilities/categorias/recortadas/LMP2.png");
+    expect(await getLogo("endurance")).toHaveAttribute("src", "/utilities/categorias/recortadas/ENDURANCE.png");
+    expect(await getLogo("production_challenger")).toHaveAttribute("src", "/utilities/categorias/recortadas/PRODUCTION.png");
     const mazdaCupLogo = await getLogo("mazda_amador");
     const bmwLogo = await getLogo("bmw_m2");
 
@@ -560,21 +568,80 @@ describe("PreSeasonView", () => {
     expect(bmwLogo).not.toHaveClass("drop-shadow-[0_16px_32px_rgba(0,0,0,0.34)]");
   });
 
-  it("keeps special categories out of the normal preseason market", async () => {
+  it("shows Production and Endurance as normal preseason market divisions", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        categoria: null,
+      },
+    };
+
+    invoke.mockImplementation(async (command, { category } = {}) => {
+      if (command !== "get_teams_standings") {
+        return [];
+      }
+
+      if (category === "production_challenger") {
+        return [
+          {
+            id: "team-production",
+            nome: "Vector Production",
+            nome_curto: "VPR",
+            cor_primaria: "#3fb950",
+            pontos: 0,
+            vitorias: 0,
+            piloto_1_nome: "Ana Costa",
+            piloto_1_tenure_seasons: 1,
+            piloto_2_nome: "Lia Ramos",
+            piloto_2_tenure_seasons: 1,
+            trofeus: [],
+            classe: "toyota",
+            temp_posicao: 1,
+            categoria_anterior: null,
+          },
+        ];
+      }
+
+      if (category === "endurance") {
+        return [
+          {
+            id: "team-endurance",
+            nome: "Vector Endurance",
+            nome_curto: "VEN",
+            cor_primaria: "#3671C6",
+            pontos: 0,
+            vitorias: 0,
+            piloto_1_nome: "Nico Voss",
+            piloto_1_tenure_seasons: 1,
+            piloto_2_nome: "Mia Hart",
+            piloto_2_tenure_seasons: 1,
+            trofeus: [],
+            classe: "lmp2",
+            temp_posicao: 1,
+            categoria_anterior: null,
+          },
+        ];
+      }
+
+      return [];
+    });
+
     render(<PreSeasonView />);
 
     await screen.findByText(/Mercado de Transferências/i);
 
-    expect(screen.queryByRole("button", { name: /Production/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Endurance/i })).not.toBeInTheDocument();
-    expect(invoke).not.toHaveBeenCalledWith(
-      "get_teams_standings",
-      expect.objectContaining({ category: "production_challenger" }),
-    );
-    expect(invoke).not.toHaveBeenCalledWith(
-      "get_teams_standings",
-      expect.objectContaining({ category: "endurance" }),
-    );
+    expect(screen.getByRole("button", { name: /Production/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Endurance/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "get_teams_standings",
+        expect.objectContaining({ category: "production_challenger" }),
+      );
+      expect(invoke).toHaveBeenCalledWith(
+        "get_teams_standings",
+        expect.objectContaining({ category: "endurance" }),
+      );
+    });
   });
 
   it("shows a compact weekly closing panel grouped by destination category", async () => {

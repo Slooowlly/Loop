@@ -28,6 +28,7 @@ impl CarBuildProfile {
         }
     }
 
+    #[allow(dead_code)] // API planejada: feature "seasonal car build strategy"
     pub fn from_str(value: &str) -> Self {
         match value.trim().to_lowercase().as_str() {
             "acceleration_intermediate" => Self::AccelerationIntermediate,
@@ -66,6 +67,7 @@ pub fn weights_for_profile(profile: CarBuildProfile) -> CarAttributeWeights {
     }
 }
 
+#[allow(dead_code)] // API planejada: feature "seasonal car build strategy"
 pub fn profile_cost_multiplier(profile: CarBuildProfile) -> f64 {
     match profile {
         CarBuildProfile::Balanced => 1.20,
@@ -78,6 +80,7 @@ pub fn profile_cost_multiplier(profile: CarBuildProfile) -> f64 {
     }
 }
 
+#[allow(dead_code)] // API planejada: feature "seasonal car build strategy"
 pub fn profile_budget_cost(profile: CarBuildProfile) -> f64 {
     match profile {
         CarBuildProfile::Balanced => 12.0,

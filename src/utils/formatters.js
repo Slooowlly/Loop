@@ -164,6 +164,9 @@ export function formatPreseasonPhase(value) {
 
 export function formatSeasonPhase(value) {
   const labels = {
+    PreTemporada: "Pré-Temporada",
+    Temporada: "Temporada",
+    Encerramento: "Encerramento",
     BlocoRegular: "Bloco Regular",
     JanelaConvocacao: "Convocação",
     BlocoEspecial: "Bloco Especial",

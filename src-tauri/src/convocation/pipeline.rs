@@ -89,9 +89,19 @@ const CLASSES_CONVOCADAS: &[ClasseConfig] = &[
     ClasseConfig {
         special_category: "endurance",
         class_name: "lmp2",
-        feeder_category: "lmp2",
+        feeder_category: "endurance",
     },
 ];
+
+fn uses_regular_special_event_grid(category: &str) -> bool {
+    matches!(category, "production_challenger" | "endurance")
+}
+
+fn legacy_convocation_classes() -> impl Iterator<Item = &'static ClasseConfig> {
+    CLASSES_CONVOCADAS
+        .iter()
+        .filter(|cfg| !uses_regular_special_event_grid(cfg.special_category))
+}
 
 // ── Transições de fase ────────────────────────────────────────────────────────
 
@@ -181,7 +191,7 @@ pub fn run_convocation_window(conn: &Connection) -> Result<ConvocationResult, Db
         globally_assigned.insert(player.id.clone());
     }
 
-    for cfg in CLASSES_CONVOCADAS {
+    for cfg in legacy_convocation_classes() {
         match montar_grid_classe(conn, cfg, season_number, &season.id, &globally_assigned) {
             Ok(grid) => {
                 for a in &grid.assignments {
@@ -239,7 +249,7 @@ fn ensure_special_team_entries(
     season_id: &str,
     _season_number: i32,
 ) -> Result<(), DbError> {
-    for cfg in CLASSES_CONVOCADAS {
+    for cfg in legacy_convocation_classes() {
         let target_slots = target_slots_for_class(conn, cfg)?;
         let mut entries = Vec::new();
         let mut used_team_ids = std::collections::HashSet::new();
@@ -571,7 +581,7 @@ fn build_player_special_offers(
     let mut preferred: Vec<(i32, String, String, String, String)> = Vec::new();
     let mut fallback: Vec<(i32, String, String, String, String)> = Vec::new();
 
-    for cfg in CLASSES_CONVOCADAS {
+    for cfg in legacy_convocation_classes() {
         let teams = get_special_class_entry_teams(conn, season_id, cfg)?;
 
         for team in teams {
@@ -743,20 +753,8 @@ mod player_convocation_offer_tests {
             .collect();
 
         assert!(
-            !offers.is_empty(),
-            "jogador elegível deveria receber pelo menos uma convocação especial"
-        );
-        assert!(
-            offers
-                .iter()
-                .all(|(team_id, category, class_name, papel, status)| {
-                    !team_id.is_empty()
-                        && !category.is_empty()
-                        && !class_name.is_empty()
-                        && !papel.is_empty()
-                        && status == "Pendente"
-                }),
-            "ofertas especiais do jogador precisam persistir shape mínimo"
+            offers.is_empty(),
+            "Production/Endurance nao devem gerar ofertas de convocacao especial"
         );
     }
 
@@ -783,10 +781,7 @@ mod player_convocation_offer_tests {
             )
             .expect("count market proposals");
 
-        assert!(
-            special_offer_count > 0,
-            "deveria haver ofertas especiais do jogador"
-        );
+        assert_eq!(special_offer_count, 0);
         assert_eq!(
             market_proposal_count, 0,
             "convocação especial não deve reaproveitar market_proposals"
@@ -892,8 +887,7 @@ mod player_convocation_offer_additional_tests {
         let offers =
             build_player_special_offers(&conn, &season_id, &player).expect("build player offers");
 
-        assert!(!offers.is_empty());
-        assert!(offers.iter().all(|offer| offer.class_name == "bmw"));
+        assert!(offers.is_empty());
     }
 
     #[test]
@@ -944,8 +938,7 @@ mod player_convocation_offer_additional_tests {
         let offers =
             build_player_special_offers(&conn, &season_id, &refreshed).expect("build offers");
 
-        assert!(!offers.is_empty());
-        assert!(offers.iter().all(|offer| offer.class_name == "gt4"));
+        assert!(offers.is_empty());
     }
 
     #[test]
@@ -983,7 +976,7 @@ mod player_convocation_offer_additional_tests {
         let offers =
             build_player_special_offers(&conn, &season_id, &player).expect("build player offers");
 
-        assert!(offers.iter().any(|offer| offer.team_id == toyota_team.id));
+        assert!(offers.is_empty());
     }
 }
 
@@ -1168,6 +1161,13 @@ fn persistir_grids_e_ofertas(
     season_number: i32,
     player_offers_payload: Option<&(String, Vec<PlayerSpecialOffer>)>,
 ) -> Result<(), DbError> {
+    if grids.is_empty() {
+        if let Some((player_id, offers)) = player_offers_payload {
+            player_offers::replace_player_special_offers(conn, season_id, player_id, offers)?;
+        }
+        return Ok(());
+    }
+
     let ops = preparar_persistencia_grids(conn, grids, season_number)?;
     let tx = conn.unchecked_transaction()?;
     aplicar_persistencia_grids(&tx, &ops)?;
@@ -1352,8 +1352,13 @@ pub fn run_pos_especial(conn: &Connection) -> Result<PosEspecialResult, DbError>
 
     let contratos_encerrados = contract_queries::expire_especial_contracts(&tx, season.numero)?;
     let pilotos_liberados = driver_queries::clear_all_categoria_especial_ativa(&tx)?;
-    let equipes_limpas = team_queries::clear_special_team_lineups(&tx)?;
-    team_queries::reset_special_team_hierarchies(&tx)?;
+    let equipes_limpas = if contratos_encerrados > 0 {
+        let equipes_limpas = team_queries::clear_special_team_lineups(&tx)?;
+        team_queries::reset_special_team_hierarchies(&tx)?;
+        equipes_limpas
+    } else {
+        0
+    };
 
     tx.commit()?;
 
@@ -1484,6 +1489,7 @@ mod tests {
                 season_phase: SeasonPhase::BlocoRegular,
                 display_date: "2024-09-15".to_string(),
                 thematic_slot: ThematicSlot::RodadaRegular,
+                season_week: None,
             },
         )
         .expect("insert pending regular race");
@@ -1506,6 +1512,47 @@ mod tests {
         iniciar_bloco_especial(&conn).expect("iniciar");
         let s = sq::get_season_by_id(&conn, &season_id).unwrap().unwrap();
         assert_eq!(s.fase, SeasonPhase::BlocoEspecial);
+    }
+
+    #[test]
+    fn test_run_convocation_skips_real_regular_special_categories() {
+        let (conn, season_id) = setup_world_db();
+
+        advance_to_convocation_window(&conn).expect("advance convocation");
+        let result = run_convocation_window(&conn).expect("run convocation");
+
+        let special_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM contracts
+                 WHERE tipo = 'Especial'
+                   AND categoria IN ('production_challenger', 'endurance')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count special contracts");
+        let special_entries: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM special_team_entries
+                 WHERE season_id = ?1
+                   AND special_category IN ('production_challenger', 'endurance')",
+                rusqlite::params![season_id],
+                |row| row.get(0),
+            )
+            .expect("count special entries");
+        let active_special_drivers: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM drivers
+                 WHERE categoria_especial_ativa IN ('production_challenger', 'endurance')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count active special drivers");
+
+        assert_eq!(result.total_contratos, 0);
+        assert!(result.grids.is_empty());
+        assert_eq!(special_contracts, 0);
+        assert_eq!(special_entries, 0);
+        assert_eq!(active_special_drivers, 0);
     }
 
     #[test]
@@ -1585,8 +1632,8 @@ mod tests {
         )
         .expect("create trigger");
 
-        let result = run_convocation_window(&conn);
-        assert!(result.is_err(), "convocacao deveria falhar");
+        let result = run_convocation_window(&conn).expect("convocation without legacy classes");
+        assert_eq!(result.total_contratos, 0);
 
         let especial_count: i64 = conn
             .query_row(
@@ -1672,7 +1719,10 @@ mod tests {
             .filter_map(|r| r.ok())
             .collect();
 
-        assert!(!especiais.is_empty(), "nenhum contrato especial gerado");
+        assert!(
+            especiais.is_empty(),
+            "Production/Endurance nao geram contrato Especial"
+        );
     }
 
     #[test]
@@ -1723,12 +1773,13 @@ mod tests {
         advance_to_convocation_window(&conn).expect("advance");
         run_convocation_window(&conn).expect("convocação");
 
-        // LMP2 e categoria regular e tambem uma classe convocada no bloco especial de Endurance.
+        // LMP2 agora e uma classe da Endurance no bloco especial.
         let lmp2_with_two_pilots: i64 = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM teams
-                 WHERE categoria='lmp2'
+                 WHERE categoria='endurance'
+                   AND classe='lmp2'
                    AND piloto_1_id IS NOT NULL
                    AND piloto_2_id IS NOT NULL",
                 [],
@@ -1758,11 +1809,17 @@ mod tests {
             )
             .unwrap_or(0);
 
-        assert!(lmp2_with_two_pilots > 0, "LMP2 deveria montar grid proprio");
-        assert!(lmp2_contracts > 0, "LMP2 deveria gerar contratos especiais");
         assert!(
-            lmp2_entries > 0,
-            "LMP2 deveria registrar equipes classificadas"
+            lmp2_with_two_pilots > 0,
+            "LMP2 deveria montar grid proprio como classe Endurance"
+        );
+        assert_eq!(
+            lmp2_contracts, 0,
+            "LMP2 nao gera contratos especiais nesta fase"
+        );
+        assert_eq!(
+            lmp2_entries, 0,
+            "LMP2 nao usa special_team_entries nesta fase"
         );
     }
 
@@ -1875,25 +1932,9 @@ mod tests {
             }
         }
 
-        assert!(
-            missing_class_teams.is_empty(),
-            "todas as equipes da janela especial devem expor classe/carro: {:?}",
-            missing_class_teams
-        );
-        assert_eq!(
-            classes_by_category
-                .get("production_challenger")
-                .expect("production section")
-                .len(),
-            3
-        );
-        assert_eq!(
-            classes_by_category
-                .get("endurance")
-                .expect("endurance section")
-                .len(),
-            3
-        );
+        assert!(missing_class_teams.is_empty());
+        assert!(classes_by_category.get("production_challenger").is_none());
+        assert!(classes_by_category.get("endurance").is_none());
     }
 
     #[test]
@@ -2071,9 +2112,8 @@ mod tests {
             )
             .unwrap_or(0);
         assert_eq!(
-            com_pilotos, 0,
-            "equipes especiais com piloto após PosEspecial: {}",
-            com_pilotos
+            com_pilotos, 36,
+            "lineups reais de Production/Endurance devem permanecer apos PosEspecial"
         );
     }
 
@@ -2093,9 +2133,109 @@ mod tests {
             )
             .unwrap_or(0);
         assert_eq!(
-            com_hierarquia, 0,
-            "equipes especiais com hierarquia após PosEspecial: {}",
-            com_hierarquia
+            com_hierarquia, 36,
+            "hierarquias reais de Production/Endurance devem permanecer apos PosEspecial"
+        );
+    }
+
+    #[test]
+    fn test_run_pos_especial_does_not_touch_production_endurance_legacy_marks_or_lineups() {
+        let (conn, season_id) = setup_world_db();
+        let season = sq::get_season_by_id(&conn, &season_id)
+            .expect("season query")
+            .expect("season");
+        sq::update_season_fase(&conn, &season_id, &SeasonPhase::PosEspecial)
+            .expect("force pos especial");
+
+        let production_team_id: String = conn
+            .query_row(
+                "SELECT id FROM teams
+                 WHERE categoria = 'production_challenger'
+                   AND piloto_1_id IS NOT NULL
+                   AND piloto_2_id IS NOT NULL
+                 ORDER BY id
+                 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("production team with lineup");
+        let production_driver_id: String = conn
+            .query_row(
+                "SELECT piloto_1_id FROM teams WHERE id = ?1",
+                rusqlite::params![production_team_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("production pilot")
+            .expect("pilot id");
+        let production_driver_name: String = conn
+            .query_row(
+                "SELECT nome FROM drivers WHERE id = ?1",
+                rusqlite::params![production_driver_id],
+                |row| row.get(0),
+            )
+            .expect("production pilot name");
+        let production_team_name: String = conn
+            .query_row(
+                "SELECT nome FROM teams WHERE id = ?1",
+                rusqlite::params![production_team_id],
+                |row| row.get(0),
+            )
+            .expect("production team name");
+
+        dq::update_driver_especial_category(
+            &conn,
+            &production_driver_id,
+            Some("production_challenger"),
+        )
+        .expect("seed legacy special mark");
+
+        conn.execute(
+            "INSERT INTO contracts (
+                id, piloto_id, piloto_nome, equipe_id, equipe_nome,
+                temporada_inicio, duracao_anos, temporada_fim,
+                salario, salario_anual, papel, status, tipo, categoria, classe, created_at
+            ) VALUES (
+                'C-LEGACY-PROD-SPECIAL', ?1, ?2, ?3, ?4,
+                ?5, 1, ?5,
+                0, 0, 'Numero1', 'Ativo', 'Especial', 'production_challenger', 'mazda',
+                '2024-01-01T00:00:00Z'
+            )",
+            rusqlite::params![
+                production_driver_id,
+                production_driver_name,
+                production_team_id,
+                production_team_name,
+                season.numero
+            ],
+        )
+        .expect("insert legacy production special contract");
+
+        let result = run_pos_especial(&conn).expect("run pos especial");
+
+        let refreshed_driver = dq::get_driver(&conn, &production_driver_id).expect("driver");
+        assert_eq!(
+            refreshed_driver.categoria_especial_ativa.as_deref(),
+            Some("production_challenger"),
+            "PosEspecial nao deve limpar categoria_especial_ativa legada de Production/Endurance"
+        );
+
+        let lineups_reais: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM teams
+                 WHERE categoria IN ('production_challenger','endurance')
+                   AND piloto_1_id IS NOT NULL
+                   AND piloto_2_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("lineup count");
+        assert_eq!(
+            lineups_reais, 36,
+            "PosEspecial nao deve limpar lineups reais de Production/Endurance"
+        );
+        assert_eq!(
+            result.contratos_encerrados, 0,
+            "contratos Especial legados de Production/Endurance nao devem acionar cleanup legado"
         );
     }
 }

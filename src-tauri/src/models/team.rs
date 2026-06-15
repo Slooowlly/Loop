@@ -285,13 +285,10 @@ where
         .collect();
 
     if let Some(config) = get_category_config(category_id) {
+        // Legacy category capacity can differ from own templates: Endurance has
+        // 18 competitive slots, but six come from the regular LMP2 category.
         let expected_team_count = if is_especial(category_id) {
-            config
-                .classes
-                .iter()
-                .filter(|class| get_category_config(class.car_categoria).is_none())
-                .map(|class| class.num_equipes as usize)
-                .sum()
+            teams.len()
         } else {
             config.num_equipes as usize
         };

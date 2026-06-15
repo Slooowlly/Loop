@@ -118,6 +118,17 @@ fn observed_next_counter(conn: &Connection, id_type: IdType) -> Result<i64, DbEr
     let mut next_counter = 1_i64;
 
     for table in id_type.tables() {
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                rusqlite::params![table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        if !exists {
+            continue;
+        }
         let sql = format!("SELECT id FROM {table}");
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;

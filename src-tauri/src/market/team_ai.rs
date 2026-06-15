@@ -1,6 +1,5 @@
 use rand::Rng;
 
-use crate::constants::categories::get_category_config;
 use crate::finance::salary::calculate_offer_salary_from_money;
 use crate::market::proposals::{
     is_real_career_debut_category, is_rookie_market_candidate, MarketProposal, ProposalStatus,
@@ -29,8 +28,10 @@ pub fn generate_team_proposals(
     current_season: i32,
     rng: &mut impl Rng,
 ) -> Vec<MarketProposal> {
-    let required_license =
-        get_category_config(&vacancy.categoria).and_then(|config| config.licenca_necessaria);
+    let required_license = crate::models::license::required_license_for_division(
+        &vacancy.categoria,
+        vacancy.classe.as_deref(),
+    );
 
     let mut candidates: Vec<&AvailableDriver> = available_drivers
         .iter()
@@ -39,7 +40,7 @@ pub fn generate_team_proposals(
                 None => true,
                 Some(required) => available
                     .max_license_level
-                    .map_or(false, |level| level >= required),
+                    .is_some_and(|level| level >= required),
             };
             available.visibility >= 4.0
                 && available.driver.status.as_str() != "Aposentado"
@@ -371,6 +372,7 @@ mod tests {
             team_id: "T001".to_string(),
             team_name: "Equipe".to_string(),
             categoria: categoria.to_string(),
+            classe: None,
             category_tier: tier,
             car_performance: 8.0,
             budget: 75.0,
@@ -381,6 +383,42 @@ mod tests {
             papel_necessario: TeamRole::Numero1,
             piloto_existente_id: None,
         }
+    }
+
+    fn endurance_lmp2_vacancy() -> Vacancy {
+        let mut vacancy = sample_vacancy(6);
+        vacancy.categoria = "endurance".to_string();
+        vacancy.classe = Some("lmp2".to_string());
+        vacancy.category_tier = 6;
+        vacancy
+    }
+
+    #[test]
+    fn test_endurance_lmp2_vacancy_excludes_driver_without_license_level5() {
+        let vacancy = endurance_lmp2_vacancy();
+        let mut candidate = sample_available_driver("P001", "gt3", 5, 8.0, 85.0);
+        candidate.max_license_level = Some(4);
+        let mut rng = StdRng::seed_from_u64(91);
+
+        let proposals = generate_team_proposals(&vacancy, &[candidate], 2, &mut rng);
+
+        assert!(
+            proposals.is_empty(),
+            "endurance+lmp2 exige licenca nivel 5; piloto nivel 4 nao deve receber proposta"
+        );
+    }
+
+    #[test]
+    fn test_endurance_lmp2_vacancy_includes_driver_with_license_level5() {
+        let vacancy = endurance_lmp2_vacancy();
+        let mut candidate = sample_available_driver("P001", "gt3", 5, 8.0, 85.0);
+        candidate.max_license_level = Some(5);
+        let mut rng = StdRng::seed_from_u64(92);
+
+        let proposals = generate_team_proposals(&vacancy, &[candidate], 2, &mut rng);
+
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].piloto_id, "P001");
     }
 
     fn sample_available_driver(

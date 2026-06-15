@@ -9,7 +9,9 @@ use crate::commands::career_types::{
     GlobalDriverTitleCategorySummary,
 };
 use crate::config::app_config::AppConfig;
-use crate::constants::categories::{get_feeder_categories, is_especial};
+use crate::constants::categories::{
+    competitive_division_key, get_feeder_categories, is_especial, is_valid_competitive_division,
+};
 use crate::db::connection::Database;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
@@ -197,8 +199,8 @@ fn build_current_driver_entry(
     });
     let category = contract
         .as_ref()
-        .and_then(|value| regular_category(Some(&value.categoria)))
-        .or_else(|| regular_category(driver.categoria_atual.as_deref()));
+        .and_then(|value| regular_category(Some(&value.categoria), value.classe.as_deref()))
+        .or_else(|| regular_category(driver.categoria_atual.as_deref(), None));
     let stats_by_category = load_driver_category_stats(
         conn,
         driver,
@@ -313,7 +315,7 @@ fn build_retired_driver_entry(retired: RetiredDriverSnapshot, current_year: i32)
         equipe_cor_primaria: None,
         categoria_atual: Some(retired.category.clone()),
         categorias_historicas: historical_categories(
-            &[retired.stats.clone()],
+            std::slice::from_ref(&retired.stats),
             Some(&retired.category),
             &[],
         ),
@@ -463,9 +465,10 @@ fn load_driver_category_stats(
 }
 
 fn stats_from_driver(driver: &Driver, category: Option<&str>) -> CategoryStats {
+    let (category, class_name) = category_stats_parts(category.unwrap_or("unknown"));
     CategoryStats {
-        category: category.unwrap_or("unknown").to_string(),
-        class_name: None,
+        category,
+        class_name,
         points: driver.stats_carreira.pontos_total,
         wins: driver.stats_carreira.vitorias as i32,
         podiums: driver.stats_carreira.podios as i32,
@@ -477,13 +480,39 @@ fn stats_from_driver(driver: &Driver, category: Option<&str>) -> CategoryStats {
     }
 }
 
-fn regular_category(category: Option<&str>) -> Option<String> {
+fn regular_category(category: Option<&str>, class_name: Option<&str>) -> Option<String> {
     let category = category?.trim();
-    if category.is_empty() || is_especial(category) {
-        None
-    } else {
-        Some(category.to_string())
+    if category.is_empty() {
+        return None;
     }
+    if let Some((base_category, key_class_name)) = category.split_once(':') {
+        if is_valid_competitive_division(base_category, Some(key_class_name)) {
+            return Some(competitive_division_key(
+                base_category,
+                Some(key_class_name),
+            ));
+        }
+        return None;
+    }
+    if is_valid_competitive_division(category, class_name) {
+        Some(competitive_division_key(category, class_name))
+    } else {
+        None
+    }
+}
+
+fn category_stats_parts(category: &str) -> (String, Option<String>) {
+    let category = category.trim();
+    if let Some((base_category, class_name)) = category.split_once(':') {
+        let class_name = class_name.trim();
+        if is_valid_competitive_division(base_category, Some(class_name)) {
+            return (
+                base_category.trim().to_string(),
+                Some(class_name.to_string()),
+            );
+        }
+    }
+    (category.to_string(), None)
 }
 
 fn active_driver_debut_year(
@@ -571,7 +600,11 @@ fn load_contract_categories(conn: &Connection, driver_id: &str) -> Result<Vec<St
         .map_err(|e| format!("Falha ao carregar historico de contratos do piloto: {e}"))?;
     let mut categories = Vec::new();
     for contract in contracts {
-        push_category(&mut categories, &contract.categoria);
+        if let Some(category) =
+            regular_category(Some(&contract.categoria), contract.classe.as_deref())
+        {
+            push_category(&mut categories, &category);
+        }
     }
     Ok(categories)
 }
@@ -898,7 +931,7 @@ fn balanced_score(
     round_one(base.max(0.0) * category_multiplier(category))
 }
 
-fn assign_ranks(rows: &mut Vec<GlobalDriverRankingRow>) {
+fn assign_ranks(rows: &mut [GlobalDriverRankingRow]) {
     rows.sort_by(compare_historical_rows);
     for (index, row) in rows.iter_mut().enumerate() {
         row.historical_rank = index as i32 + 1;
@@ -2080,6 +2113,41 @@ mod tests {
         .expect("insert active regular contract");
     }
 
+    fn insert_active_regular_contract_with_class(
+        conn: &Connection,
+        contract_id: &str,
+        driver_id: &str,
+        driver_name: &str,
+        category: &str,
+        class_name: Option<&str>,
+    ) {
+        let team_id = format!("T_{contract_id}");
+        let mut team = placeholder_team_from_db(
+            team_id.clone(),
+            format!("Equipe {contract_id}"),
+            category.to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.classe = class_name.map(str::to_string);
+        insert_team(conn, &team).expect("insert active contract team");
+        conn.execute(
+            "INSERT INTO contracts (
+                id, piloto_id, piloto_nome, equipe_id, equipe_nome, temporada_inicio,
+                duracao_anos, temporada_fim, salario, salario_anual, papel, status, tipo, categoria, classe, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 1, 1, 1, 10000, 10000, 'Numero1', 'Ativo', 'Regular', ?6, ?7, '2026-01-01')",
+            rusqlite::params![
+                contract_id,
+                driver_id,
+                driver_name,
+                team_id,
+                format!("Equipe {contract_id}"),
+                category,
+                class_name,
+            ],
+        )
+        .expect("insert active regular contract");
+    }
+
     #[test]
     fn balanced_index_weights_higher_categories_without_erasing_lower_category_dominance() {
         let conn = setup_conn();
@@ -2244,6 +2312,121 @@ mod tests {
         assert_eq!(row.status, "Ativo");
         assert_eq!(row.corridas, 0);
         assert_eq!(row.historical_index, 0.0);
+    }
+
+    #[test]
+    fn payload_keeps_current_endurance_driver_and_separates_gt3_divisions() {
+        let conn = setup_conn();
+        let mut regular_gt3 =
+            driver_with_stats("D_GT3_ACTIVE", "GT3 Regular", Some("gt3"), 0, 0, 0);
+        regular_gt3.stats_carreira.corridas = 0;
+        regular_gt3.stats_carreira.pontos_total = 0.0;
+        let mut endurance_gt3 = driver_with_stats(
+            "D_END_GT3_ACTIVE",
+            "GT3 Endurance",
+            Some("endurance"),
+            0,
+            0,
+            0,
+        );
+        endurance_gt3.stats_carreira.corridas = 0;
+        endurance_gt3.stats_carreira.pontos_total = 0.0;
+        insert_driver(&conn, &regular_gt3).expect("insert regular gt3");
+        insert_driver(&conn, &endurance_gt3).expect("insert endurance gt3");
+        insert_active_regular_contract_with_class(
+            &conn,
+            "C_GT3_ACTIVE",
+            "D_GT3_ACTIVE",
+            "GT3 Regular",
+            "gt3",
+            None,
+        );
+        insert_active_regular_contract_with_class(
+            &conn,
+            "C_END_GT3_ACTIVE",
+            "D_END_GT3_ACTIVE",
+            "GT3 Endurance",
+            "endurance",
+            Some("gt3"),
+        );
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let regular = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_GT3_ACTIVE")
+            .expect("regular gt3 should be visible");
+        let endurance = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_END_GT3_ACTIVE")
+            .expect("endurance gt3 should be visible");
+
+        assert_eq!(regular.categoria_atual.as_deref(), Some("gt3"));
+        assert_eq!(endurance.categoria_atual.as_deref(), Some("endurance:gt3"));
+        assert_ne!(regular.categoria_atual, endurance.categoria_atual);
+    }
+
+    #[test]
+    fn payload_keeps_current_production_driver_and_separates_mazda_divisions() {
+        let conn = setup_conn();
+        let mut mazda_amador = driver_with_stats(
+            "D_MAZDA_ACTIVE",
+            "Mazda Amador",
+            Some("mazda_amador"),
+            0,
+            0,
+            0,
+        );
+        mazda_amador.stats_carreira.corridas = 0;
+        mazda_amador.stats_carreira.pontos_total = 0.0;
+        let mut production_mazda = driver_with_stats(
+            "D_PROD_MAZDA_ACTIVE",
+            "Mazda Production",
+            Some("production_challenger"),
+            0,
+            0,
+            0,
+        );
+        production_mazda.stats_carreira.corridas = 0;
+        production_mazda.stats_carreira.pontos_total = 0.0;
+        insert_driver(&conn, &mazda_amador).expect("insert mazda amador");
+        insert_driver(&conn, &production_mazda).expect("insert production mazda");
+        insert_active_regular_contract_with_class(
+            &conn,
+            "C_MAZDA_ACTIVE",
+            "D_MAZDA_ACTIVE",
+            "Mazda Amador",
+            "mazda_amador",
+            None,
+        );
+        insert_active_regular_contract_with_class(
+            &conn,
+            "C_PROD_MAZDA_ACTIVE",
+            "D_PROD_MAZDA_ACTIVE",
+            "Mazda Production",
+            "production_challenger",
+            Some("mazda"),
+        );
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let amador = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_MAZDA_ACTIVE")
+            .expect("mazda amador should be visible");
+        let production = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_PROD_MAZDA_ACTIVE")
+            .expect("mazda production should be visible");
+
+        assert_eq!(amador.categoria_atual.as_deref(), Some("mazda_amador"));
+        assert_eq!(
+            production.categoria_atual.as_deref(),
+            Some("production_challenger:mazda")
+        );
+        assert_ne!(amador.categoria_atual, production.categoria_atual);
     }
 
     #[test]

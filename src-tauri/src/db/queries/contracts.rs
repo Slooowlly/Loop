@@ -119,6 +119,19 @@ pub fn get_all_active_regular_contracts(conn: &Connection) -> Result<Vec<Contrac
     collect_contracts(mapped)
 }
 
+pub fn get_active_regular_contracts_by_team(
+    conn: &Connection,
+    team_id: &str,
+) -> Result<Vec<Contract>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM contracts
+         WHERE status = 'Ativo' AND tipo = 'Regular' AND equipe_id = ?1
+         ORDER BY piloto_nome",
+    )?;
+    let mapped = stmt.query_map(params![team_id], contract_from_row)?;
+    collect_contracts(mapped)
+}
+
 pub fn get_active_especial_contracts_by_category(
     conn: &Connection,
     categoria: &str,
@@ -179,9 +192,14 @@ pub fn update_contract_status(
 /// contra bugs futuros. No modelo atual só existe um ciclo especial ativo por vez,
 /// portanto o resultado seria idêntico sem o filtro.
 pub fn expire_especial_contracts(conn: &Connection, season_number: i32) -> Result<usize, DbError> {
+    // Legacy-only cleanup. Production/Endurance now use persistent Regular contracts
+    // and are deliberately excluded from this Especial path.
     let n = conn.execute(
         "UPDATE contracts SET status = 'Expirado'
-         WHERE tipo = 'Especial' AND status = 'Ativo' AND temporada_inicio = ?1",
+         WHERE tipo = 'Especial'
+           AND status = 'Ativo'
+           AND temporada_inicio = ?1
+           AND categoria NOT IN ('production_challenger', 'endurance')",
         params![season_number],
     )?;
     Ok(n)
@@ -356,6 +374,8 @@ pub fn generate_especial_contract(
     classe: &str,
     temporada: i32,
 ) -> Contract {
+    // Legacy/future special-event contract factory. Real Production/Endurance
+    // teams should be populated through regular market/lineup flows instead.
     let tier = get_category_config(categoria).map(|c| c.tier).unwrap_or(2);
     let salario_anual = salary_midpoint_for_tier(tier) * 0.5;
     let mut contract = Contract::new(

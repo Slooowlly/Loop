@@ -8,7 +8,9 @@ use crate::commands::career_types::{
     GlobalTeamHistoryPayload, GlobalTeamHistoryPoint, GlobalTeamHistoryTeamRow,
 };
 use crate::config::app_config::AppConfig;
-use crate::constants::historical_timeline::category_start_year;
+use crate::constants::historical_timeline::{
+    category_start_year, class_start_year as timeline_class_start_year,
+};
 use crate::db::connection::Database;
 
 const DEFAULT_FAMILY: &str = "mazda";
@@ -53,10 +55,10 @@ struct TeamArchiveRow {
 const MAZDA_BANDS: [TeamHistoryBandDef; 3] = [
     TeamHistoryBandDef {
         key: "production_mazda",
-        label: "Production",
+        label: "Mazda Production",
         category: "production_challenger",
         class_name: Some("mazda"),
-        is_special: true,
+        is_special: false,
     },
     TeamHistoryBandDef {
         key: "mazda_amador",
@@ -77,10 +79,10 @@ const MAZDA_BANDS: [TeamHistoryBandDef; 3] = [
 const TOYOTA_BANDS: [TeamHistoryBandDef; 3] = [
     TeamHistoryBandDef {
         key: "production_toyota",
-        label: "Production",
+        label: "Toyota Production",
         category: "production_challenger",
         class_name: Some("toyota"),
-        is_special: true,
+        is_special: false,
     },
     TeamHistoryBandDef {
         key: "toyota_amador",
@@ -101,10 +103,10 @@ const TOYOTA_BANDS: [TeamHistoryBandDef; 3] = [
 const BMW_BANDS: [TeamHistoryBandDef; 2] = [
     TeamHistoryBandDef {
         key: "production_bmw",
-        label: "Production",
+        label: "BMW Production",
         category: "production_challenger",
         class_name: Some("bmw"),
-        is_special: true,
+        is_special: false,
     },
     TeamHistoryBandDef {
         key: "bmw_m2",
@@ -118,10 +120,10 @@ const BMW_BANDS: [TeamHistoryBandDef; 2] = [
 const GT4_BANDS: [TeamHistoryBandDef; 2] = [
     TeamHistoryBandDef {
         key: "endurance_gt4",
-        label: "Endurance",
+        label: "GT4 Endurance",
         category: "endurance",
         class_name: Some("gt4"),
-        is_special: true,
+        is_special: false,
     },
     TeamHistoryBandDef {
         key: "gt4",
@@ -135,10 +137,10 @@ const GT4_BANDS: [TeamHistoryBandDef; 2] = [
 const GT3_BANDS: [TeamHistoryBandDef; 2] = [
     TeamHistoryBandDef {
         key: "endurance_gt3",
-        label: "Endurance",
+        label: "GT3 Endurance",
         category: "endurance",
         class_name: Some("gt3"),
-        is_special: true,
+        is_special: false,
     },
     TeamHistoryBandDef {
         key: "gt3",
@@ -149,7 +151,15 @@ const GT3_BANDS: [TeamHistoryBandDef; 2] = [
     },
 ];
 
-const FAMILY_DEFS: [TeamHistoryFamilyDef; 5] = [
+const LMP2_BANDS: [TeamHistoryBandDef; 1] = [TeamHistoryBandDef {
+    key: "endurance_lmp2",
+    label: "LMP2",
+    category: "endurance",
+    class_name: Some("lmp2"),
+    is_special: false,
+}];
+
+const FAMILY_DEFS: [TeamHistoryFamilyDef; 6] = [
     TeamHistoryFamilyDef {
         id: "mazda",
         label: "Mazda",
@@ -174,6 +184,11 @@ const FAMILY_DEFS: [TeamHistoryFamilyDef; 5] = [
         id: "gt3",
         label: "GT3",
         bands: &GT3_BANDS,
+    },
+    TeamHistoryFamilyDef {
+        id: "lmp2",
+        label: "LMP2",
+        bands: &LMP2_BANDS,
     },
 ];
 
@@ -212,6 +227,7 @@ pub(crate) fn build_global_team_history(
     let window_start = start_year.clamp(min_year, latest_start);
     let window_end = (window_start + window_size - 1).min(max_year);
     let archive_rows = load_archive_rows(conn, window_start, window_end)?;
+    let archive_rows = dedupe_archive_rows_for_family(family_def, archive_rows);
     let bands = family_def
         .bands
         .iter()
@@ -228,6 +244,22 @@ pub(crate) fn build_global_team_history(
         families: FAMILY_DEFS.iter().map(family_payload).collect(),
         bands,
     })
+}
+
+/// Year the band's (category, class) combination first existed.
+///
+/// For shared categories like `endurance`, a class can debut after the
+/// category itself: the GT4 class only joined endurance in 2002 even though
+/// the endurance category started in 2000. The band's start is therefore the
+/// later of the two so the "category did not exist" band reflects the class.
+fn band_start_year(band: &TeamHistoryBandDef) -> i32 {
+    let category_start = category_start_year(band.category);
+    match band.class_name {
+        Some(class_name) => {
+            category_start.max(timeline_class_start_year(band.category, Some(class_name)))
+        }
+        None => category_start,
+    }
 }
 
 fn resolve_family(family: &str) -> &'static TeamHistoryFamilyDef {
@@ -251,7 +283,7 @@ fn family_band_payload(band: &TeamHistoryBandDef) -> GlobalTeamHistoryFamilyBand
         label: band.label.to_string(),
         category: band.category.to_string(),
         class_name: band.class_name.map(str::to_string),
-        starts_year: category_start_year(band.category),
+        starts_year: band_start_year(band),
         is_special: band.is_special,
     }
 }
@@ -331,6 +363,45 @@ fn load_archive_rows(
     Ok(collected)
 }
 
+fn dedupe_archive_rows_for_family(
+    family: &TeamHistoryFamilyDef,
+    archive_rows: Vec<TeamArchiveRow>,
+) -> Vec<TeamArchiveRow> {
+    // Visual guard rail: if historical imports ever provide two snapshots for
+    // the same team/year in a family, Atlas chooses the highest band instead
+    // of showing the team twice. The model should still avoid duplicates.
+    let mut selected_by_team_year: HashMap<(String, i32), (usize, usize)> = HashMap::new();
+
+    for (row_index, row) in archive_rows.iter().enumerate() {
+        let Some(band_index) = family.bands.iter().position(|band| band_matches(band, row)) else {
+            continue;
+        };
+        let key = (row.team_id.clone(), row.year);
+        match selected_by_team_year.get_mut(&key) {
+            Some((current_band_index, current_row_index)) => {
+                if band_index < *current_band_index {
+                    *current_band_index = band_index;
+                    *current_row_index = row_index;
+                }
+            }
+            None => {
+                selected_by_team_year.insert(key, (band_index, row_index));
+            }
+        }
+    }
+
+    let selected_indices = selected_by_team_year
+        .into_values()
+        .map(|(_, row_index)| row_index)
+        .collect::<std::collections::HashSet<_>>();
+
+    archive_rows
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, row)| selected_indices.contains(&index).then_some(row))
+        .collect()
+}
+
 fn build_band_payload(
     band: &TeamHistoryBandDef,
     archive_rows: &[TeamArchiveRow],
@@ -357,7 +428,7 @@ fn build_band_payload(
         label: band.label.to_string(),
         category: band.category.to_string(),
         class_name: band.class_name.map(str::to_string),
-        starts_year: category_start_year(band.category),
+        starts_year: band_start_year(band),
         is_special: band.is_special,
         rows,
     }
@@ -388,6 +459,7 @@ fn build_team_row(
             .cmp(&right.year)
             .then_with(|| left.position.cmp(&right.position))
     });
+    rows.dedup_by(|left, right| left.year == right.year);
     let first = rows.first()?;
     let last = rows.last().unwrap_or(first);
     let slot = if band.is_special {
@@ -478,6 +550,8 @@ mod tests {
                 ('T_SUNDAY', 2, 2021, 'mazda_amador', NULL, 2, 96, 2, 5, 1, 8, 0),
                 ('T_SUNDAY', 3, 2022, 'production_challenger', 'mazda', 2, 92, 2, 4, 1, 6, 0),
                 ('T_SUNDAY', 4, 2023, 'production_challenger', 'mazda', 1, 108, 3, 5, 2, 6, 1),
+                ('T_SUNDAY', 5, 2023, 'mazda_amador', NULL, 1, 118, 4, 5, 2, 8, 1),
+                ('T_SUNDAY', 6, 2024, 'mazda_amador', NULL, 3, 74, 0, 2, 0, 8, 0),
                 ('T_DUAL', 1, 2020, 'mazda_amador', NULL, 1, 112, 4, 5, 1, 8, 1),
                 ('T_DUAL', 2, 2021, 'mazda_amador', NULL, 1, 120, 5, 7, 3, 8, 1);
             ",
@@ -496,17 +570,18 @@ mod tests {
         assert_eq!(payload.window_start, 2020);
         assert_eq!(payload.window_end, 2023);
         assert!(payload.families.iter().any(|family| family.id == "mazda"));
-        assert!(!payload.families.iter().any(|family| family.id == "lmp2"));
+        assert!(payload.families.iter().any(|family| family.id == "lmp2"));
 
         let production = payload
             .bands
             .iter()
             .find(|band| band.key == "production_mazda")
             .expect("production band");
-        assert!(production.is_special);
+        assert!(!production.is_special);
+        assert_eq!(production.label, "Mazda Production");
         assert_eq!(production.class_name.as_deref(), Some("mazda"));
         assert_eq!(production.rows[0].cor_primaria, "#5ee7a8");
-        assert_eq!(production.rows[0].points[0].slot, "special");
+        assert_eq!(production.rows[0].points[0].slot, "regular");
 
         let cup = payload
             .bands
@@ -515,5 +590,157 @@ mod tests {
             .expect("cup band");
         assert_eq!(cup.rows[0].points[0].slot, "regular");
         assert_eq!(cup.rows[0].nome, "Dual Exit Racing");
+    }
+
+    #[test]
+    fn build_global_team_history_labels_real_production_endurance_and_lmp2_bands() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+        conn.execute_batch(
+            "
+            INSERT INTO teams (id, nome, nome_curto, categoria, classe, cor_primaria, cor_secundaria)
+            VALUES
+                ('T_GT3', 'GT3 Team', 'GT3', 'endurance', 'gt3', '#58a6ff', '#0b2545'),
+                ('T_GT4', 'GT4 Team', 'GT4', 'endurance', 'gt4', '#5ee7a8', '#114b5f'),
+                ('T_LMP2', 'LMP2 Team', 'LMP', 'endurance', 'lmp2', '#f2c46d', '#3a2610');
+
+            INSERT INTO team_season_archive (
+                team_id, season_number, ano, categoria, classe, posicao_campeonato,
+                pontos, vitorias, podios, poles, corridas, titulos_construtores
+            ) VALUES
+                ('T_GT3', 10, 2024, 'endurance', 'gt3', 1, 140, 4, 6, 2, 8, 1),
+                ('T_GT4', 10, 2024, 'endurance', 'gt4', 1, 122, 3, 5, 1, 8, 1),
+                ('T_LMP2', 10, 2024, 'endurance', 'lmp2', 1, 130, 3, 6, 2, 8, 1);
+            ",
+        )
+        .expect("seed extra families");
+
+        let gt3_payload = build_global_team_history(&conn, "gt3", 2024, 4).expect("gt3");
+        let gt3_endurance = gt3_payload
+            .bands
+            .iter()
+            .find(|band| band.key == "endurance_gt3")
+            .expect("gt3 endurance");
+        assert_eq!(gt3_endurance.label, "GT3 Endurance");
+        assert!(!gt3_endurance.is_special);
+        assert_eq!(gt3_endurance.starts_year, 2005);
+
+        let gt4_payload = build_global_team_history(&conn, "gt4", 2024, 4).expect("gt4");
+        let gt4_endurance = gt4_payload
+            .bands
+            .iter()
+            .find(|band| band.key == "endurance_gt4")
+            .expect("gt4 endurance");
+        assert_eq!(gt4_endurance.label, "GT4 Endurance");
+        assert!(!gt4_endurance.is_special);
+        assert_eq!(gt4_endurance.starts_year, 2007);
+
+        let lmp2_payload = build_global_team_history(&conn, "lmp2", 2024, 4).expect("lmp2");
+        assert_eq!(lmp2_payload.selected_family, "lmp2");
+        assert_eq!(lmp2_payload.bands.len(), 1);
+        assert_eq!(lmp2_payload.bands[0].label, "LMP2");
+        assert_eq!(lmp2_payload.bands[0].category, "endurance");
+        assert_eq!(lmp2_payload.bands[0].class_name.as_deref(), Some("lmp2"));
+        assert!(!lmp2_payload.bands[0].is_special);
+        assert_eq!(lmp2_payload.bands[0].rows[0].points[0].slot, "regular");
+    }
+
+    #[test]
+    fn build_global_team_history_has_one_point_per_team_year_across_real_divisions() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+
+        let payload = build_global_team_history(&conn, "mazda", 2020, 5).expect("payload");
+        let mut seen = std::collections::HashSet::new();
+        for band in &payload.bands {
+            for row in &band.rows {
+                for point in &row.points {
+                    assert!(
+                        seen.insert((row.team_id.clone(), point.year)),
+                        "team {} duplicated in year {}",
+                        row.team_id,
+                        point.year
+                    );
+                }
+            }
+        }
+
+        let production = payload
+            .bands
+            .iter()
+            .find(|band| band.key == "production_mazda")
+            .expect("production band");
+        let cup = payload
+            .bands
+            .iter()
+            .find(|band| band.key == "mazda_amador")
+            .expect("cup band");
+        assert!(production.rows.iter().any(|row| {
+            row.team_id == "T_SUNDAY" && row.points.iter().any(|point| point.year == 2022)
+        }));
+        assert!(cup.rows.iter().any(|row| {
+            row.team_id == "T_SUNDAY" && row.points.iter().any(|point| point.year == 2024)
+        }));
+        assert!(!cup.rows.iter().any(|row| {
+            row.team_id == "T_SUNDAY" && row.points.iter().any(|point| point.year == 2023)
+        }));
+    }
+
+    #[test]
+    fn atlas_history_source_stays_decoupled_from_legacy_entries() {
+        let source = include_str!("global_team_history.rs");
+        let legacy_table = concat!("special", "_team", "_entries");
+
+        assert!(
+            !source.contains(legacy_table),
+            "Atlas global history must not read legacy special entries"
+        );
+    }
+
+    #[test]
+    fn build_global_team_history_collapses_duplicate_team_year_band_snapshots() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+        conn.execute(
+            "INSERT INTO team_season_archive (
+                team_id, season_number, ano, categoria, classe, posicao_campeonato,
+                pontos, vitorias, podios, poles, corridas, titulos_construtores
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                "T_DUAL",
+                99,
+                2020,
+                "mazda_amador",
+                Option::<String>::None,
+                3,
+                80.0,
+                1,
+                2,
+                0,
+                8,
+                0
+            ],
+        )
+        .expect("duplicate snapshot");
+
+        let payload = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload");
+        let cup = payload
+            .bands
+            .iter()
+            .find(|band| band.key == "mazda_amador")
+            .expect("cup band");
+        let dual = cup
+            .rows
+            .iter()
+            .find(|row| row.team_id == "T_DUAL")
+            .expect("dual row");
+        let points_2020 = dual
+            .points
+            .iter()
+            .filter(|point| point.year == 2020)
+            .count();
+
+        assert_eq!(points_2020, 1);
+        assert_eq!(dual.points[0].position, 1);
     }
 }

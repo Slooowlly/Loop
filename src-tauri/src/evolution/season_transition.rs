@@ -5,6 +5,7 @@ use rusqlite::Connection;
 
 use crate::db::queries::meta as meta_queries;
 
+use crate::calendar::full_season::generate_full_season_calendar;
 use crate::calendar::generate_all_calendars_with_id_factory;
 use crate::constants::categories::get_all_categories;
 use crate::db::queries::calendar as calendar_queries;
@@ -13,6 +14,7 @@ use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::evolution::context::StandingEntry;
 use crate::generators::ids::{next_id, next_ids, IdType};
+use crate::models::enums::SeasonPhase;
 use crate::models::season::Season;
 
 pub(crate) fn create_and_persist_new_season(
@@ -25,6 +27,23 @@ pub(crate) fn create_and_persist_new_season(
     let new_season = Season::new(new_season_id, season.numero + 1, new_year);
     season_queries::insert_season(conn, &new_season)
         .map_err(|e| format!("Falha ao inserir nova temporada: {e}"))?;
+    Ok(new_season)
+}
+
+pub(crate) fn create_next_season_9d(
+    conn: &Connection,
+    season: &Season,
+    fase_inicial: SeasonPhase,
+    seed: u64,
+) -> Result<Season, String> {
+    let mut new_season = create_and_persist_new_season(conn, season)?;
+    if new_season.fase != fase_inicial {
+        season_queries::update_season_fase(conn, &new_season.id, &fase_inicial)
+            .map_err(|e| format!("Falha ao definir fase inicial da temporada 9D: {e}"))?;
+        new_season.fase = fase_inicial;
+    }
+    generate_full_season_calendar(conn, &new_season.id, new_season.ano, seed)
+        .map_err(|e| format!("Falha ao inserir calendario 9D da nova temporada: {e}"))?;
     Ok(new_season)
 }
 
@@ -42,6 +61,7 @@ pub(crate) fn archive_driver_season(
     for driver in &drivers {
         let standing = standings_by_driver.get(&driver.id);
         let categoria = standing.map(|s| s.category.as_str()).unwrap_or_default();
+        let classe = standing.and_then(|s| s.classe.as_deref());
         let team_id = standing.and_then(|s| s.team_id.as_deref());
         let posicao_campeonato = standing.map(|s| s.position);
         let total_pilotos = standing.map(|s| s.total_drivers);
@@ -56,6 +76,7 @@ pub(crate) fn archive_driver_season(
             "season_number":        season.numero,
             "ano":                  season.ano,
             "categoria":            categoria,
+            "classe":               classe,
             "team_id":              team_id,
             "posicao_campeonato":   posicao_campeonato,
             "total_pilotos":        total_pilotos,
@@ -146,6 +167,9 @@ pub(crate) fn reset_team_season_stats(
     Ok(())
 }
 
+/// LEGADO 9D - semeia calendario do fluxo pre-9D.
+/// Mantido enquanto testes e saves legados ainda referenciam o modelo antigo.
+#[allow(dead_code)]
 pub(crate) fn seed_new_calendar(
     conn: &Connection,
     new_season_id: &str,

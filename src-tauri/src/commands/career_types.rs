@@ -6,16 +6,12 @@ use crate::evolution::pipeline::EndOfSeasonResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SaveLifecycleStatus {
     Draft,
     Failed,
+    #[default]
     Active,
-}
-
-impl Default for SaveLifecycleStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -988,23 +984,12 @@ pub struct DriverCareerSpecialEventsBlock {
     pub timeline: Vec<DriverSpecialEventEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DriverSpecialEventRankBlock {
     pub participacoes: Option<i32>,
     pub convocacoes: Option<i32>,
     pub vitorias: Option<i32>,
     pub podios: Option<i32>,
-}
-
-impl Default for DriverSpecialEventRankBlock {
-    fn default() -> Self {
-        Self {
-            participacoes: None,
-            convocacoes: None,
-            vitorias: None,
-            podios: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

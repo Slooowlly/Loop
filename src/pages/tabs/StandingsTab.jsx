@@ -9,6 +9,7 @@ import FlagIcon from "../../components/ui/FlagIcon";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
+import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { TeamHistoryDrawer } from "./MyTeamTab";
 
 const ALL_CATEGORIES = [
@@ -20,7 +21,6 @@ const ALL_CATEGORIES = [
   "production_challenger",
   "gt4",
   "gt3",
-  "lmp2",
   "endurance",
 ];
 
@@ -316,6 +316,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     [driverStandings, completedRounds],
   );
   const specialClassGroups = SPECIAL_STANDING_GROUPS[viewCategory] ?? null;
+  const isLegacyPhase = isLegacySeasonPhase(season?.fase);
   const driverStandingSections = useMemo(
     () => buildSpecialStandingSections(driverStandings, specialClassGroups),
     [driverStandings, specialClassGroups],
@@ -325,7 +326,9 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     [teamStandings, specialClassGroups],
   );
   const showSpecialPendingNotice =
-    specialClassGroups != null && !hasSpecialStandingResults(driverStandings, teamStandings);
+    isLegacyPhase
+    && specialClassGroups != null
+    && !hasSpecialStandingResults(driverStandings, teamStandings);
 
   useEffect(() => {
     if (!selectedHistoryTeam?.id) return;

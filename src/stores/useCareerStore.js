@@ -1,5 +1,6 @@
 ﻿import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { isLegacySeasonPhase } from "../utils/seasonPhases";
 
 const initialState = {
   isLoaded: false,
@@ -237,27 +238,7 @@ async function buildResumeUiState(careerId, resumeContext) {
   }
 
   if (resumeContext.active_view === "preseason") {
-    const [state, proposals, freeAgents] = await Promise.all([
-      invoke("get_preseason_state", { careerId }),
-      invoke("get_player_proposals", { careerId }).catch(() => []),
-      invoke("get_preseason_free_agents", { careerId }).catch(() => []),
-    ]);
-    const news = await invoke("get_news", {
-      careerId,
-      season: state.season_number,
-      tipo: null,
-      limit: 400,
-    });
-
-    return {
-      showEndOfSeason: false,
-      showPreseason: true,
-      endOfSeasonResult: null,
-      preseasonState: state,
-      preseasonWeeks: buildWeeksFromNews(news),
-      playerProposals: proposals,
-      preseasonFreeAgents: freeAgents,
-    };
+    return buildPreseasonUiState(careerId);
   }
 
   return {
@@ -269,6 +250,30 @@ async function buildResumeUiState(careerId, resumeContext) {
     playerProposals: [],
     playerSpecialOffers: [],
     acceptedSpecialOffer: null,
+  };
+}
+
+async function buildPreseasonUiState(careerId) {
+  const [state, proposals, freeAgents] = await Promise.all([
+    invoke("get_preseason_state", { careerId }),
+    invoke("get_player_proposals", { careerId }).catch(() => []),
+    invoke("get_preseason_free_agents", { careerId }).catch(() => []),
+  ]);
+  const news = await invoke("get_news", {
+    careerId,
+    season: state.season_number,
+    tipo: null,
+    limit: 400,
+  });
+
+  return {
+    showEndOfSeason: false,
+    showPreseason: true,
+    endOfSeasonResult: null,
+    preseasonState: state,
+    preseasonWeeks: buildWeeksFromNews(news),
+    playerProposals: proposals,
+    preseasonFreeAgents: freeAgents,
   };
 }
 
@@ -343,9 +348,17 @@ const useCareerStore = create((set, get) => ({
         };
       });
 
-      // Se a carreira foi salva no meio da janela de convocação, restaura a tela.
+      let preseasonPhaseState = {};
+      if (data.season?.fase === "PreTemporada" && !resumeUiState.showPreseason) {
+        preseasonPhaseState = await buildPreseasonUiState(data.career_id).catch((error) => {
+          console.error("Erro ao carregar pré-temporada ativa:", error);
+          return {};
+        });
+      }
+
+      // LEGADO 9D: saves pré-v33 em JanelaConvocacao ainda restauram a tela especial.
       let convocationResumeState = {};
-      if (data.season?.fase === "JanelaConvocacao") {
+      if (isLegacySeasonPhase(data.season?.fase) && data.season?.fase === "JanelaConvocacao") {
         const windowState = await invoke("get_special_window_state", {
           careerId: data.career_id,
         }).catch(() => null);
@@ -364,6 +377,7 @@ const useCareerStore = create((set, get) => ({
         ...applyCareerData(data),
         ...buildTemporalUiState(temporalSummary),
         ...resumeUiState,
+        ...preseasonPhaseState,
         ...convocationResumeState,
         isDirty: false,
       });
@@ -383,7 +397,10 @@ const useCareerStore = create((set, get) => ({
   },
 
   simulateRace: async () => {
-    const { careerId, nextRace } = get();
+    const { careerId, nextRace, isSimulating } = get();
+    if (isSimulating) {
+      return null;
+    }
     if (!careerId || !nextRace?.id) {
       throw new Error("Não existe corrida pendente para simular.");
     }
@@ -495,6 +512,7 @@ const useCareerStore = create((set, get) => ({
   },
 
   // ── Bloco Especial ───────────────────────────────────────────────────────────
+  // LEGADO 9D: comandos especiais ficam acessíveis apenas para saves pré-v33 em voo.
 
   /**
    * Abre a Janela de Convocação: transiciona BlocoRegular → JanelaConvocacao,
@@ -641,7 +659,8 @@ const useCareerStore = create((set, get) => ({
    * Após isso, advance_season fica disponível normalmente.
    */
   finishSpecialBlock: async () => {
-    const { careerId, loadCareer } = get();
+    const { careerId, loadCareer, isConvocating } = get();
+    if (isConvocating) return null;
     if (!careerId) throw new Error("Carreira não carregada.");
 
     set({ isConvocating: true, error: null });

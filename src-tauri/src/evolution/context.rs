@@ -50,6 +50,7 @@ pub(crate) struct StandingEntry {
     pub(crate) driver_id: String,
     pub(crate) driver_name: String,
     pub(crate) category: String,
+    pub(crate) classe: Option<String>,
     pub(crate) team_id: Option<String>,
     pub(crate) position: i32,
     pub(crate) total_drivers: i32,

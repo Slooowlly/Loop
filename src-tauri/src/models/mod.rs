@@ -6,8 +6,6 @@ pub mod driver_tags;
 pub mod enums;
 pub mod injury;
 pub mod license;
-pub mod news;
-pub mod race;
 pub mod rivalry;
 pub mod season;
 pub mod team;

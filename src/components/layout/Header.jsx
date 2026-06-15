@@ -9,6 +9,7 @@ import {
   formatNextRaceCountdown,
   formatSurfaceSeasonLabel,
 } from "../../utils/formatters";
+import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import GlassButton from "../ui/GlassButton";
 import TabNavigation from "./TabNavigation";
 
@@ -37,10 +38,12 @@ function Header({ activeTab, onTabChange }) {
   const hasNoPendingRace = !nextRace;
   const isFreeAgent = !playerTeam;
   const phase = season?.fase;
+  const isLegacyPhase = isLegacySeasonPhase(phase);
+  const hasPendingLegacyRegularRaces =
+    isLegacyPhase && phase === "BlocoRegular" && (temporalSummary?.pending_in_phase ?? 0) > 0;
   const canAdvanceCalendar = Boolean(nextRace) || (
     !isFreeAgent &&
-    phase === "BlocoRegular" &&
-    (temporalSummary?.pending_in_phase ?? 0) > 0
+    hasPendingLegacyRegularRaces
   );
 
   useEffect(() => {
@@ -95,12 +98,13 @@ function Header({ activeTab, onTabChange }) {
         return;
       }
 
-      if (hasNoPendingRace && phase === "BlocoRegular") {
+      // LEGADO 9D: convocação e bloco especial só existem para saves pré-v33 em voo.
+      if (isLegacyPhase && hasNoPendingRace && phase === "BlocoRegular") {
         await runConvocationWindow?.();
         return;
       }
 
-      if (hasNoPendingRace && phase === "BlocoEspecial") {
+      if (isLegacyPhase && hasNoPendingRace && phase === "BlocoEspecial") {
         await finishSpecialBlock?.();
         return;
       }
@@ -124,16 +128,25 @@ function Header({ activeTab, onTabChange }) {
       return "Pular temporada";
     }
 
-    if (hasNoPendingRace && phase === "BlocoRegular") {
+    // LEGADO 9D: estes labels só aparecem em saves pré-v33 em voo.
+    if (isLegacyPhase && hasNoPendingRace && phase === "BlocoRegular") {
       return "Avançar para convocação";
     }
 
-    if (hasNoPendingRace && phase === "BlocoEspecial") {
+    if (isLegacyPhase && hasNoPendingRace && phase === "BlocoEspecial") {
       return "Pular bloco especial";
     }
 
-    if (hasNoPendingRace && phase === "PosEspecial") {
+    if (isLegacyPhase && hasNoPendingRace && phase === "PosEspecial") {
       return "Encerrar temporada";
+    }
+
+    if (phase === "Encerramento" || (hasNoPendingRace && phase === "Temporada")) {
+      return "Avançar para pré-temporada";
+    }
+
+    if (phase === "PreTemporada") {
+      return "Abrir mercado";
     }
 
     return "Avançar temporada";

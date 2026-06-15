@@ -33,10 +33,11 @@ pub fn evaluate_proposal(
         return reject("Salário abaixo do aceitável");
     }
 
-    if proposal_category_tier < current_category_tier && current_contract.is_some() {
-        if rng.gen_range(0.0..1.0) > 0.30 {
-            return reject("Não quer descer de categoria");
-        }
+    if proposal_category_tier < current_category_tier
+        && current_contract.is_some()
+        && rng.gen_range(0.0..1.0) > 0.30
+    {
+        return reject("Não quer descer de categoria");
     }
 
     if proposal.papel == TeamRole::Numero2

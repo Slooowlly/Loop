@@ -5,27 +5,33 @@ use rusqlite::Connection;
 use crate::common::time::current_timestamp;
 use crate::constants::categories::get_category_config;
 use crate::evolution::context::{LicenseEarned, StandingEntry};
+use crate::models::license::granted_license_for_division;
 
 pub(crate) fn persist_licenses(
     conn: &Connection,
     standings: &[StandingEntry],
     standings_by_driver: &HashMap<String, StandingEntry>,
 ) -> Result<Vec<LicenseEarned>, rusqlite::Error> {
-    let mut grouped: HashMap<&str, Vec<&StandingEntry>> = HashMap::new();
+    // Production/Endurance têm classificação por classe; a licença vale para a
+    // metade superior de cada classe, não da categoria inteira.
+    let mut grouped: HashMap<(&str, Option<&str>), Vec<&StandingEntry>> = HashMap::new();
     for standing in standings {
         grouped
-            .entry(&standing.category)
+            .entry((&standing.category, standing.classe.as_deref()))
             .or_default()
             .push(standing);
     }
 
     let timestamp = current_timestamp();
     let mut licenses_earned = Vec::new();
-    for (category, entries) in grouped {
-        let license_level = get_category_config(category)
-            .map(|config| config.tier)
+    for ((category, classe), mut entries) in grouped {
+        entries.sort_by_key(|entry| entry.position);
+        // A licença concedida é por divisão composta (categoria + classe): a
+        // Endurance concede níveis distintos por classe (gt4=4, gt3=5, lmp2=6).
+        let license_level = granted_license_for_division(category, classe)
+            .or_else(|| get_category_config(category).map(|config| config.tier))
             .unwrap_or(0);
-        let cutoff = (entries.len() + 1) / 2;
+        let cutoff = entries.len().div_ceil(2);
         for standing in entries.into_iter().take(cutoff) {
             let seasons_in_category = standings_by_driver
                 .get(&standing.driver_id)
@@ -115,6 +121,42 @@ mod tests {
         assert_eq!(seasons_in_category, 3);
     }
 
+    #[test]
+    fn test_persist_licenses_grants_division_level_for_endurance_lmp2() {
+        assert_granted_division_level("endurance", Some("lmp2"), 6);
+    }
+
+    #[test]
+    fn test_persist_licenses_grants_division_level_for_endurance_gt3() {
+        assert_granted_division_level("endurance", Some("gt3"), 5);
+    }
+
+    #[test]
+    fn test_persist_licenses_grants_division_level_for_production_mazda() {
+        assert_granted_division_level("production_challenger", Some("mazda"), 2);
+    }
+
+    fn assert_granted_division_level(category: &str, classe: Option<&str>, expected_level: i64) {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        let mut standing = sample_standing("P001", "Top Half", category, 2);
+        standing.classe = classe.map(str::to_string);
+        insert_driver_fixture(&conn, &standing);
+        let standings = vec![standing.clone()];
+        let standings_by_driver = HashMap::from([(standing.driver_id.clone(), standing.clone())]);
+
+        persist_licenses(&conn, &standings, &standings_by_driver).expect("persist should succeed");
+
+        let granted_level: i64 = conn
+            .query_row(
+                "SELECT MAX(CAST(nivel AS INTEGER)) FROM licenses WHERE piloto_id = ?1",
+                rusqlite::params![&standing.driver_id],
+                |row| row.get(0),
+            )
+            .expect("granted license");
+        assert_eq!(granted_level, expected_level);
+    }
+
     fn sample_standing(
         driver_id: &str,
         driver_name: &str,
@@ -125,6 +167,7 @@ mod tests {
             driver_id: driver_id.to_string(),
             driver_name: driver_name.to_string(),
             category: category.to_string(),
+            classe: None,
             team_id: Some("T001".to_string()),
             position: 1,
             total_drivers: 1,

@@ -415,14 +415,14 @@ fn archived_exposure_target_counts(
     let hash = stable_hash(&format!("{pilot_id}:historical-injuries"));
     let graves = if target_total >= 12 {
         target_total / 12
-    } else if target_total >= 5 && hash % 7 == 0 {
+    } else if target_total >= 5 && hash.is_multiple_of(7) {
         1
     } else {
         0
     };
     let remaining_after_graves = target_total - graves;
     let mut moderadas = remaining_after_graves / 4;
-    if remaining_after_graves >= 4 && hash % 3 == 0 {
+    if remaining_after_graves >= 4 && hash.is_multiple_of(3) {
         moderadas += 1;
     }
     moderadas = moderadas.min(remaining_after_graves);

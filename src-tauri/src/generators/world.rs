@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
 
-use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
+use crate::constants::categories::{
+    get_all_categories, get_category_config, runs_in_special_phase,
+};
 use crate::constants::historical_timeline::{
     apply_historical_performance_band, category_start_year, historical_team_foundation_year,
 };
@@ -122,22 +124,6 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
             rng,
         );
 
-        if is_especial(category.id) {
-            category_teams.retain(|team| {
-                team.classe
-                    .as_deref()
-                    .and_then(|class_name| {
-                        category
-                            .classes
-                            .iter()
-                            .find(|class| class.class_name == class_name)
-                    })
-                    .is_some_and(|class| get_category_config(class.car_categoria).is_none())
-            });
-            teams.extend(category_teams);
-            continue;
-        }
-
         let total_slots = category_teams.len() * category.pilotos_por_equipe as usize;
         let mut driver_id_generator = || ids.next_driver_id();
         let mut ai_drivers = Driver::generate_for_category_with_id_factory(
@@ -190,27 +176,33 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
             team.is_player_team = false;
 
             drivers.push(n1_driver.clone());
-            contracts.push(generate_initial_contract(
-                ids.next_contract_id(),
-                &n1_driver.id,
-                &n1_driver.nome,
-                &team.id,
-                &team.nome,
-                TeamRole::Numero1,
-                category.id,
-                1,
+            contracts.push(contract_with_team_class(
+                generate_initial_contract(
+                    ids.next_contract_id(),
+                    &n1_driver.id,
+                    &n1_driver.nome,
+                    &team.id,
+                    &team.nome,
+                    TeamRole::Numero1,
+                    category.id,
+                    1,
+                ),
+                team,
             ));
 
             drivers.push(n2_driver.clone());
-            contracts.push(generate_initial_contract(
-                ids.next_contract_id(),
-                &n2_driver.id,
-                &n2_driver.nome,
-                &team.id,
-                &team.nome,
-                TeamRole::Numero2,
-                category.id,
-                1,
+            contracts.push(contract_with_team_class(
+                generate_initial_contract(
+                    ids.next_contract_id(),
+                    &n2_driver.id,
+                    &n2_driver.nome,
+                    &team.id,
+                    &team.nome,
+                    TeamRole::Numero2,
+                    category.id,
+                    1,
+                ),
+                team,
             ));
         }
 
@@ -232,6 +224,41 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
 }
 
 fn apply_historical_foundation_years(teams: &mut [Team], category_id: &str) {
+    if teams.iter().any(|team| team.classe.is_some()) {
+        apply_historical_multiclass_foundation_years(teams, category_id);
+        return;
+    }
+
+    apply_historical_foundation_years_for_group(teams, category_id, None);
+}
+
+fn apply_historical_multiclass_foundation_years(teams: &mut [Team], category_id: &str) {
+    let mut class_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, team) in teams.iter().enumerate() {
+        if let Some(class_name) = team.classe.as_deref() {
+            class_groups
+                .entry(class_name.to_string())
+                .or_default()
+                .push(index);
+        }
+    }
+
+    for (class_name, indexes) in class_groups {
+        let mut group: Vec<Team> = indexes.iter().map(|index| teams[*index].clone()).collect();
+        apply_historical_foundation_years_for_group(&mut group, category_id, Some(&class_name));
+
+        for (source, target_index) in group.into_iter().zip(indexes) {
+            teams[target_index].ano_fundacao = source.ano_fundacao;
+            teams[target_index].car_performance = source.car_performance;
+        }
+    }
+}
+
+fn apply_historical_foundation_years_for_group(
+    teams: &mut [Team],
+    category_id: &str,
+    _class_name: Option<&str>,
+) {
     let mut order: Vec<usize> = (0..teams.len()).collect();
     order.sort_by(|left, right| {
         teams[*right]
@@ -385,24 +412,8 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
         let mut category_teams =
             generate_teams_for_category(category.id, 1, &mut team_id_generator);
 
-        // Categorias especiais existem desde o início do ano, mas montam lineup
-        // apenas na janela de convocação (Passos 6+). Geram equipes sem pilotos.
-        if is_especial(category.id) {
-            category_teams.retain(|team| {
-                team.classe
-                    .as_deref()
-                    .and_then(|class_name| {
-                        category
-                            .classes
-                            .iter()
-                            .find(|class| class.class_name == class_name)
-                    })
-                    .is_some_and(|class| get_category_config(class.car_categoria).is_none())
-            });
-            teams.extend(category_teams);
-            continue;
-        }
-
+        // Production/Endurance ainda rodam pelo fluxo especial legado, mas suas
+        // equipes reais ja nascem com lineup e contratos regulares iniciais.
         let selected_player_team_id = if category.id == player_category {
             if player_team_index >= category_teams.len() {
                 return Err(format!(
@@ -473,15 +484,18 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
             team.is_player_team = is_player_team;
 
             drivers.push(n1_driver.clone());
-            contracts.push(generate_initial_contract(
-                ids.next_contract_id(),
-                &n1_driver.id,
-                &n1_driver.nome,
-                &team.id,
-                &team.nome,
-                TeamRole::Numero1,
-                category.id,
-                1,
+            contracts.push(contract_with_team_class(
+                generate_initial_contract(
+                    ids.next_contract_id(),
+                    &n1_driver.id,
+                    &n1_driver.nome,
+                    &team.id,
+                    &team.nome,
+                    TeamRole::Numero1,
+                    category.id,
+                    1,
+                ),
+                team,
             ));
 
             if is_player_team {
@@ -494,15 +508,18 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
                 }
                 player_team_id = Some(team.id.clone());
 
-                let contract = generate_initial_contract(
-                    ids.next_contract_id(),
-                    &player_id,
-                    &player_name_owned,
-                    &team.id,
-                    &team.nome,
-                    TeamRole::Numero2,
-                    category.id,
-                    1,
+                let contract = contract_with_team_class(
+                    generate_initial_contract(
+                        ids.next_contract_id(),
+                        &player_id,
+                        &player_name_owned,
+                        &team.id,
+                        &team.nome,
+                        TeamRole::Numero2,
+                        category.id,
+                        1,
+                    ),
+                    team,
                 );
                 player_contract = Some(contract.clone());
                 contracts.push(contract);
@@ -515,15 +532,18 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
                 team.hierarquia_n2_id = Some(n2_driver.id.clone());
 
                 drivers.push(n2_driver.clone());
-                contracts.push(generate_initial_contract(
-                    ids.next_contract_id(),
-                    &n2_driver.id,
-                    &n2_driver.nome,
-                    &team.id,
-                    &team.nome,
-                    TeamRole::Numero2,
-                    category.id,
-                    1,
+                contracts.push(contract_with_team_class(
+                    generate_initial_contract(
+                        ids.next_contract_id(),
+                        &n2_driver.id,
+                        &n2_driver.nome,
+                        &team.id,
+                        &team.nome,
+                        TeamRole::Numero2,
+                        category.id,
+                        1,
+                    ),
+                    team,
                 ));
             }
         }
@@ -552,6 +572,11 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
         player_team_id,
         player_contract,
     })
+}
+
+fn contract_with_team_class(mut contract: Contract, team: &Team) -> Contract {
+    contract.classe = team.classe.clone();
+    contract
 }
 
 pub(crate) fn align_world_career_start_years(world: &mut WorldData, current_year: u32) {
@@ -588,7 +613,10 @@ fn generate_regular_free_agent_pool<R: Rng>(
 ) -> Vec<Driver> {
     let mut pool = Vec::new();
 
-    for category in get_all_categories().iter().filter(|c| !is_especial(c.id)) {
+    for category in get_all_categories()
+        .iter()
+        .filter(|c| !runs_in_special_phase(c.id))
+    {
         let count = category.grid_total as usize * REGULAR_FREE_AGENT_POOL_MULTIPLIER;
         let mut driver_id_gen = || ids.next_driver_id();
         let mut category_drivers = Driver::generate_for_category_with_id_factory(
@@ -620,7 +648,10 @@ fn generate_specialist_pool<R: Rng>(
 ) -> Vec<Driver> {
     let mut pool = Vec::new();
 
-    for category in get_all_categories().iter().filter(|c| is_especial(c.id)) {
+    for category in get_all_categories()
+        .iter()
+        .filter(|c| runs_in_special_phase(c.id))
+    {
         for class in category.classes {
             let count = (class.num_equipes * category.pilotos_por_equipe) as usize;
             let ref_tier = get_category_config(class.car_categoria)
@@ -659,7 +690,12 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     use super::*;
-    use crate::constants::categories::{get_all_categories, is_especial};
+    use crate::constants::categories::{
+        get_all_categories, runs_in_special_phase, uses_regular_teams,
+    };
+    use crate::constants::historical_timeline::team_start_year;
+    use crate::constants::teams::get_team_templates;
+    use crate::models::enums::ContractType;
 
     fn sample_world() -> WorldData {
         let mut rng = StdRng::seed_from_u64(20260318);
@@ -678,12 +714,12 @@ mod tests {
     #[test]
     fn test_generate_world_total_counts() {
         let world = sample_world();
-        // 66 equipes regulares + 5 LMP2 sem feeder regular.
-        assert_eq!(world.teams.len(), 71);
-        // 132 com contrato + 264 livres no pool regular + 64 livres no pool especial.
-        assert_eq!(world.drivers.len(), 490);
+        // 66 equipes regulares + 5 LMP2 sem feeder regular; Production/Endurance ainda sem templates.
+        assert_eq!(world.teams.len(), 102);
+        // 132 com contrato + 264 livres no pool regular + 72 livres no pool especial.
+        assert_eq!(world.drivers.len(), 540);
         // Apenas 132 contratos — categorias especiais não geram contratos
-        assert_eq!(world.contracts.len(), 142);
+        assert_eq!(world.contracts.len(), 204);
     }
 
     #[test]
@@ -730,23 +766,138 @@ mod tests {
         assert!(world
             .teams
             .iter()
-            .filter(|team| !is_especial(&team.categoria))
+            .filter(|team| uses_regular_teams(&team.categoria))
             .all(|team| team.piloto_1_id.is_some() && team.piloto_2_id.is_some()));
     }
 
     #[test]
-    fn test_special_teams_have_no_pilots() {
+    fn test_real_special_teams_have_regular_lineups_without_special_activity() {
         let world = sample_world();
+
+        let driver_map: HashMap<_, _> = world
+            .drivers
+            .iter()
+            .map(|driver| (driver.id.clone(), driver))
+            .collect();
+
+        for team in world
+            .teams
+            .iter()
+            .filter(|team| runs_in_special_phase(&team.categoria))
+        {
+            let piloto_1_id = team
+                .piloto_1_id
+                .as_ref()
+                .expect("real special team should have piloto_1");
+            let piloto_2_id = team
+                .piloto_2_id
+                .as_ref()
+                .expect("real special team should have piloto_2");
+
+            for pilot_id in [piloto_1_id, piloto_2_id] {
+                let driver = driver_map
+                    .get(pilot_id)
+                    .expect("special lineup driver should exist");
+                assert_eq!(
+                    driver.categoria_atual.as_deref(),
+                    Some(team.categoria.as_str())
+                );
+                assert!(
+                    driver.categoria_especial_ativa.is_none(),
+                    "{} should not start with categoria_especial_ativa",
+                    driver.nome
+                );
+            }
+        }
+
         assert!(world
             .teams
             .iter()
-            .filter(|team| is_especial(&team.categoria))
-            .all(|team| team.piloto_1_id.is_none() && team.piloto_2_id.is_none()));
-        assert!(world
-            .teams
+            .filter(|team| runs_in_special_phase(&team.categoria))
+            .all(|team| team.classe.is_some()));
+    }
+
+    #[test]
+    fn test_generate_world_initial_regular_contracts_for_real_special_teams() {
+        let world = sample_world();
+
+        assert_eq!(
+            world
+                .contracts
+                .iter()
+                .filter(|contract| contract.tipo == ContractType::Regular)
+                .count(),
+            204
+        );
+        assert_eq!(
+            world
+                .contracts
+                .iter()
+                .filter(|contract| contract.tipo == ContractType::Especial)
+                .count(),
+            0
+        );
+
+        assert_eq!(
+            count_contracts_by_category(&world, "production_challenger"),
+            36
+        );
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "production_challenger", "mazda"),
+            12
+        );
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "production_challenger", "toyota"),
+            12
+        );
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "production_challenger", "bmw"),
+            12
+        );
+
+        assert_eq!(count_contracts_by_category(&world, "endurance"), 36);
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "endurance", "gt4"),
+            12
+        );
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "endurance", "gt3"),
+            12
+        );
+        assert_eq!(
+            count_contracts_by_category_and_class(&world, "endurance", "lmp2"),
+            12
+        );
+        assert_eq!(count_contracts_by_category(&world, "lmp2"), 0);
+
+        let regular_pilot_ids: Vec<_> = world
+            .contracts
             .iter()
-            .filter(|team| is_especial(&team.categoria))
-            .all(|team| team.classe.as_deref() == Some("lmp2")));
+            .filter(|contract| contract.tipo == ContractType::Regular)
+            .map(|contract| contract.piloto_id.clone())
+            .collect();
+        let unique_regular_pilot_ids: HashSet<_> = regular_pilot_ids.iter().cloned().collect();
+        assert_eq!(unique_regular_pilot_ids.len(), regular_pilot_ids.len());
+
+        for team in world.teams.iter().filter(|team| {
+            team.categoria == "production_challenger" || team.categoria == "endurance"
+        }) {
+            assert_eq!(
+                world
+                    .contracts
+                    .iter()
+                    .filter(|contract| {
+                        contract.tipo == ContractType::Regular
+                            && contract.equipe_id == team.id
+                            && contract.categoria == team.categoria
+                            && contract.classe == team.classe
+                    })
+                    .count(),
+                2,
+                "{} should have exactly two matching regular contracts",
+                team.nome
+            );
+        }
     }
 
     #[test]
@@ -808,8 +959,12 @@ mod tests {
             .map(|driver| (driver.id.clone(), driver))
             .collect();
 
-        // Equipes especiais não têm lineup — ignorar hierarquia delas neste teste.
-        for team in world.teams.iter().filter(|t| !is_especial(&t.categoria)) {
+        // Equipes persistentes reais devem nascer com hierarquia inicial.
+        for team in world
+            .teams
+            .iter()
+            .filter(|t| uses_regular_teams(&t.categoria))
+        {
             let n1_id = team.hierarquia_n1_id.as_ref().expect("n1 id should be set");
             let n2_id = team.hierarquia_n2_id.as_ref().expect("n2 id should be set");
             let n1 = driver_map.get(n1_id).expect("n1 driver should exist");
@@ -829,18 +984,52 @@ mod tests {
                 .iter()
                 .filter(|team| team.categoria == category.id)
                 .count();
-            if is_especial(category.id) {
-                let persistent_special_teams = category
-                    .classes
-                    .iter()
-                    .filter(|class| get_category_config(class.car_categoria).is_none())
-                    .map(|class| class.num_equipes as usize)
-                    .sum::<usize>();
-                assert_eq!(count, persistent_special_teams);
-            } else {
+            if category.id == "endurance" {
+                assert_eq!(count, get_team_templates(category.id).len());
+            } else if uses_regular_teams(category.id) {
                 assert_eq!(count, category.num_equipes as usize);
+            } else {
+                assert_eq!(count, get_team_templates(category.id).len());
             }
         }
+    }
+
+    #[test]
+    fn test_generate_world_persists_real_special_rosters_by_class() {
+        let world = sample_world();
+
+        assert_eq!(count_teams_by_category(&world, "production_challenger"), 18);
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "production_challenger", "mazda"),
+            6
+        );
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "production_challenger", "toyota"),
+            6
+        );
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "production_challenger", "bmw"),
+            6
+        );
+
+        assert_eq!(count_teams_by_category(&world, "endurance"), 18);
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "endurance", "gt4"),
+            6
+        );
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "endurance", "gt3"),
+            6
+        );
+        assert_eq!(
+            count_teams_by_category_and_class(&world, "endurance", "lmp2"),
+            6
+        );
+
+        assert_eq!(count_teams_by_category(&world, "lmp2"), 0);
+        assert!(world.teams.iter().any(|team| team.categoria == "endurance"
+            && team.classe.as_deref() == Some("lmp2")
+            && team.nome == "Meridian"));
     }
 
     #[test]
@@ -857,7 +1046,7 @@ mod tests {
         assert_eq!(mazda_rookie_teams.len(), 10);
         assert!(mazda_rookie_teams
             .iter()
-            .all(|team| (2012..=2016).contains(&team.ano_fundacao)));
+            .all(|team| (2020..=2024).contains(&team.ano_fundacao)));
         assert!(mazda_rookie_teams
             .iter()
             .any(|team| team.nome == "Amateur Hour Racing"));
@@ -881,7 +1070,7 @@ mod tests {
         assert_eq!(toyota_rookie_teams.len(), 10);
         assert!(toyota_rookie_teams
             .iter()
-            .all(|team| (2008..=2012).contains(&team.ano_fundacao)));
+            .all(|team| (2020..=2024).contains(&team.ano_fundacao)));
 
         let toyota_cup_teams: Vec<_> = world
             .teams
@@ -905,6 +1094,39 @@ mod tests {
             .expect("fictional GT3 team should exist");
         assert_eq!(ferrari.ano_fundacao, 1929);
         assert!(obsidian.ano_fundacao > 1999);
+    }
+
+    #[test]
+    fn test_historical_world_respects_special_class_start_years() {
+        let mut rng = StdRng::seed_from_u64(20260610);
+        let world = generate_historical_world_with_rng("medio", 2000, &mut rng)
+            .expect("historical world should generate");
+
+        assert_eq!(
+            min_team_start_year(&world, "endurance", Some("gt3")),
+            Some(2005)
+        );
+        assert_eq!(
+            min_team_start_year(&world, "endurance", Some("gt4")),
+            Some(2007)
+        );
+        assert_eq!(
+            min_team_start_year(&world, "endurance", Some("lmp2")),
+            Some(2004)
+        );
+        assert_eq!(min_team_start_year(&world, "lmp2", None), None);
+        assert_eq!(
+            min_team_start_year(&world, "production_challenger", Some("mazda")),
+            Some(2018)
+        );
+        assert_eq!(
+            min_team_start_year(&world, "production_challenger", Some("toyota")),
+            Some(2018)
+        );
+        assert_eq!(
+            min_team_start_year(&world, "production_challenger", Some("bmw")),
+            Some(2018)
+        );
     }
 
     #[test]
@@ -971,5 +1193,63 @@ mod tests {
                 driver.categoria_atual
             );
         }
+    }
+
+    fn count_teams_by_category(world: &WorldData, category: &str) -> usize {
+        world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == category)
+            .count()
+    }
+
+    fn count_teams_by_category_and_class(
+        world: &WorldData,
+        category: &str,
+        class_name: &str,
+    ) -> usize {
+        world
+            .teams
+            .iter()
+            .filter(|team| team.categoria == category && team.classe.as_deref() == Some(class_name))
+            .count()
+    }
+
+    fn count_contracts_by_category(world: &WorldData, category: &str) -> usize {
+        world
+            .contracts
+            .iter()
+            .filter(|contract| contract.categoria == category)
+            .count()
+    }
+
+    fn count_contracts_by_category_and_class(
+        world: &WorldData,
+        category: &str,
+        class_name: &str,
+    ) -> usize {
+        world
+            .contracts
+            .iter()
+            .filter(|contract| {
+                contract.categoria == category && contract.classe.as_deref() == Some(class_name)
+            })
+            .count()
+    }
+
+    fn min_team_start_year(
+        world: &HistoricalWorldData,
+        category: &str,
+        class_name: Option<&str>,
+    ) -> Option<i32> {
+        world
+            .teams
+            .iter()
+            .filter(|team| {
+                team.categoria == category
+                    && (class_name.is_none() || team.classe.as_deref() == class_name)
+            })
+            .map(team_start_year)
+            .min()
     }
 }

@@ -4,7 +4,9 @@ use chrono::{Datelike, Local};
 use rand::Rng;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
+use crate::constants::categories::{
+    get_all_categories, get_category_config, uses_regular_contracts,
+};
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
@@ -24,8 +26,8 @@ use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, DriverStatus, TeamRole};
 use crate::models::license::{
-    ensure_driver_can_join_category, grant_driver_license_for_category_if_needed,
-    repair_missing_licenses_for_current_categories,
+    ensure_driver_can_join_division, grant_driver_license_for_division_if_needed,
+    repair_missing_licenses_for_current_categories, required_license_for_division,
 };
 use crate::models::team::TeamHierarchyClimate;
 
@@ -172,7 +174,7 @@ pub fn run_market(
                 continue;
             }
 
-            let new_contract = Contract::new(
+            let mut new_contract = Contract::new(
                 next_id(conn, IdType::Contract)
                     .map_err(|e| format!("Falha ao gerar ID de contrato: {e}"))?,
                 driver.id.clone(),
@@ -188,6 +190,7 @@ pub fn run_market(
                     .unwrap_or_else(|| contract.papel.clone()),
                 team.categoria.clone(),
             );
+            new_contract.classe = team.classe.clone();
             contract_queries::insert_contract(conn, &new_contract)
                 .map_err(|e| format!("Falha ao inserir renovacao: {e}"))?;
             report.contracts_renewed += 1;
@@ -449,7 +452,7 @@ fn seed_market_free_agent_pool(conn: &Connection, rng: &mut impl Rng) -> Result<
 
     for category in get_all_categories()
         .iter()
-        .filter(|category| !is_especial(category.id))
+        .filter(|category| uses_regular_contracts(category.id))
     {
         let count = category.grid_total as usize;
         let mut ids = Vec::with_capacity(count);
@@ -588,7 +591,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
     let mut vacancies = Vec::new();
 
     for team in teams {
-        if is_especial(&team.categoria) {
+        if !uses_regular_contracts(&team.categoria) {
             continue;
         }
         let category_tier = get_category_config(&team.categoria)
@@ -600,6 +603,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                     team_id: team.id.clone(),
                     team_name: team.nome.clone(),
                     categoria: team.categoria.clone(),
+                    classe: team.classe.clone(),
                     category_tier,
                     car_performance: team.car_performance,
                     budget: team.budget,
@@ -614,6 +618,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                     team_id: team.id.clone(),
                     team_name: team.nome.clone(),
                     categoria: team.categoria.clone(),
+                    classe: team.classe.clone(),
                     category_tier,
                     car_performance: team.car_performance,
                     budget: team.budget,
@@ -629,6 +634,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                 team_id: team.id.clone(),
                 team_name: team.nome.clone(),
                 categoria: team.categoria.clone(),
+                classe: team.classe.clone(),
                 category_tier,
                 car_performance: team.car_performance,
                 budget: team.budget,
@@ -643,6 +649,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                 team_id: team.id.clone(),
                 team_name: team.nome.clone(),
                 categoria: team.categoria.clone(),
+                classe: team.classe.clone(),
                 category_tier,
                 car_performance: team.car_performance,
                 budget: team.budget,
@@ -748,8 +755,14 @@ pub(crate) fn sign_driver_to_team(
         let team = team_queries::get_team_by_id(conn, &vacancy.team_id)
             .map_err(|e| format!("Falha ao buscar equipe da assinatura: {e}"))?
             .ok_or_else(|| format!("Equipe '{}' nao encontrada", vacancy.team_id))?;
-        ensure_driver_can_join_category(conn, &driver.id, &driver.nome, &vacancy.categoria)?;
-        let new_contract = Contract::new(
+        ensure_driver_can_join_division(
+            conn,
+            &driver.id,
+            &driver.nome,
+            &vacancy.categoria,
+            vacancy.classe.as_deref(),
+        )?;
+        let mut new_contract = Contract::new(
             next_id(conn, IdType::Contract)
                 .map_err(|e| format!("Falha ao gerar ID de contrato: {e}"))?,
             driver.id.clone(),
@@ -762,6 +775,7 @@ pub(crate) fn sign_driver_to_team(
             role,
             vacancy.categoria.clone(),
         );
+        new_contract.classe = team.classe.clone();
         contract_queries::insert_contract(conn, &new_contract)
             .map_err(|e| format!("Falha ao inserir contratacao: {e}"))?;
 
@@ -838,8 +852,12 @@ fn generate_player_proposals(
 
     let mut proposals = Vec::new();
     for vacancy in vacancies {
-        let team_proposals =
-            generate_team_proposals(vacancy, &[player_available.clone()], new_season_number, rng);
+        let team_proposals = generate_team_proposals(
+            vacancy,
+            std::slice::from_ref(&player_available),
+            new_season_number,
+            rng,
+        );
         for mut proposal in team_proposals {
             // Restaura o ID correto do jogador e gera ID de proposta único por temporada.
             proposal.piloto_id = player.id.clone();
@@ -990,6 +1008,7 @@ fn fallback_vacancy_from_team(team: &crate::models::team::Team) -> Vacancy {
         team_id: team.id.clone(),
         team_name: team.nome.clone(),
         categoria: team.categoria.clone(),
+        classe: team.classe.clone(),
         category_tier: get_category_config(&team.categoria)
             .map(|config| config.tier)
             .unwrap_or(0),
@@ -1075,10 +1094,11 @@ fn fill_remaining_vacancies_with_rookies(
 
             if let Some(index) = fallback_index {
                 let candidate = available.remove(index);
-                grant_driver_license_for_category_if_needed(
+                grant_driver_license_for_division_if_needed(
                     conn,
                     &candidate.driver.id,
                     &vacancy.categoria,
+                    vacancy.classe.as_deref(),
                 )?;
                 sign_driver_to_team(
                     conn,
@@ -1162,7 +1182,12 @@ fn generate_and_sign_rookie_for_vacancy(
 
     driver_queries::insert_driver(conn, &rookie)
         .map_err(|e| format!("Falha ao inserir rookie '{}': {e}", rookie.nome))?;
-    grant_driver_license_for_category_if_needed(conn, &rookie.id, &vacancy.categoria)?;
+    grant_driver_license_for_division_if_needed(
+        conn,
+        &rookie.id,
+        &vacancy.categoria,
+        vacancy.classe.as_deref(),
+    )?;
     sign_driver_to_team(
         conn,
         &rookie,
@@ -1178,7 +1203,7 @@ fn generate_and_sign_rookie_for_vacancy(
 
 fn is_regular_vacancy(vacancy: &Vacancy) -> bool {
     get_category_config(&vacancy.categoria)
-        .map(|category| !is_especial(category.id))
+        .map(|category| uses_regular_contracts(category.id))
         .unwrap_or(true)
 }
 
@@ -1224,9 +1249,8 @@ fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) 
     } else {
         u8::from(candidate.driver.stats_carreira.corridas > 0)
     };
-    let required_license = get_category_config(&vacancy.categoria)
-        .and_then(|category| category.licenca_necessaria)
-        .unwrap_or(0);
+    let required_license =
+        required_license_for_division(&vacancy.categoria, vacancy.classe.as_deref()).unwrap_or(0);
     let has_required_license = candidate
         .max_license_level
         .map(|level| level >= required_license)
@@ -1373,90 +1397,202 @@ mod tests {
     }
 
     #[test]
-    fn test_final_vacancy_fill_ignores_special_category_slots() {
+    fn test_final_vacancy_fill_handles_production_as_regular_contract_category() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(312);
         let mut team_rng = StdRng::seed_from_u64(313);
-        let mut special_team = sample_team("gt4", "T900", &mut team_rng);
-        special_team.categoria = "production_challenger".to_string();
-        team_queries::insert_team(&conn, &special_team).expect("special team");
+        let production_team = sample_team("production_challenger", "T900", &mut team_rng);
+        team_queries::insert_team(&conn, &production_team).expect("production team");
+        for index in 0..4 {
+            let driver_id = format!("P90{index}");
+            let driver = sample_driver(
+                &driver_id,
+                &format!("Piloto Livre {index}"),
+                None,
+                65.0 + index as f64,
+                DriverStatus::Ativo,
+            );
+            driver_queries::insert_driver(&conn, &driver).expect("free driver");
+        }
 
         fill_all_remaining_vacancies(&conn, 2, &mut rng).expect("fill regular vacancies");
 
-        let regular_empty_slots: i64 = conn
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM teams
-                 WHERE categoria = 'gt4'
-                   AND (piloto_1_id IS NULL OR piloto_2_id IS NULL)",
-                [],
-                |row| row.get(0),
-            )
-            .expect("regular empty slots");
-        let special_empty_slots: i64 = conn
+        let production_empty_slots: i64 = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM teams
                  WHERE id = 'T900'
-                   AND piloto_1_id IS NULL
-                   AND piloto_2_id IS NULL",
+                   AND (piloto_1_id IS NULL OR piloto_2_id IS NULL)",
                 [],
                 |row| row.get(0),
             )
-            .expect("special empty slots");
+            .expect("production empty slots");
+        let production_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE equipe_id = 'T900'
+                   AND status = 'Ativo'
+                   AND tipo = 'Regular'
+                   AND categoria = 'production_challenger'
+                   AND classe = 'mazda'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("production regular contracts");
 
-        assert_eq!(regular_empty_slots, 0);
-        assert_eq!(special_empty_slots, 1);
+        assert_eq!(production_empty_slots, 0);
+        assert_eq!(production_contracts, 2);
     }
 
     #[test]
-    fn test_regular_market_vacancy_discovery_ignores_special_category_slots() {
+    fn test_regular_market_vacancy_discovery_includes_real_special_phase_categories() {
         let conn = setup_market_fixture();
         let mut team_rng = StdRng::seed_from_u64(316);
-        let mut special_team = sample_team("gt4", "T902", &mut team_rng);
-        special_team.categoria = "endurance".to_string();
-        special_team.piloto_1_id = None;
-        special_team.piloto_2_id = None;
-        team_queries::insert_team(&conn, &special_team).expect("special team");
+        let mut production_team = sample_team("production_challenger", "T902", &mut team_rng);
+        production_team.piloto_1_id = None;
+        production_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &production_team).expect("production team");
+        let mut endurance_team = sample_team("endurance", "T903", &mut team_rng);
+        endurance_team.piloto_1_id = None;
+        endurance_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &endurance_team).expect("endurance team");
+        let mut lmp2_team = sample_team("endurance", "T904", &mut team_rng);
+        lmp2_team.classe = Some("lmp2".to_string());
+        lmp2_team.piloto_1_id = None;
+        lmp2_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &lmp2_team).expect("endurance lmp2 team");
 
         let vacancies = find_vacancies(&conn).expect("vacancies");
 
+        assert!(vacancies.iter().any(|vacancy| {
+            vacancy.team_id == "T902" && vacancy.categoria == "production_challenger"
+        }));
         assert!(vacancies
             .iter()
-            .all(|vacancy| !is_especial(&vacancy.categoria)));
+            .any(|vacancy| vacancy.team_id == "T903" && vacancy.categoria == "endurance"));
+        assert!(vacancies
+            .iter()
+            .any(|vacancy| vacancy.team_id == "T904" && vacancy.categoria == "endurance"));
+        assert!(!vacancies.iter().any(|vacancy| vacancy.categoria == "lmp2"));
     }
 
     #[test]
-    fn test_market_does_not_create_regular_contracts_for_special_category_slots() {
+    fn test_market_creates_regular_contracts_with_team_class_for_endurance_slots() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(314);
         let mut team_rng = StdRng::seed_from_u64(315);
-        let mut special_team = sample_team("gt4", "T901", &mut team_rng);
-        special_team.categoria = "endurance".to_string();
-        special_team.piloto_1_id = None;
-        special_team.piloto_2_id = None;
-        team_queries::insert_team(&conn, &special_team).expect("special team");
+        let mut endurance_team = sample_team("endurance", "T901", &mut team_rng);
+        endurance_team.classe = Some("lmp2".to_string());
+        endurance_team.piloto_1_id = None;
+        endurance_team.piloto_2_id = None;
+        team_queries::insert_team(&conn, &endurance_team).expect("endurance team");
 
         run_market(&conn, 2, &mut rng).expect("market should run");
 
-        let active_regular_special_contracts: i64 = conn
+        let active_regular_endurance_contracts: i64 = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM contracts
                  WHERE status = 'Ativo'
                    AND tipo = 'Regular'
+                   AND categoria = 'endurance'
+                   AND classe = 'lmp2'
+                   AND equipe_id = 'T901'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("regular endurance contracts");
+        let special_contracts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM contracts
+                 WHERE tipo = 'Especial'
                    AND categoria IN ('production_challenger', 'endurance')",
                 [],
                 |row| row.get(0),
             )
-            .expect("regular special contracts");
-        let special_team_after = team_queries::get_team_by_id(&conn, "T901")
+            .expect("special contracts");
+        let endurance_team_after = team_queries::get_team_by_id(&conn, "T901")
             .expect("team query")
-            .expect("special team after market");
+            .expect("endurance team after market");
 
-        assert_eq!(active_regular_special_contracts, 0);
-        assert!(special_team_after.piloto_1_id.is_none());
-        assert!(special_team_after.piloto_2_id.is_none());
+        assert_eq!(active_regular_endurance_contracts, 2);
+        assert_eq!(special_contracts, 0);
+        assert!(endurance_team_after.piloto_1_id.is_some());
+        assert!(endurance_team_after.piloto_2_id.is_some());
+    }
+
+    #[test]
+    fn test_sync_reopens_slots_when_active_contract_category_or_class_differs_from_team() {
+        let conn = setup_market_fixture();
+        let mut team_rng = StdRng::seed_from_u64(317);
+        let mut production_team = sample_team("production_challenger", "T904", &mut team_rng);
+
+        let driver_a = sample_driver(
+            "P904",
+            "Piloto Categoria Errada",
+            Some("gt4"),
+            70.0,
+            DriverStatus::Ativo,
+        );
+        let driver_b = sample_driver(
+            "P905",
+            "Piloto Classe Errada",
+            Some("production_challenger"),
+            69.0,
+            DriverStatus::Ativo,
+        );
+        driver_queries::insert_driver(&conn, &driver_a).expect("driver a");
+        driver_queries::insert_driver(&conn, &driver_b).expect("driver b");
+
+        production_team.piloto_1_id = Some(driver_a.id.clone());
+        production_team.piloto_2_id = Some(driver_b.id.clone());
+        team_queries::insert_team(&conn, &production_team).expect("production team");
+
+        let wrong_category = Contract::new(
+            "C904".to_string(),
+            driver_a.id.clone(),
+            driver_a.nome.clone(),
+            production_team.id.clone(),
+            production_team.nome.clone(),
+            1,
+            2,
+            70_000.0,
+            TeamRole::Numero1,
+            "gt4".to_string(),
+        );
+        let mut wrong_class = Contract::new(
+            "C905".to_string(),
+            driver_b.id.clone(),
+            driver_b.nome.clone(),
+            production_team.id.clone(),
+            production_team.nome.clone(),
+            1,
+            2,
+            70_000.0,
+            TeamRole::Numero2,
+            "production_challenger".to_string(),
+        );
+        wrong_class.classe = Some("toyota".to_string());
+        contract_queries::insert_contract(&conn, &wrong_category).expect("wrong category");
+        contract_queries::insert_contract(&conn, &wrong_class).expect("wrong class");
+
+        let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(&conn)
+            .expect("drivers")
+            .into_iter()
+            .map(|driver| (driver.id.clone(), driver))
+            .collect();
+        sync_team_slots(&conn, &[production_team.clone()], &drivers_by_id)
+            .expect("sync team slots");
+
+        let vacancies = find_vacancies(&conn).expect("vacancies");
+        let reopened = vacancies
+            .iter()
+            .filter(|vacancy| vacancy.team_id == production_team.id)
+            .count();
+
+        assert_eq!(reopened, 2);
     }
 
     #[test]

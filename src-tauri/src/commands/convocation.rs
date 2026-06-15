@@ -53,6 +53,17 @@ pub(crate) fn get_player_special_offers_in_base_dir(
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
         .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
     get_pending_player_special_offers_for_season(&db.conn, &season.id, &player.id)
+        .map(|offers| {
+            offers
+                .into_iter()
+                .filter(|offer| {
+                    !matches!(
+                        offer.special_category.as_str(),
+                        "production_challenger" | "endurance"
+                    )
+                })
+                .collect()
+        })
         .map_err(|e| format!("Falha ao carregar ofertas especiais: {e}"))
 }
 
@@ -176,6 +187,15 @@ fn accept_player_special_offer_tx(
     season: &Season,
     offer: &PlayerSpecialOffer,
 ) -> Result<(), String> {
+    if matches!(
+        offer.special_category.as_str(),
+        "production_challenger" | "endurance"
+    ) {
+        return Err(
+            "Production/Endurance agora usam contratos regulares no BlocoEspecial.".to_string(),
+        );
+    }
+
     if contract_queries::has_active_especial_contract(tx, &player.id)
         .map_err(|e| format!("Falha ao verificar contrato especial do jogador: {e}"))?
     {
@@ -447,6 +467,41 @@ mod tests {
         run_convocation_window(&db.conn).expect("run convocation");
     }
 
+    fn insert_legacy_player_special_offer(base_dir: &Path, offer_id: &str, status: &str) {
+        let db_path = career_db_path(base_dir, "career_001");
+        let db = Database::open_existing(&db_path).expect("open db");
+        let player = driver_queries::get_player_driver(&db.conn).expect("player");
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("active season")
+            .expect("season");
+        let team = team_queries::get_teams_by_category_and_class(&db.conn, "endurance", "gt4")
+            .expect("endurance gt4 teams")
+            .into_iter()
+            .next()
+            .expect("endurance gt4 team");
+
+        db.conn
+            .execute(
+                "INSERT INTO player_special_offers (
+                    id, season_id, player_driver_id, team_id, team_name,
+                    special_category, class_name, papel, status, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    offer_id,
+                    &season.id,
+                    &player.id,
+                    &team.id,
+                    &team.nome,
+                    "endurance",
+                    "gt4",
+                    TeamRole::Numero1.as_str(),
+                    status,
+                    crate::common::time::current_timestamp(),
+                ],
+            )
+            .expect("insert legacy special offer");
+    }
+
     fn assigned_driver_ids(
         conn: &rusqlite::Connection,
         season_id: &str,
@@ -486,75 +541,61 @@ mod tests {
     fn test_get_player_special_offers_returns_pending_only() {
         let base_dir = create_test_base_dir("list_pending");
         seed_special_offer_career(&base_dir);
+        insert_legacy_player_special_offer(&base_dir, "PSO-LEGACY-LIST", "Pendente");
 
         let offers =
             get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
 
-        assert!(!offers.is_empty());
+        assert!(offers.is_empty());
         assert!(offers.iter().all(|offer| offer.status == "Pendente"));
     }
 
     #[test]
-    fn test_accept_player_special_offer_activates_contract_and_expires_others() {
+    fn test_accept_player_special_offer_rejects_legacy_production_endurance_offer() {
         let base_dir = create_test_base_dir("accept_offer");
         seed_special_offer_career(&base_dir);
+        insert_legacy_player_special_offer(&base_dir, "PSO-LEGACY-ACCEPT", "Pendente");
 
-        let offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
-        assert!(
-            offers.len() >= 2,
-            "cenário de teste precisa de múltiplas ofertas"
-        );
-
-        let response =
-            respond_player_special_offer_in_base_dir(&base_dir, "career_001", &offers[0].id, true)
-                .expect("accept offer");
-
-        assert_eq!(response.action, "accepted");
-        assert_eq!(response.special_category.as_deref(), Some("endurance"));
-        assert_eq!(response.remaining_offers, 0);
+        let error = respond_player_special_offer_in_base_dir(
+            &base_dir,
+            "career_001",
+            "PSO-LEGACY-ACCEPT",
+            true,
+        )
+        .expect_err("legacy production/endurance offer should be rejected");
 
         let db_path = career_db_path(&base_dir, "career_001");
         let db = Database::open_existing(&db_path).expect("open db");
         let player = driver_queries::get_player_driver(&db.conn).expect("player");
         let contract =
             contract_queries::get_active_especial_contract_for_pilot(&db.conn, &player.id)
-                .expect("special contract lookup")
-                .expect("active special contract");
+                .expect("special contract lookup");
 
-        assert_eq!(
-            player.categoria_especial_ativa.as_deref(),
-            Some("endurance")
-        );
-        assert_eq!(contract.equipe_id, offers[0].team_id);
-
-        let chosen = get_player_special_offer_by_id(&db.conn, &offers[0].id)
-            .expect("chosen offer query")
-            .expect("chosen offer");
-        let other = get_player_special_offer_by_id(&db.conn, &offers[1].id)
-            .expect("other offer query")
-            .expect("other offer");
-        assert_eq!(chosen.status, "Aceita");
-        assert_eq!(other.status, "Expirada");
+        assert!(error.contains("contratos regulares"));
+        assert!(player.categoria_especial_ativa.is_none());
+        assert!(contract.is_none());
     }
 
     #[test]
     fn test_reject_player_special_offer_marks_recusada() {
         let base_dir = create_test_base_dir("reject_offer");
         seed_special_offer_career(&base_dir);
+        insert_legacy_player_special_offer(&base_dir, "PSO-LEGACY-REJECT", "Pendente");
 
-        let offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
-        let response =
-            respond_player_special_offer_in_base_dir(&base_dir, "career_001", &offers[0].id, false)
-                .expect("reject offer");
+        let response = respond_player_special_offer_in_base_dir(
+            &base_dir,
+            "career_001",
+            "PSO-LEGACY-REJECT",
+            false,
+        )
+        .expect("reject offer");
 
         assert_eq!(response.action, "rejected");
         assert!(response.remaining_offers >= 0);
 
         let db_path = career_db_path(&base_dir, "career_001");
         let db = Database::open_existing(&db_path).expect("open db");
-        let rejected = get_player_special_offer_by_id(&db.conn, &offers[0].id)
+        let rejected = get_player_special_offer_by_id(&db.conn, "PSO-LEGACY-REJECT")
             .expect("offer query")
             .expect("offer");
         assert_eq!(rejected.status, "Recusada");
@@ -565,8 +606,6 @@ mod tests {
         let base_dir = create_test_base_dir("ignore_other_season");
         seed_special_offer_career(&base_dir);
 
-        let current_offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
         let db_path = career_db_path(&base_dir, "career_001");
         let db = Database::open_existing(&db_path).expect("open db");
         let player = driver_queries::get_player_driver(&db.conn).expect("player");
@@ -584,7 +623,7 @@ mod tests {
                     "PSO-OLD-SEASON",
                     "S999",
                     &player.id,
-                    &current_offers[0].team_id,
+                    "T001",
                     "Equipe Antiga",
                     "endurance",
                     "gt4",
@@ -608,15 +647,15 @@ mod tests {
     fn test_cannot_accept_already_resolved_special_offer() {
         let base_dir = create_test_base_dir("accept_resolved");
         seed_special_offer_career(&base_dir);
+        insert_legacy_player_special_offer(&base_dir, "PSO-LEGACY-RESOLVED", "Recusada");
 
-        let offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
-        respond_player_special_offer_in_base_dir(&base_dir, "career_001", &offers[0].id, true)
-            .expect("first accept");
-
-        let error =
-            respond_player_special_offer_in_base_dir(&base_dir, "career_001", &offers[1].id, true)
-                .expect_err("resolved offer should not be accepted");
+        let error = respond_player_special_offer_in_base_dir(
+            &base_dir,
+            "career_001",
+            "PSO-LEGACY-RESOLVED",
+            true,
+        )
+        .expect_err("resolved offer should not be accepted");
         assert!(error.contains("nao esta mais pendente"));
     }
 
@@ -625,8 +664,6 @@ mod tests {
         let base_dir = create_test_base_dir("accept_other_season");
         seed_special_offer_career(&base_dir);
 
-        let current_offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("list offers");
         let db_path = career_db_path(&base_dir, "career_001");
         let db = Database::open_existing(&db_path).expect("open db");
         let player = driver_queries::get_player_driver(&db.conn).expect("player");
@@ -644,7 +681,7 @@ mod tests {
                     "PSO-FOREIGN-SEASON",
                     "S999",
                     &player.id,
-                    &current_offers[0].team_id,
+                    "T001",
                     "Equipe Antiga",
                     "endurance",
                     "gt4",
@@ -676,33 +713,19 @@ mod tests {
 
         assert_eq!(state.current_day, 1);
         assert_eq!(state.total_days, 7);
-        assert!(!state.team_sections.is_empty());
-        assert!(state.eligible_candidates.iter().all(|candidate| {
-            matches!(
-                candidate.origin_category.as_str(),
-                "mazda_amador" | "toyota_amador" | "bmw_m2" | "gt4" | "gt3" | "lmp2"
-            )
-        }));
+        assert!(
+            state.team_sections.is_empty(),
+            "Production/Endurance nao devem expor secoes da janela especial legada"
+        );
+        assert!(
+            state.eligible_candidates.is_empty(),
+            "Production/Endurance nao devem expor candidatos da janela especial legada"
+        );
         assert!(
             state.last_day_log.is_empty(),
             "o dia 1 nao deve mostrar fechamento antes do primeiro avancar"
         );
-        assert!(state
-            .team_sections
-            .iter()
-            .flat_map(|section| section.teams.iter())
-            .all(|team| team.piloto_1_new_badge_day.is_none()
-                && team.piloto_2_new_badge_day.is_none()));
-        let visible_pilots = state
-            .team_sections
-            .iter()
-            .flat_map(|section| section.teams.iter())
-            .filter(|team| team.piloto_1_nome.is_some() || team.piloto_2_nome.is_some())
-            .count();
-        assert!(
-            visible_pilots > 0,
-            "o grid especial precisa nascer com alguns pilotos ja revelados no dia 1"
-        );
+        assert!(state.player_offers.is_empty());
     }
 
     #[test]
@@ -715,35 +738,8 @@ mod tests {
 
         let state = get_special_window_state_in_base_dir(&base_dir, "career_001")
             .expect("load special window state");
-        assert!(
-            state.player_offers.len() >= 2,
-            "cenario precisa de pelo menos duas ofertas para testar a troca diaria"
-        );
-
-        accept_special_offer_for_day_in_base_dir(
-            &base_dir,
-            "career_001",
-            &state.player_offers[0].id,
-        )
-        .expect("accept first offer");
-
-        let updated = accept_special_offer_for_day_in_base_dir(
-            &base_dir,
-            "career_001",
-            &state.player_offers[1].id,
-        )
-        .expect("switch active offer");
-
-        let active_count = updated
-            .player_offers
-            .iter()
-            .filter(|offer| offer.status == "AceitaAtiva")
-            .count();
-        assert_eq!(active_count, 1);
-        assert_eq!(
-            updated.active_offer_id.as_deref(),
-            Some(state.player_offers[1].id.as_str())
-        );
+        assert!(state.player_offers.is_empty());
+        assert!(state.active_offer_id.is_none());
     }
 
     #[test]
@@ -757,19 +753,7 @@ mod tests {
             .expect("advance special window day");
 
         assert_eq!(advanced.current_day, before.current_day + 1);
-        assert!(
-            !advanced.last_day_log.is_empty(),
-            "avancar o dia deve produzir eventos de mercado"
-        );
-        assert!(
-            advanced.last_day_log.iter().all(|entry| {
-                entry.driver_name.is_some()
-                    && entry.team_name.is_some()
-                    && entry.driver_origin_category.is_some()
-                    && entry.driver_license_sigla.is_some()
-            }),
-            "eventos de convocacao precisam carregar dados estruturados para o painel visual"
-        );
+        assert!(advanced.last_day_log.is_empty());
     }
 
     #[test]
@@ -893,42 +877,9 @@ mod tests {
         let state = get_special_window_state_in_base_dir(&base_dir, "career_001")
             .expect("load special window state");
 
-        let visible_names: Vec<_> = state
-            .eligible_candidates
-            .iter()
-            .map(|candidate| candidate.driver_name.as_str())
-            .collect();
         assert!(
-            !visible_names.contains(&rookie.nome.as_str()),
-            "rookies nao devem inflar a shortlist visivel"
-        );
-        assert!(
-            !visible_names.contains(&unemployed.nome.as_str()),
-            "pilotos sem contrato regular ativo nao devem aparecer como nomes principais"
-        );
-
-        let mazda_amador_names: Vec<_> = state
-            .eligible_candidates
-            .iter()
-            .filter(|candidate| candidate.origin_category == "mazda_amador")
-            .map(|candidate| candidate.driver_name.as_str())
-            .collect();
-        assert!(
-            mazda_amador_names.len() >= 2,
-            "cenario precisa manter pelo menos dois nomes principais do mesmo grid"
-        );
-        assert_eq!(
-            mazda_amador_names[0],
-            top_amador.nome.as_str(),
-            "a shortlist visivel deve priorizar quem terminou melhor o campeonato"
-        );
-        let second_index = mazda_amador_names
-            .iter()
-            .position(|name| *name == second_amador.nome.as_str())
-            .expect("second amador visible in shortlist");
-        assert!(
-            second_index > 0,
-            "o segundo nome precisa aparecer atras do lider visivel do campeonato"
+            state.eligible_candidates.is_empty(),
+            "mesmo candidatos legados inseridos manualmente nao devem aparecer para Production/Endurance"
         );
     }
 
@@ -972,14 +923,9 @@ mod tests {
         let state = get_special_window_state_in_base_dir(&base_dir, "career_001")
             .expect("load special window state");
 
-        let visible = state
+        assert!(state
             .eligible_candidates
             .iter()
-            .find(|candidate| candidate.driver_id == contracted_gt4.id)
-            .expect("driver visible in shortlist");
-
-        assert_eq!(visible.origin_category, "gt4");
-        assert!(visible.endurance_eligible);
-        assert!(!visible.production_eligible);
+            .all(|candidate| candidate.driver_id != contracted_gt4.id));
     }
 }

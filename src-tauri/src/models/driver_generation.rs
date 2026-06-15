@@ -168,7 +168,7 @@ fn seed_initial_career_history(
     let career_races = (seasons * races_per_season)
         .saturating_sub(missed_races)
         .max(1);
-    let category_seasons = seasons.min(3).max(1);
+    let category_seasons = seasons.clamp(1, 3);
     let category_races = (category_seasons * races_per_season)
         .saturating_sub(missed_races.min(races_per_season / 2))
         .max(1);

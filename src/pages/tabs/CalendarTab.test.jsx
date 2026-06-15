@@ -179,6 +179,78 @@ describe("CalendarTab", () => {
     expect(legend.getByText("Bloco Especial")).toBeInTheDocument();
   });
 
+  it("renders the 9D full-year calendar without convocation or special-block chrome", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {
+        categoria: "endurance",
+        classe: "lmp2",
+      },
+      season: {
+        ano: 2026,
+        rodada_atual: 1,
+        fase: "Temporada",
+      },
+      nextRace: {
+        id: "endurance-race-1",
+      },
+      calendarDisplayDate: "2026-02-07",
+      acceptedSpecialOffer: null,
+      specialWindowState: null,
+    };
+    invoke.mockImplementation((command, payload) => {
+      if (command === "get_calendar_for_category" && payload?.category === "endurance") {
+        return Promise.resolve([
+          {
+            id: "endurance-race-1",
+            rodada: 1,
+            track_id: 515,
+            track_name: "Navarra",
+            categoria: "endurance",
+            classe: "lmp2",
+            season_phase: "Temporada",
+            season_week: 10,
+            status: "Pendente",
+            display_date: "2026-02-07",
+            duracao_corrida_min: 90,
+            clima: "Clear",
+          },
+          {
+            id: "endurance-race-6",
+            rodada: 6,
+            track_id: 45,
+            track_name: "Le Mans",
+            categoria: "endurance",
+            classe: "lmp2",
+            season_phase: "Temporada",
+            season_week: 47,
+            status: "Pendente",
+            display_date: "2026-11-21",
+            duracao_corrida_min: 120,
+            clima: "Wet",
+          },
+        ]);
+      }
+
+      return Promise.resolve([]);
+    });
+
+    render(<CalendarTab activeTab="calendar" />);
+
+    expect(await screen.findByTestId("calendar-day-2026-02-07")).toHaveAttribute(
+      "data-special-race-day",
+      "false",
+    );
+    expect(await screen.findByTestId("calendar-day-2026-11-21")).toHaveAttribute(
+      "data-special-race-day",
+      "false",
+    );
+    const legend = within(screen.getByTestId("calendar-legend"));
+    expect(legend.queryByText("ConvocaÃ§Ã£o")).not.toBeInTheDocument();
+    expect(legend.queryByText("Bloco Especial")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("calendar-month-2026-09")).getByText("Temporada")).toBeInTheDocument();
+  });
+
   it("keeps the day-pass animation visible even when the current date has no race", async () => {
     mockState.calendarDisplayDate = "2026-03-13";
 

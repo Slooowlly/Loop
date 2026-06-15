@@ -149,6 +149,8 @@ describe("HistorySection", () => {
             { categoria: "mazda_rookie", ano_inicio: 2017, ano_fim: 2021 },
             { categoria: "mazda_amador", ano_inicio: 2022, ano_fim: 2024 },
             { categoria: "mazda_rookie", ano_inicio: 2025, ano_fim: 2025 },
+            { categoria: "endurance:gt3", ano_inicio: 2026, ano_fim: 2026 },
+            { categoria: "production_challenger:mazda", ano_inicio: 2027, ano_fim: 2027 },
           ],
           marcos: [],
         }}
@@ -189,6 +191,8 @@ describe("HistorySection", () => {
     expect(screen.getByText("Mazda Rookie 2017")).toBeInTheDocument();
     expect(screen.getByText("Mazda Championship 2022")).toBeInTheDocument();
     expect(screen.getByText("Mazda Rookie 2025")).toBeInTheDocument();
+    expect(screen.getByText("GT3 Endurance 2026")).toBeInTheDocument();
+    expect(screen.getByText("Mazda Production 2027")).toBeInTheDocument();
   });
 });
 

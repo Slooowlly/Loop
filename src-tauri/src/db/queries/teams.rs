@@ -557,6 +557,19 @@ pub fn count_teams_by_category(conn: &Connection, category_id: &str) -> Result<i
     Ok(count as i32)
 }
 
+pub fn count_teams_by_category_and_class(
+    conn: &Connection,
+    category_id: &str,
+    class_name: &str,
+) -> Result<i32, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM teams WHERE categoria = ?1 AND classe = ?2",
+        params![category_id, class_name],
+        |row| row.get(0),
+    )?;
+    Ok(count as i32)
+}
+
 fn collect_teams(
     mapped: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<Team>>,
 ) -> Result<Vec<Team>, DbError> {
@@ -863,7 +876,7 @@ mod tests {
         let conn = setup_test_db().expect("test db");
         insert_team(&conn, &sample_team("gt3", "T001")).expect("insert team 1");
         insert_team(&conn, &sample_team("gt3", "T002")).expect("insert team 2");
-        insert_team(&conn, &sample_team("lmp2", "T003")).expect("insert team 3");
+        insert_team(&conn, &sample_team("gt4", "T003")).expect("insert team 3");
 
         let count = count_teams_by_category(&conn, "gt3").expect("count teams");
 

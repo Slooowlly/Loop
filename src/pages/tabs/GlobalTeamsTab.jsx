@@ -7,19 +7,19 @@ import useCareerStore from "../../stores/useCareerStore";
 import { TeamHistoryDrawer } from "./MyTeamTab";
 
 const DEFAULT_FAMILY = "mazda";
-const DEFAULT_WINDOW_SIZE = 10;
+const DEFAULT_WINDOW_SIZE = 20;
 const HISTORY_FETCH_WINDOW_SIZE = 32;
 const HISTORY_FETCH_START_YEAR = 2000;
 const TEAM_CLICK_DELAY_MS = 220;
 const CHART_WIDTH = 1000;
 const CHART_HEADER_HEIGHT = 56;
-const MIN_CHART_HEIGHT = 520;
-const MIN_BAND_HEIGHT = 190;
-const BAND_LABEL_HEIGHT = 28;
-const ROW_HEIGHT = 38;
-const ROW_TOP_OFFSET = 48;
-const REGULAR_YEAR_POINT_OFFSET = 0.24;
-const SPECIAL_YEAR_POINT_OFFSET = 0.76;
+const MIN_CHART_HEIGHT = 360;
+const MIN_BAND_HEIGHT = 124;
+const BAND_LABEL_HEIGHT = 22;
+const ROW_HEIGHT = 32;
+const ROW_PILL_HEIGHT = 28;
+const ROW_TOP_OFFSET = 34;
+const BAND_BOTTOM_PADDING = 16;
 
 function GlobalTeamsTab({
   selectedTeamId = null,
@@ -30,7 +30,8 @@ function GlobalTeamsTab({
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const [family, setFamily] = useState(() => familyFromTeamContext(selectedTeamCategory, selectedTeamClassName));
-  const [startYear, setStartYear] = useState(2020);
+  const [startYear, setStartYear] = useState(HISTORY_FETCH_START_YEAR);
+  const windowSize = DEFAULT_WINDOW_SIZE;
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -96,13 +97,17 @@ function GlobalTeamsTab({
     setPreviewStartYear(null);
   }, [payload?.window_start, payload?.selected_family]);
 
-  const visibleStartYear = useMemo(() => clampVisibleStart(payload, startYear), [payload, startYear]);
+  const visibleStartYear = useMemo(() => clampVisibleStart(payload, startYear, windowSize), [payload, startYear, windowSize]);
   const displayStartYear = useMemo(
-    () => roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear),
-    [payload, previewStartYear, visibleStartYear],
+    () => roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear, windowSize),
+    [payload, previewStartYear, visibleStartYear, windowSize],
+  );
+  const visibleEndYear = useMemo(
+    () => visibleWindowEndYear(payload, visibleStartYear, windowSize),
+    [payload, visibleStartYear, windowSize],
   );
   const years = useMemo(() => buildYears(payload), [payload]);
-  const geometry = useMemo(() => buildGeometry(payload, years, displayStartYear), [payload, years, displayStartYear]);
+  const geometry = useMemo(() => buildGeometry(payload, years), [payload, years]);
   const teamTracks = useMemo(() => buildTeamTracks(payload, geometry, years), [payload, geometry, years]);
   const allTeams = useMemo(() => flattenTeams(payload), [payload]);
   const activeFamily = payload?.families?.find((item) => item.id === payload?.selected_family);
@@ -113,8 +118,8 @@ function GlobalTeamsTab({
 
   function handleWindowStartChange(nextYear) {
     if (!payload) return;
-    const latestStart = latestWindowStart(payload, DEFAULT_WINDOW_SIZE);
-    setStartYear(clamp(nextYear, payload.min_year, latestStart));
+    const latestStart = latestWindowStart(payload, windowSize);
+    setStartYear(clamp(nextYear, familyMinYear(payload), latestStart));
   }
 
   function clearTeamClickTimeout() {
@@ -173,7 +178,7 @@ function GlobalTeamsTab({
           <div>
             <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">Atlas histórico</p>
             <h3 className="mt-2 text-2xl font-semibold text-text-primary">
-              {activeFamily?.label ?? "Mazda"}: janela {visibleStartYear ?? "-"}-{visibleStartYear ? visibleStartYear + DEFAULT_WINDOW_SIZE - 1 : "-"}
+              {activeFamily?.label ?? "Mazda"}: janela {visibleStartYear ?? "-"}-{visibleEndYear ?? "-"}
             </h3>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
@@ -200,25 +205,14 @@ function GlobalTeamsTab({
             payload={payload}
             visibleStart={visibleStartYear}
             previewStart={previewStartYear}
+            windowSize={windowSize}
             onPreviewChange={setPreviewStartYear}
             onChange={handleWindowStartChange}
           />
         </div>
 
         <div className="overflow-x-auto">
-          <div
-            className="grid min-w-[1180px] grid-cols-[340px_minmax(0,1fr)]"
-            style={{ height: geometry.totalHeight }}
-          >
-            <TeamNameRail
-              payload={payload}
-              geometry={geometry}
-              displayStartYear={displayStartYear}
-              focusedTeamId={focusedTeamId}
-              onFocus={setFocusedTeamId}
-              onTeamClick={handleTeamClick}
-              onTeamDoubleClick={handleTeamDoubleClick}
-            />
+          <div className="min-w-[1180px]" style={{ height: geometry.totalHeight }}>
             <TeamHistoryGrid
               payload={payload}
               years={years}
@@ -226,8 +220,11 @@ function GlobalTeamsTab({
               teamTracks={teamTracks}
               previewStartYear={previewStartYear}
               visibleStartYear={visibleStartYear}
+              windowSize={windowSize}
               focusedTeamId={focusedTeamId}
               onFocus={setFocusedTeamId}
+              onTeamClick={handleTeamClick}
+              onTeamDoubleClick={handleTeamDoubleClick}
             />
           </div>
         </div>
@@ -237,6 +234,7 @@ function GlobalTeamsTab({
             payload={payload}
             visibleStart={visibleStartYear}
             previewStart={previewStartYear}
+            windowSize={windowSize}
             onPreviewChange={setPreviewStartYear}
             onChange={handleWindowStartChange}
             ariaLabel="Mover janela historica inferior"
@@ -267,6 +265,7 @@ function YearWindowScrubber({
   payload,
   visibleStart,
   previewStart,
+  windowSize = DEFAULT_WINDOW_SIZE,
   onPreviewChange,
   onChange,
   ariaLabel = "Mover janela historica",
@@ -284,11 +283,11 @@ function YearWindowScrubber({
     if (!dragging || !payload) return undefined;
 
     function handlePointerMove(event) {
-      onPreviewChange(yearFromClientX(payload, railRef.current, event.clientX));
+      onPreviewChange(yearFromClientX(payload, railRef.current, event.clientX, windowSize));
     }
 
     function handlePointerUp(event) {
-      const nextYear = yearFromClientX(payload, railRef.current, event.clientX);
+      const nextYear = yearFromClientX(payload, railRef.current, event.clientX, windowSize);
       const committedYear = Math.round(nextYear);
       setDragging(false);
       onPreviewChange(committedYear);
@@ -301,7 +300,7 @@ function YearWindowScrubber({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [dragging, onChange, onPreviewChange, payload]);
+  }, [dragging, onChange, onPreviewChange, payload, windowSize]);
 
   if (!payload) {
     return (
@@ -309,16 +308,17 @@ function YearWindowScrubber({
     );
   }
 
-  const min = payload.min_year;
-  const max = latestWindowStart(payload, DEFAULT_WINDOW_SIZE);
+  const min = familyMinYear(payload);
+  const max = latestWindowStart(payload, windowSize);
   const displayStart = clamp(previewStart ?? visibleStart, min, max);
+  const displayEnd = visibleWindowEndYear(payload, displayStart, windowSize);
   const value = Math.round(displayStart);
-  const fillStyle = windowRailStyle(payload, displayStart, DEFAULT_WINDOW_SIZE);
+  const fillStyle = windowRailStyle(payload, displayStart, windowSize);
 
   function handlePointerDown(event) {
     event.preventDefault();
     setDragging(true);
-    onPreviewChange(yearFromClientX(payload, railRef.current, event.clientX));
+    onPreviewChange(yearFromClientX(payload, railRef.current, event.clientX, windowSize));
     event.currentTarget.focus();
   }
 
@@ -341,7 +341,7 @@ function YearWindowScrubber({
 
   return (
     <div className={`grid gap-3 md:grid-cols-[96px_minmax(0,1fr)_96px] md:items-center ${compact ? "text-[11px]" : ""}`}>
-      <div className="font-mono text-[12px] font-black text-text-secondary">{payload.min_year}</div>
+      <div className="font-mono text-[12px] font-black text-text-secondary">{min}</div>
       <div>
         <div
           ref={railRef}
@@ -369,10 +369,10 @@ function YearWindowScrubber({
           </div>
         </div>
         <p className="mt-1 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-status-green">
-          Janela visivel: {Math.round(displayStart)}-{Math.round(displayStart) + DEFAULT_WINDOW_SIZE - 1}
+          Janela visivel: {Math.round(displayStart)}-{displayEnd}
         </p>
       </div>
-      <div className="text-right font-mono text-[12px] font-black text-text-secondary">{payload.max_year}</div>
+      <div className="text-right font-mono text-[12px] font-black text-text-secondary">{atlasMaxYear(payload)}</div>
     </div>
   );
 }
@@ -400,51 +400,104 @@ function GlobalTeamsLoading({ onBack }) {
   );
 }
 
-function TeamNameRail({
+const INLINE_TABLE_WIDTH_PCT = 25;
+
+// Name/logo tables that mark the start of each category's lines.
+//
+// Rendered in viewport space (over the chart, not inside the translated moving
+// grid) so the table can pin to the left edge and stay readable when the user
+// advances past a category's start year. Each category's table sits at left: 0
+// and is moved horizontally with a GPU `transform: translateX` that mirrors the
+// moving grid's transform transition, so it glides in perfect sync with the
+// lines (no per-element layout/`left` animation, which was janky). The translate
+// is clamped so the table's right edge meets the first line when the start is in
+// view, and pins to the left edge once the start scrolls off-screen.
+function InlineTeamTables({
   payload,
   geometry,
+  gridStartYear,
   displayStartYear,
+  windowSize = DEFAULT_WINDOW_SIZE,
   focusedTeamId,
   onFocus,
   onTeamClick,
   onTeamDoubleClick,
 }) {
+  const windowEnd = payload?.window_end ?? displayStartYear;
   return (
-    <div className="relative border-r-4 border-white/15 bg-[#0a1322]" data-testid="world-team-name-rail">
-      <div className="grid h-14 place-items-center justify-start border-b border-white/10 px-4 text-[9px] font-black uppercase leading-4 tracking-[0.14em] text-text-muted">
-        Lista do primeiro ano visivel
-      </div>
-      {(payload?.bands ?? []).map((band) => {
+    <div className="pointer-events-none absolute inset-0 z-30" data-testid="world-team-name-rail">
+      {(payload?.bands ?? []).filter((band) => !band.is_special).map((band) => {
         const bandBox = geometry.bands[band.key];
-        const isFutureBand = band.starts_year > (payload?.window_end ?? 0);
+        if (!bandBox) return null;
+        const isFutureBand = band.starts_year > windowEnd;
         const startsInsideWindow = band.starts_year > (payload?.window_start ?? 0);
-        const referenceYear = bandReferenceYear(band, displayStartYear, payload?.window_end ?? displayStartYear);
+        const referenceYear = bandReferenceYear(band, displayStartYear, windowEnd);
         const displayRows = visibleBandRows(band.rows, referenceYear);
+        // Where the category start sits horizontally, as a % of the viewport.
+        // The data area is offset by the left gutter (the table width), so the
+        // first visible year sits at the gutter edge and the table's right edge
+        // meets it.
+        const startScreenPct = Number.isFinite(band.starts_year) && Number.isFinite(gridStartYear)
+          ? INLINE_TABLE_WIDTH_PCT + ((band.starts_year - gridStartYear) / windowSize) * (100 - INLINE_TABLE_WIDTH_PCT)
+          : INLINE_TABLE_WIDTH_PCT;
+        // Table left edge, in viewport %, so the right edge meets the start;
+        // clamp pins it to the left edge once the start scrolls off-screen and to
+        // the right edge for not-yet-existing categories. Applied as a translate.
+        const tableLeftPct = clamp(startScreenPct - INLINE_TABLE_WIDTH_PCT, 0, 100 - INLINE_TABLE_WIDTH_PCT);
+        const tableWidth = `${INLINE_TABLE_WIDTH_PCT}%`;
+
+        const rowYs = displayRows.map(
+          (row) => bandRowOffsetY(bandBox.top, rowPositionAtYear(row, referenceYear)),
+        );
+        const minRowY = rowYs.length ? Math.min(...rowYs) : bandBox.top + ROW_TOP_OFFSET;
+        const maxRowY = rowYs.length ? Math.max(...rowYs) : minRowY;
+
         return (
-          <div key={band.key}>
+          <div
+            key={band.key}
+            className="pointer-events-none absolute inset-0"
+            style={{
+              transform: `translate3d(${formatPercent(tableLeftPct)}%, 0, 0)`,
+              transition: "transform 80ms linear",
+              willChange: "transform",
+            }}
+          >
             <span
-              className={`absolute left-3 right-3 grid h-6 place-items-center rounded-full border text-[9px] font-black uppercase tracking-[0.14em] ${
+              className={`pointer-events-auto absolute z-10 grid h-6 place-items-center rounded-full border px-3 text-[9px] font-black uppercase tracking-[0.14em] ${
                 isFutureBand
-                  ? "border-white/12 bg-white/[0.035] text-text-muted"
-                  : "border-status-yellow/35 bg-status-yellow/10 text-status-yellow"
+                  ? "border-white/12 bg-[#07101d] text-text-muted"
+                  : "border-status-yellow/35 bg-[#0a1322] text-status-yellow"
               }`}
-              style={{ top: CHART_HEADER_HEIGHT + bandBox.top + 10 }}
+              style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 10, width: tableWidth }}
             >
               {startsInsideWindow ? `${band.label} ${band.starts_year}` : band.label}
             </span>
+
             {displayRows.length === 0 ? (
               <div
-                className="absolute left-4 right-4 grid h-12 place-items-center rounded-xl border border-dashed border-white/15 px-3 text-center text-[10px] font-semibold leading-4 text-text-muted"
-                style={{ top: CHART_HEADER_HEIGHT + bandBox.top + 44 }}
+                className="pointer-events-auto absolute z-10 grid h-10 place-items-center rounded-lg border border-dashed border-white/15 bg-[#07101d] px-3 text-center text-[10px] font-semibold leading-4 text-text-muted"
+                style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 40, width: tableWidth }}
               >
                 {isFutureBand || band.starts_year > referenceYear ? `${band.label} ainda nao existia` : "Sem equipes neste ano"}
               </div>
-            ) : null}
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute rounded-lg border border-white/10 bg-[#0a1322]"
+                style={{
+                  left: 0,
+                  top: CHART_HEADER_HEIGHT + minRowY - ROW_PILL_HEIGHT / 2,
+                  width: tableWidth,
+                  height: maxRowY - minRowY + ROW_PILL_HEIGHT,
+                }}
+              />
+            )}
+
             {displayRows.map((row) => {
-              const y = geometry.rows[rowKey(band.key, row.team_id)] ?? bandBox.top + ROW_TOP_OFFSET;
               const isFocused = focusedTeamId === row.team_id;
               const isDimmed = focusedTeamId && !isFocused;
               const displayPosition = rowPositionAtYear(row, referenceYear);
+              const y = bandRowOffsetY(bandBox.top, displayPosition);
               const teamColor = getReadableWorldTeamColor(row.cor_primaria);
               return (
                 <button
@@ -455,10 +508,10 @@ function TeamNameRail({
                   onClick={() => onTeamClick({ ...row, band_key: band.key, band_category: band.category })}
                   onDoubleClick={() => onTeamDoubleClick({ ...row, band_key: band.key, band_category: band.category })}
                   data-testid={`world-team-row-${row.team_id}-${band.key}`}
-                  className={`absolute left-3 right-0 grid h-9 grid-cols-[24px_42px_minmax(0,1fr)_36px_34px] items-center gap-2 rounded-l-xl text-left transition-opacity ${
-                    isFocused ? "bg-white/[0.055]" : ""
+                  className={`pointer-events-auto absolute z-10 grid grid-cols-[20px_30px_minmax(0,1fr)_30px_28px] items-center gap-2 rounded-md px-2 text-left transition-opacity ${
+                    isFocused ? "bg-white/[0.06]" : ""
                   } ${isDimmed ? "opacity-35" : "opacity-100"}`}
-                  style={{ top: CHART_HEADER_HEIGHT + y - 18, "--team-color": teamColor }}
+                  style={{ left: 0, top: CHART_HEADER_HEIGHT + y - ROW_PILL_HEIGHT / 2, height: ROW_PILL_HEIGHT, width: tableWidth, "--team-color": teamColor }}
                 >
                   <span className="text-center font-mono text-[11px] font-black text-text-secondary">
                     {displayPosition}
@@ -481,7 +534,7 @@ function TeamNameRail({
                     {formatDelta(row.delta)}
                   </span>
                   <span
-                    className="h-1 rounded-l-full"
+                    className="h-1 rounded-full"
                     style={{
                       background: `linear-gradient(90deg, ${teamColor}, transparent)`,
                     }}
@@ -496,16 +549,19 @@ function TeamNameRail({
   );
 }
 
-function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYear, visibleStartYear, focusedTeamId, onFocus }) {
-  const displayStartYear = roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear);
-  const movingGridStyle = chartTimelineStyle(payload, years, previewStartYear ?? visibleStartYear, DEFAULT_WINDOW_SIZE);
+function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYear, visibleStartYear, windowSize = DEFAULT_WINDOW_SIZE, focusedTeamId, onFocus, onTeamClick, onTeamDoubleClick }) {
+  const gridStartYear = previewStartYear ?? visibleStartYear;
+  const displayStartYear = roundedDisplayStartYear(payload, gridStartYear, windowSize);
+  const movingGridStyle = chartTimelineStyle(payload, years, gridStartYear, windowSize);
+  const bandByKey = new Map((payload?.bands ?? []).map((band) => [band.key, band]));
 
   return (
     <div
-      className="relative overflow-hidden bg-[#07101d]"
+      className="relative h-full overflow-hidden bg-[#07101d]"
       data-testid="world-team-grid"
       onMouseLeave={() => onFocus(null)}
       style={{
+        height: geometry.totalHeight,
         backgroundImage:
           "linear-gradient(90deg, rgba(255,255,255,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(180deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
         backgroundSize: `calc(100% / ${Math.max(years.length, 1)}) 100%, calc(100% / ${Math.max(years.length, 1) * 2}) 100%, 100% ${ROW_HEIGHT}px`,
@@ -598,11 +654,13 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
                   vectorEffect="non-scaling-stroke"
                   opacity={isDimmed ? 0.15 : line.line_key === "special" ? 0.9 : 0.66}
                   pointerEvents="stroke"
+                  className="cursor-pointer"
                   onMouseEnter={() => onFocus(track.team_id)}
+                  onClick={() => onTeamClick(teamTrackToTeamRow(track, line.points?.[0]?.band_key, bandByKey))}
                 />
               );
             }))}
-          {teamTracks.flatMap((track) => teamSpecialMarkers(track, geometry, years).map((marker) => (
+          {teamTracks.flatMap((track) => teamMovementMarkers(track, geometry, years).map((marker) => (
             <SpecialMovementMarker
               key={`${track.team_id}-${marker.type}-${marker.year}`}
               marker={marker}
@@ -617,22 +675,38 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
             key={`${track.team_id}-${label.line_key}-${label.year}`}
             label={label}
             team={track}
+            band={bandByKey.get(label.band_key)}
             focusedTeamId={focusedTeamId}
             onFocus={onFocus}
+            onClick={onTeamClick}
           />
         )))}
       </div>
+      <InlineTeamTables
+        payload={payload}
+        geometry={geometry}
+        gridStartYear={gridStartYear}
+        displayStartYear={displayStartYear}
+        windowSize={windowSize}
+        focusedTeamId={focusedTeamId}
+        onFocus={onFocus}
+        onTeamClick={onTeamClick}
+        onTeamDoubleClick={onTeamDoubleClick}
+      />
     </div>
   );
 }
 
-function TeamEntryLabel({ label, team, focusedTeamId, onFocus }) {
+function TeamEntryLabel({ label, team, band, focusedTeamId, onFocus, onClick }) {
   const isDimmed = focusedTeamId && focusedTeamId !== team.team_id;
   return (
-    <div
+    <button
+      type="button"
       data-testid={`world-team-entry-label-${team.team_id}-${label.line_key}-${label.year}`}
-      className="absolute z-20 grid max-w-[208px] grid-cols-[42px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded border bg-[#07101d]/85 px-2 py-1 text-[10px] font-black leading-4 shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-sm"
+      className="absolute z-20 grid max-w-[208px] cursor-pointer grid-cols-[42px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded border bg-[#07101d]/85 px-2 py-1 text-left text-[10px] font-black leading-4 shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-sm"
       onMouseEnter={() => onFocus(team.team_id)}
+      onFocus={() => onFocus(team.team_id)}
+      onClick={() => onClick(teamTrackToTeamRow(team, label.band_key, new Map([[label.band_key, band]])))}
       style={{
         left: `${formatPercent((label.anchorX / CHART_WIDTH) * 100)}%`,
         top: CHART_HEADER_HEIGHT + label.y - 13,
@@ -652,7 +726,7 @@ function TeamEntryLabel({ label, team, focusedTeamId, onFocus }) {
         />
       </span>
       <span className="min-w-0 truncate">{team.nome}</span>
-    </div>
+    </button>
   );
 }
 
@@ -743,7 +817,10 @@ function bandStartDividerStyle(band, bandBox, years) {
 }
 
 function bandStartPosition(band, firstYear) {
-  return band.starts_year - firstYear + pointOffsetForSlot(band?.is_special ? "special" : "regular");
+  // Glue the pre-start band and divider to the left edge of the start year's
+  // column. The per-slot offset is only for spacing data points within a
+  // year, not for the "category did not exist" boundary.
+  return band.starts_year - firstYear;
 }
 
 function buildYears(payload) {
@@ -757,32 +834,35 @@ function buildYears(payload) {
   return years;
 }
 
-function buildGeometry(payload, years, displayStartYear) {
+function buildGeometry(payload, years) {
   const bands = {};
-  const rows = {};
   let cursor = 0;
 
   (payload?.bands ?? []).forEach((band) => {
-    const sortedRows = sortedBandRows(band.rows, displayStartYear);
+    // Size each band to the largest championship position it ever holds — i.e.
+    // the number of simultaneous slots in the grid — not the count of distinct
+    // teams that passed through over the years. Lines and name rows are placed by
+    // position, so this is exactly the number of rows the band needs.
     const maxPointPosition = Math.max(
       1,
-      ...sortedRows.flatMap((row) => row.points.map((point) => Math.max(point.position ?? 1, 1))),
+      ...band.rows.flatMap((row) => row.points.map((point) => Math.max(point.position ?? 1, 1))),
     );
-    const visibleRows = Math.max(sortedRows.length, maxPointPosition);
     const bandHeight = Math.max(
       MIN_BAND_HEIGHT,
-      ROW_TOP_OFFSET + BAND_LABEL_HEIGHT + visibleRows * ROW_HEIGHT + 32,
+      ROW_TOP_OFFSET + BAND_LABEL_HEIGHT + maxPointPosition * ROW_HEIGHT + BAND_BOTTOM_PADDING,
     );
-    const top = cursor;
-    bands[band.key] = { top, height: bandHeight };
-    sortedRows.forEach((row, rowIndex) => {
-      rows[rowKey(band.key, row.team_id)] = top + ROW_TOP_OFFSET + BAND_LABEL_HEIGHT + rowIndex * ROW_HEIGHT;
-    });
+    bands[band.key] = { top: cursor, height: bandHeight };
     cursor += bandHeight;
   });
 
   const chartHeight = Math.max(cursor, MIN_CHART_HEIGHT);
-  return { bands, rows, yearCount: years.length, chartHeight, totalHeight: CHART_HEADER_HEIGHT + chartHeight };
+  return { bands, yearCount: years.length, chartHeight, totalHeight: CHART_HEADER_HEIGHT + chartHeight };
+}
+
+// Vertical offset (within the chart, excluding the year header) of a given
+// championship position inside its band.
+function bandRowOffsetY(bandTop, position) {
+  return bandTop + ROW_TOP_OFFSET + BAND_LABEL_HEIGHT + (Math.max(position ?? 1, 1) - 1) * ROW_HEIGHT;
 }
 
 function sortedBandRows(rows, displayStartYear) {
@@ -882,42 +962,36 @@ function trackLineGroups(track) {
     .filter((line) => line.points.length > 0);
 }
 
-function teamSpecialMarkers(track, geometry, years) {
-  const points = track.points ?? [];
-  const specialPoints = points.filter((point) => point.slot === "special");
-  const regularPoints = points.filter((point) => point.slot === "regular");
+function teamMovementMarkers(track, geometry, years) {
+  const points = [...(track.points ?? [])].sort((left, right) => left.year - right.year);
   const markers = [];
 
-  specialPoints.forEach((point, index) => {
+  points.forEach((point, index) => {
+    const nextPoint = points[index + 1];
+    if (!nextPoint || point.band_key === nextPoint.band_key || nextPoint.year !== point.year + 1) {
+      return;
+    }
     if (!years.includes(point.year)) return;
-    const previousSpecial = specialPoints[index - 1];
-    const nextSpecial = specialPoints[index + 1];
-    const startsSpecialRun = !previousSpecial || previousSpecial.year < point.year - 1;
-    const endsSpecialRun = !nextSpecial || nextSpecial.year > point.year + 1;
-    const promotionPoint = latestRegularPointAtOrBefore(regularPoints, point.year);
-    const hasRegularAfter = regularPoints.some((regularPoint) => regularPoint.year > point.year);
-    const y = pointY(point, geometry);
 
-    if (!Number.isFinite(y)) return;
+    const currentY = pointY(point, geometry);
+    const nextY = pointY(nextPoint, geometry);
+    if (!Number.isFinite(currentY) || !Number.isFinite(nextY)) return;
 
-    if (startsSpecialRun && promotionPoint && years.includes(promotionPoint.year)) {
-      const promotionY = pointY(promotionPoint, geometry);
+    if (nextY < currentY) {
       markers.push({
         type: "promotion",
-        year: promotionPoint.year,
-        band_key: promotionPoint.band_key,
-        x: pointX(promotionPoint, years),
-        y: promotionY - 6,
+        year: point.year,
+        band_key: point.band_key,
+        x: pointX(point, years),
+        y: currentY - 6,
       });
-    }
-
-    if (endsSpecialRun && hasRegularAfter) {
+    } else if (nextY > currentY) {
       markers.push({
         type: "demotion",
         year: point.year,
         band_key: point.band_key,
         x: pointX(point, years),
-        y: y + 6,
+        y: currentY + 6,
       });
     }
   });
@@ -932,6 +1006,7 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
       const firstPoint = line.points?.[0];
       if (!firstPoint || !years.includes(firstPoint.year)) return null;
       const band = bandMap.get(firstPoint.band_key);
+      if (band?.is_special) return null;
       const referenceYear = bandReferenceYear(band, displayStartYear, years[years.length - 1] ?? displayStartYear);
       if (firstPoint.year <= referenceYear) return null;
       const pointYValue = pointY(firstPoint, geometry);
@@ -941,6 +1016,7 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
       const y = pointYValue - 9;
       return {
         line_key: line.line_key,
+        band_key: firstPoint.band_key,
         year: firstPoint.year,
         anchorX,
         y,
@@ -948,12 +1024,6 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
       };
     })
     .filter(Boolean);
-}
-
-function latestRegularPointAtOrBefore(regularPoints, year) {
-  return [...regularPoints]
-    .filter((point) => point.year <= year)
-    .sort((left, right) => right.year - left.year || right.position - left.position)[0] ?? null;
 }
 
 function buildPath(track, geometry, years) {
@@ -983,33 +1053,27 @@ function buildPath(track, geometry, years) {
 }
 
 function pointX(point, years) {
+  // Anchor every point to the left edge (start) of its year column, so team
+  // lines, markers and the "category did not exist" divider all line up at the
+  // beginning of the year regardless of regular/special slot.
   const yearIndex = years.indexOf(point.year);
-  const slotOffset = pointOffsetForSlot(point.slot);
-  return ((yearIndex + slotOffset) / years.length) * CHART_WIDTH;
-}
-
-function pointOffsetForSlot(slot) {
-  return slot === "special" ? SPECIAL_YEAR_POINT_OFFSET : REGULAR_YEAR_POINT_OFFSET;
+  return (yearIndex / years.length) * CHART_WIDTH;
 }
 
 function pointY(point, geometry) {
   const bandBox = geometry.bands[point.band_key];
   if (!bandBox) return NaN;
-  const position = Math.max(point.position ?? 1, 1);
-  return bandBox.top + ROW_TOP_OFFSET + BAND_LABEL_HEIGHT + (position - 1) * ROW_HEIGHT;
+  return bandRowOffsetY(bandBox.top, point.position);
 }
 
 function pointRowY(point, geometry) {
-  return geometry.rows[rowKey(point.band_key, point.team_id)] ?? pointY(point, geometry);
+  return pointY(point, geometry);
 }
 
 function slotOrder(slot) {
   return slot === "special" ? 2 : 1;
 }
 
-function rowKey(bandKey, teamId) {
-  return `${bandKey}:${teamId}`;
-}
 
 function flattenTeams(payload) {
   const rows = [];
@@ -1030,6 +1094,17 @@ function teamRowToTeam(row) {
     posicao: row.base_position ?? row.posicao,
     pontos: row.points?.[0]?.points ?? row.pontos ?? 0,
     vitorias: row.points?.[0]?.wins ?? row.vitorias ?? 0,
+  };
+}
+
+function teamTrackToTeamRow(track, bandKey, bandByKey) {
+  const band = bandByKey?.get?.(bandKey);
+  return {
+    ...track,
+    band_key: bandKey,
+    band_category: band?.category ?? track.band_category ?? "",
+    category: band?.category ?? track.category ?? "",
+    class_name: band?.class_name ?? track.class_name ?? null,
   };
 }
 
@@ -1060,6 +1135,9 @@ function familyFromTeamContext(category, className) {
   }
   if (categoryId.includes("gt3") || classId === "gt3") {
     return "gt3";
+  }
+  if (categoryId.includes("lmp2") || classId === "lmp2") {
+    return "lmp2";
   }
   if (categoryId.includes("mazda") || classId === "mazda") {
     return "mazda";
@@ -1104,12 +1182,24 @@ function getReadableWorldTeamColor(color) {
   return `rgb(${boost(r)}, ${boost(g)}, ${boost(b)})`;
 }
 
+// Earliest year the timeline may scroll to for the selected family: the oldest
+// category start among its bands (no point scrolling before any of them raced),
+// floored at the data's min year.
+function familyMinYear(payload) {
+  const starts = (payload?.bands ?? [])
+    .map((band) => band.starts_year)
+    .filter((year) => Number.isFinite(year));
+  const dataMin = payload?.min_year ?? DEFAULT_START_YEAR;
+  return starts.length ? Math.max(dataMin, Math.min(...starts)) : dataMin;
+}
+
 function windowRailStyle(payload, displayStart = payload?.window_start, windowSize = payload?.window_size ?? DEFAULT_WINDOW_SIZE) {
   if (!payload) {
     return { left: "0%", width: "20%" };
   }
-  const total = Math.max(payload.max_year - payload.min_year + 1, 1);
-  const left = ((displayStart - payload.min_year) / total) * 100;
+  const minYear = familyMinYear(payload);
+  const total = Math.max(atlasMaxYear(payload) - minYear + 1, 1);
+  const left = ((displayStart - minYear) / total) * 100;
   const width = (windowSize / total) * 100;
   return {
     left: `${clamp(left, 0, 100)}%`,
@@ -1121,10 +1211,14 @@ function chartTimelineStyle(payload, years, displayStartYear, visibleWindowSize)
   if (!payload || !years.length || !Number.isFinite(displayStartYear)) {
     return { transform: "translate3d(0%, 0, 0)" };
   }
-  const widthPercent = (years.length / visibleWindowSize) * 100;
+  // Reserve a left gutter for the name tables so the data area is drawn to their
+  // right (not hidden behind them). The visible window spans [gutter, 100%].
+  const gutter = INLINE_TABLE_WIDTH_PCT / 100;
+  const widthPercent = round((1 - gutter) * (years.length / visibleWindowSize) * 100);
   const offsetYears = displayStartYear - years[0];
   const offsetPercent = -(offsetYears / years.length) * 100;
   return {
+    left: `${INLINE_TABLE_WIDTH_PCT}%`,
     width: `${widthPercent}%`,
     transform: `translate3d(${round(offsetPercent)}%, 0, 0)`,
     transition: "transform 80ms linear",
@@ -1133,31 +1227,44 @@ function chartTimelineStyle(payload, years, displayStartYear, visibleWindowSize)
 }
 
 function latestWindowStart(payload, windowSize = payload?.window_size ?? DEFAULT_WINDOW_SIZE) {
-  return Math.max(payload.min_year, payload.max_year - windowSize + 1);
+  return Math.max(familyMinYear(payload), atlasMaxYear(payload) - windowSize + 1);
 }
 
-function clampVisibleStart(payload, startYear) {
+function clampVisibleStart(payload, startYear, windowSize = DEFAULT_WINDOW_SIZE) {
   if (!payload) {
     return startYear;
   }
-  return clamp(startYear, payload.min_year, latestWindowStart(payload, DEFAULT_WINDOW_SIZE));
+  return clamp(startYear, familyMinYear(payload), latestWindowStart(payload, windowSize));
 }
 
-function roundedDisplayStartYear(payload, value) {
+function roundedDisplayStartYear(payload, value, windowSize = DEFAULT_WINDOW_SIZE) {
   if (!payload || !Number.isFinite(value)) {
     return value;
   }
-  return Math.round(clamp(value, payload.min_year, latestWindowStart(payload, DEFAULT_WINDOW_SIZE)));
+  return Math.round(clamp(value, familyMinYear(payload), latestWindowStart(payload, windowSize)));
 }
 
-function yearFromClientX(payload, railElement, clientX) {
-  const latestStart = latestWindowStart(payload, DEFAULT_WINDOW_SIZE);
+function visibleWindowEndYear(payload, startYear, windowSize = DEFAULT_WINDOW_SIZE) {
+  if (!payload || !Number.isFinite(startYear)) {
+    return null;
+  }
+  const unclampedEnd = Math.round(startYear) + windowSize - 1;
+  return Math.min(unclampedEnd, atlasMaxYear(payload));
+}
+
+function atlasMaxYear(payload) {
+  return payload?.window_end ?? payload?.max_year ?? DEFAULT_START_YEAR;
+}
+
+function yearFromClientX(payload, railElement, clientX, windowSize = DEFAULT_WINDOW_SIZE) {
+  const minYear = familyMinYear(payload);
+  const latestStart = latestWindowStart(payload, windowSize);
   const rect = railElement?.getBoundingClientRect();
   if (!rect || rect.width <= 0) {
     return payload.window_start;
   }
   const progress = clamp((clientX - rect.left) / rect.width, 0, 1);
-  return payload.min_year + progress * (latestStart - payload.min_year);
+  return minYear + progress * (latestStart - minYear);
 }
 
 function formatDelta(value) {

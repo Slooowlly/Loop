@@ -80,11 +80,19 @@ impl Database {
 
     /// Executa uma função dentro de uma transação SQLite.
     /// Faz commit ao sucesso e rollback automático em caso de erro.
+    ///
+    /// Usa BEGIN IMMEDIATE: o lock de escrita é adquirido já no início,
+    /// serializando escritores concorrentes via busy_timeout. Com BEGIN
+    /// DEFERRED (padrão), uma transação que lê antes de escrever falharia
+    /// com SQLITE_BUSY_SNAPSHOT ("database is locked") imediatamente — sem
+    /// retry — se outra conexão comitasse entre a leitura e a escrita.
     pub fn transaction<T, F>(&mut self, f: F) -> Result<T, DbError>
     where
         F: FnOnce(&rusqlite::Transaction) -> Result<T, DbError>,
     {
-        let tx = self.conn.transaction()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let result = f(&tx)?;
         tx.commit()?;
         Ok(result)
@@ -98,7 +106,7 @@ fn apply_pragmas(conn: &Connection) -> Result<(), DbError> {
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
          PRAGMA foreign_keys=ON;
-         PRAGMA busy_timeout=5000;",
+         PRAGMA busy_timeout=15000;",
     )?;
     Ok(())
 }

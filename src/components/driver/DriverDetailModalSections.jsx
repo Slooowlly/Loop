@@ -431,6 +431,14 @@ function DebutTeamLine({ teamName }) {
 }
 
 function formatCategoryLabel(categoryId) {
+  const normalized = String(categoryId || "").trim();
+  if (normalized.includes(":")) {
+    const [baseCategory, className] = normalized.split(":");
+    const classLabel = formatSpecialClassLabel(className);
+    if (baseCategory === "endurance" && classLabel) return `${classLabel} Endurance`;
+    if (baseCategory === "production_challenger" && classLabel) return `${classLabel} Production`;
+  }
+
   const map = {
     mazda_rookie: "Mazda Rookie",
     toyota_rookie: "Toyota Rookie",
@@ -443,7 +451,7 @@ function formatCategoryLabel(categoryId) {
     endurance: "Endurance",
   };
 
-  return map[categoryId] || categoryId || "-";
+  return map[normalized] || normalized || "-";
 }
 
 function formatRaceMilestone(value) {

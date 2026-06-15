@@ -6,6 +6,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
 import { getCategoryColor } from "../../utils/categoryColors";
 import { categoryLabel } from "../../utils/formatters";
+import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 
 // Imagens por track_id
 const TRACK_IMAGES = {
@@ -81,12 +82,68 @@ const ALL_CALENDAR_CATEGORIES = [
   "production_challenger",
   "gt4",
   "gt3",
-  "lmp2",
   "endurance",
 ];
 // Fase de cada mes segundo as regras do jogo:
 // Jan = Mercado, Fev-Ago = Temporada Regular, Set-Dez = Bloco Especial
-function getMonthPhase(monthIndex) {
+function getMonthPhase(monthIndex, isLegacyCalendar = false) {
+  // LEGADO 9D: saves pré-v33 ainda exibem a divisão visual do calendário antigo.
+  if (isLegacyCalendar) {
+    if (monthIndex === 0) {
+      return {
+        type: "mercado",
+        label: "Mercado",
+        badgeClass: "bg-status-yellow/15 text-status-yellow",
+        cardClass: "border-status-yellow/25",
+        emptyText: "Período de transferências e contratos para a temporada.",
+      };
+    }
+    if (monthIndex <= 7) {
+      return {
+        type: "regular",
+        label: "Temporada Regular",
+        badgeClass: "bg-accent-primary/15 text-accent-primary",
+        cardClass: "",
+        emptyText: null,
+      };
+    }
+    return {
+      type: "especial",
+      label: "Bloco Especial",
+      badgeClass: "bg-status-purple/15 text-status-purple",
+      cardClass: "border-status-purple/25",
+      emptyText: "Etapas do bloco especial e janela de convocação.",
+    };
+  }
+
+  if (!isLegacyCalendar) {
+    if (monthIndex === 0) {
+      return {
+        type: "mercado",
+        label: "Pré-temporada",
+        badgeClass: "bg-status-yellow/15 text-status-yellow",
+        cardClass: "border-status-yellow/25",
+        emptyText: "Janela de mercado da pré-temporada.",
+      };
+    }
+    if (monthIndex >= 1 && monthIndex <= 10) {
+      return {
+        type: "regular",
+        label: "Temporada",
+        badgeClass: "bg-accent-primary/15 text-accent-primary",
+        cardClass: "",
+        emptyText: null,
+      };
+    }
+    return {
+      type: "encerramento",
+      label: "Encerramento",
+      badgeClass: "bg-white/10 text-text-secondary",
+      cardClass: "border-white/10",
+      emptyText: "Fim de ano sem corridas oficiais.",
+    };
+  }
+
   if (monthIndex === 0) {
     return {
       type: "mercado",
@@ -301,6 +358,7 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tooltip, setTooltip] = useState(null);
+  const isLegacyCalendar = isLegacySeasonPhase(season?.fase);
 
   useEffect(() => {
     let mounted = true;
@@ -319,7 +377,7 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
       setOtherCalendars([]);
 
       try {
-        const specialCategory = acceptedSpecialOffer?.special_category ?? null;
+        const specialCategory = isLegacyCalendar ? acceptedSpecialOffer?.special_category ?? null : null;
         const visibleCategories = new Set([playerTeam.categoria, specialCategory].filter(Boolean));
         const otherCategories = ALL_CALENDAR_CATEGORIES.filter((category) => !visibleCategories.has(category));
         const [regularEntries, specialEntries] = await Promise.all([
@@ -373,7 +431,13 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
     return () => {
       mounted = false;
     };
-  }, [acceptedSpecialOffer?.special_category, careerId, playerTeam?.categoria, season?.rodada_atual]);
+  }, [
+    acceptedSpecialOffer?.special_category,
+    careerId,
+    isLegacyCalendar,
+    playerTeam?.categoria,
+    season?.rodada_atual,
+  ]);
 
   const displayedCalendar = useMemo(
     () => [...calendar, ...specialCalendar],
@@ -429,20 +493,28 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
   }, [specialCalendar]);
 
   const convocationWindowDateKeys = useMemo(
-    () => buildConvocationWindowDateKeys(
-      firstSpecialRaceDate,
-      specialWindowState?.total_days ?? 7,
-      seasonYear,
+    () => (
+      isLegacyCalendar
+        ? buildConvocationWindowDateKeys(
+          firstSpecialRaceDate,
+          specialWindowState?.total_days ?? 7,
+          seasonYear,
+        )
+        : new Set()
     ),
-    [firstSpecialRaceDate, seasonYear, specialWindowState?.total_days],
+    [firstSpecialRaceDate, isLegacyCalendar, seasonYear, specialWindowState?.total_days],
   );
   const convocationStartDateKey = useMemo(
-    () => getConvocationStartDateKey(
-      firstSpecialRaceDate,
-      specialWindowState?.total_days ?? 7,
-      seasonYear,
+    () => (
+      isLegacyCalendar
+        ? getConvocationStartDateKey(
+          firstSpecialRaceDate,
+          specialWindowState?.total_days ?? 7,
+          seasonYear,
+        )
+        : null
     ),
-    [firstSpecialRaceDate, seasonYear, specialWindowState?.total_days],
+    [firstSpecialRaceDate, isLegacyCalendar, seasonYear, specialWindowState?.total_days],
   );
 
   const completed = displayedCalendar.filter((race) => race.status === "Concluida").length;
@@ -468,9 +540,19 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
       </div>
 
       <div data-testid="calendar-legend" className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-        <LegendItem color="bg-status-yellow" label="Mercado" />
-        <LegendItem color="bg-orange-400" label="Convocação" />
-        <LegendItem color="bg-status-purple" label="Bloco Especial" />
+        {isLegacyCalendar ? (
+          <>
+            <LegendItem color="bg-status-yellow" label="Mercado" />
+            <LegendItem color="bg-orange-400" label="Convocação" />
+            <LegendItem color="bg-status-purple" label="Bloco Especial" />
+          </>
+        ) : (
+          <>
+            <LegendItem color="bg-status-yellow" label="Pré-temporada" />
+            <LegendItem color="bg-accent-primary" label="Temporada" />
+            <LegendItem color="bg-white/60" label="Encerramento" />
+          </>
+        )}
       </div>
 
       {loading ? (
@@ -493,6 +575,7 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
                 currentDateParts={currentDateParts}
                 convocationDateKeys={convocationWindowDateKeys}
                 convocationStartDateKey={convocationStartDateKey}
+                isLegacyCalendar={isLegacyCalendar}
                 raceArrivalFeedbackActive={raceArrivalFeedbackActive}
                 showAnimatedProgress={isCalendarAdvancing}
                 onCellHover={setTooltip}
@@ -512,6 +595,7 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
                 currentDateParts={currentDateParts}
                 convocationDateKeys={convocationWindowDateKeys}
                 convocationStartDateKey={convocationStartDateKey}
+                isLegacyCalendar={isLegacyCalendar}
                 raceArrivalFeedbackActive={raceArrivalFeedbackActive}
                 showAnimatedProgress={isCalendarAdvancing}
                 onCellHover={setTooltip}
@@ -553,11 +637,12 @@ function MonthCard({
   currentDateParts,
   convocationDateKeys,
   convocationStartDateKey,
+  isLegacyCalendar,
   raceArrivalFeedbackActive,
   showAnimatedProgress,
   onCellHover,
 }) {
-  const phase = getMonthPhase(month);
+  const phase = getMonthPhase(month, isLegacyCalendar);
   const cells = buildMonthCells(year, month);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const isCurrentMonth = currentDateParts?.year === year && currentDateParts?.month === month;

@@ -549,7 +549,7 @@ fn rebuild_meta_from_restored_db(career_dir: &Path) -> Result<(), String> {
     meta.category = active_contract
         .as_ref()
         .map(|contract| contract.categoria.clone())
-        .or_else(|| player.categoria_atual)
+        .or(player.categoria_atual)
         .unwrap_or(meta.category);
     meta.total_races = total_races;
 
@@ -579,9 +579,6 @@ mod tests {
         advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
         finalize_preseason_in_base_dir, get_player_proposals_in_base_dir,
         respond_to_proposal_in_base_dir, CreateCareerInput,
-    };
-    use crate::commands::convocation::{
-        get_player_special_offers_in_base_dir, respond_player_special_offer_in_base_dir,
     };
     use crate::commands::race::simulate_race_weekend_in_base_dir;
     use crate::config::app_config::AppConfig;
@@ -642,28 +639,6 @@ mod tests {
                 [],
             )
             .expect("mark season as post-special");
-    }
-
-    fn mark_regular_races_completed(db: &Database) {
-        db.conn
-            .execute(
-                "UPDATE calendar SET status = 'Concluida' WHERE season_phase = 'BlocoRegular'",
-                [],
-            )
-            .expect("complete regular block");
-    }
-
-    fn mark_remaining_special_races_completed(db_path: &Path, season_id: &str) {
-        let db = Database::open_existing(db_path).expect("db");
-        db.conn
-            .execute(
-                "UPDATE calendar
-                 SET status = 'Concluida'
-                 WHERE temporada_id = ?1
-                   AND categoria IN ('production_challenger', 'endurance')",
-                rusqlite::params![season_id],
-            )
-            .expect("mark remaining special races completed");
     }
 
     fn force_complete_preseason_plan(save_dir: &Path) {
@@ -931,85 +906,6 @@ mod tests {
                 .join("preseason_plan.json")
                 .exists(),
             "finalizar a pre-temporada deve remover o plano salvo"
-        );
-
-        let _ = fs::remove_dir_all(base_dir);
-    }
-
-    #[test]
-    fn full_special_block_player_offer_flow_cleans_up_after_pos_especial() {
-        let base_dir = create_test_career_dir("full_special_block_player_offer_flow");
-        let (_config, _career_dir, db_path, _meta_path) = career_paths(&base_dir);
-
-        let db = Database::open_existing(&db_path).expect("db");
-        let mut player = driver_queries::get_player_driver(&db.conn).expect("player");
-        player.categoria_atual = Some("gt4".to_string());
-        player.atributos.skill = 98.0;
-        driver_queries::update_driver(&db.conn, &player).expect("update player");
-
-        mark_regular_races_completed(&db);
-        crate::convocation::advance_to_convocation_window(&db.conn).expect("advance convocation");
-        crate::convocation::run_convocation_window(&db.conn).expect("run convocation");
-        drop(db);
-
-        let offers =
-            get_player_special_offers_in_base_dir(&base_dir, "career_001").expect("special offers");
-        assert!(
-            !offers.is_empty(),
-            "convocation should generate at least one special offer for the player"
-        );
-
-        let accepted =
-            respond_player_special_offer_in_base_dir(&base_dir, "career_001", &offers[0].id, true)
-                .expect("accept special offer");
-        assert_eq!(accepted.action, "accepted");
-        assert_eq!(accepted.special_category.as_deref(), Some("endurance"));
-
-        let db = Database::open_existing(&db_path).expect("db after accept");
-        crate::convocation::iniciar_bloco_especial(&db.conn).expect("start special block");
-        let season = season_queries::get_active_season(&db.conn)
-            .expect("active season")
-            .expect("season");
-        let next_special_race = calendar_queries::get_next_race(&db.conn, &season.id, "endurance")
-            .expect("next endurance race query")
-            .expect("pending endurance race");
-        drop(db);
-
-        let race_result =
-            simulate_race_weekend_in_base_dir(&base_dir, "career_001", &next_special_race.id)
-                .expect("simulate accepted special race");
-        assert!(
-            race_result
-                .player_race
-                .race_results
-                .iter()
-                .any(|entry| entry.is_jogador),
-            "special race grid should include the player after accepting the special offer"
-        );
-
-        mark_remaining_special_races_completed(&db_path, &season.id);
-        let db = Database::open_existing(&db_path).expect("db before pos especial");
-        crate::convocation::encerrar_bloco_especial(&db.conn).expect("end special block");
-        let pos_result = crate::convocation::run_pos_especial(&db.conn).expect("run pos especial");
-        assert!(pos_result.errors.is_empty());
-
-        let refreshed_player =
-            driver_queries::get_player_driver(&db.conn).expect("player refreshed");
-        let active_special =
-            contract_queries::get_active_especial_contract_for_pilot(&db.conn, &player.id)
-                .expect("active special contract query");
-        let refreshed_season = season_queries::get_active_season(&db.conn)
-            .expect("season query after pos especial")
-            .expect("active season after pos especial");
-
-        assert_eq!(refreshed_season.fase.as_str(), "PosEspecial");
-        assert!(
-            refreshed_player.categoria_especial_ativa.is_none(),
-            "player should leave the special category after pos especial"
-        );
-        assert!(
-            active_special.is_none(),
-            "special contracts should be cleared after pos especial"
         );
 
         let _ = fs::remove_dir_all(base_dir);

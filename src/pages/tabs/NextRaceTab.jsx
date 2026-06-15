@@ -6,6 +6,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
+import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
 import {
   buildEditorialCopy,
@@ -58,14 +59,16 @@ function NextRaceTab() {
   const startCalendarAdvance = useCareerStore((state) => state.startCalendarAdvance);
   const isConvocating = useCareerStore((state) => state.isConvocating);
   const isEnteringPreseason = useCareerStore((state) => state.isEnteringPreseason);
+  const phase = season?.fase;
+  const isLegacyPhase = isLegacySeasonPhase(phase);
   const hasPendingRegularRaces =
-    season?.fase === "BlocoRegular" && (temporalSummary?.pending_in_phase ?? 0) > 0;
+    isLegacyPhase && phase === "BlocoRegular" && (temporalSummary?.pending_in_phase ?? 0) > 0;
 
   useEffect(() => {
     let active = true;
 
     async function detectPreseason() {
-      if (!careerId || nextRace) return;
+      if (!careerId || nextRace || phase !== "PreTemporada") return;
 
       try {
         await invoke("get_preseason_state", { careerId });
@@ -85,7 +88,7 @@ function NextRaceTab() {
     return () => {
       active = false;
     };
-  }, [careerId, enterPreseason, nextRace]);
+  }, [careerId, enterPreseason, nextRace, phase]);
 
   useEffect(() => {
     let active = true;
@@ -255,7 +258,8 @@ function NextRaceTab() {
     setExportNotice("");
 
     try {
-      if (season?.fase === "BlocoEspecial") {
+      // LEGADO 9D: o bloco especial só segue vivo para saves pré-v33 em voo.
+      if (isLegacyPhase && phase === "BlocoEspecial") {
         await finishSpecialBlock();
         return;
       }
@@ -265,17 +269,17 @@ function NextRaceTab() {
         return;
       }
 
-      if (!nextRace && season?.fase === "BlocoRegular") {
+      if (isLegacyPhase && !nextRace && phase === "BlocoRegular") {
         await runConvocationWindow();
         return;
       }
 
-      if (!nextRace && season?.fase === "PosEspecial") {
+      if (isLegacyPhase && !nextRace && phase === "PosEspecial") {
         await advanceSeason();
         return;
       }
 
-      if (hasExistingPreseason) {
+      if (phase === "PreTemporada" || hasExistingPreseason) {
         await enterPreseason();
         return;
       }
@@ -292,6 +296,47 @@ function NextRaceTab() {
 
   if (!nextRace) {
     const isFreeAgent = !playerTeam;
+    const emptyHeading = isFreeAgent
+      ? "Sem equipe nesta temporada"
+      : phase === "PreTemporada"
+      ? "Pré-temporada aberta"
+      : phase === "Encerramento"
+      ? "Fim de temporada"
+      : isLegacyPhase && phase === "BlocoEspecial"
+      ? "Bloco especial em andamento"
+      : isLegacyPhase && phase === "PosEspecial"
+      ? "Especial finalizado"
+      : "Temporada finalizada";
+    const emptyDescription = isFreeAgent
+      ? "Você não tem equipe nesta temporada. Pule para a próxima pré-temporada e tente o mercado novamente."
+      : phase === "PreTemporada"
+      ? "O mercado da pré-temporada está aberto. Continue pela janela semanal para rever propostas, renovações e pilotos disponíveis."
+      : phase === "Encerramento"
+      ? "Todas as corridas do ano foram disputadas. Você já pode avançar para a pré-temporada da próxima temporada."
+      : isLegacyPhase && phase === "BlocoEspecial"
+      ? "Você ficou fora das categorias especiais. Use este atalho para simular o restante do bloco e avançar o calendário."
+      : isLegacyPhase && phase === "BlocoRegular"
+      ? hasPendingRegularRaces
+        ? "Sua categoria já fechou o campeonato, mas ainda há corridas regulares acontecendo no calendário."
+        : "Sua temporada regular terminou. Agora você pode analisar notícias e resultados com calma, e só abrir a janela de convocação quando quiser."
+      : isLegacyPhase && phase === "PosEspecial"
+      ? "A temporada especial terminou. Você pode conferir notícias e standings finais antes de abrir o fechamento da temporada."
+      : hasExistingPreseason
+      ? "A pré-temporada já foi iniciada. Você pode voltar direto para o mercado semanal."
+      : "Todas as corridas da temporada atual já foram disputadas.";
+    const emptyButtonLabel = isFreeAgent
+      ? "Pular temporada"
+      : isLegacyPhase && phase === "BlocoEspecial"
+      ? "Pular bloco especial"
+      : hasPendingRegularRaces
+      ? "Avançar calendário"
+      : isLegacyPhase && phase === "BlocoRegular"
+      ? "Avançar para convocação"
+      : isLegacyPhase && phase === "PosEspecial"
+      ? "Encerrar temporada"
+      : phase === "PreTemporada" || hasExistingPreseason
+      ? "Continuar pré-temporada"
+      : "Avançar para pré-temporada";
     return (
       <div className="relative">
         <LoadingOverlay
@@ -301,9 +346,9 @@ function NextRaceTab() {
               ? "Abrindo mercado de transferências"
               : isFreeAgent
               ? "Pulando temporada"
-              : season?.fase === "BlocoEspecial"
+              : isLegacyPhase && phase === "BlocoEspecial"
               ? "Simulando bloco especial"
-              : season?.fase === "BlocoRegular"
+              : isLegacyPhase && phase === "BlocoRegular"
               ? "Abrindo convocação"
               : "Virando a temporada"
           }
@@ -312,9 +357,9 @@ function NextRaceTab() {
               ? "Carregando equipes, propostas e pilotos disponíveis."
               : isFreeAgent
               ? "Simulando todas as corridas da temporada sem sua participação."
-              : season?.fase === "BlocoEspecial"
+              : isLegacyPhase && phase === "BlocoEspecial"
               ? "As corridas especiais restantes estão sendo resolvidas em lote para avançar o calendário."
-              : season?.fase === "BlocoRegular"
+              : isLegacyPhase && phase === "BlocoRegular"
               ? "A janela especial está sendo aberta sem passar pelo mercado normal."
               : "Evolução, aposentadorias, promoções e preparação da pré-temporada em andamento."
           }
@@ -327,28 +372,10 @@ function NextRaceTab() {
               {isFreeAgent ? "Agente livre" : "Próxima corrida"}
             </p>
             <h2 className="mt-3 text-3xl font-semibold text-text-primary">
-              {isFreeAgent
-                ? "Sem equipe nesta temporada"
-                : season?.fase === "BlocoEspecial"
-                ? "Bloco especial em andamento"
-                : season?.fase === "PosEspecial"
-                ? "Especial finalizado"
-                : "Temporada finalizada"}
+              {emptyHeading}
             </h2>
             <p className="mt-3 text-sm text-text-secondary">
-              {isFreeAgent
-                ? "Você não tem equipe nesta temporada. Pule para a próxima pré-temporada e tente o mercado novamente."
-                : season?.fase === "BlocoEspecial"
-                ? "Você ficou fora das categorias especiais. Use este atalho para simular o restante do bloco e avançar o calendário."
-                : season?.fase === "BlocoRegular"
-                ? hasPendingRegularRaces
-                  ? "Sua categoria já fechou o campeonato, mas ainda há corridas regulares acontecendo no calendário."
-                  : "Sua temporada regular terminou. Agora você pode analisar notícias e resultados com calma, e só abrir a janela de convocação quando quiser."
-                : season?.fase === "PosEspecial"
-                ? "A temporada especial terminou. Você pode conferir notícias e standings finais antes de abrir o fechamento da temporada."
-                : hasExistingPreseason
-                ? "A pré-temporada já foi iniciada. Você pode voltar direto para o mercado semanal."
-                : "Todas as corridas da temporada atual já foram disputadas."}
+              {emptyDescription}
             </p>
             <div className="mt-6">
               <GlassButton
@@ -367,19 +394,7 @@ function NextRaceTab() {
               >
                 {isAdvancing || isConvocating || isEnteringPreseason
                   ? "Processando..."
-                  : isFreeAgent
-                  ? "Pular temporada"
-                  : season?.fase === "BlocoEspecial"
-                  ? "Pular bloco especial"
-                  : hasPendingRegularRaces
-                  ? "Avançar calendário"
-                  : season?.fase === "BlocoRegular"
-                  ? "Avançar para convocação"
-                  : season?.fase === "PosEspecial"
-                  ? "Encerrar temporada"
-                  : hasExistingPreseason
-                  ? "Continuar pré-temporada"
-                  : "Avançar para pré-temporada"}
+                  : emptyButtonLabel}
               </GlassButton>
             </div>
             {error ? <p className="mt-4 text-sm text-status-red">{error}</p> : null}

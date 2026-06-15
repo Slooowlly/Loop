@@ -6,6 +6,7 @@ use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::promotion::standings::calculate_constructor_standings;
 use crate::promotion::{MovementType, TeamMovement};
 
+#[cfg(test)]
 pub fn execute_block1(conn: &Connection, _rng: &mut impl Rng) -> Result<Vec<TeamMovement>, String> {
     execute_block1_for_year(conn, i32::MAX, _rng)
 }
@@ -176,7 +177,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(1212);
 
         let movements =
-            execute_block1_for_year(&conn, 2016, &mut rng).expect("block1 timeline should run");
+            execute_block1_for_year(&conn, 2021, &mut rng).expect("block1 timeline should run");
 
         assert!(movements.iter().any(|movement| {
             movement.team_id == "MR1"

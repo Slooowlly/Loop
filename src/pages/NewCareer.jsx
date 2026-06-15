@@ -570,12 +570,14 @@ function NewCareer() {
     <div className="app-shell px-4 py-6 text-text-primary sm:px-6 lg:px-10">
       <div className="app-backdrop" />
 
-      <div className="relative mx-auto flex min-h-[calc(100vh-3rem)] max-w-7xl items-center justify-center">
-        <div className="wizard-panel glass w-full overflow-hidden rounded-[32px] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.42)] sm:p-8 lg:p-10">
-          <div className="relative z-10">
-            <StepIndicator currentStep={step} steps={WIZARD_STEPS} />
+      <div className="relative mx-auto flex min-h-[calc(100vh-3rem)] max-w-7xl items-center justify-center py-6">
+        <div className="wizard-panel glass flex max-h-[calc(100vh-4rem)] w-full flex-col overflow-hidden rounded-[32px] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.42)] sm:p-8 lg:p-10">
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+            <div className="flex-shrink-0">
+              <StepIndicator currentStep={step} steps={WIZARD_STEPS} />
+            </div>
 
-            <div className="mt-8 flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="mt-8 flex flex-shrink-0 flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">
                   {STEP_TITLES[step]}
@@ -605,16 +607,16 @@ function NewCareer() {
             </div>
 
             {error ? (
-              <div className="mt-6 rounded-2xl border border-status-red/40 bg-status-red/10 px-4 py-3 text-sm text-status-red">
+              <div className="mt-6 flex-shrink-0 rounded-2xl border border-status-red/40 bg-status-red/10 px-4 py-3 text-sm text-status-red">
                 {error}
               </div>
             ) : null}
 
-            <div key={step} className="wizard-step-enter mt-8">
+            <div key={step} className="wizard-step-enter mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
               {renderStepContent()}
             </div>
 
-            <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-8 flex flex-shrink-0 flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <GlassButton variant="secondary" onClick={handleBack}>
                 {step === 1 ? "Voltar ao menu" : "Voltar"}
               </GlassButton>

@@ -5,15 +5,15 @@ use crate::models::team::Team;
 pub fn category_start_year(category_id: &str) -> i32 {
     match category_id {
         "gt3" => 1999,
-        "endurance" => 2000,
+        "endurance" => 2004,
         "lmp2" => 2004,
         "gt4" => 2002,
         "toyota_amador" => 2012,
         "bmw_m2" => 2015,
         "mazda_amador" => 2016,
         "production_challenger" => 2018,
-        "mazda_rookie" => 2012,
-        "toyota_rookie" => 2008,
+        "mazda_rookie" => 2020,
+        "toyota_rookie" => 2020,
         _ => 2000,
     }
 }
@@ -22,8 +22,24 @@ pub fn is_category_active_in_year(category_id: &str, year: i32) -> bool {
     year >= category_start_year(category_id)
 }
 
+pub fn class_start_year(category_id: &str, class_id: Option<&str>) -> i32 {
+    match (category_id, class_id) {
+        ("endurance", Some("gt3")) => 2005,
+        ("endurance", Some("gt4")) => 2007,
+        ("endurance", Some("lmp2")) => 2004,
+        ("production_challenger", Some("mazda" | "toyota" | "bmw")) => 2018,
+        _ => category_start_year(category_id),
+    }
+}
+
 pub fn is_team_active_in_year(team: &Team, year: i32) -> bool {
-    team.ativa && year >= team.ano_fundacao && is_category_active_in_year(&team.categoria, year)
+    team.ativa && year >= team_start_year(team)
+}
+
+pub fn team_start_year(team: &Team) -> i32 {
+    team.ano_fundacao
+        .max(category_start_year(&team.categoria))
+        .max(class_start_year(&team.categoria, team.classe.as_deref()))
 }
 
 pub fn historical_team_foundation_year(
@@ -123,6 +139,76 @@ mod tests {
     use crate::constants::teams::get_team_templates;
     use crate::models::team::Team;
     use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn class_start_year_separates_category_and_multiclass_entry_dates() {
+        assert_eq!(class_start_year("endurance", Some("gt3")), 2005);
+        assert_eq!(class_start_year("endurance", Some("gt4")), 2007);
+        assert_eq!(class_start_year("endurance", Some("lmp2")), 2004);
+        assert_eq!(
+            class_start_year("production_challenger", Some("mazda")),
+            2018
+        );
+        assert_eq!(
+            class_start_year("production_challenger", Some("toyota")),
+            2018
+        );
+        assert_eq!(class_start_year("production_challenger", Some("bmw")), 2018);
+        assert_eq!(class_start_year("gt3", None), 1999);
+        assert_eq!(class_start_year("gt4", None), 2002);
+        assert_eq!(class_start_year("lmp2", None), 2004);
+        assert_eq!(category_start_year("endurance"), 2004);
+    }
+
+    #[test]
+    fn team_activity_uses_foundation_category_and_class_start_years() {
+        let gt3 = test_team("gt3", None, 1990);
+        assert!(!is_team_active_in_year(&gt3, 1998));
+        assert!(is_team_active_in_year(&gt3, 1999));
+
+        let endurance_gt3 = test_team("endurance", Some("gt3"), 1990);
+        assert!(!is_team_active_in_year(&endurance_gt3, 2004));
+        assert!(is_team_active_in_year(&endurance_gt3, 2005));
+
+        let gt4 = test_team("gt4", None, 1990);
+        assert!(!is_team_active_in_year(&gt4, 2001));
+        assert!(is_team_active_in_year(&gt4, 2002));
+
+        let endurance_gt4 = test_team("endurance", Some("gt4"), 1990);
+        assert!(!is_team_active_in_year(&endurance_gt4, 2006));
+        assert!(is_team_active_in_year(&endurance_gt4, 2007));
+
+        let lmp2 = test_team("lmp2", None, 1990);
+        assert!(!is_team_active_in_year(&lmp2, 2003));
+        assert!(is_team_active_in_year(&lmp2, 2004));
+
+        let endurance_lmp2 = test_team("endurance", Some("lmp2"), 1990);
+        assert!(!is_team_active_in_year(&endurance_lmp2, 2003));
+        assert!(is_team_active_in_year(&endurance_lmp2, 2004));
+
+        let production_mazda = test_team("production_challenger", Some("mazda"), 1990);
+        assert!(!is_team_active_in_year(&production_mazda, 2017));
+        assert!(is_team_active_in_year(&production_mazda, 2018));
+    }
+
+    #[test]
+    fn team_foundation_can_delay_activity_after_category_and_class_exist() {
+        let late_gt3 = test_team("endurance", Some("gt3"), 2008);
+        assert!(!is_team_active_in_year(&late_gt3, 2007));
+        assert!(is_team_active_in_year(&late_gt3, 2008));
+    }
+
+    fn test_team(category: &str, class_name: Option<&str>, foundation_year: i32) -> Team {
+        let mut team = crate::models::team::placeholder_team_from_db(
+            "T_TEST".to_string(),
+            "Timeline Test".to_string(),
+            category.to_string(),
+            "now".to_string(),
+        );
+        team.ano_fundacao = foundation_year;
+        team.classe = class_name.map(str::to_string);
+        team
+    }
 
     #[test]
     fn gt3_heritage_teams_have_protected_historical_performance_bands() {

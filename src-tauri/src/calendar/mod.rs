@@ -1,3 +1,4 @@
+pub(crate) mod full_season;
 mod generator;
 
 use std::collections::{HashMap, HashSet};
@@ -7,7 +8,8 @@ use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::categories::{
-    get_all_categories, get_category_config, has_calendar_conflict, is_especial, CategoryConfig,
+    get_all_categories, get_category_config, has_calendar_conflict, runs_in_special_phase,
+    CategoryConfig,
 };
 use crate::constants::tracks::{
     get_qualifying_duration, get_rain_chance, get_track, get_tracks_for_tier, TrackInfo,
@@ -39,12 +41,16 @@ pub struct CalendarEntry {
     /// Fase da temporada em que o evento ocorre (BlocoRegular ou BlocoEspecial).
     pub season_phase: SeasonPhase,
     /// Data visual derivada de week_of_year — para UI, notícias e narrativa.
-    /// Não é a base lógica do sistema; use week_of_year para ordenação.
+    /// Não é a base lógica do sistema; use season_week para ordenação 9D.
     pub display_date: String,
     /// Papel narrativo fixo desta corrida dentro da temporada.
     /// Determinado no momento da geração — imutável após persistência.
     /// `NaoClassificado` para saves pré-v12 ou caminho legado.
     pub thematic_slot: ThematicSlot,
+    /// Posição monotônica na régua 9D (1–51). None para saves pré-v33.
+    /// Adicionado à coluna DB na migração v33 (Etapa 3).
+    #[serde(default)]
+    pub season_week: Option<u32>,
 }
 
 // ── Constantes de calendário ──────────────────────────────────────────────────
@@ -69,7 +75,11 @@ pub fn generate_calendar_for_category_with_year(
     categoria: &str,
     rng: &mut impl Rng,
 ) -> Result<Vec<CalendarEntry>, String> {
-    let phase = if is_especial(categoria) {
+    if categoria == "lmp2" {
+        return Err("LMP2 e uma classe da Endurance; use o calendario de endurance".to_string());
+    }
+
+    let phase = if runs_in_special_phase(categoria) {
         SeasonPhase::BlocoEspecial
     } else {
         SeasonPhase::BlocoRegular
@@ -93,7 +103,9 @@ pub fn generate_calendar_for_category_with_year(
     )
 }
 
-/// Gera todos os calendários regulares (exclui especiais) para uso em produção.
+/// LEGADO 9D - gera calendários regulares do fluxo pre-9D.
+/// Mantido enquanto saves em voo ainda puderem acionar o fluxo legado.
+#[allow(dead_code)]
 pub fn generate_all_calendars_with_year(
     season_id: &str,
     season_year: i32,
@@ -129,7 +141,7 @@ where
     for category in get_all_categories() {
         // Categorias especiais não têm calendário no BlocoRegular.
         // O calendário delas é gerado em iniciar_bloco_especial.
-        if is_especial(category.id) {
+        if runs_in_special_phase(category.id) {
             continue;
         }
 
@@ -200,7 +212,7 @@ pub fn generate_and_insert_special_calendars(
     let mut all_entries: Vec<CalendarEntry> = Vec::new();
 
     for category in get_all_categories() {
-        if !is_especial(category.id) {
+        if !runs_in_special_phase(category.id) {
             continue;
         }
         let total = category.corridas_por_temporada as u32;
@@ -269,15 +281,103 @@ fn parse_season_number(season_id: &str) -> i32 {
 /// 3. Visitor: alocar em round de miolo não-narrativo não-banned
 /// 4. Preencher rounds restantes aleatoriamente
 /// 5. Resolver conflitos residuais de ban
+/// Variante de `generate_calendar_for_category_with_constraints` com contagem explícita.
+///
+/// Usada pelo gerador parcial de Production/Endurance (Etapa 10 / migração v34) quando
+/// a janela restante do ano não comporta a contagem-alvo da config da categoria.
+///
+/// NOTA: A branch `else` (sem pool temático) delega a `select_tracks`, que internamente
+/// usa `config.corridas_por_temporada`. Para production_challenger e endurance — único
+/// uso real deste helper — essa branch nunca é ativada (ambas têm pool temático).
+pub(crate) fn generate_calendar_for_category_with_count<F, R>(
+    season_id: &str,
+    season_year: i32,
+    categoria: &str,
+    week_start: i32,
+    week_end: i32,
+    count: usize,
+    season_phase: SeasonPhase,
+    banned_tracks_by_round: &HashMap<i32, HashSet<u32>>,
+    id_generator: &mut F,
+    rng: &mut R,
+) -> Result<Vec<CalendarEntry>, String>
+where
+    F: FnMut() -> String,
+    R: Rng,
+{
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let config = get_category_config(categoria)
+        .ok_or_else(|| format!("Categoria desconhecida: {categoria}"))?;
+    let total = count as i32;
+    let season_number = parse_season_number(season_id);
+    let themed = generator::resolve_thematic_pool(categoria, season_number, count, rng);
+
+    let ordered_tracks: Vec<(&'static TrackInfo, ThematicSlot)> = if let Some(pool) = themed {
+        let available_count = pool.candidate_ids.len() + pool.visitor_id.map_or(0, |_| 1);
+        if available_count < count {
+            return Err(format!(
+                "Pool temático insuficiente para {categoria}: {available_count} disponíveis, \
+                 {count} necessárias"
+            ));
+        }
+        select_tracks_themed(
+            &pool,
+            config,
+            total,
+            season_phase,
+            banned_tracks_by_round,
+            rng,
+        )?
+    } else {
+        let eligible_tracks = get_tracks_for_tier(config.tier);
+        if eligible_tracks.len() < count {
+            return Err(format!(
+                "Pistas insuficientes para gerar calendario de {categoria}"
+            ));
+        }
+        select_tracks(config, &eligible_tracks, banned_tracks_by_round, rng)?
+            .into_iter()
+            .take(count)
+            .map(|t| (t, ThematicSlot::NaoClassificado))
+            .collect()
+    };
+
+    let entries = ordered_tracks
+        .into_iter()
+        .enumerate()
+        .map(|(index, (track, thematic_slot))| {
+            let rodada = (index + 1) as i32;
+            let week = week_for_rodada(rodada, total, week_start, week_end);
+            build_calendar_entry(
+                id_generator(),
+                season_id,
+                season_year,
+                categoria,
+                rodada,
+                week,
+                season_phase,
+                thematic_slot,
+                track,
+                config,
+                rng,
+            )
+        })
+        .collect();
+
+    Ok(entries)
+}
+
 fn select_tracks_themed<R: Rng>(
     pool: &generator::ThematicPool,
     config: &CategoryConfig,
+    total: i32,
     season_phase: SeasonPhase,
     banned_tracks_by_round: &HashMap<i32, HashSet<u32>>,
     rng: &mut R,
 ) -> Result<Vec<(&'static TrackInfo, ThematicSlot)>, String> {
-    let total = config.corridas_por_temporada as i32;
-
     // Construir lista base de TrackInfos candidatas (sem visitor)
     let mut available: Vec<&'static TrackInfo> = pool
         .candidate_ids
@@ -320,7 +420,7 @@ fn select_tracks_themed<R: Rng>(
             .filter_map(|&id| get_track(id))
             .filter(|t| {
                 !used_ids.contains(&t.track_id)
-                    && banned_set.map_or(true, |b| !b.contains(&t.track_id))
+                    && banned_set.is_none_or(|b| !b.contains(&t.track_id))
             })
             .collect();
         if candidates.is_empty() {
@@ -330,7 +430,7 @@ fn select_tracks_themed<R: Rng>(
                 .copied()
                 .filter(|t| {
                     !used_ids.contains(&t.track_id)
-                        && banned_set.map_or(true, |b| !b.contains(&t.track_id))
+                        && banned_set.is_none_or(|b| !b.contains(&t.track_id))
                 })
                 .collect();
         }
@@ -425,7 +525,7 @@ fn select_tracks_themed<R: Rng>(
                         && assigned[(r - 1) as usize].is_none()
                         && banned_tracks_by_round
                             .get(r)
-                            .map_or(true, |b| !b.contains(&visitor_id))
+                            .is_none_or(|b| !b.contains(&visitor_id))
                 })
                 .collect();
             if !eligible_rounds.is_empty() {
@@ -467,7 +567,7 @@ fn select_tracks_themed<R: Rng>(
             let banned_set = banned_tracks_by_round.get(&round);
             if let Some(t) = try_avail
                 .iter()
-                .find(|t| banned_set.map_or(true, |b| !b.contains(&t.track_id)))
+                .find(|t| banned_set.is_none_or(|b| !b.contains(&t.track_id)))
                 .copied()
             {
                 assigned[(round - 1) as usize] = Some(t);
@@ -494,7 +594,7 @@ fn select_tracks_themed<R: Rng>(
     // ── Montar resultado final ────────────────────────────────────────────────
     assigned
         .into_iter()
-        .zip(slot_by_round.into_iter())
+        .zip(slot_by_round)
         .enumerate()
         .map(|(i, (opt, slot))| {
             opt.ok_or_else(|| format!("Rodada {} não preenchida para {}", i + 1, config.id))
@@ -538,7 +638,14 @@ where
                 config.corridas_por_temporada
             ));
         }
-        select_tracks_themed(&pool, config, season_phase, banned_tracks_by_round, rng)?
+        select_tracks_themed(
+            &pool,
+            config,
+            total,
+            season_phase,
+            banned_tracks_by_round,
+            rng,
+        )?
     } else {
         let eligible_tracks = get_tracks_for_tier(config.tier);
         if eligible_tracks.len() < config.corridas_por_temporada as usize {
@@ -720,6 +827,7 @@ fn build_calendar_entry<R: Rng>(
             rodada,
         ),
         thematic_slot,
+        season_week: None,
     }
 }
 
@@ -848,7 +956,7 @@ fn last_day_of_month(year: i32, month: u32) -> Option<NaiveDate> {
 }
 
 /// Converte week_of_year + year em uma data visual ISO "YYYY-MM-DD" (Sábado da semana).
-/// Apenas para display — a lógica temporal usa week_of_year diretamente.
+/// Apenas para display legado — a lógica temporal 9D usa season_week.
 #[cfg(test)]
 fn week_to_display_date(year: i32, week: i32) -> String {
     display_date_for_weekday(year, week, Weekday::Sat)
@@ -858,6 +966,21 @@ fn display_date_for_weekday(year: i32, week: i32, weekday: Weekday) -> String {
     NaiveDate::from_isoywd_opt(year, week.clamp(1, 52) as u32, weekday)
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| format!("{}-01-01", year))
+}
+
+/// Deriva uma data visual a partir da régua 9D (season_week) em vez de week_of_year.
+/// Resolve o ano civil correto via season_week_to_calendar_year antes de delegar
+/// a display_date_for_weekday — necessário porque sw 1–4 pertencem ao ano anterior.
+#[allow(dead_code)]
+pub(crate) fn display_date_for_season_week(
+    season_week: u8,
+    season_year: i32,
+    weekday: Weekday,
+) -> Result<String, String> {
+    use crate::models::temporal::{season_week_to_calendar_year, season_week_to_week_of_year};
+    let woy = season_week_to_week_of_year(season_week)?;
+    let cal_year = season_week_to_calendar_year(season_week, season_year)?;
+    Ok(display_date_for_weekday(cal_year, woy as i32, weekday))
 }
 
 fn random_weather(rain_track_id: u32, rng: &mut impl Rng) -> WeatherCondition {
@@ -914,6 +1037,66 @@ mod tests {
 
     use super::*;
     use crate::constants::tracks::get_track;
+
+    // ── display_date_for_season_week ──────────────────────────────────────────
+
+    /// Verifica que display_date_for_season_week produz a mesma string que
+    /// alimentar display_date_for_weekday manualmente com (ano civil, woy) corretos.
+    #[test]
+    fn display_date_season_week_matches_manual_derivation() {
+        // sw 2 → woy 50 de 2026 (dezembro: ano anterior)
+        let got = display_date_for_season_week(2, 2027, Weekday::Sat).unwrap();
+        let expected = display_date_for_weekday(2026, 50, Weekday::Sat);
+        assert_eq!(
+            got, expected,
+            "sw 2 / 2027: esperava {expected}, obteve {got}"
+        );
+
+        // sw 5 → woy 1 de 2027 (janeiro: mesmo ano)
+        let got = display_date_for_season_week(5, 2027, Weekday::Sat).unwrap();
+        let expected = display_date_for_weekday(2027, 1, Weekday::Sat);
+        assert_eq!(
+            got, expected,
+            "sw 5 / 2027: esperava {expected}, obteve {got}"
+        );
+
+        // sw 10 → woy 6 de 2027 (fevereiro, primeira corrida)
+        let got = display_date_for_season_week(10, 2027, Weekday::Sat).unwrap();
+        let expected = display_date_for_weekday(2027, 6, Weekday::Sat);
+        assert_eq!(
+            got, expected,
+            "sw 10 / 2027: esperava {expected}, obteve {got}"
+        );
+
+        // sw 51 → woy 47 de 2027 (novembro, última corrida)
+        let got = display_date_for_season_week(51, 2027, Weekday::Sat).unwrap();
+        let expected = display_date_for_weekday(2027, 47, Weekday::Sat);
+        assert_eq!(
+            got, expected,
+            "sw 51 / 2027: esperava {expected}, obteve {got}"
+        );
+    }
+
+    #[test]
+    fn display_date_season_week_virada_do_ano() {
+        // sw 4 → woy 52 de 2026 (ainda dezembro)
+        let sw4 = display_date_for_season_week(4, 2027, Weekday::Sun).unwrap();
+        let sw4_ref = display_date_for_weekday(2026, 52, Weekday::Sun);
+        assert_eq!(sw4, sw4_ref);
+
+        // sw 5 → woy 1 de 2027 (já janeiro) — deve ter ano diferente de sw4
+        let sw5 = display_date_for_season_week(5, 2027, Weekday::Sun).unwrap();
+        assert!(
+            sw5 > sw4,
+            "sw 5 ({sw5}) deve ser posterior a sw 4 ({sw4}) mesmo cruzando a virada do ano"
+        );
+    }
+
+    #[test]
+    fn display_date_season_week_invalid_rejects() {
+        assert!(display_date_for_season_week(0, 2027, Weekday::Sat).is_err());
+        assert!(display_date_for_season_week(52, 2027, Weekday::Sat).is_err());
+    }
 
     #[test]
     fn test_generate_calendar_correct_count() {
@@ -1192,45 +1375,14 @@ mod tests {
     }
 
     #[test]
-    fn test_weekday_policy_lmp2_alternates_saturday_and_sunday() {
+    fn test_lmp2_standalone_calendar_is_not_generated() {
         let mut rng = StdRng::seed_from_u64(144);
-        let calendar = generate_calendar_for_category_with_year("S001", 2028, "lmp2", &mut rng)
-            .expect("lmp2 calendar");
+        let err = generate_calendar_for_category_with_year("S001", 2028, "lmp2", &mut rng)
+            .expect_err("lmp2 standalone calendar should not be generated");
+        assert!(err.contains("classe da Endurance"));
 
-        assert!(!calendar.is_empty());
-        for entry in &calendar {
-            let date = NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
-            let expected = if entry.rodada % 2 == 1 {
-                Weekday::Sat
-            } else {
-                Weekday::Sun
-            };
-            assert_eq!(
-                date.weekday(),
-                expected,
-                "lmp2 rodada {} gerou {}",
-                entry.rodada,
-                entry.display_date
-            );
-            assert!(
-                (2..=8).contains(&date.month()),
-                "lmp2 saiu da janela fevereiro-agosto em {}",
-                entry.display_date
-            );
-        }
-    }
-
-    #[test]
-    fn test_lmp2_calendar_uses_gt3_endurance_mixed_pool() {
-        let mut rng = StdRng::seed_from_u64(145);
-        let calendar =
-            generate_calendar_for_category("S001", "lmp2", &mut rng).expect("lmp2 calendar");
-        let mixed_pool: HashSet<u32> = generator::lmp2_curated_pool().iter().copied().collect();
-
-        assert_eq!(calendar.len(), 10);
-        assert!(calendar
-            .iter()
-            .all(|entry| mixed_pool.contains(&entry.track_id)));
+        let calendars = generate_all_calendars("S001", &mut rng).expect("all calendars");
+        assert!(!calendars.contains_key("lmp2"));
     }
 
     #[test]
@@ -1268,7 +1420,8 @@ mod tests {
         let toyota =
             generate_calendar_for_category_with_year("S001", 2028, "toyota_rookie", &mut rng)
                 .expect("toyota");
-        // Pares conflito têm mesmo N de rodadas → mesmas semanas
+        // LEGADO 9D: gerador antigo ainda valida pares por week_of_year no contexto pré-v33.
+        // Pares conflito têm mesmo N de rodadas → mesmas semanas.
         let mazda_weeks: Vec<i32> = mazda.iter().map(|e| e.week_of_year).collect();
         let toyota_weeks: Vec<i32> = toyota.iter().map(|e| e.week_of_year).collect();
         assert_eq!(
@@ -1298,6 +1451,7 @@ mod tests {
             .prepare(
                 "SELECT data FROM calendar
                  WHERE season_phase = 'BlocoEspecial'
+                 -- LEGADO 9D: ordena por week_of_year, correto no contexto pré-v33.
                  ORDER BY week_of_year ASC, data ASC",
             )
             .expect("prepare special dates");

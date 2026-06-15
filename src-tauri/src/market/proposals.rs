@@ -69,7 +69,7 @@ impl ProposalStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MarketReport {
     pub contracts_expired: i32,
     pub contracts_renewed: i32,
@@ -81,23 +81,6 @@ pub struct MarketReport {
     pub proposals_rejected: i32,
     pub player_proposals: Vec<MarketProposal>,
     pub unresolved_vacancies: i32,
-}
-
-impl Default for MarketReport {
-    fn default() -> Self {
-        Self {
-            contracts_expired: 0,
-            contracts_renewed: 0,
-            new_signings: Vec::new(),
-            retirements_replaced: 0,
-            rookies_placed: 0,
-            proposals_made: 0,
-            proposals_accepted: 0,
-            proposals_rejected: 0,
-            player_proposals: Vec::new(),
-            unresolved_vacancies: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +99,9 @@ pub struct Vacancy {
     pub team_id: String,
     pub team_name: String,
     pub categoria: String,
+    /// Classe da divisão competitiva (`categoria + classe`). `None` para
+    /// categorias regulares; `Some(..)` para Production/Endurance multiclasse.
+    pub classe: Option<String>,
     pub category_tier: u8,
     pub car_performance: f64,
     pub budget: f64,

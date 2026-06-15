@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 
-use crate::calendar::{generate_all_calendars_with_year, CalendarEntry};
+use crate::calendar::full_season::generate_full_season_calendar;
 use crate::commands::career_types::{
     CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, DraftTeamOption,
     FinalizeHistoricalDraftInput, SaveLifecycleStatus,
@@ -28,8 +28,8 @@ use crate::generators::world::generate_historical_world;
 use crate::market::pipeline::fill_all_remaining_vacancies;
 use crate::models::contract::generate_initial_contract;
 use crate::models::driver::Driver;
-use crate::models::enums::{ContractStatus, TeamRole};
-use crate::models::license::grant_driver_license_for_category_if_needed;
+use crate::models::enums::{ContractStatus, SeasonPhase, TeamRole};
+use crate::models::license::grant_driver_license_for_division_if_needed;
 use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::world::integrity::{audit_historical_world, WorldAuditReport};
@@ -152,43 +152,40 @@ fn create_historical_career_draft_base(
         let world = generate_historical_world(&normalized_difficulty, HISTORY_START_YEAR)?;
 
         let season_id = "S001".to_string();
-        let season = Season::new(season_id.clone(), 1, HISTORY_START_YEAR);
-        let calendars =
-            generate_all_calendars_with_year(&season_id, season.ano, &mut rand::thread_rng())?;
-        let all_calendar_entries: Vec<CalendarEntry> = calendars
-            .values()
-            .flat_map(|entries| entries.iter().cloned())
-            .collect();
-        let total_races = all_calendar_entries.len();
+        let mut season = Season::new(season_id.clone(), 1, HISTORY_START_YEAR);
+        season.fase = SeasonPhase::Temporada;
+        let calendar_seed: u64 = rand::random();
 
-        db.transaction(|tx| {
-            for driver in &world.drivers {
-                driver_queries::insert_driver(tx, driver)?;
-            }
-            team_queries::insert_teams(tx, &world.teams)?;
-            contract_queries::insert_contracts(tx, &world.contracts)?;
-            for contract in &world.contracts {
-                grant_driver_license_for_category_if_needed(
+        let total_races = db
+            .transaction(|tx| {
+                for driver in &world.drivers {
+                    driver_queries::insert_driver(tx, driver)?;
+                }
+                team_queries::insert_teams(tx, &world.teams)?;
+                contract_queries::insert_contracts(tx, &world.contracts)?;
+                for contract in &world.contracts {
+                    grant_driver_license_for_division_if_needed(
+                        tx,
+                        &contract.piloto_id,
+                        &contract.categoria,
+                        contract.classe.as_deref(),
+                    )
+                    .map_err(DbError::Migration)?;
+                }
+                season_queries::insert_season(tx, &season)?;
+                let n = generate_full_season_calendar(tx, &season_id, season.ano, calendar_seed)?;
+                sync_draft_meta_counters(
                     tx,
-                    &contract.piloto_id,
-                    &contract.categoria,
-                )
-                .map_err(DbError::Migration)?;
-            }
-            season_queries::insert_season(tx, &season)?;
-            calendar_queries::insert_calendar_entries(tx, &all_calendar_entries)?;
-            sync_draft_meta_counters(
-                tx,
-                world.drivers.len(),
-                world.teams.len(),
-                world.contracts.len(),
-                1,
-                total_races,
-                HISTORY_START_YEAR,
-            )?;
-            Ok(())
-        })
-        .map_err(|e| format!("Falha ao persistir dados do draft: {e}"))?;
+                    world.drivers.len(),
+                    world.teams.len(),
+                    world.contracts.len(),
+                    1,
+                    n,
+                    HISTORY_START_YEAR,
+                )?;
+                Ok(n)
+            })
+            .map_err(|e| format!("Falha ao persistir dados do draft: {e}"))?;
 
         write_draft_meta(
             &meta_path,
@@ -373,8 +370,13 @@ fn finalize_career_draft(
             );
             player.categoria_atual = Some(input.category.clone());
             driver_queries::insert_driver(tx, &player)?;
-            grant_driver_license_for_category_if_needed(tx, &player.id, &input.category)
-                .map_err(DbError::Migration)?;
+            grant_driver_license_for_division_if_needed(
+                tx,
+                &player.id,
+                &input.category,
+                selected_team.classe.as_deref(),
+            )
+            .map_err(DbError::Migration)?;
 
             if let Some(displaced_contract) =
                 contract_queries::get_active_regular_contract_for_pilot(tx, &displaced_n2)?
@@ -391,7 +393,7 @@ fn finalize_career_draft(
             selected_team.is_player_team = true;
             team_queries::update_team(tx, &selected_team)?;
 
-            let player_contract = generate_initial_contract(
+            let mut player_contract = generate_initial_contract(
                 contract_id,
                 &player.id,
                 &player.nome,
@@ -401,6 +403,7 @@ fn finalize_career_draft(
                 &input.category,
                 active_season.numero,
             );
+            player_contract.classe = selected_team.classe.clone();
             contract_queries::insert_contract(tx, &player_contract)?;
 
             let total_drivers = driver_queries::count_drivers(tx)? as usize;
@@ -668,7 +671,12 @@ fn simulate_historical_range(
     for _year in start_year..=end_year {
         stabilize_historical_performance_bands(&db.conn)?;
         simulate_current_historical_season(db)?;
-        simulate_current_historical_special_block(db)?;
+        let current_season = season_queries::get_active_season(&db.conn)
+            .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
+            .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
+        if current_season.fase.is_legacy() {
+            simulate_current_historical_special_block(db)?;
+        }
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
             .ok_or_else(|| "Temporada historica ativa nao encontrada.".to_string())?;
@@ -902,12 +910,14 @@ mod tests {
     };
     use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
     use crate::config::app_config::AppConfig;
-    use crate::constants::categories::{get_all_categories, is_especial};
+    use crate::constants::categories::{get_all_categories, runs_in_special_phase};
+    use crate::constants::historical_timeline::is_category_active_in_year;
     use crate::db::connection::Database;
     use crate::db::queries::drivers as driver_queries;
-    use crate::db::queries::seasons as season_queries;
+    use crate::db::queries::{calendar as calendar_queries, seasons as season_queries};
     use crate::db::queries::{contracts as contract_queries, teams as team_queries};
     use crate::finance::planning::category_finance_scale;
+    use crate::models::enums::{RaceStatus, SeasonPhase};
     use std::collections::HashMap;
 
     #[test]
@@ -926,6 +936,65 @@ mod tests {
             .expect("season query")
             .expect("active season");
         assert_eq!(season.ano, 2000);
+
+        let _ = std::fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn historical_draft_base_starts_with_full_9d_calendar_and_simulable_first_race() {
+        let base_dir = unique_test_dir("draft_base_9d_calendar");
+        let input = sample_draft_input();
+
+        let state = create_historical_career_draft_base_for_test(&base_dir, input)
+            .expect("draft base should be created");
+
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let mut db = open_draft_db(&base_dir, career_id);
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("season query")
+            .expect("active season");
+        assert_eq!(season.status.as_str(), "EmAndamento");
+        assert_eq!(season.fase, SeasonPhase::Temporada);
+
+        let entries =
+            calendar_queries::get_pending_races(&db.conn, &season.id).expect("pending calendar");
+        assert_eq!(entries.len(), 74);
+        assert!(entries.iter().all(|entry| {
+            entry.season_phase == SeasonPhase::Temporada
+                && matches!(entry.season_week, Some(10..=51))
+        }));
+
+        let special_entry_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM special_team_entries", [], |row| {
+                row.get(0)
+            })
+            .expect("special entry count");
+        assert_eq!(special_entry_count, 0);
+
+        let special_contract_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM contracts WHERE tipo = 'Especial'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("special contract count");
+        assert_eq!(special_contract_count, 0);
+
+        let first_active_race = entries
+            .iter()
+            .filter(|entry| is_category_active_in_year(&entry.categoria, season.ano))
+            .min_by_key(|entry| (entry.season_week.unwrap_or(u32::MAX), entry.rodada))
+            .cloned()
+            .expect("first active race");
+        crate::commands::race::simulate_historical_category_race(&mut db, &first_active_race)
+            .expect("first historical race should simulate");
+
+        let simulated = calendar_queries::get_calendar_entry_by_id(&db.conn, &first_active_race.id)
+            .expect("race lookup")
+            .expect("race after simulation");
+        assert_eq!(simulated.status, RaceStatus::Concluida);
 
         let _ = std::fs::remove_dir_all(base_dir);
     }
@@ -950,6 +1019,15 @@ mod tests {
             .expect("season query")
             .expect("active season");
         assert_eq!(season.ano, 2002);
+        assert_eq!(season.fase, SeasonPhase::Temporada);
+
+        let playable_calendar = calendar_queries::get_pending_races(&db.conn, &season.id)
+            .expect("playable pending calendar");
+        assert_eq!(playable_calendar.len(), 74);
+        assert!(playable_calendar.iter().all(|entry| {
+            entry.season_phase == SeasonPhase::Temporada
+                && matches!(entry.season_week, Some(10..=51))
+        }));
 
         let result_count: i64 = db
             .conn
@@ -967,12 +1045,12 @@ mod tests {
     }
 
     #[test]
-    fn historical_simulation_generates_special_event_archive() {
+    fn historical_simulation_runs_production_and_endurance_without_special_artifacts() {
         let base_dir = unique_test_dir("historical_special_events");
         let input = sample_draft_input();
 
         let state =
-            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2004, 2005)
                 .expect("historical generation should finish");
         let career_id = state.career_id.as_deref().expect("draft career id");
         let db = open_draft_db(&base_dir, career_id);
@@ -1008,6 +1086,12 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("special calendar count");
+        let special_entries: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM special_team_entries", [], |row| {
+                row.get(0)
+            })
+            .expect("special team entries count");
         let special_results: i64 = db
             .conn
             .query_row(
@@ -1020,8 +1104,9 @@ mod tests {
             )
             .expect("special race result count");
 
-        assert!(special_contracts > 0);
+        assert_eq!(special_contracts, 0);
         assert_eq!(active_special_contracts, 0);
+        assert_eq!(special_entries, 0);
         assert!(special_races > 0);
         assert!(special_results > 0);
 
@@ -1073,7 +1158,7 @@ mod tests {
 
         for category in get_all_categories()
             .iter()
-            .filter(|category| !is_especial(category.id))
+            .filter(|category| !runs_in_special_phase(category.id))
         {
             let team_count: i64 = db
                 .conn

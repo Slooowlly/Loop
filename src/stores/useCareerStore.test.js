@@ -333,6 +333,108 @@ describe("useCareerStore loadCareer", () => {
     expect(useCareerStore.getState().preseasonWeeks).toHaveLength(1);
   });
 
+  it("opens the normal preseason market when the active phase is PreTemporada", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "load_career") {
+        return Promise.resolve({
+          career_id: "career-77",
+          difficulty: "medio",
+          player: { id: "drv-player", nome: "R. Silva" },
+          player_team: { id: "team-1", categoria: "gt3" },
+          season: { id: "season-2", numero: 2, fase: "PreTemporada" },
+          next_race: null,
+          next_race_briefing: null,
+          total_drivers: 16,
+          total_teams: 8,
+        });
+      }
+
+      if (command === "get_temporal_summary") {
+        return Promise.resolve({
+          fase: "PreTemporada",
+          current_display_date: "2026-12-07",
+          next_event_display_date: "2027-02-07",
+          days_until_next_event: 62,
+        });
+      }
+
+      if (command === "get_preseason_state") {
+        return Promise.resolve({
+          season_number: 2,
+          current_week: 1,
+          total_weeks: 9,
+          is_complete: false,
+          current_display_date: "2026-12-07",
+        });
+      }
+
+      if (command === "get_player_proposals") {
+        return Promise.resolve([]);
+      }
+
+      if (command === "get_preseason_free_agents") {
+        return Promise.resolve([]);
+      }
+
+      if (command === "get_news") {
+        return Promise.resolve([]);
+      }
+
+      return Promise.resolve(null);
+    });
+
+    await useCareerStore.getState().loadCareer("career-77");
+
+    expect(useCareerStore.getState().showPreseason).toBe(true);
+    expect(useCareerStore.getState().showConvocation).toBe(false);
+    expect(useCareerStore.getState().preseasonState).toMatchObject({
+      current_week: 1,
+      total_weeks: 9,
+      current_display_date: "2026-12-07",
+    });
+    expect(invoke).not.toHaveBeenCalledWith("get_special_window_state", expect.anything());
+  });
+
+  it("keeps Encerramento on the year-end path without restoring convocation", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "load_career") {
+        return Promise.resolve({
+          career_id: "career-77",
+          difficulty: "medio",
+          player: { id: "drv-player", nome: "R. Silva" },
+          player_team: { id: "team-1", categoria: "endurance", classe: "lmp2" },
+          season: { id: "season-2", numero: 2, fase: "Encerramento" },
+          next_race: null,
+          next_race_briefing: null,
+          total_drivers: 16,
+          total_teams: 8,
+        });
+      }
+
+      if (command === "get_temporal_summary") {
+        return Promise.resolve({
+          fase: "Encerramento",
+          current_display_date: "2027-11-21",
+          next_event_display_date: null,
+          days_until_next_event: null,
+          pending_in_phase: 0,
+        });
+      }
+
+      return Promise.resolve(null);
+    });
+
+    await useCareerStore.getState().loadCareer("career-77");
+
+    expect(useCareerStore.getState().showPreseason).toBe(false);
+    expect(useCareerStore.getState().showConvocation).toBe(false);
+    expect(useCareerStore.getState().temporalSummary).toMatchObject({
+      fase: "Encerramento",
+      pending_in_phase: 0,
+    });
+    expect(invoke).not.toHaveBeenCalledWith("get_special_window_state", expect.anything());
+  });
+
   it("restores the convocation screen when the save is in JanelaConvocacao", async () => {
     invoke.mockImplementation((command) => {
       if (command === "load_career") {

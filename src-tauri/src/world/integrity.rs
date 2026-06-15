@@ -1,6 +1,8 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::constants::categories::{get_all_categories, get_category_config, is_especial};
+use crate::constants::categories::{
+    get_all_categories, get_category_config, uses_regular_contracts,
+};
 use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::models::license::driver_has_required_license_for_category;
 
@@ -380,7 +382,7 @@ fn audit_required_licenses(
 fn active_regular_categories_for_year(playable_year: i32) -> Vec<String> {
     get_all_categories()
         .iter()
-        .filter(|category| !is_especial(category.id))
+        .filter(|category| uses_regular_contracts(category.id))
         .filter(|category| is_category_active_in_year(category.id, playable_year))
         .map(|category| category.id.to_string())
         .collect()

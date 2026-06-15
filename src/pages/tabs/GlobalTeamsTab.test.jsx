@@ -19,6 +19,16 @@ vi.mock("../../components/team/TeamLogoMark", () => ({
   ),
 }));
 
+vi.mock("./MyTeamTab", () => ({
+  TeamHistoryDrawer: ({ team, activeTab, onClose }) => (
+    <aside data-testid="team-history-drawer">
+      <h4>{team.nome}</h4>
+      <span>{activeTab}</span>
+      <button type="button" onClick={onClose}>Fechar dossie</button>
+    </aside>
+  ),
+}));
+
 const payload = {
   selected_family: "mazda",
   min_year: 2000,
@@ -31,7 +41,7 @@ const payload = {
       id: "mazda",
       label: "Mazda",
       bands: [
-        { key: "production_mazda", label: "Production", category: "production_challenger", class_name: "mazda", starts_year: 2018, is_special: true },
+        { key: "production_mazda", label: "Mazda Production", category: "production_challenger", class_name: "mazda", starts_year: 2018, is_special: false },
         { key: "mazda_amador", label: "Mazda Championship", category: "mazda_amador", class_name: null, starts_year: 2016, is_special: false },
         { key: "mazda_rookie", label: "Mazda Rookie", category: "mazda_rookie", class_name: null, starts_year: 2020, is_special: false },
       ],
@@ -41,15 +51,22 @@ const payload = {
       label: "Toyota",
       bands: [],
     },
+    {
+      id: "lmp2",
+      label: "LMP2",
+      bands: [
+        { key: "lmp2", label: "LMP2", category: "lmp2", class_name: null, starts_year: 2004, is_special: false },
+      ],
+    },
   ],
   bands: [
     {
       key: "production_mazda",
-      label: "Production",
+      label: "Mazda Production",
       category: "production_challenger",
       class_name: "mazda",
       starts_year: 2018,
-      is_special: true,
+      is_special: false,
       rows: [
         {
           team_id: "T001",
@@ -60,8 +77,8 @@ const payload = {
           base_position: 1,
           delta: 0,
           points: [
-            { year: 2022, slot: "special", position: 2, points: 92, wins: 2, titles: 0 },
-            { year: 2023, slot: "special", position: 1, points: 108, wins: 3, titles: 1 },
+            { year: 2022, slot: "regular", position: 2, points: 92, wins: 2, titles: 0 },
+            { year: 2023, slot: "regular", position: 1, points: 108, wins: 3, titles: 1 },
           ],
         },
         {
@@ -73,8 +90,8 @@ const payload = {
           base_position: 1,
           delta: 0,
           points: [
-            { year: 2021, slot: "special", position: 1, points: 102, wins: 4, titles: 1 },
-            { year: 2022, slot: "special", position: 2, points: 92, wins: 1, titles: 0 },
+            { year: 2021, slot: "regular", position: 1, points: 102, wins: 4, titles: 1 },
+            { year: 2022, slot: "regular", position: 2, points: 92, wins: 1, titles: 0 },
           ],
         },
         {
@@ -86,7 +103,7 @@ const payload = {
           base_position: 5,
           delta: 0,
           points: [
-            { year: 2019, slot: "special", position: 5, points: 55, wins: 0, titles: 0 },
+            { year: 2020, slot: "regular", position: 5, points: 55, wins: 0, titles: 0 },
           ],
         },
       ],
@@ -112,8 +129,6 @@ const payload = {
             { year: 2007, slot: "regular", position: 1, points: 88, wins: 2, titles: 0 },
             { year: 2020, slot: "regular", position: 1, points: 104, wins: 4, titles: 1 },
             { year: 2021, slot: "regular", position: 2, points: 96, wins: 2, titles: 0 },
-            { year: 2022, slot: "regular", position: 1, points: 110, wins: 3, titles: 1 },
-            { year: 2023, slot: "regular", position: 1, points: 118, wins: 4, titles: 1 },
           ],
         },
         {
@@ -212,6 +227,7 @@ describe("GlobalTeamsTab", () => {
 
     expect(await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i })).toBeInTheDocument();
     expect(screen.getByText(/Mazda: janela 2016-2025/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Janela visivel: 2016-2025/i)).toHaveLength(2);
     expect(invoke).toHaveBeenCalledWith("get_global_team_history", {
       careerId: "career-1",
       family: "mazda",
@@ -221,7 +237,7 @@ describe("GlobalTeamsTab", () => {
 
     expect(screen.getByRole("button", { name: /Mazda/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Toyota/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /LMP2/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /LMP2/i })).toBeInTheDocument();
 
     const year2020 = screen.getByTestId("world-team-year-2020");
     expect(within(year2020).getByText("2020")).toBeInTheDocument();
@@ -234,11 +250,68 @@ describe("GlobalTeamsTab", () => {
     expect(screen.getAllByTestId("world-team-logo").some((logo) => logo.textContent === "Sunday Speed Club logo")).toBe(true);
     expect(screen.queryByTestId("team-color-swatch")).not.toBeInTheDocument();
     expect(screen.getByTestId("world-team-grid")).toBeInTheDocument();
-    expect(screen.getByTestId("world-team-track-T001-special")).toHaveAttribute("vector-effect", "non-scaling-stroke");
+    expect(screen.getAllByText(/Mazda Production/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("world-team-track-T001-special")).not.toBeInTheDocument();
     expect(screen.getByTestId("world-team-track-T001-regular")).toHaveAttribute("vector-effect", "non-scaling-stroke");
     expect(screen.getByTestId("world-team-track-T003-regular")).not.toHaveAttribute("stroke", "#050505");
-    expect(screen.getByTestId("world-team-moving-grid").style.width).toBe("260%");
+    expect(screen.getByTestId("world-team-moving-grid").style.width).toBe("97.5%");
     expect(screen.queryByTestId("world-team-path-T001-mazda_amador")).not.toBeInTheDocument();
+  });
+
+  it("does not label the visible window beyond the years loaded in the atlas payload", async () => {
+    invoke.mockResolvedValue({
+      ...payload,
+      max_year: 2035,
+      window_end: 2031,
+    });
+
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    expect(screen.getByText(/Mazda: janela 2016-2031/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Janela visivel: 2016-2031/i)).toHaveLength(2);
+    expect(screen.queryByText(/2016-2035/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-year-2035")).not.toBeInTheDocument();
+  });
+
+  it("opens the team dossier from the lateral team row and closes it without changing the atlas", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    fireEvent.click(screen.getByTestId("world-team-row-T001-mazda_amador"));
+
+    const drawer = await screen.findByTestId("team-history-drawer");
+    expect(within(drawer).getByText("Sunday Speed Club")).toBeInTheDocument();
+    expect(within(drawer).getByText("records")).toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole("button", { name: /Fechar dossie/i }));
+
+    await waitFor(() => expect(screen.queryByTestId("team-history-drawer")).not.toBeInTheDocument());
+    expect(screen.getByTestId("world-team-grid")).toBeInTheDocument();
+  });
+
+  it("opens the team dossier when a visible team line is clicked", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    fireEvent.click(screen.getByTestId("world-team-track-T001-regular"));
+
+    const drawer = await screen.findByTestId("team-history-drawer");
+    expect(within(drawer).getByText("Sunday Speed Club")).toBeInTheDocument();
+  });
+
+  it("opens the team dossier when an entry label is clicked", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    fireEvent.click(screen.getByTestId("world-team-entry-label-T005-regular-2018"));
+
+    const drawer = await screen.findByTestId("team-history-drawer");
+    expect(within(drawer).getByText("Grid Start Racing")).toBeInTheDocument();
   });
 
   it("shows only teams that exist in the first visible year on the lateral rail", async () => {
@@ -253,6 +326,43 @@ describe("GlobalTeamsTab", () => {
     expect(screen.queryByTestId("world-team-row-T004-production_mazda")).not.toBeInTheDocument();
   });
 
+  it("renders Production as a real band without special parallel lines", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    expect(screen.queryByTestId("world-team-row-T001-production_mazda")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-row-T004-production_mazda")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-entry-label-T005-special-2019")).not.toBeInTheDocument();
+
+    expect(screen.queryByTestId("world-team-track-T001-special")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-track-T005-special")).not.toBeInTheDocument();
+    expect(screen.getByTestId("world-team-track-T001-regular")).toBeInTheDocument();
+    expect(screen.getByTestId("world-team-track-T005-regular")).toBeInTheDocument();
+  });
+
+  it("highlights a team's cross-division line through its base-category row", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    fireEvent.mouseEnter(screen.getByTestId("world-team-row-T001-mazda_amador"));
+
+    expect(screen.getByTestId("world-team-track-T001-regular")).toHaveAttribute("opacity", "0.66");
+    expect(screen.getByTestId("world-team-track-T002-regular")).toHaveAttribute("opacity", "0.15");
+  });
+
+  it("highlights the base-category team row from a cross-division line", async () => {
+    render(<GlobalTeamsTab onBack={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
+
+    fireEvent.mouseEnter(screen.getByTestId("world-team-track-T001-regular"));
+
+    expect(screen.getByTestId("world-team-row-T001-mazda_amador")).toHaveClass("bg-white/[0.06]");
+    expect(screen.getByTestId("world-team-row-T002-mazda_amador")).toHaveClass("opacity-35");
+  });
+
   it("labels teams that enter after the lateral reference year inside the grid", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
@@ -261,8 +371,8 @@ describe("GlobalTeamsTab", () => {
     expect(screen.queryByTestId("world-team-row-T005-mazda_amador")).not.toBeInTheDocument();
     const entryLabel = screen.getByTestId("world-team-entry-label-T005-regular-2018");
     expect(entryLabel).toHaveTextContent("Grid Start Racing");
-    expect(entryLabel.tagName).toBe("DIV");
-    expect(entryLabel.style.left).toBe("70.1538%");
+    expect(entryLabel.tagName).toBe("BUTTON");
+    expect(entryLabel.style.left).toBe("69.2308%");
     expect(entryLabel.style.transform).toBe("translateX(calc(-100% - 8px))");
     expect(entryLabel.className).toContain("gap-2.5");
     expect(within(entryLabel).getByTestId("world-team-entry-logo")).toHaveTextContent("Grid Start Racing logo");
@@ -280,26 +390,25 @@ describe("GlobalTeamsTab", () => {
     expect(within(rookie).getByText("1")).toBeInTheDocument();
   });
 
-  it("draws separate regular and special lines when a team has both histories", async () => {
+  it("draws one continuous regular line when a team moves into Production", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
     const regularPath = screen.getByTestId("world-team-track-T001-regular").getAttribute("d");
-    const specialPath = screen.getByTestId("world-team-track-T001-special").getAttribute("d");
 
     expect(regularPath.match(/[ML]/g)).toHaveLength(6);
-    expect(specialPath.match(/[ML]/g)).toHaveLength(2);
+    expect(screen.queryByTestId("world-team-track-T001-special")).not.toBeInTheDocument();
   });
 
-  it("draws a visible dash when a team only appears in the special category for one year", async () => {
+  it("keeps a continuous line when a team reaches Production for one year", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    const specialPath = screen.getByTestId("world-team-track-T005-special").getAttribute("d");
+    const regularPath = screen.getByTestId("world-team-track-T005-regular").getAttribute("d");
 
-    expect(specialPath.match(/[ML]/g)).toHaveLength(2);
+    expect(regularPath.match(/[ML]/g)).toHaveLength(3);
   });
 
   it("marks the years before each category exists inside the moving grid", async () => {
@@ -313,13 +422,13 @@ describe("GlobalTeamsTab", () => {
     const rookieDivider = screen.getByTestId("world-team-start-divider-mazda_rookie");
 
     expect(productionPreStart).toBeInTheDocument();
-    expect(productionPreStart.style.width).toBe("72.1538%");
-    expect(rookiePreStart.style.width).toBe("77.8462%");
-    expect(productionDivider.style.left).toBe("72.1538%");
-    expect(rookieDivider.style.left).toBe("77.8462%");
+    expect(productionPreStart.style.width).toBe("69.2308%");
+    expect(rookiePreStart.style.width).toBe("76.9231%");
+    expect(productionDivider.style.left).toBe("69.2308%");
+    expect(rookieDivider.style.left).toBe("76.9231%");
   });
 
-  it("marks teams that enter and leave a special category", async () => {
+  it("marks teams that move between real divisions", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
@@ -364,7 +473,7 @@ describe("GlobalTeamsTab", () => {
       startYear: 2000,
       windowSize: 32,
     });
-    expect(screen.getByTestId("world-team-track-T001-special")).toHaveAttribute("stroke-width", "5");
+    expect(screen.getByTestId("world-team-track-T001-regular")).toHaveAttribute("stroke-width", "4");
     expect(screen.getByTestId("world-team-track-T002-regular")).toHaveAttribute("opacity", "0.15");
   });
 
@@ -410,7 +519,7 @@ describe("GlobalTeamsTab", () => {
     fireEvent.pointerUp(window, { clientX: 189, pointerId: 1 });
 
     expect(invoke).not.toHaveBeenCalled();
-    expect(await screen.findAllByText(/Janela visivel: 2012-2021/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/Janela visivel: 2016-2025/i)).toHaveLength(2);
   });
 
   it("keeps lateral team rows in fixed non-overlapping slots even when positions match", async () => {
@@ -444,7 +553,7 @@ describe("GlobalTeamsTab", () => {
     });
 
     fireEvent.pointerDown(slider, { clientX: 260, pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: 114, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 0, pointerId: 1 });
 
     const sunday = screen.getByTestId("world-team-row-T001-mazda_amador");
     const dual = screen.getByTestId("world-team-row-T002-mazda_amador");
@@ -481,6 +590,6 @@ describe("GlobalTeamsTab", () => {
 
     fireEvent.pointerUp(window, { clientX: 189, pointerId: 7 });
 
-    expect(await screen.findAllByText(/Janela visivel: 2012-2021/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/Janela visivel: 2016-2025/i)).toHaveLength(2);
   });
 });

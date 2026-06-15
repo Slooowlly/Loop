@@ -132,6 +132,29 @@ pub fn update_season_fase(conn: &Connection, id: &str, fase: &SeasonPhase) -> Re
     Ok(())
 }
 
+pub fn move_to_encerramento_if_completed(
+    conn: &Connection,
+    season: &Season,
+) -> Result<bool, DbError> {
+    if season.fase != SeasonPhase::Temporada {
+        return Ok(false);
+    }
+
+    let pending: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM calendar
+         WHERE COALESCE(season_id, temporada_id) = ?1
+           AND status = 'Pendente'",
+        params![&season.id],
+        |row| row.get(0),
+    )?;
+    if pending > 0 {
+        return Ok(false);
+    }
+
+    update_season_fase(conn, &season.id, &SeasonPhase::Encerramento)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;

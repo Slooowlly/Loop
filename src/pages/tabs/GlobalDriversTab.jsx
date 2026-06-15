@@ -1114,7 +1114,14 @@ function teamCategoryLabel(row) {
 
 function categoryLabel(category) {
   if (!category) return "-";
-  return category
+  const normalized = String(category).trim();
+  if (normalized.includes(":")) {
+    const [baseCategory, className] = normalized.split(":");
+    const classText = classLabel(className);
+    if (baseCategory === "endurance" && classText) return `${classText} Endurance`;
+    if (baseCategory === "production_challenger" && classText) return `${classText} Production`;
+  }
+  return normalized
     .split("_")
     .map((part) => {
       const upper = part.toUpperCase();

@@ -1,3 +1,9 @@
+// Funções de simulação/mercado carregam muitos parâmetros de domínio e alguns
+// retornos de query agregam tuplas amplas; preferimos manter as assinaturas
+// explícitas a fragmentá-las só para satisfazer o lint de estilo.
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -153,7 +159,6 @@ mod convocation;
 mod db;
 mod event_interest;
 mod evolution;
-mod export;
 mod finance;
 mod generators;
 mod hierarchy;
@@ -165,6 +170,9 @@ mod public_presence;
 mod rivalry;
 mod simulation;
 mod world;
+
+#[cfg(test)]
+mod tests_9d;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

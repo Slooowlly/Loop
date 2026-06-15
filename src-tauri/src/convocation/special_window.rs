@@ -56,9 +56,23 @@ const CLASSES_CONVOCADAS: &[ClassConfig] = &[
     ClassConfig {
         special_category: "endurance",
         class_name: "lmp2",
-        feeder_category: "lmp2",
+        feeder_category: "endurance",
     },
 ];
+
+fn uses_regular_special_event_grid(category: &str) -> bool {
+    matches!(category, "production_challenger" | "endurance")
+}
+
+fn legacy_window_classes() -> impl Iterator<Item = &'static ClassConfig> {
+    CLASSES_CONVOCADAS
+        .iter()
+        .filter(|cfg| !uses_regular_special_event_grid(cfg.special_category))
+}
+
+fn has_legacy_window_classes() -> bool {
+    legacy_window_classes().next().is_some()
+}
 
 #[derive(Debug, Clone)]
 struct WindowStateRow {
@@ -95,7 +109,7 @@ struct RankedEligibleCandidate {
 }
 
 const VISIBLE_PRODUCTION_ORIGINS: &[&str] = &["mazda_amador", "toyota_amador", "bmw_m2"];
-const VISIBLE_ENDURANCE_ORIGINS: &[&str] = &["gt4", "gt3", "lmp2"];
+const VISIBLE_ENDURANCE_ORIGINS: &[&str] = &["gt4", "gt3", "endurance"];
 const VISIBLE_SHORTLIST_LIMIT_PER_ORIGIN: usize = 12;
 
 pub fn initialize_special_window(
@@ -195,6 +209,7 @@ pub fn select_player_offer_for_day(
             "SELECT id, status, available_from_day
              FROM player_special_offers
              WHERE season_id = ?1 AND player_driver_id = ?2 AND id = ?3
+               AND special_category NOT IN ('production_challenger', 'endurance')
              LIMIT 1",
             params![season_id, player_id, offer_id],
             |row| {
@@ -289,7 +304,7 @@ fn seed_candidate_pool(conn: &Connection, season_id: &str) -> Result<(), DbError
     let license_levels = load_license_levels(conn)?;
     let mut drivers: HashMap<String, CandidateAccumulator> = HashMap::new();
 
-    for cfg in CLASSES_CONVOCADAS {
+    for cfg in legacy_window_classes() {
         let candidatos = coletar_candidatos(
             conn,
             cfg.special_category,
@@ -393,8 +408,7 @@ fn seed_assignment_schedule(
             let Some(team) = team_queries::get_team_by_id(conn, &assignment.team_id)? else {
                 continue;
             };
-            let special_category = CLASSES_CONVOCADAS
-                .iter()
+            let special_category = legacy_window_classes()
                 .find(|cfg| cfg.class_name == grid.class_name)
                 .map(|cfg| cfg.special_category)
                 .unwrap_or(team.categoria.as_str());
@@ -765,8 +779,16 @@ fn load_visible_team_sections(
     season_id: &str,
     current_day: i32,
 ) -> Result<Vec<SpecialWindowCategorySection>, DbError> {
+    if !has_legacy_window_classes() {
+        return Ok(Vec::new());
+    }
+
     let visible = load_visible_assignments(conn, season_id, current_day)?;
-    let categories = ["production_challenger", "endurance"];
+    let mut categories = legacy_window_classes()
+        .map(|cfg| cfg.special_category)
+        .collect::<Vec<_>>();
+    categories.sort_unstable();
+    categories.dedup();
     let mut sections = Vec::new();
 
     for category in categories {
@@ -847,6 +869,10 @@ fn load_eligible_candidates(
     conn: &Connection,
     season_id: &str,
 ) -> Result<Vec<SpecialWindowEligibleCandidate>, DbError> {
+    if !has_legacy_window_classes() {
+        return Ok(Vec::new());
+    }
+
     let mut stmt = conn.prepare(
         "SELECT driver_id, driver_name, origin_category, license_level, desirability,
                 production_eligible, endurance_eligible
@@ -983,6 +1009,7 @@ fn load_player_offers(
         "SELECT id, team_id, team_name, special_category, class_name, papel, status, available_from_day
          FROM player_special_offers
          WHERE season_id = ?1 AND player_driver_id = ?2
+           AND special_category NOT IN ('production_challenger', 'endurance')
            AND (
                 available_from_day <= ?3
                 OR status IN ('AceitaAtiva', 'Selecionado', 'PerdidaNoFechamento')

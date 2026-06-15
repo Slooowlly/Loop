@@ -45,7 +45,25 @@ pub(crate) fn sync_team_slots_from_active_regular_contracts(
     }
 
     for team in teams {
-        let mut contracts = valid_contracts.remove(&team.id).unwrap_or_default();
+        let raw_contracts = valid_contracts.remove(&team.id).unwrap_or_default();
+        let mut contracts = Vec::new();
+        for contract in raw_contracts {
+            if contract.categoria != team.categoria || contract.classe != team.classe {
+                contract_queries::update_contract_status(
+                    conn,
+                    &contract.id,
+                    &ContractStatus::Rescindido,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Falha ao rescindir contrato fora da categoria/classe da equipe '{}': {e}",
+                        contract.id
+                    )
+                })?;
+                continue;
+            }
+            contracts.push(contract);
+        }
         contracts.sort_by(|a, b| {
             let skill_a = drivers_by_id
                 .get(&a.piloto_id)

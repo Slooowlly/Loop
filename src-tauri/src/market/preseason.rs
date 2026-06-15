@@ -3,16 +3,19 @@ use std::path::Path;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Local, Weekday};
 use rand::Rng;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
-use crate::constants::categories::is_especial;
+use crate::calendar::display_date_for_season_week;
+use crate::constants::categories::uses_regular_contracts;
+use crate::constants::timeline::MARKET_DURATION_WEEKS;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
+use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::finance::cashflow::apply_offseason_competitiveness_impact;
 use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
@@ -27,9 +30,9 @@ use crate::market::proposals::{is_real_career_debut_category, MarketProposal, Pr
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
-use crate::models::enums::{ContractStatus, DriverStatus, SeasonPhase, TeamRole};
+use crate::models::enums::{ContractStatus, DriverStatus, TeamRole};
 use crate::models::license::{
-    ensure_driver_can_join_category, grant_driver_license_for_category_if_needed,
+    ensure_driver_can_join_division, grant_driver_license_for_division_if_needed,
     repair_missing_licenses_for_current_categories,
 };
 use crate::simulation::car_build::profile_money_cost;
@@ -117,6 +120,9 @@ pub struct PlannedEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// Enum serializado para o plano de pré-temporada; as variantes carregam contexto
+// editorial completo e boxear só para uniformizar o tamanho não compensa.
+#[allow(clippy::large_enum_variant)]
 pub enum PendingAction {
     PhaseMarker {
         phase: PreSeasonPhase,
@@ -417,7 +423,7 @@ pub fn initialize_preseason(
         planned_events.extend(hierarchy_events);
     }
 
-    let total_weeks = current_week.max(3);
+    let total_weeks = i32::from(MARKET_DURATION_WEEKS);
 
     let mut state = PreSeasonState {
         season_number,
@@ -695,21 +701,13 @@ fn compute_preseason_display_date(
     conn: &Connection,
     season_id: &str,
     current_week: i32,
-    total_weeks: i32,
+    _total_weeks: i32,
 ) -> Result<Option<String>, String> {
-    let Some(first_regular_event) =
-        calendar_queries::get_next_any_race_in_phase(conn, season_id, &SeasonPhase::BlocoRegular)
-            .map_err(|e| format!("Falha ao buscar primeira data da temporada regular: {e}"))?
-    else {
-        return Ok(None);
-    };
-
-    let anchor_date = NaiveDate::parse_from_str(&first_regular_event.display_date, "%Y-%m-%d")
-        .map_err(|e| format!("Falha ao interpretar data da primeira corrida regular: {e}"))?;
-    let effective_week = current_week.clamp(1, total_weeks.max(1));
-    let weeks_before_first_event = i64::from(total_weeks.max(1) - effective_week + 1);
-    let preseason_date = anchor_date - Duration::days(weeks_before_first_event * 7);
-    Ok(Some(preseason_date.format("%Y-%m-%d").to_string()))
+    let season = season_queries::get_season_by_id(conn, season_id)
+        .map_err(|e| format!("Falha ao carregar temporada da pre-temporada: {e}"))?
+        .ok_or_else(|| format!("Temporada {season_id} nao encontrada"))?;
+    let season_week = current_week.clamp(1, i32::from(MARKET_DURATION_WEEKS)) as u8;
+    display_date_for_season_week(season_week, season.ano, Weekday::Sat).map(Some)
 }
 
 fn phase_for_week(week: i32, planned_events: &[PlannedEvent]) -> PreSeasonPhase {
@@ -1015,7 +1013,7 @@ fn build_hierarchy_events(
 ) -> Vec<PlannedEvent> {
     let mut events = Vec::new();
     for team in temp_teams {
-        if is_especial(&team.categoria) {
+        if !uses_regular_contracts(&team.categoria) {
             continue;
         }
         let changed = original_teams_by_id.get(&team.id).is_none_or(|current| {
@@ -1336,7 +1334,12 @@ fn execute_action(
                     )
                 })?
                 .ok_or_else(|| format!("Equipe '{}' nao encontrada", to_team_id))?;
-            grant_driver_license_for_category_if_needed(conn, driver_id, &target_team.categoria)?;
+            grant_driver_license_for_division_if_needed(
+                conn,
+                driver_id,
+                &target_team.categoria,
+                target_team.classe.as_deref(),
+            )?;
             sign_driver_to_team(
                 conn,
                 driver_id,
@@ -1422,7 +1425,12 @@ fn execute_action(
             let team = team_queries::get_team_by_id(conn, team_id)
                 .map_err(|e| format!("Falha ao buscar equipe '{}' para rookie: {e}", team_id))?
                 .ok_or_else(|| format!("Equipe '{}' nao encontrada", team_id))?;
-            grant_driver_license_for_category_if_needed(conn, &driver.id, &team.categoria)?;
+            grant_driver_license_for_division_if_needed(
+                conn,
+                &driver.id,
+                &team.categoria,
+                team.classe.as_deref(),
+            )?;
             sign_driver_to_team(
                 conn,
                 &driver.id,
@@ -1761,7 +1769,13 @@ fn sign_driver_to_team(
             driver_id
         )
     })?;
-    ensure_driver_can_join_category(conn, driver_id, driver_name, &team.categoria)?;
+    ensure_driver_can_join_division(
+        conn,
+        driver_id,
+        driver_name,
+        &team.categoria,
+        team.classe.as_deref(),
+    )?;
     let role = TeamRole::from_str_strict(role)
         .map_err(|e| format!("Falha ao interpretar papel da assinatura: {e}"))?;
     if let Some(existing_contract) =
@@ -1820,7 +1834,7 @@ fn sign_driver_to_team(
                 )
             })?;
     }
-    let contract = Contract::new(
+    let mut contract = Contract::new(
         next_id(conn, IdType::Contract)
             .map_err(|e| format!("Falha ao gerar ID de contrato: {e}"))?,
         driver_id.to_string(),
@@ -1833,6 +1847,7 @@ fn sign_driver_to_team(
         role.clone(),
         team.categoria.clone(),
     );
+    contract.classe = team.classe.clone();
     contract_queries::insert_contract(conn, &contract)
         .map_err(|e| format!("Falha ao assinar contrato de '{}': {e}", driver_id))?;
     place_driver_in_signed_role(conn, team_id, driver_id, &role)?;
@@ -1970,6 +1985,7 @@ mod tests {
             season_phase: SeasonPhase::BlocoRegular,
             display_date: "2025-02-01".to_string(),
             thematic_slot: ThematicSlot::NaoClassificado,
+            season_week: None,
         }
     }
 
@@ -1982,7 +1998,10 @@ mod tests {
 
         assert_eq!(plan.state.season_number, 2);
         assert_eq!(plan.state.current_week, 1);
-        assert!(plan.state.total_weeks >= 3);
+        assert_eq!(
+            plan.state.total_weeks,
+            i32::from(crate::constants::timeline::MARKET_DURATION_WEEKS)
+        );
         assert!(!plan.planned_events.is_empty());
     }
 
@@ -2010,7 +2029,10 @@ mod tests {
 
         let plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
-        assert!((3..=12).contains(&plan.state.total_weeks));
+        assert_eq!(
+            plan.state.total_weeks,
+            i32::from(crate::constants::timeline::MARKET_DURATION_WEEKS)
+        );
     }
 
     #[test]

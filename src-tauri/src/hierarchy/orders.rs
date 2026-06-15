@@ -252,6 +252,7 @@ pub fn apply_inversao(team: &mut Team) {
 ///
 /// - Piloto promovido a N1: +15 de motivação
 /// - Piloto rebaixado a N2: -10 de motivação
+///
 /// Ambos clampados em [0, 100].
 pub fn apply_inversao_driver_effects(promoted: &mut Driver, demoted: &mut Driver) {
     promoted.motivacao = (promoted.motivacao + 15.0).clamp(0.0, 100.0);

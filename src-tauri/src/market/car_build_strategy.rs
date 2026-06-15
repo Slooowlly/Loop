@@ -308,6 +308,7 @@ mod tests {
             season_phase: SeasonPhase::BlocoRegular,
             display_date: "2026-01-01".to_string(),
             thematic_slot: ThematicSlot::NaoClassificado,
+            season_week: None,
         }
     }
 

@@ -71,7 +71,7 @@ fn generate_single_rookie(
         identity.nome_completo,
         identity.nacionalidade_label,
         identity.genero,
-        age as u32,
+        age,
         ano_inicio,
     );
     driver.categoria_atual = None;

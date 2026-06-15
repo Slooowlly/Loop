@@ -585,7 +585,7 @@ fn apply_physical_degradation(state: &mut RaceState, driver: &SimDriver, ctx: &S
 /// Processa danos latentes pós-colisão antes dos rolls normais do segmento.
 /// Para cada piloto não-DNF com pending_damage, testa a chance de manifestação.
 fn process_pending_damage(
-    states: &mut Vec<RaceState>,
+    states: &mut [RaceState],
     segment: RaceSegment,
     drivers: &[SimDriver],
     catalog: &IncidentCatalog,

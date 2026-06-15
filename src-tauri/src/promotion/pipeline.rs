@@ -3,12 +3,11 @@ use rusqlite::Connection;
 
 use std::collections::HashSet;
 
-use crate::constants::categories::is_especial;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
 use crate::promotion::block1::execute_block1_for_year;
 use crate::promotion::block2::execute_block2_with_exclusions;
-use crate::promotion::block3::execute_block3;
+use crate::promotion::block3::execute_block3_for_year;
 use crate::promotion::effects::{
     apply_attribute_deltas, calculate_promotion_effects, calculate_relegation_effects,
 };
@@ -40,6 +39,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub fn run_promotion_relegation(
     conn: &Connection,
     season_number: i32,
@@ -70,8 +70,14 @@ pub(crate) fn run_promotion_relegation_for_year(
             })
             .map(|movement| movement.team_id.clone())
             .collect();
-        let block2_movements = execute_block2_with_exclusions(conn, &excluded_from_block2, rng)?;
-        let block3_movements = execute_block3(conn, rng)?;
+        let block2_movements = execute_block2_with_exclusions(
+            conn,
+            season_number,
+            season_year,
+            &excluded_from_block2,
+            rng,
+        )?;
+        let block3_movements = execute_block3_for_year(conn, season_number, season_year, rng)?;
 
         all_movements.extend(block1_movements);
         all_movements.extend(block2_movements);
@@ -146,30 +152,8 @@ fn verify_team_driver_consistency(conn: &Connection, movements: &[TeamMovement])
         let Ok(Some(team)) = team_queries::get_team_by_id(conn, &movement.team_id) else {
             continue;
         };
-        // Equipes especiais usam categoria_especial_ativa em vez de categoria_atual
-        if is_especial(&team.categoria) {
-            for pilot_id in [team.piloto_1_id.as_deref(), team.piloto_2_id.as_deref()]
-                .into_iter()
-                .flatten()
-            {
-                match driver_queries::get_driver(conn, pilot_id) {
-                    Err(_) => errors.push(format!(
-                        "CONSISTENCIA: equipe especial '{}' referencia piloto '{pilot_id}' inexistente",
-                        team.nome
-                    )),
-                    Ok(driver) => {
-                        if driver.categoria_especial_ativa.as_deref() != Some(team.categoria.as_str()) {
-                            errors.push(format!(
-                                "CONSISTENCIA: piloto '{}' em especial sem categoria_especial_ativa correta (tem '{:?}', equipe '{}')",
-                                driver.nome, driver.categoria_especial_ativa, team.categoria
-                            ));
-                        }
-                    }
-                }
-            }
-            continue;
-        }
-
+        // Production/Endurance têm equipes e contratos reais desde a Fase 3A:
+        // pilotos usam categoria_atual como em qualquer categoria.
         for pilot_id in [team.piloto_1_id.as_deref(), team.piloto_2_id.as_deref()]
             .into_iter()
             .flatten()
@@ -214,6 +198,35 @@ fn verify_category_sizes(conn: &Connection) -> Result<Vec<String>, String> {
         if actual != expected {
             errors.push(format!(
                 "INVARIANTE VIOLADO: {category} tem {actual} equipes (esperado {expected})"
+            ));
+        }
+    }
+    for class_name in ["mazda", "toyota", "bmw"] {
+        let actual = team_queries::count_teams_by_category_and_class(
+            conn,
+            "production_challenger",
+            class_name,
+        )
+        .map_err(|e| {
+            format!("Falha ao contar equipes da classe '{class_name}' na Production: {e}")
+        })?;
+        if actual != 6 {
+            errors.push(format!(
+                "INVARIANTE VIOLADO: production_challenger classe {class_name} tem {actual} equipes (esperado 6)"
+            ));
+        }
+    }
+    // A classe lmp2 da Endurance é representada pelas equipes da categoria
+    // lmp2 (cobertas pelo expected_sizes acima); só gt4/gt3 têm equipes
+    // próprias de Endurance.
+    for class_name in ["gt4", "gt3", "lmp2"] {
+        let actual = team_queries::count_teams_by_category_and_class(conn, "endurance", class_name)
+            .map_err(|e| {
+                format!("Falha ao contar equipes da classe '{class_name}' na Endurance: {e}")
+            })?;
+        if actual != 6 {
+            errors.push(format!(
+                "INVARIANTE VIOLADO: endurance classe {class_name} tem {actual} equipes (esperado 6)"
             ));
         }
     }
@@ -275,7 +288,7 @@ mod tests {
 
         let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
 
-        assert_eq!(result.movements.len(), 4);
+        assert_eq!(result.movements.len(), 14);
         assert!(!result.attribute_deltas.is_empty());
     }
 
@@ -286,8 +299,313 @@ mod tests {
 
         let result = run_promotion_relegation(&conn, 2, &mut rng).expect("promotion should run");
 
-        assert_eq!(result.movements.len(), 4);
+        assert_eq!(result.movements.len(), 14);
         assert!(!result.attribute_deltas.is_empty());
+    }
+
+    #[test]
+    fn test_production_swap_moves_team_pilots_and_contracts_per_class() {
+        let conn = setup_promotion_db();
+        let mut rng = StdRng::seed_from_u64(60);
+        for (amateur_category, champion_id, relegated_id, class_name) in [
+            ("mazda_amador", "MA1", "PM6", "mazda"),
+            ("toyota_amador", "TA1", "PT6", "toyota"),
+            ("bmw_m2", "BM1", "PB6", "bmw"),
+        ] {
+            attach_pilot_with_contract(
+                &conn,
+                champion_id,
+                &format!("UP_{class_name}"),
+                amateur_category,
+            );
+            attach_pilot_with_contract(
+                &conn,
+                relegated_id,
+                &format!("DOWN_{class_name}"),
+                "production_challenger",
+            );
+        }
+
+        let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+
+        for (amateur_category, champion_id, relegated_id, class_name) in [
+            ("mazda_amador", "MA1", "PM6", "mazda"),
+            ("toyota_amador", "TA1", "PT6", "toyota"),
+            ("bmw_m2", "BM1", "PB6", "bmw"),
+        ] {
+            let promoted = team_queries::get_team_by_id(&conn, champion_id)
+                .expect("team query")
+                .expect("promoted team");
+            assert_eq!(promoted.categoria, "production_challenger");
+            assert_eq!(promoted.classe.as_deref(), Some(class_name));
+
+            let relegated = team_queries::get_team_by_id(&conn, relegated_id)
+                .expect("team query")
+                .expect("relegated team");
+            assert_eq!(relegated.categoria, amateur_category);
+            assert_eq!(relegated.classe, None);
+
+            // Pilotos acompanham a equipe nas duas direções, com contrato regular
+            // unico apontando para a nova categoria e licenca compativel.
+            let up_driver = driver_queries::get_driver(&conn, &format!("UP_{class_name}"))
+                .expect("promoted driver");
+            assert_eq!(
+                up_driver.categoria_atual.as_deref(),
+                Some("production_challenger")
+            );
+            assert!(up_driver.categoria_especial_ativa.is_none());
+            assert!(
+                crate::models::license::driver_has_required_license_for_division(
+                    &conn,
+                    &up_driver.id,
+                    "production_challenger",
+                    Some(class_name),
+                )
+                .expect("license query")
+            );
+
+            let down_driver = driver_queries::get_driver(&conn, &format!("DOWN_{class_name}"))
+                .expect("relegated driver");
+            assert_eq!(
+                down_driver.categoria_atual.as_deref(),
+                Some(amateur_category)
+            );
+            assert!(down_driver.categoria_especial_ativa.is_none());
+
+            for driver_id in [&up_driver.id, &down_driver.id] {
+                let active_regular_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM contracts
+                         WHERE piloto_id = ?1 AND tipo = 'Regular' AND status = 'Ativo'",
+                        rusqlite::params![driver_id],
+                        |row| row.get(0),
+                    )
+                    .expect("contract count");
+                assert_eq!(active_regular_count, 1, "piloto '{driver_id}'");
+                let especial_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM contracts
+                         WHERE piloto_id = ?1 AND tipo = 'Especial'",
+                        rusqlite::params![driver_id],
+                        |row| row.get(0),
+                    )
+                    .expect("especial count");
+                assert_eq!(
+                    especial_count, 0,
+                    "nenhum contrato Especial deve ser criado"
+                );
+            }
+
+            let up_contract = contract_queries::get_active_regular_contract_for_pilot(
+                &conn,
+                &format!("UP_{class_name}"),
+            )
+            .expect("contract query")
+            .expect("promoted contract");
+            assert_eq!(up_contract.categoria, "production_challenger");
+
+            let down_contract = contract_queries::get_active_regular_contract_for_pilot(
+                &conn,
+                &format!("DOWN_{class_name}"),
+            )
+            .expect("contract query")
+            .expect("relegated contract");
+            assert_eq!(down_contract.categoria, amateur_category);
+        }
+
+        // Invariantes de tamanho: Production segue 6/6/6 e nenhuma equipe
+        // aparece em duas categorias (categoria é coluna única por equipe).
+        for class_name in ["mazda", "toyota", "bmw"] {
+            let count = team_queries::count_teams_by_category_and_class(
+                &conn,
+                "production_challenger",
+                class_name,
+            )
+            .expect("count by class");
+            assert_eq!(count, 6);
+        }
+        for (category, expected) in [("mazda_amador", 10), ("toyota_amador", 10), ("bmw_m2", 10)] {
+            let count =
+                team_queries::count_teams_by_category(&conn, category).expect("count by category");
+            assert_eq!(count, expected, "{category}");
+        }
+    }
+
+    #[test]
+    fn test_endurance_swap_moves_team_pilots_and_contracts_per_class() {
+        let conn = setup_promotion_db();
+        let mut rng = StdRng::seed_from_u64(61);
+        for (feeder_category, champion_id, relegated_id, class_name) in [
+            ("gt4", "GT41", "EG46", "gt4"),
+            ("gt3", "GT31", "EG36", "gt3"),
+        ] {
+            attach_pilot_with_contract(
+                &conn,
+                champion_id,
+                &format!("EUP_{class_name}"),
+                feeder_category,
+            );
+            attach_pilot_with_contract(
+                &conn,
+                relegated_id,
+                &format!("EDOWN_{class_name}"),
+                "endurance",
+            );
+        }
+
+        let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+
+        for (feeder_category, champion_id, relegated_id, class_name) in [
+            ("gt4", "GT41", "EG46", "gt4"),
+            ("gt3", "GT31", "EG36", "gt3"),
+        ] {
+            let promoted = team_queries::get_team_by_id(&conn, champion_id)
+                .expect("team query")
+                .expect("promoted team");
+            assert_eq!(promoted.categoria, "endurance");
+            assert_eq!(promoted.classe.as_deref(), Some(class_name));
+
+            let relegated = team_queries::get_team_by_id(&conn, relegated_id)
+                .expect("team query")
+                .expect("relegated team");
+            assert_eq!(relegated.categoria, feeder_category);
+            assert_eq!(relegated.classe, None);
+
+            let up_driver = driver_queries::get_driver(&conn, &format!("EUP_{class_name}"))
+                .expect("promoted driver");
+            assert_eq!(up_driver.categoria_atual.as_deref(), Some("endurance"));
+            assert!(up_driver.categoria_especial_ativa.is_none());
+            assert!(
+                crate::models::license::driver_has_required_license_for_division(
+                    &conn,
+                    &up_driver.id,
+                    "endurance",
+                    Some(class_name),
+                )
+                .expect("license query"),
+                "piloto promovido deve receber a licenca da Endurance"
+            );
+
+            let down_driver = driver_queries::get_driver(&conn, &format!("EDOWN_{class_name}"))
+                .expect("relegated driver");
+            assert_eq!(
+                down_driver.categoria_atual.as_deref(),
+                Some(feeder_category)
+            );
+            assert!(down_driver.categoria_especial_ativa.is_none());
+
+            for driver_id in [&up_driver.id, &down_driver.id] {
+                let active_regular_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM contracts
+                         WHERE piloto_id = ?1 AND tipo = 'Regular' AND status = 'Ativo'",
+                        rusqlite::params![driver_id],
+                        |row| row.get(0),
+                    )
+                    .expect("contract count");
+                assert_eq!(active_regular_count, 1, "piloto '{driver_id}'");
+                let especial_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM contracts
+                         WHERE piloto_id = ?1 AND tipo = 'Especial'",
+                        rusqlite::params![driver_id],
+                        |row| row.get(0),
+                    )
+                    .expect("especial count");
+                assert_eq!(
+                    especial_count, 0,
+                    "nenhum contrato Especial deve ser criado"
+                );
+            }
+
+            let up_contract = contract_queries::get_active_regular_contract_for_pilot(
+                &conn,
+                &format!("EUP_{class_name}"),
+            )
+            .expect("contract query")
+            .expect("promoted contract");
+            assert_eq!(up_contract.categoria, "endurance");
+
+            let down_contract = contract_queries::get_active_regular_contract_for_pilot(
+                &conn,
+                &format!("EDOWN_{class_name}"),
+            )
+            .expect("contract query")
+            .expect("relegated contract");
+            assert_eq!(down_contract.categoria, feeder_category);
+        }
+
+        // Invariantes: Endurance segue 6/6/6, feeders mantêm tamanho e LMP2
+        // fica fixa nos dois lados.
+        for class_name in ["gt4", "gt3", "lmp2"] {
+            let count =
+                team_queries::count_teams_by_category_and_class(&conn, "endurance", class_name)
+                    .expect("endurance count");
+            assert_eq!(count, 6, "endurance classe {class_name}");
+        }
+        for (category, expected) in [("gt4", 10), ("gt3", 14)] {
+            let count =
+                team_queries::count_teams_by_category(&conn, category).expect("count by category");
+            assert_eq!(count, expected, "{category}");
+        }
+        let lmp2_count = team_queries::count_teams_by_category(&conn, "lmp2").expect("lmp2 count");
+        assert_eq!(lmp2_count, 0);
+    }
+
+    #[test]
+    fn test_promotion_never_moves_lmp2_teams() {
+        let conn = setup_promotion_db();
+        let mut rng = StdRng::seed_from_u64(62);
+
+        let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
+
+        assert!(result
+            .movements
+            .iter()
+            .all(|movement| movement.from_category != "lmp2"
+                && movement.to_category != "lmp2"
+                && !movement.team_id.starts_with("LMP")));
+        let lmp2_count = team_queries::count_teams_by_category(&conn, "lmp2").expect("lmp2 count");
+        let endurance_lmp2 =
+            team_queries::count_teams_by_category_and_class(&conn, "endurance", "lmp2")
+                .expect("endurance lmp2 count");
+        assert_eq!(lmp2_count, 0);
+        assert_eq!(endurance_lmp2, 6);
+    }
+
+    fn attach_pilot_with_contract(
+        conn: &Connection,
+        team_id: &str,
+        driver_id: &str,
+        category: &str,
+    ) {
+        let mut driver = Driver::new(
+            driver_id.to_string(),
+            driver_id.to_string(),
+            "Brasil".to_string(),
+            "M".to_string(),
+            24,
+            2020,
+        );
+        driver.categoria_atual = Some(category.to_string());
+        driver_queries::insert_driver(conn, &driver).expect("insert driver");
+        team_queries::update_team_pilots(conn, team_id, Some(driver_id), None)
+            .expect("attach pilot");
+        let contract = Contract::new(
+            format!("C_{driver_id}"),
+            driver_id.to_string(),
+            driver_id.to_string(),
+            team_id.to_string(),
+            team_id.to_string(),
+            1,
+            2,
+            80_000.0,
+            TeamRole::Numero1,
+            category.to_string(),
+        );
+        contract_queries::insert_contract(conn, &contract).expect("insert contract");
     }
 
     #[test]
@@ -341,7 +659,10 @@ mod tests {
         let err = run_promotion_relegation(&conn, 1, &mut rng)
             .expect_err("promotion should fail when pilot effect cannot update contract");
 
-        assert!(err.contains("contrato regular"), "unexpected error: {err}");
+        assert!(
+            err.contains("contrato regular") || err.contains("contratos da equipe"),
+            "unexpected error: {err}"
+        );
 
         let team = team_queries::get_team_by_id(&conn, "MR1")
             .expect("team query after failure")
@@ -395,14 +716,14 @@ mod tests {
         insert_ranked_teams(&conn, "mazda_amador", "MA", 10, None);
         insert_ranked_teams(&conn, "toyota_amador", "TA", 10, None);
         insert_ranked_teams(&conn, "bmw_m2", "BM", 10, None);
-        insert_ranked_teams(&conn, "production_challenger", "PM", 5, Some("mazda"));
-        insert_ranked_teams(&conn, "production_challenger", "PT", 5, Some("toyota"));
-        insert_ranked_teams(&conn, "production_challenger", "PB", 5, Some("bmw"));
+        insert_ranked_teams(&conn, "production_challenger", "PM", 6, Some("mazda"));
+        insert_ranked_teams(&conn, "production_challenger", "PT", 6, Some("toyota"));
+        insert_ranked_teams(&conn, "production_challenger", "PB", 6, Some("bmw"));
         insert_ranked_teams(&conn, "gt4", "GT4", 10, None);
         insert_ranked_teams(&conn, "gt3", "GT3", 14, None);
         insert_ranked_teams(&conn, "endurance", "EG4", 6, Some("gt4"));
         insert_ranked_teams(&conn, "endurance", "EG3", 6, Some("gt3"));
-        insert_ranked_teams(&conn, "endurance", "LMP", 5, Some("lmp2"));
+        insert_ranked_teams(&conn, "endurance", "LMP", 6, Some("lmp2"));
 
         conn
     }

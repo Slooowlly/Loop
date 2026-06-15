@@ -32,7 +32,7 @@ pub struct Contract {
     pub tipo: ContractType,
     pub categoria: String,
     /// Classe específica em categorias multi-classe (ex: "gt3", "mazda").
-    /// Preenchido apenas em contratos especiais; None em contratos regulares.
+    /// Preenchido em contratos especiais e em contratos regulares de equipes reais multi-classe.
     #[serde(default)]
     pub classe: Option<String>,
     pub created_at: String,

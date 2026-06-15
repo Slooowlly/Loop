@@ -1,11 +1,14 @@
 use rusqlite::Connection;
 
-use crate::constants::categories::{get_category_config, is_especial};
+use crate::constants::categories::runs_in_special_phase;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
 use crate::models::enums::ContractStatus;
-use crate::models::license::driver_has_required_license_level;
+use crate::models::license::{
+    driver_has_required_license_level, grant_driver_license_for_division_if_needed,
+    required_license_for_division,
+};
 use crate::promotion::{MovementType, PilotEffect, PilotEffectType, TeamMovement};
 
 fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
@@ -43,16 +46,48 @@ pub fn resolve_pilot_situations(
             .map_err(|e| format!("Falha ao buscar equipe '{}': {e}", movement.team_id))?
             .ok_or_else(|| format!("Equipe '{}' nao encontrada", movement.team_id))?;
 
-        for pilot_id in [team.piloto_1_id.as_deref(), team.piloto_2_id.as_deref()]
+        // O elenco da equipe é o lineup mais quem tem contrato regular ativo:
+        // em Production/Endurance o grid é montado pelos contratos e o lineup
+        // (piloto_1/piloto_2) pode estar vazio.
+        let mut pilot_ids: Vec<String> = [team.piloto_1_id.clone(), team.piloto_2_id.clone()]
             .into_iter()
             .flatten()
-        {
+            .collect();
+        let team_contracts =
+            contract_queries::get_active_regular_contracts_by_team(conn, &movement.team_id)
+                .map_err(|e| {
+                    format!(
+                        "Falha ao buscar contratos da equipe '{}': {e}",
+                        movement.team_id
+                    )
+                })?;
+        for contract in &team_contracts {
+            if !pilot_ids.contains(&contract.piloto_id) {
+                pilot_ids.push(contract.piloto_id.clone());
+            }
+        }
+
+        for pilot_id in &pilot_ids {
             let driver = driver_queries::get_driver(conn, pilot_id)
                 .map_err(|e| format!("Falha ao buscar piloto '{pilot_id}': {e}"))?;
             let effect = match movement.movement_type {
+                // Subida estrutural para Production/Endurance: a equipe leva os
+                // pilotos e a licença da categoria é concedida junto (ficar livre
+                // é exceção).
+                MovementType::Promocao if runs_in_special_phase(&movement.to_category) => {
+                    PilotEffect {
+                        driver_id: driver.id.clone(),
+                        driver_name: driver.nome.clone(),
+                        team_id: movement.team_id.clone(),
+                        effect: PilotEffectType::MovesWithTeam,
+                        reason: "Sobe com a equipe; licenca da categoria garantida".to_string(),
+                    }
+                }
                 MovementType::Promocao => {
-                    let required_license = get_category_config(&movement.to_category)
-                        .and_then(|config| config.licenca_necessaria);
+                    // Promoção não-especial: alvos são categorias regulares (sem
+                    // classe), então a divisão é (categoria, None).
+                    let required_license =
+                        required_license_for_division(&movement.to_category, None);
                     let has_license = check_driver_has_license(conn, pilot_id, required_license)?;
                     if has_license {
                         PilotEffect {
@@ -111,27 +146,34 @@ pub fn apply_pilot_effect(
 
         match effect.effect {
             PilotEffectType::MovesWithTeam => {
+                // Movimento estrutural: Production/Endurance usam categoria_atual como
+                // qualquer categoria; categoria_especial_ativa é legado da convocação.
                 driver.categoria_atual = Some(movement.to_category.clone());
-                driver.categoria_especial_ativa = if is_especial(&movement.to_category) {
-                    Some(movement.to_category.clone())
-                } else {
-                    None
-                };
+                driver.categoria_especial_ativa = None;
                 driver_queries::update_driver(conn, &driver)
                     .map_err(|e| format!("Falha ao atualizar piloto '{}': {e}", driver.nome))?;
+                if movement.movement_type == MovementType::Promocao {
+                    grant_driver_license_for_division_if_needed(
+                        conn,
+                        &driver.id,
+                        &movement.to_category,
+                        target_class_for_movement(movement).as_deref(),
+                    )?;
+                }
                 if let Some(contract) =
                     contract_queries::get_active_regular_contract_for_pilot(conn, &driver.id)
                         .map_err(|e| {
                             format!("Falha ao buscar contrato regular de '{}': {e}", driver.nome)
                         })?
                 {
+                    let target_class = target_class_for_movement(movement);
                     conn.execute(
-                        "UPDATE contracts SET categoria = ?1 WHERE id = ?2",
-                        rusqlite::params![&movement.to_category, &contract.id],
+                        "UPDATE contracts SET categoria = ?1, classe = ?2 WHERE id = ?3",
+                        rusqlite::params![&movement.to_category, &target_class, &contract.id],
                     )
                     .map_err(|e| {
                         format!(
-                            "Falha ao atualizar categoria do contrato '{}': {e}",
+                            "Falha ao atualizar categoria/classe do contrato '{}': {e}",
                             contract.id
                         )
                     })?;
@@ -183,6 +225,23 @@ pub fn apply_pilot_effect(
 
         Ok(())
     })
+}
+
+fn target_class_for_movement(movement: &TeamMovement) -> Option<String> {
+    match movement.to_category.as_str() {
+        "production_challenger" => match movement.from_category.as_str() {
+            "mazda_amador" => Some("mazda".to_string()),
+            "toyota_amador" => Some("toyota".to_string()),
+            "bmw_m2" => Some("bmw".to_string()),
+            _ => None,
+        },
+        "endurance" => match movement.from_category.as_str() {
+            "gt4" => Some("gt4".to_string()),
+            "gt3" => Some("gt3".to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn remove_driver_from_team(
@@ -350,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_pilot_effect_sets_categoria_especial_ativa_for_special_category() {
+    fn test_apply_pilot_effect_does_not_use_categoria_especial_ativa() {
         let conn = setup_pilots_db();
         let effect = PilotEffect {
             driver_id: "P001".to_string(),
@@ -365,10 +424,58 @@ mod tests {
 
         let driver = driver_queries::get_driver(&conn, "P001").expect("driver query");
         assert_eq!(driver.categoria_atual.as_deref(), Some("endurance"));
-        assert_eq!(
-            driver.categoria_especial_ativa.as_deref(),
-            Some("endurance")
+        assert!(
+            driver.categoria_especial_ativa.is_none(),
+            "movimento estrutural nao deve usar categoria_especial_ativa"
         );
+    }
+
+    #[test]
+    fn test_promotion_to_production_moves_pilots_and_grants_license() {
+        let conn = setup_pilots_db();
+        let movement = TeamMovement {
+            team_id: "T001".to_string(),
+            team_name: "Equipe 1".to_string(),
+            from_category: "mazda_amador".to_string(),
+            to_category: "production_challenger".to_string(),
+            movement_type: MovementType::Promocao,
+            reason: "Campea do amador".to_string(),
+        };
+
+        let effects =
+            resolve_pilot_situations(&conn, &[movement.clone()]).expect("resolve situations");
+        assert!(
+            effects
+                .iter()
+                .all(|effect| effect.effect == PilotEffectType::MovesWithTeam),
+            "pilotos da equipe promovida para Production devem acompanhar a equipe"
+        );
+
+        for effect in &effects {
+            apply_pilot_effect(&conn, effect, &[movement.clone()]).expect("apply effect");
+        }
+
+        for driver_id in ["P001", "P002"] {
+            let driver = driver_queries::get_driver(&conn, driver_id).expect("driver query");
+            assert_eq!(
+                driver.categoria_atual.as_deref(),
+                Some("production_challenger")
+            );
+            assert!(driver.categoria_especial_ativa.is_none());
+            let has_license = crate::models::license::driver_has_required_license_for_category(
+                &conn,
+                driver_id,
+                "production_challenger",
+            )
+            .expect("license query");
+            assert!(has_license, "piloto promovido deve receber a licenca");
+
+            let contract =
+                contract_queries::get_active_regular_contract_for_pilot(&conn, driver_id)
+                    .expect("contract query")
+                    .expect("contract should stay active");
+            assert_eq!(contract.categoria, "production_challenger");
+        }
     }
 
     fn setup_pilots_db() -> Connection {

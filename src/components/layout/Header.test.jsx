@@ -260,4 +260,26 @@ describe("Header", () => {
     expect(mockRunConvocationWindow).not.toHaveBeenCalled();
     expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
   });
+
+  it("advances the new Encerramento phase from the header without convocation", () => {
+    mockState.nextRace = null;
+    mockState.season = {
+      ...mockState.season,
+      fase: "Encerramento",
+    };
+    mockState.temporalSummary = {
+      current_display_date: "2026-11-21",
+      next_event_display_date: null,
+      days_until_next_event: null,
+      pending_in_phase: 0,
+    };
+
+    render(<Header activeTab="standings" onTabChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /avançar para pré-temporada/i }));
+
+    expect(mockAdvanceSeason).toHaveBeenCalledTimes(1);
+    expect(mockRunConvocationWindow).not.toHaveBeenCalled();
+    expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
+  });
 });

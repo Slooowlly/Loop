@@ -474,6 +474,31 @@ describe("GlobalDriversTab", () => {
     });
   });
 
+  it("formats composite current divisions instead of showing raw keys", async () => {
+    invoke.mockResolvedValueOnce({
+      selected_driver_id: "D_END_GT3",
+      rows: [
+        {
+          ...rows[0],
+          id: "D_END_GT3",
+          nome: "Piloto Endurance",
+          equipe_nome: "Equipe Endurance",
+          categoria_atual: "endurance:gt3",
+          categorias_historicas: ["endurance:gt3"],
+          titulos_por_categoria: [],
+        },
+      ],
+      leaders: {},
+    });
+
+    render(<GlobalDriversTab selectedDriverId="D_END_GT3" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    expect(within(table).getByText(/Equipe Endurance \/ GT3 Endurance/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Categoria/i)).toHaveTextContent("GT3 Endurance");
+    expect(screen.queryByText(/endurance:gt3/i)).not.toBeInTheDocument();
+  });
+
   it("sorts the global table by wins", async () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 

@@ -22,7 +22,7 @@ pub fn determine_fastest_lap(results: &mut [RaceDriverResult]) -> Option<String>
     fastest_id
 }
 
-pub fn assign_points(results: &mut Vec<RaceDriverResult>, is_endurance: bool) {
+pub fn assign_points(results: &mut [RaceDriverResult], is_endurance: bool) {
     for result in results.iter_mut() {
         if result.is_dnf {
             result.points_earned = 0;

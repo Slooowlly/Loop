@@ -83,7 +83,7 @@ fn load_team_snapshots(
             "SELECT
                 rr.equipe_id,
                 c.categoria,
-                COALESCE(NULLIF(TRIM(t.classe), ''), e.class_name) AS classe,
+                NULLIF(TRIM(t.classe), '') AS classe,
                 t.piloto_1_id,
                 t.piloto_2_id,
                 COALESCE(SUM(rr.pontos), 0.0) AS pontos,
@@ -94,12 +94,8 @@ fn load_team_snapshots(
              FROM race_results rr
              JOIN calendar c ON c.id = rr.race_id
              JOIN teams t ON t.id = rr.equipe_id
-             LEFT JOIN special_team_entries e
-                ON e.team_id = rr.equipe_id
-               AND e.season_id = COALESCE(c.season_id, c.temporada_id)
-               AND e.special_category = c.categoria
              WHERE COALESCE(c.season_id, c.temporada_id) = ?1
-             GROUP BY rr.equipe_id, c.categoria, COALESCE(NULLIF(TRIM(t.classe), ''), e.class_name)",
+             GROUP BY rr.equipe_id, c.categoria, NULLIF(TRIM(t.classe), '')",
         )
         .map_err(|e| format!("Falha ao preparar arquivo de equipes: {e}"))?;
     let rows = stmt
@@ -319,6 +315,113 @@ mod tests {
 
         assert_eq!(bmw_position, 1);
         assert_eq!(mazda_position, 1);
+    }
+
+    #[test]
+    fn archive_team_season_uses_lmp2_endurance_class() {
+        let conn = setup_team_archive_conn();
+        conn.execute_batch(
+            "
+            INSERT INTO seasons (id, numero, ano, status, rodada_atual, fase, created_at, updated_at)
+            VALUES ('S_END', 3, 2026, 'Finalizada', 1, 'BlocoRegular', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+            INSERT INTO drivers (id, nome, idade, nacionalidade, genero, categoria_atual, status, ano_inicio_carreira)
+            VALUES
+                ('P_GT3', 'Piloto GT3', 25, 'Brasil', 'M', 'endurance', 'Ativo', 2020),
+                ('P_LMP', 'Piloto LMP2', 24, 'Brasil', 'M', 'endurance', 'Ativo', 2021);
+
+            INSERT INTO teams (
+                id, nome, nome_curto, categoria, classe, ativa, piloto_1_id,
+                created_at, updated_at
+            ) VALUES
+                ('T_GT3', 'Equipe GT3', 'GT3', 'endurance', 'gt3', 1, 'P_GT3', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('T_LMP', 'Equipe LMP2', 'LMP', 'endurance', 'lmp2', 1, 'P_LMP', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+            INSERT INTO calendar (
+                id, temporada_id, season_id, rodada, pista, categoria, status, nome,
+                track_name, track_config
+            ) VALUES
+                ('R_END', 'S_END', 'S_END', 1, 'Le Mans', 'endurance', 'Concluida', 'Endurance', 'Le Mans', 'default');
+
+            INSERT INTO race_results (
+                race_id, piloto_id, equipe_id, posicao_largada, posicao_final, voltas_completadas, pontos
+            ) VALUES
+                ('R_END', 'P_GT3', 'T_GT3', 1, 1, 10, 35.0),
+                ('R_END', 'P_LMP', 'T_LMP', 2, 1, 10, 35.0);
+            ",
+        )
+        .expect("seed endurance world");
+        let season = Season::new("S_END".to_string(), 3, 2026);
+
+        archive_team_season(&conn, &season).expect("archive");
+
+        let lmp_classe: Option<String> = conn
+            .query_row(
+                "SELECT classe FROM team_season_archive
+                 WHERE team_id = 'T_LMP' AND season_number = 3 AND categoria = 'endurance'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("lmp2 archive row");
+        assert_eq!(lmp_classe.as_deref(), Some("lmp2"));
+
+        // Cada classe tem o proprio campeao de construtores.
+        let lmp_position = read_team_archive_position(&conn, "T_LMP", season.numero, "endurance");
+        let gt3_position = read_team_archive_position(&conn, "T_GT3", season.numero, "endurance");
+        assert_eq!(lmp_position, 1);
+        assert_eq!(gt3_position, 1);
+    }
+
+    #[test]
+    fn archive_team_season_does_not_require_special_team_entries_for_real_special_categories() {
+        let conn = setup_team_archive_conn();
+        conn.execute("DROP TABLE special_team_entries", [])
+            .expect("drop legacy special entries table");
+        conn.execute_batch(
+            "
+            INSERT INTO seasons (id, numero, ano, status, rodada_atual, fase, created_at, updated_at)
+            VALUES ('S_PROD', 4, 2026, 'Finalizada', 1, 'BlocoRegular', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+            INSERT INTO drivers (id, nome, idade, nacionalidade, genero, categoria_atual, status, ano_inicio_carreira)
+            VALUES ('P_PROD', 'Piloto Production', 25, 'Brasil', 'M', 'production_challenger', 'Ativo', 2020);
+
+            INSERT INTO teams (
+                id, nome, nome_curto, categoria, classe, ativa, piloto_1_id,
+                created_at, updated_at
+            ) VALUES (
+                'T_PROD', 'Equipe Production', 'PRD', 'production_challenger', 'mazda',
+                1, 'P_PROD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO calendar (
+                id, temporada_id, season_id, rodada, pista, categoria, status, nome,
+                track_name, track_config
+            ) VALUES (
+                'R_PROD', 'S_PROD', 'S_PROD', 1, 'Interlagos', 'production_challenger',
+                'Concluida', 'Production', 'Interlagos', 'default'
+            );
+
+            INSERT INTO race_results (
+                race_id, piloto_id, equipe_id, posicao_largada, posicao_final, voltas_completadas, pontos
+            ) VALUES ('R_PROD', 'P_PROD', 'T_PROD', 1, 1, 10, 35.0);
+            ",
+        )
+        .expect("seed production archive world");
+        let season = Season::new("S_PROD".to_string(), 4, 2026);
+
+        archive_team_season(&conn, &season).expect("archive without special_team_entries");
+
+        let class_name: Option<String> = conn
+            .query_row(
+                "SELECT classe FROM team_season_archive
+                 WHERE team_id = 'T_PROD'
+                   AND season_number = 4
+                   AND categoria = 'production_challenger'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("production archive row");
+        assert_eq!(class_name.as_deref(), Some("mazda"));
     }
 
     fn setup_team_archive_conn() -> Connection {

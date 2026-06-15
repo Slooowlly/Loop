@@ -356,8 +356,13 @@ pub fn update_driver_especial_category(
 }
 
 pub fn clear_all_categoria_especial_ativa(conn: &Connection) -> Result<usize, DbError> {
+    // Legacy cleanup for temporary special-call marks. Production/Endurance are
+    // real divisions now, so PosEspecial must not clear their regular driver state.
     let n = conn.execute(
-        "UPDATE drivers SET categoria_especial_ativa = NULL WHERE categoria_especial_ativa IS NOT NULL",
+        "UPDATE drivers
+         SET categoria_especial_ativa = NULL
+         WHERE categoria_especial_ativa IS NOT NULL
+           AND categoria_especial_ativa NOT IN ('production_challenger', 'endurance')",
         [],
     )?;
     Ok(n)

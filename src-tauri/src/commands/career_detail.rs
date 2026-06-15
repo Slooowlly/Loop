@@ -159,7 +159,7 @@ pub(crate) fn build_driver_detail_payload(
         ),
         competitivo: DriverCompetitiveBlock {
             personalidade_primaria: personality_primaria,
-            personalidade_secundaria: personalidade_secundaria,
+            personalidade_secundaria,
             motivacao: driver.motivacao.round().clamp(0.0, 100.0) as u8,
             qualidades,
             defeitos,
@@ -414,18 +414,44 @@ fn resolve_driver_category(
     contract: Option<&Contract>,
     team: Option<&Team>,
 ) -> Option<String> {
-    regular_category(driver.categoria_atual.as_deref())
-        .or_else(|| contract.and_then(|value| regular_category(Some(&value.categoria))))
-        .or_else(|| team.and_then(|value| regular_category(Some(&value.categoria))))
+    contract
+        .and_then(|value| regular_division_key(&value.categoria, value.classe.as_deref()))
+        .or_else(|| {
+            team.and_then(|value| regular_division_key(&value.categoria, value.classe.as_deref()))
+        })
+        .or_else(|| regular_category(driver.categoria_atual.as_deref()))
 }
 
 fn regular_category(category: Option<&str>) -> Option<String> {
     let category = category?.trim();
-    if category.is_empty() || categories::is_especial(category) {
+    if category.is_empty() {
+        return None;
+    }
+    if let Some((base_category, class_name)) = category.split_once(':') {
+        return regular_division_key(base_category, Some(class_name));
+    }
+    if categories::is_especial(category) {
         None
     } else {
         Some(category.to_string())
     }
+}
+
+fn regular_division_key(category: &str, class_name: Option<&str>) -> Option<String> {
+    categories::is_valid_competitive_division(category, class_name)
+        .then(|| categories::competitive_division_key(category, class_name))
+}
+
+fn competitive_division_label_from_key(key: &str) -> Option<String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    if let Some((category, class_name)) = key.split_once(':') {
+        return categories::is_valid_competitive_division(category, Some(class_name))
+            .then(|| categories::competitive_division_label(category, Some(class_name)));
+    }
+    categories::get_category_config(key).map(|category| category.nome_curto.to_string())
 }
 
 fn split_driver_tags(tags: &[TagInfo]) -> (Vec<TagInfo>, Vec<TagInfo>) {
@@ -1325,7 +1351,7 @@ fn load_special_contract_rows(
     for row in mapped {
         let contract =
             row.map_err(|e| format!("Falha ao ler historico de evento especial: {e}"))?;
-        if categories::is_especial(&contract.category) {
+        if categories::runs_in_special_phase(&contract.category) {
             rows.push(contract);
         }
     }
@@ -1373,7 +1399,7 @@ fn load_special_contract_counts(conn: &Connection) -> Result<Vec<(String, i32)>,
     for row in rows {
         let (pilot_id, category) =
             row.map_err(|e| format!("Falha ao ler ranking de eventos especiais: {e}"))?;
-        if categories::is_especial(&category) {
+        if categories::runs_in_special_phase(&category) {
             *counts.entry(pilot_id).or_insert(0) += 1;
         }
     }
@@ -1413,7 +1439,7 @@ fn load_special_result_counts(conn: &Connection) -> Result<HashMap<String, (i32,
     for row in rows {
         let (pilot_id, category, wins, podiums) =
             row.map_err(|e| format!("Falha ao ler ranking de resultados especiais: {e}"))?;
-        if categories::is_especial(&category) {
+        if categories::runs_in_special_phase(&category) {
             let entry = counts.entry(pilot_id).or_insert((0, 0));
             entry.0 += wins;
             entry.1 += podiums;
@@ -1844,11 +1870,11 @@ fn build_driver_career_path_block(
         });
     }
 
-    if let Some(category) = category_id.and_then(categories::get_category_config) {
+    if let Some(category_label) = category_id.and_then(competitive_division_label_from_key) {
         marcos.push(CareerMilestone {
             tipo: "categoria".to_string(),
             titulo: "Momento atual".to_string(),
-            descricao: format!("Compete hoje em {}", category.nome_curto),
+            descricao: format!("Compete hoje em {category_label}"),
         });
     }
 
@@ -1878,10 +1904,12 @@ mod tests {
         build_archived_recent_results_for_driver, build_career_history_block,
         build_category_timeline, build_current_summary_block, build_driver_career_path_block,
         build_driver_form_block, career_debut_year_from_archive, fallback_injury_display_name,
-        CareerSeasonArchiveRow, HistoricalRaceResult,
+        resolve_driver_category, CareerSeasonArchiveRow, HistoricalRaceResult,
     };
+    use crate::constants::categories::competitive_division_label;
+    use crate::models::contract::Contract;
     use crate::models::driver::Driver;
-    use crate::models::enums::InjuryType;
+    use crate::models::enums::{InjuryType, TeamRole};
 
     fn sample_driver() -> Driver {
         let mut driver = Driver::new(
@@ -2154,6 +2182,60 @@ mod tests {
         assert_eq!(timeline[0].categoria, "mazda_rookie");
         assert_eq!(timeline[1].categoria, "gt3");
         assert!(timeline.iter().all(|item| item.categoria != "endurance"));
+    }
+
+    #[test]
+    fn career_detail_resolves_endurance_contract_as_gt3_endurance() {
+        let mut driver = sample_driver();
+        driver.categoria_atual = Some("endurance".to_string());
+        let mut contract = Contract::new(
+            "C_END_GT3".to_string(),
+            driver.id.clone(),
+            driver.nome.clone(),
+            "T_END_GT3".to_string(),
+            "GT3 Endurance Team".to_string(),
+            1,
+            2,
+            100_000.0,
+            TeamRole::Numero1,
+            "endurance".to_string(),
+        );
+        contract.classe = Some("gt3".to_string());
+
+        let category = resolve_driver_category(&driver, Some(&contract), None);
+
+        assert_eq!(category.as_deref(), Some("endurance:gt3"));
+        assert_eq!(
+            competitive_division_label(&contract.categoria, contract.classe.as_deref()),
+            "GT3 Endurance"
+        );
+    }
+
+    #[test]
+    fn career_detail_resolves_production_contract_as_mazda_production() {
+        let mut driver = sample_driver();
+        driver.categoria_atual = Some("production_challenger".to_string());
+        let mut contract = Contract::new(
+            "C_PROD_MAZDA".to_string(),
+            driver.id.clone(),
+            driver.nome.clone(),
+            "T_PROD_MAZDA".to_string(),
+            "Mazda Production Team".to_string(),
+            1,
+            2,
+            70_000.0,
+            TeamRole::Numero1,
+            "production_challenger".to_string(),
+        );
+        contract.classe = Some("mazda".to_string());
+
+        let category = resolve_driver_category(&driver, Some(&contract), None);
+
+        assert_eq!(category.as_deref(), Some("production_challenger:mazda"));
+        assert_eq!(
+            competitive_division_label(&contract.categoria, contract.classe.as_deref()),
+            "Mazda Production"
+        );
     }
 
     #[test]

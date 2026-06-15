@@ -180,11 +180,11 @@ pub fn calculate_realized_event_interest(
         10.0
     } else if player_podium {
         6.0
-    } else if finish_position.map_or(false, |p| p <= 5) {
+    } else if finish_position.is_some_and(|p| p <= 5) {
         3.0
     } else if player_dnf {
         -8.0
-    } else if finish_position.map_or(false, |p| p > 10) {
+    } else if finish_position.is_some_and(|p| p > 10) {
         -2.0
     } else {
         0.0

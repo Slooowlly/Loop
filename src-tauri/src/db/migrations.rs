@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 31;
+const CURRENT_VERSION: u32 = 34;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -41,6 +41,9 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v29(conn)?;
     migrate_v30(conn)?;
     migrate_v31(conn)?;
+    migrate_v32(conn)?;
+    migrate_v33(conn)?;
+    migrate_v34(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -171,6 +174,18 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     if version < 31 {
         migrate_v31(conn)?;
         set_schema_version(conn, 31)?;
+    }
+    if version < 32 {
+        migrate_v32(conn)?;
+        set_schema_version(conn, 32)?;
+    }
+    if version < 33 {
+        migrate_v33(conn)?;
+        set_schema_version(conn, 33)?;
+    }
+    if version < 34 {
+        migrate_v34(conn)?;
+        set_schema_version(conn, 34)?;
     }
     Ok(())
 }
@@ -1878,6 +1893,191 @@ fn migrate_v31(conn: &Connection) -> Result<(), DbError> {
             ON team_season_archive(season_number, categoria);
         ",
     )?;
+    Ok(())
+}
+
+fn migrate_v32(conn: &Connection) -> Result<(), DbError> {
+    if !table_exists(conn, "standings")? {
+        return Ok(());
+    }
+
+    // Standings por classe (production_challenger/endurance): mazda/toyota/bmw e gt4/gt3/lmp2.
+    ensure_column(conn, "standings", "classe", "TEXT")?;
+
+    Ok(())
+}
+
+fn migrate_v33(conn: &Connection) -> Result<(), DbError> {
+    // ── 1. calendar: coluna season_week ──────────────────────────────────────
+    if table_exists(conn, "calendar")? {
+        // NULL default: salvo pré-v33 começa sem valor; backfill logo abaixo preenche.
+        ensure_column(conn, "calendar", "season_week", "INTEGER")?;
+
+        // ── 2. Backfill: deslocamento monotônico +4 ───────────────────────────
+        // Regra: season_week = week_of_year + 4 para TODAS as entradas existentes.
+        // Justificativa: deslocamento constante preserva a ordem relativa de qualquer
+        // save pré-v33 — incluindo bloco especial (woy 9–47) e pré-especial legado
+        // (woy 48–52), cujos resultados 52–56 são exclusivos de dados legados e nunca
+        // produzidos pelo modelo 9D novo.
+        // Os conversores da Etapa 2 (season_week_to_week_of_year) NÃO são usados
+        // aqui: eles mapeariam woy 49–52 de volta para a zona de mercado, quebrando
+        // a ordem nas temporadas legadas que tinham corridas nessas semanas.
+        //
+        // Entradas com week_of_year <= 0 (saves muito antigos): season_week = NULL.
+        let invalid_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE week_of_year <= 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if invalid_count > 0 {
+            eprintln!(
+                "[v33] AVISO: {invalid_count} entrada(s) de calendar com week_of_year <= 0; season_week = NULL para essas linhas"
+            );
+        }
+
+        conn.execute_batch(
+            "UPDATE calendar
+             SET season_week = CASE
+                 WHEN week_of_year > 0 THEN week_of_year + 4
+                 ELSE NULL
+             END;",
+        )?;
+
+        // ── 4. ThematicSlot remap (D3=B) ─────────────────────────────────────
+        // Remapear APENAS:
+        //   (a) entradas com status = 'Concluida', OU
+        //   (b) entradas de temporada com status = 'Finalizada'.
+        // NÃO remapear entradas Pendente de temporada EmAndamento em fase legada:
+        // o fluxo de convocação/bloco especial ainda vai lê-las com os nomes originais.
+        if table_exists(conn, "seasons")? {
+            conn.execute_batch(
+                "UPDATE calendar
+                 SET thematic_slot = CASE thematic_slot
+                     WHEN 'AberturaEspecial' THEN 'AberturaDaTemporada'
+                     WHEN 'RodadaEspecial'   THEN 'RodadaRegular'
+                     WHEN 'FinalEspecial'    THEN 'FinalDaTemporada'
+                     ELSE thematic_slot
+                 END
+                 WHERE
+                     thematic_slot IN ('AberturaEspecial', 'RodadaEspecial', 'FinalEspecial')
+                     AND (
+                         status = 'Concluida'
+                         OR EXISTS (
+                             SELECT 1 FROM seasons
+                             WHERE seasons.id = COALESCE(calendar.season_id, calendar.temporada_id)
+                               AND seasons.status = 'Finalizada'
+                         )
+                     );",
+            )?;
+        }
+    }
+
+    // ── 3. seasons: remapeamento de fase ─────────────────────────────────────
+    // status = 'Finalizada' → fase = 'Encerramento' (estado terminal coerente no
+    // modelo novo). Temporadas EmAndamento em qualquer fase legada: MANTER.
+    if table_exists(conn, "seasons")? {
+        conn.execute_batch(
+            "UPDATE seasons
+             SET fase = 'Encerramento'
+             WHERE status = 'Finalizada';",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v34(conn: &Connection) -> Result<(), DbError> {
+    // Converte saves legados em fase BlocoRegular para o modelo 9D:
+    //   1. Gera o calendário parcial de production_challenger e endurance para as
+    //      semanas restantes do ano (a partir da última corrida concluída + 1).
+    //   2. Atualiza fase → 'Temporada'.
+    //
+    // Temporadas em fases especiais legadas (JanelaConvocacao, BlocoEspecial, PosEspecial),
+    // já finalizadas ou no modelo novo: intocadas.
+    //
+    // Banco zerado (run_all): não há temporadas → no-op.
+    if !table_exists(conn, "seasons")? || !table_exists(conn, "calendar")? {
+        return Ok(());
+    }
+
+    // Garante que o contador de corridas existe; pode estar ausente em schemas
+    // muito antigos migrados sem passar pelo run_all.
+    conn.execute(
+        "INSERT OR IGNORE INTO meta (key, value) VALUES ('next_race_id', '1')",
+        [],
+    )?;
+
+    // Coleta temporadas BlocoRegular em andamento.
+    let legacy_seasons: Vec<(String, i32)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, ano FROM seasons
+             WHERE status = 'EmAndamento' AND fase = 'BlocoRegular'",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+
+    for (season_id, season_year) in legacy_seasons {
+        // Guard de idempotência: se já existem entradas de production/endurance, apenas
+        // atualiza a fase (caso de re-execução ou save que já recebeu calendário especial
+        // por outro caminho).
+        let existing: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM calendar
+             WHERE COALESCE(season_id, temporada_id) = ?1
+               AND categoria IN ('production_challenger', 'endurance')",
+            rusqlite::params![&season_id],
+            |row| row.get(0),
+        )?;
+        if existing > 0 {
+            conn.execute(
+                "UPDATE seasons SET fase = 'Temporada' WHERE id = ?1",
+                rusqlite::params![&season_id],
+            )?;
+            continue;
+        }
+
+        // from_season_week: próxima semana disponível após a última corrida concluída.
+        // Usa fallback +4 para saves sem season_week explícito (pré-v33 sem backfill ainda).
+        let from_sw: u32 = {
+            let max_sw: Option<i32> = conn.query_row(
+                "SELECT MAX(COALESCE(season_week, week_of_year + 4)) FROM calendar
+                 WHERE COALESCE(season_id, temporada_id) = ?1
+                   AND status = 'Concluida'
+                   AND week_of_year > 0",
+                rusqlite::params![&season_id],
+                |row| row.get(0),
+            )?;
+            match max_sw {
+                Some(sw) if sw >= 10 => (sw + 1).max(10) as u32,
+                _ => 10u32,
+            }
+        };
+
+        // Seed determinística: FNV-1a do season_id.
+        // Algoritmo: offset_basis=14695981039346656037, prime=1099511628211.
+        // Estável entre execuções: migrar duas cópias do mesmo save produz calendários idênticos.
+        let seed: u64 = season_id
+            .bytes()
+            .fold(14695981039346656037u64, |hash, byte| {
+                (hash ^ (byte as u64)).wrapping_mul(1099511628211)
+            });
+
+        crate::calendar::full_season::generate_partial_special_divisions(
+            conn,
+            &season_id,
+            season_year,
+            from_sw,
+            seed,
+        )?;
+
+        conn.execute(
+            "UPDATE seasons SET fase = 'Temporada' WHERE id = ?1",
+            rusqlite::params![&season_id],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -4169,5 +4369,639 @@ mod tests {
         }
 
         false
+    }
+
+    // ── Helpers para testes v33 ───────────────────────────────────────────────
+
+    /// Cria schema mínimo v32 para testes de migração v33.
+    fn setup_v32_schema(conn: &Connection) {
+        conn.execute_batch(
+            "
+            CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO meta VALUES ('schema_version', '32');
+
+            CREATE TABLE seasons (
+                id          TEXT PRIMARY KEY,
+                numero      INTEGER NOT NULL,
+                ano         INTEGER NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'EmAndamento',
+                rodada_atual INTEGER NOT NULL DEFAULT 1,
+                fase        TEXT NOT NULL DEFAULT 'BlocoRegular'
+            );
+
+            CREATE TABLE calendar (
+                id                      TEXT PRIMARY KEY,
+                season_id               TEXT,
+                temporada_id            TEXT,
+                categoria               TEXT NOT NULL DEFAULT 'gt3',
+                rodada                  INTEGER NOT NULL DEFAULT 1,
+                nome                    TEXT NOT NULL DEFAULT '',
+                pista                   TEXT NOT NULL DEFAULT '',
+                track_id                INTEGER NOT NULL DEFAULT 1,
+                track_name              TEXT NOT NULL DEFAULT 'Interlagos',
+                track_config            TEXT NOT NULL DEFAULT 'GP',
+                clima                   TEXT NOT NULL DEFAULT 'Dry',
+                temperatura             REAL NOT NULL DEFAULT 25.0,
+                voltas                  INTEGER NOT NULL DEFAULT 15,
+                duracao                 INTEGER NOT NULL DEFAULT 30,
+                duracao_corrida_min     INTEGER NOT NULL DEFAULT 30,
+                duracao_classificacao_min INTEGER NOT NULL DEFAULT 10,
+                status                  TEXT NOT NULL DEFAULT 'Pendente',
+                horario                 TEXT NOT NULL DEFAULT '14:00',
+                data                    TEXT NOT NULL DEFAULT '',
+                week_of_year            INTEGER NOT NULL DEFAULT 0,
+                season_phase            TEXT NOT NULL DEFAULT 'BlocoRegular',
+                thematic_slot           TEXT
+            );
+            ",
+        )
+        .expect("v32 schema");
+    }
+
+    fn read_season_week(conn: &Connection, entry_id: &str) -> Option<i64> {
+        conn.query_row(
+            "SELECT season_week FROM calendar WHERE id = ?1",
+            rusqlite::params![entry_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .expect("query season_week")
+    }
+
+    fn read_thematic_slot(conn: &Connection, entry_id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT thematic_slot FROM calendar WHERE id = ?1",
+            rusqlite::params![entry_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .expect("query thematic_slot")
+    }
+
+    fn read_season_fase(conn: &Connection, season_id: &str) -> String {
+        conn.query_row(
+            "SELECT fase FROM seasons WHERE id = ?1",
+            rusqlite::params![season_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("query fase")
+    }
+
+    // ── Teste (a): temporada Finalizada ──────────────────────────────────────
+
+    #[test]
+    fn test_v33_finalizada_season_remap_fase_and_slots() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2024, 'Finalizada', 12, 'BlocoEspecial');
+
+            -- Entradas concluídas com slots especiais (todas devem ser remapeadas)
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status, thematic_slot)
+            VALUES
+                ('R01', 'S001', 1, 35, 'Concluida', 'AberturaDaTemporada'),
+                ('R02', 'S001', 2, 40, 'Concluida', 'RodadaRegular'),
+                ('R03', 'S001', 3, 44, 'Concluida', 'AberturaEspecial'),
+                ('R04', 'S001', 4, 46, 'Concluida', 'RodadaEspecial'),
+                ('R05', 'S001', 5, 47, 'Concluida', 'FinalEspecial');
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33 migration");
+
+        // fase remapeada para Encerramento
+        assert_eq!(read_season_fase(&conn, "S001"), "Encerramento");
+
+        // season_week = week_of_year + 4
+        assert_eq!(read_season_week(&conn, "R01"), Some(39)); // 35+4
+        assert_eq!(read_season_week(&conn, "R03"), Some(48)); // 44+4
+        assert_eq!(read_season_week(&conn, "R05"), Some(51)); // 47+4
+
+        // Slots não-especiais: inalterados
+        assert_eq!(
+            read_thematic_slot(&conn, "R01"),
+            Some("AberturaDaTemporada".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R02"),
+            Some("RodadaRegular".to_string())
+        );
+
+        // Slots especiais: remapeados (entradas Concluidas de temporada Finalizada)
+        assert_eq!(
+            read_thematic_slot(&conn, "R03"),
+            Some("AberturaDaTemporada".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R04"),
+            Some("RodadaRegular".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R05"),
+            Some("FinalDaTemporada".to_string())
+        );
+
+        assert_eq!(get_schema_version(&conn).unwrap(), CURRENT_VERSION);
+    }
+
+    // ── Teste (b): temporada EmAndamento em BlocoRegular ─────────────────────
+
+    #[test]
+    fn test_v33_em_andamento_bloco_regular_preserves_fase() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2025, 'EmAndamento', 6, 'BlocoRegular');
+
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status, thematic_slot)
+            VALUES
+                ('R01', 'S001', 1,  6, 'Concluida', 'AberturaDaTemporada'),
+                ('R02', 'S001', 2, 10, 'Concluida', 'RodadaRegular'),
+                ('R03', 'S001', 3, 15, 'Pendente',  'RodadaRegular'),
+                ('R04', 'S001', 4, 20, 'Pendente',  'FinalDaTemporada');
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33+v34 migration");
+
+        // v33 não remapeia BlocoRegular; v34 converte para Temporada
+        assert_eq!(read_season_fase(&conn, "S001"), "Temporada");
+
+        // backfill correto (woy + 4)
+        assert_eq!(read_season_week(&conn, "R01"), Some(10)); // 6+4
+        assert_eq!(read_season_week(&conn, "R02"), Some(14)); // 10+4
+        assert_eq!(read_season_week(&conn, "R03"), Some(19)); // 15+4
+        assert_eq!(read_season_week(&conn, "R04"), Some(24)); // 20+4
+
+        // Nenhum slot especial presente → nada muda
+        assert_eq!(
+            read_thematic_slot(&conn, "R01"),
+            Some("AberturaDaTemporada".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R04"),
+            Some("FinalDaTemporada".to_string())
+        );
+
+        assert_eq!(get_schema_version(&conn).unwrap(), CURRENT_VERSION);
+    }
+
+    // ── Teste (c): EmAndamento em BlocoEspecial — Pendente vs Concluida ───────
+
+    #[test]
+    fn test_v33_bloco_especial_only_remaps_concluida() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2025, 'EmAndamento', 3, 'BlocoEspecial');
+
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status, season_phase, thematic_slot)
+            VALUES
+                ('R01', 'S001', 1, 38, 'Concluida', 'BlocoEspecial', 'AberturaEspecial'),
+                ('R02', 'S001', 2, 42, 'Concluida', 'BlocoEspecial', 'RodadaEspecial'),
+                ('R03', 'S001', 3, 45, 'Pendente',  'BlocoEspecial', 'RodadaEspecial'),
+                ('R04', 'S001', 4, 47, 'Pendente',  'BlocoEspecial', 'FinalEspecial');
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33 migration");
+
+        // fase MANTIDA (EmAndamento legado)
+        assert_eq!(read_season_fase(&conn, "S001"), "BlocoEspecial");
+
+        // backfill +4
+        assert_eq!(read_season_week(&conn, "R01"), Some(42)); // 38+4
+        assert_eq!(read_season_week(&conn, "R02"), Some(46)); // 42+4
+        assert_eq!(read_season_week(&conn, "R03"), Some(49)); // 45+4
+        assert_eq!(read_season_week(&conn, "R04"), Some(51)); // 47+4
+
+        // Concluidas: slots remapeados
+        assert_eq!(
+            read_thematic_slot(&conn, "R01"),
+            Some("AberturaDaTemporada".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R02"),
+            Some("RodadaRegular".to_string())
+        );
+
+        // Pendentes de temporada EmAndamento: NÃO remapeados
+        assert_eq!(
+            read_thematic_slot(&conn, "R03"),
+            Some("RodadaEspecial".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R04"),
+            Some("FinalEspecial".to_string())
+        );
+
+        assert_eq!(get_schema_version(&conn).unwrap(), CURRENT_VERSION);
+    }
+
+    // ── Teste: week_of_year <= 0 → season_week = NULL ────────────────────────
+
+    #[test]
+    fn test_v33_invalid_week_of_year_becomes_null_season_week() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2025, 'Finalizada', 0, 'BlocoRegular');
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status, thematic_slot)
+            VALUES
+                ('R01', 'S001', 1, 0,  'Concluida', NULL),
+                ('R02', 'S001', 2, 10, 'Concluida', NULL);
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33 migration");
+
+        assert_eq!(read_season_week(&conn, "R01"), None); // woy=0 → NULL
+        assert_eq!(read_season_week(&conn, "R02"), Some(14)); // woy=10 → 14
+    }
+
+    // ── Teste: ordenação por season_week == ordenação por week_of_year ────────
+
+    #[test]
+    fn test_v33_ordering_preserved_by_season_week() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        // Entradas com week_of_year variados incluindo legado bloco especial
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2024, 'Finalizada', 10, 'PosEspecial');
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status)
+            VALUES
+                ('R01', 'S001', 1,  6, 'Concluida'),
+                ('R02', 'S001', 2, 15, 'Concluida'),
+                ('R03', 'S001', 3, 38, 'Concluida'),
+                ('R04', 'S001', 4, 45, 'Concluida'),
+                ('R05', 'S001', 5, 47, 'Concluida'),
+                ('R06', 'S001', 6, 48, 'Concluida'),
+                ('R07', 'S001', 7, 52, 'Concluida');
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33 migration");
+
+        let by_woy: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM calendar WHERE season_id = 'S001' ORDER BY week_of_year ASC",
+                )
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+
+        let by_sw: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM calendar WHERE season_id = 'S001' ORDER BY season_week ASC",
+                )
+                .unwrap();
+            stmt.query_map([], |row| row.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+
+        assert_eq!(
+            by_woy, by_sw,
+            "ORDER BY season_week deve produzir mesma sequência que ORDER BY week_of_year"
+        );
+    }
+
+    // ── Teste: run_all == run_pending (schema idêntico) ───────────────────────
+
+    #[test]
+    fn test_v33_run_all_and_run_pending_produce_same_schema() {
+        let conn_all = Connection::open_in_memory().expect("db");
+        run_all(&conn_all).expect("run_all");
+
+        let conn_pending = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn_pending);
+        run_pending(&conn_pending).expect("run_pending from v32");
+
+        // Ambos devem ter season_week na tabela calendar
+        assert!(
+            column_exists(&conn_all, "calendar", "season_week"),
+            "run_all: season_week ausente"
+        );
+        assert!(
+            column_exists(&conn_pending, "calendar", "season_week"),
+            "run_pending: season_week ausente"
+        );
+
+        // schema_version idêntico
+        assert_eq!(
+            get_schema_version(&conn_all).unwrap(),
+            get_schema_version(&conn_pending).unwrap()
+        );
+        assert_eq!(get_schema_version(&conn_all).unwrap(), CURRENT_VERSION);
+    }
+
+    // ── Teste: temporada Finalizada via seasons (não só Concluida no calendar) ─
+
+    #[test]
+    fn test_v33_finalizada_season_remaps_pending_entries_too() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+
+        // Temporada Finalizada com entradas que tinham status Pendente (data corrupção ou
+        // carregamento parcial) — o EXISTS na seasons.status cobre esse caso.
+        conn.execute_batch(
+            "
+            INSERT INTO seasons VALUES ('S001', 1, 2024, 'Finalizada', 10, 'PosEspecial');
+            INSERT INTO calendar (id, season_id, rodada, week_of_year, status, thematic_slot)
+            VALUES
+                ('R01', 'S001', 1, 40, 'Pendente', 'AberturaEspecial'),
+                ('R02', 'S001', 2, 47, 'Pendente', 'FinalEspecial');
+            ",
+        )
+        .expect("seed data");
+
+        run_pending(&conn).expect("v33 migration");
+
+        // Mesmo Pendente, pertence a temporada Finalizada → remapeado
+        assert_eq!(
+            read_thematic_slot(&conn, "R01"),
+            Some("AberturaDaTemporada".to_string())
+        );
+        assert_eq!(
+            read_thematic_slot(&conn, "R02"),
+            Some("FinalDaTemporada".to_string())
+        );
+    }
+
+    // ── Testes da migração v34 ────────────────────────────────────────────────
+
+    /// Monta schema v33 com uma temporada legada em BlocoRegular.
+    /// Inclui corridas regulares concluídas até o from_sw especificado.
+    fn setup_v33_bloco_regular(conn: &Connection, season_year: i32, completed_up_to_woy: i32) {
+        setup_v32_schema(conn);
+        // Aplica apenas v33 (não v34) para que o test que chama run_pending exercite v34.
+        migrate_v33(conn).expect("v33 migration");
+        set_schema_version(conn, 33).expect("set v33");
+        // Insere temporada BlocoRegular
+        conn.execute(
+            "INSERT INTO seasons (id, numero, ano, status, rodada_atual, fase)
+             VALUES ('S001', 1, ?1, 'EmAndamento', 5, 'BlocoRegular')",
+            rusqlite::params![season_year],
+        )
+        .expect("insert season");
+        // Insere corridas regulares (gt3): R01 e R02 Concluidas (última em woy=completed_up_to_woy),
+        // R03 Pendente além da janela. Assim from_sw = (completed_up_to_woy + 4) + 1.
+        if completed_up_to_woy > 0 {
+            conn.execute_batch(&format!(
+                "INSERT INTO calendar (id, season_id, categoria, rodada, week_of_year, status, season_week)
+                 VALUES
+                   ('R01', 'S001', 'gt3', 1, {woy1}, 'Concluida', {sw1}),
+                   ('R02', 'S001', 'gt3', 2, {woy2}, 'Concluida', {sw2}),
+                   ('R03', 'S001', 'gt3', 3, {woy3}, 'Pendente',  {sw3});",
+                woy1 = completed_up_to_woy - 10,
+                sw1 = completed_up_to_woy - 10 + 4,
+                woy2 = completed_up_to_woy,
+                sw2 = completed_up_to_woy + 4,
+                woy3 = completed_up_to_woy + 10,
+                sw3 = completed_up_to_woy + 10 + 4,
+            ))
+            .expect("insert calendar entries");
+        }
+    }
+
+    #[test]
+    fn test_v34_blocoregular_vira_temporada() {
+        let conn = Connection::open_in_memory().expect("db");
+        // from_sw = max(concluída sw) + 1. Última concluída: woy=20 → sw=24; from_sw=25.
+        setup_v33_bloco_regular(&conn, 2027, 20);
+        run_pending(&conn).expect("v34 migration");
+
+        let fase: String = conn
+            .query_row("SELECT fase FROM seasons WHERE id='S001'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(fase, "Temporada", "fase deve virar Temporada após v34");
+    }
+
+    #[test]
+    fn test_v34_gera_production_e_endurance() {
+        let conn = Connection::open_in_memory().expect("db");
+        // from_sw=11 (woy=7 concluída → sw=11; from_sw=12). Janela ampla → alvo completo.
+        setup_v33_bloco_regular(&conn, 2027, 7);
+        run_pending(&conn).expect("v34 migration");
+
+        let prod: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001' \
+                 AND categoria='production_challenger'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let end: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001' \
+                 AND categoria='endurance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        // Janela from_sw=12 (woy=8): prod span=47-8=39 → 3*9=27≤39 → 10 rodadas
+        // end span=45-8=37 → 5*5=25≤37 → 6 rodadas
+        assert_eq!(prod, 10, "v34: production_challenger deve ter 10 rodadas");
+        assert_eq!(end, 6, "v34: endurance deve ter 6 rodadas");
+    }
+
+    #[test]
+    fn test_v34_entradas_em_semanas_futuras() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v33_bloco_regular(&conn, 2027, 20); // última concluída sw=24
+        run_pending(&conn).expect("v34 migration");
+
+        // Todas as novas entradas devem ter season_week >= from_sw (= 25)
+        let antes_from_sw: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001'
+                 AND categoria IN ('production_challenger','endurance')
+                 AND season_week < 25",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            antes_from_sw, 0,
+            "nenhuma entrada de prod/end deve estar antes de from_sw"
+        );
+    }
+
+    #[test]
+    fn test_v34_season_week_nao_nulo() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v33_bloco_regular(&conn, 2027, 10);
+        run_pending(&conn).expect("v34 migration");
+
+        let nulos: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001'
+                 AND categoria IN ('production_challenger','endurance')
+                 AND season_week IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            nulos, 0,
+            "todas as entradas v34 devem ter season_week definido"
+        );
+    }
+
+    #[test]
+    fn test_v34_sem_lmp2() {
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v33_bloco_regular(&conn, 2027, 10);
+        run_pending(&conn).expect("v34 migration");
+
+        let lmp2: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001' AND categoria='lmp2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(lmp2, 0, "v34 não deve gerar entradas lmp2");
+    }
+
+    #[test]
+    fn test_v34_bloco_especial_intocado() {
+        // Save em BlocoEspecial: v34 NÃO deve alterar fase nem inserir entradas.
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+        run_pending(&conn).expect("v33 schema");
+        conn.execute(
+            "INSERT INTO seasons (id, numero, ano, status, rodada_atual, fase)
+             VALUES ('S001', 1, 2027, 'EmAndamento', 5, 'BlocoEspecial')",
+            [],
+        )
+        .expect("insert BlocoEspecial season");
+        run_pending(&conn).expect("v34 migration");
+
+        let fase: String = conn
+            .query_row("SELECT fase FROM seasons WHERE id='S001'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            fase, "BlocoEspecial",
+            "BlocoEspecial deve ser intocada pela v34"
+        );
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM calendar WHERE season_id='S001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "BlocoEspecial: nenhuma entrada de calendário deve ser inserida"
+        );
+    }
+
+    #[test]
+    fn test_v34_banco_zerado_noop() {
+        // run_all em banco zerado deve chegar a v34 sem erros.
+        let conn = Connection::open_in_memory().expect("db");
+        run_all(&conn).expect("run_all em banco zerado deve ser no-op para v34");
+        assert_eq!(get_schema_version(&conn).unwrap(), 34);
+    }
+
+    #[test]
+    fn test_v34_run_pending_v32_aplica_v33_e_v34() {
+        // Simula banco em v32: run_pending deve aplicar v33 e v34 em sequência.
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v32_schema(&conn);
+        run_pending(&conn).expect("run_pending de v32 para v34");
+        assert_eq!(
+            get_schema_version(&conn).unwrap(),
+            34,
+            "schema_version deve ser 34 após run_pending de v32"
+        );
+    }
+
+    #[test]
+    fn test_v34_determinismo() {
+        // Duas cópias do mesmo save devem produzir calendários idênticos.
+        let conn_a = Connection::open_in_memory().expect("db");
+        let conn_b = Connection::open_in_memory().expect("db");
+
+        for conn in [&conn_a, &conn_b] {
+            setup_v33_bloco_regular(conn, 2027, 20);
+        }
+
+        run_pending(&conn_a).expect("v34 conn_a");
+        run_pending(&conn_b).expect("v34 conn_b");
+
+        let weeks_a: Vec<(String, Option<i64>)> = {
+            let mut stmt = conn_a
+                .prepare(
+                    "SELECT categoria, season_week FROM calendar
+                     WHERE season_id='S001' AND categoria IN ('production_challenger','endurance')
+                     ORDER BY categoria, season_week",
+                )
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let weeks_b: Vec<(String, Option<i64>)> = {
+            let mut stmt = conn_b
+                .prepare(
+                    "SELECT categoria, season_week FROM calendar
+                     WHERE season_id='S001' AND categoria IN ('production_challenger','endurance')
+                     ORDER BY categoria, season_week",
+                )
+                .unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(
+            weeks_a, weeks_b,
+            "determinismo: duas cópias do mesmo save devem produzir calendários idênticos"
+        );
+    }
+
+    #[test]
+    fn test_v34_fim_do_ano_sem_erro() {
+        // from_sw próximo do fim do ano — a regra de degradação deve ser exercitada
+        // sem retornar Err (pode gerar 0 entradas).
+        let conn = Connection::open_in_memory().expect("db");
+        setup_v33_bloco_regular(&conn, 2027, 44); // última concluída woy=44 → sw=48; from_sw=49
+                                                  // end span = 45-(49-4) = 0, prod span = 47-(49-4) = 2
+        run_pending(&conn).expect("v34 no fim do ano não deve retornar Err");
+        let fase: String = conn
+            .query_row("SELECT fase FROM seasons WHERE id='S001'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(fase, "Temporada");
     }
 }
