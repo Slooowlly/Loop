@@ -50,10 +50,6 @@ const ROW_HEIGHT = 32;
 const ROW_PILL_HEIGHT = 28;
 const ROW_TOP_OFFSET = 34;
 const BAND_BOTTOM_PADDING = 16;
-// Scroll limits: how far the window may pan before the earliest category start and
-// past the most recent season.
-const PAST_SCROLL_MARGIN = 2;
-const FUTURE_SCROLL_MARGIN = 3;
 
 function GlobalTeamsTab({
   selectedTeamId = null,
@@ -131,7 +127,7 @@ function GlobalTeamsTab({
     setPreviewStartYear(null);
   }, [payload?.window_start, payload?.selected_family]);
 
-  const windowSize = useMemo(() => familyDataWidth(payload), [payload]);
+  const windowSize = useMemo(() => visibleWindowSize(payload), [payload]);
   const visibleStartYear = useMemo(() => clampVisibleStart(payload, startYear, windowSize), [payload, startYear, windowSize]);
   const displayStartYear = useMemo(
     () => roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear, windowSize),
@@ -768,7 +764,7 @@ function TeamEntryLabel({ label, team, band, focusedTeamId, onFocus, onClick }) 
     <button
       type="button"
       data-testid={`world-team-entry-label-${team.team_id}-${label.line_key}-${label.year}`}
-      className="absolute z-20 grid max-w-[208px] cursor-pointer grid-cols-[42px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded border bg-[#07101d]/85 px-2 py-1 text-left text-[10px] font-black leading-4 shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-sm"
+      className="absolute z-20 grid max-w-[236px] cursor-pointer grid-cols-[42px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded border bg-[#07101d]/85 px-2 py-1 text-left text-[10px] font-black leading-4 shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-sm"
       onMouseEnter={() => onFocus(team.team_id)}
       onFocus={() => onFocus(team.team_id)}
       onClick={() => onClick(teamTrackToTeamRow(team, label.band_key, new Map([[label.band_key, band]])))}
@@ -1109,7 +1105,7 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
       if (firstPoint.year <= displayStartYear) return null;
       const pointYValue = pointY(firstPoint, geometry);
       if (!Number.isFinite(pointYValue)) return null;
-      const width = clamp(track.nome.length * 5.8 + 66, 118, 208);
+      const width = clamp(track.nome.length * 7.2 + 70, 124, 236);
       const anchorX = clamp(pointX(firstPoint, years), 16, CHART_WIDTH - 6);
       const y = pointYValue - 9;
       return {
@@ -1366,30 +1362,30 @@ function atlasMaxYear(payload) {
   return payload?.window_end ?? payload?.max_year ?? DEFAULT_START_YEAR;
 }
 
-// Leftmost RENDERED year: a small margin before the earliest category start, so the
-// user can peek at the couple of years just before the first category appeared.
+// Leftmost RENDERED year: the past margin before the earliest category start, which
+// is where the founding-team labels live.
 function axisStartYear(payload) {
-  return familyMinYear(payload) - PAST_SCROLL_MARGIN;
+  return familyMinYear(payload) - pastMargin(payload);
 }
 
-// Leftmost year the WINDOW START may be dragged to — same as the rendered start, so
-// the user can pan back to PAST_SCROLL_MARGIN years before the earliest category.
+// Leftmost year the window may start — same as the rendered start (the window is
+// locked to the full range, so this equals the only window-start position).
 function scrollMinYear(payload) {
-  return familyMinYear(payload) - PAST_SCROLL_MARGIN;
+  return familyMinYear(payload) - pastMargin(payload);
 }
 
-// Rightmost NAVIGABLE year: the most recent season plus a fixed margin, so the window
-// can never be scrolled more than FUTURE_SCROLL_MARGIN years past the last season.
+// Rightmost NAVIGABLE year: the last season itself. The window can't be scrolled
+// past it — its right edge stops at the standings table, never sliding into the
+// empty future beyond the "trophies".
 function axisEndYear(payload) {
-  return familyMaxYear(payload) + FUTURE_SCROLL_MARGIN;
+  return familyMaxYear(payload);
 }
 
-// Rightmost year RENDERED as a column. Extends past the navigable end far enough to
-// keep the year header filled all the way to the right gutter (under the table) at
-// every reachable scroll position. These extra columns are header context only — the
-// scrubber and scroll limits still stop at axisEndYear.
+// Rightmost year RENDERED as a column. Extends past the navigable end just enough to
+// keep the year header filled across the right gutter (under the table). These extra
+// columns are header context only — the scrubber/scroll still stop at axisEndYear.
 function renderEndYear(payload) {
-  return axisEndYear(payload) + Math.ceil(familyDataWidth(payload) / 3) + 1;
+  return axisEndYear(payload) + Math.ceil(visibleWindowSize(payload) / 3) + 1;
 }
 
 function familyMaxYear(payload) {
@@ -1410,6 +1406,22 @@ function familyDataWidth(payload) {
   const max = familyMaxYear(payload);
   if (!Number.isFinite(min) || !Number.isFinite(max)) return DEFAULT_WINDOW_SIZE;
   return Math.max(1, max - min + 1);
+}
+
+// Empty years rendered before the first category. The founding-team labels sit in
+// this margin, so it must be wide enough that their names aren't cut — wider
+// divisions (more years on screen → narrower columns) need more years of margin to
+// give the labels the same pixel room. Floored at 2.
+function pastMargin(payload) {
+  return Math.max(2, Math.ceil(familyDataWidth(payload) / 5));
+}
+
+// Width of the single, locked visible window: the whole data span PLUS the past
+// margin, so the chart shows the start (with founding labels) AND the latest
+// standings table at once, no scrolling. This equals the full navigable range
+// [axisStart, axisEnd], so the window can't pan — everything is on screen.
+function visibleWindowSize(payload) {
+  return familyDataWidth(payload) + pastMargin(payload);
 }
 
 function axisEdgeZoneStyle(side, payload, years) {

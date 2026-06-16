@@ -690,6 +690,7 @@ fn simulate_historical_range(
         update_draft_progress(career_dir, (season.ano + 1) as u32)?;
     }
 
+    purge_never_raced_backstory_orphans(&db.conn)?;
     reset_historical_finance_for_playable_start(&db.conn)?;
     sync_meta_counters_from_observed(&db.conn)?;
 
@@ -762,6 +763,43 @@ fn stabilize_historical_performance_bands(conn: &rusqlite::Connection) -> Result
     }
 
     Ok(())
+}
+
+/// Remove órfãos do backstory: pilotos da IA que NUNCA competiram e não têm contrato
+/// regular ativo. São artefatos da geração histórica — as categorias de estreia
+/// (mazda/toyota_rookie) só passam a existir em 2020, mas seus times eram preenchidos
+/// nos anos anteriores com rookies que nunca chegaram a correr (categoria não simulada).
+/// Roda uma vez ao fim do draft, antes do ano jogável, para o mundo começar limpo.
+/// O critério "nunca correu + sem contrato regular ativo" preserva os rookies recém
+/// colocados para o ano jogável (esses têm contrato ativo).
+fn purge_never_raced_backstory_orphans(conn: &rusqlite::Connection) -> Result<usize, String> {
+    const ORPHAN_FILTER: &str = "status = 'Ativo' AND is_jogador = 0 AND carreira_corridas = 0
+         AND id NOT IN (
+             SELECT piloto_id FROM contracts WHERE status = 'Ativo' AND tipo = 'Regular'
+         )";
+    let select_ids = format!("SELECT id FROM drivers WHERE {ORPHAN_FILTER}");
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Falha ao iniciar poda de orfaos do backstory: {e}"))?;
+    for table in ["special_window_candidate_pool", "licenses", "contracts"] {
+        let column = if table == "special_window_candidate_pool" {
+            "driver_id"
+        } else {
+            "piloto_id"
+        };
+        tx.execute(
+            &format!("DELETE FROM {table} WHERE {column} IN ({select_ids})"),
+            [],
+        )
+        .map_err(|e| format!("Falha ao limpar '{table}' de orfaos do backstory: {e}"))?;
+    }
+    let removed = tx
+        .execute(&format!("DELETE FROM drivers WHERE {ORPHAN_FILTER}"), [])
+        .map_err(|e| format!("Falha ao remover orfaos do backstory: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("Falha ao concluir poda de orfaos do backstory: {e}"))?;
+    Ok(removed)
 }
 
 fn reset_historical_finance_for_playable_start(conn: &rusqlite::Connection) -> Result<(), String> {
@@ -1212,23 +1250,27 @@ mod tests {
              com_hist_especial={orphans_with_especial_hist} sem_nenhum_contrato={orphans_no_contract}"
         );
 
-        // Invariantes do modelo fechado. O sistema de escada manteve a populacao
-        // ativa pequena (~370) em vez de explodir (o leak antigo levava a 850+ ativos
-        // e crescendo) e cortou drasticamente os orfaos (de ~649 para ~170). O residuo
-        // restante sao rookies gerados no draft historico cujo contrato de estreia
-        // expira sem correrem — bem menor e limitado.
+        // Invariantes do modelo fechado + poda do backstory. A populacao ativa fica
+        // ~tamanho dos grids (~205), nao explode (o leak antigo levava a 850+ e
+        // crescendo); os orfaos sao praticamente eliminados (de ~649 para ~0-2; os
+        // residuais sao free agents que JA correram, entre contratos).
         assert!(
-            active < 700,
-            "populacao ativa deve ficar limitada pelo modelo fechado: {active}"
+            active < 400,
+            "populacao ativa deve ficar ~grid, nao explodir: {active}"
         );
         assert!(
-            active_orphans < 400,
-            "orfaos devem ficar muito abaixo do leak antigo (~649): {active_orphans}"
+            active_orphans <= 10,
+            "orfaos devem estar praticamente zerados pela poda do backstory: {active_orphans}"
         );
-        // Pilotos COLOCADOS (com categoria de pista) praticamente sempre correm.
+        // Nenhum orfao residual deveria ser do tipo "nunca correu".
+        assert_eq!(
+            active_orphans, orphans_raced,
+            "todo orfao remanescente ja deve ter corrido (entre contratos), nao ser artefato"
+        );
+        // Pilotos COLOCADOS (com categoria de pista) sempre correm.
         assert!(
-            active_never_raced <= 20,
-            "quase ninguem colocado em pista sem nunca ter corrido: {active_never_raced}"
+            active_never_raced <= 5,
+            "ninguem colocado em pista sem nunca ter corrido: {active_never_raced}"
         );
     }
 

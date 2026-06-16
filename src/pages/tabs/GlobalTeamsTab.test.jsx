@@ -29,13 +29,50 @@ vi.mock("./MyTeamTab", () => ({
   ),
 }));
 
+// ---------------------------------------------------------------------------
+// Fixture redesigned for the right-hand "final standings" atlas.
+//
+// Geometry (all derived in the tests below):
+//   familyMinYear   = max(min_year, min(band.starts_year)) = max(2000, 2016) = 2016
+//   familyMaxYear   = latest point year across all bands             = 2026
+//   familyDataWidth = 2026 - 2016 + 1                                = 11
+//   pastMargin      = max(2, ceil(11 / 5))                           = 3
+//   windowSize      = familyDataWidth + pastMargin (the LOCKED window)= 14
+//   axisStartYear   = familyMinYear - pastMargin                     = 2013
+//   axisEndYear     = familyMaxYear (navigable end)                  = 2026
+//   renderEndYear   = axisEndYear + ceil(windowSize/3) + 1 = 2026+5+1 = 2032
+//   years           = [2013 .. 2032]  → 20 columns (CHART_WIDTH 1000 ⇒ 50 u/col)
+//   visible window LABEL is always axisStart-familyMax = 2013-2026 (locked).
+//
+// Each team has at most ONE band per year (single continuous track per team).
+//
+// Final-year (2026) rosters the right table shows:
+//   mazda_amador : T001 (1) · T002 (2) · T003 (3)
+//   production   : T008 (1) · T009 (2)
+//   mazda_rookie : T006 (1)
+//
+// Trajectories of note:
+//   T001 Sunday Speed Club — amador founder, detours into production
+//        (2021/2023) then returns to win amador 2026; ONE continuous regular
+//        line of 5 points ending at the 2026 right edge.
+//   T002 Dual Exit Racing  — amador founder (2016 left edge), 3 titles,
+//        reigning amador champion, finishes 2026 in P2.
+//   T003 Porsche Black     — dark colour boosted for readability, no titles.
+//   T004 Switchback Racing — moves divisions: amador 2020 → production 2021/22
+//        (promotion marker @2020) → back to amador 2023 (demotion marker @2022).
+//        Data ends 2023, so it is absent from every 2026 roster.
+//   T005 Grid Start Racing — debuts mid-window (2018, entry label), single
+//        one-year production cameo in 2020, back to amador 2022. Absent in 2026.
+//   T006 Roadster Touring  — rookie champion, single title (no count badge).
+//   T008/T009              — populate the 2026 production roster.
+// ---------------------------------------------------------------------------
 const payload = {
   selected_family: "mazda",
   min_year: 2000,
-  max_year: 2025,
-  current_year: 2025,
+  max_year: 2026,
+  current_year: 2026,
   window_start: 2000,
-  window_end: 2025,
+  window_end: 2026,
   window_size: 26,
   families: [
     {
@@ -76,10 +113,13 @@ const payload = {
           cor_primaria: "#5ee7a8",
           cor_secundaria: "#114b5f",
           base_position: 1,
-          titles: [{ band_key: "production_mazda", band_label: "Mazda Production", count: 1 }],
+          titles: [
+            { band_key: "mazda_amador", band_label: "Mazda Championship", count: 2 },
+            { band_key: "production_mazda", band_label: "Mazda Production", count: 1 },
+          ],
           is_reigning_champion: true,
           points: [
-            { year: 2022, slot: "regular", position: 2, points: 92, wins: 2, titles: 0 },
+            { year: 2021, slot: "regular", position: 1, points: 102, wins: 4, titles: 1 },
             { year: 2023, slot: "regular", position: 1, points: 108, wins: 3, titles: 1 },
           ],
         },
@@ -89,11 +129,11 @@ const payload = {
           nome_curto: "SBR",
           cor_primaria: "#58a6ff",
           cor_secundaria: "#0b2545",
-          base_position: 1,
-          titles: [{ band_key: "production_mazda", band_label: "Mazda Production", count: 1 }],
+          base_position: 2,
+          titles: [],
           is_reigning_champion: false,
           points: [
-            { year: 2021, slot: "regular", position: 1, points: 102, wins: 4, titles: 1 },
+            { year: 2021, slot: "regular", position: 2, points: 96, wins: 2, titles: 0 },
             { year: 2022, slot: "regular", position: 2, points: 92, wins: 1, titles: 0 },
           ],
         },
@@ -108,6 +148,34 @@ const payload = {
           is_reigning_champion: false,
           points: [
             { year: 2020, slot: "regular", position: 5, points: 55, wins: 0, titles: 0 },
+          ],
+        },
+        {
+          team_id: "T008",
+          nome: "Carbon Vanguard",
+          nome_curto: "CVG",
+          cor_primaria: "#c084fc",
+          cor_secundaria: "#2a0f45",
+          base_position: 1,
+          titles: [{ band_key: "production_mazda", band_label: "Mazda Production", count: 1 }],
+          is_reigning_champion: true,
+          points: [
+            { year: 2021, slot: "regular", position: 3, points: 84, wins: 1, titles: 0 },
+            { year: 2026, slot: "regular", position: 1, points: 121, wins: 5, titles: 1 },
+          ],
+        },
+        {
+          team_id: "T009",
+          nome: "Apex Theory",
+          nome_curto: "APX",
+          cor_primaria: "#ffa657",
+          cor_secundaria: "#4a2408",
+          base_position: 2,
+          titles: [],
+          is_reigning_champion: false,
+          points: [
+            { year: 2024, slot: "regular", position: 2, points: 88, wins: 1, titles: 0 },
+            { year: 2026, slot: "regular", position: 2, points: 90, wins: 2, titles: 0 },
           ],
         },
       ],
@@ -128,15 +196,16 @@ const payload = {
           cor_secundaria: "#114b5f",
           base_position: 1,
           titles: [
-            { band_key: "mazda_amador", band_label: "Mazda Championship", count: 1 },
+            { band_key: "mazda_amador", band_label: "Mazda Championship", count: 2 },
             { band_key: "production_mazda", band_label: "Mazda Production", count: 1 },
           ],
+          // Not the reigning amador champion (that flag belongs to T002 here); used
+          // by the "star only for the reigning champion" test.
           is_reigning_champion: false,
           points: [
-            { year: 2016, slot: "regular", position: 1, points: 91, wins: 2, titles: 0 },
-            { year: 2007, slot: "regular", position: 1, points: 88, wins: 2, titles: 0 },
-            { year: 2020, slot: "regular", position: 1, points: 104, wins: 4, titles: 1 },
-            { year: 2021, slot: "regular", position: 2, points: 96, wins: 2, titles: 0 },
+            { year: 2016, slot: "regular", position: 2, points: 88, wins: 1, titles: 0 },
+            { year: 2018, slot: "regular", position: 1, points: 104, wins: 4, titles: 1 },
+            { year: 2026, slot: "regular", position: 1, points: 118, wins: 5, titles: 1 },
           ],
         },
         {
@@ -149,10 +218,9 @@ const payload = {
           titles: [{ band_key: "mazda_amador", band_label: "Mazda Championship", count: 3 }],
           is_reigning_champion: true,
           points: [
-            { year: 2016, slot: "regular", position: 2, points: 87, wins: 1, titles: 0 },
-            { year: 2007, slot: "regular", position: 2, points: 82, wins: 1, titles: 0 },
+            { year: 2016, slot: "regular", position: 1, points: 91, wins: 2, titles: 1 },
             { year: 2020, slot: "regular", position: 1, points: 112, wins: 4, titles: 1 },
-            { year: 2021, slot: "regular", position: 1, points: 120, wins: 5, titles: 1 },
+            { year: 2026, slot: "regular", position: 2, points: 110, wins: 3, titles: 0 },
           ],
         },
         {
@@ -166,7 +234,7 @@ const payload = {
           is_reigning_champion: false,
           points: [
             { year: 2016, slot: "regular", position: 3, points: 74, wins: 0, titles: 0 },
-            { year: 2020, slot: "regular", position: 3, points: 76, wins: 0, titles: 0 },
+            { year: 2026, slot: "regular", position: 3, points: 80, wins: 1, titles: 0 },
           ],
         },
         {
@@ -194,7 +262,7 @@ const payload = {
           is_reigning_champion: false,
           points: [
             { year: 2018, slot: "regular", position: 4, points: 69, wins: 0, titles: 0 },
-            { year: 2019, slot: "regular", position: 3, points: 78, wins: 1, titles: 0 },
+            { year: 2022, slot: "regular", position: 5, points: 61, wins: 0, titles: 0 },
           ],
         },
       ],
@@ -218,7 +286,7 @@ const payload = {
           is_reigning_champion: false,
           points: [
             { year: 2020, slot: "regular", position: 1, points: 93, wins: 3, titles: 1 },
-            { year: 2021, slot: "regular", position: 2, points: 81, wins: 1, titles: 0 },
+            { year: 2026, slot: "regular", position: 1, points: 99, wins: 4, titles: 0 },
           ],
         },
       ],
@@ -239,8 +307,9 @@ describe("GlobalTeamsTab", () => {
     expect(screen.getByText(/Montando hist.rico mundial de equipes/i)).toBeInTheDocument();
 
     expect(await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i })).toBeInTheDocument();
-    expect(screen.getByText(/Mazda: janela 2016-2023/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Janela visivel: 2016-2023/i)).toHaveLength(2);
+    // Locked window label = axisStartYear-familyMaxYear = 2013-2026 (see fixture geometry).
+    expect(screen.getByText(/Mazda: janela 2013-2026/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
     expect(invoke).toHaveBeenCalledWith("get_global_team_history", {
       careerId: "career-1",
       family: "mazda",
@@ -259,7 +328,9 @@ describe("GlobalTeamsTab", () => {
     expect(screen.getByTestId("world-team-year-2019")).toBeInTheDocument();
 
     expect(screen.getAllByText("Sunday Speed Club")[0]).toHaveStyle({ color: "#5ee7a8" });
-    expect(screen.getByText("Porsche Black")).not.toHaveStyle({ color: "#050505" });
+    // Porsche Black now appears both as a debut entry label and a final-standings row;
+    // both render the boosted (readable) colour, never the raw near-black #050505.
+    expect(screen.getAllByText("Porsche Black")[0]).not.toHaveStyle({ color: "#050505" });
     expect(screen.getAllByTestId("world-team-logo").some((logo) => logo.textContent === "Sunday Speed Club logo")).toBe(true);
     expect(screen.queryByTestId("team-color-swatch")).not.toBeInTheDocument();
     expect(screen.getByTestId("world-team-grid")).toBeInTheDocument();
@@ -267,22 +338,24 @@ describe("GlobalTeamsTab", () => {
     expect(screen.queryByTestId("world-team-track-T001-special")).not.toBeInTheDocument();
     expect(screen.getByTestId("world-team-track-T001-regular")).toHaveAttribute("vector-effect", "non-scaling-stroke");
     expect(screen.getByTestId("world-team-track-T003-regular")).not.toHaveAttribute("stroke", "#050505");
-    expect(screen.getByTestId("world-team-moving-grid").style.width).toBe("187.5%");
+    // moving grid width = round(0.75 * years.length(20) / windowSize(14) * 100) = 107.1%
+    expect(screen.getByTestId("world-team-moving-grid").style.width).toBe("107.1%");
     expect(screen.queryByTestId("world-team-path-T001-mazda_amador")).not.toBeInTheDocument();
   });
 
-  it("extends the axis to current_year+5 and opens exactly on the family data range", async () => {
+  it("renders columns past the navigable end and opens on the full locked family range", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // axis end label = current_year(2025) + 5 = 2030 (2 scrubbers + 1 year column header)
-    expect(screen.getAllByText("2030")).toHaveLength(3);
-    // opening viewport = [familyMinYear(2016), familyMaxYear(2023)]
-    expect(screen.getAllByText(/Janela visivel: 2016-2023/i)).toHaveLength(2);
-    // year 2030 is the last column in the axis
-    expect(screen.getByTestId("world-team-year-2030")).toBeInTheDocument();
-    expect(screen.queryByTestId("world-team-year-2031")).not.toBeInTheDocument();
+    // Navigable axis end label = axisEndYear = familyMaxYear = 2026 (right label of both
+    // scrubbers + the 2026 year-header column = 3 nodes).
+    expect(screen.getAllByText("2026")).toHaveLength(3);
+    // Locked viewport = [axisStartYear(2013), familyMaxYear(2026)]
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    // renderEndYear = axisEnd(2026) + ceil(windowSize(14)/3) + 1 = 2032 is the last column.
+    expect(screen.getByTestId("world-team-year-2032")).toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-year-2033")).not.toBeInTheDocument();
   });
 
   it("opens the team dossier from the lateral team row and closes it without changing the atlas", async () => {
@@ -324,15 +397,19 @@ describe("GlobalTeamsTab", () => {
     expect(within(drawer).getByText("Grid Start Racing")).toBeInTheDocument();
   });
 
-  it("shows only teams that exist in the first visible year on the lateral rail", async () => {
+  it("shows only teams present in each band's most-recent (2026) standings on the lateral rail", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
+    // mazda_amador reference year = 2026; roster there is T001, T002, T003.
     expect(screen.getByTestId("world-team-row-T001-mazda_amador")).toBeInTheDocument();
     expect(screen.getByTestId("world-team-row-T002-mazda_amador")).toBeInTheDocument();
     expect(screen.getByTestId("world-team-row-T003-mazda_amador")).toBeInTheDocument();
+    // T004 and T005 last raced in amador before 2026, so they are absent from the
+    // final-year table (and T004 is absent from the 2026 production table too).
     expect(screen.queryByTestId("world-team-row-T004-mazda_amador")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-row-T005-mazda_amador")).not.toBeInTheDocument();
     expect(screen.queryByTestId("world-team-row-T004-production_mazda")).not.toBeInTheDocument();
   });
 
@@ -382,7 +459,9 @@ describe("GlobalTeamsTab", () => {
     const entryLabel = screen.getByTestId("world-team-entry-label-T005-regular-2018");
     expect(entryLabel).toHaveTextContent("Grid Start Racing");
     expect(entryLabel.tagName).toBe("BUTTON");
-    expect(entryLabel.style.left).toBe("37.5%");
+    // T005 debuts mid-window in 2018 (years[0]=2013, idx 5). anchorX = (5+0.5)/20*1000 = 275;
+    // left = anchorX / 1000 * 100 = 27.5%.
+    expect(entryLabel.style.left).toBe("27.5%");
     expect(entryLabel.style.transform).toBe("translateX(calc(-100% - 8px))");
     expect(entryLabel.className).toContain("gap-2.5");
     expect(within(entryLabel).getByTestId("world-team-entry-logo")).toHaveTextContent("Grid Start Racing logo");
@@ -416,25 +495,26 @@ describe("GlobalTeamsTab", () => {
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // axis = [2011..2030] (20 cols), CHART_WIDTH=1000 → 1 column = 50 units.
+    // axis = [2013..2032] (20 cols), CHART_WIDTH=1000 → 1 column = 50 units. years[0]=2013.
     // T002 is in mazda_amador from its debut year (2016 = band's first data year),
-    // so its line STARTS at the left edge of 2016: idx 5 → 5/20*1000 = 250.
+    // so its line STARTS at the left edge of 2016: idx 3 → 3/20*1000 = 150.
     const dual = screen.getByTestId("world-team-track-T002-regular").getAttribute("d");
-    expect(dual.startsWith("M 250 ")).toBe(true);
+    expect(dual.startsWith("M 150 ")).toBe(true);
 
     // T005 joins mazda_amador in 2018 (after the 2016 debut) → mid-history entry,
-    // kept at the mid-column anchor: idx 7 → (7+0.5)/20*1000 = 375.
+    // kept at the mid-column anchor: idx 5 → (5+0.5)/20*1000 = 275.
     const grid = screen.getByTestId("world-team-track-T005-regular").getAttribute("d");
-    expect(grid.startsWith("M 375 ")).toBe(true);
-    // ...but T005 is then promoted INTO production in 2020, which is production's first
-    // data year. Even though it's mid-line (a continuation), that point snaps to the
-    // year start (left edge): idx 9 → 9/20*1000 = 450. This is the promoted-team case.
-    expect(grid.split("L").pop().trim().startsWith("450 ")).toBe(true);
+    expect(grid.startsWith("M 275 ")).toBe(true);
+    // ...then T005 is promoted INTO production in 2020, which is production's first
+    // plotted data year. Even though it's mid-line (a continuation), that point snaps
+    // to the year start (left edge): idx 7 → 7/20*1000 = 350. This is the promoted case.
+    // It is the SECOND vertex (first "L"), since T005 returns to amador in 2022 after.
+    expect(grid.split("L")[1].trim().startsWith("350 ")).toBe(true);
 
-    // T001's last season is 2023 (familyMaxYear) → ends at the year-end (right edge
-    // of the column): idx 12 → (12+1)/20*1000 = 650. The final "L" segment is at 650.
+    // T001's last season is 2026 (familyMaxYear) → ends at the year-end (right edge
+    // of the column): idx 13 → (13+1)/20*1000 = 700. The final "L" segment is at 700.
     const sunday = screen.getByTestId("world-team-track-T001-regular").getAttribute("d");
-    expect(sunday.split("L").pop().trim().startsWith("650 ")).toBe(true);
+    expect(sunday.split("L").pop().trim().startsWith("700 ")).toBe(true);
   });
 
   it("keeps a continuous line when a team reaches Production for one year", async () => {
@@ -458,17 +538,17 @@ describe("GlobalTeamsTab", () => {
     const rookieDivider = screen.getByTestId("world-team-start-divider-mazda_rookie");
 
     expect(productionPreStart).toBeInTheDocument();
-    // pre-start zones begin at the familyMin(2016) year-start (left edge = 25%) and span
-    // up to each band's own start (also left-edge): production (2018) → (7-5)/20=10%,
-    // rookie (2020) → (9-5)/20=20%.
-    expect(productionPreStart.style.left).toBe("25%");
+    // years[0]=2013, N=20. pre-start zones begin at the familyMin(2016) year-start
+    // (left edge = (2016-2013)/20 = 15%) and span up to each band's own start (also
+    // left-edge): production (2018) → (2018-2016)/20=10%, rookie (2020) → (2020-2016)/20=20%.
+    expect(productionPreStart.style.left).toBe("15%");
     expect(productionPreStart.style.width).toBe("10%");
-    expect(rookiePreStart.style.left).toBe("25%");
+    expect(rookiePreStart.style.left).toBe("15%");
     expect(rookiePreStart.style.width).toBe("20%");
-    // dividers mark the column boundary (left-edge anchor) and now coincide exactly
-    // with each pre-start zone's right edge: 25%+10%=35%, 25%+20%=45%.
-    expect(productionDivider.style.left).toBe("35%");
-    expect(rookieDivider.style.left).toBe("45%");
+    // dividers mark the column boundary (left-edge anchor) and coincide exactly with
+    // each pre-start zone's right edge: (2018-2013)/20=25%, (2020-2013)/20=35%.
+    expect(productionDivider.style.left).toBe("25%");
+    expect(rookieDivider.style.left).toBe("35%");
   });
 
   it("marks teams that move between real divisions", async () => {
@@ -520,7 +600,7 @@ describe("GlobalTeamsTab", () => {
     expect(screen.getByTestId("world-team-track-T002-regular")).toHaveAttribute("opacity", "0.15");
   });
 
-  it("reloads the payload when the family filter changes and commits the year pill only after release", async () => {
+  it("reloads the payload when the family filter changes and never refetches while dragging the locked window", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
@@ -554,17 +634,19 @@ describe("GlobalTeamsTab", () => {
       toJSON: () => {},
     });
 
+    // The window is LOCKED: scrollMin === latestStart === axisStart, so the navigable
+    // range has zero span. Dragging anywhere resolves to the same single start year,
+    // so the grid never offsets (transform stays at the locked 0%) and the visible
+    // window label is unchanged. Crucially, no scrubbing ever triggers a refetch.
     fireEvent.pointerDown(slider, { clientX: 236, pointerId: 1 });
     fireEvent.pointerMove(window, { clientX: 189, pointerId: 1 });
-    expect(screen.getByTestId("world-team-moving-grid").style.transform).toContain("translate3d");
-    expect(screen.getByTestId("world-team-moving-grid").style.transform).not.toBe("translate3d(0%, 0, 0)");
+    expect(screen.getByTestId("world-team-moving-grid").style.transform).toBe("translate3d(0%, 0, 0)");
     expect(invoke).not.toHaveBeenCalled();
     fireEvent.pointerUp(window, { clientX: 189, pointerId: 1 });
 
     expect(invoke).not.toHaveBeenCalled();
-    // Drag maps clientX over [familyMin(2016), latestStart(2023)]:
-    // 2016 + (189/260)*(2023-2016) = 2021.1 → window 2021-2028.
-    expect(await screen.findAllByText(/Janela visivel: 2021-2028/i)).toHaveLength(2);
+    // Window stays pinned to [axisStart(2013), familyMax(2026)] regardless of the drag.
+    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
   });
 
   it("keeps lateral team rows in fixed non-overlapping slots even when positions match", async () => {
@@ -578,11 +660,14 @@ describe("GlobalTeamsTab", () => {
     expect(sunday.style.top).not.toEqual(dual.style.top);
   });
 
-  it("reorders the lateral team list from the first visible year while dragging", async () => {
+  it("orders the lateral team rows by their final-year championship position", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
+    // The window is locked, so dragging the scrubber resolves to the same start year
+    // and the lateral table keeps showing the 2026 reference standings. Rows are placed
+    // by that year's position: T001 (P1) sits above T002 (P2).
     const slider = screen.getByRole("slider", { name: /^Mover janela historica$/i });
     const rail = screen.getByTestId("world-team-window-scrubber");
     rail.getBoundingClientRect = () => ({
@@ -608,7 +693,7 @@ describe("GlobalTeamsTab", () => {
     expect(within(dual).getByText("2")).toBeInTheDocument();
   });
 
-  it("keeps a lower year pill available for moving the atlas from the bottom", async () => {
+  it("exposes a second (bottom) scrubber that also leaves the locked window unchanged", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
@@ -627,15 +712,17 @@ describe("GlobalTeamsTab", () => {
       toJSON: () => {},
     });
 
+    // The bottom scrubber is a real, independent control (its own slider + rail), but
+    // because the window is locked it cannot pan the atlas either: the grid stays at
+    // the 0% offset and both window labels remain 2013-2026 after dragging.
     fireEvent.pointerDown(slider, { clientX: 236, pointerId: 7 });
     fireEvent.pointerMove(window, { clientX: 189, pointerId: 7 });
 
-    expect(screen.getByTestId("world-team-moving-grid").style.transform).toContain("translate3d");
-    expect(screen.getByTestId("world-team-moving-grid").style.transform).not.toBe("translate3d(0%, 0, 0)");
+    expect(screen.getByTestId("world-team-moving-grid").style.transform).toBe("translate3d(0%, 0, 0)");
 
     fireEvent.pointerUp(window, { clientX: 189, pointerId: 7 });
 
-    expect(await screen.findAllByText(/Janela visivel: 2021-2028/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
   });
 
   it("shows trophy icons for teams with titles and nothing for teams without", async () => {
@@ -685,20 +772,19 @@ describe("GlobalTeamsTab", () => {
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // familyMinYear=2016, familyMaxYear=2023 → windowSize=8
-    // visibleStart=2016, visibleEnd=2023; rendered axis=[2011..2030]
-    expect(screen.getAllByText(/Janela visivel: 2016-2023/i)).toHaveLength(2);
-    // The scrubber's NAVIGABLE range starts at familyMin(2016), so 2016 labels both
-    // scrubbers; the axis end (2030) labels both scrubbers + the year column header.
-    expect(screen.getAllByText("2030")).toHaveLength(3);
-    // 2011 is a buffer column (rendered for the gutter) but NOT a scrubber endpoint,
-    // so it appears only once — in the year header.
-    expect(screen.getAllByText("2011")).toHaveLength(1);
-    // full rendered column range exists in the DOM
-    expect(screen.getByTestId("world-team-year-2011")).toBeInTheDocument();
-    expect(screen.getByTestId("world-team-year-2030")).toBeInTheDocument();
-    expect(screen.queryByTestId("world-team-year-2010")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("world-team-year-2031")).not.toBeInTheDocument();
+    // familyMinYear=2016, familyMaxYear=2026 → windowSize=14 (locked, full range)
+    // visibleStart=axisStart=2013, visibleEnd=familyMax=2026; rendered axis=[2013..2032]
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    // The navigable axis end (2026) labels both scrubbers (right end) + the year header.
+    expect(screen.getAllByText("2026")).toHaveLength(3);
+    // 2027 is a render-only column past the navigable end (under the right table); it is
+    // NOT a scrubber endpoint, so it appears only once — in the year header.
+    expect(screen.getAllByText("2027")).toHaveLength(1);
+    // full rendered column range exists in the DOM: [axisStart 2013 .. renderEnd 2032]
+    expect(screen.getByTestId("world-team-year-2013")).toBeInTheDocument();
+    expect(screen.getByTestId("world-team-year-2032")).toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-year-2012")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("world-team-year-2033")).not.toBeInTheDocument();
   });
 
   it("hatch boundaries align with the centre anchor of the first and last data year columns", async () => {
@@ -706,18 +792,18 @@ describe("GlobalTeamsTab", () => {
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // axis = [2011..2030] (20 years); familyMinYear=2016 (idx 5); familyMaxYear=2023 (idx 12)
-    // left hatch right edge  = 5 / 20 * 100 = 25%   — the year-START (left edge) of 2016,
+    // axis = [2013..2032] (20 years); familyMinYear=2016 (idx 3); familyMaxYear=2026 (idx 13)
+    // left hatch right edge  = 3 / 20 * 100 = 15%   — the year-START (left edge) of 2016,
     //                                                 where the start divider and lines begin
-    // right hatch left edge  = (12 + 1) / 20 * 100 = 65%  — boundary AFTER the last season
+    // right hatch left edge  = (13 + 1) / 20 * 100 = 70%  — boundary AFTER the last season
     const leftHatch = screen.getByTestId("world-team-axis-hatch-left");
     const rightHatch = screen.getByTestId("world-team-axis-hatch-right");
 
-    expect(leftHatch.style.width).toBe("25%");
-    expect(rightHatch.style.left).toBe("65%");
+    expect(leftHatch.style.width).toBe("15%");
+    expect(rightHatch.style.left).toBe("70%");
 
     // Both edges sit on a year boundary: the left frame ends at the start of 2016 and
-    // the right "no championship" hatch starts at the end of 2023 (2023→2024 boundary),
+    // the right "no championship" hatch starts at the end of 2026 (2026→2027 boundary),
     // so categories read as full years instead of being cut at a mid-column point.
   });
 
@@ -730,19 +816,19 @@ describe("GlobalTeamsTab", () => {
     // year, so it has NO "did not exist yet" zone.
     expect(screen.queryByTestId("world-team-pre-start-mazda_amador")).not.toBeInTheDocument();
 
-    // The global yellow frame ends at the familyMin(2016) year-start (left edge = 25%);
+    // The global yellow frame ends at the familyMin(2016) year-start (left edge = 15%);
     // production_mazda (2018) and mazda_rookie (2020) zones begin EXACTLY there and run
     // to each band's start divider, so frame → grey → divider sit flush with no overlap
     // and no stray border line.
     const leftHatch = screen.getByTestId("world-team-axis-hatch-left");
-    expect(leftHatch.style.width).toBe("25%");
+    expect(leftHatch.style.width).toBe("15%");
 
     const prodBandPreStart = screen.getByTestId("world-team-pre-start-production_mazda");
-    expect(prodBandPreStart.style.left).toBe("25%");
+    expect(prodBandPreStart.style.left).toBe("15%");
     expect(prodBandPreStart.style.width).toBe("10%");
 
     const rookBandPreStart = screen.getByTestId("world-team-pre-start-mazda_rookie");
-    expect(rookBandPreStart.style.left).toBe("25%");
+    expect(rookBandPreStart.style.left).toBe("15%");
     expect(rookBandPreStart.style.width).toBe("20%");
   });
 
@@ -751,15 +837,15 @@ describe("GlobalTeamsTab", () => {
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // left hatch: right edge at the year-start (left edge) of familyMinYear(2016) = 5/20*100 = 25%
+    // left hatch: right edge at the year-start (left edge) of familyMinYear(2016) = 3/20*100 = 15%
     const leftHatch = screen.getByTestId("world-team-axis-hatch-left");
     expect(leftHatch).toBeInTheDocument();
-    expect(leftHatch.style.width).toBe("25%");
+    expect(leftHatch.style.width).toBe("15%");
 
-    // right hatch: left edge at the right boundary of familyMaxYear(2023) column = (12+1)/20*100 = 65%
+    // right hatch: left edge at the right boundary of familyMaxYear(2026) column = (13+1)/20*100 = 70%
     const rightHatch = screen.getByTestId("world-team-axis-hatch-right");
     expect(rightHatch).toBeInTheDocument();
-    expect(rightHatch.style.left).toBe("65%");
+    expect(rightHatch.style.left).toBe("70%");
   });
 
   it("clamps the window so it cannot be dragged into the empty pre-data past", async () => {
@@ -781,18 +867,19 @@ describe("GlobalTeamsTab", () => {
       toJSON: () => {},
     });
 
-    // Drag fully left: the window start clamps to familyMinYear(2016), never into the
-    // pre-data buffer years (2011-2015), which stay parked as numbered gutter columns.
+    // Drag fully left: the locked window stays pinned to [axisStart(2013), familyMax(2026)].
+    // The window never slides into the empty future render columns (2027-2032) either,
+    // which stay parked as numbered gutter columns under the right table.
     fireEvent.pointerDown(slider, { clientX: 260, pointerId: 3 });
     fireEvent.pointerMove(window, { clientX: 0, pointerId: 3 });
     fireEvent.pointerUp(window, { clientX: 0, pointerId: 3 });
 
-    expect(await screen.findAllByText(/Janela visivel: 2016-2023/i)).toHaveLength(2);
-    // The buffer year 2011 is still rendered as a gutter column...
-    expect(screen.getByTestId("world-team-year-2011")).toBeInTheDocument();
+    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    // The render-only future year 2027 is still drawn as a gutter column...
+    expect(screen.getByTestId("world-team-year-2027")).toBeInTheDocument();
     // ...but it is not a navigable scrubber endpoint, so it shows only in the header.
-    expect(screen.getAllByText("2011")).toHaveLength(1);
-    // The scrubber's left end is the navigable minimum, familyMin(2016).
-    expect(screen.getAllByText("2016").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("2027")).toHaveLength(1);
+    // The scrubber's left end is the navigable minimum, axisStart(2013).
+    expect(screen.getAllByText("2013").length).toBeGreaterThanOrEqual(2);
   });
 });

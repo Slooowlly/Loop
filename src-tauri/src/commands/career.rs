@@ -6661,6 +6661,71 @@ mod tests {
         let config = AppConfig::load_or_default(&base_dir);
         let db_path = config.saves_dir().join("career_001").join("career.db");
         let db = Database::open_existing(&db_path).expect("db");
+
+        // No modelo fechado, ao entrar na pré-temporada o grid de estreia pode ter
+        // vagas (o mercado as preenche ao longo das semanas). Para o teste ser
+        // determinístico, garantimos um time de toyota_rookie com os 2 assentos
+        // ocupados antes de medir o baseline.
+        {
+            let target = team_queries::get_teams_by_category(&db.conn, "toyota_rookie")
+                .expect("toyota teams")
+                .into_iter()
+                .next()
+                .expect("a toyota_rookie team");
+            for (idx, slot) in [&target.piloto_1_id, &target.piloto_2_id].iter().enumerate() {
+                if slot.is_some() {
+                    continue;
+                }
+                let role = if idx == 0 {
+                    TeamRole::Numero1
+                } else {
+                    TeamRole::Numero2
+                };
+                let driver_id = format!("P_TR_SEED_{idx}");
+                let mut driver = crate::models::driver::Driver::new(
+                    driver_id.clone(),
+                    format!("Seed TR {idx}"),
+                    "Brasil".to_string(),
+                    "M".to_string(),
+                    19,
+                    2024,
+                );
+                driver.categoria_atual = Some("toyota_rookie".to_string());
+                driver_queries::insert_driver(&db.conn, &driver).expect("seed tr driver");
+                let contract = crate::models::contract::Contract::new(
+                    format!("C_TR_SEED_{idx}"),
+                    driver_id,
+                    driver.nome.clone(),
+                    target.id.clone(),
+                    target.nome.clone(),
+                    1,
+                    2,
+                    50_000.0,
+                    role,
+                    "toyota_rookie".to_string(),
+                );
+                contract_queries::insert_contract(&db.conn, &contract).expect("seed tr contract");
+            }
+            let refreshed = team_queries::get_team_by_id(&db.conn, &target.id)
+                .expect("seeded team query")
+                .expect("seeded team");
+            team_queries::update_team_pilots(
+                &db.conn,
+                &target.id,
+                refreshed
+                    .piloto_1_id
+                    .clone()
+                    .or(Some("P_TR_SEED_0".to_string()))
+                    .as_deref(),
+                refreshed
+                    .piloto_2_id
+                    .clone()
+                    .or(Some("P_TR_SEED_1".to_string()))
+                    .as_deref(),
+            )
+            .expect("seed tr lineup");
+        }
+
         let baseline_empty_slots: i64 = db
             .conn
             .query_row(
