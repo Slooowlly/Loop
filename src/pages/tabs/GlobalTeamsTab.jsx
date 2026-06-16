@@ -50,6 +50,10 @@ const ROW_HEIGHT = 32;
 const ROW_PILL_HEIGHT = 28;
 const ROW_TOP_OFFSET = 34;
 const BAND_BOTTOM_PADDING = 16;
+// Scroll limits: how far the window may pan before the earliest category start and
+// past the most recent season.
+const PAST_SCROLL_MARGIN = 2;
+const FUTURE_SCROLL_MARGIN = 3;
 
 function GlobalTeamsTab({
   selectedTeamId = null,
@@ -532,11 +536,19 @@ function InlineTeamTables({
                   onClick={() => onTeamClick({ ...row, band_key: band.key, band_category: band.category })}
                   onDoubleClick={() => onTeamDoubleClick({ ...row, band_key: band.key, band_category: band.category })}
                   data-testid={`world-team-row-${row.team_id}-${band.key}`}
-                  className={`pointer-events-auto absolute z-10 grid grid-cols-[20px_30px_minmax(0,1fr)_auto_28px] items-center gap-2 rounded-md px-2 text-left transition-opacity ${
+                  className={`pointer-events-auto absolute z-10 grid grid-cols-[28px_20px_30px_minmax(0,1fr)_auto] items-center gap-2 rounded-md pr-2 text-left transition-opacity ${
                     isFocused ? "bg-white/[0.06]" : ""
                   } ${isDimmed ? "opacity-35" : "opacity-100"}`}
                   style={{ left: 0, top: CHART_HEADER_HEIGHT + y - ROW_PILL_HEIGHT / 2, height: ROW_PILL_HEIGHT, width: tableWidth, "--team-color": teamColor }}
                 >
+                  {/* Connector to the incoming line on the LEFT — solid where the line
+                      meets the row (left edge), fading into the row. */}
+                  <span
+                    className="h-1 rounded-full"
+                    style={{
+                      background: `linear-gradient(90deg, ${teamColor}, transparent)`,
+                    }}
+                  />
                   <span className="text-center font-mono text-[11px] font-black text-text-secondary">
                     {displayPosition}
                   </span>
@@ -557,12 +569,6 @@ function InlineTeamTables({
                   <span className="flex justify-end">
                     <TeamTrophies titles={row.titles} isReigning={row.is_reigning_champion} />
                   </span>
-                  <span
-                    className="h-1 rounded-full"
-                    style={{
-                      background: `linear-gradient(90deg, ${teamColor}, transparent)`,
-                    }}
-                  />
                 </button>
               );
             })}
@@ -898,7 +904,7 @@ function bandStartPosition(band, firstYear) {
 function buildYears(payload) {
   if (!payload) return [];
   const start = axisStartYear(payload);
-  const end = axisEndYear(payload);
+  const end = renderEndYear(payload);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return [];
   const years = [];
   for (let year = start; year <= end; year += 1) years.push(year);
@@ -1096,8 +1102,11 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
       if (!firstPoint || !years.includes(firstPoint.year)) return null;
       const band = bandMap.get(firstPoint.band_key);
       if (band?.is_special) return null;
-      const referenceYear = bandReferenceYear(band, displayStartYear, years[years.length - 1] ?? displayStartYear);
-      if (firstPoint.year <= referenceYear) return null;
+      // Label every team whose line is BORN inside the visible window (its debut
+      // falls after the leftmost visible year), regardless of whether the band's
+      // data starts on its official start year — so founding rosters are shown at
+      // every category's birth, consistently across all divisions.
+      if (firstPoint.year <= displayStartYear) return null;
       const pointYValue = pointY(firstPoint, geometry);
       if (!Number.isFinite(pointYValue)) return null;
       const width = clamp(track.nome.length * 5.8 + 66, 118, 208);
@@ -1357,31 +1366,30 @@ function atlasMaxYear(payload) {
   return payload?.window_end ?? payload?.max_year ?? DEFAULT_START_YEAR;
 }
 
-// Buffer of empty year columns rendered AFTER the family's last data year, sized to
-// at least fill the fixed RIGHT gutter (INLINE_TABLE_WIDTH_PCT of the data area =
-// windowSize/3 years) where the current-standings table sits. Floored at 5.
-function bufferYears(payload) {
-  const windowSize = familyDataWidth(payload);
-  return Math.max(5, Math.ceil(windowSize / 3) + 1);
-}
-
-// Leftmost RENDERED year = the family's first data year. The chart's left side shows
-// the history straight away — there's no reserved gutter on the left anymore (the
-// names table moved to the right edge as a "current standings" panel).
+// Leftmost RENDERED year: a small margin before the earliest category start, so the
+// user can peek at the couple of years just before the first category appeared.
 function axisStartYear(payload) {
-  return familyMinYear(payload);
+  return familyMinYear(payload) - PAST_SCROLL_MARGIN;
 }
 
-// Leftmost year the WINDOW START may be dragged to (the first data year): scrolling
-// further left would only reveal empty pre-data space.
+// Leftmost year the WINDOW START may be dragged to — same as the rendered start, so
+// the user can pan back to PAST_SCROLL_MARGIN years before the earliest category.
 function scrollMinYear(payload) {
-  return familyMinYear(payload);
+  return familyMinYear(payload) - PAST_SCROLL_MARGIN;
 }
 
-// Rightmost RENDERED year = past the family's last data year by a buffer that fills
-// the right gutter (where the current-standings table sits).
+// Rightmost NAVIGABLE year: the most recent season plus a fixed margin, so the window
+// can never be scrolled more than FUTURE_SCROLL_MARGIN years past the last season.
 function axisEndYear(payload) {
-  return familyMaxYear(payload) + bufferYears(payload);
+  return familyMaxYear(payload) + FUTURE_SCROLL_MARGIN;
+}
+
+// Rightmost year RENDERED as a column. Extends past the navigable end far enough to
+// keep the year header filled all the way to the right gutter (under the table) at
+// every reachable scroll position. These extra columns are header context only — the
+// scrubber and scroll limits still stop at axisEndYear.
+function renderEndYear(payload) {
+  return axisEndYear(payload) + Math.ceil(familyDataWidth(payload) / 3) + 1;
 }
 
 function familyMaxYear(payload) {

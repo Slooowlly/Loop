@@ -1146,6 +1146,93 @@ mod tests {
     }
 
     #[test]
+    fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
+        let base_dir = unique_test_dir("closed_system_validation");
+        let input = sample_draft_input();
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2024, 2025)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id");
+        let db = open_draft_db(&base_dir, career_id);
+
+        let count = |sql: &str| -> i64 { db.conn.query_row(sql, [], |row| row.get(0)).expect(sql) };
+
+        let total = count("SELECT COUNT(*) FROM drivers");
+        let active = count("SELECT COUNT(*) FROM drivers WHERE status = 'Ativo'");
+        let retired = count("SELECT COUNT(*) FROM drivers WHERE status = 'Aposentado'");
+        let active_orphans = count(
+            "SELECT COUNT(*) FROM drivers
+             WHERE status = 'Ativo' AND is_jogador = 0 AND categoria_atual IS NULL",
+        );
+        let active_never_raced = count(
+            "SELECT COUNT(*) FROM drivers
+             WHERE status = 'Ativo' AND is_jogador = 0 AND carreira_corridas = 0
+               AND categoria_atual IS NOT NULL
+               AND categoria_atual NOT IN ('mazda_rookie', 'toyota_rookie')",
+        );
+
+        eprintln!(
+            "[SISTEMA FECHADO] total={total} ativos={active} aposentados={retired} \
+             orfaos_ativos={active_orphans} ativos_nunca_correu_nao_rookie={active_never_raced}"
+        );
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT COALESCE(categoria_atual, '(sem categoria)'), COUNT(*)
+                 FROM drivers WHERE status = 'Ativo'
+                 GROUP BY categoria_atual ORDER BY 2 DESC",
+            )
+            .expect("dist stmt");
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .expect("dist rows");
+        for row in rows {
+            let (categoria, n) = row.expect("dist row");
+            eprintln!("  ativos {categoria}: {n}");
+        }
+
+        let orphans_raced = count(
+            "SELECT COUNT(*) FROM drivers
+             WHERE status='Ativo' AND is_jogador=0 AND categoria_atual IS NULL AND carreira_corridas>0",
+        );
+        let orphans_with_especial_hist = count(
+            "SELECT COUNT(DISTINCT d.id) FROM drivers d
+             JOIN contracts c ON c.piloto_id = d.id AND c.tipo='Especial'
+             WHERE d.status='Ativo' AND d.is_jogador=0 AND d.categoria_atual IS NULL",
+        );
+        let orphans_no_contract = count(
+            "SELECT COUNT(*) FROM drivers d
+             WHERE d.status='Ativo' AND d.is_jogador=0 AND d.categoria_atual IS NULL
+               AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.piloto_id=d.id)",
+        );
+        eprintln!(
+            "[ORFAOS] total={active_orphans} ja_correram={orphans_raced} \
+             com_hist_especial={orphans_with_especial_hist} sem_nenhum_contrato={orphans_no_contract}"
+        );
+
+        // Invariantes do modelo fechado. O sistema de escada manteve a populacao
+        // ativa pequena (~370) em vez de explodir (o leak antigo levava a 850+ ativos
+        // e crescendo) e cortou drasticamente os orfaos (de ~649 para ~170). O residuo
+        // restante sao rookies gerados no draft historico cujo contrato de estreia
+        // expira sem correrem — bem menor e limitado.
+        assert!(
+            active < 700,
+            "populacao ativa deve ficar limitada pelo modelo fechado: {active}"
+        );
+        assert!(
+            active_orphans < 400,
+            "orfaos devem ficar muito abaixo do leak antigo (~649): {active_orphans}"
+        );
+        // Pilotos COLOCADOS (com categoria de pista) praticamente sempre correm.
+        assert!(
+            active_never_raced <= 20,
+            "quase ninguem colocado em pista sem nunca ter corrido: {active_never_raced}"
+        );
+    }
+
+    #[test]
     fn historical_playable_year_regular_categories_have_full_lineups() {
         let base_dir = unique_test_dir("historical_regular_lineups");
         let input = sample_draft_input();

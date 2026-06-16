@@ -17,7 +17,6 @@ use crate::evolution::motivation::{
     adjust_end_of_season_motivation, MotivationContext, MotivationReport,
 };
 use crate::evolution::retirement::{check_retirement, process_retirement};
-use crate::evolution::rookies::{classify_rookie, generate_rookies};
 use crate::evolution::season_transition::{
     archive_driver_season, create_next_season_9d, reset_driver_season_stats,
     reset_team_season_stats, update_meta_for_new_season,
@@ -26,7 +25,6 @@ use crate::evolution::standings::build_and_persist_standings;
 use crate::finance::prize::constructor_prize;
 use crate::finance::rescue::apply_team_sale;
 use crate::finance::state::refresh_team_financial_state;
-use crate::generators::ids::{next_ids, IdType};
 use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
@@ -105,7 +103,7 @@ fn run_end_of_season_with_mode(
         *titles_by_driver.entry(entry.driver_id.clone()).or_insert(0) += 1;
     }
 
-    let (growth_reports, motivation_reports, retirements, existing_names) =
+    let (growth_reports, motivation_reports, retirements, _existing_names) =
         process_driver_evolution(
             &tx,
             season,
@@ -134,7 +132,10 @@ fn run_end_of_season_with_mode(
     process_collapse_lifecycle(&tx, season, &mut rng)
         .map_err(|e| format!("Falha no ciclo de colapso/venda de equipes: {e}"))?;
 
-    let rookies_generated = process_rookie_phase(&tx, season.ano + 1, existing_names, &mut rng)?;
+    // Modelo fechado: nada de pré-geração de rookies aqui (era fonte de órfãos —
+    // os excedentes não contratados viravam agentes livres eternos). Rookies nascem
+    // sob demanda no mercado/cascata quando abre uma vaga de categoria de estreia.
+    let rookies_generated: Vec<RookieInfo> = Vec::new();
 
     let promotion_result =
         run_promotion_relegation_for_year(&tx, season.numero, season.ano, &mut rng)
@@ -417,33 +418,6 @@ fn process_driver_evolution(
         retirements,
         existing_names,
     ))
-}
-
-fn process_rookie_phase(
-    conn: &Connection,
-    debut_year: i32,
-    mut existing_names: HashSet<String>,
-    rng: &mut impl Rng,
-) -> Result<Vec<RookieInfo>, String> {
-    let rookie_count = rng.gen_range(2..=4);
-    let mut rookies = generate_rookies(rookie_count, debut_year, &mut existing_names, rng);
-    let rookie_ids = next_ids(conn, IdType::Driver, rookie_count as u32)
-        .map_err(|e| format!("Falha ao gerar IDs de rookies: {e}"))?;
-    let mut rookies_generated = Vec::new();
-    for (driver, rookie_id) in rookies.iter_mut().zip(rookie_ids.into_iter()) {
-        driver.id = rookie_id.clone();
-        driver_queries::insert_driver(conn, driver)
-            .map_err(|e| format!("Falha ao inserir rookie '{}': {e}", driver.nome))?;
-        rookies_generated.push(RookieInfo {
-            driver_id: rookie_id,
-            driver_name: driver.nome.clone(),
-            nationality: driver.nacionalidade.clone(),
-            age: driver.idade as i32,
-            skill: driver.atributos.skill.round().clamp(0.0, 100.0) as u8,
-            tipo: classify_rookie(driver.atributos.skill.round() as u8).to_string(),
-        });
-    }
-    Ok(rookies_generated)
 }
 
 fn create_next_season_phase(
