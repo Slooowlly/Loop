@@ -75,7 +75,12 @@ fn calculate_team_round_finance_context(
     let scale = category_finance_scale(&team.categoria);
     let plan = calculate_financial_plan(team);
     let round_operating_base = scale.operating_cost_midpoint() / rounds_in_season.max(1.0);
-    let sponsorship_income = (scale.expected_cash_midpoint() / rounds_in_season.max(1.0) * 0.16
+    // Coeficiente de patrocínio elevado de 0.16 → 0.32 (rebalanceamento financeiro):
+    // a receita-base por corrida era ~metade da despesa operacional, levando todo
+    // o grid a déficit estrutural e falência em massa. Junto com o prêmio de
+    // construtores de fim de temporada (ver finance::prize), aproxima o meio de
+    // grid do equilíbrio.
+    let sponsorship_income = (scale.expected_cash_midpoint() / rounds_in_season.max(1.0) * 0.32
         + team.reputacao * round_operating_base * 0.004
         + plan.budget_index * round_operating_base * 0.002)
         * income_modifier;

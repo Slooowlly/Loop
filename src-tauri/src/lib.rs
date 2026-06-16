@@ -174,6 +174,9 @@ mod world;
 #[cfg(test)]
 mod tests_9d;
 
+#[cfg(test)]
+mod sim_stats;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

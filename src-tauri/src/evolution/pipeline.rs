@@ -23,6 +23,9 @@ use crate::evolution::season_transition::{
     reset_team_season_stats, update_meta_for_new_season,
 };
 use crate::evolution::standings::build_and_persist_standings;
+use crate::finance::prize::constructor_prize;
+use crate::finance::rescue::apply_team_sale;
+use crate::finance::state::refresh_team_financial_state;
 use crate::generators::ids::{next_ids, IdType};
 use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
@@ -118,6 +121,19 @@ fn run_end_of_season_with_mode(
     archive_team_season(&tx, season)
         .map_err(|e| format!("Falha ao arquivar temporada das equipes: {e}"))?;
 
+    // Prêmio de fim de temporada por posição no campeonato de construtores.
+    // Creditado após o arquivamento (que define posicao_campeonato) e antes da
+    // promoção/rebaixamento, para que a equipe receba referente à categoria em
+    // que de fato competiu nesta temporada.
+    award_constructor_prizes(&tx, season)
+        .map_err(|e| format!("Falha ao pagar prêmios de construtores: {e}"))?;
+
+    // Ciclo de colapso → venda: equipes que fecham a temporada em colapso têm o
+    // contador incrementado; ao chegar à 2ª temporada consecutiva em colapso (a
+    // 2ª já em all-in), a equipe é vendida e renovada por uma nova diretoria.
+    process_collapse_lifecycle(&tx, &mut rng)
+        .map_err(|e| format!("Falha no ciclo de colapso/venda de equipes: {e}"))?;
+
     let rookies_generated = process_rookie_phase(&tx, season.ano + 1, existing_names, &mut rng)?;
 
     let promotion_result =
@@ -149,6 +165,102 @@ fn run_end_of_season_with_mode(
         preseason_initialized,
         preseason_total_weeks,
     })
+}
+
+/// Credita o prêmio de fim de temporada do campeonato de construtores no caixa
+/// de cada equipe, a partir das posições recém-arquivadas em
+/// `team_season_archive`, e atualiza o estado financeiro resultante.
+fn award_constructor_prizes(conn: &Connection, season: &Season) -> Result<(), String> {
+    // (team_id, categoria, posição final, nº de equipes no grupo de campeonato).
+    // O tamanho do grid é por grupo (categoria + classe), batendo com o
+    // agrupamento usado em archive_team_season para categorias multi-classe.
+    let mut stmt = conn
+        .prepare(
+            "SELECT team_id, categoria, posicao_campeonato,
+                    COUNT(*) OVER (PARTITION BY categoria, COALESCE(classe, '')) AS grid_size
+             FROM team_season_archive
+             WHERE season_number = ?1 AND posicao_campeonato IS NOT NULL",
+        )
+        .map_err(|e| format!("Falha ao preparar consulta de prêmios: {e}"))?;
+    let rows = stmt
+        .query_map([season.numero], |row| {
+            let team_id: String = row.get(0)?;
+            let categoria: String = row.get(1)?;
+            let position: i32 = row.get(2)?;
+            let grid_size: i32 = row.get(3)?;
+            Ok((team_id, categoria, position, grid_size))
+        })
+        .map_err(|e| format!("Falha ao consultar prêmios de construtores: {e}"))?;
+
+    let mut awards: Vec<(String, f64)> = Vec::new();
+    for row in rows {
+        let (team_id, categoria, position, grid_size) =
+            row.map_err(|e| format!("Falha ao mapear prêmio de construtores: {e}"))?;
+        let prize = constructor_prize(&categoria, position, grid_size);
+        if prize > 0.0 {
+            awards.push((team_id, prize));
+        }
+    }
+    drop(stmt);
+
+    for (team_id, prize) in awards {
+        let mut team = match team_queries::get_team_by_id(conn, &team_id) {
+            Ok(Some(team)) => team,
+            Ok(None) => continue,
+            Err(e) => return Err(format!("Falha ao carregar equipe {team_id}: {e}")),
+        };
+        team.cash_balance += prize;
+        refresh_team_financial_state(&mut team);
+        team_queries::update_team_finance_snapshot(conn, &team)
+            .map_err(|e| format!("Falha ao creditar prêmio à equipe {team_id}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+/// Processa o ciclo de colapso financeiro das equipes no fim da temporada:
+///   • Em colapso pela 1ª vez (streak 0→1): apenas registra (aviso). A próxima
+///     temporada será forçada a all-in (ver preseason::choose).
+///   • Em colapso pela 2ª vez seguida (streak →2): a equipe é VENDIDA — nova
+///     diretoria quita a dívida, injeta caixa e re-sorteia atributos. Identidade
+///     e histórico preservados. Contador zerado.
+///   • Fora do colapso: contador zerado (recuperou-se).
+fn process_collapse_lifecycle(conn: &Connection, rng: &mut impl Rng) -> Result<(), String> {
+    let teams = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao buscar equipes para ciclo de colapso: {e}"))?;
+
+    for mut team in teams {
+        if !team.ativa {
+            continue;
+        }
+        let streak = team_queries::get_collapse_streak(conn, &team.id)
+            .map_err(|e| format!("Falha ao ler streak de colapso: {e}"))?;
+
+        if team.financial_state == "collapse" {
+            let new_streak = streak + 1;
+            if new_streak >= 2 {
+                // 2ª temporada consecutiva em colapso (a 2ª já em all-in): venda.
+                apply_team_sale(&mut team, rng);
+                team_queries::update_team(conn, &team)
+                    .map_err(|e| format!("Falha ao renovar equipe vendida: {e}"))?;
+                team_queries::set_collapse_streak(conn, &team.id, 0)
+                    .map_err(|e| format!("Falha ao zerar streak pós-venda: {e}"))?;
+                let _ = team_queries::incr_rescue_counter(conn, "sold");
+            } else {
+                // 1ª temporada em colapso: aviso; all-in virá na próxima.
+                team_queries::set_collapse_streak(conn, &team.id, new_streak)
+                    .map_err(|e| format!("Falha ao gravar streak de colapso: {e}"))?;
+            }
+        } else if streak != 0 {
+            // Tinha aviso (streak >= 1) e fechou a temporada FORA do colapso:
+            // salvou-se sozinha no ano de all-in, sem precisar de venda.
+            let _ = team_queries::incr_rescue_counter(conn, "self_rescued");
+            team_queries::set_collapse_streak(conn, &team.id, 0)
+                .map_err(|e| format!("Falha ao zerar streak de colapso: {e}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn build_context(

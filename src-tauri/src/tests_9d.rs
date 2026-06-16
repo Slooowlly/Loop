@@ -975,9 +975,9 @@ mod travessia_legada {
             // open_existing chama run_pending automaticamente!
             // Então precisamos verificar APÓS a abertura.
             let version = migrations::get_schema_version(&db.conn).expect("schema version");
-            assert_eq!(
-                version, 34,
-                "após open_existing (run_pending), schema deve estar em 34"
+            assert!(
+                version >= 34,
+                "após open_existing (run_pending), schema deve estar em 34+"
             );
 
             // v33: season_week backfill deve ter sido aplicado

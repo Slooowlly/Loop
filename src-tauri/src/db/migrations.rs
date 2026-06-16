@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 34;
+const CURRENT_VERSION: u32 = 35;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v32(conn)?;
     migrate_v33(conn)?;
     migrate_v34(conn)?;
+    migrate_v35(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -187,6 +188,30 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v34(conn)?;
         set_schema_version(conn, 34)?;
     }
+    if version < 35 {
+        migrate_v35(conn)?;
+        set_schema_version(conn, 35)?;
+    }
+    Ok(())
+}
+
+/// v35 — rastreamento de temporadas consecutivas em colapso financeiro por
+/// equipe. Suporta o evento de "venda/nova diretoria": após 2 temporadas
+/// seguidas em colapso (incluindo um ano de all-in), a equipe é renovada.
+fn migrate_v35(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS team_collapse_streak (
+            team_id TEXT PRIMARY KEY,
+            streak  INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        );
+        CREATE TABLE IF NOT EXISTS team_rescue_counters (
+            key   TEXT PRIMARY KEY,
+            value INTEGER NOT NULL DEFAULT 0
+        );
+        ",
+    )?;
     Ok(())
 }
 
@@ -4925,10 +4950,10 @@ mod tests {
 
     #[test]
     fn test_v34_banco_zerado_noop() {
-        // run_all em banco zerado deve chegar a v34 sem erros.
+        // run_all em banco zerado deve chegar à versão atual sem erros.
         let conn = Connection::open_in_memory().expect("db");
-        run_all(&conn).expect("run_all em banco zerado deve ser no-op para v34");
-        assert_eq!(get_schema_version(&conn).unwrap(), 34);
+        run_all(&conn).expect("run_all em banco zerado deve ser no-op");
+        assert_eq!(get_schema_version(&conn).unwrap(), CURRENT_VERSION);
     }
 
     #[test]
@@ -4936,11 +4961,11 @@ mod tests {
         // Simula banco em v32: run_pending deve aplicar v33 e v34 em sequência.
         let conn = Connection::open_in_memory().expect("db");
         setup_v32_schema(&conn);
-        run_pending(&conn).expect("run_pending de v32 para v34");
+        run_pending(&conn).expect("run_pending de v32 para versão atual");
         assert_eq!(
             get_schema_version(&conn).unwrap(),
-            34,
-            "schema_version deve ser 34 após run_pending de v32"
+            CURRENT_VERSION,
+            "schema_version deve ser CURRENT_VERSION após run_pending de v32"
         );
     }
 

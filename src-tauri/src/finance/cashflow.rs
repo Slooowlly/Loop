@@ -1,5 +1,18 @@
 use crate::finance::events::technical_breakthrough_chance;
+use crate::finance::planning::category_finance_scale;
 use crate::models::team::Team;
+
+/// Fração do caixa excedente (acima da reserva de segurança) destinada a abater
+/// o principal da dívida a cada corrida.
+const DEBT_AMORTIZATION_RATE: f64 = 0.25;
+/// Reserva de segurança mantida antes de amortizar, como fração do custo
+/// operacional médio da categoria (equipes maiores guardam mais caixa).
+const DEBT_AMORTIZATION_RESERVE_FACTOR: f64 = 0.05;
+
+/// Caixa mínimo que a equipe mantém antes de usar a folga para pagar dívida.
+fn debt_amortization_reserve(category: &str) -> f64 {
+    category_finance_scale(category).operating_cost_midpoint() * DEBT_AMORTIZATION_RESERVE_FACTOR
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoundCashflowSummary {
@@ -91,6 +104,20 @@ pub fn apply_round_cashflow(
         let financed_amount = -100_000.0 - team.cash_balance;
         team.debt_balance += financed_amount;
         team.cash_balance = -100_000.0;
+    }
+
+    // Amortização: com dívida pendente e caixa acima da reserva de segurança,
+    // parte do excedente abate o principal. É o espelho do financiamento acima
+    // e o único caminho de recuperação para equipes endividadas — sem isso, a
+    // dívida só cresce e "collapse" vira estado absorvente.
+    if team.debt_balance > 0.0 {
+        let reserve = debt_amortization_reserve(&team.categoria);
+        let surplus = team.cash_balance - reserve;
+        if surplus > 0.0 {
+            let payment = (surplus * DEBT_AMORTIZATION_RATE).min(team.debt_balance);
+            team.cash_balance -= payment;
+            team.debt_balance -= payment;
+        }
     }
 
     if team.parachute_payment_remaining > 0.0 {
@@ -297,6 +324,76 @@ mod tests {
         assert_eq!(team.last_round_expenses, summary.expenses);
         assert_eq!(team.last_round_net, summary.net);
         assert_eq!(team.cash_balance, 554_500.0);
+    }
+
+    #[test]
+    fn amortization_pays_down_debt_from_cash_surplus() {
+        let mut team = placeholder_team_from_db(
+            "T001".to_string(),
+            "Equipe Endividada".to_string(),
+            "gt3".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.cash_balance = 4_000_000.0;
+        team.debt_balance = 5_000_000.0;
+
+        // Rodada equilibrada (net = 0): a amortização vem só do caixa acumulado.
+        apply_round_cashflow(
+            &mut team,
+            TeamRoundFinanceContext {
+                sponsorship_income: 100_000.0,
+                result_bonus: 0.0,
+                partial_prize_income: 0.0,
+                aid_income: 0.0,
+                salary_expense: 100_000.0,
+                event_operations_cost: 0.0,
+                structural_maintenance_cost: 0.0,
+                technical_investment_cost: 0.0,
+                debt_service_cost: 0.0,
+            },
+        );
+
+        assert!(
+            team.debt_balance < 5_000_000.0,
+            "dívida deve cair (era 5M, ficou {})",
+            team.debt_balance
+        );
+        // Caixa + dívida quitada deve ser conservado: o pagamento sai do caixa.
+        assert!(team.cash_balance < 4_000_000.0);
+        let paid = 5_000_000.0 - team.debt_balance;
+        assert!((team.cash_balance - (4_000_000.0 - paid)).abs() < 1.0);
+    }
+
+    #[test]
+    fn amortization_skipped_when_cash_below_reserve() {
+        let mut team = placeholder_team_from_db(
+            "T002".to_string(),
+            "Equipe Quebrada".to_string(),
+            "gt3".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.cash_balance = -50_000.0;
+        team.debt_balance = 6_000_000.0;
+
+        apply_round_cashflow(
+            &mut team,
+            TeamRoundFinanceContext {
+                sponsorship_income: 50_000.0,
+                result_bonus: 0.0,
+                partial_prize_income: 0.0,
+                aid_income: 0.0,
+                salary_expense: 50_000.0,
+                event_operations_cost: 0.0,
+                structural_maintenance_cost: 0.0,
+                technical_investment_cost: 0.0,
+                debt_service_cost: 0.0,
+            },
+        );
+
+        assert_eq!(
+            team.debt_balance, 6_000_000.0,
+            "sem caixa acima da reserva, nada de dívida é pago"
+        );
     }
 
     #[test]

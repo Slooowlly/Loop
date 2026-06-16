@@ -447,6 +447,22 @@ pub fn initialize_preseason(
     })
 }
 
+/// Tamanho do aporte de última chance, como fração do caixa-médio da categoria.
+/// Calibrado para que ~20% das equipes em all-in escapem do colapso (o resto
+/// ainda é vendido). Maior = mais escapam.
+const LAST_CHANCE_PACKAGE_FACTOR: f64 = 0.25;
+
+/// Aplica o aporte de última chance a uma equipe entrando no ano de all-in:
+/// abate a maior parte da dívida e reforça o caixa. Não recalcula o estado
+/// financeiro (o chamador o faz).
+fn apply_last_chance_package(team: &mut crate::models::team::Team) {
+    let scale = category_finance_scale(&team.categoria);
+    let package = scale.expected_cash_midpoint() * LAST_CHANCE_PACKAGE_FACTOR;
+    // 70% do pacote abate dívida, 30% vira capital de giro.
+    team.debt_balance = (team.debt_balance - package * 0.70).max(0.0);
+    team.cash_balance += package * 0.30;
+}
+
 fn assign_seasonal_team_attributes(
     conn: &Connection,
     season_number: i32,
@@ -489,7 +505,20 @@ fn assign_seasonal_team_attributes(
             updated_team.cash_balance -= profile_cost;
             updated_team.budget = derive_budget_index_from_money(&updated_team);
             refresh_team_financial_state(&mut updated_team);
-            updated_team.season_strategy = choose_season_strategy(&updated_team).to_string();
+            // Equipe entrando na 2ª temporada consecutiva de colapso vai de all-in
+            // numa tentativa de se salvar antes de ser vendida. Recebe um aporte de
+            // "última chance" (investidores injetam capital): abate parte da dívida
+            // e reforça o caixa, dando uma chance real — mas só quem também render
+            // na pista escapa do colapso; o resto ainda termina vendido.
+            let collapse_streak =
+                team_queries::get_collapse_streak(conn, &updated_team.id).unwrap_or(0);
+            updated_team.season_strategy = if collapse_streak == 1 {
+                apply_last_chance_package(&mut updated_team);
+                refresh_team_financial_state(&mut updated_team);
+                "all_in".to_string()
+            } else {
+                choose_season_strategy(&updated_team).to_string()
+            };
             apply_offseason_competitiveness_impact(&mut updated_team);
             updated_team.pit_crew_quality = recalculate_pit_crew_quality(
                 &updated_team,

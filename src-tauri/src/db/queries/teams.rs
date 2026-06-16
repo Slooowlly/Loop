@@ -137,6 +137,52 @@ pub fn get_all_teams(conn: &Connection) -> Result<Vec<Team>, DbError> {
     Ok(teams)
 }
 
+/// Temporadas consecutivas em colapso financeiro de uma equipe (0 se não houver
+/// registro). Suporta o evento de venda/nova diretoria.
+pub fn get_collapse_streak(conn: &Connection, team_id: &str) -> Result<i32, DbError> {
+    let streak = conn
+        .query_row(
+            "SELECT streak FROM team_collapse_streak WHERE team_id = ?1",
+            params![team_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(streak.unwrap_or(0))
+}
+
+/// Grava o contador de temporadas consecutivas em colapso de uma equipe.
+pub fn set_collapse_streak(conn: &Connection, team_id: &str, streak: i32) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO team_collapse_streak (team_id, streak) VALUES (?1, ?2)
+         ON CONFLICT(team_id) DO UPDATE SET streak = excluded.streak",
+        params![team_id, streak],
+    )?;
+    Ok(())
+}
+
+/// Incrementa um contador agregado de eventos de resgate (ex.: "sold",
+/// "self_rescued"). Usado para estatística e telemetria.
+pub fn incr_rescue_counter(conn: &Connection, key: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO team_rescue_counters (key, value) VALUES (?1, 1)
+         ON CONFLICT(key) DO UPDATE SET value = value + 1",
+        params![key],
+    )?;
+    Ok(())
+}
+
+/// Lê um contador agregado de eventos de resgate (0 se ausente).
+pub fn get_rescue_counter(conn: &Connection, key: &str) -> Result<i64, DbError> {
+    let value = conn
+        .query_row(
+            "SELECT value FROM team_rescue_counters WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(value.unwrap_or(0))
+}
+
 pub fn get_teams_by_category(conn: &Connection, category_id: &str) -> Result<Vec<Team>, DbError> {
     let mut stmt = conn.prepare("SELECT * FROM teams WHERE categoria = ?1 ORDER BY nome")?;
     let mapped = stmt.query_map(params![category_id], team_from_row)?;
