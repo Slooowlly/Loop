@@ -882,26 +882,55 @@ function TeamHistoryRecords({ dossier }) {
       {dossier.historyStatus !== "ready" ? (
         <HistoryStateMessage dossier={dossier} />
       ) : null}
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 space-y-1">
         {dossier.records.map((record) => (
-          <div key={record.label} className="flex items-center justify-between gap-3 border-b border-white/6 py-3 last:border-0">
-            <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
-              {record.label} <em className="not-italic text-accent-primary">({record.rank})</em>
+          <div key={record.label} className="flex items-center justify-between gap-3 border-b border-white/8 py-3 last:border-0">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
+              {record.label} <em className="not-italic font-bold text-accent-primary">({record.rank})</em>
             </span>
             <strong className="font-mono text-lg text-text-primary">{record.value}</strong>
           </div>
         ))}
       </div>
-      <div className="mt-4 grid gap-2">
-        {dossier.titleCategories.map((item) => (
-          <div key={`${item.category}-${item.year}`} className="rounded-2xl border border-l-4 border-white/12 bg-[#0c1626]/95 px-4 py-3" style={{ borderLeftColor: item.color }}>
-            <div className="flex items-center justify-between gap-3">
-              <strong className="text-sm text-text-primary">{item.category}</strong>
-              <span className="font-mono text-xs text-status-yellow">{item.year}</span>
+      {dossier.highlights?.length > 0 && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {dossier.highlights.map((item) => (
+            <div key={item.label} className="rounded-[18px] border border-status-yellow/30 bg-[#1c1808]/95 p-4">
+              <span className="text-[10px] font-black uppercase tracking-[0.15em] text-status-yellow/80">{item.label}</span>
+              <strong className="mt-2 block text-lg font-semibold text-status-yellow">{item.value}</strong>
+              <p className="mt-1 text-xs leading-5 text-text-secondary">{item.detail}</p>
             </div>
+          ))}
+        </div>
+      )}
+      {dossier.milestones?.length > 0 && (
+        <div className="mt-4">
+          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">Marcos da história</span>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {dossier.milestones.map((milestone) => (
+              <div key={milestone.label} className="rounded-[14px] border border-white/12 bg-[#0c1626]/95 px-3 py-2.5 text-center">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-secondary">{milestone.label}</span>
+                <strong className="mt-1 block font-mono text-lg text-[color:var(--team)]">{milestone.year}</strong>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+      {dossier.titleCategories?.length > 0 && (
+        <div className="mt-4">
+          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">Galeria de títulos</span>
+          <div className="mt-3 grid gap-2">
+            {dossier.titleCategories.map((item) => (
+              <div key={`${item.category}-${item.year}`} className="rounded-2xl border border-l-4 border-white/12 bg-[#0c1626]/95 px-4 py-3" style={{ borderLeftColor: item.color }}>
+                <div className="flex items-center justify-between gap-3">
+                  <strong className="text-sm text-text-primary">{item.category}</strong>
+                  <span className="font-mono text-xs font-bold text-status-yellow">{item.year}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -922,6 +951,26 @@ function TeamHistorySport({ dossier }) {
         <HistoryMiniMetric label="Taxa de pódio" value={dossier.sport.podiumRate} />
         <HistoryMiniMetric label="Taxa de vitória" value={dossier.sport.winRate} />
       </div>
+      {dossier.seasonResults?.length > 0 && (
+        <div className="mt-5">
+          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Temporada a temporada</span>
+          <div className="mt-3 overflow-hidden rounded-[18px] border border-white/10 bg-[#08111f]/95">
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-x-3 border-b border-white/10 px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-text-muted">
+              <span>Ano</span><span>Categoria</span><span className="text-right">Pos</span><span className="text-right">V</span><span className="text-right">P</span><span className="text-right">Pts</span>
+            </div>
+            {dossier.seasonResults.map((season) => (
+              <div key={season.year} className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-x-3 border-b border-white/6 px-4 py-2 text-xs last:border-0">
+                <span className="font-mono font-black text-[color:var(--team)]">{season.year}</span>
+                <span className="truncate text-text-secondary">{season.category}</span>
+                <span className="text-right font-mono font-semibold text-text-primary">{season.position}</span>
+                <span className="text-right font-mono text-status-yellow">{season.wins}</span>
+                <span className="text-right font-mono text-text-primary">{season.podiums}</span>
+                <span className="text-right font-mono text-text-secondary">{season.points}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <TimelineBlock items={dossier.timeline} />
     </section>
   );
@@ -967,6 +1016,22 @@ function TeamHistoryIdentity({ dossier }) {
             <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.identity.symbolDriverDetail}</p>
           </div>
         </div>
+        {dossier.ownershipEvents?.length > 0 && (
+          <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--team)_35%,transparent)] bg-[#0c1626]/95 p-4">
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Eras da equipe</span>
+            <ul className="mt-3 grid gap-2.5">
+              {dossier.ownershipEvents.map((event, index) => (
+                <li key={index} className="flex items-start gap-3">
+                  <span className="mt-0.5 font-mono text-xs font-black text-[color:var(--team)]">{event.year}</span>
+                  <div>
+                    <strong className="block text-sm font-semibold text-text-primary">{event.title}</strong>
+                    <p className="text-xs leading-5 text-text-secondary">{event.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1002,6 +1067,22 @@ function TeamHistoryManagement({ dossier }) {
           <HistoryInfoCard label="Saldo recorde" value={dossier.management.peakCash} detail="Melhor folga já registrada pela operação." />
         </div>
         <HistoryInfoCard label="Maior investimento técnico" value={dossier.management.biggestInvestment} detail={dossier.management.investmentDetail} />
+        {dossier.ownershipEvents?.length > 0 && (
+          <div className="rounded-[18px] border border-status-yellow/30 bg-[#201a0b]/95 p-4">
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Mudanças de diretoria</span>
+            <ul className="mt-3 grid gap-2.5">
+              {dossier.ownershipEvents.map((event, index) => (
+                <li key={index} className="flex items-start gap-3">
+                  <span className="mt-0.5 font-mono text-xs font-black text-status-yellow">{event.year}</span>
+                  <div>
+                    <strong className="block text-sm font-semibold text-text-primary">{event.title}</strong>
+                    <p className="text-xs leading-5 text-text-secondary">{event.financialNote}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1020,19 +1101,39 @@ function TeamHistoryCategories({ dossier }) {
         <HistoryInfoCard label="Melhor categoria" value={dossier.movement.bestCategory} />
         <HistoryInfoCard label="Categoria mais dificil" value={dossier.movement.hardestCategory} />
       </div>
-      <div className="mt-4 grid gap-3">
-        {dossier.categoryPath.map((step) => (
-          <div key={step.category} className="rounded-2xl border border-l-4 border-white/12 bg-[#0c1626]/95 p-4" style={{ borderLeftColor: step.color }}>
-            <div className="flex items-start justify-between gap-3">
-              <strong className="text-sm text-text-primary">{step.category}</strong>
-              <span className="font-mono text-xs font-semibold" style={{ color: step.color }}>{step.years}</span>
+      <span className="mt-5 block text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">A escada da equipe</span>
+      <div className="mt-3 grid gap-2.5">
+        {dossier.categoryPath.map((step, index) => {
+          const move = categoryMovementBadge(step.movement);
+          return (
+            <div key={`${step.category}-${index}`} className="rounded-2xl border border-l-4 border-white/12 bg-[#0c1626]/95 p-4" style={{ borderLeftColor: step.color }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono text-sm font-black ${move.tone}`} title={move.label}>{move.icon}</span>
+                  <strong className="text-sm text-text-primary">{step.category}</strong>
+                </div>
+                <span className="font-mono text-xs font-semibold" style={{ color: step.color }}>{step.years}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-text-secondary">{step.detail}</p>
             </div>
-            <p className="mt-2 text-xs leading-5 text-text-secondary">{step.detail}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
+}
+
+function categoryMovementBadge(movement) {
+  switch (movement) {
+    case "promotion":
+      return { icon: "▲", tone: "text-status-green", label: "Promoção" };
+    case "relegation":
+      return { icon: "▼", tone: "text-status-red", label: "Rebaixamento" };
+    case "start":
+      return { icon: "●", tone: "text-[color:var(--team)]", label: "Estreia" };
+    default:
+      return { icon: "—", tone: "text-text-muted", label: "Manteve o nível" };
+  }
 }
 
 function HistoryInfoCard({ label, value, detail = "" }) {
@@ -1136,7 +1237,7 @@ function buildTeamHistoryDossier(
   return {
     name: mergedTeam?.nome ?? "Equipe",
     color: mergedTeam?.cor_primaria ?? "#58a6ff",
-    state: teamHeritageLabel(founded),
+    state: realHistory?.identity?.heritage ?? teamHeritageLabel(founded),
     founded,
     currentCategory: categoryName,
     recordScope: realHistory?.recordScope ?? categoryGroupLabel(category),
@@ -1175,7 +1276,7 @@ function buildTeamHistoryDossier(
       efficiencyDetail: "Pontos conquistados em relação ao dinheiro disponível.",
       investmentDetail: "Ano em que a equipe mais converteu recursos em evolução do carro.",
     },
-    movement: {
+    movement: realHistory?.movement ?? {
       promotions: Math.max(0, getCategoryTier(category) - 2),
       relegations: mergedTeam?.relegations ?? 0,
       timeByCategory: `${origin}: ${Math.max(1, 2026 - founded - 1)} anos | ${shortCategoryLabel(categoryName)}: ${Math.max(1, Math.min(4, 2026 - founded))} anos`,
@@ -1184,6 +1285,10 @@ function buildTeamHistoryDossier(
     },
     categoryPath: realHistory?.categoryPath ?? [],
     timeline: realHistory?.timeline ?? [],
+    ownershipEvents: realHistory?.ownershipEvents ?? [],
+    highlights: realHistory?.highlights ?? [],
+    milestones: realHistory?.milestones ?? [],
+    seasonResults: realHistory?.seasonResults ?? [],
   };
 }
 
@@ -1213,10 +1318,50 @@ function normalizeTeamHistoryPayload(payload) {
     },
     timeline: payload.timeline ?? [],
     titleCategories: payload.title_categories ?? payload.titleCategories ?? [],
-    categoryPath: payload.category_path ?? payload.categoryPath ?? [],
+    categoryPath: (payload.category_path ?? payload.categoryPath ?? []).map((step) => ({
+      category: step.category,
+      years: step.years,
+      detail: step.detail,
+      color: step.color,
+      movement: step.movement ?? "same",
+    })),
+    movement: payload.movement
+      ? {
+          promotions: payload.movement.promotions ?? 0,
+          relegations: payload.movement.relegations ?? 0,
+          timeByCategory: payload.movement.time_by_category ?? payload.movement.timeByCategory ?? "",
+          bestCategory: payload.movement.best_category ?? payload.movement.bestCategory ?? "—",
+          hardestCategory: payload.movement.hardest_category ?? payload.movement.hardestCategory ?? "—",
+        }
+      : null,
+    ownershipEvents: (payload.ownership_events ?? payload.ownershipEvents ?? []).map((event) => ({
+      year: String(event.year ?? ""),
+      eventType: event.event_type ?? event.eventType ?? "sale",
+      title: event.title ?? "Nova diretoria",
+      detail: event.detail ?? "",
+      financialNote: event.financial_note ?? event.financialNote ?? "",
+    })),
+    highlights: (payload.highlights ?? []).map((item) => ({
+      label: item.label,
+      value: String(item.value ?? ""),
+      detail: item.detail ?? "",
+    })),
+    milestones: (payload.milestones ?? []).map((item) => ({
+      label: item.label,
+      year: String(item.year ?? ""),
+    })),
+    seasonResults: (payload.season_results ?? payload.seasonResults ?? []).map((item) => ({
+      year: String(item.year ?? ""),
+      category: item.category ?? "",
+      position: String(item.position ?? "—"),
+      wins: item.wins ?? 0,
+      podiums: item.podiums ?? 0,
+      points: String(item.points ?? "0"),
+    })),
     identity: {
       origin: identity.origin ?? "Sem origem registrada",
       current: identity.current ?? "Sem categoria atual",
+      heritage: identity.heritage ?? null,
       profile: identity.profile ?? "Perfil em formação",
       summary: identity.summary ?? "Histórico real insuficiente para formar identidade.",
       rival: {
@@ -1406,11 +1551,10 @@ function shortCategoryLabel(label) {
   return String(label).replace(" Series", "").replace(" Championship", "");
 }
 
-function teamHistoryProfile(team, position) {
-  if (position <= 2) return "Dominante";
-  if ((team?.cash_balance ?? 0) < 2_000_000) return "Sobrevivente Competitiva";
-  if ((team?.car_performance ?? 0) >= 7) return "Especialista em Evolução";
-  return "Equipe de Meio de Grid";
+// Fallback usado só enquanto o histórico real carrega — sem inventar um perfil
+// divergente do backend (que é a fonte única de verdade por desempenho real).
+function teamHistoryProfile() {
+  return "Em formação";
 }
 
 function identitySummary(team, profile, position) {

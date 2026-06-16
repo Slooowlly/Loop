@@ -671,6 +671,20 @@ pub struct GlobalDriverTitleCategorySummary {
     pub titulos: i32,
     #[serde(default)]
     pub anos: Vec<i32>,
+    /// Equipe com a qual o piloto conquistou cada título, na mesma ordem de `anos`.
+    /// O nome é resolvido pela identidade atual do `team_id` (o nome histórico não é
+    /// arquivado), e `equipe`/`equipe_cor` ficam nulos quando o time não é resolvível.
+    #[serde(default)]
+    pub anos_equipes: Vec<GlobalDriverTitleYearTeam>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GlobalDriverTitleYearTeam {
+    pub ano: i32,
+    #[serde(default)]
+    pub equipe: Option<String>,
+    #[serde(default)]
+    pub equipe_cor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -681,6 +695,11 @@ pub struct GlobalTeamHistoryPayload {
     pub window_start: i32,
     pub window_end: i32,
     pub window_size: i32,
+    /// Year of the currently-active season in the career.  Used by the frontend
+    /// to set the axis end (current_year + 5) so the hatch zone extends a few
+    /// years into the future.  Falls back to `max_year` when no active season
+    /// exists (e.g. pre-game or historical draft).
+    pub current_year: i32,
     pub families: Vec<GlobalTeamHistoryFamily>,
     pub bands: Vec<GlobalTeamHistoryBand>,
 }
@@ -716,6 +735,15 @@ pub struct GlobalTeamHistoryBand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamTitleCount {
+    /// Matches a key in `TeamHistoryBandDef` (e.g. "mazda_rookie", "production_mazda").
+    /// Stable identifier — the frontend maps this to a band-specific trophy image.
+    pub band_key: String,
+    pub band_label: String,
+    pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalTeamHistoryTeamRow {
     pub team_id: String,
     pub nome: String,
@@ -723,7 +751,13 @@ pub struct GlobalTeamHistoryTeamRow {
     pub cor_primaria: String,
     pub cor_secundaria: String,
     pub base_position: i32,
-    pub delta: i32,
+    /// All-time constructor titles for this team within the displayed family, grouped by
+    /// band (level). Ordered from lowest band index to highest (e.g. Rookie → Cup →
+    /// Production). Empty when the team has never won a championship in this family.
+    pub titles: Vec<TeamTitleCount>,
+    /// True when this team holds the championship of this band in the last year of the
+    /// current window (`window_end`).
+    pub is_reigning_champion: bool,
     pub points: Vec<GlobalTeamHistoryPoint>,
 }
 
@@ -1129,6 +1163,64 @@ pub struct TeamHistoryDossier {
     pub timeline: Vec<TeamHistoryTimelineItem>,
     pub title_categories: Vec<TeamHistoryTitleCategory>,
     pub category_path: Vec<TeamHistoryCategoryStep>,
+    /// Eventos de propriedade/diretoria (ex.: venda por colapso). Consumido pelas
+    /// abas Identidade (como "eras" do time) e Gestão (como evento financeiro).
+    pub ownership_events: Vec<TeamHistoryOwnershipEvent>,
+    /// Superlativos da equipe (melhor temporada, maior sequência de títulos...).
+    /// Enriquecem a aba Record além dos rankings comparativos.
+    pub highlights: Vec<TeamHistoryHighlight>,
+    /// Marcos da história (primeira vitória, primeiro título...) com o ano.
+    pub milestones: Vec<TeamHistoryMilestone>,
+    /// Resultados temporada a temporada — alimenta a aba Esportivo (resultados
+    /// ao longo do tempo), distinguindo-a de Categorias (movimento entre tiers).
+    pub season_results: Vec<TeamHistorySeasonResult>,
+    /// Resumo de movimento entre categorias (real) — alimenta a aba Categorias.
+    pub movement: TeamHistoryMovement,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamHistoryMovement {
+    pub promotions: i32,
+    pub relegations: i32,
+    pub time_by_category: String,
+    pub best_category: String,
+    pub hardest_category: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryHighlight {
+    pub label: String,
+    pub value: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryMilestone {
+    pub label: String,
+    pub year: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistorySeasonResult {
+    pub year: String,
+    pub category: String,
+    /// Posição final no campeonato naquela temporada ("P3", "—" se desconhecida).
+    pub position: String,
+    pub wins: i32,
+    pub podiums: i32,
+    pub points: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryOwnershipEvent {
+    pub year: String,
+    pub event_type: String,
+    /// Título curto para a aba Identidade (ex.: "Nova diretoria").
+    pub title: String,
+    /// Descrição contextual.
+    pub detail: String,
+    /// Resumo financeiro para a aba Gestão (ex.: "Dívida de R$ 38,0M zerada · aporte de R$ 7,0M").
+    pub financial_note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1154,6 +1246,8 @@ pub struct TeamHistorySport {
 pub struct TeamHistoryIdentity {
     pub origin: String,
     pub current: String,
+    /// Herança por experiência real (temporadas): Novata → Tradicional.
+    pub heritage: String,
     pub profile: String,
     pub summary: String,
     pub rival: TeamHistoryRival,
@@ -1203,6 +1297,8 @@ pub struct TeamHistoryCategoryStep {
     pub years: String,
     pub detail: String,
     pub color: String,
+    /// "start" | "promotion" | "relegation" | "same" — marcador da escada.
+    pub movement: String,
 }
 
 #[derive(Debug, Serialize)]

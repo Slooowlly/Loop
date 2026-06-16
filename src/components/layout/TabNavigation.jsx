@@ -1,5 +1,5 @@
 const tabs = [
-  { id: "standings", label: "Piloto" },
+  { id: "standings", label: "Home" },
   { id: "news", label: "Notícias" },
   { id: "my-team", label: "Minha Equipe" },
   { id: "calendar", label: "Calendário" },

@@ -5,7 +5,8 @@ use rand::Rng;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::constants::categories::{
-    get_all_categories, get_category_config, uses_regular_contracts,
+    get_all_categories, get_category_config, get_feeder_categories, runs_in_special_phase,
+    uses_regular_contracts,
 };
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
@@ -81,7 +82,9 @@ pub fn run_market(
         let mut report = MarketReport::default();
         reset_market_state(conn, &new_season.id)?;
         repair_missing_licenses_for_current_categories(conn)?;
-        seed_market_free_agent_pool(conn, rng)?;
+        // Modelo fechado: o pool de agentes livres NÃO é reabastecido. As vagas são
+        // preenchidas pela escada (promoção da categoria de baixo) com rookies gerados
+        // só na base — ver fill_remaining_vacancies_with_rookies.
 
         let all_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao carregar pilotos: {e}"))?;
@@ -204,6 +207,9 @@ pub fn run_market(
                 tipo: "renovacao".to_string(),
             });
         }
+
+        // Rebaixamento por mérito (troca conservadora) antes de preencher vagas.
+        apply_merit_relegations(conn, &teams, new_season_number, &standings_by_driver, &mut report)?;
 
         let mut refreshed_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
@@ -439,48 +445,6 @@ fn persist_market_state(conn: &Connection, season_id: &str) -> Result<(), String
     )
     .map_err(|e| format!("Falha ao persistir estado do mercado: {e}"))?;
     Ok(())
-}
-
-fn seed_market_free_agent_pool(conn: &Connection, rng: &mut impl Rng) -> Result<usize, String> {
-    let existing_drivers = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar pilotos para pool de mercado: {e}"))?;
-    let mut names: HashSet<String> = existing_drivers
-        .into_iter()
-        .map(|driver| driver.nome)
-        .collect();
-    let mut inserted = 0;
-
-    for category in get_all_categories()
-        .iter()
-        .filter(|category| uses_regular_contracts(category.id))
-    {
-        let count = category.grid_total as usize;
-        let mut ids = Vec::with_capacity(count);
-        for _ in 0..count {
-            ids.push(
-                next_id(conn, IdType::Driver)
-                    .map_err(|e| format!("Falha ao gerar ID de piloto do pool: {e}"))?,
-            );
-        }
-        let mut id_iter = ids.into_iter();
-        let mut category_drivers = Driver::generate_for_category_with_id_factory(
-            category.id,
-            category.tier,
-            "medio",
-            count,
-            &mut names,
-            &mut || id_iter.next().expect("pool id prealocado"),
-            rng,
-        );
-        for driver in &mut category_drivers {
-            driver.categoria_atual = None;
-            driver_queries::insert_driver(conn, driver)
-                .map_err(|e| format!("Falha ao inserir piloto do pool '{}': {e}", driver.nome))?;
-            inserted += 1;
-        }
-    }
-
-    Ok(inserted)
 }
 
 fn load_market_contexts(
@@ -1084,6 +1048,8 @@ fn fill_remaining_vacancies_with_rookies(
             &HashMap::new(),
         )?;
         let mut available = find_available_drivers(conn, &market_contexts)?;
+        let license_levels = load_max_license_levels(conn)?;
+        let mut filled_any = false;
         for vacancy in vacancies {
             let fallback_index = available
                 .iter()
@@ -1124,6 +1090,7 @@ fn fill_remaining_vacancies_with_rookies(
                     papel: vacancy.papel_necessario.as_str().to_string(),
                     tipo: signing_type.to_string(),
                 });
+                filled_any = true;
                 continue;
             }
 
@@ -1145,19 +1112,335 @@ fn fill_remaining_vacancies_with_rookies(
                     papel: vacancy.papel_necessario.as_str().to_string(),
                     tipo: "rookie".to_string(),
                 });
+                filled_any = true;
                 continue;
             }
 
-            return Err(format!(
-                "Sem pilotos desempregados no pool de pilotos para preencher a vaga {} da equipe '{}' em {}",
-                vacancy.papel_necessario.as_str(),
-                vacancy.team_name,
-                vacancy.categoria
-            ));
+            // Sistema de escada (modelo fechado): se o pool não cobre uma vaga
+            // não-estreia, promovemos o melhor piloto da categoria de baixo em vez
+            // de gerar um piloto novo do nada ou abortar. Promover abre o assento
+            // dele lá embaixo, que será preenchido na próxima volta do loop — a
+            // cascata desce até a categoria de estreia, onde aí sim nasce um rookie.
+            // Portão de MÉRITO só na escada regular. Categorias de fase especial
+            // (endurance/production) têm elegibilidade própria (convocação) e uma
+            // progressão de classe que os feeders regulares não conseguem licenciar,
+            // então ali mantemos o comportamento antigo (concede a licença ao assinar).
+            let is_special_vacancy = runs_in_special_phase(&vacancy.categoria);
+            let required_license = if is_special_vacancy {
+                None
+            } else {
+                required_license_for_division(&vacancy.categoria, vacancy.classe.as_deref())
+            };
+            if let Some(candidate) = best_feeder_promotion_candidate(
+                &vacancy,
+                &current_by_id,
+                &market_contexts,
+                &license_levels,
+                required_license,
+            ) {
+                // Rescinde o contrato atual do piloto na categoria de baixo antes de
+                // promovê-lo (o índice único (piloto_id, tipo) impede dois contratos
+                // regulares ativos). Isso abre o assento dele lá embaixo.
+                for contract in contract_queries::get_all_active_regular_contracts(conn)
+                    .map_err(|e| format!("Falha ao carregar contrato do promovido: {e}"))?
+                    .into_iter()
+                    .filter(|contract| contract.piloto_id == candidate.id)
+                {
+                    contract_queries::update_contract_status(
+                        conn,
+                        &contract.id,
+                        &ContractStatus::Rescindido,
+                    )
+                    .map_err(|e| format!("Falha ao rescindir contrato do promovido: {e}"))?;
+                }
+                if is_special_vacancy {
+                    // Especiais: concede a licença da divisão (elegibilidade via convocação).
+                    grant_driver_license_for_division_if_needed(
+                        conn,
+                        &candidate.id,
+                        &vacancy.categoria,
+                        vacancy.classe.as_deref(),
+                    )?;
+                }
+                // Escada regular: sem concessão — o candidato JÁ tem a licença exigida
+                // (filtro de mérito em best_feeder_promotion_candidate).
+                sign_driver_to_team(
+                    conn,
+                    &candidate,
+                    &vacancy,
+                    new_season_number,
+                    calculate_fallback_salary(&vacancy, &candidate),
+                    1,
+                    vacancy.papel_necessario.clone(),
+                )?;
+                report.new_signings.push(SigningInfo {
+                    driver_id: candidate.id.clone(),
+                    driver_name: candidate.nome.clone(),
+                    team_id: vacancy.team_id.clone(),
+                    team_name: vacancy.team_name.clone(),
+                    categoria: vacancy.categoria.clone(),
+                    papel: vacancy.papel_necessario.as_str().to_string(),
+                    tipo: "promocao".to_string(),
+                });
+                filled_any = true;
+                // Reescaneia do zero: o assento aberto na categoria de baixo vira a
+                // próxima vaga a preencher (continua a cascata) e evita reusar o
+                // mesmo candidato com dados defasados nesta passada.
+                break;
+            }
+
+            // Vaga não-estreia sem pool nem candidato na categoria de baixo: deixa
+            // em aberto em vez de abortar a temporada. No modelo fechado (grids
+            // cheios desde o genesis) isso não ocorre; só acontece em mundos
+            // artificialmente esparsos (ex.: fixtures de teste com grids vazios).
+        }
+
+        if !filled_any {
+            // Nenhuma vaga preenchível nesta passada: para de tentar (evita loop
+            // infinito); as vagas restantes ficam abertas até a próxima preseason.
+            break;
         }
     }
 
     Ok(())
+}
+
+/// Rebaixamento por MÉRITO (modelo fechado, conservação preservada): em cada
+/// categoria regular, se o melhor piloto licenciado da categoria de baixo foi
+/// campeão/vice e o pior piloto da categoria terminou no fundo (penúltimo/último),
+/// os dois TROCAM de assento — um sobe, um desce. Conservador: no máximo 1 troca
+/// por categoria por temporada e nunca mexe no piloto jogador.
+fn apply_merit_relegations(
+    conn: &Connection,
+    teams: &[crate::models::team::Team],
+    new_season_number: i32,
+    contexts: &HashMap<String, DriverMarketContext>,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar pilotos para rebaixamento: {e}"))?
+        .into_iter()
+        .map(|driver| (driver.id.clone(), driver))
+        .collect();
+    let license_levels = load_max_license_levels(conn)?;
+
+    // Categorias regulares (não-estreia, não-especiais), do topo para a base.
+    let mut categories: Vec<_> = get_all_categories()
+        .iter()
+        .filter(|category| {
+            uses_regular_contracts(category.id)
+                && !runs_in_special_phase(category.id)
+                && !is_real_career_debut_category(category.id)
+        })
+        .collect();
+    categories.sort_by(|a, b| b.tier.cmp(&a.tier));
+
+    // O rebaixamento automático nunca mexe no time do jogador — ele controla o
+    // próprio elenco (e mexer ali quebraria o plano de pré-temporada).
+    let player_team_ids: HashSet<&str> = teams
+        .iter()
+        .filter(|team| team.is_player_team)
+        .map(|team| team.id.as_str())
+        .collect();
+    let is_active_non_player = |id: &str| {
+        drivers_by_id
+            .get(id)
+            .is_some_and(|driver| !driver.is_jogador && driver.status == DriverStatus::Ativo)
+    };
+    let position_of = |id: &str| contexts.get(id).map(|c| c.posicao_campeonato).unwrap_or(99);
+    let skill_of = |id: &str| drivers_by_id.get(id).map(|d| d.atributos.skill).unwrap_or(0.0);
+
+    for category in categories {
+        let Some(required) = required_license_for_division(category.id, None) else {
+            continue;
+        };
+        let active = contract_queries::get_all_active_regular_contracts(conn)
+            .map_err(|e| format!("Falha ao carregar contratos para rebaixamento: {e}"))?;
+
+        // Pior piloto da categoria: pior posição no campeonato, depois menor skill.
+        let upper: Vec<&Contract> = active
+            .iter()
+            .filter(|c| {
+                c.categoria == category.id
+                    && c.classe.is_none()
+                    && is_active_non_player(&c.piloto_id)
+                    && !player_team_ids.contains(c.equipe_id.as_str())
+            })
+            .collect();
+        if upper.len() < 2 {
+            continue;
+        }
+        let Some(weakest) = upper.iter().max_by(|a, b| {
+            position_of(&a.piloto_id)
+                .cmp(&position_of(&b.piloto_id))
+                .then_with(|| skill_of(&b.piloto_id).total_cmp(&skill_of(&a.piloto_id)))
+        }) else {
+            continue;
+        };
+        // Só rebaixa quem realmente foi mal: penúltimo ou último na sua categoria.
+        let Some(weak_ctx) = contexts.get(&weakest.piloto_id) else {
+            continue;
+        };
+        if weak_ctx.total_pilotos < 2
+            || weak_ctx.posicao_campeonato < weak_ctx.total_pilotos - 1
+        {
+            continue;
+        }
+
+        // Melhor "subidor": campeão/vice de um feeder, já com a licença exigida.
+        let feeders = get_feeder_categories(category.id);
+        let Some(best_riser) = active
+            .iter()
+            .filter(|c| {
+                feeders.iter().any(|feeder| *feeder == c.categoria)
+                    && license_levels
+                        .get(&c.piloto_id)
+                        .is_some_and(|&owned| owned >= required)
+                    && is_active_non_player(&c.piloto_id)
+                    && !player_team_ids.contains(c.equipe_id.as_str())
+            })
+            .min_by(|a, b| {
+                position_of(&a.piloto_id)
+                    .cmp(&position_of(&b.piloto_id))
+                    .then_with(|| skill_of(&b.piloto_id).total_cmp(&skill_of(&a.piloto_id)))
+            })
+        else {
+            continue;
+        };
+        if position_of(&best_riser.piloto_id) > 2 {
+            continue;
+        }
+
+        swap_contract_seats(conn, best_riser, weakest, new_season_number, report)?;
+    }
+
+    let refreshed: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao recarregar pilotos apos rebaixamento: {e}"))?
+        .into_iter()
+        .map(|driver| (driver.id.clone(), driver))
+        .collect();
+    sync_team_slots_from_active_regular_contracts(conn, teams, &refreshed)?;
+    Ok(())
+}
+
+/// Executa a troca de assentos: `riser` (de baixo) assume a vaga de `weak` (de cima)
+/// e `weak` assume a vaga de `riser`. Rescinde os dois contratos e cria os novos
+/// trocados; ambos já têm a licença das divisões de destino (ver chamador).
+fn swap_contract_seats(
+    conn: &Connection,
+    riser: &Contract,
+    weak: &Contract,
+    new_season_number: i32,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    for contract_id in [&riser.id, &weak.id] {
+        contract_queries::update_contract_status(conn, contract_id, &ContractStatus::Rescindido)
+            .map_err(|e| format!("Falha ao rescindir contrato na troca de mérito: {e}"))?;
+    }
+
+    let mut move_driver = |conn: &Connection,
+                           piloto_id: &str,
+                           piloto_nome: &str,
+                           destino: &Contract,
+                           tipo: &str|
+     -> Result<(), String> {
+        let mut contract = Contract::new(
+            next_id(conn, IdType::Contract)
+                .map_err(|e| format!("Falha ao gerar ID de contrato na troca: {e}"))?,
+            piloto_id.to_string(),
+            piloto_nome.to_string(),
+            destino.equipe_id.clone(),
+            destino.equipe_nome.clone(),
+            new_season_number,
+            1,
+            destino.salario_anual,
+            destino.papel.clone(),
+            destino.categoria.clone(),
+        );
+        contract.classe = destino.classe.clone();
+        contract_queries::insert_contract(conn, &contract)
+            .map_err(|e| format!("Falha ao inserir contrato na troca de mérito: {e}"))?;
+
+        if let Some(mut driver) = driver_queries::get_all_drivers(conn)
+            .map_err(|e| format!("Falha ao carregar piloto na troca: {e}"))?
+            .into_iter()
+            .find(|driver| driver.id == piloto_id)
+        {
+            driver.categoria_atual = Some(destino.categoria.clone());
+            driver_queries::update_driver(conn, &driver)
+                .map_err(|e| format!("Falha ao atualizar categoria na troca: {e}"))?;
+        }
+
+        report.new_signings.push(SigningInfo {
+            driver_id: piloto_id.to_string(),
+            driver_name: piloto_nome.to_string(),
+            team_id: destino.equipe_id.clone(),
+            team_name: destino.equipe_nome.clone(),
+            categoria: destino.categoria.clone(),
+            papel: destino.papel.as_str().to_string(),
+            tipo: tipo.to_string(),
+        });
+        Ok(())
+    };
+
+    // riser sobe para a vaga de weak; weak desce para a vaga do riser.
+    move_driver(conn, &riser.piloto_id, &riser.piloto_nome, weak, "promocao_merito")?;
+    move_driver(conn, &weak.piloto_id, &weak.piloto_nome, riser, "rebaixamento")?;
+    Ok(())
+}
+
+/// Melhor candidato a PROMOÇÃO para uma vaga não-estreia (escada por MÉRITO).
+///
+/// Piloto ativo (não-jogador) atualmente numa categoria que alimenta a vaga
+/// (`get_feeder_categories`) E que **já conquistou a licença exigida** pela divisão
+/// (top-metade da categoria de baixo — mesma regra do jogador; nada de conceder
+/// licença na hora). Entre os elegíveis, escolhe pela classificação no campeonato e,
+/// em empate, pelo maior skill. Ver uso em `fill_remaining_vacancies_with_rookies`.
+fn best_feeder_promotion_candidate(
+    vacancy: &Vacancy,
+    drivers_by_id: &HashMap<String, Driver>,
+    contexts: &HashMap<String, DriverMarketContext>,
+    license_levels: &HashMap<String, u8>,
+    required_license: Option<u8>,
+) -> Option<Driver> {
+    let feeders = get_feeder_categories(&vacancy.categoria);
+    if feeders.is_empty() {
+        return None;
+    }
+
+    drivers_by_id
+        .values()
+        .filter(|driver| {
+            !driver.is_jogador
+                && driver.status == DriverStatus::Ativo
+                && driver
+                    .categoria_atual
+                    .as_deref()
+                    .is_some_and(|categoria| feeders.iter().any(|feeder| *feeder == categoria))
+                // Mérito: precisa POSSUIR de fato a licença exigida (linha real
+                // >= nível), igual ao check de ensure_driver_can_join_division.
+                // "Sem licença" não conta como nível 0.
+                && match required_license {
+                    Some(level) => license_levels
+                        .get(&driver.id)
+                        .is_some_and(|&owned| owned >= level),
+                    None => true,
+                }
+        })
+        .min_by(|a, b| {
+            let pos_a = contexts
+                .get(&a.id)
+                .map(|context| context.posicao_campeonato)
+                .unwrap_or(99);
+            let pos_b = contexts
+                .get(&b.id)
+                .map(|context| context.posicao_campeonato)
+                .unwrap_or(99);
+            pos_a
+                .cmp(&pos_b)
+                .then_with(|| b.atributos.skill.total_cmp(&a.atributos.skill))
+        })
+        .cloned()
 }
 
 fn generate_and_sign_rookie_for_vacancy(
@@ -1363,6 +1646,194 @@ mod tests {
 
         assert_eq!(report.unresolved_vacancies, 0);
         assert!(find_vacancies(&conn).expect("vacancies").is_empty());
+    }
+
+    #[test]
+    fn test_merit_relegation_swaps_weak_top_driver_with_feeder_champion() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+
+        let mut team_rng = StdRng::seed_from_u64(800);
+        let bmw_team = sample_team("bmw_m2", "TBMW", &mut team_rng);
+        let amateur_team = sample_team("mazda_amador", "TAMA", &mut team_rng);
+        team_queries::insert_team(&conn, &bmw_team).expect("bmw team");
+        team_queries::insert_team(&conn, &amateur_team).expect("amateur team");
+
+        // BMW: titular forte (P_BMW1) + fraco que terminou em último (P_WEAK).
+        let bmw1 = sample_driver("P_BMW1", "BMW Forte", Some("bmw_m2"), 70.0, DriverStatus::Ativo);
+        let weak = sample_driver("P_WEAK", "BMW Fraco", Some("bmw_m2"), 52.0, DriverStatus::Ativo);
+        // Amador: campeão com licença 1 (exigida pela BMW) -> merece subir.
+        let champ = sample_driver(
+            "P_CHAMP",
+            "Amador Campeao",
+            Some("mazda_amador"),
+            74.0,
+            DriverStatus::Ativo,
+        );
+        for driver in [&bmw1, &weak, &champ] {
+            driver_queries::insert_driver(&conn, driver).expect("driver");
+        }
+        let seed_contract = |id: &str, driver: &Driver, team: &crate::models::team::Team, role: TeamRole, category: &str| {
+            let contract = Contract::new(
+                id.to_string(),
+                driver.id.clone(),
+                driver.nome.clone(),
+                team.id.clone(),
+                team.nome.clone(),
+                1,
+                2,
+                100_000.0,
+                role,
+                category.to_string(),
+            );
+            contract_queries::insert_contract(&conn, &contract).expect("contract");
+        };
+        seed_contract("CB1", &bmw1, &bmw_team, TeamRole::Numero1, "bmw_m2");
+        seed_contract("CWK", &weak, &bmw_team, TeamRole::Numero2, "bmw_m2");
+        seed_contract("CCH", &champ, &amateur_team, TeamRole::Numero1, "mazda_amador");
+        team_queries::update_team_pilots(&conn, &bmw_team.id, Some("P_BMW1"), Some("P_WEAK"))
+            .expect("bmw lineup");
+        team_queries::update_team_pilots(&conn, &amateur_team.id, Some("P_CHAMP"), None)
+            .expect("amateur lineup");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P_CHAMP', '1', 'mazda_amador', '2024-12-31T00:00:00', 1)",
+            [],
+        )
+        .expect("license champ");
+
+        let ctx = |pos: i32, total: i32, categoria: &str, tier: u8| DriverMarketContext {
+            posicao_campeonato: pos,
+            total_pilotos: total,
+            categoria: categoria.to_string(),
+            category_tier: tier,
+            vitorias: 0,
+            poles: 0,
+            titulos: 0,
+            papel: TeamRole::Numero2,
+        };
+        let mut contexts = HashMap::new();
+        contexts.insert("P_BMW1".to_string(), ctx(1, 2, "bmw_m2", 2));
+        contexts.insert("P_WEAK".to_string(), ctx(2, 2, "bmw_m2", 2)); // último na BMW
+        contexts.insert("P_CHAMP".to_string(), ctx(1, 10, "mazda_amador", 1)); // campeão do amador
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut report = MarketReport::default();
+        apply_merit_relegations(&conn, &teams, 2, &contexts, &mut report)
+            .expect("rebaixamento deve rodar");
+
+        // O campeão do amador subiu para a vaga da BMW; o fraco da BMW desceu.
+        let champ_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_CHAMP")
+            .expect("champ contract query")
+            .expect("champ has active contract");
+        let weak_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+            .expect("weak contract query")
+            .expect("weak has active contract");
+        assert_eq!(champ_contract.categoria, "bmw_m2");
+        assert_eq!(champ_contract.equipe_id, "TBMW");
+        assert_eq!(weak_contract.categoria, "mazda_amador");
+        assert_eq!(weak_contract.equipe_id, "TAMA");
+        assert!(report.new_signings.iter().any(|s| s.tipo == "promocao_merito"));
+        assert!(report.new_signings.iter().any(|s| s.tipo == "rebaixamento"));
+    }
+
+    #[test]
+    fn test_non_rookie_vacancy_is_filled_by_promoting_from_feeder_then_rookie_at_base() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        season_queries::insert_season(&conn, &Season::new("S002".to_string(), 2, 2025))
+            .expect("season");
+
+        let mut team_rng = StdRng::seed_from_u64(700);
+        let rookie_team = sample_team("mazda_rookie", "TMR", &mut team_rng);
+        let amateur_team = sample_team("mazda_amador", "TMA", &mut team_rng);
+        team_queries::insert_team(&conn, &rookie_team).expect("rookie team");
+        team_queries::insert_team(&conn, &amateur_team).expect("amateur team");
+
+        // Grid de rookie cheio (fonte da promoção); amador com 1 titular -> N2 vago.
+        let r1 = sample_driver("PR1", "Rookie Um", Some("mazda_rookie"), 60.0, DriverStatus::Ativo);
+        let r2 = sample_driver(
+            "PR2",
+            "Rookie Dois",
+            Some("mazda_rookie"),
+            50.0,
+            DriverStatus::Ativo,
+        );
+        let a1 = sample_driver(
+            "PA1",
+            "Amador Um",
+            Some("mazda_amador"),
+            65.0,
+            DriverStatus::Ativo,
+        );
+        for driver in [&r1, &r2, &a1] {
+            driver_queries::insert_driver(&conn, driver).expect("driver");
+        }
+        let seed_contract = |id: &str, driver: &Driver, team: &crate::models::team::Team, role: TeamRole, category: &str| {
+            let contract = Contract::new(
+                id.to_string(),
+                driver.id.clone(),
+                driver.nome.clone(),
+                team.id.clone(),
+                team.nome.clone(),
+                1,
+                2,
+                100_000.0,
+                role,
+                category.to_string(),
+            );
+            contract_queries::insert_contract(&conn, &contract).expect("contract");
+        };
+        seed_contract("CR1", &r1, &rookie_team, TeamRole::Numero1, "mazda_rookie");
+        seed_contract("CR2", &r2, &rookie_team, TeamRole::Numero2, "mazda_rookie");
+        seed_contract("CA1", &a1, &amateur_team, TeamRole::Numero1, "mazda_amador");
+        team_queries::update_team_pilots(&conn, &rookie_team.id, Some("PR1"), Some("PR2"))
+            .expect("rookie lineup");
+        team_queries::update_team_pilots(&conn, &amateur_team.id, Some("PA1"), None)
+            .expect("amateur lineup");
+        // PR1 conquistou a licença 0 (top-metade do rookie) -> elegível por mérito a
+        // subir para o amador (que exige licença 0). PR2 não tem -> não sobe.
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('PR1', '0', 'mazda_rookie', '2024-12-31T00:00:00', 1)",
+            [],
+        )
+        .expect("license PR1");
+        conn.execute("UPDATE meta SET value = '500' WHERE key = 'next_driver_id'", [])
+            .expect("driver counter");
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut report = MarketReport::default();
+        let mut rng = StdRng::seed_from_u64(701);
+
+        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+            .expect("cascata deve preencher a vaga sem erro");
+
+        // A vaga não-estreia foi preenchida por PROMOÇÃO (não pelo pool, não por erro).
+        assert!(
+            report.new_signings.iter().any(|s| s.tipo == "promocao"),
+            "deveria haver uma promoção da categoria de baixo"
+        );
+        // O melhor rookie (maior skill) foi o promovido.
+        assert!(report
+            .new_signings
+            .iter()
+            .any(|s| s.tipo == "promocao" && s.driver_id == "PR1"));
+        // A base recebeu exatamente 1 rookie novo (o assento aberto na estreia).
+        assert_eq!(
+            driver_queries::count_drivers(&conn).expect("count"),
+            4,
+            "3 originais + 1 rookie gerado na base da cascata"
+        );
+        // Nenhuma vaga regular sobrou.
+        assert_eq!(
+            find_vacancies(&conn)
+                .expect("vacancies")
+                .into_iter()
+                .filter(is_regular_vacancy)
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1941,7 +2412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_final_vacancy_fill_never_generates_driver_when_pool_is_empty() {
+    fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
         let conn = Connection::open_in_memory().expect("in-memory db");
         migrations::run_all(&conn).expect("schema");
 
@@ -1990,15 +2461,23 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(622);
 
-        let error = fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
-            .expect_err("pool exhaustion must not generate a new driver");
+        // Modelo fechado tolerante: vaga não-estreia sem candidato (sem pool e sem
+        // categoria feeder abaixo povoada) fica EM ABERTO — não fabrica piloto do
+        // nada nem aborta a temporada.
+        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+            .expect("fill deve tolerar vaga sem candidato sem abortar");
         let driver_count = driver_queries::count_drivers(&conn).expect("driver count");
 
-        assert!(
-            error.contains("pool de pilotos"),
-            "erro deve explicar que o pool acabou: {error}"
-        );
+        // Nenhum piloto novo foi fabricado para a vaga não-estreia.
         assert_eq!(driver_count, 1);
+        // A vaga do GT3 permanece aberta (não há piloto elegível para promover).
+        assert!(
+            find_vacancies(&conn)
+                .expect("vacancies")
+                .into_iter()
+                .any(|vacancy| is_regular_vacancy(&vacancy)),
+            "a vaga nao-preenchivel deve permanecer aberta"
+        );
     }
 
     #[test]

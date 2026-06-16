@@ -18,14 +18,26 @@ use crate::models::team::Team;
 /// Fração do caixa-médio da categoria injetada na venda (caixa moderado).
 const SALE_CASH_FACTOR: f64 = 0.45;
 
+/// O que a venda fez com as finanças da equipe — usado para registrar o evento
+/// histórico exibido na ficha.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TeamSaleOutcome {
+    pub debt_cleared: f64,
+    pub cash_injected: f64,
+}
+
 /// Renova uma equipe falida sob nova diretoria. Preserva identidade e histórico;
-/// re-sorteia finanças e atributos de performance.
-pub fn apply_team_sale(team: &mut Team, rng: &mut impl Rng) {
+/// re-sorteia finanças e atributos de performance. Retorna o impacto financeiro
+/// para registro histórico.
+pub fn apply_team_sale(team: &mut Team, rng: &mut impl Rng) -> TeamSaleOutcome {
     let scale = category_finance_scale(&team.categoria);
+
+    let debt_cleared = team.debt_balance.max(0.0);
+    let cash_injected = scale.expected_cash_midpoint() * SALE_CASH_FACTOR;
 
     // ── Finanças: dívida zerada, caixa moderado ──
     team.debt_balance = 0.0;
-    team.cash_balance = scale.expected_cash_midpoint() * SALE_CASH_FACTOR;
+    team.cash_balance = cash_injected;
     team.parachute_payment_remaining = 0.0;
     team.last_round_income = 0.0;
     team.last_round_expenses = 0.0;
@@ -50,6 +62,11 @@ pub fn apply_team_sale(team: &mut Team, rng: &mut impl Rng) {
     // Recalcula o estado financeiro: com dívida zero e caixa moderado, deve sair
     // do colapso.
     refresh_team_financial_state(team);
+
+    TeamSaleOutcome {
+        debt_cleared,
+        cash_injected,
+    }
 }
 
 #[cfg(test)]

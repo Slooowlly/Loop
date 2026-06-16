@@ -352,6 +352,40 @@ describe("GlobalDriversTab", () => {
     expect(screen.queryByRole("dialog", { name: /Campeoes de GT3/i })).not.toBeInTheDocument();
   });
 
+  it("shows the champion's team logo next to each title year", async () => {
+    const teamedRows = rows.map((row) =>
+      row.id === "D003"
+        ? {
+            ...row,
+            titulos_por_categoria: [
+              {
+                categoria: "gt3",
+                titulos: 2,
+                anos: [2024, 2023],
+                anos_equipes: [
+                  { ano: 2024, equipe: "Mercedes-AMG", equipe_cor: "#00a19b" },
+                  { ano: 2023, equipe: "Ferrari", equipe_cor: "#ff2800" },
+                ],
+              },
+            ],
+          }
+        : row,
+    );
+    invoke.mockResolvedValue({ selected_driver_id: "D001", rows: teamedRows, leaders: {} });
+
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+    await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    fireEvent.click(screen.getByRole("button", { name: /Ver campeoes de GT3/i }));
+
+    const dialog = screen.getByRole("dialog", { name: /Campeoes de GT3/i });
+    // Each year is now a chip with the champion team's logo, not a comma-joined string.
+    expect(within(dialog).getByText("2024")).toBeInTheDocument();
+    expect(within(dialog).getByText("2023")).toBeInTheDocument();
+    expect(within(dialog).queryByText("2024, 2023")).not.toBeInTheDocument();
+    expect(within(dialog).getByAltText("Mercedes-AMG logo")).toBeInTheDocument();
+    expect(within(dialog).getByAltText("Ferrari logo")).toBeInTheDocument();
+  });
+
   it("filters by status, historical category, nationality, champions, injured drivers, and age", async () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 
@@ -379,7 +413,8 @@ describe("GlobalDriversTab", () => {
     expect(retiredIndex).toBeGreaterThan(pastGroupIndex);
 
     fireEvent.change(screen.getByLabelText(/Categoria/i), { target: { value: "Todas" } });
-    fireEvent.change(screen.getByLabelText(/Nacionalidade/i), { target: { value: "Brasil" } });
+    // O filtro agora agrupa por país (código), uma entrada por nacionalidade.
+    fireEvent.change(screen.getByLabelText(/Nacionalidade/i), { target: { value: "br" } });
     expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
     expect(within(table).getByText("Piloto Usuario")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Livre")).not.toBeInTheDocument();
@@ -400,6 +435,145 @@ describe("GlobalDriversTab", () => {
     expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Livre")).not.toBeInTheDocument();
     expect(within(table).queryByText("Piloto Usuario")).not.toBeInTheDocument();
+  });
+
+  it("groups category options by manufacturer lineage in progression order", async () => {
+    const lineageRows = rows.map((row) => {
+      if (row.id === "D001") {
+        return {
+          ...row,
+          categoria_atual: "production_challenger:mazda",
+          categorias_historicas: ["mazda_rookie", "mazda_amador", "production_challenger:mazda"],
+        };
+      }
+      if (row.id === "D004") {
+        return {
+          ...row,
+          categoria_atual: "toyota_amador",
+          categorias_historicas: ["toyota_rookie", "toyota_amador"],
+        };
+      }
+      return { ...row, categoria_atual: "mazda_rookie", categorias_historicas: ["mazda_rookie"] };
+    });
+    invoke.mockResolvedValue({ selected_driver_id: "D001", rows: lineageRows, leaders: {} });
+
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+    const categoryFilter = await screen.findByLabelText(/Categoria/i);
+
+    const optgroups = [...categoryFilter.querySelectorAll("optgroup")];
+    const byLabel = Object.fromEntries(
+      optgroups.map((group) => [
+        group.label,
+        [...group.querySelectorAll("option")].map((option) => option.textContent),
+      ]),
+    );
+
+    // Mazda lineage comes first, then Toyota, each in rookie -> championship -> production order.
+    expect(optgroups.map((group) => group.label)).toEqual(["Mazda", "Toyota"]);
+    expect(byLabel.Mazda).toEqual(["Mazda Rookie", "Mazda Amador", "Mazda Production"]);
+    expect(byLabel.Toyota).toEqual(["Toyota Rookie", "Toyota Amador"]);
+  });
+
+  it("pairs each GT/LMP2 class with its endurance variant and drops generic/no-category entries", async () => {
+    const classRows = rows.map((row, index) => {
+      const categories = [
+        ["gt4", "endurance:gt4"],
+        ["gt3", "endurance:gt3"],
+        ["endurance:lmp2"],
+        ["endurance"],
+        ["production_challenger", "SemCategoria"],
+      ][index] ?? ["gt4"];
+      return { ...row, categoria_atual: categories[0], categorias_historicas: categories };
+    });
+    invoke.mockResolvedValue({ selected_driver_id: "D001", rows: classRows, leaders: {} });
+
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+    const categoryFilter = await screen.findByLabelText(/Categoria/i);
+
+    const optgroups = [...categoryFilter.querySelectorAll("optgroup")];
+    const byLabel = Object.fromEntries(
+      optgroups.map((group) => [
+        group.label,
+        [...group.querySelectorAll("option")].map((option) => option.textContent),
+      ]),
+    );
+
+    // Only class-based groups remain; there is no catch-all group.
+    expect(optgroups.map((group) => group.label)).toEqual(["GT4", "GT3", "LMP2"]);
+    expect(byLabel.GT4).toEqual(["GT4", "GT4 Endurance"]);
+    expect(byLabel.GT3).toEqual(["GT3", "GT3 Endurance"]);
+    expect(byLabel.LMP2).toEqual(["LMP2 Endurance"]);
+
+    // Generic endurance/production and SemCategoria are not offered as filter options.
+    const optionLabels = [...categoryFilter.options].map((option) => option.textContent);
+    expect(optionLabels).not.toContain("Endurance");
+    expect(optionLabels).not.toContain("Production Challenger");
+    expect(optionLabels).not.toContain("SemCategoria");
+  });
+
+  it("collapses gendered nationalities into a single per-country filter option", async () => {
+    const genderedRows = rows.map((row) => {
+      if (row.id === "D001") return { ...row, nacionalidade: "🇧🇷 Brasileiro" };
+      if (row.id === "D004") return { ...row, nacionalidade: "🇧🇷 Brasileira" };
+      return row;
+    });
+    invoke.mockResolvedValue({ selected_driver_id: "D001", rows: genderedRows, leaders: {} });
+
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    const nationalitySelect = screen.getByLabelText(/Nacionalidade/i);
+
+    // Masculine and feminine Brazilians collapse to one option keyed by country code.
+    const brazilOptions = [...nationalitySelect.options].filter((option) => /Brasil/i.test(option.textContent));
+    expect(brazilOptions).toHaveLength(1);
+    expect(brazilOptions[0].value).toBe("br");
+
+    // Selecting it still matches drivers of both genders.
+    fireEvent.change(nationalitySelect, { target: { value: "br" } });
+    expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
+    expect(within(table).getByText("Piloto Usuario")).toBeInTheDocument();
+    expect(within(table).queryByText("Piloto Livre")).not.toBeInTheDocument();
+  });
+
+  it("recalculates the # column and the delta among active drivers when status is Ativo", async () => {
+    // Globally: D001 rank 2 (climbed +2 → prev 4), D004 rank 4 (dropped -1 → prev 3).
+    // Among only the two active drivers, current order is D001<D004 but previous order
+    // was D004<D001, so within the filter D001 climbs +1 and D004 drops -1.
+    const activeRows = rows.map((row) =>
+      row.id === "D004" ? { ...row, historical_rank_delta: -1 } : row,
+    );
+    invoke.mockResolvedValue({ selected_driver_id: "D001", rows: activeRows, leaders: {} });
+
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+
+    const selectedRowGlobal = within(table).getByText("Piloto Selecionado").closest("tr");
+    expect(within(selectedRowGlobal).getByText("02")).toBeInTheDocument();
+    expect(within(selectedRowGlobal).getByText("↑2")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "Ativo" } });
+
+    // Only the two active drivers remain, renumbered 01/02 by world index order.
+    expect(within(table).queryByText("Piloto Livre")).not.toBeInTheDocument();
+    expect(within(table).queryByText("Lenda Aposentada")).not.toBeInTheDocument();
+
+    const selectedRow = within(table).getByText("Piloto Selecionado").closest("tr");
+    const userRow = within(table).getByText("Piloto Usuario").closest("tr");
+
+    // Ranks are recalculated within the filtered set...
+    expect(within(selectedRow).getByText("01")).toBeInTheDocument();
+    expect(within(userRow).getByText("02")).toBeInTheDocument();
+
+    // ...and so are the delta badges, now relative to the filtered ranking.
+    const selectedDelta = within(selectedRow).getByText("↑1");
+    expect(selectedDelta).toHaveAttribute("title", expect.stringMatching(/neste ranking filtrado/i));
+    expect(within(userRow).getByText("↓1")).toBeInTheDocument();
+
+    // The global #2 climb is no longer shown as a badge in the filtered view.
+    expect(within(table).queryByText("↑2")).not.toBeInTheDocument();
+    expect(screen.getByText(/# recalculado entre pilotos ativos/i)).toBeInTheDocument();
   });
 
   it("keeps free and retired drivers out of the currently-in category section", async () => {

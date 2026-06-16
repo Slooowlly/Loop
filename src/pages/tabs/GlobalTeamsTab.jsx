@@ -5,6 +5,36 @@ import TeamLogoMark from "../../components/team/TeamLogoMark";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
 import { TeamHistoryDrawer } from "./MyTeamTab";
+import goldTrophy from "../../assets/utilities/trophies/ouro.png";
+
+/**
+ * Maps each band_key to a dedicated trophy image path.
+ * Replace `null` entries with an imported image once the art is produced.
+ * Keys are stable identifiers from TeamHistoryBandDef (global_team_history.rs).
+ *
+ * Distinct band keys (11 total — one image slot per entry):
+ *   Mazda  : mazda_rookie · mazda_amador · production_mazda
+ *   Toyota : toyota_rookie · toyota_amador · production_toyota
+ *   BMW    : bmw_m2 · production_bmw
+ *   GT4    : gt4 · endurance_gt4
+ *   GT3    : gt3 · endurance_gt3
+ *   LMP2   : endurance_lmp2
+ */
+const BAND_TROPHY_IMAGES = {
+  mazda_rookie:      null,
+  mazda_amador:      null,
+  production_mazda:  null,
+  toyota_rookie:     null,
+  toyota_amador:     null,
+  production_toyota: null,
+  bmw_m2:            null,
+  production_bmw:    null,
+  gt4:               null,
+  endurance_gt4:     null,
+  gt3:               null,
+  endurance_gt3:     null,
+  endurance_lmp2:    null,
+};
 
 const DEFAULT_FAMILY = "mazda";
 const DEFAULT_WINDOW_SIZE = 20;
@@ -31,7 +61,6 @@ function GlobalTeamsTab({
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const [family, setFamily] = useState(() => familyFromTeamContext(selectedTeamCategory, selectedTeamClassName));
   const [startYear, setStartYear] = useState(HISTORY_FETCH_START_YEAR);
-  const windowSize = DEFAULT_WINDOW_SIZE;
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -94,9 +123,11 @@ function GlobalTeamsTab({
   }, []);
 
   useEffect(() => {
+    setStartYear(payload ? familyMinYear(payload) : HISTORY_FETCH_START_YEAR);
     setPreviewStartYear(null);
   }, [payload?.window_start, payload?.selected_family]);
 
+  const windowSize = useMemo(() => familyDataWidth(payload), [payload]);
   const visibleStartYear = useMemo(() => clampVisibleStart(payload, startYear, windowSize), [payload, startYear, windowSize]);
   const displayStartYear = useMemo(
     () => roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear, windowSize),
@@ -119,7 +150,7 @@ function GlobalTeamsTab({
   function handleWindowStartChange(nextYear) {
     if (!payload) return;
     const latestStart = latestWindowStart(payload, windowSize);
-    setStartYear(clamp(nextYear, familyMinYear(payload), latestStart));
+    setStartYear(clamp(nextYear, scrollMinYear(payload), latestStart));
   }
 
   function clearTeamClickTimeout() {
@@ -308,7 +339,11 @@ function YearWindowScrubber({
     );
   }
 
-  const min = familyMinYear(payload);
+  // The scrubber represents the NAVIGABLE range: its left end is the leftmost the
+  // window can start (familyMin). The extra buffer year columns rendered before it
+  // live only in the gutter as context, so they are intentionally NOT part of the
+  // rail — that way the thumb visually reaches the left end at the scroll limit.
+  const min = scrollMinYear(payload);
   const max = latestWindowStart(payload, windowSize);
   const displayStart = clamp(previewStart ?? visibleStart, min, max);
   const displayEnd = visibleWindowEndYear(payload, displayStart, windowSize);
@@ -372,7 +407,7 @@ function YearWindowScrubber({
           Janela visivel: {Math.round(displayStart)}-{displayEnd}
         </p>
       </div>
-      <div className="text-right font-mono text-[12px] font-black text-text-secondary">{atlasMaxYear(payload)}</div>
+      <div className="text-right font-mono text-[12px] font-black text-text-secondary">{axisEndYear(payload)}</div>
     </div>
   );
 }
@@ -402,98 +437,87 @@ function GlobalTeamsLoading({ onBack }) {
 
 const INLINE_TABLE_WIDTH_PCT = 25;
 
-// Name/logo tables that mark the start of each category's lines.
-//
-// Rendered in viewport space (over the chart, not inside the translated moving
-// grid) so the table can pin to the left edge and stay readable when the user
-// advances past a category's start year. Each category's table sits at left: 0
-// and is moved horizontally with a GPU `transform: translateX` that mirrors the
-// moving grid's transform transition, so it glides in perfect sync with the
-// lines (no per-element layout/`left` animation, which was janky). The translate
-// is clamped so the table's right edge meets the first line when the start is in
-// view, and pins to the left edge once the start scrolls off-screen.
+// One name/logo table per category — a "current standings" panel anchored to the
+// RIGHT edge. Its left edge meets the year where the visible lines end, so the lines
+// flow into it; the header + ranked rows sit in the leftmost `tableWidth`, and the
+// panel fills from there to the right edge in the table colour. Because every active
+// category ends at the same latest year, the panels line up cleanly on the right
+// (unlike category STARTS, which are staggered). Rows + panel glide in sync with the
+// lines while scrolling.
 function InlineTeamTables({
   payload,
   geometry,
   gridStartYear,
-  displayStartYear,
+  displayEndYear,
   windowSize = DEFAULT_WINDOW_SIZE,
   focusedTeamId,
   onFocus,
   onTeamClick,
   onTeamDoubleClick,
 }) {
-  const windowEnd = payload?.window_end ?? displayStartYear;
+  const bands = (payload?.bands ?? []).filter((band) => !band.is_special);
+  const tableWidth = `${INLINE_TABLE_WIDTH_PCT}%`;
+  const dataWidthPct = 100 - INLINE_TABLE_WIDTH_PCT;
   return (
     <div className="pointer-events-none absolute inset-0 z-30" data-testid="world-team-name-rail">
-      {(payload?.bands ?? []).filter((band) => !band.is_special).map((band) => {
+      {bands.map((band) => {
         const bandBox = geometry.bands[band.key];
         if (!bandBox) return null;
-        const isFutureBand = band.starts_year > windowEnd;
-        const startsInsideWindow = band.starts_year > (payload?.window_start ?? 0);
-        const referenceYear = bandReferenceYear(band, displayStartYear, windowEnd);
-        const displayRows = visibleBandRows(band.rows, referenceYear);
-        // Where the category start sits horizontally, as a % of the viewport.
-        // The data area is offset by the left gutter (the table width), so the
-        // first visible year sits at the gutter edge and the table's right edge
-        // meets it.
-        const startScreenPct = Number.isFinite(band.starts_year) && Number.isFinite(gridStartYear)
-          ? INLINE_TABLE_WIDTH_PCT + ((band.starts_year - gridStartYear) / windowSize) * (100 - INLINE_TABLE_WIDTH_PCT)
-          : INLINE_TABLE_WIDTH_PCT;
-        // Table left edge, in viewport %, so the right edge meets the start;
-        // clamp pins it to the left edge once the start scrolls off-screen and to
-        // the right edge for not-yet-existing categories. Applied as a translate.
-        const tableLeftPct = clamp(startScreenPct - INLINE_TABLE_WIDTH_PCT, 0, 100 - INLINE_TABLE_WIDTH_PCT);
-        const tableWidth = `${INLINE_TABLE_WIDTH_PCT}%`;
-
-        const rowYs = displayRows.map(
-          (row) => bandRowOffsetY(bandBox.top, rowPositionAtYear(row, referenceYear)),
-        );
-        const minRowY = rowYs.length ? Math.min(...rowYs) : bandBox.top + ROW_TOP_OFFSET;
-        const maxRowY = rowYs.length ? Math.max(...rowYs) : minRowY;
+        const referenceYear = bandReferenceYearRight(band, displayEndYear);
+        const hasStarted = Number.isFinite(referenceYear);
+        const displayRows = hasStarted ? visibleBandRows(band.rows, referenceYear) : [];
+        // Left edge of the section = the year-end boundary of the latest visible
+        // standings (where the lines stop). Clamp keeps the table within the chart: it
+        // pins to the right gutter once that boundary scrolls off the right edge.
+        const endScreenPct = hasStarted && Number.isFinite(gridStartYear)
+          ? ((referenceYear + 1 - gridStartYear) / windowSize) * dataWidthPct
+          : dataWidthPct;
+        const panelLeftPct = clamp(endScreenPct, 0, dataWidthPct);
 
         return (
-          <div
-            key={band.key}
-            className="pointer-events-none absolute inset-0"
-            style={{
-              transform: `translate3d(${formatPercent(tableLeftPct)}%, 0, 0)`,
-              transition: "transform 80ms linear",
-              willChange: "transform",
-            }}
-          >
-            <span
-              className={`pointer-events-auto absolute z-10 grid h-6 place-items-center rounded-full border px-3 text-[9px] font-black uppercase tracking-[0.14em] ${
-                isFutureBand
-                  ? "border-white/12 bg-[#07101d] text-text-muted"
-                  : "border-status-yellow/35 bg-[#0a1322] text-status-yellow"
-              }`}
-              style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 10, width: tableWidth }}
+          <div key={band.key} className="pointer-events-none absolute inset-0">
+            <div
+              aria-hidden="true"
+              data-testid={`world-team-name-panel-${band.key}`}
+              className="absolute rounded-l-2xl border-y border-l border-white/10 bg-[#0a1322] shadow-[0_18px_44px_rgba(0,0,0,0.4)]"
+              style={{
+                left: 0,
+                top: CHART_HEADER_HEIGHT + bandBox.top + 4,
+                // Full-width element whose LEFT edge is parked at the line-end column
+                // via a GPU transform (same mechanism/timing as the lines), so it stays
+                // in sync while scrolling — no width/layout animation, no blur.
+                width: "100%",
+                height: Math.max(bandBox.height - 8, 0),
+                transform: `translate3d(${formatPercent(panelLeftPct)}%, 0, 0)`,
+                transition: "transform 80ms linear",
+                willChange: "transform",
+              }}
+            />
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                transform: `translate3d(${formatPercent(panelLeftPct)}%, 0, 0)`,
+                transition: "transform 80ms linear",
+                willChange: "transform",
+              }}
             >
-              {startsInsideWindow ? `${band.label} ${band.starts_year}` : band.label}
-            </span>
-
-            {displayRows.length === 0 ? (
-              <div
-                className="pointer-events-auto absolute z-10 grid h-10 place-items-center rounded-lg border border-dashed border-white/15 bg-[#07101d] px-3 text-center text-[10px] font-semibold leading-4 text-text-muted"
-                style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 40, width: tableWidth }}
+              <span
+                className="pointer-events-auto absolute z-10 grid h-6 place-items-center rounded-full border border-status-yellow/35 bg-[#0b1526] px-3 text-[9px] font-black uppercase tracking-[0.14em] text-status-yellow"
+                style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 10, width: tableWidth }}
               >
-                {isFutureBand || band.starts_year > referenceYear ? `${band.label} ainda nao existia` : "Sem equipes neste ano"}
-              </div>
-            ) : (
-              <div
-                aria-hidden="true"
-                className="absolute rounded-lg border border-white/10 bg-[#0a1322]"
-                style={{
-                  left: 0,
-                  top: CHART_HEADER_HEIGHT + minRowY - ROW_PILL_HEIGHT / 2,
-                  width: tableWidth,
-                  height: maxRowY - minRowY + ROW_PILL_HEIGHT,
-                }}
-              />
-            )}
+                {hasStarted ? `${band.label} ${referenceYear}` : band.label}
+              </span>
 
-            {displayRows.map((row) => {
+              {displayRows.length === 0 ? (
+                <div
+                  className="pointer-events-auto absolute z-10 grid h-10 place-items-center rounded-lg border border-dashed border-white/15 bg-[#07101d] px-3 text-center text-[10px] font-semibold leading-4 text-text-muted"
+                  style={{ left: 0, top: CHART_HEADER_HEIGHT + bandBox.top + 40, width: tableWidth }}
+                >
+                  {`${band.label} ainda nao existia`}
+                </div>
+              ) : null}
+
+              {displayRows.map((row) => {
               const isFocused = focusedTeamId === row.team_id;
               const isDimmed = focusedTeamId && !isFocused;
               const displayPosition = rowPositionAtYear(row, referenceYear);
@@ -508,7 +532,7 @@ function InlineTeamTables({
                   onClick={() => onTeamClick({ ...row, band_key: band.key, band_category: band.category })}
                   onDoubleClick={() => onTeamDoubleClick({ ...row, band_key: band.key, band_category: band.category })}
                   data-testid={`world-team-row-${row.team_id}-${band.key}`}
-                  className={`pointer-events-auto absolute z-10 grid grid-cols-[20px_30px_minmax(0,1fr)_30px_28px] items-center gap-2 rounded-md px-2 text-left transition-opacity ${
+                  className={`pointer-events-auto absolute z-10 grid grid-cols-[20px_30px_minmax(0,1fr)_auto_28px] items-center gap-2 rounded-md px-2 text-left transition-opacity ${
                     isFocused ? "bg-white/[0.06]" : ""
                   } ${isDimmed ? "opacity-35" : "opacity-100"}`}
                   style={{ left: 0, top: CHART_HEADER_HEIGHT + y - ROW_PILL_HEIGHT / 2, height: ROW_PILL_HEIGHT, width: tableWidth, "--team-color": teamColor }}
@@ -530,8 +554,8 @@ function InlineTeamTables({
                       {row.nome}
                     </span>
                   </span>
-                  <span className="text-right font-mono text-[11px] font-black" style={{ color: teamColor }}>
-                    {formatDelta(row.delta)}
+                  <span className="flex justify-end">
+                    <TeamTrophies titles={row.titles} isReigning={row.is_reigning_champion} />
                   </span>
                   <span
                     className="h-1 rounded-full"
@@ -542,6 +566,7 @@ function InlineTeamTables({
                 </button>
               );
             })}
+            </div>
           </div>
         );
       })}
@@ -552,8 +577,27 @@ function InlineTeamTables({
 function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYear, visibleStartYear, windowSize = DEFAULT_WINDOW_SIZE, focusedTeamId, onFocus, onTeamClick, onTeamDoubleClick }) {
   const gridStartYear = previewStartYear ?? visibleStartYear;
   const displayStartYear = roundedDisplayStartYear(payload, gridStartYear, windowSize);
+  const displayEndYear = displayStartYear + windowSize - 1;
   const movingGridStyle = chartTimelineStyle(payload, years, gridStartYear, windowSize);
   const bandByKey = new Map((payload?.bands ?? []).map((band) => [band.key, band]));
+  const firstDataYear = familyMinYear(payload);
+  const lastDataYear = familyMaxYear(payload);
+  // First plotted (in-axis) data year of each band, so a line born with its
+  // category can be anchored to that year's start edge (see buildPath).
+  const yearSet = new Set(years);
+  const bandFirstYear = new Map(
+    (payload?.bands ?? []).map((band) => {
+      let min = null;
+      band.rows?.forEach((row) =>
+        row.points?.forEach((point) => {
+          if (yearSet.has(point.year) && (min === null || point.year < min)) {
+            min = point.year;
+          }
+        }),
+      );
+      return [band.key, min];
+    }),
+  );
 
   return (
     <div
@@ -573,6 +617,28 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
         data-testid="world-team-moving-grid"
         style={movingGridStyle}
       >
+        {(() => {
+          const lz = axisEdgeZoneStyle("left", payload, years);
+          const rz = axisEdgeZoneStyle("right", payload, years);
+          return (
+            <>
+              {lz && (
+                <div
+                  data-testid="world-team-axis-hatch-left"
+                  className="pointer-events-none absolute z-0 border-r border-status-yellow/20"
+                  style={{ ...lz, background: "repeating-linear-gradient(135deg,rgba(242,196,109,0.10) 0 8px,rgba(242,196,109,0.03) 8px 16px)" }}
+                />
+              )}
+              {rz && (
+                <div
+                  data-testid="world-team-axis-hatch-right"
+                  className="pointer-events-none absolute z-0 border-l border-status-yellow/20"
+                  style={{ ...rz, background: "repeating-linear-gradient(135deg,rgba(242,196,109,0.10) 0 8px,rgba(242,196,109,0.03) 8px 16px)" }}
+                />
+              )}
+            </>
+          );
+        })()}
         <div className="absolute inset-x-0 top-0 z-20 grid h-14 border-b border-white/10 bg-[#07101d]/90" style={{ gridTemplateColumns: `repeat(${years.length}, minmax(0, 1fr))` }}>
           {years.map((year) => (
             <div key={year} data-testid={`world-team-year-${year}`} className="grid place-items-center border-l border-white/8 text-center">
@@ -584,8 +650,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
         {(payload?.bands ?? []).map((band) => {
           const bandBox = geometry.bands[band.key];
           const isFutureBand = band.starts_year > (payload?.window_end ?? 0);
-          const startsInsideWindow = band.starts_year > (payload?.window_start ?? 0);
-          const preStartStyle = bandPreStartStyle(band, bandBox, years);
+          const preStartStyle = bandPreStartStyle(band, bandBox, years, firstDataYear);
           const startDividerStyle = bandStartDividerStyle(band, bandBox, years);
           return (
             <div key={band.key}>
@@ -593,7 +658,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
                 <div
                   data-testid={`world-team-pre-start-${band.key}`}
                   data-start-year={band.starts_year}
-                  className="pointer-events-none absolute z-[2] border-r border-status-yellow/45 bg-[repeating-linear-gradient(135deg,rgba(242,196,109,0.13)_0_8px,rgba(242,196,109,0.045)_8px_16px)]"
+                  className="pointer-events-none absolute z-[2] bg-[repeating-linear-gradient(135deg,rgba(139,148,158,0.10)_0_8px,rgba(139,148,158,0.03)_8px_16px)]"
                   style={preStartStyle}
                 />
               ) : null}
@@ -609,16 +674,10 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
                 className="absolute inset-x-0 z-10 h-1 bg-white/15"
                 style={{ top: CHART_HEADER_HEIGHT + bandBox.top }}
               />
-              <span
-                className={`absolute left-4 z-20 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-[0.12em] ${
-                  isFutureBand
-                    ? "border-white/12 bg-white/[0.045] text-text-muted"
-                    : "border-status-yellow/35 bg-status-yellow/12 text-status-yellow"
-                }`}
-                style={{ top: CHART_HEADER_HEIGHT + bandBox.top + 14 }}
-              >
-                {startsInsideWindow ? `${band.label} comeca em ${band.starts_year}` : band.label}
-              </span>
+              {/* The band's name + start year is shown by its floating name-table
+                  header (InlineTeamTables) and the yellow start divider; a second
+                  in-grid pill here was redundant and got clipped at the gutter edge
+                  when the grid scrolled, so it was removed. */}
               {isFutureBand ? (
                 <div
                   className="absolute inset-x-0 z-[1] border-y border-dashed border-white/12 bg-[repeating-linear-gradient(135deg,rgba(139,148,158,0.08)_0_8px,rgba(139,148,158,0.02)_8px_16px)]"
@@ -637,7 +696,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
           style={{ height: geometry.chartHeight }}
         >
           {teamTracks.flatMap((track) => trackLineGroups(track).map((line) => {
-              const d = buildPath(line, geometry, years);
+              const d = buildPath(line, geometry, years, lastDataYear, bandFirstYear);
               if (!d) return null;
               const isFocused = focusedTeamId === track.team_id;
               const isDimmed = focusedTeamId && !isFocused;
@@ -660,7 +719,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
                 />
               );
             }))}
-          {teamTracks.flatMap((track) => teamMovementMarkers(track, geometry, years).map((marker) => (
+          {teamTracks.flatMap((track) => teamMovementMarkers(track, geometry, years, lastDataYear, bandFirstYear).map((marker) => (
             <SpecialMovementMarker
               key={`${track.team_id}-${marker.type}-${marker.year}`}
               marker={marker}
@@ -686,7 +745,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
         payload={payload}
         geometry={geometry}
         gridStartYear={gridStartYear}
-        displayStartYear={displayStartYear}
+        displayEndYear={displayEndYear}
         windowSize={windowSize}
         focusedTeamId={focusedTeamId}
         onFocus={onFocus}
@@ -775,25 +834,38 @@ function normalizePayload(payload) {
   };
 }
 
-function bandPreStartStyle(band, bandBox, years) {
+function bandPreStartStyle(band, bandBox, years, firstDataYear) {
   if (!bandBox || !years.length || !Number.isFinite(band?.starts_year)) {
     return null;
   }
 
-  const firstYear = years[0];
-  if (band.starts_year <= firstYear) {
+  const gridFirstYear = years[0];
+  // The per-band "did not exist yet" zone starts at the family's first data year,
+  // NOT the axis start, so it sits to the RIGHT of the global yellow "no data"
+  // frame instead of stacking on top of it (the stack read as a double-yellow
+  // band). Everything left of familyMin is already the single global frame.
+  const zoneStart = Math.max(
+    Number.isFinite(firstDataYear) ? firstDataYear : gridFirstYear,
+    gridFirstYear,
+  );
+  if (band.starts_year <= zoneStart) {
     return null;
   }
 
-  const preStartPosition = bandStartPosition(band, firstYear);
-  if (preStartPosition <= 0) {
+  // Both edges use the LEFT-edge (year-start) anchor — the same as the global
+  // "no data" frame's right edge, the start divider, and the category-founding
+  // lines — so the grey "did not exist yet" zone sits flush between the frame and
+  // the divider, with no stray border line half a column past the divider.
+  const leftPos = clamp(zoneStart - gridFirstYear, 0, years.length);
+  const rightPos = clamp(band.starts_year - gridFirstYear, 0, years.length);
+  if (rightPos <= leftPos) {
     return null;
   }
 
   return {
-    left: "0%",
+    left: `${formatPercent((leftPos / years.length) * 100)}%`,
     top: CHART_HEADER_HEIGHT + bandBox.top,
-    width: `${formatPercent((clamp(preStartPosition, 0, years.length) / years.length) * 100)}%`,
+    width: `${formatPercent(((rightPos - leftPos) / years.length) * 100)}%`,
     height: bandBox.height,
   };
 }
@@ -824,13 +896,12 @@ function bandStartPosition(band, firstYear) {
 }
 
 function buildYears(payload) {
-  if (!payload?.window_start || !payload?.window_end) {
-    return [];
-  }
+  if (!payload) return [];
+  const start = axisStartYear(payload);
+  const end = axisEndYear(payload);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return [];
   const years = [];
-  for (let year = payload.window_start; year <= payload.window_end; year += 1) {
-    years.push(year);
-  }
+  for (let year = start; year <= end; year += 1) years.push(year);
   return years;
 }
 
@@ -888,6 +959,21 @@ function bandReferenceYear(band, displayStartYear, windowEnd) {
     return band.starts_year;
   }
   return displayStartYear;
+}
+
+// Year whose standings the RIGHT-hand table shows: the band's most recent data year
+// at or before the rightmost visible year. Returns null when the band has no data
+// yet (it has not started by the rightmost visible year).
+function bandReferenceYearRight(band, displayEndYear) {
+  let latest = null;
+  (band?.rows ?? []).forEach((row) =>
+    (row.points ?? []).forEach((point) => {
+      if (point.year <= displayEndYear && (latest === null || point.year > latest)) {
+        latest = point.year;
+      }
+    }),
+  );
+  return latest;
 }
 
 function rowSortPosition(row, displayStartYear) {
@@ -962,7 +1048,7 @@ function trackLineGroups(track) {
     .filter((line) => line.points.length > 0);
 }
 
-function teamMovementMarkers(track, geometry, years) {
+function teamMovementMarkers(track, geometry, years, lastDataYear, bandFirstYear) {
   const points = [...(track.points ?? [])].sort((left, right) => left.year - right.year);
   const markers = [];
 
@@ -977,12 +1063,15 @@ function teamMovementMarkers(track, geometry, years) {
     const nextY = pointY(nextPoint, geometry);
     if (!Number.isFinite(currentY) || !Number.isFinite(nextY)) return;
 
+    // Match the line vertex anchor so the arrow sits exactly on the path.
+    const x = anchoredPointX(point, years, lastDataYear, bandFirstYear);
+
     if (nextY < currentY) {
       markers.push({
         type: "promotion",
         year: point.year,
         band_key: point.band_key,
-        x: pointX(point, years),
+        x,
         y: currentY - 6,
       });
     } else if (nextY > currentY) {
@@ -990,7 +1079,7 @@ function teamMovementMarkers(track, geometry, years) {
         type: "demotion",
         year: point.year,
         band_key: point.band_key,
-        x: pointX(point, years),
+        x,
         y: currentY + 6,
       });
     }
@@ -1026,21 +1115,22 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
     .filter(Boolean);
 }
 
-function buildPath(track, geometry, years) {
-  if (!track.points?.length || !years.length) {
-    return "";
-  }
+function buildPath(track, geometry, years, lastDataYear, bandFirstYear) {
+  if (!track.points?.length || !years.length) return "";
   const coordinates = [];
-  const firstVisiblePoint = track.points.find((point) => point.year === years[0]);
-  const firstVisibleY = firstVisiblePoint ? pointRowY(firstVisiblePoint, geometry) : null;
-  if (Number.isFinite(firstVisibleY)) {
-    coordinates.push([0, firstVisibleY]);
-  }
   track.points.forEach((point) => {
-    if (!years.includes(point.year)) return;
+    const yearIndex = years.indexOf(point.year);
+    if (yearIndex < 0) return;
     const y = pointY(point, geometry);
     if (!Number.isFinite(y)) return;
-    coordinates.push([pointX(point, years), y]);
+    // Column-edge anchoring so seasons read as full years, not mid-year:
+    //  • Any point on its band's first data year sits at the year-start (left edge),
+    //    so a category's whole debut column lines up with its start divider — whether
+    //    the team is founding it or was promoted into it.
+    //  • The family's last completed season reaches the year-end (right edge), meeting
+    //    the "no championship" hatch which begins at that exact boundary.
+    //  • Everything else keeps the mid-column anchor (aligned with entry labels).
+    coordinates.push([anchoredPointX(point, years, lastDataYear, bandFirstYear), y]);
   });
   if (coordinates.length === 0) return "";
   if (coordinates.length === 1) {
@@ -1053,11 +1143,26 @@ function buildPath(track, geometry, years) {
 }
 
 function pointX(point, years) {
-  // Anchor every point to the left edge (start) of its year column, so team
-  // lines, markers and the "category did not exist" divider all line up at the
-  // beginning of the year regardless of regular/special slot.
   const yearIndex = years.indexOf(point.year);
-  return (yearIndex / years.length) * CHART_WIDTH;
+  if (yearIndex < 0) return NaN;
+  return ((yearIndex + 0.5) / years.length) * CHART_WIDTH;
+}
+
+// Horizontal position of a data point, with column-edge anchoring at the timeline
+// boundaries (see buildPath): a band's first data year sits at the year-start (left
+// edge), the family's last completed season at the year-end (right edge), everything
+// else at the mid-column. Shared by the line path and the movement markers so they
+// always coincide.
+function anchoredPointX(point, years, lastDataYear, bandFirstYear) {
+  const yearIndex = years.indexOf(point.year);
+  if (yearIndex < 0) return NaN;
+  if (bandFirstYear?.get?.(point.band_key) === point.year) {
+    return (yearIndex / years.length) * CHART_WIDTH;
+  }
+  if (Number.isFinite(lastDataYear) && point.year === lastDataYear) {
+    return ((yearIndex + 1) / years.length) * CHART_WIDTH;
+  }
+  return ((yearIndex + 0.5) / years.length) * CHART_WIDTH;
 }
 
 function pointY(point, geometry) {
@@ -1194,16 +1299,18 @@ function familyMinYear(payload) {
 }
 
 function windowRailStyle(payload, displayStart = payload?.window_start, windowSize = payload?.window_size ?? DEFAULT_WINDOW_SIZE) {
-  if (!payload) {
-    return { left: "0%", width: "20%" };
-  }
-  const minYear = familyMinYear(payload);
-  const total = Math.max(atlasMaxYear(payload) - minYear + 1, 1);
-  const left = ((displayStart - minYear) / total) * 100;
+  if (!payload) return { left: "0%", width: "20%" };
+  // Map the fill over the NAVIGABLE range [scrollMin, axisEnd], not the full
+  // rendered axis, so the thumb's left edge reaches the rail's left end exactly at
+  // the leftmost scroll position (no dead segment before it).
+  const railStart = scrollMinYear(payload);
+  const axisEnd = axisEndYear(payload);
+  const total = Math.max(axisEnd - railStart + 1, 1);
+  const left = ((displayStart - railStart) / total) * 100;
   const width = (windowSize / total) * 100;
   return {
     left: `${clamp(left, 0, 100)}%`,
-    width: `${clamp(width, 6, 100)}%`,
+    width: `${clamp(width, 3, 100)}%`,
   };
 }
 
@@ -1211,14 +1318,14 @@ function chartTimelineStyle(payload, years, displayStartYear, visibleWindowSize)
   if (!payload || !years.length || !Number.isFinite(displayStartYear)) {
     return { transform: "translate3d(0%, 0, 0)" };
   }
-  // Reserve a left gutter for the name tables so the data area is drawn to their
-  // right (not hidden behind them). The visible window spans [gutter, 100%].
+  // Reserve a RIGHT gutter for the standings table so the data area is drawn to its
+  // left (not hidden behind it). The visible window spans [0, 100% - gutter].
   const gutter = INLINE_TABLE_WIDTH_PCT / 100;
   const widthPercent = round((1 - gutter) * (years.length / visibleWindowSize) * 100);
   const offsetYears = displayStartYear - years[0];
   const offsetPercent = -(offsetYears / years.length) * 100;
   return {
-    left: `${INLINE_TABLE_WIDTH_PCT}%`,
+    left: "0%",
     width: `${widthPercent}%`,
     transform: `translate3d(${round(offsetPercent)}%, 0, 0)`,
     transition: "transform 80ms linear",
@@ -1227,49 +1334,155 @@ function chartTimelineStyle(payload, years, displayStartYear, visibleWindowSize)
 }
 
 function latestWindowStart(payload, windowSize = payload?.window_size ?? DEFAULT_WINDOW_SIZE) {
-  return Math.max(familyMinYear(payload), atlasMaxYear(payload) - windowSize + 1);
+  return Math.max(scrollMinYear(payload), axisEndYear(payload) - windowSize + 1);
 }
 
 function clampVisibleStart(payload, startYear, windowSize = DEFAULT_WINDOW_SIZE) {
-  if (!payload) {
-    return startYear;
-  }
-  return clamp(startYear, familyMinYear(payload), latestWindowStart(payload, windowSize));
+  if (!payload) return startYear;
+  return clamp(startYear, scrollMinYear(payload), latestWindowStart(payload, windowSize));
 }
 
 function roundedDisplayStartYear(payload, value, windowSize = DEFAULT_WINDOW_SIZE) {
-  if (!payload || !Number.isFinite(value)) {
-    return value;
-  }
-  return Math.round(clamp(value, familyMinYear(payload), latestWindowStart(payload, windowSize)));
+  if (!payload || !Number.isFinite(value)) return value;
+  return Math.round(clamp(value, scrollMinYear(payload), latestWindowStart(payload, windowSize)));
 }
 
 function visibleWindowEndYear(payload, startYear, windowSize = DEFAULT_WINDOW_SIZE) {
-  if (!payload || !Number.isFinite(startYear)) {
-    return null;
-  }
+  if (!payload || !Number.isFinite(startYear)) return null;
   const unclampedEnd = Math.round(startYear) + windowSize - 1;
-  return Math.min(unclampedEnd, atlasMaxYear(payload));
+  return Math.min(unclampedEnd, axisEndYear(payload));
 }
 
 function atlasMaxYear(payload) {
   return payload?.window_end ?? payload?.max_year ?? DEFAULT_START_YEAR;
 }
 
-function yearFromClientX(payload, railElement, clientX, windowSize = DEFAULT_WINDOW_SIZE) {
-  const minYear = familyMinYear(payload);
-  const latestStart = latestWindowStart(payload, windowSize);
-  const rect = railElement?.getBoundingClientRect();
-  if (!rect || rect.width <= 0) {
-    return payload.window_start;
-  }
-  const progress = clamp((clientX - rect.left) / rect.width, 0, 1);
-  return minYear + progress * (latestStart - minYear);
+// Buffer of empty year columns rendered AFTER the family's last data year, sized to
+// at least fill the fixed RIGHT gutter (INLINE_TABLE_WIDTH_PCT of the data area =
+// windowSize/3 years) where the current-standings table sits. Floored at 5.
+function bufferYears(payload) {
+  const windowSize = familyDataWidth(payload);
+  return Math.max(5, Math.ceil(windowSize / 3) + 1);
 }
 
-function formatDelta(value) {
-  if (!Number.isFinite(value) || value === 0) return "0";
-  return value > 0 ? `+${value}` : String(value);
+// Leftmost RENDERED year = the family's first data year. The chart's left side shows
+// the history straight away — there's no reserved gutter on the left anymore (the
+// names table moved to the right edge as a "current standings" panel).
+function axisStartYear(payload) {
+  return familyMinYear(payload);
+}
+
+// Leftmost year the WINDOW START may be dragged to (the first data year): scrolling
+// further left would only reveal empty pre-data space.
+function scrollMinYear(payload) {
+  return familyMinYear(payload);
+}
+
+// Rightmost RENDERED year = past the family's last data year by a buffer that fills
+// the right gutter (where the current-standings table sits).
+function axisEndYear(payload) {
+  return familyMaxYear(payload) + bufferYears(payload);
+}
+
+function familyMaxYear(payload) {
+  let max = null;
+  (payload?.bands ?? []).forEach((band) => {
+    (band.rows ?? []).forEach((row) => {
+      (row.points ?? []).forEach((point) => {
+        if (max === null || point.year > max) max = point.year;
+      });
+    });
+  });
+  return max ?? atlasMaxYear(payload);
+}
+
+function familyDataWidth(payload) {
+  if (!payload) return DEFAULT_WINDOW_SIZE;
+  const min = familyMinYear(payload);
+  const max = familyMaxYear(payload);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return DEFAULT_WINDOW_SIZE;
+  return Math.max(1, max - min + 1);
+}
+
+function axisEdgeZoneStyle(side, payload, years) {
+  if (!payload || !years.length) return null;
+  const firstDataYear = familyMinYear(payload);
+  const lastDataYear = familyMaxYear(payload);
+  if (side === "left") {
+    const colCount = firstDataYear - years[0];
+    if (colCount <= 0) return null;
+    // Right edge at the LEFT edge (year-start) of the first data year — the same
+    // anchor as the start divider and the category-founding lines — so the frame
+    // ends exactly at the divider with no half-column overshoot into the debut year.
+    return { top: 0, left: 0, bottom: 0, width: `${formatPercent((colCount / years.length) * 100)}%` };
+  }
+  const startColIndex = lastDataYear - years[0] + 1;
+  if (startColIndex > years.length) return null;
+  // Start the "no championship" zone at the boundary AFTER the last completed
+  // season (the right edge of its column), not at its mid-column data point, so
+  // the final season reads as a full, finished year instead of being cut in half.
+  return { top: 0, left: `${formatPercent((startColIndex / years.length) * 100)}%`, right: 0, bottom: 0 };
+}
+
+function yearFromClientX(payload, railElement, clientX, windowSize = DEFAULT_WINDOW_SIZE) {
+  const dragMin = scrollMinYear(payload);
+  const latestStart = latestWindowStart(payload, windowSize);
+  const rect = railElement?.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return dragMin;
+  const progress = clamp((clientX - rect.left) / rect.width, 0, 1);
+  return dragMin + progress * (latestStart - dragMin);
+}
+
+/**
+ * Renders all-time constructor title badges for a team row.
+ * Each badge shows a band-specific trophy image (falling back to the gold trophy)
+ * and the count when > 1.  The reigning champion gets a star prefix.
+ * Returns null when the team has no titles, leaving the cell empty.
+ */
+function TeamTrophies({ titles, isReigning }) {
+  if (!titles || titles.length === 0) return null;
+  return (
+    // aria-hidden: trophy icons are decorative supplements to the team name; they
+    // must not pollute the button's accessible name and confuse screen-reader
+    // queries that look for the family-filter buttons by name.
+    <span aria-hidden="true" className="flex items-center gap-0.5">
+      {isReigning && (
+        <span
+          className="text-[9px] font-black leading-none text-yellow-400"
+          title="Campeão vigente"
+        >
+          ★
+        </span>
+      )}
+      {titles.map((tc) => {
+        const src = BAND_TROPHY_IMAGES[tc.band_key] ?? goldTrophy;
+        return (
+          <span
+            key={tc.band_key}
+            className="inline-flex items-center gap-px"
+            title={`${tc.band_label}: ${tc.count}× campeão`}
+          >
+            <img
+              src={src}
+              alt={tc.band_label}
+              className="h-3 w-3 object-contain drop-shadow-[0_0_4px_rgba(255,215,0,0.4)]"
+              onError={(e) => {
+                e.currentTarget.src = goldTrophy;
+              }}
+            />
+            {tc.count > 1 && (
+              <span
+                data-testid="team-trophy-count"
+                className="font-mono text-[9px] font-black leading-none text-text-secondary"
+              >
+                {tc.count}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function clamp(value, min, max) {

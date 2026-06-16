@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::commands::career_types::{
     GlobalTeamHistoryBand, GlobalTeamHistoryFamily, GlobalTeamHistoryFamilyBand,
-    GlobalTeamHistoryPayload, GlobalTeamHistoryPoint, GlobalTeamHistoryTeamRow,
+    GlobalTeamHistoryPayload, GlobalTeamHistoryPoint, GlobalTeamHistoryTeamRow, TeamTitleCount,
 };
 use crate::config::app_config::AppConfig;
 use crate::constants::historical_timeline::{
@@ -222,16 +222,27 @@ pub(crate) fn build_global_team_history(
 ) -> Result<GlobalTeamHistoryPayload, String> {
     let family_def = resolve_family(family);
     let window_size = window_size.clamp(MIN_WINDOW_SIZE, MAX_WINDOW_SIZE);
-    let (min_year, max_year) = history_year_bounds(conn)?;
+    let (min_year, max_year, current_year) = history_year_bounds(conn)?;
     let latest_start = (max_year - window_size + 1).max(min_year);
     let window_start = start_year.clamp(min_year, latest_start);
     let window_end = (window_start + window_size - 1).min(max_year);
     let archive_rows = load_archive_rows(conn, window_start, window_end)?;
     let archive_rows = dedupe_archive_rows_for_family(family_def, archive_rows);
+    // Titles are loaded once across ALL years (no window filter) so the count is
+    // stable and does not shift when the user scrolls the timeline.
+    let all_time_titles = load_all_time_titles(conn, family_def)?;
     let bands = family_def
         .bands
         .iter()
-        .map(|band| build_band_payload(band, &archive_rows, window_start, window_end))
+        .map(|band| {
+            build_band_payload(
+                band,
+                &archive_rows,
+                &all_time_titles,
+                window_start,
+                window_end,
+            )
+        })
         .collect::<Vec<_>>();
 
     Ok(GlobalTeamHistoryPayload {
@@ -241,6 +252,7 @@ pub(crate) fn build_global_team_history(
         window_start,
         window_end,
         window_size,
+        current_year,
         families: FAMILY_DEFS.iter().map(family_payload).collect(),
         bands,
     })
@@ -288,7 +300,7 @@ fn family_band_payload(band: &TeamHistoryBandDef) -> GlobalTeamHistoryFamilyBand
     }
 }
 
-fn history_year_bounds(conn: &Connection) -> Result<(i32, i32), String> {
+fn history_year_bounds(conn: &Connection) -> Result<(i32, i32, i32), String> {
     let archive_max = conn
         .query_row("SELECT MAX(ano) FROM team_season_archive", [], |row| {
             row.get::<_, Option<i32>>(0)
@@ -308,7 +320,10 @@ fn history_year_bounds(conn: &Connection) -> Result<(i32, i32), String> {
         .or(active_year)
         .unwrap_or(DEFAULT_MAX_YEAR)
         .max(DEFAULT_MAX_YEAR);
-    Ok((DEFAULT_START_YEAR, max_year))
+    // current_year is the active season's year; falls back to max_year when no
+    // active season exists (historical draft, pre-start, or career over).
+    let current_year = active_year.unwrap_or(max_year);
+    Ok((DEFAULT_START_YEAR, max_year, current_year))
 }
 
 fn load_archive_rows(
@@ -363,6 +378,79 @@ fn load_archive_rows(
     Ok(collected)
 }
 
+/// Loads all-time constructor title counts for every team that ever won a band in
+/// `family_def`, WITHOUT a year filter. The result is a map from `team_id` to a
+/// `Vec<TeamTitleCount>` ordered by band index (lowest level first).
+///
+/// Querying all years (not the display window) keeps title counts stable as the user
+/// scrolls the timeline.  Titles for bands whose `classe` was NULL in the archive
+/// (pre-reform data) are silently excluded because they match no band definition —
+/// this is an accepted limitation documented in the Atlas-1 task.
+fn load_all_time_titles(
+    conn: &Connection,
+    family_def: &TeamHistoryFamilyDef,
+) -> Result<HashMap<String, Vec<TeamTitleCount>>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                team_id,
+                categoria,
+                COALESCE(NULLIF(TRIM(classe), ''), '') AS classe_norm,
+                CAST(SUM(titulos_construtores) AS INTEGER) AS total
+             FROM team_season_archive
+             WHERE titulos_construtores = 1
+             GROUP BY team_id, categoria, COALESCE(NULLIF(TRIM(classe), ''), '')",
+        )
+        .map_err(|e| format!("Falha ao preparar títulos históricos de equipes: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i32>(3)?,
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar títulos históricos de equipes: {e}"))?;
+
+    let mut by_team: HashMap<String, Vec<(usize, TeamTitleCount)>> = HashMap::new();
+
+    for row in rows {
+        let (team_id, categoria, classe_norm, count) =
+            row.map_err(|e| format!("Falha ao ler títulos históricos de equipes: {e}"))?;
+
+        let Some((band_idx, band)) = family_def.bands.iter().enumerate().find(|(_, band)| {
+            if band.category != categoria {
+                return false;
+            }
+            match band.class_name {
+                Some(cn) => classe_norm == cn,
+                None => classe_norm.is_empty(),
+            }
+        }) else {
+            continue;
+        };
+
+        by_team.entry(team_id).or_default().push((
+            band_idx,
+            TeamTitleCount {
+                band_key: band.key.to_string(),
+                band_label: band.label.to_string(),
+                count,
+            },
+        ));
+    }
+
+    Ok(by_team
+        .into_iter()
+        .map(|(team_id, mut entries)| {
+            entries.sort_by_key(|(idx, _)| *idx);
+            (team_id, entries.into_iter().map(|(_, tc)| tc).collect())
+        })
+        .collect())
+}
+
 fn dedupe_archive_rows_for_family(
     family: &TeamHistoryFamilyDef,
     archive_rows: Vec<TeamArchiveRow>,
@@ -405,6 +493,7 @@ fn dedupe_archive_rows_for_family(
 fn build_band_payload(
     band: &TeamHistoryBandDef,
     archive_rows: &[TeamArchiveRow],
+    all_time_titles: &HashMap<String, Vec<TeamTitleCount>>,
     window_start: i32,
     window_end: i32,
 ) -> GlobalTeamHistoryBand {
@@ -415,7 +504,7 @@ fn build_band_payload(
 
     let mut rows = by_team
         .into_values()
-        .filter_map(|rows| build_team_row(band, rows, window_start, window_end))
+        .filter_map(|rows| build_team_row(band, rows, all_time_titles, window_start, window_end))
         .collect::<Vec<_>>();
     rows.sort_by(|left, right| {
         left.base_position
@@ -451,8 +540,9 @@ fn normalize_opt(value: Option<&str>) -> Option<&str> {
 fn build_team_row(
     band: &TeamHistoryBandDef,
     mut rows: Vec<&TeamArchiveRow>,
+    all_time_titles: &HashMap<String, Vec<TeamTitleCount>>,
     _window_start: i32,
-    _window_end: i32,
+    window_end: i32,
 ) -> Option<GlobalTeamHistoryTeamRow> {
     rows.sort_by(|left, right| {
         left.year
@@ -479,6 +569,12 @@ fn build_team_row(
         })
         .collect();
 
+    let titles = all_time_titles
+        .get(&first.team_id)
+        .cloned()
+        .unwrap_or_default();
+    let is_reigning_champion = last.titles == 1 && last.year == window_end;
+
     Some(GlobalTeamHistoryTeamRow {
         team_id: first.team_id.clone(),
         nome: first.nome.clone(),
@@ -486,7 +582,8 @@ fn build_team_row(
         cor_primaria: first.cor_primaria.clone(),
         cor_secundaria: first.cor_secundaria.clone(),
         base_position: first.position,
-        delta: first.position - last.position,
+        titles,
+        is_reigning_champion,
         points,
     })
 }
@@ -695,6 +792,184 @@ mod tests {
             !source.contains(legacy_table),
             "Atlas global history must not read legacy special entries"
         );
+    }
+
+    #[test]
+    fn titles_counted_across_all_family_bands_independent_of_window() {
+        let conn = setup_conn();
+        // T_SUNDAY: 1× mazda_rookie (2020), 1× production_mazda (2023)
+        seed_team_history(&conn);
+
+        // Window A: 2020–2023 — includes the rookie title year
+        let payload_a = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload A");
+        // T_SUNDAY appears in production_mazda band (its highest level in window)
+        let prod_a = payload_a
+            .bands
+            .iter()
+            .find(|b| b.key == "production_mazda")
+            .expect("prod band A");
+        let sunday_a = prod_a
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_SUNDAY")
+            .expect("sunday A");
+        // Should see titles from BOTH bands, not just the displayed one
+        assert!(
+            sunday_a
+                .titles
+                .iter()
+                .any(|t| t.band_key == "mazda_rookie" && t.count == 1),
+            "expected mazda_rookie x1"
+        );
+        assert!(
+            sunday_a
+                .titles
+                .iter()
+                .any(|t| t.band_key == "production_mazda" && t.count == 1),
+            "expected production_mazda x1"
+        );
+
+        // Window B: 2022–2025 — does NOT include the rookie title year
+        let payload_b = build_global_team_history(&conn, "mazda", 2022, 4).expect("payload B");
+        let prod_b = payload_b
+            .bands
+            .iter()
+            .find(|b| b.key == "production_mazda")
+            .expect("prod band B");
+        let sunday_b = prod_b
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_SUNDAY")
+            .expect("sunday B");
+        // Counts must be identical regardless of window
+        assert_eq!(sunday_a.titles.len(), sunday_b.titles.len());
+        for tc in &sunday_b.titles {
+            let matching = sunday_a.titles.iter().find(|t| t.band_key == tc.band_key);
+            assert!(
+                matching.is_some_and(|t| t.count == tc.count),
+                "title count for {} changed between windows",
+                tc.band_key
+            );
+        }
+    }
+
+    #[test]
+    fn titles_empty_for_team_with_no_championships() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+        // T_SUNDAY row 2021: mazda_amador, position 2 → no title that year
+        // T_DUAL has titles in mazda_amador, but let's check a band where nobody
+        // has won anything: add a team that only ever finished 2nd.
+        conn.execute_batch(
+            "
+            INSERT INTO teams (id, nome, nome_curto, categoria, classe, cor_primaria, cor_secundaria)
+            VALUES ('T_NEVER', 'Never Won', 'NVR', 'mazda_rookie', NULL, '#aaa', '#111');
+            INSERT INTO team_season_archive (
+                team_id, season_number, ano, categoria, classe, posicao_campeonato,
+                pontos, vitorias, podios, poles, corridas, titulos_construtores
+            ) VALUES ('T_NEVER', 10, 2020, 'mazda_rookie', NULL, 2, 80, 0, 2, 0, 8, 0);
+            ",
+        )
+        .expect("seed never-won");
+
+        let payload = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload");
+        let rookie = payload
+            .bands
+            .iter()
+            .find(|b| b.key == "mazda_rookie")
+            .expect("rookie band");
+        let never_row = rookie
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_NEVER")
+            .expect("never-won row");
+        assert!(never_row.titles.is_empty(), "expected empty titles vec");
+        assert!(!never_row.is_reigning_champion);
+    }
+
+    #[test]
+    fn is_reigning_champion_set_only_for_champion_in_window_end_year() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+
+        // Window end = 2023: T_SUNDAY won production_mazda in 2023 (season_number 4)
+        let payload = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload");
+        assert_eq!(payload.window_end, 2023);
+
+        let prod = payload
+            .bands
+            .iter()
+            .find(|b| b.key == "production_mazda")
+            .expect("prod band");
+        let sunday = prod
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_SUNDAY")
+            .expect("sunday");
+        assert!(
+            sunday.is_reigning_champion,
+            "T_SUNDAY won production_mazda in 2023"
+        );
+
+        // Shift window so 2023 is no longer the end year
+        let payload2 = build_global_team_history(&conn, "mazda", 2021, 4).expect("payload2");
+        assert_eq!(payload2.window_end, 2024);
+        let prod2 = payload2
+            .bands
+            .iter()
+            .find(|b| b.key == "production_mazda")
+            .expect("prod band2");
+        let sunday2 = prod2
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_SUNDAY")
+            .expect("sunday2");
+        // 2024 has no production_mazda data for T_SUNDAY → last.year = 2023 ≠ window_end 2024
+        assert!(
+            !sunday2.is_reigning_champion,
+            "no production_mazda data in 2024 for T_SUNDAY"
+        );
+    }
+
+    #[test]
+    fn titles_ordered_lowest_band_first() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+        // T_SUNDAY: rookiex1, productionx1 — rookie is band index 2 in MAZDA_BANDS,
+        // production_mazda is band index 0 → production comes first
+        let payload = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload");
+        let prod = payload
+            .bands
+            .iter()
+            .find(|b| b.key == "production_mazda")
+            .expect("prod band");
+        let sunday = prod
+            .rows
+            .iter()
+            .find(|r| r.team_id == "T_SUNDAY")
+            .expect("sunday");
+        // Titles should be in band-index order (production_mazda=0, mazda_amador=1, mazda_rookie=2)
+        let keys: Vec<&str> = sunday.titles.iter().map(|t| t.band_key.as_str()).collect();
+        for window in keys.windows(2) {
+            let idx_a = MAZDA_BANDS
+                .iter()
+                .position(|b| b.key == window[0])
+                .unwrap_or(99);
+            let idx_b = MAZDA_BANDS
+                .iter()
+                .position(|b| b.key == window[1])
+                .unwrap_or(99);
+            assert!(idx_a <= idx_b, "titles not in band-index order: {:?}", keys);
+        }
+    }
+
+    #[test]
+    fn current_year_falls_back_to_max_year_when_no_active_season() {
+        let conn = setup_conn();
+        seed_team_history(&conn);
+        // No seasons table → active_year = None → current_year = max_year = DEFAULT_MAX_YEAR
+        let payload = build_global_team_history(&conn, "mazda", 2020, 4).expect("payload");
+        assert_eq!(payload.current_year, DEFAULT_MAX_YEAR);
     }
 
     #[test]

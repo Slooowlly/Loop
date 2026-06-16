@@ -1,10 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::constants::categories::{
-    get_all_categories, get_category_config, uses_regular_contracts,
+    get_all_categories, is_valid_competitive_division, uses_regular_contracts,
 };
 use crate::constants::historical_timeline::is_category_active_in_year;
-use crate::models::license::driver_has_required_license_for_category;
+use crate::models::license::driver_has_required_license_for_division;
 
 pub const MIN_HISTORICAL_RESULT_SEASONS: i64 = 1;
 pub const MIN_HISTORICAL_RESULTS_PER_EXISTING_CATEGORY: i64 = 1;
@@ -340,7 +340,7 @@ fn audit_required_licenses(
     let category_filter = active_category_filter(active_categories);
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT DISTINCT c.piloto_id, c.categoria
+            "SELECT DISTINCT c.piloto_id, c.categoria, c.classe
              FROM contracts c
              JOIN drivers d ON d.id = c.piloto_id
              WHERE c.status = 'Ativo'
@@ -352,24 +352,39 @@ fn audit_required_licenses(
     let rows = stmt
         .query_map(
             rusqlite::params_from_iter(active_categories.iter()),
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
         .map_err(|e| format!("Falha ao consultar licencas: {e}"))?;
 
     let mut missing = 0;
+    let mut invalid_division = 0;
     for row in rows {
-        let (driver_id, category_id) = row.map_err(|e| format!("Falha ao mapear licenca: {e}"))?;
-        if get_category_config(&category_id)
-            .and_then(|config| config.licenca_necessaria)
-            .is_none()
-        {
+        let (driver_id, category_id, classe) =
+            row.map_err(|e| format!("Falha ao mapear licenca: {e}"))?;
+        let class = classe.as_deref().map(str::trim).filter(|v| !v.is_empty());
+        if !is_valid_competitive_division(&category_id, class) {
+            invalid_division += 1;
             continue;
         }
-        if !driver_has_required_license_for_category(conn, &driver_id, &category_id)? {
+        if !driver_has_required_license_for_division(conn, &driver_id, &category_id, class)? {
             missing += 1;
         }
     }
 
+    if invalid_division > 0 {
+        report.error(
+            "active_driver_in_invalid_division",
+            format!(
+                "{invalid_division} contrato(s) ativo(s) em divisao invalida (categoria+classe inconsistente)."
+            ),
+        );
+    }
     if missing > 0 {
         report.error(
             "active_driver_without_required_license",
@@ -698,6 +713,135 @@ mod tests {
             report.errors.iter().any(|issue| issue.code == code),
             "expected error {code}, got {:?}",
             report.errors
+        );
+    }
+
+    fn seed_driver_contract_license(
+        conn: &Connection,
+        driver_id: &str,
+        categoria: &str,
+        classe: Option<&str>,
+        license_level: Option<u8>,
+    ) {
+        let team_id = format!("T_{driver_id}");
+        conn.execute(
+            "INSERT OR IGNORE INTO drivers (id, nome, idade, nacionalidade, genero, categoria_atual, status, ano_inicio_carreira)
+             VALUES (?1, 'Test Driver', 25, 'BR', 'M', ?2, 'Ativo', 2020)",
+            rusqlite::params![driver_id, categoria],
+        )
+        .expect("insert driver");
+        conn.execute(
+            "INSERT OR IGNORE INTO teams (id, nome, categoria, created_at)
+             VALUES (?1, 'Test Team', ?2, CURRENT_TIMESTAMP)",
+            rusqlite::params![team_id, categoria],
+        )
+        .expect("insert team");
+        conn.execute(
+            "INSERT INTO contracts (
+                 id, piloto_id, piloto_nome, equipe_id, equipe_nome, status, papel,
+                 salario, salario_anual, temporada_inicio, temporada_fim, tipo, categoria, classe, created_at
+             ) VALUES (?1, ?2, 'Test Driver', ?3, 'Test Team', 'Ativo', 'Numero1',
+                       0, 0, '1', '2', 'Regular', ?4, ?5, CURRENT_TIMESTAMP)",
+            rusqlite::params![format!("C_{driver_id}"), driver_id, team_id, categoria, classe],
+        )
+        .expect("insert contract");
+        if let Some(level) = license_level {
+            conn.execute(
+                "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+                 VALUES (?1, ?2, 'test', CURRENT_TIMESTAMP, 1)",
+                rusqlite::params![driver_id, level.to_string()],
+            )
+            .expect("insert license");
+        }
+    }
+
+    fn run_license_audit(conn: &Connection, categoria: &str) -> WorldAuditReport {
+        let mut report = WorldAuditReport::default();
+        audit_required_licenses(conn, &[categoria.to_string()], &mut report)
+            .expect("audit_required_licenses");
+        report
+    }
+
+    // ── endurance / GT4 ──────────────────────────────────────────────────────
+
+    #[test]
+    fn audit_license_endurance_gt4_level3_passes() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(&conn, "D001", "endurance", Some("gt4"), Some(3));
+        let report = run_license_audit(&conn, "endurance");
+        assert!(report.errors.is_empty(), "expected no errors: {report:?}");
+    }
+
+    #[test]
+    fn audit_license_endurance_gt4_level2_fails() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(&conn, "D001", "endurance", Some("gt4"), Some(2));
+        let report = run_license_audit(&conn, "endurance");
+        assert_error(&report, "active_driver_without_required_license");
+    }
+
+    // ── endurance / LMP2 (cobre falso-negativo pré-fix) ──────────────────────
+
+    #[test]
+    fn audit_license_endurance_lmp2_level5_passes() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(&conn, "D001", "endurance", Some("lmp2"), Some(5));
+        let report = run_license_audit(&conn, "endurance");
+        assert!(report.errors.is_empty(), "expected no errors: {report:?}");
+    }
+
+    #[test]
+    fn audit_license_endurance_lmp2_level4_fails() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(&conn, "D001", "endurance", Some("lmp2"), Some(4));
+        let report = run_license_audit(&conn, "endurance");
+        assert_error(&report, "active_driver_without_required_license");
+    }
+
+    // ── production_challenger / mazda ─────────────────────────────────────────
+
+    #[test]
+    fn audit_license_production_mazda_level1_passes() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(
+            &conn,
+            "D001",
+            "production_challenger",
+            Some("mazda"),
+            Some(1),
+        );
+        let report = run_license_audit(&conn, "production_challenger");
+        assert!(report.errors.is_empty(), "expected no errors: {report:?}");
+    }
+
+    #[test]
+    fn audit_license_production_mazda_level0_fails() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(
+            &conn,
+            "D001",
+            "production_challenger",
+            Some("mazda"),
+            Some(0),
+        );
+        let report = run_license_audit(&conn, "production_challenger");
+        assert_error(&report, "active_driver_without_required_license");
+    }
+
+    // ── divisão inválida sinalizada como erro distinto ────────────────────────
+
+    #[test]
+    fn audit_license_endurance_without_class_flags_invalid_division() {
+        let conn = setup_integrity_conn();
+        seed_driver_contract_license(&conn, "D001", "endurance", None, Some(5));
+        let report = run_license_audit(&conn, "endurance");
+        assert_error(&report, "active_driver_in_invalid_division");
+        assert!(
+            report
+                .errors
+                .iter()
+                .all(|e| e.code != "active_driver_without_required_license"),
+            "invalid division must not bleed into license counter: {report:?}"
         );
     }
 }

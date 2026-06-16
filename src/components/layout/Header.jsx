@@ -11,6 +11,7 @@ import {
 } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import GlassButton from "../ui/GlassButton";
+import TeamLogoMark from "../team/TeamLogoMark";
 import TabNavigation from "./TabNavigation";
 
 function Header({ activeTab, onTabChange }) {
@@ -163,9 +164,11 @@ function Header({ activeTab, onTabChange }) {
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {!showRaceBriefing && (
               <>
-                <span
-                  className="h-3 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: playerTeam?.cor_primaria ?? "#58a6ff" }}
+                <TeamLogoMark
+                  teamName={playerTeam?.nome}
+                  color={playerTeam?.cor_primaria ?? "#58a6ff"}
+                  size="sm"
+                  testId="header-team-logo"
                 />
                 <span className="truncate text-xs font-bold uppercase tracking-[0.14em] text-text-primary">
                   {playerTeam?.nome ?? "-"}

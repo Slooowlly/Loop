@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 35;
+const CURRENT_VERSION: u32 = 36;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -45,6 +45,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v33(conn)?;
     migrate_v34(conn)?;
     migrate_v35(conn)?;
+    migrate_v36(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -192,6 +193,34 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v35(conn)?;
         set_schema_version(conn, 35)?;
     }
+    if version < 36 {
+        migrate_v36(conn)?;
+        set_schema_version(conn, 36)?;
+    }
+    Ok(())
+}
+
+/// v36 — histórico de eventos de propriedade/diretoria da equipe (ex.: venda por
+/// colapso crônico). Alimenta a ficha da equipe (abas Identidade e Gestão).
+fn migrate_v36(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS team_ownership_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_id       TEXT NOT NULL,
+            season_number INTEGER NOT NULL,
+            ano           INTEGER NOT NULL,
+            event_type    TEXT NOT NULL DEFAULT 'sale',
+            debt_cleared  REAL NOT NULL DEFAULT 0.0,
+            cash_injected REAL NOT NULL DEFAULT 0.0,
+            detail        TEXT NOT NULL DEFAULT '',
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_ownership_events_team
+            ON team_ownership_events(team_id);
+        ",
+    )?;
     Ok(())
 }
 

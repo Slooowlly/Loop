@@ -131,7 +131,7 @@ fn run_end_of_season_with_mode(
     // Ciclo de colapso → venda: equipes que fecham a temporada em colapso têm o
     // contador incrementado; ao chegar à 2ª temporada consecutiva em colapso (a
     // 2ª já em all-in), a equipe é vendida e renovada por uma nova diretoria.
-    process_collapse_lifecycle(&tx, &mut rng)
+    process_collapse_lifecycle(&tx, season, &mut rng)
         .map_err(|e| format!("Falha no ciclo de colapso/venda de equipes: {e}"))?;
 
     let rookies_generated = process_rookie_phase(&tx, season.ano + 1, existing_names, &mut rng)?;
@@ -225,7 +225,11 @@ fn award_constructor_prizes(conn: &Connection, season: &Season) -> Result<(), St
 ///     diretoria quita a dívida, injeta caixa e re-sorteia atributos. Identidade
 ///     e histórico preservados. Contador zerado.
 ///   • Fora do colapso: contador zerado (recuperou-se).
-fn process_collapse_lifecycle(conn: &Connection, rng: &mut impl Rng) -> Result<(), String> {
+fn process_collapse_lifecycle(
+    conn: &Connection,
+    season: &Season,
+    rng: &mut impl Rng,
+) -> Result<(), String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao buscar equipes para ciclo de colapso: {e}"))?;
 
@@ -240,12 +244,23 @@ fn process_collapse_lifecycle(conn: &Connection, rng: &mut impl Rng) -> Result<(
             let new_streak = streak + 1;
             if new_streak >= 2 {
                 // 2ª temporada consecutiva em colapso (a 2ª já em all-in): venda.
-                apply_team_sale(&mut team, rng);
+                let outcome = apply_team_sale(&mut team, rng);
                 team_queries::update_team(conn, &team)
                     .map_err(|e| format!("Falha ao renovar equipe vendida: {e}"))?;
                 team_queries::set_collapse_streak(conn, &team.id, 0)
                     .map_err(|e| format!("Falha ao zerar streak pós-venda: {e}"))?;
                 let _ = team_queries::incr_rescue_counter(conn, "sold");
+                // Registra o evento de venda/nova diretoria para a ficha da equipe.
+                let _ = team_queries::insert_team_ownership_event(
+                    conn,
+                    &team.id,
+                    season.numero,
+                    season.ano,
+                    "sale",
+                    outcome.debt_cleared,
+                    outcome.cash_injected,
+                    "Nova diretoria assume após colapso financeiro crônico.",
+                );
             } else {
                 // 1ª temporada em colapso: aviso; all-in virá na próxima.
                 team_queries::set_collapse_streak(conn, &team.id, new_streak)

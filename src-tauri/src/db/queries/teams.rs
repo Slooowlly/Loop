@@ -183,6 +183,36 @@ pub fn get_rescue_counter(conn: &Connection, key: &str) -> Result<i64, DbError> 
     Ok(value.unwrap_or(0))
 }
 
+/// Registra um evento de propriedade/diretoria da equipe (ex.: venda por colapso
+/// crônico). Exibido na ficha da equipe.
+#[allow(clippy::too_many_arguments)]
+pub fn insert_team_ownership_event(
+    conn: &Connection,
+    team_id: &str,
+    season_number: i32,
+    ano: i32,
+    event_type: &str,
+    debt_cleared: f64,
+    cash_injected: f64,
+    detail: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO team_ownership_events
+            (team_id, season_number, ano, event_type, debt_cleared, cash_injected, detail)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            team_id,
+            season_number,
+            ano,
+            event_type,
+            debt_cleared,
+            cash_injected,
+            detail
+        ],
+    )?;
+    Ok(())
+}
+
 pub fn get_teams_by_category(conn: &Connection, category_id: &str) -> Result<Vec<Team>, DbError> {
     let mut stmt = conn.prepare("SELECT * FROM teams WHERE categoria = ?1 ORDER BY nome")?;
     let mapped = stmt.query_map(params![category_id], team_from_row)?;

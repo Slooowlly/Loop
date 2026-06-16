@@ -14,8 +14,10 @@ use crate::commands::career_types::{
     BriefingPhraseHistory, BriefingStorySummary, CareerData, CareerResumeContext, CareerResumeView,
     ContractWarningInfo, CreateCareerResult, DriverDetail, DriverSummary, NextRaceBriefingSummary,
     PrimaryRivalSummary, RaceSummary, SaveInfo, SeasonSummary, TeamHistoryCategoryStep,
-    TeamHistoryDossier, TeamHistoryIdentity, TeamHistoryManagement, TeamHistoryRecord,
-    TeamHistoryRival, TeamHistorySport, TeamHistoryTimelineItem, TeamHistoryTitleCategory,
+    TeamHistoryDossier, TeamHistoryHighlight, TeamHistoryIdentity, TeamHistoryManagement,
+    TeamHistoryMilestone, TeamHistoryMovement, TeamHistoryOwnershipEvent, TeamHistoryRecord,
+    TeamHistoryRival, TeamHistorySeasonResult, TeamHistorySport, TeamHistoryTimelineItem,
+    TeamHistoryTitleCategory,
     TeamStanding, TeamSummary, TrackHistorySummary, VerifyDatabaseResponse,
 };
 use crate::commands::race_history::{
@@ -3148,7 +3150,7 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
     let has_history = races > 0;
     let sport = TeamHistorySport {
         seasons: season_count_label(seasons.len() as i32),
-        current_streak: current_season_streak_label(&seasons, &record_scope),
+        current_streak: current_level_streak_label(&selected_facts),
         best_streak: best_real_streak_label(&selected_facts),
         podium_rate: format!("{podium_rate}%"),
         win_rate: format!("{win_rate}%"),
@@ -3156,6 +3158,8 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
         wins,
         podiums,
     };
+
+    let season_positions = load_team_season_positions(&db.conn, team_id);
 
     Ok(TeamHistoryDossier {
         team_id: team_id.to_string(),
@@ -3214,7 +3218,7 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
         management: build_real_team_management(&db.conn, team_id, &selected_facts)?,
         timeline: build_real_team_timeline(&selected_facts),
         title_categories: selected_titles
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(index, title)| TeamHistoryTitleCategory {
                 category: team_history_category_label(&title.category),
@@ -3223,7 +3227,264 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
             })
             .collect(),
         category_path: build_real_category_path(&selected_facts),
+        ownership_events: load_team_ownership_events(&db.conn, team_id)?,
+        highlights: build_team_highlights(&selected_facts, &selected_titles, &season_positions),
+        milestones: build_team_milestones(&selected_facts, &selected_titles),
+        season_results: build_team_season_results(&selected_facts, &season_positions),
+        movement: build_team_movement(&selected_facts),
     })
+}
+
+/// Marcos cronológicos (primeira vitória, primeiro pódio, primeiro título).
+fn build_team_milestones(
+    facts: &[TeamRaceFact],
+    titles: &[TeamTitleFact],
+) -> Vec<TeamHistoryMilestone> {
+    let mut milestones = Vec::new();
+    if let Some(year) = facts.iter().filter(|f| f.podium).map(|f| f.season_year).min() {
+        milestones.push(TeamHistoryMilestone {
+            label: "Primeiro pódio".to_string(),
+            year: year.to_string(),
+        });
+    }
+    if let Some(year) = facts.iter().filter(|f| f.win).map(|f| f.season_year).min() {
+        milestones.push(TeamHistoryMilestone {
+            label: "Primeira vitória".to_string(),
+            year: year.to_string(),
+        });
+    }
+    if let Some(year) = titles.iter().map(|t| t.season_year).min() {
+        milestones.push(TeamHistoryMilestone {
+            label: "Primeiro título".to_string(),
+            year: year.to_string(),
+        });
+    }
+    milestones
+}
+
+/// Posição final no campeonato por temporada (melhor posição se multiclasse).
+/// Degrada para vazio se a tabela de arquivo ainda não existe.
+fn load_team_season_positions(
+    conn: &rusqlite::Connection,
+    team_id: &str,
+) -> HashMap<i32, i32> {
+    let mut positions = HashMap::new();
+    let mut stmt = match conn.prepare(
+        "SELECT season_number, MIN(posicao_campeonato)
+         FROM team_season_archive
+         WHERE team_id = ?1 AND posicao_campeonato IS NOT NULL
+         GROUP BY season_number",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return positions,
+    };
+    if let Ok(rows) = stmt.query_map(rusqlite::params![team_id], |row| {
+        Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?))
+    }) {
+        for row in rows.flatten() {
+            positions.insert(row.0, row.1);
+        }
+    }
+    positions
+}
+
+/// Resultados temporada a temporada (ano, categoria dominante, vitórias, pódios,
+/// pontos) — base da aba Esportivo, em ordem cronológica.
+fn build_team_season_results(
+    facts: &[TeamRaceFact],
+    positions: &HashMap<i32, i32>,
+) -> Vec<TeamHistorySeasonResult> {
+    use std::collections::BTreeMap;
+
+    // season_number → (ano, vitórias, pódios, pontos, categoria→corridas).
+    let mut by_season: BTreeMap<i32, (i32, i32, i32, f64, HashMap<String, i32>)> = BTreeMap::new();
+    for fact in facts {
+        let entry = by_season
+            .entry(fact.season_number)
+            .or_insert_with(|| (fact.season_year, 0, 0, 0.0, HashMap::new()));
+        entry.0 = fact.season_year;
+        if fact.win {
+            entry.1 += 1;
+        }
+        if fact.podium {
+            entry.2 += 1;
+        }
+        entry.3 += fact.points;
+        *entry.4.entry(fact.category.clone()).or_insert(0) += 1;
+    }
+
+    by_season
+        .into_iter()
+        .map(|(season_number, (year, wins, podiums, points, cats))| {
+            let category = cats
+                .iter()
+                .max_by_key(|(_, races)| **races)
+                .map(|(cat, _)| team_history_category_label(cat))
+                .unwrap_or_default();
+            let position = positions
+                .get(&season_number)
+                .map(|pos| format!("P{pos}"))
+                .unwrap_or_else(|| "—".to_string());
+            TeamHistorySeasonResult {
+                year: year.to_string(),
+                category,
+                position,
+                wins,
+                podiums,
+                points: format!("{}", points.round() as i64),
+            }
+        })
+        .collect()
+}
+
+/// Superlativos da equipe a partir do histórico real: melhor temporada (vitórias),
+/// pico de pódios numa temporada e maior sequência de títulos consecutivos.
+fn build_team_highlights(
+    facts: &[TeamRaceFact],
+    titles: &[TeamTitleFact],
+    positions: &HashMap<i32, i32>,
+) -> Vec<TeamHistoryHighlight> {
+    use std::collections::BTreeMap;
+
+    // Agrega por temporada: (ano, vitórias, pódios, categoria→corridas).
+    let mut by_season: BTreeMap<i32, (i32, i32, i32, HashMap<String, i32>)> = BTreeMap::new();
+    for fact in facts {
+        let entry = by_season
+            .entry(fact.season_number)
+            .or_insert_with(|| (fact.season_year, 0, 0, HashMap::new()));
+        entry.0 = fact.season_year;
+        if fact.win {
+            entry.1 += 1;
+        }
+        if fact.podium {
+            entry.2 += 1;
+        }
+        *entry.3.entry(fact.category.clone()).or_insert(0) += 1;
+    }
+
+    let dominant_category = |cats: &HashMap<String, i32>| -> String {
+        cats.iter()
+            .max_by_key(|(_, races)| **races)
+            .map(|(cat, _)| team_history_category_label(cat))
+            .unwrap_or_default()
+    };
+
+    let mut highlights = Vec::new();
+
+    // Melhor temporada por vitórias.
+    if let Some((_, (year, wins, _, cats))) = by_season.iter().max_by_key(|(_, v)| v.1) {
+        if *wins > 0 {
+            highlights.push(TeamHistoryHighlight {
+                label: "Melhor temporada".to_string(),
+                value: format!("{wins} vitórias"),
+                detail: format!("Em {year}, na {}.", dominant_category(cats)),
+            });
+        }
+    }
+
+    // Pico de pódios numa temporada.
+    if let Some((_, (year, _, podiums, cats))) = by_season.iter().max_by_key(|(_, v)| v.2) {
+        if *podiums > 0 {
+            highlights.push(TeamHistoryHighlight {
+                label: "Mais pódios numa temporada".to_string(),
+                value: format!("{podiums} pódios"),
+                detail: format!("Em {year}, na {}.", dominant_category(cats)),
+            });
+        }
+    }
+
+    // Maior sequência de títulos consecutivos.
+    let mut years: Vec<i32> = titles.iter().map(|title| title.season_year).collect();
+    years.sort_unstable();
+    years.dedup();
+    let mut best_run = 0;
+    let mut best_run_end = 0;
+    let mut run = 0;
+    let mut prev: Option<i32> = None;
+    for year in &years {
+        run = if prev == Some(year - 1) { run + 1 } else { 1 };
+        if run > best_run {
+            best_run = run;
+            best_run_end = *year;
+        }
+        prev = Some(*year);
+    }
+    if best_run >= 2 {
+        highlights.push(TeamHistoryHighlight {
+            label: "Maior dinastia".to_string(),
+            value: format!("{best_run} títulos seguidos"),
+            detail: format!("Até {best_run_end}."),
+        });
+    }
+
+    // Melhor campanha (menor posição final no campeonato).
+    if let Some((season, position)) = positions.iter().min_by_key(|(_, pos)| **pos) {
+        let year = by_season.get(season).map(|entry| entry.0).unwrap_or(0);
+        let value = if *position == 1 {
+            "Campeão".to_string()
+        } else {
+            format!("P{position}")
+        };
+        highlights.push(TeamHistoryHighlight {
+            label: "Melhor campanha".to_string(),
+            value,
+            detail: format!("Em {year}."),
+        });
+    }
+
+    highlights
+}
+
+/// Carrega os eventos de propriedade/diretoria da equipe (ex.: venda por colapso).
+/// Degrada graciosamente para vazio se a tabela ainda não existe (saves antigos
+/// abertos somente-leitura antes da migração v36).
+fn load_team_ownership_events(
+    conn: &rusqlite::Connection,
+    team_id: &str,
+) -> Result<Vec<TeamHistoryOwnershipEvent>, String> {
+    let mut stmt = match conn.prepare(
+        "SELECT ano, event_type, debt_cleared, cash_injected, detail
+         FROM team_ownership_events
+         WHERE team_id = ?1
+         ORDER BY ano ASC, id ASC",
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let rows = stmt
+        .query_map(rusqlite::params![team_id], |row| {
+            Ok((
+                row.get::<_, i32>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar eventos de propriedade: {e}"))?;
+
+    let mut events = Vec::new();
+    for row in rows {
+        let (ano, event_type, debt_cleared, cash_injected, detail) =
+            row.map_err(|e| format!("Falha ao mapear evento de propriedade: {e}"))?;
+        let title = match event_type.as_str() {
+            "sale" => "Nova diretoria".to_string(),
+            _ => "Mudança de gestão".to_string(),
+        };
+        let financial_note = format!(
+            "Dívida de {} zerada · aporte de {}",
+            format_brl(debt_cleared),
+            format_brl(cash_injected)
+        );
+        events.push(TeamHistoryOwnershipEvent {
+            year: ano.to_string(),
+            event_type,
+            title,
+            detail,
+            financial_note,
+        });
+    }
+    Ok(events)
 }
 
 fn build_real_team_management(
@@ -3476,22 +3737,64 @@ fn season_count_label(total: i32) -> String {
     }
 }
 
-fn current_season_streak_label(seasons: &[i32], record_scope: &str) -> String {
-    if seasons.is_empty() {
+/// Sequência atual por NÍVEL (rookie, amador, pro, ...) — quantas temporadas
+/// consecutivas a equipe está no nível atual. Diferente do "grupo" (que a equipe
+/// nunca troca), o nível muda com promoções/rebaixamentos, então o streak importa.
+fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
+    if facts.is_empty() {
         return "Sem sequência registrada".to_string();
     }
-    let mut streak = 1;
-    for window in seasons.windows(2).rev() {
-        if window[1] - window[0] == 1 {
-            streak += 1;
-        } else {
+
+    // season → categoria dominante → nível.
+    let mut by_season: BTreeMap<i32, HashMap<String, i32>> = BTreeMap::new();
+    for fact in facts {
+        *by_season
+            .entry(fact.season_number)
+            .or_default()
+            .entry(fact.category.clone())
+            .or_insert(0) += 1;
+    }
+    let mut season_levels: Vec<(i32, String)> = by_season
+        .into_iter()
+        .map(|(season, cats)| {
+            let category = cats
+                .iter()
+                .max_by_key(|(_, races)| **races)
+                .map(|(cat, _)| cat.clone())
+                .unwrap_or_default();
+            let level = categories::get_category(&category)
+                .map(|config| config.nivel.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            (season, level)
+        })
+        .collect();
+    season_levels.sort_by_key(|(season, _)| *season);
+
+    let current_level = match season_levels.last() {
+        Some((_, level)) => level.clone(),
+        None => return "Sem sequência registrada".to_string(),
+    };
+
+    // Conta temporadas consecutivas (e contíguas) no nível atual, do fim para trás.
+    let mut streak = 0;
+    let mut prev_season: Option<i32> = None;
+    for (season, level) in season_levels.iter().rev() {
+        if *level != current_level {
             break;
         }
+        if let Some(prev) = prev_season {
+            if prev - season != 1 {
+                break;
+            }
+        }
+        streak += 1;
+        prev_season = Some(*season);
     }
-    if streak == 1 {
-        format!("1 Temporada seguida no {record_scope}")
+
+    if streak <= 1 {
+        format!("1 temporada no nível {current_level}")
     } else {
-        format!("{streak} Temporadas seguidas no {record_scope}")
+        format!("{streak} temporadas seguidas no nível {current_level}")
     }
 }
 
@@ -3618,9 +3921,12 @@ fn build_real_team_identity(
     let rival = real_team_rival(conn, team_id, selected_facts, aggregates, record_scope)?;
     let (symbol_driver, symbol_driver_detail) = real_symbol_driver(conn, team_id, selected_facts)?;
 
+    let heritage = team_heritage_label(distinct_seasons(selected_facts).len() as i32).to_string();
+
     Ok(TeamHistoryIdentity {
         origin: team_history_category_label(origin_category),
         current,
+        heritage,
         profile: profile.clone(),
         summary: real_identity_summary(&team_name, &profile, selected_facts.len() as i32, titles),
         rival,
@@ -3642,46 +3948,61 @@ fn current_team_category_label(conn: &rusqlite::Connection, team_id: &str) -> Op
     Some(team_history_category_label(&category))
 }
 
-fn real_team_profile(races: i32, wins: i32, podiums: i32, titles: i32) -> String {
-    let win_rate = if races > 0 {
-        wins as f64 / races as f64
-    } else {
-        0.0
-    };
-    let podium_rate = if races > 0 {
-        podiums as f64 / races as f64
-    } else {
-        0.0
-    };
-    if titles > 0 || win_rate >= 0.25 || podium_rate >= 0.60 {
-        "Dominante".to_string()
-    } else if podium_rate >= 0.35 {
-        "Competitiva".to_string()
-    } else if races >= 10 && wins == 0 {
-        "Sobrevivente Competitiva".to_string()
-    } else {
-        "Equipe de Meio de Grid".to_string()
+/// Herança da equipe por EXPERIÊNCIA real (temporadas competidas), substituindo
+/// o antigo corte de ano de fundação (1970) que rotulava quase todo time igual.
+fn team_heritage_label(seasons: i32) -> &'static str {
+    match seasons {
+        0 => "Estreante",
+        1..=2 => "Novata",
+        3..=6 => "Em ascensão",
+        7..=14 => "Estabelecida",
+        _ => "Tradicional",
     }
 }
 
-fn real_identity_summary(team_name: &str, profile: &str, races: i32, titles: i32) -> String {
+/// Perfil de DESEMPENHO por histórico real, numa escada coerente do topo ao
+/// fundo do grid. Fonte única de verdade (o fallback do frontend só vale durante
+/// o carregamento). Taxas calculadas no nível de corrida.
+fn real_team_profile(races: i32, wins: i32, podiums: i32, titles: i32) -> String {
+    if races < 4 {
+        return "Em formação".to_string();
+    }
+    let win_rate = wins as f64 / races as f64;
+    let podium_rate = podiums as f64 / races as f64;
+
+    if titles > 0 || win_rate >= 0.30 || podium_rate >= 0.60 {
+        "Dominante".to_string()
+    } else if win_rate >= 0.10 {
+        "Vencedora".to_string()
+    } else if podium_rate >= 0.30 {
+        "Competitiva".to_string()
+    } else if podium_rate >= 0.10 {
+        "Meio de Grid".to_string()
+    } else {
+        "Coadjuvante".to_string()
+    }
+}
+
+fn real_identity_summary(team_name: &str, profile: &str, races: i32, _titles: i32) -> String {
     match profile {
         "Dominante" => format!(
-            "{team_name} construiu uma identidade vencedora com resultados reais no histórico recente."
+            "{team_name} é referência do grid: títulos e vitórias sustentam uma identidade vencedora."
+        ),
+        "Vencedora" => format!(
+            "{team_name} é dona de vitórias com regularidade, brigando lá na frente sem dominar a temporada inteira."
         ),
         "Competitiva" => format!(
-            "{team_name} aparece como força constante, sustentada por pódios e presença regular no pelotão da frente."
+            "{team_name} é força constante de pódio, quase sempre no pelotão da frente mesmo sem ganhar tanto."
         ),
-        "Sobrevivente Competitiva" => format!(
-            "{team_name} acumulou {races} corridas reais no recorte, resistindo mesmo sem transformar presença em vitórias."
+        "Meio de Grid" => format!(
+            "{team_name} vive a disputa do meio do grid: pontua com frequência e busca o salto para a zona de pódio."
         ),
-        _ => {
-            if titles > 0 {
-                format!("{team_name} tem título registrado, mas ainda busca transformar o histórico em domínio contínuo.")
-            } else {
-                format!("{team_name} tem identidade em construção, baseada nos resultados reais já registrados.")
-            }
-        }
+        "Coadjuvante" => format!(
+            "{team_name} luta no fundo do grid, somando experiência e raros pontos enquanto tenta evoluir."
+        ),
+        _ => format!(
+            "{team_name} ainda está em formação ({races} corridas no recorte) — história curta demais para um perfil definido."
+        ),
     }
 }
 
@@ -3845,33 +4166,164 @@ fn best_real_season_points(facts: &[TeamRaceFact]) -> Option<(i32, f64)> {
         .max_by(|(_, left), (_, right)| left.total_cmp(right))
 }
 
-fn build_real_category_path(facts: &[TeamRaceFact]) -> Vec<TeamHistoryCategoryStep> {
-    let mut by_category: BTreeMap<String, (i32, i32)> = BTreeMap::new();
+/// Etapa interna por categoria: temporada e ano de início/fim.
+struct CategorySpan {
+    category: String,
+    start_season: i32,
+    start_year: i32,
+    end_year: i32,
+}
+
+/// Agrupa os fatos por categoria e ordena cronologicamente (por temporada de
+/// estreia). Base compartilhada da escada (category_path) e do movimento.
+fn category_spans(facts: &[TeamRaceFact]) -> Vec<CategorySpan> {
+    let mut by_category: BTreeMap<String, (i32, i32, i32, i32)> = BTreeMap::new();
     for fact in facts {
         by_category
             .entry(fact.category.clone())
-            .and_modify(|(start, end)| {
-                *start = (*start).min(fact.season_number);
-                *end = (*end).max(fact.season_number);
+            .and_modify(|(start, end, start_year, end_year)| {
+                if fact.season_number < *start {
+                    *start = fact.season_number;
+                    *start_year = fact.season_year;
+                }
+                if fact.season_number > *end {
+                    *end = fact.season_number;
+                    *end_year = fact.season_year;
+                }
             })
-            .or_insert((fact.season_number, fact.season_number));
+            .or_insert((
+                fact.season_number,
+                fact.season_number,
+                fact.season_year,
+                fact.season_year,
+            ));
     }
-    by_category
+    let mut spans: Vec<CategorySpan> = by_category
         .into_iter()
-        .enumerate()
-        .map(
-            |(index, (category, (start, end)))| TeamHistoryCategoryStep {
-                category: team_history_category_label(&category),
-                years: if start == end {
-                    start.to_string()
-                } else {
-                    format!("{start}-{end}")
-                },
-                detail: "Resultados reais registrados nesse recorte.".to_string(),
-                color: history_palette(index),
-            },
-        )
-        .collect()
+        .map(|(category, (start, _end, start_year, end_year))| CategorySpan {
+            category,
+            start_season: start,
+            start_year,
+            end_year,
+        })
+        .collect();
+    spans.sort_by_key(|span| span.start_season);
+    spans
+}
+
+fn build_real_category_path(facts: &[TeamRaceFact]) -> Vec<TeamHistoryCategoryStep> {
+    let spans = category_spans(facts);
+    let mut steps = Vec::new();
+    let mut prev_tier: Option<u8> = None;
+    for (index, span) in spans.iter().enumerate() {
+        let tier = categories::get_category(&span.category).map(|config| config.tier);
+        let movement = match (prev_tier, tier) {
+            (None, _) => "start",
+            (Some(prev), Some(current)) if current > prev => "promotion",
+            (Some(prev), Some(current)) if current < prev => "relegation",
+            _ => "same",
+        };
+        if tier.is_some() {
+            prev_tier = tier;
+        }
+        let detail = match movement {
+            "promotion" => "Promoção: subiu de categoria.".to_string(),
+            "relegation" => "Rebaixamento: caiu de categoria.".to_string(),
+            "start" => "Categoria de estreia da equipe.".to_string(),
+            _ => "Permaneceu no mesmo nível.".to_string(),
+        };
+        let years = if span.start_year == span.end_year {
+            span.start_year.to_string()
+        } else {
+            format!("{}-{}", span.start_year, span.end_year)
+        };
+        steps.push(TeamHistoryCategoryStep {
+            category: team_history_category_label(&span.category),
+            years,
+            detail,
+            color: history_palette(index),
+            movement: movement.to_string(),
+        });
+    }
+    steps
+}
+
+/// Resumo real de movimento entre categorias para a aba Categorias.
+fn build_team_movement(facts: &[TeamRaceFact]) -> TeamHistoryMovement {
+    let spans = category_spans(facts);
+
+    // Promoções / rebaixamentos a partir das transições de tier.
+    let mut promotions = 0;
+    let mut relegations = 0;
+    let mut prev_tier: Option<u8> = None;
+    for span in &spans {
+        if let Some(tier) = categories::get_category(&span.category).map(|config| config.tier) {
+            if let Some(prev) = prev_tier {
+                if tier > prev {
+                    promotions += 1;
+                } else if tier < prev {
+                    relegations += 1;
+                }
+            }
+            prev_tier = Some(tier);
+        }
+    }
+
+    // Tempo por categoria (em temporadas), pela contagem de temporadas distintas.
+    let mut seasons_by_category: BTreeMap<String, std::collections::HashSet<i32>> = BTreeMap::new();
+    let mut wins_by_category: BTreeMap<String, (i32, i32)> = BTreeMap::new(); // (vitórias, corridas)
+    for fact in facts {
+        seasons_by_category
+            .entry(fact.category.clone())
+            .or_default()
+            .insert(fact.season_number);
+        let entry = wins_by_category.entry(fact.category.clone()).or_insert((0, 0));
+        if fact.win {
+            entry.0 += 1;
+        }
+        entry.1 += 1;
+    }
+
+    let time_by_category = spans
+        .iter()
+        .map(|span| {
+            let years = seasons_by_category
+                .get(&span.category)
+                .map(|set| set.len())
+                .unwrap_or(0);
+            format!(
+                "{}: {} {}",
+                team_history_category_label(&span.category),
+                years,
+                if years == 1 { "ano" } else { "anos" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+
+    // Melhor / mais difícil categoria por taxa de vitória (mín. de corridas).
+    let mut best: Option<(String, f64)> = None;
+    let mut hardest: Option<(String, f64)> = None;
+    for (category, (wins, races)) in &wins_by_category {
+        if *races < 3 {
+            continue;
+        }
+        let rate = *wins as f64 / *races as f64;
+        if best.as_ref().map(|(_, r)| rate > *r).unwrap_or(true) {
+            best = Some((team_history_category_label(category), rate));
+        }
+        if hardest.as_ref().map(|(_, r)| rate < *r).unwrap_or(true) {
+            hardest = Some((team_history_category_label(category), rate));
+        }
+    }
+
+    TeamHistoryMovement {
+        promotions,
+        relegations,
+        time_by_category,
+        best_category: best.map(|(c, _)| c).unwrap_or_else(|| "—".to_string()),
+        hardest_category: hardest.map(|(c, _)| c).unwrap_or_else(|| "—".to_string()),
+    }
 }
 
 fn percentage(numerator: i32, denominator: i32) -> i32 {
@@ -4842,7 +5294,8 @@ mod tests {
 
         let result = create_career_in_base_dir(&base_dir, input).expect("career should be created");
         assert!(result.success);
-        assert_eq!(result.total_drivers, 540);
+        // Modelo fechado: apenas os 204 fundadores com contrato (grid). Sem pools.
+        assert_eq!(result.total_drivers, 204);
         assert_eq!(result.total_teams, 102);
         // Modelo 9D: calendário unificado com todas as 9 divisões (74 corridas).
         assert_eq!(result.total_races, 74);
@@ -4874,7 +5327,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM calendar", [], |row| row.get(0))
             .expect("calendar count");
 
-        assert_eq!(drivers_count, 540);
+        assert_eq!(drivers_count, 204);
         assert_eq!(teams_count, 102);
         assert_eq!(contracts_count, 204);
         assert_eq!(seasons_count, 1);
@@ -6006,9 +6459,23 @@ mod tests {
             driver_queries::get_driver(&repaired_db.conn, "P_BAD_SPECIAL").expect("driver");
 
         assert_eq!(repaired_contract.status, ContractStatus::Rescindido);
-        assert_ne!(
-            repaired_driver.categoria_atual.as_deref(),
-            Some("endurance")
+        // No modelo fechado, o piloto liberado pode ser re-contratado para a mesma
+        // vaga de endurance — mas agora com um contrato VÁLIDO (com classe). O reparo
+        // cumpriu seu papel desde que não reste nenhum contrato regular de endurance
+        // SEM classe (que é a inconsistência original).
+        let _ = repaired_driver;
+        let invalid_endurance_remaining =
+            contract_queries::get_all_active_regular_contracts(&repaired_db.conn)
+                .expect("active contracts")
+                .into_iter()
+                .any(|contract| {
+                    contract.piloto_id == "P_BAD_SPECIAL"
+                        && contract.categoria == "endurance"
+                        && contract.classe.is_none()
+                });
+        assert!(
+            !invalid_endurance_remaining,
+            "nao deve restar contrato regular de endurance sem classe apos o reparo"
         );
 
         let _ = fs::remove_dir_all(base_dir);
@@ -6369,11 +6836,18 @@ mod tests {
             .into_iter()
             .next()
             .expect("toyota team");
-        let free_driver = driver_queries::get_all_drivers(&db.conn)
-            .expect("drivers")
-            .into_iter()
-            .find(|driver| driver.categoria_atual.is_none())
-            .expect("free driver");
+        // Modelo fechado: o genesis não cria agentes livres, então inserimos um
+        // piloto livre explicitamente para anexar o contrato excedente do teste.
+        let mut free_driver = crate::models::driver::Driver::new(
+            "P_FREE_SURPLUS".to_string(),
+            "Livre Excedente".to_string(),
+            "Brasil".to_string(),
+            "M".to_string(),
+            24,
+            2024,
+        );
+        free_driver.categoria_atual = None;
+        driver_queries::insert_driver(&db.conn, &free_driver).expect("insert free driver");
         let mut surplus_contract = crate::models::contract::Contract::new(
             next_id(&db.conn, IdType::Contract).expect("contract id"),
             free_driver.id.clone(),
@@ -6734,10 +7208,7 @@ mod tests {
         assert_eq!(dossier.sport.win_rate, "25%");
         assert_eq!(dossier.sport.podium_rate, "75%");
         assert_eq!(dossier.sport.seasons, "1 Temporada");
-        assert_eq!(
-            dossier.sport.current_streak,
-            "1 Temporada seguida no Grupo Mazda"
-        );
+        assert_eq!(dossier.sport.current_streak, "1 temporada no nível Rookie");
         assert_eq!(dossier.sport.best_streak, "2 Pódios consecutivos");
         assert!(dossier
             .timeline

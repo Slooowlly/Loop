@@ -5,9 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
 
-use crate::constants::categories::{
-    get_all_categories, get_category_config, runs_in_special_phase,
-};
+use crate::constants::categories::{get_all_categories, get_category_config};
 use crate::constants::historical_timeline::{
     apply_historical_performance_band, category_start_year, historical_team_foundation_year,
 };
@@ -69,7 +67,6 @@ impl LocalIdAllocator {
     }
 }
 
-const REGULAR_FREE_AGENT_POOL_MULTIPLIER: usize = 2;
 const HISTORICAL_AMATEUR_STARTING_TEAMS: usize = 6;
 
 pub fn generate_world(
@@ -209,12 +206,7 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
         teams.extend(category_teams);
     }
 
-    let regular_pool_drivers =
-        generate_regular_free_agent_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(regular_pool_drivers);
-    let specialist_pool_drivers =
-        generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(specialist_pool_drivers);
+    // Modelo fechado: sem pool de agentes livres no genesis (ver generate_world_with_rng).
 
     Ok(HistoricalWorldData {
         drivers,
@@ -551,13 +543,9 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
         teams.extend(category_teams);
     }
 
-    // Gerar pool de pilotos livres para mercado regular e convocacao especial.
-    let regular_pool_drivers =
-        generate_regular_free_agent_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(regular_pool_drivers);
-    let specialist_pool_drivers =
-        generate_specialist_pool(&mut ids, &mut existing_names, difficulty, rng);
-    drivers.extend(specialist_pool_drivers);
+    // Modelo fechado: nada de pool de agentes livres no genesis. Os grids nascem
+    // preenchidos pelos fundadores; daí em diante o mercado preenche vagas pela
+    // escada (promoção da categoria de baixo) e só gera rookies na base.
 
     let player_team_id =
         player_team_id.ok_or_else(|| "Player team was not assigned".to_string())?;
@@ -603,86 +591,6 @@ fn inferred_career_start_year(driver: &Driver, current_year: u32) -> u32 {
     }
 }
 
-/// Gera pilotos livres para o mercado regular.
-/// Eles nascem no pool do save, sem contrato e sem categoria ativa.
-fn generate_regular_free_agent_pool<R: Rng>(
-    ids: &mut LocalIdAllocator,
-    existing_names: &mut HashSet<String>,
-    difficulty: &str,
-    rng: &mut R,
-) -> Vec<Driver> {
-    let mut pool = Vec::new();
-
-    for category in get_all_categories()
-        .iter()
-        .filter(|c| !runs_in_special_phase(c.id))
-    {
-        let count = category.grid_total as usize * REGULAR_FREE_AGENT_POOL_MULTIPLIER;
-        let mut driver_id_gen = || ids.next_driver_id();
-        let mut category_drivers = Driver::generate_for_category_with_id_factory(
-            category.id,
-            category.tier,
-            difficulty,
-            count,
-            existing_names,
-            &mut driver_id_gen,
-            rng,
-        );
-        for driver in &mut category_drivers {
-            driver.categoria_atual = None;
-        }
-        pool.extend(category_drivers);
-    }
-
-    pool
-}
-
-/// Gera pilotos livres para o pool de convocacao especial.
-/// Para cada categoria especial, itera sobre suas classes e gera drivers
-/// usando a categoria regular de referencia da classe como base de habilidade.
-fn generate_specialist_pool<R: Rng>(
-    ids: &mut LocalIdAllocator,
-    existing_names: &mut HashSet<String>,
-    difficulty: &str,
-    rng: &mut R,
-) -> Vec<Driver> {
-    let mut pool = Vec::new();
-
-    for category in get_all_categories()
-        .iter()
-        .filter(|c| runs_in_special_phase(c.id))
-    {
-        for class in category.classes {
-            let count = (class.num_equipes * category.pilotos_por_equipe) as usize;
-            let ref_tier = get_category_config(class.car_categoria)
-                .map(|c| c.tier)
-                .unwrap_or(2);
-
-            let mut driver_id_gen = || ids.next_driver_id();
-            // Os drivers são gerados com categoria_atual = Some(class.car_categoria)
-            // definida dentro de generate_for_category_with_id_factory.
-            let mut class_drivers = Driver::generate_for_category_with_id_factory(
-                class.car_categoria,
-                ref_tier,
-                difficulty,
-                count,
-                existing_names,
-                &mut driver_id_gen,
-                rng,
-            );
-            // Pilotos do pool são livres — sem contrato e sem categoria ativa.
-            // categoria_atual é limpa para evitar que apareçam nas simulações regulares.
-            // Seu nível de habilidade reflete o tier de referência da classe.
-            for driver in &mut class_drivers {
-                driver.categoria_atual = None;
-            }
-            pool.extend(class_drivers);
-        }
-    }
-
-    pool
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -716,8 +624,8 @@ mod tests {
         let world = sample_world();
         // 66 equipes regulares + 5 LMP2 sem feeder regular; Production/Endurance ainda sem templates.
         assert_eq!(world.teams.len(), 102);
-        // 132 com contrato + 264 livres no pool regular + 72 livres no pool especial.
-        assert_eq!(world.drivers.len(), 540);
+        // Modelo fechado: apenas os 204 fundadores com contrato (grid). Sem pools.
+        assert_eq!(world.drivers.len(), 204);
         // Apenas 132 contratos — categorias especiais não geram contratos
         assert_eq!(world.contracts.len(), 204);
     }

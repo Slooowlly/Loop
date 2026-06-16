@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::commands::career_types::{
     GlobalDriverRankingLeaders, GlobalDriverRankingPayload, GlobalDriverRankingRow,
-    GlobalDriverTitleCategorySummary,
+    GlobalDriverTitleCategorySummary, GlobalDriverTitleYearTeam,
 };
 use crate::config::app_config::AppConfig;
 use crate::constants::categories::{
@@ -31,8 +31,15 @@ struct CategoryStats {
     poles: i32,
     races: i32,
     titles: i32,
-    title_years: Vec<i32>,
+    title_years: Vec<TitleYear>,
     dnfs: i32,
+}
+
+/// Um ano de título e a equipe (por `team_id`) com a qual foi conquistado.
+#[derive(Debug, Clone)]
+struct TitleYear {
+    year: i32,
+    team_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +73,9 @@ struct RaceContribution {
 
 type TitleEventKey = (i32, String, Option<String>);
 type TeamTitleStatsByDriver = HashMap<String, Vec<(TitleEventKey, CategoryStats)>>;
+/// `team_id` -> (nome atual da equipe, cor primária), usado para resolver a logo
+/// da equipe campeã por ano de título.
+type TeamLookup = HashMap<String, (String, String)>;
 
 #[derive(Debug, Clone)]
 struct TeamTitleDriverScore {
@@ -118,10 +128,11 @@ fn build_global_driver_rankings(
     let drivers = driver_queries::get_all_drivers(conn)
         .map_err(|e| format!("Falha ao carregar pilotos globais: {e}"))?;
     let team_title_stats_by_driver = load_all_team_champion_title_stats(conn)?;
+    let team_lookup = load_team_lookup(conn)?;
     let mut entries = Vec::new();
     let mut seen_driver_ids = HashSet::new();
     let mut retired_by_id: HashMap<String, RetiredDriverSnapshot> =
-        load_retired_snapshots(conn, &team_title_stats_by_driver)?
+        load_retired_snapshots(conn, &team_title_stats_by_driver, &team_lookup)?
             .into_iter()
             .map(|retired| (retired.id.clone(), retired))
             .collect();
@@ -134,6 +145,7 @@ fn build_global_driver_rankings(
                     retired,
                     &driver,
                     current_year,
+                    &team_lookup,
                 ));
                 continue;
             }
@@ -143,6 +155,7 @@ fn build_global_driver_rankings(
             &driver,
             current_year,
             &team_title_stats_by_driver,
+            &team_lookup,
         )?);
     }
 
@@ -150,7 +163,7 @@ fn build_global_driver_rankings(
         if seen_driver_ids.contains(&retired.id) {
             continue;
         }
-        entries.push(build_retired_driver_entry(retired, current_year));
+        entries.push(build_retired_driver_entry(retired, current_year, &team_lookup));
     }
 
     let unranked_player_driver = entries
@@ -189,6 +202,7 @@ fn build_current_driver_entry(
     driver: &Driver,
     current_year: i32,
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
+    team_lookup: &TeamLookup,
 ) -> Result<RankingEntry, String> {
     let contract = contract_queries::get_active_regular_contract_for_pilot(conn, &driver.id)
         .map_err(|e| format!("Falha ao buscar contrato regular ativo do piloto: {e}"))?;
@@ -264,7 +278,7 @@ fn build_current_driver_entry(
         podios: total.podiums,
         poles: total.poles,
         titulos: total.titles,
-        titulos_por_categoria: title_categories(&stats_by_category),
+        titulos_por_categoria: title_categories(&stats_by_category, team_lookup),
         dnfs: total.dnfs,
         lesoes: injuries.leves + injuries.moderadas + injuries.graves,
         lesoes_leves: injuries.leves,
@@ -286,7 +300,11 @@ fn active_driver_career_years(driver: &Driver, debut_year: i32, current_year: i3
     years_since(debut_year, current_year)
 }
 
-fn build_retired_driver_entry(retired: RetiredDriverSnapshot, current_year: i32) -> RankingEntry {
+fn build_retired_driver_entry(
+    retired: RetiredDriverSnapshot,
+    current_year: i32,
+    team_lookup: &TeamLookup,
+) -> RankingEntry {
     let score = score_category_stats(&retired.stats);
     let retirement_year = parse_year(&retired.retirement_season);
     let career_years = retired.career_years.or_else(|| {
@@ -297,7 +315,7 @@ fn build_retired_driver_entry(retired: RetiredDriverSnapshot, current_year: i32)
     let years_retired = retirement_year.map(|year| (current_year - year).max(0));
     let stats_by_category = vec![retired.stats.clone()];
     let title_categories = if retired.title_categories.is_empty() {
-        title_categories(&stats_by_category)
+        title_categories(&stats_by_category, team_lookup)
     } else {
         retired.title_categories.clone()
     };
@@ -355,8 +373,9 @@ fn build_retired_driver_entry_from_driver(
     retired: RetiredDriverSnapshot,
     driver: &Driver,
     current_year: i32,
+    team_lookup: &TeamLookup,
 ) -> RankingEntry {
-    let mut entry = build_retired_driver_entry(retired, current_year);
+    let mut entry = build_retired_driver_entry(retired, current_year, team_lookup);
     entry.row.nacionalidade = driver.nacionalidade.clone();
     entry.row.idade = driver.idade as i32;
     entry.row.is_jogador = driver.is_jogador;
@@ -437,6 +456,7 @@ fn load_driver_category_stats(
                 class_name.as_deref(),
             ));
         }
+        let title_team_id = json_string(&snapshot, "team_id").filter(|value| !value.trim().is_empty());
         stats.push(CategoryStats {
             category,
             class_name,
@@ -446,7 +466,7 @@ fn load_driver_category_stats(
             poles,
             races,
             titles,
-            title_years: title_years_for_event(titles, year),
+            title_years: title_years_for_event(titles, year, title_team_id),
             dnfs: json_i32(&snapshot, "dnfs"),
         });
     }
@@ -612,6 +632,7 @@ fn load_contract_categories(conn: &Connection, driver_id: &str) -> Result<Vec<St
 fn load_retired_snapshots(
     conn: &Connection,
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
+    team_lookup: &TeamLookup,
 ) -> Result<Vec<RetiredDriverSnapshot>, String> {
     if !table_exists(conn, "retired")? {
         return Ok(Vec::new());
@@ -641,7 +662,12 @@ fn load_retired_snapshots(
         let archived_titles =
             valid_archived_title_count_for_pilot(conn, &id, team_title_stats_by_driver)?;
         let title_categories =
-            valid_archived_title_categories_for_pilot(conn, &id, team_title_stats_by_driver)?
+            valid_archived_title_categories_for_pilot(
+                conn,
+                &id,
+                team_title_stats_by_driver,
+                team_lookup,
+            )?
                 .unwrap_or_else(|| {
                     title_categories(&[CategoryStats {
                         category: category.clone(),
@@ -657,7 +683,7 @@ fn load_retired_snapshots(
                         titles: json_i32(&snapshot, "titulos"),
                         title_years: Vec::new(),
                         dnfs: json_i32(&snapshot, "dnfs"),
-                    }])
+                    }], team_lookup)
                 });
         let snapshot_titles = json_i32(&snapshot, "titulos");
         retired.push(RetiredDriverSnapshot {
@@ -725,8 +751,11 @@ fn total_stats(stats: &[CategoryStats]) -> CategoryStats {
         })
 }
 
-fn title_categories(stats: &[CategoryStats]) -> Vec<GlobalDriverTitleCategorySummary> {
-    let mut totals = HashMap::<(String, Option<String>), (i32, Vec<i32>)>::new();
+fn title_categories(
+    stats: &[CategoryStats],
+    team_lookup: &TeamLookup,
+) -> Vec<GlobalDriverTitleCategorySummary> {
+    let mut totals = HashMap::<(String, Option<String>), (i32, Vec<TitleYear>)>::new();
     for entry in stats {
         if entry.titles <= 0 {
             continue;
@@ -735,17 +764,18 @@ fn title_categories(stats: &[CategoryStats]) -> Vec<GlobalDriverTitleCategorySum
             .entry((entry.category.clone(), entry.class_name.clone()))
             .or_default();
         total.0 += entry.titles;
-        total.1.extend(entry.title_years.iter().copied());
+        total.1.extend(entry.title_years.iter().cloned());
     }
     let mut summaries = totals
         .into_iter()
-        .map(|((categoria, classe), (titulos, mut anos))| {
-            sort_title_years(&mut anos);
+        .map(|((categoria, classe), (titulos, years))| {
+            let (anos, anos_equipes) = build_title_year_teams(&years, team_lookup);
             GlobalDriverTitleCategorySummary {
                 categoria,
                 classe,
                 titulos,
                 anos,
+                anos_equipes,
             }
         })
         .collect::<Vec<_>>();
@@ -757,6 +787,59 @@ fn title_categories(stats: &[CategoryStats]) -> Vec<GlobalDriverTitleCategorySum
             .then_with(|| left.classe.cmp(&right.classe))
     });
     summaries
+}
+
+fn load_team_lookup(conn: &Connection) -> Result<TeamLookup, String> {
+    let teams = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao carregar equipes para titulos: {e}"))?;
+    Ok(teams
+        .into_iter()
+        .map(|team| (team.id, (team.nome, team.cor_primaria)))
+        .collect())
+}
+
+/// Agrega os anos de título (com a equipe de cada ano) em (`anos` ordenados desc,
+/// `anos_equipes` na mesma ordem, com o nome/cor da equipe resolvidos pelo `team_id`).
+fn build_title_year_teams(
+    years: &[TitleYear],
+    team_lookup: &TeamLookup,
+) -> (Vec<i32>, Vec<GlobalDriverTitleYearTeam>) {
+    let mut ordered: Vec<i32> = Vec::new();
+    let mut team_by_year: HashMap<i32, Option<String>> = HashMap::new();
+    for entry in years {
+        if entry.year <= 0 {
+            continue;
+        }
+        match team_by_year.get_mut(&entry.year) {
+            Some(existing) => {
+                if existing.is_none() && entry.team_id.is_some() {
+                    *existing = entry.team_id.clone();
+                }
+            }
+            None => {
+                team_by_year.insert(entry.year, entry.team_id.clone());
+                ordered.push(entry.year);
+            }
+        }
+    }
+    ordered.sort_unstable_by(|left, right| right.cmp(left));
+    let anos_equipes = ordered
+        .iter()
+        .map(|&ano| {
+            let (equipe, equipe_cor) = team_by_year
+                .get(&ano)
+                .and_then(|team_id| team_id.as_deref())
+                .and_then(|team_id| team_lookup.get(team_id))
+                .map(|(nome, cor)| (Some(nome.clone()), Some(cor.clone())))
+                .unwrap_or((None, None));
+            GlobalDriverTitleYearTeam {
+                ano,
+                equipe,
+                equipe_cor,
+            }
+        })
+        .collect();
+    (ordered, anos_equipes)
 }
 
 fn historical_categories(
@@ -1308,9 +1391,10 @@ fn valid_archived_title_categories_for_pilot(
     conn: &Connection,
     driver_id: &str,
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
+    team_lookup: &TeamLookup,
 ) -> Result<Option<Vec<GlobalDriverTitleCategorySummary>>, String> {
     let mut saw_archive = false;
-    let mut totals = HashMap::<(String, Option<String>), (i32, Vec<i32>)>::new();
+    let mut totals = HashMap::<(String, Option<String>), (i32, Vec<TitleYear>)>::new();
     let mut counted_title_events = HashSet::<TitleEventKey>::new();
 
     if table_exists(conn, "driver_season_archive")? {
@@ -1358,9 +1442,11 @@ fn valid_archived_title_categories_for_pilot(
                     &category,
                     class_name.as_deref(),
                 ));
+                let title_team_id =
+                    json_string(&snapshot, "team_id").filter(|value| !value.trim().is_empty());
                 let total = totals.entry((category, class_name)).or_default();
                 total.0 += titles;
-                total.1.extend(title_years_for_event(titles, year));
+                total.1.extend(title_years_for_event(titles, year, title_team_id));
             }
         }
     }
@@ -1387,13 +1473,14 @@ fn valid_archived_title_categories_for_pilot(
 
     let mut summaries = totals
         .into_iter()
-        .map(|((categoria, classe), (titulos, mut anos))| {
-            sort_title_years(&mut anos);
+        .map(|((categoria, classe), (titulos, years))| {
+            let (anos, anos_equipes) = build_title_year_teams(&years, team_lookup);
             GlobalDriverTitleCategorySummary {
                 categoria,
                 classe,
                 titulos,
                 anos,
+                anos_equipes,
             }
         })
         .collect::<Vec<_>>();
@@ -1550,7 +1637,10 @@ fn load_all_team_champion_title_stats(conn: &Connection) -> Result<TeamTitleStat
                 poles: 0,
                 races: 0,
                 titles: 1,
-                title_years: vec![year],
+                title_years: vec![TitleYear {
+                    year,
+                    team_id: Some(team_id.clone()),
+                }],
                 dnfs: 0,
             },
         );
@@ -1666,7 +1756,10 @@ fn load_all_special_class_champion_title_stats(
                 poles: 0,
                 races: 0,
                 titles: 1,
-                title_years: vec![champion.year],
+                title_years: vec![TitleYear {
+                    year: champion.year,
+                    team_id: Some(champion.team_id),
+                }],
                 dnfs: 0,
             },
         );
@@ -1859,17 +1952,12 @@ fn compare_team_title_driver_scores(
         .then_with(|| left.driver_id.cmp(&right.driver_id))
 }
 
-fn title_years_for_event(titles: i32, year: i32) -> Vec<i32> {
+fn title_years_for_event(titles: i32, year: i32, team_id: Option<String>) -> Vec<TitleYear> {
     if titles > 0 && year > 0 {
-        vec![year]
+        vec![TitleYear { year, team_id }]
     } else {
         Vec::new()
     }
-}
-
-fn sort_title_years(years: &mut Vec<i32>) {
-    years.sort_unstable_by(|left, right| right.cmp(left));
-    years.dedup();
 }
 
 fn normalized_archive_category(snapshot: &Value, fallback: String) -> String {
@@ -3061,6 +3149,59 @@ mod tests {
     }
 
     #[test]
+    fn individual_title_year_carries_champion_team_logo() {
+        let conn = setup_conn();
+        let driver = driver_with_stats("D_GT3_LOGO", "Campeao GT3", Some("gt3"), 3, 5, 0);
+        insert_driver(&conn, &driver).expect("insert driver");
+        insert_team(
+            &conn,
+            &placeholder_team_from_db(
+                "T_GT3_LOGO".to_string(),
+                "Equipe GT3 Logo".to_string(),
+                "gt3".to_string(),
+                "2024-01-01".to_string(),
+            ),
+        )
+        .expect("insert team");
+        conn.execute(
+            "INSERT INTO driver_season_archive (
+                piloto_id, season_number, ano, nome, categoria, posicao_campeonato, pontos, snapshot_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                "D_GT3_LOGO",
+                2,
+                2024,
+                "Campeao GT3",
+                "gt3",
+                1,
+                190.0,
+                r#"{"categoria":"gt3","posicao_campeonato":1,"titulos":1,"corridas":12,"pontos":190,"vitorias":4,"podios":7,"team_id":"T_GT3_LOGO"}"#
+            ],
+        )
+        .expect("insert archive");
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let row = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_GT3_LOGO")
+            .unwrap();
+
+        assert_eq!(row.titulos_por_categoria.len(), 1);
+        let summary = &row.titulos_por_categoria[0];
+        assert_eq!(summary.categoria, "gt3");
+        assert_eq!(summary.anos, vec![2024]);
+        // O ano de título individual resolve a equipe a partir do team_id do snapshot.
+        assert_eq!(summary.anos_equipes.len(), 1);
+        assert_eq!(summary.anos_equipes[0].ano, 2024);
+        assert_eq!(
+            summary.anos_equipes[0].equipe.as_deref(),
+            Some("Equipe GT3 Logo")
+        );
+        assert!(summary.anos_equipes[0].equipe_cor.is_some());
+    }
+
+    #[test]
     fn payload_groups_special_titles_by_category_and_class() {
         let conn = setup_conn();
         let driver = driver_with_stats(
@@ -3412,6 +3553,11 @@ mod tests {
             Some("gt3")
         );
         assert_eq!(second.titulos_por_categoria[0].anos, vec![2024]);
+        // O título de equipe carrega a equipe campeã (resolvida pelo team_id) por ano.
+        let year_teams = &second.titulos_por_categoria[0].anos_equipes;
+        assert_eq!(year_teams.len(), 1);
+        assert_eq!(year_teams[0].ano, 2024);
+        assert_eq!(year_teams[0].equipe.as_deref(), Some("Equipe Endurance"));
     }
 
     #[test]

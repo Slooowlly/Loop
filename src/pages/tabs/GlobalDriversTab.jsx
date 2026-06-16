@@ -6,7 +6,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
-import { getCategoryTier } from "../../utils/formatters";
+import { extractNationalityCode, getCategoryTier } from "../../utils/formatters";
 
 const DEFAULT_SORT = { key: "historical_index", direction: "desc" };
 const DEFAULT_FILTERS = {
@@ -131,6 +131,10 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
     [rows, userDriver],
   );
   const filteredRows = useMemo(() => filterRows(rows, filters), [rows, filters]);
+  const relativeRankById = useMemo(
+    () => buildRelativeRanks(filteredRows, filters.status !== "Todos"),
+    [filteredRows, filters.status],
+  );
   const sortedRows = useMemo(() => sortRows(filteredRows, sort), [filteredRows, sort]);
   const tableSections = useMemo(
     () => buildTableSections(sortedRows, filters.category),
@@ -197,7 +201,14 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
             <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">Todos os contratos e historicos</p>
             <h3 className="mt-2 text-xl font-semibold text-text-primary">Ranking mundial de pilotos</h3>
           </div>
-          <p className="text-sm text-text-secondary">{`${filteredRows.length} de ${rows.length} pilotos`}</p>
+          <div className="text-right">
+            <p className="text-sm text-text-secondary">{`${filteredRows.length} de ${rows.length} pilotos`}</p>
+            {relativeRankById ? (
+              <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-accent-primary">
+                {`# recalculado entre ${statusFilterLabel(filters.status)}`}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-5 border-t border-white/10 pt-4">
@@ -239,6 +250,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
                     <DriverRankingRow
                       key={row.id}
                       row={row}
+                      relativeEntry={relativeRankById?.get(row.id)}
                       focusedDriverId={focusedDriver?.id}
                       detailDriverId={selectedDetailDriverId}
                       onFocus={setFocusedDriverId}
@@ -478,10 +490,8 @@ function FilterBar({ filters, options, onChange, onReset }) {
         label="Categoria"
         value={filters.category}
         onChange={(value) => onChange("category", value)}
-        options={[
-          ["Todas", "Todas"],
-          ...options.categories.map((category) => [category, categoryLabel(category)]),
-        ]}
+        options={[["Todas", "Todas"]]}
+        groups={options.categoryGroups}
       />
       <FilterSelect
         label="Nacionalidade"
@@ -489,7 +499,7 @@ function FilterBar({ filters, options, onChange, onReset }) {
         onChange={(value) => onChange("nationality", value)}
         options={[
           ["Todas", "Todas"],
-          ...options.nationalities.map((nationality) => [nationality, nationality]),
+          ...options.nationalities.map(({ code, label }) => [code, label]),
         ]}
       />
       <FilterSelect
@@ -533,7 +543,7 @@ function FilterBar({ filters, options, onChange, onReset }) {
   );
 }
 
-function FilterSelect({ label, value, onChange, options }) {
+function FilterSelect({ label, value, onChange, options = [], groups = null }) {
   return (
     <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
       <span>{label}</span>
@@ -547,6 +557,15 @@ function FilterSelect({ label, value, onChange, options }) {
           <option key={optionValue} value={optionValue} className="bg-app-card text-text-primary">
             {optionLabel}
           </option>
+        ))}
+        {groups?.map((group) => (
+          <optgroup key={group.key} label={group.label} className="bg-app-card text-text-primary">
+            {group.options.map(([optionValue, optionLabel]) => (
+              <option key={optionValue} value={optionValue} className="bg-app-card text-text-primary">
+                {optionLabel}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </label>
@@ -579,8 +598,9 @@ function CategorySectionRow({ label }) {
   );
 }
 
-function DriverRankingRow({ row, focusedDriverId, detailDriverId, onFocus, onOpenDriverDetail, onOpenTitles }) {
+function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId, onFocus, onOpenDriverDetail, onOpenTitles }) {
   const isDetailDriver = row.id === detailDriverId;
+  const isReranked = relativeEntry != null;
   return (
     <tr
       onClick={() => onFocus(row.id)}
@@ -598,7 +618,12 @@ function DriverRankingRow({ row, focusedDriverId, detailDriverId, onFocus, onOpe
       ].join(" ")}
     >
       <td className="py-3 pr-4 font-mono text-xs text-text-muted">
-        <RankCell rank={row.historical_rank} delta={row.historical_rank_delta} />
+        <RankCell
+          rank={isReranked ? relativeEntry.rank : row.historical_rank}
+          delta={isReranked ? relativeEntry.delta : row.historical_rank_delta}
+          globalRank={isReranked ? row.historical_rank : null}
+          scoped={isReranked}
+        />
       </td>
       <td className="px-4 py-3">
         <div className="flex min-w-[190px] items-center gap-2">
@@ -774,14 +799,12 @@ function ChampionshipChampionsDialog({ group, onClose }) {
         <div className="mt-5 max-h-[58vh] overflow-y-auto pr-2">
           <div className="divide-y divide-white/8">
           {group.champions.map((champion) => (
-            <div key={champion.id} className="flex items-center justify-between gap-4 py-3">
-              <div>
+            <div key={champion.id} className="flex items-start justify-between gap-4 py-3">
+              <div className="min-w-0">
                 <p className="font-semibold text-text-primary">{champion.name}</p>
-                <p className="mt-1 font-mono text-xs text-text-muted">
-                  {champion.years.length > 0 ? champion.years.join(", ") : "Anos indisponiveis"}
-                </p>
+                <ChampionTitleYears champion={champion} />
               </div>
-              <span className="font-mono text-sm text-accent-secondary">
+              <span className="shrink-0 font-mono text-sm text-accent-secondary">
                 {champion.titles} {champion.titles === 1 ? "titulo" : "titulos"}
               </span>
             </div>
@@ -790,6 +813,33 @@ function ChampionshipChampionsDialog({ group, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ChampionTitleYears({ champion }) {
+  if (champion.yearTeams.length > 0) {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {champion.yearTeams.map((yearTeam) => (
+          <span
+            key={yearTeam.ano}
+            title={yearTeam.equipe ?? undefined}
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-black/20 px-2 py-1"
+          >
+            <span className="font-mono text-xs text-text-muted">{yearTeam.ano}</span>
+            {yearTeam.equipe ? (
+              <TeamLogoMark teamName={yearTeam.equipe} color={yearTeam.equipe_cor} size="xs" />
+            ) : null}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <p className="mt-1 font-mono text-xs text-text-muted">
+      {champion.years.length > 0 ? champion.years.join(", ") : "Anos indisponiveis"}
+    </p>
   );
 }
 
@@ -814,19 +864,24 @@ function MetricCell({ value }) {
   return <td className="px-4 py-3 font-mono text-text-primary">{value ?? 0}</td>;
 }
 
-function RankCell({ rank, delta }) {
+function RankCell({ rank, delta, globalRank = null, scoped = false }) {
   const numericDelta = Number(delta ?? 0);
+  const globalTitle = globalRank != null ? `Posição global #${formatRank(globalRank)} (entre todos os pilotos)` : undefined;
+
   if (!numericDelta) {
-    return <span>{formatRank(rank)}</span>;
+    return <span title={globalTitle}>{formatRank(rank)}</span>;
   }
 
   const gained = numericDelta > 0;
   const amount = Math.abs(numericDelta);
   const label = `${gained ? "↑" : "↓"}${amount}`;
-  const title = `${gained ? "Subiu" : "Desceu"} ${amount} ${amount === 1 ? "posição" : "posições"} desde a última corrida`;
+  const positions = amount === 1 ? "posição" : "posições";
+  const scope = scoped ? " neste ranking filtrado" : "";
+  const deltaTitle = `${gained ? "Subiu" : "Desceu"} ${amount} ${positions}${scope} desde a última corrida`;
+  const title = globalTitle ? `${deltaTitle}. ${globalTitle}` : deltaTitle;
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-2" title={globalTitle}>
       <span>{formatRank(rank)}</span>
       <span
         title={title}
@@ -863,13 +918,39 @@ function filterRows(rows, filters) {
   return rows.filter((row) => {
     if (filters.status !== "Todos" && row.status !== filters.status) return false;
     if (filters.category !== "Todas" && !rowCategories(row).includes(filters.category)) return false;
-    if (filters.nationality !== "Todas" && row.nacionalidade !== filters.nationality) return false;
+    if (filters.nationality !== "Todas" && nationalityKey(row.nacionalidade) !== filters.nationality) return false;
     if (filters.champions === "champions" && (row.titulos ?? 0) <= 0) return false;
     if (filters.injured === "injured" && !row.is_lesionado) return false;
     if (minAge != null && (row.idade ?? 0) < minAge) return false;
     if (maxAge != null && (row.idade ?? 0) > maxAge) return false;
     return true;
   });
+}
+
+function buildRelativeRanks(rows, active) {
+  if (!active) return null;
+
+  const currentRankById = new Map();
+  [...rows]
+    .sort((left, right) => (left.historical_rank ?? 9999) - (right.historical_rank ?? 9999))
+    .forEach((row, index) => currentRankById.set(row.id, index + 1));
+
+  const previousRankById = new Map();
+  [...rows]
+    .sort((left, right) => previousGlobalRank(left) - previousGlobalRank(right))
+    .forEach((row, index) => previousRankById.set(row.id, index + 1));
+
+  const map = new Map();
+  rows.forEach((row) => {
+    const rank = currentRankById.get(row.id);
+    const delta = (previousRankById.get(row.id) ?? rank) - rank;
+    map.set(row.id, { rank, delta });
+  });
+  return map;
+}
+
+function previousGlobalRank(row) {
+  return (row.historical_rank ?? 9999) + Number(row.historical_rank_delta ?? 0);
 }
 
 function buildTableSections(rows, selectedCategory) {
@@ -904,9 +985,55 @@ function buildTableSections(rows, selectedCategory) {
 
 function buildFilterOptions(rows) {
   return {
-    categories: uniqueSortedCategories(rows.flatMap(rowCategories)),
-    nationalities: uniqueSorted(rows.map((row) => row.nacionalidade).filter(Boolean)),
+    categoryGroups: buildCategoryGroups(uniqueSortedCategories(rows.flatMap(rowCategories))),
+    nationalities: buildNationalityOptions(rows),
   };
+}
+
+// Agrupa as categorias por família/classe seguindo a progressão de carreira.
+// Marcas de entrada (Mazda/Toyota: rookie -> championship -> production), depois BMW,
+// e as classes de carro juntando pista + endurance da mesma classe (GT4, GT3, LMP2).
+// Categorias agregadas/genéricas (endurance/production "geral") e SemCategoria ficam de
+// fora do filtro de propósito — esses pilotos continuam visíveis em "Todas".
+const CATEGORY_GROUP_DEFS = [
+  { key: "mazda", label: "Mazda", members: ["mazda_rookie", "mazda_amador", "production_challenger:mazda"] },
+  { key: "toyota", label: "Toyota", members: ["toyota_rookie", "toyota_amador", "production_challenger:toyota"] },
+  { key: "bmw", label: "BMW", members: ["bmw_m2", "production_challenger:bmw"] },
+  { key: "gt4", label: "GT4", members: ["gt4", "endurance:gt4"] },
+  { key: "gt3", label: "GT3", members: ["gt3", "endurance:gt3"] },
+  { key: "lmp2", label: "LMP2", members: ["lmp2", "endurance:lmp2"] },
+];
+
+function buildCategoryGroups(categories) {
+  const present = new Set(categories);
+
+  return CATEGORY_GROUP_DEFS.flatMap((def) => {
+    const options = def.members
+      .filter((member) => present.has(member))
+      .map((member) => [member, categoryLabel(member)]);
+    return options.length > 0 ? [{ key: def.key, label: def.label, options }] : [];
+  });
+}
+
+// Os pilotos guardam a nacionalidade com gênero (ex.: "Brasileiro" / "Brasileira"),
+// então agrupamos por país para mostrar uma única entrada por nacionalidade no filtro.
+function buildNationalityOptions(rows) {
+  const byCountry = new Map();
+  rows.forEach((row) => {
+    const label = row.nacionalidade;
+    if (!label) return;
+    const code = nationalityKey(label);
+    if (!byCountry.has(code)) {
+      byCountry.set(code, label);
+    }
+  });
+  return [...byCountry.entries()]
+    .map(([code, label]) => ({ code, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+}
+
+function nationalityKey(nacionalidade) {
+  return extractNationalityCode(nacionalidade) ?? nacionalidade ?? "";
 }
 
 function buildFocusedDriverRanks(rows, focusedDriver) {
@@ -986,6 +1113,7 @@ function buildChampionshipChampionGroups(rows) {
         rank: row.historical_rank,
         titles,
         years,
+        yearTeams: titleEntryYearTeams(entry),
         latestYear: years[0] ?? 0,
       });
       groups.set(key, existing);
@@ -1014,6 +1142,18 @@ function titleEntryYears(entry) {
   const years = Array.isArray(entry?.anos) ? entry.anos : [];
   return [...new Set(years.map(Number).filter((year) => Number.isFinite(year) && year > 0))]
     .sort((left, right) => right - left);
+}
+
+function titleEntryYearTeams(entry) {
+  const entries = Array.isArray(entry?.anos_equipes) ? entry.anos_equipes : [];
+  return entries
+    .map((item) => ({
+      ano: Number(item?.ano),
+      equipe: item?.equipe ?? null,
+      equipe_cor: item?.equipe_cor ?? null,
+    }))
+    .filter((item) => Number.isFinite(item.ano) && item.ano > 0)
+    .sort((left, right) => right.ano - left.ano);
 }
 
 function isSpecialTitleEntry(entry) {
@@ -1058,10 +1198,6 @@ function rowCategories(row) {
   return uniqueSortedCategories([...categories, row.categoria_atual].filter(Boolean));
 }
 
-function uniqueSorted(values) {
-  return [...new Set(values)].sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), "pt-BR"));
-}
-
 function uniqueSortedCategories(values) {
   return [...new Set(values)].sort(compareCategoriesByProgression);
 }
@@ -1085,6 +1221,15 @@ function parseOptionalNumber(value) {
 
 function defaultDirection(key) {
   return key === "nome" || key === "status" || key === "historical_rank" ? "asc" : "desc";
+}
+
+function statusFilterLabel(status) {
+  const labels = {
+    Ativo: "pilotos ativos",
+    Livre: "pilotos livres",
+    Aposentado: "pilotos aposentados",
+  };
+  return labels[status] ?? "pilotos filtrados";
 }
 
 function statusClass(status) {

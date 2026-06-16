@@ -413,6 +413,7 @@ struct Totals {
     // Desfecho dos episódios de colapso (contadores de produção)
     episodes_self_rescued: u64, // salvaram-se no all-in, sem venda
     episodes_sold: u64,         // precisaram ser vendidas
+    ownership_events_recorded: u64, // linhas em team_ownership_events (verificação)
 }
 
 /// Trajetória de um piloto dentro de uma run: primeiro e último overall observados.
@@ -782,6 +783,14 @@ fn monte_carlo() {
         // Desfecho dos episódios de colapso (contadores de produção)
         t.episodes_self_rescued += rescue_counter(&db_path, "self_rescued") as u64;
         t.episodes_sold += rescue_counter(&db_path, "sold") as u64;
+        {
+            let db = Database::open_existing(&db_path).expect("db");
+            let n: i64 = db
+                .conn
+                .query_row("SELECT COUNT(*) FROM team_ownership_events", [], |r| r.get(0))
+                .unwrap_or(0);
+            t.ownership_events_recorded += n as u64;
+        }
 
         // Concentração de títulos de construtores acumulados ao fim da run
         {
@@ -1030,6 +1039,10 @@ fn monte_carlo() {
         "    Precisaram ser VENDIDAS (nova diretoria):   {}  ({:.1}%)",
         t.episodes_sold,
         pct(t.episodes_sold, episodes_resolved)
+    );
+    println!(
+        "    Eventos de venda gravados na ficha:         {}  (deve bater com vendidas)",
+        t.ownership_events_recorded
     );
 
     if t.team_seasons > 0 {
