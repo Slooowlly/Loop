@@ -22,6 +22,8 @@ pub struct MotivationContext {
     pub contract_renewed: bool,
     pub lost_seat: bool,
     pub seasons_in_category: i32,
+    /// Terminou bem acima do que a forca do carro/equipe previa (carregou a maquina).
+    pub outperformed_machinery: bool,
 }
 
 pub fn adjust_end_of_season_motivation(
@@ -41,6 +43,10 @@ pub fn adjust_end_of_season_motivation(
     if ctx.was_promoted {
         delta += 15;
         reasons.push("Promovido de categoria (+15)".to_string());
+    }
+    if ctx.outperformed_machinery {
+        delta += 10;
+        reasons.push("Superou o carro/equipe (+10)".to_string());
     }
     if stats.posicao_campeonato <= 3 && !ctx.was_champion {
         delta += 8;
@@ -127,6 +133,7 @@ mod tests {
             contract_renewed: false,
             lost_seat: false,
             seasons_in_category: 1,
+            outperformed_machinery: false,
         };
         let report = adjust_end_of_season_motivation(&mut driver, &stats, &ctx, &mut rng);
 
@@ -155,6 +162,7 @@ mod tests {
             contract_renewed: false,
             lost_seat: false,
             seasons_in_category: 3,
+            outperformed_machinery: false,
         };
         let report = adjust_end_of_season_motivation(&mut driver, &stats, &ctx, &mut rng);
 
@@ -185,6 +193,7 @@ mod tests {
             contract_renewed: false,
             lost_seat: true,
             seasons_in_category: 4,
+            outperformed_machinery: false,
         };
         let low_report =
             adjust_end_of_season_motivation(&mut low_driver, &stats, &low_ctx, &mut rng_low);
@@ -199,6 +208,7 @@ mod tests {
             contract_renewed: true,
             lost_seat: false,
             seasons_in_category: 1,
+            outperformed_machinery: false,
         };
         let high_report = adjust_end_of_season_motivation(
             &mut high_driver,
@@ -215,6 +225,35 @@ mod tests {
             &mut rng_high,
         );
         assert_eq!(high_report.new_motivation, 100);
+    }
+
+    #[test]
+    fn test_outperformed_machinery_cushions_motivation() {
+        // Bom piloto carregando um carro ruim (terminou acima do esperado): em vez
+        // de despencar, ganha reconhecimento e nao some por desmotivacao.
+        let mut driver = sample_driver(50.0, Some(PrimaryPersonality::Ambicioso));
+        let stats = SeasonStats {
+            posicao_campeonato: 12,
+            total_pilotos: 20,
+            pontos: 30,
+            vitorias: 0,
+            podios: 0,
+            corridas: 8,
+            dnfs: 1,
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let ctx = MotivationContext {
+            was_champion: false,
+            was_promoted: false,
+            was_relegated: false,
+            contract_renewed: false,
+            lost_seat: false,
+            seasons_in_category: 3,
+            outperformed_machinery: true,
+        };
+        let report = adjust_end_of_season_motivation(&mut driver, &stats, &ctx, &mut rng);
+        assert!(report.reasons.iter().any(|r| r.contains("Superou")));
+        assert!(report.delta > 0);
     }
 
     fn sample_driver(motivation: f64, personality: Option<PrimaryPersonality>) -> Driver {

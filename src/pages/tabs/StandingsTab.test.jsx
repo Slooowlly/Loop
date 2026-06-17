@@ -407,11 +407,56 @@ describe("StandingsTab", () => {
     expect(screen.getByText("Maya Sun / -")).toHaveClass("whitespace-nowrap");
     expect(screen.queryByText(/Ã/)).not.toBeInTheDocument();
     expect(screen.queryByText("REBAIXAMENTO ↓")).not.toBeInTheDocument();
-    expect(screen.getByText("BMW Academy").closest("[data-relegation-zone]")).toHaveAttribute(
+    // Apenas a última equipe da classe é rebaixada (1 por classe), não as 3 últimas.
+    expect(screen.getByText("BMW South").closest("[data-relegation-zone]")).toHaveAttribute(
       "data-relegation-zone",
       "true",
     );
+    expect(screen.getByText("BMW Academy").closest("[data-relegation-zone]")).toBeNull();
+    expect(screen.getByText("BMW North").closest("[data-relegation-zone]")).toBeNull();
     expect(screen.getByText("BMW Works").closest("[data-relegation-zone]")).toBeNull();
+  });
+
+  it("relegates one team per GT class but never relegates LMP2 in endurance", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "endurance" },
+    };
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      if (command === "get_teams_standings") {
+        return [
+          specialTeam({ id: "LMP2A", nome: "LMP2 Alpha", classe: "lmp2", pontos: 100, piloto1: "A", piloto2: "B" }),
+          specialTeam({ id: "LMP2B", nome: "LMP2 Beta", classe: "lmp2", pontos: 80, piloto1: "C", piloto2: "D" }),
+          specialTeam({ id: "GT3A", nome: "GT3 Alpha", classe: "gt3", pontos: 100, piloto1: "E", piloto2: "F" }),
+          specialTeam({ id: "GT3B", nome: "GT3 Beta", classe: "gt3", pontos: 80, piloto1: "G", piloto2: "H" }),
+          specialTeam({ id: "GT4A", nome: "GT4 Alpha", classe: "gt4", pontos: 100, piloto1: "I", piloto2: "J" }),
+          specialTeam({ id: "GT4B", nome: "GT4 Beta", classe: "gt4", pontos: 80, piloto1: "K", piloto2: "L" }),
+        ];
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+    await screen.findByText("LMP2 Alpha");
+
+    // LMP2 é fixa: nenhuma equipe rebaixada, nem a última.
+    expect(screen.getByText("LMP2 Alpha").closest("[data-relegation-zone]")).toBeNull();
+    expect(screen.getByText("LMP2 Beta").closest("[data-relegation-zone]")).toBeNull();
+    // GT3 e GT4 rebaixam exatamente a última equipe da classe.
+    expect(screen.getByText("GT3 Beta").closest("[data-relegation-zone]")).toHaveAttribute(
+      "data-relegation-zone",
+      "true",
+    );
+    expect(screen.getByText("GT3 Alpha").closest("[data-relegation-zone]")).toBeNull();
+    expect(screen.getByText("GT4 Beta").closest("[data-relegation-zone]")).toHaveAttribute(
+      "data-relegation-zone",
+      "true",
+    );
+    expect(screen.getByText("GT4 Alpha").closest("[data-relegation-zone]")).toBeNull();
   });
 
   it("keeps normal team driver names readable when a seat has no assigned driver", async () => {

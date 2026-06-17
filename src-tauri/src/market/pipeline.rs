@@ -8,10 +8,23 @@ use crate::constants::categories::{
     get_all_categories, get_category_config, get_feeder_categories, runs_in_special_phase,
     uses_regular_contracts,
 };
+use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
 use crate::evolution::rookies::generate_rookies;
+
+// Contadores de preenchimento de emergencia (escassez na escada fechada). Lidos
+// pelo harness sim_stats. Custo despresivel: dois atomics por finalize.
+pub static EMERGENCY_PROMOTIONS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+pub static EMERGENCY_ROOKIES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+/// Caminho de cada promoção de emergência: (tier de origem do piloto, tier da
+/// vaga). Mostra de onde vem (feeder) e pra onde vai (a escassez).
+pub static EMERGENCY_PROMO_PATHS: std::sync::Mutex<Vec<(u8, u8)>> =
+    std::sync::Mutex::new(Vec::new());
+
 use crate::generators::ids::{next_id, IdType};
 use crate::market::driver_ai::evaluate_proposal;
 use crate::market::evaluation::{estimate_expected_position, evaluate_driver_performance};
@@ -31,6 +44,11 @@ use crate::models::license::{
     repair_missing_licenses_for_current_categories, required_license_for_division,
 };
 use crate::models::team::TeamHierarchyClimate;
+
+/// Instrumentação do harness de estatística: contadores de preenchimento de
+/// emergência da escada fechada — promoções concedidas sem mérito por escassez,
+/// e rookies gerados sem feeder. Incrementados onde essa lógica ocorre; lidos
+/// pelo Monte Carlo em sim_stats. (Declaração mínima; ligar os incrementos.)
 
 #[derive(Debug, Clone)]
 struct DriverMarketContext {
@@ -351,6 +369,12 @@ pub fn fill_all_remaining_vacancies(
 ) -> Result<(), String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao carregar equipes para preenchimento final: {e}"))?;
+    let debut_year = get_season_by_number(conn, new_season_number)?
+        .map(|season| season.ano)
+        .unwrap_or_else(|| Local::now().year());
+    let fillable = |vacancy: &Vacancy| {
+        is_regular_vacancy(vacancy) && is_category_active_in_year(&vacancy.categoria, debut_year)
+    };
 
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
@@ -362,10 +386,7 @@ pub fn fill_all_remaining_vacancies(
             .collect();
 
         sync_team_slots(conn, &teams, &current_by_id)?;
-        let vacancies = find_vacancies(conn)?;
-
-        // Filtra apenas vagas de categorias regulares (evita slots de convidados/especiais se houver)
-        let regular_vacancies: Vec<_> = vacancies.into_iter().filter(is_regular_vacancy).collect();
+        let regular_vacancies: Vec<_> = find_vacancies(conn)?.into_iter().filter(fillable).collect();
 
         if regular_vacancies.is_empty() {
             break;
@@ -375,8 +396,8 @@ pub fn fill_all_remaining_vacancies(
         fill_remaining_vacancies_with_rookies(conn, &teams, new_season_number, &mut report, rng)?;
 
         // Se após tentar preencher ainda persistirem as mesmas vagas (ex: erro na geração), quebra para evitar loop infinito
-        let final_vacancies = find_vacancies(conn)?;
-        if final_vacancies.len() >= regular_vacancies.len() {
+        let final_vacancies = find_vacancies(conn)?.into_iter().filter(fillable).count();
+        if final_vacancies >= regular_vacancies.len() {
             break;
         }
     }
@@ -1035,6 +1056,7 @@ fn fill_remaining_vacancies_with_rookies(
         let vacancies: Vec<_> = find_vacancies(conn)?
             .into_iter()
             .filter(is_regular_vacancy)
+            .filter(|vacancy| is_category_active_in_year(&vacancy.categoria, debut_year))
             .collect();
         if vacancies.is_empty() {
             break;
@@ -1094,7 +1116,9 @@ fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
-            if is_real_career_debut_category(&vacancy.categoria) {
+            if is_real_career_debut_category(&vacancy.categoria)
+                || is_entry_category_for_year(&vacancy.categoria, debut_year)
+            {
                 let rookie = generate_and_sign_rookie_for_vacancy(
                     conn,
                     &vacancy,
@@ -1189,10 +1213,98 @@ fn fill_remaining_vacancies_with_rookies(
                 break;
             }
 
-            // Vaga não-estreia sem pool nem candidato na categoria de baixo: deixa
-            // em aberto em vez de abortar a temporada. No modelo fechado (grids
-            // cheios desde o genesis) isso não ocorre; só acontece em mundos
-            // artificialmente esparsos (ex.: fixtures de teste com grids vazios).
+            // Escassez numa vaga REGULAR de categoria superior, sem candidato
+            // meritorio. Deixar o assento vazio violaria a invariante de grid
+            // (validate_and_normalize_team_hierarchies aborta a temporada). As
+            // categorias especiais (endurance/production) NAO entram aqui.
+            if is_special_vacancy {
+                continue;
+            }
+
+            if let Some(candidate) = best_feeder_promotion_candidate(
+                &vacancy,
+                &current_by_id,
+                &market_contexts,
+                &license_levels,
+                None,
+            ) {
+                for contract in contract_queries::get_all_active_regular_contracts(conn)
+                    .map_err(|e| {
+                        format!("Falha ao carregar contrato do promovido (emergencia): {e}")
+                    })?
+                    .into_iter()
+                    .filter(|contract| contract.piloto_id == candidate.id)
+                {
+                    contract_queries::update_contract_status(
+                        conn,
+                        &contract.id,
+                        &ContractStatus::Rescindido,
+                    )
+                    .map_err(|e| {
+                        format!("Falha ao rescindir contrato do promovido (emergencia): {e}")
+                    })?;
+                }
+                grant_driver_license_for_division_if_needed(
+                    conn,
+                    &candidate.id,
+                    &vacancy.categoria,
+                    vacancy.classe.as_deref(),
+                )?;
+                sign_driver_to_team(
+                    conn,
+                    &candidate,
+                    &vacancy,
+                    new_season_number,
+                    calculate_fallback_salary(&vacancy, &candidate),
+                    1,
+                    vacancy.papel_necessario.clone(),
+                )?;
+                report.new_signings.push(SigningInfo {
+                    driver_id: candidate.id.clone(),
+                    driver_name: candidate.nome.clone(),
+                    team_id: vacancy.team_id.clone(),
+                    team_name: vacancy.team_name.clone(),
+                    categoria: vacancy.categoria.clone(),
+                    papel: vacancy.papel_necessario.as_str().to_string(),
+                    tipo: "promocao_emergencia".to_string(),
+                });
+                EMERGENCY_PROMOTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let from_tier = candidate
+                    .categoria_atual
+                    .as_deref()
+                    .and_then(get_category_config)
+                    .map(|c| c.tier)
+                    .unwrap_or(99);
+                let to_tier = get_category_config(&vacancy.categoria)
+                    .map(|c| c.tier)
+                    .unwrap_or(99);
+                if let Ok(mut paths) = EMERGENCY_PROMO_PATHS.lock() {
+                    paths.push((from_tier, to_tier));
+                }
+                filled_any = true;
+                break;
+            }
+
+            let rookie = generate_and_sign_rookie_for_vacancy(
+                conn,
+                &vacancy,
+                new_season_number,
+                debut_year,
+                rng,
+            )?;
+            report.rookies_placed += 1;
+            report.new_signings.push(SigningInfo {
+                driver_id: rookie.id.clone(),
+                driver_name: rookie.nome.clone(),
+                team_id: vacancy.team_id.clone(),
+                team_name: vacancy.team_name.clone(),
+                categoria: vacancy.categoria.clone(),
+                papel: vacancy.papel_necessario.as_str().to_string(),
+                tipo: "rookie_emergencia".to_string(),
+            });
+            EMERGENCY_ROOKIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            filled_any = true;
+            break;
         }
 
         if !filled_any {
@@ -1389,6 +1501,15 @@ fn swap_contract_seats(
     Ok(())
 }
 
+/// Categoria de ENTRADA da escada num ano: ativa e com nenhuma feeder ativa ainda
+/// (a de menor tier existente). É onde nascem novos pilotos da época.
+fn is_entry_category_for_year(categoria: &str, year: i32) -> bool {
+    is_category_active_in_year(categoria, year)
+        && get_feeder_categories(categoria)
+            .iter()
+            .all(|feeder| !is_category_active_in_year(feeder, year))
+}
+
 /// Melhor candidato a PROMOÇÃO para uma vaga não-estreia (escada por MÉRITO).
 ///
 /// Piloto ativo (não-jogador) atualmente numa categoria que alimenta a vaga
@@ -1569,6 +1690,8 @@ fn calculate_fallback_salary(vacancy: &Vacancy, driver: &Driver) -> f64 {
         2 => 35_000.0,
         3 => 70_000.0,
         4 => 120_000.0,
+        5 => 180_000.0,
+        6 => 210_000.0,
         _ => 50_000.0,
     };
     (tier_base * (driver.atributos.skill / 75.0).max(0.7)).max(5_000.0)
@@ -2415,6 +2538,10 @@ mod tests {
     fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
         let conn = Connection::open_in_memory().expect("in-memory db");
         migrations::run_all(&conn).expect("schema");
+        // Ano jogável: gt3 não é categoria de entrada (seu feeder gt4 já existe),
+        // então a vaga sem candidato fica aberta em vez de gerar um rookie.
+        season_queries::insert_season(&conn, &Season::new("S002".to_string(), 2, 2025))
+            .expect("season");
 
         let mut team_rng = StdRng::seed_from_u64(621);
         let team = sample_team("gt3", "T910", &mut team_rng);
@@ -2461,22 +2588,18 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(622);
 
-        // Modelo fechado tolerante: vaga não-estreia sem candidato (sem pool e sem
-        // categoria feeder abaixo povoada) fica EM ABERTO — não fabrica piloto do
-        // nada nem aborta a temporada.
+        // Vaga não-estreia sem candidato (sem pool e sem feeder elegível): o fill
+        // não aborta a temporada e completa o grid pelo fallback de emergência. O
+        // essencial é não travar nem deixar o grid quebrado.
         fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
-            .expect("fill deve tolerar vaga sem candidato sem abortar");
-        let driver_count = driver_queries::count_drivers(&conn).expect("driver count");
+            .expect("fill deve concluir sem abortar mesmo sem candidato");
 
-        // Nenhum piloto novo foi fabricado para a vaga não-estreia.
-        assert_eq!(driver_count, 1);
-        // A vaga do GT3 permanece aberta (não há piloto elegível para promover).
         assert!(
-            find_vacancies(&conn)
+            !find_vacancies(&conn)
                 .expect("vacancies")
                 .into_iter()
                 .any(|vacancy| is_regular_vacancy(&vacancy)),
-            "a vaga nao-preenchivel deve permanecer aberta"
+            "o grid deve terminar completo (sem vaga regular aberta)"
         );
     }
 

@@ -58,7 +58,10 @@ fn age_bucket(age: i32) -> &'static str {
         21..=24 => "21-24",
         25..=28 => "25-28",
         29..=32 => "29-32",
-        _ => "33+",
+        33..=36 => "33-36",
+        37..=39 => "37-39",
+        40..=42 => "40-42",
+        _ => "43+",
     }
 }
 
@@ -283,6 +286,58 @@ fn tier_of(cat: &str) -> u8 {
         .unwrap_or(99)
 }
 
+/// Rótulo do tier (nível) para o relatório de funil de carreira.
+fn tier_label(tier: u8) -> &'static str {
+    match tier {
+        0 => "Rookie",
+        1 => "Amador",
+        2 => "Pro",
+        3 => "Super Pro",
+        4 => "Master",
+        5 => "Elite (LMP2)",
+        6 => "Endurance",
+        _ => "?",
+    }
+}
+
+/// Banda pelo PICO de habilidade na carreira (o quão bom o piloto chegou a ser).
+fn skill_band_of(overall: f64) -> &'static str {
+    if overall >= 65.0 {
+        "Elite (65+)"
+    } else if overall >= 57.0 {
+        "Bom (57-65)"
+    } else {
+        "Comum (<57)"
+    }
+}
+
+/// Categoria atual de cada piloto da IA ativo (id → categoria).
+fn snapshot_driver_categories(db_path: &Path) -> HashMap<String, String> {
+    let db = Database::open_existing(db_path).expect("db");
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT id, COALESCE(categoria_atual, '') FROM drivers \
+             WHERE is_jogador = 0 AND status != 'Aposentado'",
+        )
+        .expect("prepare categories");
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .expect("query categories");
+    rows.filter_map(Result::ok).collect()
+}
+
+/// Trajetória de carreira por tier de um piloto dentro de uma run.
+struct CareerTrack {
+    first_season: usize,
+    started_rookie: bool,
+    peak_tier: u8,
+    /// Maior habilidade (overall) observada na carreira — proxy de "quão bom ficou".
+    peak_skill: f64,
+    /// Primeira temporada (índice) em que alcançou cada tier.
+    reached_at: [Option<usize>; 7],
+}
+
 // ── Helpers de ciclo de temporada (não-assertivos) ────────────────────────────
 
 fn career_db_path(base_dir: &Path) -> PathBuf {
@@ -383,6 +438,10 @@ struct Totals {
     // Duração de carreira ao aposentar
     retire_career_len_sum: u64,
     retire_career_len_n: u64,
+    // #2: perfil de quem larga por falta de motivacao (talento desperdicado?)
+    motiv_retire_n: u64,
+    motiv_retire_overall_sum: f64,
+    motiv_retire_good: u64,
 
     // ── Equipes ──
     team_seasons: u64,
@@ -414,6 +473,17 @@ struct Totals {
     episodes_self_rescued: u64, // salvaram-se no all-in, sem venda
     episodes_sold: u64,         // precisaram ser vendidas
     ownership_events_recorded: u64, // linhas em team_ownership_events (verificação)
+
+    // ── Funil de carreira (cohort que começou no rookie, tier 0) ──
+    rookie_cohort: u64,
+    // Por tier de destino (1..=6): quantos chegaram (peak >= t) e soma de temporadas até chegar
+    reached_tier: [u64; 7],
+    time_to_tier_sum: [u64; 7],
+    time_to_tier_n: [u64; 7],
+    // Impacto do talento: cohort por faixa de habilidade inicial → [n, soma_peak_tier, chegaram_elite(t>=5)]
+    skill_band: BTreeMap<&'static str, [u64; 3]>,
+    // Aposentadorias por tier (de onde abrem vagas) — contexto p/ emergência
+    retire_by_tier: [u64; 7],
 }
 
 /// Trajetória de um piloto dentro de uma run: primeiro e último overall observados.
@@ -485,6 +555,11 @@ fn monte_carlo() {
     println!("Threshold de estagnação: ±{STAGNATION_THRESHOLD} pts (média de {} atributos)\n", CORE_ATTRS.len());
 
     let mut t = Totals::default();
+    crate::market::pipeline::EMERGENCY_PROMOTIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+    crate::market::pipeline::EMERGENCY_ROOKIES.store(0, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut paths) = crate::market::pipeline::EMERGENCY_PROMO_PATHS.lock() {
+        paths.clear();
+    }
     let start = Instant::now();
 
     for run in 0..runs {
@@ -511,6 +586,8 @@ fn monte_carlo() {
         let mut last_after: HashMap<String, DriverSnap> = HashMap::new();
         // Trajetória financeira por equipe nesta run (para medir recuperação)
         let mut team_states: HashMap<String, TeamStateTrack> = HashMap::new();
+        // Trajetória de tier (carreira) por piloto nesta run
+        let mut careers: HashMap<String, CareerTrack> = HashMap::new();
 
         for season in 0..seasons {
             // Snapshot ANTES da temporada
@@ -627,6 +704,27 @@ fn monte_carlo() {
             last_after = after.clone();
             let inj_after = snapshot_injuries(&db_path);
 
+            // ── Funil de carreira: tier de cada piloto pós-promoção ──
+            for (id, categoria) in snapshot_driver_categories(&db_path) {
+                let tier = tier_of(&categoria);
+                if tier > 6 {
+                    continue; // categoria desconhecida
+                }
+                let overall = after.get(&id).map(|s| s.overall).unwrap_or(0.0);
+                let track = careers.entry(id).or_insert_with(|| CareerTrack {
+                    first_season: season,
+                    started_rookie: tier == 0,
+                    peak_tier: tier,
+                    peak_skill: overall,
+                    reached_at: [None; 7],
+                });
+                track.peak_tier = track.peak_tier.max(tier);
+                track.peak_skill = track.peak_skill.max(overall);
+                if track.reached_at[tier as usize].is_none() {
+                    track.reached_at[tier as usize] = Some(season);
+                }
+            }
+
             // ── Lesões geradas nesta temporada ──
             let mut injured_pilots: HashSet<String> = HashSet::new();
             let mut leve = 0u64;
@@ -692,10 +790,21 @@ fn monte_carlo() {
             for r in &result.retirements {
                 t.retire_age_sum += r.age.max(0) as u64;
                 *t.retire_reasons.entry(r.reason.clone()).or_insert(0) += 1;
+                let rt = r.categoria.as_deref().map(tier_of).unwrap_or(99);
+                if rt <= 6 {
+                    t.retire_by_tier[rt as usize] += 1;
+                }
                 // Duração de carreira observada nesta simulação (temporadas vistas)
                 if let Some(tr) = traj.get(&r.driver_id) {
                     t.retire_career_len_sum += tr.seasons_seen as u64;
                     t.retire_career_len_n += 1;
+                    if r.reason.contains("falta de motivacao") {
+                        t.motiv_retire_n += 1;
+                        t.motiv_retire_overall_sum += tr.last_overall;
+                        if tr.last_overall >= 60.0 {
+                            t.motiv_retire_good += 1;
+                        }
+                    }
                 }
             }
             t.retire_rate_samples
@@ -777,6 +886,30 @@ fn monte_carlo() {
             // "Preso": colapsou e terminou a simulação ainda em colapso
             if track.final_state_rank == state_rank("collapse") {
                 t.teams_stuck += 1;
+            }
+        }
+
+        // Consolida o funil de carreira do cohort que começou no rookie.
+        for track in careers.values() {
+            if !track.started_rookie {
+                continue;
+            }
+            t.rookie_cohort += 1;
+            let band = skill_band_of(track.peak_skill);
+            let entry = t.skill_band.entry(band).or_insert([0; 3]);
+            entry[0] += 1;
+            entry[1] += track.peak_tier as u64;
+            if track.peak_tier >= 5 {
+                entry[2] += 1;
+            }
+            for tier in 1..=6usize {
+                if track.peak_tier as usize >= tier {
+                    t.reached_tier[tier] += 1;
+                }
+                if let Some(reached) = track.reached_at[tier] {
+                    t.time_to_tier_sum[tier] += reached.saturating_sub(track.first_season) as u64;
+                    t.time_to_tier_n[tier] += 1;
+                }
             }
         }
 
@@ -948,6 +1081,15 @@ fn monte_carlo() {
     for (reason, count) in &t.retire_reasons {
         println!("    {:<28} {:>4}  ({:.1}%)", reason, count, pct(*count, t.retirements));
     }
+    if t.motiv_retire_n > 0 {
+        println!(
+            "  Perfil de quem largou por MOTIVACAO: overall medio {:.1} | 'bons' (>=60): {} de {} ({:.1}%)",
+            t.motiv_retire_overall_sum / t.motiv_retire_n as f64,
+            t.motiv_retire_good,
+            t.motiv_retire_n,
+            pct(t.motiv_retire_good, t.motiv_retire_n)
+        );
+    }
 
     println!("\n■ PROMOÇÃO / REBAIXAMENTO (pilotos, % sobre pilotos-temporada)");
     println!(
@@ -1098,6 +1240,106 @@ fn monte_carlo() {
             a[3],
             a[1]
         );
+    }
+
+    // ── FUNIL DE CARREIRA ───────────────────────────────────────────────────
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  FUNIL DE CARREIRA — pilotos que começaram no Rookie          ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!("  Cohort (estrearam no tier 0 / Rookie): {}", t.rookie_cohort);
+    println!("\n  Tier alcançado          | % do cohort | tempo médio p/ chegar");
+    println!("  ------------------------+-------------+----------------------");
+    for tier in 1..=6usize {
+        let reached = t.reached_tier[tier];
+        let avg_time = if t.time_to_tier_n[tier] > 0 {
+            format!("{:.1} temporadas", t.time_to_tier_sum[tier] as f64 / t.time_to_tier_n[tier] as f64)
+        } else {
+            "—".to_string()
+        };
+        println!(
+            "  {:<2} {:<20} | {:>9.1}% | {}",
+            tier,
+            tier_label(tier as u8),
+            pct(reached, t.rookie_cohort),
+            avg_time
+        );
+    }
+
+    println!("\n  ■ Impacto do talento (PICO de habilidade na carreira → topo atingido)");
+    println!("    pico de skill    |   n  | tier médio | % que chega ao topo (5+)");
+    println!("    -----------------+------+------------+-------------------------");
+    for band in ["Elite (65+)", "Bom (57-65)", "Comum (<57)"] {
+        if let Some(a) = t.skill_band.get(band) {
+            if a[0] == 0 {
+                continue;
+            }
+            println!(
+                "    {:<16} | {:>4} | {:>10.2} | {:.1}%",
+                band,
+                a[0],
+                a[1] as f64 / a[0] as f64,
+                pct(a[2], a[0])
+            );
+        }
+    }
+    println!("\n  (Nota: corridas longas dão mais tempo de carreira — rode com IRACER_MC_SEASONS alto)");
+
+    let em_promo =
+        crate::market::pipeline::EMERGENCY_PROMOTIONS.load(std::sync::atomic::Ordering::Relaxed);
+    let em_rookie =
+        crate::market::pipeline::EMERGENCY_ROOKIES.load(std::sync::atomic::Ordering::Relaxed);
+    println!("\n[ PREENCHIMENTO DE EMERGENCIA (escassez na escada fechada) ]");
+    println!("  Promocoes de emergencia (ignora merito): {em_promo}");
+    println!("  Rookies de emergencia (sem feeder):      {em_rookie}");
+    println!(
+        "  Total de disparos em {} ciclos: {}",
+        runs * seasons,
+        em_promo + em_rookie
+    );
+
+    // PRA ONDE: tier da vaga que a emergência preencheu (onde a escassez bate);
+    // DE ONDE: tier do feeder de onde o piloto foi promovido.
+    let paths: Vec<(u8, u8)> = crate::market::pipeline::EMERGENCY_PROMO_PATHS
+        .lock()
+        .map(|p| p.clone())
+        .unwrap_or_default();
+    if !paths.is_empty() {
+        let mut by_to: BTreeMap<u8, u64> = BTreeMap::new();
+        let mut gaps: BTreeMap<i32, u64> = BTreeMap::new(); // (to_tier - from_tier)
+        for (from, to) in &paths {
+            *by_to.entry(*to).or_insert(0) += 1;
+            *gaps.entry(*to as i32 - *from as i32).or_insert(0) += 1;
+        }
+        println!("\n  PRA ONDE vai a promoção de emergência (tier da vaga):");
+        for (to, n) in &by_to {
+            println!(
+                "    → {:<14} {:>4}  ({:.1}%)",
+                tier_label(*to),
+                n,
+                pct(*n, paths.len() as u64)
+            );
+        }
+        println!("  DE ONDE vem o piloto (salto de tiers feeder→vaga):");
+        for (gap, n) in &gaps {
+            println!("    {} tier(s) abaixo: {:>4}  ({:.1}%)", gap, n, pct(*n, paths.len() as u64));
+        }
+    }
+
+    let retire_total: u64 = t.retire_by_tier.iter().sum();
+    if retire_total > 0 {
+        println!("\n  DE ONDE abrem as vagas — aposentadorias por tier:");
+        for tier in 0..=6usize {
+            let n = t.retire_by_tier[tier];
+            if n == 0 {
+                continue;
+            }
+            println!(
+                "    {:<14} {:>5}  ({:.1}%)",
+                tier_label(tier as u8),
+                n,
+                pct(n, retire_total)
+            );
+        }
     }
 
     println!(

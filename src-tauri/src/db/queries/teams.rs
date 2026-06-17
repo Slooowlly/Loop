@@ -137,6 +137,15 @@ pub fn get_all_teams(conn: &Connection) -> Result<Vec<Team>, DbError> {
     Ok(teams)
 }
 
+/// Limpa `categoria_anterior` de todas as equipes. Chamado no início de cada
+/// ciclo de promoção/rebaixamento para que o campo reflita apenas os movimentos
+/// da temporada atual — caso contrário o badge de movimento na pré-temporada (e
+/// os ajustes de car build / pit) acumulariam temporadas passadas.
+pub fn clear_all_categoria_anterior(conn: &Connection) -> Result<(), DbError> {
+    conn.execute("UPDATE teams SET categoria_anterior = NULL", [])?;
+    Ok(())
+}
+
 /// Temporadas consecutivas em colapso financeiro de uma equipe (0 se não houver
 /// registro). Suporta o evento de venda/nova diretoria.
 pub fn get_collapse_streak(conn: &Connection, team_id: &str) -> Result<i32, DbError> {

@@ -29,6 +29,44 @@ pub fn normalize_car_performance(car_performance: f64) -> f64 {
     ((car_performance + 5.0) / 21.0 * 100.0).clamp(0.0, 100.0)
 }
 
+/// Valor de car_performance "spec" usado nas categorias rookie: todos os carros
+/// são idênticos (peças padrão), removendo qualquer vantagem de carro para que o
+/// resultado dependa de talento + sorte. O valor absoluto é neutro (some igual a
+/// todos os pilotos) — só precisa ser estável.
+pub const ROOKIE_SPEC_CAR_PERFORMANCE: f64 = 2.0;
+
+/// Base da categoria, ignorando a classe (ex.: "endurance:gt3" -> "endurance").
+fn category_base(category_id: &str) -> &str {
+    category_id.split(':').next().unwrap_or(category_id)
+}
+
+/// `car_performance` efetivo na simulação para a categoria. Categorias spec
+/// (rookie) usam um valor fixo (carros idênticos); as demais usam o valor real
+/// da equipe. Pilar A do redesign carro/dinastias.
+pub fn category_car_performance(category_id: &str, car_performance: f64) -> f64 {
+    match category_base(category_id) {
+        "mazda_rookie" | "toyota_rookie" => ROOKIE_SPEC_CAR_PERFORMANCE,
+        _ => car_performance,
+    }
+}
+
+/// Multiplicador do peso do carro por categoria. Rookie quase não depende do
+/// carro (talento decide); as categorias de topo dependem muito mais. O delta
+/// é redistribuído aos atributos de piloto pelo chamador (mantendo a soma dos
+/// pesos = 1.0). Pilar A do redesign carro/dinastias.
+pub fn car_weight_scale(category_id: &str) -> f64 {
+    match category_base(category_id) {
+        "mazda_rookie" | "toyota_rookie" => 0.15,
+        "mazda_amador" | "toyota_amador" => 0.50,
+        "bmw_m2" => 0.70,
+        "gt4" => 1.00,
+        "gt3" => 1.30,
+        "production_challenger" => 1.40,
+        "lmp2" | "endurance" => 1.60,
+        _ => 1.00,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +107,33 @@ mod tests {
     fn test_normalize_car_performance_clamps() {
         assert_eq!(normalize_car_performance(-10.0), 0.0);
         assert_eq!(normalize_car_performance(100.0), 100.0);
+    }
+
+    #[test]
+    fn test_rookie_car_is_spec_regardless_of_team_value() {
+        // Dois carros bem diferentes na rookie viram o mesmo valor spec.
+        assert_eq!(category_car_performance("mazda_rookie", 12.0), ROOKIE_SPEC_CAR_PERFORMANCE);
+        assert_eq!(category_car_performance("toyota_rookie", -4.0), ROOKIE_SPEC_CAR_PERFORMANCE);
+        assert_eq!(
+            category_car_performance("mazda_rookie", 12.0),
+            category_car_performance("mazda_rookie", -4.0),
+        );
+    }
+
+    #[test]
+    fn test_non_rookie_car_passes_through() {
+        assert_eq!(category_car_performance("gt3", 9.5), 9.5);
+        assert_eq!(category_car_performance("endurance:gt3", 14.0), 14.0);
+        assert_eq!(category_car_performance("mazda_amador", 7.0), 7.0);
+    }
+
+    #[test]
+    fn test_car_weight_scale_low_for_rookie_high_for_top() {
+        assert!(car_weight_scale("mazda_rookie") < 0.25, "rookie deve ter peso de carro baixo");
+        assert!(car_weight_scale("endurance") > 1.3, "endurance deve ter peso de carro alto");
+        assert!(car_weight_scale("endurance:gt3") > 1.3, "classe de endurance herda o peso alto");
+        assert!(car_weight_scale("production_challenger") > 1.0);
+        assert!(car_weight_scale("mazda_rookie") < car_weight_scale("mazda_amador"));
+        assert!(car_weight_scale("gt4") < car_weight_scale("gt3"));
     }
 }

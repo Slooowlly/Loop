@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::constants::scoring::QUALI_SCORE_TO_LAP_MS;
 
 use super::context::{SimDriver, SimulationContext};
-use super::math::{adjusted_weather_multiplier, normalize_car_performance};
+use super::math::{
+    adjusted_weather_multiplier, car_weight_scale, category_car_performance,
+    normalize_car_performance,
+};
 use super::track_profile::TrackCharacter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,14 +40,26 @@ pub fn simulate_qualifying(
     ctx: &SimulationContext,
     rng: &mut impl Rng,
 ) -> Vec<QualifyingResult> {
-    let (w_skill, w_ritmo, w_car, w_adapt) = qual_weights(ctx.track_character);
+    // Peso do carro escalado por categoria (rookie baixo, topo alto), com o delta
+    // redistribuído nos pesos de piloto (soma = 1.0). Pilar A do redesign.
+    let (base_skill, base_ritmo, base_car, base_adapt) = qual_weights(ctx.track_character);
+    let car_scale = car_weight_scale(&ctx.category_id);
+    let new_car = base_car * car_scale;
+    let non_car = base_skill + base_ritmo + base_adapt;
+    let factor = if non_car > 0.0 { (non_car + (base_car - new_car)) / non_car } else { 1.0 };
+    let (w_skill, w_ritmo, w_car, w_adapt) =
+        (base_skill * factor, base_ritmo * factor, new_car, base_adapt * factor);
 
     let mut results: Vec<QualifyingResult> = drivers
         .iter()
         .map(|driver| {
+            let car_norm = normalize_car_performance(category_car_performance(
+                &ctx.category_id,
+                driver.car_performance,
+            ));
             let mut score = driver.skill as f64 * w_skill
                 + driver.ritmo_classificacao as f64 * w_ritmo
-                + normalize_car_performance(driver.car_performance) * w_car
+                + car_norm * w_car
                 + driver.adaptabilidade as f64 * w_adapt;
 
             // Chuva com sensibilidade do contexto (fórmula canônica)

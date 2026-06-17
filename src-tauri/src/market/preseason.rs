@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::calendar::display_date_for_season_week;
 use crate::constants::categories::uses_regular_contracts;
+use crate::constants::historical_timeline::is_team_active_in_year;
 use crate::constants::timeline::MARKET_DURATION_WEEKS;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
@@ -243,6 +244,13 @@ pub fn initialize_preseason(
 ) -> Result<PreSeasonPlan, String> {
     let season_id = get_season_id_by_number(conn, season_number)?
         .ok_or_else(|| format!("Temporada {season_number} nao encontrada"))?;
+    let season_year: i32 = conn
+        .query_row(
+            "SELECT ano FROM seasons WHERE id = ?1",
+            rusqlite::params![&season_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Falha ao buscar ano da temporada {season_number}: {e}"))?;
     reset_market_state(conn, &season_id, &PreSeasonPhase::ContractExpiry)?;
     repair_missing_licenses_for_current_categories(conn)?;
     assign_seasonal_team_attributes(conn, season_number, &season_id)?;
@@ -410,6 +418,7 @@ pub fn initialize_preseason(
         &original_teams_by_id,
         &temp_drivers_by_id,
         current_week,
+        season_year,
     );
     if hierarchy_events.is_empty() {
         planned_events.push(PlannedEvent {
@@ -1039,10 +1048,16 @@ fn build_hierarchy_events(
     original_teams_by_id: &std::collections::HashMap<String, crate::models::team::Team>,
     temp_drivers_by_id: &std::collections::HashMap<String, Driver>,
     week: i32,
+    year: i32,
 ) -> Vec<PlannedEvent> {
     let mut events = Vec::new();
     for team in temp_teams {
         if !uses_regular_contracts(&team.categoria) {
+            continue;
+        }
+        // Times de categorias ainda inexistentes no ano (ex.: rookie antes de 2020)
+        // não têm lineup e não entram no UpdateHierarchy (ponto de entrada dinâmico).
+        if !is_team_active_in_year(team, year) {
             continue;
         }
         let changed = original_teams_by_id.get(&team.id).is_none_or(|current| {
@@ -1554,6 +1569,26 @@ fn execute_action(
             let (new_tensao, new_status) =
                 resolve_transition_values(&decision, *prev_tensao, prev_status.as_str());
 
+            // Robustez do ramp histórico (entrada dinâmica): se um piloto planejado não
+            // existe — foi gerado na simulação da pré-temporada e revertido pelo rollback
+            // sem ser reconstruído pelo plano (caso de borda de categorias recém-criadas) —
+            // pula a atualização deste time. Ele mantém o lineup atual (completo, do ciclo
+            // anterior) e o mercado do próximo ciclo regulariza. Evita o FK sem abortar.
+            let pilots_exist = [resolved_lineup.n1_id.as_str(), resolved_lineup.n2_id.as_str()]
+                .iter()
+                .all(|did| {
+                    conn.query_row(
+                        "SELECT 1 FROM drivers WHERE id = ?1",
+                        rusqlite::params![did],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map(|row| row.is_some())
+                    .unwrap_or(false)
+                });
+            if !pilots_exist {
+                return Ok(());
+            }
             team_queries::update_team_pilots(
                 conn,
                 team_id,

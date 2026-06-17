@@ -10,7 +10,10 @@ use super::context::{SimDriver, SimulationContext};
 use super::incidents::{
     process_segment_incidents, IncidentResult, IncidentSeverity, IncidentType, PendingDamage,
 };
-use super::math::{adjusted_weather_multiplier, normalize_car_performance};
+use super::math::{
+    adjusted_weather_multiplier, car_weight_scale, category_car_performance,
+    normalize_car_performance,
+};
 use super::qualifying::QualifyingResult;
 use super::track_profile::TrackCharacter;
 
@@ -492,6 +495,35 @@ fn segment_weights(segment: RaceSegment) -> SegmentWeights {
     }
 }
 
+/// Escala o peso do `car_performance` por um fator e redistribui o delta
+/// proporcionalmente aos demais pesos (de piloto), preservando a soma = 1.0.
+/// fator < 1 desloca influência do carro para o piloto (rookie); fator > 1
+/// aumenta a do carro (topo).
+fn scale_segment_car_weight(mut w: SegmentWeights, scale: f64) -> SegmentWeights {
+    let car = w.car_performance;
+    let new_car = car * scale;
+    let non_car_total = w.skill
+        + w.habilidade_largada
+        + w.racecraft
+        + w.gestao_pneus
+        + w.fitness
+        + w.mentalidade
+        + w.confianca;
+    if non_car_total > 0.0 {
+        // Tudo que sai (ou entra) no carro é redistribuído nos pesos de piloto.
+        let factor = (non_car_total + (car - new_car)) / non_car_total;
+        w.skill *= factor;
+        w.habilidade_largada *= factor;
+        w.racecraft *= factor;
+        w.gestao_pneus *= factor;
+        w.fitness *= factor;
+        w.mentalidade *= factor;
+        w.confianca *= factor;
+    }
+    w.car_performance = new_car;
+    w
+}
+
 fn calculate_segment_score(
     driver: &SimDriver,
     state: &RaceState,
@@ -499,11 +531,16 @@ fn calculate_segment_score(
     ctx: &SimulationContext,
     rng: &mut impl Rng,
 ) -> f64 {
-    let weights = segment_weights(segment);
+    // Peso do carro escalado por categoria (rookie baixo, topo alto); carro spec
+    // no rookie (todos idênticos). Pilar A do redesign carro/dinastias.
+    let car_scale = car_weight_scale(&ctx.category_id);
+    let weights = scale_segment_car_weight(segment_weights(segment), car_scale);
+    let car_norm =
+        normalize_car_performance(category_car_performance(&ctx.category_id, driver.car_performance));
     let mut score = driver.skill as f64 * weights.skill
         + driver.habilidade_largada as f64 * weights.habilidade_largada
         + driver.racecraft as f64 * weights.racecraft
-        + normalize_car_performance(driver.car_performance) * weights.car_performance
+        + car_norm * weights.car_performance
         + driver.gestao_pneus as f64 * weights.gestao_pneus
         + driver.fitness as f64 * weights.fitness
         + driver.mentalidade as f64 * weights.mentalidade
@@ -539,7 +576,7 @@ fn calculate_segment_score(
         TrackCharacter::Roval => (0.04, 0.03, -0.05),
     };
     score += driver.skill as f64 * char_skill_bias
-        + normalize_car_performance(driver.car_performance) * char_car_bias
+        + car_norm * char_car_bias * car_scale
         + driver.adaptabilidade as f64 * char_adapt_bias;
 
     // Comprime ou expande spread de habilidade (endurance = campo mais fechado, rookie = mais aberto)
@@ -969,6 +1006,52 @@ mod tests {
         }
 
         assert!(wins >= 35, "ace driver only won {} times", wins);
+    }
+
+    #[test]
+    fn test_pilar_a_car_decides_at_top_not_rookie() {
+        // Bom piloto / carro ruim  vs  piloto ruim / carro excelente.
+        let good_driver_bad_car = build_driver("SKILL", 85.0, 80.0, 75.0, 78.0, 0.0);
+        let bad_driver_top_car = build_driver("CAR", 65.0, 65.0, 65.0, 65.0, 16.0);
+        let grid = vec![good_driver_bad_car.clone(), bad_driver_top_car.clone()];
+
+        fn car_wins(grid: &[SimDriver], category: &str, car_id: &str) -> i32 {
+            let mut wins = 0;
+            for seed in 0..50 {
+                let mut rng = StdRng::seed_from_u64(seed);
+                let ctx = SimulationContext {
+                    category_id: category.to_string(),
+                    ..sample_context(35, WeatherCondition::Dry)
+                };
+                let q = simulate_qualifying(grid, &ctx, &mut rng);
+                let r = simulate_race(grid, &q, &ctx, &IncidentCatalog::empty(), false, &mut rng);
+                if r.winner_id == car_id {
+                    wins += 1;
+                }
+            }
+            wins
+        }
+
+        let rookie_car_wins = car_wins(&grid, "mazda_rookie", &bad_driver_top_car.id);
+        let endurance_car_wins = car_wins(&grid, "endurance", &bad_driver_top_car.id);
+
+        // Rookie: carro spec (idêntico) + peso baixo -> o piloto ruim quase nunca
+        // vence só pelo carro; o talento decide.
+        assert!(
+            rookie_car_wins <= 12,
+            "rookie: carro nao deveria decidir, mas venceu {rookie_car_wins}/50"
+        );
+        // Endurance: peso do carro alto -> o carro topo transforma o piloto ruim em
+        // vencedor frequente.
+        assert!(
+            endurance_car_wins >= 35,
+            "endurance: carro deveria dominar, mas venceu so {endurance_car_wins}/50"
+        );
+        // E o impacto do carro deve ser muito maior no topo do que no rookie.
+        assert!(
+            endurance_car_wins > rookie_car_wins + 20,
+            "impacto do carro deveria ser muito maior no topo (rookie={rookie_car_wins}, endurance={endurance_car_wins})"
+        );
     }
 
     #[test]

@@ -83,6 +83,12 @@ pub(crate) fn run_promotion_relegation_for_year(
         all_movements.extend(block2_movements);
         all_movements.extend(block3_movements);
 
+        // Zera a categoria de origem de todas as equipes antes de aplicar os
+        // movimentos desta temporada, para o badge de movimento da pré-temporada
+        // (e os ajustes de car build / pit) refletirem apenas quem se moveu agora,
+        // sem acumular rebaixamentos/promoções de temporadas anteriores.
+        team_queries::clear_all_categoria_anterior(conn)
+            .map_err(|e| format!("Falha ao limpar categoria anterior das equipes: {e}"))?;
         for movement in &all_movements {
             apply_team_category_change(conn, movement)?;
         }
@@ -672,6 +678,39 @@ mod tests {
 
         let driver = driver_queries::get_driver(&conn, "P901").expect("driver query after failure");
         assert_eq!(driver.categoria_atual.as_deref(), Some("mazda_rookie"));
+    }
+
+    #[test]
+    fn test_promotion_clears_stale_previous_category_for_teams_that_stay() {
+        let conn = setup_promotion_db();
+        let mut rng = StdRng::seed_from_u64(7);
+
+        // Simula um rebaixamento de temporada passada que ficou registrado no time.
+        let mut stable = team_queries::get_team_by_id(&conn, "MA5")
+            .expect("team query")
+            .expect("team exists");
+        stable.categoria_anterior = Some("bmw_m2".to_string());
+        team_queries::update_team(&conn, &stable).expect("seed stale previous category");
+
+        let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
+
+        // MA5 (meio de tabela) não se move nesta temporada: o campo precisa estar
+        // limpo para não exibir badge fantasma de movimento na pré-temporada.
+        let stable = team_queries::get_team_by_id(&conn, "MA5")
+            .expect("team query after promotion")
+            .expect("team exists");
+        assert_eq!(stable.categoria, "mazda_amador");
+        assert_eq!(stable.categoria_anterior, None);
+
+        // Quem realmente se moveu nesta temporada continua com a categoria de origem.
+        let moved = result.movements.first().expect("at least one movement");
+        let moved_team = team_queries::get_team_by_id(&conn, &moved.team_id)
+            .expect("moved team query")
+            .expect("moved team exists");
+        assert_eq!(
+            moved_team.categoria_anterior.as_deref(),
+            Some(moved.from_category.as_str())
+        );
     }
 
     #[test]

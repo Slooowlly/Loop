@@ -25,13 +25,17 @@ pub fn apply_age_decline(driver: &mut Driver, rng: &mut impl Rng) -> Vec<Attribu
     }
 
     let mut changes = Vec::new();
+    // Idade acima do plato (1 aos 33, 8 aos 40, 13+ depois): o declinio acelera
+    // perto e depois dos 40 em FREQUENCIA (mais atributos caem/ano) e MAGNITUDE.
+    let age_over = (driver.idade as f64 - 32.0).max(0.0);
+    let chance = (age_over * 0.11).min(0.95);
+    let age_factor = 1.0 + (age_over - 1.0).max(0.0) * 0.18;
     for (attribute, rate) in DECLINE_RATES {
-        let chance = (((driver.idade as i32 - 32) as f64) * 0.12).min(0.8);
         if rng.gen::<f64>() >= chance {
             continue;
         }
 
-        let decline = rng.gen_range(0.3..=1.5) * rate;
+        let decline = rng.gen_range(0.3..=1.5) * rate * age_factor;
         let current = get_attribute(driver, attribute);
         let new_value = (current - decline).max(0.0);
         if let Some(change) = build_change(driver, attribute, current, new_value) {

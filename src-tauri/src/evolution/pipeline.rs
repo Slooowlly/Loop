@@ -353,6 +353,18 @@ fn process_driver_evolution(
 
             let _decline_changes = apply_age_decline(driver, rng);
             let seasons_in_category = driver.temporadas_na_categoria as i32 + 1;
+            // Superou a maquina: terminou bem acima do que a forca do carro previa.
+            // Expectativa ~ (carros melhores na categoria) * 2 pilotos + 1.
+            let cars_ahead = teams_by_id
+                .values()
+                .filter(|team| {
+                    team.categoria == standing.category
+                        && team.car_performance > team_car_performance
+                })
+                .count() as i32;
+            let expected_position = cars_ahead * 2 + 1;
+            let outperformed_machinery =
+                standing.stats.posicao_campeonato + 3 <= expected_position;
             let motivation_ctx = MotivationContext {
                 was_champion: standing.position == 1,
                 was_promoted: false,
@@ -360,6 +372,7 @@ fn process_driver_evolution(
                 contract_renewed: false,
                 lost_seat: false,
                 seasons_in_category,
+                outperformed_machinery,
             };
             let motivation_report =
                 adjust_end_of_season_motivation(driver, &standing.stats, &motivation_ctx, rng);

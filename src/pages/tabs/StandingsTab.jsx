@@ -50,7 +50,18 @@ const SPECIAL_STANDING_GROUPS = {
   ],
 };
 
-const SPECIAL_TEAM_RELEGATION_COUNT = 3;
+// Categorias especiais movem exatamente uma equipe por classe por temporada
+// (production: bmw/toyota/mazda; endurance: gt4/gt3). LMP2 é fixa: não sobe nem
+// desce (ver promotion/block3.rs — ENDURANCE_PAIRS exclui lmp2).
+const NO_MOVEMENT_SPECIAL_CLASSES = new Set(["endurance:lmp2"]);
+
+function getSpecialClassRelegationCount(category, classId) {
+  if (NO_MOVEMENT_SPECIAL_CLASSES.has(`${category}:${classId}`)) {
+    return 0;
+  }
+  return 1;
+}
+
 const PROMOTION_ONLY_TEAM_ZONE_CATEGORIES = new Set([
   "mazda_rookie",
   "toyota_rookie",
@@ -575,13 +586,16 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
             {showSpecialPendingNotice ? (
               <SpecialPendingTeamsNotice />
             ) : specialClassGroups ? (
-              teamStandingSections.map((section) => (
+              teamStandingSections.map((section) => {
+                const relegationCount = getSpecialClassRelegationCount(viewCategory, section.id);
+                return (
                 <div key={`teams-${section.id}`} className="space-y-2">
                   <SpecialClassHeader section={section} />
                   {section.items.map((team, index) => {
                     const isRelegationZone =
-                      section.items.length > SPECIAL_TEAM_RELEGATION_COUNT
-                      && index >= section.items.length - SPECIAL_TEAM_RELEGATION_COUNT;
+                      relegationCount > 0
+                      && section.items.length > relegationCount
+                      && index >= section.items.length - relegationCount;
                     return (
                       <TeamStandingCard
                         key={team.id}
@@ -596,7 +610,8 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     );
                   })}
                 </div>
-              ))
+                );
+              })
             ) : (() => {
               const { promotionCount, relegationCount } = getZoneCutoffs(viewCategory);
               const total = teamStandings.length;
