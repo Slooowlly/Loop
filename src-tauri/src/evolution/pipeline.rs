@@ -4,7 +4,9 @@ use std::path::Path;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rusqlite::Connection;
 
-use crate::constants::categories::get_category_config;
+use crate::constants::categories::{
+    get_category_config, get_feeder_categories, runs_in_special_phase,
+};
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::seasons as season_queries;
@@ -24,11 +26,13 @@ use crate::evolution::season_transition::{
 use crate::evolution::standings::build_and_persist_standings;
 use crate::finance::prize::constructor_prize;
 use crate::finance::rescue::apply_team_sale;
+use crate::generators::ids::{next_id, IdType};
+use crate::models::license::required_license_for_division;
 use crate::finance::state::refresh_team_financial_state;
 use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
-use crate::models::enums::{DriverStatus, SeasonPhase};
+use crate::models::enums::{ContractStatus, DriverStatus, SeasonPhase};
 use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::promotion::pipeline::run_promotion_relegation_for_year;
@@ -396,7 +400,19 @@ fn process_driver_evolution(
 
         let retirement =
             check_retirement(driver, driver.temporadas_motivacao_baixa as i32, false, rng);
-        if retirement.should_retire {
+        // Retenção de lenda: se o piloto quer se aposentar mas é INSUBSTITUÍVEL (nenhum
+        // piloto licenciado da categoria de baixo o supera), o time o segura por +1 ano
+        // com salário maior. Adia a aposentadoria até surgir um substituto à altura
+        // (acontece naturalmente pela queda de idade). Só IA, fora do time do jogador.
+        if retirement.should_retire
+            && !try_retain_irreplaceable_veteran(
+                conn,
+                driver,
+                contracts_by_driver,
+                teams_by_id,
+                season,
+            )?
+        {
             let reason = retirement
                 .reason
                 .clone()
@@ -431,6 +447,92 @@ fn process_driver_evolution(
         retirements,
         existing_names,
     ))
+}
+
+/// Tenta reter um veterano que quer se aposentar mas é INSUBSTITUÍVEL: nenhum piloto
+/// licenciado da categoria de baixo tem skill >= a dele. Nesse caso estende o contrato
+/// por +1 ano com salário +40% e o mantém ativo (retorna `true`), adiando a aposentadoria
+/// até surgir um substituto à altura (acontece naturalmente pela queda de idade — sem teto
+/// de idade). Só IA, fora do time do jogador, e só categorias regulares (não-estreia,
+/// não-especiais; rookies têm reposição abundante e especiais usam convocação).
+fn try_retain_irreplaceable_veteran(
+    conn: &Connection,
+    driver: &Driver,
+    contracts_by_driver: &HashMap<String, Contract>,
+    teams_by_id: &HashMap<String, Team>,
+    season: &Season,
+) -> Result<bool, String> {
+    const RETENTION_RAISE: f64 = 1.40;
+
+    if driver.is_jogador || driver.stats_carreira.corridas == 0 {
+        return Ok(false);
+    }
+    let Some(contract) = contracts_by_driver.get(&driver.id) else {
+        return Ok(false);
+    };
+    if teams_by_id
+        .get(&contract.equipe_id)
+        .is_some_and(|team| team.is_player_team)
+    {
+        return Ok(false);
+    }
+    if runs_in_special_phase(&contract.categoria) {
+        return Ok(false);
+    }
+    let Some(required_license) =
+        required_license_for_division(&contract.categoria, contract.classe.as_deref())
+    else {
+        return Ok(false);
+    };
+
+    let feeders = get_feeder_categories(&contract.categoria);
+    if feeders.is_empty() {
+        return Ok(false);
+    }
+    let placeholders = feeders.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT COUNT(*) FROM drivers d
+         WHERE d.status = 'Ativo' AND d.is_jogador = 0
+           AND d.categoria_atual IN ({placeholders})
+           AND d.skill >= ?
+           AND EXISTS (
+               SELECT 1 FROM licenses l
+               WHERE l.piloto_id = d.id AND CAST(l.nivel AS INTEGER) >= ?
+           )"
+    );
+    let mut params: Vec<rusqlite::types::Value> = feeders
+        .iter()
+        .map(|feeder| rusqlite::types::Value::Text((*feeder).to_string()))
+        .collect();
+    params.push(rusqlite::types::Value::Real(driver.atributos.skill));
+    params.push(rusqlite::types::Value::Integer(required_license as i64));
+    let better_replacements: i64 = conn
+        .query_row(&sql, rusqlite::params_from_iter(params), |row| row.get(0))
+        .map_err(|e| format!("Falha ao avaliar substitutos do veterano: {e}"))?;
+    if better_replacements > 0 {
+        return Ok(false);
+    }
+
+    // Insubstituível: rescinde o contrato atual e cria um de +1 ano com salário +40%.
+    contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
+        .map_err(|e| format!("Falha ao rescindir contrato do veterano retido: {e}"))?;
+    let mut renewed = Contract::new(
+        next_id(conn, IdType::Contract)
+            .map_err(|e| format!("Falha ao gerar ID de contrato de retenção: {e}"))?,
+        driver.id.clone(),
+        driver.nome.clone(),
+        contract.equipe_id.clone(),
+        contract.equipe_nome.clone(),
+        season.numero + 1,
+        1,
+        contract.salario_anual * RETENTION_RAISE,
+        contract.papel.clone(),
+        contract.categoria.clone(),
+    );
+    renewed.classe = contract.classe.clone();
+    contract_queries::insert_contract(conn, &renewed)
+        .map_err(|e| format!("Falha ao inserir contrato de retenção: {e}"))?;
+    Ok(true)
 }
 
 fn create_next_season_phase(
@@ -1023,6 +1125,136 @@ mod tests {
         team.nome_curto = name.to_string();
         team.classe = class.map(str::to_string);
         team
+    }
+
+    fn retention_fixture() -> (Connection, Season, Team, Driver, Contract) {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+
+        let season = Season::new("S001".to_string(), 3, 2026);
+
+        let team = sample_named_team("gt3", "GT3X", "GT3 Team X", None, 4242);
+        assert!(!team.is_player_team);
+        team_queries::insert_team(&conn, &team).expect("insert team");
+
+        let mut veteran = sample_driver("VET", "Veterano", "gt3", 100.0, 5, 10, 0);
+        veteran.atributos.skill = 85.0;
+        veteran.stats_carreira.corridas = 250;
+        driver_queries::insert_driver(&conn, &veteran).expect("insert veteran");
+
+        let contract = Contract::new(
+            "CVET".to_string(),
+            veteran.id.clone(),
+            veteran.nome.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            season.numero,
+            1,
+            300_000.0,
+            TeamRole::Numero1,
+            "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insert contract");
+
+        (conn, season, team, veteran, contract)
+    }
+
+    #[test]
+    fn test_retains_irreplaceable_veteran_with_raise() {
+        let (conn, season, team, veteran, contract) = retention_fixture();
+        let contracts_by_driver: HashMap<String, Contract> =
+            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+        let teams_by_id: HashMap<String, Team> =
+            [(team.id.clone(), team.clone())].into_iter().collect();
+
+        // Sem candidato licenciado na gt4 → deve reter.
+        let retained = try_retain_irreplaceable_veteran(
+            &conn,
+            &veteran,
+            &contracts_by_driver,
+            &teams_by_id,
+            &season,
+        )
+        .expect("retention check");
+        assert!(retained, "veterano sem substituto deve ser retido");
+
+        // Contrato antigo não está mais ativo.
+        let old_active: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM contracts WHERE id = 'CVET' AND status = 'Ativo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("old contract status");
+        assert_eq!(old_active, 0, "contrato antigo deve ser rescindido");
+
+        // Novo contrato: 1 ativo, +40% salário, começa na próxima temporada.
+        let (count, new_salary, new_start): (i64, f64, String) = conn
+            .query_row(
+                "SELECT COUNT(*), MAX(salario_anual), MAX(temporada_inicio)
+                 FROM contracts WHERE piloto_id = 'VET' AND status = 'Ativo'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("new contract");
+        assert_eq!(count, 1);
+        assert!((new_salary - 300_000.0 * 1.40).abs() < 1.0);
+        assert_eq!(new_start, (season.numero + 1).to_string());
+    }
+
+    #[test]
+    fn test_does_not_retain_veteran_when_licensed_substitute_exists() {
+        let (conn, season, team, veteran, contract) = retention_fixture();
+
+        // Substituto na gt4 (feeder) com skill >= veterano e licença nível 3.
+        let mut sub = sample_driver("SUB", "Substituto", "gt4", 80.0, 3, 10, 0);
+        sub.atributos.skill = 90.0;
+        sub.stats_carreira.corridas = 60;
+        driver_queries::insert_driver(&conn, &sub).expect("insert sub");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao)
+             VALUES ('SUB', '3', 'gt4', '')",
+            [],
+        )
+        .expect("insert license");
+
+        let contracts_by_driver: HashMap<String, Contract> =
+            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+        let teams_by_id: HashMap<String, Team> =
+            [(team.id.clone(), team.clone())].into_iter().collect();
+
+        let retained = try_retain_irreplaceable_veteran(
+            &conn,
+            &veteran,
+            &contracts_by_driver,
+            &teams_by_id,
+            &season,
+        )
+        .expect("retention check");
+        assert!(
+            !retained,
+            "havendo substituto licenciado à altura, não deve reter"
+        );
+    }
+
+    #[test]
+    fn test_does_not_retain_player_team_veteran() {
+        let (conn, season, mut team, veteran, contract) = retention_fixture();
+        team.is_player_team = true;
+        let contracts_by_driver: HashMap<String, Contract> =
+            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+        let teams_by_id: HashMap<String, Team> =
+            [(team.id.clone(), team.clone())].into_iter().collect();
+
+        let retained = try_retain_irreplaceable_veteran(
+            &conn,
+            &veteran,
+            &contracts_by_driver,
+            &teams_by_id,
+            &season,
+        )
+        .expect("retention check");
+        assert!(!retained, "time do jogador é decidido pelo jogador (Fase B)");
     }
 
     fn unique_test_dir(label: &str) -> std::path::PathBuf {

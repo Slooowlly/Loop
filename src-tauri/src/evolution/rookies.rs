@@ -25,6 +25,7 @@ pub fn generate_rookies(
         .collect()
 }
 
+#[allow(dead_code)] // usada só em testes desde a remoção da fase de rookies do pipeline
 pub fn classify_rookie(skill: u8) -> &'static str {
     if skill >= 56 {
         "Genio"
