@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 36;
+const CURRENT_VERSION: u32 = 38;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -46,6 +46,8 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v34(conn)?;
     migrate_v35(conn)?;
     migrate_v36(conn)?;
+    migrate_v37(conn)?;
+    migrate_v38(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -197,6 +199,24 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v36(conn)?;
         set_schema_version(conn, 36)?;
     }
+    if version < 37 {
+        migrate_v37(conn)?;
+        set_schema_version(conn, 37)?;
+    }
+    if version < 38 {
+        migrate_v38(conn)?;
+        set_schema_version(conn, 38)?;
+    }
+    Ok(())
+}
+
+/// v38 — teto pessoal de habilidade (`potencial`). A evolução assintota para
+/// este valor (ligado ao talento inicial) em vez de um teto global. 0.0 = ainda
+/// não derivado; a primeira evolução do piloto deriva e persiste.
+fn migrate_v38(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "drivers")? {
+        ensure_column(conn, "drivers", "potencial", "REAL NOT NULL DEFAULT 0.0")?;
+    }
     Ok(())
 }
 
@@ -221,6 +241,35 @@ fn migrate_v36(conn: &Connection) -> Result<(), DbError> {
             ON team_ownership_events(team_id);
         ",
     )?;
+    Ok(())
+}
+
+/// v37 — plano estratégico de longo prazo (3 temporadas) por equipe (Pilar C do
+/// redesign carro/dinastias). Cada equipe se compromete com um arco de
+/// investimento por várias temporadas, em vez de reagir ano a ano — é o que
+/// permite build-ups sustentados e dinastias.
+fn migrate_v37(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS team_strategic_plan (
+            team_id         TEXT PRIMARY KEY,
+            plan_type       TEXT NOT NULL DEFAULT 'sustainable',
+            remaining_years INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        );
+        ",
+    )?;
+    // Semeia as equipes existentes com anos restantes escalonados (1–3) para os
+    // planos não expirarem todos na mesma temporada. O tipo de plano é escolhido
+    // na próxima pré-temporada (choose_strategic_plan), conforme o estado de cada
+    // equipe.
+    if table_exists(conn, "teams")? {
+        conn.execute(
+            "INSERT OR IGNORE INTO team_strategic_plan (team_id, plan_type, remaining_years)
+             SELECT id, 'sustainable', ABS(RANDOM()) % 3 + 1 FROM teams",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -2933,6 +2982,7 @@ CREATE TABLE IF NOT EXISTS drivers (
     midia                    REAL NOT NULL DEFAULT 50.0,
     mentalidade              REAL NOT NULL DEFAULT 50.0,
     confianca                REAL NOT NULL DEFAULT 50.0,
+    potencial                REAL NOT NULL DEFAULT 0.0,
 
     -- Stats da temporada corrente
     temp_pontos              REAL NOT NULL DEFAULT 0.0,
@@ -3246,6 +3296,7 @@ fn seed_meta(conn: &Connection) -> Result<(), DbError> {
         ("next_rivalry_id", "1"),
         ("current_season", "1"),
         ("current_year", "2024"),
+        ("career_start_year", "2024"),
         ("difficulty", "Normal"),
     ];
 

@@ -44,7 +44,8 @@ pub fn apply_attribute_deltas(
         .map_err(|e| format!("Falha ao buscar equipe '{team_id}': {e}"))?
         .ok_or_else(|| format!("Equipe '{team_id}' nao encontrada"))?;
 
-    team.car_performance = (team.car_performance + delta.car_performance_delta).clamp(-5.0, 16.0);
+    // Sem teto superior (Pilar B): só piso em −5.
+    team.car_performance = (team.car_performance + delta.car_performance_delta).max(-5.0);
     team.cash_balance += promotion_budget_delta_to_cash(&team, delta.budget_delta);
     team.facilities = (team.facilities + delta.facilities_delta).clamp(0.0, 100.0);
     team.engineering = (team.engineering + delta.engineering_delta).clamp(0.0, 100.0);
@@ -156,7 +157,9 @@ mod tests {
             .expect("team query")
             .expect("team exists");
 
-        assert_eq!(updated.car_performance, 16.0);
+        // Pilar B: car_performance não tem mais teto — o delta aplica integral
+        // (15.5 + 5.0). Os demais atributos seguem clampados (100 / 1.5).
+        assert_eq!(updated.car_performance, 20.5);
         assert!(updated.cash_balance > before_cash);
         let expected_budget = crate::finance::planning::derive_budget_index_from_money(&updated);
         assert!((updated.budget - expected_budget).abs() < 0.0001);

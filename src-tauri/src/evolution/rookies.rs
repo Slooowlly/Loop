@@ -4,7 +4,9 @@ use rand::Rng;
 
 use crate::generators::driver_helpers::{random_primary_personality, random_secondary_personality};
 use crate::generators::names::generate_pilot_identity;
-use crate::models::driver::{Driver, DriverAttributes};
+use crate::models::driver::{
+    potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX,
+};
 use crate::models::enums::DriverStatus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +100,8 @@ fn generate_single_rookie(
         midia: rng.gen_range(20..=55) as f64,
         mentalidade: rng.gen_range(40..=75) as f64,
         confianca: rng.gen_range(55..=80) as f64,
+        potencial: (skill + potential_headroom(development, age) * rng.gen_range(0.85..=1.15))
+            .min(POTENTIAL_HARD_MAX),
     };
     driver
 }

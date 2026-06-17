@@ -33,6 +33,34 @@ pub struct DriverAttributes {
     pub midia: f64,
     pub mentalidade: f64,
     pub confianca: f64,
+    /// Teto pessoal de habilidade deste piloto (ligado ao talento inicial). A
+    /// evolução assintota para este valor em vez de um teto global. 0.0 = ainda
+    /// não derivado (jogador / saves antigos) — derivado sob demanda na evolução.
+    #[serde(default)]
+    pub potencial: f64,
+}
+
+/// Teto absoluto de habilidade do jogo: pilotos podem chegar muito perto, mas
+/// nunca alcançar 100. Acima disto a evolução para.
+pub const POTENTIAL_HARD_MAX: f64 = 98.0;
+
+/// Headroom de potencial acima da habilidade atual — quanto o piloto ainda pode
+/// crescer. Depende de `desenvolvimento` (talento bruto) e da juventude.
+pub fn potential_headroom(desenvolvimento: f64, idade: u32) -> f64 {
+    let youth = if idade <= 18 {
+        1.0
+    } else if idade <= 21 {
+        0.9
+    } else {
+        0.75
+    };
+    (6.0 + (desenvolvimento / 100.0) * 42.0) * youth
+}
+
+/// Teto pessoal derivado deterministicamente (sem RNG). Usado como fallback para
+/// pilotos sem `potencial` persistido (jogador e saves antigos).
+pub fn derive_potential_ceiling(skill: f64, desenvolvimento: f64, idade: u32) -> f64 {
+    (skill + potential_headroom(desenvolvimento, idade)).min(POTENTIAL_HARD_MAX)
 }
 
 impl Default for DriverAttributes {
@@ -55,6 +83,19 @@ impl Default for DriverAttributes {
             midia: 50.0,
             mentalidade: 50.0,
             confianca: 50.0,
+            potencial: 0.0,
+        }
+    }
+}
+
+impl DriverAttributes {
+    /// Teto pessoal efetivo: usa o valor persistido se já definido (> 0), senão
+    /// deriva do talento. Nunca passa de [`POTENTIAL_HARD_MAX`].
+    pub fn potential_ceiling(&self, idade: u32) -> f64 {
+        if self.potencial > 0.0 {
+            self.potencial.min(POTENTIAL_HARD_MAX)
+        } else {
+            derive_potential_ceiling(self.skill, self.desenvolvimento, idade)
         }
     }
 }
@@ -477,19 +518,26 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_for_category_does_not_fallback_when_difficulty_and_tier_do_not_overlap() {
-        let mut rng = StdRng::seed_from_u64(20260430);
+    fn test_generate_for_category_difficulty_no_longer_caps_skill() {
+        let range = skill_ranges::get_skill_range_by_tier(4).expect("tier 4 range should exist");
         let mut existing_names = HashSet::new();
-        let drivers =
-            Driver::generate_for_category("gt3", 4, "facil", 28, &mut existing_names, &mut rng);
 
-        assert!(
-            drivers.iter().any(|driver| driver.atributos.skill < 65.0),
-            "facil GT3 should not fallback to the elite tier range when ranges do not overlap"
-        );
-        assert!(drivers
-            .iter()
-            .all(|driver| driver.atributos.skill >= 20.0 && driver.atributos.skill <= 60.0));
+        // A dificuldade não comprime mais a habilidade gerada: GT3 usa sempre a
+        // faixa do tier (65-85), independente de fácil/médio/difícil/lendário.
+        for difficulty in ["facil", "medio", "dificil", "lendario"] {
+            let mut rng = StdRng::seed_from_u64(20260430);
+            let drivers =
+                Driver::generate_for_category("gt3", 4, difficulty, 28, &mut existing_names, &mut rng);
+            assert!(
+                drivers.iter().all(|driver| {
+                    driver.atributos.skill >= range.skill_min as f64
+                        && driver.atributos.skill <= range.skill_max as f64
+                }),
+                "GT3 [{difficulty}] deveria gerar skill dentro de {}-{}",
+                range.skill_min,
+                range.skill_max
+            );
+        }
     }
 
     #[test]

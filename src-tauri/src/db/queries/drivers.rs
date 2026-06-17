@@ -16,7 +16,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             categoria_especial_ativa, status, personalidade_primaria, personalidade_secundaria,
             ano_inicio_carreira, skill, consistencia, racecraft, defesa, ritmo_classificacao,
             gestao_pneus, habilidade_largada, adaptabilidade, fator_chuva, fitness, experiencia,
-            desenvolvimento, aggression, smoothness, midia, mentalidade, confianca,
+            desenvolvimento, aggression, smoothness, midia, mentalidade, confianca, potencial,
             temp_pontos, temp_vitorias, temp_podios, temp_poles, temp_corridas, temp_dnfs,
             temp_posicao_media, carreira_pontos_total, carreira_vitorias, carreira_podios,
             carreira_poles, carreira_corridas, carreira_temporadas, carreira_titulos,
@@ -28,7 +28,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             :categoria_especial_ativa, :status, :personalidade_primaria, :personalidade_secundaria,
             :ano_inicio_carreira, :skill, :consistencia, :racecraft, :defesa, :ritmo_classificacao,
             :gestao_pneus, :habilidade_largada, :adaptabilidade, :fator_chuva, :fitness, :experiencia,
-            :desenvolvimento, :aggression, :smoothness, :midia, :mentalidade, :confianca,
+            :desenvolvimento, :aggression, :smoothness, :midia, :mentalidade, :confianca, :potencial,
             :temp_pontos, :temp_vitorias, :temp_podios, :temp_poles, :temp_corridas, :temp_dnfs,
             :temp_posicao_media, :carreira_pontos_total, :carreira_vitorias, :carreira_podios,
             :carreira_poles, :carreira_corridas, :carreira_temporadas, :carreira_titulos,
@@ -66,6 +66,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":midia": driver.atributos.midia,
             ":mentalidade": driver.atributos.mentalidade,
             ":confianca": driver.atributos.confianca,
+            ":potencial": driver.atributos.potencial,
             ":temp_pontos": driver.stats_temporada.pontos,
             ":temp_vitorias": driver.stats_temporada.vitorias as i64,
             ":temp_podios": driver.stats_temporada.podios as i64,
@@ -210,7 +211,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             gestao_pneus = :gestao_pneus, habilidade_largada = :habilidade_largada, adaptabilidade = :adaptabilidade,
             fator_chuva = :fator_chuva, fitness = :fitness, experiencia = :experiencia, desenvolvimento = :desenvolvimento,
             aggression = :aggression, smoothness = :smoothness, midia = :midia, mentalidade = :mentalidade,
-            confianca = :confianca, temp_pontos = :temp_pontos, temp_vitorias = :temp_vitorias,
+            confianca = :confianca, potencial = :potencial, temp_pontos = :temp_pontos, temp_vitorias = :temp_vitorias,
             temp_podios = :temp_podios, temp_poles = :temp_poles, temp_corridas = :temp_corridas,
             temp_dnfs = :temp_dnfs, temp_posicao_media = :temp_posicao_media,
             carreira_pontos_total = :carreira_pontos_total, carreira_vitorias = :carreira_vitorias,
@@ -236,6 +237,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":desenvolvimento": driver.atributos.desenvolvimento, ":aggression": driver.atributos.aggression,
             ":smoothness": driver.atributos.smoothness, ":midia": driver.atributos.midia,
             ":mentalidade": driver.atributos.mentalidade, ":confianca": driver.atributos.confianca,
+            ":potencial": driver.atributos.potencial,
             ":temp_pontos": driver.stats_temporada.pontos, ":temp_vitorias": driver.stats_temporada.vitorias as i64,
             ":temp_podios": driver.stats_temporada.podios as i64, ":temp_poles": driver.stats_temporada.poles as i64,
             ":temp_corridas": driver.stats_temporada.corridas as i64, ":temp_dnfs": driver.stats_temporada.dnfs as i64,
@@ -317,7 +319,7 @@ pub fn update_driver_attributes(
             habilidade_largada = :habilidade_largada, adaptabilidade = :adaptabilidade,
             fator_chuva = :fator_chuva, fitness = :fitness, experiencia = :experiencia,
             desenvolvimento = :desenvolvimento, aggression = :aggression, smoothness = :smoothness,
-            midia = :midia, mentalidade = :mentalidade, confianca = :confianca
+            midia = :midia, mentalidade = :mentalidade, confianca = :confianca, potencial = :potencial
         WHERE id = :id",
         rusqlite::named_params! {
             ":id": id,
@@ -338,6 +340,7 @@ pub fn update_driver_attributes(
             ":midia": attrs.midia,
             ":mentalidade": attrs.mentalidade,
             ":confianca": attrs.confianca,
+            ":potencial": attrs.potencial,
         },
     )?;
     Ok(())
@@ -485,6 +488,7 @@ fn driver_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Driver> {
             midia: row.get("midia")?,
             mentalidade: row.get("mentalidade")?,
             confianca: row.get("confianca")?,
+            potencial: row.get("potencial")?,
         },
         stats_temporada: DriverSeasonStats {
             pontos: row.get("temp_pontos")?,
@@ -736,6 +740,7 @@ mod tests {
                 midia REAL NOT NULL DEFAULT 50.0,
                 mentalidade REAL NOT NULL DEFAULT 50.0,
                 confianca REAL NOT NULL DEFAULT 50.0,
+                potencial REAL NOT NULL DEFAULT 0.0,
                 temp_pontos REAL NOT NULL DEFAULT 0.0,
                 temp_vitorias INTEGER NOT NULL DEFAULT 0,
                 temp_podios INTEGER NOT NULL DEFAULT 0,

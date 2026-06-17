@@ -146,6 +146,49 @@ pub fn clear_all_categoria_anterior(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Plano estratégico de longo prazo (3 temporadas) da equipe (Pilar C).
+/// Retorna (tipo, anos_restantes); default ("sustainable", 0) se não houver
+/// registro — o que faz a próxima pré-temporada escolher um plano novo.
+pub fn get_strategic_plan(conn: &Connection, team_id: &str) -> Result<(String, i32), DbError> {
+    let row = conn
+        .query_row(
+            "SELECT plan_type, remaining_years FROM team_strategic_plan WHERE team_id = ?1",
+            params![team_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?)),
+        )
+        .optional()?;
+    Ok(row.unwrap_or_else(|| ("sustainable".to_string(), 0)))
+}
+
+/// Grava o plano estratégico da equipe (upsert).
+pub fn set_strategic_plan(
+    conn: &Connection,
+    team_id: &str,
+    plan_type: &str,
+    remaining_years: i32,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO team_strategic_plan (team_id, plan_type, remaining_years)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(team_id) DO UPDATE SET
+            plan_type = excluded.plan_type,
+            remaining_years = excluded.remaining_years",
+        params![team_id, plan_type, remaining_years],
+    )?;
+    Ok(())
+}
+
+/// Zera o plano da equipe (remove o registro). Usado quando a equipe muda de
+/// categoria (promoção/rebaixamento): a próxima pré-temporada re-avalia o plano
+/// para a nova realidade. (Pilar C)
+pub fn reset_strategic_plan(conn: &Connection, team_id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM team_strategic_plan WHERE team_id = ?1",
+        params![team_id],
+    )?;
+    Ok(())
+}
+
 /// Temporadas consecutivas em colapso financeiro de uma equipe (0 se não houver
 /// registro). Suporta o evento de venda/nova diretoria.
 pub fn get_collapse_streak(conn: &Connection, team_id: &str) -> Result<i32, DbError> {

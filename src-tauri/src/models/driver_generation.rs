@@ -10,7 +10,9 @@ use crate::generators::driver_helpers::{
     career_start_year_from_age, random_primary_personality, random_secondary_personality,
 };
 use crate::generators::names::generate_pilot_identity;
-use crate::models::driver::{Driver, DriverAttributes};
+use crate::models::driver::{
+    potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX,
+};
 
 const ROOKIE_PRODIGY_CHANCE_PERCENT: u8 = 5;
 const ROOKIE_COMMON_FLAW_MAX: u8 = 32;
@@ -105,6 +107,9 @@ where
         let midia = roll_stat(rng, 30, 70);
         let mentalidade = roll_stat(rng, 40, 70);
         let confianca = roll_stat(rng, 50, 70);
+        let potencial = (skill as f64
+            + potential_headroom(desenvolvimento as f64, idade) * rng.gen_range(0.85..=1.15))
+        .min(POTENTIAL_HARD_MAX);
 
         let ano_inicio = career_start_year_from_age(idade);
         let mut driver = Driver::new(
@@ -137,6 +142,7 @@ where
             midia: midia as f64,
             mentalidade: mentalidade as f64,
             confianca: confianca as f64,
+            potencial,
         };
         if let Some(profile) = rookie_profile {
             apply_rookie_profile(&mut atributos, profile, rookie_prodigy, rng);
@@ -216,7 +222,7 @@ fn normalize_difficulty_id(input: &str) -> &'static str {
 
 fn effective_skill_bounds(
     range: &skill_ranges::SkillRangeConfig,
-    difficulty: &scoring::DifficultyConfig,
+    _difficulty: &scoring::DifficultyConfig,
     rookie: bool,
     rookie_prodigy: bool,
 ) -> (u8, u8) {
@@ -228,13 +234,10 @@ fn effective_skill_bounds(
         return (25, 62);
     }
 
-    let min = range.skill_min.max(difficulty.skill_min_ia);
-    let max = range.skill_max.min(difficulty.skill_max_ia);
-    if min <= max {
-        (min, max)
-    } else {
-        (difficulty.skill_min_ia, difficulty.skill_max_ia)
-    }
+    // Sem cap de IA por dificuldade: a faixa vem só do talento/tier da categoria.
+    // O sistema de dificuldade será redesenhado à parte e não deve mais comprimir
+    // a habilidade gerada.
+    (range.skill_min, range.skill_max)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

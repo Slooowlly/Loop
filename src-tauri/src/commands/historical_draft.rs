@@ -243,6 +243,11 @@ fn sync_draft_meta_counters(
     meta_queries::set_meta_value(conn, "next_race_id", &(total_races as u32 + 1).to_string())?;
     meta_queries::set_meta_value(conn, "current_season", &total_seasons.to_string())?;
     meta_queries::set_meta_value(conn, "current_year", &current_year.to_string())?;
+    // Marca o ano-base da carreira. Diferente de "current_year" (que avança a cada
+    // temporada), este valor é escrito UMA ÚNICA VEZ na criação e nunca atualizado.
+    // Serve de âncora para a penalidade fictícia GT3, que esmaece ao longo dos
+    // primeiros anos de carreira.
+    meta_queries::set_meta_value(conn, "career_start_year", &current_year.to_string())?;
     Ok(())
 }
 

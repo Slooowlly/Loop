@@ -16,11 +16,13 @@ use crate::constants::timeline::MARKET_DURATION_WEEKS;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
+use crate::db::queries::meta as meta_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
-use crate::finance::cashflow::apply_offseason_competitiveness_impact;
+use crate::finance::cashflow::{apply_offseason_competitiveness_impact, PENALTY_FADE_YEARS};
 use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
-use crate::finance::state::{choose_season_strategy, refresh_team_financial_state};
+use crate::finance::state::refresh_team_financial_state;
+use crate::finance::strategy::advance_strategic_plan;
 use crate::generators::ids::{next_id, IdType};
 use crate::market::car_build_strategy::choose_car_build_profile;
 use crate::market::pipeline::run_market;
@@ -480,6 +482,30 @@ fn assign_seasonal_team_attributes(
     let teams =
         team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao carregar equipes: {e}"))?;
     let previous_standings = load_previous_team_standings(conn, season_number)?;
+
+    // Ano de carreira (0 = primeiro ano), usado para esmaecer a penalidade fictícia
+    // GT3 ao longo dos primeiros anos. Saves antigos NÃO têm a meta "career_start_year"
+    // (semeada só em carreiras novas); para eles usamos PENALTY_FADE_YEARS, que zera a
+    // penalidade (fator 1.0) e deixa esses saves intocados.
+    let career_year: i32 = match meta_queries::get_meta_value(conn, "career_start_year")
+        .map_err(|e| format!("Falha ao ler career_start_year: {e}"))?
+        .and_then(|v| v.parse::<i32>().ok())
+    {
+        Some(career_start_year) => {
+            let season_year: i32 = conn
+                .query_row(
+                    "SELECT ano FROM seasons WHERE numero = ?1",
+                    rusqlite::params![season_number],
+                    |row| row.get(0),
+                )
+                .map_err(|e| {
+                    format!("Falha ao buscar ano da temporada {season_number}: {e}")
+                })?;
+            season_year - career_start_year
+        }
+        None => PENALTY_FADE_YEARS as i32,
+    };
+
     let mut categories = teams
         .iter()
         .map(|team| team.categoria.clone())
@@ -526,9 +552,18 @@ fn assign_seasonal_team_attributes(
                 refresh_team_financial_state(&mut updated_team);
                 "all_in".to_string()
             } else {
-                choose_season_strategy(&updated_team).to_string()
+                // Pilar C: a estratégia da temporada vem do plano de 3 temporadas
+                // da equipe (arco sustentado), não de uma escolha reativa anual.
+                advance_strategic_plan(conn, &updated_team)
+                    .map_err(|e| {
+                        format!(
+                            "Falha ao avançar plano estratégico da equipe {}: {e}",
+                            updated_team.nome
+                        )
+                    })?
+                    .to_string()
             };
-            apply_offseason_competitiveness_impact(&mut updated_team);
+            apply_offseason_competitiveness_impact(&mut updated_team, career_year);
             updated_team.pit_crew_quality = recalculate_pit_crew_quality(
                 &updated_team,
                 previous_standings.get(&team.id).copied(),
@@ -2168,11 +2203,18 @@ mod tests {
             updated_team_a.pit_crew_quality,
             updated_team_b.pit_crew_quality
         );
-        assert_eq!(updated_team_a.season_strategy, "balanced");
-        assert!(matches!(
-            updated_team_b.season_strategy.as_str(),
-            "all_in" | "survival" | "austerity"
-        ));
+        // Pilar C: a season_strategy agora vem do plano de 3 temporadas (a
+        // seleção é testada em finance::strategy). Aqui garantimos que o plano
+        // rodou e produziu uma estratégia válida, e que o time forte/rico não
+        // cai em modo de contenção (austeridade/sobrevivência).
+        let valid = ["balanced", "all_in", "expansion", "austerity", "survival"];
+        assert!(valid.contains(&updated_team_a.season_strategy.as_str()));
+        assert!(valid.contains(&updated_team_b.season_strategy.as_str()));
+        assert!(
+            !matches!(updated_team_a.season_strategy.as_str(), "survival" | "austerity"),
+            "time forte/rico nao deveria entrar em contencao, veio {}",
+            updated_team_a.season_strategy
+        );
     }
 
     #[test]

@@ -24,9 +24,12 @@ pub fn adjusted_weather_multiplier(
     1.0 - ((1.0 - base) * rain_sensitivity)
 }
 
-/// Normaliza car_performance (0–16) para escala 0–100.
+/// Normaliza car_performance para a escala de simulação. Linear: cp=−5 → 0,
+/// cp=16 → 100. **Sem teto superior** (Pilar B): carros acima de 16 passam de
+/// 100 e têm impacto proporcionalmente maior — é assim que a elite se separa.
+/// Piso em 0 (cp ≤ −5).
 pub fn normalize_car_performance(car_performance: f64) -> f64 {
-    ((car_performance + 5.0) / 21.0 * 100.0).clamp(0.0, 100.0)
+    ((car_performance + 5.0) / 21.0 * 100.0).max(0.0)
 }
 
 /// Valor de car_performance "spec" usado nas categorias rookie: todos os carros
@@ -104,9 +107,17 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_car_performance_clamps() {
+    fn test_normalize_car_performance_floor_and_no_ceiling() {
+        // Piso em 0.
         assert_eq!(normalize_car_performance(-10.0), 0.0);
-        assert_eq!(normalize_car_performance(100.0), 100.0);
+        // cp=16 ainda mapeia para 100 (preserva a calibração do Pilar A).
+        assert!((normalize_car_performance(16.0) - 100.0).abs() < 0.01);
+        // Sem teto: carros acima de 16 passam de 100 e continuam respondendo.
+        assert!(normalize_car_performance(25.0) > 100.0, "sem teto rígido");
+        assert!(
+            normalize_car_performance(30.0) > normalize_car_performance(20.0),
+            "continua diferenciando acima do antigo teto"
+        );
     }
 
     #[test]

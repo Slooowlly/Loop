@@ -106,17 +106,16 @@ B = m0 · (Δcp + (cp·Δcp + Δcp²/2) / K)   →   resolver p/ Δcp (raiz da q
 
 Propriedades: **sem teto** (sempre dá pra subir), **decrescente** (dobrar `B` rende menos que o dobro), e **auto-equilibra** com o custo de manutenção (que já cresce com cp em `race.rs:101-103`). Uma equipe muito rica sobe mais alto que o resto, mas a um custo crescente → separa a elite sem runaway infinito.
 
-**B3. Normalização assintótica (sem saturar a 16).**
-Trocar `(cp+5)/21*100` por uma curva que **continua respondendo acima de 16** e nunca trava em 100, mantendo diferenciação entre carros de elite:
+**B3. Normalização linear sem teto (decisão revisada — melhor que assintótica).**
+A versão inicial do design propunha normalização assintótica, mas isso **achataria** o impacto do carro no topo — o oposto do objetivo "topo maior". Decisão final: manter a normalização **linear** (`(cp+5)/21*100`) e apenas **remover o teto superior** (manter o piso em 0):
 
 ```
-normalize_car_performance(cp) = 100 · (cp − FLOOR) / ((cp − FLOOR) + K_norm)
-// FLOOR = −5; K_norm tunado p/ a faixa de elite (cp 15–35) ficar responsiva
+normalize_car_performance(cp) = ((cp + 5) / 21 * 100).max(0.0)   // sem clamp superior
 ```
 
-Exemplo (K_norm=30): cp=8→27.9, cp=16→47.6, cp=25→60, cp=35→66.7. Diferenciação preservada bem além de 16 (hoje todos viram 100). O **peso por categoria** (Pilar A) é o dial primário de quanto isso importa.
+Assim cp=16 ainda mapeia para 100 (**preserva exatamente a calibração do Pilar A** em [−5, 16]) e carros acima de 16 passam de 100 → impacto **proporcionalmente maior** (a elite se separa de verdade). Os **retornos decrescentes** ficam todos no lado do **investimento** (B2), não no impacto — subir o carro é caro, mas um carro melhor sempre rende mais resultado.
 
-> Migração: o save atual tem 39 carros pinados em 16.0. Após a mudança, eles continuam em 16 e voltam a divergir naturalmente nas próximas temporadas via investimento. (Ver §6.)
+> Migração: o save atual tem 39 carros pinados em 16.0. Após a mudança eles continuam em 16 e voltam a divergir naturalmente via investimento (os ricos sobem além de 16; os pobres caem). (Ver §6.)
 
 ### Pilar C — Estratégia de longo prazo (3 temporadas)
 
@@ -208,7 +207,7 @@ Harness que roda N temporadas simuladas e mede:
 ## 8. Ordem de implementação sugerida
 
 1. **Pilar A** (peso por categoria + spec) — **✅ IMPLEMENTADO (2026-06-16).** `car_weight_scale` + `category_car_performance` em [math.rs](../../../src-tauri/src/simulation/math.rs); aplicado no scoring de corrida ([race.rs](../../../src-tauri/src/simulation/race.rs) — peso redistribuído via `scale_segment_car_weight`, soma=1.0) e quali ([qualifying.rs](../../../src-tauri/src/simulation/qualifying.rs)). Testes: unitários em math.rs + comportamental `test_pilar_a_car_decides_at_top_not_rookie` (carro decide endurance, não rookie). Suíte completa verde (1486). Pesos: rookie 0.15 (+spec), amador 0.50, bmw 0.70, gt4 1.0, gt3 1.30, production 1.40, endurance 1.60.
-2. **Pilar B** (normalização assintótica + custo marginal + remover teto) — desbloqueia o topo.
+2. **Pilar B** (normalização linear sem teto + retornos decrescentes no investimento + remover teto) — **✅ IMPLEMENTADO (2026-06-16).** Normalização sem clamp superior em [math.rs](../../../src-tauri/src/simulation/math.rs); offseason com retornos decrescentes (`car_drive / (1 + cp/18)` para ganhos, quedas diretas), teto de caixa 1.2→2.5, sem clamp de cp em [cashflow.rs](../../../src-tauri/src/finance/cashflow.rs); clamp de promoção sem teto em [effects.rs](../../../src-tauri/src/promotion/effects.rs). Testes: `car_investment_has_diminishing_returns`, `rich_team_car_grows_past_old_ceiling_of_16`, normalização sem teto. Suíte completa verde (1491).
 3. **Pilar C** (planos de 3 temporadas) — substitui `season_strategy`.
 4. **Pilar D** (elites + piso de recursos) — depende de B e C.
 5. Harness estatístico + tuning dos `K`/pesos/gaps com base nas métricas de §7.2.

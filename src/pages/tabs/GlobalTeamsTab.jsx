@@ -50,6 +50,10 @@ const ROW_HEIGHT = 32;
 const ROW_PILL_HEIGHT = 28;
 const ROW_TOP_OFFSET = 34;
 const BAND_BOTTOM_PADDING = 16;
+// Most years the window may show at once before the chart gets too cramped/distorted
+// — matches GT3's current widest range (1994–2027). Past this, the window stops
+// growing and starts SCROLLING instead (the scrubber becomes functional).
+const MAX_VISIBLE_SPAN = 34;
 
 function GlobalTeamsTab({
   selectedTeamId = null,
@@ -123,7 +127,10 @@ function GlobalTeamsTab({
   }, []);
 
   useEffect(() => {
-    setStartYear(payload ? familyMinYear(payload) : HISTORY_FETCH_START_YEAR);
+    // Open at the latest end: when the window is capped (lots of data) this keeps the
+    // current-standings table on screen; when it isn't capped it clamps to the single
+    // locked start, so the whole timeline shows either way.
+    setStartYear(payload ? familyMaxYear(payload) : HISTORY_FETCH_START_YEAR);
     setPreviewStartYear(null);
   }, [payload?.window_start, payload?.selected_family]);
 
@@ -231,17 +238,6 @@ function GlobalTeamsTab({
           </div>
         </div>
 
-        <div className="border-b border-white/10 bg-white/[0.025] px-5 py-4">
-          <YearWindowScrubber
-            payload={payload}
-            visibleStart={visibleStartYear}
-            previewStart={previewStartYear}
-            windowSize={windowSize}
-            onPreviewChange={setPreviewStartYear}
-            onChange={handleWindowStartChange}
-          />
-        </div>
-
         <div className="overflow-x-auto">
           <div className="min-w-[1180px]" style={{ height: geometry.totalHeight }}>
             <TeamHistoryGrid
@@ -268,8 +264,6 @@ function GlobalTeamsTab({
             windowSize={windowSize}
             onPreviewChange={setPreviewStartYear}
             onChange={handleWindowStartChange}
-            ariaLabel="Mover janela historica inferior"
-            railTestId="world-team-window-scrubber-bottom"
             compact
           />
         </div>
@@ -1411,17 +1405,19 @@ function familyDataWidth(payload) {
 // Empty years rendered before the first category. The founding-team labels sit in
 // this margin, so it must be wide enough that their names aren't cut — wider
 // divisions (more years on screen → narrower columns) need more years of margin to
-// give the labels the same pixel room. Floored at 2.
+// give the labels the same pixel room. Clamped to [2, 7] so a huge future span
+// doesn't waste the (capped) window.
 function pastMargin(payload) {
-  return Math.max(2, Math.ceil(familyDataWidth(payload) / 5));
+  return clamp(Math.ceil(familyDataWidth(payload) / 5), 2, 7);
 }
 
-// Width of the single, locked visible window: the whole data span PLUS the past
-// margin, so the chart shows the start (with founding labels) AND the latest
-// standings table at once, no scrolling. This equals the full navigable range
-// [axisStart, axisEnd], so the window can't pan — everything is on screen.
+// Width of the visible window. Normally the whole data span PLUS the margin, so the
+// chart shows the start (founding labels) AND the latest standings at once with no
+// scrolling. But it is CAPPED at MAX_VISIBLE_SPAN: once a family accumulates more
+// years than that, the window stops growing and the chart starts scrolling instead
+// of cramming everything in (which would distort the image).
 function visibleWindowSize(payload) {
-  return familyDataWidth(payload) + pastMargin(payload);
+  return Math.min(familyDataWidth(payload) + pastMargin(payload), MAX_VISIBLE_SPAN);
 }
 
 function axisEdgeZoneStyle(side, payload, years) {

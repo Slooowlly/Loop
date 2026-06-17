@@ -132,6 +132,10 @@ fn apply_team_category_change(conn: &Connection, movement: &TeamMovement) -> Res
     team.classe = infer_team_class(movement);
     team_queries::update_team(conn, &team)
         .map_err(|e| format!("Falha ao atualizar equipe '{}': {e}", team.nome))?;
+    // Pilar C: a mudança de categoria zera o plano estratégico — a próxima
+    // pré-temporada re-avalia o arco para a nova realidade da equipe.
+    team_queries::reset_strategic_plan(conn, &team.id)
+        .map_err(|e| format!("Falha ao resetar plano estratégico de '{}': {e}", team.nome))?;
     Ok(())
 }
 

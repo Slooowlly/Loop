@@ -1,8 +1,25 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::models::driver::Driver;
+use crate::constants::skill_ranges;
+use crate::models::driver::{derive_potential_ceiling, Driver, POTENTIAL_HARD_MAX};
 use crate::models::driver_attributes::DriverAttributeKey;
+
+// ── Pesos de resultado: pódio rende muito mais que só terminar a corrida ──────
+const PODIUM_GROWTH_WEIGHT: f64 = 0.9;
+const WIN_GROWTH_BONUS: f64 = 0.5;
+const FINISH_GROWTH_WEIGHT: f64 = 0.25;
+const DNF_GROWTH_PENALTY: f64 = 0.3;
+
+/// Janela de aproximação ao teto pessoal: quanto menor, mais cedo a evolução
+/// desacelera perto do potencial. O crescimento é cheio enquanto a folga (teto −
+/// atual) for ≥ este valor.
+const POTENTIAL_APPROACH_WINDOW: f64 = 22.0;
+
+/// Quanto cada pódio "de azarão" (piloto abaixo da média da categoria) empurra o
+/// teto pessoal para cima. O efeito se autolimita: ao crescer e deixar de ser
+/// azarão, o piloto para de receber o boost.
+const POTENTIAL_BOOST_PER_SURPRISE: f64 = 1.3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeasonStats {
@@ -53,6 +70,18 @@ pub fn calculate_growth(
     rng: &mut impl Rng,
 ) -> GrowthReport {
     let mut changes = Vec::new();
+
+    // Garante que o piloto tem um teto pessoal definido (jogador / saves antigos
+    // derivam sob demanda e persistem a partir daqui).
+    if driver.atributos.potencial <= 0.0 {
+        driver.atributos.potencial = derive_potential_ceiling(
+            driver.atributos.skill,
+            driver.atributos.desenvolvimento,
+            driver.idade,
+        );
+    }
+    let potencial = driver.atributos.potencial.min(POTENTIAL_HARD_MAX);
+
     let base_growth = (result_base_growth(season_stats) + car_bonus(team_car_performance)).max(0.0);
 
     for (attribute, weight) in GROWABLE_ATTRIBUTES {
@@ -61,12 +90,15 @@ pub fn calculate_growth(
             base_growth * weight,
             driver.idade as i32,
             category_tier,
+            potencial,
             rng,
         );
         if let Some(change) = apply_growth(driver, attribute, delta, "Evolucao por resultados") {
             changes.push(change);
         }
     }
+
+    apply_potential_boost(driver, season_stats, category_tier);
 
     let exp_gain = rng.gen_range(2..=5) as i8;
     if let Some(change) = apply_growth(
@@ -130,16 +162,42 @@ fn result_base_growth(stats: &SeasonStats) -> f64 {
         return 0.0;
     }
 
-    let total = stats.total_pilotos.max(1) as f64;
-    let position_ratio = if stats.total_pilotos <= 1 {
-        1.0
-    } else {
-        1.0 - ((stats.posicao_campeonato.max(1) - 1) as f64 / (total - 1.0))
-    };
-    let base = position_ratio * 3.0;
-    let win_bonus = (stats.vitorias.max(0) as f64 * 0.3).min(1.5);
-    let dnf_penalty = stats.dnfs.max(0) as f64 * 0.2;
-    (base + win_bonus - dnf_penalty).max(0.0)
+    // Resultado por corrida: um pódio vale muito mais que só terminar. Vitórias
+    // ganham um extra sobre o pódio. Terminar fora do pódio ainda evolui pouco.
+    let podios = stats.podios.max(0) as f64;
+    let vitorias = stats.vitorias.max(0) as f64;
+    let dnfs = stats.dnfs.max(0) as f64;
+    let plain_finishes = (stats.corridas as f64 - podios - dnfs).max(0.0);
+
+    let base = podios * PODIUM_GROWTH_WEIGHT
+        + vitorias * WIN_GROWTH_BONUS
+        + plain_finishes * FINISH_GROWTH_WEIGHT
+        - dnfs * DNF_GROWTH_PENALTY;
+    base.max(0.0)
+}
+
+/// Pódios "de azarão" (piloto abaixo da média de habilidade da categoria) sobem o
+/// teto pessoal — oportunidade (carro/sorte) destrava potencial. Mecânica
+/// autolimitada: ao crescer acima da média, o piloto deixa de ser azarão e o
+/// boost cessa. O fator `(HARD_MAX − teto)/HARD_MAX` desacelera perto de 98.
+fn apply_potential_boost(driver: &mut Driver, stats: &SeasonStats, category_tier: u8) {
+    if stats.podios <= 0 {
+        return;
+    }
+    let median = skill_ranges::get_skill_range_by_tier(category_tier.min(4))
+        .map(|range| range.skill_media as f64)
+        .unwrap_or(60.0);
+    if driver.atributos.skill >= median {
+        return;
+    }
+
+    let current = driver.atributos.potencial.min(POTENTIAL_HARD_MAX);
+    if current >= POTENTIAL_HARD_MAX {
+        return;
+    }
+    let headroom_factor = ((POTENTIAL_HARD_MAX - current) / POTENTIAL_HARD_MAX).max(0.25);
+    let gain = stats.podios as f64 * POTENTIAL_BOOST_PER_SURPRISE * headroom_factor;
+    driver.atributos.potencial = (current + gain).min(POTENTIAL_HARD_MAX);
 }
 
 fn car_bonus(team_car_performance: f64) -> f64 {
@@ -159,9 +217,13 @@ fn growth_for_attribute(
     base_growth: f64,
     age: i32,
     category_tier: u8,
+    potencial: f64,
     rng: &mut impl Rng,
 ) -> i8 {
-    let diminishing = 1.0 - (current_value as f64 / 120.0);
+    // Aproximação ao teto PESSOAL (não a um teto global): cheio enquanto a folga
+    // for grande, desacelera ao chegar perto do potencial do piloto.
+    let headroom = (potencial - current_value as f64).max(0.0);
+    let approach = (headroom / POTENTIAL_APPROACH_WINDOW).clamp(0.0, 1.0);
     let age_factor = if age <= 20 {
         1.5
     } else if age <= 24 {
@@ -173,18 +235,20 @@ fn growth_for_attribute(
     } else {
         0.3
     };
+    // tier_factor suavizado: o topo (elite) volta a evoluir de verdade.
     let tier_factor = match category_tier {
         0 => 1.4,
-        1 => 1.2,
-        2 => 1.0,
-        3 => 0.8,
-        4 => 0.6,
-        _ => 0.5,
+        1 => 1.25,
+        2 => 1.1,
+        3 => 0.95,
+        _ => 0.8,
     };
 
-    let raw_delta = base_growth * diminishing * age_factor * tier_factor;
+    let raw_delta = base_growth * approach * age_factor * tier_factor;
     let variance = rng.gen_range(-0.5..=0.5);
-    (raw_delta + variance).round() as i8
+    let delta = (raw_delta + variance).round();
+    // Nunca ultrapassa o teto pessoal (mas permite a pequena variância negativa).
+    delta.min(headroom) as i8
 }
 
 fn apply_growth(

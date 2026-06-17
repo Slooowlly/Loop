@@ -128,9 +128,53 @@ pub fn apply_round_cashflow(
     summary
 }
 
-pub fn calculate_offseason_competitiveness_impact(team: &Team) -> OffseasonCompetitivenessImpact {
+/// Pilar B: controla o quão rápido os retornos do investimento no carro decaem.
+/// Quanto maior o `car_performance` atual, menos cada unidade de "drive" rende
+/// (subir o carro fica progressivamente mais caro) — sem teto, só mais lento.
+const CAR_INVEST_DIMINISH_K: f64 = 14.0;
+
+/// Fração do ganho de carro que as equipes FICTÍCIAS (sem marca de fábrica) obtêm
+/// quando disputam contra fábricas reais (GT3 e GT3 do endurance). As reais ganham
+/// 100%; as fictícias ganham menos, então temporada a temporada as fábricas reais se
+/// distanciam — deixando as fictícias como escolhas de "azarão". Ajustável.
+const FICTIONAL_CAR_DEV_FACTOR: f64 = 0.6;
+
+/// Em quantos anos de CARREIRA a penalidade fictícia some por completo. A penalidade
+/// é forte no começo (azarão recém-chegado) e desaparece linearmente, deixando o
+/// jogador "underdog" capaz de competir de igual para igual ao final do período.
+pub(crate) const PENALTY_FADE_YEARS: f64 = 5.0;
+
+/// Quanto cada equipe multiplica seu GANHO de car_performance nesta offseason.
+/// É 1.0 para fábricas reais e para qualquer categoria sem disputa real-vs-fictícia;
+/// nas arenas GT3 (sprint) e GT3-endurance as fictícias rendem `FICTIONAL_CAR_DEV_FACTOR`
+/// no ano 0 da carreira, subindo linearmente até 1.0 no ano `PENALTY_FADE_YEARS`.
+/// `career_year` é o ano da carreira do jogador (0 = primeiro ano).
+fn car_dev_gain_factor(team: &Team, career_year: i32) -> f64 {
+    let competes_with_real_marques = team.categoria == "gt3"
+        || (team.categoria == "endurance" && team.classe.as_deref() == Some("gt3"));
+    if team.marca.is_none() && competes_with_real_marques {
+        let fade = (career_year.max(0) as f64 / PENALTY_FADE_YEARS).min(1.0);
+        FICTIONAL_CAR_DEV_FACTOR + (1.0 - FICTIONAL_CAR_DEV_FACTOR) * fade
+    } else {
+        1.0
+    }
+}
+
+/// `career_year` é o ano da carreira do jogador (0 = primeiro ano). Modula a
+/// penalidade fictícia GT3, que some por completo ao atingir `PENALTY_FADE_YEARS`.
+pub fn calculate_offseason_competitiveness_impact(
+    team: &Team,
+    career_year: i32,
+) -> OffseasonCompetitivenessImpact {
     let efficiency = management_efficiency_modifier(team);
-    let cash_strength = (team.cash_balance / 1_000_000.0).clamp(-0.5, 1.2);
+    // Teto de caixa elevado (1.2 -> 2.5): equipes realmente ricas investem mais
+    // no carro (Pilar B). Os retornos decrescentes abaixo é que limitam o ganho.
+    let cash_strength = (team.cash_balance / 1_000_000.0).clamp(-0.5, 2.5);
+    // Pilar B: o investimento no CARRO escala com o caixa numa faixa muito maior
+    // que o cash_strength geral (teto 2.5). Assim o caixa gigante das categorias
+    // de topo (endurance ~12-60M) vira carro de verdade — gating economico em vez
+    // de teto rigido. Confiabilidade/estrutura seguem no cash_strength original.
+    let car_cash_strength = (team.cash_balance / 1_000_000.0).clamp(-0.5, 12.0);
     let debt_pressure = (team.debt_balance / 900_000.0).clamp(0.0, 1.2);
     let state = financial_state_bias(&team.financial_state);
     let strategy = season_strategy_bias(&team.season_strategy);
@@ -139,28 +183,47 @@ pub fn calculate_offseason_competitiveness_impact(team: &Team) -> OffseasonCompe
     let reliability_delta =
         (cash_strength * 1.8 - debt_pressure * 3.2 + state.reliability + strategy.reliability)
             * efficiency;
-    let car_performance_delta = (cash_strength * 0.55 - debt_pressure * 0.65
+    // "Drive" bruto de investimento no carro nesta offseason.
+    let car_drive = (car_cash_strength * 0.55 - debt_pressure * 0.65
         + state.car_performance
         + strategy.car_performance
         + breakthrough_expected_value)
         * efficiency;
+    // Retornos decrescentes (Pilar B): o mesmo drive rende menos quanto melhor o
+    // carro já é. Quedas (drive < 0, carro defasado por falta de verba) aplicam
+    // direto, para que elites defundadas ainda percam terreno. O fator real-vs-
+    // fictícia só penaliza o GANHO (não as quedas), para as fábricas se distanciarem.
+    let car_performance_delta = if car_drive > 0.0 {
+        car_drive * car_dev_gain_factor(team, career_year)
+            / (1.0 + team.car_performance.max(0.0) / CAR_INVEST_DIMINISH_K)
+    } else {
+        car_drive
+    };
     let structure_delta =
         (cash_strength * 1.15 - debt_pressure * 2.25 + state.structure + strategy.structure)
             * efficiency;
 
     OffseasonCompetitivenessImpact {
         reliability_delta: reliability_delta.clamp(-6.0, 4.0),
-        car_performance_delta: car_performance_delta.clamp(-1.4, 1.4),
+        // Clamp largo (de ±1.4) só como rede de segurança contra saltos extremos;
+        // os retornos decrescentes é que regulam o ganho temporada a temporada.
+        car_performance_delta: car_performance_delta.clamp(-3.0, 3.0),
         engineering_delta: structure_delta.clamp(-3.5, 2.5),
         facilities_delta: (structure_delta * 0.75).clamp(-2.5, 1.8),
     }
 }
 
-pub fn apply_offseason_competitiveness_impact(team: &mut Team) -> OffseasonCompetitivenessImpact {
-    let impact = calculate_offseason_competitiveness_impact(team);
+/// `career_year` é o ano da carreira do jogador (0 = primeiro ano); é repassado a
+/// `calculate_offseason_competitiveness_impact` para modular a penalidade fictícia GT3.
+pub fn apply_offseason_competitiveness_impact(
+    team: &mut Team,
+    career_year: i32,
+) -> OffseasonCompetitivenessImpact {
+    let impact = calculate_offseason_competitiveness_impact(team, career_year);
 
     team.confiabilidade = (team.confiabilidade + impact.reliability_delta).clamp(0.0, 100.0);
-    team.car_performance = (team.car_performance + impact.car_performance_delta).clamp(-5.0, 16.0);
+    // Sem teto superior (Pilar B): só piso em −5; os retornos decrescentes regulam o topo.
+    team.car_performance = (team.car_performance + impact.car_performance_delta).max(-5.0);
     team.engineering = (team.engineering + impact.engineering_delta).clamp(0.0, 100.0);
     team.facilities = (team.facilities + impact.facilities_delta).clamp(0.0, 100.0);
 
@@ -273,6 +336,86 @@ mod tests {
         team.confiabilidade = 70.0;
         team.car_performance = 8.0;
         team
+    }
+
+    #[test]
+    fn real_gt3_marque_outdevelops_an_identical_fictional_team() {
+        // Same well-funded GT3 team; only the brand differs. The real manufacturer
+        // (marca Some) gains more car performance per offseason than the fictional
+        // one (marca None), so factory teams pull away season over season while the
+        // fictional teams stay "underdogs".
+        let fictional = sample_team("FIC", 1_500_000.0, 0.0, "healthy", "competitive");
+        let mut real = sample_team("REAL", 1_500_000.0, 0.0, "healthy", "competitive");
+        real.marca = Some("Ferrari".to_string());
+
+        let fictional_gain =
+            calculate_offseason_competitiveness_impact(&fictional, 0).car_performance_delta;
+        let real_gain = calculate_offseason_competitiveness_impact(&real, 0).car_performance_delta;
+
+        assert!(fictional_gain > 0.0, "both teams are investing the car upward");
+        assert!(
+            real_gain > fictional_gain,
+            "real marque ({real_gain}) must out-develop the fictional team ({fictional_gain})"
+        );
+        // The fictional gain is exactly the real gain scaled by the penalty factor.
+        assert!((fictional_gain - real_gain * FICTIONAL_CAR_DEV_FACTOR).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_gt3_penalty_does_not_touch_real_marques_or_other_categories() {
+        // A fictional team OUTSIDE the real-vs-fictional GT3 arenas keeps full growth.
+        let mut amador = sample_team("AMA", 1_500_000.0, 0.0, "healthy", "competitive");
+        amador.categoria = "mazda_amador".to_string();
+        assert!((car_dev_gain_factor(&amador, 0) - 1.0).abs() < 1e-9);
+
+        // A real marque in GT3-endurance is never penalised.
+        let mut real_endurance = sample_team("RE", 1_500_000.0, 0.0, "healthy", "competitive");
+        real_endurance.categoria = "endurance".to_string();
+        real_endurance.classe = Some("gt3".to_string());
+        real_endurance.marca = Some("Audi".to_string());
+        assert!((car_dev_gain_factor(&real_endurance, 0) - 1.0).abs() < 1e-9);
+
+        // ...but a fictional GT3-endurance team is.
+        let mut fic_endurance = sample_team("FE", 1_500_000.0, 0.0, "healthy", "competitive");
+        fic_endurance.categoria = "endurance".to_string();
+        fic_endurance.classe = Some("gt3".to_string());
+        assert!((car_dev_gain_factor(&fic_endurance, 0) - FICTIONAL_CAR_DEV_FACTOR).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fictional_gt3_penalty_fades_out_after_five_career_years() {
+        // Identical fictional vs real GT3 pair. Early in the career the fictional
+        // team develops slower; by career year 5 (and beyond) the penalty is gone
+        // and both develop the car at the same rate.
+        let fictional = sample_team("FIC", 1_500_000.0, 0.0, "healthy", "competitive");
+        let mut real = sample_team("REAL", 1_500_000.0, 0.0, "healthy", "competitive");
+        real.marca = Some("Ferrari".to_string());
+
+        // Year 0: full penalty — fictional develops less than the real marque.
+        let fictional_y0 =
+            calculate_offseason_competitiveness_impact(&fictional, 0).car_performance_delta;
+        let real_y0 = calculate_offseason_competitiveness_impact(&real, 0).car_performance_delta;
+        assert!(
+            fictional_y0 < real_y0,
+            "year 0: fictional ({fictional_y0}) must develop less than real ({real_y0})"
+        );
+
+        // Year 5 and 10: penalty fully faded — gains are identical.
+        let fictional_y5 =
+            calculate_offseason_competitiveness_impact(&fictional, 5).car_performance_delta;
+        let real_y5 = calculate_offseason_competitiveness_impact(&real, 5).car_performance_delta;
+        assert!(
+            (fictional_y5 - real_y5).abs() < 1e-9,
+            "year 5: penalty gone, fictional ({fictional_y5}) == real ({real_y5})"
+        );
+
+        let fictional_y10 =
+            calculate_offseason_competitiveness_impact(&fictional, 10).car_performance_delta;
+        let real_y10 = calculate_offseason_competitiveness_impact(&real, 10).car_performance_delta;
+        assert!(
+            (fictional_y10 - real_y10).abs() < 1e-9,
+            "year 10: penalty gone, fictional ({fictional_y10}) == real ({real_y10})"
+        );
     }
 
     #[test]
@@ -401,8 +544,8 @@ mod tests {
         let rich = sample_team("T001", 1_500_000.0, 0.0, "healthy", "balanced");
         let poor = sample_team("T002", -100_000.0, 650_000.0, "crisis", "survival");
 
-        let rich_impact = calculate_offseason_competitiveness_impact(&rich);
-        let poor_impact = calculate_offseason_competitiveness_impact(&poor);
+        let rich_impact = calculate_offseason_competitiveness_impact(&rich, 10);
+        let poor_impact = calculate_offseason_competitiveness_impact(&poor, 10);
 
         assert!(rich_impact.reliability_delta > poor_impact.reliability_delta);
         assert!(poor_impact.reliability_delta < 0.0);
@@ -413,8 +556,8 @@ mod tests {
         let balanced = sample_team("T001", 600_000.0, 0.0, "stable", "balanced");
         let all_in = sample_team("T002", 600_000.0, 0.0, "pressured", "all_in");
 
-        let balanced_impact = calculate_offseason_competitiveness_impact(&balanced);
-        let all_in_impact = calculate_offseason_competitiveness_impact(&all_in);
+        let balanced_impact = calculate_offseason_competitiveness_impact(&balanced, 10);
+        let all_in_impact = calculate_offseason_competitiveness_impact(&all_in, 10);
 
         assert!(all_in_impact.car_performance_delta > balanced_impact.car_performance_delta);
         assert!(all_in_impact.reliability_delta < balanced_impact.reliability_delta);
@@ -428,11 +571,46 @@ mod tests {
         team.engineering = 2.0;
         team.facilities = 2.0;
 
-        apply_offseason_competitiveness_impact(&mut team);
+        apply_offseason_competitiveness_impact(&mut team, 10);
 
         assert!((0.0..=100.0).contains(&team.confiabilidade));
-        assert!((-5.0..=16.0).contains(&team.car_performance));
+        // Pilar B: piso em −5, sem teto superior.
+        assert!(team.car_performance >= -5.0);
         assert!((0.0..=100.0).contains(&team.engineering));
         assert!((0.0..=100.0).contains(&team.facilities));
+    }
+
+    #[test]
+    fn car_investment_has_diminishing_returns() {
+        // Mesma força financeira; o carro já alto ganha menos que o carro baixo.
+        let mut low = sample_team("T001", 5_000_000.0, 0.0, "elite", "balanced");
+        low.car_performance = 2.0;
+        let mut high = sample_team("T002", 5_000_000.0, 0.0, "elite", "balanced");
+        high.car_performance = 24.0;
+
+        let low_gain = calculate_offseason_competitiveness_impact(&low, 10).car_performance_delta;
+        let high_gain = calculate_offseason_competitiveness_impact(&high, 10).car_performance_delta;
+
+        assert!(low_gain > 0.0 && high_gain > 0.0);
+        assert!(
+            low_gain > high_gain,
+            "retornos decrescentes: carro baixo ({low_gain:.3}) deveria ganhar mais que carro alto ({high_gain:.3})"
+        );
+    }
+
+    #[test]
+    fn rich_team_car_grows_past_old_ceiling_of_16() {
+        // Equipe muito rica e bem gerida: ao longo de várias offseasons o carro
+        // ultrapassa o antigo teto rígido de 16 (Pilar B: sem teto).
+        let mut team = sample_team("T001", 30_000_000.0, 0.0, "elite", "expansion");
+        team.car_performance = 15.0;
+        for _ in 0..8 {
+            apply_offseason_competitiveness_impact(&mut team, 10);
+        }
+        assert!(
+            team.car_performance > 16.0,
+            "carro deveria passar de 16 (ficou em {:.2})",
+            team.car_performance
+        );
     }
 }

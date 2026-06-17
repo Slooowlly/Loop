@@ -309,7 +309,7 @@ describe("GlobalTeamsTab", () => {
     expect(await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i })).toBeInTheDocument();
     // Locked window label = axisStartYear-familyMaxYear = 2013-2026 (see fixture geometry).
     expect(screen.getByText(/Mazda: janela 2013-2026/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(1);
     expect(invoke).toHaveBeenCalledWith("get_global_team_history", {
       careerId: "career-1",
       family: "mazda",
@@ -348,11 +348,11 @@ describe("GlobalTeamsTab", () => {
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    // Navigable axis end label = axisEndYear = familyMaxYear = 2026 (right label of both
-    // scrubbers + the 2026 year-header column = 3 nodes).
-    expect(screen.getAllByText("2026")).toHaveLength(3);
+    // Navigable axis end label = axisEndYear = familyMaxYear = 2026 (the single
+    // scrubber's right label + the 2026 year-header column = 2 nodes).
+    expect(screen.getAllByText("2026")).toHaveLength(2);
     // Locked viewport = [axisStartYear(2013), familyMaxYear(2026)]
-    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(1);
     // renderEndYear = axisEnd(2026) + ceil(windowSize(14)/3) + 1 = 2032 is the last column.
     expect(screen.getByTestId("world-team-year-2032")).toBeInTheDocument();
     expect(screen.queryByTestId("world-team-year-2033")).not.toBeInTheDocument();
@@ -646,7 +646,7 @@ describe("GlobalTeamsTab", () => {
 
     expect(invoke).not.toHaveBeenCalled();
     // Window stays pinned to [axisStart(2013), familyMax(2026)] regardless of the drag.
-    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(1);
   });
 
   it("keeps lateral team rows in fixed non-overlapping slots even when positions match", async () => {
@@ -693,36 +693,15 @@ describe("GlobalTeamsTab", () => {
     expect(within(dual).getByText("2")).toBeInTheDocument();
   });
 
-  it("exposes a second (bottom) scrubber that also leaves the locked window unchanged", async () => {
+  it("renders a single window scrubber at the bottom (the top one was removed)", async () => {
     render(<GlobalTeamsTab onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
-    const slider = screen.getByRole("slider", { name: /Mover janela historica inferior/i });
-    const rail = screen.getByTestId("world-team-window-scrubber-bottom");
-    rail.getBoundingClientRect = () => ({
-      left: 0,
-      right: 260,
-      width: 260,
-      top: 0,
-      bottom: 20,
-      height: 20,
-      x: 0,
-      y: 0,
-      toJSON: () => {},
-    });
-
-    // The bottom scrubber is a real, independent control (its own slider + rail), but
-    // because the window is locked it cannot pan the atlas either: the grid stays at
-    // the 0% offset and both window labels remain 2013-2026 after dragging.
-    fireEvent.pointerDown(slider, { clientX: 236, pointerId: 7 });
-    fireEvent.pointerMove(window, { clientX: 189, pointerId: 7 });
-
-    expect(screen.getByTestId("world-team-moving-grid").style.transform).toBe("translate3d(0%, 0, 0)");
-
-    fireEvent.pointerUp(window, { clientX: 189, pointerId: 7 });
-
-    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    // Only one scrubber now — the duplicate top scrubber was removed.
+    expect(screen.getAllByTestId("world-team-window-scrubber")).toHaveLength(1);
+    expect(screen.queryByTestId("world-team-window-scrubber-bottom")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("slider", { name: /^Mover janela historica$/i })).toHaveLength(1);
   });
 
   it("shows trophy icons for teams with titles and nothing for teams without", async () => {
@@ -774,9 +753,9 @@ describe("GlobalTeamsTab", () => {
 
     // familyMinYear=2016, familyMaxYear=2026 → windowSize=14 (locked, full range)
     // visibleStart=axisStart=2013, visibleEnd=familyMax=2026; rendered axis=[2013..2032]
-    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
-    // The navigable axis end (2026) labels both scrubbers (right end) + the year header.
-    expect(screen.getAllByText("2026")).toHaveLength(3);
+    expect(screen.getAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(1);
+    // The navigable axis end (2026) labels the scrubber's right end + the year header.
+    expect(screen.getAllByText("2026")).toHaveLength(2);
     // 2027 is a render-only column past the navigable end (under the right table); it is
     // NOT a scrubber endpoint, so it appears only once — in the year header.
     expect(screen.getAllByText("2027")).toHaveLength(1);
@@ -874,7 +853,7 @@ describe("GlobalTeamsTab", () => {
     fireEvent.pointerMove(window, { clientX: 0, pointerId: 3 });
     fireEvent.pointerUp(window, { clientX: 0, pointerId: 3 });
 
-    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/Janela visivel: 2013-2026/i)).toHaveLength(1);
     // The render-only future year 2027 is still drawn as a gutter column...
     expect(screen.getByTestId("world-team-year-2027")).toBeInTheDocument();
     // ...but it is not a navigable scrubber endpoint, so it shows only in the header.
