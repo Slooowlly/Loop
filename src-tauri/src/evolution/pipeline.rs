@@ -403,15 +403,10 @@ fn process_driver_evolution(
         // Retenção de lenda: se o piloto quer se aposentar mas é INSUBSTITUÍVEL (nenhum
         // piloto licenciado da categoria de baixo o supera), o time o segura por +1 ano
         // com salário maior. Adia a aposentadoria até surgir um substituto à altura
-        // (acontece naturalmente pela queda de idade). Só IA, fora do time do jogador.
+        // (acontece naturalmente pela queda de idade). É decisão do time — vale inclusive
+        // para o time do jogador (só não retém o próprio piloto-jogador).
         if retirement.should_retire
-            && !try_retain_irreplaceable_veteran(
-                conn,
-                driver,
-                contracts_by_driver,
-                teams_by_id,
-                season,
-            )?
+            && !try_retain_irreplaceable_veteran(conn, driver, contracts_by_driver, season)?
         {
             let reason = retirement
                 .reason
@@ -453,13 +448,14 @@ fn process_driver_evolution(
 /// licenciado da categoria de baixo tem skill >= a dele. Nesse caso estende o contrato
 /// por +1 ano com salário +40% e o mantém ativo (retorna `true`), adiando a aposentadoria
 /// até surgir um substituto à altura (acontece naturalmente pela queda de idade — sem teto
-/// de idade). Só IA, fora do time do jogador, e só categorias regulares (não-estreia,
-/// não-especiais; rookies têm reposição abundante e especiais usam convocação).
+/// de idade). É uma decisão DO TIME — vale também para o time do jogador (o jogador não
+/// controla o que o time decide). Só IA (o piloto-jogador nunca é retido contra a vontade)
+/// e só categorias regulares (não-estreia, não-especiais; rookies têm reposição abundante
+/// e especiais usam convocação).
 fn try_retain_irreplaceable_veteran(
     conn: &Connection,
     driver: &Driver,
     contracts_by_driver: &HashMap<String, Contract>,
-    teams_by_id: &HashMap<String, Team>,
     season: &Season,
 ) -> Result<bool, String> {
     const RETENTION_RAISE: f64 = 1.40;
@@ -470,12 +466,6 @@ fn try_retain_irreplaceable_veteran(
     let Some(contract) = contracts_by_driver.get(&driver.id) else {
         return Ok(false);
     };
-    if teams_by_id
-        .get(&contract.equipe_id)
-        .is_some_and(|team| team.is_player_team)
-    {
-        return Ok(false);
-    }
     if runs_in_special_phase(&contract.categoria) {
         return Ok(false);
     }
@@ -1161,21 +1151,14 @@ mod tests {
 
     #[test]
     fn test_retains_irreplaceable_veteran_with_raise() {
-        let (conn, season, team, veteran, contract) = retention_fixture();
+        let (conn, season, _team, veteran, contract) = retention_fixture();
         let contracts_by_driver: HashMap<String, Contract> =
             [(veteran.id.clone(), contract.clone())].into_iter().collect();
-        let teams_by_id: HashMap<String, Team> =
-            [(team.id.clone(), team.clone())].into_iter().collect();
 
         // Sem candidato licenciado na gt4 → deve reter.
-        let retained = try_retain_irreplaceable_veteran(
-            &conn,
-            &veteran,
-            &contracts_by_driver,
-            &teams_by_id,
-            &season,
-        )
-        .expect("retention check");
+        let retained =
+            try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+                .expect("retention check");
         assert!(retained, "veterano sem substituto deve ser retido");
 
         // Contrato antigo não está mais ativo.
@@ -1204,7 +1187,7 @@ mod tests {
 
     #[test]
     fn test_does_not_retain_veteran_when_licensed_substitute_exists() {
-        let (conn, season, team, veteran, contract) = retention_fixture();
+        let (conn, season, _team, veteran, contract) = retention_fixture();
 
         // Substituto na gt4 (feeder) com skill >= veterano e licença nível 3.
         let mut sub = sample_driver("SUB", "Substituto", "gt4", 80.0, 3, 10, 0);
@@ -1220,17 +1203,10 @@ mod tests {
 
         let contracts_by_driver: HashMap<String, Contract> =
             [(veteran.id.clone(), contract.clone())].into_iter().collect();
-        let teams_by_id: HashMap<String, Team> =
-            [(team.id.clone(), team.clone())].into_iter().collect();
 
-        let retained = try_retain_irreplaceable_veteran(
-            &conn,
-            &veteran,
-            &contracts_by_driver,
-            &teams_by_id,
-            &season,
-        )
-        .expect("retention check");
+        let retained =
+            try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+                .expect("retention check");
         assert!(
             !retained,
             "havendo substituto licenciado à altura, não deve reter"
@@ -1238,23 +1214,18 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_retain_player_team_veteran() {
+    fn test_retains_irreplaceable_veteran_even_on_player_team() {
+        // É decisão do time: o jogador não controla retenção. Estar no time do jogador
+        // NÃO isenta a retenção do companheiro insubstituível.
         let (conn, season, mut team, veteran, contract) = retention_fixture();
         team.is_player_team = true;
         let contracts_by_driver: HashMap<String, Contract> =
             [(veteran.id.clone(), contract.clone())].into_iter().collect();
-        let teams_by_id: HashMap<String, Team> =
-            [(team.id.clone(), team.clone())].into_iter().collect();
 
-        let retained = try_retain_irreplaceable_veteran(
-            &conn,
-            &veteran,
-            &contracts_by_driver,
-            &teams_by_id,
-            &season,
-        )
-        .expect("retention check");
-        assert!(!retained, "time do jogador é decidido pelo jogador (Fase B)");
+        let retained =
+            try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+                .expect("retention check");
+        assert!(retained, "retenção vale inclusive para o time do jogador");
     }
 
     fn unique_test_dir(label: &str) -> std::path::PathBuf {
