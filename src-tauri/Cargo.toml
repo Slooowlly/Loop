@@ -25,3 +25,13 @@ chrono = { version = "0.4", features = ["serde"] }
 notify = "6"
 thiserror = "1"
 uuid = { version = "1.22.0", features = ["v4"] }
+
+# Teste do SDK do iRacing (binding manual da shared memory). Só em Windows.
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "memoryapi",
+    "handleapi",
+    "errhandlingapi",
+    "ntdef",
+    "minwindef",
+] }

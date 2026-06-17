@@ -1898,6 +1898,7 @@ dependencies = [
  "tauri-plugin-shell",
  "thiserror 1.0.69",
  "uuid",
+ "winapi",
 ]
 
 [[package]]

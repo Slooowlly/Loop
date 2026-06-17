@@ -162,6 +162,7 @@ mod evolution;
 mod finance;
 mod generators;
 mod hierarchy;
+mod iracing_sdk;
 mod market;
 mod models;
 mod news;
@@ -280,7 +281,12 @@ pub fn run() {
             commands::news_tab::get_news_tab_snapshot,
             commands::race::simulate_race_weekend,
             commands::race::simulate_special_block,
+            commands::iracing::iracing_read_session,
+            commands::iracing::iracing_read_telemetry,
+            commands::iracing::iracing_poll_race,
+            commands::iracing::iracing_reset_race,
             commands::window::minimize_window,
+            commands::window::start_window_drag,
             commands::window::toggle_maximize_window,
             commands::window::close_window,
             commands::window::get_window_maximized,

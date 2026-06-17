@@ -123,6 +123,20 @@ function WindowControlsDrawer() {
     }
   }
 
+  async function handleStartDrag(event) {
+    event.stopPropagation();
+    if (event.button !== 0) return; // só botão esquerdo
+    // O arrasto a nível de SO rouba os eventos do mouse, então o onMouseLeave
+    // que fecharia o drawer nunca dispara. Fecha manualmente ANTES, senão o
+    // overlay de escurecimento fica preso ligado.
+    handleDrawerLeave();
+    try {
+      await invoke("start_window_drag");
+    } catch (error) {
+      console.error("Falha ao arrastar janela:", error);
+    }
+  }
+
   async function handleToggleFullscreen(event) {
     event.stopPropagation();
     try {
@@ -223,6 +237,15 @@ function WindowControlsDrawer() {
               style={{ pointerEvents: isOpen ? "auto" : "none" }}
             >
               <div className="glass-strong flex items-center gap-0.5 rounded-2xl border border-white/12 px-1.5 py-1.5">
+                <div
+                  role="button"
+                  aria-label="Arrastar janela"
+                  title="Arrastar janela (segure e mova)"
+                  onMouseDown={handleStartDrag}
+                  className={`${buttonClass} cursor-grab active:cursor-grabbing`}
+                >
+                  <span className="block text-[13px] leading-none">⠿</span>
+                </div>
                 <button type="button" className={buttonClass} onClick={handleMinimize}>
                   <span className="block -translate-y-[1px] text-[11px]">&minus;</span>
                 </button>
