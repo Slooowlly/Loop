@@ -1,0 +1,59 @@
+{
+  "label": "Conteúdo grátis — Production (Mazda / Toyota / BMW)",
+  "category_id": 5,
+  "category_name": "Sports Car",
+  "source": "Carros/classes/pistas do aiseason 'MAZDA TOYOTA BMW'. Nomes das pistas DEDUZIDOS pela ordem do events[] vs lista da UI — confirmar ao vivo pelo YAML (WeekendInfo.TrackID/TrackDisplayName). Correções do usuário: 556 = Charlotte Roval 2015 (não Oval); Concord Speedway (15) removida (não pertence).",
+  "paint_notes": "paint_patterns = primeiro número do carDesign, curados pelo usuário (só os bons; cores ignoradas — o usuário pôs todos na mesma cor para comparar estilos). Geração: cor = do time; padrão sorteado por TIME (companheiros compartilham padrão+cor, diferenciam por número+sponsors). Time do jogador usa o padrão mais simples (provável 0).",
+  "number_design_default": "0,0,FFFFFF,777777,000000",
+  "cars": [
+    {
+      "name": "Mazda MX-5 (2016)", "car_id": 67, "car_class_id": 74, "car_path": "mx5\\mx52016",
+      "paint_patterns": [0, 4, 5, 8, 13],
+      "sponsors": [367, 11, 1]
+    },
+    {
+      "name": "Toyota GR86", "car_id": 160, "car_class_id": 4012, "car_path": "toyotagr86",
+      "paint_patterns": [0, 2, 4, 5, 7, 9, 11, 14, 16, 21],
+      "sponsors": [434, 413, 2, 130, 410, 3, 72]
+    },
+    {
+      "name": "BMW M2 (G87)", "car_id": 216, "car_class_id": 4108, "car_path": "bmwm2g87",
+      "paint_patterns": [0, 3, 5, 6, 13, 19, 23],
+      "sponsors": [7, 410, 362, 363, 2, 324, 290, 411, 486, 253]
+    }
+  ],
+  "tracks": [
+    { "track_id": 556, "name": "Charlotte Motor Speedway - Roval 2015", "layout": "road" },
+    { "track_id": 554, "name": "Charlotte Motor Speedway - Roval 2025", "layout": "road" },
+    { "track_id": 489, "name": "Circuit de Lédenon", "layout": "road" },
+    { "track_id": 515, "name": "Circuito de Navarra - Speed Circuit", "layout": "road" },
+    { "track_id": 516, "name": "Circuito de Navarra - Speed Circuit - Medium", "layout": "road" },
+    { "track_id": 353, "name": "Lime Rock Park - Grand Prix", "layout": "road" },
+    { "track_id": 352, "name": "Lime Rock Park - Classic", "layout": "road" },
+    { "track_id": 354, "name": "Lime Rock Park - Chicanes", "layout": "road" },
+    { "track_id": 449, "name": "Motorsport Arena Oschersleben - Grand Prix", "layout": "road" },
+    { "track_id": 454, "name": "Motorsport Arena Oschersleben - Alternate", "layout": "road" },
+    { "track_id": 455, "name": "Motorsport Arena Oschersleben - B Course", "layout": "road" },
+    { "track_id": 166, "name": "Okayama International Circuit - Full Course", "layout": "road" },
+    { "track_id": 167, "name": "Okayama International Circuit - Short", "layout": "road" },
+    { "track_id": 202, "name": "Oran Park Raceway - Grand Prix", "layout": "road" },
+    { "track_id": 208, "name": "Oran Park Raceway - South", "layout": "road" },
+    { "track_id": 180, "name": "Oulton Park Circuit - International", "layout": "road" },
+    { "track_id": 181, "name": "Oulton Park Circuit - Fosters", "layout": "road" },
+    { "track_id": 182, "name": "Oulton Park Circuit - Island", "layout": "road" },
+    { "track_id": 183, "name": "Oulton Park Circuit - Intl w/out Hislop", "layout": "road" },
+    { "track_id": 184, "name": "Oulton Park Circuit - Intl w/out Brittens", "layout": "road" },
+    { "track_id": 185, "name": "Oulton Park Circuit - Intl w/no Chicanes", "layout": "road" },
+    { "track_id": 186, "name": "Oulton Park Circuit - Fosters w/Hislop", "layout": "road" },
+    { "track_id": 451, "name": "Rudskogen Motorsenter", "layout": "road" },
+    { "track_id": 297, "name": "Snetterton Circuit - 300", "layout": "road" },
+    { "track_id": 298, "name": "Snetterton Circuit - 200", "layout": "road" },
+    { "track_id": 9, "name": "Summit Point Raceway", "layout": "road" },
+    { "track_id": 324, "name": "Tsukuba Circuit - 2000 Full", "layout": "road" },
+    { "track_id": 465, "name": "Virginia International Raceway - Full Course", "layout": "road" },
+    { "track_id": 467, "name": "Virginia International Raceway - North Course", "layout": "road" },
+    { "track_id": 466, "name": "Virginia International Raceway - Grand Course", "layout": "road" },
+    { "track_id": 439, "name": "Winton Motor Raceway - National Circuit", "layout": "road" },
+    { "track_id": 440, "name": "Winton Motor Raceway - Club Circuit", "layout": "road" }
+  ]
+}

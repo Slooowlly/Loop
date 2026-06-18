@@ -34,4 +34,9 @@ winapi = { version = "0.3", features = [
     "errhandlingapi",
     "ntdef",
     "minwindef",
+    "winuser",
+    "combaseapi",
+    "knownfolders",
+    "shlobj",
+    "shtypes",
 ] }

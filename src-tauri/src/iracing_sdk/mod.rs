@@ -16,7 +16,11 @@
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod paint_gen;
+pub mod paths;
+pub mod race_control;
 pub mod race_monitor;
+pub mod roster_gen;
 
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
 const MEM_MAP_FILE_NAME: &str = "Local\\IRSDKMemMapFileName";
@@ -47,6 +51,7 @@ mod header {
     pub const VAR_HEADER_SIZE: usize = 144; // tamanho de cada irsdk_varHeader
     pub const VAR_TYPE: usize = 0; // i32: irsdk_VarType
     pub const VAR_OFFSET: usize = 4; // i32: offset do valor dentro da linha do buffer
+    pub const VAR_COUNT: usize = 8; // i32: nº de entradas (1 = escalar; arrays CarIdx* = nº de carros)
     pub const VAR_NAME: usize = 16; // char[32]: nome da variável
     pub const VAR_NAME_MAX: usize = 32;
 }
@@ -113,6 +118,9 @@ pub struct IracingTelemetry {
     pub fuel_level: f64,
     /// Tempo da volta em andamento, em segundos (`LapCurrentLapTime`).
     pub lap_current_time: f64,
+    /// Tempo da ÚLTIMA volta completa do jogador, em segundos (`LapLastLapTime`).
+    /// -1 quando ainda não há volta válida. Base do gráfico de consistência.
+    pub last_lap_time: f64,
     /// Posição do carro do jogador na sessão (`PlayerCarPosition`).
     pub position: i32,
     /// Se o carro do jogador está na pista (`IsOnTrack`).
@@ -169,6 +177,60 @@ pub struct IracingTelemetry {
     /// Se um replay está sendo reproduzido (`IsReplayPlaying`). Durante o replay
     /// o `SessionTime` reflete a posição do replay, não a corrida ao vivo.
     pub is_replay_playing: bool,
+    /// Índice do carro do jogador (`PlayerCarIdx`) — qual entrada de `cars` é a dele.
+    pub player_car_idx: i32,
+    /// Se o carro do jogador está no pit road (`OnPitRoad`).
+    pub player_on_pit_road: bool,
+    /// Snapshot de TODOS os carros na sessão (lido das variáveis de array
+    /// `CarIdx*`). Só os carros presentes (no mundo) entram aqui.
+    pub cars: Vec<CarSnapshot>,
+}
+
+/// Estado de um carro qualquer na sessão (jogador ou IA), lido das variáveis de
+/// array `CarIdx*`. Base para o AiIncidentAnalyzer e a visão do campo todo.
+#[derive(Debug, Clone, Serialize)]
+pub struct CarSnapshot {
+    /// Índice do carro (`CarIdx`), 0..63.
+    pub idx: i32,
+    /// Se é o carro do jogador.
+    pub is_player: bool,
+    /// Progresso na volta, 0.0–1.0 (`CarIdxLapDistPct`). -1 quando fora do mundo.
+    pub lap_dist_pct: f64,
+    /// Voltas completadas (`CarIdxLapCompleted`).
+    pub lap_completed: i32,
+    /// Volta atual (`CarIdxLap`).
+    pub lap: i32,
+    /// Posição geral (`CarIdxPosition`).
+    pub position: i32,
+    /// Posição na classe (`CarIdxClassPosition`).
+    pub class_position: i32,
+    /// Se está no pit road (`CarIdxOnPitRoad`).
+    pub on_pit_road: bool,
+    /// Onde o carro está (`CarIdxTrackSurface`, irsdk_TrkLoc).
+    pub track_surface: i32,
+    /// Marcha (`CarIdxGear`).
+    pub gear: i32,
+    /// Tempo atrás do líder em segundos (`CarIdxF2Time`) — o gap.
+    pub f2_time: f64,
+}
+
+impl Default for CarSnapshot {
+    fn default() -> Self {
+        // Padrões "ausente": fora do mundo / sem progresso, para filtrar slots vazios.
+        Self {
+            idx: 0,
+            is_player: false,
+            lap_dist_pct: -1.0,
+            lap_completed: 0,
+            lap: 0,
+            position: 0,
+            class_position: 0,
+            on_pit_road: false,
+            track_surface: -1,
+            gear: 0,
+            f2_time: 0.0,
+        }
+    }
 }
 
 /// Conecta no iRacing, valida o cabeçalho e devolve a info de sessão.
@@ -186,6 +248,13 @@ pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
     imp::read_telemetry()
 }
 
+/// Dispara um MACRO de chat do iRacing (1-15) via broadcast do Windows. O texto
+/// do macro é configurado dentro do iRacing — ex.: um macro com `!yellow`. É o
+/// único jeito do SDK "digitar" um comando de chat como `!yellow`.
+pub fn send_chat_macro(macro_num: i32) -> Result<(), IracingError> {
+    imp::send_chat_macro(macro_num)
+}
+
 /// Extrai `TrackDisplayName: ...` da string YAML de sessão, se presente.
 /// O YAML do iRacing é raso o suficiente para uma varredura por linha bastar
 /// neste teste — sem precisar de um parser YAML completo.
@@ -194,6 +263,71 @@ fn parse_track_name(yaml: &str) -> Option<String> {
         .find_map(|line| line.trim().strip_prefix("TrackDisplayName:"))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Extrai o `custid` (id de cliente iRacing) do JOGADOR do YAML de sessão:
+/// `DriverInfo.DriverCarIdx` diz qual carro é o do jogador, e o `UserID` do
+/// piloto com aquele `CarIdx` é o custid. Varredura por linha (sem parser YAML).
+pub fn parse_player_custid(yaml: &str) -> Option<i64> {
+    let target = yaml
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("DriverCarIdx:"))
+        .and_then(|v| v.trim().parse::<i64>().ok())?;
+
+    let mut current: Option<i64> = None;
+    for line in yaml.lines() {
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("CarIdx:") {
+            current = rest.trim().parse::<i64>().ok();
+        } else if let Some(rest) = t.strip_prefix("UserID:") {
+            if current == Some(target) {
+                return rest.trim().parse::<i64>().ok().filter(|id| *id > 0);
+            }
+        }
+    }
+    None
+}
+
+// ─── Custid do jogador: capturado automaticamente e persistido ───────────────
+static PLAYER_CUSTID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static CUSTID_LOADED: std::sync::Once = std::sync::Once::new();
+
+fn custid_file() -> std::path::PathBuf {
+    std::env::temp_dir().join("loop_player_custid.txt")
+}
+
+fn ensure_custid_loaded() {
+    CUSTID_LOADED.call_once(|| {
+        if let Ok(s) = std::fs::read_to_string(custid_file()) {
+            if let Ok(id) = s.trim().parse::<i64>() {
+                if id > 0 {
+                    PLAYER_CUSTID.store(id, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        }
+    });
+}
+
+/// Custid do jogador já conhecido (capturado nesta sessão ou persistido de antes).
+/// `None` enquanto o jogador não tiver entrado em nenhuma sessão.
+pub fn cached_custid() -> Option<i64> {
+    ensure_custid_loaded();
+    let v = PLAYER_CUSTID.load(std::sync::atomic::Ordering::Relaxed);
+    (v > 0).then_some(v)
+}
+
+/// Captura o custid do YAML de sessão e persiste — chamado pelo sampler de fundo
+/// enquanto o jogador corre. Grava uma única vez; ignora chamadas seguintes.
+pub fn note_session_custid(yaml: &str) {
+    ensure_custid_loaded();
+    if PLAYER_CUSTID.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+        return;
+    }
+    if let Some(id) = parse_player_custid(yaml) {
+        PLAYER_CUSTID.store(id, std::sync::atomic::Ordering::Relaxed);
+        let _ = std::fs::write(custid_file(), id.to_string());
+    }
 }
 
 #[cfg(windows)]
@@ -320,6 +454,19 @@ mod imp {
         }
     }
 
+    /// Tamanho em bytes de um `irsdk_VarType` (para indexar arrays).
+    fn type_size(var_type: i32) -> usize {
+        match var_type {
+            0 | 1 => 1,     // char, bool
+            2 | 3 | 4 => 4, // int, bitField, float
+            5 => 8,         // double
+            _ => 4,
+        }
+    }
+
+    /// Máximo de carros que o iRacing expõe nas variáveis de array.
+    const IRSDK_MAX_CARS: usize = 64;
+
     /// Varre os cabeçalhos de variáveis uma vez e extrai os canais curados do
     /// buffer de telemetria mais recente.
     ///
@@ -355,6 +502,14 @@ mod imp {
         let buffer = base.add(buf_offset as usize);
 
         let mut t = IracingTelemetry::default();
+        // Pré-aloca todos os slots de carro (idx correto); slots não preenchidos
+        // ficam com os padrões "ausente" e são filtrados no fim.
+        let mut cars: Vec<CarSnapshot> = (0..IRSDK_MAX_CARS)
+            .map(|i| CarSnapshot {
+                idx: i as i32,
+                ..CarSnapshot::default()
+            })
+            .collect();
 
         // Uma única passada pelos cabeçalhos; cada canal de interesse é casado
         // pelo nome e lido do buffer mais recente.
@@ -362,6 +517,7 @@ mod imp {
             let head = base.add(var_header_offset as usize + i * header::VAR_HEADER_SIZE);
             let var_type = read_i32(head, header::VAR_TYPE);
             let var_offset = read_i32(head, header::VAR_OFFSET);
+            let var_count = read_i32(head, header::VAR_COUNT).max(1) as usize;
 
             let name_bytes =
                 std::slice::from_raw_parts(head.add(header::VAR_NAME), header::VAR_NAME_MAX);
@@ -371,8 +527,34 @@ mod imp {
                 Err(_) => continue,
             };
 
+            // Variáveis de array por carro (`CarIdx*`): lê cada entrada e
+            // distribui para o slot correspondente.
+            if name.starts_with("CarIdx") {
+                let size = type_size(var_type);
+                let n = var_count.min(IRSDK_MAX_CARS);
+                for idx in 0..n {
+                    let v = read_value(buffer.add(var_offset as usize + idx * size), var_type);
+                    let car = &mut cars[idx];
+                    match name {
+                        "CarIdxLapDistPct" => car.lap_dist_pct = v,
+                        "CarIdxLapCompleted" => car.lap_completed = v as i32,
+                        "CarIdxLap" => car.lap = v as i32,
+                        "CarIdxPosition" => car.position = v as i32,
+                        "CarIdxClassPosition" => car.class_position = v as i32,
+                        "CarIdxOnPitRoad" => car.on_pit_road = v != 0.0,
+                        "CarIdxTrackSurface" => car.track_surface = v as i32,
+                        "CarIdxGear" => car.gear = v as i32,
+                        "CarIdxF2Time" => car.f2_time = v,
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
             let value = read_value(buffer.add(var_offset as usize), var_type);
             match name {
+                "PlayerCarIdx" => t.player_car_idx = value as i32,
+                "OnPitRoad" => t.player_on_pit_road = value != 0.0,
                 "Speed" => t.speed_ms = value,
                 "RPM" => t.rpm = value,
                 "Gear" => t.gear = value as i32,
@@ -384,6 +566,7 @@ mod imp {
                 "LapDistPct" => t.lap_dist_pct = value,
                 "FuelLevel" => t.fuel_level = value,
                 "LapCurrentLapTime" => t.lap_current_time = value,
+                "LapLastLapTime" => t.last_lap_time = value,
                 "PlayerCarPosition" => t.position = value as i32,
                 "IsOnTrack" => t.on_track = value != 0.0,
                 "SessionTime" => t.session_time = value,
@@ -411,8 +594,43 @@ mod imp {
             }
         }
 
+        // Marca o carro do jogador e mantém só os carros presentes (no mundo
+        // ou com progresso válido) — descarta os slots vazios.
+        if let Some(player) = cars.get_mut(t.player_car_idx.max(0) as usize) {
+            player.is_player = true;
+        }
+        cars.retain(|car| car.track_surface > -1 || car.lap_dist_pct >= 0.0);
+        t.cars = cars;
+
         t.speed_kmh = t.speed_ms * 3.6;
         Ok(t)
+    }
+
+    /// Dispara um macro de chat do iRacing via a broadcast message documentada
+    /// do SDK (`IRSDK_BROADCASTMSG`). Não usa a shared memory — é uma mensagem
+    /// de janela. O iRacing então "digita" o texto do macro (ex.: `!yellow`).
+    pub fn send_chat_macro(macro_num: i32) -> Result<(), IracingError> {
+        use winapi::um::winuser::{RegisterWindowMessageW, SendNotifyMessageW, HWND_BROADCAST};
+
+        // irsdk_BroadcastChatComand = 8; irsdk_ChatCommand_Macro = 0.
+        const BROADCAST_CHAT_COMMAND: i32 = 8;
+        const CHAT_COMMAND_MACRO: i32 = 0;
+
+        let name = wide_null("IRSDK_BROADCASTMSG");
+        unsafe {
+            let msg_id = RegisterWindowMessageW(name.as_ptr());
+            if msg_id == 0 {
+                return Err(IracingError::MapFailed(
+                    winapi::um::errhandlingapi::GetLastError(),
+                ));
+            }
+            // wParam = MAKELONG(msg, var1); lParam = MAKELONG(var2, var3).
+            let wparam = (BROADCAST_CHAT_COMMAND as usize & 0xffff)
+                | ((CHAT_COMMAND_MACRO as usize & 0xffff) << 16);
+            let lparam = (macro_num & 0xffff) as isize;
+            SendNotifyMessageW(HWND_BROADCAST, msg_id, wparam, lparam);
+        }
+        Ok(())
     }
 }
 
@@ -425,6 +643,10 @@ mod imp {
     }
 
     pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
+        Err(IracingError::Unsupported)
+    }
+
+    pub fn send_chat_macro(_macro_num: i32) -> Result<(), IracingError> {
         Err(IracingError::Unsupported)
     }
 }

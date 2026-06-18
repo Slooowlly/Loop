@@ -6,6 +6,13 @@ import GlassCard from "../components/ui/GlassCard";
 import GlassSelect from "../components/ui/GlassSelect";
 import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
+import PostRacePanel from "../components/iracing/PostRacePanel";
+import RosterGenPanel from "../components/iracing/RosterGenPanel";
+
+// Rótulo curto da superfície (irsdk_TrkLoc) para a lista de carros.
+function surfaceShort(surface) {
+  return { [-1]: "fora", 0: "grama", 1: "pit", 2: "→pit", 3: "pista" }[surface] || "?";
+}
 
 function Settings() {
   const navigate = useNavigate();
@@ -113,6 +120,62 @@ function Settings() {
     setRaceData(null);
     setRaceFlash(null);
   }
+
+  // Race Control: macro de bandeira amarela (edita o app.ini do iRacing).
+  const [yellowStatus, setYellowStatus] = useState(null);
+  const [yellowMsg, setYellowMsg] = useState("");
+
+  async function loadYellowStatus() {
+    try {
+      setYellowStatus(await invoke("iracing_yellow_macro_status"));
+    } catch (err) {
+      console.error("Falha ao ler status da macro:", err);
+    }
+  }
+  async function installYellow() {
+    setYellowMsg("");
+    try {
+      setYellowStatus(await invoke("iracing_install_yellow_macro"));
+      setYellowMsg("Macro instalada. Reinicie o iRacing para o app.ini valer.");
+    } catch (err) {
+      setYellowMsg(String(err));
+    }
+  }
+  async function restoreYellow() {
+    setYellowMsg("");
+    try {
+      setYellowStatus(await invoke("iracing_restore_yellow_macro"));
+      setYellowMsg("Macro restaurada ao valor original.");
+    } catch (err) {
+      setYellowMsg(String(err));
+    }
+  }
+  async function throwYellow() {
+    setYellowMsg("");
+    try {
+      await invoke("iracing_throw_yellow");
+      setYellowMsg("Bandeira disparada (macro enviada ao iRacing).");
+    } catch (err) {
+      setYellowMsg(String(err));
+    }
+  }
+
+  // Envio automático de bandeira pelo RaceControl.
+  const [autoYellow, setAutoYellow] = useState(false);
+  async function toggleAutoYellow() {
+    const next = !autoYellow;
+    setAutoYellow(next);
+    try {
+      await invoke("iracing_set_auto_yellow", { enabled: next });
+    } catch (err) {
+      console.error("Falha ao alternar envio automático:", err);
+    }
+  }
+
+  useEffect(() => {
+    loadYellowStatus();
+    invoke("iracing_auto_yellow_enabled").then((v) => setAutoYellow(Boolean(v))).catch(() => {});
+  }, []);
 
   // Garante que os pollings parem ao sair da tela.
   useEffect(() => {
@@ -536,6 +599,40 @@ function Settings() {
                     </div>
                   ))}
                 </div>
+
+                {/* Carros na sessão (multi-carro via CarIdx*) */}
+                {liveData.cars && liveData.cars.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                      Carros na sessão ({liveData.cars.length})
+                    </p>
+                    <div className="max-h-48 space-y-1 overflow-auto">
+                      {liveData.cars
+                        .slice()
+                        .sort((a, b) => (a.position || 99) - (b.position || 99))
+                        .map((c) => (
+                          <div
+                            key={c.idx}
+                            className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[10px] ${
+                              c.is_player ? "border-accent-primary/40 bg-accent-primary/10" : "border-white/10 bg-white/5"
+                            }`}
+                          >
+                            <span className="w-6 font-mono font-bold text-text-primary">P{c.position || "-"}</span>
+                            <span className="w-12 font-mono text-text-muted">car {c.idx}</span>
+                            {c.is_player && (
+                              <span className="rounded-full bg-accent-primary/20 px-1.5 text-[8px] font-bold uppercase text-accent-primary">você</span>
+                            )}
+                            <span className="ml-auto font-mono text-text-secondary tabular-nums">
+                              {(c.lap_dist_pct * 100).toFixed(0)}%
+                            </span>
+                            <span className="w-16 truncate text-right text-text-muted">
+                              {c.on_pit_road ? "pit" : surfaceShort(c.track_surface)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -574,6 +671,30 @@ function Settings() {
 
             {raceData && (
               <div className="space-y-4">
+                {/* Banner ao vivo da batida em andamento (feedback imediato) */}
+                {raceData.crash_in_progress && (
+                  <div
+                    className={`animate-pulse rounded-2xl border px-4 py-3 ${
+                      {
+                        leve: "border-status-yellow/50 bg-status-yellow/15",
+                        moderado: "border-status-orange/50 bg-status-orange/15",
+                        grave: "border-status-red/50 bg-status-red/15",
+                        destruído: "border-status-purple/50 bg-status-purple/15",
+                        catastrófico: "border-[#ff2d55]/60 bg-[#ff2d55]/20",
+                      }[raceData.crash_progress_severity] || "border-status-red/50 bg-status-red/15"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-text-primary">
+                        ⚠️ Batida em andamento
+                      </span>
+                      <span className="text-sm font-bold uppercase tabular-nums text-text-primary">
+                        {raceData.crash_progress_severity} · {Math.round(raceData.crash_progress_score)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-4">
                   <div className="glass-light rounded-2xl border border-white/10 px-4 py-3 text-center">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Tentativa</p>
@@ -628,6 +749,104 @@ function Settings() {
                   </p>
                 )}
 
+                {/* 🔍 Debug RaceControl: o que o app vê de cada carro */}
+                {raceData.cars_debug && raceData.cars_debug.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                        🔍 Debug RaceControl ({raceData.cars_debug.length} carros)
+                      </p>
+                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${raceData.is_green ? "bg-status-green/20 text-status-green" : "bg-status-yellow/20 text-status-yellow"}`}>
+                        {raceData.is_green ? "VERDE" : "não-verde"}
+                      </span>
+                    </div>
+                    <div className="overflow-hidden rounded-2xl border border-white/10">
+                      <div className="grid grid-cols-[2.2rem_2.5rem_2.5rem_1fr_3rem_2.8rem] gap-1 bg-white/5 px-2 py-1 text-[8px] font-bold uppercase tracking-[0.05em] text-text-muted">
+                        <span>car</span><span>pos</span><span>set</span><span>local</span><span>ritmo</span><span>parado</span>
+                      </div>
+                      <div className="max-h-72 overflow-auto">
+                        {raceData.cars_debug
+                          .slice()
+                          .sort((a, b) => Number(b.in_trouble) - Number(a.in_trouble) || (a.position || 99) - (b.position || 99))
+                          .map((c) => (
+                            <div
+                              key={c.idx}
+                              className={`grid grid-cols-[2.2rem_2.5rem_2.5rem_1fr_3rem_2.8rem] items-center gap-1 px-2 py-1 text-[9px] font-mono ${
+                                c.in_trouble ? "bg-status-red/15 text-status-red" : c.is_player ? "bg-accent-primary/10" : "text-text-secondary"
+                              }`}
+                            >
+                              <span className="flex items-center gap-0.5">
+                                {c.idx}
+                                {c.is_player && <span title="você" className="text-accent-primary">●</span>}
+                                {c.is_pace && <span title="pace car" className="text-status-yellow">P</span>}
+                                {!c.is_ai && !c.is_player && <span title="não-IA" className="text-text-muted">h</span>}
+                              </span>
+                              <span>P{c.position || "-"}</span>
+                              <span>s{c.sector}</span>
+                              <span className="truncate">
+                                {c.on_pit_road ? "pit" : c.track_surface}
+                                {!c.has_moved && " ·grid"}
+                              </span>
+                              <span className={c.pace_pct_of_leader < 40 && c.has_moved ? "text-status-orange" : ""}>
+                                {Math.round(c.pace_pct_of_leader)}%
+                              </span>
+                              <span className={c.stalled_secs > 2 ? "text-status-red" : ""}>
+                                {c.stalled_secs > 0.5 ? `${c.stalled_secs.toFixed(0)}s` : "–"}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                    <p className="text-[9px] italic text-text-muted">
+                      Em apuros (vermelho) = candidato a bandeira. set = setor (0-19). ritmo = % do líder. ●você P=pace h=humano ·grid=ainda não largou.
+                    </p>
+                  </div>
+                )}
+
+                {/* Stream de eventos (RaceEventEngine) */}
+                {raceData.events && raceData.events.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                      Eventos · {raceData.cars_count} carros
+                    </p>
+                    <div className="max-h-56 space-y-1 overflow-auto">
+                      {raceData.events.slice().reverse().map((e, i) => {
+                        const km = {
+                          race_started: "text-status-green",
+                          race_finished: "text-accent-primary",
+                          race_restarted: "text-status-yellow",
+                          yellow_triggered: "text-status-yellow",
+                          yellow_recommended: "text-status-orange",
+                          yellow_sent: "text-status-green",
+                          yellow_send_failed: "text-status-red",
+                          yellow_confirmed: "text-status-green",
+                          pit_entry: "text-text-muted",
+                          tow_detected: "text-status-orange",
+                          possible_dnf: "text-status-orange",
+                          player_damage_detected: "text-status-red",
+                          dnf_confirmed: "text-status-red",
+                          ai_offtrack: "text-text-muted",
+                          ai_stopped: "text-status-orange",
+                          ai_possible_dnf: "text-status-red",
+                        }[e.kind] || "text-text-secondary";
+                        return (
+                          <div key={`${e.session_time}-${i}`} className="flex items-center gap-2 rounded-lg bg-white/4 px-3 py-1.5 text-[10px]">
+                            <span className={`shrink-0 font-mono font-bold uppercase ${km}`}>{e.kind}</span>
+                            <span className="flex-1 truncate text-text-secondary">{e.detail}</span>
+                            {e.car_idx != null && (
+                              <span className="shrink-0 rounded-full bg-white/8 px-1.5 text-[8px] text-text-muted">car {e.car_idx}</span>
+                            )}
+                            {e.lap > 0 && (
+                              <span className="shrink-0 font-mono font-semibold text-text-secondary">V{e.lap}</span>
+                            )}
+                            <span className="shrink-0 font-mono text-text-muted">{Math.floor(e.session_time / 60)}:{String(Math.floor(e.session_time % 60)).padStart(2, "0")}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {raceData.attempts.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Livro de tentativas</p>
@@ -673,6 +892,99 @@ function Settings() {
             )}
           </div>
         </GlassCard>
+
+        {/* Section: Race Control Automático (macro de bandeira) */}
+        <GlassCard hover={false} className="glass-strong rounded-3xl !p-5 gap-3 flex flex-col">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className={`h-4 w-1.5 rounded-full ${yellowStatus?.installed ? "bg-status-green" : "bg-accent-primary"}`} />
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary">
+                Race Control Automático
+              </h2>
+            </div>
+            <p className="text-[11px] leading-snug text-text-secondary">
+              Substitui a macro "You're welcome" do iRacing por <span className="font-mono text-text-primary">!y$</span> para
+              aplicar bandeira amarela em corridas contra IA. O original é salvo e restaurável.
+            </p>
+          </div>
+
+          <div className="grid gap-3 pt-1">
+            {/* Estado do app.ini */}
+            <div className="glass-light rounded-xl border border-white/10 px-3 py-2 space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="uppercase tracking-[0.1em] text-text-muted">app.ini</span>
+                <span className={`font-semibold ${yellowStatus?.app_ini_found ? "text-status-green" : "text-status-red"}`}>
+                  {yellowStatus?.app_ini_found ? "Encontrado" : "Não encontrado"}
+                </span>
+              </div>
+              {yellowStatus?.app_ini_path && (
+                <p className="truncate font-mono text-[9px] text-text-muted">{yellowStatus.app_ini_path}</p>
+              )}
+              {yellowStatus?.slot != null && (
+                <div className="flex items-center justify-between text-[10px] text-text-muted">
+                  <span>Slot AutoChatStr{yellowStatus.slot}</span>
+                  <span className="font-mono">
+                    original: "{yellowStatus.original}" · atual: "{yellowStatus.current_value}"
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {!yellowStatus?.installed ? (
+                <GlassButton variant="primary" onClick={installYellow} disabled={!yellowStatus?.app_ini_found} className="shrink-0 !min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]">
+                  Ativar (instalar macro)
+                </GlassButton>
+              ) : (
+                <GlassButton variant="secondary" onClick={restoreYellow} className="shrink-0 !min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]">
+                  Restaurar original
+                </GlassButton>
+              )}
+              <GlassButton
+                variant="secondary"
+                onClick={throwYellow}
+                disabled={!yellowStatus?.installed}
+                className="shrink-0 !min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
+              >
+                Testar bandeira 🟡
+              </GlassButton>
+            </div>
+
+            {yellowMsg && (
+              <div className="rounded-2xl border border-status-yellow/30 bg-status-yellow/10 px-4 py-2">
+                <p className="text-[11px] font-semibold text-text-primary">{yellowMsg}</p>
+              </div>
+            )}
+
+            {/* Envio automático de bandeira pelo RaceControl */}
+            <div
+              className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-glass ${
+                autoYellow ? "border-status-green/40 bg-status-green/10" : "border-white/10 glass-light"
+              } ${!yellowStatus?.installed ? "pointer-events-none opacity-50" : ""}`}
+              onClick={toggleAutoYellow}
+            >
+              <div className="space-y-0.5">
+                <p className="text-[13px] font-semibold text-text-primary">Aplicar bandeira automaticamente</p>
+                <p className="text-[10px] leading-snug text-text-secondary">
+                  Dispara <span className="font-mono">!y$</span> sozinho quando o RaceControl julga um incidente perigoso.
+                </p>
+              </div>
+              <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${autoYellow ? "bg-status-green" : "bg-white/10"}`}>
+                <div className={`h-4 w-4 rounded-full bg-white transition-all ${autoYellow ? "translate-x-5" : "translate-x-0"}`} />
+              </div>
+            </div>
+
+            <p className="text-[10px] italic leading-snug text-text-muted">
+              ⚠️ Edite com o iRacing FECHADO (ele sobrescreve o app.ini ao sair). Backup em <span className="font-mono">app.ini.iracerapp.bak</span>.
+            </p>
+          </div>
+        </GlassCard>
+
+        {/* Section: Pós-Corrida (race trace + consistência) */}
+        <PostRacePanel />
+
+        {/* Section: Gerar AI Roster (carreira → iRacing) */}
+        <RosterGenPanel />
 
         <div className="flex flex-col items-center gap-4 pt-8">
           <GlassButton

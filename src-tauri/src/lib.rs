@@ -208,6 +208,11 @@ pub fn run() {
 
             app.manage(ResizeDebounceState::default());
 
+            // Liga o "vigia" do iRacing já no boot: ocioso (1 Hz) enquanto o sim
+            // está fechado, 60 Hz quando conecta. Assim telemetria/monitor/custid
+            // ativam sozinhos, sem toggle.
+            iracing_sdk::race_monitor::start_watching();
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -283,8 +288,24 @@ pub fn run() {
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
+            commands::iracing::iracing_player_custid,
             commands::iracing::iracing_poll_race,
             commands::iracing::iracing_reset_race,
+            commands::iracing::iracing_connected,
+            commands::iracing::iracing_get_race_history,
+            commands::iracing::iracing_generate_roster,
+            commands::iracing::iracing_player_paint,
+            commands::iracing::iracing_apply_player_paint,
+            commands::iracing::iracing_save_race_history,
+            commands::iracing::iracing_list_saved_races,
+            commands::iracing::iracing_load_saved_race,
+            commands::iracing::iracing_yellow_macro_status,
+            commands::iracing::iracing_install_yellow_macro,
+            commands::iracing::iracing_restore_yellow_macro,
+            commands::iracing::iracing_throw_yellow,
+            commands::iracing::iracing_send_chat_macro,
+            commands::iracing::iracing_set_auto_yellow,
+            commands::iracing::iracing_auto_yellow_enabled,
             commands::window::minimize_window,
             commands::window::start_window_drag,
             commands::window::toggle_maximize_window,
