@@ -21,6 +21,7 @@ pub mod paths;
 pub mod race_control;
 pub mod race_monitor;
 pub mod roster_gen;
+pub mod season_gen;
 
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
 const MEM_MAP_FILE_NAME: &str = "Local\\IRSDKMemMapFileName";

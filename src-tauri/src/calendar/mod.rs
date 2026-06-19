@@ -1747,16 +1747,18 @@ mod tests {
 
     #[test]
     fn free_regional_final_is_strong() {
-        // O último round de qualquer categoria FreeRegional deve ser uma pista forte.
+        // O último round deve ser de um VENUE forte (o layout pode variar por
+        // temporada com a rotação one_layout_per_venue).
         use generator::{strong_free_tracks_for_region, CalendarRegion};
-        let all_strong: HashSet<u32> = [
+        let venue = |id: u32| get_track(id).map(|t| t.nome.split(" - ").next().unwrap_or(t.nome));
+        let strong_venues: HashSet<&str> = [
             CalendarRegion::Usa,
             CalendarRegion::Europa,
             CalendarRegion::JapaoOceania,
         ]
         .iter()
         .flat_map(|&r| strong_free_tracks_for_region(r).iter().copied())
-        .filter(|&id| get_track(id).is_some())
+        .filter_map(venue)
         .collect();
 
         for cat in [
@@ -1771,11 +1773,11 @@ mod tests {
                 let cal = generate_calendar_for_category("S001", cat, &mut rng)
                     .unwrap_or_else(|e| panic!("{cat} seed {seed}: {e}"));
                 let last = cal.last().expect("calendário vazio");
+                let last_venue = venue(last.track_id).expect("venue");
                 assert!(
-                    all_strong.contains(&last.track_id),
-                    "{cat} seed {seed}: final track {} não é strong (esperado de {:?})",
-                    last.track_id,
-                    all_strong
+                    strong_venues.contains(last_venue),
+                    "{cat} seed {seed}: final venue '{last_venue}' (track {}) não é strong",
+                    last.track_id
                 );
             }
         }
@@ -1803,19 +1805,21 @@ mod tests {
 
     #[test]
     fn production_final_is_strong() {
-        let strong: HashSet<u32> = generator::strong_production_tracks()
+        let venue = |id: u32| get_track(id).map(|t| t.nome.split(" - ").next().unwrap_or(t.nome));
+        let strong_venues: HashSet<&str> = generator::strong_production_tracks()
             .iter()
             .copied()
-            .filter(|&id| get_track(id).is_some())
+            .filter_map(venue)
             .collect();
         for seed in 0..20u64 {
             let mut rng = StdRng::seed_from_u64(seed + 700);
             let cal = generate_calendar_for_category("S001", "production_challenger", &mut rng)
                 .expect("production_challenger");
             let last = cal.last().expect("calendário vazio");
+            let last_venue = venue(last.track_id).expect("venue");
             assert!(
-                strong.contains(&last.track_id),
-                "seed {seed}: production final {} não é strong",
+                strong_venues.contains(last_venue),
+                "seed {seed}: production final venue '{last_venue}' (track {}) não é strong",
                 last.track_id
             );
         }

@@ -23,6 +23,7 @@ static TRACKS: &[TrackInfo] = &[
         nome_curto: "Jefferson",
         pais: "🇺🇸 EUA",
         comprimento_km: 1.6,
+        // Grátis, mas pequeno demais para carro — fora dos pools de calendário.
         rain_group: RainGroup::Normal,
         gratuita: true,
         tipo: TrackType::Road,
@@ -38,13 +39,13 @@ static TRACKS: &[TrackInfo] = &[
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 14,
-        nome: "Lime Rock Park - Full Course",
+        track_id: 353,
+        nome: "Lime Rock Park - Grand Prix",
         nome_curto: "Lime Rock",
         pais: "🇺🇸 EUA",
         comprimento_km: 2.4,
         rain_group: RainGroup::Normal,
-        gratuita: true,
+        gratuita: true, // id correto do iRacing = 353 (era 14)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -54,7 +55,7 @@ static TRACKS: &[TrackInfo] = &[
         pais: "🇺🇸 EUA",
         comprimento_km: 3.6,
         rain_group: RainGroup::Dry,
-        gratuita: true,
+        gratuita: false, // virou conteúdo pago no iRacing
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -68,13 +69,13 @@ static TRACKS: &[TrackInfo] = &[
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 261,
+        track_id: 181,
         nome: "Oulton Park - Fosters",
         nome_curto: "Oulton Fosters",
         pais: "🇬🇧 Reino Unido",
         comprimento_km: 4.3,
         rain_group: RainGroup::Rainy,
-        gratuita: true,
+        gratuita: true, // id correto do iRacing = 181 (era 261)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -98,23 +99,23 @@ static TRACKS: &[TrackInfo] = &[
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 325,
-        nome: "Tsukuba Circuit - 2000 Full Course",
+        track_id: 324,
+        nome: "Tsukuba Circuit - 2000 Full",
         nome_curto: "Tsukuba",
         pais: "🇯🇵 Japão",
         comprimento_km: 2.0,
         rain_group: RainGroup::Normal,
-        gratuita: true,
+        gratuita: true, // id correto do iRacing = 324 (era 325)
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 341,
+        track_id: 182,
         nome: "Oulton Park - Island",
         nome_curto: "Oulton Island",
         pais: "🇬🇧 Reino Unido",
         comprimento_km: 3.6,
         rain_group: RainGroup::Rainy,
-        gratuita: true,
+        gratuita: true, // id correto do iRacing = 182 (era 341)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -228,13 +229,134 @@ static TRACKS: &[TrackInfo] = &[
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 58,
+        track_id: 465,
         nome: "Virginia International Raceway - Full Course",
         nome_curto: "VIR Full",
         pais: "🇺🇸 EUA",
         comprimento_km: 5.3,
         rain_group: RainGroup::Normal,
-        gratuita: false,
+        gratuita: true, // conteúdo grátis (id correto do iRacing = 465)
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 467,
+        nome: "Virginia International Raceway - North Course",
+        nome_curto: "VIR North",
+        pais: "🇺🇸 EUA",
+        comprimento_km: 3.6,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 466,
+        nome: "Virginia International Raceway - Grand Course",
+        nome_curto: "VIR Grand",
+        pais: "🇺🇸 EUA",
+        comprimento_km: 6.8,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    // ── Layouts free extras (rotação por venue) ──────────────────────────────
+    TrackInfo {
+        track_id: 352,
+        nome: "Lime Rock Park - Classic",
+        nome_curto: "Lime Rock Classic",
+        pais: "🇺🇸 EUA",
+        comprimento_km: 2.4,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 354,
+        nome: "Lime Rock Park - Chicanes",
+        nome_curto: "Lime Rock Chicanes",
+        pais: "🇺🇸 EUA",
+        comprimento_km: 2.5,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 180,
+        nome: "Oulton Park - International",
+        nome_curto: "Oulton Intl",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 4.4,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 183,
+        nome: "Oulton Park - Intl w/out Hislop",
+        nome_curto: "Oulton w/out Hislop",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 4.3,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 184,
+        nome: "Oulton Park - Intl w/out Brittens",
+        nome_curto: "Oulton w/out Brittens",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 4.3,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 186,
+        nome: "Oulton Park - Fosters w/Hislop",
+        nome_curto: "Oulton Fosters w/Hislop",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 4.3,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 454,
+        nome: "Motorsport Arena Oschersleben - Alternate",
+        nome_curto: "Oschersleben Alt",
+        pais: "🇩🇪 Alemanha",
+        comprimento_km: 3.7,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 167,
+        nome: "Okayama International Circuit - Short",
+        nome_curto: "Okayama Short",
+        pais: "🇯🇵 Japão",
+        comprimento_km: 2.4,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 208,
+        nome: "Oran Park Raceway - South",
+        nome_curto: "Oran Park South",
+        pais: "🇦🇺 Austrália",
+        comprimento_km: 2.0,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 439,
+        nome: "Winton Motor Raceway - National Circuit",
+        nome_curto: "Winton National",
+        pais: "🇦🇺 Austrália",
+        comprimento_km: 3.0,
+        rain_group: RainGroup::Normal,
+        gratuita: true,
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -319,12 +441,12 @@ static TRACKS: &[TrackInfo] = &[
     },
     TrackInfo {
         track_id: 185,
-        nome: "Indianapolis Motor Speedway - Road Course",
-        nome_curto: "Indy Road",
-        pais: "🇺🇸 EUA",
-        comprimento_km: 3.9,
-        rain_group: RainGroup::Normal,
-        gratuita: false,
+        nome: "Oulton Park - Intl w/no Chicanes",
+        nome_curto: "Oulton w/no Chicanes",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 4.3,
+        rain_group: RainGroup::Rainy,
+        gratuita: true, // id correto do iRacing p/ Oulton w/no Chicanes (era Indy Road)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -478,13 +600,23 @@ static TRACKS: &[TrackInfo] = &[
         tipo: TrackType::Road,
     },
     TrackInfo {
-        track_id: 316,
+        track_id: 297,
         nome: "Snetterton Circuit - 300",
         nome_curto: "Snetterton 300",
         pais: "🇬🇧 Reino Unido",
         comprimento_km: 4.8,
         rain_group: RainGroup::Rainy,
-        gratuita: false,
+        gratuita: true, // conteúdo grátis (id correto do iRacing = 297)
+        tipo: TrackType::Road,
+    },
+    TrackInfo {
+        track_id: 298,
+        nome: "Snetterton Circuit - 200",
+        nome_curto: "Snetterton 200",
+        pais: "🇬🇧 Reino Unido",
+        comprimento_km: 3.2,
+        rain_group: RainGroup::Rainy,
+        gratuita: true,
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -699,12 +831,12 @@ static TRACKS: &[TrackInfo] = &[
     },
     TrackInfo {
         track_id: 455,
-        nome: "Autodromo Enzo e Dino Ferrari (Imola)",
-        nome_curto: "Imola",
-        pais: "🇮🇹 Itália",
-        comprimento_km: 4.9,
-        rain_group: RainGroup::Normal,
-        gratuita: false,
+        nome: "Motorsport Arena Oschersleben - B Course",
+        nome_curto: "Oschersleben B",
+        pais: "🇩🇪 Alemanha",
+        comprimento_km: 3.7,
+        rain_group: RainGroup::Rainy,
+        gratuita: true, // id correto do iRacing p/ Oschersleben B Course (era Imola)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -729,12 +861,12 @@ static TRACKS: &[TrackInfo] = &[
     },
     TrackInfo {
         track_id: 516,
-        nome: "Yas Marina Circuit",
-        nome_curto: "Yas Marina",
-        pais: "🇦🇪 EAU",
-        comprimento_km: 5.5,
-        rain_group: RainGroup::Dry,
-        gratuita: false,
+        nome: "Circuito de Navarra - Speed Circuit - Medium",
+        nome_curto: "Navarra Medium",
+        pais: "🇪🇸 Espanha",
+        comprimento_km: 3.4,
+        rain_group: RainGroup::Normal,
+        gratuita: true, // id correto do iRacing p/ Navarra Medium (era Yas Marina)
         tipo: TrackType::Road,
     },
     TrackInfo {
@@ -905,7 +1037,7 @@ mod tests {
     fn test_rain_chance_by_group() {
         assert_eq!(get_rain_chance(47), 0.05);
         assert_eq!(get_rain_chance(8), 0.15);
-        assert_eq!(get_rain_chance(261), 0.30);
+        assert_eq!(get_rain_chance(181), 0.30); // Oulton Park Fosters (RainGroup::Rainy)
     }
 
     #[test]

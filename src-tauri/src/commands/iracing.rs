@@ -320,6 +320,179 @@ pub fn iracing_generate_roster(
     })
 }
 
+/// Resultado da geração de AI season.
+#[derive(serde::Serialize)]
+pub struct SeasonGenResult {
+    pub path: String,
+    pub name: String,
+    pub events: usize,
+}
+
+/// Gera a **AI season** (calendário) da categoria, espelhando o exemplo do
+/// usuário: lê o calendário da carreira (track_ids já são do iRacing), filtra
+/// pistas grátis, usa a duração da categoria e o clima do calendário. Aponta para
+/// o roster `roster_name`. Sai em `aiseasons/<série> - <ano>.json`.
+#[tauri::command]
+pub fn iracing_generate_season(
+    app: tauri::AppHandle,
+    career_id: String,
+    categoria: String,
+    roster_name: String,
+    car_key: String,
+) -> Result<SeasonGenResult, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::constants::categories::get_category_config;
+    use crate::constants::tracks::get_track;
+    use crate::db::connection::Database;
+    use crate::db::queries::{drivers as dq, seasons as sq};
+    use crate::db::queries::calendar as calq;
+    use crate::iracing_sdk::{paths, roster_gen, season_gen};
+    use crate::models::enums::WeatherCondition;
+    use tauri::Manager;
+
+    let car = roster_gen::car_spec(&car_key)
+        .ok_or_else(|| format!("Carro desconhecido: {car_key}"))?;
+    let cat = get_category_config(&categoria)
+        .ok_or_else(|| format!("Categoria desconhecida: {categoria}"))?;
+
+    // Abre o banco e pega a temporada ativa.
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Err(format!("Save não encontrado: {career_id}"));
+    }
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let season = sq::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao ler temporada: {e}"))?
+        .ok_or("Nenhuma temporada ativa nesta carreira.")?;
+
+    // Calendário da categoria → eventos (filtra pistas pagas; track_id já é do iRacing).
+    let mut entries = calq::get_calendar(&db.conn, &season.id, &categoria)
+        .map_err(|e| format!("Falha ao ler calendário: {e}"))?;
+    entries.sort_by_key(|e| e.rodada);
+
+    let mut events = Vec::new();
+    // Clima do calendário → bloco weather DINÂMICO (timeline) de cada etapa.
+    // Escala real do iRacing:
+    //   skies:       0 Limpo · 1 Parcialmente · 2 Predominantemente · 3 Encoberto
+    //   track_water: 0 Nenhum … 5 Muito intenso
+    //   keyframes event_type: 0 Limpo … 7 Chuva · 8 Chuva intensa
+    // Por ora a timeline só "segura" a condição da etapa (a carreira ainda não
+    // modela evolução); a ESTRUTURA dinâmica fica provada e pronta para evoluir.
+    let custid = iracing_sdk::cached_custid().unwrap_or(0);
+    let race_end = cat.duracao_corrida_min as i64;
+    let clima_to_weather = |clima: WeatherCondition, temp: f64| {
+        let (skies, humidity, track_water, kf): (_, _, _, Vec<(i64, i64)>) = match clima {
+            WeatherCondition::Dry => (1, 45, 0, vec![(0, -120), (1, 0), (1, race_end)]),
+            WeatherCondition::Damp => (2, 70, 2, vec![(1, -120), (2, 0), (2, race_end)]),
+            WeatherCondition::Wet => (3, 88, 4, vec![(3, -120), (7, 0), (7, race_end)]),
+            WeatherCondition::HeavyRain => (3, 97, 5, vec![(3, -120), (8, 0), (8, race_end)]),
+        };
+        season_gen::EventWeather {
+            skies,
+            humidity,
+            temp_c: temp.round() as i64,
+            track_water,
+            keyframes: kf
+                .into_iter()
+                .map(|(event_type, time_offset)| season_gen::WeatherKeyframe {
+                    event_type,
+                    time_offset,
+                })
+                .collect(),
+            weather_id: format!("{custid}_{}", uuid::Uuid::new_v4()),
+        }
+    };
+
+    let mut skipped_paid = 0;
+    for entry in &entries {
+        match get_track(entry.track_id) {
+            Some(track) if track.gratuita => {
+                events.push(season_gen::EventInput {
+                    track_id: entry.track_id as i64,
+                    // Nenhuma pista free é oval de verdade — Roval (Charlotte) é
+                    // ROAD no iRacing (paceCar road, sem largada lançada).
+                    is_oval: false,
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    weather: clima_to_weather(entry.clima, entry.temperatura),
+                });
+            }
+            _ => skipped_paid += 1, // paga ou desconhecida → fora (ex.: Laguna)
+        }
+    }
+    if events.is_empty() {
+        return Err(format!(
+            "Nenhuma pista grátis no calendário da categoria '{categoria}' ({skipped_paid} pagas/ignoradas)."
+        ));
+    }
+
+    // Faixa de skill (básico): min/max dos pilotos de IA da categoria.
+    let ai: Vec<f64> = dq::get_drivers_by_category(&db.conn, &categoria)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| !d.is_jogador)
+        .map(|d| d.atributos.skill)
+        .collect();
+    let min_skill = ai.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_skill = ai.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let (min_skill, max_skill) = if ai.is_empty() {
+        (25, 50)
+    } else {
+        (min_skill.round() as i64, max_skill.round() as i64)
+    };
+    let max_drivers = (ai.len() as i64 + 1).max(2);
+
+    // Clima global (fallback) = o da 1ª etapa do calendário.
+    let global_weather = entries
+        .first()
+        .map(|e| clima_to_weather(e.clima, e.temperatura))
+        .unwrap_or_else(|| clima_to_weather(WeatherCondition::Dry, 26.0));
+
+    let name = format!("{} - {}", cat.nome_curto, season.ano);
+    let params = season_gen::SeasonParams {
+        roster_name: roster_name.trim().to_string(),
+        name: name.clone(),
+        car_id: car.car_id,
+        car_class_id: car.car_class_id,
+        race_length_min: cat.duracao_corrida_min as i64,
+        max_drivers,
+        min_skill,
+        max_skill,
+        year: season.ano,
+        global_weather,
+        events,
+    };
+    let season_json = season_gen::build_season(&params);
+
+    // Grava em aiseasons/<nome>.json.
+    let safe_name: String = name
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let dir = paths::aiseasons_dir()
+        .ok_or("Não foi possível localizar a pasta aiseasons do iRacing.")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
+    let path = dir.join(format!("{}.json", safe_name.trim()));
+    let json = serde_json::to_string_pretty(&season_json)
+        .map_err(|e| format!("Falha ao serializar: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))?;
+
+    Ok(SeasonGenResult {
+        path: path.display().to_string(),
+        name,
+        events: params_events_len(&season_json),
+    })
+}
+
+/// Conta os eventos no JSON gerado (para a UI).
+fn params_events_len(v: &serde_json::Value) -> usize {
+    v["events"].as_array().map(|a| a.len()).unwrap_or(0)
+}
+
 /// Pintura que o JOGADOR deve aplicar na garagem do iRacing para ficar na cor do
 /// time (igual à IA). A pintura embutida do jogador é account-side, então só dá
 /// para MOSTRAR o esquema certo — o usuário aplica uma vez.

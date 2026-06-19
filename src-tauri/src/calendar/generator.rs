@@ -64,31 +64,33 @@ pub(crate) fn eligible_regions_for_category(
 
 // ── Pools de pistas por região e família ──────────────────────────────────────
 
-/// Pool free regional por região geográfica.
-/// VIR (58) e Snetterton (316) são incluídos intencionalmente no regional free
-/// do modo carreira, mesmo quando a origem externa muda a classificação comercial.
+/// Pool free regional por região geográfica. SOMENTE pistas gratuitas (ids
+/// corretos do iRacing). A trava em `resolve_thematic_pool` reforça filtrando por
+/// `gratuita`, então paga nunca entra numa categoria free mesmo por engano.
 pub(crate) fn free_tracks_for_region(region: CalendarRegion) -> &'static [u32] {
     match region {
+        // Cada venue lista TODOS os seus layouts; a rotação por temporada
+        // (one_layout_per_venue) escolhe UM por ano, alternando a cada temporada.
         CalendarRegion::Usa => &[
             554, // Charlotte Motor Speedway – Roval
-            14,  // Lime Rock Park – Full Course
+            353, 352, 354, // Lime Rock Park – Grand Prix / Classic / Chicanes
             9,   // Summit Point Raceway
-            58,  // Virginia International Raceway – Full Course
-            47,  // WeatherTech Raceway at Laguna Seca
+            // Jefferson (8) é grátis mas pequeno demais p/ carro — fora da rotação.
+            465, 467, 466, // Virginia International Raceway – Full / North / Grand
         ],
         CalendarRegion::Europa => &[
-            261, // Oulton Park – Fosters
-            316, // Snetterton Circuit – 300
+            181, 180, 183, 184, 185, 186, // Oulton Park – Fosters / Intl / ... layouts
+            297, 298, // Snetterton Circuit – 300 / 200
             489, // Circuit de Lédenon
-            515, // Circuito de Navarra – Speed Circuit
-            449, // Motorsport Arena Oschersleben – Grand Prix
+            515, 516, // Circuito de Navarra – Speed Circuit / Medium
+            449, 454, 455, // Motorsport Arena Oschersleben – Grand Prix / Alt / B
             451, // Rudskogen Motorsenter
         ],
         CalendarRegion::JapaoOceania => &[
-            166, // Okayama International Circuit
-            325, // Tsukuba Circuit – 2000 Full Course
-            202, // Oran Park Raceway – Grand Prix
-            440, // Winton Motor Raceway – Club Circuit
+            166, 167, // Okayama International Circuit – Full / Short
+            324, // Tsukuba Circuit – 2000 Full
+            202, 208, // Oran Park Raceway – Grand Prix / South
+            440, 439, // Winton Motor Raceway – Club / National
         ],
     }
 }
@@ -97,19 +99,19 @@ pub(crate) fn free_tracks_for_region(region: CalendarRegion) -> &'static [u32] {
 /// Mistura ampla de todas as regiões, cara de especial.
 pub(crate) fn production_free_mix_pool() -> &'static [u32] {
     &[
-        // USA
-        554, 14, 9, 58, 47, // Europa
-        261, 316, 489, 515, 449, 451, // Japão/Oceania
-        166, 325, 202, 440,
+        // USA (Jefferson 8 fica de fora — pequeno demais p/ carro)
+        554, 353, 352, 354, 9, 465, 467, 466, // Europa
+        181, 180, 183, 184, 185, 186, 297, 298, 489, 515, 516, 449, 454, 455, 451, // Japão/Oceania
+        166, 167, 324, 202, 208, 440, 439,
     ]
 }
 
 /// Pool GT4: campeonato internacional plausível.
 pub(crate) fn gt4_curated_pool() -> &'static [u32] {
     &[
-        261, // Oulton Park – Fosters
-        316, // Snetterton Circuit – 300
-        58,  // Virginia International Raceway – Full Course
+        181, // Oulton Park – Fosters
+        297, // Snetterton Circuit – 300
+        465, // Virginia International Raceway – Full Course
         47,  // WeatherTech Raceway at Laguna Seca
         300, // Brands Hatch – Grand Prix
         399, // Donington Park – Grand Prix
@@ -191,20 +193,20 @@ pub(crate) fn endurance_curated_pool() -> &'static [u32] {
 /// Subconjunto forte de uma região free — elegível para slots narrativos (final).
 pub(crate) fn strong_free_tracks_for_region(region: CalendarRegion) -> &'static [u32] {
     match region {
-        CalendarRegion::Usa => &[58, 47],            // VIR, Laguna Seca
-        CalendarRegion::Europa => &[261, 316],       // Oulton Park Fosters, Snetterton
-        CalendarRegion::JapaoOceania => &[166, 325], // Okayama, Tsukuba
+        CalendarRegion::Usa => &[465, 554],          // VIR, Charlotte Roval
+        CalendarRegion::Europa => &[181, 297],       // Oulton Park Fosters, Snetterton
+        CalendarRegion::JapaoOceania => &[166, 324], // Okayama, Tsukuba
     }
 }
 
 /// Pistas fortes de Production: final deve sair deste conjunto.
 pub(crate) fn strong_production_tracks() -> &'static [u32] {
-    &[58, 47, 261, 166] // VIR, Laguna Seca, Oulton Park, Okayama
+    &[465, 554, 181, 166] // VIR, Charlotte Roval, Oulton Park, Okayama
 }
 
 /// Pistas fortes GT4: abertura e final devem sair deste conjunto.
 pub(crate) fn strong_gt4_tracks() -> &'static [u32] {
-    &[300, 106, 455, 238, 67, 249, 261]
+    &[300, 106, 455, 238, 67, 249, 181]
     // Brands Hatch GP, Silverstone, Imola, Sebring, Watkins Glen, Road Atlanta, Oulton Park
 }
 
@@ -248,6 +250,35 @@ pub(crate) struct ThematicPool {
     pub narrative_rounds: NarrativeRounds,
 }
 
+/// Venue de uma pista = nome antes de " - " (ex.: "Oulton Park - Fosters" →
+/// "Oulton Park"). Agrupa layouts do mesmo circuito.
+fn track_venue(id: u32) -> Option<&'static str> {
+    crate::constants::tracks::get_track(id)
+        .filter(|t| t.gratuita)
+        .map(|t| t.nome.split(" - ").next().unwrap_or(t.nome))
+}
+
+/// Reduz uma lista de ids a UM layout por VENUE, escolhido pela temporada — o
+/// mesmo circuito não repete no ano, e temporadas diferentes pegam versões
+/// diferentes (rotação determinística). Só pistas grátis.
+fn one_layout_per_venue(ids: &[u32], season_number: i32) -> Vec<u32> {
+    use std::collections::BTreeMap;
+    let mut by_venue: BTreeMap<&'static str, Vec<u32>> = BTreeMap::new();
+    for &id in ids {
+        if let Some(venue) = track_venue(id) {
+            by_venue.entry(venue).or_default().push(id);
+        }
+    }
+    by_venue
+        .into_values()
+        .map(|mut layouts| {
+            layouts.sort_unstable();
+            let idx = ((season_number.max(1) - 1) as usize) % layouts.len();
+            layouts[idx]
+        })
+        .collect()
+}
+
 /// Resolve o pool temático de uma categoria para uma temporada.
 ///
 /// Retorna None apenas para categorias desconhecidas.
@@ -262,7 +293,6 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
     needed: usize,
     rng: &mut R,
 ) -> Option<ThematicPool> {
-    use crate::constants::tracks::get_track;
     let family = calendar_family_for_category(category_id)?;
 
     match family {
@@ -278,30 +308,23 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
                 shuffled.swap(i, j);
             }
 
-            // Tentar encontrar região única com tracks suficientes
-            let single_region = shuffled.iter().copied().find(|&r| {
-                free_tracks_for_region(r)
-                    .iter()
-                    .filter(|&&id| get_track(id).is_some())
-                    .count()
-                    >= needed
-            });
+            // Pool de uma região = 1 layout por venue, rotacionado pela temporada.
+            let region_pool =
+                |r: CalendarRegion| one_layout_per_venue(free_tracks_for_region(r), season_number);
+
+            // Tentar encontrar região única com venues suficientes.
+            let single_region = shuffled.iter().copied().find(|&r| region_pool(r).len() >= needed);
 
             let (base_region, candidate_ids, used_multi_region) = if let Some(r) = single_region {
-                let ids: Vec<u32> = free_tracks_for_region(r)
-                    .iter()
-                    .copied()
-                    .filter(|&id| get_track(id).is_some())
-                    .collect();
-                (r, ids, false)
+                (r, region_pool(r), false)
             } else {
                 // Fallback: pool de todas as regiões elegíveis (DB ainda incompleto)
                 let primary = shuffled[0];
                 let mut seen = std::collections::HashSet::new();
                 let ids: Vec<u32> = regions
                     .iter()
-                    .flat_map(|&r| free_tracks_for_region(r).iter().copied())
-                    .filter(|&id| get_track(id).is_some() && seen.insert(id))
+                    .flat_map(|&r| region_pool(r))
+                    .filter(|&id| seen.insert(id))
                     .collect();
                 (primary, ids, true)
             };
@@ -314,8 +337,8 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
                     let visitor_candidates: Vec<u32> = regions
                         .iter()
                         .filter(|&&r| r != base_region)
-                        .flat_map(|&r| free_tracks_for_region(r).iter().copied())
-                        .filter(|&id| get_track(id).is_some() && !candidate_ids.contains(&id))
+                        .flat_map(|&r| region_pool(r))
+                        .filter(|id| !candidate_ids.contains(id))
                         .collect();
                     if visitor_candidates.is_empty() {
                         None
@@ -326,10 +349,16 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
                     None
                 };
 
-            let strong_ids: Vec<u32> = strong_free_tracks_for_region(base_region)
+            // Strong = layouts (já rotacionados) cujo VENUE é forte na região.
+            let strong_venues: std::collections::HashSet<&'static str> =
+                strong_free_tracks_for_region(base_region)
+                    .iter()
+                    .filter_map(|&id| track_venue(id))
+                    .collect();
+            let strong_ids: Vec<u32> = candidate_ids
                 .iter()
                 .copied()
-                .filter(|id| candidate_ids.contains(id))
+                .filter(|&id| track_venue(id).is_some_and(|v| strong_venues.contains(v)))
                 .collect();
 
             Some(ThematicPool {
@@ -345,18 +374,17 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
         }
 
         CalendarFamily::FreeSpecialMix => {
-            let candidate_ids: Vec<u32> = production_free_mix_pool()
+            // 1 layout por venue, rotacionado pela temporada (não repete circuito).
+            let candidate_ids = one_layout_per_venue(production_free_mix_pool(), season_number);
+            let strong_venues: std::collections::HashSet<&'static str> =
+                strong_production_tracks()
+                    .iter()
+                    .filter_map(|&id| track_venue(id))
+                    .collect();
+            let strong_ids: Vec<u32> = candidate_ids
                 .iter()
                 .copied()
-                .filter(|&id| {
-                    use crate::constants::tracks::get_track;
-                    get_track(id).is_some()
-                })
-                .collect();
-            let strong_ids: Vec<u32> = strong_production_tracks()
-                .iter()
-                .copied()
-                .filter(|id| candidate_ids.contains(id))
+                .filter(|&id| track_venue(id).is_some_and(|v| strong_venues.contains(v)))
                 .collect();
             Some(ThematicPool {
                 candidate_ids,
@@ -599,5 +627,23 @@ mod tests {
     fn gt4_pool_large_enough_for_season() {
         // GT4 tem 10 rodadas — pool deve ter >= 10 tracks
         assert!(gt4_curated_pool().len() >= 10);
+    }
+
+    #[test]
+    fn venue_rotation_um_por_venue_e_varia_por_temporada() {
+        // Oulton tem vários layouts free — cada temporada pega UM, e muda.
+        let oulton = [181, 180, 183, 184, 186];
+        let s1 = one_layout_per_venue(&oulton, 1);
+        let s2 = one_layout_per_venue(&oulton, 2);
+        assert_eq!(s1.len(), 1, "1 layout por venue");
+        assert_eq!(s2.len(), 1);
+        assert_ne!(s1[0], s2[0], "temporadas diferentes → layouts diferentes");
+
+        // Mistura de venues (Oulton x2, Snetterton x2, VIR x2) → 3 ids distintos.
+        let mixed = [181, 180, 297, 298, 465, 467];
+        assert_eq!(one_layout_per_venue(&mixed, 1).len(), 3);
+
+        // Determinístico: mesma temporada → mesmo resultado.
+        assert_eq!(one_layout_per_venue(&oulton, 5), one_layout_per_venue(&oulton, 5));
     }
 }

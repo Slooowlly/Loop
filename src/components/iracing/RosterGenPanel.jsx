@@ -18,6 +18,8 @@ function RosterGenPanel() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [seasonBusy, setSeasonBusy] = useState(false);
+  const [seasonResult, setSeasonResult] = useState(null);
   const [paint, setPaint] = useState(null);
   const [paintError, setPaintError] = useState("");
   const [custid, setCustid] = useState(null);
@@ -133,6 +135,25 @@ function RosterGenPanel() {
     }
   }
 
+  async function generateSeason() {
+    setSeasonBusy(true);
+    setError("");
+    setSeasonResult(null);
+    try {
+      const res = await invoke("iracing_generate_season", {
+        careerId,
+        categoria,
+        rosterName,
+        carKey,
+      });
+      setSeasonResult(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSeasonBusy(false);
+    }
+  }
+
   const canGenerate = careerId && categoria.trim() && rosterName.trim() && !busy;
 
   return (
@@ -232,6 +253,14 @@ function RosterGenPanel() {
         >
           {busy ? "Gerando…" : "Gerar roster.json"}
         </GlassButton>
+        <GlassButton
+          variant="secondary"
+          onClick={generateSeason}
+          disabled={!canGenerate || seasonBusy}
+          className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
+        >
+          {seasonBusy ? "Gerando…" : "Gerar AI Season"}
+        </GlassButton>
         {selected && (
           <span className="text-[10px] text-text-muted">
             Categoria padrão do save: <span className="font-mono">{selected.category}</span>
@@ -251,6 +280,16 @@ function RosterGenPanel() {
           </p>
           <p className="mt-0.5 break-all font-mono text-[10px] text-text-secondary">
             {result.path}
+          </p>
+        </div>
+      )}
+      {seasonResult && (
+        <div className="rounded-xl border border-status-green/30 bg-status-green/10 px-3 py-2 text-[11px] text-status-green">
+          <p className="font-semibold">
+            AI Season "{seasonResult.name}" gerada com {seasonResult.events} etapa(s).
+          </p>
+          <p className="mt-0.5 break-all font-mono text-[10px] text-text-secondary">
+            {seasonResult.path}
           </p>
         </div>
       )}

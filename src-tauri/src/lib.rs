@@ -3,6 +3,8 @@
 // explícitas a fragmentá-las só para satisfazer o lint de estilo.
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
+// O `json!` da AI season monta um objeto grande (~45 chaves) — eleva o limite.
+#![recursion_limit = "256"]
 
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -294,6 +296,7 @@ pub fn run() {
             commands::iracing::iracing_connected,
             commands::iracing::iracing_get_race_history,
             commands::iracing::iracing_generate_roster,
+            commands::iracing::iracing_generate_season,
             commands::iracing::iracing_player_paint,
             commands::iracing::iracing_apply_player_paint,
             commands::iracing::iracing_save_race_history,
