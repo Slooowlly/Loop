@@ -1221,12 +1221,16 @@ fn build_interactive_window(
     ))
 }
 
-/// Aplica TODAS as assinaturas da janela ao banco (chamado ao fechar).
-fn apply_window_signings(
+/// Aplica um conjunto de assinaturas da janela ao banco. Chamado a cada semana com
+/// as assinaturas NOVAS (incremental) — o feed e os elencos ficam em sincronia.
+fn apply_signings(
     conn: &Connection,
-    state: &crate::market::transfer_window::WindowState,
+    signings: &[crate::market::transfer_window::Signing],
     season: i32,
 ) -> Result<(), String> {
+    if signings.is_empty() {
+        return Ok(());
+    }
     let vacancies = find_vacancies(conn)?;
     let by_seat: HashMap<String, &Vacancy> = vacancies
         .iter()
@@ -1235,7 +1239,7 @@ fn apply_window_signings(
     let drivers = driver_queries::get_all_drivers(conn)
         .map_err(|e| format!("Falha ao carregar pilotos p/ assinar janela: {e}"))?;
     let by_id: HashMap<&str, &Driver> = drivers.iter().map(|d| (d.id.as_str(), d)).collect();
-    for signing in state.signings() {
+    for signing in signings {
         let (Some(&vac), Some(&driver)) = (
             by_seat.get(&signing.seat_id),
             by_id.get(signing.driver_id.as_str()),
@@ -1297,19 +1301,30 @@ fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
             .unwrap_or(0)
             <= player_lic
     };
+    let player_cat = player.categoria_atual.clone().unwrap_or_default();
     let vacancies = find_vacancies(conn)?;
-    // Própria categoria (mesmo tier) primeiro; senão qualquer vaga licenciada. Pior
-    // carro disponível (ele passou de ofertas melhores nas semanas anteriores).
-    let mut same: Vec<&Vacancy> = vacancies
-        .iter()
-        .filter(|v| v.category_tier == player_tier && licensed(v))
-        .collect();
-    same.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
-    let pick = same.first().copied().or_else(|| {
-        let mut any: Vec<&Vacancy> = vacancies.iter().filter(|v| licensed(v)).collect();
-        any.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
-        any.first().copied()
-    });
+    // Preferência: PRÓPRIA categoria (ex.: mazda_rookie, não toyota_rookie) → mesmo
+    // nível (tier) → qualquer vaga licenciada. Pior carro disponível (ele passou de
+    // ofertas melhores nas semanas anteriores).
+    let mut pick: Option<&Vacancy> = None;
+    for pass in 0..3 {
+        let mut cands: Vec<&Vacancy> = vacancies
+            .iter()
+            .filter(|v| {
+                licensed(v)
+                    && match pass {
+                        0 => v.categoria == player_cat,
+                        1 => v.category_tier == player_tier,
+                        _ => true,
+                    }
+            })
+            .collect();
+        if !cands.is_empty() {
+            cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
+            pick = cands.first().copied();
+            break;
+        }
+    }
     let Some(vac) = pick.cloned() else {
         return Ok(());
     };
@@ -1354,8 +1369,11 @@ pub(crate) fn window_advance(
         return Ok(state);
     }
     state.advance(player_choice);
+    // Aplica as assinaturas NOVAS desta semana (incremental) — banco e feed em
+    // sincronia, sem contratações "fantasma" até o fecho.
+    apply_signings(conn, state.unapplied_signings(), season)?;
+    state.mark_applied();
     if state.is_closed() {
-        apply_window_signings(conn, &state, season)?;
         ensure_player_seated(conn, season)?;
         persist_window(conn, season, &state, "closed")?;
     } else {

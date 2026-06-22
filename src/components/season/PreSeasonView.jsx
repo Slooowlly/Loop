@@ -869,14 +869,14 @@ export default function PreSeasonView() {
                 <p className="text-body-sm font-bold uppercase tracking-[0.28em] text-[color:var(--accent-primary)]">
                   Pré-temporada
                 </p>
-                {playerProposals.length > 0 && (
+                {playerOffers.length > 0 && (
                   <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-bold tracking-[0.14em] text-[color:var(--accent-primary)]">
-                    {playerProposals.length} proposta{playerProposals.length > 1 ? "s" : ""}
+                    {playerOffers.length} oferta{playerOffers.length > 1 ? "s" : ""}
                   </span>
                 )}
               </div>
               <h1 className="mt-1 text-[20px] font-bold leading-[1.05] tracking-[-0.02em] text-[color:var(--text-primary)] lg:text-[26px]">
-                Mercado de Transferências
+                {isComplete ? "Janela Encerrada" : "Mercado de Transferências"}
               </h1>
 
               {/* Filtros de categoria */}
@@ -918,7 +918,7 @@ export default function PreSeasonView() {
                     : "border-[#d2992266] bg-[#d2992218] text-[color:var(--status-yellow)]"
                 }`}
               >
-                {isMarketOpen ? "Mercado aberto" : "Última semana"}
+                {isMarketOpen ? "Mercado aberto" : "Janela fechada"}
               </span>
 
               <div className="w-[220px] px-1 lg:w-[280px]">

@@ -240,6 +240,47 @@ fn compute_offers(
             offers_by_driver.entry(ci).or_default().push((si, salary));
         }
     }
+
+    // ── GARANTIA DE OFERTAS AO JOGADOR ──────────────────────────────────────────
+    // O jogador (único com ai_respects_brand=false) é rankeado por skill como todos;
+    // um piloto fraco (rookie) nunca entraria na shortlist e ficaria SEM nenhuma
+    // oferta. Garante ofertas das vagas do NÍVEL DELE (próprio tier), as de maior
+    // prestígio primeiro, até um teto por semana — ele recebe das duas marcas.
+    if let Some(pi) = free.iter().position(|c| !c.ai_respects_brand) {
+        let cap = cfg.shortlist_top as usize + 1;
+        let mut count = offers_by_driver.get(&pi).map_or(0, Vec::len);
+        let mut tier_seats: Vec<usize> = (0..open.len())
+            .filter(|&si| {
+                open[si].tier == free[pi].tier
+                    && eligible(cfg, &open[si], &free[pi])
+                    && passes_dignity(cfg, &open[si], &free[pi])
+            })
+            .collect();
+        tier_seats.sort_by(|&a, &b| open[b].prestige.total_cmp(&open[a].prestige));
+        for si in tier_seats {
+            if count >= cap {
+                break;
+            }
+            let already = offers_by_driver
+                .get(&pi)
+                .is_some_and(|v| v.iter().any(|&(s, _)| s == si));
+            if already {
+                continue;
+            }
+            let key = salkey(&open[si].id, &free[pi].id);
+            let salary = match current_salary.get(&key) {
+                Some(&prev) => (prev + cfg.bid_gap_close * (open[si].salary_ceiling - prev))
+                    .min(open[si].salary_ceiling),
+                None => free[pi]
+                    .market_value
+                    .clamp(open[si].salary_floor, open[si].salary_ceiling),
+            };
+            current_salary.insert(key, salary);
+            offers_by_driver.entry(pi).or_default().push((si, salary));
+            count += 1;
+        }
+    }
+
     offers_by_driver
 }
 
@@ -300,12 +341,21 @@ fn resolve_week(
         let Some(accepters) = accepted_by_seat.get(&si) else {
             continue;
         };
-        let pick = accepters
+        let available: Vec<(usize, f64)> = accepters
             .iter()
             .copied()
             .filter(|&(ci, _)| !signed_driver_indices.contains(&ci))
-            .max_by(|&(ca, _), &(cb, _)| {
-                team_candidate_score(&free[ca]).total_cmp(&team_candidate_score(&free[cb]))
+            .collect();
+        // A aceitação do JOGADOR é honrada: o time que o ofertou assina ELE (não um
+        // IA mais forte que também aceitou) — senão um rookie nunca venceria a vaga.
+        let pick = available
+            .iter()
+            .copied()
+            .find(|&(ci, _)| !free[ci].ai_respects_brand)
+            .or_else(|| {
+                available.iter().copied().max_by(|&(ca, _), &(cb, _)| {
+                    team_candidate_score(&free[ca]).total_cmp(&team_candidate_score(&free[cb]))
+                })
             });
         if let Some((ci, salary)) = pick {
             let seat = &open[si];
@@ -452,6 +502,10 @@ pub struct WindowState {
     /// Ofertas da semana atual já computadas, aguardando resolução (forma
     /// serializável de `offers_by_driver`: [(driver_idx, [(seat_idx, salário)])]).
     pending: Option<Vec<(usize, Vec<(usize, f64)>)>>,
+    /// Quantas assinaturas já foram aplicadas no banco (cursor incremental do
+    /// wiring): o feed e o banco ficam em sincronia semana a semana.
+    #[serde(default)]
+    applied_to_db: usize,
 }
 
 impl WindowState {
@@ -472,7 +526,18 @@ impl WindowState {
             cfg,
             player_id,
             pending: None,
+            applied_to_db: 0,
         }
+    }
+
+    /// Assinaturas ainda NÃO aplicadas no banco (desde o último `mark_applied`).
+    pub fn unapplied_signings(&self) -> &[Signing] {
+        &self.signings[self.applied_to_db.min(self.signings.len())..]
+    }
+
+    /// Marca todas as assinaturas atuais como aplicadas no banco.
+    pub fn mark_applied(&mut self) {
+        self.applied_to_db = self.signings.len();
     }
 
     /// Inicia a janela e prepara a semana 1 (ofertas prontas pra mostrar).

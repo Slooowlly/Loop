@@ -481,8 +481,9 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![(6, QUALI), (3, 0), (6, at(0.0)), (7, at(0.5)), (iet, rend)],
         ),
-        // 1ª corrida: pista SECA (track_water 0), céu LIMPO ancorado na largada e por
-        // quase toda a corrida → garoa leve SÓ na última volta (cosmética).
+        // 1ª corrida: pista seca, céu LIMPO ancorado na largada → nuvens chegam no
+        // meio-fim (a frente de chuva precisa de tempo pra deslocar) → garoa leve
+        // CAINDO nos últimos ~4 min (últimas voltas). Sem isso a chuva nunca chega.
         FirstRaceScript => (
             0,
             50,
@@ -491,8 +492,9 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
                 (0, QUALI),
                 (0, 0),
                 (0, at(0.0)),
-                (0, at(0.92)),
-                (6, at(0.97)),
+                (1, at(0.45)),
+                (2, at(0.6)),
+                (6, at(0.72)),
                 (6, rend),
             ],
         ),
