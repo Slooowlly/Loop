@@ -43,6 +43,8 @@ pub struct Candidate {
     pub max_license: u8,             // licença máxima do piloto (limita as categorias acessíveis)
     pub market_value: f64,
     pub ai_respects_brand: bool, // IA respeita a marca; jogador (false) tem liberdade
+    #[serde(default)]
+    pub category: String, // categoria de ORIGEM (onde correu por último) — p/ promovido/rebaixado
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +56,8 @@ pub struct Signing {
     pub class: Option<String>,
     pub salary: f64,
     pub week: u32,
+    #[serde(default)]
+    pub from_category: Option<String>, // categoria de origem (None = estreia/desconhecida)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -367,6 +371,8 @@ fn resolve_week(
                 class: seat.class.clone(),
                 salary,
                 week,
+                from_category: (!free[ci].category.is_empty())
+                    .then(|| free[ci].category.clone()),
             });
             signed_seat_indices.push(si);
             signed_driver_indices.push(ci);
@@ -424,6 +430,7 @@ fn clearing_pass(
             class: seat.class.clone(),
             salary,
             week,
+            from_category: (!free[ci].category.is_empty()).then(|| free[ci].category.clone()),
         });
         free.remove(ci);
         if open.is_empty() || free.is_empty() {
@@ -467,6 +474,7 @@ fn safety_net(
             class: seat.class.clone(),
             salary,
             week,
+            from_category: (!free[ci].category.is_empty()).then(|| free[ci].category.clone()),
         });
     }
     let signed_ids: std::collections::HashSet<&str> =
@@ -727,6 +735,7 @@ mod tests {
             max_license: 10,
             market_value: 50_000.0,
             ai_respects_brand: true,
+            category: String::new(),
         }
     }
     fn rng() -> StdRng {
@@ -883,6 +892,7 @@ mod tests {
                     max_license: 10,
                     market_value: 20_000.0 + skill * 1_000.0,
                     ai_respects_brand: true,
+                    category: String::new(),
                 });
             }
         }

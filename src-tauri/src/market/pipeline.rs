@@ -1052,6 +1052,7 @@ fn candidate_from_available(
         max_license,
         market_value: 12_000.0 + driver.atributos.skill * 1_800.0,
         ai_respects_brand: !is_player,
+        category: cand.categoria_atual.clone(),
     })
 }
 
@@ -1209,6 +1210,7 @@ fn build_interactive_window(
                 max_license: lic,
                 market_value: 12_000.0 + player.atributos.skill * 1_800.0,
                 ai_respects_brand: false,
+                category: cat.clone(),
             });
             player_id = Some(player.id.clone());
         }

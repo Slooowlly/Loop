@@ -93,7 +93,7 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
     let mut timeline = json!({
         "keyframes": keyframes,
         "wind_direction_option": 0,
-        "wind_speed_option": 2,
+        "wind_speed_option": 4,
         "temperature_option": temp_option(w.temp_c),
         "weatherId": w.weather_id,
     });
@@ -109,7 +109,7 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
         "fog": 0,
         "wind_dir": 0,
         "wind_units": 1,
-        "wind_value": 3,
+        "wind_value": 15,
         "skies": w.skies,
         "simulated_start_time": w.start_time,
         "simulated_time_multiplier": 1,

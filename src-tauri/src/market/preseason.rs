@@ -27,6 +27,7 @@ use crate::market::pit_strategy::{
 };
 use crate::market::proposals::MarketProposal;
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
+use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::license::repair_missing_licenses_for_current_categories;
 use crate::simulation::car_build::profile_money_cost;
@@ -104,6 +105,10 @@ pub struct PreSeasonPlan {
     pub state: PreSeasonState,
     pub planned_events: Vec<PlannedEvent>,
     pub executed_weeks: Vec<WeekResult>,
+    /// Dispensas (contratos que terminaram sem renovação) capturadas no início —
+    /// emitidas no feed na 1ª semana avançada ("quem perdeu a vaga").
+    #[serde(default)]
+    pub pending_departures: Vec<MarketEvent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,10 +246,17 @@ pub fn initialize_preseason(
     repair_missing_licenses_for_current_categories(conn)?;
     assign_seasonal_team_attributes(conn, season_number, &season_id)?;
 
+    // Contratos ativos ANTES das pré-passes — p/ detectar as DISPENSAS (terminaram e
+    // não foram renovados) e narrá-las no feed da 1ª semana.
+    let contracts_before = contract_queries::get_all_active_regular_contracts(conn)
+        .map_err(|e| format!("Falha ao carregar contratos antes das pre-passes: {e}"))?;
+
     // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
     // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
     crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
         .map_err(|e| format!("Falha ao aplicar pre-passes do mercado: {e}"))?;
+
+    let pending_departures = build_departure_events(conn, season_number, &contracts_before)?;
 
     // ── INICIA A JANELA DE TRANSFERÊNCIAS (IA + jogador como candidato), persistida e
     // ABERTA. Ela substitui o mercado instantâneo + as propostas: o jogador a conduz
@@ -282,6 +294,7 @@ pub fn initialize_preseason(
         state,
         planned_events: Vec::new(),
         executed_weeks: Vec::new(),
+        pending_departures,
     })
 }
 
@@ -501,6 +514,14 @@ pub fn advance_week(
     .max(1);
     let mut events = window_signing_events(conn, &window, resolved_week);
 
+    // Na 1ª semana avançada, anexa (no topo) as DISPENSAS capturadas no início — o
+    // jogador vê quem perdeu a vaga antes das contratações.
+    if week == 1 && !plan.pending_departures.is_empty() {
+        let mut feed = std::mem::take(&mut plan.pending_departures);
+        feed.extend(events);
+        events = feed;
+    }
+
     sync_team_slots_from_active_contracts(conn)?;
     let remaining_vacancies = count_remaining_vacancies(conn)?;
 
@@ -535,6 +556,14 @@ pub fn advance_week(
             championship_position: None,
         });
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
+        // Preenche as vagas que sobraram com rookies ao FECHAR — cobre o caminho
+        // NÃO-interativo (histórico), que nunca chama finalize_preseason; assim
+        // nenhum time (inclusive o antigo do jogador) corre a temporada sem piloto.
+        crate::market::pipeline::fill_all_remaining_vacancies(
+            conn,
+            plan.state.season_number,
+            &mut rng,
+        )?;
     } else {
         plan.state.current_week += 1;
         plan.state.phase = PreSeasonPhase::Transfers;
@@ -603,12 +632,60 @@ fn window_signing_events(
                 from_team: None,
                 to_team: Some(tname.to_string()),
                 categoria: Some(signing.category.clone()),
-                from_categoria: None,
+                // Origem → a UI infere promovido/rebaixado/lateral comparando os tiers.
+                from_categoria: signing.from_category.clone(),
                 movement_kind: None,
                 championship_position: None,
             }
         })
         .collect()
+}
+
+/// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
+/// NÃO tem contrato ativo após as pré-passes (não renovou nem foi reaproveitado);
+/// exclui o jogador. Narrativa "quem perdeu a vaga" pro feed da 1ª semana.
+fn build_departure_events(
+    conn: &Connection,
+    season_number: i32,
+    contracts_before: &[Contract],
+) -> Result<Vec<MarketEvent>, String> {
+    let active_after: std::collections::HashSet<String> =
+        contract_queries::get_all_active_regular_contracts(conn)
+            .map_err(|e| format!("Falha ao carregar contratos pos pre-passes: {e}"))?
+            .into_iter()
+            .map(|c| c.piloto_id)
+            .collect();
+    let drivers = driver_queries::get_all_drivers(conn).unwrap_or_default();
+    let is_player: std::collections::HashSet<&str> = drivers
+        .iter()
+        .filter(|d| d.is_jogador)
+        .map(|d| d.id.as_str())
+        .collect();
+    let mut events = Vec::new();
+    for c in contracts_before {
+        if c.temporada_fim >= season_number
+            || active_after.contains(&c.piloto_id)
+            || is_player.contains(c.piloto_id.as_str())
+        {
+            continue;
+        }
+        events.push(MarketEvent {
+            event_type: MarketEventType::ContractExpired,
+            headline: format!("{} deixa {}", c.piloto_nome, c.equipe_nome),
+            description: "Fim de contrato sem renovação.".to_string(),
+            driver_id: Some(c.piloto_id.clone()),
+            driver_name: Some(c.piloto_nome.clone()),
+            team_id: Some(c.equipe_id.clone()),
+            team_name: Some(c.equipe_nome.clone()),
+            from_team: Some(c.equipe_nome.clone()),
+            to_team: None,
+            categoria: Some(c.categoria.clone()),
+            from_categoria: Some(c.categoria.clone()),
+            movement_kind: Some("departure".to_string()),
+            championship_position: None,
+        });
+    }
+    Ok(events)
 }
 
 pub fn refresh_preseason_state_display_date(
