@@ -9150,6 +9150,44 @@ mod tests {
     }
 
     #[test]
+    fn test_preseason_feed_has_promotions_and_relegations() {
+        // Regressão: o feed da pré-temporada deve mostrar promoções/rebaixamentos
+        // (movimentos de tier), não só contratações laterais. Bug anterior: a categoria
+        // de origem dos dispensados era limpa antes do snapshot → tudo virava "signing".
+        let base_dir = create_test_career_dir("feed_tier_moves");
+        mark_all_races_completed(&base_dir, "career_001");
+        advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+        let mut promotions = 0;
+        let mut relegations = 0;
+        let mut guard = 0;
+        loop {
+            let week = advance_market_week_in_base_dir(&base_dir, "career_001", None)
+                .expect("advance");
+            for e in &week.events {
+                match e.movement_kind.as_deref() {
+                    Some("promotion") => promotions += 1,
+                    Some("relegation") => relegations += 1,
+                    _ => {}
+                }
+            }
+            if week.is_last_week {
+                break;
+            }
+            guard += 1;
+            assert!(guard < 40);
+        }
+        assert!(
+            promotions > 0,
+            "o feed deve mostrar promoções (pilotos subindo de divisão)"
+        );
+        assert!(
+            relegations > 0,
+            "o feed deve mostrar rebaixamentos (pilotos descendo de divisão)"
+        );
+        let _ = fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
     fn test_teamless_player_is_placed_by_window_close() {
         // Garantia de porta: um jogador agente livre NUNCA termina a pré-temporada sem
         // equipe (num save NOVO/limpo). Isola "é bug do código" de "é o save antigo".

@@ -109,6 +109,10 @@ pub struct PreSeasonPlan {
     /// emitidas no feed na 1ª semana avançada ("quem perdeu a vaga").
     #[serde(default)]
     pub pending_departures: Vec<MarketEvent>,
+    /// Categoria de cada piloto no INÍCIO da pré-temporada (antes das pré-passes, que
+    /// limpam o `categoria_atual` dos dispensados) — origem p/ promovido/rebaixado.
+    #[serde(default)]
+    pub category_snapshot: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,6 +255,15 @@ pub fn initialize_preseason(
     let contracts_before = contract_queries::get_all_active_regular_contracts(conn)
         .map_err(|e| format!("Falha ao carregar contratos antes das pre-passes: {e}"))?;
 
+    // Snapshot das categorias ANTES das pré-passes (que limpam o categoria_atual dos
+    // dispensados) — origem p/ inferir promovido/rebaixado nas assinaturas da escada.
+    let category_snapshot: std::collections::HashMap<String, String> =
+        driver_queries::get_all_drivers(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|d| d.categoria_atual.map(|c| (d.id, c)))
+            .collect();
+
     // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
     // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
     let prepass_report = crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
@@ -295,6 +308,7 @@ pub fn initialize_preseason(
         planned_events: Vec::new(),
         executed_weeks: Vec::new(),
         pending_departures,
+        category_snapshot,
     })
 }
 
@@ -510,14 +524,9 @@ pub fn advance_week(
             .into_iter()
             .collect();
 
-    // Snapshot das categorias ANTES da escada — a escada atualiza categoria_atual ao
-    // assinar, então guardamos a origem pra inferir promovido/rebaixado/lateral.
-    let cats_before: std::collections::HashMap<String, Option<String>> =
-        driver_queries::get_all_drivers(conn)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|d| (d.id, d.categoria_atual))
-            .collect();
+    // Categorias de ORIGEM (snapshot do INÍCIO da pré-temporada, antes das pré-passes
+    // limparem o categoria_atual dos dispensados) — pra inferir promovido/rebaixado.
+    let category_snapshot = plan.category_snapshot.clone();
 
     // Escada (ladder fill) paginada: preenche ~6 vagas em TODOS os tiers (agente
     // livre → rookie → promoção da categoria de baixo), poupando os assentos reservados.
@@ -554,10 +563,10 @@ pub fn advance_week(
                 .get(signing.team_id.as_str())
                 .copied()
                 .unwrap_or(signing.team_name.as_str());
-            // Origem do piloto (antes desta assinatura) → promovido/rebaixado/lateral.
-            let from_cat = cats_before
+            // Origem do piloto (categoria no início) → promovido/rebaixado/lateral.
+            let from_cat = category_snapshot
                 .get(signing.driver_id.as_str())
-                .and_then(|c| c.clone());
+                .cloned();
             let movement_kind = if matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia") {
                 "rookie".to_string()
             } else {
