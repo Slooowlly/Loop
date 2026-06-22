@@ -86,8 +86,10 @@ where
     }
 }
 
-/// Mercado completo (pré-passes + Janela IA + propostas + rookies). Wrapper público
-/// instantâneo — usado por contextos não-interativos/testes.
+/// Mercado completo (pré-passes + Janela IA + propostas + rookies). Resolve tudo de
+/// uma vez. A pré-temporada interativa NÃO usa isto (usa `run_market_prepasses` + a
+/// Janela ao vivo); fica como cobertura de teste do wiring completo do mercado.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn run_market(
     conn: &Connection,
     new_season_number: i32,

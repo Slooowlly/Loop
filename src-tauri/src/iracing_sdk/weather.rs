@@ -355,7 +355,9 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     // absolutos via at(f) = RACE_START + fração × duração (a corrida começa ~RACE_START
     // min depois do início da timeline; antes disso é prática/quali).
     const QUALI: i64 = -90;
-    const RACE_START: i64 = 25; // ajustável conforme onde a barra CORRIDA cai de fato
+    // CALIBRADO (user): corrida começa às 4:20 e simulated_start = 3:45 → offset 35.
+    // (Offset 25 caía na QUALY, não na corrida.) ~prática 5 + quali 10 + grid 20.
+    const RACE_START: i64 = 35;
     let at = |f: f64| RACE_START + (r as f64 * f).round() as i64;
     let rend = at(1.0);
     let iw = intensity_water(story.race_intensity);
@@ -479,17 +481,18 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![(6, QUALI), (3, 0), (6, at(0.0)), (7, at(0.5)), (iet, rend)],
         ),
-        // 1ª corrida: dia LIMPO até o terço final da CORRIDA → garoa leve no fim.
+        // 1ª corrida: pista SECA (track_water 0), céu LIMPO ancorado na largada e por
+        // quase toda a corrida → garoa leve SÓ na última volta (cosmética).
         FirstRaceScript => (
             0,
             50,
-            1,
+            0,
             vec![
                 (0, QUALI),
                 (0, 0),
-                (0, at(0.5)),
-                (1, at(0.7)),
-                (6, at(0.8)),
+                (0, at(0.0)),
+                (0, at(0.92)),
+                (6, at(0.97)),
                 (6, rend),
             ],
         ),
@@ -800,11 +803,11 @@ mod tests {
         );
         let last = p.keyframes.last().unwrap();
         assert_eq!(last.0, 6, "não terminou com pingos");
-        // Fim = RACE_START (25) + duração (20). A chuva tem que cair DURANTE a corrida
-        // (offset > 25), não na prática/quali.
-        assert_eq!(last.1, 45, "pingos não no fim da corrida");
+        // Fim = RACE_START (35) + duração (20). A chuva tem que cair DURANTE a corrida
+        // (offset > 35 = largada às 4:20), não na prática/quali.
+        assert_eq!(last.1, 55, "pingos não no fim da corrida");
         assert!(
-            p.keyframes.iter().any(|(et, off)| *et >= 6 && *off > 25),
+            p.keyframes.iter().any(|(et, off)| *et >= 6 && *off > 35),
             "chuva fora da corrida"
         );
     }
