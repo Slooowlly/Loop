@@ -9150,6 +9150,59 @@ mod tests {
     }
 
     #[test]
+    fn test_teamless_player_is_placed_by_window_close() {
+        // Garantia de porta: um jogador agente livre NUNCA termina a pré-temporada sem
+        // equipe (num save NOVO/limpo). Isola "é bug do código" de "é o save antigo".
+        let base_dir = create_test_career_dir("teamless_player_guarantee");
+        mark_all_races_completed(&base_dir, "career_001");
+        advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+        let config = AppConfig::load_or_default(&base_dir);
+        let db_path = config.saves_dir().join("career_001").join("career.db");
+
+        // Rescinde o contrato do jogador → vira agente livre.
+        {
+            let db = Database::open_existing(&db_path).expect("db");
+            let player = driver_queries::get_player_driver(&db.conn).expect("player");
+            if let Some(contract) = contract_queries::get_active_contract_for_pilot(&db.conn, &player.id)
+                .expect("active contract")
+            {
+                contract_queries::update_contract_status(
+                    &db.conn,
+                    &contract.id,
+                    &crate::models::enums::ContractStatus::Rescindido,
+                )
+                .expect("rescind");
+                team_queries::remove_pilot_from_team(&db.conn, &player.id, &contract.equipe_id)
+                    .expect("remove from team");
+            }
+        }
+
+        // Avança o mercado até FECHAR (jogador sempre espera = None).
+        let mut guard = 0;
+        loop {
+            let week = advance_market_week_in_base_dir(&base_dir, "career_001", None)
+                .expect("advance market week");
+            if week.is_last_week {
+                break;
+            }
+            guard += 1;
+            assert!(guard < 40, "a janela deve fechar");
+        }
+
+        // O jogador DEVE ter contrato ao fim — nunca em limbo.
+        let db = Database::open_existing(&db_path).expect("db reopen");
+        let player = driver_queries::get_player_driver(&db.conn).expect("player");
+        assert!(
+            contract_queries::get_active_regular_contract_for_pilot(&db.conn, &player.id)
+                .expect("contract")
+                .is_some(),
+            "o jogador agente livre nunca deve terminar a pre-temporada sem equipe"
+        );
+
+        let _ = fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
     fn test_finalize_succeeds_when_all_resolved() {
         let base_dir = create_test_career_dir("finalize_success");
         mark_all_races_completed(&base_dir, "career_001");
