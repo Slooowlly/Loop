@@ -594,13 +594,14 @@ pub fn advance_week(
             let from_cat = category_snapshot
                 .get(signing.driver_id.as_str())
                 .cloned();
-            // Equipe anterior + tempo de casa (None p/ rookies gerados não presentes).
-            let prev = previous_team.get(signing.driver_id.as_str()).cloned();
-            let (from_team, seasons_at_previous) = match prev {
-                Some((team, tenure)) => (Some(team), Some(tenure)),
-                None => (None, None),
+            // Estreia (rookie) não tem equipe anterior por definição — não anexa snapshot.
+            let is_rookie = matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia");
+            let prev = if is_rookie {
+                None
+            } else {
+                previous_team.get(signing.driver_id.as_str()).cloned()
             };
-            let movement_kind = if matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia") {
+            let movement_kind = if is_rookie {
                 "rookie".to_string()
             } else {
                 let from_tier = from_cat
@@ -609,13 +610,20 @@ pub fn advance_week(
                     .map(|c| c.tier);
                 let to_tier = crate::constants::categories::get_category_config(&signing.categoria)
                     .map(|c| c.tier);
+                // Mesma equipe = RENOVAÇÃO (re-assinou o próprio assento), não troca lateral.
+                let same_team = prev.as_ref().is_some_and(|(team, _)| team.as_str() == tname);
                 match (from_tier, to_tier) {
                     (Some(f), Some(t)) if t > f => "promotion",
                     (Some(f), Some(t)) if t < f => "relegation",
+                    _ if same_team => "renewal",
                     (Some(_), Some(_)) => "lateral",
                     _ => "signing",
                 }
                 .to_string()
+            };
+            let (from_team, seasons_at_previous) = match prev {
+                Some((team, tenure)) => (Some(team), Some(tenure)),
+                None => (None, None),
             };
             MarketEvent {
                 event_type: MarketEventType::TransferCompleted,

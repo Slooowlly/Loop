@@ -193,6 +193,13 @@ const WEEKLY_MARKET_MOVEMENT_BADGES = {
     bg: "rgba(208,215,222,0.11)",
     border: "rgba(208,215,222,0.32)",
   },
+  renewal: {
+    label: "Renova\u00e7\u00e3o",
+    symbol: "\u21bb",
+    color: "#7ee787",
+    bg: "rgba(126,231,135,0.12)",
+    border: "rgba(126,231,135,0.34)",
+  },
   signing: {
     label: "Contratação",
     symbol: "+",
@@ -377,6 +384,9 @@ function inferWeeklyMovementKind(event) {
   if (event.event_type === "PlayerProposalReceived") return "proposal";
   if (event.event_type === "ContractExpired") return "departure";
   if (event.event_type !== "TransferCompleted") return null;
+
+  const destTeam = event.to_team || event.team_name;
+  if (event.from_team && destTeam && event.from_team === destTeam) return "renewal";
 
   const from = CATEGORY_TIER[event.from_categoria] ?? 0;
   const to = CATEGORY_TIER[event.categoria] ?? 0;
@@ -656,6 +666,105 @@ export default function PreSeasonView() {
   // Ofertas que a Janela de Transferências mandou ao jogador nesta semana.
   const playerOffers = transferWindow?.player_offers ?? [];
   const playerSignedThisWindow = preseasonState?.player_has_team ?? false;
+
+  // Ofertas agrupadas por categoria (tier mais alto primeiro) e, dentro de cada
+  // categoria, separadas por Piloto Nº 1 (titular) e Nº 2.
+  const offersByCategory = useMemo(() => {
+    const groups = new Map();
+    for (const offer of playerOffers) {
+      const cat = offer.category || "outras";
+      if (!groups.has(cat)) {
+        groups.set(cat, {
+          cat,
+          tier: offer.category_tier ?? CATEGORY_TIER[cat] ?? 0,
+          label: offer.category_label || subcatLabel(cat),
+          n1: [],
+          n2: [],
+        });
+      }
+      const g = groups.get(cat);
+      if (offer.role === "N1") g.n1.push(offer);
+      else g.n2.push(offer);
+    }
+    return [...groups.values()].sort((a, b) => b.tier - a.tier);
+  }, [playerOffers]);
+
+  const renderOfferCard = (offer) => (
+    <article key={offer.seat_id} className="glass animate-scale-in rounded-xl px-4 py-3.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <TeamLogoMark
+          teamName={offer.team_name}
+          color={offer.team_color}
+          size="md"
+          testId="transfer-offer-team-logo"
+        />
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-body-sm font-bold uppercase tracking-[0.16em]"
+            style={{ color: offer.team_color }}
+          >
+            {offer.role} | {offer.category_label || offer.category}
+          </p>
+          <p className="mt-1 truncate text-title-md">{offer.team_name}</p>
+        </div>
+      </div>
+
+      <div className="my-3 grid grid-cols-2 gap-2">
+        <div className="glass-light rounded-lg p-2.5">
+          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+            Salário
+          </p>
+          <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
+            {formatSalary(offer.salary)}
+          </p>
+        </div>
+        <div className="glass-light rounded-lg p-2.5">
+          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+            Papel
+          </p>
+          <p className="num-medium mt-0.5 font-bold text-[color:var(--text-primary)]">
+            {offer.role === "N1" ? "Piloto 1" : "Piloto 2"}
+          </p>
+        </div>
+        {offer.teammate_name && (
+          <div className="glass-light rounded-lg p-2.5">
+            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+              Companheiro
+            </p>
+            <p className="text-body mt-0.5 font-semibold text-[color:var(--text-primary)] truncate">
+              {offer.teammate_name}
+              {offer.teammate_skill != null ? ` (${offer.teammate_skill})` : ""}
+            </p>
+          </div>
+        )}
+        <div className={`glass-light rounded-lg p-2.5 ${offer.teammate_name ? "" : "col-span-2"}`}>
+          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+            Carro
+          </p>
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#21262d]">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${offer.car_performance_rating ?? 0}%`,
+                  backgroundColor: offer.team_color,
+                }}
+              />
+            </div>
+            <span className="text-body font-bold">{offer.car_performance_rating}</span>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={() => handleAcceptOffer(offer.seat_id)}
+        disabled={isAdvancingWeek}
+        className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Aceitar e assinar
+      </button>
+    </article>
+  );
 
   const currentDateLabel = useMemo(
     () => {
@@ -1185,85 +1294,34 @@ export default function PreSeasonView() {
                     : "Nenhuma oferta nova esta semana. Avance a semana para esperar — um time ainda pode aparecer."}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <p className="text-body-sm text-[color:var(--text-secondary)]">
                   Aceitar fecha sua semana e assina o contrato. Avançar sem aceitar = esperar por algo melhor (risco: a vaga pode sumir).
                 </p>
-                {playerOffers.map((offer) => (
-                  <article key={offer.seat_id} className="glass animate-scale-in rounded-xl px-4 py-3.5">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <TeamLogoMark
-                        teamName={offer.team_name}
-                        color={offer.team_color}
-                        size="md"
-                        testId="transfer-offer-team-logo"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className="text-body-sm font-bold uppercase tracking-[0.16em]"
-                          style={{ color: offer.team_color }}
-                        >
-                          {offer.role} | {offer.category_label || offer.category}
-                        </p>
-                        <p className="mt-1 truncate text-title-md">{offer.team_name}</p>
-                      </div>
+                {offersByCategory.map((group) => (
+                  <div key={group.cat} className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-body-sm font-black uppercase tracking-[0.16em]"
+                        style={{ color: subcatColor(group.cat) }}
+                      >
+                        {group.label}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
+                        {group.n1.length + group.n2.length} vaga{group.n1.length + group.n2.length > 1 ? "s" : ""}
+                      </span>
                     </div>
-
-                    <div className="my-3 grid grid-cols-2 gap-2">
-                      <div className="glass-light rounded-lg p-2.5">
-                        <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                          Salário
-                        </p>
-                        <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
-                          {formatSalary(offer.salary)}
-                        </p>
-                      </div>
-                      <div className="glass-light rounded-lg p-2.5">
-                        <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                          Papel
-                        </p>
-                        <p className="num-medium mt-0.5 font-bold text-[color:var(--text-primary)]">
-                          {offer.role === "N1" ? "Piloto 1" : "Piloto 2"}
-                        </p>
-                      </div>
-                      {offer.teammate_name && (
-                        <div className="glass-light rounded-lg p-2.5">
-                          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                            Companheiro
+                    {[["Piloto Nº 1", group.n1], ["Piloto Nº 2", group.n2]].map(([roleLabel, list]) =>
+                      list.length === 0 ? null : (
+                        <div key={roleLabel} className="space-y-2">
+                          <p className="pl-0.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+                            {roleLabel}
                           </p>
-                          <p className="text-body mt-0.5 font-semibold text-[color:var(--text-primary)] truncate">
-                            {offer.teammate_name}
-                            {offer.teammate_skill != null ? ` (${offer.teammate_skill})` : ""}
-                          </p>
+                          {list.map(renderOfferCard)}
                         </div>
-                      )}
-                      <div className={`glass-light rounded-lg p-2.5 ${offer.teammate_name ? "" : "col-span-2"}`}>
-                        <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                          Carro
-                        </p>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#21262d]">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${offer.car_performance_rating ?? 0}%`,
-                                backgroundColor: offer.team_color,
-                              }}
-                            />
-                          </div>
-                          <span className="text-body font-bold">{offer.car_performance_rating}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleAcceptOffer(offer.seat_id)}
-                      disabled={isAdvancingWeek}
-                      className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Aceitar e assinar
-                    </button>
-                  </article>
+                      ),
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -1455,6 +1513,7 @@ export default function PreSeasonView() {
         const isDebut = !ev.from_team;
         const fromTeam = ev.from_team;
         const toTeam = ev.to_team || ev.team_name;
+        const isRenewal = ev.movement_kind === "renewal" || (fromTeam && fromTeam === toTeam);
         const accent = badge?.color ?? subcatColor(ev.categoria);
         const tenure = ev.seasons_at_previous;
         const fromCatLabel = ev.from_categoria ? subcatLabel(ev.from_categoria) : null;
@@ -1488,7 +1547,19 @@ export default function PreSeasonView() {
                 {ev.driver_name}
               </h2>
 
-              {/* De → Para (equipes) */}
+              {/* Renovação: permaneceu na mesma equipe (sem De → Para) */}
+              {isRenewal ? (
+                <div className="mb-5 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-5 text-center">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+                    Permaneceu
+                  </div>
+                  <TeamLogoMark teamName={toTeam} color={accent} size="md" />
+                  <span className="block truncate text-[15px] font-bold text-[color:var(--text-primary)]">
+                    {toTeam}
+                  </span>
+                </div>
+              ) : (
+              /* De → Para (equipes) */
               <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-4">
                 <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
@@ -1530,6 +1601,7 @@ export default function PreSeasonView() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Categoria */}
               {toCatLabel && (
@@ -1551,8 +1623,10 @@ export default function PreSeasonView() {
                 {isDebut
                   ? "Estreia na carreira"
                   : tenure != null && tenure > 0
-                    ? `${tenure} ${tenure === 1 ? "temporada" : "temporadas"} na equipe anterior`
-                    : "Equipe anterior"}
+                    ? `${tenure} ${tenure === 1 ? "temporada" : "temporadas"} ${isRenewal ? "na equipe" : "na equipe anterior"}`
+                    : isRenewal
+                      ? "Renovou contrato"
+                      : "Equipe anterior"}
               </p>
             </div>
           </div>

@@ -2204,7 +2204,11 @@ pub(crate) fn player_market_offers(
     let player_lic = player_effective_license(conn, &player)?;
     let salary = player_offer_salary(player.atributos.skill);
 
-    let mut offers = Vec::new();
+    let mut offers: Vec<crate::market::transfer_window::PlayerOffer> = Vec::new();
+    // Um time com as DUAS vagas abertas geraria duas ofertas (N1 e N2). O jogador só
+    // deve receber UMA por time — fica com a de titular (N1) quando ambas existem.
+    let mut offer_by_team: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for vac in find_vacancies(conn)?.into_iter().filter(is_regular_vacancy) {
         // Piso de RECOMEÇO: vaga de estreia (rookie) é sempre oferecida ao jogador,
         // mesmo fora do tier/licença — assim ele NUNCA fica sem nenhuma proposta.
@@ -2222,14 +2226,24 @@ pub(crate) fn player_market_offers(
         if !in_tier && !is_debut {
             continue;
         }
-        offers.push(crate::market::transfer_window::PlayerOffer {
+        let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+        let offer = crate::market::transfer_window::PlayerOffer {
             seat_id: format!("{}#{}", vac.team_id, vac.papel_necessario.as_str()),
             team_id: vac.team_id.clone(),
             category: vac.categoria.clone(),
             class: vac.classe.clone(),
             salary,
-            is_n1: matches!(vac.papel_necessario, TeamRole::Numero1),
-        });
+            is_n1,
+        };
+        if let Some(&idx) = offer_by_team.get(&vac.team_id) {
+            // Já há oferta deste time: só troca se a nova for titular (N1) e a atual for N2.
+            if is_n1 && !offers[idx].is_n1 {
+                offers[idx] = offer;
+            }
+            continue;
+        }
+        offer_by_team.insert(vac.team_id.clone(), offers.len());
+        offers.push(offer);
     }
     Ok(offers)
 }
