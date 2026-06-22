@@ -253,10 +253,13 @@ pub fn initialize_preseason(
 
     // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
     // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
-    crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
+    let prepass_report = crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
         .map_err(|e| format!("Falha ao aplicar pre-passes do mercado: {e}"))?;
 
-    let pending_departures = build_departure_events(conn, season_number, &contracts_before)?;
+    // Feed da 1ª semana: dispensas (×) + promoções/rebaixamentos por mérito (↑/↓), que
+    // acontecem nas pré-passes e antes ficavam invisíveis.
+    let mut pending_departures = build_departure_events(conn, season_number, &contracts_before)?;
+    pending_departures.extend(merit_move_events(&prepass_report));
 
     // O mercado ao vivo é a escada paginada conduzida por advance_week (sem motor de
     // janela persistido): cada semana preenche vagas em todos os tiers e oferta vagas
@@ -669,6 +672,38 @@ pub fn advance_week(
 /// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
 /// NÃO tem contrato ativo após as pré-passes (não renovou nem foi reaproveitado);
 /// exclui o jogador. Narrativa "quem perdeu a vaga" pro feed da 1ª semana.
+/// Eventos de PROMOÇÃO/REBAIXAMENTO por mérito (das pré-passes) pro feed — antes
+/// aconteciam de forma invisível. Lê o report das pré-passes pelos tipos
+/// `promocao_merito` (↑) e `rebaixamento` (↓).
+fn merit_move_events(report: &crate::market::proposals::MarketReport) -> Vec<MarketEvent> {
+    report
+        .new_signings
+        .iter()
+        .filter_map(|s| {
+            let movement_kind = match s.tipo.as_str() {
+                "promocao_merito" => "promotion",
+                "rebaixamento" => "relegation",
+                _ => return None,
+            };
+            Some(MarketEvent {
+                event_type: MarketEventType::TransferCompleted,
+                headline: format!("{} -> {}", s.driver_name, s.team_name),
+                description: format!("Acerto na {}.", s.categoria),
+                driver_id: Some(s.driver_id.clone()),
+                driver_name: Some(s.driver_name.clone()),
+                team_id: Some(s.team_id.clone()),
+                team_name: Some(s.team_name.clone()),
+                from_team: None,
+                to_team: Some(s.team_name.clone()),
+                categoria: Some(s.categoria.clone()),
+                from_categoria: None,
+                movement_kind: Some(movement_kind.to_string()),
+                championship_position: None,
+            })
+        })
+        .collect()
+}
+
 fn build_departure_events(
     conn: &Connection,
     season_number: i32,
