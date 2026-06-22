@@ -447,15 +447,25 @@ function WeeklyClosingMovement({ event, color }) {
             {movementBadge.symbol}
           </span>
         )}
-        <span
-          className="w-8 shrink-0 text-right text-[13px] font-black leading-none"
-          style={{ color }}
-        >
-          {formatWeeklyClosingPosition(event.championship_position)}
-        </span>
+        {event.championship_position != null && (
+          <span
+            className="w-8 shrink-0 text-right text-[13px] font-black leading-none"
+            style={{ color }}
+          >
+            {formatWeeklyClosingPosition(event.championship_position)}
+          </span>
+        )}
         <p className="min-w-0 flex-1 truncate text-[13px] font-extrabold leading-[1.05] text-[color:var(--text-primary)]">
           {event.driver_name}
         </p>
+        {event.team_name && (
+          <TeamLogoMark
+            teamName={event.team_name}
+            color={color}
+            size="xs"
+            testId="weekly-closing-team-logo"
+          />
+        )}
       </div>
     </article>
   );
@@ -668,16 +678,16 @@ export default function PreSeasonView() {
           if (cfg) cfg.dbIds?.forEach((id) => dbIds.add(id));
         }
 
-        const all = [];
-        for (const dbId of dbIds) {
-          try {
-            const teams = await invoke("get_teams_standings", { careerId, category: dbId });
-            // Tag cada equipe com o dbId usado — TeamStanding não tem campo categoria
-            teams.forEach((t) => all.push({ ...t, _categoria: dbId }));
-          } catch {
-            /* categoria pode não existir ainda */
-          }
-        }
+        // Busca PARALELA por categoria (era sequencial → grid demorava a refletir as
+        // assinaturas após avançar a semana). Tag cada equipe com o dbId usado.
+        const perCategory = await Promise.all(
+          [...dbIds].map((dbId) =>
+            invoke("get_teams_standings", { careerId, category: dbId })
+              .then((teams) => teams.map((t) => ({ ...t, _categoria: dbId })))
+              .catch(() => []),
+          ),
+        );
+        const all = perCategory.flat();
 
         // Filtrar por classe quando categoria tem filterClass
         let final = all;

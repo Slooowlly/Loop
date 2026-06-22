@@ -398,8 +398,13 @@ fn clearing_pass(
     signings: &mut Vec<Signing>,
     cfg: &WindowConfig,
     week: u32,
+    limit: Option<usize>, // None = esvazia tudo; Some(n) = no máx. n assinaturas
 ) {
+    let mut filled = 0usize;
     loop {
+        if limit.is_some_and(|max| filled >= max) {
+            break;
+        }
         let mut best_pair: Option<(usize, usize)> = None;
         let mut best_prestige = f64::NEG_INFINITY;
         for si in 0..open.len() {
@@ -433,6 +438,7 @@ fn clearing_pass(
             from_category: (!free[ci].category.is_empty()).then(|| free[ci].category.clone()),
         });
         free.remove(ci);
+        filled += 1;
         if open.is_empty() || free.is_empty() {
             break;
         }
@@ -514,6 +520,10 @@ pub struct WindowState {
     /// wiring): o feed e o banco ficam em sincronia semana a semana.
     #[serde(default)]
     applied_to_db: usize,
+    /// Fase de fechamento gradual: a disputa estagnou e o "resto" é preenchido em
+    /// frações por semana (em vez de despejar tudo numa semana só).
+    #[serde(default)]
+    clearing: bool,
 }
 
 impl WindowState {
@@ -535,6 +545,7 @@ impl WindowState {
             player_id,
             pending: None,
             applied_to_db: 0,
+            clearing: false,
         }
     }
 
@@ -648,17 +659,33 @@ impl WindowState {
         } else {
             self.consecutive_no_sign += 1;
         }
-        if self.consecutive_no_sign >= 2
-            || self.open.is_empty()
-            || self.free.is_empty()
-            || self.week >= self.cfg.hard_week_cap
-        {
+        // Quando a disputa estagna (2 semanas sem assinatura), entra na fase de
+        // FECHAMENTO GRADUAL: o "resto" é preenchido em frações por semana, em vez de
+        // despejar 20 contratações numa semana só.
+        if self.consecutive_no_sign >= 2 {
+            self.clearing = true;
+        }
+        if self.clearing && !self.open.is_empty() && !self.free.is_empty() {
+            let limit = ((self.open.len() as f64 * 0.4).ceil() as usize).max(3);
             clearing_pass(
                 &mut self.open,
                 &mut self.free,
                 &mut self.signings,
                 &self.cfg,
                 self.week,
+                Some(limit),
+            );
+        }
+        // Fecha quando esvazia ou bate o teto — o fecho TOTAL garante 100% de
+        // preenchimento (clearing sem limite + rede de segurança dos craques).
+        if self.open.is_empty() || self.free.is_empty() || self.week >= self.cfg.hard_week_cap {
+            clearing_pass(
+                &mut self.open,
+                &mut self.free,
+                &mut self.signings,
+                &self.cfg,
+                self.week,
+                None,
             );
             safety_net(
                 &mut self.open,
