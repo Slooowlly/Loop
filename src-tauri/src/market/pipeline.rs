@@ -1356,10 +1356,16 @@ fn place_player_in_natural_vacancy(
             )
             .unwrap_or(0),
         );
+    // Vaga de estreia (rookie) é sempre acessível ao jogador (piso de recomeço — nunca
+    // fica em limbo).
     let licensed = |vac: &Vacancy| {
-        crate::models::license::required_license_for_division(&vac.categoria, vac.classe.as_deref())
+        is_real_career_debut_category(&vac.categoria)
+            || crate::models::license::required_license_for_division(
+                &vac.categoria,
+                vac.classe.as_deref(),
+            )
             .unwrap_or(0)
-            <= player_lic
+                <= player_lic
     };
     let player_cat = player.categoria_atual.clone().unwrap_or_default();
     let vacancies = find_vacancies(conn)?;
@@ -1385,6 +1391,13 @@ fn place_player_in_natural_vacancy(
     let Some(vac) = pick.cloned() else {
         return Ok(false);
     };
+    // Concede a licença da vaga se faltar (ex.: recomeço numa estreia / sua categoria).
+    let _ = crate::models::license::grant_driver_license_for_division_if_needed(
+        conn,
+        &player.id,
+        &vac.categoria,
+        vac.classe.as_deref(),
+    );
     let salary = (12_000.0 + player.atributos.skill * 1_800.0).max(5_000.0);
     sign_driver_to_team(
         conn,
@@ -2109,10 +2122,15 @@ pub(crate) fn player_reserved_seat(
         .map(|c| c.tier)
         .unwrap_or(0);
     let player_lic = player_effective_license(conn, &player)?;
+    // Vaga de estreia (rookie) é sempre acessível ao jogador (piso de recomeço).
     let licensed = |vac: &Vacancy| {
-        crate::models::license::required_license_for_division(&vac.categoria, vac.classe.as_deref())
+        is_real_career_debut_category(&vac.categoria)
+            || crate::models::license::required_license_for_division(
+                &vac.categoria,
+                vac.classe.as_deref(),
+            )
             .unwrap_or(0)
-            <= player_lic
+                <= player_lic
     };
     let vacancies: Vec<Vacancy> = find_vacancies(conn)?
         .into_iter()
@@ -2176,17 +2194,20 @@ pub(crate) fn player_market_offers(
 
     let mut offers = Vec::new();
     for vac in find_vacancies(conn)?.into_iter().filter(is_regular_vacancy) {
+        // Piso de RECOMEÇO: vaga de estreia (rookie) é sempre oferecida ao jogador,
+        // mesmo fora do tier/licença — assim ele NUNCA fica sem nenhuma proposta.
+        let is_debut = is_real_career_debut_category(&vac.categoria);
         let required = crate::models::license::required_license_for_division(
             &vac.categoria,
             vac.classe.as_deref(),
         )
         .unwrap_or(0);
-        if required > player_lic {
+        if required > player_lic && !is_debut {
             continue;
         }
         let in_tier =
             vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
-        if !in_tier {
+        if !in_tier && !is_debut {
             continue;
         }
         offers.push(crate::market::transfer_window::PlayerOffer {
@@ -2224,6 +2245,9 @@ pub(crate) fn sign_player_to_vacancy(
         .map(|c| c.tier)
         .unwrap_or(0);
     let player_lic = player_effective_license(conn, &player)?;
+    // Vaga de estreia (rookie) é sempre aceitável (piso de recomeço), mesmo fora do
+    // tier/licença — consistente com player_market_offers.
+    let is_debut = is_real_career_debut_category(&vac.categoria);
     let required = crate::models::license::required_license_for_division(
         &vac.categoria,
         vac.classe.as_deref(),
@@ -2231,7 +2255,7 @@ pub(crate) fn sign_player_to_vacancy(
     .unwrap_or(0);
     let in_tier =
         vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
-    if required > player_lic || !in_tier {
+    if !is_debut && (required > player_lic || !in_tier) {
         return Err(format!("Vaga '{seat_id}' nao esta disponivel para o jogador."));
     }
 

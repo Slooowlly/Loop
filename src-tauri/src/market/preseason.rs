@@ -507,6 +507,15 @@ pub fn advance_week(
             .into_iter()
             .collect();
 
+    // Snapshot das categorias ANTES da escada — a escada atualiza categoria_atual ao
+    // assinar, então guardamos a origem pra inferir promovido/rebaixado/lateral.
+    let cats_before: std::collections::HashMap<String, Option<String>> =
+        driver_queries::get_all_drivers(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| (d.id, d.categoria_atual))
+            .collect();
+
     // Escada (ladder fill) paginada: preenche ~6 vagas em TODOS os tiers (agente
     // livre → rookie → promoção da categoria de baixo), poupando os assentos reservados.
     let mut report = crate::market::proposals::MarketReport::default();
@@ -542,12 +551,27 @@ pub fn advance_week(
                 .get(signing.team_id.as_str())
                 .copied()
                 .unwrap_or(signing.team_name.as_str());
-            let movement_kind = match signing.tipo.as_str() {
-                "promocao" | "promocao_emergencia" => "promotion",
-                "rookie" | "rookie_emergencia" => "rookie",
-                _ => "signing",
-            }
-            .to_string();
+            // Origem do piloto (antes desta assinatura) → promovido/rebaixado/lateral.
+            let from_cat = cats_before
+                .get(signing.driver_id.as_str())
+                .and_then(|c| c.clone());
+            let movement_kind = if matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia") {
+                "rookie".to_string()
+            } else {
+                let from_tier = from_cat
+                    .as_deref()
+                    .and_then(crate::constants::categories::get_category_config)
+                    .map(|c| c.tier);
+                let to_tier = crate::constants::categories::get_category_config(&signing.categoria)
+                    .map(|c| c.tier);
+                match (from_tier, to_tier) {
+                    (Some(f), Some(t)) if t > f => "promotion",
+                    (Some(f), Some(t)) if t < f => "relegation",
+                    (Some(_), Some(_)) => "lateral",
+                    _ => "signing",
+                }
+                .to_string()
+            };
             MarketEvent {
                 event_type: MarketEventType::TransferCompleted,
                 headline: format!("{dname} -> {tname}"),
@@ -559,7 +583,7 @@ pub fn advance_week(
                 from_team: None,
                 to_team: Some(tname.to_string()),
                 categoria: Some(signing.categoria.clone()),
-                from_categoria: None,
+                from_categoria: from_cat,
                 movement_kind: Some(movement_kind),
                 championship_position: None,
             }
