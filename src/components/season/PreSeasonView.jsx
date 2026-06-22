@@ -609,11 +609,10 @@ export default function PreSeasonView() {
   const preseasonState       = useCareerStore((s) => s.preseasonState);
   const lastMarketWeekResult = useCareerStore((s) => s.lastMarketWeekResult);
   const playerProposals      = useCareerStore((s) => s.playerProposals);
+  const transferWindow       = useCareerStore((s) => s.transferWindow);
   const preseasonFreeAgents  = useCareerStore((s) => s.preseasonFreeAgents);
   const isAdvancingWeek      = useCareerStore((s) => s.isAdvancingWeek);
-  const isRespondingProposal = useCareerStore((s) => s.isRespondingProposal);
   const advanceMarketWeek    = useCareerStore((s) => s.advanceMarketWeek);
-  const respondToProposal    = useCareerStore((s) => s.respondToProposal);
   const finalizePreseason    = useCareerStore((s) => s.finalizePreseason);
   const playerTeam           = useCareerStore((s) => s.playerTeam);
 
@@ -633,6 +632,10 @@ export default function PreSeasonView() {
   const isComplete  = preseasonState?.is_complete ?? false;
   const isMarketOpen = !isComplete;
   const weekProgress = Math.min(100, (currentWeek / totalWeeks) * 100);
+
+  // Ofertas que a Janela de Transferências mandou ao jogador nesta semana.
+  const playerOffers = transferWindow?.player_offers ?? [];
+  const playerSignedThisWindow = preseasonState?.player_has_team ?? false;
 
   const currentDateLabel = useMemo(
     () => {
@@ -842,8 +845,11 @@ export default function PreSeasonView() {
     }
   };
 
-  const handleProposal = async (proposalId, accept) => {
-    try { await respondToProposal(proposalId, accept); } catch (e) { console.error(e); }
+  // Janela de Transferências: aceitar uma oferta fecha a semana do jogador e assina.
+  const handleAcceptOffer = async (seatId) => {
+    if (isAdvancingWeek) return;
+    setStartError("");
+    try { await advanceMarketWeek(seatId); } catch (e) { console.error(e); }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1138,39 +1144,46 @@ export default function PreSeasonView() {
           <aside className="glass scroll-area animate-drawer-in self-start overflow-y-auto rounded-2xl px-4 py-4 lg:px-5 lg:py-5 xl:max-h-[calc(100vh-96px)]">
             <div className="mb-4 flex h-6 items-center gap-2">
               <span className="relative inline-flex h-2.5 w-2.5">
-                {playerProposals.length > 0 && (
+                {playerOffers.length > 0 && (
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#58a6ff]/80" />
                 )}
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[color:var(--accent-primary)]" />
               </span>
               <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                Decisões pendentes
+                Suas ofertas
               </p>
             </div>
 
-            {playerProposals.length === 0 ? (
+            {playerOffers.length === 0 ? (
               <div className="glass-light rounded-xl border-dashed p-6 text-center text-body text-[color:var(--text-secondary)]">
-                Nenhuma proposta pendente.
+                {playerSignedThisWindow
+                  ? "Você já tem contrato. Avance as semanas até a janela fechar."
+                  : isComplete
+                    ? "Janela de transferências fechada."
+                    : "Nenhuma oferta nova esta semana. Avance a semana para esperar — um time ainda pode aparecer."}
               </div>
             ) : (
               <div className="space-y-3">
-                {playerProposals.map((prop) => (
-                  <article key={prop.proposal_id} className="glass animate-scale-in rounded-xl px-4 py-3.5">
+                <p className="text-body-sm text-[color:var(--text-secondary)]">
+                  Aceitar fecha sua semana e assina o contrato. Avançar sem aceitar = esperar por algo melhor (risco: a vaga pode sumir).
+                </p>
+                {playerOffers.map((offer) => (
+                  <article key={offer.seat_id} className="glass animate-scale-in rounded-xl px-4 py-3.5">
                     <div className="flex min-w-0 items-center gap-3">
                       <TeamLogoMark
-                        teamName={prop.equipe_nome}
-                        color={prop.equipe_cor_primaria}
+                        teamName={offer.team_name}
+                        color={offer.team_color}
                         size="md"
-                        testId="preseason-proposal-team-logo"
+                        testId="transfer-offer-team-logo"
                       />
                       <div className="min-w-0 flex-1">
                         <p
                           className="text-body-sm font-bold uppercase tracking-[0.16em]"
-                          style={{ color: prop.equipe_cor_primaria }}
+                          style={{ color: offer.team_color }}
                         >
-                          {prop.papel} | {prop.categoria_nome || prop.categoria}
+                          {offer.role} | {offer.category_label || offer.category}
                         </p>
-                        <p className="mt-1 truncate text-title-md">{prop.equipe_nome}</p>
+                        <p className="mt-1 truncate text-title-md">{offer.team_name}</p>
                       </div>
                     </div>
 
@@ -1180,28 +1193,29 @@ export default function PreSeasonView() {
                           Salário
                         </p>
                         <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
-                          {formatSalary(prop.salario_oferecido)}
+                          {formatSalary(offer.salary)}
                         </p>
                       </div>
                       <div className="glass-light rounded-lg p-2.5">
                         <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                          Duração
+                          Papel
                         </p>
                         <p className="num-medium mt-0.5 font-bold text-[color:var(--text-primary)]">
-                          {prop.duracao_anos} ano{prop.duracao_anos > 1 ? "s" : ""}
+                          {offer.role === "N1" ? "Piloto 1" : "Piloto 2"}
                         </p>
                       </div>
-                      {prop.companheiro_nome && (
+                      {offer.teammate_name && (
                         <div className="glass-light rounded-lg p-2.5">
                           <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
                             Companheiro
                           </p>
                           <p className="text-body mt-0.5 font-semibold text-[color:var(--text-primary)] truncate">
-                            {prop.companheiro_nome}
+                            {offer.teammate_name}
+                            {offer.teammate_skill != null ? ` (${offer.teammate_skill})` : ""}
                           </p>
                         </div>
                       )}
-                      <div className={`glass-light rounded-lg p-2.5 ${prop.companheiro_nome ? "" : "col-span-2"}`}>
+                      <div className={`glass-light rounded-lg p-2.5 ${offer.teammate_name ? "" : "col-span-2"}`}>
                         <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
                           Carro
                         </p>
@@ -1210,32 +1224,23 @@ export default function PreSeasonView() {
                             <div
                               className="h-full rounded-full"
                               style={{
-                                width: `${prop.car_performance_rating ?? 0}%`,
-                                backgroundColor: prop.equipe_cor_primaria,
+                                width: `${offer.car_performance_rating ?? 0}%`,
+                                backgroundColor: offer.team_color,
                               }}
                             />
                           </div>
-                          <span className="text-body font-bold">{prop.car_performance_rating}</span>
+                          <span className="text-body font-bold">{offer.car_performance_rating}</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleProposal(prop.proposal_id, true)}
-                        disabled={isRespondingProposal}
-                        className="transition-glass glow-blue flex-1 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Aceitar
-                      </button>
-                      <button
-                        onClick={() => handleProposal(prop.proposal_id, false)}
-                        disabled={isRespondingProposal}
-                        className="transition-glass flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-body font-bold text-[color:var(--text-secondary)] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Recusar
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleAcceptOffer(offer.seat_id)}
+                      disabled={isAdvancingWeek}
+                      className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Aceitar e assinar
+                    </button>
                   </article>
                 ))}
               </div>

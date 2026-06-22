@@ -35,6 +35,7 @@ const initialState = {
   preseasonWeeks: [],
   lastMarketWeekResult: null,
   playerProposals: [],
+  transferWindow: null,
   preseasonFreeAgents: [],
   endOfSeasonResult: null,
   showEndOfSeason: false,
@@ -736,10 +737,11 @@ const useCareerStore = create((set, get) => ({
     set({ isEnteringPreseason: true, error: null });
 
     try {
-      const [state, proposals, freeAgents] = await Promise.all([
+      const [state, proposals, freeAgents, transferWindow] = await Promise.all([
         invoke("get_preseason_state", { careerId }),
         invoke("get_player_proposals", { careerId }).catch(() => []),
         invoke("get_preseason_free_agents", { careerId }).catch(() => []),
+        invoke("get_transfer_window_state", { careerId }).catch(() => null),
       ]);
       const news = await invoke("get_news", {
         careerId,
@@ -765,6 +767,7 @@ const useCareerStore = create((set, get) => ({
         preseasonWeeks: buildWeeksFromNews(news),
         lastMarketWeekResult: null,
         playerProposals: proposals,
+        transferWindow,
         preseasonFreeAgents: freeAgents,
         playerSpecialOffers: [],
         acceptedSpecialOffer: null,
@@ -779,7 +782,8 @@ const useCareerStore = create((set, get) => ({
     }
   },
 
-  advanceMarketWeek: async () => {
+  // `acceptedSeatId` = id da vaga que o jogador aceita nesta semana; `null` = espera.
+  advanceMarketWeek: async (acceptedSeatId = null) => {
     const { careerId } = get();
     if (!careerId) {
       throw new Error("Carreira não carregada.");
@@ -788,19 +792,20 @@ const useCareerStore = create((set, get) => ({
     set({ isAdvancingWeek: true, error: null });
 
     try {
-      const weekResult = await invoke("advance_market_week", { careerId });
+      const weekResult = await invoke("advance_market_week", {
+        careerId,
+        acceptedSeatId,
+      });
 
-      let proposals = get().playerProposals;
-      if ((weekResult.player_proposals?.length ?? 0) > 0) {
-        proposals = await invoke("get_player_proposals", { careerId });
-      }
-
-      const [state, freeAgents] = await Promise.all([
+      const [state, freeAgents, transferWindow] = await Promise.all([
         invoke("get_preseason_state", { careerId }),
         invoke("get_preseason_free_agents", { careerId }).catch((e) => {
           console.error("[preseason] get_preseason_free_agents falhou:", e);
           return get().preseasonFreeAgents ?? [];
         }),
+        invoke("get_transfer_window_state", { careerId }).catch(
+          () => get().transferWindow,
+        ),
       ]);
       const news = await invoke("get_news", {
         careerId,
@@ -813,7 +818,7 @@ const useCareerStore = create((set, get) => ({
         preseasonWeeks: buildWeeksFromNews(news),
         preseasonState: state,
         lastMarketWeekResult: weekResult,
-        playerProposals: proposals,
+        transferWindow,
         preseasonFreeAgents: freeAgents,
         isAdvancingWeek: false,
         isDirty: true,

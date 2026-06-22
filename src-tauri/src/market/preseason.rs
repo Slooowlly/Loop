@@ -504,6 +504,16 @@ pub fn advance_week(
     sync_team_slots_from_active_contracts(conn)?;
     let remaining_vacancies = count_remaining_vacancies(conn)?;
 
+    // O jogador pode ter assinado nesta semana (aceitou uma oferta) — reflete no
+    // estado pra a UI e o gate de finalização não ficarem defasados.
+    plan.state.player_has_team = driver_queries::get_player_driver(conn)
+        .ok()
+        .and_then(|player| {
+            contract_queries::get_active_regular_contract_for_pilot(conn, &player.id).ok()
+        })
+        .flatten()
+        .is_some();
+
     let is_last_week = window.is_closed();
     if is_last_week {
         plan.state.current_week = week + 1;
