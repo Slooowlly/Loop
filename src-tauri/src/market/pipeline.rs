@@ -364,6 +364,19 @@ pub fn fill_all_remaining_vacancies(
     new_season_number: i32,
     rng: &mut impl Rng,
 ) -> Result<(), String> {
+    let mut report = MarketReport::default();
+    fill_all_remaining_vacancies_reported(conn, new_season_number, rng, &mut report)
+}
+
+/// Idêntica a [`fill_all_remaining_vacancies`], mas acumula as assinaturas no
+/// `report` do chamador — necessário para que o preenchimento final (última
+/// semana do mercado) apareça no feed em vez de sumir num report descartado.
+pub(crate) fn fill_all_remaining_vacancies_reported(
+    conn: &Connection,
+    new_season_number: i32,
+    rng: &mut impl Rng,
+    report: &mut MarketReport,
+) -> Result<(), String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao carregar equipes para preenchimento final: {e}"))?;
     let debut_year = get_season_by_number(conn, new_season_number)?
@@ -390,12 +403,12 @@ pub fn fill_all_remaining_vacancies(
             break;
         }
 
-        let mut report = MarketReport::default();
+        // Acumula no report do chamador (cada iteração apenda novas assinaturas).
         fill_remaining_vacancies_with_rookies(
             conn,
             &teams,
             new_season_number,
-            &mut report,
+            report,
             rng,
             None,
             &HashSet::new(),

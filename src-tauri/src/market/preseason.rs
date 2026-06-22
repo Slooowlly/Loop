@@ -578,71 +578,68 @@ pub fn advance_week(
         .iter()
         .map(|t| (t.id.as_str(), t.nome.as_str()))
         .collect();
-    let mut events: Vec<MarketEvent> = report
-        .new_signings
-        .iter()
-        .map(|signing| {
-            let dname = driver_names
-                .get(signing.driver_id.as_str())
-                .copied()
-                .unwrap_or(signing.driver_name.as_str());
-            let tname = team_names
-                .get(signing.team_id.as_str())
-                .copied()
-                .unwrap_or(signing.team_name.as_str());
-            // Origem do piloto (categoria no início) → promovido/rebaixado/lateral.
-            let from_cat = category_snapshot
-                .get(signing.driver_id.as_str())
-                .cloned();
-            // Estreia (rookie) não tem equipe anterior por definição — não anexa snapshot.
-            let is_rookie = matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia");
-            let prev = if is_rookie {
-                None
-            } else {
-                previous_team.get(signing.driver_id.as_str()).cloned()
-            };
-            let movement_kind = if is_rookie {
-                "rookie".to_string()
-            } else {
-                let from_tier = from_cat
-                    .as_deref()
-                    .and_then(crate::constants::categories::get_category_config)
-                    .map(|c| c.tier);
-                let to_tier = crate::constants::categories::get_category_config(&signing.categoria)
-                    .map(|c| c.tier);
-                // Mesma equipe = RENOVAÇÃO (re-assinou o próprio assento), não troca lateral.
-                let same_team = prev.as_ref().is_some_and(|(team, _)| team.as_str() == tname);
-                match (from_tier, to_tier) {
-                    (Some(f), Some(t)) if t > f => "promotion",
-                    (Some(f), Some(t)) if t < f => "relegation",
-                    _ if same_team => "renewal",
-                    (Some(_), Some(_)) => "lateral",
-                    _ => "signing",
-                }
-                .to_string()
-            };
-            let (from_team, seasons_at_previous) = match prev {
-                Some((team, tenure)) => (Some(team), Some(tenure)),
-                None => (None, None),
-            };
-            MarketEvent {
-                event_type: MarketEventType::TransferCompleted,
-                headline: format!("{dname} -> {tname}"),
-                description: format!("Acerto na {}.", signing.categoria),
-                driver_id: Some(signing.driver_id.clone()),
-                driver_name: Some(dname.to_string()),
-                team_id: Some(signing.team_id.clone()),
-                team_name: Some(tname.to_string()),
-                from_team,
-                to_team: Some(tname.to_string()),
-                categoria: Some(signing.categoria.clone()),
-                from_categoria: from_cat,
-                movement_kind: Some(movement_kind),
-                championship_position: None,
-                seasons_at_previous,
+    // Mapeia uma assinatura da escada → evento de feed. Closure reutilizada tanto
+    // pelas assinaturas paginadas quanto pelo preenchimento final da última semana.
+    let map_signing = |signing: &crate::market::proposals::SigningInfo| -> MarketEvent {
+        let dname = driver_names
+            .get(signing.driver_id.as_str())
+            .copied()
+            .unwrap_or(signing.driver_name.as_str());
+        let tname = team_names
+            .get(signing.team_id.as_str())
+            .copied()
+            .unwrap_or(signing.team_name.as_str());
+        // Origem do piloto (categoria no início) → promovido/rebaixado/lateral.
+        let from_cat = category_snapshot.get(signing.driver_id.as_str()).cloned();
+        // Estreia (rookie) não tem equipe anterior por definição — não anexa snapshot.
+        let is_rookie = matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia");
+        let prev = if is_rookie {
+            None
+        } else {
+            previous_team.get(signing.driver_id.as_str()).cloned()
+        };
+        let movement_kind = if is_rookie {
+            "rookie".to_string()
+        } else {
+            let from_tier = from_cat
+                .as_deref()
+                .and_then(crate::constants::categories::get_category_config)
+                .map(|c| c.tier);
+            let to_tier = crate::constants::categories::get_category_config(&signing.categoria)
+                .map(|c| c.tier);
+            // Mesma equipe = RENOVAÇÃO (re-assinou o próprio assento), não troca lateral.
+            let same_team = prev.as_ref().is_some_and(|(team, _)| team.as_str() == tname);
+            match (from_tier, to_tier) {
+                (Some(f), Some(t)) if t > f => "promotion",
+                (Some(f), Some(t)) if t < f => "relegation",
+                _ if same_team => "renewal",
+                (Some(_), Some(_)) => "lateral",
+                _ => "signing",
             }
-        })
-        .collect();
+            .to_string()
+        };
+        let (from_team, seasons_at_previous) = match prev {
+            Some((team, tenure)) => (Some(team), Some(tenure)),
+            None => (None, None),
+        };
+        MarketEvent {
+            event_type: MarketEventType::TransferCompleted,
+            headline: format!("{dname} -> {tname}"),
+            description: format!("Acerto na {}.", signing.categoria),
+            driver_id: Some(signing.driver_id.clone()),
+            driver_name: Some(dname.to_string()),
+            team_id: Some(signing.team_id.clone()),
+            team_name: Some(tname.to_string()),
+            from_team,
+            to_team: Some(tname.to_string()),
+            categoria: Some(signing.categoria.clone()),
+            from_categoria: from_cat,
+            movement_kind: Some(movement_kind),
+            championship_position: None,
+            seasons_at_previous,
+        }
+    };
+    let mut events: Vec<MarketEvent> = report.new_signings.iter().map(&map_signing).collect();
 
     // Na 1ª semana avançada, anexa (no topo) as DISPENSAS capturadas no início — o
     // jogador vê quem perdeu a vaga antes das contratações.
@@ -673,7 +670,17 @@ pub fn advance_week(
         // Garante porta ao jogador (pode dispensar o mais fraco da pior equipe) e
         // preenche TODAS as vagas restantes — nenhum time corre sem piloto.
         crate::market::pipeline::ensure_player_seated(conn, season)?;
-        crate::market::pipeline::fill_all_remaining_vacancies(conn, season, &mut rng)?;
+        // O preenchimento final assina vários pilotos de uma vez. Captura essas
+        // assinaturas num report e mapeia p/ feed — senão a última semana ficaria
+        // muda (os pilotos preenchidos no fechamento sumiam do "fechamento da semana").
+        let mut final_report = crate::market::proposals::MarketReport::default();
+        crate::market::pipeline::fill_all_remaining_vacancies_reported(
+            conn,
+            season,
+            &mut rng,
+            &mut final_report,
+        )?;
+        events.extend(final_report.new_signings.iter().map(&map_signing));
         plan.state.current_week = week + 1;
         plan.state.phase = PreSeasonPhase::Complete;
         plan.state.is_complete = true;
