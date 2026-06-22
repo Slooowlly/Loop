@@ -317,6 +317,8 @@ fn run_market_inner(
                 new_season_number,
                 &mut report,
                 rng,
+                None,
+                &HashSet::new(),
             )?;
 
             refreshed_drivers = driver_queries::get_all_drivers(conn)
@@ -389,7 +391,15 @@ pub fn fill_all_remaining_vacancies(
         }
 
         let mut report = MarketReport::default();
-        fill_remaining_vacancies_with_rookies(conn, &teams, new_season_number, &mut report, rng)?;
+        fill_remaining_vacancies_with_rookies(
+            conn,
+            &teams,
+            new_season_number,
+            &mut report,
+            rng,
+            None,
+            &HashSet::new(),
+        )?;
 
         // Se após tentar preencher ainda persistirem as mesmas vagas (ex: erro na geração), quebra para evitar loop infinito
         let final_vacancies = find_vacancies(conn)?.into_iter().filter(fillable).count();
@@ -1297,7 +1307,7 @@ fn set_player_unemployed_seasons(conn: &Connection, value: i32) -> Result<(), St
 /// ele já estiver ≥1 temporada sem time, o jogo GARANTE uma vaga na PIOR equipe da
 /// última categoria dele — dispensando o piloto mais fraco de lá. Mantém o contador de
 /// temporadas-sem-time (zera quando ele assina; incrementa quando segue sem time).
-fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
+pub(crate) fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(());
     };
@@ -1744,6 +1754,8 @@ fn fill_remaining_vacancies_with_rookies(
     new_season_number: i32,
     report: &mut MarketReport,
     rng: &mut impl Rng,
+    limit: Option<usize>,
+    reserved: &HashSet<String>,
 ) -> Result<(), String> {
     let debut_year = get_season_by_number(conn, new_season_number)?
         .map(|season| season.ano)
@@ -1762,6 +1774,9 @@ fn fill_remaining_vacancies_with_rookies(
             .into_iter()
             .filter(is_regular_vacancy)
             .filter(|vacancy| is_category_active_in_year(&vacancy.categoria, debut_year))
+            .filter(|v| {
+                !reserved.contains(&format!("{}#{}", v.team_id, v.papel_necessario.as_str()))
+            })
             .collect();
         if vacancies.is_empty() {
             break;
@@ -1778,6 +1793,12 @@ fn fill_remaining_vacancies_with_rookies(
         let license_levels = load_max_license_levels(conn)?;
         let mut filled_any = false;
         for vacancy in vacancies {
+            // Pacing: o chamador paginado passa um report novo, logo a contagem de
+            // assinaturas deste relatório == as feitas nesta chamada. Ao atingir o
+            // limite, encerra (as vagas restantes ficam pra próxima semana/fecho).
+            if limit.is_some_and(|l| report.new_signings.len() >= l) {
+                return Ok(());
+            }
             let fallback_index = available
                 .iter()
                 .enumerate()
@@ -2020,6 +2041,215 @@ fn fill_remaining_vacancies_with_rookies(
     }
 
     Ok(())
+}
+
+/// Wrapper paginado da escada (ladder fill): carrega as equipes e chama
+/// `fill_remaining_vacancies_with_rookies` com um teto de assinaturas (`limit`) e um
+/// conjunto de assentos reservados (não preenche). Usado pela Janela ao vivo —
+/// `preseason.rs` não precisa carregar `teams`.
+pub(crate) fn fill_vacancies_paced(
+    conn: &Connection,
+    season: i32,
+    limit: Option<usize>,
+    reserved: &HashSet<String>,
+    report: &mut MarketReport,
+    rng: &mut impl Rng,
+) -> Result<(), String> {
+    let teams = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao carregar equipes para a escada paginada: {e}"))?;
+    fill_remaining_vacancies_with_rookies(conn, &teams, season, report, rng, limit, reserved)
+}
+
+/// Nível de licença máximo do jogador (licença efetiva = maior entre a possuída e a
+/// exigida pela categoria atual). Reaproveita o estilo de `place_player_in_natural_vacancy`.
+fn player_effective_license(conn: &Connection, player: &Driver) -> Result<u8, String> {
+    Ok(load_max_license_levels(conn)?
+        .get(&player.id)
+        .copied()
+        .unwrap_or(0)
+        .max(
+            crate::models::license::required_license_for_division(
+                player.categoria_atual.as_deref().unwrap_or(""),
+                None,
+            )
+            .unwrap_or(0),
+        ))
+}
+
+/// Salário ofertado ao jogador numa vaga. Mesma fórmula usada na garantia de porta.
+fn player_offer_salary(skill: f64) -> f64 {
+    (12_000.0 + skill * 1_800.0).max(5_000.0)
+}
+
+/// Se o jogador está ativo e SEM contrato regular ativo, reserva a vaga de PIOR carro
+/// (regular) no tier dele; senão no tier−1; senão qualquer licenciada. Devolve o
+/// seat_id `team#papel` reservado, ou `None` se ele já tem contrato / não está ativo.
+pub(crate) fn player_reserved_seat(
+    conn: &Connection,
+    season: i32,
+) -> Result<Option<String>, String> {
+    let _ = season;
+    let Ok(player) = driver_queries::get_player_driver(conn) else {
+        return Ok(None);
+    };
+    if player.status != DriverStatus::Ativo {
+        return Ok(None);
+    }
+    if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
+        .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
+        .is_some()
+    {
+        return Ok(None);
+    }
+
+    let player_tier = player
+        .categoria_atual
+        .as_deref()
+        .and_then(crate::constants::categories::get_category_config)
+        .map(|c| c.tier)
+        .unwrap_or(0);
+    let player_lic = player_effective_license(conn, &player)?;
+    let licensed = |vac: &Vacancy| {
+        crate::models::license::required_license_for_division(&vac.categoria, vac.classe.as_deref())
+            .unwrap_or(0)
+            <= player_lic
+    };
+    let vacancies: Vec<Vacancy> = find_vacancies(conn)?
+        .into_iter()
+        .filter(is_regular_vacancy)
+        .collect();
+    // Passes: tier do jogador → tier−1 → qualquer licenciada; pior carro primeiro.
+    for pass in 0..3 {
+        let mut cands: Vec<&Vacancy> = vacancies
+            .iter()
+            .filter(|v| {
+                licensed(v)
+                    && match pass {
+                        0 => v.category_tier == player_tier,
+                        1 => player_tier > 0 && v.category_tier == player_tier - 1,
+                        _ => true,
+                    }
+            })
+            .collect();
+        if !cands.is_empty() {
+            cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
+            let vac = cands[0];
+            return Ok(Some(format!(
+                "{}#{}",
+                vac.team_id,
+                vac.papel_necessario.as_str()
+            )));
+        }
+    }
+    Ok(None)
+}
+
+/// Ofertas do mercado pro JOGADOR nesta semana: toda vaga regular em que ele é
+/// elegível+licenciado, no tier dele OU tier−1. Vazio se ele já tem contrato / não
+/// está ativo. (`is_n1` = papel Numero1; salário = fórmula de garantia de porta.)
+pub(crate) fn player_market_offers(
+    conn: &Connection,
+    season: i32,
+) -> Result<Vec<crate::market::transfer_window::PlayerOffer>, String> {
+    let _ = season;
+    let Ok(player) = driver_queries::get_player_driver(conn) else {
+        return Ok(Vec::new());
+    };
+    if player.status != DriverStatus::Ativo {
+        return Ok(Vec::new());
+    }
+    if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
+        .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
+        .is_some()
+    {
+        return Ok(Vec::new());
+    }
+
+    let player_tier = player
+        .categoria_atual
+        .as_deref()
+        .and_then(crate::constants::categories::get_category_config)
+        .map(|c| c.tier)
+        .unwrap_or(0);
+    let player_lic = player_effective_license(conn, &player)?;
+    let salary = player_offer_salary(player.atributos.skill);
+
+    let mut offers = Vec::new();
+    for vac in find_vacancies(conn)?.into_iter().filter(is_regular_vacancy) {
+        let required = crate::models::license::required_license_for_division(
+            &vac.categoria,
+            vac.classe.as_deref(),
+        )
+        .unwrap_or(0);
+        if required > player_lic {
+            continue;
+        }
+        let in_tier =
+            vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
+        if !in_tier {
+            continue;
+        }
+        offers.push(crate::market::transfer_window::PlayerOffer {
+            seat_id: format!("{}#{}", vac.team_id, vac.papel_necessario.as_str()),
+            team_id: vac.team_id.clone(),
+            category: vac.categoria.clone(),
+            class: vac.classe.clone(),
+            salary,
+            is_n1: matches!(vac.papel_necessario, TeamRole::Numero1),
+        });
+    }
+    Ok(offers)
+}
+
+/// Assina o jogador na vaga `seat_id` ("team#papel"): valida que a vaga existe e é
+/// dele (elegível+licenciada), concede a licença e contrata (1 ano). Erro se a vaga
+/// sumiu ou não é elegível.
+pub(crate) fn sign_player_to_vacancy(
+    conn: &Connection,
+    season: i32,
+    seat_id: &str,
+) -> Result<(), String> {
+    let player = driver_queries::get_player_driver(conn)
+        .map_err(|e| format!("Falha ao carregar piloto do jogador: {e}"))?;
+    let vac = find_vacancies(conn)?
+        .into_iter()
+        .find(|v| format!("{}#{}", v.team_id, v.papel_necessario.as_str()) == seat_id)
+        .ok_or_else(|| format!("Vaga '{seat_id}' nao encontrada."))?;
+
+    // A vaga deve ser do jogador (elegível por tier + licenciada).
+    let player_tier = player
+        .categoria_atual
+        .as_deref()
+        .and_then(crate::constants::categories::get_category_config)
+        .map(|c| c.tier)
+        .unwrap_or(0);
+    let player_lic = player_effective_license(conn, &player)?;
+    let required = crate::models::license::required_license_for_division(
+        &vac.categoria,
+        vac.classe.as_deref(),
+    )
+    .unwrap_or(0);
+    let in_tier =
+        vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
+    if required > player_lic || !in_tier {
+        return Err(format!("Vaga '{seat_id}' nao esta disponivel para o jogador."));
+    }
+
+    grant_driver_license_for_division_if_needed(
+        conn,
+        &player.id,
+        &vac.categoria,
+        vac.classe.as_deref(),
+    )?;
+    sign_driver_to_team(
+        conn,
+        &player,
+        &vac,
+        season,
+        player_offer_salary(player.atributos.skill),
+        1,
+        vac.papel_necessario.clone(),
+    )
 }
 
 /// Rebaixamento por MÉRITO (modelo fechado, conservação preservada): em cada
@@ -2689,7 +2919,15 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(701);
 
-        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+        fill_remaining_vacancies_with_rookies(
+            &conn,
+            &teams,
+            2,
+            &mut report,
+            &mut rng,
+            None,
+            &HashSet::new(),
+        )
             .expect("cascata deve preencher a vaga sem erro");
 
         // A vaga não-estreia foi preenchida por PROMOÇÃO (não pelo pool, não por erro).
@@ -3080,7 +3318,15 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(612);
 
-        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+        fill_remaining_vacancies_with_rookies(
+            &conn,
+            &teams,
+            2,
+            &mut report,
+            &mut rng,
+            None,
+            &HashSet::new(),
+        )
             .expect("fill vacancy");
 
         let refreshed = team_queries::get_team_by_id(&conn, &team.id)
@@ -3183,7 +3429,15 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(614);
 
-        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+        fill_remaining_vacancies_with_rookies(
+            &conn,
+            &teams,
+            2,
+            &mut report,
+            &mut rng,
+            None,
+            &HashSet::new(),
+        )
             .expect("fill vacancy");
 
         let refreshed = team_queries::get_team_by_id(&conn, &team.id)
@@ -3270,7 +3524,15 @@ mod tests {
         let mut report = MarketReport::default();
         let mut rng = StdRng::seed_from_u64(616);
 
-        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+        fill_remaining_vacancies_with_rookies(
+            &conn,
+            &teams,
+            2,
+            &mut report,
+            &mut rng,
+            None,
+            &HashSet::new(),
+        )
             .expect("fill vacancy");
 
         let refreshed = team_queries::get_team_by_id(&conn, &team.id)
@@ -3351,7 +3613,15 @@ mod tests {
         // Vaga não-estreia sem candidato (sem pool e sem feeder elegível): o fill
         // não aborta a temporada e completa o grid pelo fallback de emergência. O
         // essencial é não travar nem deixar o grid quebrado.
-        fill_remaining_vacancies_with_rookies(&conn, &teams, 2, &mut report, &mut rng)
+        fill_remaining_vacancies_with_rookies(
+            &conn,
+            &teams,
+            2,
+            &mut report,
+            &mut rng,
+            None,
+            &HashSet::new(),
+        )
             .expect("fill deve concluir sem abortar mesmo sem candidato");
 
         assert!(

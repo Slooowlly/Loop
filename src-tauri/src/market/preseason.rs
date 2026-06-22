@@ -258,12 +258,9 @@ pub fn initialize_preseason(
 
     let pending_departures = build_departure_events(conn, season_number, &contracts_before)?;
 
-    // ── INICIA A JANELA DE TRANSFERÊNCIAS (IA + jogador como candidato), persistida e
-    // ABERTA. Ela substitui o mercado instantâneo + as propostas: o jogador a conduz
-    // semana a semana (advance_week), e ela própria encena o mercado da IA pelo feed
-    // de assinaturas. A pré-temporada fecha quando a janela fecha. ──
-    crate::market::pipeline::window_get_or_init(conn, season_number, rng)
-        .map_err(|e| format!("Falha ao iniciar a janela de transferencias: {e}"))?;
+    // O mercado ao vivo é a escada paginada conduzida por advance_week (sem motor de
+    // janela persistido): cada semana preenche vagas em todos os tiers e oferta vagas
+    // ao jogador. A pré-temporada fecha quando não há mais o que preencher.
 
     // O jogador já tem time se saiu da pré-passe com contrato regular ativo
     // (renovou / contrato plurianual); senão é agente livre dentro da janela.
@@ -492,27 +489,82 @@ pub fn advance_week(
 
     repair_missing_licenses_for_current_categories(conn)?;
     let week = plan.state.current_week;
-    let season_id = get_season_id_by_number(conn, plan.state.season_number)?
-        .ok_or_else(|| format!("Temporada {} nao encontrada", plan.state.season_number))?;
+    let season = plan.state.season_number;
+    let season_id = get_season_id_by_number(conn, season)?
+        .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
+    let mut rng = StdRng::seed_from_u64(season as u64);
 
-    // Avança a janela uma semana (a IA assina; o jogador aceita/espera). Ao fechar,
-    // aplica as assinaturas e garante porta ao jogador (ver pipeline::window_advance).
-    let mut rng = StdRng::seed_from_u64(plan.state.season_number as u64);
-    let window = crate::market::pipeline::window_advance(
+    // O jogador aceitou uma oferta nesta semana → assina antes da escada (libera o
+    // assento dele da reserva e evita que a escada o preencha por baixo).
+    if let Some(seat) = player_choice {
+        crate::market::pipeline::sign_player_to_vacancy(conn, season, seat)?;
+    }
+
+    // Reserva 1 assento pro jogador (se agente livre ativo) — a escada não o
+    // preenche, garantindo que ele sempre tenha pelo menos uma oferta.
+    let reserved: std::collections::HashSet<String> =
+        crate::market::pipeline::player_reserved_seat(conn, season)?
+            .into_iter()
+            .collect();
+
+    // Escada (ladder fill) paginada: preenche ~6 vagas em TODOS os tiers (agente
+    // livre → rookie → promoção da categoria de baixo), poupando os assentos reservados.
+    let mut report = crate::market::proposals::MarketReport::default();
+    crate::market::pipeline::fill_vacancies_paced(
         conn,
-        plan.state.season_number,
-        player_choice,
+        season,
+        Some(6),
+        &reserved,
+        &mut report,
         &mut rng,
     )?;
 
-    // Feed: assinaturas resolvidas nesta semana da janela.
-    let resolved_week = if window.is_closed() {
-        window.week()
-    } else {
-        window.week().saturating_sub(1)
-    }
-    .max(1);
-    let mut events = window_signing_events(conn, &window, resolved_week);
+    // Mapeia as assinaturas da escada → eventos de feed.
+    let drivers = driver_queries::get_all_drivers(conn).unwrap_or_default();
+    let driver_names: std::collections::HashMap<&str, &str> = drivers
+        .iter()
+        .map(|d| (d.id.as_str(), d.nome.as_str()))
+        .collect();
+    let teams = team_queries::get_all_teams(conn).unwrap_or_default();
+    let team_names: std::collections::HashMap<&str, &str> = teams
+        .iter()
+        .map(|t| (t.id.as_str(), t.nome.as_str()))
+        .collect();
+    let mut events: Vec<MarketEvent> = report
+        .new_signings
+        .iter()
+        .map(|signing| {
+            let dname = driver_names
+                .get(signing.driver_id.as_str())
+                .copied()
+                .unwrap_or(signing.driver_name.as_str());
+            let tname = team_names
+                .get(signing.team_id.as_str())
+                .copied()
+                .unwrap_or(signing.team_name.as_str());
+            let movement_kind = match signing.tipo.as_str() {
+                "promocao" | "promocao_emergencia" => "promotion",
+                "rookie" | "rookie_emergencia" => "rookie",
+                _ => "signing",
+            }
+            .to_string();
+            MarketEvent {
+                event_type: MarketEventType::TransferCompleted,
+                headline: format!("{dname} -> {tname}"),
+                description: format!("Acerto na {}.", signing.categoria),
+                driver_id: Some(signing.driver_id.clone()),
+                driver_name: Some(dname.to_string()),
+                team_id: Some(signing.team_id.clone()),
+                team_name: Some(tname.to_string()),
+                from_team: None,
+                to_team: Some(tname.to_string()),
+                categoria: Some(signing.categoria.clone()),
+                from_categoria: None,
+                movement_kind: Some(movement_kind),
+                championship_position: None,
+            }
+        })
+        .collect();
 
     // Na 1ª semana avançada, anexa (no topo) as DISPENSAS capturadas no início — o
     // jogador vê quem perdeu a vaga antes das contratações.
@@ -523,7 +575,7 @@ pub fn advance_week(
     }
 
     sync_team_slots_from_active_contracts(conn)?;
-    let remaining_vacancies = count_remaining_vacancies(conn)?;
+    let remaining = count_remaining_vacancies(conn)?;
 
     // O jogador pode ter assinado nesta semana (aceitou uma oferta) — reflete no
     // estado pra a UI e o gate de finalização não ficarem defasados.
@@ -535,8 +587,15 @@ pub fn advance_week(
         .flatten()
         .is_some();
 
-    let is_last_week = window.is_closed();
+    // Fecha quando só restam os assentos reservados (nada mais a preencher) ou ao
+    // bater o teto de semanas.
+    let is_last_week =
+        remaining <= reserved.len() as i32 || week >= i32::from(MARKET_DURATION_WEEKS);
     if is_last_week {
+        // Garante porta ao jogador (pode dispensar o mais fraco da pior equipe) e
+        // preenche TODAS as vagas restantes — nenhum time corre sem piloto.
+        crate::market::pipeline::ensure_player_seated(conn, season)?;
+        crate::market::pipeline::fill_all_remaining_vacancies(conn, season, &mut rng)?;
         plan.state.current_week = week + 1;
         plan.state.phase = PreSeasonPhase::Complete;
         plan.state.is_complete = true;
@@ -556,14 +615,6 @@ pub fn advance_week(
             championship_position: None,
         });
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
-        // Preenche as vagas que sobraram com rookies ao FECHAR — cobre o caminho
-        // NÃO-interativo (histórico), que nunca chama finalize_preseason; assim
-        // nenhum time (inclusive o antigo do jogador) corre a temporada sem piloto.
-        crate::market::pipeline::fill_all_remaining_vacancies(
-            conn,
-            plan.state.season_number,
-            &mut rng,
-        )?;
     } else {
         plan.state.current_week += 1;
         plan.state.phase = PreSeasonPhase::Transfers;
@@ -584,61 +635,11 @@ pub fn advance_week(
         events,
         is_last_week,
         player_proposals: Vec::new(),
-        remaining_vacancies,
+        remaining_vacancies: remaining,
         next_phase,
     };
     plan.executed_weeks.push(result.clone());
     Ok(result)
-}
-
-/// Constrói os eventos de feed (TransferCompleted) das assinaturas da janela numa
-/// dada semana, resolvendo nomes de piloto/equipe.
-fn window_signing_events(
-    conn: &Connection,
-    window: &crate::market::transfer_window::WindowState,
-    week: u32,
-) -> Vec<MarketEvent> {
-    let drivers = driver_queries::get_all_drivers(conn).unwrap_or_default();
-    let driver_names: std::collections::HashMap<&str, &str> = drivers
-        .iter()
-        .map(|d| (d.id.as_str(), d.nome.as_str()))
-        .collect();
-    let teams = team_queries::get_all_teams(conn).unwrap_or_default();
-    let team_names: std::collections::HashMap<&str, &str> = teams
-        .iter()
-        .map(|t| (t.id.as_str(), t.nome.as_str()))
-        .collect();
-    window
-        .signings()
-        .iter()
-        .filter(|signing| signing.week == week)
-        .map(|signing| {
-            let dname = driver_names
-                .get(signing.driver_id.as_str())
-                .copied()
-                .unwrap_or("Piloto");
-            let tname = team_names
-                .get(signing.team_id.as_str())
-                .copied()
-                .unwrap_or("Equipe");
-            MarketEvent {
-                event_type: MarketEventType::TransferCompleted,
-                headline: format!("{dname} -> {tname}"),
-                description: format!("Acerto na {}.", signing.category),
-                driver_id: Some(signing.driver_id.clone()),
-                driver_name: Some(dname.to_string()),
-                team_id: Some(signing.team_id.clone()),
-                team_name: Some(tname.to_string()),
-                from_team: None,
-                to_team: Some(tname.to_string()),
-                categoria: Some(signing.category.clone()),
-                // Origem → a UI infere promovido/rebaixado/lateral comparando os tiers.
-                from_categoria: signing.from_category.clone(),
-                movement_kind: None,
-                championship_position: None,
-            }
-        })
-        .collect()
 }
 
 /// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
@@ -1164,7 +1165,6 @@ mod tests {
         assert_eq!(plan.state.phase, PreSeasonPhase::Complete);
     }
 
-    #[test]
     #[test]
     fn test_initialize_preseason_expires_ending_contracts_immediately() {
         let conn = setup_market_fixture();

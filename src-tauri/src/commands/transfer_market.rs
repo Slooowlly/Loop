@@ -6,8 +6,6 @@
 
 use std::path::Path;
 
-use rand::{rngs::StdRng, SeedableRng};
-
 use crate::config::app_config::AppConfig;
 use crate::constants::categories;
 use crate::db::connection::Database;
@@ -15,7 +13,7 @@ use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::market::pipeline;
-use crate::market::transfer_window::{PlayerOffer, Signing, WindowState};
+use crate::market::transfer_window::{PlayerOffer, Signing};
 use crate::simulation::math::normalize_car_performance;
 
 /// Oferta da janela ENRIQUECIDA para a UI (nome/cor do time, categoria, carro,
@@ -93,20 +91,21 @@ fn build_offer_view(
     })
 }
 
-fn build_payload(
-    conn: &rusqlite::Connection,
-    state: &WindowState,
-) -> Result<TransferWindowPayload, String> {
-    let player_offers = state
-        .player_offers()
+/// Monta o payload do mercado a partir da escada ao vivo: as ofertas do jogador são
+/// derivadas das vagas regulares elegíveis (`pipeline::player_market_offers`). O feed
+/// real do mercado vai pelas notícias da semana (não por este payload); `signings`
+/// fica vazio. O fecho da janela é dirigido por `preseasonState.is_complete` na UI.
+fn build_payload(conn: &rusqlite::Connection, season: i32) -> Result<TransferWindowPayload, String> {
+    let offers = pipeline::player_market_offers(conn, season)?;
+    let player_offers = offers
         .iter()
         .map(|offer| build_offer_view(conn, offer))
         .collect::<Result<Vec<_>, String>>()?;
     Ok(TransferWindowPayload {
-        week: state.week(),
-        closed: state.is_closed(),
+        week: 0,
+        closed: player_offers.is_empty(),
         player_offers,
-        signings: state.signings().to_vec(),
+        signings: Vec::new(),
     })
 }
 
@@ -124,26 +123,23 @@ fn open_career(base_dir: &Path, career_id: &str) -> Result<(Database, i32), Stri
     Ok((db, season.numero))
 }
 
-/// Estado atual da janela (inicia uma nova se ainda não existe).
+/// Ofertas atuais do jogador no mercado (vagas regulares elegíveis na sua faixa).
 pub(crate) fn get_transfer_window_state_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<TransferWindowPayload, String> {
     let (db, season) = open_career(base_dir, career_id)?;
-    let mut rng = StdRng::seed_from_u64(season as u64);
-    let state = pipeline::window_get_or_init(&db.conn, season, &mut rng)?;
-    build_payload(&db.conn, &state)
+    build_payload(&db.conn, season)
 }
 
-/// Avança uma semana com a escolha do jogador (`accepted_seat_id` = aceita aquela
-/// vaga; `None` = espera). Ao fechar, aplica as assinaturas no banco.
+/// O avanço real do mercado é feito por `advance_market_week` (que chama
+/// `preseason::advance_week`). Este comando ficou legado: apenas devolve o estado
+/// atual das ofertas, sem avançar nada — `accepted_seat_id` é ignorado.
 pub(crate) fn advance_transfer_window_in_base_dir(
     base_dir: &Path,
     career_id: &str,
-    accepted_seat_id: Option<&str>,
+    _accepted_seat_id: Option<&str>,
 ) -> Result<TransferWindowPayload, String> {
     let (db, season) = open_career(base_dir, career_id)?;
-    let mut rng = StdRng::seed_from_u64(season as u64);
-    let state = pipeline::window_advance(&db.conn, season, accepted_seat_id, &mut rng)?;
-    build_payload(&db.conn, &state)
+    build_payload(&db.conn, season)
 }
