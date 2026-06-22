@@ -184,7 +184,11 @@ fn age_market_bonus(age: u32) -> f64 {
     (20.0 - f64::from(age.saturating_sub(27)) * 2.0).max(5.0)
 }
 
-fn calculate_offer_salary(vacancy: &Vacancy, driver: &Driver, rng: &mut impl Rng) -> f64 {
+pub(crate) fn calculate_offer_salary(
+    vacancy: &Vacancy,
+    driver: &Driver,
+    rng: &mut impl Rng,
+) -> f64 {
     let variance = rng.gen_range(0.85..=1.15);
     let team = vacancy_as_finance_team(vacancy);
 

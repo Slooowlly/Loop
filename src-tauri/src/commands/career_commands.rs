@@ -101,9 +101,13 @@ pub async fn skip_all_pending_races(app: AppHandle, career_id: String) -> Result
 }
 
 #[tauri::command]
-pub async fn advance_market_week(app: AppHandle, career_id: String) -> Result<WeekResult, String> {
+pub async fn advance_market_week(
+    app: AppHandle,
+    career_id: String,
+    accepted_seat_id: Option<String>,
+) -> Result<WeekResult, String> {
     let base_dir = app_data_dir(&app)?;
-    advance_market_week_in_base_dir(&base_dir, &career_id)
+    advance_market_week_in_base_dir(&base_dir, &career_id, accepted_seat_id.as_deref())
 }
 
 #[tauri::command]
@@ -261,6 +265,31 @@ pub async fn get_global_driver_rankings(
 ) -> Result<GlobalDriverRankingPayload, String> {
     let base_dir = app_data_dir(&app)?;
     get_global_driver_rankings_in_base_dir(&base_dir, &career_id, selected_driver_id.as_deref())
+}
+
+/// Estado da Janela de Transferências (Fase 2): ofertas do jogador + feed.
+#[tauri::command]
+pub async fn get_transfer_window_state(
+    app: AppHandle,
+    career_id: String,
+) -> Result<crate::commands::transfer_market::TransferWindowPayload, String> {
+    let base_dir = app_data_dir(&app)?;
+    crate::commands::transfer_market::get_transfer_window_state_in_base_dir(&base_dir, &career_id)
+}
+
+/// Avança uma semana da Janela de Transferências com a escolha do jogador.
+#[tauri::command]
+pub async fn advance_transfer_window(
+    app: AppHandle,
+    career_id: String,
+    accepted_seat_id: Option<String>,
+) -> Result<crate::commands::transfer_market::TransferWindowPayload, String> {
+    let base_dir = app_data_dir(&app)?;
+    crate::commands::transfer_market::advance_transfer_window_in_base_dir(
+        &base_dir,
+        &career_id,
+        accepted_seat_id.as_deref(),
+    )
 }
 
 #[tauri::command]

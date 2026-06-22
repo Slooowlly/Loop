@@ -32,6 +32,8 @@ pub struct EventWeather {
     pub keyframes: Vec<WeatherKeyframe>,
     /// `{custid}_{uuid}` que o iRacing usa para identificar o clima.
     pub weather_id: String,
+    /// `simulated_start_time` — data + hora REAIS da etapa (ex.: "2025-03-14T17:30:00").
+    pub start_time: String,
 }
 
 /// Uma etapa do calendário para a season.
@@ -42,6 +44,9 @@ pub struct EventInput {
     pub event_id: String,
     /// Clima específico desta etapa.
     pub weather: EventWeather,
+    /// Resultados da etapa (se já disputada no app) → iRacing mostra "Resultados" e
+    /// pula a corrida. `None` = etapa pendente.
+    pub results: Option<Value>,
 }
 
 /// Parâmetros para montar a season (preparados a partir da carreira).
@@ -75,7 +80,7 @@ fn temp_option(temp_c: i64) -> i64 {
 
 /// Monta o bloco `weather` DINÂMICO (version 3) com `weather_timeline` +
 /// `keyframes`. `event_id` presente → timeline da etapa; `None` → clima global.
-fn weather_value(w: &EventWeather, year: i32, event_id: Option<&str>) -> Value {
+fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
     let keyframes: Vec<Value> = w
         .keyframes
         .iter()
@@ -106,7 +111,7 @@ fn weather_value(w: &EventWeather, year: i32, event_id: Option<&str>) -> Value {
         "wind_units": 1,
         "wind_value": 3,
         "skies": w.skies,
-        "simulated_start_time": format!("{year}-06-01T14:00:00"),
+        "simulated_start_time": w.start_time,
         "simulated_time_multiplier": 1,
         "simulated_time_offsets": [20],
         "version": 3,
@@ -149,7 +154,7 @@ pub fn build_season(p: &SeasonParams) -> Value {
                 ev["rolling_starts"] = json!(true);
             }
             // Clima DINÂMICO por etapa (timeline com a eventId desta corrida).
-            ev["weather"] = weather_value(&e.weather, p.year, Some(&e.event_id));
+            ev["weather"] = weather_value(&e.weather, Some(&e.event_id));
             // track_state por etapa (forma que o iRacing usa no clima dinâmico).
             ev["track_state"] = json!({
                 "leave_marbles": true,
@@ -162,12 +167,16 @@ pub fn build_season(p: &SeasonParams) -> Value {
                 "warmup_grip_compound": null,
                 "race_grip_compound": null
             });
+            // Etapa já disputada no app → resultados (iRacing mostra "Resultados").
+            if let Some(results) = &e.results {
+                ev["results"] = results.clone();
+            }
             ev
         })
         .collect();
 
     // Clima global (fallback) — id próprio, sem eventId.
-    let global_weather = weather_value(&p.global_weather, p.year, None);
+    let global_weather = weather_value(&p.global_weather, None);
 
     json!({
         "rosterName": p.roster_name,
@@ -250,8 +259,12 @@ mod tests {
                 humidity: 45,
                 temp_c: 22,
                 track_water: 0,
-                keyframes: vec![WeatherKeyframe { event_type: 1, time_offset: -120 }],
+                keyframes: vec![WeatherKeyframe {
+                    event_type: 1,
+                    time_offset: -120,
+                }],
                 weather_id: "747998_global".to_string(),
+                start_time: "2025-06-01T14:00:00".to_string(),
             },
             events: vec![
                 EventInput {
@@ -263,9 +276,14 @@ mod tests {
                         humidity: 45,
                         temp_c: 22,
                         track_water: 0,
-                        keyframes: vec![WeatherKeyframe { event_type: 1, time_offset: -120 }],
+                        keyframes: vec![WeatherKeyframe {
+                            event_type: 1,
+                            time_offset: -120,
+                        }],
                         weather_id: "747998_a".to_string(),
+                        start_time: "2025-06-01T14:00:00".to_string(),
                     },
+                    results: None,
                 },
                 EventInput {
                     track_id: 554,
@@ -277,11 +295,19 @@ mod tests {
                         temp_c: 18,
                         track_water: 5,
                         keyframes: vec![
-                            WeatherKeyframe { event_type: 3, time_offset: -120 },
-                            WeatherKeyframe { event_type: 8, time_offset: 0 },
+                            WeatherKeyframe {
+                                event_type: 3,
+                                time_offset: -120,
+                            },
+                            WeatherKeyframe {
+                                event_type: 8,
+                                time_offset: 0,
+                            },
                         ],
                         weather_id: "747998_b".to_string(),
+                        start_time: "2025-06-01T14:00:00".to_string(),
                     },
+                    results: None,
                 },
             ],
         };
@@ -305,7 +331,10 @@ mod tests {
         // Clima DINÂMICO (version 3) + timeline.
         assert_eq!(v["events"][1]["weather"]["version"], 3);
         assert_eq!(v["events"][1]["weather"]["weather_id"], "747998_b");
-        assert_eq!(v["events"][1]["weather"]["weather_timeline"]["eventId"], "e2");
+        assert_eq!(
+            v["events"][1]["weather"]["weather_timeline"]["eventId"],
+            "e2"
+        );
         // Keyframes: etapa 2 vira chuva intensa (event_type 8) em time_offset 0.
         let kfs = v["events"][1]["weather"]["keyframes"].as_array().unwrap();
         assert_eq!(kfs.len(), 2);

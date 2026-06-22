@@ -34,6 +34,9 @@ function getDisplayError(error, fallback) {
 function NextRaceTab() {
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exported, setExported] = useState(false);
+  const [confirmSim, setConfirmSim] = useState(false);
   const [hasExistingPreseason, setHasExistingPreseason] = useState(false);
   const [driverStandings, setDriverStandings] = useState([]);
   const [teamStandings, setTeamStandings] = useState([]);
@@ -243,6 +246,7 @@ function NextRaceTab() {
   ]);
 
   async function handleSimulate() {
+    setConfirmSim(false);
     setError("");
     setExportNotice("");
 
@@ -290,8 +294,32 @@ function NextRaceTab() {
     }
   }
 
-  function handleExport() {
-    setExportNotice("Exportação para o iRacing chega em breve.");
+  async function handleExport() {
+    setError("");
+    const categoria = playerTeam?.categoria;
+    if (!careerId || !categoria) {
+      setError("Sem carreira ou categoria para exportar.");
+      return;
+    }
+    const rosterName = `Carreira ${player?.nome ?? "Loop"}`.trim();
+    const cat = categoria.toLowerCase();
+    const carKey = cat.includes("gr86") || cat.includes("toyota")
+      ? "gr86"
+      : cat.includes("bmw") || cat.includes("m2")
+      ? "bmwm2"
+      : "mx5"; // mazda e padrão
+    setExportNotice("");
+    setIsExporting(true);
+    try {
+      await invoke("iracing_generate_roster", { careerId, categoria, rosterName, carKey });
+      await invoke("iracing_generate_season", { careerId, categoria, rosterName, carKey });
+      setExported(true);
+      setTimeout(() => setExported(false), 3200);
+    } catch (invokeError) {
+      setError(getDisplayError(invokeError, "Não foi possível exportar para o iRacing."));
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   if (!nextRace) {
@@ -437,27 +465,66 @@ function NextRaceTab() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-6 md:mt-0 w-full sm:w-auto">
-            <button
-              onClick={handleSimulate}
-              disabled={isSimulating || !nextRace}
-              className="w-full sm:w-auto px-5 py-2 border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300 font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5 opacity-80 hover:opacity-100 disabled:opacity-50"
-            >
-              {isSimulating ? "Simulando..." : "Simular Corrida"}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#58a6ff]">
-                <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 01.359.852L12.982 9.75h7.268a.75.75 0 01.548 1.262l-10.5 11.25a.75.75 0 01-1.272-.71l1.992-7.302H3.75a.75.75 0 01-.548-1.262l10.5-11.25a.75.75 0 01.913-.143z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <div className="flex flex-col items-center gap-1 w-full sm:w-auto">
+              <button
+                onClick={() => setConfirmSim(true)}
+                disabled={isSimulating || !nextRace}
+                className="w-full sm:w-auto px-5 py-2 border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300 font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5 opacity-80 hover:opacity-100 disabled:opacity-50"
+              >
+                {isSimulating ? "Simulando..." : "Simular Corrida"}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#58a6ff]">
+                  <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 01.359.852L12.982 9.75h7.268a.75.75 0 01.548 1.262l-10.5 11.25a.75.75 0 01-1.272-.71l1.992-7.302H3.75a.75.75 0 01-.548-1.262l10.5-11.25a.75.75 0 01.913-.143z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {confirmSim && !isSimulating && (
+                <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                  Simular mesmo?{" "}
+                  <button onClick={handleSimulate} className="text-[#58a6ff] font-semibold hover:underline">
+                    Sim
+                  </button>
+                  {" · "}
+                  <button onClick={() => setConfirmSim(false)} className="text-gray-500 hover:underline">
+                    cancelar
+                  </button>
+                </span>
+              )}
+            </div>
             <button
               onClick={handleExport}
-              className="w-full sm:w-auto px-10 py-3.5 bg-[#58a6ff] hover:bg-blue-400 text-[#06090e] font-black uppercase rounded-xl transition text-base shadow-[0_0_20px_rgba(88,166,255,0.4)] flex justify-center items-center gap-2"
+              disabled={isExporting}
+              className={`w-full sm:w-auto px-10 py-3.5 font-black uppercase rounded-xl transition text-base flex justify-center items-center gap-2 disabled:opacity-70 ${
+                exported
+                  ? "bg-green-500 hover:bg-green-400 text-[#06090e] shadow-[0_0_22px_rgba(34,197,94,0.55)]"
+                  : "bg-[#58a6ff] hover:bg-blue-400 text-[#06090e] shadow-[0_0_20px_rgba(88,166,255,0.4)]"
+              }`}
             >
-              Exportar Dados
+              {exported ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
+                  </svg>
+                  Exportado
+                </>
+              ) : isExporting ? (
+                "Exportando…"
+              ) : (
+                "Exportar Dados"
+              )}
             </button>
           </div>
         </header>
 
         {exportNotice && <p className="text-right text-sm text-[#58a6ff]">{exportNotice}</p>}
         {error && <p className="text-right text-sm text-red-500">{error}</p>}
+
+        {exported && (
+          <div className="fixed bottom-6 right-6 z-50 animate-toast-up flex items-center gap-2 rounded-xl bg-green-500/95 px-5 py-3.5 text-sm font-bold text-[#06090e] shadow-[0_0_28px_rgba(34,197,94,0.55)] ring-1 ring-green-300/50">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+              <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
+            </svg>
+            Dados exportados
+          </div>
+        )}
 
         {/* GRID PRINCIPAL (4-4-4) */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch pb-10">

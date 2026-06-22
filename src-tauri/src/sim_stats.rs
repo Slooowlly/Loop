@@ -322,7 +322,9 @@ fn snapshot_driver_categories(db_path: &Path) -> HashMap<String, String> {
         )
         .expect("prepare categories");
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .expect("query categories");
     rows.filter_map(Result::ok).collect()
 }
@@ -342,10 +344,7 @@ struct CareerTrack {
 
 fn career_db_path(base_dir: &Path) -> PathBuf {
     let config = AppConfig::load_or_default(base_dir);
-    config
-        .saves_dir()
-        .join("career_001")
-        .join("career.db")
+    config.saves_dir().join("career_001").join("career.db")
 }
 
 fn career_dir(base_dir: &Path) -> PathBuf {
@@ -358,7 +357,7 @@ fn run_preseason_to_temporada(base_dir: &Path) {
     let db_path = career_db_path(base_dir);
     let career_dir = career_dir(base_dir);
 
-    let _ = advance_market_week_in_base_dir(base_dir, "career_001");
+    let _ = advance_market_week_in_base_dir(base_dir, "career_001", None);
 
     // Limpa propostas pendentes
     {
@@ -450,7 +449,7 @@ struct Totals {
     cash_sum: f64,
     debt_sum: f64,
     car_perf_by_tier: BTreeMap<u8, [f64; 2]>, // [soma, n]
-    team_attr_sum: [f64; 5],                   // facilities, engineering, reputacao, morale, confiabilidade
+    team_attr_sum: [f64; 5], // facilities, engineering, reputacao, morale, confiabilidade
     team_promoted: u64,
     team_relegated: u64,
     // Concentração de títulos de construtores (consolidado por run)
@@ -463,15 +462,15 @@ struct Totals {
 
     // ── Recuperação de equipes em colapso (trajetória por equipe) ──
     teams_ever_collapse: u64,
-    teams_recovered: u64,      // chegaram a stable+ depois do colapso
-    teams_escaped: u64,        // saíram do colapso (qualquer estado melhor) depois
-    teams_stuck: u64,          // colapsaram e TERMINARAM em colapso
-    recover_time_sum: u64,     // temporadas do colapso até recuperação (stable+)
+    teams_recovered: u64,  // chegaram a stable+ depois do colapso
+    teams_escaped: u64,    // saíram do colapso (qualquer estado melhor) depois
+    teams_stuck: u64,      // colapsaram e TERMINARAM em colapso
+    recover_time_sum: u64, // temporadas do colapso até recuperação (stable+)
     recover_time_n: u64,
     collapse_seasons_sum: u64, // total de temporada-em-colapso (para média)
     // Desfecho dos episódios de colapso (contadores de produção)
-    episodes_self_rescued: u64, // salvaram-se no all-in, sem venda
-    episodes_sold: u64,         // precisaram ser vendidas
+    episodes_self_rescued: u64,     // salvaram-se no all-in, sem venda
+    episodes_sold: u64,             // precisaram ser vendidas
     ownership_events_recorded: u64, // linhas em team_ownership_events (verificação)
 
     // ── Funil de carreira (cohort que começou no rookie, tier 0) ──
@@ -551,8 +550,14 @@ fn monte_carlo() {
     println!("\n╔══════════════════════════════════════════════════════════════╗");
     println!("║  MONTE CARLO — estatísticas de carreira iRacer                ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
-    println!("Runs (carreiras): {runs}   Temporadas por run: {seasons}   Total ciclos: {}", runs * seasons);
-    println!("Threshold de estagnação: ±{STAGNATION_THRESHOLD} pts (média de {} atributos)\n", CORE_ATTRS.len());
+    println!(
+        "Runs (carreiras): {runs}   Temporadas por run: {seasons}   Total ciclos: {}",
+        runs * seasons
+    );
+    println!(
+        "Threshold de estagnação: ±{STAGNATION_THRESHOLD} pts (média de {} atributos)\n",
+        CORE_ATTRS.len()
+    );
 
     let mut t = Totals::default();
     crate::market::pipeline::EMERGENCY_PROMOTIONS.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -607,15 +612,17 @@ fn monte_carlo() {
                         seasons_seen: 1,
                     });
             }
-            let inj_before: HashSet<String> =
-                snapshot_injuries(&db_path).into_keys().collect();
+            let inj_before: HashSet<String> = snapshot_injuries(&db_path).into_keys().collect();
             let active_at_start = before.len() as u64;
             t.driver_seasons += active_at_start;
 
             // Salários ativos no início da temporada (por tier)
             for (cat, sal) in snapshot_salaries(&db_path) {
                 let tier = tier_of(&cat);
-                let e = t.salary_by_tier.entry(tier).or_insert([0.0, 0.0, f64::INFINITY, 0.0]);
+                let e = t
+                    .salary_by_tier
+                    .entry(tier)
+                    .or_insert([0.0, 0.0, f64::INFINITY, 0.0]);
                 e[0] += sal;
                 e[1] += 1.0;
                 e[2] = e[2].min(sal);
@@ -623,8 +630,7 @@ fn monte_carlo() {
             }
 
             // Roda todas as corridas (gera resultados, lesões, finanças)
-            skip_all_pending_races_in_base_dir(&base_dir, "career_001")
-                .expect("skip all pending");
+            skip_all_pending_races_in_base_dir(&base_dir, "career_001").expect("skip all pending");
 
             // ── Desempenho da temporada (ler ANTES do advance, que arquiva/zera temp_*) ──
             for p in snapshot_season_perf(&db_path) {
@@ -650,8 +656,8 @@ fn monte_carlo() {
             }
 
             // Fecha a temporada (aplica growth/decline/lesão/aposentadoria/promoção)
-            let result = advance_season_in_base_dir(&base_dir, "career_001")
-                .expect("advance season");
+            let result =
+                advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
 
             // ── Equipes: snapshot pós-temporada ──
             for tm in snapshot_teams(&db_path) {
@@ -782,7 +788,8 @@ fn monte_carlo() {
             let survivors_season = s_sobe + s_desce + s_estagna;
             t.sobe_rate_samples.push(pct(s_sobe, survivors_season));
             t.desce_rate_samples.push(pct(s_desce, survivors_season));
-            t.estagna_rate_samples.push(pct(s_estagna, survivors_season));
+            t.estagna_rate_samples
+                .push(pct(s_estagna, survivors_season));
 
             // ── Aposentadorias ──
             let retired_this_season = result.retirements.len() as u64;
@@ -920,7 +927,9 @@ fn monte_carlo() {
             let db = Database::open_existing(&db_path).expect("db");
             let n: i64 = db
                 .conn
-                .query_row("SELECT COUNT(*) FROM team_ownership_events", [], |r| r.get(0))
+                .query_row("SELECT COUNT(*) FROM team_ownership_events", [], |r| {
+                    r.get(0)
+                })
                 .unwrap_or(0);
             t.ownership_events_recorded += n as u64;
         }
@@ -949,7 +958,10 @@ fn monte_carlo() {
 
     // ── Relatório ─────────────────────────────────────────────────────────────
     println!("\n┌─────────────────────────────────────────────────────────────┐");
-    println!("│ RESULTADO ({} pilotos-temporada observados)", t.driver_seasons);
+    println!(
+        "│ RESULTADO ({} pilotos-temporada observados)",
+        t.driver_seasons
+    );
     println!("└─────────────────────────────────────────────────────────────┘");
 
     println!("\n■ LESÕES");
@@ -963,10 +975,26 @@ fn monte_carlo() {
     );
     let inj_total = t.inj_leve + t.inj_moderada + t.inj_grave + t.inj_critica;
     println!("  Lesões geradas (total {inj_total}) por gravidade:");
-    println!("    Leve     {:>5}  ({:.1}%)", t.inj_leve, pct(t.inj_leve, inj_total));
-    println!("    Moderada {:>5}  ({:.1}%)", t.inj_moderada, pct(t.inj_moderada, inj_total));
-    println!("    Grave    {:>5}  ({:.1}%)", t.inj_grave, pct(t.inj_grave, inj_total));
-    println!("    Crítica  {:>5}  ({:.1}%)", t.inj_critica, pct(t.inj_critica, inj_total));
+    println!(
+        "    Leve     {:>5}  ({:.1}%)",
+        t.inj_leve,
+        pct(t.inj_leve, inj_total)
+    );
+    println!(
+        "    Moderada {:>5}  ({:.1}%)",
+        t.inj_moderada,
+        pct(t.inj_moderada, inj_total)
+    );
+    println!(
+        "    Grave    {:>5}  ({:.1}%)",
+        t.inj_grave,
+        pct(t.inj_grave, inj_total)
+    );
+    println!(
+        "    Crítica  {:>5}  ({:.1}%)",
+        t.inj_critica,
+        pct(t.inj_critica, inj_total)
+    );
 
     println!("\n■ EVOLUÇÃO (sobreviventes: {} observações)", t.survivors);
     println!(
@@ -1012,12 +1040,35 @@ fn monte_carlo() {
         t.total_dnfs,
         t.total_starts
     );
-    println!("  Distribuição de vitórias por piloto-temporada ({} obs):", t.drivers_raced);
-    println!("    0 vitórias    {:>6}  ({:.1}%)", t.win_0, pct(t.win_0, t.drivers_raced));
-    println!("    1–2 vitórias  {:>6}  ({:.1}%)", t.win_1_2, pct(t.win_1_2, t.drivers_raced));
-    println!("    3–5 vitórias  {:>6}  ({:.1}%)", t.win_3_5, pct(t.win_3_5, t.drivers_raced));
-    println!("    6+ vitórias   {:>6}  ({:.1}%)", t.win_6p, pct(t.win_6p, t.drivers_raced));
-    println!("    com ≥1 pódio  {:>6}  ({:.1}%)", t.with_podium, pct(t.with_podium, t.drivers_raced));
+    println!(
+        "  Distribuição de vitórias por piloto-temporada ({} obs):",
+        t.drivers_raced
+    );
+    println!(
+        "    0 vitórias    {:>6}  ({:.1}%)",
+        t.win_0,
+        pct(t.win_0, t.drivers_raced)
+    );
+    println!(
+        "    1–2 vitórias  {:>6}  ({:.1}%)",
+        t.win_1_2,
+        pct(t.win_1_2, t.drivers_raced)
+    );
+    println!(
+        "    3–5 vitórias  {:>6}  ({:.1}%)",
+        t.win_3_5,
+        pct(t.win_3_5, t.drivers_raced)
+    );
+    println!(
+        "    6+ vitórias   {:>6}  ({:.1}%)",
+        t.win_6p,
+        pct(t.win_6p, t.drivers_raced)
+    );
+    println!(
+        "    com ≥1 pódio  {:>6}  ({:.1}%)",
+        t.with_podium,
+        pct(t.with_podium, t.drivers_raced)
+    );
     if t.motiv_n > 0 {
         println!(
             "  Motivação média: {:.1}/100   |   pilotos em risco (<20): {:.1}%",
@@ -1079,7 +1130,12 @@ fn monte_carlo() {
     }
     println!("  Causas:");
     for (reason, count) in &t.retire_reasons {
-        println!("    {:<28} {:>4}  ({:.1}%)", reason, count, pct(*count, t.retirements));
+        println!(
+            "    {:<28} {:>4}  ({:.1}%)",
+            reason,
+            count,
+            pct(*count, t.retirements)
+        );
     }
     if t.motiv_retire_n > 0 {
         println!(
@@ -1110,12 +1166,22 @@ fn monte_carlo() {
 
     // ── EQUIPES ────────────────────────────────────────────────────────────────
     println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║  EQUIPES ({} equipe-temporada observadas)", t.team_seasons);
+    println!(
+        "║  EQUIPES ({} equipe-temporada observadas)",
+        t.team_seasons
+    );
     println!("╚══════════════════════════════════════════════════════════════╝");
 
     println!("\n■ SAÚDE FINANCEIRA");
     // Ordenar estados do mais saudável ao pior
-    let state_order = ["elite", "healthy", "stable", "pressured", "crisis", "collapse"];
+    let state_order = [
+        "elite",
+        "healthy",
+        "stable",
+        "pressured",
+        "crisis",
+        "collapse",
+    ];
     for st in state_order {
         if let Some(c) = t.fin_state.get(st) {
             println!("    {:<10} {:>6}  ({:.1}%)", st, c, pct(*c, t.team_seasons));
@@ -1138,9 +1204,7 @@ fn monte_carlo() {
         );
     }
 
-    println!(
-        "\n■ RECUPERAÇÃO (trajetória individual: equipes que colapsaram ao menos 1x)"
-    );
+    println!("\n■ RECUPERAÇÃO (trajetória individual: equipes que colapsaram ao menos 1x)");
     println!(
         "  Equipes que entraram em colapso: {}",
         t.teams_ever_collapse
@@ -1171,7 +1235,10 @@ fn monte_carlo() {
     }
 
     let episodes_resolved = t.episodes_self_rescued + t.episodes_sold;
-    println!("\n■ DESFECHO DOS EPISÓDIOS DE COLAPSO (resolvidos: {})", episodes_resolved);
+    println!(
+        "\n■ DESFECHO DOS EPISÓDIOS DE COLAPSO (resolvidos: {})",
+        episodes_resolved
+    );
     println!(
         "    Salvaram-se sozinhas no all-in (SEM venda): {}  ({:.1}%)",
         t.episodes_self_rescued,
@@ -1246,13 +1313,19 @@ fn monte_carlo() {
     println!("\n╔══════════════════════════════════════════════════════════════╗");
     println!("║  FUNIL DE CARREIRA — pilotos que começaram no Rookie          ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
-    println!("  Cohort (estrearam no tier 0 / Rookie): {}", t.rookie_cohort);
+    println!(
+        "  Cohort (estrearam no tier 0 / Rookie): {}",
+        t.rookie_cohort
+    );
     println!("\n  Tier alcançado          | % do cohort | tempo médio p/ chegar");
     println!("  ------------------------+-------------+----------------------");
     for tier in 1..=6usize {
         let reached = t.reached_tier[tier];
         let avg_time = if t.time_to_tier_n[tier] > 0 {
-            format!("{:.1} temporadas", t.time_to_tier_sum[tier] as f64 / t.time_to_tier_n[tier] as f64)
+            format!(
+                "{:.1} temporadas",
+                t.time_to_tier_sum[tier] as f64 / t.time_to_tier_n[tier] as f64
+            )
         } else {
             "—".to_string()
         };
@@ -1282,7 +1355,9 @@ fn monte_carlo() {
             );
         }
     }
-    println!("\n  (Nota: corridas longas dão mais tempo de carreira — rode com IRACER_MC_SEASONS alto)");
+    println!(
+        "\n  (Nota: corridas longas dão mais tempo de carreira — rode com IRACER_MC_SEASONS alto)"
+    );
 
     let em_promo =
         crate::market::pipeline::EMERGENCY_PROMOTIONS.load(std::sync::atomic::Ordering::Relaxed);
@@ -1321,7 +1396,12 @@ fn monte_carlo() {
         }
         println!("  DE ONDE vem o piloto (salto de tiers feeder→vaga):");
         for (gap, n) in &gaps {
-            println!("    {} tier(s) abaixo: {:>4}  ({:.1}%)", gap, n, pct(*n, paths.len() as u64));
+            println!(
+                "    {} tier(s) abaixo: {:>4}  ({:.1}%)",
+                gap,
+                n,
+                pct(*n, paths.len() as u64)
+            );
         }
     }
 
@@ -1342,8 +1422,5 @@ fn monte_carlo() {
         }
     }
 
-    println!(
-        "\nTempo total: {:.1}s\n",
-        start.elapsed().as_secs_f64()
-    );
+    println!("\nTempo total: {:.1}s\n", start.elapsed().as_secs_f64());
 }

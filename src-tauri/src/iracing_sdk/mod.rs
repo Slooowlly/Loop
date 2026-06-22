@@ -16,12 +16,16 @@
 use serde::Serialize;
 use thiserror::Error;
 
+pub mod adaptive;
+pub mod behavior;
 pub mod paint_gen;
 pub mod paths;
 pub mod race_control;
 pub mod race_monitor;
+pub mod results_gen;
 pub mod roster_gen;
 pub mod season_gen;
+pub mod weather;
 
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
 const MEM_MAP_FILE_NAME: &str = "Local\\IRSDKMemMapFileName";
@@ -213,6 +217,10 @@ pub struct CarSnapshot {
     pub gear: i32,
     /// Tempo atrás do líder em segundos (`CarIdxF2Time`) — o gap.
     pub f2_time: f64,
+    /// Última volta completa do carro (`CarIdxLastLapTime`); ≤0 = sem volta válida.
+    pub last_lap_time: f64,
+    /// Melhor volta do carro na sessão (`CarIdxBestLapTime`); ≤0 = nenhuma.
+    pub best_lap_time: f64,
 }
 
 impl Default for CarSnapshot {
@@ -230,6 +238,8 @@ impl Default for CarSnapshot {
             track_surface: -1,
             gear: 0,
             f2_time: 0.0,
+            last_lap_time: 0.0,
+            best_lap_time: 0.0,
         }
     }
 }
@@ -337,9 +347,7 @@ mod imp {
     use std::os::windows::ffi::OsStrExt;
 
     use winapi::um::handleapi::CloseHandle;
-    use winapi::um::memoryapi::{
-        MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ,
-    };
+    use winapi::um::memoryapi::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ};
 
     /// Converte uma `&str` para uma string larga (UTF-16) terminada em NUL,
     /// como as APIs `...W` do Windows esperam.
@@ -446,11 +454,11 @@ mod imp {
     /// `ptr` deve apontar para um valor válido do tamanho correspondente ao tipo.
     unsafe fn read_value(ptr: *const u8, var_type: i32) -> f64 {
         match var_type {
-            0 => *(ptr as *const i8) as f64,                          // char
-            1 => (*ptr != 0) as i32 as f64,                          // bool
+            0 => *(ptr as *const i8) as f64,                             // char
+            1 => (*ptr != 0) as i32 as f64,                              // bool
             2 | 3 => std::ptr::read_unaligned(ptr as *const i32) as f64, // int / bitField
-            4 => std::ptr::read_unaligned(ptr as *const f32) as f64, // float
-            5 => std::ptr::read_unaligned(ptr as *const f64),        // double
+            4 => std::ptr::read_unaligned(ptr as *const f32) as f64,     // float
+            5 => std::ptr::read_unaligned(ptr as *const f64),            // double
             _ => 0.0,
         }
     }
@@ -522,7 +530,10 @@ mod imp {
 
             let name_bytes =
                 std::slice::from_raw_parts(head.add(header::VAR_NAME), header::VAR_NAME_MAX);
-            let end = name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len());
+            let end = name_bytes
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(name_bytes.len());
             let name = match std::str::from_utf8(&name_bytes[..end]) {
                 Ok(name) => name,
                 Err(_) => continue,
@@ -546,6 +557,8 @@ mod imp {
                         "CarIdxTrackSurface" => car.track_surface = v as i32,
                         "CarIdxGear" => car.gear = v as i32,
                         "CarIdxF2Time" => car.f2_time = v,
+                        "CarIdxLastLapTime" => car.last_lap_time = v,
+                        "CarIdxBestLapTime" => car.best_lap_time = v,
                         _ => {}
                     }
                 }

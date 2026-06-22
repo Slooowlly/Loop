@@ -20,6 +20,7 @@ function RosterGenPanel() {
   const [error, setError] = useState("");
   const [seasonBusy, setSeasonBusy] = useState(false);
   const [seasonResult, setSeasonResult] = useState(null);
+  const [targetTrackId, setTargetTrackId] = useState("");
   const [paint, setPaint] = useState(null);
   const [paintError, setPaintError] = useState("");
   const [custid, setCustid] = useState(null);
@@ -145,6 +146,30 @@ function RosterGenPanel() {
         categoria,
         rosterName,
         carKey,
+        targetTrackId: targetTrackId.trim() ? Number(targetTrackId.trim()) : null,
+      });
+      setSeasonResult(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSeasonBusy(false);
+    }
+  }
+
+  // AI Season de TESTE: zerada (sem resultados), com a corrida 1 usando o clima
+  // roteirizado da 1ª corrida — pra visualizar o roteiro no menu do iRacing.
+  async function generateTestSeason() {
+    setSeasonBusy(true);
+    setError("");
+    setSeasonResult(null);
+    try {
+      const res = await invoke("iracing_generate_season", {
+        careerId,
+        categoria,
+        rosterName,
+        carKey,
+        targetTrackId: null,
+        testBlank: true,
       });
       setSeasonResult(res);
     } catch (e) {
@@ -261,6 +286,22 @@ function RosterGenPanel() {
         >
           {seasonBusy ? "Gerando…" : "Gerar AI Season"}
         </GlassButton>
+        <GlassButton
+          variant="secondary"
+          onClick={generateTestSeason}
+          disabled={!canGenerate || seasonBusy}
+          title="Season ZERADA (sem resultados) com a corrida 1 usando o clima roteirizado da 1ª corrida — pra ver o roteiro no menu do iRacing."
+          className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
+        >
+          🌦️ Season Teste (clima 1ª corrida)
+        </GlassButton>
+        <input
+          value={targetTrackId}
+          onChange={(e) => setTargetTrackId(e.target.value.replace(/[^0-9]/g, ""))}
+          placeholder="override pista (auto se vazio)"
+          title="Opcional: ID da pista p/ forçar a margem de skill (testes). Vazio = mira automática na PRÓXIMA corrida do calendário."
+          className="w-40 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
+        />
         {selected && (
           <span className="text-[10px] text-text-muted">
             Categoria padrão do save: <span className="font-mono">{selected.category}</span>
@@ -288,6 +329,12 @@ function RosterGenPanel() {
           <p className="font-semibold">
             AI Season "{seasonResult.name}" gerada com {seasonResult.events} etapa(s).
           </p>
+          {seasonResult.targeted_track && (
+            <p className="mt-0.5">
+              {seasonResult.auto_targeted ? "🎯 Próxima corrida" : "🔧 Override"}:{" "}
+              <span className="font-semibold">{seasonResult.targeted_track}</span>
+            </p>
+          )}
           <p className="mt-0.5 break-all font-mono text-[10px] text-text-secondary">
             {seasonResult.path}
           </p>

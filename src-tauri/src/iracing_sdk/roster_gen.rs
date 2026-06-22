@@ -156,12 +156,83 @@ fn pick(pool: &[i64], seed: &str) -> i64 {
     pool[(hasher.finish() % pool.len() as u64) as usize]
 }
 
-/// Monta o roster a partir do grid (pilotos + time de cada um) e do mapa de
-/// números fixos por piloto. `id_factory` gera o GUID de cada entrada.
+/// Dados por piloto do Tier 2 Batch B (o comando preenche do banco).
+#[derive(Clone, Copy)]
+pub struct DriverCtx {
+    pub contract_last_year: bool,
+    pub teammate_points: Option<f64>,
+    /// +1 promovido (subiu de categoria), -1 rebaixado (caiu), 0 nada.
+    pub category_move: i32,
+    pub team_morale: f64,
+    pub injury_return: bool,
+    pub honeymoon: bool,
+    pub crashed_out_last_race: bool,
+    pub not_at_fault_dnfs: u32,
+    pub track_crash: bool,
+}
+
+/// Contexto compartilhado da corrida-alvo para a camada de comportamento por corrida
+/// (ver [`crate::iracing_sdk::behavior`]). O comando preenche do banco; aqui só usamos.
+pub struct BehaviorContext {
+    pub current_season: i32,
+    pub track_id: u32,
+    pub track_length_km: f64,
+    /// `pais` (bandeira) da pista — comparado à nacionalidade do piloto (casa).
+    pub track_flag: String,
+    /// Pontos de TODOS da categoria (inclui o jogador) — base do cálculo do título.
+    pub title_points: Vec<f64>,
+    pub races_left: u32,
+    /// Total de corridas da temporada (p/ desgaste de fim de temporada).
+    pub season_length: u32,
+    /// Pontos do vencedor (P1 + volta rápida).
+    pub max_points: f64,
+    pub field_size: u32,
+    /// Skills de todos do grid — para o percentil de domínio no grid.
+    pub grid_skills: Vec<f64>,
+    pub is_wet: bool,
+    pub rain_intensity: f64,
+    pub temp_c: f64,
+    /// Semente do evento (career_id + event_id) — varia o "humor do dia" por piloto.
+    pub seed_base: u64,
+    /// id do piloto → últimas posições finais (forma).
+    pub recent_positions: HashMap<String, Vec<u32>>,
+    /// id do piloto → percentil no ranking mundial (0–1).
+    pub global_percentile: HashMap<String, f64>,
+    /// id do piloto → dados do Tier 2 Batch B.
+    pub driver_ctx: HashMap<String, DriverCtx>,
+}
+
+/// Percentil de skill dentro do grid (0 pior … 1 melhor).
+fn grid_percentile(skill: f64, grid: &[f64]) -> f64 {
+    if grid.len() <= 1 {
+        return 0.5;
+    }
+    let at_or_below = grid.iter().filter(|&&s| s <= skill).count() as f64;
+    (at_or_below - 1.0).max(0.0) / (grid.len() as f64 - 1.0)
+}
+
+/// Mesma bandeira (2 chars de indicador regional) = corrida em casa.
+fn same_flag(a: &str, b: &str) -> bool {
+    !a.is_empty() && a.chars().take(2).eq(b.chars().take(2))
+}
+
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in s.bytes() {
+        h ^= byte as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Monta o roster a partir do grid (pilotos + time de cada um) e do mapa de números
+/// fixos por piloto. `behavior` (None = atributos crus) aplica a camada de
+/// comportamento por corrida. `id_factory` gera o GUID de cada entrada.
 pub fn build_roster(
     entries: &[(Driver, Option<TeamInfo>)],
     car: &CarSpec,
     numbers: &HashMap<String, i64>,
+    behavior: Option<&BehaviorContext>,
     mut id_factory: impl FnMut() -> String,
 ) -> RosterFile {
     // Ordena por pontos só para o rowIndex (ordem de exibição no editor).
@@ -211,6 +282,80 @@ pub fn build_roster(
             let sponsor2 = pick(car.sponsors, &format!("{}|s2", driver.id));
 
             let a = &driver.atributos;
+            // Camada de comportamento por corrida (só no export): o skill quase não
+            // se move (já com a penalidade de conhecimento de pista), mas os atributos
+            // secundários variam MUITO conforme o contexto. None = atributos crus.
+            let (d_skill, d_aggression, d_optimism, d_smoothness) = match behavior {
+                None => (a.skill, a.aggression, a.confianca, a.smoothness),
+                Some(bc) => {
+                    use crate::simulation::{pressure, track_knowledge};
+                    let knowledge = track_knowledge::from_history(
+                        &driver.historico_circuitos,
+                        bc.track_id as i64,
+                    );
+                    let track_pen = track_knowledge::track_knowledge_penalty(
+                        &knowledge,
+                        bc.track_length_km,
+                        a.adaptabilidade,
+                        bc.current_season,
+                    );
+                    let title = pressure::title_context(
+                        driver.stats_temporada.pontos,
+                        &bc.title_points,
+                        bc.races_left,
+                        bc.max_points,
+                    );
+                    let dctx = bc.driver_ctx.get(&driver.id);
+                    let inputs = crate::iracing_sdk::behavior::BehaviorInputs {
+                        base_aggression: a.aggression,
+                        base_optimism: a.confianca,
+                        base_smoothness: a.smoothness,
+                        base_skill: a.skill - track_pen,
+                        mentality: a.mentalidade,
+                        resilience: pressure::pressure_resilience(a.mentalidade, a.experiencia),
+                        title,
+                        races_left: bc.races_left,
+                        recent_positions: bc
+                            .recent_positions
+                            .get(&driver.id)
+                            .cloned()
+                            .unwrap_or_default(),
+                        field_size: bc.field_size,
+                        season_length: bc.season_length,
+                        track: knowledge,
+                        is_wet: bc.is_wet,
+                        fator_chuva: a.fator_chuva,
+                        rain_intensity: bc.rain_intensity,
+                        temp_c: bc.temp_c,
+                        age: driver.idade,
+                        global_rank_percentile: bc
+                            .global_percentile
+                            .get(&driver.id)
+                            .copied()
+                            .unwrap_or(0.5),
+                        grid_rank_percentile: grid_percentile(a.skill, &bc.grid_skills),
+                        home_race: same_flag(&driver.nacionalidade, &bc.track_flag),
+                        career_wins: driver.stats_carreira.vitorias,
+                        season_points: driver.stats_temporada.pontos,
+                        contract_last_year: dctx.map(|d| d.contract_last_year).unwrap_or(false),
+                        teammate_points: dctx.and_then(|d| d.teammate_points),
+                        category_move: dctx.map(|d| d.category_move).unwrap_or(0),
+                        team_morale: dctx.map(|d| d.team_morale).unwrap_or(1.0),
+                        all_points: bc.title_points.clone(),
+                        max_points: bc.max_points,
+                        injury_return: dctx.map(|d| d.injury_return).unwrap_or(false),
+                        honeymoon: dctx.map(|d| d.honeymoon).unwrap_or(false),
+                        crashed_out_last_race: dctx
+                            .map(|d| d.crashed_out_last_race)
+                            .unwrap_or(false),
+                        not_at_fault_dnfs: dctx.map(|d| d.not_at_fault_dnfs).unwrap_or(0),
+                        track_crash: dctx.map(|d| d.track_crash).unwrap_or(false),
+                        seed: bc.seed_base ^ fnv1a(&driver.id),
+                    };
+                    let out = crate::iracing_sdk::behavior::compute(&inputs);
+                    (out.skill, out.aggression, out.optimism, out.smoothness)
+                }
+            };
             RosterDriver {
                 driver_name: driver.nome.clone(),
                 car_number: number.to_string(),
@@ -223,10 +368,10 @@ pub fn build_roster(
                 sponsor1,
                 sponsor2,
                 number_design: NUMBER_DESIGN.to_string(),
-                driver_skill: attr(a.skill),
-                driver_aggression: attr(a.aggression),
-                driver_optimism: attr(a.confianca),
-                driver_smoothness: attr(a.smoothness),
+                driver_skill: attr(d_skill),
+                driver_aggression: attr(d_aggression),
+                driver_optimism: attr(d_optimism),
+                driver_smoothness: attr(d_smoothness),
                 pit_crew_skill: attr(pit_crew),
                 strategy_riskiness: attr(strategy),
                 driver_age: driver.idade as i64,
@@ -276,19 +421,33 @@ mod tests {
         numbers.insert("D-bia".to_string(), 9);
         let entries = vec![
             // Mesmo time do jogador: ambos padrão 0, mesma cor.
-            (driver("D-ana", "Ana", 10.0, 40.0, 30.0), Some(team("T1", "#e63946", "#000000", true))),
-            (driver("D-bia", "Bia", 50.0, 80.0, 90.0), Some(team("T1", "#e63946", "#000000", true))),
+            (
+                driver("D-ana", "Ana", 10.0, 40.0, 30.0),
+                Some(team("T1", "#e63946", "#000000", true)),
+            ),
+            (
+                driver("D-bia", "Bia", 50.0, 80.0, 90.0),
+                Some(team("T1", "#e63946", "#000000", true)),
+            ),
         ];
         let car = car_spec("mx5").unwrap();
         let mut n = 0;
-        let roster = build_roster(&entries, &car, &numbers, || {
+        let roster = build_roster(&entries, &car, &numbers, None, || {
             n += 1;
             format!("ID-{n}")
         });
 
         // Número fixo do mapa (não a posição).
-        let ana = roster.drivers.iter().find(|d| d.driver_name == "Ana").unwrap();
-        let bia = roster.drivers.iter().find(|d| d.driver_name == "Bia").unwrap();
+        let ana = roster
+            .drivers
+            .iter()
+            .find(|d| d.driver_name == "Ana")
+            .unwrap();
+        let bia = roster
+            .drivers
+            .iter()
+            .find(|d| d.driver_name == "Bia")
+            .unwrap();
         assert_eq!(ana.car_number, "7");
         assert_eq!(bia.car_number, "9");
         // Time do jogador → padrão de carro 0 para os dois.
@@ -310,8 +469,8 @@ mod tests {
             Some(team("T9", "#3a86ff", "#222222", false)),
         )];
         let car = car_spec("mx5").unwrap();
-        let r1 = build_roster(&entries, &car, &numbers, || "id".to_string());
-        let r2 = build_roster(&entries, &car, &numbers, || "id".to_string());
+        let r1 = build_roster(&entries, &car, &numbers, None, || "id".to_string());
+        let r2 = build_roster(&entries, &car, &numbers, None, || "id".to_string());
         // Determinístico: mesma entrada → mesmo padrão.
         assert_eq!(r1.drivers[0].car_design, r2.drivers[0].car_design);
         // Padrão pertence ao pool aprovado do MX-5.

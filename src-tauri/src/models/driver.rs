@@ -526,8 +526,14 @@ mod tests {
         // faixa do tier (65-85), independente de fácil/médio/difícil/lendário.
         for difficulty in ["facil", "medio", "dificil", "lendario"] {
             let mut rng = StdRng::seed_from_u64(20260430);
-            let drivers =
-                Driver::generate_for_category("gt3", 4, difficulty, 28, &mut existing_names, &mut rng);
+            let drivers = Driver::generate_for_category(
+                "gt3",
+                4,
+                difficulty,
+                28,
+                &mut existing_names,
+                &mut rng,
+            );
             assert!(
                 drivers.iter().all(|driver| {
                     driver.atributos.skill >= range.skill_min as f64

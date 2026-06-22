@@ -175,6 +175,39 @@ pub fn get_active_injury_for_pilot(
     Ok(injury)
 }
 
+/// Lesão MAIS RECENTE do piloto (ativa ou não) — p/ detectar retorno recente de lesão.
+pub fn get_last_injury_for_pilot(
+    conn: &Connection,
+    pilot_id: &str,
+) -> Result<Option<Injury>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, pilot_id, type, COALESCE(injury_name, ''), modifier, races_total, races_remaining, skill_penalty, season, race_occurred, active
+         FROM injuries
+         WHERE pilot_id = ?1
+         ORDER BY rowid DESC
+         LIMIT 1",
+    )?;
+    let injury = stmt
+        .query_row(params![pilot_id], |row| {
+            Ok(Injury {
+                id: row.get(0)?,
+                pilot_id: row.get(1)?,
+                injury_type: InjuryType::from_str_strict(&row.get::<_, String>(2)?)
+                    .map_err(rusqlite::Error::InvalidParameterName)?,
+                injury_name: row.get(3)?,
+                modifier: row.get(4)?,
+                races_total: row.get(5)?,
+                races_remaining: row.get(6)?,
+                skill_penalty: row.get(7)?,
+                season: row.get(8)?,
+                race_occurred: row.get(9)?,
+                active: row.get::<_, i32>(10)? == 1,
+            })
+        })
+        .optional()?;
+    Ok(injury)
+}
+
 pub fn update_injury_status(
     tx: &Transaction,
     injury_id: &str,

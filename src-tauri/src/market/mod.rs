@@ -6,6 +6,8 @@ pub mod pit_strategy;
 pub mod preseason;
 pub mod proposals;
 pub mod renewal;
+pub mod slam_ambition;
 pub mod sync;
 pub mod team_ai;
+pub mod transfer_window;
 pub mod visibility;

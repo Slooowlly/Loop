@@ -4,9 +4,7 @@ use rand::Rng;
 
 use crate::generators::driver_helpers::{random_primary_personality, random_secondary_personality};
 use crate::generators::names::generate_pilot_identity;
-use crate::models::driver::{
-    potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX,
-};
+use crate::models::driver::{potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX};
 use crate::models::enums::DriverStatus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

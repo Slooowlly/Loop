@@ -173,7 +173,7 @@ fn roll_driver_error(
     state: &RaceState,
     segment: RaceSegment,
     weather: WeatherCondition,
-    is_championship_deciding: bool,
+    _is_championship_deciding: bool,
     incident_rate_multiplier: f64,
     start_chaos_multiplier: f64,
     rng: &mut impl Rng,
@@ -189,11 +189,9 @@ fn roll_driver_error(
     let rain_absorption = driver.fator_chuva as f64 / 100.0 * 0.80;
     let rain_penalty = rb * (1.0 - rain_absorption);
 
-    let pressure_mod = if is_championship_deciding {
-        1.3 - driver.mentalidade as f64 / 100.0 * 0.25
-    } else {
-        1.0
-    };
+    // Pressão de campeonato (clutch/choke) é per-piloto, calculada no setup da
+    // corrida (ver simulation::pressure). <1 acalma (clutch), >1 atrapalha (choke).
+    let pressure_mod = driver.pressure_error_mult;
 
     let tire_mod = 1.0 + (1.0 - state.tire_wear) * 0.5;
     let fatigue_mod = 1.0 + (1.0 - state.physical_condition) * 0.4;
@@ -722,6 +720,7 @@ mod tests {
             team_id: format!("T{id}"),
             team_name: format!("Team {id}"),
             corridas_na_categoria: 10,
+            pressure_error_mult: 1.0,
         }
     }
 

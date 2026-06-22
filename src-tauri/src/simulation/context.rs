@@ -147,6 +147,9 @@ pub struct SimDriver {
     pub team_id: String,
     pub team_name: String,
     pub corridas_na_categoria: i32,
+    /// Multiplicador da taxa de erro por pressão de campeonato (1.0 = neutro,
+    /// <1 clutch, >1 choke). Calculado no setup da corrida (ver simulation::pressure).
+    pub pressure_error_mult: f64,
 }
 
 impl SimDriver {
@@ -175,6 +178,7 @@ impl SimDriver {
             team_id: team.id.clone(),
             team_name: team.nome.clone(),
             corridas_na_categoria: driver.corridas_na_categoria as i32,
+            pressure_error_mult: 1.0,
         }
     }
 

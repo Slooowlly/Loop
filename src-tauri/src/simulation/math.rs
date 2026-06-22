@@ -123,8 +123,14 @@ mod tests {
     #[test]
     fn test_rookie_car_is_spec_regardless_of_team_value() {
         // Dois carros bem diferentes na rookie viram o mesmo valor spec.
-        assert_eq!(category_car_performance("mazda_rookie", 12.0), ROOKIE_SPEC_CAR_PERFORMANCE);
-        assert_eq!(category_car_performance("toyota_rookie", -4.0), ROOKIE_SPEC_CAR_PERFORMANCE);
+        assert_eq!(
+            category_car_performance("mazda_rookie", 12.0),
+            ROOKIE_SPEC_CAR_PERFORMANCE
+        );
+        assert_eq!(
+            category_car_performance("toyota_rookie", -4.0),
+            ROOKIE_SPEC_CAR_PERFORMANCE
+        );
         assert_eq!(
             category_car_performance("mazda_rookie", 12.0),
             category_car_performance("mazda_rookie", -4.0),
@@ -140,9 +146,18 @@ mod tests {
 
     #[test]
     fn test_car_weight_scale_low_for_rookie_high_for_top() {
-        assert!(car_weight_scale("mazda_rookie") < 0.25, "rookie deve ter peso de carro baixo");
-        assert!(car_weight_scale("endurance") > 1.3, "endurance deve ter peso de carro alto");
-        assert!(car_weight_scale("endurance:gt3") > 1.3, "classe de endurance herda o peso alto");
+        assert!(
+            car_weight_scale("mazda_rookie") < 0.25,
+            "rookie deve ter peso de carro baixo"
+        );
+        assert!(
+            car_weight_scale("endurance") > 1.3,
+            "endurance deve ter peso de carro alto"
+        );
+        assert!(
+            car_weight_scale("endurance:gt3") > 1.3,
+            "classe de endurance herda o peso alto"
+        );
         assert!(car_weight_scale("production_challenger") > 1.0);
         assert!(car_weight_scale("mazda_rookie") < car_weight_scale("mazda_amador"));
         assert!(car_weight_scale("gt4") < car_weight_scale("gt3"));

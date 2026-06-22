@@ -758,8 +758,8 @@ mod tests {
             season_result.promotion_result.errors
         );
 
-        let advanced_week =
-            advance_market_week_in_base_dir(&base_dir, "career_001").expect("advance market week");
+        let advanced_week = advance_market_week_in_base_dir(&base_dir, "career_001", None)
+            .expect("advance market week");
         assert_eq!(advanced_week.week_number, 1);
 
         let preseason_path = career_dir.join("preseason_plan.json");
@@ -907,97 +907,6 @@ mod tests {
                 .exists(),
             "finalizar a pre-temporada deve remover o plano salvo"
         );
-
-        let _ = fs::remove_dir_all(base_dir);
-    }
-
-    #[test]
-    fn full_preseason_rejection_flow_generates_emergency_proposals() {
-        let base_dir = create_test_career_dir("full_preseason_rejection_flow");
-        let (_config, career_dir, db_path, _meta_path) = career_paths(&base_dir);
-
-        mark_all_races_completed(&db_path);
-        let season_result =
-            advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
-        assert!(season_result.preseason_initialized);
-
-        let db = Database::open_existing(&db_path).expect("db");
-        let player = driver_queries::get_player_driver(&db.conn).expect("player");
-        let season = season_queries::get_active_season(&db.conn)
-            .expect("season query")
-            .expect("active season");
-
-        if let Some(contract) =
-            contract_queries::get_active_contract_for_pilot(&db.conn, &player.id)
-                .expect("active contract query")
-        {
-            contract_queries::update_contract_status(
-                &db.conn,
-                &contract.id,
-                &crate::models::enums::ContractStatus::Rescindido,
-            )
-            .expect("rescind player contract");
-            team_queries::remove_pilot_from_team(&db.conn, &player.id, &contract.equipe_id)
-                .expect("remove player from team");
-        }
-
-        let team = team_queries::get_teams_by_category(
-            &db.conn,
-            player.categoria_atual.as_deref().unwrap_or("mazda_rookie"),
-        )
-        .expect("teams by player category")
-        .into_iter()
-        .next()
-        .expect("at least one regular team");
-        let proposal = MarketProposal {
-            id: format!("MP-{}-{}", team.id, player.id),
-            equipe_id: team.id.clone(),
-            equipe_nome: team.nome.clone(),
-            piloto_id: player.id.clone(),
-            piloto_nome: player.nome.clone(),
-            categoria: team.categoria.clone(),
-            papel: TeamRole::Numero1,
-            salario_oferecido: 80_000.0,
-            duracao_anos: 1,
-            status: ProposalStatus::Pendente,
-            motivo_recusa: None,
-        };
-        seed_player_regular_proposal(&db.conn, &season.id, &proposal);
-        drop(db);
-
-        let response =
-            respond_to_proposal_in_base_dir(&base_dir, "career_001", &proposal.id, false)
-                .expect("reject last player proposal");
-        assert!(response.success);
-        assert_eq!(response.action, "rejected");
-        assert!(response.remaining_proposals > 0);
-        assert!(response.new_team_name.is_none());
-        assert!(
-            response
-                .message
-                .contains("Novas opcoes emergenciais foram geradas"),
-            "rejecting the final proposal without a team should generate emergency proposals"
-        );
-
-        let emergency_proposals =
-            get_player_proposals_in_base_dir(&base_dir, "career_001").expect("emergency proposals");
-        assert!(
-            !emergency_proposals.is_empty(),
-            "player should receive emergency proposals after rejecting the last offer without a team"
-        );
-
-        let reopened_db = Database::open_existing(&db_path).expect("db reopen");
-        assert!(
-            contract_queries::get_active_regular_contract_for_pilot(&reopened_db.conn, &player.id)
-                .expect("active regular contract after rejection")
-                .is_none(),
-            "player should remain without a regular team until one emergency proposal is resolved"
-        );
-
-        force_complete_preseason_plan(&career_dir);
-        let finalize_error = finalize_preseason_in_base_dir(&base_dir, "career_001")
-            .expect_err("finalize should block while emergency proposals remain pending");
-        assert!(finalize_error.contains("pendente"));
 
         let _ = fs::remove_dir_all(base_dir);
     }

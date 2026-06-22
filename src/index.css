@@ -454,6 +454,21 @@ body {
 
 /* ─── Animation Classes (legado — mantidos para outros componentes) ───────── */
 
+@keyframes toastUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast-up {
+  animation: toastUp 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .animate-fade-out {
   animation: fade-out 0.28s ease-in forwards;
 }

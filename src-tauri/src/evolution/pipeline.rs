@@ -26,13 +26,13 @@ use crate::evolution::season_transition::{
 use crate::evolution::standings::build_and_persist_standings;
 use crate::finance::prize::constructor_prize;
 use crate::finance::rescue::apply_team_sale;
-use crate::generators::ids::{next_id, IdType};
-use crate::models::license::required_license_for_division;
 use crate::finance::state::refresh_team_financial_state;
+use crate::generators::ids::{next_id, IdType};
 use crate::market::preseason::{advance_week, initialize_preseason, save_preseason_plan};
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, DriverStatus, SeasonPhase};
+use crate::models::license::required_license_for_division;
 use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::promotion::pipeline::run_promotion_relegation_for_year;
@@ -367,8 +367,7 @@ fn process_driver_evolution(
                 })
                 .count() as i32;
             let expected_position = cars_ahead * 2 + 1;
-            let outperformed_machinery =
-                standing.stats.posicao_campeonato + 3 <= expected_position;
+            let outperformed_machinery = standing.stats.posicao_campeonato + 3 <= expected_position;
             let motivation_ctx = MotivationContext {
                 was_champion: standing.position == 1,
                 was_promoted: false,
@@ -556,9 +555,19 @@ fn initialize_preseason_phase(
         save_preseason_plan(save_path, &preseason_plan)
             .map_err(|e| format!("Erro ao salvar plano da pre-temporada: {e}"))?;
     } else {
+        // Não-interativo: a IA resolve a janela sozinha (jogador sempre espera →
+        // garantia de porta no fecho). Backstop contra loop infinito (a janela fecha
+        // por hard_week_cap, mas protegemos mesmo assim).
+        let mut guard = 0;
         while !preseason_plan.state.is_complete {
-            advance_week(conn, &mut preseason_plan)
+            advance_week(conn, &mut preseason_plan, None)
                 .map_err(|e| format!("Erro ao executar pre-temporada historica: {e}"))?;
+            guard += 1;
+            if guard > 50 {
+                return Err(
+                    "Pre-temporada historica nao convergiu (a janela nao fechou).".to_string(),
+                );
+            }
         }
     }
     Ok((true, preseason_plan.state.total_weeks))
@@ -1153,7 +1162,9 @@ mod tests {
     fn test_retains_irreplaceable_veteran_with_raise() {
         let (conn, season, _team, veteran, contract) = retention_fixture();
         let contracts_by_driver: HashMap<String, Contract> =
-            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+            [(veteran.id.clone(), contract.clone())]
+                .into_iter()
+                .collect();
 
         // Sem candidato licenciado na gt4 → deve reter.
         let retained =
@@ -1202,7 +1213,9 @@ mod tests {
         .expect("insert license");
 
         let contracts_by_driver: HashMap<String, Contract> =
-            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+            [(veteran.id.clone(), contract.clone())]
+                .into_iter()
+                .collect();
 
         let retained =
             try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
@@ -1220,7 +1233,9 @@ mod tests {
         let (conn, season, mut team, veteran, contract) = retention_fixture();
         team.is_player_team = true;
         let contracts_by_driver: HashMap<String, Contract> =
-            [(veteran.id.clone(), contract.clone())].into_iter().collect();
+            [(veteran.id.clone(), contract.clone())]
+                .into_iter()
+                .collect();
 
         let retained =
             try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)

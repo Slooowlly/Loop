@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 38;
+const CURRENT_VERSION: u32 = 39;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -48,6 +48,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v36(conn)?;
     migrate_v37(conn)?;
     migrate_v38(conn)?;
+    migrate_v39(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -207,6 +208,24 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v38(conn)?;
         set_schema_version(conn, 38)?;
     }
+    if version < 39 {
+        migrate_v39(conn)?;
+        set_schema_version(conn, 39)?;
+    }
+    Ok(())
+}
+
+/// v39 — Janela de Transferências (Fase 2): estado SERIALIZADO da janela ativa por
+/// temporada (JSON do `WindowState`), pra o jogador avançar semana a semana.
+fn migrate_v39(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS transfer_window (
+            season_number INTEGER PRIMARY KEY,
+            state_json    TEXT NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'open',
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    )?;
     Ok(())
 }
 

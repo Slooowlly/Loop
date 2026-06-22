@@ -352,7 +352,10 @@ mod tests {
             calculate_offseason_competitiveness_impact(&fictional, 0).car_performance_delta;
         let real_gain = calculate_offseason_competitiveness_impact(&real, 0).car_performance_delta;
 
-        assert!(fictional_gain > 0.0, "both teams are investing the car upward");
+        assert!(
+            fictional_gain > 0.0,
+            "both teams are investing the car upward"
+        );
         assert!(
             real_gain > fictional_gain,
             "real marque ({real_gain}) must out-develop the fictional team ({fictional_gain})"

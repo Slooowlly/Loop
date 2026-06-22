@@ -101,7 +101,8 @@ pub(crate) fn production_free_mix_pool() -> &'static [u32] {
     &[
         // USA (Jefferson 8 fica de fora — pequeno demais p/ carro)
         554, 353, 352, 354, 9, 465, 467, 466, // Europa
-        181, 180, 183, 184, 185, 186, 297, 298, 489, 515, 516, 449, 454, 455, 451, // Japão/Oceania
+        181, 180, 183, 184, 185, 186, 297, 298, 489, 515, 516, 449, 454, 455,
+        451, // Japão/Oceania
         166, 167, 324, 202, 208, 440, 439,
     ]
 }
@@ -193,8 +194,8 @@ pub(crate) fn endurance_curated_pool() -> &'static [u32] {
 /// Subconjunto forte de uma região free — elegível para slots narrativos (final).
 pub(crate) fn strong_free_tracks_for_region(region: CalendarRegion) -> &'static [u32] {
     match region {
-        CalendarRegion::Usa => &[465, 554],          // VIR, Charlotte Roval
-        CalendarRegion::Europa => &[181, 297],       // Oulton Park Fosters, Snetterton
+        CalendarRegion::Usa => &[465, 554],    // VIR, Charlotte Roval
+        CalendarRegion::Europa => &[181, 297], // Oulton Park Fosters, Snetterton
         CalendarRegion::JapaoOceania => &[166, 324], // Okayama, Tsukuba
     }
 }
@@ -309,11 +310,22 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
             }
 
             // Pool de uma região = 1 layout por venue, rotacionado pela temporada.
-            let region_pool =
-                |r: CalendarRegion| one_layout_per_venue(free_tracks_for_region(r), season_number);
+            // No rookie, VIR Grand Course (466) é excluído: pista longa/técnica demais p/ a
+            // categoria de entrada (a rotação da VIR no rookie só pega Full 465 / North 467).
+            let region_pool = |r: CalendarRegion| {
+                let ids: Vec<u32> = free_tracks_for_region(r)
+                    .iter()
+                    .copied()
+                    .filter(|&id| !(is_rookie && id == 466))
+                    .collect();
+                one_layout_per_venue(&ids, season_number)
+            };
 
             // Tentar encontrar região única com venues suficientes.
-            let single_region = shuffled.iter().copied().find(|&r| region_pool(r).len() >= needed);
+            let single_region = shuffled
+                .iter()
+                .copied()
+                .find(|&r| region_pool(r).len() >= needed);
 
             let (base_region, candidate_ids, used_multi_region) = if let Some(r) = single_region {
                 (r, region_pool(r), false)
@@ -376,11 +388,10 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
         CalendarFamily::FreeSpecialMix => {
             // 1 layout por venue, rotacionado pela temporada (não repete circuito).
             let candidate_ids = one_layout_per_venue(production_free_mix_pool(), season_number);
-            let strong_venues: std::collections::HashSet<&'static str> =
-                strong_production_tracks()
-                    .iter()
-                    .filter_map(|&id| track_venue(id))
-                    .collect();
+            let strong_venues: std::collections::HashSet<&'static str> = strong_production_tracks()
+                .iter()
+                .filter_map(|&id| track_venue(id))
+                .collect();
             let strong_ids: Vec<u32> = candidate_ids
                 .iter()
                 .copied()
@@ -644,6 +655,9 @@ mod tests {
         assert_eq!(one_layout_per_venue(&mixed, 1).len(), 3);
 
         // Determinístico: mesma temporada → mesmo resultado.
-        assert_eq!(one_layout_per_venue(&oulton, 5), one_layout_per_venue(&oulton, 5));
+        assert_eq!(
+            one_layout_per_venue(&oulton, 5),
+            one_layout_per_venue(&oulton, 5)
+        );
     }
 }

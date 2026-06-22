@@ -54,9 +54,9 @@ pub fn season_strategy_from_plan(plan_type: &str, remaining_years: i32) -> &'sta
 /// equipe, para os planos não expirarem todos na mesma temporada (mundo
 /// desincronizado, sem precisar semear stagger em todo lugar).
 fn plan_horizon_for(team_id: &str) -> i32 {
-    let hash = team_id
-        .bytes()
-        .fold(0usize, |acc, b| acc.wrapping_mul(31).wrapping_add(b as usize));
+    let hash = team_id.bytes().fold(0usize, |acc, b| {
+        acc.wrapping_mul(31).wrapping_add(b as usize)
+    });
     2 + (hash % 2) as i32
 }
 
@@ -118,9 +118,18 @@ mod tests {
 
     #[test]
     fn rich_team_with_room_to_grow_picks_title_push() {
-        assert_eq!(choose_strategic_plan(&team("T1", 20_000_000.0, "healthy", 10.0)), "title_push");
-        assert_eq!(choose_strategic_plan(&team("T2", 20_000_000.0, "elite", 22.0)), "sustainable");
-        assert_eq!(choose_strategic_plan(&team("T3", -50_000.0, "crisis", 8.0)), "rebuild");
+        assert_eq!(
+            choose_strategic_plan(&team("T1", 20_000_000.0, "healthy", 10.0)),
+            "title_push"
+        );
+        assert_eq!(
+            choose_strategic_plan(&team("T2", 20_000_000.0, "elite", 22.0)),
+            "sustainable"
+        );
+        assert_eq!(
+            choose_strategic_plan(&team("T3", -50_000.0, "crisis", 8.0)),
+            "rebuild"
+        );
     }
 
     #[test]
@@ -153,7 +162,10 @@ mod tests {
         t.financial_state = "collapse".to_string();
         let s = advance_strategic_plan(&conn, &t).expect("advance");
         let (plan, _) = team_queries::get_strategic_plan(&conn, &t.id).unwrap();
-        assert_eq!(plan, "rebuild", "plano agressivo deve abortar p/ rebuild em colapso");
+        assert_eq!(
+            plan, "rebuild",
+            "plano agressivo deve abortar p/ rebuild em colapso"
+        );
         assert_eq!(s, "austerity");
     }
 

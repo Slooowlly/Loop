@@ -46,9 +46,17 @@ pub fn simulate_qualifying(
     let car_scale = car_weight_scale(&ctx.category_id);
     let new_car = base_car * car_scale;
     let non_car = base_skill + base_ritmo + base_adapt;
-    let factor = if non_car > 0.0 { (non_car + (base_car - new_car)) / non_car } else { 1.0 };
-    let (w_skill, w_ritmo, w_car, w_adapt) =
-        (base_skill * factor, base_ritmo * factor, new_car, base_adapt * factor);
+    let factor = if non_car > 0.0 {
+        (non_car + (base_car - new_car)) / non_car
+    } else {
+        1.0
+    };
+    let (w_skill, w_ritmo, w_car, w_adapt) = (
+        base_skill * factor,
+        base_ritmo * factor,
+        new_car,
+        base_adapt * factor,
+    );
 
     let mut results: Vec<QualifyingResult> = drivers
         .iter()

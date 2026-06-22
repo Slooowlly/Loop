@@ -229,6 +229,75 @@ pub fn get_dnf_incident_facts_for_round(
     Ok(results)
 }
 
+/// Pilotos que já BATERAM (DNF por DriverError/PostCollision) NESTA pista — trauma.
+pub fn get_track_crash_pilots(
+    conn: &Connection,
+    track_id: u32,
+) -> Result<std::collections::HashSet<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT r.piloto_id
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN incident_catalog ic ON r.dnf_catalog_id = ic.id
+         WHERE c.track_id = ?1 AND r.dnf = 1
+           AND ic.incident_source IN ('DriverError', 'PostCollision')",
+    )?;
+    let mut set = std::collections::HashSet::new();
+    let mut rows = stmt.query(rusqlite::params![track_id])?;
+    while let Some(row) = rows.next()? {
+        set.insert(row.get::<_, String>(0)?);
+    }
+    Ok(set)
+}
+
+/// Uma linha de resultado de etapa (com dados do piloto) — p/ exportar ao iRacing.
+pub struct EventResultRow {
+    pub piloto_id: String,
+    pub nome: String,
+    pub is_jogador: bool,
+    pub finish: i64,
+    pub start: i64,
+    pub laps: i64,
+    pub total_ms: f64,
+    pub gap_ms: f64,
+    pub incidents: i64,
+    pub dnf: bool,
+    pub has_fastest: bool,
+    pub dnf_reason: Option<String>,
+}
+
+/// Resultados de UMA corrida (todos os pilotos + dados pro bloco do aiseason).
+pub fn get_event_results(conn: &Connection, race_id: &str) -> Result<Vec<EventResultRow>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT rr.piloto_id, d.nome, d.is_jogador, rr.posicao_final, rr.posicao_largada,
+                rr.voltas_completadas, rr.tempo_total, rr.gap_to_winner_ms, rr.incidents_count,
+                rr.dnf, rr.fastest_lap, rr.dnf_reason
+         FROM race_results rr
+         JOIN drivers d ON rr.piloto_id = d.id
+         WHERE rr.race_id = ?1
+         ORDER BY rr.posicao_final",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![race_id], |row| {
+            Ok(EventResultRow {
+                piloto_id: row.get(0)?,
+                nome: row.get(1)?,
+                is_jogador: row.get::<_, i32>(2)? != 0,
+                finish: row.get(3)?,
+                start: row.get(4)?,
+                laps: row.get(5)?,
+                total_ms: row.get::<_, f64>(6)?,
+                gap_ms: row.get::<_, f64>(7)?,
+                incidents: row.get(8)?,
+                dnf: row.get::<_, i32>(9)? != 0,
+                has_fastest: row.get::<_, f64>(10)? != 0.0,
+                dnf_reason: row.get(11)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

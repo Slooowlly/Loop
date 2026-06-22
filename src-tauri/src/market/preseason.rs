@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Local, Weekday};
 use rand::Rng;
+use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -25,11 +26,10 @@ use crate::finance::state::refresh_team_financial_state;
 use crate::finance::strategy::advance_strategic_plan;
 use crate::generators::ids::{next_id, IdType};
 use crate::market::car_build_strategy::choose_car_build_profile;
-use crate::market::pipeline::run_market;
 use crate::market::pit_strategy::{
     recalculate_pit_crew_quality, recalculate_pit_strategy_risk, PreviousTeamStanding,
 };
-use crate::market::proposals::{is_real_career_debut_category, MarketProposal, ProposalStatus};
+use crate::market::proposals::{is_real_career_debut_category, MarketProposal};
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
@@ -246,214 +246,50 @@ pub fn initialize_preseason(
 ) -> Result<PreSeasonPlan, String> {
     let season_id = get_season_id_by_number(conn, season_number)?
         .ok_or_else(|| format!("Temporada {season_number} nao encontrada"))?;
-    let season_year: i32 = conn
-        .query_row(
-            "SELECT ano FROM seasons WHERE id = ?1",
-            rusqlite::params![&season_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| format!("Falha ao buscar ano da temporada {season_number}: {e}"))?;
-    reset_market_state(conn, &season_id, &PreSeasonPhase::ContractExpiry)?;
+    reset_market_state(conn, &season_id, &PreSeasonPhase::Transfers)?;
     repair_missing_licenses_for_current_categories(conn)?;
     assign_seasonal_team_attributes(conn, season_number, &season_id)?;
 
-    let original_contracts = contract_queries::get_all_active_regular_contracts(conn)
-        .map_err(|e| format!("Falha ao carregar contratos atuais: {e}"))?;
-    let original_teams =
-        team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao carregar equipes: {e}"))?;
-    let _original_drivers = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar pilotos atuais: {e}"))?;
-    let original_contracts_by_driver = original_contracts
-        .iter()
-        .cloned()
-        .map(|contract| (contract.piloto_id.clone(), contract))
-        .collect::<std::collections::HashMap<_, _>>();
+    // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
+    // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
+    crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
+        .map_err(|e| format!("Falha ao aplicar pre-passes do mercado: {e}"))?;
 
-    let (
-        market_report,
-        temp_teams,
-        temp_drivers,
-        simulated_contracts_by_driver,
-        renewal_events,
-        mut planned_events,
-        transfer_events,
-    ) = {
-        conn.execute_batch("SAVEPOINT preseason_plan_simulation")
-            .map_err(|e| format!("Falha ao iniciar savepoint do plano da pre-temporada: {e}"))?;
-        let simulation_result = (|| -> Result<_, String> {
-            let market_report = run_market(conn, season_number, rng)
-                .map_err(|e| format!("Falha ao simular mercado para o plano: {e}"))?;
-            let simulated_contracts = contract_queries::get_all_active_regular_contracts(conn)
-                .map_err(|e| format!("Falha ao carregar contratos simulados: {e}"))?;
-            let simulated_contracts_by_driver = simulated_contracts
-                .into_iter()
-                .map(|contract| (contract.piloto_id.clone(), contract))
-                .collect::<std::collections::HashMap<_, _>>();
-            let temp_teams = team_queries::get_all_teams(conn)
-                .map_err(|e| format!("Falha ao carregar equipes simuladas: {e}"))?;
-            let temp_drivers = driver_queries::get_all_drivers(conn)
-                .map_err(|e| format!("Falha ao carregar pilotos simulados: {e}"))?;
-            let renewal_events =
-                build_renewal_events(&simulated_contracts_by_driver, &market_report.new_signings)?;
-            let renewed_driver_ids: HashSet<String> = renewal_events
-                .iter()
-                .filter_map(|event| match &event.event {
-                    PendingAction::RenewContract { driver_id, .. } => Some(driver_id.clone()),
-                    _ => None,
-                })
-                .collect();
-            let planned_events =
-                build_expiry_events(conn, &original_contracts, &renewed_driver_ids)?;
-            let transfer_events = build_transfer_events(
-                &simulated_contracts_by_driver,
-                &market_report.new_signings,
-                &original_contracts_by_driver,
-                &temp_drivers,
-            )?;
-            Ok((
-                market_report,
-                temp_teams,
-                temp_drivers,
-                simulated_contracts_by_driver,
-                renewal_events,
-                planned_events,
-                transfer_events,
-            ))
-        })();
-        let rollback_result =
-            conn.execute_batch("ROLLBACK TO SAVEPOINT preseason_plan_simulation; RELEASE SAVEPOINT preseason_plan_simulation;");
-        if let Err(e) = rollback_result {
-            return Err(format!(
-                "Falha ao reverter simulacao temporaria da pre-temporada: {e}"
-            ));
-        }
-        simulation_result?
-    };
+    // ── INICIA A JANELA DE TRANSFERÊNCIAS (IA + jogador como candidato), persistida e
+    // ABERTA. Ela substitui o mercado instantâneo + as propostas: o jogador a conduz
+    // semana a semana (advance_week), e ela própria encena o mercado da IA pelo feed
+    // de assinaturas. A pré-temporada fecha quando a janela fecha. ──
+    crate::market::pipeline::window_get_or_init(conn, season_number, rng)
+        .map_err(|e| format!("Falha ao iniciar a janela de transferencias: {e}"))?;
 
-    let original_teams_by_id = original_teams
-        .iter()
-        .cloned()
-        .map(|team| (team.id.clone(), team))
-        .collect::<std::collections::HashMap<_, _>>();
-    let temp_drivers_by_id = temp_drivers
-        .iter()
-        .cloned()
-        .map(|driver| (driver.id.clone(), driver))
-        .collect::<std::collections::HashMap<_, _>>();
+    // O jogador já tem time se saiu da pré-passe com contrato regular ativo
+    // (renovou / contrato plurianual); senão é agente livre dentro da janela.
+    let player_has_team = driver_queries::get_player_driver(conn)
+        .ok()
+        .and_then(|player| {
+            contract_queries::get_active_regular_contract_for_pilot(conn, &player.id).ok()
+        })
+        .flatten()
+        .is_some();
 
-    apply_preseason_entry_contract_state(conn, season_number)?;
-    apply_preseason_renewal_state(conn, season_number, &renewal_events)?;
-
-    planned_events.extend(renewal_events);
-    if !planned_events.iter().any(|event| {
-        event.week == 2 && phase_for_action(&event.event) == PreSeasonPhase::ContractExpiry
-    }) {
-        planned_events.push(PlannedEvent {
-            week: 2,
-            event: PendingAction::PhaseMarker {
-                phase: PreSeasonPhase::ContractExpiry,
-            },
-            executed: false,
-        });
-    }
-
-    let has_transfer_phase_event = transfer_events
-        .iter()
-        .any(|event| phase_for_action(&event.event) == PreSeasonPhase::Transfers);
-    if !has_transfer_phase_event {
-        planned_events.push(PlannedEvent {
-            week: 3,
-            event: PendingAction::PhaseMarker {
-                phase: PreSeasonPhase::Transfers,
-            },
-            executed: false,
-        });
-    }
-    planned_events.extend(transfer_events);
-
-    let mut current_week = planned_events
-        .iter()
-        .map(|event| event.week)
-        .max()
-        .unwrap_or(2)
-        + 1;
-    if market_report.player_proposals.is_empty() {
-        planned_events.push(PlannedEvent {
-            week: current_week,
-            event: PendingAction::PhaseMarker {
-                phase: PreSeasonPhase::PlayerProposals,
-            },
-            executed: false,
-        });
-        current_week += 1;
-    } else {
-        for proposal in market_report.player_proposals.iter().cloned() {
-            planned_events.push(PlannedEvent {
-                week: current_week,
-                event: PendingAction::PlayerProposal { proposal },
-                executed: false,
-            });
-        }
-        current_week += 1;
-    }
-
-    let rookie_events = build_rookie_events(
-        &simulated_contracts_by_driver,
-        &market_report.new_signings,
-        &temp_drivers_by_id,
-        current_week,
-    )?;
-    let has_rookie_placement_week = rookie_events.iter().any(|event| event.week == current_week);
-    if rookie_events.is_empty() || !has_rookie_placement_week {
-        planned_events.push(PlannedEvent {
-            week: current_week,
-            event: PendingAction::PhaseMarker {
-                phase: PreSeasonPhase::RookiePlacement,
-            },
-            executed: false,
-        });
-    }
-    planned_events.extend(rookie_events);
-    current_week += 1;
-    let hierarchy_events = build_hierarchy_events(
-        &temp_teams,
-        &original_teams_by_id,
-        &temp_drivers_by_id,
-        current_week,
-        season_year,
-    );
-    if hierarchy_events.is_empty() {
-        planned_events.push(PlannedEvent {
-            week: current_week,
-            event: PendingAction::PhaseMarker {
-                phase: PreSeasonPhase::Finalization,
-            },
-            executed: false,
-        });
-    } else {
-        planned_events.extend(hierarchy_events);
-    }
-
+    // Semanas VARIÁVEIS: a conclusão é dirigida pela janela (flag closed), não por um
+    // total fixo. `total_weeks` fica só como teto p/ a data exibida não estourar.
     let total_weeks = i32::from(MARKET_DURATION_WEEKS);
-
     let mut state = PreSeasonState {
         season_number,
         current_week: 1,
         total_weeks,
-        phase: phase_for_week(1, &planned_events),
+        phase: PreSeasonPhase::Transfers,
         is_complete: false,
-        player_has_pending_proposals: market_report
-            .player_proposals
-            .iter()
-            .any(|proposal| proposal.status == ProposalStatus::Pendente),
-        player_has_team: false,
+        player_has_pending_proposals: false,
+        player_has_team,
         current_display_date: None,
     };
     refresh_preseason_state_display_date(conn, &season_id, &mut state)?;
 
     Ok(PreSeasonPlan {
         state,
-        planned_events,
+        planned_events: Vec::new(),
         executed_weeks: Vec::new(),
     })
 }
@@ -498,9 +334,7 @@ fn assign_seasonal_team_attributes(
                     rusqlite::params![season_number],
                     |row| row.get(0),
                 )
-                .map_err(|e| {
-                    format!("Falha ao buscar ano da temporada {season_number}: {e}")
-                })?;
+                .map_err(|e| format!("Falha ao buscar ano da temporada {season_number}: {e}"))?;
             season_year - career_start_year
         }
         None => PENALTY_FADE_YEARS as i32,
@@ -640,7 +474,14 @@ fn load_previous_team_standings(
     Ok(result)
 }
 
-pub fn advance_week(conn: &Connection, plan: &mut PreSeasonPlan) -> Result<WeekResult, String> {
+/// Avança UMA semana da pré-temporada. O mercado é a Janela de Transferências: a IA
+/// assina e o jogador aceita `player_choice` (id da vaga) ou espera (`None`). A
+/// pré-temporada fecha quando a janela fecha (semanas variáveis), não num total fixo.
+pub fn advance_week(
+    conn: &Connection,
+    plan: &mut PreSeasonPlan,
+    player_choice: Option<&str>,
+) -> Result<WeekResult, String> {
     if plan.state.is_complete {
         return Err("Pre-temporada ja esta completa".to_string());
     }
@@ -649,47 +490,38 @@ pub fn advance_week(conn: &Connection, plan: &mut PreSeasonPlan) -> Result<WeekR
     let week = plan.state.current_week;
     let season_id = get_season_id_by_number(conn, plan.state.season_number)?
         .ok_or_else(|| format!("Temporada {} nao encontrada", plan.state.season_number))?;
-    let phase = phase_for_week(week, &plan.planned_events);
-    let indices: Vec<usize> = plan
-        .planned_events
-        .iter()
-        .enumerate()
-        .filter_map(|(index, event)| {
-            if event.week == week && !event.executed {
-                Some(index)
-            } else {
-                None
-            }
-        })
-        .collect();
 
-    let mut events = Vec::new();
-    let mut player_proposals = Vec::new();
-    for index in indices {
-        let action = plan.planned_events[index].event.clone();
-        execute_action(
-            conn,
-            &season_id,
-            plan.state.season_number,
-            &action,
-            &mut events,
-            &mut player_proposals,
-        )?;
-        plan.planned_events[index].executed = true;
+    // Avança a janela uma semana (a IA assina; o jogador aceita/espera). Ao fechar,
+    // aplica as assinaturas e garante porta ao jogador (ver pipeline::window_advance).
+    let mut rng = StdRng::seed_from_u64(plan.state.season_number as u64);
+    let window = crate::market::pipeline::window_advance(
+        conn,
+        plan.state.season_number,
+        player_choice,
+        &mut rng,
+    )?;
+
+    // Feed: assinaturas resolvidas nesta semana da janela.
+    let resolved_week = if window.is_closed() {
+        window.week()
+    } else {
+        window.week().saturating_sub(1)
     }
+    .max(1);
+    let mut events = window_signing_events(conn, &window, resolved_week);
 
     sync_team_slots_from_active_contracts(conn)?;
     let remaining_vacancies = count_remaining_vacancies(conn)?;
 
-    let is_last_week = week >= plan.state.total_weeks;
+    let is_last_week = window.is_closed();
     if is_last_week {
-        plan.state.current_week = plan.state.total_weeks + 1;
+        plan.state.current_week = week + 1;
         plan.state.phase = PreSeasonPhase::Complete;
         plan.state.is_complete = true;
         events.push(MarketEvent {
             event_type: MarketEventType::PreSeasonComplete,
-            headline: "Pre-temporada encerrada".to_string(),
-            description: "O mercado de transferencias foi finalizado.".to_string(),
+            headline: "Janela de transferencias encerrada".to_string(),
+            description: "O mercado foi fechado.".to_string(),
             driver_id: None,
             driver_name: None,
             team_id: None,
@@ -704,27 +536,78 @@ pub fn advance_week(conn: &Connection, plan: &mut PreSeasonPlan) -> Result<WeekR
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
     } else {
         plan.state.current_week += 1;
-        plan.state.phase = phase_for_week(plan.state.current_week, &plan.planned_events);
-        update_market_state(conn, &season_id, "Aberto", &plan.state.phase, false)?;
+        plan.state.phase = PreSeasonPhase::Transfers;
+        update_market_state(
+            conn,
+            &season_id,
+            "Aberto",
+            &PreSeasonPhase::Transfers,
+            false,
+        )?;
     }
 
-    let next_phase = if plan.state.is_complete {
-        PreSeasonPhase::Complete
-    } else {
-        phase_for_week(plan.state.current_week, &plan.planned_events)
-    };
+    let next_phase = plan.state.phase.clone();
     refresh_preseason_state_display_date(conn, &season_id, &mut plan.state)?;
     let result = WeekResult {
         week_number: week,
-        phase,
+        phase: PreSeasonPhase::Transfers,
         events,
         is_last_week,
-        player_proposals,
+        player_proposals: Vec::new(),
         remaining_vacancies,
         next_phase,
     };
     plan.executed_weeks.push(result.clone());
     Ok(result)
+}
+
+/// Constrói os eventos de feed (TransferCompleted) das assinaturas da janela numa
+/// dada semana, resolvendo nomes de piloto/equipe.
+fn window_signing_events(
+    conn: &Connection,
+    window: &crate::market::transfer_window::WindowState,
+    week: u32,
+) -> Vec<MarketEvent> {
+    let drivers = driver_queries::get_all_drivers(conn).unwrap_or_default();
+    let driver_names: std::collections::HashMap<&str, &str> = drivers
+        .iter()
+        .map(|d| (d.id.as_str(), d.nome.as_str()))
+        .collect();
+    let teams = team_queries::get_all_teams(conn).unwrap_or_default();
+    let team_names: std::collections::HashMap<&str, &str> = teams
+        .iter()
+        .map(|t| (t.id.as_str(), t.nome.as_str()))
+        .collect();
+    window
+        .signings()
+        .iter()
+        .filter(|signing| signing.week == week)
+        .map(|signing| {
+            let dname = driver_names
+                .get(signing.driver_id.as_str())
+                .copied()
+                .unwrap_or("Piloto");
+            let tname = team_names
+                .get(signing.team_id.as_str())
+                .copied()
+                .unwrap_or("Equipe");
+            MarketEvent {
+                event_type: MarketEventType::TransferCompleted,
+                headline: format!("{dname} -> {tname}"),
+                description: format!("Acerto na {}.", signing.category),
+                driver_id: Some(signing.driver_id.clone()),
+                driver_name: Some(dname.to_string()),
+                team_id: Some(signing.team_id.clone()),
+                team_name: Some(tname.to_string()),
+                from_team: None,
+                to_team: Some(tname.to_string()),
+                categoria: Some(signing.category.clone()),
+                from_categoria: None,
+                movement_kind: None,
+                championship_position: None,
+            }
+        })
+        .collect()
 }
 
 pub fn refresh_preseason_state_display_date(
@@ -1609,18 +1492,21 @@ fn execute_action(
             // sem ser reconstruído pelo plano (caso de borda de categorias recém-criadas) —
             // pula a atualização deste time. Ele mantém o lineup atual (completo, do ciclo
             // anterior) e o mercado do próximo ciclo regulariza. Evita o FK sem abortar.
-            let pilots_exist = [resolved_lineup.n1_id.as_str(), resolved_lineup.n2_id.as_str()]
-                .iter()
-                .all(|did| {
-                    conn.query_row(
-                        "SELECT 1 FROM drivers WHERE id = ?1",
-                        rusqlite::params![did],
-                        |_| Ok(()),
-                    )
-                    .optional()
-                    .map(|row| row.is_some())
-                    .unwrap_or(false)
-                });
+            let pilots_exist = [
+                resolved_lineup.n1_id.as_str(),
+                resolved_lineup.n2_id.as_str(),
+            ]
+            .iter()
+            .all(|did| {
+                conn.query_row(
+                    "SELECT 1 FROM drivers WHERE id = ?1",
+                    rusqlite::params![did],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map(|row| row.is_some())
+                .unwrap_or(false)
+            });
             if !pilots_exist {
                 return Ok(());
             }
@@ -2053,7 +1939,6 @@ mod tests {
     use crate::models::enums::{
         DriverStatus, RaceStatus, SeasonPhase, TeamRole, ThematicSlot, WeatherCondition,
     };
-    use crate::models::license::driver_has_required_license_for_category;
     use crate::models::season::Season;
     use crate::simulation::car_build::CarBuildProfile;
 
@@ -2097,28 +1982,26 @@ mod tests {
 
         assert_eq!(plan.state.season_number, 2);
         assert_eq!(plan.state.current_week, 1);
-        assert_eq!(
-            plan.state.total_weeks,
-            i32::from(crate::constants::timeline::MARKET_DURATION_WEEKS)
-        );
-        assert!(!plan.planned_events.is_empty());
+        assert_eq!(plan.state.phase, PreSeasonPhase::Transfers);
+        assert!(!plan.state.is_complete);
+        // A Janela de Transferências É o mercado — sem timeline de replay agendada.
+        assert!(plan.planned_events.is_empty());
     }
 
     #[test]
-    fn test_initialize_preseason_has_all_phases() {
+    fn test_initialize_preseason_reaches_complete_via_window() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(501);
 
-        let plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
-        let phases: Vec<_> = (1..=plan.state.total_weeks)
-            .map(|week| phase_for_week(week, &plan.planned_events))
-            .collect();
-
-        assert!(phases.contains(&PreSeasonPhase::ContractExpiry));
-        assert!(phases.contains(&PreSeasonPhase::Transfers));
-        assert!(phases.contains(&PreSeasonPhase::PlayerProposals));
-        assert!(phases.contains(&PreSeasonPhase::RookiePlacement));
-        assert!(phases.contains(&PreSeasonPhase::Finalization));
+        let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+        assert_eq!(plan.state.phase, PreSeasonPhase::Transfers);
+        let mut guard = 0;
+        while !plan.state.is_complete {
+            advance_week(&conn, &mut plan, None).expect("week should advance");
+            guard += 1;
+            assert!(guard < 30, "a janela deve fechar em tempo razoavel");
+        }
+        assert_eq!(plan.state.phase, PreSeasonPhase::Complete);
     }
 
     #[test]
@@ -2211,7 +2094,10 @@ mod tests {
         assert!(valid.contains(&updated_team_a.season_strategy.as_str()));
         assert!(valid.contains(&updated_team_b.season_strategy.as_str()));
         assert!(
-            !matches!(updated_team_a.season_strategy.as_str(), "survival" | "austerity"),
+            !matches!(
+                updated_team_a.season_strategy.as_str(),
+                "survival" | "austerity"
+            ),
             "time forte/rico nao deveria entrar em contencao, veio {}",
             updated_team_a.season_strategy
         );
@@ -2257,11 +2143,11 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(503);
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
-        let result = advance_week(&conn, &mut plan).expect("week should advance");
+        let result = advance_week(&conn, &mut plan, None).expect("week should advance");
 
         assert_eq!(result.week_number, 1);
-        assert!(!result.events.is_empty());
-        assert!(plan.planned_events.iter().any(|event| event.executed));
+        // A semana avançou pela janela (seguiu p/ a próxima ou fechou).
+        assert!(plan.state.current_week >= 2 || plan.state.is_complete);
     }
 
     #[test]
@@ -2270,7 +2156,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(504);
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
-        advance_week(&conn, &mut plan).expect("week should advance");
+        advance_week(&conn, &mut plan, None).expect("week should advance");
 
         assert_eq!(plan.state.current_week, 2);
     }
@@ -2281,57 +2167,16 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(505);
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
-        let mut seen_player_phase = false;
         while !plan.state.is_complete {
-            let result = advance_week(&conn, &mut plan).expect("week should advance");
-            if result.next_phase == PreSeasonPhase::PlayerProposals
-                || result.phase == PreSeasonPhase::PlayerProposals
-            {
-                seen_player_phase = true;
-            }
+            let result = advance_week(&conn, &mut plan, None).expect("week should advance");
+            // Durante a janela a fase é sempre Transfers até fechar.
+            assert_eq!(result.phase, PreSeasonPhase::Transfers);
         }
 
-        assert!(seen_player_phase);
         assert_eq!(plan.state.phase, PreSeasonPhase::Complete);
     }
 
     #[test]
-    fn test_contract_expiry_week() {
-        let conn = setup_market_fixture();
-        let mut rng = StdRng::seed_from_u64(506);
-        let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
-
-        let week_one_expiries: Vec<String> = plan
-            .planned_events
-            .iter()
-            .filter_map(|event| match &event.event {
-                PendingAction::ExpireContract { contract_id, .. } if event.week == 1 => {
-                    Some(contract_id.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        assert!(!week_one_expiries.is_empty());
-
-        let result = advance_week(&conn, &mut plan).expect("week should advance");
-        assert_eq!(result.phase, PreSeasonPhase::ContractExpiry);
-        assert!(result
-            .events
-            .iter()
-            .any(|event| event.event_type == MarketEventType::ContractExpired));
-
-        for contract_id in week_one_expiries {
-            let status: String = conn
-                .query_row(
-                    "SELECT status FROM contracts WHERE id = ?1",
-                    [&contract_id],
-                    |row| row.get(0),
-                )
-                .expect("contract status");
-            assert_ne!(status, "Ativo");
-        }
-    }
-
     #[test]
     fn test_initialize_preseason_expires_ending_contracts_immediately() {
         let conn = setup_market_fixture();
@@ -2376,7 +2221,7 @@ mod tests {
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
         while !plan.state.is_complete {
-            let result = advance_week(&conn, &mut plan).expect("week should advance");
+            let result = advance_week(&conn, &mut plan, None).expect("week should advance");
             if result
                 .events
                 .iter()
@@ -2459,35 +2304,13 @@ mod tests {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(507);
         let plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
-        let player = driver_queries::get_player_driver(&conn).expect("player");
+        let _player = driver_queries::get_player_driver(&conn).expect("player");
 
+        // Sem timeline de replay: o jogador nunca é movido por evento automático
+        // agendado — ele decide pela Janela de Transferências (player_choice).
         assert!(
-            plan.planned_events.iter().any(|event| matches!(
-                &event.event,
-                PendingAction::PlayerProposal { proposal } if proposal.piloto_id == player.id
-            )),
-            "o jogador deveria receber ao menos uma proposta planejada"
-        );
-        assert!(
-            !plan.planned_events.iter().any(|event| matches!(
-                &event.event,
-                PendingAction::RenewContract { driver_id, .. } if driver_id == &player.id
-            )),
-            "o plano não deve renovar automaticamente o contrato do jogador"
-        );
-        assert!(
-            !plan.planned_events.iter().any(|event| matches!(
-                &event.event,
-                PendingAction::Transfer { driver_id, .. } if driver_id == &player.id
-            )),
-            "o plano não deve agendar transferência automática para o jogador"
-        );
-        assert!(
-            !plan.planned_events.iter().any(|event| matches!(
-                &event.event,
-                PendingAction::PlaceRookie { driver, .. } if driver.id == player.id
-            )),
-            "o plano não deve tratar o jogador como rookie para preencher vagas"
+            plan.planned_events.is_empty(),
+            "a pre-temporada não deve agendar nenhum movimento automático; a janela é o mercado"
         );
     }
 
@@ -2604,7 +2427,7 @@ mod tests {
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
         while !plan.state.is_complete {
-            let result = advance_week(&conn, &mut plan).expect("week should advance");
+            let result = advance_week(&conn, &mut plan, None).expect("week should advance");
             if result
                 .events
                 .iter()
@@ -2754,30 +2577,6 @@ mod tests {
     }
 
     #[test]
-    fn test_preseason_reduces_vacancies_before_final_week() {
-        let conn = setup_market_fixture();
-        let mut rng = StdRng::seed_from_u64(508);
-        let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
-
-        advance_week(&conn, &mut plan).expect("contract expiry week should advance");
-        let second_week = advance_week(&conn, &mut plan).expect("second week should advance");
-        let vacancies_before_transfers = second_week.remaining_vacancies;
-
-        let transfer_week = advance_week(&conn, &mut plan).expect("transfer week should advance");
-
-        assert!(
-            transfer_week
-                .events
-                .iter()
-                .any(|event| event.event_type == MarketEventType::TransferCompleted),
-            "a pre-temporada deveria ter pelo menos uma contratacao antes da semana final"
-        );
-        assert!(
-            transfer_week.remaining_vacancies < vacancies_before_transfers,
-            "as vagas devem comecar a cair antes da ultima semana"
-        );
-    }
-
     #[test]
     fn test_rookie_placement_week() {
         let conn = setup_market_fixture();
@@ -2785,7 +2584,7 @@ mod tests {
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
         while !plan.state.is_complete {
-            let result = advance_week(&conn, &mut plan).expect("week should advance");
+            let result = advance_week(&conn, &mut plan, None).expect("week should advance");
             if result
                 .events
                 .iter()
@@ -2806,80 +2605,17 @@ mod tests {
     }
 
     #[test]
-    fn test_place_rookie_grants_required_license_before_signing() {
-        let conn = setup_market_fixture();
-        let rookie = sample_driver(
-            "P999",
-            "Rookie Planejado",
-            Some("gt4"),
-            55.0,
-            DriverStatus::Ativo,
-        );
-        let mut plan = PreSeasonPlan {
-            state: PreSeasonState {
-                season_number: 2,
-                current_week: 1,
-                total_weeks: 1,
-                phase: PreSeasonPhase::RookiePlacement,
-                is_complete: false,
-                player_has_pending_proposals: false,
-                player_has_team: false,
-                current_display_date: None,
-            },
-            planned_events: vec![PlannedEvent {
-                week: 1,
-                executed: false,
-                event: PendingAction::PlaceRookie {
-                    driver: rookie.clone(),
-                    team_id: "T001".to_string(),
-                    team_name: "Equipe A".to_string(),
-                    salary: 80_000.0,
-                    duration: 1,
-                    role: TeamRole::Numero2.as_str().to_string(),
-                },
-            }],
-            executed_weeks: Vec::new(),
-        };
-
-        let result = advance_week(&conn, &mut plan).expect("rookie placement should succeed");
-
-        assert!(result.events.iter().any(|event| {
-            event.event_type == MarketEventType::TransferCompleted
-                && event.movement_kind.as_deref() == Some("signing")
-        }));
-        assert!(!result
-            .events
-            .iter()
-            .any(|event| event.event_type == MarketEventType::RookieSigned));
-
-        let license_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM licenses WHERE piloto_id = ?1 AND CAST(nivel AS INTEGER) >= 2",
-                rusqlite::params![rookie.id.as_str()],
-                |row| row.get(0),
-            )
-            .expect("rookie license count");
-        assert_eq!(license_count, 1);
-
-        let active_contracts: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM contracts WHERE piloto_id = ?1 AND status = 'Ativo'",
-                rusqlite::params![rookie.id.as_str()],
-                |row| row.get(0),
-            )
-            .expect("rookie active contract count");
-        assert_eq!(active_contracts, 1);
-    }
-
-    #[test]
     fn test_all_teams_filled_after_complete() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(510);
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
         while !plan.state.is_complete {
-            advance_week(&conn, &mut plan).expect("week should advance");
+            advance_week(&conn, &mut plan, None).expect("week should advance");
         }
+        // As vagas que sobraram após a janela são preenchidas no finalize (rookies).
+        crate::market::pipeline::fill_all_remaining_vacancies(&conn, 2, &mut rng)
+            .expect("fill remaining at finalize");
 
         let teams = team_queries::get_all_teams(&conn).expect("teams");
         assert!(teams
@@ -2969,77 +2705,16 @@ mod tests {
     }
 
     #[test]
-    fn test_advance_week_repairs_legacy_license_before_transfer() {
-        let conn = setup_market_fixture();
-        let mut team_rng = StdRng::seed_from_u64(513);
-        let extra_team = sample_team("gt4", "T003", &mut team_rng);
-        team_queries::insert_team(&conn, &extra_team).expect("extra team");
-        conn.execute("DELETE FROM licenses WHERE piloto_id = 'P004'", [])
-            .expect("remove legacy-corrected license");
-
-        let mut plan = PreSeasonPlan {
-            state: PreSeasonState {
-                season_number: 2,
-                current_week: 1,
-                total_weeks: 1,
-                phase: PreSeasonPhase::Transfers,
-                is_complete: false,
-                player_has_pending_proposals: false,
-                player_has_team: false,
-                current_display_date: None,
-            },
-            planned_events: vec![PlannedEvent {
-                week: 1,
-                executed: false,
-                event: PendingAction::Transfer {
-                    driver_id: "P004".to_string(),
-                    driver_name: "Piloto D".to_string(),
-                    from_team_id: None,
-                    from_team_name: None,
-                    from_categoria: None,
-                    to_team_id: extra_team.id.clone(),
-                    to_team_name: extra_team.nome.clone(),
-                    salary: 110_000.0,
-                    duration: 1,
-                    role: TeamRole::Numero1.as_str().to_string(),
-                },
-            }],
-            executed_weeks: Vec::new(),
-        };
-
-        let result = advance_week(&conn, &mut plan).expect("legacy transfer should succeed");
-
-        assert!(result
-            .events
-            .iter()
-            .any(|event| event.event_type == MarketEventType::TransferCompleted));
-        assert!(
-            driver_has_required_license_for_category(&conn, "P004", "gt4")
-                .expect("repaired gt4 license"),
-            "a execucao da pre-temporada deve recuperar saves legados antes de assinar"
-        );
-        let active_contracts: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM contracts
-                 WHERE piloto_id = 'P004' AND equipe_id = 'T003' AND status = 'Ativo'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("signed contract count");
-        assert_eq!(active_contracts, 1);
-    }
-
-    #[test]
     fn test_cannot_advance_after_complete() {
         let conn = setup_market_fixture();
         let mut rng = StdRng::seed_from_u64(512);
         let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
 
         while !plan.state.is_complete {
-            advance_week(&conn, &mut plan).expect("week should advance");
+            advance_week(&conn, &mut plan, None).expect("week should advance");
         }
 
-        let error = advance_week(&conn, &mut plan).expect_err("should reject after complete");
+        let error = advance_week(&conn, &mut plan, None).expect_err("should reject after complete");
         assert!(error.contains("completa"));
     }
 

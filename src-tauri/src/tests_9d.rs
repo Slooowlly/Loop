@@ -125,7 +125,7 @@ mod helpers {
     /// força conclusão do plano e finaliza a pré-temporada → Temporada.
     pub fn run_preseason_to_temporada(base_dir: &Path, db_path: &Path, career_dir: &Path) {
         // Avança 1 semana para disparar o ciclo de mercado
-        let week = advance_market_week_in_base_dir(base_dir, "career_001")
+        let week = advance_market_week_in_base_dir(base_dir, "career_001", None)
             .expect("avançar semana de mercado");
         assert_eq!(week.week_number, 1);
 

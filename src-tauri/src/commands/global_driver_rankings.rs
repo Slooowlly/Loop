@@ -141,11 +141,18 @@ fn build_global_driver_rankings(
         seen_driver_ids.insert(driver.id.clone());
         if driver.status == DriverStatus::Aposentado {
             if let Some(retired) = retired_by_id.remove(&driver.id) {
+                // Pontuação consistente com ativos: histórico POR CATEGORIA do archive
+                // (em vez do agregado de carreira × multiplicador da categoria final, que
+                // inflava a carreira toda no peso da endurance). Vazio sem archive → o
+                // construtor cai no agregado do snapshot.
+                let archive_stats =
+                    load_archive_category_stats(conn, &driver.id, &team_title_stats_by_driver)?;
                 entries.push(build_retired_driver_entry_from_driver(
                     retired,
                     &driver,
                     current_year,
                     &team_lookup,
+                    archive_stats,
                 ));
                 continue;
             }
@@ -163,7 +170,16 @@ fn build_global_driver_rankings(
         if seen_driver_ids.contains(&retired.id) {
             continue;
         }
-        entries.push(build_retired_driver_entry(retired, current_year, &team_lookup));
+        // Aposentado sem registro na tabela `drivers` (purgado): histórico por
+        // categoria do archive; se não houver, cai no agregado do snapshot.
+        let archive_stats =
+            load_archive_category_stats(conn, &retired.id, &team_title_stats_by_driver)?;
+        entries.push(build_retired_driver_entry(
+            retired,
+            current_year,
+            &team_lookup,
+            archive_stats,
+        ));
     }
 
     let unranked_player_driver = entries
@@ -221,10 +237,7 @@ fn build_current_driver_entry(
         category.as_deref(),
         team_title_stats_by_driver,
     )?;
-    let historical_index = stats_by_category
-        .iter()
-        .map(score_category_stats)
-        .sum::<f64>();
+    let historical_index = compute_historical_index(&stats_by_category);
     let injuries = injury_queries::count_injuries_by_severity_for_pilot(conn, &driver.id)
         .map_err(|e| format!("Falha ao contar lesoes do piloto: {e}"))?;
     let active_injury_type = injury_queries::get_active_injury_for_pilot(conn, &driver.id)
@@ -304,8 +317,8 @@ fn build_retired_driver_entry(
     retired: RetiredDriverSnapshot,
     current_year: i32,
     team_lookup: &TeamLookup,
+    archive_stats: Vec<CategoryStats>,
 ) -> RankingEntry {
-    let score = score_category_stats(&retired.stats);
     let retirement_year = parse_year(&retired.retirement_season);
     let career_years = retired.career_years.or_else(|| {
         retired
@@ -313,7 +326,17 @@ fn build_retired_driver_entry(
             .and_then(|start| retirement_year.and_then(|end| years_since(start, end)))
     });
     let years_retired = retirement_year.map(|year| (current_year - year).max(0));
-    let stats_by_category = vec![retired.stats.clone()];
+    // ÍNDICE pela MESMA régua dos ativos (por categoria) quando o archive tem
+    // participação real (corridas > 0); senão, pontua o agregado do snapshot. O
+    // DISPLAY (totais/visibilidade) continua vindo do snapshot de carreira, que é
+    // o registro autoritativo da carreira do aposentado.
+    let archive_has_participation = archive_stats.iter().map(|entry| entry.races).sum::<i32>() > 0;
+    let stats_by_category = if archive_has_participation {
+        archive_stats
+    } else {
+        vec![retired.stats.clone()]
+    };
+    let score = compute_historical_index(&stats_by_category);
     let title_categories = if retired.title_categories.is_empty() {
         title_categories(&stats_by_category, team_lookup)
     } else {
@@ -374,8 +397,9 @@ fn build_retired_driver_entry_from_driver(
     driver: &Driver,
     current_year: i32,
     team_lookup: &TeamLookup,
+    archive_stats: Vec<CategoryStats>,
 ) -> RankingEntry {
-    let mut entry = build_retired_driver_entry(retired, current_year, team_lookup);
+    let mut entry = build_retired_driver_entry(retired, current_year, team_lookup, archive_stats);
     entry.row.nacionalidade = driver.nacionalidade.clone();
     entry.row.idade = driver.idade as i32;
     entry.row.is_jogador = driver.is_jogador;
@@ -396,16 +420,14 @@ fn driver_status_label(driver: &Driver, has_active_contract: bool) -> (String, S
     ("Livre".to_string(), "dimmed".to_string())
 }
 
-fn load_driver_category_stats(
+/// Lê o histórico por categoria do archive (uma `CategoryStats` por temporada-
+/// categoria) e os eventos de título já contados. Núcleo compartilhado entre o
+/// caminho de ativo (`load_driver_category_stats`) e o de aposentado por id
+/// (`load_archive_category_stats`).
+fn read_archive_category_stats(
     conn: &Connection,
-    driver: &Driver,
-    fallback_category: Option<&str>,
-    team_title_stats_by_driver: &TeamTitleStatsByDriver,
-) -> Result<Vec<CategoryStats>, String> {
-    if !table_exists(conn, "driver_season_archive")? {
-        return Ok(vec![stats_from_driver(driver, fallback_category)]);
-    }
-
+    driver_id: &str,
+) -> Result<(Vec<CategoryStats>, HashSet<TitleEventKey>), String> {
     let mut stmt = conn
         .prepare(
             "SELECT categoria, pontos, snapshot_json, posicao_campeonato, season_number, ano
@@ -414,7 +436,7 @@ fn load_driver_category_stats(
         )
         .map_err(|e| format!("Falha ao preparar historico global do piloto: {e}"))?;
     let rows = stmt
-        .query_map(params![driver.id], |row| {
+        .query_map(params![driver_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
@@ -434,7 +456,7 @@ fn load_driver_category_stats(
         let snapshot: Value = serde_json::from_str(&snapshot_json).unwrap_or_default();
         let category = normalized_archive_category(&snapshot, category);
         let class_name =
-            archived_title_class(conn, &driver.id, &category, season_number, &snapshot)?;
+            archived_title_class(conn, driver_id, &category, season_number, &snapshot)?;
         let points = json_f64(&snapshot, "pontos").unwrap_or(points);
         let wins = json_i32(&snapshot, "vitorias");
         let podiums = json_i32(&snapshot, "podios");
@@ -456,7 +478,8 @@ fn load_driver_category_stats(
                 class_name.as_deref(),
             ));
         }
-        let title_team_id = json_string(&snapshot, "team_id").filter(|value| !value.trim().is_empty());
+        let title_team_id =
+            json_string(&snapshot, "team_id").filter(|value| !value.trim().is_empty());
         stats.push(CategoryStats {
             category,
             class_name,
@@ -471,6 +494,40 @@ fn load_driver_category_stats(
         });
     }
 
+    Ok((stats, counted_title_events))
+}
+
+/// Histórico por categoria de um piloto (por id), incluindo títulos como campeão
+/// de equipe. Vazio se não houver archive — o chamador decide o fallback.
+fn load_archive_category_stats(
+    conn: &Connection,
+    driver_id: &str,
+    team_title_stats_by_driver: &TeamTitleStatsByDriver,
+) -> Result<Vec<CategoryStats>, String> {
+    if !table_exists(conn, "driver_season_archive")? {
+        return Ok(Vec::new());
+    }
+    let (mut stats, counted_title_events) = read_archive_category_stats(conn, driver_id)?;
+    let team_title_stats = team_champion_title_stats_for_driver(
+        driver_id,
+        &counted_title_events,
+        team_title_stats_by_driver,
+    );
+    stats.extend(team_title_stats);
+    Ok(stats)
+}
+
+fn load_driver_category_stats(
+    conn: &Connection,
+    driver: &Driver,
+    fallback_category: Option<&str>,
+    team_title_stats_by_driver: &TeamTitleStatsByDriver,
+) -> Result<Vec<CategoryStats>, String> {
+    if !table_exists(conn, "driver_season_archive")? {
+        return Ok(vec![stats_from_driver(driver, fallback_category)]);
+    }
+
+    let (mut stats, counted_title_events) = read_archive_category_stats(conn, &driver.id)?;
     let team_title_stats = team_champion_title_stats_for_driver(
         &driver.id,
         &counted_title_events,
@@ -661,30 +718,32 @@ fn load_retired_snapshots(
         let retirement_season = normalize_retirement_season(conn, &retirement_season)?;
         let archived_titles =
             valid_archived_title_count_for_pilot(conn, &id, team_title_stats_by_driver)?;
-        let title_categories =
-            valid_archived_title_categories_for_pilot(
-                conn,
-                &id,
-                team_title_stats_by_driver,
+        let title_categories = valid_archived_title_categories_for_pilot(
+            conn,
+            &id,
+            team_title_stats_by_driver,
+            team_lookup,
+        )?
+        .unwrap_or_else(|| {
+            title_categories(
+                &[CategoryStats {
+                    category: category.clone(),
+                    class_name: None,
+                    points: json_f64(&snapshot, "pontos")
+                        .or_else(|| json_f64(&snapshot, "pontos_total"))
+                        .or_else(|| json_f64(&snapshot, "carreira_pontos_total"))
+                        .unwrap_or(0.0),
+                    wins: json_i32(&snapshot, "vitorias"),
+                    podiums: json_i32(&snapshot, "podios"),
+                    poles: json_i32(&snapshot, "poles"),
+                    races: json_i32(&snapshot, "corridas"),
+                    titles: json_i32(&snapshot, "titulos"),
+                    title_years: Vec::new(),
+                    dnfs: json_i32(&snapshot, "dnfs"),
+                }],
                 team_lookup,
-            )?
-                .unwrap_or_else(|| {
-                    title_categories(&[CategoryStats {
-                        category: category.clone(),
-                        class_name: None,
-                        points: json_f64(&snapshot, "pontos")
-                            .or_else(|| json_f64(&snapshot, "pontos_total"))
-                            .or_else(|| json_f64(&snapshot, "carreira_pontos_total"))
-                            .unwrap_or(0.0),
-                        wins: json_i32(&snapshot, "vitorias"),
-                        podiums: json_i32(&snapshot, "podios"),
-                        poles: json_i32(&snapshot, "poles"),
-                        races: json_i32(&snapshot, "corridas"),
-                        titles: json_i32(&snapshot, "titulos"),
-                        title_years: Vec::new(),
-                        dnfs: json_i32(&snapshot, "dnfs"),
-                    }], team_lookup)
-                });
+            )
+        });
         let snapshot_titles = json_i32(&snapshot, "titulos");
         retired.push(RetiredDriverSnapshot {
             id,
@@ -1004,14 +1063,136 @@ fn balanced_score(
 ) -> f64 {
     let normalized_points = points.max(0.0).sqrt() * 0.4;
     let race_bonus = (races.max(0) as f64).sqrt() * 0.5;
-    let base = titles as f64 * 520.0
-        + wins as f64 * 70.0
+    // Título pesa mais que volume de vitória: o que conta é CONVERTER vitórias em
+    // campeonato, não só vencer muito (título 650 vs vitória 40 ≈ 16 vitórias/título).
+    let base = titles as f64 * 650.0
+        + wins as f64 * 40.0
         + podiums as f64 * 4.0
-        + poles as f64 * 8.0
+        + poles as f64 * 7.0
         + normalized_points
         + race_bonus
         - dnfs.max(0) as f64 * 1.5;
     round_one(base.max(0.0) * category_multiplier(category))
+}
+
+/// Categorias-base (sem classe) em que o piloto foi CAMPEÃO ao menos uma vez.
+fn distinct_title_categories(stats: &[CategoryStats]) -> HashSet<String> {
+    stats
+        .iter()
+        .filter(|entry| entry.titles > 0)
+        .map(|entry| {
+            entry
+                .category
+                .split(':')
+                .next()
+                .unwrap_or(&entry.category)
+                .to_string()
+        })
+        .collect()
+}
+
+/// Bônus de amplitude: cada categoria DISTINTA conquistada além da primeira soma
+/// 8% ao índice. Premia diversidade de títulos (subir a escada vencendo) em vez de
+/// farmar a mesma categoria.
+fn diversity_multiplier(stats: &[CategoryStats]) -> f64 {
+    let distinct = distinct_title_categories(stats).len();
+    1.0 + 0.08 * distinct.saturating_sub(1) as f64
+}
+
+/// Se o piloto foi campeão em alguma CLASSE específica (ex.: "lmp2"), em qualquer
+/// categoria. LMP2 não é categoria autônoma — só existe como classe da Endurance,
+/// então "ganhou lmp2" = tem título com `class_name == "lmp2"`.
+fn won_class_title(stats: &[CategoryStats], class: &str) -> bool {
+    stats
+        .iter()
+        .any(|entry| entry.titles > 0 && entry.class_name.as_deref() == Some(class))
+}
+
+/// Nº de CLASSES distintas em que o piloto foi campeão numa categoria-base
+/// (usado nas especiais multiclasse: Production = mazda/toyota/bmw, Endurance =
+/// gt4/gt3/lmp2). Título sem classe conta como 1.
+fn titled_class_count(stats: &[CategoryStats], base_category: &str) -> usize {
+    stats
+        .iter()
+        .filter(|entry| {
+            entry.titles > 0
+                && entry.category.split(':').next().unwrap_or(&entry.category) == base_category
+        })
+        .map(|entry| entry.class_name.clone().unwrap_or_default())
+        .collect::<HashSet<String>>()
+        .len()
+}
+
+/// Coroas de prestígio (bônus fixos, acumulam). Hierarquia definida pelo user:
+///   prod(1) < Cup Slam < GT Slam < Production Slam < GT Super Slam < Endurance Slam.
+/// - Cup Slam   = campeão mazda_amador + toyota_amador + bmw_m2.
+/// - Production = especial multiclasse (escala por classe; 3 classes = Production Slam).
+/// - GT Slam    = gt4 + gt3; vira GT SUPER SLAM ao somar LMP2 (super substitui o slam).
+/// - Endurance  = especial multiclasse (escala; 3 classes = Endurance Slam = ouro).
+fn crown_bonus(stats: &[CategoryStats]) -> f64 {
+    let cats = distinct_title_categories(stats);
+    let mut bonus = 0.0;
+
+    // Cup Slam (entrada).
+    if ["mazda_amador", "toyota_amador", "bmw_m2"]
+        .iter()
+        .all(|cat| cats.contains(*cat))
+    {
+        bonus += 1500.0;
+    }
+
+    // Production (especial), escalando até o Production Slam (3 classes).
+    bonus += match titled_class_count(stats, "production_challenger") {
+        0 => 0.0,
+        1 => 800.0,
+        2 => 1800.0,
+        _ => 3500.0, // Production Slam (mazda + toyota + bmw)
+    };
+
+    // GT Slam (gt4 + gt3) → GT Super Slam ao somar LMP2. O super SUBSTITUI o slam.
+    // LMP2 só existe como classe da Endurance → detecta pela classe, não pela base.
+    if cats.contains("gt4") && cats.contains("gt3") {
+        bonus += if won_class_title(stats, "lmp2") {
+            5000.0
+        } else {
+            2500.0
+        };
+    }
+
+    // Endurance (especial), escalando até o Endurance Slam (vale ouro).
+    bonus += match titled_class_count(stats, "endurance") {
+        0 => 0.0,
+        1 => 2000.0,
+        2 => 4500.0,
+        _ => 8000.0, // Endurance Slam (gt4 + gt3 + lmp2)
+    };
+
+    bonus
+}
+
+/// Multiplicador de EFICIÊNCIA: premia quem converteu em título rápido (títulos por
+/// temporada) e venceu muito por corrida. Só vale com volume mínimo (guarda contra
+/// carreira-relâmpago) e tem teto. Sempre ≥ 1.0 — é upside, não pune carreira longa.
+fn efficiency_multiplier(stats: &[CategoryStats]) -> f64 {
+    let total_wins: i32 = stats.iter().map(|entry| entry.wins).sum();
+    let total_races: i32 = stats.iter().map(|entry| entry.races).sum();
+    let total_titles: i32 = stats.iter().map(|entry| entry.titles).sum();
+    let seasons = stats.iter().filter(|entry| entry.races > 0).count() as i32;
+    if total_races < 30 || seasons < 3 {
+        return 1.0;
+    }
+    let win_rate = total_wins as f64 / total_races.max(1) as f64;
+    let title_rate = total_titles as f64 / seasons.max(1) as f64;
+    (1.0 + 0.7 * win_rate + 1.4 * title_rate).clamp(1.0, 2.6)
+}
+
+/// Índice histórico unificado — ativos e aposentados pontuam pela MESMA régua
+/// (soma por categoria × diversidade × eficiência + bônus de coroa).
+fn compute_historical_index(stats: &[CategoryStats]) -> f64 {
+    let base: f64 = stats.iter().map(score_category_stats).sum();
+    let value =
+        base * diversity_multiplier(stats) * efficiency_multiplier(stats) + crown_bonus(stats);
+    round_one(value.max(0.0))
 }
 
 fn assign_ranks(rows: &mut [GlobalDriverRankingRow]) {
@@ -1102,7 +1283,7 @@ fn previous_historical_index(
     contributions: Option<&Vec<RaceContribution>>,
 ) -> f64 {
     let Some(contributions) = contributions else {
-        return stats.iter().map(score_category_stats).sum();
+        return compute_historical_index(stats);
     };
     let mut previous_stats = stats.to_vec();
 
@@ -1120,7 +1301,7 @@ fn previous_historical_index(
         }
     }
 
-    previous_stats.iter().map(score_category_stats).sum()
+    compute_historical_index(&previous_stats)
 }
 
 fn load_latest_race_contributions(
@@ -1446,7 +1627,9 @@ fn valid_archived_title_categories_for_pilot(
                     json_string(&snapshot, "team_id").filter(|value| !value.trim().is_empty());
                 let total = totals.entry((category, class_name)).or_default();
                 total.0 += titles;
-                total.1.extend(title_years_for_event(titles, year, title_team_id));
+                total
+                    .1
+                    .extend(title_years_for_event(titles, year, title_team_id));
             }
         }
     }
@@ -2287,6 +2470,63 @@ mod tests {
         assert!(
             champion > non_champion_winner,
             "historical index should treat titles as the top achievement: champion={champion}, non_champion={non_champion_winner}"
+        );
+    }
+
+    #[test]
+    fn crown_bonus_follows_user_prestige_hierarchy() {
+        let title = |cat: &str, class: Option<&str>| CategoryStats {
+            category: cat.to_string(),
+            class_name: class.map(str::to_string),
+            titles: 1,
+            races: 10,
+            ..Default::default()
+        };
+        let production1 = vec![title("production_challenger", Some("mazda"))];
+        let cup_slam = vec![
+            title("mazda_amador", None),
+            title("toyota_amador", None),
+            title("bmw_m2", None),
+        ];
+        let gt_slam = vec![title("gt4", None), title("gt3", None)];
+        let production_slam = vec![
+            title("production_challenger", Some("mazda")),
+            title("production_challenger", Some("toyota")),
+            title("production_challenger", Some("bmw")),
+        ];
+        // GT Super = GT Slam (gt4+gt3, base) + vencer a classe LMP2 (que só existe
+        // dentro da Endurance) → vale 5000 + 2000 (Endurance 1 classe), pois o título
+        // de LMP2 É um título de classe da Endurance.
+        let gt_super_slam = vec![
+            title("gt4", None),
+            title("gt3", None),
+            title("endurance", Some("lmp2")),
+        ];
+        let endurance_slam = vec![
+            title("endurance", Some("gt4")),
+            title("endurance", Some("gt3")),
+            title("endurance", Some("lmp2")),
+        ];
+
+        assert_eq!(crown_bonus(&production1), 800.0);
+        assert_eq!(crown_bonus(&cup_slam), 1500.0);
+        assert_eq!(crown_bonus(&gt_slam), 2500.0);
+        assert_eq!(crown_bonus(&production_slam), 3500.0);
+        assert_eq!(crown_bonus(&gt_super_slam), 7000.0);
+        assert_eq!(crown_bonus(&endurance_slam), 8000.0);
+
+        // Ordem de prestígio exigida pelo user.
+        let chain = [
+            crown_bonus(&production1),
+            crown_bonus(&cup_slam),
+            crown_bonus(&gt_slam),
+            crown_bonus(&production_slam),
+            crown_bonus(&gt_super_slam),
+            crown_bonus(&endurance_slam),
+        ];
+        assert!(
+            chain.windows(2).all(|w| w[0] < w[1]),
+            "hierarquia de coroas fora de ordem: {chain:?}"
         );
     }
 

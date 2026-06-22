@@ -235,8 +235,7 @@ fn surface_label(surface: i32) -> String {
 }
 
 fn g_force(t: &IracingTelemetry) -> f64 {
-    (t.lat_accel * t.lat_accel + t.long_accel * t.long_accel + t.vert_accel * t.vert_accel)
-        .sqrt()
+    (t.lat_accel * t.lat_accel + t.long_accel * t.long_accel + t.vert_accel * t.vert_accel).sqrt()
         / GRAVITY
 }
 
@@ -395,6 +394,31 @@ pub struct PlayerTrackPoint {
     pub gap_behind: f64,
 }
 
+/// Limite de voltas-por-carro guardadas (todos os carros × várias voltas).
+const MAX_CAR_LAPS: usize = 4000;
+
+/// Uma volta completa de um carro qualquer (jogador ou IA) — base da adaptação.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CarLap {
+    pub car_idx: i32,
+    pub lap: i32,
+    pub time: f64,
+}
+
+/// Resumo de um carro (classe, IA/pace, posição na classe) — para a adaptação
+/// achar a referência da classe do jogador. A última amostra vale (posição final).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CarMeta {
+    pub idx: i32,
+    pub is_ai: bool,
+    pub is_pace: bool,
+    pub class_id: i64,
+    pub class_position: i32,
+    /// Número do carro (`CarNumberRaw`) — a ponte p/ nosso `driver_id` (Fase 3).
+    #[serde(default)]
+    pub car_number: i32,
+}
+
 /// Histórico volta a volta da tentativa atual, montado ao vivo para o painel
 /// pós-corrida: race trace de posições, gap ao líder, ritmo do jogador e a
 /// batalha (à frente/atrás) ao longo da corrida.
@@ -416,6 +440,20 @@ pub struct RaceHistory {
     pub finished: bool,
     /// Desfecho da tentativa (em PT) quando encerrada: "Finalizada", "DNF", etc.
     pub outcome: String,
+    /// Voltas completas de CADA carro (jogador + IA) — base da adaptação (ritmo da
+    /// frente da classe). Capturado por evento de fim de volta.
+    #[serde(default)]
+    pub car_laps: Vec<CarLap>,
+    /// Resumo por carro (classe, IA/pace, posição na classe).
+    #[serde(default)]
+    pub cars_meta: Vec<CarMeta>,
+    /// Pista da sessão (`WeekendInfo:TrackID`) — a corrida que foi disputada.
+    #[serde(default)]
+    pub track_id: i64,
+    /// Voltas da QUALI (capturadas na sessão de qualify que precede a corrida) —
+    /// reforço do escudo anti-trânsito na adaptação. Vazio se não houve quali.
+    #[serde(default)]
+    pub qualy_laps: Vec<CarLap>,
 }
 
 impl RaceHistory {
@@ -429,6 +467,10 @@ impl RaceHistory {
             attempt_number: 0,
             finished: false,
             outcome: String::new(),
+            car_laps: Vec::new(),
+            cars_meta: Vec::new(),
+            track_id: 0,
+            qualy_laps: Vec::new(),
         }
     }
 }
@@ -538,6 +580,20 @@ struct RaceMonitor {
     /// Classificação dos carros (do YAML `DriverInfo`): é IA? é pace car?
     car_is_ai: [bool; 64],
     car_is_pace: [bool; 64],
+    /// Classe (`CarClassID`) por carro — para a adaptação multiclasse.
+    car_class_id: [i64; 64],
+    /// Número do carro (`CarNumberRaw`) por carro — ponte p/ driver_id (Fase 3).
+    car_number: [i32; 64],
+    /// Pista da sessão (`WeekendInfo:TrackID`) — copiada para o histórico.
+    session_track_id: i64,
+    /// `SessionNum` da sessão de qualify (-1 se não houver) — detecta a quali.
+    qualy_session_num: i32,
+    /// Se estávamos em quali no tick anterior (detecta entrada numa quali nova).
+    prev_in_qualy: bool,
+    /// Voltas capturadas na sessão de quali (carregadas no histórico da corrida).
+    qualy_laps: Vec<CarLap>,
+    /// Última volta de quali já registrada por carro.
+    qualy_car_lap_completed: [i32; 64],
     /// Último alerta de acidente coletivo por setor (cooldown).
     last_collective_alert: Option<f64>,
     /// Diagnóstico ao vivo por carro (para a UI) + se está verde.
@@ -552,6 +608,8 @@ struct RaceMonitor {
     hist_leader_lap: i32,
     /// Última volta do jogador já registrada no histórico.
     hist_player_lap: i32,
+    /// Última volta completada já registrada POR CARRO (detecta fim de volta da IA).
+    hist_car_lap_completed: [i32; 64],
     /// `session_time` da última amostra da batalha (à frente/atrás).
     hist_last_neighbor_time: f64,
 }
@@ -600,6 +658,13 @@ impl RaceMonitor {
             last_pit_cluster_alert: None,
             car_is_ai: [true; 64],
             car_is_pace: [false; 64],
+            car_class_id: [0; 64],
+            car_number: [0; 64],
+            session_track_id: 0,
+            qualy_session_num: -1,
+            prev_in_qualy: false,
+            qualy_laps: Vec::new(),
+            qualy_car_lap_completed: [0; 64],
             last_collective_alert: None,
             cars_debug: Vec::new(),
             live_is_green: false,
@@ -607,6 +672,7 @@ impl RaceMonitor {
             history: RaceHistory::empty(),
             hist_leader_lap: 0,
             hist_player_lap: 0,
+            hist_car_lap_completed: [0; 64],
             hist_last_neighbor_time: 0.0,
         }
     }
@@ -617,7 +683,11 @@ impl RaceMonitor {
         let flags = t.session_flags as u32;
         self.live_is_green =
             t.session_state == STATE_RACING && flags & (FLAG_CAUTION | FLAG_CAUTION_WAVING) == 0;
-        let ref_pace = self.car_monitors.iter().map(|cm| cm.pace).fold(0.0_f64, f64::max);
+        let ref_pace = self
+            .car_monitors
+            .iter()
+            .map(|cm| cm.pace)
+            .fold(0.0_f64, f64::max);
 
         let mut out = Vec::with_capacity(t.cars.len());
         for car in &t.cars {
@@ -627,14 +697,18 @@ impl RaceMonitor {
             } else {
                 CarMonitor::DEFAULT
             };
-            let stalled = if cm.has_moved { now - cm.last_move_time } else { 0.0 };
+            let stalled = if cm.has_moved {
+                now - cm.last_move_time
+            } else {
+                0.0
+            };
             let pace_pct = if ref_pace > 0.0 {
                 (cm.pace / ref_pace * 100.0).clamp(0.0, 999.0)
             } else {
                 0.0
             };
-            let on_racing = car.track_surface == SURFACE_ON_TRACK
-                || car.track_surface == SURFACE_OFF_TRACK;
+            let on_racing =
+                car.track_surface == SURFACE_ON_TRACK || car.track_surface == SURFACE_OFF_TRACK;
             let monitorable = !car.is_player && self.is_monitorable_ai(car.idx);
             // "Em apuros" = PARADO na pista (mesmo critério dos gatilhos de
             // bandeira). Lento-vs-líder é tráfego, não conta.
@@ -663,16 +737,71 @@ impl RaceMonitor {
     }
 
     /// Atualiza a classificação dos carros a partir do `DriverInfo` do YAML.
-    fn set_car_classes(&mut self, classes: &[(bool, bool); 64]) {
+    fn set_car_classes(&mut self, classes: &[(bool, bool, i64); 64]) {
         for i in 0..64 {
             self.car_is_ai[i] = classes[i].0;
             self.car_is_pace[i] = classes[i].1;
+            self.car_class_id[i] = classes[i].2;
+        }
+    }
+
+    /// Guarda a pista da sessão (do `WeekendInfo:TrackID`).
+    fn set_session_track_id(&mut self, track_id: i64) {
+        if track_id > 0 {
+            self.session_track_id = track_id;
+        }
+    }
+
+    /// Guarda o número da sessão de qualify (do YAML).
+    fn set_qualy_session_num(&mut self, num: i32) {
+        self.qualy_session_num = num;
+    }
+
+    /// Guarda o número de cada carro (do `CarNumberRaw`).
+    fn set_car_numbers(&mut self, numbers: &[i32; 64]) {
+        self.car_number = *numbers;
+    }
+
+    /// Captura as voltas da sessão de QUALI (fora do gate de corrida). Roda todo
+    /// tick; só age quando a sessão atual é a de qualify. Zera ao entrar numa quali
+    /// nova (novo fim de semana). As voltas servem de amostra de ritmo LIMPO.
+    fn capture_qualy(&mut self, t: &IracingTelemetry) {
+        let in_qualy = self.qualy_session_num >= 0 && t.session_num == self.qualy_session_num;
+        if in_qualy && !self.prev_in_qualy {
+            self.qualy_laps.clear();
+            self.qualy_car_lap_completed = [0; 64];
+        }
+        self.prev_in_qualy = in_qualy;
+        if !in_qualy {
+            return;
+        }
+        for car in &t.cars {
+            let i = car.idx;
+            if i < 0 || i as usize >= 64 || self.car_is_pace[i as usize] {
+                continue;
+            }
+            if car.lap_completed > self.qualy_car_lap_completed[i as usize] {
+                self.qualy_car_lap_completed[i as usize] = car.lap_completed;
+                if car.last_lap_time > 0.0 && car.lap_completed >= 1 {
+                    self.qualy_laps.push(CarLap {
+                        car_idx: i,
+                        lap: car.lap_completed,
+                        time: car.last_lap_time,
+                    });
+                    if self.qualy_laps.len() > MAX_CAR_LAPS {
+                        self.qualy_laps.remove(0);
+                    }
+                }
+            }
         }
     }
 
     /// Carro elegível para as regras de IA: é IA e NÃO é pace car.
     fn is_monitorable_ai(&self, idx: i32) -> bool {
-        idx >= 0 && (idx as usize) < 64 && self.car_is_ai[idx as usize] && !self.car_is_pace[idx as usize]
+        idx >= 0
+            && (idx as usize) < 64
+            && self.car_is_ai[idx as usize]
+            && !self.car_is_pace[idx as usize]
     }
 
     /// Registra um evento no log (mantém os últimos [`MAX_EVENTS`]).
@@ -786,13 +915,31 @@ impl RaceMonitor {
 
         let now = self.live_session_time;
         if ended_by == "restart" {
-            self.emit(now, lap, "race_restarted", None, format!("Corrida reiniciada (#{number})"), None);
+            self.emit(
+                now,
+                lap,
+                "race_restarted",
+                None,
+                format!("Corrida reiniciada (#{number})"),
+                None,
+            );
         }
         if status == "dnf" {
-            self.emit(now, lap, "dnf_confirmed", None, format!("DNF confirmado (#{number})"), worst);
+            self.emit(
+                now,
+                lap,
+                "dnf_confirmed",
+                None,
+                format!("DNF confirmado (#{number})"),
+                worst,
+            );
         }
 
-        Some(format!("Tentativa #{} encerrada: {}", number, status_pt(&status)))
+        Some(format!(
+            "Tentativa #{} encerrada: {}",
+            number,
+            status_pt(&status)
+        ))
     }
 
     // ── Batidas (scorer) ─────────────────────────────────────────────────────
@@ -937,7 +1084,10 @@ impl RaceMonitor {
             self.history.attempt_number = attempt;
             self.hist_leader_lap = 0;
             self.hist_player_lap = 0;
+            self.hist_car_lap_completed = [0; 64];
             self.hist_last_neighbor_time = 0.0;
+            // A quali precede a corrida → carrega as voltas dela no histórico (uma vez).
+            self.history.qualy_laps = self.qualy_laps.clone();
         }
         self.history.player_car_idx = t.player_car_idx;
 
@@ -968,10 +1118,17 @@ impl RaceMonitor {
                 .map(|c| CarGapPoint {
                     idx: c.idx,
                     position: c.position,
-                    gap: if c.f2_time.is_finite() { c.f2_time.max(0.0) } else { 0.0 },
+                    gap: if c.f2_time.is_finite() {
+                        c.f2_time.max(0.0)
+                    } else {
+                        0.0
+                    },
                 })
                 .collect();
-            self.history.laps.push(LapSnapshot { lap: leader_lap, cars });
+            self.history.laps.push(LapSnapshot {
+                lap: leader_lap,
+                cars,
+            });
             if self.history.laps.len() > MAX_HISTORY_LAPS {
                 self.history.laps.remove(0);
             }
@@ -991,6 +1148,49 @@ impl RaceMonitor {
             }
         }
 
+        // Cada carro (jogador + IA) completou uma volta → registra o tempo dela.
+        // Base da adaptação (ritmo da frente da classe). Evento por carro, barato.
+        for car in &t.cars {
+            let i = car.idx;
+            if i < 0 || i as usize >= 64 || self.car_is_pace[i as usize] {
+                continue;
+            }
+            if car.lap_completed > self.hist_car_lap_completed[i as usize] {
+                self.hist_car_lap_completed[i as usize] = car.lap_completed;
+                if car.last_lap_time > 0.0 && car.lap_completed >= 1 {
+                    self.history.car_laps.push(CarLap {
+                        car_idx: i,
+                        lap: car.lap_completed,
+                        time: car.last_lap_time,
+                    });
+                    if self.history.car_laps.len() > MAX_CAR_LAPS {
+                        self.history.car_laps.remove(0);
+                    }
+                }
+            }
+        }
+
+        // Resumo por carro (classe, IA, posição na classe) — a última amostra vale,
+        // então no fim da corrida reflete as posições finais.
+        let cars_meta: Vec<CarMeta> = t
+            .cars
+            .iter()
+            .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
+            .map(|c| {
+                let i = c.idx as usize;
+                CarMeta {
+                    idx: c.idx,
+                    is_ai: self.car_is_ai[i],
+                    is_pace: self.car_is_pace[i],
+                    class_id: self.car_class_id[i],
+                    class_position: c.class_position,
+                    car_number: self.car_number[i],
+                }
+            })
+            .collect();
+        self.history.cars_meta = cars_meta;
+        self.history.track_id = self.session_track_id;
+
         // Batalha do jogador (carro à frente/atrás) — amostra leve a ~1Hz,
         // capturando a briga se desenvolvendo ao longo da corrida.
         if now - self.hist_last_neighbor_time >= NEIGHBOR_SAMPLE_SECS {
@@ -1001,7 +1201,11 @@ impl RaceMonitor {
                     let behind = t.cars.iter().find(|c| c.position == me.position + 1);
                     let gap_to = |other: &CarSnapshot| {
                         let d = (other.f2_time - me.f2_time).abs();
-                        if d.is_finite() { d } else { 0.0 }
+                        if d.is_finite() {
+                            d
+                        } else {
+                            0.0
+                        }
                     };
                     self.history.player_track.push(PlayerTrackPoint {
                         session_time: now,
@@ -1026,8 +1230,8 @@ impl RaceMonitor {
 
         // Salto de tempo (rebobinar/avançar o replay): zera os relógios da IA e
         // o prev do jogador, para não virar falso "parado"/restart.
-        let jumped =
-            self.live_session_time != 0.0 && (now - self.live_session_time).abs() > REPLAY_JUMP_SECS;
+        let jumped = self.live_session_time != 0.0
+            && (now - self.live_session_time).abs() > REPLAY_JUMP_SECS;
         if jumped {
             self.car_monitors = [CarMonitor::DEFAULT; 64];
             self.prev = None;
@@ -1049,10 +1253,24 @@ impl RaceMonitor {
         let flags = t.session_flags as u32;
         let caution = flags & (FLAG_CAUTION | FLAG_CAUTION_WAVING) != 0;
         if !self.prev_caution && caution {
-            self.emit(now, t.lap_completed, "yellow_triggered", None, "Bandeira amarela".to_string(), None);
+            self.emit(
+                now,
+                t.lap_completed,
+                "yellow_triggered",
+                None,
+                "Bandeira amarela".to_string(),
+                None,
+            );
             if let Some(rec) = self.pending_yellow_time {
                 if now - rec <= YELLOW_CONFIRM_WINDOW_SECS {
-                    self.emit(now, t.lap_completed, "yellow_confirmed", None, "Amarela confirmada pelo SessionFlags".to_string(), None);
+                    self.emit(
+                        now,
+                        t.lap_completed,
+                        "yellow_confirmed",
+                        None,
+                        "Amarela confirmada pelo SessionFlags".to_string(),
+                        None,
+                    );
                 }
                 self.pending_yellow_time = None;
             }
@@ -1072,6 +1290,7 @@ impl RaceMonitor {
         self.process_ai_cars(t);
         self.evaluate_race_control(t);
         self.build_cars_debug(t);
+        self.capture_qualy(t);
         self.record_history(t);
 
         // Snapshot ao vivo (display).
@@ -1162,7 +1381,14 @@ impl RaceMonitor {
             && !self.race_started_emitted
         {
             self.race_started_emitted = true;
-            self.emit(now, lap, "race_started", None, "Largada (verde)".to_string(), None);
+            self.emit(
+                now,
+                lap,
+                "race_started",
+                None,
+                "Largada (verde)".to_string(),
+                None,
+            );
         }
 
         let finished = self
@@ -1172,14 +1398,35 @@ impl RaceMonitor {
             .unwrap_or(false);
         if finished && !self.race_finished_emitted {
             self.race_finished_emitted = true;
-            self.emit(now, lap, "race_finished", None, "Cruzou a bandeirada".to_string(), None);
+            self.emit(
+                now,
+                lap,
+                "race_finished",
+                None,
+                "Cruzou a bandeirada".to_string(),
+                None,
+            );
         }
 
         if !self.prev_on_pit_road && t.player_on_pit_road {
-            self.emit(now, lap, "pit_entry", None, "Entrou no pit".to_string(), None);
+            self.emit(
+                now,
+                lap,
+                "pit_entry",
+                None,
+                "Entrou no pit".to_string(),
+                None,
+            );
         }
         if self.live_tow <= 0.0 && t.tow_time > 0.0 {
-            self.emit(now, lap, "tow_detected", None, "Reboque acionado".to_string(), None);
+            self.emit(
+                now,
+                lap,
+                "tow_detected",
+                None,
+                "Reboque acionado".to_string(),
+                None,
+            );
         }
 
         // Atualiza prev_* (transições do jogador) + score ao vivo.
@@ -1267,12 +1514,16 @@ impl RaceMonitor {
             // Lento NA PISTA — só conta se o carro JÁ atingiu ritmo (não na largada).
             let on_racing_area =
                 car.track_surface == SURFACE_ON_TRACK || car.track_surface == SURFACE_OFF_TRACK;
-            if cm.has_raced && on_racing_area && ref_pace > 0.0 && cm.pace < SLOW_PACE_FRACTION * ref_pace
+            if cm.has_raced
+                && on_racing_area
+                && ref_pace > 0.0
+                && cm.pace < SLOW_PACE_FRACTION * ref_pace
             {
                 cm.last_slow_time = now;
             }
             // Pit de incidente: entrou no pit logo após ter ficado lento na pista.
-            if car.on_pit_road && !cm.was_on_pit && now - cm.last_slow_time <= SLOW_PIT_WINDOW_SECS {
+            if car.on_pit_road && !cm.was_on_pit && now - cm.last_slow_time <= SLOW_PIT_WINDOW_SECS
+            {
                 cm.incident_pit_time = Some(now);
             }
             cm.was_on_pit = car.on_pit_road;
@@ -1281,15 +1532,40 @@ impl RaceMonitor {
 
             let idx = car.idx;
             // Volta ATUAL do carro (CarIdxLap); fallback para completadas + 1.
-            let car_lap = if car.lap > 0 { car.lap } else { car.lap_completed + 1 };
+            let car_lap = if car.lap > 0 {
+                car.lap
+            } else {
+                car.lap_completed + 1
+            };
             if ev_offtrack {
-                self.emit(now, car_lap, "ai_offtrack", Some(idx), format!("Carro {idx} saiu da pista"), None);
+                self.emit(
+                    now,
+                    car_lap,
+                    "ai_offtrack",
+                    Some(idx),
+                    format!("Carro {idx} saiu da pista"),
+                    None,
+                );
             }
             if ev_stopped {
-                self.emit(now, car_lap, "ai_stopped", Some(idx), format!("Carro {idx} parado (~{stalled:.0}s)"), None);
+                self.emit(
+                    now,
+                    car_lap,
+                    "ai_stopped",
+                    Some(idx),
+                    format!("Carro {idx} parado (~{stalled:.0}s)"),
+                    None,
+                );
             }
             if ev_dnf {
-                self.emit(now, car_lap, "ai_possible_dnf", Some(idx), format!("Carro {idx} provável DNF (parado {stalled:.0}s)"), None);
+                self.emit(
+                    now,
+                    car_lap,
+                    "ai_possible_dnf",
+                    Some(idx),
+                    format!("Carro {idx} provável DNF (parado {stalled:.0}s)"),
+                    None,
+                );
             }
         }
     }
@@ -1339,7 +1615,11 @@ impl RaceMonitor {
                 if approaching >= DANGER_CARS_MIN {
                     self.car_monitors[i].yellow_rec_emitted = true;
                     let idx = car.idx;
-                    let lap = if car.lap > 0 { car.lap } else { car.lap_completed + 1 };
+                    let lap = if car.lap > 0 {
+                        car.lap
+                    } else {
+                        car.lap_completed + 1
+                    };
                     let detail = format!(
                         "Carro {idx} parado com {approaching} carro(s) chegando — bandeira recomendada"
                     );
@@ -1407,8 +1687,8 @@ impl RaceMonitor {
                 if !cm.has_moved {
                     continue;
                 }
-                let on_racing = car.track_surface == SURFACE_ON_TRACK
-                    || car.track_surface == SURFACE_OFF_TRACK;
+                let on_racing =
+                    car.track_surface == SURFACE_ON_TRACK || car.track_surface == SURFACE_OFF_TRACK;
                 let stalled = now - cm.last_move_time;
                 // Acidente coletivo = carros PARADOS no mesmo trecho. NÃO conta
                 // "lento": um pelotão em tráfego é lento (vs líder) mas não parou.
@@ -1542,10 +1822,58 @@ fn count_approaching(cars: &[CarSnapshot], target_pct: f64, target_idx: i32) -> 
         .count()
 }
 
-/// Lê `CarIsAI`/`CarIsPaceCar` por `CarIdx` do `DriverInfo` no YAML de sessão.
-/// Retorna `[(is_ai, is_pace); 64]`. Varredura por linha (sem parser YAML).
-fn parse_driver_classes(yaml: &str) -> [(bool, bool); 64] {
-    let mut out = [(true, false); 64]; // padrão: IA, não pace (até o YAML dizer)
+/// Lê `CarIsAI`/`CarIsPaceCar`/`CarClassID` por `CarIdx` do `DriverInfo` no YAML.
+/// Retorna `[(is_ai, is_pace, class_id); 64]`. Varredura por linha (sem parser YAML).
+/// Lê `WeekendInfo:TrackID` do YAML de sessão (a pista da corrida). 0 se ausente.
+fn parse_track_id(yaml: &str) -> i64 {
+    for line in yaml.lines() {
+        if let Some(rest) = line.trim().strip_prefix("TrackID:") {
+            if let Ok(id) = rest.trim().parse::<i64>() {
+                return id;
+            }
+        }
+    }
+    0
+}
+
+/// `SessionNum` da sessão de QUALIFY no YAML (-1 se não houver). Varre
+/// `SessionInfo:Sessions` e casa o `SessionType` que contém "qualify".
+fn parse_qualy_session_num(yaml: &str) -> i32 {
+    let mut cur_num: i32 = -1;
+    for line in yaml.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("SessionNum:") {
+            cur_num = rest.trim().parse::<i32>().unwrap_or(-1);
+        } else if let Some(rest) = t.strip_prefix("SessionType:") {
+            if rest.to_lowercase().contains("qualify") {
+                return cur_num;
+            }
+        }
+    }
+    -1
+}
+
+/// Número de cada carro (`CarNumberRaw`) por `CarIdx` do `DriverInfo`. A ponte para
+/// o nosso `driver_id` (nós exportamos o roster, então o número é o que demos).
+fn parse_car_numbers(yaml: &str) -> [i32; 64] {
+    let mut out = [0i32; 64];
+    let mut current: Option<usize> = None;
+    for line in yaml.lines() {
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("CarIdx:") {
+            current = rest.trim().parse::<usize>().ok().filter(|n| *n < 64);
+        } else if let Some(rest) = t.strip_prefix("CarNumberRaw:") {
+            if let Some(i) = current {
+                out[i] = rest.trim().parse::<i32>().unwrap_or(0);
+            }
+        }
+    }
+    out
+}
+
+fn parse_driver_classes(yaml: &str) -> [(bool, bool, i64); 64] {
+    let mut out = [(true, false, 0i64); 64]; // padrão: IA, não pace, sem classe
     let mut current: Option<usize> = None;
     for line in yaml.lines() {
         let t = line.trim();
@@ -1560,14 +1888,73 @@ fn parse_driver_classes(yaml: &str) -> [(bool, bool); 64] {
             if let Some(i) = current {
                 out[i].1 = rest.trim() == "1";
             }
+        } else if let Some(rest) = t.strip_prefix("CarClassID:") {
+            if let Some(i) = current {
+                out[i].2 = rest.trim().parse::<i64>().unwrap_or(0);
+            }
         }
     }
     out
 }
 
+/// Converte o histórico capturado no [`RaceResult`](super::adaptive::RaceResult)
+/// que a camada adaptativa consome (a ponte Fase A → Fase B). `track_id` vem de
+/// quem chama (o export sabe a pista). As voltas de TODOS os carros já estão em
+/// `car_laps`; aqui só agrupamos por carro e marcamos jogador/DNF.
+pub fn build_adaptive_result(history: &RaceHistory, track_id: i64) -> super::adaptive::RaceResult {
+    use super::adaptive::{DriverData, Lap, RaceResult};
+    let player_idx = history.player_car_idx;
+    let player_dnf = history.outcome.to_lowercase().contains("dnf");
+    // Monta os pilotos a partir de um conjunto de voltas (corrida OU quali),
+    // reusando o resumo por carro (classe/IA/posição). dnf só vale na corrida.
+    let build = |laps_src: &[CarLap], dnf_applies: bool| -> Vec<DriverData> {
+        history
+            .cars_meta
+            .iter()
+            .filter(|m| !m.is_pace)
+            .map(|m| {
+                let laps: Vec<Lap> = laps_src
+                    .iter()
+                    .filter(|l| l.car_idx == m.idx)
+                    .map(|l| Lap {
+                        lap: l.lap,
+                        time: l.time,
+                    })
+                    .collect();
+                let is_player = m.idx == player_idx;
+                DriverData {
+                    car_idx: m.idx,
+                    is_player,
+                    is_ai: m.is_ai,
+                    car_class_id: m.class_id,
+                    finish_pos_in_class: m.class_position,
+                    dnf: is_player && dnf_applies && player_dnf,
+                    laps,
+                }
+            })
+            .collect()
+    };
+    let race = build(&history.car_laps, true);
+    let qualy = if history.qualy_laps.is_empty() {
+        None
+    } else {
+        Some(build(&history.qualy_laps, false))
+    };
+    RaceResult {
+        track_id,
+        yellow_laps: history.yellow_laps.clone(),
+        race,
+        qualy,
+    }
+}
+
 // ─── Helpers de desfecho ─────────────────────────────────────────────────────
 fn severity_rank(severity: &str) -> usize {
-    SEVERITIES.iter().position(|s| *s == severity).map(|i| i + 1).unwrap_or(0)
+    SEVERITIES
+        .iter()
+        .position(|s| *s == severity)
+        .map(|i| i + 1)
+        .unwrap_or(0)
 }
 
 fn status_pt(status: &str) -> &'static str {
@@ -1674,49 +2061,68 @@ fn start_sampler() {
     std::thread::spawn(|| {
         let mut tick = 0u64;
         loop {
-        // O tick devolve se o iRacing estava CONECTADO — controla a cadência:
-        // 60 Hz conectado (não perde picos), 1 Hz ocioso (só espia a conexão).
-        let connected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        match super::read_telemetry() {
-            Ok(t) => {
-                // Recarrega a classificação de carros (IA/pace car) do YAML de
-                // tempos em tempos — ela muda raramente, então não precisa ser
-                // a cada tick.
-                if tick % YAML_REFRESH_TICKS == 0 {
-                    if let Ok(session) = super::read_session() {
-                        let classes = parse_driver_classes(&session.session_yaml);
-                        lock().set_car_classes(&classes);
-                        // Captura o custid do jogador automaticamente (uma vez).
-                        super::note_session_custid(&session.session_yaml);
+            // O tick devolve se o iRacing estava CONECTADO — controla a cadência:
+            // 60 Hz conectado (não perde picos), 1 Hz ocioso (só espia a conexão).
+            let connected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match super::read_telemetry() {
+                    Ok(t) => {
+                        // Recarrega a classificação de carros (IA/pace car) do YAML de
+                        // tempos em tempos — ela muda raramente, então não precisa ser
+                        // a cada tick.
+                        if tick % YAML_REFRESH_TICKS == 0 {
+                            if let Ok(session) = super::read_session() {
+                                let classes = parse_driver_classes(&session.session_yaml);
+                                let track_id = parse_track_id(&session.session_yaml);
+                                let qualy_num = parse_qualy_session_num(&session.session_yaml);
+                                let numbers = parse_car_numbers(&session.session_yaml);
+                                {
+                                    let mut m = lock();
+                                    m.set_car_classes(&classes);
+                                    m.set_session_track_id(track_id);
+                                    m.set_qualy_session_num(qualy_num);
+                                    m.set_car_numbers(&numbers);
+                                }
+                                // Captura o custid do jogador automaticamente (uma vez).
+                                super::note_session_custid(&session.session_yaml);
+                            }
+                        }
+                        lock().observe(&t);
+                        true
+                    }
+                    Err(error) => {
+                        let mut m = lock();
+                        // Sim fechado com tentativa ativa = DNF.
+                        let sim_closed = matches!(error, super::IracingError::NotRunning(_));
+                        if sim_closed && m.was_connected {
+                            let active = m
+                                .attempts
+                                .last()
+                                .map(|a| a.status == "active")
+                                .unwrap_or(false);
+                            if active {
+                                m.pending_event = m.finalize_attempt("sim_closed");
+                            }
+                            m.was_connected = false;
+                            m.prev = None;
+                        }
+                        m.connected = false;
+                        false
                     }
                 }
-                lock().observe(&t);
-                true
-            }
-            Err(error) => {
-                let mut m = lock();
-                // Sim fechado com tentativa ativa = DNF.
-                let sim_closed = matches!(error, super::IracingError::NotRunning(_));
-                if sim_closed && m.was_connected {
-                    let active = m.attempts.last().map(|a| a.status == "active").unwrap_or(false);
-                    if active {
-                        m.pending_event = m.finalize_attempt("sim_closed");
-                    }
-                    m.was_connected = false;
-                    m.prev = None;
-                }
-                m.connected = false;
+            }))
+            .unwrap_or_else(|_| {
+                eprintln!(
+                    "[race_monitor] sampler: panic num tick (recuperado, sampler segue vivo)"
+                );
                 false
-            }
-        }
-        }))
-        .unwrap_or_else(|_| {
-            eprintln!("[race_monitor] sampler: panic num tick (recuperado, sampler segue vivo)");
-            false
-        });
-        tick = tick.wrapping_add(1);
-        let period = if connected { SAMPLER_PERIOD_MS } else { SAMPLER_IDLE_PERIOD_MS };
-        std::thread::sleep(std::time::Duration::from_millis(period));
+            });
+            tick = tick.wrapping_add(1);
+            let period = if connected {
+                SAMPLER_PERIOD_MS
+            } else {
+                SAMPLER_IDLE_PERIOD_MS
+            };
+            std::thread::sleep(std::time::Duration::from_millis(period));
         }
     });
 }
@@ -1754,7 +2160,11 @@ pub fn poll() -> RaceStatus {
         tow_time: m.live_tow,
         cars_count: m.live_cars_count,
         crash_in_progress: m.in_crash,
-        crash_progress_score: if m.in_crash { m.crash_components.total() } else { 0.0 },
+        crash_progress_score: if m.in_crash {
+            m.crash_components.total()
+        } else {
+            0.0
+        },
         crash_progress_severity: if m.in_crash {
             severity_label(m.crash_components.total()).to_string()
         } else {

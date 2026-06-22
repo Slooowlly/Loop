@@ -10,9 +10,7 @@ use crate::generators::driver_helpers::{
     career_start_year_from_age, random_primary_personality, random_secondary_personality,
 };
 use crate::generators::names::generate_pilot_identity;
-use crate::models::driver::{
-    potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX,
-};
+use crate::models::driver::{potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX};
 
 const ROOKIE_PRODIGY_CHANCE_PERCENT: u8 = 5;
 const ROOKIE_COMMON_FLAW_MAX: u8 = 32;

@@ -535,8 +535,10 @@ fn calculate_segment_score(
     // no rookie (todos idênticos). Pilar A do redesign carro/dinastias.
     let car_scale = car_weight_scale(&ctx.category_id);
     let weights = scale_segment_car_weight(segment_weights(segment), car_scale);
-    let car_norm =
-        normalize_car_performance(category_car_performance(&ctx.category_id, driver.car_performance));
+    let car_norm = normalize_car_performance(category_car_performance(
+        &ctx.category_id,
+        driver.car_performance,
+    ));
     let mut score = driver.skill as f64 * weights.skill
         + driver.habilidade_largada as f64 * weights.habilidade_largada
         + driver.racecraft as f64 * weights.racecraft

@@ -627,15 +627,49 @@ fn simulate_category_race_with_mode(
     } else {
         healthy_drivers
     };
+    // Pressão de campeonato: standings da categoria (pontos de todos) + corridas
+    // restantes + pontos do vencedor (P1 + volta rápida). Usado por piloto abaixo.
+    let title_points: Vec<f64> = drivers.iter().map(|d| d.stats_temporada.pontos).collect();
+    let races_left = (category.corridas_por_temporada as i32 - race_entry.rodada + 1).max(1) as u32;
+    let max_race_points =
+        (get_points_for_position(1, category.id == "endurance") + BONUS_FASTEST_LAP) as f64;
+
     let mut orphaned_drivers = Vec::new();
     let sim_drivers: Vec<SimDriver> = driver_pool
         .into_iter()
         .filter_map(|driver| match team_by_driver.get(&driver.id) {
-            Some(team) => Some(SimDriver::from_driver_team_and_track(
-                driver,
-                team,
-                race_entry.track_id,
-            )),
+            Some(team) => {
+                let mut sd =
+                    SimDriver::from_driver_team_and_track(driver, team, race_entry.track_id);
+                // Conhecimento de pista: pista nova/pouco conhecida = mais lento.
+                // Desconta do skill E do ritmo de classificação (corrida + quali).
+                let pen =
+                    track_penalty_for(driver, race_entry.track_id, active_season.numero as i32);
+                sd.skill = (sd.skill as f64 - pen).max(5.0).round() as u8;
+                sd.ritmo_classificacao =
+                    (sd.ritmo_classificacao as f64 - pen).max(5.0).round() as u8;
+                // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
+                let pctx = crate::simulation::pressure::title_context(
+                    driver.stats_temporada.pontos,
+                    &title_points,
+                    races_left,
+                    max_race_points,
+                );
+                let peff = crate::simulation::pressure::pressure_for(
+                    &pctx,
+                    races_left,
+                    driver.atributos.mentalidade,
+                    driver.atributos.experiencia,
+                );
+                sd.skill = (sd.skill as f64 + peff.pace_delta)
+                    .clamp(5.0, 100.0)
+                    .round() as u8;
+                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + peff.pace_delta)
+                    .clamp(5.0, 100.0)
+                    .round() as u8;
+                sd.pressure_error_mult = peff.error_mult;
+                Some(sd)
+            }
             None if persistence_mode == RacePersistenceMode::HistoricalDraft => None,
             None => {
                 orphaned_drivers.push(format!("{} ({})", driver.nome, driver.id));
@@ -716,6 +750,8 @@ fn simulate_category_race_with_mode(
             economic_health,
             &race_entry.categoria,
             persistence_mode,
+            race_entry.track_id,
+            active_season.numero as i32,
         )?;
 
         // 3. Verifica os incidentes recém-gerados e processa possíveis lesões
@@ -925,6 +961,22 @@ fn simulate_other_categories(
     })
 }
 
+/// Penalidade de skill (pontos) por não conhecer a pista, a partir do histórico do
+/// piloto. Mesma lógica usada no export pro iRacing (fonte única).
+fn track_penalty_for(driver: &Driver, track_id: u32, season: i32) -> f64 {
+    use crate::simulation::track_knowledge;
+    let knowledge = track_knowledge::from_history(&driver.historico_circuitos, track_id as i64);
+    let length = crate::constants::tracks::get_track(track_id)
+        .map(|t| t.comprimento_km)
+        .unwrap_or(3.0);
+    track_knowledge::track_knowledge_penalty(
+        &knowledge,
+        length,
+        driver.atributos.adaptabilidade,
+        season,
+    )
+}
+
 fn apply_race_result_to_database(
     tx: &rusqlite::Transaction<'_>,
     result: &RaceResult,
@@ -932,6 +984,8 @@ fn apply_race_result_to_database(
     economic_health: GlobalEconomicHealth,
     race_category: &str,
     persistence_mode: RacePersistenceMode,
+    track_id: u32,
+    season_number: i32,
 ) -> Result<(), DbError> {
     for race_driver in &result.race_results {
         let mut driver = driver_queries::get_driver(tx, &race_driver.pilot_id)?;
@@ -967,6 +1021,19 @@ fn apply_race_result_to_database(
         driver.stats_carreira = career_stats;
         driver.melhor_resultado_temp = better_result;
         driver.corridas_na_categoria += 1;
+        // Conhecimento de pista: registra a corrida no cache (largadas, melhor
+        // resultado, temporada) — alimenta a penalidade de pista nova (sim + export).
+        let track_finish = if race_driver.is_dnf {
+            None
+        } else {
+            Some(race_driver.finish_position as u32)
+        };
+        crate::simulation::track_knowledge::record_race(
+            &mut driver.historico_circuitos,
+            track_id as i64,
+            track_finish,
+            season_number,
+        );
         driver.ultimos_resultados = append_recent_result(
             &driver.ultimos_resultados,
             race_driver.finish_position,

@@ -14,4 +14,5 @@ pub mod news_tab;
 pub mod race;
 pub mod race_history;
 pub mod save;
+pub mod transfer_market;
 pub mod window;

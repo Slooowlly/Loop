@@ -74,7 +74,10 @@ fn find_app_ini() -> Option<PathBuf> {
 }
 
 fn file_name_str(app_ini: &Path) -> &str {
-    app_ini.file_name().and_then(|n| n.to_str()).unwrap_or("app.ini")
+    app_ini
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("app.ini")
 }
 
 fn backup_path(app_ini: &Path) -> PathBuf {
@@ -208,8 +211,8 @@ pub fn status() -> YellowMacroStatus {
 
 /// Instala a macro de bandeira (com backup). Idempotente.
 pub fn install() -> Result<YellowMacroStatus, String> {
-    let app_ini = find_app_ini()
-        .ok_or("app.ini do iRacing não encontrado (Documents/iRacing/app.ini).")?;
+    let app_ini =
+        find_app_ini().ok_or("app.ini do iRacing não encontrado (Documents/iRacing/app.ini).")?;
     let content = fs::read_to_string(&app_ini).map_err(|e| format!("Falha ao ler app.ini: {e}"))?;
 
     // Backup completo, preservando o original verdadeiro. Se já houver backup

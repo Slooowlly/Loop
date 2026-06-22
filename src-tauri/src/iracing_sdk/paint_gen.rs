@@ -22,9 +22,15 @@ pub fn write_solid_tga(path: &Path, hex: &str) -> std::io::Result<()> {
         0, // ID length
         0, // color map type
         2, // image type: uncompressed true-color
-        0, 0, 0, 0, 0, // color map spec
-        0, 0, // x-origin
-        0, 0, // y-origin
+        0,
+        0,
+        0,
+        0,
+        0, // color map spec
+        0,
+        0, // x-origin
+        0,
+        0, // y-origin
         (w & 0xFF) as u8,
         (w >> 8) as u8,
         (h & 0xFF) as u8,
@@ -78,7 +84,7 @@ mod tests {
         assert_eq!(bytes.len(), 18 + 2048 * 2048 * 4);
         assert_eq!(bytes[2], 2); // tipo 2
         assert_eq!(bytes[16], 32); // 32bpp
-        // Primeiro pixel BGRA de vermelho puro: B=0, G=0, R=255, A=255.
+                                   // Primeiro pixel BGRA de vermelho puro: B=0, G=0, R=255, A=255.
         assert_eq!(&bytes[18..22], &[0, 0, 255, 255]);
         let _ = std::fs::remove_file(&path);
     }
