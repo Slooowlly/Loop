@@ -1324,20 +1324,30 @@ pub(crate) fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(),
     }
 
     let unemployed_before = player_unemployed_seasons(conn);
-    let mut placed = place_player_in_natural_vacancy(conn, &player, season)?;
-    if !placed && unemployed_before >= 1 {
+    // 1. Vaga na PRÓPRIA categoria / mesmo tier (sem demoção).
+    let mut placed = place_player_in_natural_vacancy(conn, &player, season, false)?;
+    // 2. Sem vaga aberta → GARANTE na pior equipe da categoria dele, dispensando o
+    //    piloto mais fraco de lá ("a pior do grid que eu estava antes").
+    if !placed {
         placed = force_place_player_worst_team(conn, &player, season)?;
+    }
+    // 3. Último recurso (sem categoria/sem equipes): recomeço numa estreia (rookie) —
+    //    nunca deixa o jogador em limbo.
+    if !placed {
+        placed = place_player_in_natural_vacancy(conn, &player, season, true)?;
     }
     set_player_unemployed_seasons(conn, if placed { 0 } else { unemployed_before + 1 })?;
     Ok(())
 }
 
-/// Coloca o jogador na melhor vaga DISPONÍVEL: própria categoria → mesmo tier →
-/// qualquer licenciada (pior carro primeiro). Devolve se conseguiu.
+/// Coloca o jogador na melhor vaga DISPONÍVEL. Com `allow_fallback=false`: só própria
+/// categoria → mesmo tier (sem demoção). Com `true`: também desce p/ qualquer
+/// licenciada e estreia (rookie) — recurso final. Pior carro primeiro. Devolve sucesso.
 fn place_player_in_natural_vacancy(
     conn: &Connection,
     player: &Driver,
     season: i32,
+    allow_fallback: bool,
 ) -> Result<bool, String> {
     let player_tier = player
         .categoria_atual
@@ -1356,10 +1366,9 @@ fn place_player_in_natural_vacancy(
             )
             .unwrap_or(0),
         );
-    // Vaga de estreia (rookie) é sempre acessível ao jogador (piso de recomeço — nunca
-    // fica em limbo).
+    // No fallback, a estreia (rookie) é sempre acessível (piso de recomeço).
     let licensed = |vac: &Vacancy| {
-        is_real_career_debut_category(&vac.categoria)
+        (allow_fallback && is_real_career_debut_category(&vac.categoria))
             || crate::models::license::required_license_for_division(
                 &vac.categoria,
                 vac.classe.as_deref(),
@@ -1370,7 +1379,9 @@ fn place_player_in_natural_vacancy(
     let player_cat = player.categoria_atual.clone().unwrap_or_default();
     let vacancies = find_vacancies(conn)?;
     let mut pick: Option<&Vacancy> = None;
-    for pass in 0..3 {
+    // Sem fallback: só passes 0 (categoria) e 1 (mesmo tier). Com: + 2 (qualquer).
+    let passes = if allow_fallback { 3 } else { 2 };
+    for pass in 0..passes {
         let mut cands: Vec<&Vacancy> = vacancies
             .iter()
             .filter(|v| {
@@ -1460,7 +1471,8 @@ fn force_place_player_worst_team(
     }
     team_queries::remove_pilot_from_team(conn, &weak_id, &team_id)
         .map_err(|e| format!("Falha ao liberar slot da pior equipe: {e}"))?;
-    place_player_in_natural_vacancy(conn, player, season)
+    // A vaga aberta é na categoria do jogador → coloca sem fallback (sem demoção).
+    place_player_in_natural_vacancy(conn, player, season, false)
 }
 
 /// Carrega a janela persistida ou inicia uma nova (e persiste).
