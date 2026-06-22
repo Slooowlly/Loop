@@ -421,12 +421,21 @@ function buildWeeklyClosingGroups(weekResult) {
     }));
 }
 
-function WeeklyClosingMovement({ event, color }) {
+function WeeklyClosingMovement({ event, color, onSelect }) {
   const movementBadge = WEEKLY_MARKET_MOVEMENT_BADGES[event.movement_kind];
 
   return (
     <article
-      className="rounded-lg border px-2.5 py-2"
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect?.(event)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.(event);
+        }
+      }}
+      className="cursor-pointer rounded-lg border px-2.5 py-2 transition-colors hover:brightness-125"
       style={{
         borderColor: `${color}26`,
         background: `linear-gradient(135deg, ${color}0f 0%, rgba(255,255,255,0.02) 100%)`,
@@ -630,6 +639,7 @@ export default function PreSeasonView() {
   const [gridData, setGridData]                 = useState([]);
   const [loadingGrid, setLoadingGrid]           = useState(false);
   const [showDisplacedModal, setShowDisplacedModal] = useState(false);
+  const [transferDetail, setTransferDetail] = useState(null);
   const [showFreeAgentWarning, setShowFreeAgentWarning] = useState(false);
   const [startError, setStartError] = useState("");
 
@@ -1289,6 +1299,7 @@ export default function PreSeasonView() {
                             key={`${event.event_type}-${event.driver_id ?? event.driver_name}-${index}`}
                             event={event}
                             color={group.color}
+                            onSelect={setTransferDetail}
                           />
                         ))}
                       </div>
@@ -1436,6 +1447,117 @@ export default function PreSeasonView() {
           </div>
         </div>
       )}
+
+      {/* ══ MODAL: Detalhe da transferência ══ */}
+      {transferDetail && (() => {
+        const ev = transferDetail;
+        const badge = WEEKLY_MARKET_MOVEMENT_BADGES[ev.movement_kind];
+        const isDebut = !ev.from_team;
+        const fromTeam = ev.from_team;
+        const toTeam = ev.to_team || ev.team_name;
+        const accent = badge?.color ?? subcatColor(ev.categoria);
+        const tenure = ev.seasons_at_previous;
+        const fromCatLabel = ev.from_categoria ? subcatLabel(ev.from_categoria) : null;
+        const toCatLabel = ev.categoria ? subcatLabel(ev.categoria) : null;
+        const sameCat = fromCatLabel && fromCatLabel === toCatLabel;
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setTransferDetail(null); }}
+          >
+            <div className="glass-strong animate-fade-in relative mx-4 w-full max-w-lg rounded-2xl p-6 md:p-7">
+              <button
+                onClick={() => setTransferDetail(null)}
+                aria-label="Fechar"
+                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-white/12 bg-white/5 text-[color:var(--text-muted)] transition-glass hover:bg-white/10 hover:text-[color:var(--text-primary)]"
+              >
+                ✕
+              </button>
+
+              {badge && (
+                <div
+                  className="mb-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
+                  style={{ color: badge.color, background: badge.bg, borderColor: badge.border }}
+                >
+                  <span className="text-[13px] leading-none">{badge.symbol}</span>
+                  {badge.label}
+                </div>
+              )}
+              <h2 className="mb-5 text-[20px] font-bold leading-tight text-[color:var(--text-primary)]">
+                {ev.driver_name}
+              </h2>
+
+              {/* De → Para (equipes) */}
+              <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-4">
+                <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+                    De
+                  </div>
+                  {isDebut ? (
+                    <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
+                      Estreia na carreira
+                    </span>
+                  ) : (
+                    <>
+                      <TeamLogoMark teamName={fromTeam} color={accent} size="md" />
+                      <span className="block truncate text-[14px] font-bold text-[color:var(--text-primary)]">
+                        {fromTeam}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <span className="shrink-0 text-[22px] font-black" style={{ color: accent }}>
+                  →
+                </span>
+
+                <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+                    Para
+                  </div>
+                  {toTeam ? (
+                    <>
+                      <TeamLogoMark teamName={toTeam} color={accent} size="md" />
+                      <span className="block truncate text-[14px] font-bold text-[color:var(--text-primary)]">
+                        {toTeam}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
+                      Sem equipe
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Categoria */}
+              {toCatLabel && (
+                <div className="mb-3 flex items-center justify-center gap-2 text-[13px]">
+                  {fromCatLabel && !sameCat ? (
+                    <>
+                      <span className="font-semibold text-[color:var(--text-secondary)]">{fromCatLabel}</span>
+                      <span className="font-black" style={{ color: accent }}>→</span>
+                      <span className="font-bold text-[color:var(--text-primary)]">{toCatLabel}</span>
+                    </>
+                  ) : (
+                    <span className="font-bold text-[color:var(--text-primary)]">{toCatLabel}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Tempo de casa */}
+              <p className="text-center text-body-sm text-[color:var(--text-muted)]">
+                {isDebut
+                  ? "Estreia na carreira"
+                  : tenure != null && tenure > 0
+                    ? `${tenure} ${tenure === 1 ? "temporada" : "temporadas"} na equipe anterior`
+                    : "Equipe anterior"}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Modal: Iniciar temporada sem equipe ── */}
       {showFreeAgentWarning && (

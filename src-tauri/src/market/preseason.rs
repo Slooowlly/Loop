@@ -87,6 +87,8 @@ pub struct MarketEvent {
     pub movement_kind: Option<String>,
     #[serde(default)]
     pub championship_position: Option<i32>,
+    #[serde(default)]
+    pub seasons_at_previous: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +115,11 @@ pub struct PreSeasonPlan {
     /// limpam o `categoria_atual` dos dispensados) — origem p/ promovido/rebaixado.
     #[serde(default)]
     pub category_snapshot: std::collections::HashMap<String, String>,
+    /// Equipe anterior de cada piloto no INÍCIO da pré-temporada (antes das pré-passes):
+    /// driver_id → (nome da equipe, temporadas consecutivas nela). Origem p/ o popup de
+    /// detalhe da transferência (de qual equipe veio + quanto tempo ficou lá).
+    #[serde(default)]
+    pub previous_team: std::collections::HashMap<String, (String, i32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +271,22 @@ pub fn initialize_preseason(
             .filter_map(|d| d.categoria_atual.map(|c| (d.id, c)))
             .collect();
 
+    // Snapshot da EQUIPE anterior (+ tempo de casa) ANTES das pré-passes — origem p/ o
+    // popup de detalhe da transferência (de qual equipe veio e há quantas temporadas).
+    let previous_team: std::collections::HashMap<String, (String, i32)> = contracts_before
+        .iter()
+        .map(|c| {
+            let tenure = crate::commands::career::calculate_consecutive_team_tenure(
+                conn,
+                &c.piloto_id,
+                &c.equipe_id,
+                season_number - 1,
+            )
+            .unwrap_or(1);
+            (c.piloto_id.clone(), (c.equipe_nome.clone(), tenure))
+        })
+        .collect();
+
     // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
     // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
     let prepass_report = crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
@@ -271,8 +294,9 @@ pub fn initialize_preseason(
 
     // Feed da 1ª semana: dispensas (×) + promoções/rebaixamentos por mérito (↑/↓), que
     // acontecem nas pré-passes e antes ficavam invisíveis.
-    let mut pending_departures = build_departure_events(conn, season_number, &contracts_before)?;
-    pending_departures.extend(merit_move_events(&prepass_report));
+    let mut pending_departures =
+        build_departure_events(conn, season_number, &contracts_before, &previous_team)?;
+    pending_departures.extend(merit_move_events(&prepass_report, &previous_team));
 
     // O mercado ao vivo é a escada paginada conduzida por advance_week (sem motor de
     // janela persistido): cada semana preenche vagas em todos os tiers e oferta vagas
@@ -309,6 +333,7 @@ pub fn initialize_preseason(
         executed_weeks: Vec::new(),
         pending_departures,
         category_snapshot,
+        previous_team,
     })
 }
 
@@ -527,6 +552,8 @@ pub fn advance_week(
     // Categorias de ORIGEM (snapshot do INÍCIO da pré-temporada, antes das pré-passes
     // limparem o categoria_atual dos dispensados) — pra inferir promovido/rebaixado.
     let category_snapshot = plan.category_snapshot.clone();
+    // Equipe anterior (+ tempo de casa) p/ o popup de detalhe da transferência.
+    let previous_team = plan.previous_team.clone();
 
     // Escada (ladder fill) paginada: preenche ~6 vagas em TODOS os tiers (agente
     // livre → rookie → promoção da categoria de baixo), poupando os assentos reservados.
@@ -567,6 +594,12 @@ pub fn advance_week(
             let from_cat = category_snapshot
                 .get(signing.driver_id.as_str())
                 .cloned();
+            // Equipe anterior + tempo de casa (None p/ rookies gerados não presentes).
+            let prev = previous_team.get(signing.driver_id.as_str()).cloned();
+            let (from_team, seasons_at_previous) = match prev {
+                Some((team, tenure)) => (Some(team), Some(tenure)),
+                None => (None, None),
+            };
             let movement_kind = if matches!(signing.tipo.as_str(), "rookie" | "rookie_emergencia") {
                 "rookie".to_string()
             } else {
@@ -592,12 +625,13 @@ pub fn advance_week(
                 driver_name: Some(dname.to_string()),
                 team_id: Some(signing.team_id.clone()),
                 team_name: Some(tname.to_string()),
-                from_team: None,
+                from_team,
                 to_team: Some(tname.to_string()),
                 categoria: Some(signing.categoria.clone()),
                 from_categoria: from_cat,
                 movement_kind: Some(movement_kind),
                 championship_position: None,
+                seasons_at_previous,
             }
         })
         .collect();
@@ -649,6 +683,7 @@ pub fn advance_week(
             from_categoria: None,
             movement_kind: None,
             championship_position: None,
+            seasons_at_previous: None,
         });
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
     } else {
@@ -684,7 +719,10 @@ pub fn advance_week(
 /// Eventos de PROMOÇÃO/REBAIXAMENTO por mérito (das pré-passes) pro feed — antes
 /// aconteciam de forma invisível. Lê o report das pré-passes pelos tipos
 /// `promocao_merito` (↑) e `rebaixamento` (↓).
-fn merit_move_events(report: &crate::market::proposals::MarketReport) -> Vec<MarketEvent> {
+fn merit_move_events(
+    report: &crate::market::proposals::MarketReport,
+    previous_team: &std::collections::HashMap<String, (String, i32)>,
+) -> Vec<MarketEvent> {
     report
         .new_signings
         .iter()
@@ -694,6 +732,11 @@ fn merit_move_events(report: &crate::market::proposals::MarketReport) -> Vec<Mar
                 "rebaixamento" => "relegation",
                 _ => return None,
             };
+            let prev = previous_team.get(s.driver_id.as_str()).cloned();
+            let (from_team, seasons_at_previous) = match prev {
+                Some((team, tenure)) => (Some(team), Some(tenure)),
+                None => (None, None),
+            };
             Some(MarketEvent {
                 event_type: MarketEventType::TransferCompleted,
                 headline: format!("{} -> {}", s.driver_name, s.team_name),
@@ -702,12 +745,13 @@ fn merit_move_events(report: &crate::market::proposals::MarketReport) -> Vec<Mar
                 driver_name: Some(s.driver_name.clone()),
                 team_id: Some(s.team_id.clone()),
                 team_name: Some(s.team_name.clone()),
-                from_team: None,
+                from_team,
                 to_team: Some(s.team_name.clone()),
                 categoria: Some(s.categoria.clone()),
                 from_categoria: None,
                 movement_kind: Some(movement_kind.to_string()),
                 championship_position: None,
+                seasons_at_previous,
             })
         })
         .collect()
@@ -717,6 +761,7 @@ fn build_departure_events(
     conn: &Connection,
     season_number: i32,
     contracts_before: &[Contract],
+    previous_team: &std::collections::HashMap<String, (String, i32)>,
 ) -> Result<Vec<MarketEvent>, String> {
     let active_after: std::collections::HashSet<String> =
         contract_queries::get_all_active_regular_contracts(conn)
@@ -752,6 +797,9 @@ fn build_departure_events(
             from_categoria: Some(c.categoria.clone()),
             movement_kind: Some("departure".to_string()),
             championship_position: None,
+            seasons_at_previous: previous_team
+                .get(c.piloto_id.as_str())
+                .map(|(_, tenure)| *tenure),
         });
     }
     Ok(events)

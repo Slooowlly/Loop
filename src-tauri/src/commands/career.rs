@@ -2846,7 +2846,7 @@ fn get_driver_slot_info(
     (driver_name, tenure_seasons)
 }
 
-fn calculate_consecutive_team_tenure(
+pub(crate) fn calculate_consecutive_team_tenure(
     conn: &rusqlite::Connection,
     driver_id: &str,
     team_id: &str,
