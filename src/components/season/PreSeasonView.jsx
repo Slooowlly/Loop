@@ -701,7 +701,9 @@ export default function PreSeasonView() {
 
     fetchGrid();
     return () => { mounted = false; };
-  }, [careerId, selectedCat, currentWeek]);
+    // Semana CRUA (não clampada) + resultado da semana → o grid reflete as
+    // assinaturas aplicadas a cada avanço, inclusive além do teto de exibição.
+  }, [careerId, selectedCat, preseasonState?.current_week, lastMarketWeekResult]);
 
   // ── Agrupamento e ordenação ─────────────────────────────────────────────────
   const groupedTeams = useMemo(() => {
