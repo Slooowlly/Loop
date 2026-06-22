@@ -1271,10 +1271,32 @@ fn apply_signings(
     Ok(())
 }
 
-/// GARANTIA DE PORTA (§6b): se a janela fechou e o JOGADOR ficou sem contrato regular
-/// (esperou demais / não foi escolhido), assina-o numa vaga da PRÓPRIA categoria (pior
-/// carro disponível) — fallback p/ qualquer vaga licenciada. Nunca tranca o jogador
-/// fora do grid. No-op se ele já tem time ou não está ativo.
+const PLAYER_UNEMPLOYED_KEY: &str = "player_seasons_unemployed";
+
+/// Temporadas consecutivas que o JOGADOR passou SEM equipe (guardado na tabela `meta`
+/// da carreira). 0 se nunca gravado.
+fn player_unemployed_seasons(conn: &Connection) -> i32 {
+    crate::db::queries::meta::get_meta_value(conn, PLAYER_UNEMPLOYED_KEY)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+fn set_player_unemployed_seasons(conn: &Connection, value: i32) -> Result<(), String> {
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+        params![PLAYER_UNEMPLOYED_KEY, value.to_string()],
+    )
+    .map_err(|e| format!("Falha ao gravar contador de desemprego: {e}"))?;
+    Ok(())
+}
+
+/// GARANTIA DE PORTA + AUXÍLIO-DESEMPREGO (§6b): ao fechar a janela, se o JOGADOR ficou
+/// sem contrato, tenta colocá-lo numa vaga da própria categoria. Se NÃO houver vaga e
+/// ele já estiver ≥1 temporada sem time, o jogo GARANTE uma vaga na PIOR equipe da
+/// última categoria dele — dispensando o piloto mais fraco de lá. Mantém o contador de
+/// temporadas-sem-time (zera quando ele assina; incrementa quando segue sem time).
 fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(());
@@ -1286,9 +1308,27 @@ fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
         .is_some()
     {
+        // Já tem time (assinou na janela) → zera o contador.
+        set_player_unemployed_seasons(conn, 0)?;
         return Ok(());
     }
 
+    let unemployed_before = player_unemployed_seasons(conn);
+    let mut placed = place_player_in_natural_vacancy(conn, &player, season)?;
+    if !placed && unemployed_before >= 1 {
+        placed = force_place_player_worst_team(conn, &player, season)?;
+    }
+    set_player_unemployed_seasons(conn, if placed { 0 } else { unemployed_before + 1 })?;
+    Ok(())
+}
+
+/// Coloca o jogador na melhor vaga DISPONÍVEL: própria categoria → mesmo tier →
+/// qualquer licenciada (pior carro primeiro). Devolve se conseguiu.
+fn place_player_in_natural_vacancy(
+    conn: &Connection,
+    player: &Driver,
+    season: i32,
+) -> Result<bool, String> {
     let player_tier = player
         .categoria_atual
         .as_deref()
@@ -1313,9 +1353,6 @@ fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
     };
     let player_cat = player.categoria_atual.clone().unwrap_or_default();
     let vacancies = find_vacancies(conn)?;
-    // Preferência: PRÓPRIA categoria (ex.: mazda_rookie, não toyota_rookie) → mesmo
-    // nível (tier) → qualquer vaga licenciada. Pior carro disponível (ele passou de
-    // ofertas melhores nas semanas anteriores).
     let mut pick: Option<&Vacancy> = None;
     for pass in 0..3 {
         let mut cands: Vec<&Vacancy> = vacancies
@@ -1336,19 +1373,71 @@ fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
         }
     }
     let Some(vac) = pick.cloned() else {
-        return Ok(());
+        return Ok(false);
     };
     let salary = (12_000.0 + player.atributos.skill * 1_800.0).max(5_000.0);
-    let _ = sign_driver_to_team(
+    sign_driver_to_team(
         conn,
-        &player,
+        player,
         &vac,
         season,
         salary,
         1,
         vac.papel_necessario.clone(),
-    );
-    Ok(())
+    )?;
+    Ok(true)
+}
+
+/// AUXÍLIO: garante vaga ao jogador na PIOR equipe da última categoria dele, dispensando
+/// o piloto mais fraco de lá (vira agente livre). Devolve se conseguiu.
+fn force_place_player_worst_team(
+    conn: &Connection,
+    player: &Driver,
+    season: i32,
+) -> Result<bool, String> {
+    let cat = match player.categoria_atual.as_deref() {
+        Some(c) if !c.is_empty() => c.to_string(),
+        _ => return Ok(false),
+    };
+    let teams = team_queries::get_teams_by_category(conn, &cat)
+        .map_err(|e| format!("Falha ao carregar equipes da categoria: {e}"))?;
+    let drivers = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar pilotos: {e}"))?;
+    let skill_of = |id: &str| {
+        drivers
+            .iter()
+            .find(|d| d.id == id)
+            .map(|d| d.atributos.skill)
+            .unwrap_or(0.0)
+    };
+    // Pior equipe (menor car_performance) que esteja CHEIA — se tivesse vaga, a
+    // colocação natural já a teria usado.
+    let mut worst: Option<(String, String)> = None; // (team_id, piloto_mais_fraco_id)
+    let mut worst_car = f64::INFINITY;
+    for team in &teams {
+        let (Some(p1), Some(p2)) = (team.piloto_1_id.as_deref(), team.piloto_2_id.as_deref())
+        else {
+            continue;
+        };
+        if team.car_performance < worst_car {
+            worst_car = team.car_performance;
+            let weak = if skill_of(p1) <= skill_of(p2) { p1 } else { p2 };
+            worst = Some((team.id.clone(), weak.to_string()));
+        }
+    }
+    let Some((team_id, weak_id)) = worst else {
+        return Ok(false);
+    };
+    // Dispensa o mais fraco e libera o slot → abre a vaga pra o jogador.
+    if let Some(contract) = contract_queries::get_active_regular_contract_for_pilot(conn, &weak_id)
+        .map_err(|e| format!("Falha ao buscar contrato do dispensado: {e}"))?
+    {
+        contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
+            .map_err(|e| format!("Falha ao dispensar piloto mais fraco: {e}"))?;
+    }
+    team_queries::remove_pilot_from_team(conn, &weak_id, &team_id)
+        .map_err(|e| format!("Falha ao liberar slot da pior equipe: {e}"))?;
+    place_player_in_natural_vacancy(conn, player, season)
 }
 
 /// Carrega a janela persistida ou inicia uma nova (e persiste).
