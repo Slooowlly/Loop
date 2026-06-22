@@ -16,6 +16,10 @@ use std::collections::HashMap;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+/// Meta de contratações por semana — a janela mira esse total (disputa + top-up do
+/// clearing) pra espalhar o mercado em vez de despejar tudo no fechamento.
+const WEEKLY_FILL_TARGET: usize = 6;
+
 /// Uma vaga aberta (assento de uma equipe).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Seat {
@@ -157,8 +161,12 @@ fn team_candidate_score(cand: &Candidate) -> f64 {
 /// Elegibilidade básica de um candidato pra uma vaga: tier dentro de ±1, OU craque
 /// (pode descer pra caçar slam / a equipe abre exceção pelo super-qualificado).
 fn eligible(cfg: &WindowConfig, seat: &Seat, cand: &Candidate) -> bool {
-    // Licença é obrigatória — sem ela o piloto não pode entrar na categoria/classe.
-    if cand.max_license < seat.required_license {
+    // PROMOÇÃO de exatamente 1 tier (ex.: gt4→gt3): a licença é CONCEDIDA na
+    // assinatura (igual ao ladder fill), senão as categorias de cima nunca abririam
+    // pra quem vem de baixo e ficariam vazias na janela.
+    let is_promotion = cand.tier + 1 == seat.tier;
+    // Caso contrário, a licença é obrigatória.
+    if cand.max_license < seat.required_license && !is_promotion {
         return false;
     }
     let near = (cand.tier as i16 - seat.tier as i16).abs() <= 1;
@@ -410,7 +418,11 @@ fn clearing_pass(
         for si in 0..open.len() {
             let pick = (0..free.len())
                 .filter(|&ci| {
-                    eligible(cfg, &open[si], &free[ci]) && passes_dignity(cfg, &open[si], &free[ci])
+                    // O JOGADOR nunca é auto-colocado pelo clearing — só assina via
+                    // própria aceitação ou pela garantia de porta no fecho.
+                    free[ci].ai_respects_brand
+                        && eligible(cfg, &open[si], &free[ci])
+                        && passes_dignity(cfg, &open[si], &free[ci])
                 })
                 .max_by(|&a, &b| {
                     team_candidate_score(&free[a]).total_cmp(&team_candidate_score(&free[b]))
@@ -455,7 +467,7 @@ fn safety_net(
     week: u32,
 ) {
     let mut craques: Vec<usize> = (0..free.len())
-        .filter(|&ci| free[ci].skill >= cfg.craque_skill)
+        .filter(|&ci| free[ci].ai_respects_brand && free[ci].skill >= cfg.craque_skill)
         .collect();
     craques.sort_by(|&a, &b| free[b].skill.total_cmp(&free[a].skill));
     for ci in craques {
@@ -509,7 +521,6 @@ pub struct WindowState {
     signings: Vec<Signing>,
     current_salary: HashMap<String, f64>,
     week: u32,
-    consecutive_no_sign: u32,
     closed: bool,
     cfg: WindowConfig,
     player_id: Option<String>,
@@ -520,10 +531,6 @@ pub struct WindowState {
     /// wiring): o feed e o banco ficam em sincronia semana a semana.
     #[serde(default)]
     applied_to_db: usize,
-    /// Fase de fechamento gradual: a disputa estagnou e o "resto" é preenchido em
-    /// frações por semana (em vez de despejar tudo numa semana só).
-    #[serde(default)]
-    clearing: bool,
 }
 
 impl WindowState {
@@ -539,13 +546,11 @@ impl WindowState {
             signings: Vec::new(),
             current_salary: HashMap::new(),
             week: 0,
-            consecutive_no_sign: 0,
             closed: false,
             cfg,
             player_id,
             pending: None,
             applied_to_db: 0,
-            clearing: false,
         }
     }
 
@@ -643,7 +648,8 @@ impl WindowState {
         };
         let offers_by_driver: HashMap<usize, Vec<(usize, f64)>> = pending.into_iter().collect();
         let threshold = self.threshold();
-        let any_signed = resolve_week(
+        let signed_before = self.signings.len();
+        resolve_week(
             &mut self.open,
             &mut self.free,
             &mut self.signings,
@@ -654,26 +660,20 @@ impl WindowState {
             self.player_id.as_deref(),
             player_choice,
         );
-        if any_signed {
-            self.consecutive_no_sign = 0;
-        } else {
-            self.consecutive_no_sign += 1;
-        }
-        // Quando a disputa estagna (2 semanas sem assinatura), entra na fase de
-        // FECHAMENTO GRADUAL: o "resto" é preenchido em frações por semana, em vez de
-        // despejar 20 contratações numa semana só.
-        if self.consecutive_no_sign >= 2 {
-            self.clearing = true;
-        }
-        if self.clearing && !self.open.is_empty() && !self.free.is_empty() {
-            let limit = ((self.open.len() as f64 * 0.4).ceil() as usize).max(3);
+        // PACING: cada semana mira ~WEEKLY_FILL_TARGET contratações no total. A disputa
+        // resolve as vagas "quentes"; o TOP-UP completa com o clearing (maior prestígio
+        // primeiro → gt3/gt4/endurance aparecem cedo) — espalha o fluxo de forma
+        // parelha em vez de despejar tudo no fechamento.
+        let contested = self.signings.len() - signed_before;
+        let need = WEEKLY_FILL_TARGET.saturating_sub(contested);
+        if need > 0 && !self.open.is_empty() && !self.free.is_empty() {
             clearing_pass(
                 &mut self.open,
                 &mut self.free,
                 &mut self.signings,
                 &self.cfg,
                 self.week,
-                Some(limit),
+                Some(need),
             );
         }
         // Fecha quando esvazia ou bate o teto — o fecho TOTAL garante 100% de
