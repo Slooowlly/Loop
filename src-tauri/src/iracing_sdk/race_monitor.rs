@@ -144,7 +144,11 @@ const SEV_TOTALED: f64 = 170.0;
 const SEV_CATASTROPHIC: f64 = 230.0;
 
 /// Ordem das severidades, do menor para o maior. Índice usado para rebaixar.
-const SEVERITIES: [&str; 5] = ["leve", "moderado", "grave", "destruído", "catastrófico"];
+pub(crate) const SEVERITIES: [&str; 5] = ["leve", "moderado", "grave", "destruído", "catastrófico"];
+
+/// Distância máxima na volta (fração 0–1) para considerar outro carro "no mesmo
+/// ponto" do jogador num contato — ~2% da pista (poucos comprimentos de carro).
+const CONTACT_NEAR_PCT: f64 = 0.02;
 
 // ─── Pontuação por componente (com teto) ─────────────────────────────────────
 #[derive(Clone, Copy)]
@@ -184,7 +188,7 @@ impl Components {
     }
 }
 
-fn severity_label(score: f64) -> &'static str {
+pub(crate) fn severity_label(score: f64) -> &'static str {
     if score >= SEV_CATASTROPHIC {
         "catastrófico"
     } else if score >= SEV_TOTALED {
@@ -279,6 +283,17 @@ pub struct Attempt {
     pub worst_crash: Option<String>,
     pub evidence: AttemptEvidence,
     pub crashes: Vec<CrashEvent>,
+    /// PICO do score de batida visto ao vivo nesta tentativa — atualizado todo
+    /// tick enquanto há batida em andamento, INDEPENDENTE de a batida "fechar".
+    /// Captura o impacto mesmo se o jogador bate e sai na hora (a batida nunca
+    /// fecha, então não entraria em `crashes`). Base do conserto do carro.
+    #[serde(default)]
+    pub peak_crash_score: f64,
+    /// Número do carro que estava NO MESMO PONTO da pista quando o jogador levou
+    /// a pancada de CONTATO — o provável culpado da colisão. `None` se a batida
+    /// foi solo (sem carro perto). Identifica "quem bateu em mim".
+    #[serde(default)]
+    pub collided_with_car_number: Option<i32>,
 }
 
 /// Um evento discreto da corrida (saída do RaceEventEngine).
@@ -417,6 +432,9 @@ pub struct CarMeta {
     /// Número do carro (`CarNumberRaw`) — a ponte p/ nosso `driver_id` (Fase 3).
     #[serde(default)]
     pub car_number: i32,
+    /// Posição na classe na LARGADA (grid). 0 = desconhecida (sem captura de verde).
+    #[serde(default)]
+    pub grid_class_position: i32,
 }
 
 /// Histórico volta a volta da tentativa atual, montado ao vivo para o painel
@@ -612,6 +630,10 @@ struct RaceMonitor {
     hist_car_lap_completed: [i32; 64],
     /// `session_time` da última amostra da batalha (à frente/atrás).
     hist_last_neighbor_time: f64,
+    /// Posição na classe de cada carro no instante da LARGADA (bandeira verde) =
+    /// o grid. 0 = ainda não capturado. Persiste entre resets de histórico; é
+    /// gravado em `CarMeta.grid_class_position` no upsert do resumo por carro.
+    grid_class_pos: [i32; 64],
 }
 
 impl RaceMonitor {
@@ -674,6 +696,7 @@ impl RaceMonitor {
             hist_player_lap: 0,
             hist_car_lap_completed: [0; 64],
             hist_last_neighbor_time: 0.0,
+            grid_class_pos: [0; 64],
         }
     }
 
@@ -842,6 +865,8 @@ impl RaceMonitor {
         self.race_green_time = None;
         // Nova tentativa = grade resetada; zera o rastreamento de movimento da IA.
         self.car_monitors = [CarMonitor::DEFAULT; 64];
+        // Grid recapturado na próxima largada (verde).
+        self.grid_class_pos = [0; 64];
         self.attempts.push(Attempt {
             number: self.current_attempt,
             status: "active".to_string(),
@@ -852,6 +877,8 @@ impl RaceMonitor {
             worst_crash: None,
             evidence: AttemptEvidence::default(),
             crashes: Vec::new(),
+            peak_crash_score: 0.0,
+            collided_with_car_number: None,
         });
     }
 
@@ -1000,6 +1027,35 @@ impl RaceMonitor {
                 self.crash_factors.push(factor);
             }
         }
+    }
+
+    /// Carro (número) MAIS PRÓXIMO do jogador na pista neste tick — o provável
+    /// culpado de um contato. Ignora o próprio jogador, o pace car e quem está no
+    /// pit; só conta se estiver bem perto (mesmo ponto da volta, com wrap no 0/1).
+    fn nearest_contact_car(&self, t: &IracingTelemetry) -> Option<i32> {
+        let me = t.lap_dist_pct;
+        if me < 0.0 {
+            return None;
+        }
+        t.cars
+            .iter()
+            .filter(|c| {
+                c.idx != t.player_car_idx
+                    && c.lap_dist_pct >= 0.0
+                    && !c.on_pit_road
+                    && (c.idx as usize) < 64
+                    && !self.car_is_pace[c.idx as usize]
+            })
+            .map(|c| {
+                let d = (c.lap_dist_pct - me).abs();
+                (c.idx, d.min(1.0 - d)) // distância na volta, com wrap 0/1
+            })
+            .filter(|(_, d)| *d < CONTACT_NEAR_PCT)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .and_then(|(idx, _)| {
+                let num = self.car_number[idx as usize];
+                (num > 0).then_some(num)
+            })
     }
 
     /// Fecha a batida em andamento e a anexa à tentativa atual.
@@ -1170,25 +1226,45 @@ impl RaceMonitor {
             }
         }
 
-        // Resumo por carro (classe, IA, posição na classe) — a última amostra vale,
-        // então no fim da corrida reflete as posições finais.
-        let cars_meta: Vec<CarMeta> = t
-            .cars
-            .iter()
-            .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
-            .map(|c| {
-                let i = c.idx as usize;
-                CarMeta {
-                    idx: c.idx,
-                    is_ai: self.car_is_ai[i],
-                    is_pace: self.car_is_pace[i],
-                    class_id: self.car_class_id[i],
-                    class_position: c.class_position,
-                    car_number: self.car_number[i],
+        // Resumo por carro (classe, IA, posição na classe) — ACUMULADO por idx
+        // (upsert), nunca encolhe. Um carro que sai do mundo (DNF, ou o cooldown
+        // pós-bandeira em que todos voltam ao menu) MANTÉM a última amostra; assim
+        // as posições finais não são apagadas no fim da corrida. (Antes era um
+        // replace total, que zerava cars_meta quando o campo esvaziava no cooldown.)
+        for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+            let i = c.idx as usize;
+            // Grid ROBUSTO: além do snapshot exato do verde, fixa a PRIMEIRA posição
+            // na classe já observada (set-once). Se o monitor só começou a amostrar
+            // depois da largada (transição do verde perdida), o grid ainda é a
+            // posição mais antiga vista — bem melhor que vazio.
+            if self.grid_class_pos[i] == 0 && c.class_position >= 1 {
+                self.grid_class_pos[i] = c.class_position;
+            }
+            let meta = CarMeta {
+                idx: c.idx,
+                is_ai: self.car_is_ai[i],
+                is_pace: self.car_is_pace[i],
+                class_id: self.car_class_id[i],
+                class_position: c.class_position,
+                car_number: self.car_number[i],
+                grid_class_position: self.grid_class_pos[i],
+            };
+            match self.history.cars_meta.iter_mut().find(|m| m.idx == c.idx) {
+                // Preserva o grid já capturado se este tick ainda não o tem.
+                Some(existing) => {
+                    let grid = if meta.grid_class_position > 0 {
+                        meta.grid_class_position
+                    } else {
+                        existing.grid_class_position
+                    };
+                    *existing = CarMeta {
+                        grid_class_position: grid,
+                        ..meta
+                    };
                 }
-            })
-            .collect();
-        self.history.cars_meta = cars_meta;
+                None => self.history.cars_meta.push(meta),
+            }
+        }
         self.history.track_id = self.session_track_id;
 
         // Batalha do jogador (carro à frente/atrás) — amostra leve a ~1Hz,
@@ -1356,10 +1432,26 @@ impl RaceMonitor {
             }
             if components.g > 0.0 || components.incident >= INCIDENT_4X {
                 self.crash_had_impact = true;
+                // CONTATO: o carro no mesmo ponto da pista que o jogador é o
+                // provável culpado ("quem bateu em mim"). Último contato vence.
+                let culprit = self.nearest_contact_car(t);
+                if let Some(num) = culprit {
+                    if let Some(a) = self.attempts.last_mut() {
+                        a.collided_with_car_number = Some(num);
+                    }
+                }
             }
             self.crash_components.merge_max(&components);
             self.merge_crash_factors(factors);
             self.crash_last_above = Some(now);
+            // PICO ao vivo: registra o maior impacto na tentativa mesmo que a
+            // batida nunca "feche" (jogador bate e sai). Base do conserto.
+            let peak = self.crash_components.total();
+            if let Some(attempt) = self.attempts.last_mut() {
+                if peak > attempt.peak_crash_score {
+                    attempt.peak_crash_score = peak;
+                }
+            }
         } else if self.in_crash {
             if let Some(last) = self.crash_last_above {
                 if now - last > MERGE_WINDOW_SECS {
@@ -1381,6 +1473,15 @@ impl RaceMonitor {
             && !self.race_started_emitted
         {
             self.race_started_emitted = true;
+            // Snapshot do GRID: a posição na classe no instante da largada (ainda
+            // não houve ultrapassagem) = a ordem de largada. Fonte do grid quando
+            // não há quali voadora (AI season larga de grade fixa).
+            for car in &t.cars {
+                let i = car.idx;
+                if (0..64).contains(&i) && car.class_position >= 1 {
+                    self.grid_class_pos[i as usize] = car.class_position;
+                }
+            }
             self.emit(
                 now,
                 lap,
@@ -1511,13 +1612,21 @@ impl RaceMonitor {
                     cm.has_raced = true;
                 }
             }
-            // Lento NA PISTA — só conta se o carro JÁ atingiu ritmo (não na largada).
+            // "Lento por incidente": o ritmo despencou E há sinal de problema REAL —
+            // o carro saiu da pista (rodada/excursão) ou está praticamente parado.
+            // Frear para ENTRAR no box também derruba o ritmo, mas é ON_TRACK e
+            // seguindo em frente; sem este filtro, um grupo de pits normais (vários
+            // carros desacelerando juntos rumo ao box) virava falso "acidente
+            // coletivo" e acionava amarela indevida.
             let on_racing_area =
                 car.track_surface == SURFACE_ON_TRACK || car.track_surface == SURFACE_OFF_TRACK;
+            let went_off = car.track_surface == SURFACE_OFF_TRACK;
+            let nearly_stopped = cm.has_moved && stalled > YELLOW_MIN_STOP_SECS;
             if cm.has_raced
                 && on_racing_area
                 && ref_pace > 0.0
                 && cm.pace < SLOW_PACE_FRACTION * ref_pace
+                && (went_off || nearly_stopped)
             {
                 cm.last_slow_time = now;
             }
@@ -1949,7 +2058,9 @@ pub fn build_adaptive_result(history: &RaceHistory, track_id: i64) -> super::ada
 }
 
 // ─── Helpers de desfecho ─────────────────────────────────────────────────────
-fn severity_rank(severity: &str) -> usize {
+/// Posto da severidade (0 = "nenhum", 5 = "catastrófico"). Usado para comparar
+/// batidas — pela ponte de resultado e pelo cálculo de conserto do carro.
+pub(crate) fn severity_rank(severity: &str) -> usize {
     SEVERITIES
         .iter()
         .position(|s| *s == severity)
