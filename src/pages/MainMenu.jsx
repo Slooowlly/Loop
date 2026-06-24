@@ -1,53 +1,353 @@
+import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
+
+import useCareerStore from "../stores/useCareerStore";
+import LoadingOverlay from "../components/ui/LoadingOverlay";
+import { formatDateTime } from "../utils/formatters";
+
+function WheelIcon() {
+  return (
+    <svg
+      width="23"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
+      <path d="M12 9.8V3.2" />
+      <path d="M10.1 13.6 4.6 18.2" />
+      <path d="M13.9 13.6 19.4 18.2" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
 
 function MainMenu() {
   const navigate = useNavigate();
+  const loadCareer = useCareerStore((state) => state.loadCareer);
+
+  const stageRef = useRef(null);
+  const canvasRef = useRef(null);
+  const glowRef = useRef(null);
+
+  const [recentSave, setRecentSave] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Save mais recente para o cartão "Continuar".
+  useEffect(() => {
+    let alive = true;
+    invoke("list_saves")
+      .then((saves) => {
+        if (!alive || !Array.isArray(saves) || saves.length === 0) return;
+        const sorted = [...saves].sort(
+          (a, b) => new Date(b.last_played || 0) - new Date(a.last_played || 0),
+        );
+        setRecentSave(sorted[0]);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Fundo animado: partículas (direita -> esquerda, velocidades mistas) + parallax só no fundo.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const stage = stageRef.current;
+    const glow = glowRef.current;
+    if (!canvas || !stage) return undefined;
+
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let W = 0;
+    let H = 0;
+
+    function size() {
+      const r = canvas.getBoundingClientRect();
+      W = r.width;
+      H = r.height;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    size();
+
+    const N = 52;
+    const ps = [];
+    function mk() {
+      const big = Math.random() < 0.16;
+      const fast = !big && Math.random() < 0.32;
+      const sp = big ? 2 + Math.random() * 3 : fast ? 18 + Math.random() * 24 : 4 + Math.random() * 6;
+      return {
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: big ? 3 + Math.random() * 5 : 0.6 + Math.random() * 1.8,
+        vx: -sp,
+        vy: (Math.random() - 0.4) * (fast ? 5 : 2.5),
+        sway: Math.random() * 6.28,
+        a: big ? 0.08 + Math.random() * 0.12 : 0.18 + Math.random() * 0.35,
+        blur: big,
+      };
+    }
+    for (let i = 0; i < N; i += 1) ps.push(mk());
+
+    let mx = 0;
+    let my = 0;
+    let cx = 0;
+    let cy = 0;
+    let last = performance.now();
+    let raf = 0;
+    let running = false;
+
+    function onMove(e) {
+      const r = stage.getBoundingClientRect();
+      mx = (e.clientX - r.left) / r.width - 0.5;
+      my = (e.clientY - r.top) / r.height - 0.5;
+    }
+    function onLeave() {
+      mx = 0;
+      my = 0;
+    }
+
+    function draw() {
+      ctx.clearRect(-30, -30, W + 60, H + 60);
+      ctx.globalCompositeOperation = "lighter";
+      const sg = ctx.createRadialGradient(W * 0.92, H * -0.04, 0, W * 0.92, H * -0.04, W * 0.38);
+      sg.addColorStop(0, "rgba(190,230,255,0.12)");
+      sg.addColorStop(1, "rgba(111,212,255,0)");
+      ctx.fillStyle = sg;
+      ctx.fillRect(-30, -30, W + 60, H + 60);
+      for (let i = 0; i < ps.length; i += 1) {
+        const p = ps[i];
+        if (p.blur) {
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2.2);
+          g.addColorStop(0, `rgba(111,212,255,${p.a})`);
+          g.addColorStop(1, "rgba(111,212,255,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 2.2, 0, 6.283);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = `rgba(198,233,255,${p.a})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, 6.283);
+          ctx.fill();
+        }
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    function frame(t) {
+      const dt = Math.min((t - last) / 1000, 0.05);
+      last = t;
+      cx += (mx - cx) * 0.06;
+      cy += (my - cy) * 0.06;
+      if (glow) glow.style.transform = `translate(${cx * 30}px, ${cy * 20}px)`;
+      canvas.style.transform = `translate(${cx * 18}px, ${cy * 12}px)`;
+      for (let i = 0; i < ps.length; i += 1) {
+        const p = ps[i];
+        p.sway += dt * 0.45;
+        p.x += p.vx * dt;
+        p.y += (p.vy + Math.sin(p.sway) * 1.6) * dt;
+        if (p.x + p.r < -20) {
+          p.x = W + 20;
+          p.y = Math.random() * H;
+        }
+        if (p.y < -20) p.y = H + 10;
+        if (p.y > H + 20) p.y = -10;
+      }
+      draw();
+      raf = requestAnimationFrame(frame);
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      last = performance.now();
+      raf = requestAnimationFrame(frame);
+    }
+    function stop() {
+      running = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    }
+    function onVisibility() {
+      if (document.hidden) stop();
+      else start();
+    }
+
+    const reduce =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function onResize() {
+      size();
+      if (reduce) draw();
+    }
+
+    window.addEventListener("resize", onResize);
+    stage.addEventListener("pointermove", onMove);
+    stage.addEventListener("pointerleave", onLeave);
+
+    if (reduce) {
+      draw();
+    } else {
+      document.addEventListener("visibilitychange", onVisibility);
+      window.addEventListener("focus", start);
+      window.addEventListener("blur", stop);
+      start();
+    }
+
+    return () => {
+      stop();
+      window.removeEventListener("resize", onResize);
+      stage.removeEventListener("pointermove", onMove);
+      stage.removeEventListener("pointerleave", onLeave);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", start);
+      window.removeEventListener("blur", stop);
+    };
+  }, []);
+
+  async function handleContinue() {
+    if (!recentSave || loading) return;
+    setLoading(true);
+    try {
+      await loadCareer(recentSave.career_id);
+      navigate("/dashboard");
+    } catch {
+      setLoading(false);
+    }
+  }
+
+  const continueSub = recentSave
+    ? [recentSave.category_name, recentSave.last_played ? formatDateTime(recentSave.last_played) : null]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
 
   return (
-    <div className="entry-shell px-4">
-      <div className="entry-backdrop" />
-      <div className="entry-glow left-[10%] top-[14%] h-64 w-64 bg-cyan-400/14" />
-      <div className="entry-glow bottom-[12%] right-[8%] h-72 w-72 bg-sky-500/12" />
+    <div className="mm-shell" ref={stageRef}>
+      <div className="mm-glow" ref={glowRef} />
+      <canvas className="mm-canvas" ref={canvasRef} />
+      <div className="mm-shade" />
 
-      <div className="entry-panel text-center">
-        <img
-          src="/utilities/logo-nova.png"
-          alt="Logo Loop"
-          className="h-24 w-24 object-contain drop-shadow-[0_16px_36px_rgba(88,166,255,0.12)]"
-        />
+      <div className="mm-menu">
+        <p className="mm-eyebrow">Carreira</p>
+        <h1 className="mm-title">LOOP</h1>
+        <p className="mm-season">Temporada {new Date().getFullYear()}</p>
 
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-accent-primary/70">
-            Menu Principal
-          </p>
-          <h1 className="text-2xl font-semibold tracking-[0.05em] text-text-primary">
-            Bem-vindo de volta
-          </h1>
-        </div>
+        <div className="mm-list">
+          {recentSave ? (
+            <button type="button" className="mm-card mm-hero" onClick={handleContinue}>
+              <div className="mm-hero-inner">
+                <span className="mm-hero-icon">
+                  <WheelIcon />
+                </span>
+                <div className="mm-hero-body">
+                  <div className="mm-hero-eyebrow">Continuar carreira</div>
+                  <div className="mm-hero-name">{recentSave.player_name}</div>
+                  <div className="mm-hero-sub">{continueSub}</div>
+                </div>
+                <span className="mm-hero-play">
+                  <PlayIcon />
+                </span>
+              </div>
+            </button>
+          ) : null}
 
-        <div className="flex w-full flex-col gap-3 pt-2">
-          <button
-            onClick={() => navigate("/new-career")}
-            className="entry-action"
-          >
-            NOVA CARREIRA
+          <button type="button" className="mm-card mm-row" onClick={() => navigate("/new-career")}>
+            <span className="mm-row-icon">
+              <PlusIcon />
+            </span>
+            <span>Nova carreira</span>
           </button>
 
-          <button
-            onClick={() => navigate("/load-save")}
-            className="entry-action"
-          >
-            CARREGAR SAVE
+          <button type="button" className="mm-card mm-row" onClick={() => navigate("/load-save")}>
+            <span className="mm-row-icon">
+              <FolderIcon />
+            </span>
+            <span>Carregar save</span>
           </button>
 
-          <button
-            onClick={() => navigate("/settings")}
-            className="entry-action"
-          >
-            CONFIGURACOES
+          <button type="button" className="mm-card mm-row" onClick={() => navigate("/settings")}>
+            <span className="mm-row-icon">
+              <GearIcon />
+            </span>
+            <span>Configurações</span>
           </button>
         </div>
       </div>
+
+      <LoadingOverlay open={loading} title="Carregando carreira" message="Voltando ao paddock..." />
     </div>
   );
 }

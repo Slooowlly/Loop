@@ -250,6 +250,200 @@ body {
   border-color: rgba(111, 212, 255, 0.30);
 }
 
+/* ─── Main Menu (premium idle) ───────────────────────────────────────────── */
+
+.mm-shell {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #040810;
+  color: var(--text-primary);
+}
+
+.mm-glow,
+.mm-canvas {
+  position: absolute;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.mm-glow {
+  inset: -6%;
+  background:
+    radial-gradient(48% 50% at 90% 0%, rgba(111, 212, 255, 0.14), transparent 58%),
+    radial-gradient(38% 40% at 99% 12%, rgba(190, 230, 255, 0.07), transparent 55%),
+    radial-gradient(120% 120% at 55% 135%, rgba(0, 0, 0, 0.6), transparent 55%);
+}
+
+.mm-canvas {
+  inset: -4%;
+  width: 108%;
+  height: 108%;
+  display: block;
+}
+
+.mm-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 55% at -8% 108%, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.5) 32%, rgba(0, 0, 0, 0) 60%),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.92) 8%,
+      rgba(0, 0, 0, 0.5) 18%,
+      rgba(0, 0, 0, 0.15) 28%,
+      rgba(0, 0, 0, 0) 40%
+    );
+}
+
+.mm-menu {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  padding-left: clamp(32px, 6vw, 72px);
+  max-width: 470px;
+}
+
+.mm-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: rgba(88, 166, 255, 0.78);
+  margin-bottom: 10px;
+}
+
+.mm-title {
+  font-size: clamp(46px, 6vw, 64px);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  margin: 0;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+}
+
+.mm-season {
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  margin-top: 8px;
+  margin-bottom: 26px;
+}
+
+.mm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  width: 100%;
+}
+
+.mm-card {
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  color: #fff;
+  border: 1px solid rgba(137, 201, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+}
+
+.mm-card:hover {
+  transform: translateX(4px);
+  background: rgba(112, 175, 255, 0.12);
+  border-color: rgba(111, 212, 255, 0.45);
+}
+
+.mm-card:focus-visible {
+  outline: none;
+  border-color: rgba(111, 212, 255, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 2px rgba(88, 166, 255, 0.4);
+}
+
+.mm-hero {
+  padding: 15px 17px;
+}
+
+.mm-hero-inner {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.mm-hero-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #79b8ff, #1e5a9e);
+  color: #06203b;
+}
+
+.mm-hero-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.mm-hero-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(121, 184, 255, 0.9);
+}
+
+.mm-hero-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-hero-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mm-hero-play {
+  display: inline-flex;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.mm-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 17px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mm-row-icon {
+  display: inline-flex;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-card {
+    transition: none;
+  }
+}
+
 /* ─── Wizard ─────────────────────────────────────────────────────────────── */
 
 .wizard-panel {
