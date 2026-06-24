@@ -5,28 +5,6 @@ import { useNavigate } from "react-router-dom";
 import useCareerStore from "../stores/useCareerStore";
 import { formatDateTime } from "../utils/formatters";
 
-function WheelIcon() {
-  return (
-    <svg
-      width="26"
-      height="26"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
-      <path d="M12 9.8V3.2" />
-      <path d="M10.1 13.6 4.6 18.2" />
-      <path d="M13.9 13.6 19.4 18.2" />
-    </svg>
-  );
-}
-
 function PlayIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -350,7 +328,7 @@ function MainMenu() {
             <button type="button" className="mm-card mm-hero" onClick={handleContinue}>
               <div className="mm-hero-inner">
                 <span className="mm-hero-icon">
-                  <WheelIcon />
+                  <img className="mm-hero-logo" src="/utilities/LOGO%20NOVA.png" alt="" />
                 </span>
                 <div className="mm-hero-body">
                   <div className="mm-hero-eyebrow">Continuar carreira</div>
