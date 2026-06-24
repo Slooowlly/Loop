@@ -140,24 +140,36 @@ function MainMenu() {
     }
     size();
 
-    const N = 52;
     const ps = [];
     function mk() {
-      const big = Math.random() < 0.16;
-      const fast = !big && Math.random() < 0.32;
-      const sp = big ? 2 + Math.random() * 3 : fast ? 18 + Math.random() * 24 : 4 + Math.random() * 6;
+      const big = Math.random() < 0.14;
+      // Velocidade continua e independente do tamanho: a maioria lenta, algumas rapidas,
+      // tudo no meio do caminho tambem (sem os dois "baldes"). Particulas iguais podem
+      // ter velocidades diferentes.
+      const speed = big
+        ? 2 + Math.random() * 4
+        : 4 + Math.pow(Math.random(), 4) * 30;
       return {
         x: Math.random() * W,
         y: Math.random() * H,
         r: big ? 3 + Math.random() * 5 : 0.6 + Math.random() * 1.8,
-        vx: -sp,
-        vy: (Math.random() - 0.4) * (fast ? 5 : 2.5),
+        vx: -speed,
+        vy: (Math.random() - 0.4) * (1.5 + speed * 0.12),
         sway: Math.random() * 6.28,
         a: big ? 0.08 + Math.random() * 0.12 : 0.18 + Math.random() * 0.35,
         blur: big,
       };
     }
-    for (let i = 0; i < N; i += 1) ps.push(mk());
+    // Densidade proporcional a area: mesma concentracao do template em qualquer janela.
+    function targetCount() {
+      return Math.max(50, Math.min(170, Math.round((W * H) / 14000)));
+    }
+    function ensureCount() {
+      const t = targetCount();
+      while (ps.length < t) ps.push(mk());
+      if (ps.length > t) ps.length = t;
+    }
+    ensureCount();
 
     let mx = 0;
     let my = 0;
@@ -250,6 +262,7 @@ function MainMenu() {
 
     function onResize() {
       size();
+      ensureCount();
       if (reduce) draw();
     }
 
