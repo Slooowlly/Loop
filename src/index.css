@@ -300,6 +300,40 @@ body {
     );
 }
 
+.mm-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6.5vh;
+  background: #000;
+  z-index: 5;
+  pointer-events: none;
+  transition: transform 0.7s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.mm-bar-top {
+  top: 0;
+  transform: translateY(-101%);
+}
+
+.mm-bar-bottom {
+  bottom: 0;
+  transform: translateY(101%);
+}
+
+.mm-shell.is-entered .mm-bar-top,
+.mm-shell.is-entered .mm-bar-bottom {
+  transform: translateY(0);
+}
+
+.mm-shell.is-exiting .mm-bar-top {
+  transform: translateY(-101%);
+}
+
+.mm-shell.is-exiting .mm-bar-bottom {
+  transform: translateY(101%);
+}
+
 .mm-menu {
   position: relative;
   z-index: 2;
@@ -309,6 +343,19 @@ body {
   height: 100%;
   padding-left: clamp(36px, 6vw, 80px);
   max-width: 540px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.mm-shell.is-entered .mm-menu {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.mm-shell.is-exiting .mm-menu {
+  opacity: 0;
+  transform: scale(1.12);
 }
 
 .mm-eyebrow {
@@ -439,7 +486,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mm-card {
+  .mm-card,
+  .mm-bar,
+  .mm-menu {
     transition: none;
   }
 }

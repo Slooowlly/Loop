@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 
 import useCareerStore from "../stores/useCareerStore";
-import LoadingOverlay from "../components/ui/LoadingOverlay";
 import { formatDateTime } from "../utils/formatters";
 
 function WheelIcon() {
@@ -99,7 +98,14 @@ function MainMenu() {
   const glowRef = useRef(null);
 
   const [recentSave, setRecentSave] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const [exiting, setExiting] = useState(false);
+
+  const prefersReduced =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const EXIT_MS = prefersReduced ? 0 : 700;
 
   // Save mais recente para o cartão "Continuar".
   useEffect(() => {
@@ -116,6 +122,12 @@ function MainMenu() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Entrada cinematografica: barras pretas fecham e o menu surge.
+  useEffect(() => {
+    const id = window.setTimeout(() => setEntered(true), 30);
+    return () => window.clearTimeout(id);
   }, []);
 
   // Fundo animado: partículas (direita -> esquerda, velocidades mistas) + parallax só no fundo.
@@ -290,14 +302,24 @@ function MainMenu() {
     };
   }, []);
 
+  // Saida cinematografica: barras abrem + menu da zoom, dai navega.
+  function leaveTo(path) {
+    if (exiting) return;
+    setExiting(true);
+    window.setTimeout(() => navigate(path), EXIT_MS);
+  }
+
   async function handleContinue() {
-    if (!recentSave || loading) return;
-    setLoading(true);
+    if (!recentSave || exiting) return;
+    setExiting(true);
     try {
-      await loadCareer(recentSave.career_id);
+      await Promise.all([
+        loadCareer(recentSave.career_id),
+        new Promise((resolve) => setTimeout(resolve, EXIT_MS)),
+      ]);
       navigate("/dashboard");
     } catch {
-      setLoading(false);
+      setExiting(false);
     }
   }
 
@@ -307,11 +329,16 @@ function MainMenu() {
         .join(" · ")
     : "";
 
+  const shellClass = `mm-shell${entered ? " is-entered" : ""}${exiting ? " is-exiting" : ""}`;
+
   return (
-    <div className="mm-shell" ref={stageRef}>
+    <div className={shellClass} ref={stageRef}>
       <div className="mm-glow" ref={glowRef} />
       <canvas className="mm-canvas" ref={canvasRef} />
       <div className="mm-shade" />
+
+      <div className="mm-bar mm-bar-top" />
+      <div className="mm-bar mm-bar-bottom" />
 
       <div className="mm-menu">
         <p className="mm-eyebrow">Carreira</p>
@@ -337,21 +364,21 @@ function MainMenu() {
             </button>
           ) : null}
 
-          <button type="button" className="mm-card mm-row" onClick={() => navigate("/new-career")}>
+          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/new-career")}>
             <span className="mm-row-icon">
               <PlusIcon />
             </span>
             <span>Nova carreira</span>
           </button>
 
-          <button type="button" className="mm-card mm-row" onClick={() => navigate("/load-save")}>
+          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/load-save")}>
             <span className="mm-row-icon">
               <FolderIcon />
             </span>
             <span>Carregar save</span>
           </button>
 
-          <button type="button" className="mm-card mm-row" onClick={() => navigate("/settings")}>
+          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/settings")}>
             <span className="mm-row-icon">
               <GearIcon />
             </span>
@@ -359,8 +386,6 @@ function MainMenu() {
           </button>
         </div>
       </div>
-
-      <LoadingOverlay open={loading} title="Carregando carreira" message="Voltando ao paddock..." />
     </div>
   );
 }
