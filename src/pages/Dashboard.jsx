@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { invoke } from "@tauri-apps/api/core";
 
 import MainLayout from "../components/layout/MainLayout";
 import RaceResultView from "../components/race/RaceResultView";
@@ -9,19 +10,27 @@ import PreSeasonView from "../components/season/PreSeasonView";
 import useCareerStore from "../stores/useCareerStore";
 import CalendarTab from "./tabs/CalendarTab";
 import MyTeamTab from "./tabs/MyTeamTab";
-import NewsTab from "./tabs/NewsTab";
+import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
 import StandingsTab from "./tabs/StandingsTab";
 import GlobalDriversTab from "./tabs/GlobalDriversTab";
 import GlobalTeamsTab from "./tabs/GlobalTeamsTab";
 
-const RACE_ARRIVAL_FEEDBACK_MS = 280;
+// Ao chegar o dia da corrida: a célula da PISTA pulsa por ~1s no calendário,
+// anunciando que vai abrir, e só então entra a sala de estratégia (com fade).
+const RACE_ARRIVAL_FEEDBACK_MS = 1000;
 
 function Dashboard() {
   const isLoaded = useCareerStore((state) => state.isLoaded);
   const showResult = useCareerStore((state) => state.showResult);
   const lastRaceResult = useCareerStore((state) => state.lastRaceResult);
+  const lastRaceEvaluation = useCareerStore((state) => state.lastRaceEvaluation);
+  const lastRaceTelemetry = useCareerStore((state) => state.lastRaceTelemetry);
   const dismissResult = useCareerStore((state) => state.dismissResult);
+  const careerId = useCareerStore((state) => state.careerId);
+  const pollIracingResult = useCareerStore((state) => state.pollIracingResult);
+  const iracingRepair = useCareerStore((state) => state.iracingRepair);
+  const dismissIracingRepair = useCareerStore((state) => state.dismissIracingRepair);
   const showEndOfSeason = useCareerStore((state) => state.showEndOfSeason);
   const endOfSeasonResult = useCareerStore((state) => state.endOfSeasonResult);
   const showPreseason = useCareerStore((state) => state.showPreseason);
@@ -68,6 +77,26 @@ function Dashboard() {
     };
   }, [activeTab, showRaceBriefing]);
 
+  // Poller do gatilho automático do iRacing: a cada poucos segundos pergunta ao
+  // backend se o resultado da corrida já foi gravado (jogador terminou/saiu). Se
+  // sim, a store abre a tela de resultado sozinha. Roda enquanto a carreira está
+  // carregada; o backend é barato quando não há nada a importar.
+  useEffect(() => {
+    if (!careerId) return undefined;
+    const resultHandle = setInterval(() => {
+      pollIracingResult?.();
+    }, 4000);
+    // Gatilho inverso: se o iRacing acabou de fechar, traz nossa janela à frente.
+    // Checagem leve (atomic no backend), então roda mais rápido que o import.
+    const focusHandle = setInterval(() => {
+      invoke("iracing_focus_self_if_closed").catch(() => {});
+    }, 1500);
+    return () => {
+      clearInterval(resultHandle);
+      clearInterval(focusHandle);
+    };
+  }, [careerId, pollIracingResult]);
+
   if (!isLoaded) {
     return <Navigate to="/menu" replace />;
   }
@@ -91,7 +120,7 @@ function Dashboard() {
           />
         );
       case "news":
-        return <NewsTab />;
+        return <NewsMagazineTab />;
       case "my-team":
         return <MyTeamTab />;
       case "calendar":
@@ -125,7 +154,15 @@ function Dashboard() {
   if (showResult && lastRaceResult) {
     return (
       <MainLayout activeTab={activeTab} onTabChange={setActiveTab} hideHeader>
-        <RaceResultView result={lastRaceResult} onDismiss={dismissResult} />
+        <RaceResultView
+          result={lastRaceResult}
+          evaluation={lastRaceEvaluation}
+          telemetry={lastRaceTelemetry}
+          onDismiss={dismissResult}
+        />
+        {iracingRepair && (
+          <RepairPopup repair={iracingRepair} onClose={dismissIracingRepair} />
+        )}
       </MainLayout>
     );
   }
@@ -151,15 +188,61 @@ function Dashboard() {
   if (showRaceBriefing && !shouldShowRaceArrivalFeedback) {
     return (
       <MainLayout activeTab={activeTab} onTabChange={setActiveTab}>
-        <NextRaceTab />
+        {/* Fade suave ao abrir a sala de estratégia (depois do pulso da pista). */}
+        <div className="tab-pane-fade">
+          <NextRaceTab />
+        </div>
       </MainLayout>
     );
   }
 
   return (
     <MainLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {renderTab()}
+      {/* `key` por aba → remonta com o fade suave a cada troca (ex.: ao avançar
+          o calendário, a aba muda para Calendário com transição). */}
+      <div key={activeTab} className="tab-pane-fade">
+        {renderTab()}
+      </div>
     </MainLayout>
+  );
+}
+
+function RepairPopup({ repair, onClose }) {
+  const valor = `R$ ${Math.round(repair.repair_cost || 0).toLocaleString("pt-BR")}`;
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-status-red/30 bg-[#161b22] p-6 shadow-[0_0_40px_rgba(0,0,0,0.6)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-3xl">🔧</span>
+          <div>
+            <h3 className="text-base font-bold text-text-primary">Conserto do carro</h3>
+            <p className="text-[11px] uppercase tracking-wide text-status-red">
+              Batida {repair.repair_severity}
+            </p>
+          </div>
+        </div>
+        <p className="mt-4 text-sm leading-relaxed text-text-secondary">
+          {repair.repair_message}
+        </p>
+        <div className="mt-4 flex items-baseline justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+          <span className="text-xs text-text-muted">Custo do reparo</span>
+          <span className="font-mono text-xl font-bold text-status-red">{valor}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-text-primary transition-glass hover:bg-white/15"
+        >
+          OK, entendi
+        </button>
+      </div>
+    </div>
   );
 }
 

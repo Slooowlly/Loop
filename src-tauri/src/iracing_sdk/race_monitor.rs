@@ -53,9 +53,9 @@ const MAX_EVENTS: usize = 60;
 /// abaixo; é só um guarda contra crescimento ilimitado.
 const MAX_HISTORY_LAPS: usize = 600;
 /// Intervalo (s) entre amostras da batalha do jogador (à frente/atrás). ~1Hz
-/// captura a briga sem peso (1h de corrida ≈ 3600 pontos minúsculos).
-const NEIGHBOR_SAMPLE_SECS: f64 = 1.0;
-/// Teto de amostras da batalha guardadas (≈ 83 min a 1Hz).
+/// captura a briga sem peso (1h de corrida ≈ 7200 pontos minúsculos a 2Hz).
+const NEIGHBOR_SAMPLE_SECS: f64 = 0.5;
+/// Teto de amostras da batalha guardadas (≈ 41 min a 2Hz).
 const MAX_TRACK_POINTS: usize = 5000;
 /// Variação mínima de LapDistPct para considerar que um carro "andou".
 const AI_PROGRESS_EPS: f64 = 0.0015;
@@ -386,6 +386,18 @@ pub struct PlayerLap {
     pub time: f64,
 }
 
+/// Marcador de evento do JOGADOR no race trace (pin): posição = volta + fração
+/// (via `lap_dist_pct`), com os pontos de incidente e se foi saída de pista.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PlayerIncidentMark {
+    /// Volta + fração da volta (ex.: 3.42).
+    pub lap_f: f64,
+    /// Pontos do incidente: 0 (só saída), 1 (saída), 2 (rodada), 4 (contato).
+    pub points: i32,
+    /// Saída de pista no instante do evento.
+    pub off_track: bool,
+}
+
 /// Um instante da "batalha" do jogador: sua posição/velocidade e quem está
 /// imediatamente à frente e atrás, com os gaps. Amostrado num ritmo leve (~1Hz)
 /// ao longo de toda a corrida, para mostrar a briga se desenvolvendo.
@@ -600,6 +612,19 @@ struct RaceMonitor {
     car_is_pace: [bool; 64],
     /// Classe (`CarClassID`) por carro — para a adaptação multiclasse.
     car_class_id: [i64; 64],
+    /// Nome curto de cada classe (`CarClassShortName`) como `(class_id, nome)` —
+    /// para as abas por categoria no overlay multiclasse. Vec (não HashMap) para
+    /// caber no `const fn new()`.
+    class_names: Vec<(i64, String)>,
+    /// Nome do piloto (`UserName`) como `(car_idx, nome)` — para mostrar nomes em
+    /// vez de números no overlay. Vec por causa do `const fn new()`.
+    driver_names: Vec<(i32, String)>,
+    /// Voltas do jogador que passaram pelo pit (in/out lap) — o ritmo as ignora.
+    player_pit_laps: Vec<i32>,
+    /// Running: o jogador passou pelo pit road na volta em andamento?
+    player_pit_seen: bool,
+    /// Pins do jogador no race trace (incidentes/saídas), com a posição na volta.
+    player_incidents: Vec<PlayerIncidentMark>,
     /// Número do carro (`CarNumberRaw`) por carro — ponte p/ driver_id (Fase 3).
     car_number: [i32; 64],
     /// Pista da sessão (`WeekendInfo:TrackID`) — copiada para o histórico.
@@ -681,6 +706,11 @@ impl RaceMonitor {
             car_is_ai: [true; 64],
             car_is_pace: [false; 64],
             car_class_id: [0; 64],
+            class_names: Vec::new(),
+            driver_names: Vec::new(),
+            player_pit_laps: Vec::new(),
+            player_pit_seen: false,
+            player_incidents: Vec::new(),
             car_number: [0; 64],
             session_track_id: 0,
             qualy_session_num: -1,
@@ -765,6 +795,20 @@ impl RaceMonitor {
             self.car_is_ai[i] = classes[i].0;
             self.car_is_pace[i] = classes[i].1;
             self.car_class_id[i] = classes[i].2;
+        }
+    }
+
+    /// Guarda os nomes curtos das classes (do `DriverInfo` do YAML).
+    fn set_class_names(&mut self, names: Vec<(i64, String)>) {
+        if !names.is_empty() {
+            self.class_names = names;
+        }
+    }
+
+    /// Guarda os nomes dos pilotos por car_idx (do `DriverInfo` do YAML).
+    fn set_driver_names(&mut self, names: Vec<(i32, String)>) {
+        if !names.is_empty() {
+            self.driver_names = names;
         }
     }
 
@@ -856,6 +900,7 @@ impl RaceMonitor {
         self.current_attempt += 1;
         self.prev_surface = SURFACE_ON_TRACK;
         self.prev_incident = None;
+        self.player_incidents.clear();
         self.race_started_emitted = false;
         self.race_finished_emitted = false;
         self.dnf_probable = false;
@@ -1190,6 +1235,11 @@ impl RaceMonitor {
             }
         }
 
+        // Pit do jogador: acumula se passou pelo pit road na volta em andamento.
+        if t.player_on_pit_road {
+            self.player_pit_seen = true;
+        }
+
         // Jogador completou uma volta nova → registra o tempo dela.
         if t.lap_completed > self.hist_player_lap {
             self.hist_player_lap = t.lap_completed;
@@ -1202,6 +1252,14 @@ impl RaceMonitor {
                     self.history.player_laps.remove(0);
                 }
             }
+            // A volta recém-completada teve pit? Marca e zera para a próxima.
+            if self.player_pit_seen {
+                self.player_pit_laps.push(t.lap_completed);
+                if self.player_pit_laps.len() > MAX_HISTORY_LAPS {
+                    self.player_pit_laps.remove(0);
+                }
+            }
+            self.player_pit_seen = false;
         }
 
         // Cada carro (jogador + IA) completou uma volta → registra o tempo dela.
@@ -1530,6 +1588,35 @@ impl RaceMonitor {
             );
         }
 
+        // Pins do jogador no race trace: incidentes (com pontos) e saídas de
+        // pista, posicionados pela fração da volta. Só durante a corrida.
+        if t.session_state >= STATE_RACING {
+            let lap_f = t.lap_completed as f64 + t.lap_dist_pct.clamp(0.0, 1.0);
+            let delta = self
+                .prev_incident
+                .map(|p| t.incident_count - p)
+                .unwrap_or(0);
+            if delta > 0 {
+                self.player_incidents.push(PlayerIncidentMark {
+                    lap_f,
+                    points: delta,
+                    off_track: t.track_surface == SURFACE_OFF_TRACK,
+                });
+            } else if t.track_surface == SURFACE_OFF_TRACK
+                && self.prev_surface != SURFACE_OFF_TRACK
+            {
+                // Excursão de pista sem ponto de incidente (0x).
+                self.player_incidents.push(PlayerIncidentMark {
+                    lap_f,
+                    points: 0,
+                    off_track: true,
+                });
+            }
+            if self.player_incidents.len() > MAX_HISTORY_LAPS {
+                self.player_incidents.remove(0);
+            }
+        }
+
         // Atualiza prev_* (transições do jogador) + score ao vivo.
         self.prev_surface = t.track_surface;
         self.prev_incident = Some(t.incident_count);
@@ -1612,22 +1699,15 @@ impl RaceMonitor {
                     cm.has_raced = true;
                 }
             }
-            // "Lento por incidente": o ritmo despencou E há sinal de problema REAL —
-            // o carro saiu da pista (rodada/excursão) ou está praticamente parado.
-            // Frear para ENTRAR no box também derruba o ritmo, mas é ON_TRACK e
-            // seguindo em frente; sem este filtro, um grupo de pits normais (vários
-            // carros desacelerando juntos rumo ao box) virava falso "acidente
-            // coletivo" e acionava amarela indevida.
-            let on_racing_area =
-                car.track_surface == SURFACE_ON_TRACK || car.track_surface == SURFACE_OFF_TRACK;
+            // "Lento por incidente" (alimenta o cluster de pits = acidente coletivo):
+            // o ritmo despencou E o carro SAIU DA PISTA (rodada/excursão).
+            // Exigir o off-track é o que separa um ACIDENTE de um carro só
+            // DESACELERANDO PARA ABASTECER: a fila/rastejo na entrada do box (ON_TRACK,
+            // porém quase parado por 2s+) era contada como "quase parado" e um grupo de
+            // pits normais virava falso acidente coletivo. Carros que PARAM na pista por
+            // batida (sem sair dela) seguem cobertos pela detecção por setor (caminho 4).
             let went_off = car.track_surface == SURFACE_OFF_TRACK;
-            let nearly_stopped = cm.has_moved && stalled > YELLOW_MIN_STOP_SECS;
-            if cm.has_raced
-                && on_racing_area
-                && ref_pace > 0.0
-                && cm.pace < SLOW_PACE_FRACTION * ref_pace
-                && (went_off || nearly_stopped)
-            {
+            if cm.has_raced && ref_pace > 0.0 && cm.pace < SLOW_PACE_FRACTION * ref_pace && went_off {
                 cm.last_slow_time = now;
             }
             // Pit de incidente: entrou no pit logo após ter ficado lento na pista.
@@ -2006,6 +2086,51 @@ fn parse_driver_classes(yaml: &str) -> [(bool, bool, i64); 64] {
     out
 }
 
+/// Mapeia `CarClassID -> CarClassShortName` (do `DriverInfo` do YAML), para
+/// rotular as abas por categoria no overlay multiclasse. O `CarClassID` aparece
+/// antes do `CarClassShortName` dentro do bloco de cada piloto.
+fn parse_class_names(yaml: &str) -> Vec<(i64, String)> {
+    let mut out: Vec<(i64, String)> = Vec::new();
+    let mut cur_class: Option<i64> = None;
+    for line in yaml.lines() {
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("CarClassID:") {
+            cur_class = rest.trim().parse::<i64>().ok();
+        } else if let Some(rest) = t.strip_prefix("CarClassShortName:") {
+            if let Some(id) = cur_class.filter(|c| *c != 0) {
+                let name = rest.trim().trim_matches('"').trim();
+                if !name.is_empty() && name != "null" && !out.iter().any(|(i, _)| *i == id) {
+                    out.push((id, name.to_string()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Mapeia `CarIdx -> UserName` (nome do piloto) do `DriverInfo` do YAML. O
+/// `UserName` aparece logo após o `CarIdx` no bloco de cada piloto.
+fn parse_driver_names(yaml: &str) -> Vec<(i32, String)> {
+    let mut out: Vec<(i32, String)> = Vec::new();
+    let mut current: Option<i32> = None;
+    for line in yaml.lines() {
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("CarIdx:") {
+            current = rest.trim().parse::<i32>().ok();
+        } else if let Some(rest) = t.strip_prefix("UserName:") {
+            if let Some(idx) = current {
+                let name = rest.trim().trim_matches('"').trim();
+                if !name.is_empty() && name != "null" && !out.iter().any(|(i, _)| *i == idx) {
+                    out.push((idx, name.to_string()));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Converte o histórico capturado no [`RaceResult`](super::adaptive::RaceResult)
 /// que a camada adaptativa consome (a ponte Fase A → Fase B). `track_id` vem de
 /// quem chama (o export sabe a pista). As voltas de TODOS os carros já estão em
@@ -2163,6 +2288,47 @@ fn lock() -> std::sync::MutexGuard<'static, RaceMonitor> {
     MONITOR.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Janela de tempo em que o app deve "puxar" o foco para si depois que o iRacing
+/// fecha. Necessária porque a UI/launcher do iRacing se traz para frente alguns
+/// segundos APÓS o sim fechar — então focamos uma vez na hora (bring-up) e, pelo
+/// resto da janela, só RECONQUISTAMOS o foco se o iRacing o roubar de volta.
+const FOCUS_SELF_WINDOW_SECS: u64 = 6;
+
+/// `true` enquanto estamos dentro da janela pós-fechamento do sim.
+static FOCUS_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+/// `true` só no primeiro poll após o fechamento (o bring-up incondicional).
+static FOCUS_INITIAL: AtomicBool = AtomicBool::new(false);
+
+fn focus_deadline() -> std::sync::MutexGuard<'static, Option<std::time::Instant>> {
+    FOCUS_DEADLINE.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Arma a janela de foco (borda conectado→fechado).
+fn arm_focus_self() {
+    *focus_deadline() =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(FOCUS_SELF_WINDOW_SECS));
+    FOCUS_INITIAL.store(true, Ordering::SeqCst);
+}
+
+/// Desarma a janela de foco (sim reconectou).
+fn clear_focus_self() {
+    if focus_deadline().take().is_some() {
+        FOCUS_INITIAL.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Estado da janela de foco para o front: `(dentro_da_janela, é_o_bring_up)`.
+/// `é_o_bring_up` só vem `true` no primeiro poll (consome). Fora da janela
+/// devolve `(false, false)`.
+pub fn poll_focus_self() -> (bool, bool) {
+    let in_window = focus_deadline().map_or(false, |d| std::time::Instant::now() < d);
+    if !in_window {
+        FOCUS_INITIAL.store(false, Ordering::SeqCst);
+        return (false, false);
+    }
+    (true, FOCUS_INITIAL.swap(false, Ordering::SeqCst))
+}
+
 fn start_sampler() {
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::SeqCst) {
@@ -2183,12 +2349,16 @@ fn start_sampler() {
                         if tick % YAML_REFRESH_TICKS == 0 {
                             if let Ok(session) = super::read_session() {
                                 let classes = parse_driver_classes(&session.session_yaml);
+                                let class_names = parse_class_names(&session.session_yaml);
+                                let driver_names = parse_driver_names(&session.session_yaml);
                                 let track_id = parse_track_id(&session.session_yaml);
                                 let qualy_num = parse_qualy_session_num(&session.session_yaml);
                                 let numbers = parse_car_numbers(&session.session_yaml);
                                 {
                                     let mut m = lock();
                                     m.set_car_classes(&classes);
+                                    m.set_class_names(class_names);
+                                    m.set_driver_names(driver_names);
                                     m.set_session_track_id(track_id);
                                     m.set_qualy_session_num(qualy_num);
                                     m.set_car_numbers(&numbers);
@@ -2198,6 +2368,8 @@ fn start_sampler() {
                             }
                         }
                         lock().observe(&t);
+                        // Sim conectado de novo: cancela qualquer janela de foco pendente.
+                        clear_focus_self();
                         true
                     }
                     Err(error) => {
@@ -2215,6 +2387,8 @@ fn start_sampler() {
                             }
                             m.was_connected = false;
                             m.prev = None;
+                            // Borda de descida: arma a janela de foco da nossa janela.
+                            arm_focus_self();
                         }
                         m.connected = false;
                         false
@@ -2293,6 +2467,47 @@ pub fn poll() -> RaceStatus {
 pub fn get_history() -> RaceHistory {
     start_sampler();
     lock().history.clone()
+}
+
+/// Versão ENXUTA do histórico para o overlay "iRacing Conectado": só o que os
+/// gráficos ao vivo usam (sem `qualy_laps`). Inclui `car_laps` para o seletor de
+/// ritmo por piloto. Leve o suficiente para o polling a 1Hz.
+#[derive(Clone, Serialize)]
+pub struct RaceFeedback {
+    pub laps: Vec<LapSnapshot>,
+    pub player_laps: Vec<PlayerLap>,
+    pub player_track: Vec<PlayerTrackPoint>,
+    pub yellow_laps: Vec<i32>,
+    pub cars_meta: Vec<CarMeta>,
+    pub player_car_idx: i32,
+    /// `class_id -> nome curto` para rotular as abas por categoria.
+    pub class_names: std::collections::HashMap<i64, String>,
+    /// `car_idx -> nome do piloto` para mostrar nomes em vez de números.
+    pub driver_names: std::collections::HashMap<i32, String>,
+    /// Voltas do jogador que passaram pelo pit (o ritmo as ignora).
+    pub player_pit_laps: Vec<i32>,
+    /// Voltas de TODOS os carros (idx, lap, time) — base do seletor de ritmo.
+    pub car_laps: Vec<CarLap>,
+    /// Pins do jogador (incidentes/saídas) para o race trace.
+    pub player_incidents: Vec<PlayerIncidentMark>,
+}
+
+pub fn get_feedback() -> RaceFeedback {
+    start_sampler();
+    let m = lock();
+    RaceFeedback {
+        laps: m.history.laps.clone(),
+        player_laps: m.history.player_laps.clone(),
+        player_track: m.history.player_track.clone(),
+        yellow_laps: m.history.yellow_laps.clone(),
+        cars_meta: m.history.cars_meta.clone(),
+        player_car_idx: m.history.player_car_idx,
+        class_names: m.class_names.iter().cloned().collect(),
+        driver_names: m.driver_names.iter().cloned().collect(),
+        player_pit_laps: m.player_pit_laps.clone(),
+        car_laps: m.history.car_laps.clone(),
+        player_incidents: m.player_incidents.clone(),
+    }
 }
 
 /// Zera o monitor para começar um novo teste.

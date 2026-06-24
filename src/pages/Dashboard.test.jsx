@@ -196,7 +196,8 @@ describe("Dashboard", () => {
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "calendar");
     expect(screen.getByTestId("calendar-tab-prop")).toHaveAttribute("data-race-arrival-feedback-active", "true");
 
-    await vi.advanceTimersByTimeAsync(279);
+    // A pista pulsa por ~1s no calendário antes de abrir a sala de estratégia.
+    await vi.advanceTimersByTimeAsync(999);
 
     expect(screen.queryByText("Briefing pre-corrida")).not.toBeInTheDocument();
 

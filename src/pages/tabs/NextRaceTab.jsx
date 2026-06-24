@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import GlassButton from "../../components/ui/GlassButton";
 import GlassCard from "../../components/ui/GlassCard";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
+import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
 import useCareerStore from "../../stores/useCareerStore";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
@@ -13,6 +14,9 @@ import {
   classifyChampionshipState,
   classifyWeekendState,
 } from "./nextRaceEditorial";
+
+// Chave de "já vi o tutorial do iRacing" (mostrado só na 1ª ida ao iRacing).
+const IRACING_TUTORIAL_KEY = "loop.iracingTutorialSeen";
 
 function getDisplayError(error, fallback) {
   if (typeof error === "string") {
@@ -36,13 +40,28 @@ function NextRaceTab() {
   const [exportNotice, setExportNotice] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exported, setExported] = useState(false);
+  const [showGoToast, setShowGoToast] = useState(false);
+  const [iracingFocusMsg, setIracingFocusMsg] = useState("");
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialMsg, setTutorialMsg] = useState("");
+  const toastTimers = useRef([]);
   const [confirmSim, setConfirmSim] = useState(false);
+  // "Pegar a cor do carro": botão ao lado de Simular Corrida que abre o modal.
+  // Só aparece quando o jogador já conectou ao iRacing (temos o custid) e ainda
+  // não vinculou a cor a este save.
+  const [canPickPaint, setCanPickPaint] = useState(false);
+  const [showPaintPrompt, setShowPaintPrompt] = useState(false);
+  const [paintBusy, setPaintBusy] = useState(false);
+  const [paintError, setPaintError] = useState("");
+  const [paintToast, setPaintToast] = useState("");
   const [hasExistingPreseason, setHasExistingPreseason] = useState(false);
   const [driverStandings, setDriverStandings] = useState([]);
   const [teamStandings, setTeamStandings] = useState([]);
   const [briefingPhraseHistory, setBriefingPhraseHistory] = useState({ season_number: 0, entries: [] });
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(true);
   const [briefingError, setBriefingError] = useState("");
+  // Prévia pré-corrida por IA (narrativa + voz da equipe, curtas). null → template.
+  const [aiBriefing, setAiBriefing] = useState(null);
 
   const player = useCareerStore((state) => state.player);
   const playerTeam = useCareerStore((state) => state.playerTeam);
@@ -245,6 +264,92 @@ function NextRaceTab() {
     season?.numero,
   ]);
 
+  // Decide se a opção "pegar a cor do carro" aparece na Sala de Estratégia: só
+  // quando o jogador JÁ conectou ao iRacing (temos o custid — ele correu de verdade,
+  // não simulou) e ainda NÃO vinculou a cor a este save. Checa o vínculo uma vez e
+  // então faz um poll leve da conexão (o custid pode surgir enquanto ele está aqui).
+  useEffect(() => {
+    let active = true;
+    if (!careerId) {
+      setCanPickPaint(false);
+      return undefined;
+    }
+    let handle;
+    invoke("iracing_linked_custid", { careerId })
+      .then((linked) => {
+        if (!active) return;
+        if (linked !== null && linked !== undefined) {
+          setCanPickPaint(false); // já vinculado → não aparece mais aqui (vai pro mercado)
+          return;
+        }
+        const check = () => {
+          invoke("iracing_has_player_id")
+            .then((hasId) => {
+              if (active) setCanPickPaint(Boolean(hasId));
+            })
+            .catch(() => {});
+        };
+        check();
+        handle = setInterval(check, 5000);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (handle) clearInterval(handle);
+    };
+  }, [careerId]);
+
+  async function handleGrabPaint() {
+    if (!careerId) return;
+    const categoria = (playerTeam?.categoria ?? "").toLowerCase();
+    const carKey =
+      categoria.includes("gr86") || categoria.includes("toyota")
+        ? "gr86"
+        : categoria.includes("bmw") || categoria.includes("m2")
+        ? "bmwm2"
+        : "mx5";
+    setPaintBusy(true);
+    setPaintError("");
+    try {
+      const res = await invoke("iracing_link_player_paint", { careerId, carKey });
+      setShowPaintPrompt(false);
+      setCanPickPaint(false); // vinculado → não aparece mais na Sala de Estratégia
+      setPaintToast(`🎨 Carro pintado na cor ${res?.color ?? "do time"} na sua garagem do iRacing.`);
+      const timer = setTimeout(() => setPaintToast(""), 6000);
+      toastTimers.current.push(timer);
+    } catch (e) {
+      setPaintError(getDisplayError(e, "Não foi possível pegar a cor do carro."));
+    } finally {
+      setPaintBusy(false);
+    }
+  }
+
+  // Prévia pré-corrida por IA: ao abrir a Sala de Estratégia, manda os fatos do
+  // briefing ao servidor e troca a narrativa + voz da equipe pela versão da IA.
+  // Cacheada por etapa no backend; em cooldown/erro mantém o template (aiBriefing
+  // fica null). Mostra o template imediatamente e troca quando a IA chega.
+  useEffect(() => {
+    let active = true;
+    const raceId = nextRace?.id;
+    const facts = briefing.aiFacts;
+    setAiBriefing(null);
+    // Só dispara com o contexto do briefing já carregado (standings/forma), senão
+    // poderíamos cachear uma prévia com fatos incompletos.
+    if (!careerId || !raceId || !facts || isLoadingBriefing) {
+      return undefined;
+    }
+    invoke("pre_race_briefing_ai", { careerId, raceId, facts })
+      .then((res) => {
+        if (active && res?.narrative && res?.team_voice) {
+          setAiBriefing({ narrative: res.narrative, teamVoice: res.team_voice });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [careerId, nextRace?.id, briefing.aiFacts, isLoadingBriefing]);
+
   async function handleSimulate() {
     setConfirmSim(false);
     setError("");
@@ -309,17 +414,94 @@ function NextRaceTab() {
       ? "bmwm2"
       : "mx5"; // mazda e padrão
     setExportNotice("");
+    setIracingFocusMsg("");
     setIsExporting(true);
     try {
       await invoke("iracing_generate_roster", { careerId, categoria, rosterName, carKey });
       await invoke("iracing_generate_season", { careerId, categoria, rosterName, carKey });
+      dismissToasts();
       setExported(true);
-      setTimeout(() => setExported(false), 3200);
+      // Stack de toasts: "Dados exportados" agora; "Entrar no iRacing" surge logo
+      // abaixo (empurrando o primeiro pra cima). Ambos somem em 15s.
+      toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
+      toastTimers.current.push(setTimeout(() => dismissToasts(), 15000));
     } catch (invokeError) {
       setError(getDisplayError(invokeError, "Não foi possível exportar para o iRacing."));
     } finally {
       setIsExporting(false);
     }
+  }
+
+  // Limpa os toasts pós-exportação e seus timers.
+  function dismissToasts() {
+    toastTimers.current.forEach(clearTimeout);
+    toastTimers.current = [];
+    setExported(false);
+    setShowGoToast(false);
+    setIracingFocusMsg("");
+  }
+
+  // Vai pro iRacing de fato: foca a janela se aberta; senão tenta abrir o
+  // iRacingUI. Devolve { ok, message } para quem chamou decidir onde mostrar.
+  async function goToIracingNow() {
+    try {
+      const focused = await invoke("iracing_focus_window");
+      if (focused) return { ok: true };
+      const launched = await invoke("iracing_launch_ui");
+      if (launched) return { ok: true };
+      return {
+        ok: false,
+        message: "iRacing não está aberto e não encontrei o iRacingUI para abrir. Abra o iRacing manualmente.",
+      };
+    } catch {
+      return { ok: false, message: "Não consegui abrir o iRacing." };
+    }
+  }
+
+  // Clique no toast de ação: na 1ª vez abre o tutorial; depois vai direto.
+  async function handleGoToIracing() {
+    setIracingFocusMsg("");
+    const seen = (() => {
+      try {
+        return localStorage.getItem(IRACING_TUTORIAL_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })();
+    if (!seen) {
+      setTutorialMsg("");
+      setShowTutorial(true);
+      return;
+    }
+    const res = await goToIracingNow();
+    if (res.ok) dismissToasts();
+    else setIracingFocusMsg(res.message);
+  }
+
+  function markTutorialSeen() {
+    try {
+      localStorage.setItem(IRACING_TUTORIAL_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // "Done" no último passo: marca como visto e leva pro iRacing.
+  async function handleTutorialDone() {
+    markTutorialSeen();
+    const res = await goToIracingNow();
+    if (res.ok) {
+      setShowTutorial(false);
+      dismissToasts();
+    } else {
+      setTutorialMsg(res.message);
+    }
+  }
+
+  // Fechar (X/fora): também marca como visto — o tutorial é só na 1ª vez.
+  function handleTutorialClose() {
+    markTutorialSeen();
+    setShowTutorial(false);
   }
 
   if (!nextRace) {
@@ -440,6 +622,60 @@ function NextRaceTab() {
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#06090e]/80 to-[#06090e]"></div>
       </div>
 
+      {/* Popup: pegar a cor do carro (1ª corrida da 1ª temporada) */}
+      {showPaintPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">
+              <span className="mr-2">🎨</span>Cor do seu carro no iRacing
+            </p>
+            <h2 className="mt-2 text-xl font-extrabold text-white">
+              Quer pintar seu carro na cor da sua equipe?
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-gray-400">
+              Aplicamos automaticamente a cor do time na sua garagem do iRacing. A partir
+              daqui, a cor é atualizada sozinha sempre que você trocar de equipe.
+            </p>
+
+            {paintError && (
+              <p className="mt-3 rounded-lg border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red">
+                {paintError}
+              </p>
+            )}
+
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                onClick={handleGrabPaint}
+                disabled={paintBusy}
+                className="w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-3 text-sm font-bold text-[#58a6ff] transition hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {paintBusy ? "Pintando…" : "🎨 Pegar a cor do carro"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPaintPrompt(false);
+                  setPaintError("");
+                }}
+                disabled={paintBusy}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-gray-400 transition hover:bg-white/10 disabled:opacity-60"
+              >
+                Agora não
+              </button>
+            </div>
+            <p className="mt-3 text-center text-[10px] text-gray-500">
+              Requer o Trading Paints instalado.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Toast de confirmação da pintura */}
+      {paintToast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-white shadow-2xl">
+          {paintToast}
+        </div>
+      )}
+
       <div className="relative z-10 space-y-6">
         <LoadingOverlay
           open={isSimulating}
@@ -489,6 +725,17 @@ function NextRaceTab() {
                 </span>
               )}
             </div>
+            {canPickPaint && (
+              <button
+                onClick={() => {
+                  setPaintError("");
+                  setShowPaintPrompt(true);
+                }}
+                className="w-full sm:w-auto px-5 py-2 border border-[#58a6ff66] bg-[#58a6ff22] hover:bg-[#58a6ff33] text-[#58a6ff] font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5"
+              >
+                🎨 Pegar a cor do carro
+              </button>
+            )}
             <button
               onClick={handleExport}
               disabled={isExporting}
@@ -518,12 +765,49 @@ function NextRaceTab() {
         {error && <p className="text-right text-sm text-red-500">{error}</p>}
 
         {exported && (
-          <div className="fixed bottom-6 right-6 z-50 animate-toast-up flex items-center gap-2 rounded-xl bg-green-500/95 px-5 py-3.5 text-sm font-bold text-[#06090e] shadow-[0_0_28px_rgba(34,197,94,0.55)] ring-1 ring-green-300/50">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-              <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
-            </svg>
-            Dados exportados
+          <div className="fixed bottom-6 right-6 z-50 flex w-[300px] flex-col items-stretch gap-3">
+            {/* Toast 1 — confirmação (empurrado pra cima quando o 2 surge) */}
+            <div className="animate-toast-up flex items-center gap-3 rounded-2xl border border-green-300/40 bg-green-500/95 px-4 py-3.5 text-[#06090e] shadow-[0_10px_30px_rgba(34,197,94,0.45)]">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#06090e]/15">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
+                </svg>
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Dados exportados</p>
+                <p className="text-[11px] font-medium leading-tight text-[#06090e]/70">Roster e temporada enviados ao iRacing.</p>
+              </div>
+            </div>
+
+            {/* Toast 2 — ação (surge embaixo, empurrando o de cima) */}
+            {showGoToast && (
+              <div className="animate-toast-up">
+                <button
+                  onClick={handleGoToIracing}
+                  className="group flex w-full items-center gap-3 rounded-2xl border border-[#58a6ff]/40 bg-[#101826]/95 px-4 py-3.5 text-left shadow-[0_10px_30px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-[#58a6ff]/70 hover:bg-[#16223a]/95"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#58a6ff]/15 text-base">🏁</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold leading-tight text-text-primary">Entrar no iRacing</p>
+                    <p className={`text-[11px] font-medium leading-tight ${iracingFocusMsg ? "text-red-400" : "text-text-muted"}`}>
+                      {iracingFocusMsg || "Trazer o simulador para frente."}
+                    </p>
+                  </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-[#58a6ff] transition-transform group-hover:translate-x-0.5">
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
+        )}
+
+        {showTutorial && (
+          <IracingTutorialModal
+            onFinish={handleTutorialDone}
+            onClose={handleTutorialClose}
+            message={tutorialMsg}
+          />
         )}
 
         {/* GRID PRINCIPAL (4-4-4) */}
@@ -556,13 +840,21 @@ function NextRaceTab() {
               </p>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10 flex flex-col">
-                <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
-                <p className="text-[15px] text-gray-300 leading-relaxed mb-4">
-                  {briefing.paragraphs[0] ?? briefing.attendanceNarrative}
-                </p>
-                <p className="text-[15px] text-gray-300 leading-relaxed mb-6">
-                  {briefing.paragraphs[1] || briefing.actionHint}
-                </p>
+                {aiBriefing?.narrative ? (
+                  <p className="text-lg text-gray-100 leading-relaxed mb-6">
+                    {aiBriefing.narrative}
+                  </p>
+                ) : (
+                  <>
+                    <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
+                    <p className="text-[15px] text-gray-300 leading-relaxed mb-4">
+                      {briefing.paragraphs[0] ?? briefing.attendanceNarrative}
+                    </p>
+                    <p className="text-[15px] text-gray-300 leading-relaxed mb-6">
+                      {briefing.paragraphs[1] || briefing.actionHint}
+                    </p>
+                  </>
+                )}
 
                 {/* Leitura de Box Expandida */}
                 <div className="bg-black/30 border border-white/5 p-4 rounded-2xl relative mt-auto">
@@ -570,7 +862,7 @@ function NextRaceTab() {
                     <span className="text-6xl font-serif leading-none h-[40px] block overflow-hidden">"</span>
                   </div>
                   <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">Voz da Equipe</p>
-                  <p className="text-sm italic text-gray-200 leading-relaxed">"{briefing.quote}"</p>
+                  <p className="text-sm italic text-gray-200 leading-relaxed">"{aiBriefing?.teamVoice ?? briefing.quote}"</p>
                   <p className="text-xs font-semibold text-gray-400 mt-3 text-right">
                     -{" "}
                     <span style={briefing.teamColor ? { color: getReadableTeamColor(briefing.teamColor) } : undefined}>
@@ -864,7 +1156,45 @@ function buildBriefingContext({
     audienceEstimate,
   });
 
+  // Fatos curados (PT) da PRÉVIA pré-corrida → enviados ao servidor de IA. Curtos e
+  // factuais; o servidor escreve a narrativa + voz da equipe (no idioma do app) só
+  // em cima disto. Reaproveita o que já computamos aqui (estado, gap, rival, forma).
+  const stateLabel = {
+    leader: "defendendo a liderança do campeonato",
+    chase: "perseguindo o líder, com chance real de encurtar a tabela",
+    pressure: "sob pressão para proteger a posição na tabela",
+    outsider: "longe da briga pelo título, jogando por orgulho e pontos",
+    survival: "precisando reagir e recolocar a campanha nos trilhos",
+  }[championshipState] ?? "disputando a etapa";
+  const recentForm = recentResults(playerStanding)
+    .map((r) => (r ? (r.is_dnf ? "DNF" : `P${r.position ?? "?"}`) : null))
+    .filter(Boolean)
+    .join(", ");
+  const aiFacts = [
+    `Corrida: ${nextRace?.track_name ?? "a etapa"} — temporada ${season?.ano ?? "atual"}, etapa ${currentRound} de ${totalRounds}.`,
+    player?.nome
+      ? `Piloto acompanhado pelo leitor: ${player.nome} (equipe ${playerTeam?.nome ?? "sem equipe"}).`
+      : null,
+    playerStanding
+      ? `Situação no campeonato: ${playerStanding.posicao_campeonato}º lugar, ${stateLabel}${gapToLeader > 0 ? `, a ${gapToLeader} pontos da liderança` : ""}.`
+      : `Leitura do momento: ${stateLabel}.`,
+    gapBehind != null ? `Perseguidor direto a ${gapBehind} pontos atrás.` : null,
+    `Faltam ${remainingRounds} etapa(s) após esta.`,
+    briefingRival?.driver_name
+      ? `Rival direto: ${briefingRival.driver_name} (${briefingRival.championship_position}º), ${briefingRival.is_ahead ? "à frente" : "atrás"} por ${briefingRival.gap_points} ponto(s).`
+      : null,
+    recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
+    trackHistory?.has_data
+      ? `Histórico nesta pista: ${trackHistory.starts} largada(s)${trackHistory.best_finish != null ? `, melhor resultado ${trackHistory.best_finish}º` : ""}${trackHistory.dnfs > 0 ? `, ${trackHistory.dnfs} abandono(s)` : ""}.`
+      : "Pouco ou nenhum histórico nesta pista.",
+    nextRace?.clima ? `Previsão de clima: ${buildWeatherSummary(nextRace.clima)}.` : null,
+    ...weekendStories.slice(0, 2).map((s) => `Pauta do fim de semana: ${s.title}.`),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return {
+    aiFacts,
     audienceEstimate,
     audienceRankLabel: buildAudienceRankLabel(nextRace, season),
     eventDateShort: formatEventSummaryDate(nextRace?.display_date),

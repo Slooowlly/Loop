@@ -17,14 +17,18 @@ use serde::Serialize;
 use thiserror::Error;
 
 pub mod adaptive;
+pub mod aiseason_results;
 pub mod behavior;
 pub mod paint_gen;
 pub mod paths;
 pub mod race_control;
 pub mod race_monitor;
+pub mod result_bridge;
 pub mod results_gen;
+pub mod session_results;
 pub mod roster_gen;
 pub mod season_gen;
+pub mod telemetry_analysis;
 pub mod weather;
 
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
@@ -264,6 +268,30 @@ pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
 /// único jeito do SDK "digitar" um comando de chat como `!yellow`.
 pub fn send_chat_macro(macro_num: i32) -> Result<(), IracingError> {
     imp::send_chat_macro(macro_num)
+}
+
+/// Traz a janela do iRacing para frente (para o jogador "cair" no sim logo após
+/// exportar os dados). Prefere o SIMULADOR ("iRacing.com Simulator"); se não
+/// houver, foca a UI/launcher ("iRacing"). Devolve `Ok(true)` se achou e focou
+/// alguma janela, `Ok(false)` se o iRacing não está aberto. Fora do Windows
+/// devolve [`IracingError::Unsupported`].
+pub fn focus_iracing_window() -> Result<bool, IracingError> {
+    imp::focus_iracing_window()
+}
+
+/// Força NOSSA janela (handle bruto `HWND` como `isize`) para o primeiro plano,
+/// contornando a trava anti-roubo-de-foco do Windows via `AttachThreadInput` com
+/// a thread da janela atualmente em foco. Usado quando o iRacing fecha e o app
+/// precisa subir sozinho (sem o usuário ter clicado nele). No-op fora do Windows.
+pub fn force_foreground_window(hwnd_raw: isize) {
+    imp::force_foreground_window(hwnd_raw);
+}
+
+/// `true` se a janela em primeiro plano AGORA pertence ao iRacing (título contém
+/// "iracing"). Usado para reconquistar o foco só quando o iRacing o rouba, sem
+/// incomodar o usuário caso ele tenha aberto outra coisa. `false` fora do Windows.
+pub fn foreground_is_iracing() -> bool {
+    imp::foreground_is_iracing()
 }
 
 /// Extrai `TrackDisplayName: ...` da string YAML de sessão, se presente.
@@ -646,6 +674,133 @@ mod imp {
         }
         Ok(())
     }
+
+    /// Acha a janela do iRacing por título (varrendo as janelas de topo) e a traz
+    /// para frente. Prefere o simulador; cai para a UI/launcher se o sim não
+    /// estiver aberto. Como o app é a janela em foco quando o usuário clica no
+    /// toast, o Windows permite passar o foreground para a janela do iRacing.
+    pub fn focus_iracing_window() -> Result<bool, IracingError> {
+        use winapi::shared::minwindef::{BOOL, LPARAM, TRUE};
+        use winapi::shared::windef::HWND;
+        use winapi::um::winuser::{
+            BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsIconic,
+            IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        };
+
+        // Melhor candidato encontrado: o simulador (score 2) ganha da UI (score 1).
+        struct Found {
+            hwnd: HWND,
+            score: i32,
+        }
+
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let found = &mut *(lparam as *mut Option<Found>);
+            if IsWindowVisible(hwnd) == 0 {
+                return TRUE;
+            }
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return TRUE;
+            }
+            let mut buf: Vec<u16> = vec![0; (len + 1) as usize];
+            let got = GetWindowTextW(hwnd, buf.as_mut_ptr(), len + 1);
+            if got <= 0 {
+                return TRUE;
+            }
+            buf.truncate(got as usize);
+            let title = String::from_utf16_lossy(&buf).to_lowercase();
+            let score = if title.contains("iracing.com simulator") {
+                2
+            } else if title.contains("iracing") {
+                1
+            } else {
+                0
+            };
+            if score > 0 && found.as_ref().map_or(true, |f| score > f.score) {
+                *found = Some(Found { hwnd, score });
+            }
+            TRUE
+        }
+
+        let mut found: Option<Found> = None;
+        unsafe {
+            EnumWindows(Some(enum_proc), &mut found as *mut _ as LPARAM);
+        }
+
+        let Some(target) = found else {
+            return Ok(false);
+        };
+        unsafe {
+            if IsIconic(target.hwnd) != 0 {
+                ShowWindow(target.hwnd, SW_RESTORE);
+            }
+            BringWindowToTop(target.hwnd);
+            SetForegroundWindow(target.hwnd);
+        }
+        Ok(true)
+    }
+
+    /// Força a janela `hwnd_raw` para o primeiro plano. O Windows só deixa o
+    /// processo em foco trocar o foreground; quando o app está em segundo plano
+    /// (caso do iRacing fechando), anexamos o input da nossa thread à thread da
+    /// janela em foco (`AttachThreadInput`) para o `SetForegroundWindow` valer.
+    pub fn force_foreground_window(hwnd_raw: isize) {
+        use winapi::shared::windef::HWND;
+        use winapi::um::processthreadsapi::GetCurrentThreadId;
+        use winapi::um::winuser::{
+            AttachThreadInput, BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
+            IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        };
+
+        let hwnd = hwnd_raw as HWND;
+        if hwnd.is_null() {
+            return;
+        }
+        unsafe {
+            let foreground = GetForegroundWindow();
+            let fg_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+            let our_thread = GetCurrentThreadId();
+            let attached = fg_thread != 0
+                && fg_thread != our_thread
+                && AttachThreadInput(our_thread, fg_thread, 1) != 0;
+
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                ShowWindow(hwnd, SW_SHOW);
+            }
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+
+            if attached {
+                AttachThreadInput(our_thread, fg_thread, 0);
+            }
+        }
+    }
+
+    /// `true` se a janela em foco agora tem "iracing" no título.
+    pub fn foreground_is_iracing() -> bool {
+        use winapi::um::winuser::{GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW};
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() {
+                return false;
+            }
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return false;
+            }
+            let mut buf: Vec<u16> = vec![0; (len + 1) as usize];
+            let got = GetWindowTextW(hwnd, buf.as_mut_ptr(), len + 1);
+            if got <= 0 {
+                return false;
+            }
+            buf.truncate(got as usize);
+            String::from_utf16_lossy(&buf)
+                .to_lowercase()
+                .contains("iracing")
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -662,5 +817,15 @@ mod imp {
 
     pub fn send_chat_macro(_macro_num: i32) -> Result<(), IracingError> {
         Err(IracingError::Unsupported)
+    }
+
+    pub fn focus_iracing_window() -> Result<bool, IracingError> {
+        Err(IracingError::Unsupported)
+    }
+
+    pub fn force_foreground_window(_hwnd_raw: isize) {}
+
+    pub fn foreground_is_iracing() -> bool {
+        false
     }
 }

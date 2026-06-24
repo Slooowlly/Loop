@@ -1,0 +1,425 @@
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import useCareerStore from "../../stores/useCareerStore";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+} from "recharts";
+
+// Gráficos do pós-corrida (race trace, posição, tempos de volta, gap pro rival),
+// com marcações do melhor momento (verde) e do erro mais caro (vermelho). Os
+// dados vêm empacotados em `telemetry.charts` (capturados no import).
+
+const PALETTE = [
+  "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
+  "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
+  "#fb7185", "#c084fc", "#22d3ee", "#fbbf24", "#4ade80", "#f472b6",
+];
+const PLAYER_COLOR = "#58a6ff";
+const AXIS_TICK = "#94a3b8";
+const GRID = "rgba(255,255,255,0.07)";
+const YELLOW = "#facc15";
+const GOOD = "#22c55e";
+const BAD = "#ef4444";
+
+function formatLap(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+        active ? "bg-[#58a6ff]/20 text-[#58a6ff]" : "text-gray-400 hover:text-white",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ModeChip({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-md px-2.5 py-1 text-[11px] font-semibold transition",
+        active ? "bg-white/15 text-white" : "bg-white/5 text-gray-400 hover:text-white",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Faixas amarelas + linhas-marcação (melhor momento / erro mais caro) reusadas
+// nos gráficos que têm "volta" no eixo X.
+function LapMarkers({ yellowLaps, bestLap, mistakeLap }) {
+  return (
+    <>
+      {yellowLaps?.map((lap) => (
+        <ReferenceArea key={`y${lap}`} x1={lap - 0.5} x2={lap + 0.5} fill={YELLOW} fillOpacity={0.14} stroke="none" />
+      ))}
+      {bestLap > 0 && (
+        <ReferenceLine x={bestLap} stroke={GOOD} strokeDasharray="4 3" strokeOpacity={0.9}
+          label={{ value: "★", position: "top", fill: GOOD, fontSize: 13 }} />
+      )}
+      {mistakeLap > 0 && (
+        <ReferenceLine x={mistakeLap} stroke={BAD} strokeDasharray="4 3" strokeOpacity={0.9}
+          label={{ value: "✕", position: "top", fill: BAD, fontSize: 12 }} />
+      )}
+    </>
+  );
+}
+
+function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
+  const [tab, setTab] = useState("trace");
+  const [traceMode, setTraceMode] = useState("position");
+  const [carColors, setCarColors] = useState({ by_name: {}, player_color: null });
+  const [paceIdx, setPaceIdx] = useState(null); // idx do piloto no pace; null = jogador
+  const [paceMenuOpen, setPaceMenuOpen] = useState(false);
+  const careerId = useCareerStore((s) => s.careerId);
+
+  const cars = charts?.cars ?? [];
+  const lapTimes = charts?.lap_times ?? [];
+  const carLapTimes = charts?.car_lap_times ?? [];
+  const rivalGap = charts?.rival_gap ?? [];
+  const yellowLaps = charts?.yellow_laps ?? [];
+
+  // Cores dos times (por nome do piloto) para colorir as linhas.
+  useEffect(() => {
+    if (!careerId) return;
+    invoke("iracing_car_colors", { careerId })
+      .then((c) => setCarColors(c || { by_name: {}, player_color: null }))
+      .catch(() => {});
+  }, [careerId]);
+
+  // Carros ordenados com o jogador por ÚLTIMO (linha dele por cima).
+  const orderedCars = useMemo(() => {
+    const others = cars.filter((c) => !c.is_player);
+    const player = cars.filter((c) => c.is_player);
+    return [...others, ...player];
+  }, [cars]);
+
+  const colorFor = useMemo(() => {
+    const byName = carColors?.by_name ?? {};
+    const map = {};
+    let i = 0;
+    for (const c of orderedCars) {
+      if (c.is_player) map[c.idx] = carColors?.player_color || PLAYER_COLOR;
+      else map[c.idx] = byName[c.name] || PALETTE[i++ % PALETTE.length];
+    }
+    return map;
+  }, [orderedCars, carColors]);
+
+  // Pivot do trace: uma linha por volta com c{idx} = gap OU posição.
+  const traceRows = useMemo(() => {
+    const byLap = new Map();
+    for (const car of cars) {
+      for (const p of car.points) {
+        if (!byLap.has(p.lap)) byLap.set(p.lap, { lap: p.lap });
+        byLap.get(p.lap)[`c${car.idx}`] = traceMode === "gap" ? p.gap : p.position;
+      }
+    }
+    return [...byLap.values()].sort((a, b) => a.lap - b.lap);
+  }, [cars, traceMode]);
+
+  // Teto do eixo de gap (apara sentinelas de carros parados/DQ).
+  const gapCap = useMemo(() => {
+    if (traceMode !== "gap") return null;
+    const vals = [];
+    for (const row of traceRows)
+      for (const k in row) if (k !== "lap" && Number.isFinite(row[k]) && row[k] >= 0) vals.push(row[k]);
+    if (!vals.length) return null;
+    vals.sort((a, b) => a - b);
+    const p90 = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.9))];
+    return Math.max(Math.ceil((p90 * 1.2) / 5) * 5, 20);
+  }, [traceRows, traceMode]);
+
+  const displayRows = useMemo(() => {
+    if (traceMode !== "gap" || gapCap == null) return traceRows;
+    return traceRows.map((row) => {
+      const out = { lap: row.lap };
+      for (const k in row) if (k !== "lap") out[k] = Math.min(row[k], gapCap);
+      return out;
+    });
+  }, [traceRows, traceMode, gapCap]);
+
+  const lapDomain = useMemo(() => {
+    if (!traceRows.length) return [1, 1];
+    return [traceRows[0].lap, traceRows[traceRows.length - 1].lap];
+  }, [traceRows]);
+
+  // Pace Consistency: piloto selecionável (jogador no topo).
+  const playerIdx = useMemo(() => cars.find((c) => c.is_player)?.idx ?? -1, [cars]);
+  const paceDrivers = useMemo(() => {
+    const out = [];
+    const player = cars.find((c) => c.is_player);
+    if (player) out.push({ idx: player.idx, name: player.name, isPlayer: true });
+    const others = cars
+      .filter((c) => !c.is_player)
+      .map((c) => ({ idx: c.idx, name: c.name, isPlayer: false }));
+    others.sort((a, b) => a.name.localeCompare(b.name));
+    return [...out, ...others];
+  }, [cars]);
+  const activePaceIdx = paceIdx ?? playerIdx;
+  const activePaceName =
+    paceDrivers.find((d) => d.idx === activePaceIdx)?.name || "Você";
+  const hasPace = lapTimes.length > 0 || carLapTimes.length > 0;
+
+  // Tempos de volta do piloto selecionado: delta à média, melhor volta destacada.
+  const pace = useMemo(() => {
+    const isPlayer = activePaceIdx === playerIdx;
+    const src =
+      isPlayer && lapTimes.length
+        ? lapTimes.map((p) => ({ lap: p.lap, time_s: p.time_s }))
+        : carLapTimes.filter((l) => l.idx === activePaceIdx).map((l) => ({ lap: l.lap, time_s: l.time_s }));
+    if (!src.length) return null;
+    const times = src.map((p) => p.time_s);
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    const best = Math.min(...times);
+    return {
+      avg,
+      best,
+      rows: src.map((p) => ({ lap: p.lap, delta: p.time_s - avg, time: p.time_s, isBest: p.time_s === best })),
+    };
+  }, [activePaceIdx, playerIdx, lapTimes, carLapTimes]);
+
+  const nameByIdx = useMemo(() => {
+    const m = {};
+    for (const c of cars) m[c.idx] = c.name;
+    return m;
+  }, [cars]);
+
+  const hasTrace = traceRows.length >= 2 && cars.length > 0;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {hasTrace && (
+          <TabButton active={tab === "trace"} onClick={() => setTab("trace")}>Race Trace</TabButton>
+        )}
+        {hasPace && <TabButton active={tab === "pace"} onClick={() => setTab("pace")}>Pace Consistency</TabButton>}
+        {rivalGap.length >= 2 && (
+          <TabButton active={tab === "rival"} onClick={() => setTab("rival")}>Gap pro rival</TabButton>
+        )}
+        <span className="ml-auto flex items-center gap-3 text-[11px] text-gray-400">
+          <span className="flex items-center gap-1"><span className="inline-block h-[3px] w-4 rounded bg-[#58a6ff]" />você</span>
+          {bestMomentLap > 0 && <span className="flex items-center gap-1 text-green-400">★ melhor</span>}
+          {mistakeLap > 0 && <span className="flex items-center gap-1 text-red-400">✕ erro</span>}
+        </span>
+      </div>
+
+      {/* RACE TRACE / POSIÇÃO */}
+      {tab === "trace" && hasTrace && (
+        <div className="space-y-2">
+          <div className="flex gap-1.5">
+            <ModeChip active={traceMode === "position"} onClick={() => setTraceMode("position")}>Posição</ModeChip>
+            <ModeChip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>Gap ao líder</ModeChip>
+          </div>
+          <div className="h-[340px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={displayRows} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
+                <CartesianGrid stroke={GRID} />
+                <LapMarkers yellowLaps={yellowLaps} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
+                <XAxis type="number" dataKey="lap" domain={lapDomain} allowDecimals={false}
+                  tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
+                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
+                <YAxis reversed allowDecimals={false}
+                  domain={traceMode === "gap" ? [0, gapCap ?? "dataMax"] : [1, "dataMax"]}
+                  tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
+                  tickFormatter={(v) => (traceMode === "gap" ? `${v}s` : `P${v}`)} />
+                <Tooltip content={<TraceTooltip mode={traceMode} nameByIdx={nameByIdx} />} />
+                {orderedCars.map((car) => (
+                  <Line key={car.idx} type="monotone" dataKey={`c${car.idx}`} stroke={colorFor[car.idx]}
+                    strokeWidth={car.is_player ? 3 : 1.3} strokeOpacity={car.is_player ? 1 : 0.6}
+                    dot={false} activeDot={car.is_player ? { r: 4 } : false} connectNulls isAnimationActive={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Legenda: nome do piloto na cor do time/carro */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {orderedCars.map((car) => (
+              <span key={car.idx} className="flex items-center gap-1 text-[10px] text-gray-400">
+                <span className="inline-block h-[3px] w-3.5 rounded" style={{ background: colorFor[car.idx] }} />
+                {car.name}
+                {car.is_player ? " (você)" : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PACE CONSISTENCY (tempos de volta) — piloto selecionável */}
+      {tab === "pace" && hasPace && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPaceMenuOpen((o) => !o)}
+                className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+              >
+                {activePaceName}
+                {activePaceIdx === playerIdx ? " (você)" : ""}
+                <span className="text-gray-400">▾</span>
+              </button>
+              {paceMenuOpen && (
+                <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-xl border border-white/10 bg-[#0d131c] p-1 shadow-xl">
+                  {paceDrivers.map((d) => (
+                    <button
+                      key={d.idx}
+                      type="button"
+                      onClick={() => {
+                        setPaceIdx(d.idx);
+                        setPaceMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs text-gray-300 hover:bg-white/10 hover:text-white"
+                    >
+                      <span>
+                        {d.name}
+                        {d.isPlayer ? " (você)" : ""}
+                      </span>
+                      {d.idx === activePaceIdx && <span className="text-[#58a6ff]">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {pace && (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-400">
+                <span>Média: <span className="font-semibold text-white">{formatLap(pace.avg)}</span></span>
+                <span>Melhor: <span className="font-semibold text-green-400">{formatLap(pace.best)}</span></span>
+              </div>
+            )}
+          </div>
+          {!pace ? (
+            <div className="flex h-[300px] items-center justify-center text-xs text-gray-500">
+              Sem voltas registradas para este piloto.
+            </div>
+          ) : (
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={pace.rows} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <LapMarkers yellowLaps={[]} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
+                <XAxis dataKey="lap" tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
+                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
+                <YAxis tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
+                  tickFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}s`} />
+                <Tooltip content={<PaceTooltip />} />
+                <ReferenceLine y={0} stroke={AXIS_TICK} strokeOpacity={0.5} />
+                <Bar dataKey="delta" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {pace.rows.map((r) => (
+                    <Cell key={r.lap} fill={r.isBest ? GOOD : r.delta > 0 ? BAD : "#16a34a"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          )}
+        </div>
+      )}
+
+      {/* GAP PRO RIVAL */}
+      {tab === "rival" && rivalGap.length >= 2 && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-gray-400">
+            Disputa com <span className="font-semibold text-white">{charts.rival_name || "rival"}</span> —
+            acima de 0 = rival à frente (você caçando), abaixo = você na frente.
+          </p>
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={rivalGap} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
+                <CartesianGrid stroke={GRID} />
+                <LapMarkers yellowLaps={yellowLaps} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
+                <XAxis type="number" dataKey="lap" allowDecimals={false}
+                  tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
+                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
+                <YAxis tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
+                  tickFormatter={(v) => `${Math.abs(v).toFixed(1)}s`} />
+                <Tooltip content={<RivalTooltip rivalName={charts.rival_name} />} />
+                <ReferenceLine y={0} stroke={PLAYER_COLOR} strokeOpacity={0.7} />
+                <Line type="monotone" dataKey="gap_s" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }}
+                  connectNulls isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TraceTooltip({ active, payload, label, mode, nameByIdx }) {
+  if (!active || !payload?.length) return null;
+  const rows = payload.filter((p) => p.value != null).sort((a, b) => a.value - b.value).slice(0, 12);
+  return (
+    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
+      <div className="mb-1 font-semibold text-white">Volta {label}</div>
+      {rows.map((p) => {
+        const idx = Number(p.dataKey.slice(1));
+        return (
+          <div key={p.dataKey} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5" style={{ color: p.color }}>
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.color }} />
+              {nameByIdx[idx] ?? `Carro ${idx}`}
+            </span>
+            <span className="tabular-nums text-gray-400">
+              {mode === "gap" ? `+${p.value.toFixed(2)}s` : `P${p.value}`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PaceTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const r = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
+      <div className="font-semibold text-white">Volta {r.lap}</div>
+      <div className="text-gray-400">{formatLap(r.time)}</div>
+      <div className={r.delta > 0 ? "text-red-400" : "text-green-400"}>
+        {r.delta > 0 ? "+" : ""}{r.delta.toFixed(2)}s à média
+      </div>
+    </div>
+  );
+}
+
+function RivalTooltip({ active, payload, rivalName }) {
+  if (!active || !payload?.length) return null;
+  const r = payload[0].payload;
+  const ahead = r.gap_s >= 0;
+  return (
+    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
+      <div className="font-semibold text-white">Volta {r.lap}</div>
+      <div className="text-[#f59e0b]">
+        {rivalName || "Rival"} {ahead ? "à frente" : "atrás"}: {Math.abs(r.gap_s).toFixed(2)}s
+      </div>
+    </div>
+  );
+}
+
+export default RaceCharts;

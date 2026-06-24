@@ -1,3 +1,4 @@
+pub mod ai_news;
 pub mod calendar;
 pub mod career;
 pub mod career_commands;

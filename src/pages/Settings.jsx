@@ -21,6 +21,17 @@ function Settings() {
   const [saving, setSaving] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  // Mensagem do reset do tutorial do iRacing (chave em localStorage; ver NextRaceTab).
+  const [tutorialResetMsg, setTutorialResetMsg] = useState("");
+
+  function resetIracingTutorial() {
+    try {
+      localStorage.removeItem("loop.iracingTutorialSeen");
+      setTutorialResetMsg("Tutorial reativado — ele aparece na próxima vez que você clicar em “Entrar no iRacing”.");
+    } catch {
+      setTutorialResetMsg("Não consegui resetar o tutorial.");
+    }
+  }
   // Teste isolado do SDK do iRacing (comando `iracing_read_session`).
   const [sdkTesting, setSdkTesting] = useState(false);
   const [sdkResult, setSdkResult] = useState(null);
@@ -39,6 +50,12 @@ function Settings() {
       setSdkTesting(false);
     }
   }
+
+  // Conexão com o iRacing (detectada sozinha) → liga os pollers automaticamente.
+  const [iracingOn, setIracingOn] = useState(false);
+  // Pausa MANUAL pelo usuário (impede o auto-religar até ele retomar).
+  const livePausedRef = useRef(false);
+  const racePausedRef = useRef(false);
 
   // Telemetria ao vivo: polling do comando `iracing_read_telemetry`.
   const [livePolling, setLivePolling] = useState(false);
@@ -185,6 +202,39 @@ function Settings() {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     };
   }, []);
+
+  // Detecta a conexão com o iRacing SOZINHO (o backend já amostra; aqui só vemos
+  // se está aberto para ligar os painéis da UI automaticamente).
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const on = await invoke("iracing_connected");
+        if (alive) setIracingOn(Boolean(on));
+      } catch {
+        /* ignore */
+      }
+    }
+    tick();
+    const handle = setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      clearInterval(handle);
+    };
+  }, []);
+
+  // Liga/desliga os pollers da UI conforme a conexão — sem precisar de botão.
+  // Respeita a pausa manual: se o usuário pausou, não religa até ele retomar.
+  useEffect(() => {
+    if (iracingOn) {
+      if (!livePausedRef.current) startLiveTelemetry();
+      if (!racePausedRef.current) startRaceWatch();
+    } else {
+      stopLiveTelemetry();
+      stopRaceWatch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iracingOn]);
 
   useEffect(() => {
     loadConfig();
@@ -450,6 +500,27 @@ function Settings() {
               </div>
             ))}
           </div>
+
+          {/* Reset do tutorial "Como correr no iRacing" (mostrado só na 1ª vez). */}
+          <hr className="border-white/8" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <label className="text-sm font-semibold text-text-primary">Tutorial do iRacing</label>
+              <p className="text-[11px] text-text-secondary">
+                Reexibe o passo a passo de como entrar no “AI Single Player” ao ir pro iRacing.
+              </p>
+            </div>
+            <GlassButton
+              variant="secondary"
+              onClick={resetIracingTutorial}
+              className="shrink-0 text-[10px]"
+            >
+              Reexibir Tutorial
+            </GlassButton>
+          </div>
+          {tutorialResetMsg && (
+            <p className="text-[11px] font-semibold text-accent-primary">{tutorialResetMsg}</p>
+          )}
         </GlassCard>
 
         {/* Section: Teste SDK iRacing (telemetria ao vivo) */}
@@ -528,13 +599,32 @@ function Settings() {
           </div>
 
           <div className="grid gap-4 pt-2">
-            <GlassButton
-              variant={livePolling ? "primary" : "secondary"}
-              onClick={livePolling ? stopLiveTelemetry : startLiveTelemetry}
-              className="shrink-0 text-[11px]"
-            >
-              {livePolling ? "Parar" : "Iniciar Telemetria"}
-            </GlassButton>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-text-secondary">
+                {iracingOn
+                  ? livePolling
+                    ? "● ao vivo — ligada automaticamente"
+                    : "pausada"
+                  : "iRacing fechado — liga sozinha ao abrir"}
+              </span>
+              {iracingOn && (
+                <GlassButton
+                  variant="secondary"
+                  onClick={() => {
+                    if (livePolling) {
+                      livePausedRef.current = true;
+                      stopLiveTelemetry();
+                    } else {
+                      livePausedRef.current = false;
+                      startLiveTelemetry();
+                    }
+                  }}
+                  className="shrink-0 text-[11px]"
+                >
+                  {livePolling ? "Pausar" : "Retomar"}
+                </GlassButton>
+              )}
+            </div>
 
             {liveError && (
               <div className="rounded-2xl border border-status-red/30 bg-status-red/10 px-4 py-3">
@@ -653,10 +743,31 @@ function Settings() {
           </div>
 
           <div className="grid gap-4 pt-2">
-            <div className="flex gap-3">
-              <GlassButton variant={racePolling ? "primary" : "secondary"} onClick={racePolling ? stopRaceWatch : startRaceWatch} className="shrink-0 text-[11px]">
-                {racePolling ? "Parar" : "Iniciar Monitor"}
-              </GlassButton>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-text-secondary">
+                {iracingOn
+                  ? racePolling
+                    ? "● ativo — ligado automaticamente"
+                    : "pausado"
+                  : "iRacing fechado — liga sozinho ao abrir"}
+              </span>
+              {iracingOn && (
+                <GlassButton
+                  variant="secondary"
+                  onClick={() => {
+                    if (racePolling) {
+                      racePausedRef.current = true;
+                      stopRaceWatch();
+                    } else {
+                      racePausedRef.current = false;
+                      startRaceWatch();
+                    }
+                  }}
+                  className="shrink-0 text-[11px]"
+                >
+                  {racePolling ? "Pausar" : "Retomar"}
+                </GlassButton>
+              )}
               <GlassButton variant="secondary" onClick={resetRaceTest} className="shrink-0 text-[11px]">
                 Zerar Teste
               </GlassButton>

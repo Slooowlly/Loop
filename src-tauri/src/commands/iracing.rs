@@ -19,6 +19,19 @@ pub fn iracing_read_telemetry() -> Result<IracingTelemetry, String> {
     iracing_sdk::read_telemetry().map_err(|error| error.to_string())
 }
 
+/// DUMP do YAML de sessão do iRacing num arquivo (para inspecionar a estrutura
+/// real do `ResultsPositions`/quali antes de escrever o parser). Grava em
+/// `%TEMP%/loop_session_dump.yaml` e devolve o caminho. Use com o iRacing aberto
+/// numa sessão que já rodou (corrida/quali concluída ou em andamento).
+#[tauri::command]
+pub fn iracing_dump_session_yaml() -> Result<String, String> {
+    let session = iracing_sdk::read_session().map_err(|e| e.to_string())?;
+    let path = std::env::temp_dir().join("loop_session_dump.yaml");
+    std::fs::write(&path, &session.session_yaml)
+        .map_err(|e| format!("Falha ao gravar o dump: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// `custid` (id iRacing) do jogador. Usa o valor capturado automaticamente pelo
 /// sampler (persistido); se ainda não houver, tenta ler a sessão atual agora.
 #[tauri::command]
@@ -58,6 +71,159 @@ pub fn iracing_connected() -> bool {
 #[tauri::command]
 pub fn iracing_get_race_history() -> RaceHistory {
     race_monitor::get_history()
+}
+
+/// Versão enxuta do histórico (sem os arrays grandes) para o overlay ao vivo
+/// "iRacing Conectado" — pensada para polling rápido (1Hz) sem peso.
+#[tauri::command]
+pub fn iracing_get_race_feedback() -> race_monitor::RaceFeedback {
+    race_monitor::get_feedback()
+}
+
+/// Traz a janela do iRacing (simulador ou launcher) para frente, para o jogador
+/// "cair" no iRacing logo após exportar os dados. `Ok(false)` = iRacing fechado.
+#[tauri::command]
+pub fn iracing_focus_window() -> Result<bool, String> {
+    iracing_sdk::focus_iracing_window().map_err(|e| e.to_string())
+}
+
+/// Inicia o iRacingUI (launcher/menu) quando ele não está aberto. Best-effort:
+/// procura o `iRacingUI.exe` nos caminhos de instalação comuns. `Ok(false)` = não
+/// encontrei o executável (aí o usuário abre manualmente).
+#[tauri::command]
+pub fn iracing_launch_ui() -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use std::path::PathBuf;
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        for key in ["ProgramFiles(x86)", "ProgramW6432", "ProgramFiles"] {
+            if let Ok(base) = std::env::var(key) {
+                let base = PathBuf::from(base);
+                candidates.push(base.join("iRacing").join("ui").join("iRacingUI.exe"));
+                candidates.push(base.join("iRacing").join("iRacingUI.exe"));
+            }
+        }
+        for path in candidates {
+            if path.is_file() {
+                // stdio nulo: senão o iRacingUI herda nossos pipes e despeja os
+                // logs dele no nosso console.
+                return std::process::Command::new(&path)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .map(|_| true)
+                    .map_err(|e| format!("Falha ao iniciar o iRacingUI: {e}"));
+            }
+        }
+        Ok(false)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(false)
+    }
+}
+
+/// Cores dos carros/times por NOME do piloto (para colorir as linhas dos gráficos
+/// com a cor do time). `player_color` = cor do time do jogador (o nome dele na
+/// pista é o username do iRacing, não casa com o banco — por isso vai à parte).
+#[derive(serde::Serialize)]
+pub struct CarColors {
+    pub by_name: std::collections::HashMap<String, String>,
+    pub player_color: Option<String>,
+}
+
+#[tauri::command]
+pub fn iracing_car_colors(app: tauri::AppHandle, career_id: String) -> Result<CarColors, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
+    use std::collections::HashMap;
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let team_color = |pilot_id: &str| -> Option<String> {
+        cq::get_active_contract_for_pilot(&db.conn, pilot_id)
+            .ok()
+            .flatten()
+            .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
+            .map(|t| t.cor_primaria)
+            .filter(|c| !c.is_empty())
+    };
+
+    let player = dq::get_player_driver(&db.conn).ok();
+    let player_color = player.as_ref().and_then(|p| team_color(&p.id));
+    // Categoria do jogador = a do time dele (via contrato); cai pra categoria_atual.
+    let categoria = player.as_ref().and_then(|p| {
+        cq::get_active_contract_for_pilot(&db.conn, &p.id)
+            .ok()
+            .flatten()
+            .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
+            .map(|t| t.categoria)
+            .or_else(|| p.categoria_atual.clone())
+    });
+
+    let mut by_name: HashMap<String, String> = HashMap::new();
+    if let Some(cat) = categoria {
+        if let Ok(drivers) = dq::get_drivers_by_category(&db.conn, &cat) {
+            for d in drivers {
+                if let Some(color) = team_color(&d.id) {
+                    by_name.insert(d.nome, color);
+                }
+            }
+        }
+    }
+
+    Ok(CarColors {
+        by_name,
+        player_color,
+    })
+}
+
+/// GATILHO INVERSO: se o iRacing acabou de fechar (o SDK parou de responder),
+/// traz NOSSA janela para frente. Feito para ser chamado no mesmo poller que já
+/// importa o resultado. Devolve `true` quando focou (havia acabado de fechar).
+#[tauri::command]
+pub fn iracing_focus_self_if_closed(app: tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    // Dentro da janela pós-fechamento? `initial` = primeiro poll (bring-up).
+    let (in_window, initial) = race_monitor::poll_focus_self();
+    if !in_window {
+        return false;
+    }
+    let Some(win) = app.get_webview_window("main") else {
+        return false;
+    };
+
+    // Foca no bring-up inicial OU se o iRacing roubou o foco de volta (sua UI/menu
+    // se traz para frente alguns segundos após o sim fechar). Se o usuário abriu
+    // outra coisa, não incomodamos.
+    #[cfg(windows)]
+    {
+        if let Ok(hwnd) = win.hwnd() {
+            if initial || iracing_sdk::foreground_is_iracing() {
+                let _ = win.unminimize();
+                let _ = win.show();
+                iracing_sdk::force_foreground_window(hwnd.0 as isize);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if initial {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
+    true
 }
 
 // ─── Salvar / carregar corridas ──────────────────────────────────────────────
@@ -171,6 +337,16 @@ fn numbers_path(base_dir: &std::path::Path, career_id: &str) -> std::path::PathB
     base_dir
         .join("iracing_numbers")
         .join(format!("{career_id}.json"))
+}
+
+/// "Post-it" do import: aponta para o arquivo de aiseason exportado e o mapa
+/// evento→corrida da carreira. Gravado no export, lido no import. Por carreira.
+fn season_pointer_path(base_dir: &std::path::Path, career_id: &str) -> Option<std::path::PathBuf> {
+    Some(
+        base_dir
+            .join("iracing_pointers")
+            .join(format!("{career_id}.json")),
+    )
 }
 
 /// Perfil ADAPTATIVO de dificuldade do JOGADOR (não do save): nível geral + por
@@ -393,6 +569,298 @@ pub fn iracing_career_race_result(
     })
 }
 
+/// Setup compartilhado pelo preview e pelo import. Lê o RESULTADO OFICIAL do
+/// iRacing (JSON do aiseason, persistido) — não reconstrói ao vivo. Acha o arquivo
+/// e o evento pelo "post-it" gravado no export + a próxima corrida pendente da
+/// carreira. A batida do jogador (custo de conserto) ainda vem do monitor ao vivo.
+/// Devolve `(banco, career_dir, track_id, pior severidade do jogador, resultado)`.
+fn build_session_race_result(
+    app: &tauri::AppHandle,
+    career_id: &str,
+) -> Result<
+    (
+        crate::db::connection::Database,
+        std::path::PathBuf,
+        i64,
+        String, // pior severidade de batida do jogador (base do conserto)
+        crate::simulation::race::RaceResult,
+        crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+    ),
+    String,
+> {
+    use crate::config::app_config::AppConfig;
+    use crate::constants::tracks::get_track;
+    use crate::db::connection::Database;
+    use crate::db::queries::drivers as dq;
+    use crate::db::queries::seasons as sq;
+    use crate::iracing_sdk::{aiseason_results, race_monitor, result_bridge, telemetry_analysis};
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+
+    // Mapa de números: driver_id → número → reverte para número → driver_id.
+    let numbers: std::collections::HashMap<String, i64> =
+        std::fs::read_to_string(numbers_path(&base_dir, career_id))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+    let by_number: std::collections::HashMap<i64, String> =
+        numbers.into_iter().map(|(id, n)| (n, id)).collect();
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join(career_id);
+    let db_path = career_dir.join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let player_driver = dq::get_player_driver(&db.conn).ok();
+
+    // ── Post-it: arquivo de aiseason + mapa evento→corrida ──────────────────
+    let pointer: serde_json::Value = season_pointer_path(&base_dir, career_id)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .ok_or_else(|| {
+            "Não achei o registro do aiseason exportado. Exporte os dados (gerar AI Season) antes de importar.".to_string()
+        })?;
+    let aiseason_file = pointer
+        .get("aiseason_file")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Registro do aiseason inválido.".to_string())?;
+
+    // ── Próxima corrida pendente da carreira → índice do evento ─────────────
+    let active_season = sq::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao ler temporada: {e}"))?
+        .ok_or("Nenhuma temporada ativa.")?;
+    let next_race = crate::commands::race::get_next_player_race(&db.conn, &active_season)?
+        .ok_or("O jogador não possui corrida pendente.")?;
+    let events = pointer.get("events").and_then(|v| v.as_array());
+    let event_index = events
+        .and_then(|evs| {
+            evs.iter()
+                .position(|e| e.get("race_id").and_then(|v| v.as_str()) == Some(next_race.id.as_str()))
+        })
+        .ok_or_else(|| {
+            format!(
+                "A próxima corrida ({}) não está no aiseason exportado. Exporte novamente.",
+                next_race.track_name
+            )
+        })?;
+
+    // ── Lê o resultado oficial do JSON ──────────────────────────────────────
+    let season_json: serde_json::Value = std::fs::read_to_string(aiseason_file)
+        .map_err(|e| format!("Falha ao ler o aiseason: {e}"))
+        .and_then(|s| serde_json::from_str(&s).map_err(|e| format!("aiseason inválido: {e}")))?;
+    let event = aiseason_results::parse_event_result(&season_json, event_index)
+        .ok_or("Evento sem resultado no aiseason.")?;
+    if !event.is_final() {
+        return Err(
+            "O iRacing ainda não gravou o resultado dessa corrida. Termine/saia da corrida no iRacing (ele simula o resto e salva) e tente de novo."
+                .to_string(),
+        );
+    }
+    if event.track_id != next_race.track_id as i64 {
+        return Err(format!(
+            "A pista do resultado (id {}) não bate com a próxima corrida ({}, id {}).",
+            event.track_id, next_race.track_name, next_race.track_id
+        ));
+    }
+
+    let track_name = get_track(next_race.track_id)
+        .map(|t| t.nome.to_string())
+        .unwrap_or_else(|| next_race.track_name.clone());
+    let player_custid = crate::iracing_sdk::cached_custid().unwrap_or(0);
+
+    // ── Sinais do monitor AO VIVO (o JSON do iRacing não tem) ───────────────
+    // O iRacing AI-completa a corrida e marca todo mundo "Running"; sobrepomos a
+    // batida do jogador (conserto + DNF) e os abandonos que o monitor flagrou.
+    let history = race_monitor::get_history();
+    let status = race_monitor::poll();
+    let player_crash = result_bridge::player_worst_severity(&status, status.attempt_number);
+    let player_attempt = status
+        .attempts
+        .iter()
+        .find(|a| a.number == status.attempt_number)
+        .or_else(|| status.attempts.last());
+    // Jogador correu mas não cruzou a bandeira (saiu/bateu) → DNF. Inclui o caso
+    // de ficar parado na pista (raced fica true assim que ele entra na corrida).
+    let player_dnf = player_attempt
+        .map(|a| a.evidence.raced && !a.evidence.reached_checkered)
+        .unwrap_or(false);
+    // "Quem bateu em mim": o monitor guardou o carro mais próximo no contato.
+    let player_collided_with_id: Option<String> = player_attempt
+        .and_then(|a| a.collided_with_car_number)
+        .and_then(|num| by_number.get(&(num as i64)).cloned());
+    // Carros que o monitor confirmou ter abandonado → número do carro.
+    let num_by_idx: std::collections::HashMap<i32, i32> = history
+        .cars_meta
+        .iter()
+        .map(|m| (m.idx, m.car_number))
+        .collect();
+    let extra_dnf_numbers: std::collections::HashSet<i32> = status
+        .events
+        .iter()
+        .filter(|e| e.kind == "dnf_confirmed")
+        .filter_map(|e| e.car_idx)
+        .filter_map(|idx| num_by_idx.get(&idx).copied())
+        .filter(|n| *n > 0)
+        .collect();
+
+    let result = result_bridge::build_race_result_from_aiseason(
+        &event,
+        &db.conn,
+        &by_number,
+        player_custid,
+        player_driver.as_ref(),
+        player_dnf,
+        player_collided_with_id.as_deref(),
+        &extra_dnf_numbers,
+        "", // clima resolvido na persistência
+        &track_name,
+    );
+
+    // TELEMETRIA (Fase 2): ritmo/consistência/rival do histórico ao vivo. Só vem
+    // completa se o jogador correu; resolve car_idx→nome pelo cars_meta + roster.
+    let name_by_idx: std::collections::HashMap<i32, String> = history
+        .cars_meta
+        .iter()
+        .filter_map(|m| {
+            let is_player = m.idx == history.player_car_idx;
+            let name = if is_player {
+                player_driver.as_ref().map(|d| d.nome.clone())
+            } else {
+                by_number
+                    .get(&(m.car_number as i64))
+                    .and_then(|id| dq::get_driver(&db.conn, id).ok())
+                    .map(|d| d.nome)
+            };
+            name.map(|n| (m.idx, n))
+        })
+        .collect();
+    // Sinais de batida/DNF do jogador (não estão no RaceHistory) para o "erro
+    // mais caro": voltas com contato + se abandonou + a volta em que parou.
+    let crash_laps: Vec<i32> = player_attempt
+        .map(|a| a.crashes.iter().map(|c| c.lap).filter(|l| *l > 0).collect())
+        .unwrap_or_default();
+    let dnf_lap = if player_dnf {
+        history
+            .player_laps
+            .iter()
+            .map(|l| l.lap)
+            .max()
+            .or_else(|| crash_laps.iter().max().copied())
+    } else {
+        None
+    };
+    let player_incidents = telemetry_analysis::PlayerIncidents {
+        crash_laps,
+        is_dnf: player_dnf,
+        dnf_lap,
+    };
+    let telemetry = telemetry_analysis::analyze(&history, &name_by_idx, &player_incidents);
+
+    Ok((
+        db,
+        career_dir,
+        next_race.track_id as i64,
+        player_crash,
+        result,
+        telemetry,
+    ))
+}
+
+/// PREVIEW (read-only) da ponte sessão→`RaceResult`: reconstrói o resultado da
+/// última corrida disputada no iRacing como o `RaceResult` que a carreira
+/// consome — SEM gravar nada no banco. Serve para validar o mapeamento (posições,
+/// grid, volta rápida, DNFs) contra a tela do iRacing antes de importar.
+#[tauri::command]
+pub fn iracing_preview_race_result(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<crate::simulation::race::RaceResult, String> {
+    let (_db, _dir, _track_id, _sev, result, _tel) = build_session_race_result(&app, &career_id)?;
+    Ok(result)
+}
+
+/// Resultado de um import automático: o `RaceResult` (para a TELA de resultado) +
+/// o resumo (para o pop-up de conserto).
+#[derive(serde::Serialize)]
+pub struct AutoImportResult {
+    pub race_result: crate::simulation::race::RaceResult,
+    pub summary: crate::commands::race::ImportedRaceSummary,
+    /// Avaliação de carreira (expectativa vs resultado, nota, frases). `None` se
+    /// não der para avaliar — a tela trata e nunca quebra.
+    pub evaluation: Option<crate::race_eval::RaceEvaluation>,
+    /// Análise de telemetria (ritmo, consistência, rival). Vazia se não houve
+    /// telemetria (jogador saiu cedo / não monitorado).
+    pub telemetry: crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+}
+
+/// GATILHO AUTOMÁTICO: chamado em loop pelo front. Se o iRacing já gravou o
+/// resultado da próxima corrida pendente (jogador terminou/saiu da corrida),
+/// IMPORTA para a carreira e devolve o resultado + resumo para a tela abrir
+/// sozinha. Se ainda não há resultado pronto (ou nada a importar), devolve `None`
+/// — SEM erro, para o poller não fazer barulho. Idempotente: após importar, a
+/// corrida vira Concluída e a próxima pendente ainda não terá resultado.
+#[tauri::command]
+pub fn iracing_auto_import_if_ready(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Option<AutoImportResult>, String> {
+    // "Não está pronto / nada a importar" não é erro: o resultado só existe depois
+    // que o jogador termina/sai da corrida no iRacing. Qualquer falha de "ainda
+    // não" vira None silencioso; o poller tenta de novo no próximo tick.
+    let (mut db, career_dir, track_id, player_crash, result, telemetry) =
+        match build_session_race_result(&app, &career_id) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+    let (summary, race_result) = crate::commands::race::import_iracing_race_result(
+        &mut db,
+        &career_dir,
+        track_id,
+        &player_crash,
+        result,
+        &telemetry,
+    )?;
+
+    // Clima da corrida importada: resolve+persiste pela fonte única (mesmo do export).
+    if let Some(track) = crate::constants::tracks::get_track(track_id as u32) {
+        if let Ok(Some(entry)) =
+            crate::db::queries::calendar::get_calendar_entry_by_id(&db.conn, &summary.race_id)
+        {
+            let _ = resolve_and_persist_race_weather(
+                &db.conn,
+                &career_id,
+                track,
+                entry.week_of_year,
+                &summary.race_id,
+                false,
+            );
+        }
+    }
+    let evaluation = crate::commands::race::compute_race_evaluation(&db.conn, &race_result);
+
+    // Persiste a tela completa (resultado + avaliação + telemetria/gráficos) para
+    // o jogador reabrir a classificação final depois pela Home.
+    crate::commands::race::save_race_screen(
+        &career_dir,
+        &summary.race_id,
+        &serde_json::json!({
+            "race_result": &race_result,
+            "evaluation": &evaluation,
+            "telemetry": &telemetry,
+        }),
+    );
+
+    Ok(Some(AutoImportResult {
+        race_result,
+        summary,
+        evaluation,
+        telemetry,
+    }))
+}
+
 /// Garante um número FIXO por piloto na temporada: carrega o mapa salvo, atribui
 /// o menor número livre (1..) aos pilotos novos e persiste. Números vinculados ao
 /// piloto não mudam entre as rodadas.
@@ -447,6 +915,9 @@ pub fn iracing_generate_roster(
     categoria: String,
     roster_name: String,
     car_key: String,
+    // TESTE: força a PRÓXIMA corrida como molhada (chuva forte), pra ver o re-rank de
+    // chuva por piloto refletido nos atributos da IA. None/false = clima normal.
+    force_wet: Option<bool>,
 ) -> Result<RosterGenResult, String> {
     use crate::config::app_config::AppConfig;
     use crate::constants::categories::get_category_config;
@@ -678,13 +1149,19 @@ pub fn iracing_generate_roster(
     let behavior_ctx = next.as_ref().and_then(|(season, race)| {
         let track = get_track(race.track_id)?;
         // Clima da próxima corrida (mesma geração determinística da season).
-        let story = weather::generate_weather(
+        let mut story = weather::generate_weather(
             month_from_week(race.week_of_year),
             track_hemisphere(track.pais),
             climate_tendency(track.rain_group),
             event_seed(&career_id, &race.id),
             false,
         );
+        // TESTE: força chuva forte na próxima corrida.
+        if force_wet.unwrap_or(false) {
+            story.is_wet_race = true;
+            story.race_intensity = weather::RainIntensity::Heavy;
+            story.scenario = weather::WeatherScenario::SteadyRain;
+        }
         let rain_intensity = match story.race_intensity {
             weather::RainIntensity::None => 0.0,
             weather::RainIntensity::Light => 0.35,
@@ -725,6 +1202,7 @@ pub fn iracing_generate_roster(
             grid_skills: grid_skills.clone(),
             is_wet: story.is_wet_race,
             rain_intensity,
+            rain_level: story.race_intensity,
             temp_c: race.temperatura,
             seed_base: event_seed(&career_id, &race.id),
             recent_positions,
@@ -875,6 +1353,8 @@ pub fn iracing_generate_season(
     // Modo TESTE: aiseason "zerado" (sem resultados) com a corrida 1 usando o clima
     // roteirizado da 1ª corrida — pra visualizar o roteiro no menu do iRacing.
     test_blank: Option<bool>,
+    // TESTE: força a PRÓXIMA corrida pendente como molhada (chuva forte).
+    force_wet: Option<bool>,
 ) -> Result<SeasonGenResult, String> {
     use crate::config::app_config::AppConfig;
     use crate::constants::categories::get_category_config;
@@ -920,6 +1400,10 @@ pub fn iracing_generate_season(
     let numbers = ensure_driver_numbers(&base_dir, &career_id, &ai_driver_ids).unwrap_or_default();
 
     let mut events = Vec::new();
+    // Mapa evento→corrida da carreira, NA MESMA ORDEM dos eventos escritos no
+    // aiseason. É o "post-it" que o import usa para achar o resultado certo:
+    // events[i] no JSON ↔ event_race_map[i] = (race_id, track_id).
+    let mut event_race_map: Vec<(String, i64)> = Vec::new();
     // Clima do calendário → bloco weather DINÂMICO (timeline) de cada etapa.
     // Escala real do iRacing:
     //   skies:       0 Limpo · 1 Parcialmente · 2 Predominantemente · 3 Encoberto
@@ -938,10 +1422,18 @@ pub fn iracing_generate_season(
         .map(|e| e.week_of_year)
         .min()
         .unwrap_or(i32::MAX);
-    // Modo TESTE (zerado): força o roteiro da 1ª corrida na etapa 1 e omite resultados.
+    // Modo TESTE (zerado): força o roteiro da 1ª corrida na etapa 1 (mesmo que a carreira
+    // já tenha avançado) e omite resultados. Corridas 2+ ficam com o clima variado normal.
     let test_blank = test_blank.unwrap_or(false);
     let first_race_id = entries
         .iter()
+        .min_by_key(|e| e.rodada)
+        .map(|e| e.id.clone());
+    // TESTE: força a PRÓXIMA corrida pendente (não concluída) como molhada.
+    let force_wet = force_wet.unwrap_or(false);
+    let next_pending_id = entries
+        .iter()
+        .filter(|e| !matches!(e.status, crate::models::enums::RaceStatus::Concluida))
         .min_by_key(|e| e.rodada)
         .map(|e| e.id.clone());
 
@@ -955,6 +1447,7 @@ pub fn iracing_generate_season(
             Some(track) if track.gratuita => {
                 let is_first = (career_first_race && entry.week_of_year == first_week)
                     || (test_blank && first_race_id.as_deref() == Some(entry.id.as_str()));
+                let wet_here = force_wet && next_pending_id.as_deref() == Some(entry.id.as_str());
                 let seed = event_seed(&career_id, &entry.id);
                 let (ew, story) = build_event_weather(
                     track,
@@ -966,6 +1459,14 @@ pub fn iracing_generate_season(
                     seed,
                     is_first,
                     race_end,
+                    wet_here,
+                );
+                // FONTE ÚNICA: persiste o entry.clima a partir desta MESMA história, pra
+                // a UI e a simulação offline baterem com o que o iRacing vai rodar.
+                let wc = story_to_weather_condition(&story);
+                let _ = db.conn.execute(
+                    "UPDATE calendar SET clima = ?1 WHERE id = ?2",
+                    rusqlite::params![wc.as_str(), entry.id],
                 );
                 stories.insert(entry.track_id as i64, story);
                 // Etapa já disputada no app → escreve os resultados (iRacing "pula").
@@ -1017,6 +1518,7 @@ pub fn iracing_generate_season(
                     weather: ew,
                     results,
                 });
+                event_race_map.push((entry.id.clone(), entry.track_id as i64));
             }
             _ => skipped_paid += 1, // paga ou desconhecida → fora (ex.: Laguna)
         }
@@ -1144,6 +1646,23 @@ pub fn iracing_generate_season(
         .map_err(|e| format!("Falha ao serializar: {e}"))?;
     std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))?;
 
+    // POST-IT do import: qual arquivo de aiseason e qual evento corresponde a cada
+    // corrida da carreira. Sobrescrito a cada export → sempre aponta para o
+    // campeonato atual. (Opção "Guardar" — exata, sem varrer/adivinhar.)
+    let pointer = serde_json::json!({
+        "aiseason_file": path.to_string_lossy(),
+        "events": event_race_map
+            .iter()
+            .map(|(rid, tid)| serde_json::json!({ "race_id": rid, "track_id": tid }))
+            .collect::<Vec<_>>(),
+    });
+    if let Some(ppath) = season_pointer_path(&base_dir, &career_id) {
+        if let Some(parent) = ppath.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&ppath, pointer.to_string());
+    }
+
     Ok(SeasonGenResult {
         path: path.display().to_string(),
         name,
@@ -1157,6 +1676,242 @@ pub fn iracing_generate_season(
 /// Conta os eventos no JSON gerado (para a UI).
 fn params_events_len(v: &serde_json::Value) -> usize {
     v["events"].as_array().map(|a| a.len()).unwrap_or(0)
+}
+
+/// Uma linha da tabela de referência do teste de chuva (skill por cenário).
+#[derive(serde::Serialize)]
+pub struct RainTestRow {
+    pub name: String,
+    pub base_skill: i64,
+    pub fator_chuva: i64,
+    pub skill_seco: i64,
+    pub skill_molhado: i64,
+    pub skill_tempestade: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct RainTestResult {
+    /// Nomes das 3 seasons criadas (carregar no iRacing).
+    pub seasons: Vec<String>,
+    /// 16 pilotos com o skill efetivo em cada cenário (referência do esperado).
+    pub rows: Vec<RainTestRow>,
+}
+
+/// TESTE DE CHUVA: gera 3 seasons (Seco / Molhado / Tempestade), cada uma com seu
+/// próprio roster de 16 pilotos controlados (4 skills × 4 fatores de chuva), onde o
+/// `driver_skill` já entra RE-RANKEADO pela penalidade de chuva POR PILOTO
+/// (`rain_skill_penalty`). Valida que bons-de-chuva sobem no molhado/tempestade.
+/// Como a IA do iRacing não tem atributo de chuva e o roster é fixo por season, cada
+/// clima precisa do seu export — daí as 3 seasons.
+#[tauri::command]
+pub fn iracing_export_rain_test() -> Result<RainTestResult, String> {
+    use crate::iracing_sdk::weather::{RainIntensity, Season, WeatherScenario, WeatherStory};
+    use crate::iracing_sdk::{paths, roster_gen, season_gen, weather};
+
+    let car = roster_gen::car_spec("mx5").ok_or("carro mx5 não encontrado")?;
+    // Matriz: 4 níveis de skill × 4 níveis de fator_chuva. Cor do carro por skill (pra
+    // achar na pista); o resultado vem pelo NOME ("Bom-Mestre" etc.).
+    let skills = [
+        ("Ruim", 45.0, "888888"),
+        ("Mediano", 62.0, "2255FF"),
+        ("Bom", 80.0, "22CC44"),
+        ("Alien", 94.0, "FF2222"),
+    ];
+    let rains = [
+        ("Pessimo", 10.0),
+        ("Mediano", 50.0),
+        ("Bom", 78.0),
+        ("Mestre", 100.0),
+    ];
+    // (rótulo, cenário de clima, intensidade da corrida, molhada?)
+    let scenarios = [
+        (
+            "Seco",
+            WeatherScenario::FirstRaceScript,
+            RainIntensity::None,
+            false,
+        ),
+        (
+            "Molhado",
+            WeatherScenario::SteadyRain,
+            RainIntensity::Decent,
+            true,
+        ),
+        (
+            "Tempestade",
+            WeatherScenario::SteadyRain,
+            RainIntensity::VeryHeavy,
+            true,
+        ),
+    ];
+
+    let track_id = 516; // Navarra (road, conteúdo grátis)
+    let start_time = "2031-06-15T16:00:00".to_string();
+    let race_end: i64 = 15;
+
+    let airosters = paths::airosters_dir()
+        .ok_or("Não foi possível localizar a pasta airosters do iRacing.")?;
+    let aiseasons = paths::aiseasons_dir()
+        .ok_or("Não foi possível localizar a pasta aiseasons do iRacing.")?;
+
+    let mut seasons = Vec::new();
+    for (sc_label, scenario, intensity, is_wet) in scenarios {
+        // Roster: driver_skill = base − penalidade(fator, intensidade) deste cenário.
+        let mut drivers = Vec::new();
+        let mut row = 0i64;
+        for (_sk_label, base, color) in skills {
+            for (rn_label, fator) in rains {
+                let _ = rn_label;
+                let pen = weather::rain_skill_penalty(fator, intensity);
+                let skill = (base - pen as f64).clamp(1.0, 100.0).round() as i64;
+                let name = format!("{}-{}", skills_label(base), rains_label(fator));
+                let design = format!("0,{color},111111,FFFFFF");
+                drivers.push(roster_gen::RosterDriver {
+                    driver_name: name,
+                    car_number: (row + 1).to_string(),
+                    car_design: design.clone(),
+                    suit_design: design.clone(),
+                    helmet_design: design,
+                    car_path: car.car_path.to_string(),
+                    car_id: car.car_id,
+                    car_class_id: car.car_class_id,
+                    sponsor1: car.sponsors[0],
+                    sponsor2: car.sponsors.get(1).copied().unwrap_or(car.sponsors[0]),
+                    number_design: "0,0,FFFFFF,777777,000000".to_string(),
+                    driver_skill: skill,
+                    driver_aggression: 50,
+                    driver_optimism: 50,
+                    driver_smoothness: 50,
+                    pit_crew_skill: 50,
+                    strategy_riskiness: 50,
+                    driver_age: 28,
+                    id: uuid::Uuid::new_v4().to_string(),
+                    row_index: row,
+                });
+                row += 1;
+            }
+        }
+        let roster = roster_gen::RosterFile { drivers };
+        let roster_name = format!("Teste Chuva - {sc_label}");
+        let safe: String = roster_name
+            .chars()
+            .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+            .collect();
+
+        let rdir = airosters.join(&safe);
+        std::fs::create_dir_all(&rdir).map_err(|e| format!("Falha ao criar pasta roster: {e}"))?;
+        let rjson = serde_json::to_string_pretty(&roster)
+            .map_err(|e| format!("Falha ao serializar roster: {e}"))?;
+        std::fs::write(rdir.join("roster.json"), rjson)
+            .map_err(|e| format!("Falha ao gravar roster: {e}"))?;
+
+        // Clima do cenário via o modelo calibrado.
+        let story = WeatherStory {
+            scenario,
+            is_wet_race: is_wet,
+            race_intensity: intensity,
+            qualy_intensity: RainIntensity::None,
+            season: Season::Summer,
+            tendency: 0.0,
+        };
+        let profile = weather::story_to_profile(&story, race_end);
+        let ew = season_gen::EventWeather {
+            skies: profile.skies,
+            humidity: profile.humidity,
+            temp_c: 18,
+            track_water: profile.track_water,
+            keyframes: profile
+                .keyframes
+                .into_iter()
+                .map(|(event_type, time_offset)| season_gen::WeatherKeyframe {
+                    event_type,
+                    time_offset,
+                })
+                .collect(),
+            weather_id: format!("0_{}", uuid::Uuid::new_v4()),
+            start_time: start_time.clone(),
+        };
+        let global = season_gen::EventWeather {
+            skies: 1,
+            humidity: 45,
+            temp_c: 18,
+            track_water: 0,
+            keyframes: vec![season_gen::WeatherKeyframe {
+                event_type: 1,
+                time_offset: 0,
+            }],
+            weather_id: format!("0_{}", uuid::Uuid::new_v4()),
+            start_time: start_time.clone(),
+        };
+        let params = season_gen::SeasonParams {
+            roster_name: roster_name.clone(),
+            name: roster_name.clone(),
+            car_id: car.car_id,
+            car_class_id: car.car_class_id,
+            race_length_min: race_end,
+            max_drivers: 16,
+            min_skill: 25,
+            max_skill: 95,
+            year: 2031,
+            global_weather: global,
+            events: vec![season_gen::EventInput {
+                track_id,
+                is_oval: false,
+                event_id: uuid::Uuid::new_v4().to_string(),
+                weather: ew,
+                results: None,
+            }],
+        };
+        let season_json = season_gen::build_season(&params);
+        std::fs::create_dir_all(&aiseasons)
+            .map_err(|e| format!("Falha ao criar pasta aiseasons: {e}"))?;
+        let sjson = serde_json::to_string_pretty(&season_json)
+            .map_err(|e| format!("Falha ao serializar season: {e}"))?;
+        std::fs::write(aiseasons.join(format!("{safe}.json")), sjson)
+            .map_err(|e| format!("Falha ao gravar season: {e}"))?;
+        seasons.push(roster_name);
+    }
+
+    // Tabela de referência (skill efetivo de cada piloto por cenário).
+    let mut rows = Vec::new();
+    for (_sk, base, _color) in skills {
+        for (_rn, fator) in rains {
+            rows.push(RainTestRow {
+                name: format!("{}-{}", skills_label(base), rains_label(fator)),
+                base_skill: base as i64,
+                fator_chuva: fator as i64,
+                skill_seco: (base - weather::rain_skill_penalty(fator, RainIntensity::None) as f64)
+                    .clamp(1.0, 100.0)
+                    .round() as i64,
+                skill_molhado: (base
+                    - weather::rain_skill_penalty(fator, RainIntensity::Decent) as f64)
+                    .clamp(1.0, 100.0)
+                    .round() as i64,
+                skill_tempestade: (base
+                    - weather::rain_skill_penalty(fator, RainIntensity::VeryHeavy) as f64)
+                    .clamp(1.0, 100.0)
+                    .round() as i64,
+            });
+        }
+    }
+    Ok(RainTestResult { seasons, rows })
+}
+
+fn skills_label(base: f64) -> &'static str {
+    match base as i64 {
+        45 => "Ruim",
+        62 => "Mediano",
+        80 => "Bom",
+        _ => "Alien",
+    }
+}
+fn rains_label(fator: f64) -> &'static str {
+    match fator as i64 {
+        10 => "Pessimo",
+        50 => "Mediano",
+        78 => "Bom",
+        _ => "Mestre",
+    }
 }
 
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
@@ -1208,6 +1963,50 @@ fn event_seed(career_id: &str, event_id: &str) -> u64 {
     h.finish()
 }
 
+/// Converte a história do clima (`generate_weather`) → `WeatherCondition` do
+/// calendário/sim. FONTE ÚNICA: o mesmo gerador do export passa a alimentar o
+/// `entry.clima` (UI + simulação offline batem com o iRacing). Mapa: seco→Dry,
+/// Light→Damp, Decent→Wet, Heavy/VeryHeavy→HeavyRain.
+fn story_to_weather_condition(
+    story: &crate::iracing_sdk::weather::WeatherStory,
+) -> crate::models::enums::WeatherCondition {
+    use crate::iracing_sdk::weather::RainIntensity;
+    use crate::models::enums::WeatherCondition as W;
+    if !story.is_wet_race {
+        return W::Dry;
+    }
+    match story.race_intensity {
+        RainIntensity::Heavy | RainIntensity::VeryHeavy => W::HeavyRain,
+        RainIntensity::Decent => W::Wet,
+        _ => W::Damp, // Light (None não ocorre em corrida molhada)
+    }
+}
+
+/// Resolve o clima de uma etapa pela FONTE ÚNICA (`generate_weather`) e PERSISTE em
+/// `calendar.clima`, pra UI + sim offline baterem com o export. Devolve a condição.
+pub(crate) fn resolve_and_persist_race_weather(
+    conn: &rusqlite::Connection,
+    career_id: &str,
+    track: &crate::constants::tracks::TrackInfo,
+    week_of_year: i32,
+    race_id: &str,
+    is_first_race: bool,
+) -> crate::models::enums::WeatherCondition {
+    let story = crate::iracing_sdk::weather::generate_weather(
+        month_from_week(week_of_year),
+        track_hemisphere(track.pais),
+        climate_tendency(track.rain_group),
+        event_seed(career_id, race_id),
+        is_first_race,
+    );
+    let wc = story_to_weather_condition(&story);
+    let _ = conn.execute(
+        "UPDATE calendar SET clima = ?1 WHERE id = ?2",
+        rusqlite::params![wc.as_str(), race_id],
+    );
+    wc
+}
+
 /// Monta o `EventWeather` de uma etapa via o gerador de clima + horário (golden
 /// hour por estação). Devolve também a `WeatherStory` (p/ a penalidade da chuva).
 fn build_event_weather(
@@ -1220,19 +2019,26 @@ fn build_event_weather(
     seed: u64,
     is_first_race: bool,
     race_end: i64,
+    force_wet: bool,
 ) -> (
     crate::iracing_sdk::season_gen::EventWeather,
     crate::iracing_sdk::weather::WeatherStory,
 ) {
     use crate::iracing_sdk::{season_gen, weather};
     let month = month_from_week(week_of_year);
-    let story = weather::generate_weather(
+    let mut story = weather::generate_weather(
         month,
         track_hemisphere(track.pais),
         climate_tendency(track.rain_group),
         seed,
         is_first_race,
     );
+    // TESTE: força chuva forte nesta etapa (corrida molhada o tempo todo).
+    if force_wet {
+        story.is_wet_race = true;
+        story.race_intensity = weather::RainIntensity::Heavy;
+        story.scenario = weather::WeatherScenario::SteadyRain;
+    }
     let is_lit = track.track_id == 556; // Charlotte Roval — única com iluminação
     let hour = weather::generate_race_start_hour(story.season, tier, is_lit, seed ^ 0x55);
     let profile = weather::story_to_profile(&story, race_end);
@@ -1381,6 +2187,176 @@ pub fn iracing_apply_player_paint(
         custid,
         color: format!("#{hex}"),
     })
+}
+
+/// Chave da tabela `meta` (career.db) que guarda o custid do iRacing do jogador
+/// VINCULADO a este save. Capturado uma vez (popup da 1ª corrida) e reutilizado
+/// para repintar o carro automaticamente a cada troca de equipe no mercado.
+const PLAYER_CUSTID_META_KEY: &str = "player_iracing_custid";
+
+/// Mapeia a categoria da carreira no carro do iRacing (mesma regra do export).
+fn car_key_for_category(categoria: &str) -> &'static str {
+    let c = categoria.to_lowercase();
+    if c.contains("gr86") || c.contains("toyota") {
+        "gr86"
+    } else if c.contains("bmw") || c.contains("m2") {
+        "bmwm2"
+    } else {
+        "mx5" // mazda mx-5 e padrão
+    }
+}
+
+/// Escreve `car_<custid>.tga` (cor sólida `hex`) na pasta de pintura do carro.
+/// Núcleo compartilhado pela pintura da 1ª vez e pela repintura no mercado.
+/// Recebe o `hex` já normalizado pelo chamador.
+fn write_player_car_tga(car_key: &str, hex: &str, custid: i64) -> Result<(String, String), String> {
+    use crate::iracing_sdk::{paint_gen, paths, roster_gen};
+    let car =
+        roster_gen::car_spec(car_key).ok_or_else(|| format!("Carro desconhecido: {car_key}"))?;
+    let hex = roster_gen::normalize_hex(hex);
+    let dir = paths::car_paint_dir(car.car_path)
+        .ok_or("Não foi possível localizar a pasta de pintura do iRacing.")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
+    let path = dir.join(format!("car_{custid}.tga"));
+    paint_gen::write_solid_tga(&path, &hex).map_err(|e| format!("Falha ao gravar pintura: {e}"))?;
+    Ok((path.display().to_string(), format!("#{hex}")))
+}
+
+/// Lê o custid já capturado (sampler) ou tenta ler a sessão atual agora.
+fn capture_player_custid() -> Option<i64> {
+    if let Some(id) = iracing_sdk::cached_custid() {
+        return Some(id);
+    }
+    if let Ok(session) = iracing_sdk::read_session() {
+        iracing_sdk::note_session_custid(&session.session_yaml);
+    }
+    iracing_sdk::cached_custid()
+}
+
+/// `true` se já capturamos o custid do jogador — ou seja, ele já conectou ao iRacing
+/// (SDK) ao menos uma vez. O front usa para mostrar a opção "pegar a cor do carro"
+/// na Sala de Estratégia só quando faz sentido: já temos o ID para poder pintar.
+#[tauri::command]
+pub fn iracing_has_player_id() -> bool {
+    iracing_sdk::cached_custid().is_some()
+}
+
+/// Custid do iRacing VINCULADO a este save (`None` se ainda não vinculado). O front
+/// usa isto para decidir se mostra o popup de "pegar a cor do carro" na 1ª corrida.
+#[tauri::command]
+pub fn iracing_linked_custid(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Option<i64>, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Err(format!("Save não encontrado: {career_id}"));
+    }
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let val = crate::db::queries::meta::get_meta_value(&db.conn, PLAYER_CUSTID_META_KEY)
+        .map_err(|e| format!("Falha ao ler meta: {e}"))?;
+    Ok(val.and_then(|s| s.trim().parse::<i64>().ok()))
+}
+
+/// 1ª vez (popup da Sala de Estratégia): captura o custid do iRacing, VINCULA ao
+/// save (tabela meta) e pinta o carro na cor do time atual do jogador. Erro claro
+/// se o custid ainda não foi capturado (precisa abrir o iRacing uma vez).
+#[tauri::command]
+pub fn iracing_link_player_paint(
+    app: tauri::AppHandle,
+    career_id: String,
+    car_key: String,
+) -> Result<ApplyPaintResult, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
+    use crate::iracing_sdk::roster_gen;
+    use tauri::Manager;
+
+    let custid = capture_player_custid().ok_or(
+        "Ainda não capturei seu ID do iRacing — abra o iRacing e entre numa sessão ou pista uma vez para vincularmos.",
+    )?;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Err(format!("Save não encontrado: {career_id}"));
+    }
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let player =
+        dq::get_player_driver(&db.conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+    let team = cq::get_active_contract_for_pilot(&db.conn, &player.id)
+        .ok()
+        .flatten()
+        .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
+        .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
+
+    let (path, color) =
+        write_player_car_tga(&car_key, &roster_gen::normalize_hex(&team.cor_primaria), custid)?;
+
+    crate::db::queries::meta::put_meta_value(&db.conn, PLAYER_CUSTID_META_KEY, &custid.to_string())
+        .map_err(|e| format!("Falha ao vincular o ID ao save: {e}"))?;
+
+    Ok(ApplyPaintResult { path, custid, color })
+}
+
+/// Mercado: repinta o carro do jogador na cor da NOVA equipe ao aceitar um contrato.
+/// Usa o custid vinculado ao save (ou o capturado na sessão, persistindo-o). Devolve
+/// `None` silenciosamente se ainda não há custid (jamais abriu o iRacing) — o front
+/// simplesmente não mostra o toast nesse caso.
+#[tauri::command]
+pub fn iracing_apply_market_paint(
+    app: tauri::AppHandle,
+    career_id: String,
+    team_color: String,
+    category: String,
+) -> Result<Option<ApplyPaintResult>, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Err(format!("Save não encontrado: {career_id}"));
+    }
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let linked = crate::db::queries::meta::get_meta_value(&db.conn, PLAYER_CUSTID_META_KEY)
+        .map_err(|e| format!("Falha ao ler meta: {e}"))?
+        .and_then(|s| s.trim().parse::<i64>().ok());
+    let custid = match linked.or_else(capture_player_custid) {
+        Some(id) => id,
+        None => return Ok(None), // sem ID ainda → nada a fazer (silencioso)
+    };
+    if linked.is_none() {
+        let _ = crate::db::queries::meta::put_meta_value(
+            &db.conn,
+            PLAYER_CUSTID_META_KEY,
+            &custid.to_string(),
+        );
+    }
+
+    let car_key = car_key_for_category(&category);
+    let (path, color) = write_player_car_tga(car_key, &team_color, custid)?;
+    Ok(Some(ApplyPaintResult { path, custid, color }))
 }
 
 // ─── Race Control: macro de bandeira amarela ─────────────────────────────────

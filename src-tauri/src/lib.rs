@@ -167,9 +167,11 @@ mod hierarchy;
 mod iracing_sdk;
 mod market;
 mod models;
+mod narrative;
 mod news;
 mod promotion;
 mod public_presence;
+mod race_eval;
 mod rivalry;
 mod simulation;
 mod world;
@@ -288,7 +290,11 @@ pub fn run() {
             commands::career_commands::get_preseason_free_agents,
             commands::news_tab::get_news_tab_bootstrap,
             commands::news_tab::get_news_tab_snapshot,
+            commands::ai_news::enrich_race_news_ai,
+            commands::ai_news::pre_race_briefing_ai,
+            commands::ai_news::player_race_news_id,
             commands::race::simulate_race_weekend,
+            commands::race::get_saved_race_screen,
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
@@ -297,12 +303,25 @@ pub fn run() {
             commands::iracing::iracing_reset_race,
             commands::iracing::iracing_connected,
             commands::iracing::iracing_get_race_history,
+            commands::iracing::iracing_get_race_feedback,
+            commands::iracing::iracing_car_colors,
+            commands::iracing::iracing_focus_window,
+            commands::iracing::iracing_focus_self_if_closed,
+            commands::iracing::iracing_launch_ui,
             commands::iracing::iracing_generate_roster,
             commands::iracing::iracing_generate_season,
+            commands::iracing::iracing_export_rain_test,
             commands::iracing::iracing_process_race_result,
             commands::iracing::iracing_career_race_result,
+            commands::iracing::iracing_preview_race_result,
+            commands::iracing::iracing_auto_import_if_ready,
+            commands::iracing::iracing_dump_session_yaml,
             commands::iracing::iracing_player_paint,
             commands::iracing::iracing_apply_player_paint,
+            commands::iracing::iracing_has_player_id,
+            commands::iracing::iracing_linked_custid,
+            commands::iracing::iracing_link_player_paint,
+            commands::iracing::iracing_apply_market_paint,
             commands::iracing::iracing_save_race_history,
             commands::iracing::iracing_list_saved_races,
             commands::iracing::iracing_load_saved_race,

@@ -25,6 +25,8 @@ chrono = { version = "0.4", features = ["serde"] }
 notify = "6"
 thiserror = "1"
 uuid = { version = "1.22.0", features = ["v4"] }
+# Cliente HTTP p/ o servidor de boletins de IA. rustls (sem OpenSSL) p/ build limpo no Windows.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 # Teste do SDK do iRacing (binding manual da shared memory). Só em Windows.
 [target.'cfg(windows)'.dependencies]
@@ -34,6 +36,8 @@ winapi = { version = "0.3", features = [
     "errhandlingapi",
     "ntdef",
     "minwindef",
+    "windef",
+    "processthreadsapi",
     "winuser",
     "combaseapi",
     "knownfolders",
