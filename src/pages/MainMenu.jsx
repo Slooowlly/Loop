@@ -98,7 +98,7 @@ function GearIcon() {
   );
 }
 
-function MainMenu() {
+function MainMenu({ intro = false }) {
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
 
@@ -109,6 +109,8 @@ function MainMenu() {
   const [recentSave, setRecentSave] = useState(null);
   const [entered, setEntered] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
+  const [introDone, setIntroDone] = useState(!intro);
 
   const prefersReduced =
     typeof window !== "undefined" &&
@@ -134,11 +136,29 @@ function MainMenu() {
     };
   }, []);
 
-  // Entrada cinematografica: barras pretas fecham e o menu surge.
+  // Entrada: com intro (icone com zoom sobre o fundo borrado) ou direta.
   useEffect(() => {
-    const id = window.setTimeout(() => setEntered(true), 30);
-    return () => window.clearTimeout(id);
-  }, []);
+    if (!intro) {
+      const id = window.setTimeout(() => setEntered(true), 30);
+      return () => window.clearTimeout(id);
+    }
+    if (prefersReduced) {
+      setEntered(true);
+      setIntroDone(true);
+      return undefined;
+    }
+    const t1 = window.setTimeout(() => setLogoStep(1), 30); // zoom-in
+    const t2 = window.setTimeout(() => {
+      setLogoStep(2); // zoom-out do icone
+      setEntered(true); // tira o blur e revela o menu
+    }, 1200);
+    const t3 = window.setTimeout(() => setIntroDone(true), 1900); // remove o overlay
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
+  }, [intro, prefersReduced]);
 
   // Fundo animado: particulas (direita -> esquerda, velocidades mistas),
   // parallax por profundidade e luz tipo tocha.
@@ -355,7 +375,11 @@ function MainMenu() {
         .join(" · ")
     : "";
 
-  const shellClass = `mm-shell${entered ? " is-entered" : ""}${exiting ? " is-exiting" : ""}`;
+  const introBlur = intro && !entered;
+  const shellClass = `mm-shell${entered ? " is-entered" : ""}${exiting ? " is-exiting" : ""}${
+    introBlur ? " is-intro" : ""
+  }`;
+  const introLogoCls = `mm-intro-logo${logoStep === 1 ? " s-in" : logoStep === 2 ? " s-exit" : ""}`;
   const zoomBg = CFG.zoomTarget === "text" ? 1 : CFG.zoom;
   const zoomText = CFG.zoomTarget === "bg" ? 1 : CFG.zoom;
   const shellStyle = {
@@ -429,6 +453,12 @@ function MainMenu() {
           </button>
         </div>
       </div>
+
+      {intro && !introDone ? (
+        <div className="mm-intro">
+          <img className={introLogoCls} src="/utilities/LOGO%20NOVA.png" alt="Loop" />
+        </div>
+      ) : null}
     </div>
   );
 }

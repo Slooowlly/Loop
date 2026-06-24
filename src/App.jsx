@@ -1,6 +1,4 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import BootLogoScreen from "./pages/BootLogoScreen";
-import SplashScreen from "./pages/SplashScreen";
 import MainMenu from "./pages/MainMenu";
 import NewCareer from "./pages/NewCareer";
 import LoadSave from "./pages/LoadSave";
@@ -13,8 +11,7 @@ function App() {
     <BrowserRouter>
       <WindowControlsDrawer />
       <Routes>
-        <Route path="/" element={<BootLogoScreen />} />
-        <Route path="/splash" element={<SplashScreen />} />
+        <Route path="/" element={<MainMenu intro />} />
         <Route path="/menu" element={<MainMenu />} />
         <Route path="/new-career" element={<NewCareer />} />
         <Route path="/load-save" element={<LoadSave />} />
