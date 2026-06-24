@@ -147,6 +147,7 @@ function MainMenu({ intro = false }) {
   const canvasRef = useRef(null);
   const glowRef = useRef(null);
   const panelRef = useRef(null);
+  const menuRef = useRef(null);
 
   const [saves, setSaves] = useState([]);
   const [entered, setEntered] = useState(false);
@@ -179,6 +180,18 @@ function MainMenu({ intro = false }) {
     const maxTop = window.innerHeight - h - 16;
     el.style.top = `${Math.max(16, Math.min(desired, maxTop))}px`;
   }, [panel, panelAnchor]);
+
+  // Fecha o submenu ao clicar fora dele e fora do menu.
+  useEffect(() => {
+    if (!panel) return undefined;
+    function onDocDown(ev) {
+      if (panelRef.current?.contains(ev.target)) return;
+      if (menuRef.current?.contains(ev.target)) return;
+      setPanel(null);
+    }
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [panel]);
 
   const prefersReduced =
     typeof window !== "undefined" &&
@@ -508,7 +521,7 @@ function MainMenu({ intro = false }) {
       <div className="mm-bar mm-bar-top" />
       <div className="mm-bar mm-bar-bottom" />
 
-      <div className="mm-menu">
+      <div className="mm-menu" ref={menuRef}>
         <p className="mm-eyebrow">Carreira</p>
         <h1 className="mm-title">LOOP</h1>
         <p className="mm-season">Temporada {new Date().getFullYear()}</p>
