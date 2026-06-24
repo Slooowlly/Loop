@@ -354,17 +354,24 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     // que funcionou), depois clima na largada (@0), e o arco da CORRIDA em offsets
     // absolutos via at(f) = RACE_START + fração × duração (a corrida começa ~RACE_START
     // min depois do início da timeline; antes disso é prática/quali).
+    // CALIBRADO no SIMULADOR: o offset 0 dos keyframes é a LARGADA DA CORRIDA (NÃO o
+    // início da sessão!). Os offsets são ~minutos a partir da largada (dado real: chuva
+    // @offset N caía ~N min depois da largada). Então a CORRIDA = offset 0..race_end; a
+    // quali/prática ficam em offset NEGATIVO (QUALI=-90 é só a âncora de render).
+    // MODELO AFIM MEDIDO no simulador (rookie; largada medida via "tempo restante na
+    // sessão", VENTO CALMO p/ a frente seguir o keyframe): clock_min_após_largada =
+    // 0.68×offset + C. Recalibrado em Navarra com vento calmo: offset −17 punha a chuva
+    // 5 min ANTES da largada ⇒ C≈7. `off(m)` põe o minuto-de-corrida m no offset certo;
+    // a CORRIDA ocupa off(0)≈−10 a off(race_end). QUALI=-90 é só âncora de render.
     const QUALI: i64 = -90;
-    // CALIBRADO (user): corrida começa às 4:20 e simulated_start = 3:45 → offset 35.
-    // (Offset 25 caía na QUALY, não na corrida.) ~prática 5 + quali 10 + grid 20.
-    const RACE_START: i64 = 35;
-    let at = |f: f64| RACE_START + (r as f64 * f).round() as i64;
+    let off = |race_min: f64| ((race_min - 7.0) / 0.68).round() as i64;
+    let at = |f: f64| off(r as f64 * f);
     let rend = at(1.0);
     let iw = intensity_water(story.race_intensity);
     let iet = intensity_event_type(story.race_intensity);
     use WeatherScenario::*;
     let (skies, humidity, water, kf): (i64, i64, i64, Vec<(i64, i64)>) = match story.scenario {
-        ClearDry => (1, 45, 0, vec![(1, QUALI), (1, 0), (0, at(0.4)), (1, rend)]),
+        ClearDry => (1, 45, 0, vec![(1, QUALI), (1, at(0.0)), (0, at(0.4)), (1, rend)]),
         // O susto: céu FECHA durante a corrida (encoberto) e fica, mas NÃO chove.
         Scare => (
             2,
@@ -372,7 +379,6 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             0,
             vec![
                 (1, QUALI),
-                (1, 0),
                 (1, at(0.0)),
                 (2, at(0.4)),
                 (3, at(0.75)),
@@ -384,7 +390,7 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             1,
             50,
             1,
-            vec![(1, QUALI), (1, 0), (1, at(0.6)), (6, at(0.92)), (6, rend)],
+            vec![(1, QUALI), (1, at(0.0)), (1, at(0.6)), (6, at(0.92)), (6, rend)],
         ),
         // Garoa passageira no meio da corrida, volta a abrir.
         PassingDrizzle => (
@@ -393,8 +399,7 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             1,
             vec![
                 (1, QUALI),
-                (1, 0),
-                (1, at(0.3)),
+                (1, at(0.0)),
                 (6, at(0.45)),
                 (2, at(0.6)),
                 (0, rend),
@@ -407,7 +412,6 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             1,
             vec![
                 (3, QUALI),
-                (3, 0),
                 (3, at(0.0)),
                 (2, at(0.4)),
                 (1, at(0.75)),
@@ -421,7 +425,6 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             1,
             vec![
                 (7, QUALI),
-                (3, 0),
                 (3, at(0.0)),
                 (2, at(0.4)),
                 (1, at(0.7)),
@@ -429,19 +432,13 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             ],
         ),
         // Molhadas — ficam molhadas o tempo todo da CORRIDA (nunca seca).
-        SteadyRain => (
-            3,
-            88,
-            iw,
-            vec![(3, QUALI), (3, 0), (iet, at(0.0)), (iet, rend)],
-        ),
+        SteadyRain => (3, 88, iw, vec![(3, QUALI), (iet, at(0.0)), (iet, rend)]),
         Improving => (
             3,
             90,
             iw,
             vec![
                 (3, QUALI),
-                (3, 0),
                 (8, at(0.0)),
                 (7, at(0.4)),
                 (6, at(0.8)),
@@ -454,7 +451,6 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![
                 (2, QUALI),
-                (2, 0),
                 (6, at(0.0)),
                 (7, at(0.4)),
                 (8, at(0.8)),
@@ -467,7 +463,6 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![
                 (3, QUALI),
-                (3, 0),
                 (8, at(0.0)),
                 (7, at(0.35)),
                 (6, at(0.5)),
@@ -479,7 +474,7 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             3,
             85,
             iw,
-            vec![(6, QUALI), (3, 0), (6, at(0.0)), (7, at(0.5)), (iet, rend)],
+            vec![(6, QUALI), (6, at(0.0)), (7, at(0.5)), (iet, rend)],
         ),
         // 1ª corrida: largada LIMPA → céu fecha no MEIO (frente entrando) → garoa leve
         // CAINDO na 2ª metade (vento forte global ajuda a frente a chegar de verdade).
@@ -487,9 +482,11 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             0,
             55,
             1,
+            // A corrida vive em offset NEGATIVO (offset 0 cai ~19 min depois da largada).
+            // LIMPO na largada (at 0.0) → nuvem/encoberto fechando → GAROA na 2ª metade
+            // (at 0.5) até a bandeirada (rend). Vento forte traz a frente a tempo.
             vec![
                 (0, QUALI),
-                (0, 0),
                 (0, at(0.0)),
                 (2, at(0.35)),
                 (3, at(0.45)),
@@ -804,12 +801,12 @@ mod tests {
         );
         let last = p.keyframes.last().unwrap();
         assert_eq!(last.0, 6, "não terminou com pingos");
-        // Fim = RACE_START (35) + duração (20). A chuva tem que cair DURANTE a corrida
-        // (offset > 35 = largada às 4:20), não na prática/quali.
-        assert_eq!(last.1, 55, "pingos não no fim da corrida");
+        // Estrutura (robusta ao C do modelo afim): largada LIMPA (keyframe após a âncora
+        // QUALI), termina com CHUVA, e os offsets são crescentes (ordenados no tempo).
+        assert_eq!(p.keyframes[1].0, 0, "largada não está limpa");
         assert!(
-            p.keyframes.iter().any(|(et, off)| *et >= 6 && *off > 35),
-            "chuva fora da corrida"
+            p.keyframes.windows(2).all(|w| w[0].1 <= w[1].1),
+            "offsets fora de ordem"
         );
     }
 }

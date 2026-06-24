@@ -9,6 +9,21 @@ const CARS = [
   { key: "bmwm2", label: "BMW M2 (G87)" },
 ];
 
+// Tempo de volta (ms) → "m:ss.mmm". "—" se não houver volta válida.
+function fmtLap(ms) {
+  if (!ms || ms <= 0) return "—";
+  const total = ms / 1000;
+  const min = Math.floor(total / 60);
+  const sec = (total - min * 60).toFixed(3).padStart(6, "0");
+  return `${min}:${sec}`;
+}
+
+// Gap ao líder (ms) → "+s.sss". "—" se zero/ausente.
+function fmtGap(ms) {
+  if (!ms || ms <= 0) return "—";
+  return `+${(ms / 1000).toFixed(3)}`;
+}
+
 function RosterGenPanel() {
   const [saves, setSaves] = useState([]);
   const [careerId, setCareerId] = useState("");
@@ -29,6 +44,54 @@ function RosterGenPanel() {
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyResult, setApplyResult] = useState(null);
   const [applyError, setApplyError] = useState("");
+  const [rainBusy, setRainBusy] = useState(false);
+  const [rainResult, setRainResult] = useState(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [dumpMsg, setDumpMsg] = useState("");
+
+  // Dumpa o YAML da sessão do iRacing num arquivo (para inspeção do ResultsPositions).
+  async function dumpSessionYaml() {
+    setDumpMsg("Lendo a sessão…");
+    try {
+      const path = await invoke("iracing_dump_session_yaml");
+      setDumpMsg(`✅ YAML gravado em: ${path}`);
+    } catch (e) {
+      setDumpMsg(`❌ ${String(e)}`);
+    }
+  }
+
+  // PREVIEW (read-only) da ponte sessão→RaceResult: reconstrói o resultado da
+  // última corrida do iRacing como a carreira o veria — sem gravar nada.
+  async function previewResult() {
+    setPreviewBusy(true);
+    setError("");
+    setPreview(null);
+    try {
+      const res = await invoke("iracing_preview_race_result", { careerId });
+      setPreview(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  // TESTE DE CHUVA: 3 seasons (Seco/Molhado/Tempestade) com 16 pilotos controlados,
+  // driver_skill já re-rankeado pela penalidade de chuva por piloto.
+  async function exportRainTest() {
+    setRainBusy(true);
+    setError("");
+    setRainResult(null);
+    try {
+      const res = await invoke("iracing_export_rain_test");
+      setRainResult(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRainBusy(false);
+    }
+  }
 
   async function applyPaint() {
     setApplyBusy(true);
@@ -182,7 +245,8 @@ function RosterGenPanel() {
   const canGenerate = careerId && categoria.trim() && rosterName.trim() && !busy;
 
   return (
-    <GlassCard hover={false} className="space-y-4">
+    <>
+      <GlassCard hover={false} className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🧩</span>
@@ -295,6 +359,32 @@ function RosterGenPanel() {
         >
           🌦️ Season Teste (clima 1ª corrida)
         </GlassButton>
+        <GlassButton
+          variant="secondary"
+          onClick={exportRainTest}
+          disabled={rainBusy}
+          title="Gera 3 seasons (Seco/Molhado/Tempestade) com 16 pilotos controlados (4 skills × 4 fatores de chuva) — o driver_skill já entra re-rankeado pela chuva por piloto. Roda as 3 com a IA e compara os resultados."
+          className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
+        >
+          {rainBusy ? "Gerando…" : "🌧️ Teste de Chuva (3 seasons)"}
+        </GlassButton>
+        <GlassButton
+          variant="secondary"
+          onClick={previewResult}
+          disabled={!careerId || previewBusy}
+          title="Reconstrói o resultado da ÚLTIMA corrida disputada no iRacing como a carreira o veria (posições, grid, volta rápida, DNFs) — SEM gravar nada. Valide contra a tela do iRacing antes de ligar a persistência."
+          className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
+        >
+          {previewBusy ? "Lendo…" : "👁️ Preview Resultado (sessão)"}
+        </GlassButton>
+        <GlassButton
+          variant="secondary"
+          onClick={dumpSessionYaml}
+          title="Grava o YAML da sessão do iRacing num arquivo (%TEMP%/loop_session_dump.yaml) para inspecionar os resultados oficiais (ResultsPositions) e a quali."
+          className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
+        >
+          📄 Dump YAML da sessão
+        </GlassButton>
         <input
           value={targetTrackId}
           onChange={(e) => setTargetTrackId(e.target.value.replace(/[^0-9]/g, ""))}
@@ -309,6 +399,11 @@ function RosterGenPanel() {
         )}
       </div>
 
+      {dumpMsg && (
+        <p className="break-all rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-mono text-text-secondary">
+          {dumpMsg}
+        </p>
+      )}
       {error && (
         <p className="rounded-xl border border-status-red/30 bg-status-red/10 px-3 py-2 text-[11px] font-semibold text-status-red">
           {error}
@@ -337,6 +432,153 @@ function RosterGenPanel() {
           )}
           <p className="mt-0.5 break-all font-mono text-[10px] text-text-secondary">
             {seasonResult.path}
+          </p>
+        </div>
+      )}
+      {rainResult && (
+        <div className="space-y-2 rounded-xl border border-status-green/30 bg-status-green/10 p-3 text-[11px]">
+          <p className="font-semibold text-status-green">
+            ✅ 3 seasons de teste criadas:{" "}
+            {rainResult.seasons.map((s) => `"${s}"`).join(" · ")}
+          </p>
+          <p className="text-text-secondary">
+            Carregue cada uma no iRacing, deixe a IA correr e compare os resultados.
+            Skill efetivo (já com a chuva) de cada piloto:
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead className="text-text-muted">
+                <tr>
+                  <th className="py-1 pr-3">Piloto</th>
+                  <th className="px-2">fator</th>
+                  <th className="px-2">☀️ Seco</th>
+                  <th className="px-2">🌧️ Molhado</th>
+                  <th className="px-2">⛈️ Tempestade</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-text-secondary">
+                {rainResult.rows.map((r) => {
+                  const key = r.name === "Bom-Mestre" || r.name === "Alien-Pessimo";
+                  return (
+                    <tr
+                      key={r.name}
+                      className={key ? "text-status-green font-semibold" : ""}
+                    >
+                      <td className="py-0.5 pr-3">{r.name}</td>
+                      <td className="px-2">{r.fator_chuva}</td>
+                      <td className="px-2">{r.skill_seco}</td>
+                      <td className="px-2">{r.skill_molhado}</td>
+                      <td className="px-2">{r.skill_tempestade}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] leading-snug text-text-muted">
+            🔑 Validação: no <b>Seco</b> a ordem é por skill (Alien-* ganha). Na{" "}
+            <b>Tempestade</b>, o <span className="text-status-green">Bom-Mestre</span>{" "}
+            deve passar o <span className="text-status-green">Alien-Pessimo</span> (skill
+            efetivo maior). Se isso acontecer na pista, o sistema de chuva funciona.
+          </p>
+        </div>
+      )}
+
+      {preview && (
+        <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3 text-[11px]">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-semibold text-text-primary">
+              👁️ Preview — {preview.track_name}
+            </span>
+            <span className="text-text-secondary">
+              {preview.total_laps} voltas · {preview.total_dnfs} DNF(s)
+            </span>
+            <span className="text-[10px] text-text-muted">
+              (read-only — nada foi gravado)
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[10px]">
+              <thead className="text-text-muted">
+                <tr>
+                  <th className="py-1 pr-2">Pos</th>
+                  <th className="px-2">Piloto</th>
+                  <th className="px-2">Equipe</th>
+                  <th className="px-2 text-center">Grid</th>
+                  <th className="px-2 text-center">+/-</th>
+                  <th className="px-2 text-right">Melhor volta</th>
+                  <th className="px-2 text-right">Gap</th>
+                  <th className="px-2 text-center">VR</th>
+                  <th className="px-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="text-text-secondary">
+                {[...preview.race_results]
+                  .sort((a, b) => {
+                    if (a.is_dnf !== b.is_dnf) return a.is_dnf ? 1 : -1;
+                    return a.finish_position - b.finish_position;
+                  })
+                  .map((r, i) => (
+                    <tr
+                      key={r.pilot_id || i}
+                      className={r.is_jogador ? "font-semibold text-status-green" : ""}
+                    >
+                      <td className="py-0.5 pr-2 font-mono">
+                        {r.is_dnf ? "—" : i + 1}
+                      </td>
+                      <td className="px-2">
+                        {r.is_jogador ? "🧑 " : ""}
+                        {r.pilot_name}
+                      </td>
+                      <td className="px-2 text-text-muted">{r.team_name}</td>
+                      <td className="px-2 text-center font-mono">
+                        {r.grid_position > 0 ? r.grid_position : "—"}
+                      </td>
+                      <td
+                        className={[
+                          "px-2 text-center font-mono",
+                          r.positions_gained > 0
+                            ? "text-status-green"
+                            : r.positions_gained < 0
+                              ? "text-status-red"
+                              : "",
+                        ].join(" ")}
+                      >
+                        {r.positions_gained > 0
+                          ? `+${r.positions_gained}`
+                          : r.positions_gained < 0
+                            ? r.positions_gained
+                            : "—"}
+                      </td>
+                      <td className="px-2 text-right font-mono">
+                        {fmtLap(r.best_lap_time_ms)}
+                      </td>
+                      <td className="px-2 text-right font-mono text-text-muted">
+                        {i === 0 || r.is_dnf ? "—" : fmtGap(r.gap_to_winner_ms)}
+                      </td>
+                      <td className="px-2 text-center">
+                        {r.has_fastest_lap ? "🟣" : ""}
+                      </td>
+                      <td className="px-2 text-[10px]">
+                        {r.is_dnf ? (
+                          <span className="text-status-red">
+                            DNF{r.dnf_reason ? ` · ${r.dnf_reason}` : ""}
+                          </span>
+                        ) : r.notable_incident ? (
+                          <span className="text-text-muted">⚠️ {r.notable_incident}</span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] leading-snug text-text-muted">
+            🔑 Compare com a tela de resultado do iRacing: posições, grid, volta
+            rápida (🟣) e abandonos. Se bater, a ponte está correta e podemos ligar a
+            persistência na carreira.
           </p>
         </div>
       )}
@@ -451,7 +693,8 @@ function RosterGenPanel() {
         ⚠️ Abra o iRacing depois de gerar (ele lê os rosters ao iniciar). O jogador
         é excluído do roster — ele dirige, não vira IA.
       </p>
-    </GlassCard>
+      </GlassCard>
+    </>
   );
 }
 

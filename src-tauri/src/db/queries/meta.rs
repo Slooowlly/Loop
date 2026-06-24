@@ -31,6 +31,17 @@ pub fn set_meta_value(conn: &Connection, key: &str, value: &str) -> Result<(), D
     Ok(())
 }
 
+/// Grava um valor na tabela meta criando a chave se ela ainda nao existir
+/// (INSERT OR REPLACE). Use quando a chave nao e garantida pelas migrations —
+/// por exemplo, dados opcionais vinculados ao save (custid do iRacing do jogador).
+pub fn put_meta_value(conn: &Connection, key: &str, value: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+        rusqlite::params![key, value],
+    )?;
+    Ok(())
+}
+
 /// Atalho semantico: atualiza current_season.
 pub fn set_current_season(conn: &Connection, numero: i32) -> Result<(), DbError> {
     if numero <= 0 {
@@ -65,6 +76,26 @@ mod tests {
 
         let err = set_meta_value(&conn, "missing_key", "123").expect_err("missing key");
         assert!(err.to_string().contains("meta key not found"));
+    }
+
+    #[test]
+    fn test_put_meta_value_inserts_new_key_and_replaces_existing() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+
+        // Chave inexistente: put insere (set_meta_value falharia aqui).
+        put_meta_value(&conn, "player_iracing_custid", "12345").expect("insert");
+        assert_eq!(
+            get_meta_value(&conn, "player_iracing_custid").unwrap().as_deref(),
+            Some("12345")
+        );
+
+        // Mesma chave de novo: substitui o valor.
+        put_meta_value(&conn, "player_iracing_custid", "67890").expect("replace");
+        assert_eq!(
+            get_meta_value(&conn, "player_iracing_custid").unwrap().as_deref(),
+            Some("67890")
+        );
     }
 
     #[test]

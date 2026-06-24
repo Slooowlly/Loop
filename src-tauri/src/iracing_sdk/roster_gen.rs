@@ -191,6 +191,8 @@ pub struct BehaviorContext {
     pub grid_skills: Vec<f64>,
     pub is_wet: bool,
     pub rain_intensity: f64,
+    /// Intensidade da chuva (enum) — para o re-rank de skill por piloto na chuva.
+    pub rain_level: crate::iracing_sdk::weather::RainIntensity,
     pub temp_c: f64,
     /// Semente do evento (career_id + event_id) — varia o "humor do dia" por piloto.
     pub seed_base: u64,
@@ -353,7 +355,25 @@ pub fn build_roster(
                         seed: bc.seed_base ^ fnv1a(&driver.id),
                     };
                     let out = crate::iracing_sdk::behavior::compute(&inputs);
-                    (out.skill, out.aggression, out.optimism, out.smoothness)
+                    // RE-RANK POR PILOTO NA CHUVA (opção B): desvio da média (fator 50).
+                    // A penalidade na BANDA (min/max skill, na season) já baixa o pelotão
+                    // todo pelo valor médio (pace absoluto cai); aqui só o DESVIO: quem é
+                    // bom de chuva sofre MENOS que a média (sobe), quem é ruim sofre MAIS
+                    // (cai). Soma 0 no piloto médio → não mexe no pace absoluto.
+                    let wet_rerank = if bc.is_wet {
+                        use crate::iracing_sdk::weather::rain_skill_penalty;
+                        (rain_skill_penalty(50.0, bc.rain_level)
+                            - rain_skill_penalty(a.fator_chuva, bc.rain_level))
+                            as f64
+                    } else {
+                        0.0
+                    };
+                    (
+                        out.skill + wet_rerank,
+                        out.aggression,
+                        out.optimism,
+                        out.smoothness,
+                    )
                 }
             };
             RosterDriver {

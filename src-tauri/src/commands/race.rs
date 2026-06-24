@@ -9,6 +9,7 @@ use crate::commands::race_history::append_race_result;
 use crate::config::app_config::{AppConfig, SaveMeta};
 use crate::constants::categories::{
     get_all_categories, get_category_config, is_multiclass_category, runs_in_special_phase,
+    CategoryConfig,
 };
 use crate::constants::historical_timeline::is_team_active_in_year;
 use crate::constants::scoring::{get_points_for_position, BONUS_FASTEST_LAP};
@@ -52,6 +53,10 @@ use crate::{calendar::CalendarEntry, models::team::Team};
 pub struct RaceWeekendResult {
     pub player_race: RaceResult,
     pub other_categories: SimultaneousResults,
+    /// Avaliação de carreira (expectativa vs resultado, nota, frases) — o MESMO
+    /// cérebro do import do iRacing. `None` se não der para avaliar (tela trata).
+    #[serde(default)]
+    pub evaluation: Option<crate::race_eval::RaceEvaluation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,7 +223,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
 
     let mut db = Database::open_existing(&db_path)
         .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
-    let race_entry = calendar_queries::get_calendar_entry_by_id(&db.conn, race_id)
+    let mut race_entry = calendar_queries::get_calendar_entry_by_id(&db.conn, race_id)
         .map_err(|e| format!("Falha ao buscar corrida: {e}"))?
         .ok_or_else(|| "Corrida nao encontrada.".to_string())?;
 
@@ -247,6 +252,24 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
                 "O jogador nao possui corrida pendente valida para simular nesta fase.".to_string(),
             );
         }
+    }
+
+    // FONTE ÚNICA do clima: resolve pelo MESMO generate_weather do export (e persiste no
+    // entry.clima), pra a simulação offline produzir o resultado que o iRacing rodaria.
+    if let Some(track) = crate::constants::tracks::get_track(race_entry.track_id) {
+        let cal = calendar_queries::get_calendar(&db.conn, &race_entry.season_id, &race_entry.categoria)
+            .unwrap_or_default();
+        let career_first = cal.iter().all(|e| e.status.as_str() != "Concluida");
+        let first_week = cal.iter().map(|e| e.week_of_year).min().unwrap_or(i32::MAX);
+        let is_first = career_first && race_entry.week_of_year == first_week;
+        race_entry.clima = crate::commands::iracing::resolve_and_persist_race_weather(
+            &db.conn,
+            career_id,
+            track,
+            race_entry.week_of_year,
+            &race_entry.id,
+            is_first,
+        );
     }
 
     let (player_race, player_new_injuries) = simulate_category_race(&mut db, &race_entry, true)?;
@@ -374,25 +397,35 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
         .map_err(|e| format!("Falha ao registrar historico de DNF da corrida do jogador: {e}")),
         "Falha ao registrar historico de DNF da corrida do jogador",
     );
-    warn_if_side_effect_fails(
-        persist_race_news(
-            &db.conn,
-            &player_race,
-            &active_season,
-            race_entry.rodada,
-            &race_entry.categoria,
-            post_race_bias,
-            race_entry.thematic_slot,
-            &interest_tier,
-            &player_race
-                .race_results
-                .iter()
-                .flat_map(|r| r.incidents.clone())
-                .collect::<Vec<_>>(),
-            &player_new_injuries,
-        ),
-        "Falha ao persistir noticias da corrida do jogador",
-    );
+    match persist_race_news(
+        &db.conn,
+        &player_race,
+        &active_season,
+        race_entry.rodada,
+        &race_entry.categoria,
+        post_race_bias,
+        race_entry.thematic_slot,
+        &interest_tier,
+        &player_race
+            .race_results
+            .iter()
+            .flat_map(|r| r.incidents.clone())
+            .collect::<Vec<_>>(),
+        &player_new_injuries,
+        &[], // sem telemetria real no fluxo simulado
+    ) {
+        // Corrida do jogador gerou notícia de Corrida → PRÉ-GERA o boletim de IA em
+        // background agora, para já estar em cache quando o jogador abrir Notícias
+        // (sem sentir a latência de ~5s do servidor).
+        Ok(Some(news_id)) => {
+            let mut cfg = AppConfig::load_or_default(base_dir);
+            let install_id = cfg.get_or_create_install_id();
+            let lang = cfg.language.clone();
+            spawn_prewarm_boletim(db_path.clone(), news_id, lang, install_id);
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("Falha ao persistir noticias da corrida do jogador: {e}"),
+    }
     let other_categories = simulate_other_categories(
         &mut db,
         &career_dir,
@@ -407,9 +440,27 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
         "Falha ao atualizar meta.json apos a corrida",
     );
 
+    // Cérebro do pós-corrida: mesma avaliação do import do iRacing (expectativa vs
+    // resultado, nota, frases). O sim offline NÃO tem telemetria ao vivo, então a
+    // tela mostra a leitura de carreira + saldo de posições e esconde os gráficos.
+    let evaluation = compute_race_evaluation(&db.conn, &player_race);
+
+    // Persiste a tela do pós-corrida para reabrir depois pela Home (offline não
+    // tem telemetria ao vivo → sem gráficos, mas tem cérebro + saldo).
+    save_race_screen(
+        &career_dir,
+        race_id,
+        &serde_json::json!({
+            "race_result": &player_race,
+            "evaluation": &evaluation,
+            "telemetry": serde_json::Value::Null,
+        }),
+    );
+
     Ok(RaceWeekendResult {
         player_race,
         other_categories,
+        evaluation,
     })
 }
 
@@ -648,6 +699,8 @@ fn simulate_category_race_with_mode(
                 sd.skill = (sd.skill as f64 - pen).max(5.0).round() as u8;
                 sd.ritmo_classificacao =
                     (sd.ritmo_classificacao as f64 - pen).max(5.0).round() as u8;
+                // (Chuva NÃO entra aqui: a sim já aplica rain_skill_penalty no score
+                // em simulation/race.rs + qualifying.rs — aplicar de novo dobraria.)
                 // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
                 let pctx = crate::simulation::pressure::title_context(
                     driver.stats_temporada.pontos,
@@ -717,6 +770,38 @@ fn simulate_category_race_with_mode(
         None
     };
 
+    let new_injuries_out = persist_race_result_tx(
+        db,
+        race_entry,
+        &result,
+        &teams,
+        &active_season,
+        category,
+        next_round,
+        persistence_mode,
+        &mut rng,
+    )?;
+
+    Ok((result, new_injuries_out))
+}
+
+/// Persiste um `RaceResult` na carreira dentro de UMA transação: standings/pontos,
+/// recuperação+geração de lesões, resumo da corrida, avanço de rodada, hierarquia
+/// e rivalidades. É o "rabo" compartilhado entre a simulação OFFLINE e o IMPORT do
+/// iRacing — ambos produzem um `RaceResult` e caem aqui, então a carreira reage
+/// igual nos dois caminhos. Retorna as lesões novas (pode incluir pilotos de IA).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn persist_race_result_tx(
+    db: &mut Database,
+    race_entry: &CalendarEntry,
+    result: &RaceResult,
+    teams: &[Team],
+    active_season: &Season,
+    category: &CategoryConfig,
+    next_round: Option<i32>,
+    persistence_mode: RacePersistenceMode,
+    rng: &mut impl rand::Rng,
+) -> Result<Vec<Injury>, String> {
     let mut new_injuries_out: Vec<Injury> = Vec::new();
     db.transaction(|tx| {
         // 0. Guarda de idempotência: o status foi checado fora da transação,
@@ -745,8 +830,8 @@ fn simulate_category_race_with_mode(
         let economic_health = global_economic_health_for_season(active_season.numero as i32);
         apply_race_result_to_database(
             tx,
-            &result,
-            &teams,
+            result,
+            teams,
             economic_health,
             &race_entry.categoria,
             persistence_mode,
@@ -765,7 +850,7 @@ fn simulate_category_race_with_mode(
             active_season.numero as i32,
             &race_entry.id,
             &flat_incidents,
-            &mut rng,
+            &mut *rng,
         )?;
         new_injuries_out = new_injuries;
 
@@ -779,7 +864,7 @@ fn simulate_category_race_with_mode(
         if let Some(round) = next_round {
             season_queries::update_season_rodada(tx, &active_season.id, round)?;
         }
-        season_queries::move_to_encerramento_if_completed(tx, &active_season)?;
+        season_queries::move_to_encerramento_if_completed(tx, active_season)?;
 
         // 5. Processa hierarquia interna das equipes da categoria
         if !runs_in_special_phase(&race_entry.categoria) {
@@ -815,7 +900,494 @@ fn simulate_category_race_with_mode(
     })
     .map_err(|e| format!("Falha ao persistir resultado da corrida: {e}"))?;
 
-    Ok((result, new_injuries_out))
+    Ok(new_injuries_out)
+}
+
+/// Resumo do que foi gravado ao importar uma corrida do iRacing — devolvido ao
+/// front para o aviso/pop-up.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportedRaceSummary {
+    pub race_id: String,
+    pub track_name: String,
+    pub categoria: String,
+    pub rodada: i32,
+    /// Pilotos efetivamente gravados (após filtrar carros sem piloto da carreira).
+    pub saved_drivers: usize,
+    /// Carros da sessão descartados por não casarem com nenhum piloto da carreira.
+    pub dropped_unmatched: usize,
+    pub player_position: Option<i32>,
+    pub player_points: Option<i32>,
+    pub player_is_dnf: bool,
+    pub winner_name: Option<String>,
+    /// Custo do conserto do carro do jogador (0 se não houve batida cobrável).
+    pub repair_cost: f64,
+    /// Severidade da pior batida do jogador (leve/moderado/grave/destruído/catastrófico/nenhum).
+    pub repair_severity: String,
+    /// Quantas vezes o jogador bateu (de forma cobrável) NESTA temporada, incluindo esta.
+    pub repair_count: i32,
+    /// Frase pronta do pop-up (com valor e contagem já preenchidos). Vazia se cost=0.
+    pub repair_message: String,
+}
+
+/// Fração do custo de OPERAÇÃO da categoria que cada severidade de batida cobra em
+/// conserto. A batida já chega rebaixada se o carro cruzou a linha (race_monitor).
+fn repair_cost_fraction(severity: &str) -> f64 {
+    match severity {
+        "moderado" => 0.03,
+        "grave" => 0.10,
+        "destruído" => 0.25,
+        "catastrófico" => 0.45,
+        _ => 0.0, // leve / nenhum: sem cobrança
+    }
+}
+
+/// Custo de conserto do carro do jogador: fração(severidade) × custo de operação da
+/// categoria × fator do carro (carro melhor/mais caro custa mais pra consertar).
+/// SÓ jogador — a IA não mexe em finanças.
+fn compute_repair_cost(severity: &str, category: &str, car_performance: f64) -> f64 {
+    let frac = repair_cost_fraction(severity);
+    if frac <= 0.0 {
+        return 0.0;
+    }
+    let operating = category_finance_scale(category).operating_cost_midpoint();
+    let car_factor =
+        1.0 + crate::simulation::math::normalize_car_performance(car_performance) / 100.0 * 0.5;
+    (frac * operating * car_factor).round()
+}
+
+/// Formata um valor em reais no estilo PT-BR: "R$ 18.500".
+fn format_brl(value: f64) -> String {
+    let n = value.round() as i64;
+    let digits = n.abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(ch);
+    }
+    format!("R$ {}{}", if n < 0 { "-" } else { "" }, out)
+}
+
+/// Lê/incrementa a contagem de batidas COBRÁVEIS do jogador na temporada atual,
+/// persistida em `iracing_repair_count.json` no diretório do save. Reinicia a cada
+/// temporada. Devolve a contagem JÁ incluindo esta batida.
+fn bump_repair_count(career_dir: &Path, season_number: i32) -> i32 {
+    let path = career_dir.join("iracing_repair_count.json");
+    let stored: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let same_season = stored.get("season").and_then(|v| v.as_i64()) == Some(season_number as i64);
+    let prev = if same_season {
+        stored.get("count").and_then(|v| v.as_i64()).unwrap_or(0)
+    } else {
+        0
+    };
+    let count = (prev + 1) as i32;
+    let _ = std::fs::write(
+        &path,
+        serde_json::json!({ "season": season_number, "count": count }).to_string(),
+    );
+    count
+}
+
+/// Frase pronta do pop-up de conserto, variando por VALOR (severidade) e por
+/// QUANTAS vezes já aconteceu nesta temporada. Sorteio dentro da célula.
+fn pick_repair_message(
+    rng: &mut impl rand::Rng,
+    severity: &str,
+    valor: &str,
+    count: i32,
+) -> String {
+    const FIRST: &[&str] = &[
+        "Acontece. O pessoal do box já está no conserto — {valor}. Cabeça erguida pra próxima.",
+        "É assim que se aprende. {valor} no reparo; a gente absorve dessa vez.",
+        "Bateu, mas trouxe lições. Custou {valor} — na próxima a gente traz inteiro.",
+    ];
+    const REPEAT: &[&str] = &[
+        "De novo. O conserto foi {valor}. Precisamos trazer esse carro pra casa inteiro.",
+        "Já são {n}. Mais {valor} que saíram do caixa — isso começa a pesar.",
+        "Segunda chamada. {valor}. O orçamento não é infinito, combinado?",
+    ];
+    const CHRONIC: &[&str] = &[
+        "Outra?! {valor}. Já são {n} carros destruídos — não pode virar hábito.",
+        "{n} batidas nesta temporada. {valor} dessa. O conselho está perguntando o que acontece no cockpit.",
+        "{valor}. Se continuar assim, vamos ter uma conversa séria sobre o seu lugar aqui.",
+    ];
+    const LIGHT: &[&str] = &[
+        "Nada grave — {valor} e o carro tá novo de novo.",
+        "Só um susto. {valor} no conserto, seguimos.",
+    ];
+    const CATASTROPHIC: &[&str] = &[
+        "O carro voltou em pedaços. {valor}. Isso vai doer no orçamento o resto da temporada.",
+        "Perda quase total. {valor}. Precisamos de um fim de semana limpo, urgente.",
+        "{valor} num capote só. O caixa sentiu — e o chefe também.",
+    ];
+
+    let pool: &[&str] = if severity == "catastrófico" {
+        CATASTROPHIC
+    } else if severity == "moderado" && count <= 1 {
+        LIGHT
+    } else if count <= 1 {
+        FIRST
+    } else if count <= 3 {
+        REPEAT
+    } else {
+        CHRONIC
+    };
+    let idx = rng.gen_range(0..pool.len());
+    pool[idx]
+        .replace("{valor}", valor)
+        .replace("{n}", &count.to_string())
+}
+
+/// Média das chegadas recentes (do JSON `ultimos_resultados`) — menor = melhor
+/// forma. `None` se não houver histórico.
+fn recent_avg_finish(v: &serde_json::Value) -> Option<f64> {
+    let positions: Vec<f64> = v
+        .as_array()?
+        .iter()
+        .filter_map(|e| e.get("position").and_then(|p| p.as_i64()))
+        .filter(|p| *p > 0)
+        .map(|p| p as f64)
+        .collect();
+    if positions.is_empty() {
+        None
+    } else {
+        Some(positions.iter().sum::<f64>() / positions.len() as f64)
+    }
+}
+
+/// Roda o "cérebro" do pós-corrida (`race_eval`) sobre um `RaceResult` + o banco:
+/// monta o mérito de cada piloto (skill + carro + forma recente) e avalia o
+/// resultado do JOGADOR (expectativa vs resultado, nota, frases). `None` se não
+/// houver jogador no resultado — a tela trata o `None` e nunca quebra.
+/// Persiste o PAYLOAD da tela de pós-corrida (resultado + avaliação + telemetria)
+/// por corrida, para o jogador reabrir a classificação final depois pela Home.
+/// Efêmero vira durável: `career_dir/race_screens/<race_id>.json`. Best-effort.
+pub(crate) fn save_race_screen(career_dir: &Path, race_id: &str, payload: &serde_json::Value) {
+    let dir = career_dir.join("race_screens");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(s) = serde_json::to_string(payload) {
+        let _ = std::fs::write(dir.join(format!("{race_id}.json")), s);
+    }
+}
+
+/// Reabre a tela salva da corrida da rodada `rodada` na categoria. Resolve
+/// rodada→race_id pelo calendário da temporada ATIVA e lê o arquivo. `None` se
+/// não houver tela salva (corrida antiga / outra categoria / nunca jogada).
+#[tauri::command]
+pub fn get_saved_race_screen(
+    app: AppHandle,
+    career_id: String,
+    category: String,
+    rodada: i32,
+) -> Result<Option<serde_json::Value>, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join(&career_id);
+    let db_path = career_dir.join("career.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+    let Some(active_season) = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+    else {
+        return Ok(None);
+    };
+    let entries = calendar_queries::get_calendar(&db.conn, &active_season.id, &category)
+        .map_err(|e| format!("Falha ao buscar calendário: {e}"))?;
+    let Some(entry) = entries.into_iter().find(|e| e.rodada == rodada) else {
+        return Ok(None);
+    };
+    let path = career_dir.join("race_screens").join(format!("{}.json", entry.id));
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(serde_json::from_str::<serde_json::Value>(&s).ok()),
+        Err(_) => Ok(None),
+    }
+}
+
+pub(crate) fn compute_race_evaluation(
+    conn: &rusqlite::Connection,
+    result: &RaceResult,
+) -> Option<crate::race_eval::RaceEvaluation> {
+    use crate::race_eval::{compute_merit, evaluate, DriverMerit, RaceEvalInput};
+
+    let player = result.race_results.iter().find(|r| r.is_jogador)?;
+    let field_size = result.race_results.len() as i32;
+    let field: Vec<DriverMerit> = result
+        .race_results
+        .iter()
+        .filter_map(|r| {
+            let driver = driver_queries::get_driver(conn, &r.pilot_id).ok()?;
+            let car = team_queries::get_team_by_id(conn, &r.team_id)
+                .ok()
+                .flatten()
+                .map(|t| t.car_performance)
+                .unwrap_or(0.0);
+            let car_norm = crate::simulation::math::normalize_car_performance(car);
+            let merit = compute_merit(
+                driver.atributos.skill,
+                car_norm,
+                recent_avg_finish(&driver.ultimos_resultados),
+                field_size,
+                0, // corridas na pista entram na Fase 2 (afinamento)
+            );
+            Some(DriverMerit {
+                pilot_id: r.pilot_id.clone(),
+                merit,
+            })
+        })
+        .collect();
+    if field.is_empty() {
+        return None;
+    }
+    Some(evaluate(&RaceEvalInput {
+        player_id: player.pilot_id.clone(),
+        grid_position: player.grid_position.max(1),
+        finish_position: player.finish_position.max(1),
+        is_dnf: player.is_dnf,
+        incidents: player.incidents_count.max(0),
+        field,
+    }))
+}
+
+/// Importa um `RaceResult` vindo da SESSÃO do iRacing para a carreira. Guarda pela
+/// próxima corrida pendente do jogador (mesma pista), filtra carros fantasmas,
+/// recalcula classe+pontos e persiste pelo mesmo `persist_race_result_tx` da
+/// simulação offline — a carreira reage idêntico a uma corrida simulada.
+pub(crate) fn import_iracing_race_result(
+    db: &mut Database,
+    career_dir: &Path,
+    session_track_id: i64,
+    player_crash_severity: &str,
+    mut result: RaceResult,
+    // Telemetria REAL do SDK (ritmo/duelo/erro/melhor momento) — vira pano de fundo
+    // do boletim de IA. Corrida real do iRacing tem; offline/sem monitor vem vazia.
+    telemetry: &crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+) -> Result<(ImportedRaceSummary, RaceResult), String> {
+    let active_season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+
+    let race_entry = get_next_player_race(&db.conn, &active_season)?
+        .ok_or_else(|| "O jogador nao possui corrida pendente para importar.".to_string())?;
+
+    // Guarda: a sessão tem que ser da MESMA pista da próxima corrida pendente.
+    if race_entry.track_id as i64 != session_track_id {
+        return Err(format!(
+            "A sessao do iRacing e de outra pista (id {}). A proxima corrida da carreira e em {} (id {}). Importacao cancelada.",
+            session_track_id, race_entry.track_name, race_entry.track_id
+        ));
+    }
+
+    if runs_in_special_phase(&race_entry.categoria) {
+        return Err("Importacao de corridas de fase especial ainda nao e suportada.".to_string());
+    }
+
+    let category = get_category_config(&race_entry.categoria)
+        .ok_or_else(|| "Categoria da corrida nao encontrada.".to_string())?;
+    let teams = team_queries::get_teams_by_category(&db.conn, &race_entry.categoria)
+        .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
+
+    // Filtra carros que NÃO casaram com pilotos reais da carreira (fantasmas /
+    // pace car / slots vazios). Persistir um pilot_id inexistente quebraria o
+    // apply_race_result_to_database (get_driver falha).
+    let valid_ids: HashSet<String> = result
+        .race_results
+        .iter()
+        .filter(|r| driver_queries::get_driver(&db.conn, &r.pilot_id).is_ok())
+        .map(|r| r.pilot_id.clone())
+        .collect();
+    let total_before = result.race_results.len();
+    result.race_results.retain(|r| valid_ids.contains(&r.pilot_id));
+    result.qualifying_results.retain(|r| valid_ids.contains(&r.pilot_id));
+    let dropped = total_before - result.race_results.len();
+    if result.race_results.is_empty() {
+        return Err("Nenhum piloto da sessao casou com a carreira — nada a importar.".to_string());
+    }
+    // Zera referências de topo que possam ter caído no filtro.
+    for id in [
+        &mut result.winner_id,
+        &mut result.pole_sitter_id,
+        &mut result.fastest_lap_id,
+    ] {
+        if !valid_ids.contains(id.as_str()) {
+            id.clear();
+        }
+    }
+    if result
+        .most_positions_gained_id
+        .as_ref()
+        .is_some_and(|id| !valid_ids.contains(id))
+    {
+        result.most_positions_gained_id = None;
+    }
+
+    // Recalcula classe + pontos a partir de grid/chegada (single e multiclasse).
+    apply_special_class_scoring(&mut result, &teams, category.id == "endurance");
+    // Grid desconhecido (0) → evita posições-ganhas negativas absurdas.
+    for r in result.race_results.iter_mut() {
+        if r.grid_position <= 0 {
+            r.grid_position = r.finish_position;
+            r.positions_gained = 0;
+        }
+    }
+
+    let next_round =
+        Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32));
+    let mut rng = rand::thread_rng();
+    persist_race_result_tx(
+        db,
+        &race_entry,
+        &result,
+        &teams,
+        &active_season,
+        category,
+        next_round,
+        RacePersistenceMode::Playable,
+        &mut rng,
+    )?;
+
+    // Grava também o histórico por rodada (race_results.json) — é a fonte da grade
+    // R1..R5 da classificação (build_driver_histories). O caminho offline faz o
+    // mesmo via append_race_result; sem isso, os pontos entram mas a coluna da
+    // rodada fica vazia.
+    warn_if_side_effect_fails(
+        append_race_result(
+            career_dir,
+            &race_entry.categoria,
+            race_entry.rodada,
+            &result.race_results,
+        ),
+        "Falha ao gravar race_results.json do import",
+    );
+
+    // ── Boletim de IA ────────────────────────────────────────────────────────
+    // Gera a notícia de Corrida + guarda os fatos do boletim (igual ao fluxo
+    // in-app `simulate_race_weekend_in_base_dir`). Sem isto, corridas IMPORTADAS do
+    // iRacing não produziam boletim algum. Importância/tier neutros; sem lesões
+    // (o import ainda não as computa). Prewarm em background para o boletim já
+    // estar em cache quando o jogador abrir Notícias.
+    {
+        let flat_incidents: Vec<IncidentResult> = result
+            .race_results
+            .iter()
+            .flat_map(|r| r.incidents.clone())
+            .collect();
+        // Telemetria REAL → fatos de cor sobre a corrida do jogador (ritmo, duelo,
+        // erro mais caro, melhor momento). Só corrida real do iRacing tem isto.
+        let player_name = result
+            .race_results
+            .iter()
+            .find(|r| r.is_jogador)
+            .map(|r| r.pilot_name.clone())
+            .unwrap_or_default();
+        let telemetry_facts = telemetry_context_facts(telemetry, &player_name);
+        match persist_race_news(
+            &db.conn,
+            &result,
+            &active_season,
+            race_entry.rodada,
+            &race_entry.categoria,
+            0,
+            race_entry.thematic_slot,
+            &InterestTier::Baixo,
+            &flat_incidents,
+            &[],
+            &telemetry_facts,
+        ) {
+            Ok(Some(news_id)) => {
+                if let Some(base_dir) = career_dir.parent().and_then(|p| p.parent()) {
+                    let mut cfg = AppConfig::load_or_default(base_dir);
+                    let install_id = cfg.get_or_create_install_id();
+                    let lang = cfg.language.clone();
+                    spawn_prewarm_boletim(
+                        career_dir.join("career.db"),
+                        news_id,
+                        lang,
+                        install_id,
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("[narrative] Falha ao gerar boletim do import iRacing: {e}"),
+        }
+    }
+
+    // Simula as OUTRAS categorias (IA) até a semana desta corrida — igual ao fluxo
+    // in-app (`simulate_race_weekend_in_base_dir`). Sem isto, as corridas das demais
+    // categorias acumulavam pendentes e a temporada não fechava (`advance_season`
+    // rejeita corridas pendentes). Quando esta é a ÚLTIMA corrida do jogador na
+    // temporada, simula todas as restantes até o fim, deixando o calendário pronto
+    // para avançar.
+    simulate_other_categories(
+        db,
+        career_dir,
+        &race_entry.categoria,
+        calendar_queries::calendar_entry_season_week(&race_entry),
+        &race_entry.display_date,
+        &active_season.id,
+        active_season.numero,
+    )?;
+
+    let player = result.race_results.iter().find(|r| r.is_jogador);
+    let winner_name = result
+        .race_results
+        .iter()
+        .find(|r| !r.is_dnf && r.finish_position == 1)
+        .map(|r| r.pilot_name.clone());
+
+    // ── Conserto do carro (SÓ jogador) ──────────────────────────────────────
+    // A batida do jogador (severidade já rebaixada se cruzou a linha) vira um
+    // custo proporcional à categoria e ao carro, debitado do caixa da equipe.
+    let mut repair_cost = 0.0;
+    let mut repair_count = 0;
+    let mut repair_message = String::new();
+    let player_team_id = player.map(|r| r.team_id.clone()).unwrap_or_default();
+    if !player_team_id.is_empty() {
+        if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &player_team_id) {
+            let cost =
+                compute_repair_cost(player_crash_severity, &team.categoria, team.car_performance);
+            if cost > 0.0 {
+                team.cash_balance -= cost;
+                team.last_round_expenses += cost;
+                let _ = team_queries::update_team(&db.conn, &team);
+                repair_cost = cost;
+                repair_count = bump_repair_count(career_dir, active_season.numero);
+                repair_message = pick_repair_message(
+                    &mut rng,
+                    player_crash_severity,
+                    &format_brl(cost),
+                    repair_count,
+                );
+            }
+        }
+    }
+
+    let summary = ImportedRaceSummary {
+        race_id: race_entry.id.clone(),
+        track_name: race_entry.track_name.clone(),
+        categoria: race_entry.categoria.clone(),
+        rodada: race_entry.rodada,
+        saved_drivers: result.race_results.len(),
+        dropped_unmatched: dropped,
+        player_position: player.map(|r| r.finish_position),
+        player_points: player.map(|r| r.points_earned),
+        player_is_dnf: player.map(|r| r.is_dnf).unwrap_or(false),
+        winner_name,
+        repair_cost,
+        repair_severity: player_crash_severity.to_string(),
+        repair_count,
+        repair_message,
+    };
+    Ok((summary, result))
 }
 
 fn simulate_other_categories(
@@ -1451,7 +2023,7 @@ fn get_player_active_category(
     Ok(player.categoria_atual)
 }
 
-fn get_next_player_race(
+pub(crate) fn get_next_player_race(
     conn: &rusqlite::Connection,
     active_season: &Season,
 ) -> Result<Option<CalendarEntry>, String> {
@@ -1513,7 +2085,10 @@ fn persist_race_news(
     interest_tier: &InterestTier,
     flat_incidents: &[IncidentResult],
     new_injuries: &[Injury],
-) -> Result<(), String> {
+    // Fatos extras de pano de fundo (ex.: telemetria REAL do SDK numa corrida
+    // importada do iRacing). Vazio no fluxo simulado. Entram na seção "Contexto".
+    extra_context_facts: &[String],
+) -> Result<Option<String>, String> {
     use crate::db::queries::news as news_queries;
     use crate::generators::ids::{next_id, IdType};
     use crate::news::{NewsImportance, NewsItem, NewsType};
@@ -1522,6 +2097,8 @@ fn persist_race_news(
 
     let now = chrono::Local::now().timestamp();
     let mut items: Vec<NewsItem> = Vec::new();
+    // Id da notícia de Corrida do jogador — usado para atrelar os fatos do boletim de IA.
+    let mut corrida_news_id: Option<String> = None;
 
     // 1. Corrida — notícia sobre o VENCEDOR da corrida (não o jogador)
     // O sistema editorial foi projetado para compor histórias sobre quem ganhou.
@@ -1564,6 +2141,7 @@ fn persist_race_news(
             .find(|r| &r.pilot_id == winner_id)
             .map(|r| r.team_id.clone());
         let id = next_id(conn, IdType::News).map_err(|e| format!("next_id news: {e:?}"))?;
+        corrida_news_id = Some(id.clone());
         items.push(NewsItem {
             id,
             tipo: NewsType::Corrida,
@@ -1701,7 +2279,1257 @@ fn persist_race_news(
             .map_err(|e| format!("insert_news_batch: {e:?}"))?;
     }
 
-    Ok(())
+    // Boletim de IA (teste via simulação): monta os fatos curados da corrida do
+    // jogador e os guarda atrelados à notícia de Corrida, para o comando lazy
+    // enviá-los ao servidor quando o jogador abrir a notícia. A fonte trocará
+    // para os dados reais do SDK quando a integração corrida-real→carreira existir.
+    let returned_news_id = corrida_news_id.clone();
+    if let Some(news_id) = corrida_news_id {
+        let category_name: &str = match crate::constants::categories::get_category_config(category_id)
+        {
+            Some(c) => c.nome,
+            None => category_id,
+        };
+        // Lesões ocorridas nesta corrida → viram fatos do boletim (nome resolvido).
+        let injury_facts: Vec<String> = new_injuries
+            .iter()
+            .map(|inj| {
+                let name = driver_queries::get_driver(conn, &inj.pilot_id)
+                    .map(|d| d.nome)
+                    .unwrap_or_else(|_| inj.pilot_id.clone());
+                format!("{name} sofreu uma lesão durante a prova e ficará fora da próxima etapa")
+            })
+            .collect();
+
+        // Contexto de carreira (pano de fundo) dos pilotos em DESTAQUE: vencedor,
+        // pódio (2º/3º), maior recuperação e o nosso piloto. Atributos do piloto +
+        // histórico de pista — sem dependência de ordem de inserção.
+        let mut context_facts: Vec<String> = Vec::new();
+        let mut featured: Vec<String> = vec![race_result.winner_id.clone()];
+        for d in &race_result.race_results {
+            if !d.is_dnf && (d.finish_position == 2 || d.finish_position == 3) {
+                featured.push(d.pilot_id.clone());
+            }
+        }
+        if let Some(id) = &race_result.most_positions_gained_id {
+            featured.push(id.clone());
+        }
+        if let Some(p) = race_result.race_results.iter().find(|d| d.is_jogador) {
+            featured.push(p.pilot_id.clone());
+        }
+        featured.sort();
+        featured.dedup();
+
+        for pilot_id in &featured {
+            let driver = match driver_queries::get_driver(conn, pilot_id) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let is_winner = *pilot_id == race_result.winner_id;
+
+            // Rookie em destaque → valoriza a estreia. Veterano → só o vencedor (evita poluir).
+            if driver.temporadas_na_categoria == 0 {
+                context_facts.push(format!(
+                    "{} está em sua temporada de estreia na categoria.",
+                    driver.nome
+                ));
+            } else if is_winner && driver.temporadas_na_categoria >= 5 {
+                context_facts.push(format!(
+                    "{} é um veterano da categoria, em sua {}ª temporada.",
+                    driver.nome,
+                    driver.temporadas_na_categoria + 1
+                ));
+            }
+
+            // Histórico de pista: já abandonou aqui antes? (gosto de superação — só
+            // para quem TERMINOU hoje, senão seria o abandono desta própria corrida).
+            let dnfd_this_race = race_result
+                .race_results
+                .iter()
+                .any(|d| d.pilot_id == *pilot_id && d.is_dnf);
+            if !dnfd_this_race {
+                if let Ok(Some(_)) = crate::db::queries::track_history::get_pilot_dnf_at_track(
+                    conn,
+                    pilot_id,
+                    &race_result.track_name,
+                ) {
+                    context_facts.push(format!(
+                        "{} já havia abandonado nesta pista numa visita anterior — o resultado de hoje tem gosto de superação.",
+                        driver.nome
+                    ));
+                }
+            }
+        }
+
+        // --- Recordes e marcos da categoria (todas as temporadas) — peso histórico. ---
+        // Os agregados já incluem a corrida atual (persistida antes daqui).
+        {
+            let winner_id = &race_result.winner_id;
+            let winner_name = driver_queries::get_driver(conn, winner_id)
+                .map(|d| d.nome)
+                .unwrap_or_else(|_| winner_id.clone());
+            let records = crate::db::queries::race_history::get_category_records(conn, category_id)
+                .ok();
+
+            // Sequência de vitórias do vencedor (feito em destaque).
+            if let Ok(streak) = crate::db::queries::race_history::get_win_streak(
+                conn,
+                winner_id,
+                &active_season.id,
+                category_id,
+            ) {
+                if streak >= 3 {
+                    context_facts.push(format!(
+                        "{} venceu pela {}ª vez consecutiva — está em uma sequência e tanto na categoria.",
+                        winner_name, streak
+                    ));
+                }
+            }
+
+            // Carreira do vencedor na categoria (para caça a rival e recorde batido).
+            let winner_career = crate::db::queries::race_history::get_driver_category_career(
+                conn,
+                winner_id,
+                category_id,
+            )
+            .ok();
+
+            // Caça a um rival que AINDA está no grid: vencedor a poucas vitórias de
+            // igualar alguém logo acima dele no total histórico da categoria.
+            if let Some(wc) = &winner_career {
+                if let Ok(actives) =
+                    crate::db::queries::race_history::get_active_category_win_counts(
+                        conn,
+                        category_id,
+                    )
+                {
+                    let target = actives
+                        .iter()
+                        .filter(|a| {
+                            a.pilot_id != *winner_id
+                                && a.value > wc.wins
+                                && a.value - wc.wins <= 3
+                        })
+                        .min_by_key(|a| a.value - wc.wins);
+                    if let Some(t) = target {
+                        let diff = t.value - wc.wins;
+                        let plural = if diff == 1 { "vitória" } else { "vitórias" };
+                        context_facts.push(format!(
+                            "Com {} vitórias na categoria, {} está a apenas {} {} de igualar {} ({}).",
+                            wc.wins, winner_name, diff, plural, t.pilot_name, t.value
+                        ));
+                    }
+                }
+            }
+
+            // Recorde de vitórias da categoria SUPERADO hoje: o vencedor passou a marca
+            // anterior (era o 2º+1). Diz há quanto tempo a marca resistia, sem nomear o
+            // dono anterior. Só vale se a marca era antiga (>= 2 anos) e não-trivial.
+            if let (Some(recs), Some(wc)) = (records.as_ref(), winner_career.as_ref()) {
+                let is_new_record = recs
+                    .most_wins
+                    .as_ref()
+                    .map_or(false, |m| m.pilot_id == *winner_id && m.value == wc.wins);
+                if is_new_record
+                    && wc.wins >= 3
+                    && recs.second_most_wins == Some(wc.wins - 1)
+                {
+                    if let Ok(Some(year)) =
+                        crate::db::queries::race_history::first_year_reaching_wins(
+                            conn,
+                            category_id,
+                            wc.wins - 1,
+                        )
+                    {
+                        let dur = active_season.ano - year;
+                        if dur >= 2 {
+                            context_facts.push(format!(
+                                "Com esta vitória, {} estabeleceu um novo recorde de vitórias da categoria — uma marca que resistia há {} anos.",
+                                winner_name, dur
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Vencedor é quem mais venceu pela própria equipe na categoria.
+            if let Some(cur) = race_result
+                .race_results
+                .iter()
+                .find(|d| d.pilot_id == *winner_id)
+            {
+                if let Ok(Some(top)) =
+                    crate::db::queries::race_history::get_team_top_winner_in_category(
+                        conn,
+                        &cur.team_id,
+                        category_id,
+                    )
+                {
+                    if top.pilot_id == *winner_id && top.value >= 2 {
+                        context_facts.push(format!(
+                            "{} é o piloto que mais venceu pela {} na categoria, com {} vitórias.",
+                            winner_name, cur.team_name, top.value
+                        ));
+                    }
+                }
+            }
+
+            // Por destaque: o RECORDISTA aparece sempre que está em evidência (descreve
+            // quem ele é, independe do resultado de hoje). Marcos de número redondo só
+            // para quem REALMENTE fez aquilo hoje (venceu / subiu ao pódio / largou).
+            for pilot_id in &featured {
+                let is_winner = pilot_id == winner_id;
+                let is_player = race_result
+                    .race_results
+                    .iter()
+                    .any(|d| d.pilot_id == *pilot_id && d.is_jogador);
+                let Ok(career) = crate::db::queries::race_history::get_driver_category_career(
+                    conn,
+                    pilot_id,
+                    category_id,
+                ) else {
+                    continue;
+                };
+                let name = driver_queries::get_driver(conn, pilot_id)
+                    .map(|d| d.nome)
+                    .unwrap_or_else(|_| pilot_id.clone());
+                let recs = records.as_ref();
+                let holds = |rec: fn(&crate::db::queries::race_history::CategoryRecords) -> &Option<crate::db::queries::race_history::CategoryRecord>| {
+                    recs.and_then(|r| rec(r).as_ref())
+                        .map_or(false, |m| m.pilot_id == *pilot_id)
+                };
+                let is_wins_record = holds(|r| &r.most_wins);
+                let is_podiums_record = holds(|r| &r.most_podiums);
+                let is_starts_record = holds(|r| &r.most_starts);
+
+                // Recordes históricos da categoria (estado — vale sempre que aparece).
+                if is_wins_record {
+                    context_facts.push(format!(
+                        "{} é o maior vencedor da história da categoria, com {} vitórias.",
+                        name, career.wins
+                    ));
+                }
+                if is_podiums_record {
+                    context_facts.push(format!(
+                        "{} é quem mais subiu ao pódio na história da categoria, com {} pódios.",
+                        name, career.podiums
+                    ));
+                }
+                if is_starts_record {
+                    context_facts.push(format!(
+                        "{} é o piloto mais experiente da categoria — ninguém largou mais vezes ({} provas).",
+                        name, career.starts
+                    ));
+                }
+
+                // Marcos de número redondo — só vencedor e jogador, e só se fez hoje.
+                if is_winner || is_player {
+                    let podium_today = race_result.race_results.iter().any(|d| {
+                        d.pilot_id == *pilot_id
+                            && !d.is_dnf
+                            && (1..=3).contains(&d.finish_position)
+                    });
+                    if is_winner && !is_wins_record && [5, 10, 25, 50, 75, 100].contains(&career.wins)
+                    {
+                        context_facts.push(format!(
+                            "Esta foi a {}ª vitória de {} na categoria.",
+                            career.wins, name
+                        ));
+                    }
+                    if podium_today
+                        && !is_podiums_record
+                        && [25, 50, 100, 150].contains(&career.podiums)
+                    {
+                        context_facts.push(format!(
+                            "{} chegou ao seu {}º pódio na categoria.",
+                            name, career.podiums
+                        ));
+                    }
+                    if !is_starts_record && [50, 100, 150, 200, 250].contains(&career.starts) {
+                        context_facts.push(format!(
+                            "Esta foi a {}ª largada de {} na categoria.",
+                            career.starts, name
+                        ));
+                    }
+                }
+            }
+        }
+
+        // --- Duelo interno: quem levou a melhor sobre o companheiro de equipe. ---
+        // Só para o vencedor e o jogador (foco), lendo o próprio resultado — o "carro
+        // irmão" é a referência mais justa da corrida do piloto. Par deduplicado.
+        {
+            let mut focus: Vec<&str> = vec![race_result.winner_id.as_str()];
+            if let Some(p) = race_result.race_results.iter().find(|d| d.is_jogador) {
+                focus.push(p.pilot_id.as_str());
+            }
+            let mut seen_pairs: std::collections::HashSet<(String, String)> =
+                std::collections::HashSet::new();
+            for pid in focus {
+                let Some(me) = race_result.race_results.iter().find(|d| d.pilot_id == pid) else {
+                    continue;
+                };
+                if me.team_id.is_empty() {
+                    continue;
+                }
+                let Some(mate) = race_result
+                    .race_results
+                    .iter()
+                    .find(|d| d.team_id == me.team_id && d.pilot_id != me.pilot_id)
+                else {
+                    continue;
+                };
+                let key = if me.pilot_id <= mate.pilot_id {
+                    (me.pilot_id.clone(), mate.pilot_id.clone())
+                } else {
+                    (mate.pilot_id.clone(), me.pilot_id.clone())
+                };
+                if !seen_pairs.insert(key) {
+                    continue;
+                }
+                // Quem terminou à frente: melhor posição, ou o único a completar.
+                let me_ahead = match (me.is_dnf, mate.is_dnf) {
+                    (false, true) => true,
+                    (true, false) => false,
+                    (false, false) => me.finish_position < mate.finish_position,
+                    (true, true) => continue, // ambos fora → sem duelo interno
+                };
+                let (ahead, team, behind) = if me_ahead {
+                    (&me.pilot_name, &me.team_name, &mate.pilot_name)
+                } else {
+                    (&mate.pilot_name, &mate.team_name, &me.pilot_name)
+                };
+                context_facts.push(format!(
+                    "Na disputa interna da {team}, {ahead} levou a melhor sobre o companheiro de equipe {behind}."
+                ));
+            }
+        }
+
+        // --- Quadro do campeonato: o que o resultado significa para a temporada. ---
+        // Os resultados desta corrida já estão em `race_results` (persistidos em
+        // simulate_category_race, antes daqui), então os standings já a incluem.
+        let total_rodadas = crate::constants::categories::get_category_config(category_id)
+            .map(|c| c.corridas_por_temporada as i32)
+            .unwrap_or(round);
+        let races_left = (total_rodadas - round).max(0);
+
+        // "Valor de uma vitória" nesta categoria = pontos do vencedor desta corrida.
+        // Vira o limiar de "briga apertada" sem depender da escala de pontos: um gap
+        // menor que isso é recuperável numa única corrida → a disputa segue viva.
+        let win_value = race_result
+            .race_results
+            .iter()
+            .find(|d| d.pilot_id == race_result.winner_id)
+            .map(|d| d.points_earned)
+            .unwrap_or(0)
+            .max(1) as f64;
+
+        // Reta final / próxima é a decisiva.
+        match races_left {
+            0 => context_facts.push(
+                "Esta foi a última etapa da temporada — o campeonato está decidido.".to_string(),
+            ),
+            1 => context_facts.push(
+                "Resta apenas uma etapa: a próxima fecha a temporada e vale o título.".to_string(),
+            ),
+            2 => context_facts
+                .push("Faltam só duas etapas para o fim da temporada.".to_string()),
+            n if n <= 4 => context_facts.push(format!(
+                "A temporada entra na reta final, com {n} etapas restantes."
+            )),
+            _ => {}
+        }
+
+        // Brigas no campeonato só fazem sentido depois de algumas corridas (gap real).
+        if round >= 2 {
+            // Pilotos: título em aberto (P1×P2) OU, com o líder encaminhado, o vice (P2×P3).
+            if let Ok(st) = crate::db::queries::race_history::get_category_standings(
+                conn,
+                &active_season.id,
+                category_id,
+            ) {
+                if st.len() >= 2 {
+                    let gap12 = (st[0].points - st[1].points).round();
+                    if gap12 <= win_value {
+                        context_facts.push(format!(
+                            "Na briga pelo título, {} lidera com apenas {} pontos de vantagem sobre {}.",
+                            st[0].pilot_name, gap12 as i32, st[1].pilot_name
+                        ));
+                    } else if st.len() >= 3 {
+                        let gap23 = (st[1].points - st[2].points).round();
+                        if gap23 <= win_value {
+                            context_facts.push(format!(
+                                "Com a liderança de {} já encaminhada, a disputa quente é pelo vice: {} e {} estão separados por apenas {} pontos.",
+                                st[0].pilot_name, st[1].pilot_name, st[2].pilot_name, gap23 as i32
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Equipes: mesma lógica (ponta OU vice).
+            if let Ok(ts) = crate::db::queries::race_history::get_team_standings(
+                conn,
+                &active_season.id,
+                category_id,
+            ) {
+                if ts.len() >= 2 {
+                    let gap12 = (ts[0].points - ts[1].points).round();
+                    if gap12 <= win_value {
+                        context_facts.push(format!(
+                            "No campeonato de equipes, {} e {} brigam pela ponta, separadas por apenas {} pontos.",
+                            ts[0].team_name, ts[1].team_name, gap12 as i32
+                        ));
+                    } else if ts.len() >= 3 {
+                        let gap23 = (ts[1].points - ts[2].points).round();
+                        if gap23 <= win_value {
+                            context_facts.push(format!(
+                                "Entre as equipes, {} e {} disputam o vice no campeonato de construtores, com apenas {} pontos de diferença.",
+                                ts[1].team_name, ts[2].team_name, gap23 as i32
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Final da temporada: piloto em destaque que trocou de equipe e foi parar
+        // num time que terminou ATRÁS do que ele deixou — "a aposta saiu cara".
+        // Só na última etapa, e só na mesma categoria (troca lateral, não promoção).
+        if races_left == 0 {
+            if let Ok(ts) = crate::db::queries::race_history::get_team_standings(
+                conn,
+                &active_season.id,
+                category_id,
+            ) {
+                let pos_of = |team_id: &str| {
+                    ts.iter().find(|t| t.team_id == team_id).map(|t| t.position)
+                };
+                let prev_season = active_season.numero - 1;
+
+                // Candidatos (jogador tem prioridade; senão, a virada mais dramática).
+                struct SwitchRegret {
+                    pilot_name: String,
+                    old_team: String,
+                    new_team: String,
+                    old_pos: i32,
+                    new_pos: i32,
+                    is_player: bool,
+                }
+                let mut candidates: Vec<SwitchRegret> = Vec::new();
+
+                for pilot_id in &featured {
+                    let Some(cur) = race_result
+                        .race_results
+                        .iter()
+                        .find(|d| d.pilot_id == *pilot_id)
+                    else {
+                        continue;
+                    };
+                    let contracts = match crate::db::queries::contracts::get_contracts_for_pilot(
+                        conn, pilot_id,
+                    ) {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    // Equipe na temporada passada, mesma categoria, time diferente do atual.
+                    let Some(prev) = contracts.iter().find(|c| {
+                        c.categoria.as_str() == category_id
+                            && c.temporada_inicio <= prev_season
+                            && c.temporada_fim >= prev_season
+                            && c.equipe_id != cur.team_id
+                    }) else {
+                        continue;
+                    };
+                    if let (Some(new_pos), Some(old_pos)) =
+                        (pos_of(&cur.team_id), pos_of(&prev.equipe_id))
+                    {
+                        // O time que ele DEIXOU terminou À FRENTE do que ele escolheu.
+                        if old_pos < new_pos {
+                            candidates.push(SwitchRegret {
+                                pilot_name: cur.pilot_name.clone(),
+                                old_team: prev.equipe_nome.clone(),
+                                new_team: cur.team_name.clone(),
+                                old_pos,
+                                new_pos,
+                                is_player: cur.is_jogador,
+                            });
+                        }
+                    }
+                }
+
+                // Emite no máximo um (evita poluir): jogador primeiro, senão maior virada.
+                if let Some(r) = candidates
+                    .iter()
+                    .find(|c| c.is_player)
+                    .or_else(|| candidates.iter().max_by_key(|c| c.new_pos - c.old_pos))
+                {
+                    context_facts.push(format!(
+                        "{} deixou a {} pela {} nesta temporada, mas a aposta saiu cara: a equipe que abandonou fechou o campeonato de construtores em {}º, à frente da {}, que terminou só em {}º.",
+                        r.pilot_name, r.old_team, r.new_team, r.old_pos, r.new_team, r.new_pos
+                    ));
+                }
+            }
+        }
+
+        // --- Arco de rivalidade (a "novela"): registra o capítulo de hoje no log de
+        // episódios e recapitula o arco para os destaques que se cruzaram na pista. ---
+        record_rivalry_episodes(
+            conn,
+            race_result,
+            flat_incidents,
+            category_id,
+            round,
+            active_season.numero,
+            active_season.ano,
+        );
+        for fact in rivalry_arc_facts(conn, race_result, &featured, active_season.numero, round) {
+            context_facts.push(fact);
+        }
+
+        // Desempenho e forma: esperado×real, forma recente, histórico de pista e
+        // confronto entre companheiros (pano de fundo dos destaques).
+        for fact in
+            performance_context_facts(conn, race_result, &featured, active_season, round, category_id)
+        {
+            context_facts.push(fact);
+        }
+
+        // Telemetria REAL do SDK (só corrida importada do iRacing): ritmo, duelo,
+        // erro mais caro, melhor momento — cor sobre a corrida do próprio jogador.
+        for fact in extra_context_facts {
+            context_facts.push(fact.clone());
+        }
+
+        let ctx = crate::narrative::build_race_context(
+            race_result,
+            &crate::narrative::RaceContextInput {
+                category_name,
+                year: active_season.ano,
+                round,
+                injuries: &injury_facts,
+                context_facts: &context_facts,
+            },
+        );
+        // Mapa nome da equipe → cor primária das equipes desta corrida. O front usa
+        // para colorir os nomes das equipes citadas no boletim. Dedup por team_id.
+        let mut team_colors = serde_json::Map::new();
+        let mut seen_teams: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for d in &race_result.race_results {
+            if d.team_name.is_empty() || !seen_teams.insert(d.team_id.as_str()) {
+                continue;
+            }
+            let color: Option<String> = conn
+                .query_row(
+                    "SELECT cor_primaria FROM teams WHERE id = ?1",
+                    rusqlite::params![d.team_id],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok();
+            if let Some(c) = color {
+                if !c.trim().is_empty() {
+                    team_colors.insert(d.team_name.clone(), serde_json::Value::String(c));
+                }
+            }
+        }
+        let teams_json = serde_json::Value::Object(team_colors).to_string();
+
+        if let Err(e) =
+            crate::db::queries::ai_story::store_race_facts(conn, &news_id, &ctx.facts, &teams_json)
+        {
+            eprintln!("[narrative] Falha ao guardar fatos do boletim de IA: {e:?}");
+        }
+    }
+
+    Ok(returned_news_id)
+}
+
+/// Pré-gera o boletim de IA em BACKGROUND logo após a corrida, para que ele já
+/// esteja em cache quando o jogador abrir a aba de Notícias (sem sentir a latência
+/// do servidor). Roda numa thread própria com conexão própria ao banco. Silencioso:
+/// se falhar (rede/cooldown), o caminho lazy de abrir a notícia tenta de novo.
+fn spawn_prewarm_boletim(
+    db_path: std::path::PathBuf,
+    news_id: String,
+    lang: String,
+    install_id: String,
+) {
+    std::thread::spawn(move || {
+        let db = match Database::open_existing(&db_path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let row = match crate::db::queries::ai_story::get_story(&db.conn, &news_id) {
+            Ok(Some(r)) => r,
+            _ => return,
+        };
+        if row.story.is_some() {
+            return; // já gerado em algum momento — nada a fazer
+        }
+        // reading_seconds = None → tamanho padrão do servidor (a adaptação por
+        // engajamento continua valendo no caminho lazy, se ainda não houver cache).
+        if let Ok(story) =
+            crate::narrative::client::fetch_story(&row.facts, &lang, &install_id, None)
+        {
+            let _ = crate::db::queries::ai_story::set_story(&db.conn, &news_id, &story);
+        }
+    });
+}
+
+/// Registra um CAPÍTULO de rivalidade por corrida em que dois rivais interagiram
+/// (colisão, duelo de posições coladas, ou briga na ponta). Constrói a memória que o
+/// boletim recapitula depois. As intensidades já foram atualizadas na transação da
+/// corrida, então aqui só lemos o estado e gravamos o episódio.
+fn record_rivalry_episodes(
+    conn: &rusqlite::Connection,
+    race_result: &RaceResult,
+    flat_incidents: &[IncidentResult],
+    categoria: &str,
+    rodada: i32,
+    temporada: i32,
+    ano: i32,
+) {
+    use crate::db::queries::drivers as driver_queries;
+    use crate::models::rivalry::normalize_pair;
+    use crate::simulation::incidents::IncidentType;
+    use std::collections::{HashMap, HashSet};
+
+    // pilot -> (posição final, dnf)
+    let mut info: HashMap<&str, (i32, bool)> = HashMap::new();
+    for d in &race_result.race_results {
+        info.insert(d.pilot_id.as_str(), (d.finish_position, d.is_dnf));
+    }
+
+    // pares que colidiram nesta corrida (normalizados)
+    let mut collided: HashSet<(String, String)> = HashSet::new();
+    for inc in flat_incidents {
+        if inc.incident_type == IncidentType::Collision {
+            if let Some(other) = &inc.linked_pilot_id {
+                if let Some(pair) = normalize_pair(&inc.pilot_id, other) {
+                    collided.insert((pair.piloto1_id, pair.piloto2_id));
+                }
+            }
+        }
+    }
+
+    let rivalries = match crate::db::queries::rivalries::get_all_rivalries(conn) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    for riv in rivalries {
+        let Some((pos_a, dnf_a)) = info.get(riv.piloto1_id.as_str()).copied() else {
+            continue;
+        };
+        let Some((pos_b, dnf_b)) = info.get(riv.piloto2_id.as_str()).copied() else {
+            continue;
+        };
+
+        let perceived = riv.perceived_intensity();
+        let pair_key = (riv.piloto1_id.clone(), riv.piloto2_id.clone());
+        let did_collide = collided.contains(&pair_key);
+
+        // Colisão sempre vira capítulo (é a origem); duelo/ponta só se já é notável.
+        if !did_collide && perceived < 30.0 {
+            continue;
+        }
+
+        let both_finished = !dnf_a && !dnf_b;
+        let close = both_finished && (pos_a - pos_b).abs() <= 3;
+        let top_front = both_finished && pos_a <= 5 && pos_b <= 5;
+
+        let interaction = if did_collide {
+            "colisao"
+        } else if close {
+            "duelo"
+        } else if top_front {
+            "campeonato"
+        } else {
+            continue; // sem interação de verdade hoje
+        };
+
+        // Quem levou a melhor: melhor posição, ou o único a completar.
+        let winner_id = if both_finished {
+            match pos_a.cmp(&pos_b) {
+                std::cmp::Ordering::Less => Some(riv.piloto1_id.clone()),
+                std::cmp::Ordering::Greater => Some(riv.piloto2_id.clone()),
+                std::cmp::Ordering::Equal => None,
+            }
+        } else if !dnf_a {
+            Some(riv.piloto1_id.clone())
+        } else if !dnf_b {
+            Some(riv.piloto2_id.clone())
+        } else {
+            None
+        };
+
+        let name = |id: &str| {
+            driver_queries::get_driver(conn, id)
+                .map(|d| d.nome)
+                .unwrap_or_else(|_| id.to_string())
+        };
+        let na = name(&riv.piloto1_id);
+        let nb = name(&riv.piloto2_id);
+        let summary = match interaction {
+            "colisao" => format!("contato entre {na} e {nb} em {}", race_result.track_name),
+            "duelo" => match &winner_id {
+                Some(w) => {
+                    let (wn, wp, lp) = if *w == riv.piloto1_id {
+                        (&na, pos_a, pos_b)
+                    } else {
+                        (&nb, pos_b, pos_a)
+                    };
+                    format!("{wn} levou a melhor no duelo direto, {wp}º contra {lp}º")
+                }
+                None => format!("duelo parelho entre {na} e {nb}"),
+            },
+            _ => format!("{na} e {nb} brigaram por posições de ponta ({pos_a}º e {pos_b}º)"),
+        };
+
+        let ep = crate::db::queries::rivalry_episodes::RivalryEpisode {
+            piloto1_id: riv.piloto1_id.clone(),
+            piloto2_id: riv.piloto2_id.clone(),
+            temporada,
+            rodada,
+            ano,
+            categoria: categoria.to_string(),
+            track_name: race_result.track_name.clone(),
+            interaction: interaction.to_string(),
+            winner_id,
+            summary,
+            perceived,
+        };
+        let _ = crate::db::queries::rivalry_episodes::insert_episode(conn, &ep);
+    }
+}
+
+/// Recapitula o ARCO de rivalidade para os destaques que se cruzaram HOJE: origem,
+/// número de capítulos, retrospecto direto (h2h), o capítulo de hoje e revanche.
+/// Só para rivalidades já claras (percebida ≥ 40) com capítulo registrado nesta corrida.
+fn rivalry_arc_facts(
+    conn: &rusqlite::Connection,
+    race_result: &RaceResult,
+    featured: &[String],
+    temporada: i32,
+    rodada: i32,
+) -> Vec<String> {
+    use crate::db::queries::drivers as driver_queries;
+    use crate::models::rivalry::RivalryType;
+    use std::collections::HashSet;
+
+    let mut out = Vec::new();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let name = |id: &str| {
+        driver_queries::get_driver(conn, id)
+            .map(|d| d.nome)
+            .unwrap_or_else(|_| id.to_string())
+    };
+
+    for pilot_id in featured {
+        let rivs = match crate::rivalry::get_pilot_rivalries(conn, pilot_id) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for r in rivs {
+            if r.perceived_intensity < 40.0 {
+                continue;
+            }
+            // O rival precisa ter corrido hoje.
+            if !race_result
+                .race_results
+                .iter()
+                .any(|d| d.pilot_id == r.rival_id)
+            {
+                continue;
+            }
+            // Par normalizado para deduplicar (o par pode vir por ambos os lados).
+            let (a, b) = if *pilot_id <= r.rival_id {
+                (pilot_id.clone(), r.rival_id.clone())
+            } else {
+                (r.rival_id.clone(), pilot_id.clone())
+            };
+            if !seen.insert((a.clone(), b.clone())) {
+                continue;
+            }
+
+            let eps = match crate::db::queries::rivalry_episodes::get_episodes_for_pair(conn, &a, &b)
+            {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            // Só recapitula se houve capítulo HOJE (a rivalidade se manifestou na corrida).
+            let Some(today) = eps
+                .last()
+                .filter(|e| e.temporada == temporada && e.rodada == rodada)
+            else {
+                continue;
+            };
+
+            let na = name(&a);
+            let nb = name(&b);
+            let nivel = crate::rivalry::intensity_level(r.perceived_intensity).label();
+            let chapters = eps.len();
+            let ano_origem = eps.first().map(|e| e.ano).unwrap_or(0);
+
+            // Retrospecto direto (h2h).
+            let mut wins_a = 0;
+            let mut wins_b = 0;
+            for e in &eps {
+                match e.winner_id.as_deref() {
+                    Some(w) if w == a => wins_a += 1,
+                    Some(w) if w == b => wins_b += 1,
+                    _ => {}
+                }
+            }
+
+            // Revanche: hoje X venceu e no capítulo ANTERIOR quem venceu foi o outro.
+            let revenge = eps.len() >= 2
+                && today.winner_id.is_some()
+                && eps
+                    .get(eps.len() - 2)
+                    .and_then(|p| p.winner_id.as_deref())
+                    .zip(today.winner_id.as_deref())
+                    .map_or(false, |(prev_w, today_w)| prev_w != today_w);
+
+            let origem = match r.tipo {
+                RivalryType::Colisao => "que nasceu de um incidente em pista",
+                RivalryType::Companheiros => "de velhos companheiros de equipe",
+                RivalryType::Campeonato => "forjada na briga pelo título",
+                RivalryType::Pista => "de duelos em pista",
+            };
+
+            let mut s = format!("{na} e {nb} voltaram a se cruzar — uma {nivel} {origem}");
+            if ano_origem > 0 && chapters > 1 {
+                s.push_str(&format!(", que já soma {chapters} capítulos desde {ano_origem}"));
+            }
+            s.push_str(&format!(". O capítulo de hoje: {}.", today.summary));
+            if wins_a > 0 || wins_b > 0 {
+                if wins_a == wins_b {
+                    s.push_str(&format!(
+                        " No retrospecto direto, estão empatados em {wins_a} a {wins_b}."
+                    ));
+                } else {
+                    let (leader, hi, lo) = if wins_a > wins_b {
+                        (&na, wins_a, wins_b)
+                    } else {
+                        (&nb, wins_b, wins_a)
+                    };
+                    s.push_str(&format!(
+                        " No retrospecto direto, {leader} lidera por {hi} a {lo}."
+                    ));
+                }
+            }
+            if revenge {
+                if let Some(tw) = today.winner_id.as_deref() {
+                    let twn = if tw == a { &na } else { &nb };
+                    s.push_str(&format!(" Para {twn}, teve gosto de revanche."));
+                }
+            }
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// Fatos de DESEMPENHO e FORMA para os destaques, como pano de fundo do boletim:
+/// 1) esperado×real (reaproveita o cérebro `race_eval`: largada + mérito do conjunto);
+/// 2) forma recente (últimas 5 corridas na categoria);
+/// 3) histórico no circuito (já venceu aqui);
+/// 4) confronto entre companheiros de equipe.
+/// Tudo gated com folga para não inundar o contexto. Lógica de DB aqui; o módulo
+/// `narrative` permanece puro.
+fn performance_context_facts(
+    conn: &rusqlite::Connection,
+    race_result: &RaceResult,
+    featured: &[String],
+    active_season: &Season,
+    round: i32,
+    category_id: &str,
+) -> Vec<String> {
+    use crate::db::queries::drivers as driver_queries;
+    use crate::db::queries::race_history as rh;
+    use crate::race_eval::{compute_merit, evaluate, Assessment, DriverMerit, RaceEvalInput};
+    use std::collections::HashMap;
+
+    let mut out: Vec<String> = Vec::new();
+    let rows = &race_result.race_results;
+    let field_size = rows.len().max(1) as i32;
+    if rows.is_empty() {
+        return out;
+    }
+
+    // Carrega cada participante uma vez (skill + nome) e o car_performance por equipe.
+    let mut drivers: HashMap<String, Driver> = HashMap::new();
+    for d in rows {
+        if let std::collections::hash_map::Entry::Vacant(e) = drivers.entry(d.pilot_id.clone()) {
+            if let Ok(drv) = driver_queries::get_driver(conn, &d.pilot_id) {
+                e.insert(drv);
+            }
+        }
+    }
+    let mut car_perf: HashMap<String, f64> = HashMap::new();
+    for d in rows {
+        if let std::collections::hash_map::Entry::Vacant(e) = car_perf.entry(d.team_id.clone()) {
+            let cp: f64 = conn
+                .query_row(
+                    "SELECT car_performance FROM teams WHERE id = ?1",
+                    rusqlite::params![d.team_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(50.0);
+            e.insert(cp);
+        }
+    }
+    let name_of = |id: &str| -> String {
+        drivers
+            .get(id)
+            .map(|d| d.nome.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
+
+    // Campo de mérito (skill + carro pesam igual) — base da posição ESPERADA.
+    let field: Vec<DriverMerit> = rows
+        .iter()
+        .map(|d| {
+            let skill = drivers.get(&d.pilot_id).map(|x| x.atributos.skill).unwrap_or(50.0);
+            let car = car_perf.get(&d.team_id).copied().unwrap_or(50.0);
+            DriverMerit {
+                pilot_id: d.pilot_id.clone(),
+                merit: compute_merit(skill, car, None, field_size, 0),
+            }
+        })
+        .collect();
+
+    // ── 1) Esperado×real: só sinais FORTES (muito acima / muito abaixo). ──────────
+    // O pole que floppou já é coberto pelo beat de Decepção; o DNF, pelo de Abandono.
+    struct ExpCand {
+        text: String,
+        is_player: bool,
+    }
+    let mut exp: Vec<ExpCand> = Vec::new();
+    for pilot_id in featured {
+        let Some(d) = rows.iter().find(|x| &x.pilot_id == pilot_id) else {
+            continue;
+        };
+        if d.is_dnf {
+            continue;
+        }
+        let ev = evaluate(&RaceEvalInput {
+            player_id: pilot_id.clone(),
+            grid_position: d.grid_position,
+            finish_position: d.finish_position,
+            is_dnf: false,
+            incidents: d.incidents_count,
+            field: field.clone(),
+        });
+        let is_pole = *pilot_id == race_result.pole_sitter_id;
+        let name = name_of(pilot_id);
+        let text = match ev.assessment {
+            Assessment::MuitoAcima => format!(
+                "{} fez muito mais do que o conjunto permitia: largou em P{} e terminou em P{}, bem acima do que carro e talento projetavam.",
+                name, d.grid_position, d.finish_position
+            ),
+            Assessment::MuitoAbaixo if !is_pole => format!(
+                "{} rendeu bem abaixo do potencial: largou em P{} e só terminou em P{}, aquém do que carro e talento projetavam.",
+                name, d.grid_position, d.finish_position
+            ),
+            _ => continue,
+        };
+        exp.push(ExpCand { text, is_player: d.is_jogador });
+    }
+    // No máximo 2, com o jogador tendo prioridade.
+    exp.sort_by_key(|c| std::cmp::Reverse(c.is_player));
+    for c in exp.into_iter().take(2) {
+        out.push(c.text);
+    }
+
+    // ── 2) Forma recente (últimas 5 na categoria, antes de hoje). ────────────────
+    // prioridade: fim de jejum (3) > sequência de pódios (2) > reação (1).
+    let mut form: Vec<(i32, String)> = Vec::new();
+    for pilot_id in featured {
+        let Some(d) = rows.iter().find(|x| &x.pilot_id == pilot_id) else {
+            continue;
+        };
+        if d.is_dnf {
+            continue;
+        }
+        let recent = rh::get_recent_finishes_before(
+            conn,
+            pilot_id,
+            category_id,
+            active_season.numero,
+            round,
+            5,
+        )
+        .unwrap_or_default();
+        if recent.len() < 3 {
+            continue; // pouca história → sem leitura de forma confiável
+        }
+        let name = name_of(pilot_id);
+        let recent_wins = recent.iter().filter(|r| r.finish == 1).count();
+        let last_two_podiums = recent
+            .iter()
+            .take(2)
+            .filter(|r| !r.is_dnf && r.finish <= 3)
+            .count();
+
+        if d.finish_position == 1 && recent_wins == 0 && recent.len() >= 5 {
+            form.push((
+                3,
+                format!(
+                    "{} voltou ao lugar mais alto do pódio após um período de jejum na categoria.",
+                    name
+                ),
+            ));
+        } else if d.finish_position <= 3 && last_two_podiums == 2 {
+            form.push((
+                2,
+                format!("{} engatou mais um pódio e vive uma sequência forte de resultados.", name),
+            ));
+        } else if d.finish_position <= 5 {
+            let valid: Vec<i32> = recent.iter().filter(|r| !r.is_dnf).map(|r| r.finish).collect();
+            if valid.len() >= 3 {
+                let avg = valid.iter().sum::<i32>() as f64 / valid.len() as f64;
+                if avg >= field_size as f64 * 0.5 {
+                    form.push((
+                        1,
+                        format!(
+                            "{} mostrou reação: vinha de uma fase apagada e entregou um bom resultado hoje.",
+                            name
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    form.sort_by_key(|(p, _)| std::cmp::Reverse(*p));
+    for (_, t) in form.into_iter().take(2) {
+        out.push(t);
+    }
+
+    // ── 3) Histórico no circuito: destaque que já venceu aqui antes. ─────────────
+    if let Ok(Some(track_id)) =
+        rh::get_round_track_id(conn, &active_season.id, category_id, round)
+    {
+        let mut track_facts: Vec<(i32, String)> = Vec::new();
+        for pilot_id in featured {
+            let Some(d) = rows.iter().find(|x| &x.pilot_id == pilot_id) else {
+                continue;
+            };
+            if d.is_dnf {
+                continue;
+            }
+            let th = rh::get_pilot_track_history(conn, pilot_id, track_id, &active_season.id, round)
+                .unwrap_or_default();
+            if th.wins < 1 {
+                continue;
+            }
+            let name = name_of(pilot_id);
+            let vez = if th.wins == 1 { "vez" } else { "vezes" };
+            let text = if d.finish_position == 1 {
+                format!(
+                    "{} é especialista neste circuito: já havia vencido aqui {} {} e somou mais uma hoje.",
+                    name, th.wins, vez
+                )
+            } else if d.finish_position <= 3 {
+                format!(
+                    "{} tem boa história neste traçado, onde já venceu {} {}.",
+                    name, th.wins, vez
+                )
+            } else {
+                continue;
+            };
+            track_facts.push((th.wins, text));
+        }
+        track_facts.sort_by_key(|(w, _)| std::cmp::Reverse(*w));
+        for (_, t) in track_facts.into_iter().take(2) {
+            out.push(t);
+        }
+    }
+
+    // ── 4) Confronto entre companheiros: par de destaques na MESMA equipe. ───────
+    // Emite no máximo 1 (jogador tem prioridade). Exige ambos classificados hoje.
+    let mut h2h: Option<(bool, String)> = None;
+    'pairs: for i in 0..featured.len() {
+        for j in (i + 1)..featured.len() {
+            let (Some(a), Some(b)) = (
+                rows.iter().find(|x| x.pilot_id == featured[i]),
+                rows.iter().find(|x| x.pilot_id == featured[j]),
+            ) else {
+                continue;
+            };
+            if a.team_id != b.team_id || a.is_dnf || b.is_dnf {
+                continue;
+            }
+            // Placar do confronto interno na temporada (rodadas em que ambos completaram).
+            let ra = rh::get_pilot_season_results(conn, &a.pilot_id, &active_season.id, category_id)
+                .unwrap_or_default();
+            let rb = rh::get_pilot_season_results(conn, &b.pilot_id, &active_season.id, category_id)
+                .unwrap_or_default();
+            let rb_map: HashMap<i32, (i32, bool)> =
+                rb.iter().map(|(r, f, dnf)| (*r, (*f, *dnf))).collect();
+            let (mut wa, mut wb) = (0, 0);
+            for (rnd, fa, da) in &ra {
+                if let Some((fb, db)) = rb_map.get(rnd) {
+                    if *da || *db {
+                        continue;
+                    }
+                    if fa < fb {
+                        wa += 1;
+                    } else if fb < fa {
+                        wb += 1;
+                    }
+                }
+            }
+            let (ahead, behind) = if a.finish_position < b.finish_position {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            let (an, bn) = (name_of(&ahead.pilot_id), name_of(&behind.pilot_id));
+            let mut s = format!(
+                "{} levou a melhor sobre o companheiro de equipe {} hoje (P{} contra P{})",
+                an, bn, ahead.finish_position, behind.finish_position
+            );
+            if wa + wb >= 2 {
+                if wa == wb {
+                    s.push_str(&format!(
+                        "; no confronto interno da temporada, estão empatados em {} a {}.",
+                        wa, wb
+                    ));
+                } else {
+                    let (ln, hi, lo) = if wa > wb {
+                        (name_of(&a.pilot_id), wa, wb)
+                    } else {
+                        (name_of(&b.pilot_id), wb, wa)
+                    };
+                    s.push_str(&format!(
+                        "; no confronto interno da temporada, {} está à frente por {} a {}.",
+                        ln, hi, lo
+                    ));
+                }
+            } else {
+                s.push('.');
+            }
+            let involves_player = ahead.is_jogador || behind.is_jogador;
+            if h2h.as_ref().map_or(true, |(p, _)| involves_player && !p) {
+                h2h = Some((involves_player, s));
+                if involves_player {
+                    break 'pairs;
+                }
+            }
+        }
+    }
+    if let Some((_, s)) = h2h {
+        out.push(s);
+    }
+
+    out
+}
+
+/// Converte a TELEMETRIA REAL do SDK (ritmo, duelo, erro mais caro, melhor momento)
+/// em fatos de pano de fundo sobre a corrida do JOGADOR — a cor que só existe quando
+/// ele correu de verdade no iRacing. O jogador é CITADO (subtrama), nunca protagonista;
+/// estes fatos entram na seção "Contexto" e a IA tece quando fizer sentido. Tolerante:
+/// cada item só sai se o sinal for confiável (o motor de telemetria já gateia isso).
+fn telemetry_context_facts(
+    telemetry: &crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+    player_name: &str,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if !telemetry.has_telemetry || player_name.trim().is_empty() {
+        return out;
+    }
+    let who = player_name;
+
+    if let Some(p) = &telemetry.pace {
+        // Ritmo vs campo (só se a amostra do grid for confiável).
+        if p.vs_grid_reliable {
+            let delta_s = (p.vs_grid_ms.abs() / 1000.0 * 10.0).round() / 10.0;
+            if p.vs_grid_ms <= -200.0 {
+                out.push(format!(
+                    "Na pista, {who} andou em média cerca de {delta_s:.1}s por volta mais rápido que o ritmo do grid."
+                ));
+            } else if p.vs_grid_ms >= 200.0 {
+                out.push(format!(
+                    "Na pista, {who} ficou em média cerca de {delta_s:.1}s por volta atrás do ritmo do grid."
+                ));
+            }
+        }
+        // Consistência (só com voltas suficientes).
+        if p.consistency_reliable && p.total_laps >= 4 {
+            let ratio = p.good_laps as f64 / p.total_laps as f64;
+            if ratio >= 0.85 {
+                out.push(format!(
+                    "{who} foi muito consistente, segurando o ritmo em {} das {} voltas.",
+                    p.good_laps, p.total_laps
+                ));
+            } else if ratio <= 0.5 {
+                out.push(format!(
+                    "{who} oscilou bastante no ritmo: só {} das {} voltas ficaram perto da própria referência.",
+                    p.good_laps, p.total_laps
+                ));
+            }
+        }
+    }
+
+    // Duelo com o rival mais constante.
+    if let Some(r) = &telemetry.rival {
+        if !r.pilot_name.trim().is_empty() {
+            let gap = (r.avg_gap_s * 10.0).round() / 10.0;
+            out.push(format!(
+                "{who} travou um duelo de {} voltas com {} (diferença média de {gap:.1}s).",
+                r.laps_battled, r.pilot_name
+            ));
+        }
+    }
+
+    // Melhor momento da corrida do jogador.
+    if let Some(b) = &telemetry.best_moment {
+        let phrase = match b.kind.as_str() {
+            "rival_beaten" if !b.rival_name.trim().is_empty() => {
+                Some(format!("{who} levou a melhor sobre {} na disputa direta.", b.rival_name))
+            }
+            "position_gain" if b.positions_gained >= 1 => Some(format!(
+                "{who} teve um ataque decisivo, ganhando {} posições numa única volta.",
+                b.positions_gained
+            )),
+            "recovery" => Some(format!("{who} reagiu depois de um tropeço e recuperou terreno.")),
+            "clean_streak" if b.streak >= 3 => {
+                Some(format!("{who} emendou {} voltas limpas seguidas.", b.streak))
+            }
+            _ => None,
+        };
+        if let Some(phrase) = phrase {
+            out.push(phrase);
+        }
+    }
+
+    // Erro mais caro (DNF não entra: o beat de Abandono já cobre).
+    if let Some(m) = &telemetry.mistake {
+        let phrase = match m.kind.as_str() {
+            "incident" => Some(format!(
+                "O momento mais custoso de {who} foi um contato na volta {}, que tirou {} posições.",
+                m.lap,
+                m.positions_lost.max(0)
+            )),
+            "position_loss" if m.positions_lost >= 1 => Some(format!(
+                "{who} perdeu {} posições de uma vez num momento ruim, na volta {}.",
+                m.positions_lost, m.lap
+            )),
+            "pace_drop" if m.time_lost_ms >= 1500.0 => Some(format!(
+                "{who} teve uma volta cara na {}, perdendo cerca de {:.0}s.",
+                m.lap,
+                m.time_lost_ms / 1000.0
+            )),
+            _ => None,
+        };
+        if let Some(phrase) = phrase {
+            out.push(phrase);
+        }
+    }
+
+    out
 }
 
 fn persist_other_category_news(
@@ -1758,6 +3586,60 @@ mod tests {
     use crate::db::queries::news as news_queries;
     use crate::models::team::placeholder_team_from_db;
     use crate::simulation::race::{ClassificationStatus, RaceDriverResult};
+
+    #[test]
+    fn telemetry_facts_vazio_sem_telemetria_ou_sem_nome() {
+        use crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis;
+        // Sem telemetria → nada.
+        let tel = TelemetryAnalysis::default();
+        assert!(telemetry_context_facts(&tel, "Ana").is_empty());
+        // Com telemetria mas sem nome do jogador → nada (não dá pra citar).
+        let tel = TelemetryAnalysis {
+            has_telemetry: true,
+            ..Default::default()
+        };
+        assert!(telemetry_context_facts(&tel, "  ").is_empty());
+    }
+
+    #[test]
+    fn telemetry_facts_cobre_ritmo_duelo_e_melhor_momento() {
+        use crate::iracing_sdk::telemetry_analysis::{
+            BestMoment, PaceAnalysis, RivalCard, TelemetryAnalysis,
+        };
+        let tel = TelemetryAnalysis {
+            has_telemetry: true,
+            pace: Some(PaceAnalysis {
+                vs_grid_ms: -500.0, // 0,5s/volta mais rápido que o grid
+                vs_grid_reliable: true,
+                consistency_reliable: true,
+                good_laps: 9,
+                total_laps: 10,
+                ..Default::default()
+            }),
+            rival: Some(RivalCard {
+                pilot_name: "Rafael Costa".to_string(),
+                laps_battled: 7,
+                avg_gap_s: 0.6,
+            }),
+            best_moment: Some(BestMoment {
+                lap: 0,
+                kind: "rival_beaten".to_string(),
+                positions_gained: 0,
+                time_gain_ms: 0.0,
+                streak: 7,
+                rival_name: "Rafael Costa".to_string(),
+                confidence: "alta".to_string(),
+            }),
+            ..Default::default()
+        };
+        let facts = telemetry_context_facts(&tel, "Ana Souza");
+        // Cita o jogador pelo nome e cobre os três sinais.
+        assert!(facts.iter().all(|f| f.contains("Ana Souza")));
+        assert!(facts.iter().any(|f| f.contains("mais rápido que o ritmo do grid")));
+        assert!(facts.iter().any(|f| f.contains("consistente")));
+        assert!(facts.iter().any(|f| f.contains("duelo de 7 voltas com Rafael Costa")));
+        assert!(facts.iter().any(|f| f.contains("levou a melhor sobre Rafael Costa")));
+    }
 
     #[test]
     fn round_finance_context_uses_real_money_instead_of_raw_budget() {

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
@@ -90,6 +90,267 @@ pub fn get_category_standings(
     }
 
     Ok(standings)
+}
+
+/// Entrada de standings de EQUIPES para uma categoria/temporada.
+#[derive(Debug, Clone)]
+pub struct TeamStandingEntry {
+    pub team_id: String,
+    pub team_name: String,
+    pub points: f64,
+    pub position: i32,
+}
+
+/// Retorna os standings de equipes (soma dos pontos de todos os pilotos da equipe)
+/// de uma categoria na temporada. Ordenado por pontos (desc); posição sequencial.
+/// Linhas sem `equipe_id` correspondente em `teams` são ignoradas pelo JOIN.
+pub fn get_team_standings(
+    conn: &Connection,
+    temporada_id: &str,
+    categoria: &str,
+) -> Result<Vec<TeamStandingEntry>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT
+            r.equipe_id,
+            t.nome,
+            SUM(r.pontos) as total_points
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN teams t ON r.equipe_id = t.id
+         WHERE c.temporada_id = ?1 AND c.categoria = ?2
+         GROUP BY r.equipe_id
+         ORDER BY total_points DESC, t.nome ASC",
+    )?;
+
+    let mut standings = Vec::new();
+    let mut rows = stmt.query(rusqlite::params![temporada_id, categoria])?;
+    let mut position = 1;
+
+    while let Some(row) = rows.next()? {
+        standings.push(TeamStandingEntry {
+            team_id: row.get(0)?,
+            team_name: row.get(1)?,
+            points: row.get(2)?,
+            position,
+        });
+        position += 1;
+    }
+
+    Ok(standings)
+}
+
+/// Estatística de carreira de um piloto NA CATEGORIA (todas as temporadas no DB).
+#[derive(Debug, Clone)]
+pub struct DriverCategoryCareer {
+    pub wins: i32,
+    pub podiums: i32,
+    pub starts: i32,
+}
+
+/// Vitórias, pódios e largadas de um piloto na categoria, somando todas as temporadas.
+/// Inclui a corrida atual se ela já estiver persistida em `race_results`.
+pub fn get_driver_category_career(
+    conn: &Connection,
+    pilot_id: &str,
+    categoria: &str,
+) -> Result<DriverCategoryCareer, DbError> {
+    let row = conn.query_row(
+        "SELECT
+            COALESCE(SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN r.posicao_final BETWEEN 1 AND 3 THEN 1 ELSE 0 END), 0),
+            COUNT(*)
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         WHERE r.piloto_id = ?1 AND c.categoria = ?2",
+        rusqlite::params![pilot_id, categoria],
+        |r| {
+            Ok(DriverCategoryCareer {
+                wins: r.get(0)?,
+                podiums: r.get(1)?,
+                starts: r.get(2)?,
+            })
+        },
+    )?;
+    Ok(row)
+}
+
+/// Recordista (líder histórico) de uma métrica na categoria.
+#[derive(Debug, Clone)]
+pub struct CategoryRecord {
+    pub pilot_id: String,
+    pub pilot_name: String,
+    pub value: i32,
+}
+
+/// Líderes históricos da categoria em vitórias, pódios e largadas (todas as temporadas).
+#[derive(Debug, Clone, Default)]
+pub struct CategoryRecords {
+    pub most_wins: Option<CategoryRecord>,
+    pub most_podiums: Option<CategoryRecord>,
+    pub most_starts: Option<CategoryRecord>,
+    /// 2º maior número de vitórias (valor). Usado para detectar quando o recorde de
+    /// vitórias acabou de ser SUPERADO (líder == 2º+1).
+    pub second_most_wins: Option<i32>,
+}
+
+/// Calcula, numa passada, quem lidera a categoria em vitórias, pódios e largadas.
+pub fn get_category_records(
+    conn: &Connection,
+    categoria: &str,
+) -> Result<CategoryRecords, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.piloto_id, d.nome,
+            SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN r.posicao_final BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS podiums,
+            COUNT(*) AS starts
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN drivers d ON r.piloto_id = d.id
+         WHERE c.categoria = ?1
+         GROUP BY r.piloto_id",
+    )?;
+
+    let mut records = CategoryRecords::default();
+    // Top-2 de vitórias (valores) para detectar recorde recém-superado.
+    let mut top1_wins = i32::MIN;
+    let mut top2_wins = i32::MIN;
+    let mut rows = stmt.query(rusqlite::params![categoria])?;
+    while let Some(row) = rows.next()? {
+        let pilot_id: String = row.get(0)?;
+        let pilot_name: String = row.get(1)?;
+        let wins: i32 = row.get(2)?;
+        let podiums: i32 = row.get(3)?;
+        let starts: i32 = row.get(4)?;
+        // Atualiza o recordista de uma métrica se este piloto a supera (>0).
+        let beats = |cur: &Option<CategoryRecord>, val: i32| {
+            val > 0 && cur.as_ref().map_or(true, |c| val > c.value)
+        };
+        if beats(&records.most_wins, wins) {
+            records.most_wins = Some(CategoryRecord {
+                pilot_id: pilot_id.clone(),
+                pilot_name: pilot_name.clone(),
+                value: wins,
+            });
+        }
+        if beats(&records.most_podiums, podiums) {
+            records.most_podiums = Some(CategoryRecord {
+                pilot_id: pilot_id.clone(),
+                pilot_name: pilot_name.clone(),
+                value: podiums,
+            });
+        }
+        if beats(&records.most_starts, starts) {
+            records.most_starts = Some(CategoryRecord {
+                pilot_id,
+                pilot_name,
+                value: starts,
+            });
+        }
+        // Top-2 de vitórias (mantém duplicatas: empate no topo → top2 == top1).
+        if wins > top1_wins {
+            top2_wins = top1_wins;
+            top1_wins = wins;
+        } else if wins > top2_wins {
+            top2_wins = wins;
+        }
+    }
+    if top2_wins > i32::MIN {
+        records.second_most_wins = Some(top2_wins);
+    }
+    Ok(records)
+}
+
+/// Piloto que mais venceu por uma equipe na categoria (todas as temporadas). `None`
+/// se a equipe nunca venceu na categoria.
+pub fn get_team_top_winner_in_category(
+    conn: &Connection,
+    team_id: &str,
+    categoria: &str,
+) -> Result<Option<CategoryRecord>, DbError> {
+    let res = conn
+        .query_row(
+            "SELECT r.piloto_id, d.nome,
+                SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END) AS wins
+             FROM race_results r
+             JOIN calendar c ON r.race_id = c.id
+             JOIN drivers d ON r.piloto_id = d.id
+             WHERE r.equipe_id = ?1 AND c.categoria = ?2
+             GROUP BY r.piloto_id
+             HAVING wins > 0
+             ORDER BY wins DESC, d.nome ASC
+             LIMIT 1",
+            rusqlite::params![team_id, categoria],
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(res)
+}
+
+/// Vitórias na categoria de cada piloto que AINDA corre nela (ativo + categoria_atual).
+/// Serve para comparar o vencedor com rivais que ainda estão no grid. Só `wins > 0`.
+pub fn get_active_category_win_counts(
+    conn: &Connection,
+    categoria: &str,
+) -> Result<Vec<CategoryRecord>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.piloto_id, d.nome,
+            SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END) AS wins
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN drivers d ON r.piloto_id = d.id
+         WHERE c.categoria = ?1
+           AND d.status != 'Aposentado'
+           AND d.categoria_atual = ?1
+         GROUP BY r.piloto_id
+         HAVING wins > 0",
+    )?;
+    let mut out = Vec::new();
+    let mut rows = stmt.query(rusqlite::params![categoria])?;
+    while let Some(row) = rows.next()? {
+        out.push(CategoryRecord {
+            pilot_id: row.get(0)?,
+            pilot_name: row.get(1)?,
+            value: row.get(2)?,
+        });
+    }
+    Ok(out)
+}
+
+/// Ano (calendário) em que a marca de `target_wins` vitórias acumuladas foi atingida
+/// pela PRIMEIRA vez na categoria, por qualquer piloto. Usado para dizer há quanto
+/// tempo um recorde resistia. `None` se ninguém jamais chegou a essa marca.
+pub fn first_year_reaching_wins(
+    conn: &Connection,
+    categoria: &str,
+    target_wins: i32,
+) -> Result<Option<i32>, DbError> {
+    if target_wins <= 0 {
+        return Ok(None);
+    }
+    // MIN(ano) sempre retorna uma linha (NULL se ninguém atingiu a marca).
+    let year: Option<i32> = conn.query_row(
+        "WITH wins AS (
+            SELECT s.ano AS ano,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY r.piloto_id
+                       ORDER BY s.numero ASC, c.rodada ASC
+                   ) AS rn
+            FROM race_results r
+            JOIN calendar c ON r.race_id = c.id
+            JOIN seasons s ON c.temporada_id = s.id
+            WHERE c.categoria = ?1 AND r.posicao_final = 1
+         )
+         SELECT MIN(ano) FROM wins WHERE rn = ?2",
+        rusqlite::params![categoria, target_wins],
+        |row| row.get::<_, Option<i32>>(0),
+    )?;
+    Ok(year)
 }
 
 /// Retorna o número de vitórias do piloto na categoria esta temporada.
@@ -298,6 +559,135 @@ pub fn get_event_results(conn: &Connection, race_id: &str) -> Result<Vec<EventRe
     Ok(rows)
 }
 
+/// Uma chegada recente do piloto (mais recente primeiro) — base para leitura de
+/// forma e para a média que alimenta o mérito da posição esperada.
+#[derive(Debug, Clone)]
+pub struct RecentFinish {
+    pub season_num: i32,
+    pub round: i32,
+    pub finish: i32,
+    pub is_dnf: bool,
+}
+
+/// Últimas `limit` chegadas do piloto na categoria ANTERIORES à (temporada, rodada)
+/// dada — EXCLUI a corrida atual (que já está persistida). Mais recente primeiro.
+pub fn get_recent_finishes_before(
+    conn: &Connection,
+    pilot_id: &str,
+    categoria: &str,
+    before_season_num: i32,
+    before_round: i32,
+    limit: i32,
+) -> Result<Vec<RecentFinish>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT s.numero, c.rodada, r.posicao_final, r.dnf
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN seasons s ON c.temporada_id = s.id
+         WHERE r.piloto_id = ?1 AND c.categoria = ?2
+           AND (s.numero < ?3 OR (s.numero = ?3 AND c.rodada < ?4))
+         ORDER BY s.numero DESC, c.rodada DESC
+         LIMIT ?5",
+    )?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![pilot_id, categoria, before_season_num, before_round, limit],
+            |row| {
+                Ok(RecentFinish {
+                    season_num: row.get(0)?,
+                    round: row.get(1)?,
+                    finish: row.get(2)?,
+                    is_dnf: row.get::<_, i32>(3)? != 0,
+                })
+            },
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Resultado do piloto por rodada na temporada/categoria — (rodada, chegada, dnf).
+/// Usado para o confronto interno entre companheiros de equipe ao longo do ano.
+pub fn get_pilot_season_results(
+    conn: &Connection,
+    pilot_id: &str,
+    temporada_id: &str,
+    categoria: &str,
+) -> Result<Vec<(i32, i32, bool)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT c.rodada, r.posicao_final, r.dnf
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         WHERE r.piloto_id = ?1 AND c.temporada_id = ?2 AND c.categoria = ?3
+         ORDER BY c.rodada ASC",
+    )?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![pilot_id, temporada_id, categoria],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i32>(2)? != 0)),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// `track_id` da corrida (temporada/categoria/rodada). `None` se não encontrar.
+pub fn get_round_track_id(
+    conn: &Connection,
+    temporada_id: &str,
+    categoria: &str,
+    round: i32,
+) -> Result<Option<i64>, DbError> {
+    let res: Option<Option<i64>> = conn
+        .query_row(
+            "SELECT track_id FROM calendar
+             WHERE temporada_id = ?1 AND categoria = ?2 AND rodada = ?3",
+            rusqlite::params![temporada_id, categoria, round],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?;
+    Ok(res.flatten())
+}
+
+/// Histórico do piloto NESTE circuito (`track_id`), em todas as temporadas, EXCLUINDO
+/// a rodada atual. Serve para a narrativa de "tem boa história nesta pista".
+#[derive(Debug, Clone, Default)]
+pub struct PilotTrackHistory {
+    pub starts: i32,
+    pub wins: i32,
+    pub podiums: i32,
+    /// Melhor chegada (sem contar abandonos). `None` se nunca completou aqui.
+    pub best_finish: Option<i32>,
+}
+
+pub fn get_pilot_track_history(
+    conn: &Connection,
+    pilot_id: &str,
+    track_id: i64,
+    exclude_temporada_id: &str,
+    exclude_round: i32,
+) -> Result<PilotTrackHistory, DbError> {
+    let row = conn.query_row(
+        "SELECT
+            COUNT(*),
+            COALESCE(SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN r.posicao_final BETWEEN 1 AND 3 THEN 1 ELSE 0 END), 0),
+            MIN(CASE WHEN r.dnf = 0 THEN r.posicao_final END)
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         WHERE r.piloto_id = ?1 AND c.track_id = ?2
+           AND NOT (c.temporada_id = ?3 AND c.rodada = ?4)",
+        rusqlite::params![pilot_id, track_id, exclude_temporada_id, exclude_round],
+        |r| {
+            Ok(PilotTrackHistory {
+                starts: r.get(0)?,
+                wins: r.get(1)?,
+                podiums: r.get(2)?,
+                best_finish: r.get::<_, Option<i32>>(3)?,
+            })
+        },
+    )?;
+    Ok(row)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,6 +833,81 @@ mod tests {
 
         let leader = get_category_leader_before_round(&conn, "S1", "gt4", 3).unwrap();
         assert_eq!(leader.as_deref(), Some("P001"));
+    }
+
+    #[test]
+    fn test_get_recent_finishes_before_excludes_current_and_orders_desc() {
+        let conn = setup_db();
+        conn.execute_batch(
+            "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, dnf, pontos) VALUES
+             ('R1', 'P001', 'T001', 5, 0, 10.0),
+             ('R2', 'P001', 'T001', 1, 0, 25.0),
+             ('R3', 'P001', 'T001', 3, 0, 15.0);",
+        )
+        .unwrap();
+
+        // Antes de S2/r1 (numero=2, rodada=1) entram só R1 e R2 (ambas em S1).
+        let recent =
+            get_recent_finishes_before(&conn, "P001", "gt4", 2, 1, 5).unwrap();
+        assert_eq!(recent.len(), 2);
+        // Mais recente primeiro: R2 (rodada 2) antes de R1 (rodada 1).
+        assert_eq!(recent[0].finish, 1);
+        assert_eq!(recent[1].finish, 5);
+    }
+
+    #[test]
+    fn test_get_pilot_season_results_ordered_by_round() {
+        let conn = setup_db();
+        conn.execute_batch(
+            "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, dnf, pontos) VALUES
+             ('R2', 'P001', 'T001', 4, 0, 12.0),
+             ('R1', 'P001', 'T001', 2, 1, 0.0);",
+        )
+        .unwrap();
+
+        let res = get_pilot_season_results(&conn, "P001", "S1", "gt4").unwrap();
+        assert_eq!(res, vec![(1, 2, true), (2, 4, false)]);
+    }
+
+    #[test]
+    fn test_get_pilot_track_history_counts_wins_excluding_current() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE calendar (
+                id TEXT PRIMARY KEY,
+                temporada_id TEXT NOT NULL,
+                rodada INTEGER NOT NULL,
+                categoria TEXT NOT NULL,
+                track_id INTEGER
+            );
+            CREATE TABLE race_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id TEXT NOT NULL,
+                piloto_id TEXT NOT NULL,
+                posicao_final INTEGER NOT NULL,
+                dnf INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO calendar (id, temporada_id, rodada, categoria, track_id) VALUES
+                ('A', 'S1', 1, 'gt4', 42),
+                ('B', 'S2', 1, 'gt4', 42),
+                ('C', 'S3', 1, 'gt4', 42),
+                ('D', 'S1', 2, 'gt4', 99);
+            INSERT INTO race_results (race_id, piloto_id, posicao_final, dnf) VALUES
+                ('A', 'P001', 1, 0),
+                ('B', 'P001', 3, 0),
+                ('C', 'P001', 1, 0),
+                ('D', 'P001', 1, 0);",
+        )
+        .unwrap();
+
+        assert_eq!(get_round_track_id(&conn, "S3", "gt4", 1).unwrap(), Some(42));
+
+        // Excluindo a corrida atual (S3/r1): sobram A (1º) e B (3º) na pista 42.
+        let th = get_pilot_track_history(&conn, "P001", 42, "S3", 1).unwrap();
+        assert_eq!(th.starts, 2);
+        assert_eq!(th.wins, 1); // só A; a vitória atual (C) foi excluída
+        assert_eq!(th.podiums, 2);
+        assert_eq!(th.best_finish, Some(1));
     }
 
     #[test]

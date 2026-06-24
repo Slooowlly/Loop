@@ -93,7 +93,9 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
     let mut timeline = json!({
         "keyframes": keyframes,
         "wind_direction_option": 0,
-        "wind_speed_option": 4,
+        // wind_speed_option é um PRESET que IGNORA wind_value: 4 = forte (~58 km/h) trazia
+        // a frente cedo demais (molhava antes da largada). 2 = mais calmo, frente devagar.
+        "wind_speed_option": 2,
         "temperature_option": temp_option(w.temp_c),
         "weatherId": w.weather_id,
     });
@@ -109,7 +111,10 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
         "fog": 0,
         "wind_dir": 0,
         "wind_units": 1,
-        "wind_value": 15,
+        // Vento MODERADO: forte demais (15 ≈ 26-61 km/h) trazia a frente cedo demais e
+        // estourava a largada. Moderado deixa a frente chegar mais perto do keyframe (2ª
+        // metade), com menos variância entre exports.
+        "wind_value": 8,
         "skies": w.skies,
         "simulated_start_time": w.start_time,
         "simulated_time_multiplier": 1,
@@ -187,11 +192,13 @@ pub fn build_season(p: &SeasonParams) -> Value {
         "avoidUser": false,
         "carId": p.car_id,
         "carSettings": [
-            { "car_id": p.car_id, "max_pct_fuel_fill": 100, "max_dry_tire_sets": 0 }
+            // 23% do tanque → corridas curtas exigem parada de box (estratégia).
+            { "car_id": p.car_id, "max_pct_fuel_fill": 23, "max_dry_tire_sets": 0 }
         ],
         "category_id": 5,
         "damage_model": 0,
-        "do_not_count_caution_laps": true,
+        // Voltas de bandeira amarela CONTAM (não pular) — corrida realista.
+        "do_not_count_caution_laps": false,
         "full_course_cautions": true,
         "gridPosition": 1,
         "heatID": null,
