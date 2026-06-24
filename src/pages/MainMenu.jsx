@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 
@@ -143,6 +143,7 @@ function MainMenu({ intro = false }) {
   const stageRef = useRef(null);
   const canvasRef = useRef(null);
   const glowRef = useRef(null);
+  const panelRef = useRef(null);
 
   const [saves, setSaves] = useState([]);
   const [entered, setEntered] = useState(false);
@@ -150,7 +151,30 @@ function MainMenu({ intro = false }) {
   const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
   const [introDone, setIntroDone] = useState(!intro);
   const [panel, setPanel] = useState(null); // null | "load" | "settings"
+  const [panelTop, setPanelTop] = useState(0);
   const [confirmDel, setConfirmDel] = useState(null);
+
+  // Abre/fecha o submenu alinhado verticalmente ao botao clicado.
+  function togglePanel(which, ev) {
+    if (panel === which) {
+      setPanel(null);
+      return;
+    }
+    const stage = stageRef.current?.getBoundingClientRect();
+    const btn = ev.currentTarget.getBoundingClientRect();
+    setPanelTop(btn.top - (stage ? stage.top : 0));
+    setConfirmDel(null);
+    setPanel(which);
+  }
+
+  // Apos abrir, corrige o topo se o painel passar do rodape.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const h = el.offsetHeight;
+    const maxTop = window.innerHeight - h - 16;
+    el.style.top = `${Math.max(16, Math.min(panelTop, maxTop))}px`;
+  }, [panel, panelTop]);
 
   const prefersReduced =
     typeof window !== "undefined" &&
@@ -514,7 +538,7 @@ function MainMenu({ intro = false }) {
           <button
             type="button"
             className={`mm-card mm-row${panel === "load" ? " is-active" : ""}`}
-            onClick={() => setPanel((p) => (p === "load" ? null : "load"))}
+            onClick={(ev) => togglePanel("load", ev)}
           >
             <span className="mm-row-icon">
               <FolderIcon />
@@ -525,7 +549,7 @@ function MainMenu({ intro = false }) {
           <button
             type="button"
             className={`mm-card mm-row${panel === "settings" ? " is-active" : ""}`}
-            onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
+            onClick={(ev) => togglePanel("settings", ev)}
           >
             <span className="mm-row-icon">
               <GearIcon />
@@ -536,7 +560,7 @@ function MainMenu({ intro = false }) {
       </div>
 
       {panel ? (
-        <div className="mm-panel">
+        <div className="mm-panel" ref={panelRef} style={{ top: `${panelTop}px` }}>
           <div className="mm-panel-head">
             <span className="mm-panel-title">
               {panel === "load" ? "Carregar save" : "Configurações"}

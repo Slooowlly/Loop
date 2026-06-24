@@ -579,29 +579,28 @@ body {
   position: absolute;
   z-index: 3;
   left: calc(clamp(36px, 6vw, 80px) + 560px);
-  top: 50%;
-  transform: translateY(-50%);
+  top: 16px;
   width: min(460px, 40vw);
   max-height: 78vh;
   overflow-y: auto;
   padding: 16px 18px;
   border-radius: 22px;
   border: 1px solid rgba(137, 201, 255, 0.14);
-  background: rgba(14, 20, 32, 0.72);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  animation: mmPanelIn 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  background: rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 24px 70px rgba(0, 0, 0, 0.35);
+  animation: mmPanelIn 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 @keyframes mmPanelIn {
   from {
     opacity: 0;
-    transform: translateY(-50%) translateX(-16px);
+    transform: translateX(-16px);
   }
   to {
     opacity: 1;
-    transform: translateY(-50%) translateX(0);
+    transform: translateX(0);
   }
 }
 
