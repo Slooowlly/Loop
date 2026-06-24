@@ -39,6 +39,9 @@ const INTRO = {
   outDur: 0.6, // s (zoom-out)
 };
 
+// Posicao do submenu lateral (ajustada em debug e fixada).
+const POS = { panelX: 565, panelWidth: 390, yMode: "anchor", yOffset: -85, panelY: 200 };
+
 // Oscilacao de intensidade tipo tocha: flicker lento + labareda a cada 8s.
 function torch(t, amt) {
   const flicker =
@@ -151,10 +154,10 @@ function MainMenu({ intro = false }) {
   const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
   const [introDone, setIntroDone] = useState(!intro);
   const [panel, setPanel] = useState(null); // null | "load" | "settings"
-  const [panelTop, setPanelTop] = useState(0);
+  const [panelAnchor, setPanelAnchor] = useState(0);
   const [confirmDel, setConfirmDel] = useState(null);
 
-  // Abre/fecha o submenu alinhado verticalmente ao botao clicado.
+  // Abre/fecha o submenu guardando a altura do botao clicado.
   function togglePanel(which, ev) {
     if (panel === which) {
       setPanel(null);
@@ -162,19 +165,20 @@ function MainMenu({ intro = false }) {
     }
     const stage = stageRef.current?.getBoundingClientRect();
     const btn = ev.currentTarget.getBoundingClientRect();
-    setPanelTop(btn.top - (stage ? stage.top : 0));
+    setPanelAnchor(btn.top - (stage ? stage.top : 0));
     setConfirmDel(null);
     setPanel(which);
   }
 
-  // Apos abrir, corrige o topo se o painel passar do rodape.
+  // Posiciona o topo conforme o debug (segue o botao + offset, ou fixo), com clamp.
   useLayoutEffect(() => {
     const el = panelRef.current;
     if (!el) return;
     const h = el.offsetHeight;
+    const desired = POS.yMode === "fixed" ? POS.panelY : panelAnchor + POS.yOffset;
     const maxTop = window.innerHeight - h - 16;
-    el.style.top = `${Math.max(16, Math.min(panelTop, maxTop))}px`;
-  }, [panel, panelTop]);
+    el.style.top = `${Math.max(16, Math.min(desired, maxTop))}px`;
+  }, [panel, panelAnchor]);
 
   const prefersReduced =
     typeof window !== "undefined" &&
@@ -560,7 +564,11 @@ function MainMenu({ intro = false }) {
       </div>
 
       {panel ? (
-        <div className="mm-panel" ref={panelRef} style={{ top: `${panelTop}px` }}>
+        <div
+          className="mm-panel"
+          ref={panelRef}
+          style={{ top: `${panelAnchor}px`, left: `${POS.panelX}px`, width: `${POS.panelWidth}px` }}
+        >
           <div className="mm-panel-head">
             <span className="mm-panel-title">
               {panel === "load" ? "Carregar save" : "Configurações"}
