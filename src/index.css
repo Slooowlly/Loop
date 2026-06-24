@@ -307,20 +307,20 @@ body {
   flex-direction: column;
   justify-content: center;
   height: 100%;
-  padding-left: clamp(32px, 6vw, 72px);
-  max-width: 470px;
+  padding-left: clamp(36px, 6vw, 80px);
+  max-width: 540px;
 }
 
 .mm-eyebrow {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.5em;
   text-transform: uppercase;
   color: rgba(88, 166, 255, 0.78);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .mm-title {
-  font-size: clamp(46px, 6vw, 64px);
+  font-size: clamp(54px, 7vw, 76px);
   font-weight: 800;
   letter-spacing: 0.16em;
   line-height: 1;
@@ -329,18 +329,18 @@ body {
 }
 
 .mm-season {
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.42);
-  margin-top: 8px;
-  margin-bottom: 26px;
+  margin-top: 10px;
+  margin-bottom: 30px;
 }
 
 .mm-list {
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 13px;
   width: 100%;
 }
 
@@ -371,23 +371,23 @@ body {
 }
 
 .mm-hero {
-  padding: 15px 17px;
+  padding: 18px 20px;
 }
 
 .mm-hero-inner {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 15px;
 }
 
 .mm-hero-icon {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: 14px;
   background: linear-gradient(135deg, #79b8ff, #1e5a9e);
   color: #06203b;
 }
@@ -398,14 +398,14 @@ body {
 }
 
 .mm-hero-eyebrow {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
   color: rgba(121, 184, 255, 0.9);
 }
 
 .mm-hero-name {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -413,7 +413,7 @@ body {
 }
 
 .mm-hero-sub {
-  font-size: 12px;
+  font-size: 13px;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -425,9 +425,9 @@ body {
 .mm-row {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 13px 17px;
-  font-size: 13px;
+  gap: 15px;
+  padding: 16px 20px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
