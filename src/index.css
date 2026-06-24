@@ -261,6 +261,13 @@ body {
   color: var(--text-primary);
 }
 
+.mm-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  transition: transform var(--mm-anim, 0.7s) cubic-bezier(0.7, 0, 0.2, 1);
+}
+
 .mm-glow,
 .mm-canvas {
   position: absolute;
@@ -270,9 +277,10 @@ body {
 
 .mm-glow {
   inset: -6%;
+  opacity: var(--mm-glow, 1);
   background:
-    radial-gradient(48% 50% at 90% 0%, rgba(111, 212, 255, 0.14), transparent 58%),
-    radial-gradient(38% 40% at 99% 12%, rgba(190, 230, 255, 0.07), transparent 55%),
+    radial-gradient(48% 50% at 90% 0%, rgba(var(--mm-c, 111, 212, 255), 0.14), transparent 58%),
+    radial-gradient(38% 40% at 99% 12%, rgba(255, 255, 255, 0.05), transparent 55%),
     radial-gradient(120% 120% at 55% 135%, rgba(0, 0, 0, 0.6), transparent 55%);
 }
 
@@ -288,6 +296,7 @@ body {
   inset: 0;
   z-index: 1;
   pointer-events: none;
+  opacity: var(--mm-dark, 1);
   background:
     radial-gradient(45% 55% at -8% 108%, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.5) 32%, rgba(0, 0, 0, 0) 60%),
     linear-gradient(
@@ -304,11 +313,11 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  height: 6.5vh;
+  height: var(--mm-bar-h, 6.5vh);
   background: #000;
   z-index: 5;
   pointer-events: none;
-  transition: transform 0.7s cubic-bezier(0.7, 0, 0.2, 1);
+  transition: transform var(--mm-anim, 0.7s) cubic-bezier(0.7, 0, 0.2, 1);
 }
 
 .mm-bar-top {
@@ -345,7 +354,8 @@ body {
   max-width: 540px;
   opacity: 0;
   transform: translateY(10px);
-  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.7, 0, 0.2, 1);
+  transition: opacity var(--mm-anim, 0.7s) ease,
+    transform var(--mm-anim, 0.7s) cubic-bezier(0.7, 0, 0.2, 1);
 }
 
 .mm-shell.is-entered .mm-menu {
@@ -355,7 +365,11 @@ body {
 
 .mm-shell.is-exiting .mm-menu {
   opacity: 0;
-  transform: scale(1.12);
+  transform: scale(var(--mm-zoom-text, 1));
+}
+
+.mm-shell.is-exiting .mm-bg {
+  transform: scale(var(--mm-zoom-bg, 1.1));
 }
 
 .mm-eyebrow {
