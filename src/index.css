@@ -268,7 +268,7 @@ body {
   width: 70vmin;
   height: 70vmin;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(77, 121, 186, 0.6), rgba(77, 121, 186, 0) 65%);
+  background: radial-gradient(circle, rgba(77, 121, 186, 0.3), rgba(77, 121, 186, 0) 65%);
   opacity: 0;
   transform: scale(0.7);
   pointer-events: none;
