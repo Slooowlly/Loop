@@ -379,7 +379,7 @@ function MainMenu({ intro = false }) {
   const shellClass = `mm-shell${entered ? " is-entered" : ""}${exiting ? " is-exiting" : ""}${
     introBlur ? " is-intro" : ""
   }`;
-  const introLogoCls = `mm-intro-logo${logoStep === 1 ? " s-in" : logoStep === 2 ? " s-exit" : ""}`;
+  const introCls = `mm-intro${logoStep === 1 ? " s-in" : logoStep === 2 ? " s-exit" : ""}`;
   const zoomBg = CFG.zoomTarget === "text" ? 1 : CFG.zoom;
   const zoomText = CFG.zoomTarget === "bg" ? 1 : CFG.zoom;
   const shellStyle = {
@@ -455,8 +455,9 @@ function MainMenu({ intro = false }) {
       </div>
 
       {intro && !introDone ? (
-        <div className="mm-intro">
-          <img className={introLogoCls} src="/utilities/LOGO%20NOVA.png" alt="Loop" />
+        <div className={introCls}>
+          <div className="mm-intro-glow" />
+          <img className="mm-intro-logo" src="/utilities/LOGO%20NOVA.png" alt="Loop" />
         </div>
       ) : null}
     </div>

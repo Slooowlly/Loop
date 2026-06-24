@@ -262,30 +262,44 @@ body {
   pointer-events: none;
 }
 
+/* Halo exatamente na cor da logo (azul do simbolo) atras do icone. */
+.mm-intro-glow {
+  position: absolute;
+  width: 70vmin;
+  height: 70vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(77, 121, 186, 0.6), rgba(77, 121, 186, 0) 65%);
+  opacity: 0;
+  transform: scale(0.7);
+  pointer-events: none;
+  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.9s ease;
+}
+
 .mm-intro-logo {
+  position: relative;
   width: clamp(140px, 20vw, 220px);
   height: auto;
   transform: scale(0.7);
   opacity: 0;
-  filter: drop-shadow(0 20px 60px rgba(92, 228, 255, 0.28));
   transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.9s ease;
 }
 
-.mm-intro-logo.s-in {
+.mm-intro.s-in .mm-intro-glow,
+.mm-intro.s-in .mm-intro-logo {
   transform: scale(1);
   opacity: 1;
 }
 
-.mm-intro-logo.s-exit {
+.mm-intro.s-exit .mm-intro-glow,
+.mm-intro.s-exit .mm-intro-logo {
   transform: scale(1.7);
   opacity: 0;
   transition: transform 0.6s cubic-bezier(0.6, 0, 0.3, 1), opacity 0.6s ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mm-intro-logo,
-  .mm-intro-logo.s-in,
-  .mm-intro-logo.s-exit {
+  .mm-intro-glow,
+  .mm-intro-logo {
     transition: none;
   }
 }
