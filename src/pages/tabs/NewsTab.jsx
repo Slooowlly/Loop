@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import GlassCard from "../../components/ui/GlassCard";
@@ -16,6 +16,38 @@ import {
   toneDotClass,
 } from "./newsHelpers";
 
+// ── Engajamento de leitura ───────────────────────────────────────────────────
+// Mede quantos segundos o leitor passa em cada boletim e guarda as últimas
+// amostras (por máquina) para dimensionar o tamanho do próximo boletim.
+const DWELL_KEY = "boletim_dwell_samples";
+const DWELL_MAX_SAMPLES = 8;
+
+function readDwellSamples() {
+  try {
+    const raw = localStorage.getItem(DWELL_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordDwellSample(seconds) {
+  const samples = readDwellSamples();
+  samples.push(Math.round(seconds));
+  while (samples.length > DWELL_MAX_SAMPLES) samples.shift();
+  try {
+    localStorage.setItem(DWELL_KEY, JSON.stringify(samples));
+  } catch {
+    /* armazenamento indisponível — ignora */
+  }
+}
+
+function avgReadingSeconds() {
+  const samples = readDwellSamples();
+  if (!samples.length) return null;
+  return samples.reduce((sum, value) => sum + value, 0) / samples.length;
+}
+
 function NewsTab() {
   const careerId = useCareerStore((state) => state.careerId);
   const season = useCareerStore((state) => state.season);
@@ -30,6 +62,9 @@ function NewsTab() {
     contextId: null,
   });
   const [selectedStoryId, setSelectedStoryId] = useState(null);
+  const [aiStories, setAiStories] = useState({});
+  const aiStoriesRef = useRef({});
+  const dwellRef = useRef({ id: null, start: 0 });
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
   const [error, setError] = useState("");
@@ -162,6 +197,75 @@ function NewsTab() {
   const selectedStory = stories.find((story) => story.id === selectedStoryId) ?? stories[0] ?? null;
   const hasActivePrimaryFilter = Boolean(requestState.primaryFilter);
   const isLoading = loadingBootstrap || loadingSnapshot;
+
+  // Boletim de IA: ao abrir uma matéria, pede ao backend o boletim (lazy).
+  // O backend só devolve texto para a notícia de corrida do jogador; para as
+  // demais devolve story=null e a matéria segue com o conteúdo padrão.
+  useEffect(() => {
+    if (!careerId || !selectedStory?.id) return;
+    const id = selectedStory.id;
+    if (aiStories[id]) return;
+
+    let active = true;
+    setAiStories((current) => ({ ...current, [id]: { loading: true } }));
+    invoke("enrich_race_news_ai", { careerId, newsId: id, readingSeconds: avgReadingSeconds() })
+      .then((res) => {
+        if (!active) return;
+        setAiStories((current) => ({
+          ...current,
+          [id]: {
+            loading: false,
+            story: res?.story ?? null,
+            status: res?.status ?? null,
+            teams: res?.teams ?? null,
+          },
+        }));
+      })
+      .catch(() => {
+        if (!active) return;
+        setAiStories((current) => ({
+          ...current,
+          [id]: { loading: false, story: null, status: "error" },
+        }));
+      });
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStory?.id, careerId]);
+
+  // Espelho do aiStories p/ ler no registro de tempo sem stale closure.
+  useEffect(() => {
+    aiStoriesRef.current = aiStories;
+  }, [aiStories]);
+
+  // Mede o tempo de leitura: ao trocar de matéria, registra o tempo da anterior
+  // se ela chegou a mostrar um boletim de IA (só boletins contam pro engajamento).
+  useEffect(() => {
+    const prev = dwellRef.current;
+    if (prev.id && prev.start) {
+      const seconds = (Date.now() - prev.start) / 1000;
+      if (seconds >= 1.5 && aiStoriesRef.current[prev.id]?.story) {
+        recordDwellSample(seconds);
+      }
+    }
+    dwellRef.current = { id: selectedStory?.id ?? null, start: Date.now() };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStory?.id]);
+
+  // Ao sair da aba, registra o tempo da matéria que estava aberta.
+  useEffect(() => {
+    return () => {
+      const prev = dwellRef.current;
+      if (prev.id && prev.start) {
+        const seconds = (Date.now() - prev.start) / 1000;
+        if (seconds >= 1.5 && aiStoriesRef.current[prev.id]?.story) {
+          recordDwellSample(seconds);
+        }
+      }
+    };
+  }, []);
 
   function handleScopeChange(nextSelection) {
     const scope = nextSelection?.scope ?? nextSelection;
@@ -343,7 +447,7 @@ function NewsTab() {
                   {error ? (
                     <p className="text-sm font-semibold text-status-red">{error}</p>
                   ) : selectedStory ? (
-                    <OpenStory story={selectedStory} />
+                    <OpenStory story={selectedStory} ai={aiStories[selectedStory.id]} />
                   ) : (
                     <ReaderEmptyState loading={isLoading} />
                   )}
@@ -386,10 +490,35 @@ function NewsTab() {
   );
 }
 
-function OpenStory({ story }) {
+// Colore os nomes das equipes citadas no boletim com a cor do time. `teams` é o
+// mapa nome→cor (hex) das equipes da corrida. Faz match exato, do nome mais longo
+// para o mais curto (evita colorir só um prefixo quando um nome contém o outro).
+function colorizeTeams(text, teams) {
+  if (!teams || typeof teams !== "object") return text;
+  const names = Object.keys(teams)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  if (!names.length) return text;
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`(${escaped.join("|")})`, "g");
+  return text.split(re).map((part, i) =>
+    teams[part] ? (
+      <span key={i} style={{ color: getReadableTeamColor(teams[part]), fontWeight: 600 }}>
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  );
+}
+
+function OpenStory({ story, ai }) {
   const storyHeadline = story.headline ?? story.title ?? "Leitura atual";
   const storyDeck = story.deck ?? story.summary ?? "";
   const storyBlocks = resolveStoryBlocks(story);
+  const aiLoading = Boolean(ai?.loading);
+  const aiParagraphs = ai?.story ? ai.story.split(/\n\s*\n/).filter(Boolean) : null;
+  const aiTeams = ai?.teams ?? null;
 
   return (
     <div className="space-y-4 max-w-2xl flex flex-col justify-end">
@@ -405,8 +534,13 @@ function OpenStory({ story }) {
              {leadBadgeLabel(story.importance)}
            </span>
          )}
+         {(aiLoading || aiParagraphs) && (
+           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent-primary bg-accent-primary/10 px-3 py-1 rounded-md border border-accent-primary/20 uppercase tracking-wider">
+             {aiLoading ? "✨ Gerando boletim…" : "✨ Boletim"}
+           </span>
+         )}
       </div>
-      
+
       {/* Título & Resumo */}
       <h2 className="text-[2rem] sm:text-4xl font-extrabold text-white leading-[1.1] tracking-tight drop-shadow-md">
          {storyHeadline}
@@ -416,15 +550,23 @@ function OpenStory({ story }) {
            {storyDeck}
          </p>
       )}
-      
-      {/* Chapters/Blocks if available */}
-      {storyBlocks.length > 0 && (
+
+      {/* Boletim de IA (quando disponível) tem prioridade sobre os blocos padrão. */}
+      {aiParagraphs ? (
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+          {aiParagraphs.map((paragraph, index) => (
+            <p key={index} className="text-[0.98rem] leading-8 text-gray-200">
+              {colorizeTeams(paragraph, aiTeams)}
+            </p>
+          ))}
+        </div>
+      ) : storyBlocks.length > 0 ? (
         <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
           {storyBlocks.map((block) => (
             <StoryChapter key={`${block.label}-${block.text}`} label={block.label} text={block.text} />
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

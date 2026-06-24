@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Preview · Notícias (Revista) · iRacer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --app-bg:#0e0e10;
+    --text-primary:#e6edf3; --text-secondary:#b6c2cf; --text-muted:#7e8a97;
+    --accent:#58a6ff; --accent-2:#79c0ff;
+    --green:#3fb950; --red:#f85149; --yellow:#d29922; --purple:#bc8cff;
+    --border:#21262d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+    color:var(--text-primary);min-height:100vh;padding:30px 22px 60px;
+    background:
+      radial-gradient(circle at top, rgba(111,212,255,0.12), transparent 30%),
+      radial-gradient(circle at 82% 18%, rgba(73,154,255,0.09), transparent 24%),
+      linear-gradient(180deg,#040812 0%,#08111d 48%,#050910 100%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:1360px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+  .sec{color:var(--text-secondary)} .muted{color:var(--text-muted)}
+
+  /* ─────────── A REVISTA ─────────── */
+  .mag{
+    position:relative;border-radius:14px;overflow:hidden;
+    padding:36px 48px 24px;
+    background:
+      url("public/utilities/textures/paper-spread.png"),
+      linear-gradient(90deg, transparent 44%, rgba(0,0,0,0.36) 49.2%, rgba(155,188,230,0.045) 50%, rgba(0,0,0,0.36) 50.8%, transparent 56%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 70% 45% at 50% -6%, rgba(96,150,225,0.06), transparent 60%),
+      linear-gradient(180deg,#0e1c2e 0%,#0b1626 55%,#0a1322 100%);
+    background-size:cover,100% 100%,180px 180px,100% 100%,100% 100%;
+    background-position:center;
+    background-repeat:no-repeat,no-repeat,repeat,no-repeat,no-repeat;
+    border:1px solid rgba(255,255,255,0.07);
+    box-shadow:inset 0 0 140px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.05), 0 26px 72px rgba(0,0,0,0.42);
+  }
+  .mag::after{content:"";position:absolute;top:34px;bottom:26px;left:50%;width:2px;pointer-events:none;z-index:0;
+    transform:translateX(-1px);
+    background:linear-gradient(180deg, transparent, rgba(165,195,235,0.10) 14%, rgba(165,195,235,0.10) 86%, transparent);}
+
+  .spread{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;column-gap:62px;align-items:start;transition:opacity .2s ease}
+  .mag.flipping .spread{opacity:0}
+  .page{min-width:0}
+
+  .flag{width:46px;height:30px;border-radius:3px;
+    background:
+      conic-gradient(#e6edf3 90deg,#0a0f18 0 180deg,#e6edf3 0 270deg,#0a0f18 0);
+    background-size:15px 15px;outline:1px solid rgba(255,255,255,0.25);margin-bottom:14px}
+
+  .kicker{font-family:"Oswald";font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-2)}
+  .display{font-family:"Anton";font-weight:400;text-transform:uppercase;line-height:.86;
+    transform:skewX(-6deg);transform-origin:left;margin:6px 0 4px}
+  .display .l1{display:block;font-size:60px;color:#fff;letter-spacing:.5px}
+  .display .l2{display:block;font-size:27px;color:var(--accent);letter-spacing:.5px;margin-top:6px}
+  .ai-tag{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-family:"Oswald";font-weight:600;
+    font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
+    background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.30);border-radius:6px;padding:5px 10px}
+
+  .lead-photo{position:relative}
+  .credits{text-align:right;font-family:"Oswald";font-weight:600;font-size:11px;letter-spacing:.12em;
+    line-height:1.5;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px}
+  .credits b{color:var(--text-secondary);font-weight:700}
+  .photo{width:100%;height:268px;border-radius:10px;object-fit:cover;display:block;
+    filter:saturate(1.05) contrast(1.03);border:1px solid rgba(255,255,255,0.08)}
+  .cap{font-size:12px;font-style:italic;color:var(--text-muted);margin-top:8px;line-height:1.4}
+
+  /* corpo da página */
+  .lead-para{font-size:15px;line-height:1.6;color:#dbe3ec;font-weight:500;
+    margin:18px 0 0;border-top:1px solid rgba(255,255,255,0.10);padding-top:15px}
+  .lead-para b{color:#fff}
+
+  .prose-cols{columns:2;column-gap:24px;margin-top:14px}
+  .r-grid{display:grid;grid-template-columns:1fr 0.92fr;gap:22px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
+  .subhead{font-family:"Oswald";font-weight:700;font-size:14px;letter-spacing:.04em;color:var(--accent-2);
+    text-transform:uppercase;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(88,166,255,0.22);break-after:avoid}
+  .page p{font-size:13px;line-height:1.7;color:#c1cad4;margin-bottom:11px;break-inside:avoid}
+  .prose-cols .pull{break-inside:avoid}
+  .teamname{color:#ff9466;font-weight:700}
+  .mini-photo{width:100%;height:104px;object-fit:cover;border-radius:8px;margin:4px 0 6px;border:1px solid rgba(255,255,255,0.08)}
+  .pull{font-family:"Oswald";font-weight:600;font-size:17px;line-height:1.3;color:#eef3f8;
+    border-left:3px solid var(--accent);padding:4px 0 4px 14px;margin:10px 0}
+
+  /* coluna RESULTADOS / construtores */
+  .res-row{display:grid;grid-template-columns:16px 18px 1fr auto;gap:9px;align-items:center;padding:6px 4px;border-radius:8px}
+  .res-row+.res-row{border-top:1px solid rgba(255,255,255,0.05)}
+  .res-row.me{background:rgba(88,166,255,0.10);border:1px solid rgba(88,166,255,0.30);padding:7px 6px}
+  .rp{font-family:"Oswald";font-weight:700;font-size:13px;color:var(--text-muted);text-align:center}
+  .res-row.me .rp{color:var(--accent)}
+  .chip{width:18px;height:18px;border-radius:5px}
+  .rn{font-size:12.5px;font-weight:600;line-height:1.1}
+  .rpts{font-family:"Oswald";font-weight:700;font-size:14px;text-align:right}
+
+  .mag-foot{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;
+    margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
+  .brand{font-family:"Anton";font-size:20px;letter-spacing:1px;color:#fff;text-transform:uppercase}
+  .brand span{color:var(--accent)}
+  .foot-meta{font-family:"Oswald";font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+  .foot-left{display:flex;align-items:center;gap:16px}
+  .mag-nav{display:flex;gap:6px}
+  .navbtn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);
+    color:var(--text-secondary);font-size:18px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+  .navbtn:hover:not(:disabled){color:#fff;border-color:rgba(255,255,255,0.32);background:rgba(255,255,255,0.08)}
+  .navbtn:disabled{opacity:.28;cursor:not-allowed}
+
+  /* ─────────── CAIXA DE E-MAIL (separada, pequena, abaixo) ─────────── */
+  .mailbox{border-radius:16px;padding:16px 18px;
+    background:rgba(10,15,28,0.30);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.10)}
+  .mb-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .mb-icon{width:24px;height:24px;border-radius:7px;background:rgba(88,166,255,0.14);border:1px solid rgba(88,166,255,0.28);
+    display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:13px}
+  .mb-title{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary)}
+  .mb-count{font-size:11px;font-weight:800;color:#0a0d14;background:var(--accent);border-radius:999px;padding:1px 8px;margin-left:2px}
+  /* duas colunas: lista (esq) + leitura (dir) */
+  .mb-split{display:grid;grid-template-columns:330px 1fr;border:1px solid rgba(255,255,255,0.09);border-radius:12px;overflow:hidden;min-height:300px}
+  .mb-list{display:flex;flex-direction:column;background:rgba(255,255,255,0.012);border-right:1px solid rgba(255,255,255,0.09);max-height:360px;overflow-y:auto}
+  .mrow{display:grid;grid-template-columns:30px 1fr auto;gap:11px;align-items:start;padding:13px 14px;cursor:pointer;
+    border-left:3px solid transparent;transition:background .15s,opacity .2s}
+  .mrow+.mrow{border-top:1px solid rgba(255,255,255,0.06)}
+  .mrow:hover{background:rgba(255,255,255,0.03)}
+  .mrow.read{opacity:.5}
+  .mrow.read .ndot{display:none}
+  .mrow.active{background:rgba(88,166,255,0.10);border-left-color:var(--accent);opacity:1}
+  .m-main{min-width:0}
+  .mava{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#0a0d14;flex:none}
+  .mava.g{background:var(--green)} .mava.y{background:var(--yellow)} .mava.p{background:var(--purple)}
+  .mfrom{font-size:13px;font-weight:700;line-height:1.2;display:block}
+  .mfrom small{display:block;font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:.02em;margin-top:5px}
+  .mright{display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+  .mtime{font-size:10.5px;color:var(--text-muted);white-space:nowrap}
+  .ndot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 7px var(--accent)}
+  /* painel de leitura */
+  .mb-reader{padding:22px 26px;display:flex;flex-direction:column;min-width:0}
+  .mb-reader.empty{align-items:center;justify-content:center;text-align:center;color:var(--text-muted);font-size:13px}
+  .mb-reader.empty .ph-ic{font-size:30px;opacity:.4;margin-bottom:10px}
+  .reader-head{display:flex;align-items:center;gap:12px}
+  .reader-from{font-size:14px;font-weight:700;line-height:1.2}
+  .reader-from small{display:block;font-size:10.5px;font-weight:600;color:var(--text-muted);letter-spacing:.04em;text-transform:uppercase;margin-top:3px}
+  .reader-time{margin-left:auto;font-size:11px;color:var(--text-muted)}
+  .reader-subject{font-size:18px;font-weight:700;color:#eef3f8;line-height:1.3;margin:16px 0 10px}
+  .reader-body{font-size:13.5px;line-height:1.7;color:var(--text-secondary)}
+  .reader-body b{color:#e6edf3}
+  .reader-actions{display:flex;gap:8px;margin-top:20px}
+  .mbtn{font-family:"Space Grotesk",sans-serif;font-size:12.5px;font-weight:700;padding:8px 16px;border-radius:8px;cursor:pointer;border:1px solid;background:transparent;transition:all .15s}
+  .mbtn.primary{color:#0a0d14;background:var(--accent);border-color:var(--accent)}
+  .mbtn.primary:hover{background:var(--accent-2);border-color:var(--accent-2)}
+  .mbtn.ghost{color:var(--text-secondary);border-color:rgba(255,255,255,0.16)}
+  .mbtn.ghost:hover{color:#fff;border-color:rgba(255,255,255,0.32)}
+
+  @media(max-width:1040px){
+    .spread{grid-template-columns:1fr;column-gap:0}
+    .prose-cols{columns:1}
+    .r-grid{grid-template-columns:1fr}
+    .display .l1{font-size:48px}.display .l2{font-size:22px}
+    .mb-split{grid-template-columns:1fr}
+    .mb-list{border-right:none;border-bottom:1px solid rgba(255,255,255,0.09);max-height:220px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ═══════════ A REVISTA ═══════════ -->
+  <article class="mag">
+
+    <div class="spread">
+
+      <!-- ░░ PÁGINA ESQUERDA ░░ -->
+      <div class="page page-l">
+        <div class="flag"></div>
+        <div class="kicker" id="ed-kicker">Mazda Rookie · Etapa 3 · Oschersleben</div>
+        <h1 class="display">
+          <span class="l1" id="ed-l1">Pódio</span>
+          <span class="l2" id="ed-l2">na reta final você entra na briga</span>
+        </h1>
+        <span class="ai-tag">✦ Boletim gerado por IA</span>
+
+        <p class="lead-para" id="ed-lead"><b>Você fez uma grande corrida.</b> Largando em quarto, ganhou duas posições na primeira curva e nunca mais saiu do retrovisor de Cyril Noel, fechando Oschersleben com um pódio que encurta a distância no campeonato.</p>
+
+        <div class="prose-cols">
+          <h3 class="subhead">A largada</h3>
+          <p>Sob céu seco, o sinal verde premiou quem arriscou. Você colou na traseira do líder já no primeiro setor e transformou a primeira freada em duas posições, assumindo a P3 antes do fim da volta de abertura.</p>
+          <p>Pela <span class="teamname">Late Apex Contenders</span>, a ordem era clara: poupar os pneus dianteiros no primeiro terço e atacar no fim. Funcionou.</p>
+          <h3 class="subhead">O duelo pelo título</h3>
+          <p>Na metade da prova, com os pneus ainda frescos, você começou a colar a cada freada. Noel administrava, mas o ritmo era seu.</p>
+          <div class="pull">"Faltaram três voltas. Com mais duas, a vitória era nossa."</div>
+          <p>A bandeirada veio com menos de meio segundo. O resultado não muda o líder, mas avisa: a briga pelo título agora tem mais um nome — o seu.</p>
+        </div>
+      </div>
+
+      <!-- ░░ PÁGINA DIREITA ░░ -->
+      <div class="page page-r">
+        <div class="credits">Reportagem de <b>Diretoria de Imprensa</b><br>Fotos de <b>Motorsport Arena</b></div>
+        <img class="photo" id="ed-photo" src="public/utilities/tracks/motorsport%20arena.png" alt="">
+        <p class="cap" id="ed-cap">Motorsport Arena Oschersleben — palco do seu melhor resultado do ano: P2 a menos de meio segundo do líder.</p>
+
+        <div class="r-grid">
+          <div>
+            <h3 class="subhead">Nos bastidores</h3>
+            <p>Você cruzou a linha na frente de Lara Campos e selou o pódio com uma das corridas mais maduras do ano.</p>
+            <p>Atrás, <span class="teamname">Velocità Moderna</span> completou o pódio e segue na cola na tabela de construtores.</p>
+          </div>
+          <div>
+            <h3 class="subhead">Construtores · 2029</h3>
+            <div class="res-row"><span class="rp">1</span><span class="chip" style="background:#e10600"></span><span class="rn">Apex Racing</span><span class="rpts">148</span></div>
+            <div class="res-row me"><span class="rp">2</span><span class="chip" style="background:#ff9466"></span><span class="rn">Late Apex Contenders</span><span class="rpts">131</span></div>
+            <div class="res-row"><span class="rp">3</span><span class="chip" style="background:#58a6ff"></span><span class="rn">Velocità Moderna</span><span class="rpts">119</span></div>
+            <div class="res-row"><span class="rp">4</span><span class="chip" style="background:#3fb950"></span><span class="rn">Greenline Motorsport</span><span class="rpts">96</span></div>
+            <div class="res-row"><span class="rp">5</span><span class="chip" style="background:#bc8cff"></span><span class="rn">Northgate Racing</span><span class="rpts">74</span></div>
+            <div class="res-row"><span class="rp">6</span><span class="chip" style="background:#d29922"></span><span class="rn">Solstice Crew</span><span class="rpts">58</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mag-foot">
+      <div class="foot-left">
+        <div class="brand">GRID<span>·</span>MAGAZINE</div>
+        <div class="mag-nav">
+          <button class="navbtn" id="ed-prev" title="Edição anterior" aria-label="Edição anterior">‹</button>
+          <button class="navbtn" id="ed-next" title="Próxima edição" aria-label="Próxima edição">›</button>
+        </div>
+      </div>
+      <div class="foot-meta" id="ed-foot">Edição 03 · 25 Jun 2029 · Próxima: Navarra, 3 Set</div>
+    </div>
+  </article>
+
+  <!-- ═══════════ CAIXA DE E-MAIL (separada, abaixo) ═══════════ -->
+  <section class="mailbox">
+    <div class="mb-head">
+      <span class="mb-icon">✉</span>
+      <span class="mb-title">Caixa de entrada</span>
+      <span class="mb-count">3</span>
+    </div>
+
+    <div class="mb-split">
+      <div class="mb-list">
+        <div class="mrow" data-id="vm">
+          <span class="mava g">VM</span>
+          <div class="m-main">
+            <span class="mfrom">Velocità Moderna<small>Interesse de equipe</small></span>
+          </div>
+          <span class="mright"><span class="mtime">há 2 dias</span><span class="ndot"></span></span>
+        </div>
+        <div class="mrow" data-id="la">
+          <span class="mava y">LA</span>
+          <div class="m-main">
+            <span class="mfrom">Late Apex Contenders<small>Expectativa · início de ano</small></span>
+          </div>
+          <span class="mright"><span class="mtime">12 Mar</span><span class="ndot"></span></span>
+        </div>
+        <div class="mrow" data-id="cn">
+          <span class="mava p">CN</span>
+          <div class="m-main">
+            <span class="mfrom">Boletim do grid<small>Rival · já enfrentado</small></span>
+          </div>
+          <span class="mright"><span class="mtime">há 5 dias</span><span class="ndot"></span></span>
+        </div>
+      </div>
+
+      <div class="mb-reader empty" id="mb-reader">
+        <div><div class="ph-ic">✉</div>Selecione uma mensagem para ler</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  var messages = {
+    vm:{av:'g',ini:'VM',from:'Velocità Moderna',kind:'Interesse de equipe',time:'há 2 dias',
+      subject:'Estamos de olho em você para 2030.',
+      body:'<p>A diretoria da <b>Velocità Moderna</b> acompanhou sua evolução nas últimas etapas e quer abrir conversa para uma vaga em 2030. Nada oficial ainda — é um sinal de que você entrou no radar de uma equipe da ponta.</p>',
+      actions:'<button class="mbtn primary">Demonstrar interesse</button><button class="mbtn ghost">Agora não</button>'},
+    la:{av:'y',ini:'LA',from:'Late Apex Contenders',kind:'Expectativa · início de ano',time:'12 Mar',
+      subject:'Meta da temporada: terminar no top 4.',
+      body:'<p>No início da temporada a equipe definiu como meta terminar entre os <b>4 primeiros</b> do campeonato. Hoje você está em 5º, a 12 pontos do 4º colocado. Mantendo a média de pódios das duas últimas etapas, a meta é totalmente alcançável.</p>',
+      actions:''},
+    cn:{av:'p',ini:'CN',from:'Boletim do grid',kind:'Rival · já enfrentado',time:'há 5 dias',
+      subject:'Cyril Noel é o nome a bater.',
+      body:'<p><b>Cyril Noel</b> · Apex Racing. Vocês já se enfrentaram 3 vezes — ele levou a melhor em 2. Forte em classificação e gestão de pneu; vulnerável nas largadas, onde você já o superou duas vezes. Lidera o campeonato por 17 pontos.</p>',
+      actions:''}
+  };
+  var reader = document.getElementById('mb-reader');
+  function selectRow(row, markRead){
+    document.querySelectorAll('.mb-list .mrow.active').forEach(function(r){ r.classList.remove('active'); });
+    row.classList.add('active');
+    if (markRead) row.classList.add('read');
+    var m = messages[row.getAttribute('data-id')];
+    reader.classList.remove('empty');
+    reader.innerHTML =
+      '<div class="reader-head"><span class="mava ' + m.av + '">' + m.ini + '</span>' +
+      '<span class="reader-from">' + m.from + '<small>' + m.kind + '</small></span>' +
+      '<span class="reader-time">' + m.time + '</span></div>' +
+      '<h3 class="reader-subject">' + m.subject + '</h3>' +
+      '<div class="reader-body">' + m.body + '</div>' +
+      (m.actions ? '<div class="reader-actions">' + m.actions + '</div>' : '');
+    updateUnread();
+  }
+  var mbRows = document.querySelectorAll('.mb-list .mrow');
+  mbRows.forEach(function(row){ row.addEventListener('click', function(){ selectRow(row, true); }); });
+  if (mbRows.length) selectRow(mbRows[0], false);
+  function updateUnread(){
+    var n = document.querySelectorAll('.mb-list .mrow:not(.read)').length;
+    var badge = document.querySelector('.mb-count');
+    if (n > 0){ badge.textContent = n; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  }
+
+  var editions = [
+    {
+      kicker:'Mazda Rookie · Etapa 3 · Oschersleben',
+      l1:'Pódio', l2:'na reta final você entra na briga',
+      photo:'public/utilities/tracks/motorsport%20arena.png',
+      cap:'Motorsport Arena Oschersleben — palco do seu melhor resultado do ano: P2 a menos de meio segundo do líder.',
+      lead:'<b>Você fez uma grande corrida.</b> Largando em quarto, ganhou duas posições na primeira curva e nunca mais saiu do retrovisor de Cyril Noel, fechando Oschersleben com um pódio que encurta a distância no campeonato.',
+      foot:'Edição 03 · 25 Jun 2029 · Próxima: Navarra, 3 Set'
+    },
+    {
+      kicker:'Mazda Rookie · Etapa 2 · Lédenon',
+      l1:'Recuperação', l2:'do fundo do grid ao top 5',
+      photo:'public/utilities/tracks/ledenon.png',
+      cap:'Circuit de Lédenon — prova de recuperação: largou em 9º e cruzou em 5º depois de duas ultrapassagens no fim.',
+      lead:'<b>Nem tudo começou bem.</b> Uma classificação ruim te jogou para o fundo do grid, mas uma corrida paciente e duas ultrapassagens nas últimas voltas salvaram pontos preciosos em Lédenon.',
+      foot:'Edição 02 · 28 Mai 2029 · Próxima: Oschersleben, 12 Jun'
+    },
+    {
+      kicker:'Mazda Rookie · Etapa 1 · Rudskogen',
+      l1:'Estreia', l2:'os primeiros pontos da carreira',
+      photo:'public/utilities/tracks/rudskogen.jpeg',
+      cap:'Rudskogen Motorsenter — o ponto de partida: 8º lugar e os primeiros pontos na Mazda Rookie.',
+      lead:'<b>Toda carreira começa em algum lugar.</b> Na sua estreia na Mazda MX-5 Rookie Cup, um 8º lugar discreto, porém sólido, colocou seu nome na tabela do campeonato pela primeira vez.',
+      foot:'Edição 01 · 30 Abr 2029 · Próxima: Lédenon, 14 Mai'
+    }
+  ];
+  var edIdx = 0;
+  function renderEdition(){
+    var e = editions[edIdx];
+    document.getElementById('ed-kicker').textContent = e.kicker;
+    document.getElementById('ed-l1').textContent = e.l1;
+    document.getElementById('ed-l2').textContent = e.l2;
+    document.getElementById('ed-photo').src = e.photo;
+    document.getElementById('ed-cap').textContent = e.cap;
+    document.getElementById('ed-lead').innerHTML = e.lead;
+    document.getElementById('ed-foot').textContent = e.foot;
+    document.getElementById('ed-next').disabled = (edIdx === 0);
+    document.getElementById('ed-prev').disabled = (edIdx === editions.length - 1);
+  }
+  function goEdition(delta){
+    var ni = edIdx + delta;
+    if (ni < 0 || ni >= editions.length) return;
+    var mag = document.querySelector('.mag');
+    mag.classList.add('flipping');
+    setTimeout(function(){ edIdx = ni; renderEdition(); mag.classList.remove('flipping'); }, 200);
+  }
+  document.getElementById('ed-prev').addEventListener('click', function(){ goEdition(1); });
+  document.getElementById('ed-next').addEventListener('click', function(){ goEdition(-1); });
+  renderEdition();
+</script>
+</body>
+</html>

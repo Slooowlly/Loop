@@ -1,0 +1,154 @@
+/* Fontes da revista (bundladas em public/utilities/fonts — offline). */
+@font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;src:url('/utilities/fonts/anton-400.woff2') format('woff2')}
+@font-face{font-family:'OswaldNM';font-style:normal;font-weight:600;font-display:swap;src:url('/utilities/fonts/oswald-600.woff2') format('woff2')}
+@font-face{font-family:'OswaldNM';font-style:normal;font-weight:700;font-display:swap;src:url('/utilities/fonts/oswald-700.woff2') format('woff2')}
+
+.newsmag{
+  --nm-accent:#58a6ff; --nm-accent2:#79c0ff;
+  --nm-text:#e6edf3; --nm-text2:#b6c2cf; --nm-muted:#7e8a97;
+  --nm-green:#3fb950; --nm-yellow:#d29922; --nm-purple:#bc8cff;
+  max-width:1400px;margin:clamp(16px,4vh,52px) auto 0;display:flex;flex-direction:column;gap:18px;
+}
+.newsmag .sec{color:var(--nm-text2)} .newsmag .muted{color:var(--nm-muted)}
+
+/* ── A REVISTA ── */
+.newsmag .mag{
+  position:relative;border-radius:14px;overflow:hidden;padding:36px 48px 24px;
+  background:
+    url("/utilities/textures/paper-spread.png"),
+    linear-gradient(90deg, transparent 44%, rgba(0,0,0,0.36) 49.2%, rgba(155,188,230,0.045) 50%, rgba(0,0,0,0.36) 50.8%, transparent 56%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 70% 45% at 50% -6%, rgba(96,150,225,0.06), transparent 60%),
+    linear-gradient(180deg,#0e1c2e 0%,#0b1626 55%,#0a1322 100%);
+  background-size:cover,100% 100%,180px 180px,100% 100%,100% 100%;
+  background-position:center;
+  background-repeat:no-repeat,no-repeat,repeat,no-repeat,no-repeat;
+  border:1px solid rgba(255,255,255,0.07);
+  box-shadow:inset 0 0 140px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.05), 0 26px 72px rgba(0,0,0,0.42);
+}
+.newsmag .mag::after{content:"";position:absolute;top:34px;bottom:26px;left:50%;width:2px;pointer-events:none;z-index:0;
+  transform:translateX(-1px);
+  background:linear-gradient(180deg, transparent, rgba(165,195,235,0.10) 14%, rgba(165,195,235,0.10) 86%, transparent);}
+
+.newsmag .spread{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;column-gap:62px;align-items:start;transition:opacity .2s ease}
+.newsmag .mag.flipping .spread{opacity:0}
+
+/* ── Capa fechada: temporada sem corridas → livro fechado + logo da categoria ── */
+.newsmag .mag--cover{
+  padding:34px 36px 30px;
+  background:
+    radial-gradient(ellipse 70% 45% at 50% -6%, rgba(96,150,225,0.07), transparent 60%),
+    linear-gradient(180deg,#0e1c2e 0%,#0b1626 55%,#0a1322 100%);
+  background-size:100% 100%,100% 100%;
+}
+.newsmag .mag--cover::after{display:none}
+.newsmag .mag-cover{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:392px}
+.newsmag .mag-cover-frame{position:relative;display:inline-block}
+.newsmag .mag-cover-book{display:block;height:440px;max-height:56vh;width:auto;object-fit:contain;filter:drop-shadow(0 28px 62px rgba(0,0,0,0.55))}
+.newsmag .mag-cover-logo{position:absolute;top:44%;left:50%;transform:translate(-50%,-50%);width:64%;max-height:34%;object-fit:contain;filter:drop-shadow(0 10px 26px rgba(0,0,0,0.6))}
+.newsmag .mag-cover-cap{margin:0;font-weight:800;letter-spacing:.05em;text-transform:uppercase;font-size:13px;color:#9fb6d4}
+.newsmag .mag-cover-sub{margin:0;font-size:12px;color:#71839a}
+.newsmag .page{min-width:0}
+
+.newsmag .flag{width:46px;height:30px;border-radius:3px;
+  background:conic-gradient(#e6edf3 90deg,#0a0f18 0 180deg,#e6edf3 0 270deg,#0a0f18 0);
+  background-size:15px 15px;outline:1px solid rgba(255,255,255,0.25);margin-bottom:14px}
+
+.newsmag .kicker{font-family:'OswaldNM';font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--nm-accent2)}
+.newsmag .display{font-family:'Anton';font-weight:400;text-transform:uppercase;line-height:.86;transform:skewX(-6deg);transform-origin:left;margin:6px 0 4px}
+.newsmag .display .l1{display:block;font-size:60px;color:#fff;letter-spacing:.5px}
+.newsmag .display .l2{display:block;font-size:27px;color:var(--nm-accent);letter-spacing:.5px;margin-top:6px}
+.newsmag .ai-tag{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-family:'OswaldNM';font-weight:600;
+  font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-accent);
+  background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.30);border-radius:6px;padding:5px 10px}
+
+.newsmag .credits{text-align:right;font-family:'OswaldNM';font-weight:600;font-size:11px;letter-spacing:.12em;
+  line-height:1.5;text-transform:uppercase;color:var(--nm-muted);margin-bottom:10px}
+.newsmag .credits b{color:var(--nm-text2);font-weight:700}
+.newsmag .photo{width:100%;height:268px;border-radius:10px;object-fit:cover;display:block;
+  filter:saturate(1.05) contrast(1.03);border:1px solid rgba(255,255,255,0.08)}
+.newsmag .cap{font-size:12px;font-style:italic;color:var(--nm-muted);margin-top:8px;line-height:1.4}
+
+.newsmag .lead-para{font-size:15px;line-height:1.6;color:#dbe3ec;font-weight:500;margin:18px 0 0;border-top:1px solid rgba(255,255,255,0.10);padding-top:15px}
+.newsmag .lead-para b{color:#fff}
+
+.newsmag .prose-cols{columns:2;column-gap:24px;margin-top:14px}
+.newsmag .r-grid{display:grid;grid-template-columns:1fr 0.92fr;gap:22px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
+.newsmag .r-grid-single{grid-template-columns:1fr}
+.newsmag .subhead{font-family:'OswaldNM';font-weight:700;font-size:14px;letter-spacing:.04em;color:var(--nm-accent2);
+  text-transform:uppercase;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(88,166,255,0.22);break-after:avoid}
+.newsmag .page p{font-size:13px;line-height:1.7;color:#c1cad4;margin-bottom:11px;break-inside:avoid}
+.newsmag .prose-cols .pull{break-inside:avoid}
+.newsmag .pull{font-family:'OswaldNM';font-weight:600;font-size:17px;line-height:1.3;color:#eef3f8;
+  border-left:3px solid var(--nm-accent);padding:4px 0 4px 14px;margin:10px 0}
+.newsmag .teamname{color:#ff9466;font-weight:700}
+
+.newsmag .res-row{display:grid;grid-template-columns:16px 18px 1fr auto;gap:9px;align-items:center;padding:6px 4px;border-radius:8px}
+.newsmag .res-row+.res-row{border-top:1px solid rgba(255,255,255,0.05)}
+.newsmag .res-row.me{background:rgba(88,166,255,0.10);border:1px solid rgba(88,166,255,0.30);padding:7px 6px}
+.newsmag .rp{font-family:'OswaldNM';font-weight:700;font-size:13px;color:var(--nm-muted);text-align:center}
+.newsmag .res-row.me .rp{color:var(--nm-accent)}
+.newsmag .chip{width:18px;height:18px;border-radius:5px}
+.newsmag .rn{font-size:12.5px;font-weight:600;line-height:1.1}
+.newsmag .rpts{font-family:'OswaldNM';font-weight:700;font-size:14px;text-align:right}
+
+.newsmag .mag-foot{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
+.newsmag .brand{font-family:'Anton';font-size:20px;letter-spacing:1px;color:#fff;text-transform:uppercase}
+.newsmag .brand span{color:var(--nm-accent)}
+.newsmag .foot-meta{font-family:'OswaldNM';font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--nm-muted)}
+.newsmag .foot-left{display:flex;align-items:center;gap:16px}
+.newsmag .mag-nav{display:flex;gap:6px}
+.newsmag .navbtn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);
+  color:var(--nm-text2);font-size:18px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.newsmag .navbtn:hover:not(:disabled){color:#fff;border-color:rgba(255,255,255,0.32);background:rgba(255,255,255,0.08)}
+.newsmag .navbtn:disabled{opacity:.28;cursor:not-allowed}
+
+/* ── CAIXA DE E-MAIL ── */
+.newsmag .mailbox{border-radius:16px;padding:16px 18px;background:rgba(10,15,28,0.30);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.10)}
+.newsmag .mb-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.newsmag .mb-icon{width:24px;height:24px;border-radius:7px;background:rgba(88,166,255,0.14);border:1px solid rgba(88,166,255,0.28);
+  display:flex;align-items:center;justify-content:center;color:var(--nm-accent);font-size:13px}
+.newsmag .mb-title{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--nm-text2)}
+.newsmag .mb-count{font-size:11px;font-weight:800;color:#0a0d14;background:var(--nm-accent);border-radius:999px;padding:1px 8px;margin-left:2px}
+.newsmag .mb-split{display:grid;grid-template-columns:330px 1fr;border:1px solid rgba(255,255,255,0.09);border-radius:12px;overflow:hidden;min-height:300px}
+.newsmag .mb-list{display:flex;flex-direction:column;background:rgba(255,255,255,0.012);border-right:1px solid rgba(255,255,255,0.09);max-height:360px;overflow-y:auto}
+.newsmag .mrow{display:grid;grid-template-columns:30px 1fr auto;gap:11px;align-items:start;padding:13px 14px;cursor:pointer;
+  border-left:3px solid transparent;transition:background .15s,opacity .2s}
+.newsmag .mrow+.mrow{border-top:1px solid rgba(255,255,255,0.06)}
+.newsmag .mrow:hover{background:rgba(255,255,255,0.03)}
+.newsmag .mrow.read{opacity:.5}
+.newsmag .mrow.read .ndot{display:none}
+.newsmag .mrow.active{background:rgba(88,166,255,0.10);border-left-color:var(--nm-accent);opacity:1}
+.newsmag .m-main{min-width:0}
+.newsmag .mava{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#0a0d14;flex:none}
+.newsmag .mava.g{background:var(--nm-green)} .newsmag .mava.y{background:var(--nm-yellow)} .newsmag .mava.p{background:var(--nm-purple)}
+.newsmag .mfrom{font-size:13px;font-weight:700;line-height:1.2;display:block}
+.newsmag .mfrom small{display:block;font-size:11px;font-weight:600;color:var(--nm-muted);letter-spacing:.02em;margin-top:5px}
+.newsmag .mright{display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+.newsmag .mtime{font-size:10.5px;color:var(--nm-muted);white-space:nowrap}
+.newsmag .ndot{width:8px;height:8px;border-radius:50%;background:var(--nm-accent);box-shadow:0 0 7px var(--nm-accent)}
+.newsmag .mb-reader{padding:22px 26px;display:flex;flex-direction:column;min-width:0}
+.newsmag .mb-reader.empty{align-items:center;justify-content:center;text-align:center;color:var(--nm-muted);font-size:13px}
+.newsmag .mb-reader.empty .ph-ic{font-size:30px;opacity:.4;margin-bottom:10px}
+.newsmag .reader-head{display:flex;align-items:center;gap:12px}
+.newsmag .reader-from{font-size:14px;font-weight:700;line-height:1.2}
+.newsmag .reader-from small{display:block;font-size:10.5px;font-weight:600;color:var(--nm-muted);letter-spacing:.04em;text-transform:uppercase;margin-top:3px}
+.newsmag .reader-time{margin-left:auto;font-size:11px;color:var(--nm-muted)}
+.newsmag .reader-subject{font-size:18px;font-weight:700;color:#eef3f8;line-height:1.3;margin:16px 0 10px}
+.newsmag .reader-body{font-size:13.5px;line-height:1.7;color:var(--nm-text2)}
+.newsmag .reader-body b{color:var(--nm-text)}
+.newsmag .reader-actions{display:flex;gap:8px;margin-top:20px}
+.newsmag .mbtn{font-family:inherit;font-size:12.5px;font-weight:700;padding:8px 16px;border-radius:8px;cursor:pointer;border:1px solid;background:transparent;transition:all .15s}
+.newsmag .mbtn.primary{color:#0a0d14;background:var(--nm-accent);border-color:var(--nm-accent)}
+.newsmag .mbtn.primary:hover{background:var(--nm-accent2);border-color:var(--nm-accent2)}
+.newsmag .mbtn.ghost{color:var(--nm-text2);border-color:rgba(255,255,255,0.16)}
+.newsmag .mbtn.ghost:hover{color:#fff;border-color:rgba(255,255,255,0.32)}
+
+@media(max-width:1100px){
+  .newsmag .spread{grid-template-columns:1fr;column-gap:0}
+  .newsmag .prose-cols{columns:1}
+  .newsmag .r-grid{grid-template-columns:1fr}
+  .newsmag .display .l1{font-size:48px}.newsmag .display .l2{font-size:22px}
+  .newsmag .mb-split{grid-template-columns:1fr}
+  .newsmag .mb-list{border-right:none;border-bottom:1px solid rgba(255,255,255,0.09);max-height:220px}
+}
