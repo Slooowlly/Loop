@@ -344,7 +344,7 @@ fn find_neighbor(
     None
 }
 
-fn make_incident(
+pub(crate) fn make_incident(
     pilot_id: String,
     incident_type: IncidentType,
     severity: IncidentSeverity,

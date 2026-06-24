@@ -483,6 +483,17 @@ struct Totals {
     skill_band: BTreeMap<&'static str, [u64; 3]>,
     // Aposentadorias por tier (de onde abrem vagas) — contexto p/ emergência
     retire_by_tier: [u64; 7],
+
+    // ── Textura de nomes do Rookie (grid ~24 assentos; mede "mercado pequeno,
+    //    nomes reconhecíveis"). Acumulado a partir da 2ª temporada (a 1ª é o mundo
+    //    recém-criado, em que todo nome é inédito por definição). ──
+    rookie_season_count: u64, // nº de temporadas-rookie observadas (>= temporada 1)
+    rookie_obs: u64,          // observações de ocupante de assento rookie
+    rookie_fresh: u64,        // estreias NOVAS (id nunca visto antes nesta run)
+    rookie_retained: u64,     // mesmo piloto que já estava no rookie na temporada anterior
+    rookie_returning: u64,    // conhecido (já visto) mas não estava no rookie ano passado
+    rookie_age_sum: u64,
+    rookie_age_n: u64,
 }
 
 /// Trajetória de um piloto dentro de uma run: primeiro e último overall observados.
@@ -593,10 +604,46 @@ fn monte_carlo() {
         let mut team_states: HashMap<String, TeamStateTrack> = HashMap::new();
         // Trajetória de tier (carreira) por piloto nesta run
         let mut careers: HashMap<String, CareerTrack> = HashMap::new();
+        // Textura de nomes do Rookie: ids já vistos nesta run e o grid rookie anterior.
+        let mut seen_ever: HashSet<String> = HashSet::new();
+        let mut prev_rookie: HashSet<String> = HashSet::new();
 
         for season in 0..seasons {
             // Snapshot ANTES da temporada
             let before = snapshot_drivers(&db_path);
+
+            // ── Textura de nomes do Rookie: estreia nova vs. retido vs. conhecido
+            //    retornando. Medido no início da temporada (o grid já foi montado pela
+            //    pré-temporada anterior). A 1ª temporada (mundo novo) é ignorada. ──
+            let cats_now = snapshot_driver_categories(&db_path);
+            let mut rookie_now: HashSet<String> = HashSet::new();
+            for (id, cat) in &cats_now {
+                if tier_of(cat) != 0 {
+                    continue;
+                }
+                rookie_now.insert(id.clone());
+                if season > 0 {
+                    t.rookie_obs += 1;
+                    if !seen_ever.contains(id) {
+                        t.rookie_fresh += 1;
+                    } else if prev_rookie.contains(id) {
+                        t.rookie_retained += 1;
+                    } else {
+                        t.rookie_returning += 1;
+                    }
+                    if let Some(s) = before.get(id) {
+                        t.rookie_age_sum += s.age.max(0) as u64;
+                        t.rookie_age_n += 1;
+                    }
+                }
+            }
+            if season > 0 {
+                t.rookie_season_count += 1;
+            }
+            for id in cats_now.keys() {
+                seen_ever.insert(id.clone());
+            }
+            prev_rookie = rookie_now;
 
             // Alimenta a trajetória com o estado de início de temporada
             for (id, snap) in &before {
@@ -1307,6 +1354,41 @@ fn monte_carlo() {
             a[3],
             a[1]
         );
+    }
+
+    // ── TEXTURA DE NOMES DO ROOKIE ──────────────────────────────────────────
+    if t.rookie_season_count > 0 {
+        let sc = t.rookie_season_count as f64;
+        println!("\n╔══════════════════════════════════════════════════════════════╗");
+        println!("║  TEXTURA DE NOMES DO ROOKIE (por temporada, exclui a 1ª)      ║");
+        println!("╚══════════════════════════════════════════════════════════════╝");
+        println!("  Temporadas-rookie observadas:  {}", t.rookie_season_count);
+        println!(
+            "  Grid médio do Rookie:          {:.1} assentos",
+            t.rookie_obs as f64 / sc
+        );
+        println!("\n  composição média do grid por temporada:");
+        println!(
+            "    Estreias NOVAS (nome inédito):       {:>5.1}  ({:.1}%)",
+            t.rookie_fresh as f64 / sc,
+            pct(t.rookie_fresh, t.rookie_obs)
+        );
+        println!(
+            "    Retidos (mesmo piloto do ano ant.):  {:>5.1}  ({:.1}%)",
+            t.rookie_retained as f64 / sc,
+            pct(t.rookie_retained, t.rookie_obs)
+        );
+        println!(
+            "    Conhecidos retornando (ag. livre):   {:>5.1}  ({:.1}%)",
+            t.rookie_returning as f64 / sc,
+            pct(t.rookie_returning, t.rookie_obs)
+        );
+        if t.rookie_age_n > 0 {
+            println!(
+                "  Idade média no Rookie:         {:.1} anos",
+                t.rookie_age_sum as f64 / t.rookie_age_n as f64
+            );
+        }
     }
 
     // ── FUNIL DE CARREIRA ───────────────────────────────────────────────────

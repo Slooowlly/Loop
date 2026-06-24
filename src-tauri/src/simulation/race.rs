@@ -11,8 +11,7 @@ use super::incidents::{
     process_segment_incidents, IncidentResult, IncidentSeverity, IncidentType, PendingDamage,
 };
 use super::math::{
-    adjusted_weather_multiplier, car_weight_scale, category_car_performance,
-    normalize_car_performance,
+    car_weight_scale, category_car_performance, normalize_car_performance, rain_intensity_for,
 };
 use super::qualifying::QualifyingResult;
 use super::track_profile::TrackCharacter;
@@ -558,8 +557,14 @@ fn calculate_segment_score(
         score *= 1.0 - fatigue_penalty;
     }
 
-    // Chuva com sensibilidade do contexto
-    score *= adjusted_weather_multiplier(ctx.weather, driver.fator_chuva, ctx.rain_sensitivity);
+    // Chuva: MESMA penalidade de skill por piloto do export iRacing (curva validada
+    // `rain_skill_penalty`). Seco = 0. Rain-good (fator alto) perde MENOS pontos →
+    // re-rank consistente: o pelotão todo cai e os bons-de-chuva sobem relativos.
+    // (O score está na escala ~0–100 do skill, então subtrair os pontos casa com o export.)
+    score -= crate::iracing_sdk::weather::rain_skill_penalty(
+        driver.fator_chuva as f64,
+        rain_intensity_for(ctx.weather),
+    ) as f64;
 
     // Bônus contextual em pista difícil: adaptabilidade vale mais
     if ctx.track_difficulty_multiplier > 1.0 {

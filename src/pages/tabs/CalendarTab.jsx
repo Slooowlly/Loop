@@ -671,7 +671,7 @@ function MonthCard({
         "relative overflow-hidden rounded-2xl border bg-white/[0.03] p-4 backdrop-blur-sm transition-all duration-300",
         phase.cardClass || "border-white/10",
         isCurrentMonth
-          ? "border-accent-primary/30 bg-[linear-gradient(180deg,rgba(88,166,255,0.075),rgba(255,255,255,0.03)_38%,rgba(255,255,255,0.02)_100%)] shadow-[0_18px_44px_rgba(88,166,255,0.11)]"
+          ? "border-accent-primary/70 bg-[linear-gradient(180deg,rgba(88,166,255,0.2),rgba(88,166,255,0.07)_46%,rgba(255,255,255,0.02)_100%)] shadow-[0_0_0_1px_rgba(88,166,255,0.5),0_16px_50px_rgba(88,166,255,0.3)]"
           : "",
       ].join(" ")}
       data-testid={`calendar-month-${monthIso}`}
@@ -690,8 +690,17 @@ function MonthCard({
       )}
 
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className={`text-[13px] font-semibold ${isCurrentMonth ? "text-accent-hover" : "text-text-primary"}`}>
+        <span
+          className={`flex items-center gap-2 font-semibold ${
+            isCurrentMonth ? "text-[15px] font-bold text-accent-hover" : "text-[13px] text-text-primary"
+          }`}
+        >
           {MONTH_NAMES[month]}
+          {isCurrentMonth && (
+            <span className="rounded-full bg-accent-primary px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wider text-[#05080c] shadow-[0_0_10px_rgba(88,166,255,0.65)]">
+              Atual
+            </span>
+          )}
         </span>
         <span
           className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${phase.badgeClass}`}

@@ -5,8 +5,7 @@ use crate::constants::scoring::QUALI_SCORE_TO_LAP_MS;
 
 use super::context::{SimDriver, SimulationContext};
 use super::math::{
-    adjusted_weather_multiplier, car_weight_scale, category_car_performance,
-    normalize_car_performance,
+    car_weight_scale, category_car_performance, normalize_car_performance, rain_intensity_for,
 };
 use super::track_profile::TrackCharacter;
 
@@ -70,9 +69,12 @@ pub fn simulate_qualifying(
                 + car_norm * w_car
                 + driver.adaptabilidade as f64 * w_adapt;
 
-            // Chuva com sensibilidade do contexto (fórmula canônica)
-            score *=
-                adjusted_weather_multiplier(ctx.weather, driver.fator_chuva, ctx.rain_sensitivity);
+            // Chuva: MESMA penalidade por piloto do export iRacing (curva validada
+            // `rain_skill_penalty`) — rain-good perde menos pontos. Seco = 0.
+            score -= crate::iracing_sdk::weather::rain_skill_penalty(
+                driver.fator_chuva as f64,
+                rain_intensity_for(ctx.weather),
+            ) as f64;
 
             if driver.corridas_na_categoria < 10 {
                 let experience_penalty = (10 - driver.corridas_na_categoria) as f64 * 0.005;

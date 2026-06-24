@@ -1,3 +1,5 @@
+pub mod ai_pre_race;
+pub mod ai_story;
 pub mod calendar;
 pub mod contracts;
 pub mod drivers;
@@ -8,6 +10,7 @@ pub mod news;
 pub mod race_history;
 pub mod races;
 pub mod rivalries;
+pub mod rivalry_episodes;
 pub mod seasons;
 pub mod special_team_entries;
 pub mod standings;

@@ -24,6 +24,20 @@ pub fn adjusted_weather_multiplier(
     1.0 - ((1.0 - base) * rain_sensitivity)
 }
 
+/// Mapeia o clima da simulação (WeatherCondition) → intensidade da curva de chuva
+/// VALIDADA do export (`rain_skill_penalty`). Mantém a penalidade de chuva idêntica
+/// entre a sim offline e o que o iRacing roda. Mapa: Damp→Light, Wet→Decent,
+/// HeavyRain→VeryHeavy.
+pub fn rain_intensity_for(weather: WeatherCondition) -> crate::iracing_sdk::weather::RainIntensity {
+    use crate::iracing_sdk::weather::RainIntensity;
+    match weather {
+        WeatherCondition::Dry => RainIntensity::None,
+        WeatherCondition::Damp => RainIntensity::Light,
+        WeatherCondition::Wet => RainIntensity::Decent,
+        WeatherCondition::HeavyRain => RainIntensity::VeryHeavy,
+    }
+}
+
 /// Normaliza car_performance para a escala de simulação. Linear: cp=−5 → 0,
 /// cp=16 → 100. **Sem teto superior** (Pilar B): carros acima de 16 passam de
 /// 100 e têm impacto proporcionalmente maior — é assim que a elite se separa.

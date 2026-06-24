@@ -153,6 +153,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
   const acceptedSpecialOffer = useCareerStore((state) => state.acceptedSpecialOffer);
+  const openSavedRaceScreen = useCareerStore((state) => state.openSavedRaceScreen);
   const forcedSpecialCategory = getForcedSpecialStandingCategory(
     season?.fase,
     playerTeam?.categoria,
@@ -432,6 +433,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                   <th className="py-3 pr-1">Equipe</th>
                   {Array.from({ length: totalRodadas }, (_, index) => {
                     const rodada = index + 1;
+                    const isCompleted = rodada <= completedRounds;
                     return (
                       <th
                         key={rodada}
@@ -439,7 +441,12 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                           "px-1.5 py-3 text-center",
                           rodada > completedRounds ? "opacity-30" : "",
                           rodada === season?.rodada_atual ? "text-accent-primary" : "",
+                          isCompleted ? "cursor-pointer hover:text-accent-primary transition-colors" : "",
                         ].join(" ")}
+                        title={isCompleted ? "Duplo clique: rever a classificação desta corrida" : undefined}
+                        onDoubleClick={
+                          isCompleted ? () => openSavedRaceScreen?.(viewCategory, rodada) : undefined
+                        }
                       >
                         R{rodada}
                       </th>

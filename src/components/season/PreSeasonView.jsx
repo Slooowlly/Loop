@@ -652,6 +652,7 @@ export default function PreSeasonView() {
   const [transferDetail, setTransferDetail] = useState(null);
   const [showFreeAgentWarning, setShowFreeAgentWarning] = useState(false);
   const [startError, setStartError] = useState("");
+  const [paintToast, setPaintToast] = useState("");
 
   const freeAgentContainerRef = useRef(null);
   const freeAgentSectionRefs  = useRef({});
@@ -757,7 +758,7 @@ export default function PreSeasonView() {
       </div>
 
       <button
-        onClick={() => handleAcceptOffer(offer.seat_id)}
+        onClick={() => handleAcceptOffer(offer)}
         disabled={isAdvancingWeek}
         className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
       >
@@ -977,16 +978,44 @@ export default function PreSeasonView() {
   };
 
   // Janela de Transferências: aceitar uma oferta fecha a semana do jogador e assina.
-  const handleAcceptOffer = async (seatId) => {
+  // Ao assinar com a equipe nova, repinta o carro do jogador na cor dela (o ID do
+  // iRacing já foi capturado/vinculado) — silencioso, só com um toast discreto.
+  const handleAcceptOffer = async (offer) => {
     if (isAdvancingWeek) return;
     setStartError("");
-    try { await advanceMarketWeek(seatId); } catch (e) { console.error(e); }
+    try {
+      await advanceMarketWeek(offer?.seat_id);
+    } catch (e) {
+      console.error(e);
+      return;
+    }
+    if (!offer?.team_color) return;
+    try {
+      const res = await invoke("iracing_apply_market_paint", {
+        careerId,
+        teamColor: offer.team_color,
+        category: offer.category ?? offer.category_label ?? "",
+      });
+      if (res) {
+        setPaintToast(`🎨 Cor do carro atualizada para a ${offer.team_name ?? "nova equipe"}.`);
+        setTimeout(() => setPaintToast(""), 6000);
+      }
+    } catch (e) {
+      console.error("[paint] falha ao repintar no mercado:", e);
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="app-shell relative h-screen w-full overflow-hidden text-[color:var(--text-primary)]">
       <div className="app-backdrop pointer-events-none absolute inset-0" />
+
+      {/* Toast: cor do carro atualizada ao assinar com a nova equipe */}
+      {paintToast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-[color:var(--text-primary)] shadow-2xl">
+          {paintToast}
+        </div>
+      )}
 
       <div className="relative z-10 mx-auto flex h-full max-w-[1680px] flex-col px-3 pb-3 pt-3 sm:px-4 lg:px-5 xl:px-6">
 

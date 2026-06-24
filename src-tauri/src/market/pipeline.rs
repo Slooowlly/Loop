@@ -5,8 +5,8 @@ use rand::Rng;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::constants::categories::{
-    get_all_categories, get_category_config, get_feeder_categories, runs_in_special_phase,
-    uses_regular_contracts,
+    get_all_categories, get_category_config, get_feeder_categories, get_target_categories,
+    runs_in_special_phase, uses_regular_contracts,
 };
 use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::db::queries::contracts as contract_queries;
@@ -23,6 +23,16 @@ pub static EMERGENCY_ROOKIES: std::sync::atomic::AtomicU64 = std::sync::atomic::
 /// vaga). Mostra de onde vem (feeder) e pra onde vai (a escassez).
 pub static EMERGENCY_PROMO_PATHS: std::sync::Mutex<Vec<(u8, u8)>> =
     std::sync::Mutex::new(Vec::new());
+
+/// (Experimento) Liga a "subida garantida do campeão do Rookie": quando o Amador
+/// está cheio, força a troca do 1º do Rookie com o pior do Amador. Off por padrão;
+/// ligue com `IRACER_ROOKIE_MERIT=1` (ou `=true`) para o A/B no harness sim_stats.
+/// Ver `guarantee_rookie_champion_promotions`.
+fn rookie_merit_enabled() -> bool {
+    std::env::var("IRACER_ROOKIE_MERIT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
 
 use crate::generators::ids::{next_id, IdType};
 use crate::market::evaluation::{estimate_expected_position, evaluate_driver_performance};
@@ -259,6 +269,17 @@ fn run_market_inner(
 
         // Rebaixamento por mérito (troca conservadora) antes de preencher vagas.
         apply_merit_relegations(
+            conn,
+            &teams,
+            new_season_number,
+            &standings_by_driver,
+            &mut report,
+        )?;
+
+        // (Flag IRACER_ROOKIE_MERIT) Subida garantida do campeão do Rookie: cobre o
+        // caso "Amador cheio" forçando a troca com o pior do Amador. Sem a flag é
+        // no-op; com vaga natural no Amador, o fluxo normal já promove o campeão.
+        guarantee_rookie_champion_promotions(
             conn,
             &teams,
             new_season_number,
@@ -2433,6 +2454,147 @@ fn apply_merit_relegations(
         .map(|driver| (driver.id.clone(), driver))
         .collect();
     sync_team_slots_from_active_regular_contracts(conn, teams, &refreshed)?;
+    Ok(())
+}
+
+/// (Flag `IRACER_ROOKIE_MERIT`) Garante a subida do CAMPEÃO de cada categoria de
+/// estreia (Rookie) para a categoria-alvo (Amador).
+///
+/// O fluxo normal já promove o melhor feeder quando o Amador tem vaga natural; esta
+/// passada cobre o caso em que o Amador está CHEIO: força a troca do 1º do Rookie
+/// com o pior do Amador, reusando a mesma máquina de `swap_contract_seats` do
+/// rebaixamento por mérito (campeão sobe, pior desce ao Rookie — exatamente o que o
+/// rebaixamento por mérito já faz, só que aqui o gatilho é "campeão" em vez de
+/// "pior do Amador terminou em último"). Conservadora: no máximo 1 troca por
+/// categoria de estreia, nunca mexe no jogador, e só dispara se o campeão de fato
+/// possuir a licença exigida (a metade superior do Rookie a conquista).
+fn guarantee_rookie_champion_promotions(
+    conn: &Connection,
+    teams: &[crate::models::team::Team],
+    new_season_number: i32,
+    contexts: &HashMap<String, DriverMarketContext>,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    if !rookie_merit_enabled() {
+        return Ok(());
+    }
+
+    let debut_year = get_season_by_number(conn, new_season_number)?
+        .map(|season| season.ano)
+        .unwrap_or_else(|| Local::now().year());
+
+    let player_team_ids: HashSet<&str> = teams
+        .iter()
+        .filter(|team| team.is_player_team)
+        .map(|team| team.id.as_str())
+        .collect();
+
+    let rookie_cats: Vec<&'static str> = get_all_categories()
+        .iter()
+        .filter(|category| {
+            is_real_career_debut_category(category.id)
+                && is_category_active_in_year(category.id, debut_year)
+        })
+        .map(|category| category.id)
+        .collect();
+
+    let mut swapped_any = false;
+    for rookie_cat in rookie_cats {
+        // Alvo regular ativo (Amador) para onde o Rookie alimenta.
+        let Some(target_cat) = get_target_categories(rookie_cat).into_iter().find(|target| {
+            uses_regular_contracts(target)
+                && !runs_in_special_phase(target)
+                && is_category_active_in_year(target, debut_year)
+        }) else {
+            continue;
+        };
+        let Some(required) = required_license_for_division(target_cat, None) else {
+            continue;
+        };
+
+        // Vaga natural no Amador → o fluxo normal (escada) já promove o melhor
+        // feeder (o campeão). Nada a forçar.
+        let target_has_vacancy = find_vacancies(conn)?
+            .into_iter()
+            .any(|vacancy| vacancy.categoria == target_cat && is_regular_vacancy(&vacancy));
+        if target_has_vacancy {
+            continue;
+        }
+
+        // Recarrega o estado a cada categoria (a troca anterior mexeu nos contratos).
+        let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+            .map_err(|e| format!("Falha ao carregar pilotos (promo campeao rookie): {e}"))?
+            .into_iter()
+            .map(|driver| (driver.id.clone(), driver))
+            .collect();
+        let license_levels = load_max_license_levels(conn)?;
+        let is_active_non_player = |id: &str| {
+            drivers_by_id
+                .get(id)
+                .is_some_and(|driver| !driver.is_jogador && driver.status == DriverStatus::Ativo)
+        };
+        let position_of = |id: &str| contexts.get(id).map(|c| c.posicao_campeonato).unwrap_or(99);
+        let skill_of = |id: &str| {
+            drivers_by_id
+                .get(id)
+                .map(|driver| driver.atributos.skill)
+                .unwrap_or(0.0)
+        };
+
+        let active = contract_queries::get_all_active_regular_contracts(conn)
+            .map_err(|e| format!("Falha ao carregar contratos (promo campeao rookie): {e}"))?;
+
+        // Campeão do Rookie: 1º colocado, ativo, fora do time do jogador, COM a
+        // licença exigida pelo Amador.
+        let Some(champion) = active
+            .iter()
+            .filter(|c| {
+                c.categoria == rookie_cat
+                    && c.classe.is_none()
+                    && is_active_non_player(&c.piloto_id)
+                    && !player_team_ids.contains(c.equipe_id.as_str())
+                    && license_levels
+                        .get(&c.piloto_id)
+                        .is_some_and(|&owned| owned >= required)
+            })
+            .min_by_key(|c| position_of(&c.piloto_id))
+        else {
+            continue;
+        };
+        if position_of(&champion.piloto_id) != 1 {
+            continue; // só o 1º é garantido
+        }
+
+        // Pior piloto do Amador (pior posição, depois menor skill), fora do jogador.
+        let Some(weakest) = active
+            .iter()
+            .filter(|c| {
+                c.categoria == target_cat
+                    && c.classe.is_none()
+                    && is_active_non_player(&c.piloto_id)
+                    && !player_team_ids.contains(c.equipe_id.as_str())
+            })
+            .max_by(|a, b| {
+                position_of(&a.piloto_id)
+                    .cmp(&position_of(&b.piloto_id))
+                    .then_with(|| skill_of(&b.piloto_id).total_cmp(&skill_of(&a.piloto_id)))
+            })
+        else {
+            continue;
+        };
+
+        swap_contract_seats(conn, champion, weakest, new_season_number, report)?;
+        swapped_any = true;
+    }
+
+    if swapped_any {
+        let refreshed: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+            .map_err(|e| format!("Falha ao recarregar pilotos (pos promo campeao rookie): {e}"))?
+            .into_iter()
+            .map(|driver| (driver.id.clone(), driver))
+            .collect();
+        sync_team_slots_from_active_regular_contracts(conn, teams, &refreshed)?;
+    }
     Ok(())
 }
 

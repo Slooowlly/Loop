@@ -28,9 +28,18 @@ const initialState = {
   totalDrivers: 0,
   totalTeams: 0,
   lastRaceResult: null,
+  // Avaliação de carreira do pós-corrida (expectativa vs resultado, nota, frases).
+  // Null para corridas sem avaliação — a tela trata e nunca quebra.
+  lastRaceEvaluation: null,
+  // Análise de telemetria (ritmo/consistência/rival). Null se não houve.
+  lastRaceTelemetry: null,
   otherCategoriesResult: null,
   showResult: false,
   showRaceBriefing: false,
+  // Conserto do carro a mostrar no pop-up ao abrir o resultado (import do iRacing).
+  iracingRepair: null,
+  // Trava p/ o poller do iRacing não importar a mesma corrida duas vezes em voo.
+  iracingImporting: false,
   preseasonState: null,
   preseasonWeeks: [],
   lastMarketWeekResult: null,
@@ -416,6 +425,8 @@ const useCareerStore = create((set, get) => ({
 
       set({
         lastRaceResult: result.player_race,
+        lastRaceEvaluation: result.evaluation ?? null, // mesmo cérebro do import iRacing
+        lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
         otherCategoriesResult: result.other_categories,
         isSimulating: false,
         showResult: true,
@@ -431,9 +442,70 @@ const useCareerStore = create((set, get) => ({
     }
   },
 
+  // GATILHO AUTOMÁTICO do iRacing: pergunta ao backend se o resultado da próxima
+  // corrida já foi gravado (jogador terminou/saiu). Se sim, importa e abre a tela
+  // de resultado sozinha. Chamado em loop por um poller no Dashboard. Idempotente.
+  pollIracingResult: async () => {
+    const { careerId, showResult, isSimulating, iracingImporting } = get();
+    if (!careerId || showResult || isSimulating || iracingImporting) return;
+    set({ iracingImporting: true });
+    try {
+      const payload = await invoke("iracing_auto_import_if_ready", { careerId });
+      if (payload?.race_result) {
+        set({
+          lastRaceResult: payload.race_result,
+          lastRaceEvaluation: payload.evaluation ?? null,
+          lastRaceTelemetry: payload.telemetry ?? null,
+          showResult: true,
+          showRaceBriefing: false,
+          isDirty: true,
+          iracingRepair:
+            payload.summary?.repair_cost > 0 ? payload.summary : null,
+        });
+      }
+    } catch {
+      // silencioso — "ainda não pronto" não é erro; tenta de novo no próximo tick.
+    } finally {
+      set({ iracingImporting: false });
+    }
+  },
+
+  // Reabre a CLASSIFICAÇÃO FINAL de uma corrida já disputada (pela Home, duplo
+  // clique no R{n}). Lê a tela salva no disco (resultado + avaliação + telemetria).
+  // Sem tela salva (corrida antiga / outra categoria) → no-op silencioso.
+  openSavedRaceScreen: async (category, rodada) => {
+    const { careerId } = get();
+    if (!careerId || !category || !rodada) return false;
+    try {
+      const screen = await invoke("get_saved_race_screen", { careerId, category, rodada });
+      if (screen?.race_result) {
+        set({
+          lastRaceResult: screen.race_result,
+          lastRaceEvaluation: screen.evaluation ?? null,
+          lastRaceTelemetry: screen.telemetry ?? null,
+          iracingRepair: null,
+          showResult: true,
+          showRaceBriefing: false,
+        });
+        return true;
+      }
+    } catch {
+      /* sem tela salva desta corrida — ignora */
+    }
+    return false;
+  },
+
+  // Fecha só o pop-up de conserto, mantendo a tela de resultado.
+  dismissIracingRepair: () => set({ iracingRepair: null }),
+
   dismissResult: async () => {
     const { careerId, loadCareer } = get();
-    set({ showResult: false });
+    set({
+      showResult: false,
+      iracingRepair: null,
+      lastRaceEvaluation: null,
+      lastRaceTelemetry: null,
+    });
 
     if (!careerId) return;
 

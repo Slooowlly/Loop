@@ -426,10 +426,28 @@ body {
   }
 }
 
+/* Pulso de chegada da corrida: a pista "respira" enquanto a sala não abre. */
+@keyframes calendar-race-arrival-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    box-shadow: inset 0 0 12px rgba(88, 166, 255, 0.28), 0 0 10px rgba(88, 166, 255, 0.24);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: inset 0 0 28px rgba(88, 166, 255, 0.62), 0 0 26px rgba(88, 166, 255, 0.58);
+  }
+}
+
 /* ─── Animation Classes (camelCase keyframes) ────────────────────────────── */
 
 .animate-fade-in {
   animation: fadeIn 200ms ease-out;
+}
+
+/* Troca de aba: fade mais longo e macio (entrada do conteúdo da aba). */
+.tab-pane-fade {
+  animation: fadeIn 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .animate-scale-in {
@@ -487,7 +505,8 @@ body {
 }
 
 .calendar-race-arrival-flash {
-  animation: calendar-race-arrival-glow 0.28s ease-out 1 forwards;
+  /* Respira ~0,7s por ciclo durante a janela de ~2s antes da sala de estratégia. */
+  animation: calendar-race-arrival-pulse 0.7s ease-in-out infinite;
 }
 
 @keyframes fade-out {

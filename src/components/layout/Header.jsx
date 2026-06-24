@@ -87,6 +87,13 @@ function Header({ activeTab, onTabChange }) {
   }, [careerId, playerTeam?.categoria, hasNoPendingRace, season?.ano]);
 
   function handleNextRace() {
+    // Leva o jogador para o Calendário (com fade) para ele ver a animação dos
+    // dias passando — MAS só quando há dias a passar. Se a corrida é HOJE, avançar
+    // abre direto a sala de estratégia; piscar o calendário antes seria ruim.
+    const daysUntilRace = Number(visibleCountdown);
+    if (Number.isFinite(daysUntilRace) && daysUntilRace > 0) {
+      onTabChange?.("calendar");
+    }
     void Promise.resolve(startCalendarAdvance?.()).catch((error) => {
       console.error("Erro ao avançar calendário pelo header:", error);
     });

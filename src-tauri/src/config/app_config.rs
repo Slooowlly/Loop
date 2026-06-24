@@ -53,6 +53,11 @@ pub struct AppConfig {
     pub language: String,
     pub autosave_enabled: bool,
 
+    /// Identificador estável por máquina (1 por instalação), usado como chave do
+    /// cooldown no servidor de boletins de IA. Gerado no 1º uso.
+    #[serde(default)]
+    pub install_id: Option<String>,
+
     // Window state
     pub window_width: u32,
     pub window_height: u32,
@@ -75,6 +80,7 @@ impl Default for AppConfig {
             last_career: None,
             language: "pt-BR".to_string(),
             autosave_enabled: true,
+            install_id: None,
             window_width: 1280,
             window_height: 720,
             window_maximized: false,
@@ -117,6 +123,20 @@ impl AppConfig {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Falha ao serializar config: {e}"))?;
         std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar config.json: {e}"))
+    }
+
+    /// Identificador estável por máquina (1 por instalação). Gerado no 1º uso e
+    /// persistido. É a chave do cooldown no servidor de boletins de IA.
+    pub fn get_or_create_install_id(&mut self) -> String {
+        if let Some(id) = &self.install_id {
+            if !id.is_empty() {
+                return id.clone();
+            }
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        self.install_id = Some(id.clone());
+        let _ = self.save();
+        id
     }
 
     // ── Helpers de caminho ────────────────────────────────────────────────────
