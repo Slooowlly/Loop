@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import useCareerStore from "../stores/useCareerStore";
 import { formatDateTime } from "../utils/formatters";
 
-// Parametros visuais da tela inicial (ajustados em debug e fixados).
+// Parametros visuais do menu (ajustados em debug e fixados).
 const CFG = {
   speedMax: 47, // topo da velocidade das particulas
   speedBias: 8, // expoente: maior = rapidas mais raras
@@ -23,6 +23,20 @@ const CFG = {
   dark: 1, // opacidade do escurecimento
   darkAngle: 40, // direcao do escurecimento (graus)
   darkExtent: 118, // alcance do escurecimento (% da tela)
+};
+
+// Parametros da intro (icone com zoom sobre o fundo borrado).
+const INTRO = {
+  haloRgb: "42,115,231", // #2a73e7
+  haloOpacity: 0.04,
+  haloSize: 75, // vmin
+  blur: 25, // px
+  logoSize: 212, // px
+  zoomStart: 0.7,
+  zoomEnd: 1.7,
+  inDur: 0.7, // s (zoom-in)
+  hold: 0.3, // s (espera)
+  outDur: 0.6, // s (zoom-out)
 };
 
 // Oscilacao de intensidade tipo tocha: flicker lento + labareda a cada 8s.
@@ -147,12 +161,14 @@ function MainMenu({ intro = false }) {
       setIntroDone(true);
       return undefined;
     }
+    const revealAt = Math.round((INTRO.inDur + INTRO.hold) * 1000);
+    const doneAt = revealAt + Math.round(INTRO.outDur * 1000) + 100;
     const t1 = window.setTimeout(() => setLogoStep(1), 30); // zoom-in
     const t2 = window.setTimeout(() => {
       setLogoStep(2); // zoom-out do icone
       setEntered(true); // tira o blur e revela o menu
-    }, 1200);
-    const t3 = window.setTimeout(() => setIntroDone(true), 1900); // remove o overlay
+    }, revealAt);
+    const t3 = window.setTimeout(() => setIntroDone(true), doneAt); // remove o overlay
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
@@ -345,7 +361,6 @@ function MainMenu({ intro = false }) {
       window.removeEventListener("focus", start);
       window.removeEventListener("blur", stop);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefersReduced]);
 
   // Saida cinematografica: barras abrem + zoom, dai navega.
@@ -389,7 +404,18 @@ function MainMenu({ intro = false }) {
     "--mm-zoom-text": zoomText,
     "--mm-glow": CFG.light * CFG.fx,
     "--mm-c": CFG.color,
+    "--mm-intro-blur": `${INTRO.blur}px`,
+    "--mm-intro-z0": INTRO.zoomStart,
+    "--mm-intro-z2": INTRO.zoomEnd,
+    "--mm-intro-in": `${INTRO.inDur}s`,
+    "--mm-intro-out": `${INTRO.outDur}s`,
   };
+  const introGlowStyle = {
+    width: `${INTRO.haloSize}vmin`,
+    height: `${INTRO.haloSize}vmin`,
+    background: `radial-gradient(circle, rgba(${INTRO.haloRgb},${INTRO.haloOpacity}), rgba(${INTRO.haloRgb},0) 65%)`,
+  };
+  const introLogoStyle = { width: `${INTRO.logoSize}px` };
   const e = CFG.darkExtent;
   const shadeStyle = {
     opacity: CFG.dark,
@@ -456,8 +482,8 @@ function MainMenu({ intro = false }) {
 
       {intro && !introDone ? (
         <div className={introCls}>
-          <div className="mm-intro-glow" />
-          <img className="mm-intro-logo" src="/utilities/LOGO%20NOVA.png" alt="Loop" />
+          <div className="mm-intro-glow" style={introGlowStyle} />
+          <img className="mm-intro-logo" style={introLogoStyle} src="/utilities/LOGO%20NOVA.png" alt="Loop" />
         </div>
       ) : null}
     </div>
