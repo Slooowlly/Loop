@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import GlassCard from "../components/ui/GlassCard";
@@ -16,6 +16,7 @@ function surfaceShort(surface) {
 
 function Settings() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -240,6 +241,17 @@ function Settings() {
     loadConfig();
   }, []);
 
+  // Rola ate a secao pedida pelos atalhos do menu (navigate state.section).
+  useEffect(() => {
+    if (loading) return undefined;
+    const sec = location.state?.section;
+    if (!sec) return undefined;
+    const id = setTimeout(() => {
+      document.getElementById(sec)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+    return () => clearTimeout(id);
+  }, [loading, location.state]);
+
   async function loadConfig() {
     try {
       const cfg = await invoke("get_config");
@@ -389,7 +401,7 @@ function Settings() {
         )}
 
         {/* Section: Preferências Gerais */}
-        <GlassCard hover={false} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
+        <GlassCard hover={false} id="geral" style={{ scrollMarginTop: "1rem" }} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <div className="h-4 w-1.5 rounded-full bg-accent-primary" />
@@ -448,7 +460,7 @@ function Settings() {
         </GlassCard>
 
         {/* Section: Integração iRacing */}
-        <GlassCard hover={false} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
+        <GlassCard hover={false} id="iracing" style={{ scrollMarginTop: "1rem" }} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <div className="h-4 w-1.5 rounded-full bg-accent-primary" />
@@ -729,7 +741,7 @@ function Settings() {
         </GlassCard>
 
         {/* Section: Monitor de Corrida (unificado) */}
-        <GlassCard hover={false} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
+        <GlassCard hover={false} id="monitor" style={{ scrollMarginTop: "1rem" }} className="glass-strong rounded-[30px] !p-8 gap-6 flex flex-col">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <div className={`h-4 w-1.5 rounded-full ${racePolling ? "animate-pulse bg-status-green" : "bg-accent-primary"}`} />
@@ -1005,7 +1017,7 @@ function Settings() {
         </GlassCard>
 
         {/* Section: Race Control Automático (macro de bandeira) */}
-        <GlassCard hover={false} className="glass-strong rounded-3xl !p-5 gap-3 flex flex-col">
+        <GlassCard hover={false} id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="glass-strong rounded-3xl !p-5 gap-3 flex flex-col">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <div className={`h-4 w-1.5 rounded-full ${yellowStatus?.installed ? "bg-status-green" : "bg-accent-primary"}`} />
@@ -1095,7 +1107,9 @@ function Settings() {
         <PostRacePanel />
 
         {/* Section: Gerar AI Roster (carreira → iRacing) */}
-        <RosterGenPanel />
+        <div id="roster" style={{ scrollMarginTop: "1rem" }}>
+          <RosterGenPanel />
+        </div>
 
         <div className="flex flex-col items-center gap-4 pt-8">
           <GlassButton

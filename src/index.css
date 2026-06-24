@@ -270,18 +270,20 @@ body {
   border-radius: 50%;
   background: radial-gradient(circle, rgba(77, 121, 186, 0.3), rgba(77, 121, 186, 0) 65%);
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(var(--mm-intro-z0, 0.7));
   pointer-events: none;
-  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.9s ease;
+  transition: transform var(--mm-intro-in, 0.9s) cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity var(--mm-intro-in, 0.9s) ease;
 }
 
 .mm-intro-logo {
   position: relative;
   width: clamp(140px, 20vw, 220px);
   height: auto;
-  transform: scale(0.7);
+  transform: scale(var(--mm-intro-z0, 0.7));
   opacity: 0;
-  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.9s ease;
+  transition: transform var(--mm-intro-in, 0.9s) cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity var(--mm-intro-in, 0.9s) ease;
 }
 
 .mm-intro.s-in .mm-intro-glow,
@@ -292,9 +294,10 @@ body {
 
 .mm-intro.s-exit .mm-intro-glow,
 .mm-intro.s-exit .mm-intro-logo {
-  transform: scale(1.7);
+  transform: scale(var(--mm-intro-z2, 1.7));
   opacity: 0;
-  transition: transform 0.6s cubic-bezier(0.6, 0, 0.3, 1), opacity 0.6s ease;
+  transition: transform var(--mm-intro-out, 0.6s) cubic-bezier(0.6, 0, 0.3, 1),
+    opacity var(--mm-intro-out, 0.6s) ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -323,7 +326,7 @@ body {
 }
 
 .mm-shell.is-intro .mm-bg {
-  filter: blur(16px);
+  filter: blur(var(--mm-intro-blur, 16px));
   transform: scale(1.08);
 }
 
@@ -563,6 +566,190 @@ body {
 .mm-row-icon {
   display: inline-flex;
   opacity: 0.7;
+}
+
+.mm-card.is-active {
+  background: rgba(112, 175, 255, 0.14);
+  border-color: rgba(111, 212, 255, 0.5);
+}
+
+/* ─── Submenu lateral (carregar / configuracoes) ─── */
+
+.mm-panel {
+  position: absolute;
+  z-index: 3;
+  left: calc(clamp(36px, 6vw, 80px) + 560px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(460px, 40vw);
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(137, 201, 255, 0.14);
+  background: rgba(14, 20, 32, 0.72);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: mmPanelIn 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes mmPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+.mm-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.mm-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(121, 184, 255, 0.9);
+}
+
+.mm-panel-close {
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.mm-panel-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.mm-panel-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.mm-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mm-save-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: #fff;
+}
+
+.mm-save-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-save-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-save-del {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 7px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.mm-save-del:hover {
+  color: var(--status-red);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.mm-save-confirm {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mm-mini {
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mm-mini.danger {
+  border-color: rgba(248, 81, 73, 0.4);
+  background: rgba(248, 81, 73, 0.16);
+  color: #ffb4ae;
+}
+
+.mm-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mm-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.mm-link:hover {
+  background: rgba(112, 175, 255, 0.12);
+  border-color: rgba(111, 212, 255, 0.4);
+}
+
+.mm-link-arrow {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {

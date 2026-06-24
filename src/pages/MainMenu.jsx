@@ -112,6 +112,30 @@ function GearIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  );
+}
+
+const SETTINGS_LINKS = [
+  ["geral", "Preferências gerais"],
+  ["iracing", "Integração iRacing"],
+  ["monitor", "Monitor de corrida"],
+  ["racecontrol", "Race control"],
+  ["roster", "Gerar AI roster"],
+];
+
 function MainMenu({ intro = false }) {
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
@@ -120,11 +144,13 @@ function MainMenu({ intro = false }) {
   const canvasRef = useRef(null);
   const glowRef = useRef(null);
 
-  const [recentSave, setRecentSave] = useState(null);
+  const [saves, setSaves] = useState([]);
   const [entered, setEntered] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
   const [introDone, setIntroDone] = useState(!intro);
+  const [panel, setPanel] = useState(null); // null | "load" | "settings"
+  const [confirmDel, setConfirmDel] = useState(null);
 
   const prefersReduced =
     typeof window !== "undefined" &&
@@ -133,21 +159,21 @@ function MainMenu({ intro = false }) {
   // Navega no meio da animacao (zoom ainda em movimento), nao no fim.
   const CUT_MS = prefersReduced ? 0 : Math.round(CFG.anim * 1000 * 0.5);
 
-  // Save mais recente para o cartao "Continuar".
-  useEffect(() => {
-    let alive = true;
+  // Lista de saves (mais recente primeiro) para "Continuar" e o submenu "Carregar".
+  function refreshSaves() {
     invoke("list_saves")
-      .then((saves) => {
-        if (!alive || !Array.isArray(saves) || saves.length === 0) return;
-        const sorted = [...saves].sort(
+      .then((list) => {
+        if (!Array.isArray(list)) return;
+        const sorted = [...list].sort(
           (a, b) => new Date(b.last_played || 0) - new Date(a.last_played || 0),
         );
-        setRecentSave(sorted[0]);
+        setSaves(sorted);
       })
       .catch(() => {});
-    return () => {
-      alive = false;
-    };
+  }
+  useEffect(() => {
+    refreshSaves();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Entrada: com intro (icone com zoom sobre o fundo borrado) ou direta.
@@ -370,12 +396,13 @@ function MainMenu({ intro = false }) {
     window.setTimeout(() => navigate(path), CUT_MS);
   }
 
-  async function handleContinue() {
-    if (!recentSave || exiting) return;
+  // Entrar numa carreira (continuar / carregar save) = zoom + dashboard.
+  async function enterCareer(careerId) {
+    if (!careerId || exiting) return;
     setExiting(true);
     try {
       await Promise.all([
-        loadCareer(recentSave.career_id),
+        loadCareer(careerId),
         new Promise((resolve) => setTimeout(resolve, CUT_MS)),
       ]);
       navigate("/dashboard");
@@ -383,6 +410,26 @@ function MainMenu({ intro = false }) {
       setExiting(false);
     }
   }
+
+  function handleContinue() {
+    if (recentSave) enterCareer(recentSave.career_id);
+  }
+
+  async function deleteSave(careerId) {
+    try {
+      await invoke("delete_career", { careerId });
+    } catch {
+      /* ignore */
+    }
+    setConfirmDel(null);
+    refreshSaves();
+  }
+
+  function openSettingsSection(section) {
+    navigate("/settings", { state: { section } });
+  }
+
+  const recentSave = saves[0] || null;
 
   const continueSub = recentSave
     ? [recentSave.category_name, recentSave.last_played ? formatDateTime(recentSave.last_played) : null]
@@ -464,14 +511,22 @@ function MainMenu({ intro = false }) {
             <span>Nova carreira</span>
           </button>
 
-          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/load-save")}>
+          <button
+            type="button"
+            className={`mm-card mm-row${panel === "load" ? " is-active" : ""}`}
+            onClick={() => setPanel((p) => (p === "load" ? null : "load"))}
+          >
             <span className="mm-row-icon">
               <FolderIcon />
             </span>
             <span>Carregar save</span>
           </button>
 
-          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/settings")}>
+          <button
+            type="button"
+            className={`mm-card mm-row${panel === "settings" ? " is-active" : ""}`}
+            onClick={() => setPanel((p) => (p === "settings" ? null : "settings"))}
+          >
             <span className="mm-row-icon">
               <GearIcon />
             </span>
@@ -479,6 +534,74 @@ function MainMenu({ intro = false }) {
           </button>
         </div>
       </div>
+
+      {panel ? (
+        <div className="mm-panel">
+          <div className="mm-panel-head">
+            <span className="mm-panel-title">
+              {panel === "load" ? "Carregar save" : "Configurações"}
+            </span>
+            <button type="button" className="mm-panel-close" onClick={() => setPanel(null)} aria-label="Fechar">
+              <CloseIcon />
+            </button>
+          </div>
+
+          {panel === "load" ? (
+            saves.length === 0 ? (
+              <div className="mm-panel-empty">
+                <p>Nenhuma carreira ainda.</p>
+                <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/new-career")}>
+                  <span className="mm-row-icon">
+                    <PlusIcon />
+                  </span>
+                  <span>Nova carreira</span>
+                </button>
+              </div>
+            ) : (
+              saves.map((s) => (
+                <div className="mm-save" key={s.career_id}>
+                  <button type="button" className="mm-save-main" onClick={() => enterCareer(s.career_id)}>
+                    <div className="mm-save-name">{s.player_name}</div>
+                    <div className="mm-save-sub">
+                      {[s.category_name, s.last_played ? formatDateTime(s.last_played) : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </button>
+                  {confirmDel === s.career_id ? (
+                    <div className="mm-save-confirm">
+                      <button type="button" className="mm-mini danger" onClick={() => deleteSave(s.career_id)}>
+                        Excluir
+                      </button>
+                      <button type="button" className="mm-mini" onClick={() => setConfirmDel(null)}>
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="mm-save-del"
+                      onClick={() => setConfirmDel(s.career_id)}
+                      aria-label="Deletar save"
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
+                </div>
+              ))
+            )
+          ) : (
+            <div className="mm-links">
+              {SETTINGS_LINKS.map(([key, label]) => (
+                <button key={key} type="button" className="mm-link" onClick={() => openSettingsSection(key)}>
+                  <span>{label}</span>
+                  <span className="mm-link-arrow">›</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {intro && !introDone ? (
         <div className={introCls}>
