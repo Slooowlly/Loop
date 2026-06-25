@@ -643,6 +643,8 @@ function MonthCard({
   onCellHover,
 }) {
   const phase = getMonthPhase(month, isLegacyCalendar);
+  const prevPhase = month > 0 ? getMonthPhase(month - 1, isLegacyCalendar) : null;
+  const isPhaseStart = !prevPhase || prevPhase.type !== phase.type;
   const cells = buildMonthCells(year, month);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const isCurrentMonth = currentDateParts?.year === year && currentDateParts?.month === month;
@@ -696,14 +698,19 @@ function MonthCard({
             </span>
           )}
         </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${phase.badgeClass}`}
-        >
-          {phase.label}
-        </span>
+        {isPhaseStart && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${phase.badgeClass}`}
+          >
+            {phase.label}
+          </span>
+        )}
       </div>
+      {isCurrentMonth && (
+        <div className="mb-2 h-[2px] w-10 rounded-full bg-accent-primary/70" />
+      )}
 
-      <div className="grid grid-cols-7 gap-[3px]">
+      <div className="grid grid-cols-7 gap-[2px]">
         {WEEKDAY_LABELS.map((weekday, index) => (
           <div
             key={index}
@@ -812,13 +819,13 @@ function DayCell({
       ? "border-orange-300/55 bg-gradient-to-br from-orange-400/25 via-amber-400/18 to-orange-600/22 text-orange-50 shadow-[0_0_16px_rgba(251,146,60,0.18)]"
       : preSpecialBg;
     const visibleBg = isAnimatedCurrentDay
-      ? "border-accent-primary/75 bg-[linear-gradient(180deg,rgba(88,166,255,0.15),rgba(88,166,255,0.05))] text-text-primary shadow-[0_0_0_1px_rgba(88,166,255,0.14),0_12px_24px_rgba(0,0,0,0.18)]"
+      ? "border-accent-primary/80 bg-accent-primary/[0.06] text-text-primary"
       : convocationBg;
     const dayNumberTone = isAnimatedCurrentDay
       ? ""
       : isFutureCurrentMonthDay || isFutureMonth
         ? "text-text-muted/50"
-        : "text-text-primary";
+        : "text-text-secondary";
 
     return (
       <div
@@ -856,7 +863,7 @@ function DayCell({
       : "bg-black/28";
   const overlayClass = isFutureCurrentMonthDay || isFutureMonth ? "bg-black/52" : baseOverlayClass;
   const animatedOverlayClass = isAnimatedCurrentDay
-    ? "bg-[linear-gradient(180deg,rgba(88,166,255,0.16),rgba(88,166,255,0.045))] ring-1 ring-inset ring-accent-primary/70 shadow-[0_0_20px_rgba(88,166,255,0.18)]"
+    ? "bg-black/20 ring-1 ring-inset ring-accent-primary/80"
     : overlayClass;
   const specialRaceFrameClass = isSpecialRace && !isAnimatedCurrentDay
     ? "ring-1 ring-inset ring-status-purple/65 shadow-[0_0_16px_rgba(168,85,247,0.18)]"
@@ -883,7 +890,6 @@ function DayCell({
       className={[
         "group relative aspect-square cursor-pointer overflow-hidden rounded-lg transition-transform duration-300",
         specialRaceFrameClass,
-        isAnimatedCurrentDay ? "shadow-[0_0_0_1px_rgba(88,166,255,0.14),0_12px_24px_rgba(0,0,0,0.18)]" : "",
       ].join(" ")}
       onMouseEnter={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
