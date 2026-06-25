@@ -42,6 +42,33 @@ const INTRO = {
 // Posicao do submenu lateral (ajustada em debug e fixada).
 const POS = { panelX: 565, panelWidth: 390, yMode: "anchor", yOffset: -85, panelY: 200 };
 
+// Tempo relativo curto (hoje / ontem / ha N dias...).
+function relativeTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const DAY = 86400000;
+  const now = new Date();
+  const a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const b = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((a - b) / DAY);
+  if (days <= 0) return "hoje";
+  if (days === 1) return "ontem";
+  if (days < 7) return `há ${days} dias`;
+  if (days < 14) return "há 1 semana";
+  if (days < 30) return `há ${Math.floor(days / 7)} semanas`;
+  if (days < 60) return "há 1 mês";
+  if (days < 365) return `há ${Math.floor(days / 30)} meses`;
+  const y = Math.floor(days / 365);
+  return y === 1 ? "há 1 ano" : `há ${y} anos`;
+}
+
+// Categoria enxuta: tira sufixos longos (Cup/Series/etc) para virar uma tag curta.
+function shortCategory(name) {
+  if (!name) return "";
+  return name.replace(/\s+(Cup|Series|Championship|Trophy|Challenge)\b/gi, "").trim() || name;
+}
+
 // Oscilacao de intensidade tipo tocha: flicker lento + labareda a cada 8s.
 function torch(t, amt) {
   const flicker =
@@ -631,7 +658,7 @@ function MainMenu({ intro = false }) {
                   <button type="button" className="mm-save-main" onClick={() => enterCareer(s.career_id)}>
                     <div className="mm-save-name">{s.player_name}</div>
                     <div className="mm-save-sub">
-                      {[s.category_name, s.last_played ? formatDateTime(s.last_played) : null]
+                      {[shortCategory(s.category_name), relativeTime(s.last_played)]
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
