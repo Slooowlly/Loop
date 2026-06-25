@@ -214,19 +214,20 @@ export function startAmbient() {
   ambient = inst;
 }
 
-export function stopAmbient() {
+// fade = duração da saída em s. Padrão ~0 (corte seco, quando o whoosh cobre);
+// use um valor maior (ex.: 0.6) quando NÃO houver whoosh (ex.: ir pras Configurações).
+export function stopAmbient(fade = 0.03) {
   if (!ambient || !ctx) return;
   const inst = ambient;
   ambient = null;
   const now = ctx.currentTime;
   const { g, oscs, lfo } = inst;
   try {
-    // Corte seco (rampa curtíssima só pra não estalar) — o whoosh cobre a saída.
     g.gain.cancelScheduledValues(now);
     g.gain.setValueAtTime(g.gain.value, now);
-    g.gain.linearRampToValueAtTime(0.0001, now + 0.03);
-    oscs.forEach((o) => o.stop(now + 0.05));
-    lfo.stop(now + 0.05);
+    g.gain.linearRampToValueAtTime(0.0001, now + fade);
+    oscs.forEach((o) => o.stop(now + fade + 0.02));
+    lfo.stop(now + fade + 0.02);
   } catch {
     /* ignore */
   }

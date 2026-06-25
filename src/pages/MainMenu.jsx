@@ -629,7 +629,10 @@ function MainMenu({ intro = false }) {
             type="button"
             className="mm-card mm-row"
             onMouseEnter={hover}
-            onClick={() => navigate("/settings")}
+            onClick={() => {
+              stopAmbient(0.6); // sem whoosh aqui: ambiente sai com fade
+              navigate("/settings");
+            }}
           >
             <span className="mm-row-icon">
               <GearIcon />
