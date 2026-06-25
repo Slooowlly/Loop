@@ -805,7 +805,8 @@ mod tests {
 
         assert!(updated >= 1);
         assert_eq!(last.week_of_year, 52);
-        assert_eq!(last.display_date, "2024-12-29");
+        // production_challenger agora corre no sábado → sábado da semana 52.
+        assert_eq!(last.display_date, "2024-12-28");
     }
 
     #[test]

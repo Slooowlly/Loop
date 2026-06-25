@@ -884,19 +884,18 @@ pub(crate) fn display_date_for_category_round(
     display_date_for_category_week(year, week, category_id, season_phase)
 }
 
-fn resolve_calendar_weekday(category_id: &str, season_phase: SeasonPhase) -> Weekday {
-    match season_phase {
-        SeasonPhase::BlocoEspecial => Weekday::Sun,
-        _ => match category_id {
-            "mazda_rookie" => Weekday::Mon,
-            "toyota_rookie" => Weekday::Tue,
-            "mazda_amador" => Weekday::Wed,
-            "toyota_amador" => Weekday::Thu,
-            "bmw_m2" => Weekday::Fri,
-            "gt3" => Weekday::Sun,
-            "gt4" => Weekday::Sat,
-            _ => Weekday::Sat,
-        },
+fn resolve_calendar_weekday(category_id: &str, _season_phase: SeasonPhase) -> Weekday {
+    // Dia fixo por categoria. Mazda/Toyota compartilham o dia e alternam semanas
+    // (a separação por semana é feita pela janela disjunta no gerador 9D).
+    match category_id {
+        "mazda_rookie" | "toyota_rookie" => Weekday::Mon,
+        "mazda_amador" | "toyota_amador" => Weekday::Tue,
+        "bmw_m2" => Weekday::Wed,
+        "gt4" => Weekday::Thu,
+        "gt3" => Weekday::Fri,
+        "production_challenger" => Weekday::Sat,
+        "endurance" | "lmp2" => Weekday::Sun,
+        _ => Weekday::Sat,
     }
 }
 
@@ -1296,7 +1295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_weekday_policy_amador_categories_are_stable_wednesday_or_thursday() {
+    fn test_weekday_policy_amador_categories_are_stable_tuesday() {
         for category in ["mazda_amador", "toyota_amador"] {
             let mut rng = StdRng::seed_from_u64(43);
             let calendar =
@@ -1317,15 +1316,15 @@ mod tests {
                 "{category} deve usar um dia fixo na temporada"
             );
             assert!(
-                matches!(weekdays.iter().next(), Some(Weekday::Wed | Weekday::Thu)),
-                "{category} deve correr quarta ou quinta, recebeu {:?}",
+                matches!(weekdays.iter().next(), Some(Weekday::Tue)),
+                "{category} deve correr terça, recebeu {:?}",
                 weekdays
             );
         }
     }
 
     #[test]
-    fn test_weekday_policy_bmw_m2_is_friday() {
+    fn test_weekday_policy_bmw_m2_is_wednesday() {
         let mut rng = StdRng::seed_from_u64(43);
         let calendar = generate_calendar_for_category_with_year("S001", 2028, "bmw_m2", &mut rng)
             .expect("bmw calendar");
@@ -1334,7 +1333,7 @@ mod tests {
             let date = NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
             assert_eq!(
                 date.weekday(),
-                Weekday::Fri,
+                Weekday::Wed,
                 "bmw_m2 gerou {}",
                 entry.display_date
             );
@@ -1347,8 +1346,8 @@ mod tests {
     }
 
     #[test]
-    fn test_weekday_policy_gt4_saturday_and_gt3_sunday() {
-        let cases = [("gt4", Weekday::Sat), ("gt3", Weekday::Sun)];
+    fn test_weekday_policy_gt4_thursday_and_gt3_friday() {
+        let cases = [("gt4", Weekday::Thu), ("gt3", Weekday::Fri)];
 
         for (category, expected_weekday) in cases {
             let mut rng = StdRng::seed_from_u64(44);
@@ -1386,8 +1385,13 @@ mod tests {
     }
 
     #[test]
-    fn test_weekday_policy_special_categories_are_sunday() {
-        for category in ["production_challenger", "endurance"] {
+    fn test_weekday_policy_production_saturday_and_endurance_sunday() {
+        let cases = [
+            ("production_challenger", Weekday::Sat),
+            ("endurance", Weekday::Sun),
+        ];
+
+        for (category, expected_weekday) in cases {
             let mut rng = StdRng::seed_from_u64(45);
             let calendar =
                 generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
@@ -1398,7 +1402,7 @@ mod tests {
                     NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
                 assert_eq!(
                     date.weekday(),
-                    Weekday::Sun,
+                    expected_weekday,
                     "{category} gerou {}",
                     entry.display_date
                 );
@@ -1480,13 +1484,9 @@ mod tests {
     #[test]
     fn test_special_calendar_reaches_the_last_week_of_december() {
         let mut rng = StdRng::seed_from_u64(26);
-        let calendar = generate_calendar_for_category_with_year(
-            "S001",
-            2028,
-            "production_challenger",
-            &mut rng,
-        )
-        .expect("special calendar");
+        let calendar =
+            generate_calendar_for_category_with_year("S001", 2028, "endurance", &mut rng)
+                .expect("special calendar");
 
         let last_date = calendar
             .iter()
