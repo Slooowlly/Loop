@@ -604,6 +604,21 @@ body {
   }
 }
 
+.mm-panel.is-closing {
+  animation: mmPanelOut 0.24s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+@keyframes mmPanelOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
 .mm-panel-head {
   display: flex;
   align-items: center;

@@ -156,20 +156,42 @@ function MainMenu({ intro = false }) {
   const [introDone, setIntroDone] = useState(!intro);
   const [panel, setPanel] = useState(null); // null | "load" | "settings"
   const [panelAnchor, setPanelAnchor] = useState(0);
+  const [panelClosing, setPanelClosing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
+  const closeTimer = useRef(null);
 
-  // Abre/fecha o submenu guardando a altura do botao clicado.
-  function togglePanel(which, ev) {
-    if (panel === which) {
+  // Fecha com animacao: marca closing, e desmonta so quando a anim termina.
+  function requestClose() {
+    if (panelClosing || !panel) return;
+    setPanelClosing(true);
+    closeTimer.current = window.setTimeout(() => {
       setPanel(null);
+      setPanelClosing(false);
+      closeTimer.current = null;
+    }, 240);
+  }
+
+  // Abre/troca/fecha o submenu guardando a altura do botao clicado.
+  function togglePanel(which, ev) {
+    if (panel === which && !panelClosing) {
+      requestClose();
       return;
     }
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    setPanelClosing(false);
     const stage = stageRef.current?.getBoundingClientRect();
     const btn = ev.currentTarget.getBoundingClientRect();
     setPanelAnchor(btn.top - (stage ? stage.top : 0));
     setConfirmDel(null);
     setPanel(which);
   }
+
+  useEffect(() => () => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+  }, []);
 
   // Posiciona o topo conforme o debug (segue o botao + offset, ou fixo), com clamp.
   useLayoutEffect(() => {
@@ -187,7 +209,7 @@ function MainMenu({ intro = false }) {
     function onDocDown(ev) {
       if (panelRef.current?.contains(ev.target)) return;
       if (menuRef.current?.contains(ev.target)) return;
-      setPanel(null);
+      requestClose();
     }
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
@@ -578,7 +600,8 @@ function MainMenu({ intro = false }) {
 
       {panel ? (
         <div
-          className="mm-panel"
+          key={panel}
+          className={`mm-panel${panelClosing ? " is-closing" : ""}`}
           ref={panelRef}
           style={{ top: `${panelAnchor}px`, left: `${POS.panelX}px`, width: `${POS.panelWidth}px` }}
         >
@@ -586,7 +609,7 @@ function MainMenu({ intro = false }) {
             <span className="mm-panel-title">
               {panel === "load" ? "Carregar save" : "Configurações"}
             </span>
-            <button type="button" className="mm-panel-close" onClick={() => setPanel(null)} aria-label="Fechar">
+            <button type="button" className="mm-panel-close" onClick={requestClose} aria-label="Fechar">
               <CloseIcon />
             </button>
           </div>
