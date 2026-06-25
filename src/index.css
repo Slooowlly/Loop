@@ -817,6 +817,29 @@ body {
   animation: gradient-shift 15s ease infinite;
 }
 
+/* ─── Entrada de página (casa com o zoom-out do menu) ────────────────────── */
+
+.page-in {
+  animation: pageIn 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: scale(1.03) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-in {
+    animation: none;
+  }
+}
+
 /* ─── Keyframes (camelCase — usados pelo novo PreSeasonView) ─────────────── */
 
 @keyframes fadeIn {
