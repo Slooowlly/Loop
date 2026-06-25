@@ -117,9 +117,9 @@ function Settings() {
   };
 
   if (loading || !config) {
-    // Só o fundo (sem texto piscando) até o config carregar — o conteúdo entra animado.
+    // Só o fundo (tela cheia, sem texto piscando nem colapsar) até o config carregar.
     return (
-      <div className="entry-shell !block !h-full !min-h-0 px-4 py-12">
+      <div className="entry-shell !block !h-full px-4 py-12">
         <div className="entry-backdrop" />
         <div className="entry-glow left-[5%] top-[10%] h-80 w-80 bg-blue-500/10" />
         <div className="entry-glow bottom-[5%] right-[5%] h-96 w-96 bg-cyan-500/10" />
