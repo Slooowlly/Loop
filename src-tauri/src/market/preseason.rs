@@ -15,6 +15,7 @@ use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::meta as meta_queries;
+use crate::db::queries::rivalries as rivalry_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::finance::cashflow::{apply_offseason_competitiveness_impact, PENALTY_FADE_YEARS};
@@ -89,6 +90,12 @@ pub struct MarketEvent {
     pub championship_position: Option<i32>,
     #[serde(default)]
     pub seasons_at_previous: Option<i32>,
+    /// Vínculo do piloto deste evento com o JOGADOR, p/ o feed dar ênfase:
+    /// `"rival"` (rivalidade ativa) | `"raced"` (já correu contra você E entrou na
+    /// sua categoria atual) | `"favorite"` (favoritado — reservado, sem sistema ainda).
+    /// `None` = sem vínculo (maioria do feed). Prioridade: favorite > rival > raced.
+    #[serde(default)]
+    pub relation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -637,6 +644,7 @@ pub fn advance_week(
             movement_kind: Some(movement_kind),
             championship_position: None,
             seasons_at_previous,
+            relation: None,
         }
     };
     let mut events: Vec<MarketEvent> = report.new_signings.iter().map(&map_signing).collect();
@@ -699,6 +707,7 @@ pub fn advance_week(
             movement_kind: None,
             championship_position: None,
             seasons_at_previous: None,
+            relation: None,
         });
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
     } else {
@@ -713,6 +722,10 @@ pub fn advance_week(
         )?;
     }
 
+    // Marca cada evento com seu vínculo ao jogador (rival / já-correu-contra) — o feed
+    // mostra TODOS, mas dá ênfase aos marcados. Não filtra nada.
+    tag_player_relations(conn, &mut events);
+
     let next_phase = plan.state.phase.clone();
     refresh_preseason_state_display_date(conn, &season_id, &mut plan.state)?;
     let result = WeekResult {
@@ -726,6 +739,68 @@ pub fn advance_week(
     };
     plan.executed_weeks.push(result.clone());
     Ok(result)
+}
+
+/// Anota cada evento do feed com seu vínculo ao JOGADOR, para o front dar ênfase
+/// (mostra TODOS os eventos como sempre; só marca os relevantes). Regras:
+/// - `"rival"`: o piloto tem rivalidade ativa com o jogador (qualquer categoria).
+/// - `"raced"`: o jogador já dividiu um grid com o piloto E o evento é na categoria
+///   ATUAL do jogador (ex.: "alguém com quem já corri entrou na minha Mazda Cup").
+///   Restrito à categoria atual de propósito: numa carreira longa o jogador já correu
+///   contra quase todo mundo, então sem o filtro o selo apareceria em todos.
+/// - `"favorite"`: reservado p/ quando existir sistema de favoritar (prioridade máxima).
+/// Prioridade: favorite > rival > raced. Eventos sem `driver_id` (ex.: fechamento da
+/// janela) ficam sem vínculo.
+fn tag_player_relations(conn: &Connection, events: &mut [MarketEvent]) {
+    let Ok(player) = driver_queries::get_player_driver(conn) else {
+        return;
+    };
+    let player_id = player.id;
+    let player_cat = player.categoria_atual;
+
+    // Favoritos do jogador (watchlist) — prioridade máxima na ênfase.
+    let favorites = crate::db::queries::favorites::get_favorite_ids(conn).unwrap_or_default();
+
+    // Rivais ativos: o "outro" piloto de cada rivalidade do jogador.
+    let rivals: std::collections::HashSet<String> =
+        rivalry_queries::get_rivalries_for_pilot(conn, &player_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| {
+                if r.piloto1_id == player_id {
+                    r.piloto2_id
+                } else {
+                    r.piloto1_id
+                }
+            })
+            .collect();
+
+    // Pilotos com quem o jogador já dividiu um grid (qualquer corrida da carreira).
+    let mut raced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT DISTINCT r2.piloto_id
+           FROM race_results r1
+           JOIN race_results r2 ON r1.race_id = r2.race_id
+          WHERE r1.piloto_id = ?1 AND r2.piloto_id != ?1",
+    ) {
+        if let Ok(rows) = stmt.query_map([&player_id], |row| row.get::<_, String>(0)) {
+            raced.extend(rows.flatten());
+        }
+    }
+
+    for ev in events.iter_mut() {
+        let Some(did) = ev.driver_id.as_deref() else {
+            continue;
+        };
+        // Prioridade: favorito > rival > já-correu. Para por aqui na 1ª match.
+        if favorites.contains(did) {
+            ev.relation = Some("favorite".to_string());
+        } else if rivals.contains(did) {
+            ev.relation = Some("rival".to_string());
+        } else if raced.contains(did) && ev.categoria.as_deref() == player_cat.as_deref() {
+            ev.relation = Some("raced".to_string());
+        }
+    }
 }
 
 /// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
@@ -767,6 +842,7 @@ fn merit_move_events(
                 movement_kind: Some(movement_kind.to_string()),
                 championship_position: None,
                 seasons_at_previous,
+                relation: None,
             })
         })
         .collect()
@@ -815,6 +891,7 @@ fn build_departure_events(
             seasons_at_previous: previous_team
                 .get(c.piloto_id.as_str())
                 .map(|(_, tenure)| *tenure),
+            relation: None,
         });
     }
     Ok(events)

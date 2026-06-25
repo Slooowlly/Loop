@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
+import LapTimeLineChart from "./LapTimeLineChart";
+import RaceTraceChart from "./RaceTraceChart";
+import PaceDeltaChart from "./PaceDeltaChart";
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -217,6 +217,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
           <TabButton active={tab === "trace"} onClick={() => setTab("trace")}>Race Trace</TabButton>
         )}
         {hasPace && <TabButton active={tab === "pace"} onClick={() => setTab("pace")}>Pace Consistency</TabButton>}
+        {hasPace && <TabButton active={tab === "ritmo"} onClick={() => setTab("ritmo")}>Ritmo</TabButton>}
         {rivalGap.length >= 2 && (
           <TabButton active={tab === "rival"} onClick={() => setTab("rival")}>Gap pro rival</TabButton>
         )}
@@ -235,25 +236,18 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
             <ModeChip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>Gap ao líder</ModeChip>
           </div>
           <div className="h-[340px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={displayRows} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
-                <CartesianGrid stroke={GRID} />
-                <LapMarkers yellowLaps={yellowLaps} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
-                <XAxis type="number" dataKey="lap" domain={lapDomain} allowDecimals={false}
-                  tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
-                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
-                <YAxis reversed allowDecimals={false}
-                  domain={traceMode === "gap" ? [0, gapCap ?? "dataMax"] : [1, "dataMax"]}
-                  tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
-                  tickFormatter={(v) => (traceMode === "gap" ? `${v}s` : `P${v}`)} />
-                <Tooltip content={<TraceTooltip mode={traceMode} nameByIdx={nameByIdx} />} />
-                {orderedCars.map((car) => (
-                  <Line key={car.idx} type="monotone" dataKey={`c${car.idx}`} stroke={colorFor[car.idx]}
-                    strokeWidth={car.is_player ? 3 : 1.3} strokeOpacity={car.is_player ? 1 : 0.6}
-                    dot={false} activeDot={car.is_player ? { r: 4 } : false} connectNulls isAnimationActive={false} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <RaceTraceChart
+              rows={displayRows}
+              cars={orderedCars.map((c) => ({ idx: c.idx, isPlayer: c.is_player }))}
+              colorForCar={(idx) => colorFor[idx]}
+              nameByIdx={nameByIdx}
+              mode={traceMode}
+              lapDomain={lapDomain}
+              gapCap={gapCap}
+              yellowLaps={yellowLaps}
+              bestLap={bestMomentLap}
+              mistakeLap={mistakeLap}
+            />
           </div>
 
           {/* Legenda: nome do piloto na cor do time/carro */}
@@ -270,7 +264,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
       )}
 
       {/* PACE CONSISTENCY (tempos de volta) — piloto selecionável */}
-      {tab === "pace" && hasPace && (
+      {(tab === "pace" || tab === "ritmo") && hasPace && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <div className="relative">
@@ -316,25 +310,15 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
             <div className="flex h-[300px] items-center justify-center text-xs text-gray-500">
               Sem voltas registradas para este piloto.
             </div>
+          ) : tab === "ritmo" ? (
+            // Linha de tempo de volta — MESMO gráfico do iRacing Conectado (componente
+            // compartilhado), aqui com o piloto selecionado no seletor acima.
+            <div className="h-[300px] w-full">
+              <LapTimeLineChart rows={pace.rows} color={colorFor[activePaceIdx] || PLAYER_COLOR} />
+            </div>
           ) : (
           <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pace.rows} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
-                <CartesianGrid stroke={GRID} vertical={false} />
-                <LapMarkers yellowLaps={[]} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
-                <XAxis dataKey="lap" tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
-                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
-                <YAxis tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
-                  tickFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}s`} />
-                <Tooltip content={<PaceTooltip />} />
-                <ReferenceLine y={0} stroke={AXIS_TICK} strokeOpacity={0.5} />
-                <Bar dataKey="delta" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                  {pace.rows.map((r) => (
-                    <Cell key={r.lap} fill={r.isBest ? GOOD : r.delta > 0 ? BAD : "#16a34a"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <PaceDeltaChart rows={pace.rows} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
           </div>
           )}
         </div>
@@ -366,44 +350,6 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function TraceTooltip({ active, payload, label, mode, nameByIdx }) {
-  if (!active || !payload?.length) return null;
-  const rows = payload.filter((p) => p.value != null).sort((a, b) => a.value - b.value).slice(0, 12);
-  return (
-    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
-      <div className="mb-1 font-semibold text-white">Volta {label}</div>
-      {rows.map((p) => {
-        const idx = Number(p.dataKey.slice(1));
-        return (
-          <div key={p.dataKey} className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5" style={{ color: p.color }}>
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.color }} />
-              {nameByIdx[idx] ?? `Carro ${idx}`}
-            </span>
-            <span className="tabular-nums text-gray-400">
-              {mode === "gap" ? `+${p.value.toFixed(2)}s` : `P${p.value}`}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function PaceTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-  const r = payload[0].payload;
-  return (
-    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
-      <div className="font-semibold text-white">Volta {r.lap}</div>
-      <div className="text-gray-400">{formatLap(r.time)}</div>
-      <div className={r.delta > 0 ? "text-red-400" : "text-green-400"}>
-        {r.delta > 0 ? "+" : ""}{r.delta.toFixed(2)}s à média
-      </div>
     </div>
   );
 }

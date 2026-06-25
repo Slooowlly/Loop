@@ -674,15 +674,22 @@ function MonthCard({
 
   const hasRaces = Object.keys(racesThisMonth).length > 0;
 
+  // Card de vidro por mês (profundidade + separação). O mês ATUAL ganha borda/glow
+  // de destaque; os demais um vidro sutil que levanta no hover.
+  const cardBase = "relative overflow-hidden rounded-2xl p-3 transition-all duration-300";
+  const cardSkin = isCurrentMonth
+    ? "border border-accent-primary/45 bg-[linear-gradient(180deg,rgba(88,166,255,0.10),rgba(88,166,255,0.02))] shadow-[0_0_0_1px_rgba(88,166,255,0.22),0_0_30px_-6px_rgba(88,166,255,0.40),inset_0_1px_0_rgba(255,255,255,0.06)]"
+    : "border border-white/[0.06] bg-gradient-to-b from-white/[0.035] to-white/[0.008] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_30px_-14px_rgba(0,0,0,0.55)] hover:-translate-y-[1px] hover:border-white/[0.12] hover:bg-white/[0.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_36px_-14px_rgba(0,0,0,0.6)]";
+
   return (
     <div
-      className="relative px-1 pt-2 transition-all duration-300"
+      className={`${cardBase} ${cardSkin}`}
       data-testid={`calendar-month-${monthIso}`}
       data-active-month-window={isCurrentMonth ? "true" : "false"}
       data-animated-month={isAnimatedMonth ? "true" : "false"}
     >
       {isAnimatedMonth && (
-        <div className="absolute left-1 right-1 top-0 h-[3px] rounded-b-full bg-white/8">
+        <div className="absolute left-3 right-3 top-0 h-[3px] rounded-b-full bg-white/8">
           <div
             data-testid={`calendar-progress-${monthIso}`}
             data-animated-month="true"
@@ -693,7 +700,7 @@ function MonthCard({
       )}
 
       <div
-        className={`mb-2 rounded-lg px-3 py-1.5 text-center text-[12px] font-bold uppercase tracking-[0.16em] ${
+        className={`mb-2 rounded-lg px-3 py-1.5 text-center text-[15px] font-bold uppercase tracking-[0.16em] ${
           isCurrentMonth ? tint.active : tint.idle
         }`}
       >
@@ -828,7 +835,7 @@ function DayCell({
         data-visual-month-state={visualMonthState}
         data-current-month-progress={currentMonthProgress}
         data-other-category-count={String(otherCategoryCount)}
-        className={`relative flex aspect-square items-center justify-center rounded border text-[10px] transition-all duration-300 ${otherCategoryCount > 0 ? "cursor-pointer" : ""} ${dayNumberTone} ${visibleBg}`}
+        className={`relative flex aspect-square items-center justify-center border text-[10px] transition-all duration-300 ${otherCategoryCount > 0 ? "cursor-pointer" : ""} ${dayNumberTone} ${visibleBg}`}
         onMouseEnter={otherCategoryCount > 0 ? (event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           onHover({ race: null, otherRaces: otherCategoryRaces, rect });
@@ -878,7 +885,7 @@ function DayCell({
       data-race-arrival-feedback={shouldFlashRaceArrival ? "true" : "false"}
       data-other-category-count={String(otherCategoryCount)}
       className={[
-        "group relative aspect-square cursor-pointer overflow-hidden rounded-lg transition-transform duration-300",
+        "group relative aspect-square cursor-pointer overflow-hidden transition-transform duration-300",
         specialRaceFrameClass,
       ].join(" ")}
       onMouseEnter={(event) => {
@@ -905,7 +912,7 @@ function DayCell({
       {shouldFlashRaceArrival && (
         <div
           data-testid="calendar-race-arrival-flash"
-          className="calendar-race-arrival-flash pointer-events-none absolute inset-[2px] z-20 rounded-md border border-accent-hover/70 bg-accent-primary/10"
+          className="calendar-race-arrival-flash pointer-events-none absolute inset-[2px] z-20 border border-accent-hover/70 bg-accent-primary/10"
         />
       )}
 

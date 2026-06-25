@@ -192,6 +192,13 @@ pub struct TelemetryAnalysis {
     pub best_moment: Option<BestMoment>,
     /// Séries para os gráficos (race trace, tempos, gap ao rival). None se vazio.
     pub charts: Option<RaceCharts>,
+    /// Estratégia de pneu inferida de TODOS os carros (paradas + clima). Vale mesmo
+    /// se o jogador saiu cedo (a IA corre até o fim). Vazio se não houve paradas/clima.
+    #[serde(default)]
+    pub tire_strategies: Vec<super::tire_strategy::CarTireStrategy>,
+    /// Atalho: a estratégia de pneu do PRÓPRIO jogador (None se não identificada).
+    #[serde(default)]
+    pub player_tire: Option<super::tire_strategy::CarTireStrategy>,
 }
 
 fn mean(v: &[f64]) -> f64 {
@@ -221,6 +228,7 @@ const MAX_RIVAL_GAP_S: f64 = 3.0;
 pub fn analyze(
     history: &RaceHistory,
     name_by_idx: &HashMap<i32, String>,
+    team_by_idx: &HashMap<i32, String>,
     incidents: &PlayerIncidents,
 ) -> TelemetryAnalysis {
     let player_idx = history.player_car_idx;
@@ -243,6 +251,21 @@ pub fn analyze(
 
     let (confidence, is_partial) = confidence_label(laps_seen, race_laps);
 
+    // Estratégia de pneu (todos os carros) a partir das paradas + clima da corrida.
+    // Resolve os nomes dos pilotos aqui (o módulo puro só conhece o car_idx).
+    let mut tire_strategies = super::tire_strategy::infer_all(&history.pit_stops, history.weather);
+    for s in &mut tire_strategies {
+        s.pilot_name = name_by_idx
+            .get(&s.car_idx)
+            .cloned()
+            .unwrap_or_else(|| format!("Carro {}", s.car_idx));
+        s.team_name = team_by_idx.get(&s.car_idx).cloned().unwrap_or_default();
+    }
+    let player_tire = tire_strategies
+        .iter()
+        .find(|s| s.car_idx == player_idx)
+        .cloned();
+
     TelemetryAnalysis {
         has_telemetry: pace.is_some()
             || rival.is_some()
@@ -260,6 +283,8 @@ pub fn analyze(
         mistake,
         best_moment,
         charts,
+        tire_strategies,
+        player_tire,
     }
 }
 
@@ -881,7 +906,7 @@ mod tests {
         for lap in 1..=4 {
             h.car_laps.push(CarLap { car_idx: 1, lap, time: 92.0 });
         }
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         let p = a.pace.expect("tem ritmo");
         assert!((p.best_lap_ms - 90_000.0).abs() < 1.0);
         // Volta limpa exclui a de 96 (96000 > 90000*1.04=93600).
@@ -904,7 +929,7 @@ mod tests {
             PlayerLap { lap: 1, time: 90.0 },
             PlayerLap { lap: 2, time: 90.5 },
         ];
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         let p = a.pace.expect("2 voltas já dá ritmo");
         assert_eq!(p.total_laps, 2);
         // < 3 voltas → consistência não confiável (a tela esconde o card).
@@ -917,7 +942,7 @@ mod tests {
     fn uma_volta_so_nao_gera_ritmo() {
         let mut h = base_history();
         h.player_laps = vec![PlayerLap { lap: 1, time: 90.0 }];
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(a.pace.is_none());
     }
 
@@ -933,7 +958,7 @@ mod tests {
         let mut names = HashMap::new();
         names.insert(5, "Lucas Silva".to_string());
         names.insert(9, "Rafael Costa".to_string());
-        let a = analyze(&h, &names, &PlayerIncidents::default());
+        let a = analyze(&h, &names, &HashMap::new(), &PlayerIncidents::default());
         let r = a.rival.expect("tem rival");
         assert_eq!(r.pilot_name, "Lucas Silva");
         assert_eq!(r.laps_battled, 3);
@@ -950,7 +975,7 @@ mod tests {
         ];
         let mut names = HashMap::new();
         names.insert(5, "Lucas Silva".to_string());
-        let a = analyze(&h, &names, &PlayerIncidents::default());
+        let a = analyze(&h, &names, &HashMap::new(), &PlayerIncidents::default());
         assert!(a.rival.is_none(), "2 voltas não é rival");
     }
 
@@ -965,7 +990,7 @@ mod tests {
         ];
         let mut names = HashMap::new();
         names.insert(5, "Lucas Silva".to_string());
-        let a = analyze(&h, &names, &PlayerIncidents::default());
+        let a = analyze(&h, &names, &HashMap::new(), &PlayerIncidents::default());
         assert!(a.rival.is_none(), "gap grande não é rival");
     }
 
@@ -977,7 +1002,7 @@ mod tests {
             h.laps.push(LapSnapshot { lap, cars: vec![] });
             h.player_laps.push(PlayerLap { lap, time: 90.0 });
         }
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert_eq!(a.race_laps, 10);
         assert_eq!(a.laps_seen, 10);
         assert_eq!(a.confidence, "alta");
@@ -994,7 +1019,7 @@ mod tests {
         for lap in 1..=3 {
             h.player_laps.push(PlayerLap { lap, time: 90.0 });
         }
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert_eq!(a.race_laps, 12);
         assert_eq!(a.last_lap_seen, 3);
         assert_eq!(a.confidence, "baixa");
@@ -1020,7 +1045,7 @@ mod tests {
                 gap_behind: 0.0,
             })
             .collect();
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         let f = a.position_flow.expect("tem fluxo de posição");
         assert_eq!(f.gained_on_track, 7); // 2 + 5
         assert_eq!(f.lost_on_track, 1);
@@ -1043,7 +1068,7 @@ mod tests {
             PlayerTrackPoint { session_time: 7.0, lap: 7, position: 9, speed_kmh: 150.0, ahead_idx: -1, gap_ahead: 0.0, behind_idx: -1, gap_behind: 0.0 },
         ];
         let inc = PlayerIncidents { crash_laps: vec![7], is_dnf: false, dnf_lap: None };
-        let a = analyze(&h, &HashMap::new(), &inc);
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &inc);
         let m = a.mistake.expect("tem erro mais caro");
         assert_eq!(m.lap, 7);
         assert_eq!(m.kind, "incident");
@@ -1057,7 +1082,7 @@ mod tests {
         let mut h = base_history();
         h.player_laps = vec![PlayerLap { lap: 1, time: 90.0 }, PlayerLap { lap: 2, time: 90.0 }];
         let inc = PlayerIncidents { crash_laps: vec![], is_dnf: true, dnf_lap: Some(9) };
-        let a = analyze(&h, &HashMap::new(), &inc);
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &inc);
         let m = a.mistake.expect("DNF é o erro mais caro");
         assert_eq!(m.kind, "dnf");
         assert_eq!(m.lap, 9);
@@ -1070,7 +1095,7 @@ mod tests {
         h.player_laps = (1..=8)
             .map(|lap| PlayerLap { lap, time: 90.0 + (lap as f64 % 2.0) * 0.2 })
             .collect();
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(a.mistake.is_none(), "corrida limpa não inventa erro");
     }
 
@@ -1089,7 +1114,7 @@ mod tests {
             PlayerTrackPoint { session_time: 1.0, lap: 1, position: 10, speed_kmh: 200.0, ahead_idx: -1, gap_ahead: 0.0, behind_idx: -1, gap_behind: 0.0 },
             PlayerTrackPoint { session_time: 2.0, lap: 2, position: 8, speed_kmh: 205.0, ahead_idx: -1, gap_ahead: 0.0, behind_idx: -1, gap_behind: 0.0 },
         ];
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         let b = a.best_moment.expect("tem melhor momento");
         assert_eq!(b.kind, "position_gain");
         assert_eq!(b.lap, 2);
@@ -1115,7 +1140,7 @@ mod tests {
             .collect();
         let mut names = HashMap::new();
         names.insert(7, "Carlos Mendes".to_string());
-        let a = analyze(&h, &names, &PlayerIncidents::default());
+        let a = analyze(&h, &names, &HashMap::new(), &PlayerIncidents::default());
         let b = a.best_moment.expect("tem melhor momento");
         assert_eq!(b.kind, "rival_beaten");
         assert_eq!(b.rival_name, "Carlos Mendes");
@@ -1140,7 +1165,7 @@ mod tests {
         }
         let mut names = HashMap::new();
         names.insert(1, "Lider Silva".to_string());
-        let a = analyze(&h, &names, &PlayerIncidents::default());
+        let a = analyze(&h, &names, &HashMap::new(), &PlayerIncidents::default());
         let c = a.charts.expect("tem gráficos");
         assert_eq!(c.cars.len(), 2);
         assert!(c.cars.iter().any(|car| car.is_player && car.points.len() == 2));
@@ -1150,7 +1175,7 @@ mod tests {
     #[test]
     fn sem_telemetria_nao_quebra() {
         let h = base_history();
-        let a = analyze(&h, &HashMap::new(), &PlayerIncidents::default());
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(!a.has_telemetry);
         assert!(a.pace.is_none());
         assert!(a.rival.is_none());

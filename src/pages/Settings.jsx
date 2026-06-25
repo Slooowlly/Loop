@@ -143,7 +143,7 @@ function Settings() {
         {/* Header */}
         <div className="flex items-center justify-between pb-4">
           <button
-            onClick={() => navigate("/menu")}
+            onClick={() => navigate(location.state?.from ?? "/menu")}
             className="group flex items-center gap-2 text-text-secondary transition-glass hover:text-text-primary"
           >
             <svg
@@ -218,17 +218,17 @@ function Settings() {
         )}
 
         {/* Painel único de configurações em lista */}
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_16px_50px_rgba(0,0,0,0.25)] backdrop-blur-2xl">
+        <div className="glass-strong overflow-hidden rounded-2xl">
           {/* ── Grupo: Geral ── */}
-          <div id="geral" style={{ scrollMarginTop: "1rem" }} className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+          <div id="geral" style={{ scrollMarginTop: "1rem" }} className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
             Geral
           </div>
 
           {/* Idioma */}
-          <div className="flex items-center justify-between gap-4 border-t border-white/[0.05] px-5 py-3.5">
+          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-medium text-text-primary">Idioma</p>
-              <p className="text-[11px] text-text-muted">Menus e ferramentas do jogo.</p>
+              <p className="text-[11px] text-text-secondary">Menus e ferramentas do jogo.</p>
             </div>
             <div className="w-[160px] shrink-0">
               <GlassSelect
@@ -244,12 +244,12 @@ function Settings() {
 
           {/* Salvamento automático */}
           <div
-            className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/[0.05] px-5 py-3.5"
+            className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5"
             onClick={() => handleToggle("autosave_enabled")}
           >
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">Salvamento automático</p>
-              <p className="text-[11px] text-text-muted">Salva o progresso ao final de cada semana/corrida.</p>
+              <p className="text-[11px] text-text-secondary">Salva o progresso ao final de cada semana/corrida.</p>
             </div>
             <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.autosave_enabled ? "bg-accent-primary" : "bg-white/10"}`}>
               <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.autosave_enabled ? "translate-x-5" : "translate-x-0"}`} />
@@ -257,20 +257,20 @@ function Settings() {
           </div>
 
           {/* ── Grupo: Corrida ── */}
-          <div id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="border-t border-white/[0.07] px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+          <div id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="border-t border-white/10 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
             Corrida
           </div>
 
           {/* Bandeira amarela automática — liga/desliga o disparo (a macro já foi instalada ao abrir a tela) */}
           <div
-            className={`flex items-center justify-between gap-4 border-t border-white/[0.05] px-5 py-3.5 ${
+            className={`flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5 ${
               yellowStatus?.installed && !yellowBusy ? "cursor-pointer" : "cursor-default opacity-55"
             }`}
             onClick={yellowStatus?.installed && !yellowBusy ? toggleRaceControl : undefined}
           >
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">Bandeira amarela automática</p>
-              <p className="text-[11px] text-text-muted">
+              <p className="text-[11px] text-text-secondary">
                 {!yellowStatus?.app_ini_found
                   ? "iRacing não encontrado neste PC."
                   : raceControlOn
@@ -284,14 +284,14 @@ function Settings() {
           </div>
 
           {yellowMsg && (
-            <div className="border-t border-white/[0.05] px-5 py-3">
+            <div className="border-t border-white/10 px-5 py-3">
               <p className="rounded-lg border border-status-yellow/30 bg-status-yellow/10 px-3 py-2 text-[11px] font-medium text-text-primary">{yellowMsg}</p>
             </div>
           )}
 
           {/* Detalhes técnicos — escondidos por padrão */}
-          <details className="group border-t border-white/[0.05]">
-            <summary className="flex cursor-pointer list-none items-center gap-1 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted transition-glass hover:text-text-secondary [&::-webkit-details-marker]:hidden">
+          <details className="group border-t border-white/10">
+            <summary className="flex cursor-pointer list-none items-center gap-1 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-secondary transition-glass hover:text-text-primary [&::-webkit-details-marker]:hidden">
               Detalhes técnicos
               <span className="transition-transform group-open:rotate-90">›</span>
             </summary>
@@ -343,7 +343,7 @@ function Settings() {
             Salvar
           </GlassButton>
           <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-text-muted">
-            Loop — v{config.version}
+            Loop — v{(config.version ?? "1.0.0").split(".").slice(0, 2).join(".")}
           </p>
         </div>
       </div>

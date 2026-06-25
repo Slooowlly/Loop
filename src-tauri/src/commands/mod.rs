@@ -9,6 +9,7 @@ pub mod convocation;
 pub mod global_driver_rankings;
 pub mod global_team_history;
 pub mod historical_draft;
+pub mod inbox;
 pub mod iracing;
 pub mod news_helpers;
 pub mod news_tab;

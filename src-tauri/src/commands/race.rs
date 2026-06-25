@@ -57,6 +57,9 @@ pub struct RaceWeekendResult {
     /// cérebro do import do iRacing. `None` se não der para avaliar (tela trata).
     #[serde(default)]
     pub evaluation: Option<crate::race_eval::RaceEvaluation>,
+    /// Fatura de manutenção do carro (gasolina/pneus; sim offline não tem batida).
+    #[serde(default)]
+    pub maintenance: MaintenanceBreakdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -445,8 +448,44 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
     // tela mostra a leitura de carreira + saldo de posições e esconde os gráficos.
     let evaluation = compute_race_evaluation(&db.conn, &player_race);
 
+    // Conserto na simulação: DNF do jogador cobra como uma batida leve. "leve" cobra
+    // 0 (reservado a batidas do iRacing que cruzaram a linha), então mapeamos o DNF de
+    // sim pro tier mais leve que cobra ("moderado"). Debitado do caixa, igual ao import.
+    let player_entry = player_race.race_results.iter().find(|r| r.is_jogador);
+    let mut repair_cost = 0.0;
+    let mut repair_severity = "nenhum";
+    if player_entry.map(|r| r.is_dnf).unwrap_or(false) {
+        repair_severity = "moderado";
+        if let Some(pe) = player_entry {
+            if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &pe.team_id) {
+                let mut rng = rand::thread_rng();
+                let cost = compute_repair_cost(
+                    repair_severity,
+                    &team.categoria,
+                    team.car_performance,
+                    &mut rng,
+                );
+                if cost > 0.0 {
+                    team.cash_balance -= cost;
+                    team.last_round_expenses += cost;
+                    let _ = team_queries::update_team(&db.conn, &team);
+                    repair_cost = cost;
+                }
+            }
+        }
+    }
+
+    // Fatura de manutenção do carro (gasolina/pneus + conserto, se houve DNF).
+    let maintenance = compute_maintenance_breakdown(
+        &race_entry.categoria,
+        player_entry.map(|r| r.final_tire_wear).unwrap_or(0.0),
+        player_entry.map(|r| r.laps_completed).unwrap_or(0),
+        repair_cost,
+        repair_severity,
+    );
+
     // Persiste a tela do pós-corrida para reabrir depois pela Home (offline não
-    // tem telemetria ao vivo → sem gráficos, mas tem cérebro + saldo).
+    // tem telemetria ao vivo → sem gráficos, mas tem cérebro + saldo + manutenção).
     save_race_screen(
         &career_dir,
         race_id,
@@ -454,6 +493,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
             "race_result": &player_race,
             "evaluation": &evaluation,
             "telemetry": serde_json::Value::Null,
+            "maintenance": &maintenance,
         }),
     );
 
@@ -461,6 +501,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
         player_race,
         other_categories,
         evaluation,
+        maintenance,
     })
 }
 
@@ -927,6 +968,108 @@ pub struct ImportedRaceSummary {
     pub repair_count: i32,
     /// Frase pronta do pop-up (com valor e contagem já preenchidos). Vazia se cost=0.
     pub repair_message: String,
+    /// Fatura de manutenção do carro (gasolina/pneus + itens do conserto). Sempre presente.
+    #[serde(default)]
+    pub maintenance: MaintenanceBreakdown,
+}
+
+/// Um item da fatura de manutenção do carro (gasolina, pneus, carroceria...). Só
+/// itens com custo > 0 entram na lista.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintenanceItem {
+    pub key: String,
+    pub label: String,
+    pub cost: f64,
+}
+
+/// Fatura de manutenção do carro da corrida — INFORMATIVA: itemiza dinheiro que já
+/// sai do caixa (parcela de manutenção da operação da rodada + conserto da batida).
+/// Não cria cobrança nova; só mostra onde o dinheiro foi.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MaintenanceBreakdown {
+    pub total: f64,
+    pub items: Vec<MaintenanceItem>,
+}
+
+/// Como o custo do conserto se divide entre os itens mecânicos, por severidade. NÃO
+/// simula o dano real — só fatia o valor total entre componentes plausíveis. Frações
+/// somam ~1.0.
+fn damage_split(severity: &str) -> Vec<(&'static str, &'static str, f64)> {
+    match severity {
+        "moderado" => vec![("carroceria", "Carroceria", 0.70), ("suspensao", "Suspensão", 0.30)],
+        "grave" => vec![
+            ("carroceria", "Carroceria", 0.50),
+            ("suspensao", "Suspensão", 0.25),
+            ("freio", "Freio", 0.15),
+            ("embreagem", "Embreagem", 0.10),
+        ],
+        "destruído" => vec![
+            ("carroceria", "Carroceria", 0.40),
+            ("suspensao", "Suspensão", 0.20),
+            ("motor", "Motor", 0.15),
+            ("freio", "Freio", 0.12),
+            ("cambio", "Câmbio", 0.08),
+            ("embreagem", "Embreagem", 0.05),
+        ],
+        "catastrófico" => vec![
+            ("carroceria", "Carroceria", 0.32),
+            ("motor", "Motor", 0.22),
+            ("suspensao", "Suspensão", 0.18),
+            ("cambio", "Câmbio", 0.12),
+            ("freio", "Freio", 0.08),
+            ("embreagem", "Embreagem", 0.08),
+        ],
+        _ => vec![],
+    }
+}
+
+/// Fração do custo de OPERAÇÃO da categoria que vira "manutenção do carro" (gasolina,
+/// pneus, revisão). O resto da operação é salário/estrutura/etc. — fora da fatura.
+const CAR_UPKEEP_FRACTION: f64 = 0.30;
+
+/// Monta a fatura de manutenção do carro da corrida. Piso (sempre): a parcela de
+/// manutenção da operação da rodada, fatiada em gasolina (peso por voltas) + pneus
+/// (peso por desgaste). Se houve batida, soma os itens mecânicos do conserto.
+pub(crate) fn compute_maintenance_breakdown(
+    category: &str,
+    final_tire_wear: f64,
+    laps_completed: i32,
+    repair_cost: f64,
+    repair_severity: &str,
+) -> MaintenanceBreakdown {
+    let rounds = get_category_config(category)
+        .map(|c| c.corridas_por_temporada as i32)
+        .unwrap_or(12)
+        .max(1);
+    let operating_per_round = category_finance_scale(category).operating_cost_midpoint() / rounds as f64;
+    let floor = operating_per_round * CAR_UPKEEP_FRACTION;
+
+    // Pesos dinâmicos: pneu cresce com desgaste, gasolina com voltas rodadas. Mantêm
+    // a soma = piso (informativo), mas variam a divisão de corrida pra corrida.
+    let wear = final_tire_wear.clamp(0.0, 1.0);
+    let tire_w = 0.5 + wear; // 0.5..1.5
+    let fuel_w = 0.6 + (laps_completed.max(0) as f64 / 18.0).min(1.0); // 0.6..1.6
+    let sum_w = (tire_w + fuel_w).max(0.001);
+    let gasolina = (floor * fuel_w / sum_w).round();
+    let pneus = (floor * tire_w / sum_w).round();
+
+    let mut items = Vec::new();
+    if gasolina > 0.0 {
+        items.push(MaintenanceItem { key: "gasolina".into(), label: "Gasolina".into(), cost: gasolina });
+    }
+    if pneus > 0.0 {
+        items.push(MaintenanceItem { key: "pneus".into(), label: "Pneus".into(), cost: pneus });
+    }
+    if repair_cost > 0.0 {
+        for (key, label, prop) in damage_split(repair_severity) {
+            let cost = (repair_cost * prop).round();
+            if cost > 0.0 {
+                items.push(MaintenanceItem { key: key.into(), label: label.into(), cost });
+            }
+        }
+    }
+    let total = items.iter().map(|i| i.cost).sum();
+    MaintenanceBreakdown { total, items }
 }
 
 /// Fração do custo de OPERAÇÃO da categoria que cada severidade de batida cobra em
@@ -942,9 +1085,15 @@ fn repair_cost_fraction(severity: &str) -> f64 {
 }
 
 /// Custo de conserto do carro do jogador: fração(severidade) × custo de operação da
-/// categoria × fator do carro (carro melhor/mais caro custa mais pra consertar).
-/// SÓ jogador — a IA não mexe em finanças.
-fn compute_repair_cost(severity: &str, category: &str, car_performance: f64) -> f64 {
+/// categoria × fator do carro × margem aleatória (±35%). A margem dá variação dentro
+/// do tier — duas batidas "graves" não custam idêntico. Calculado UMA vez e persistido
+/// (caixa + summary + fatura), então não muda ao reabrir a tela. SÓ jogador.
+fn compute_repair_cost(
+    severity: &str,
+    category: &str,
+    car_performance: f64,
+    rng: &mut impl rand::Rng,
+) -> f64 {
     let frac = repair_cost_fraction(severity);
     if frac <= 0.0 {
         return 0.0;
@@ -952,7 +1101,8 @@ fn compute_repair_cost(severity: &str, category: &str, car_performance: f64) -> 
     let operating = category_finance_scale(category).operating_cost_midpoint();
     let car_factor =
         1.0 + crate::simulation::math::normalize_car_performance(car_performance) / 100.0 * 0.5;
-    (frac * operating * car_factor).round()
+    let variance = 0.65 + rng.gen::<f64>() * 0.70; // 0.65..1.35
+    (frac * operating * car_factor * variance).round()
 }
 
 /// Formata um valor em reais no estilo PT-BR: "R$ 18.500".
@@ -1108,7 +1258,17 @@ pub fn get_saved_race_screen(
     };
     let path = career_dir.join("race_screens").join(format!("{}.json", entry.id));
     match std::fs::read_to_string(&path) {
-        Ok(s) => Ok(serde_json::from_str::<serde_json::Value>(&s).ok()),
+        Ok(s) => {
+            let mut v = match serde_json::from_str::<serde_json::Value>(&s) {
+                Ok(v) => v,
+                Err(_) => return Ok(None),
+            };
+            // Injeta o race_id (não estava no payload salvo) p/ o front reconstruir o clima.
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("race_id".into(), serde_json::Value::String(entry.id.clone()));
+            }
+            Ok(Some(v))
+        }
         Err(_) => Ok(None),
     }
 }
@@ -1353,8 +1513,12 @@ pub(crate) fn import_iracing_race_result(
     let player_team_id = player.map(|r| r.team_id.clone()).unwrap_or_default();
     if !player_team_id.is_empty() {
         if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &player_team_id) {
-            let cost =
-                compute_repair_cost(player_crash_severity, &team.categoria, team.car_performance);
+            let cost = compute_repair_cost(
+                player_crash_severity,
+                &team.categoria,
+                team.car_performance,
+                &mut rng,
+            );
             if cost > 0.0 {
                 team.cash_balance -= cost;
                 team.last_round_expenses += cost;
@@ -1371,6 +1535,15 @@ pub(crate) fn import_iracing_race_result(
         }
     }
 
+    // Fatura de manutenção do carro (sempre presente; soma o conserto se houve batida).
+    let maintenance = compute_maintenance_breakdown(
+        &race_entry.categoria,
+        player.map(|r| r.final_tire_wear).unwrap_or(0.0),
+        player.map(|r| r.laps_completed).unwrap_or(0),
+        repair_cost,
+        player_crash_severity,
+    );
+
     let summary = ImportedRaceSummary {
         race_id: race_entry.id.clone(),
         track_name: race_entry.track_name.clone(),
@@ -1386,6 +1559,7 @@ pub(crate) fn import_iracing_race_result(
         repair_severity: player_crash_severity.to_string(),
         repair_count,
         repair_message,
+        maintenance,
     };
     Ok((summary, result))
 }

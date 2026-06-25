@@ -424,6 +424,9 @@ pub struct PlayerTrackPoint {
 /// Limite de voltas-por-carro guardadas (todos os carros × várias voltas).
 const MAX_CAR_LAPS: usize = 4000;
 
+/// Limite de paradas de box guardadas (todos os carros × várias paradas).
+const MAX_PIT_STOPS: usize = 600;
+
 /// Uma volta completa de um carro qualquer (jogador ou IA) — base da adaptação.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CarLap {
@@ -484,6 +487,12 @@ pub struct RaceHistory {
     /// reforço do escudo anti-trânsito na adaptação. Vazio se não houve quali.
     #[serde(default)]
     pub qualy_laps: Vec<CarLap>,
+    /// Paradas de box detectadas (todos os carros) — base da inferência de pneu.
+    #[serde(default)]
+    pub pit_stops: Vec<super::tire_strategy::PitStop>,
+    /// Contexto de clima da corrida (molhada na largada / em algum momento / no fim).
+    #[serde(default)]
+    pub weather: super::tire_strategy::RaceWeatherContext,
 }
 
 impl RaceHistory {
@@ -501,6 +510,8 @@ impl RaceHistory {
             cars_meta: Vec::new(),
             track_id: 0,
             qualy_laps: Vec::new(),
+            pit_stops: Vec::new(),
+            weather: super::tire_strategy::RaceWeatherContext::DRY,
         }
     }
 }
@@ -659,6 +670,18 @@ struct RaceMonitor {
     /// o grid. 0 = ainda não capturado. Persiste entre resets de histórico; é
     /// gravado em `CarMeta.grid_class_position` no upsert do resumo por carro.
     grid_class_pos: [i32; 64],
+
+    // ── Detector de pit (estratégia de pneu — todos os carros) ──────────────
+    /// Carro está PARADO na caixa agora (`CarIdxTrackSurface == InPitStall`).
+    pit_in_stall: [bool; 64],
+    /// `session_time` em que o carro entrou na caixa (início do dwell).
+    pit_stall_enter_time: [f64; 64],
+    /// Volta em que o carro entrou na caixa.
+    pit_stall_enter_lap: [i32; 64],
+    /// Pista estava molhada no instante em que o carro parou na caixa.
+    pit_stall_wet: [bool; 64],
+    /// Já capturamos o clima da LARGADA nesta tentativa (uma vez, no verde).
+    weather_start_captured: bool,
 }
 
 impl RaceMonitor {
@@ -727,6 +750,11 @@ impl RaceMonitor {
             hist_car_lap_completed: [0; 64],
             hist_last_neighbor_time: 0.0,
             grid_class_pos: [0; 64],
+            pit_in_stall: [false; 64],
+            pit_stall_enter_time: [0.0; 64],
+            pit_stall_enter_lap: [0; 64],
+            pit_stall_wet: [false; 64],
+            weather_start_captured: false,
         }
     }
 
@@ -1158,6 +1186,57 @@ impl RaceMonitor {
     /// Grava o histórico volta a volta da tentativa ativa: a cada volta do líder
     /// um snapshot de gaps/posições, o tempo de cada volta do jogador e as voltas
     /// em que a amarela esteve ativa. Reinicia quando começa uma nova tentativa.
+    /// Captura, a cada tick ATIVO, o contexto de clima da corrida e as PARADAS de box
+    /// de todos os carros (entrada/saída do `InPitStall` + dwell + pista molhada no
+    /// instante). Alimenta a inferência de estratégia de pneu (`tire_strategy`).
+    fn capture_tire_strategy(&mut self, t: &IracingTelemetry, now: f64) {
+        let wet = t.track_is_wet();
+
+        // ── Contexto de clima ──
+        // Largada: capturada uma vez quando a corrida já está em "Racing".
+        if !self.weather_start_captured && t.session_state == STATE_RACING {
+            self.history.weather.wet_at_start = wet;
+            self.weather_start_captured = true;
+        }
+        if wet {
+            self.history.weather.ever_wet = true;
+        }
+        // wet_at_finish = wetness do último tick ativo (record_history só roda enquanto
+        // a tentativa está ativa; o último valor escrito ≈ a condição na bandeirada).
+        if t.session_state == STATE_RACING {
+            self.history.weather.wet_at_finish = wet;
+        }
+
+        // ── Paradas de box (todos os carros, menos o pace car) ──
+        for car in &t.cars {
+            let i = car.idx as usize;
+            if i >= 64 || self.car_is_pace[i] {
+                continue;
+            }
+            let in_stall = car.track_surface == SURFACE_IN_PIT_STALL;
+            if in_stall && !self.pit_in_stall[i] {
+                // Entrou na caixa → abre o cronômetro de dwell.
+                self.pit_in_stall[i] = true;
+                self.pit_stall_enter_time[i] = now;
+                self.pit_stall_enter_lap[i] = car.lap.max(car.lap_completed + 1).max(1);
+                self.pit_stall_wet[i] = wet;
+            } else if !in_stall && self.pit_in_stall[i] {
+                // Saiu da caixa → fecha a parada e registra.
+                self.pit_in_stall[i] = false;
+                let dwell = (now - self.pit_stall_enter_time[i]).max(0.0);
+                self.history.pit_stops.push(super::tire_strategy::PitStop {
+                    car_idx: car.idx,
+                    lap: self.pit_stall_enter_lap[i],
+                    stationary_secs: dwell,
+                    track_wet_at_stop: self.pit_stall_wet[i],
+                });
+                if self.history.pit_stops.len() > MAX_PIT_STOPS {
+                    self.history.pit_stops.remove(0);
+                }
+            }
+        }
+    }
+
     fn record_history(&mut self, t: &IracingTelemetry) {
         let now = t.session_time;
 
@@ -1189,8 +1268,14 @@ impl RaceMonitor {
             self.hist_last_neighbor_time = 0.0;
             // A quali precede a corrida → carrega as voltas dela no histórico (uma vez).
             self.history.qualy_laps = self.qualy_laps.clone();
+            // Reseta o detector de pit / clima para a tentativa nova.
+            self.pit_in_stall = [false; 64];
+            self.weather_start_captured = false;
         }
         self.history.player_car_idx = t.player_car_idx;
+
+        // Clima da corrida + paradas de box (estratégia de pneu de todos os carros).
+        self.capture_tire_strategy(t, now);
 
         // Volta do líder = voltas do carro em P1 (ou o maior valor, na largada
         // quando as posições ainda não assentaram).

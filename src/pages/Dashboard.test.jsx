@@ -23,7 +23,7 @@ vi.mock("../components/layout/MainLayout", () => ({
   ),
 }));
 
-vi.mock("../components/race/RaceResultView", () => ({
+vi.mock("../components/race/RaceResultViewV2", () => ({
   default: () => <div>Classificação final</div>,
 }));
 

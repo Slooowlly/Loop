@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 39;
+const CURRENT_VERSION: u32 = 40;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -49,6 +49,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v37(conn)?;
     migrate_v38(conn)?;
     migrate_v39(conn)?;
+    migrate_v40(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -212,6 +213,24 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v39(conn)?;
         set_schema_version(conn, 39)?;
     }
+    if version < 40 {
+        migrate_v40(conn)?;
+        set_schema_version(conn, 40)?;
+    }
+    Ok(())
+}
+
+/// v40 — Pilotos FAVORITADOS pelo jogador (watchlist). Marca quem o jogador quer
+/// acompanhar; alimenta a ênfase do feed do mercado e o filtro "Favoritos" na aba de
+/// pilotos. Por-save, sem relação com a lógica de simulação. Acompanha o piloto por
+/// troca de equipe/categoria/aposentadoria (chave = piloto_id).
+fn migrate_v40(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS driver_favorites (
+            piloto_id  TEXT PRIMARY KEY,
+            criado_em  TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    )?;
     Ok(())
 }
 

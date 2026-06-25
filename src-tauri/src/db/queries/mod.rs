@@ -1,8 +1,10 @@
+pub mod ai_post_race;
 pub mod ai_pre_race;
 pub mod ai_story;
 pub mod calendar;
 pub mod contracts;
 pub mod drivers;
+pub mod favorites;
 pub mod injuries;
 pub mod market_proposals;
 pub mod meta;

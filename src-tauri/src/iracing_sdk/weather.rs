@@ -503,6 +503,47 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     }
 }
 
+// ─── Timeline do clima para a UI (frações da corrida) ──────────────────────
+
+/// Um ponto do timeline de clima da corrida (para a tela): fração da prova + tipo
+/// de tempo. `event_type`: 0 limpo, 1 quase limpo, 2 parcial, 3 encoberto, 6 garoa,
+/// 7 chuva, 8 chuva forte.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeatherTimelinePoint {
+    /// Fração da corrida: 0 = largada, 1 = bandeira.
+    pub frac: f64,
+    pub event_type: i64,
+}
+
+/// Timeline do clima da corrida em FRAÇÕES (0..1), derivado do MESMO arco que vai pro
+/// export — assim a tela mostra o tempo que a prova de fato seguiu. Reaproveita
+/// `story_to_profile` e inverte o modelo de offset de volta pra fração (a âncora de
+/// QUALI, em offset negativo, é descartada). É só para exibição (erro de
+/// arredondamento ~±0.005, irrelevante no gráfico).
+pub fn story_to_timeline(story: &WeatherStory) -> Vec<WeatherTimelinePoint> {
+    // Duração nominal só para inverter os offsets (o resultado é em fração, então o
+    // valor não importa desde que seja o mesmo na ida e na volta).
+    const R: i64 = 60;
+    let profile = story_to_profile(story, R);
+    profile
+        .keyframes
+        .into_iter()
+        .filter_map(|(event_type, offset)| {
+            // off(m) = round((m-7)/0.68) ⇒ m ≈ offset*0.68 + 7 ; frac = m / R.
+            let race_min = offset as f64 * 0.68 + 7.0;
+            let frac = race_min / R as f64;
+            if frac < -0.001 {
+                None // âncora de QUALI (offset muito negativo) — fora da corrida
+            } else {
+                Some(WeatherTimelinePoint {
+                    frac: frac.clamp(0.0, 1.0),
+                    event_type,
+                })
+            }
+        })
+        .collect()
+}
+
 // ─── Horário da corrida (golden hour, noite, sem meio-dia) ──────────────────
 
 /// Horários do sol (aproximados, latitude média) por estação: (nascer, pôr) em h.
@@ -791,6 +832,28 @@ mod tests {
         );
         assert_eq!(p.track_water, 0);
         assert!(p.keyframes.iter().all(|(et, _)| *et < 6));
+    }
+
+    #[test]
+    fn timeline_comeca_na_largada_e_termina_na_bandeira() {
+        // Qualquer cenário: frações ordenadas, começa ~0 e termina ~1, sem a QUALI.
+        let p = story_to_timeline(&story(WeatherScenario::PulsingStorm, true, RainIntensity::Heavy));
+        assert!(!p.is_empty());
+        assert!(p[0].frac <= 0.05, "não começa na largada: {}", p[0].frac);
+        assert!(p.last().unwrap().frac >= 0.95, "não termina na bandeira");
+        assert!(
+            p.windows(2).all(|w| w[0].frac <= w[1].frac + 1e-9),
+            "frações fora de ordem"
+        );
+        assert!(p.iter().all(|pt| pt.frac >= 0.0), "tem ponto antes da largada (QUALI?)");
+    }
+
+    #[test]
+    fn timeline_molhado_tem_chuva_seco_nao() {
+        let wet = story_to_timeline(&story(WeatherScenario::SteadyRain, true, RainIntensity::VeryHeavy));
+        assert!(wet.iter().any(|p| p.event_type >= 6), "corrida molhada sem chuva");
+        let dry = story_to_timeline(&story(WeatherScenario::ClearDry, false, RainIntensity::None));
+        assert!(dry.iter().all(|p| p.event_type < 6), "corrida seca com chuva");
     }
 
     #[test]

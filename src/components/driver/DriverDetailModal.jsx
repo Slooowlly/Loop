@@ -76,6 +76,28 @@ function BadgePill({ badge }) {
   );
 }
 
+function FavoriteStarButton({ active, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      title={active ? "Remover dos favoritos" : "Favoritar piloto"}
+      aria-label={active ? "Remover dos favoritos" : "Favoritar piloto"}
+      className={[
+        "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-all",
+        active
+          ? "border-[#fbbf24]/50 bg-[#fbbf24]/15 text-[#fbbf24] shadow-[0_0_10px_-3px_#fbbf24]"
+          : "border-white/10 bg-white/[0.04] text-[#7d8590] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]",
+        disabled ? "cursor-not-allowed opacity-60" : "",
+      ].join(" ")}
+    >
+      {active ? "★" : "☆"}
+    </button>
+  );
+}
+
 function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
   return (
     <div className={["mb-5 grid gap-2", tabs.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"].join(" ")}>
@@ -496,6 +518,7 @@ export default function DriverDetailModal({
   driverId,
   driverIds = [],
   onSelectDriver = null,
+  onFavoriteChange = null,
   onClose,
 }) {
   const CLOSE_ANIMATION_MS = 280;
@@ -508,6 +531,7 @@ export default function DriverDetailModal({
   const [isClosing, setIsClosing] = useState(false);
   const [showEdgeNavigator, setShowEdgeNavigator] = useState(false);
   const [injuryAcknowledged, setInjuryAcknowledged] = useState(false);
+  const [favoritePending, setFavoritePending] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const drawerScrollRef = useRef(null);
   const preservedScrollTopRef = useRef(0);
@@ -633,6 +657,20 @@ export default function DriverDetailModal({
     }, CLOSE_ANIMATION_MS);
   }
 
+  async function toggleFavorite() {
+    if (!careerId || !driverId || favoritePending) return;
+    setFavoritePending(true);
+    try {
+      const nowFavorite = await invoke("toggle_driver_favorite", { careerId, driverId });
+      setDetail((current) => (current ? { ...current, is_favorito: nowFavorite } : current));
+      onFavoriteChange?.(driverId, nowFavorite);
+    } catch {
+      // Silencioso — favoritar nunca pode quebrar a ficha.
+    } finally {
+      setFavoritePending(false);
+    }
+  }
+
   function selectAdjacentDriver(targetDriverId) {
     if (!targetDriverId || !onSelectDriver || isClosing) return;
     preservedScrollTopRef.current = drawerScrollRef.current?.scrollTop ?? 0;
@@ -749,7 +787,18 @@ export default function DriverDetailModal({
 
             <Section
               title="Perfil"
-              headerRight={licenseLevelBadge ? <BadgePill badge={licenseLevelBadge} /> : null}
+              headerRight={
+                <div className="flex items-center gap-2">
+                  {detail?.is_jogador ? null : (
+                    <FavoriteStarButton
+                      active={Boolean(detail?.is_favorito)}
+                      disabled={favoritePending}
+                      onClick={toggleFavorite}
+                    />
+                  )}
+                  {licenseLevelBadge ? <BadgePill badge={licenseLevelBadge} /> : null}
+                </div>
+              }
             >
               <div className="pr-8">
                 <div className="grid gap-4 lg:min-h-[170px] lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">

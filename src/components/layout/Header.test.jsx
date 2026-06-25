@@ -16,6 +16,12 @@ vi.mock("../../stores/useCareerStore", () => ({
   default: (selector) => selector(mockState),
 }));
 
+// Header usa useNavigate (menu da equipe). Stub p/ não exigir um Router no teste.
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return { ...actual, useNavigate: () => vi.fn() };
+});
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));

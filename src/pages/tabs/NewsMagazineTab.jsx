@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { getTrackImageSrc } from "../../utils/trackImages";
 import { getReadableTeamColor } from "./newsHelpers";
+import { buildInboxMessages } from "./inboxMessages";
 
 import "./NewsMagazineTab.css";
 
@@ -13,59 +15,6 @@ import "./NewsMagazineTab.css";
 //   • Texto/boletim da matéria → IA (Gemini) — por enquanto placeholder.
 //   • Mensagens da caixa de entrada → mercado/empresário — mock abaixo.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const MESSAGES = [
-  {
-    id: "vm",
-    av: "g",
-    ini: "VM",
-    from: "Velocità Moderna",
-    kind: "Interesse de equipe",
-    time: "há 2 dias",
-    subject: "Estamos de olho em você para 2030.",
-    body: "<p>A diretoria da <b>Velocità Moderna</b> acompanhou sua evolução nas últimas etapas e quer abrir conversa para uma vaga em 2030. Nada oficial ainda — é um sinal de que você entrou no radar de uma equipe da ponta.</p>",
-    actions: [
-      { label: "Demonstrar interesse", type: "primary" },
-      { label: "Agora não", type: "ghost" },
-    ],
-  },
-  {
-    id: "la",
-    av: "y",
-    ini: "LA",
-    from: "Sua equipe",
-    kind: "Expectativa · início de ano",
-    time: "12 Mar",
-    subject: "Meta da temporada: terminar no top 4.",
-    body: "<p>No início da temporada a equipe definiu como meta terminar entre os <b>4 primeiros</b> do campeonato. Mantendo a média de pódios das últimas etapas, a meta é totalmente alcançável.</p>",
-    actions: [],
-  },
-  {
-    id: "cn",
-    av: "p",
-    ini: "GR",
-    from: "Boletim do grid",
-    kind: "Rival · já enfrentado",
-    time: "há 5 dias",
-    subject: "O nome a bater no campeonato.",
-    body: "<p>O líder do campeonato é forte em classificação e gestão de pneu, mas vulnerável nas largadas — onde você já o superou. Fique de olho na briga direta nas próximas etapas.</p>",
-    actions: [],
-  },
-];
-
-// Logo da categoria (capa fechada quando a temporada ainda não teve corridas).
-const CATEGORY_LOGOS = {
-  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.png",
-  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.png",
-  mazda_amador: "/utilities/categorias/MX5%20CUP.png",
-  toyota_amador: "/utilities/categorias/GR%20CUP.png",
-  bmw_m2: "/utilities/categorias/M2%20CUP.png",
-  production_challenger: "/utilities/categorias/PRODUCTION.png",
-  gt4: "/utilities/categorias/GT4.png",
-  gt3: "/utilities/categorias/GT3.png",
-  lmp2: "/utilities/categorias/LMP2.png",
-  endurance: "/utilities/categorias/ENDURANCE.png",
-};
 
 // Colore os nomes de equipes citados no boletim de IA com a cor do time.
 // `teams` é o mapa nome→cor (hex) das equipes da corrida.
@@ -102,8 +51,31 @@ function NewsMagazineTab() {
   const [edIdx, setEdIdx] = useState(0);
   const [flipping, setFlipping] = useState(false);
 
-  const [selectedId, setSelectedId] = useState(MESSAGES[0]?.id ?? null);
+  const [messages, setMessages] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [readIds, setReadIds] = useState(() => new Set());
+
+  // ── Caixa de entrada real: fatos do save (confronto direto + favorito) → texto PT ──
+  useEffect(() => {
+    let mounted = true;
+    if (!careerId) {
+      setMessages([]);
+      return undefined;
+    }
+    invoke("get_inbox_messages", { careerId })
+      .then((facts) => {
+        if (!mounted) return;
+        const list = buildInboxMessages(facts);
+        setMessages(list);
+        setSelectedId((cur) => cur ?? list[0]?.id ?? null);
+      })
+      .catch(() => {
+        if (mounted) setMessages([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [careerId]);
 
   const [bulletin, setBulletin] = useState(null);
 
@@ -222,8 +194,8 @@ function NewsMagazineTab() {
     return top;
   }, [standings, playerTeam]);
 
-  const unread = MESSAGES.filter((m) => !readIds.has(m.id)).length;
-  const selected = MESSAGES.find((m) => m.id === selectedId) ?? null;
+  const unread = messages.filter((m) => !readIds.has(m.id)).length;
+  const selected = messages.find((m) => m.id === selectedId) ?? null;
 
   function goEdition(delta) {
     const next = safeIdx + delta;
@@ -245,7 +217,6 @@ function NewsMagazineTab() {
   }
 
   const catLabel = category ? categoryLabel(category) : "";
-  const catLogo = category ? CATEGORY_LOGOS[category] ?? null : null;
   const kicker = ed
     ? `${catLabel} · Etapa ${ed.rodada} · ${ed.track_name}`
     : catLabel;
@@ -333,7 +304,7 @@ function NewsMagazineTab() {
                   construtores.map((c) => (
                     <div key={c.pos} className={c.me ? "res-row me" : "res-row"}>
                       <span className="rp">{c.pos}</span>
-                      <span className="chip" style={{ background: c.color }} />
+                      <TeamLogoMark teamName={c.name} color={c.color} size="xs" testId="news-team-logo" />
                       <span className="rn">{c.name}</span>
                       <span className="rpts">{c.pts}</span>
                     </div>
@@ -386,17 +357,14 @@ function NewsMagazineTab() {
                 alt=""
                 draggable={false}
               />
-              {catLogo && (
-                <img className="mag-cover-logo" src={catLogo} alt={catLabel} draggable={false} />
-              )}
+              <span className="mag-cover-title">{catLabel}</span>
             </div>
-            <p className="mag-cover-cap">
-              {catLabel}
-              {year ? ` · Temporada ${year}` : ""}
-            </p>
-            <p className="mag-cover-sub">
-              A revista abre quando você disputar a primeira corrida da temporada.
-            </p>
+            <div className="mag-cover-side">
+              {year ? <p className="mag-cover-cap">Temporada {year}</p> : null}
+              <p className="mag-cover-sub">
+                A revista abre quando você disputar a primeira corrida da temporada.
+              </p>
+            </div>
           </div>
         )}
       </article>
@@ -411,7 +379,7 @@ function NewsMagazineTab() {
 
         <div className="mb-split">
           <div className="mb-list">
-            {MESSAGES.map((m) => {
+            {messages.map((m) => {
               const classes = ["mrow"];
               if (readIds.has(m.id)) classes.push("read");
               if (m.id === selectedId) classes.push("active");

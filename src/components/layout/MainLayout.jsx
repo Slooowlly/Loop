@@ -1,4 +1,5 @@
 import Header from "./Header";
+import PauseMenu from "./PauseMenu";
 import IracingConnectedOverlay from "../iracing/IracingConnectedOverlay";
 
 function MainLayout({ children, activeTab, onTabChange, hideHeader = false }) {
@@ -11,6 +12,9 @@ function MainLayout({ children, activeTab, onTabChange, hideHeader = false }) {
       <main className="relative z-10 flex-1 overflow-y-auto px-3 py-4 sm:px-4 lg:px-5 xl:px-6">
         <div className="mx-auto w-full max-w-[1680px] pb-8">{children}</div>
       </main>
+
+      {/* Menu de pausa (ESC) — voltar ao menu, salvar, configurações. */}
+      <PauseMenu />
 
       {/* Feedback "iRacing Conectado" ao voltar o foco pro app com o sim aberto. */}
       <IracingConnectedOverlay />

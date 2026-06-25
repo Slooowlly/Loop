@@ -136,6 +136,8 @@ pub(crate) fn build_driver_detail_payload(
         idade: driver.idade as i32,
         genero: driver.genero.clone(),
         is_jogador: driver.is_jogador,
+        is_favorito: crate::db::queries::favorites::is_favorite(conn, &driver.id)
+            .unwrap_or(false),
         status: status.clone(),
         equipe_id: team.as_ref().map(|value| value.id.clone()),
         equipe_nome: team.as_ref().map(|value| value.nome.clone()),

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import TeamLogoMark from "../team/TeamLogoMark";
+import WeatherTimelineChart from "./WeatherTimelineChart";
 import RaceCharts from "./RaceCharts";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatGap, formatLapTime } from "../../utils/formatters";
@@ -265,6 +266,143 @@ function bestMomentCard(b) {
   }
 }
 
+// ── Estratégia de pneus (inferida por paradas + clima; seco/chuva) ──────────
+const COMPOUND = {
+  Dry: { label: "Seco", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  Wet: { label: "Chuva", cls: "bg-sky-500/15 text-sky-300 border-sky-500/30" },
+  Unknown: { label: "—", cls: "bg-gray-500/15 text-gray-400 border-gray-500/30" },
+};
+
+function CompoundChip({ compound }) {
+  const c = COMPOUND[compound] || COMPOUND.Unknown;
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border ${c.cls}`}
+    >
+      {c.label}
+    </span>
+  );
+}
+
+// Trilha visual dos stints: Seco →(V8) Chuva → …
+function StintTrail({ stints }) {
+  if (!stints?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {stints.map((s, i) => (
+        <span key={i} className="flex items-center gap-1.5">
+          {i > 0 && <span className="text-gray-600">→</span>}
+          <CompoundChip compound={s.compound} />
+          {s.from_lap > 1 && <span className="text-[9px] text-gray-500">V{s.from_lap}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Estimativa do bloco de troca de pneus (s). Não exato — vai de ~20 a 22.
+const TIRE_EST_SECS = 21;
+
+// Tabela DEDICADA de tempos de pit (tracking próprio, ênfase na EQUIPE). Uma linha
+// por piloto = a parada mais rápida dele (menor tempo na caixa). A divisão
+// pneu/combustível é estimada (troca ≈ 20–22 s; resto = abastecimento).
+function PitTimesTable({ telemetry, teamColors }) {
+  const strategies = telemetry?.tire_strategies;
+  if (!strategies?.length) return null;
+
+  const playerIdx = telemetry.player_tire?.car_idx ?? -999;
+
+  // Melhor (menor) parada de cada carro. Equipe vem resolvida do backend (car_idx).
+  const best = {};
+  strategies.forEach((s) => {
+    (s.stops || []).forEach((d) => {
+      const cur = best[s.car_idx];
+      if (!cur || d.box_secs < cur.box_secs) {
+        best[s.car_idx] = {
+          ...d,
+          pilot_name: s.pilot_name,
+          team: s.team_name || "—",
+          car_idx: s.car_idx,
+          isPlayer: s.car_idx === playerIdx,
+        };
+      }
+    });
+  });
+  const rows = Object.values(best).sort((a, b) => a.box_secs - b.box_secs);
+  if (!rows.length) return null;
+
+  return (
+    <section className="px-4 mt-4 mb-8">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-gray-200">Tempos de pit</h3>
+        <span className="text-[11px] text-gray-500">
+          Tempo na caixa (estafe dos boxes) · pneu/combustível estimado
+        </span>
+      </div>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-[#0d1420] text-gray-500 text-[11px] uppercase tracking-wider">
+            <tr>
+              <th className="px-3 py-3 text-center w-10">#</th>
+              <th className="px-3 py-3 text-left">Equipe</th>
+              <th className="px-3 py-3 text-left">Piloto</th>
+              <th className="px-3 py-3 text-right">Tempo de pit</th>
+              <th className="px-3 py-3 text-center">Volta</th>
+              <th className="px-3 py-3 text-center">🛞 Pneus</th>
+              <th className="px-3 py-3 text-center">⛽ Comb.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const fuel = r.tire_change ? Math.max(0, r.box_secs - TIRE_EST_SECS) : r.box_secs;
+              const tire = r.tire_change ? r.box_secs - fuel : 0;
+              return (
+                <tr
+                  key={r.car_idx}
+                  className={`border-t border-white/5 ${r.isPlayer ? "bg-[#58a6ff]/10" : "hover:bg-white/[0.03]"}`}
+                >
+                  <td className="px-3 py-3 text-center font-black text-gray-500">{i + 1}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <TeamLogoMark teamName={r.team} color={teamColors[r.team] ?? null} size="sm" />
+                      <span
+                        className={`font-bold uppercase tracking-wide text-[13px] truncate max-w-[190px] ${r.isPlayer ? "text-[#58a6ff]" : "text-gray-100"}`}
+                      >
+                        {r.team}
+                      </span>
+                    </div>
+                  </td>
+                  <td className={`px-3 py-3 ${r.isPlayer ? "font-bold text-[#58a6ff]" : "text-gray-300"}`}>
+                    <span className="flex items-center gap-1.5">
+                      {r.pilot_name}
+                      {r.track_wet && <span title="Pista molhada">🌧️</span>}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono font-bold text-white">
+                    {r.box_secs.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-3 text-center text-gray-400">{r.lap}</td>
+                  <td className="px-3 py-3 text-center text-gray-300">
+                    {r.tire_change ? `~${Math.round(tire)}s` : "—"}
+                  </td>
+                  <td className="px-3 py-3 text-center text-gray-300">
+                    {fuel >= 2 ? `~${Math.round(fuel)}s` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[10px] text-gray-600">
+        Tempo parado na caixa por parada (o menor de cada piloto) — reflete o estafe dos boxes da
+        equipe. A divisão pneu/combustível é estimada: a troca de pneus leva ~20–22 s, o resto é
+        abastecimento.
+      </p>
+    </section>
+  );
+}
+
 // Frase honesta do breakdown (sem prometer mais certeza do que temos).
 function breakdownSentence(b) {
   if (!b) return "";
@@ -293,6 +431,7 @@ function getCategorySummaryFit(categoryId) {
 
 function RaceResultView({ result, evaluation, telemetry, onDismiss }) {
   const careerId = useCareerStore((state) => state.careerId);
+  const lastRaceId = useCareerStore((state) => state.lastRaceId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const otherCategoriesResult = useCareerStore((state) => state.otherCategoriesResult);
   // Painel direito: 'results' (tabela oficial) | 'championship' | 'charts'.
@@ -666,6 +805,87 @@ function RaceResultView({ result, evaluation, telemetry, onDismiss }) {
         </section>
       )}
 
+      {/* ESTRATÉGIA DE PNEUS — inferida das paradas de box + clima (seco/chuva).
+          Aparece mesmo se você saiu cedo: a IA corre até o fim. Só com paradas. */}
+      {telemetry?.tire_strategies?.length > 0 &&
+        (() => {
+          const all = telemetry.tire_strategies;
+          const pt = telemetry.player_tire;
+          const playerIdx = pt?.car_idx ?? -999;
+          const others = all.filter((s) => s.car_idx !== playerIdx);
+          const wetRace = all.some(
+            (s) => s.start_compound === "Wet" || s.stints?.some((st) => st.compound === "Wet"),
+          );
+          const gambled = others.filter((s) => s.start_compound === "Wet");
+          const wrong = others.filter((s) => s.wrong_tire);
+          const changesGrid = others.reduce((n, s) => n + (s.tire_changes || 0), 0);
+          return (
+            <section className="mb-6 shrink-0 px-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-[0.22em] text-gray-500 font-bold">
+                  Estratégia de pneus
+                </p>
+                <span className="text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded border border-gray-500/30 text-gray-400">
+                  {wetRace ? "Corrida de chuva" : "Corrida seca"} · estimado
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {/* Seus pneus */}
+                <AnalysisCard title="🛞 Seus pneus" accent="border-[#58a6ff]/20">
+                  {pt ? (
+                    <>
+                      <p className="text-sm font-bold text-white">{pt.summary}</p>
+                      <StintTrail stints={pt.stints} />
+                      {pt.wrong_tire && (
+                        <p className="mt-2 text-[11px] text-amber-400">
+                          ⚠️ Você terminou no pneu errado para a condição da pista.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">Sem dados da sua estratégia de pneu.</p>
+                  )}
+                </AnalysisCard>
+
+                {/* O grid */}
+                <AnalysisCard title="🏁 O grid" accent="border-orange-500/20">
+                  {gambled.length > 0 && (
+                    <div className="mb-2">
+                      <p className="text-[11px] font-bold text-sky-300">
+                        Apostaram na chuva (largaram de wet):
+                      </p>
+                      <p className="text-[12px] text-gray-300">
+                        {gambled.map((s) => s.pilot_name).join(", ")}
+                      </p>
+                    </div>
+                  )}
+                  {wrong.length > 0 && (
+                    <div className="mb-2">
+                      <p className="text-[11px] font-bold text-amber-400">
+                        Ficaram no pneu errado:
+                      </p>
+                      <p className="text-[12px] text-gray-300">
+                        {wrong.map((s) => s.pilot_name).join(", ")}
+                      </p>
+                    </div>
+                  )}
+                  {gambled.length === 0 && wrong.length === 0 && (
+                    <p className="text-[12px] text-gray-400">
+                      {changesGrid > 0
+                        ? `${changesGrid} troca${changesGrid > 1 ? "s" : ""} de pneu no grid.`
+                        : "Grid largou de seco, sem trocas relevantes."}
+                    </p>
+                  )}
+                </AnalysisCard>
+              </div>
+              <p className="mt-2 text-[10px] text-gray-600">
+                Estimado pelas paradas de box + clima — o iRacing não informa o pneu da IA
+                diretamente.
+              </p>
+            </section>
+          );
+        })()}
+
       {/* CONTEÚDO */}
       <div className="grid grid-cols-12 gap-6 min-h-[620px] px-4 pb-4">
         
@@ -773,7 +993,9 @@ function RaceResultView({ result, evaluation, telemetry, onDismiss }) {
                        ? "Classificação Geral do Campeonato"
                        : rightView === "charts"
                          ? "Gráficos da Corrida"
-                         : "Tabela Oficial da Prova"}
+                         : rightView === "clima"
+                           ? "Clima da Corrida"
+                           : "Tabela Oficial da Prova"}
                  </h3>
                  <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 p-1">
                      <PanelTab active={rightView === "results"} onClick={() => setRightView("results")}>Resultados</PanelTab>
@@ -781,11 +1003,44 @@ function RaceResultView({ result, evaluation, telemetry, onDismiss }) {
                      {hasCharts && (
                        <PanelTab active={rightView === "charts"} onClick={() => setRightView("charts")}>Gráficos</PanelTab>
                      )}
+                     {lastRaceId && (
+                       <PanelTab active={rightView === "clima"} onClick={() => setRightView("clima")}>Clima</PanelTab>
+                     )}
                  </div>
              </div>
              
              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10">
-                 {rightView === "charts" ? (
+                 {rightView === "clima" ? (
+                     <div className="animate-fade-in pr-2">
+                         {(() => {
+                           const totalLaps = telemetry?.race_laps || result?.total_laps || 0;
+                           const markers = [];
+                           if (telemetry?.tire_strategies?.length && totalLaps > 0) {
+                             const pIdx = telemetry.player_tire?.car_idx ?? -999;
+                             (telemetry.player_tire?.stops || []).forEach((d) => {
+                               markers.push({
+                                 frac: d.lap / totalLaps,
+                                 icon: d.tire_change ? "🔧" : "⛽",
+                                 label: `Pit V${d.lap}`,
+                                 isPlayer: true,
+                               });
+                             });
+                             telemetry.tire_strategies
+                               .filter((s) => s.car_idx !== pIdx)
+                               .forEach((s) =>
+                                 (s.stops || [])
+                                   .filter((d) => d.tire_change)
+                                   .forEach((d) =>
+                                     markers.push({ frac: d.lap / totalLaps, icon: "🔧", isPlayer: false }),
+                                   ),
+                               );
+                           }
+                           return (
+                             <WeatherTimelineChart careerId={careerId} raceId={lastRaceId} markers={markers} />
+                           );
+                         })()}
+                     </div>
+                 ) : rightView === "charts" ? (
                      <div className="animate-fade-in pr-2">
                          <RaceCharts
                              charts={telemetry.charts}
@@ -917,6 +1172,10 @@ function RaceResultView({ result, evaluation, telemetry, onDismiss }) {
         </div>
 
       </div>
+
+      {/* TEMPOS DE PIT — tabela dedicada (ênfase na equipe). Própria, separada da
+          estratégia de pneu. Só aparece com paradas capturadas (corrida do iRacing). */}
+      <PitTimesTable telemetry={telemetry} teamColors={teamColors} />
 
     </div>
   );

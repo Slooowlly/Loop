@@ -11,16 +11,24 @@ fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS ai_pre_race_briefing (
             race_id    TEXT PRIMARY KEY,
+            headline   TEXT NOT NULL DEFAULT '',
             narrative  TEXT NOT NULL,
             team_voice TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT ''
         );",
     )?;
+    // Migração: tabelas criadas antes da manchete cinematográfica não têm a coluna
+    // `headline`. ALTER falha se já existe — ignoramos o erro nesse caso.
+    let _ = conn.execute(
+        "ALTER TABLE ai_pre_race_briefing ADD COLUMN headline TEXT NOT NULL DEFAULT ''",
+        [],
+    );
     Ok(())
 }
 
-/// Prévia em cache (narrativa + voz da equipe).
+/// Prévia em cache (manchete + corpo/narrativa + voz da equipe).
 pub struct PreRaceRow {
+    pub headline: String,
     pub narrative: String,
     pub team_voice: String,
 }
@@ -30,12 +38,13 @@ pub fn get_pre_race(conn: &Connection, race_id: &str) -> Result<Option<PreRaceRo
     ensure_table(conn)?;
     let row = conn
         .query_row(
-            "SELECT narrative, team_voice FROM ai_pre_race_briefing WHERE race_id = ?1",
+            "SELECT headline, narrative, team_voice FROM ai_pre_race_briefing WHERE race_id = ?1",
             params![race_id],
             |r| {
                 Ok(PreRaceRow {
-                    narrative: r.get(0)?,
-                    team_voice: r.get(1)?,
+                    headline: r.get(0)?,
+                    narrative: r.get(1)?,
+                    team_voice: r.get(2)?,
                 })
             },
         )
@@ -47,15 +56,16 @@ pub fn get_pre_race(conn: &Connection, race_id: &str) -> Result<Option<PreRaceRo
 pub fn set_pre_race(
     conn: &Connection,
     race_id: &str,
+    headline: &str,
     narrative: &str,
     team_voice: &str,
 ) -> Result<(), DbError> {
     ensure_table(conn)?;
     let now = chrono::Local::now().timestamp().to_string();
     conn.execute(
-        "INSERT OR REPLACE INTO ai_pre_race_briefing (race_id, narrative, team_voice, created_at)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![race_id, narrative, team_voice, now],
+        "INSERT OR REPLACE INTO ai_pre_race_briefing (race_id, headline, narrative, team_voice, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![race_id, headline, narrative, team_voice, now],
     )?;
     Ok(())
 }

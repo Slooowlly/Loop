@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import useCareerStore from "../../stores/useCareerStore";
+import useExitToMenu from "../../hooks/useExitToMenu";
+import LeaveToMenuModal from "./LeaveToMenuModal";
 import {
   categoryLabel,
   formatCompactDate,
@@ -33,6 +35,10 @@ function Header({ activeTab, onTabChange }) {
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
   const closeRaceBriefing = useCareerStore((state) => state.closeRaceBriefing);
   const [seasonChampion, setSeasonChampion] = useState(null);
+
+  // Clicar no chip da equipe abre direto a pergunta de sair (salvando ou não).
+  const { isSaving, exit, saveAndExit } = useExitToMenu();
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
 
   const visibleDate = calendarDisplayDate ?? temporalSummary?.current_display_date;
   const visibleCountdown = displayDaysUntilNextEvent ?? temporalSummary?.days_until_next_event;
@@ -170,7 +176,12 @@ function Header({ activeTab, onTabChange }) {
         <div className="mx-auto flex w-full max-w-[1680px] items-center">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {!showRaceBriefing && (
-              <>
+              <button
+                type="button"
+                onClick={() => setLeaveConfirm(true)}
+                className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
+                title="Sair para o menu principal"
+              >
                 <TeamLogoMark
                   teamName={playerTeam?.nome}
                   color={playerTeam?.cor_primaria ?? "#58a6ff"}
@@ -180,7 +191,7 @@ function Header({ activeTab, onTabChange }) {
                 <span className="truncate text-xs font-bold uppercase tracking-[0.14em] text-text-primary">
                   {playerTeam?.nome ?? "-"}
                 </span>
-              </>
+              </button>
             )}
           </div>
 
@@ -290,6 +301,14 @@ function Header({ activeTab, onTabChange }) {
           </div>
         </div>
       )}
+
+      <LeaveToMenuModal
+        open={leaveConfirm}
+        isSaving={isSaving}
+        onSaveAndExit={saveAndExit}
+        onExitWithoutSave={exit}
+        onCancel={() => setLeaveConfirm(false)}
+      />
     </header>
   );
 }

@@ -267,6 +267,18 @@ pub async fn get_global_driver_rankings(
     get_global_driver_rankings_in_base_dir(&base_dir, &career_id, selected_driver_id.as_deref())
 }
 
+/// Favorita/desfavorita um piloto (watchlist). Devolve o NOVO estado (true = agora
+/// favoritado). Alimenta a ênfase do feed do mercado + o filtro "Favoritos".
+#[tauri::command]
+pub async fn toggle_driver_favorite(
+    app: AppHandle,
+    career_id: String,
+    driver_id: String,
+) -> Result<bool, String> {
+    let base_dir = app_data_dir(&app)?;
+    crate::commands::career::toggle_driver_favorite_in_base_dir(&base_dir, &career_id, &driver_id)
+}
+
 /// Estado da Janela de Transferências (Fase 2): ofertas do jogador + feed.
 #[tauri::command]
 pub async fn get_transfer_window_state(

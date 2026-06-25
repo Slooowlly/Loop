@@ -17,6 +17,7 @@ const DEFAULT_FILTERS = {
   maxAge: "",
   champions: "all",
   injured: "all",
+  favorites: "all",
 };
 
 const SORTERS = {
@@ -154,6 +155,31 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
+  // Aplica o novo estado de favorito numa linha (e no player_driver, se for ele) —
+  // mantém estrela + filtro "Favoritos" em sincronia sem refazer o ranking inteiro.
+  function patchRowFavorite(driverId, favorite) {
+    setPayload((current) => ({
+      ...current,
+      rows: (current.rows ?? []).map((row) =>
+        row.id === driverId ? { ...row, is_favorito: favorite } : row,
+      ),
+      player_driver:
+        current.player_driver && current.player_driver.id === driverId
+          ? { ...current.player_driver, is_favorito: favorite }
+          : current.player_driver,
+    }));
+  }
+
+  async function handleToggleFavorite(driverId) {
+    if (!careerId || !driverId) return;
+    try {
+      const nowFavorite = await invoke("toggle_driver_favorite", { careerId, driverId });
+      patchRowFavorite(driverId, nowFavorite);
+    } catch {
+      // Silencioso — favoritar nunca pode quebrar a lista.
+    }
+  }
+
   if (loading) {
     return <GlobalDriversLoading onBack={onBack} />;
   }
@@ -256,6 +282,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
                       onFocus={setFocusedDriverId}
                       onOpenDriverDetail={setSelectedDetailDriverId}
                       onOpenTitles={setTitleModalDriver}
+                      onToggleFavorite={handleToggleFavorite}
                     />
                   ))}
                 </Fragment>
@@ -281,6 +308,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
           driverId={selectedDetailDriverId}
           driverIds={rows.map((row) => row.id)}
           onSelectDriver={setSelectedDetailDriverId}
+          onFavoriteChange={patchRowFavorite}
           onClose={() => setSelectedDetailDriverId(null)}
         />
       ) : null}
@@ -474,7 +502,7 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
 
 function FilterBar({ filters, options, onChange, onReset }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
       <FilterSelect
         label="Status"
         value={filters.status}
@@ -520,6 +548,15 @@ function FilterBar({ filters, options, onChange, onReset }) {
           ["injured", "Apenas lesionados"],
         ]}
       />
+      <FilterSelect
+        label="Favoritos"
+        value={filters.favorites}
+        onChange={(value) => onChange("favorites", value)}
+        options={[
+          ["all", "Todos"],
+          ["only", "Apenas favoritos"],
+        ]}
+      />
       <div className="grid grid-cols-2 gap-2 xl:col-span-2">
         <FilterInput
           label="Idade mínima"
@@ -535,7 +572,7 @@ function FilterBar({ filters, options, onChange, onReset }) {
       <button
         type="button"
         onClick={onReset}
-        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary transition-glass hover:text-text-primary xl:col-start-7"
+        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary transition-glass hover:text-text-primary xl:col-start-8"
       >
         Limpar filtros
       </button>
@@ -598,7 +635,7 @@ function CategorySectionRow({ label }) {
   );
 }
 
-function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId, onFocus, onOpenDriverDetail, onOpenTitles }) {
+function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId, onFocus, onOpenDriverDetail, onOpenTitles, onToggleFavorite }) {
   const isDetailDriver = row.id === detailDriverId;
   const isReranked = relativeEntry != null;
   return (
@@ -650,6 +687,27 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
               Lesionado
             </span>
           ) : null}
+          {row.is_jogador ? null : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleFavorite?.(row.id);
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              aria-pressed={Boolean(row.is_favorito)}
+              title={row.is_favorito ? "Remover dos favoritos" : "Favoritar piloto"}
+              aria-label={row.is_favorito ? "Remover dos favoritos" : "Favoritar piloto"}
+              className={[
+                "ml-auto text-[15px] leading-none transition-colors",
+                row.is_favorito
+                  ? "text-[#fbbf24] drop-shadow-[0_0_4px_rgba(251,191,36,0.5)]"
+                  : "text-text-muted/50 hover:text-[#fbbf24]",
+              ].join(" ")}
+            >
+              {row.is_favorito ? "★" : "☆"}
+            </button>
+          )}
         </div>
       </td>
       <td className="px-4 py-3">
@@ -921,6 +979,7 @@ function filterRows(rows, filters) {
     if (filters.nationality !== "Todas" && nationalityKey(row.nacionalidade) !== filters.nationality) return false;
     if (filters.champions === "champions" && (row.titulos ?? 0) <= 0) return false;
     if (filters.injured === "injured" && !row.is_lesionado) return false;
+    if (filters.favorites === "only" && !row.is_favorito) return false;
     if (minAge != null && (row.idade ?? 0) < minAge) return false;
     if (maxAge != null && (row.idade ?? 0) > maxAge) return false;
     return true;

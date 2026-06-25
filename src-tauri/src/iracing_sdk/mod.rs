@@ -29,6 +29,7 @@ pub mod session_results;
 pub mod roster_gen;
 pub mod season_gen;
 pub mod telemetry_analysis;
+pub mod tire_strategy;
 pub mod weather;
 
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
@@ -190,9 +191,24 @@ pub struct IracingTelemetry {
     pub player_car_idx: i32,
     /// Se o carro do jogador está no pit road (`OnPitRoad`).
     pub player_on_pit_road: bool,
+    /// Umidade da pista (`TrackWetness`, irsdk_TrackWetness): 0 Unknown, 1 Dry,
+    /// 2 MostlyDry, 3 VeryLightlyWet, 4 LightlyWet, 5 ModeratelyWet, 6 VeryWet,
+    /// 7 ExtremelyWet. Base da inferência de composto (seco/chuva).
+    pub track_wetness: i32,
     /// Snapshot de TODOS os carros na sessão (lido das variáveis de array
     /// `CarIdx*`). Só os carros presentes (no mundo) entram aqui.
     pub cars: Vec<CarSnapshot>,
+}
+
+/// Limiar de `TrackWetness` a partir do qual a pista conta como MOLHADA para fins de
+/// pneu (≥ LightlyWet). Tunável.
+pub const WET_SURFACE_MIN: i32 = 4;
+
+impl IracingTelemetry {
+    /// Pista molhada o bastante para exigir pneu de chuva (`TrackWetness` ≥ limiar).
+    pub fn track_is_wet(&self) -> bool {
+        self.track_wetness >= WET_SURFACE_MIN
+    }
 }
 
 /// Estado de um carro qualquer na sessão (jogador ou IA), lido das variáveis de
@@ -632,6 +648,7 @@ mod imp {
                 "PitRepairNeeded" => t.pit_repair_needed = value,
                 "PitOptRepairNeeded" => t.pit_opt_repair_needed = value,
                 "IsOnTrackCar" => t.is_on_track_car = value != 0.0,
+                "TrackWetness" => t.track_wetness = value as i32,
                 _ => {}
             }
         }

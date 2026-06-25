@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
+import LapTimeLineChart from "../race/LapTimeLineChart";
+import PaceDeltaChart from "../race/PaceDeltaChart";
+import RaceTraceChart from "../race/RaceTraceChart";
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ReferenceLine,
-  ReferenceArea,
-  ReferenceDot,
   ResponsiveContainer,
 } from "recharts";
 
@@ -25,9 +23,6 @@ import {
 const AXIS_TICK = "#94a3b8";
 const GRID = "rgba(255,255,255,0.07)";
 const PLAYER_COLOR = "#58a6ff";
-const GOOD = "#22c55e";
-const BAD = "#ef4444";
-const YELLOW = "#facc15";
 const PALETTE = [
   "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
   "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
@@ -476,29 +471,7 @@ function IracingConnectedOverlay() {
                 )}
               </div>
               <div className="h-[180px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={deltaRows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
-                    <CartesianGrid stroke={GRID} vertical={false} />
-                    <XAxis dataKey="lap" tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID} />
-                    <YAxis
-                      tick={{ fill: AXIS_TICK, fontSize: 10 }}
-                      stroke={GRID}
-                      width={38}
-                      tickFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`}
-                    />
-                    <Tooltip
-                      contentStyle={{ background: "#0a0f16", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v) => [`${v > 0 ? "+" : ""}${v.toFixed(2)}s`, "à média"]}
-                      labelFormatter={(l) => `Volta ${l}`}
-                    />
-                    <ReferenceLine y={0} stroke={AXIS_TICK} strokeOpacity={0.5} />
-                    <Bar dataKey="delta" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                      {deltaRows.map((r) => (
-                        <Cell key={r.lap} fill={r.delta > 0 ? BAD : "#16a34a"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <PaceDeltaChart rows={deltaRows} showXLabel={false} tickFontSize={10} yAxisWidth={38} />
               </div>
             </ChartCard>
 
@@ -530,25 +503,7 @@ function IracingConnectedOverlay() {
             {/* Ritmo do usuário */}
             <ChartCard title="Ritmo do usuário" hint="tempo de volta" hasData={paceRows.length >= 1}>
               <div className="h-[180px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={paceRows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
-                    <CartesianGrid stroke={GRID} />
-                    <XAxis dataKey="lap" tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID} />
-                    <YAxis
-                      tick={{ fill: AXIS_TICK, fontSize: 10 }}
-                      stroke={GRID}
-                      width={48}
-                      domain={["dataMin - 0.5", "dataMax + 0.5"]}
-                      tickFormatter={(v) => formatLap(v)}
-                    />
-                    <Tooltip
-                      contentStyle={{ background: "#0a0f16", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v) => [formatLap(v), "volta"]}
-                      labelFormatter={(l) => `Volta ${l}`}
-                    />
-                    <Line type="monotone" dataKey="time" stroke={PLAYER_COLOR} strokeWidth={2.5} dot={{ r: 2 }} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <LapTimeLineChart rows={paceRows} />
               </div>
             </ChartCard>
           </div>
@@ -580,81 +535,19 @@ function IracingConnectedOverlay() {
               </div>
             )}
             <div className="h-[240px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={displayRows} margin={{ top: 8, right: 8, bottom: 16, left: 0 }}>
-                  <CartesianGrid stroke={GRID} />
-                  {yellowLaps.map((lap) => (
-                    <ReferenceArea
-                      key={`y${lap}`}
-                      x1={lap - 0.5}
-                      x2={lap + 0.5}
-                      fill={YELLOW}
-                      fillOpacity={0.14}
-                      stroke="none"
-                    />
-                  ))}
-                  <XAxis
-                    type="number"
-                    dataKey="lap"
-                    domain={["dataMin", "dataMax"]}
-                    allowDecimals={false}
-                    tick={{ fill: AXIS_TICK, fontSize: 10 }}
-                    stroke={GRID}
-                    label={{ value: "Volta", position: "insideBottom", offset: -6, fill: AXIS_TICK, fontSize: 10 }}
-                  />
-                  <YAxis
-                    reversed
-                    allowDecimals={false}
-                    domain={[0, gapCap ?? "dataMax"]}
-                    tick={{ fill: AXIS_TICK, fontSize: 10 }}
-                    stroke={GRID}
-                    width={40}
-                    tickFormatter={(v) => `${v}s`}
-                  />
-                  <Tooltip content={<TraceTooltip nameByIdx={nameByIdx} />} />
-                  {traceCars.map((car) => (
-                    <Line
-                      key={car.idx}
-                      type="monotone"
-                      dataKey={`c${car.idx}`}
-                      stroke={colorFor[car.idx]}
-                      strokeWidth={car.isPlayer ? 3 : 1.3}
-                      strokeOpacity={car.isPlayer ? 1 : 0.55}
-                      dot={false}
-                      activeDot={car.isPlayer ? { r: 4 } : false}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ))}
-                  {/* Pins do jogador: offtrack / contato (1x/2x/4x) */}
-                  {playerPins.map((p) => (
-                    <ReferenceDot
-                      key={p.key}
-                      x={p.x}
-                      y={p.y}
-                      r={3.5}
-                      fill={p.color}
-                      stroke="#0b0f16"
-                      strokeWidth={1}
-                      isFront
-                      label={{ value: p.kind, position: "top", fill: p.color, fontSize: 9 }}
-                    />
-                  ))}
-                  {/* Melhor volta do jogador: aro roxo */}
-                  {bestLapPin && (
-                    <ReferenceDot
-                      x={bestLapPin.x}
-                      y={bestLapPin.y}
-                      r={6}
-                      fill="none"
-                      stroke="#a855f7"
-                      strokeWidth={2.5}
-                      isFront
-                      label={{ value: "★", position: "bottom", fill: "#a855f7", fontSize: 11 }}
-                    />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
+              <RaceTraceChart
+                rows={displayRows}
+                cars={traceCars.map((c) => ({ idx: c.idx, isPlayer: c.isPlayer }))}
+                colorForCar={(idx) => colorFor[idx]}
+                nameByIdx={nameByIdx}
+                mode="gap"
+                lapDomain={["dataMin", "dataMax"]}
+                gapCap={gapCap}
+                yellowLaps={yellowLaps}
+                playerPins={playerPins}
+                bestLapPin={bestLapPin}
+                tickFontSize={10}
+              />
             </div>
 
             {/* Legenda: nome do piloto na cor do time/carro */}
@@ -672,31 +565,6 @@ function IracingConnectedOverlay() {
           </ChartCard>
         </div>
       </div>
-    </div>
-  );
-}
-
-function TraceTooltip({ active, payload, label, nameByIdx }) {
-  if (!active || !payload?.length) return null;
-  const rows = payload
-    .filter((p) => p.value != null)
-    .sort((a, b) => a.value - b.value)
-    .slice(0, 12);
-  return (
-    <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
-      <div className="mb-1 font-semibold text-white">Volta {label}</div>
-      {rows.map((p) => {
-        const idx = Number(p.dataKey.slice(1));
-        return (
-          <div key={p.dataKey} className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5" style={{ color: p.color }}>
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.color }} />
-              {nameByIdx[idx] ?? `c${idx}`}
-            </span>
-            <span className="tabular-nums text-gray-400">+{p.value.toFixed(2)}s</span>
-          </div>
-        );
-      })}
     </div>
   );
 }

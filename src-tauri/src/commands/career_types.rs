@@ -568,6 +568,9 @@ pub struct DriverDetail {
     pub idade: i32,
     pub genero: String,
     pub is_jogador: bool,
+    /// Piloto favoritado pelo jogador (watchlist). Comanda a estrela no dossiê.
+    #[serde(default)]
+    pub is_favorito: bool,
     pub status: String,
     pub equipe_id: Option<String>,
     pub equipe_nome: Option<String>,
@@ -630,6 +633,9 @@ pub struct GlobalDriverRankingRow {
     pub status: String,
     pub status_tone: String,
     pub is_jogador: bool,
+    /// Piloto favoritado pelo jogador (watchlist). Comanda a estrela inline + filtro.
+    #[serde(default)]
+    pub is_favorito: bool,
     pub is_lesionado: bool,
     pub lesao_ativa_tipo: Option<String>,
     pub equipe_nome: Option<String>,

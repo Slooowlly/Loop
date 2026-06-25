@@ -196,6 +196,11 @@ fn build_global_driver_rankings(
         .map(|entry| entry.row)
         .collect::<Vec<_>>();
     rows.retain(has_ranking_visibility);
+    // Marca os favoritados (watchlist) — alimenta a estrela inline + o filtro "Favoritos".
+    let favorites = crate::db::queries::favorites::get_favorite_ids(conn).unwrap_or_default();
+    for row in &mut rows {
+        row.is_favorito = favorites.contains(&row.id);
+    }
     assign_ranks(&mut rows);
     assign_rank_deltas(conn, &mut rows, &stats_by_driver)?;
     let leaders = build_leaders(&rows);
@@ -267,6 +272,7 @@ fn build_current_driver_entry(
         status,
         status_tone,
         is_jogador: driver.is_jogador,
+        is_favorito: false, // carimbado adiante via get_favorite_ids
         is_lesionado: active_injury_type.is_some(),
         lesao_ativa_tipo: active_injury_type,
         equipe_nome: contract.as_ref().map(|value| value.equipe_nome.clone()),
@@ -350,6 +356,7 @@ fn build_retired_driver_entry(
         status: "Aposentado".to_string(),
         status_tone: "retired".to_string(),
         is_jogador: false,
+        is_favorito: false, // carimbado adiante via get_favorite_ids
         is_lesionado: false,
         lesao_ativa_tipo: None,
         equipe_nome: None,

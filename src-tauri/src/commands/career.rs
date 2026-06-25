@@ -1214,6 +1214,19 @@ pub(crate) fn get_driver_detail_in_base_dir(
     )
 }
 
+/// Inverte o favorito do piloto (watchlist) e devolve o NOVO estado (true = agora
+/// favoritado). Puramente cosmético — alimenta a ênfase do feed do mercado e o filtro
+/// "Favoritos" na aba de pilotos; não toca na simulação.
+pub(crate) fn toggle_driver_favorite_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    driver_id: &str,
+) -> Result<bool, String> {
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
+    crate::db::queries::favorites::toggle_favorite(&db.conn, driver_id)
+        .map_err(|e| format!("Falha ao alternar favorito: {e}"))
+}
+
 fn read_save_meta(path: &Path) -> Result<SaveMeta, String> {
     let content =
         std::fs::read_to_string(path).map_err(|e| format!("Falha ao ler meta.json: {e}"))?;
@@ -4970,7 +4983,7 @@ fn build_track_history_summary(
     })
 }
 
-fn build_primary_rival_summary(
+pub(crate) fn build_primary_rival_summary(
     conn: &rusqlite::Connection,
     player_id: &str,
     categoria: &str,

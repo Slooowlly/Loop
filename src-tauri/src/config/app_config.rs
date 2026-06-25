@@ -63,10 +63,6 @@ pub struct AppConfig {
     pub window_height: u32,
     pub window_maximized: bool,
 
-    // iRacing Paths
-    pub airosters_path: Option<PathBuf>,
-    pub aiseasons_path: Option<PathBuf>,
-
     /// Diretório base do app (AppData/Local/Loop).
     /// Não persiste no JSON — preenchido em tempo de execução.
     #[serde(skip)]
@@ -76,7 +72,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            version: "1.0.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             last_career: None,
             language: "pt-BR".to_string(),
             autosave_enabled: true,
@@ -84,8 +80,6 @@ impl Default for AppConfig {
             window_width: 1280,
             window_height: 720,
             window_maximized: false,
-            airosters_path: None,
-            aiseasons_path: None,
             base_dir: PathBuf::new(),
         }
     }
@@ -100,6 +94,10 @@ impl AppConfig {
             match serde_json::from_str::<AppConfig>(&content) {
                 Ok(mut cfg) => {
                     cfg.base_dir = base_dir.to_path_buf();
+                    // A versão exibida segue SEMPRE a do binário (Cargo.toml), nunca
+                    // o valor persistido — assim um config.json antigo não mostra
+                    // uma versão defasada depois de um update.
+                    cfg.version = env!("CARGO_PKG_VERSION").to_string();
                     return cfg;
                 }
                 Err(e) => {
@@ -300,7 +298,9 @@ mod tests {
 
         let loaded = AppConfig::load_or_default(&base_dir);
 
-        assert_eq!(loaded.version, "0.9.0");
+        // A versão sempre acompanha o binário (Cargo.toml), ignorando o valor
+        // antigo gravado no config.json.
+        assert_eq!(loaded.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(loaded.last_career, Some(7));
         assert_eq!(loaded.language, "en-US");
         assert!(!loaded.autosave_enabled);

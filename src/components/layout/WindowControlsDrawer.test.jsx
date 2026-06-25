@@ -39,7 +39,7 @@ describe("WindowControlsDrawer", () => {
     expect(hoverTarget).toHaveClass("w-10");
   });
 
-  it("keeps only the Home shortcut and always asks for confirmation on Home and close", async () => {
+  it("is only window controls now (no Home shortcut) and confirms before closing", async () => {
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>
         <WindowControlsDrawer />
@@ -53,21 +53,16 @@ describe("WindowControlsDrawer", () => {
       vi.advanceTimersByTime(500);
     });
 
-    expect(screen.getByRole("button", { name: /home/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /configuracoes/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /carregar save/i })).not.toBeInTheDocument();
+    // O "voltar ao menu" saiu do drawer (agora é menu de pausa / menu da equipe).
+    expect(screen.queryByRole("button", { name: /home/i })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /home/i }));
-    expect(screen.getByText(/deseja sair da carreira agora/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/você pode salvar antes de voltar ao menu principal ou fechar o jogo/i),
-    ).toBeInTheDocument();
+    // Fechar o app ainda pede confirmação (com opção de salvar).
+    fireEvent.click(screen.getByRole("button", { name: /fechar app/i }));
+    expect(screen.getByText(/fechar o loop/i)).toBeInTheDocument();
+    expect(screen.getByText(/você pode salvar o progresso antes de fechar o jogo/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /cancelar/i }));
-    expect(screen.queryByText(/deseja sair da carreira agora/i)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /fechar app/i }));
-    expect(screen.getByText(/deseja sair da carreira agora/i)).toBeInTheDocument();
+    expect(screen.queryByText(/fechar o loop/i)).not.toBeInTheDocument();
   });
 
   it("disables the hover hotspot while the drawer is open so the close button stays clickable", async () => {

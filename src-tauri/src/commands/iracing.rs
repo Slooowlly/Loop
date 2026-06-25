@@ -737,6 +737,32 @@ fn build_session_race_result(
             name.map(|n| (m.idx, n))
         })
         .collect();
+    // Equipe por car_idx (mesma fonte do resultado oficial: contrato regular ativo →
+    // equipe). Resolve o driver_id por número e busca o time do contrato vigente.
+    let team_by_idx: std::collections::HashMap<i32, String> = history
+        .cars_meta
+        .iter()
+        .filter_map(|m| {
+            let driver_id = if m.idx == history.player_car_idx {
+                player_driver.as_ref().map(|d| d.id.clone())
+            } else {
+                by_number.get(&(m.car_number as i64)).cloned()
+            }?;
+            let team = crate::db::queries::contracts::get_active_regular_contract_for_pilot(
+                &db.conn, &driver_id,
+            )
+            .ok()
+            .flatten()
+            .map(|c| {
+                crate::db::queries::teams::get_team_by_id(&db.conn, &c.equipe_id)
+                    .ok()
+                    .flatten()
+                    .map(|t| t.nome)
+                    .unwrap_or(c.equipe_id)
+            })?;
+            Some((m.idx, team))
+        })
+        .collect();
     // Sinais de batida/DNF do jogador (não estão no RaceHistory) para o "erro
     // mais caro": voltas com contato + se abandonou + a volta em que parou.
     let crash_laps: Vec<i32> = player_attempt
@@ -757,7 +783,8 @@ fn build_session_race_result(
         is_dnf: player_dnf,
         dnf_lap,
     };
-    let telemetry = telemetry_analysis::analyze(&history, &name_by_idx, &player_incidents);
+    let telemetry =
+        telemetry_analysis::analyze(&history, &name_by_idx, &team_by_idx, &player_incidents);
 
     Ok((
         db,
@@ -850,6 +877,7 @@ pub fn iracing_auto_import_if_ready(
             "race_result": &race_result,
             "evaluation": &evaluation,
             "telemetry": &telemetry,
+            "maintenance": &summary.maintenance,
         }),
     );
 
@@ -2062,6 +2090,101 @@ fn build_event_weather(
         start_time,
     };
     (ew, story)
+}
+
+/// Rótulo PT do cenário de clima (para a tela do timeline).
+fn scenario_label_pt(s: crate::iracing_sdk::weather::WeatherScenario) -> String {
+    use crate::iracing_sdk::weather::WeatherScenario::*;
+    match s {
+        ClearDry => "Seco e limpo",
+        Scare => "Céu fecha (sem chuva)",
+        LastDrops => "Pingos no fim",
+        PassingDrizzle => "Garoa passageira",
+        ClearingUp => "Abrindo o tempo",
+        WetQualyDryRace => "Secou para a corrida",
+        SteadyRain => "Chuva constante",
+        Improving => "Chuva afrouxando",
+        StormArrives => "Tempestade chegando",
+        PulsingStorm => "Tempestade pulsante",
+        LightQualyWorseRace => "Piora na corrida",
+        FirstRaceScript => "Nublado, pingos no fim",
+    }
+    .to_string()
+}
+
+/// Rótulo PT da intensidade da chuva.
+fn intensity_label_pt(i: crate::iracing_sdk::weather::RainIntensity) -> String {
+    use crate::iracing_sdk::weather::RainIntensity::*;
+    match i {
+        None => "Seco",
+        Light => "Garoa",
+        Decent => "Chuva",
+        Heavy => "Chuva forte",
+        VeryHeavy => "Temporal",
+    }
+    .to_string()
+}
+
+/// Timeline do clima de uma corrida (frações 0..1) — para a tela de clima (previsão
+/// na sala de estratégia + revisão na pós-corrida). Reconstrói o MESMO clima
+/// determinístico do export (pista + estação + seed), idêntico ao que a prova seguiu.
+#[derive(serde::Serialize)]
+pub struct RaceWeatherTimeline {
+    pub scenario: String,
+    pub is_wet_race: bool,
+    pub intensity: String,
+    pub points: Vec<crate::iracing_sdk::weather::WeatherTimelinePoint>,
+}
+
+#[tauri::command]
+pub fn get_race_weather_timeline(
+    app: tauri::AppHandle,
+    career_id: String,
+    race_id: String,
+) -> Result<RaceWeatherTimeline, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let entry = crate::db::queries::calendar::get_calendar_entry_by_id(&db.conn, &race_id)
+        .map_err(|e| format!("Falha ao buscar corrida: {e}"))?
+        .ok_or_else(|| "Corrida não encontrada".to_string())?;
+    let track = crate::constants::tracks::get_track(entry.track_id)
+        .ok_or_else(|| "Pista não encontrada".to_string())?;
+
+    // É a corrida de ESTREIA do save? (única que usa o roteiro fixo do 1º clima.)
+    let first_id: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT c.id FROM calendar c JOIN seasons s ON c.season_id = s.id \
+             ORDER BY s.numero ASC, c.week_of_year ASC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    let is_first = first_id.as_deref() == Some(race_id.as_str());
+
+    let story = crate::iracing_sdk::weather::generate_weather(
+        month_from_week(entry.week_of_year),
+        track_hemisphere(track.pais),
+        climate_tendency(track.rain_group),
+        event_seed(&career_id, &race_id),
+        is_first,
+    );
+    Ok(RaceWeatherTimeline {
+        scenario: scenario_label_pt(story.scenario),
+        is_wet_race: story.is_wet_race,
+        intensity: intensity_label_pt(story.race_intensity),
+        points: crate::iracing_sdk::weather::story_to_timeline(&story),
+    })
 }
 
 /// Pintura que o JOGADOR deve aplicar na garagem do iRacing para ficar na cor do

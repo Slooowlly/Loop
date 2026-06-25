@@ -819,6 +819,8 @@ mod tests {
             ],
             track_id: 1,
             qualy_laps: vec![],
+            pit_stops: vec![],
+            weather: Default::default(),
         };
         // Tempos de volta: idx1 mais rápido (90s), jogador 91s, idx2 92s.
         for (idx, t) in [(0, 91.0), (1, 90.0), (2, 92.0)] {

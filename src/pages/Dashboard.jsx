@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 
 import MainLayout from "../components/layout/MainLayout";
-import RaceResultView from "../components/race/RaceResultView";
+import RaceResultViewV2 from "../components/race/RaceResultViewV2";
 import ConvocationView from "../components/season/ConvocationView";
 import EndOfSeasonView from "../components/season/EndOfSeasonView";
 import PreSeasonView from "../components/season/PreSeasonView";
@@ -26,6 +26,7 @@ function Dashboard() {
   const lastRaceResult = useCareerStore((state) => state.lastRaceResult);
   const lastRaceEvaluation = useCareerStore((state) => state.lastRaceEvaluation);
   const lastRaceTelemetry = useCareerStore((state) => state.lastRaceTelemetry);
+  const lastRaceMaintenance = useCareerStore((state) => state.lastRaceMaintenance);
   const dismissResult = useCareerStore((state) => state.dismissResult);
   const careerId = useCareerStore((state) => state.careerId);
   const pollIracingResult = useCareerStore((state) => state.pollIracingResult);
@@ -154,10 +155,11 @@ function Dashboard() {
   if (showResult && lastRaceResult) {
     return (
       <MainLayout activeTab={activeTab} onTabChange={setActiveTab} hideHeader>
-        <RaceResultView
+        <RaceResultViewV2
           result={lastRaceResult}
           evaluation={lastRaceEvaluation}
           telemetry={lastRaceTelemetry}
+          maintenance={lastRaceMaintenance}
           onDismiss={dismissResult}
         />
         {iracingRepair && (

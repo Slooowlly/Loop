@@ -688,6 +688,76 @@ pub fn get_pilot_track_history(
     Ok(row)
 }
 
+/// Confronto direto entre o jogador e um rival na categoria (todas as temporadas
+/// persistidas). `races_together` = corridas em que ambos aparecem no resultado;
+/// `player_ahead` = quantas o jogador terminou à frente. `best_*` = a corrida em
+/// que o jogador teve sua MELHOR posição entre as que bateu o rival (para citar).
+#[derive(Debug, Clone, Default)]
+pub struct HeadToHead {
+    pub races_together: i32,
+    pub player_ahead: i32,
+    pub best_finish: Option<i32>,
+    pub best_track: Option<String>,
+}
+
+pub fn get_head_to_head(
+    conn: &Connection,
+    player_id: &str,
+    rival_id: &str,
+    categoria: &str,
+) -> Result<HeadToHead, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT pr.posicao_final, rr.posicao_final,
+                COALESCE(NULLIF(c.track_name, ''), c.pista)
+         FROM race_results pr
+         JOIN race_results rr ON rr.race_id = pr.race_id AND rr.piloto_id = ?2
+         JOIN calendar c ON c.id = pr.race_id
+         WHERE pr.piloto_id = ?1 AND c.categoria = ?3",
+    )?;
+    let mut rows = stmt.query(rusqlite::params![player_id, rival_id, categoria])?;
+    let mut h = HeadToHead::default();
+    while let Some(row) = rows.next()? {
+        let player_pos: i32 = row.get(0)?;
+        let rival_pos: i32 = row.get(1)?;
+        let track: String = row.get(2)?;
+        h.races_together += 1;
+        if player_pos < rival_pos {
+            h.player_ahead += 1;
+            if h.best_finish.map_or(true, |b| player_pos < b) {
+                h.best_finish = Some(player_pos);
+                h.best_track = Some(track);
+            }
+        }
+    }
+    Ok(h)
+}
+
+/// Piloto ATIVO na categoria (não-jogador) com quem o jogador mais correu — o rival
+/// de história mais longa no grid atual. `None` se o jogador nunca correu ali.
+pub fn most_faced_rival(
+    conn: &Connection,
+    player_id: &str,
+    categoria: &str,
+) -> Result<Option<String>, DbError> {
+    let id = conn
+        .query_row(
+            "SELECT rr.piloto_id
+             FROM race_results pr
+             JOIN race_results rr ON rr.race_id = pr.race_id AND rr.piloto_id != pr.piloto_id
+             JOIN calendar c ON c.id = pr.race_id
+             JOIN drivers d ON d.id = rr.piloto_id
+             WHERE pr.piloto_id = ?1 AND c.categoria = ?2
+               AND d.categoria_atual = ?2 AND d.is_jogador = 0 AND d.status != 'Aposentado'
+             GROUP BY rr.piloto_id
+             ORDER BY COUNT(*) DESC, rr.piloto_id ASC
+             LIMIT 1",
+            rusqlite::params![player_id, categoria],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

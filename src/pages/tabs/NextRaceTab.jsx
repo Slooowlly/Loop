@@ -6,6 +6,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
+import WeatherButton from "../../components/race/WeatherButton";
 import useCareerStore from "../../stores/useCareerStore";
 import { exportSuccess } from "../../utils/sfx";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
@@ -492,6 +493,10 @@ function NextRaceTab() {
     try {
       await invoke("iracing_generate_roster", { careerId, categoria, rosterName, carKey });
       await invoke("iracing_generate_season", { careerId, categoria, rosterName, carKey });
+      // Garante a macro de bandeira instalada agora — o iRacing está fechado neste
+      // momento, então a escrita no app.ini "cola" (o sim só reescreve ao fechar).
+      // Não-fatal: se falhar (ex.: app.ini não encontrado), não bloqueia a exportação.
+      await invoke("iracing_install_yellow_macro").catch(() => {});
       dismissToasts();
       setExported(true);
       exportSuccess();
@@ -906,14 +911,24 @@ function NextRaceTab() {
           
           {/* 1) NARRATIVA DA ETAPA */}
           <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[650px]">
-            {/* Condições Compactas */}
-            <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 flex justify-between items-center bg-gradient-to-r from-black/40 to-transparent">
+            {/* Condições Compactas — o CARD INTEIRO abre a previsão do tempo. */}
+            <WeatherButton
+              careerId={careerId}
+              raceId={nextRace?.id}
+              forecast
+              className="group attn-glow-delayed w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 flex justify-between items-center bg-gradient-to-r from-black/40 to-transparent transition hover:border-[#58a6ff]/40"
+            >
               <div className="flex items-center gap-4">
                 <div className="text-4xl">{briefing.weatherIcon}</div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">Condição de Pista</p>
+                  <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">
+                    Condição de Pista <span className="opacity-60 group-hover:opacity-100">›</span>
+                  </p>
                   <p className="text-xl font-bold text-white">
                     {briefing.weatherSummary} <span className="text-xs text-gray-400">{briefing.trackTemperatureLabel}</span>
+                  </p>
+                  <p className="text-[10px] text-gray-500 group-hover:text-[#58a6ff] transition">
+                    ver previsão do tempo ›
                   </p>
                 </div>
               </div>
@@ -921,7 +936,7 @@ function NextRaceTab() {
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">Público</p>
                 <p className="text-xl font-bold text-white">{formatAudience(briefing.audienceEstimate)}</p>
               </div>
-            </div>
+            </WeatherButton>
 
             {/* Narrativa Expandida */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">
@@ -941,33 +956,6 @@ function NextRaceTab() {
                     )
                   ) : null}
                 </p>
-                {showAiDebug ? (
-                  <div className="flex items-center gap-1.5">
-                    {effectiveAi ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowTemplate((v) => !v)}
-                        title="Debug: alternar entre o texto da IA (em cache) e o template original"
-                        className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-white/10 bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] hover:text-white transition flex items-center gap-1"
-                      >
-                        {showTemplate ? "Ver IA" : "Ver template"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={handleRerollAi}
-                      disabled={aiReroll.busy}
-                      title="Debug: regenerar a prévia por IA (força, ignora cache e cooldown)"
-                      className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-white/10 bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                    >
-                      <span className={aiReroll.busy ? "animate-spin" : ""}>↻</span>
-                      {aiReroll.busy ? "Gerando…" : "Rerolar IA"}
-                      {!aiReroll.busy && aiReroll.status ? (
-                        <span className="text-gray-500">· {aiReroll.status}</span>
-                      ) : null}
-                    </button>
-                  </div>
-                ) : null}
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10 flex flex-col">

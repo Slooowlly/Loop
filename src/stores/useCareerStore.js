@@ -22,17 +22,23 @@ const initialState = {
   season: null,
   nextRace: null,
   nextRaceBriefing: null,
+  // Prévia por IA pré-buscada durante a animação de avanço (evita o flash template→IA).
+  preRaceAi: null,
   temporalSummary: null,
   calendarDisplayDate: null,
   displayDaysUntilNextEvent: null,
   totalDrivers: 0,
   totalTeams: 0,
   lastRaceResult: null,
+  // ID da corrida do pós-corrida (race_id) — usado para reconstruir o timeline de clima.
+  lastRaceId: null,
   // Avaliação de carreira do pós-corrida (expectativa vs resultado, nota, frases).
   // Null para corridas sem avaliação — a tela trata e nunca quebra.
   lastRaceEvaluation: null,
   // Análise de telemetria (ritmo/consistência/rival). Null se não houve.
   lastRaceTelemetry: null,
+  // Fatura de manutenção do carro do pós-corrida (gasolina/pneus + conserto). Null se não houve.
+  lastRaceMaintenance: null,
   otherCategoriesResult: null,
   showResult: false,
   showRaceBriefing: false,
@@ -425,8 +431,10 @@ const useCareerStore = create((set, get) => ({
 
       set({
         lastRaceResult: result.player_race,
+        lastRaceId: nextRace.id,
         lastRaceEvaluation: result.evaluation ?? null, // mesmo cérebro do import iRacing
         lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
+        lastRaceMaintenance: result.maintenance ?? null,
         otherCategoriesResult: result.other_categories,
         isSimulating: false,
         showResult: true,
@@ -454,8 +462,10 @@ const useCareerStore = create((set, get) => ({
       if (payload?.race_result) {
         set({
           lastRaceResult: payload.race_result,
+          lastRaceId: payload.summary?.race_id ?? null,
           lastRaceEvaluation: payload.evaluation ?? null,
           lastRaceTelemetry: payload.telemetry ?? null,
+          lastRaceMaintenance: payload.summary?.maintenance ?? null,
           showResult: true,
           showRaceBriefing: false,
           isDirty: true,
@@ -481,8 +491,10 @@ const useCareerStore = create((set, get) => ({
       if (screen?.race_result) {
         set({
           lastRaceResult: screen.race_result,
+          lastRaceId: screen.race_id ?? null,
           lastRaceEvaluation: screen.evaluation ?? null,
           lastRaceTelemetry: screen.telemetry ?? null,
+          lastRaceMaintenance: screen.maintenance ?? null,
           iracingRepair: null,
           showResult: true,
           showRaceBriefing: false,
@@ -1000,6 +1012,63 @@ const useCareerStore = create((set, get) => ({
     set({ showRaceBriefing: false });
   },
 
+  // Pré-busca a prévia por IA da próxima corrida ENQUANTO o calendário avança (a
+  // animação dá tempo de sobra). Monta os mesmos fatos da Sala de Estratégia, gera
+  // no servidor (cacheado por etapa) e guarda em `preRaceAi` para a tela abrir já com
+  // o texto pronto — sem o flash template→IA. Fire-and-forget; qualquer falha é
+  // silenciosa (a tela cai no fluxo normal). Import dinâmico evita ciclo de módulos.
+  prefetchPreRaceBriefing: async () => {
+    const { careerId, player, playerTeam, season, nextRace, nextRaceBriefing, preRaceAi } = get();
+    const raceId = nextRace?.id;
+    if (!careerId || !raceId || !playerTeam?.categoria) return;
+    if (preRaceAi?.raceId === raceId) return; // já temos desta etapa
+
+    try {
+      const [{ buildBriefingContext }, drivers, teams, phraseHistory] = await Promise.all([
+        import("../pages/tabs/NextRaceTab"),
+        invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
+        invoke("get_teams_standings", { careerId, category: playerTeam.categoria }),
+        invoke("get_briefing_phrase_history", { careerId }).catch(() => ({
+          season_number: 0,
+          entries: [],
+        })),
+      ]);
+
+      // Outra etapa pode ter virado a corrente enquanto buscávamos — aborta se mudou.
+      if (get().nextRace?.id !== raceId) return;
+
+      const { aiFacts } = buildBriefingContext({
+        player,
+        playerTeam,
+        season,
+        nextRace,
+        nextRaceBriefing,
+        driverStandings: Array.isArray(drivers) ? drivers : [],
+        teamStandings: Array.isArray(teams) ? teams : [],
+        briefingPhraseHistory:
+          phraseHistory && Array.isArray(phraseHistory.entries)
+            ? phraseHistory
+            : { season_number: 0, entries: [] },
+      });
+      if (!aiFacts || !aiFacts.trim()) return;
+
+      const res = await invoke("pre_race_briefing_ai", { careerId, raceId, facts: aiFacts });
+      if (get().nextRace?.id !== raceId) return;
+      if (res?.narrative && res?.team_voice) {
+        set({
+          preRaceAi: {
+            raceId,
+            headline: res.headline ?? null,
+            narrative: res.narrative,
+            teamVoice: res.team_voice,
+          },
+        });
+      }
+    } catch (_error) {
+      // silencioso: a Sala de Estratégia gera por conta própria ao abrir.
+    }
+  },
+
   startCalendarAdvance: async () => {
     const {
       careerId,
@@ -1079,6 +1148,10 @@ const useCareerStore = create((set, get) => ({
       calendarDisplayDate: sequence[0],
       displayDaysUntilNextEvent: sequence.length - 1,
     });
+
+    // Aproveita a animação para gerar a prévia por IA em paralelo (fire-and-forget),
+    // assim a Sala de Estratégia abre já com o texto pronto.
+    void get().prefetchPreRaceBriefing();
 
     try {
       for (let index = 1; index < sequence.length; index += 1) {

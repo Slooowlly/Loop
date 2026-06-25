@@ -37,6 +37,19 @@ function buildSeed(...parts) {
 }
 
 const headlinePools = {
+  opener: combineVariants(
+    [
+      ({ trackName }) => `A temporada começa em ${trackName}, com o grid inteiro partindo do zero.`,
+      ({ trackName }) => `${trackName} abre o campeonato, e ninguém largou na frente: todos no mesmo ponto de partida.`,
+      ({ trackName }) => `O campeonato estreia em ${trackName}, e a primeira etapa vale a primeira leitura de forças.`,
+      ({ trackName }) => `Tudo recomeça em ${trackName}: tabela zerada e uma temporada inteira pela frente.`,
+      ({ trackName }) => `A largada da temporada acontece em ${trackName}, ainda sem favoritismos consolidados na tabela.`,
+    ],
+    [
+      () => "É hora de transformar a expectativa da pré-temporada em pontos de verdade.",
+      () => "A etapa define o tom inicial da campanha antes de a tabela ganhar forma.",
+    ],
+  ),
   leader_hot: combineVariants(
     [
       ({ trackName }) => `Você chega a ${trackName} defendendo a liderança em um fim de semana que promete tensão alta.`,
@@ -118,6 +131,19 @@ const headlinePools = {
 };
 
 const championshipParagraphPools = {
+  opener: combineVariants(
+    [
+      () => "Com o campeonato no ponto de partida, ninguém pontuou ainda e cada piloto chega com a conta zerada.",
+      () => "A tabela ainda não existe na prática: é a primeira etapa que começa a desenhar a hierarquia da temporada.",
+      () => "Sem rodadas disputadas, a classificação é só uma lista de largada — o campeonato de fato começa aqui.",
+      () => "Todos partem empatados, e o primeiro fim de semana costuma pesar na confiança do restante da campanha.",
+      () => "A temporada abre sem histórico recente para sustentar favoritismos; a pista é que vai dar o primeiro veredito.",
+    ],
+    [
+      () => "Um começo sólido evita ter que correr atrás do prejuízo logo na sequência.",
+      () => "Largar bem na estreia dá lastro de confiança para o resto do calendário.",
+    ],
+  ),
   leader: combineVariants(
     [
       ({ trackName }) => `A equipe desembarca em ${trackName} com você na ponta da tabela.`,
@@ -186,6 +212,22 @@ const championshipParagraphPools = {
 };
 
 const weekendParagraphPools = {
+  opener: combineVariants(
+    [
+      ({ favoriteName }) =>
+        favoriteName
+          ? `${favoriteName} aparece como um dos nomes a observar na estreia, mas a pré-temporada raramente entrega certezas.`
+          : "A estreia chega cercada de expectativa, ainda sem certezas vindas da pré-temporada.",
+      () => "A primeira corrida costuma separar quem chegou afiado de quem ainda busca ritmo.",
+      () => "Sem histórico da temporada para se apoiar, a leitura do fim de semana fica na mão da pista.",
+      () => "O paddock chega curioso para ver as primeiras forças reais do campeonato.",
+      () => "A abertura tende a recompensar quem traduzir a preparação em execução logo de cara.",
+    ],
+    [
+      ({ formSentence }) => formSentence,
+      () => "O importante é largar a temporada construindo, não correndo atrás.",
+    ],
+  ),
   weekend_hot: combineVariants(
     [
       ({ rivalName }) => `${rivalName} chega como referência direta em um fim de semana tratado pelo paddock como ponto de virada.`,
@@ -267,6 +309,19 @@ const weekendParagraphPools = {
 };
 
 const quotePools = {
+  opener: combineVariants(
+    [
+      () => `"Nossa equipe encara a estreia com ambição`,
+      () => `"Nossa equipe quer começar a temporada com o pé direito`,
+      () => `"Nossa equipe trata a abertura como chance de dar o tom da campanha`,
+      () => `"Nossa equipe sabe que a primeira etapa já constrói confiança`,
+      () => `"Nossa equipe entra na estreia sem peso de tabela, mas com fome de pontos`,
+    ],
+    [
+      () => "e quer sair daqui com uma base forte para o campeonato.\"",
+      () => "e pretende transformar a expectativa da pré-temporada em resultado.\"",
+    ],
+  ),
   leader: combineVariants(
     [
       () => "\"Entramos para defender o que e nosso.",
@@ -554,7 +609,13 @@ export function classifyChampionshipState({
   remainingRounds = 0,
   outlook,
   gapBehind,
+  championshipUnderway = true,
 }) {
+  // Abertura de temporada: tabela ainda zerada, sem líder/gaps reais.
+  if (!championshipUnderway) {
+    return "opener";
+  }
+
   if (!playerStanding || !leader) {
     return "survival";
   }
@@ -631,6 +692,7 @@ export function buildEditorialCopy({
   gapToLeader = 0,
   remainingRounds = 0,
   audienceEstimate = 0,
+  favoriteName = null,
 }) {
   const rivalName = briefingRival?.driver_name ?? rival?.nome ?? "o rival direto";
   const trackName = nextRace?.track_name ?? "esta etapa";
@@ -653,6 +715,7 @@ export function buildEditorialCopy({
     teamName,
     leaderName: leader?.nome ?? "a ponta",
     formSentence,
+    favoriteName,
   };
   const headlineKey =
     championshipState === "leader" &&
@@ -660,12 +723,21 @@ export function buildEditorialCopy({
       ? "leader_hot"
       : championshipState;
   const weekendParagraphKey =
-    championshipState === "outsider" && weekendState !== "weekend_hot"
-      ? "outsider"
-      : weekendState === "rival_spotlight" || weekendState === "weekend_neutral"
-        ? "neutral"
-        : weekendState;
+    // Na abertura, evitar pools que citam rival/tabela; usar pista/clima quando há
+    // dado real, senão o pool "opener" (sem rival inventado).
+    championshipState === "opener"
+      ? weekendState === "weather_unstable" ||
+        weekendState === "history_positive" ||
+        weekendState === "history_negative"
+        ? weekendState
+        : "opener"
+      : championshipState === "outsider" && weekendState !== "weekend_hot"
+        ? "outsider"
+        : weekendState === "rival_spotlight" || weekendState === "weekend_neutral"
+          ? "neutral"
+          : weekendState;
   const quoteKey =
+    championshipState === "opener" ||
     championshipState === "leader" ||
     championshipState === "chase" ||
     championshipState === "pressure" ||

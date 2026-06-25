@@ -237,6 +237,37 @@ const WEEKLY_MARKET_MOVEMENT_BADGES = {
   },
 };
 
+// Ênfase do feed por VÍNCULO do piloto com o jogador (vem de event.relation, marcado
+// no backend). O feed mostra TODOS os eventos; estes só ganham realce. `strong` =
+// destaque forte (raros, significativos: rival/favorito); sem strong = realce leve
+// (já-correu, comum). Prioridade já resolvida no backend (favorite > rival > raced).
+const RELATION_EMPHASIS = {
+  favorite: {
+    label: "Favorito",
+    symbol: "★",
+    color: "#fbbf24",
+    bg: "rgba(251,191,36,0.14)",
+    border: "rgba(251,191,36,0.45)",
+    strong: true,
+  },
+  rival: {
+    label: "Rival",
+    symbol: "⚔",
+    color: "#f87171",
+    bg: "rgba(248,113,113,0.14)",
+    border: "rgba(248,113,113,0.45)",
+    strong: true,
+  },
+  raced: {
+    label: "Já correu com você",
+    symbol: "•",
+    color: "#94a3b8",
+    bg: "rgba(148,163,184,0.12)",
+    border: "rgba(148,163,184,0.3)",
+    strong: false,
+  },
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getMovementBadge(categoriaAnterior, categoriaAtual) {
@@ -433,6 +464,9 @@ function buildWeeklyClosingGroups(weekResult) {
 
 function WeeklyClosingMovement({ event, color, onSelect }) {
   const movementBadge = WEEKLY_MARKET_MOVEMENT_BADGES[event.movement_kind];
+  // Vínculo com o jogador (rival / favorito / já-correu) → realce no feed.
+  const emphasis = RELATION_EMPHASIS[event.relation];
+  const strong = emphasis?.strong;
 
   return (
     <article
@@ -446,10 +480,19 @@ function WeeklyClosingMovement({ event, color, onSelect }) {
         }
       }}
       className="cursor-pointer rounded-lg border px-2.5 py-2 transition-colors hover:brightness-125"
-      style={{
-        borderColor: `${color}26`,
-        background: `linear-gradient(135deg, ${color}0f 0%, rgba(255,255,255,0.02) 100%)`,
-      }}
+      style={
+        strong
+          ? {
+              // Rival/favorito: realce forte — borda viva + glow sutil na cor do vínculo.
+              borderColor: emphasis.border,
+              background: `linear-gradient(135deg, ${emphasis.bg} 0%, rgba(255,255,255,0.02) 100%)`,
+              boxShadow: `0 0 0 1px ${emphasis.border}, 0 0 12px -4px ${emphasis.color}`,
+            }
+          : {
+              borderColor: `${color}26`,
+              background: `linear-gradient(135deg, ${color}0f 0%, rgba(255,255,255,0.02) 100%)`,
+            }
+      }
     >
       <div className="flex min-w-0 items-center gap-2.5">
         {movementBadge && (
@@ -477,6 +520,18 @@ function WeeklyClosingMovement({ event, color, onSelect }) {
         <p className="min-w-0 flex-1 truncate text-[13px] font-extrabold leading-[1.05] text-[color:var(--text-primary)]">
           {event.driver_name}
         </p>
+        {emphasis && (
+          <span
+            title={emphasis.label}
+            className={`flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 leading-none ${
+              strong ? "text-[10px] font-black uppercase tracking-[0.08em]" : "text-[10px] font-bold"
+            }`}
+            style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
+          >
+            <span className="text-[11px] leading-none">{emphasis.symbol}</span>
+            {strong ? emphasis.label : "Já correu"}
+          </span>
+        )}
         {event.team_name && (
           <TeamLogoMark
             teamName={event.team_name}
@@ -1539,6 +1594,7 @@ export default function PreSeasonView() {
       {transferDetail && (() => {
         const ev = transferDetail;
         const badge = WEEKLY_MARKET_MOVEMENT_BADGES[ev.movement_kind];
+        const emphasis = RELATION_EMPHASIS[ev.relation];
         const isDebut = !ev.from_team;
         const fromTeam = ev.from_team;
         const toTeam = ev.to_team || ev.team_name;
@@ -1563,15 +1619,26 @@ export default function PreSeasonView() {
                 ✕
               </button>
 
-              {badge && (
-                <div
-                  className="mb-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
-                  style={{ color: badge.color, background: badge.bg, borderColor: badge.border }}
-                >
-                  <span className="text-[13px] leading-none">{badge.symbol}</span>
-                  {badge.label}
-                </div>
-              )}
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                {badge && (
+                  <div
+                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
+                    style={{ color: badge.color, background: badge.bg, borderColor: badge.border }}
+                  >
+                    <span className="text-[13px] leading-none">{badge.symbol}</span>
+                    {badge.label}
+                  </div>
+                )}
+                {emphasis && (
+                  <div
+                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
+                    style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
+                  >
+                    <span className="text-[13px] leading-none">{emphasis.symbol}</span>
+                    {emphasis.label}
+                  </div>
+                )}
+              </div>
               <h2 className="mb-5 text-[20px] font-bold leading-tight text-[color:var(--text-primary)]">
                 {ev.driver_name}
               </h2>
