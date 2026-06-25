@@ -42,32 +42,59 @@ export function setMuted(m) {
   if (master) master.gain.value = m ? 0 : MASTER_VOL;
 }
 
-// Sopro filtrado (ruído com bandpass varrendo a frequência).
+function noiseBuffer(c, dur) {
+  const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i += 1) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+// Transição suave e aérea (ruído por lowpass que abre e fecha devagar) — sem "corte".
 export function whoosh() {
   const c = ensure();
   if (!c) return;
   const t = c.currentTime;
-  const dur = 0.5;
-  const buf = c.createBuffer(1, Math.floor(c.sampleRate * dur), c.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i += 1) d[i] = Math.random() * 2 - 1;
+  const dur = 0.7;
   const src = c.createBufferSource();
-  src.buffer = buf;
-  const bp = c.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.Q.value = 0.7;
-  bp.frequency.setValueAtTime(280, t);
-  bp.frequency.exponentialRampToValueAtTime(1800, t + dur * 0.5);
-  bp.frequency.exponentialRampToValueAtTime(360, t + dur);
+  src.buffer = noiseBuffer(c, dur);
+  const hp = c.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 130;
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.Q.value = 0.4;
+  lp.frequency.setValueAtTime(240, t);
+  lp.frequency.linearRampToValueAtTime(850, t + 0.28);
+  lp.frequency.linearRampToValueAtTime(180, t + dur);
   const g = c.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(0.5, t + 0.05);
+  g.gain.linearRampToValueAtTime(0.22, t + 0.14);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(bp);
-  bp.connect(g);
+  src.connect(hp);
+  hp.connect(lp);
+  lp.connect(g);
   g.connect(master);
   src.start(t);
   src.stop(t + dur);
+}
+
+// Blip curto e suave ao passar pelas opções do menu.
+export function hover() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  const o = c.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(880, t);
+  o.frequency.exponentialRampToValueAtTime(1280, t + 0.06);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.1, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  o.connect(g);
+  g.connect(master);
+  o.start(t);
+  o.stop(t + 0.1);
 }
 
 // Chime ascendente de confirmação (ex.: dados exportados).
@@ -113,7 +140,12 @@ export function startAmbient() {
     o.start();
     return o;
   });
-  g.gain.linearRampToValueAtTime(0.09, c.currentTime + 3);
+  // One-shot: entra, segura alguns segundos e sai (não vira loop chato).
+  const now = c.currentTime;
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.linearRampToValueAtTime(0.09, now + 2.5);
+  g.gain.setValueAtTime(0.09, now + 6);
+  g.gain.linearRampToValueAtTime(0.0001, now + 9.5);
   const lfo = c.createOscillator();
   lfo.frequency.value = 0.06;
   const lfoG = c.createGain();
@@ -121,6 +153,12 @@ export function startAmbient() {
   lfo.connect(lfoG);
   lfoG.connect(lp.frequency);
   lfo.start();
+  const stopAt = now + 9.7;
+  oscs.forEach((o) => o.stop(stopAt));
+  lfo.stop(stopAt);
+  oscs[0].onended = () => {
+    ambient = null;
+  };
   ambient = { g, oscs, lfo };
 }
 

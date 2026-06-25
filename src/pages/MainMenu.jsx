@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import useCareerStore from "../stores/useCareerStore";
 import { formatDateTime } from "../utils/formatters";
-import { isMuted, setMuted, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
+import { hover, isMuted, setMuted, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 
 // Parametros visuais do menu (ajustados em debug e fixados).
 const CFG = {
@@ -598,7 +598,7 @@ function MainMenu({ intro = false }) {
 
         <div className="mm-list">
           {recentSave ? (
-            <button type="button" className="mm-card mm-hero" onClick={handleContinue}>
+            <button type="button" className="mm-card mm-hero" onMouseEnter={hover} onClick={handleContinue}>
               <div className="mm-hero-inner">
                 <span className="mm-hero-icon">
                   <img className="mm-hero-logo" src="/utilities/LOGO%20NOVA.png" alt="" />
@@ -615,7 +615,7 @@ function MainMenu({ intro = false }) {
             </button>
           ) : null}
 
-          <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/new-career")}>
+          <button type="button" className="mm-card mm-row" onMouseEnter={hover} onClick={() => leaveTo("/new-career")}>
             <span className="mm-row-icon">
               <PlusIcon />
             </span>
@@ -625,6 +625,7 @@ function MainMenu({ intro = false }) {
           <button
             type="button"
             className={`mm-card mm-row${panel === "load" ? " is-active" : ""}`}
+            onMouseEnter={hover}
             onClick={(ev) => togglePanel("load", ev)}
           >
             <span className="mm-row-icon">
@@ -636,6 +637,7 @@ function MainMenu({ intro = false }) {
           <button
             type="button"
             className={`mm-card mm-row${panel === "settings" ? " is-active" : ""}`}
+            onMouseEnter={hover}
             onClick={(ev) => togglePanel("settings", ev)}
           >
             <span className="mm-row-icon">
@@ -663,7 +665,7 @@ function MainMenu({ intro = false }) {
             saves.length === 0 ? (
               <div className="mm-panel-empty">
                 <p>Nenhuma carreira ainda.</p>
-                <button type="button" className="mm-card mm-row" onClick={() => leaveTo("/new-career")}>
+                <button type="button" className="mm-card mm-row" onMouseEnter={hover} onClick={() => leaveTo("/new-career")}>
                   <span className="mm-row-icon">
                     <PlusIcon />
                   </span>
