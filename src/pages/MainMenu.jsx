@@ -167,11 +167,6 @@ function SpeakerIcon({ off }) {
   );
 }
 
-const SETTINGS_LINKS = [
-  ["geral", "Preferências gerais"],
-  ["racecontrol", "Race control"],
-];
-
 function MainMenu({ intro = false }) {
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
@@ -536,10 +531,6 @@ function MainMenu({ intro = false }) {
     refreshSaves();
   }
 
-  function openSettingsSection(section) {
-    navigate("/settings", { state: { section } });
-  }
-
   const recentSave = saves[0] || null;
 
   const continueSub = recentSave
@@ -636,9 +627,9 @@ function MainMenu({ intro = false }) {
 
           <button
             type="button"
-            className={`mm-card mm-row${panel === "settings" ? " is-active" : ""}`}
+            className="mm-card mm-row"
             onMouseEnter={hover}
-            onClick={(ev) => togglePanel("settings", ev)}
+            onClick={() => navigate("/settings")}
           >
             <span className="mm-row-icon">
               <GearIcon />
@@ -656,24 +647,21 @@ function MainMenu({ intro = false }) {
           style={{ top: `${panelAnchor}px`, left: `${POS.panelX}px`, width: `${POS.panelWidth}px` }}
         >
           <div className="mm-panel-head">
-            <span className="mm-panel-title">
-              {panel === "load" ? "Carregar save" : "Configurações"}
-            </span>
+            <span className="mm-panel-title">Carregar save</span>
           </div>
 
-          {panel === "load" ? (
-            saves.length === 0 ? (
-              <div className="mm-panel-empty">
-                <p>Nenhuma carreira ainda.</p>
-                <button type="button" className="mm-card mm-row" onMouseEnter={hover} onClick={() => leaveTo("/new-career")}>
-                  <span className="mm-row-icon">
-                    <PlusIcon />
-                  </span>
-                  <span>Nova carreira</span>
-                </button>
-              </div>
-            ) : (
-              saves.map((s) => (
+          {saves.length === 0 ? (
+            <div className="mm-panel-empty">
+              <p>Nenhuma carreira ainda.</p>
+              <button type="button" className="mm-card mm-row" onMouseEnter={hover} onClick={() => leaveTo("/new-career")}>
+                <span className="mm-row-icon">
+                  <PlusIcon />
+                </span>
+                <span>Nova carreira</span>
+              </button>
+            </div>
+          ) : (
+            saves.map((s) => (
                 <div className="mm-save" key={s.career_id}>
                   <button type="button" className="mm-save-main" onClick={() => enterCareer(s.career_id)}>
                     <div className="mm-save-name">{s.player_name}</div>
@@ -704,16 +692,6 @@ function MainMenu({ intro = false }) {
                   )}
                 </div>
               ))
-            )
-          ) : (
-            <div className="mm-links">
-              {SETTINGS_LINKS.map(([key, label]) => (
-                <button key={key} type="button" className="mm-link" onClick={() => openSettingsSection(key)}>
-                  <span>{label}</span>
-                  <span className="mm-link-arrow">›</span>
-                </button>
-              ))}
-            </div>
           )}
         </div>
       ) : null}

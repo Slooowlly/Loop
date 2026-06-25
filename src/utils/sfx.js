@@ -71,61 +71,53 @@ function getReverb() {
   return reverb;
 }
 
-// "Entrar no jogo" estilo console: corpo grave descendo + ar abrindo + brilho, com cauda.
+// "Entrar/ligar": acorde grave e quente que sobe, filtro abrindo + sub, com reverb.
 export function whoosh() {
   const c = ensure();
   if (!c) return;
   const rev = getReverb();
   const t = c.currentTime;
-  const dur = 1.1;
+  const dur = 1.3;
   const send = (node) => {
     node.connect(master);
     if (rev) node.connect(rev);
   };
-  // corpo/sub
-  const o = c.createOscillator();
-  o.type = "sine";
-  o.frequency.setValueAtTime(170, t);
-  o.frequency.exponentialRampToValueAtTime(70, t + 0.9);
-  const og = c.createGain();
-  og.gain.setValueAtTime(0.0001, t);
-  og.gain.linearRampToValueAtTime(0.34, t + 0.18);
-  og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(og);
-  send(og);
-  o.start(t);
-  o.stop(t + dur);
-  // ar (ruído lowpass abrindo)
-  const src = c.createBufferSource();
-  src.buffer = noiseBuffer(c, dur);
+  // acorde quente com filtro que abre (movimento de "entrando")
+  const grp = c.createGain();
+  grp.gain.setValueAtTime(0.0001, t);
+  grp.gain.linearRampToValueAtTime(0.2, t + 0.35);
+  grp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   const lp = c.createBiquadFilter();
   lp.type = "lowpass";
-  lp.Q.value = 0.6;
-  lp.frequency.setValueAtTime(200, t);
-  lp.frequency.exponentialRampToValueAtTime(2400, t + 0.5);
-  lp.frequency.exponentialRampToValueAtTime(500, t + dur);
-  const ng = c.createGain();
-  ng.gain.setValueAtTime(0.0001, t);
-  ng.gain.linearRampToValueAtTime(0.1, t + 0.25);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(lp);
-  lp.connect(ng);
-  send(ng);
-  src.start(t);
-  src.stop(t + dur);
-  // brilho
-  const s = c.createOscillator();
-  s.type = "sine";
-  s.frequency.setValueAtTime(520, t);
-  s.frequency.exponentialRampToValueAtTime(900, t + 0.6);
-  const sg = c.createGain();
-  sg.gain.setValueAtTime(0.0001, t);
-  sg.gain.linearRampToValueAtTime(0.07, t + 0.3);
-  sg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(sg);
-  send(sg);
-  s.start(t);
-  s.stop(t + dur);
+  lp.Q.value = 0.7;
+  lp.frequency.setValueAtTime(350, t);
+  lp.frequency.exponentialRampToValueAtTime(2600, t + 0.7);
+  lp.frequency.exponentialRampToValueAtTime(900, t + dur);
+  lp.connect(grp);
+  send(grp);
+  const freqs = [98, 147, 196]; // G2, D3, G3
+  freqs.forEach((f, i) => {
+    const o = c.createOscillator();
+    o.type = i === 0 ? "sine" : "triangle";
+    o.frequency.setValueAtTime(f * 0.97, t);
+    o.frequency.linearRampToValueAtTime(f, t + 0.6); // glide up = entrando
+    o.detune.value = (i - 1) * 4;
+    o.connect(lp);
+    o.start(t);
+    o.stop(t + dur);
+  });
+  // sub para encorpar
+  const sub = c.createOscillator();
+  sub.type = "sine";
+  sub.frequency.setValueAtTime(55, t);
+  const subg = c.createGain();
+  subg.gain.setValueAtTime(0.0001, t);
+  subg.gain.linearRampToValueAtTime(0.3, t + 0.2);
+  subg.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.85);
+  sub.connect(subg);
+  send(subg);
+  sub.start(t);
+  sub.stop(t + dur);
 }
 
 // Tique abafado e curtinho ao passar pelas opções (discreto, não "joguinho").
@@ -222,9 +214,9 @@ export function stopAmbient() {
   try {
     g.gain.cancelScheduledValues(now);
     g.gain.setValueAtTime(g.gain.value, now);
-    g.gain.linearRampToValueAtTime(0.0001, now + 0.8);
-    oscs.forEach((o) => o.stop(now + 0.9));
-    lfo.stop(now + 0.9);
+    g.gain.linearRampToValueAtTime(0.0001, now + 0.15);
+    oscs.forEach((o) => o.stop(now + 0.2));
+    lfo.stop(now + 0.2);
   } catch {
     /* ignore */
   }
