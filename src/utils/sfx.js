@@ -33,6 +33,11 @@ export function isMuted() {
   return muted();
 }
 
+// Retoma o AudioContext após o 1o gesto (autoplay) — sem recriar o ambiente.
+export function resume() {
+  ensure();
+}
+
 export function setMuted(m) {
   try {
     localStorage.setItem("loop.muted", m ? "1" : "0");
@@ -167,7 +172,8 @@ export function exportSuccess() {
 // Pad ambiente suave (acorde grave + LFO lento no filtro).
 export function startAmbient() {
   const c = ensure();
-  if (!c || ambient) return;
+  if (!c) return;
+  stopAmbient(); // nunca acumula: mata a instância anterior antes de criar outra
   const g = c.createGain();
   g.gain.value = 0.0001;
   g.connect(master);
@@ -201,24 +207,27 @@ export function startAmbient() {
   const stopAt = now + 9.7;
   oscs.forEach((o) => o.stop(stopAt));
   lfo.stop(stopAt);
+  const inst = { g, oscs, lfo };
   oscs[0].onended = () => {
-    ambient = null;
+    if (ambient === inst) ambient = null; // só zera se ainda for a instância atual
   };
-  ambient = { g, oscs, lfo };
+  ambient = inst;
 }
 
 export function stopAmbient() {
   if (!ambient || !ctx) return;
+  const inst = ambient;
+  ambient = null;
   const now = ctx.currentTime;
-  const { g, oscs, lfo } = ambient;
+  const { g, oscs, lfo } = inst;
   try {
+    // Corte seco (rampa curtíssima só pra não estalar) — o whoosh cobre a saída.
     g.gain.cancelScheduledValues(now);
     g.gain.setValueAtTime(g.gain.value, now);
-    g.gain.linearRampToValueAtTime(0.0001, now + 0.15);
-    oscs.forEach((o) => o.stop(now + 0.2));
-    lfo.stop(now + 0.2);
+    g.gain.linearRampToValueAtTime(0.0001, now + 0.03);
+    oscs.forEach((o) => o.stop(now + 0.05));
+    lfo.stop(now + 0.05);
   } catch {
     /* ignore */
   }
-  ambient = null;
 }

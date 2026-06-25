@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import useCareerStore from "../stores/useCareerStore";
 import { formatDateTime } from "../utils/formatters";
-import { hover, isMuted, setMuted, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
+import { hover, isMuted, resume as resumeAudio, setMuted, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 
 // Parametros visuais do menu (ajustados em debug e fixados).
 const CFG = {
@@ -271,10 +271,10 @@ function MainMenu({ intro = false }) {
   // Pad ambiente suave no menu (retoma o audio no 1o gesto por causa do autoplay).
   useEffect(() => {
     startAmbient();
-    const resume = () => startAmbient();
-    window.addEventListener("pointerdown", resume, { once: true });
+    const onGesture = () => resumeAudio();
+    window.addEventListener("pointerdown", onGesture, { once: true });
     return () => {
-      window.removeEventListener("pointerdown", resume);
+      window.removeEventListener("pointerdown", onGesture);
       stopAmbient();
     };
   }, []);
