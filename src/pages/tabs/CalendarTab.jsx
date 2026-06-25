@@ -667,19 +667,13 @@ function MonthCard({
 
   return (
     <div
-      className={[
-        "relative overflow-hidden rounded-2xl border bg-white/[0.03] p-4 backdrop-blur-sm transition-all duration-300",
-        phase.cardClass || "border-white/10",
-        isCurrentMonth
-          ? "border-accent-primary/70 bg-[linear-gradient(180deg,rgba(88,166,255,0.2),rgba(88,166,255,0.07)_46%,rgba(255,255,255,0.02)_100%)] shadow-[0_0_0_1px_rgba(88,166,255,0.5),0_16px_50px_rgba(88,166,255,0.3)]"
-          : "",
-      ].join(" ")}
+      className="relative px-1 pt-2 transition-all duration-300"
       data-testid={`calendar-month-${monthIso}`}
       data-active-month-window={isCurrentMonth ? "true" : "false"}
       data-animated-month={isAnimatedMonth ? "true" : "false"}
     >
       {isAnimatedMonth && (
-        <div className="absolute left-4 right-4 top-0 h-[3px] rounded-b-full bg-white/8">
+        <div className="absolute left-1 right-1 top-0 h-[3px] rounded-b-full bg-white/8">
           <div
             data-testid={`calendar-progress-${monthIso}`}
             data-animated-month="true"
