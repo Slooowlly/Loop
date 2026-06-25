@@ -6,8 +6,9 @@
 //! Regras garantidas por construção:
 //! - Pares conflitantes nunca compartilham a mesma season_week.
 //! - Abertura de cada divisão: sw 10–13.
-//! - Final de cada divisão: sw 48–51.
-//! - Finais de gt3 (sw 51) e endurance (sw 49) em semanas distintas.
+//! - Final escalonado por prestígio: rookie/cup/bmw terminam antes; o topo
+//!   (production/gt4/endurance/gt3) fecha o fim de novembro em sw 48–51.
+//! - Finais de gt3 (sw 51) e endurance (sw 50) em semanas distintas.
 //! - ThematicSlot somente do grupo regular (nunca *Especial).
 //! - Todas as entradas com season_phase = Temporada.
 
@@ -31,25 +32,26 @@ use crate::models::enums::SeasonPhase;
 //   woy 6  = sw 10   woy 47 = sw 51
 //   woy 46 = sw 50   woy 45 = sw 49   woy  7 = sw 11
 //
-// Pares conflitantes usam intervalos deslocados por 1 semana:
-//   mazda_rookie  woy 6–46  (sw 10–50)
-//   toyota_rookie woy 7–47  (sw 11–51)  →  conjuntos de sw disjuntos ✓
+// Pares conflitantes (Mazda/Toyota) usam o mesmo intervalo deslocado por 1 semana
+// (start 6 vs 7, end 38 vs 39 / 40 vs 41) → conjuntos de season_week disjuntos ✓.
 //
-//   mazda_amador  woy 6–46  (sw 10–50)
-//   toyota_amador woy 7–47  (sw 11–51)  →  conjuntos de sw disjuntos ✓
-//
-// Endurance usa woy_end=45 (sw 49) para que seu final ≠ final de gt3 (sw 51).
+// Escalonamento por prestígio (todos abrem em sw 10–13; o final é que muda):
+//   rookie    → sw 42/43   (termina antes)
+//   cup       → sw 44/45
+//   bmw       → sw 46
+//   production→ sw 48   gt4 → sw 49   endurance → sw 50   gt3 → sw 51 (última)
+//   endurance (sw 50) ≠ gt3 (sw 51).
 
 const FULL_SEASON_WINDOWS: [(&str, i32, i32); 9] = [
-    ("mazda_rookie", 6, 46),
-    ("toyota_rookie", 7, 47),
-    ("mazda_amador", 6, 46),
-    ("toyota_amador", 7, 47),
-    ("bmw_m2", 6, 47),
-    ("production_challenger", 6, 47),
-    ("gt4", 6, 47),
+    ("mazda_rookie", 6, 38),
+    ("toyota_rookie", 7, 39),
+    ("mazda_amador", 6, 40),
+    ("toyota_amador", 7, 41),
+    ("bmw_m2", 6, 42),
+    ("production_challenger", 6, 44),
+    ("gt4", 6, 45),
+    ("endurance", 6, 46),
     ("gt3", 6, 47),
-    ("endurance", 6, 45),
 ];
 
 // ── API pública ───────────────────────────────────────────────────────────────
@@ -456,7 +458,9 @@ mod tests {
     }
 
     #[test]
-    fn final_em_sw_48_a_51() {
+    fn final_escalonado_por_prestigio() {
+        // Prestígio fecha o fim de novembro (sw 48–51); as demais terminam antes.
+        let prestige = ["production_challenger", "gt4", "endurance", "gt3"];
         let entries = build_full_season_calendar("S001", 2027, 42).unwrap();
         let mut by_cat: HashMap<&str, Vec<_>> = HashMap::new();
         for entry in &entries {
@@ -468,10 +472,17 @@ mod tests {
         for (cat, mut rounds) in by_cat {
             rounds.sort_by_key(|e| e.rodada);
             let last_sw = rounds.last().unwrap().season_week.unwrap();
-            assert!(
-                (48..=51).contains(&last_sw),
-                "categoria {cat}: final sw={last_sw} fora de 48–51"
-            );
+            if prestige.contains(&cat) {
+                assert!(
+                    (48..=51).contains(&last_sw),
+                    "prestígio {cat}: final sw={last_sw} fora de 48–51"
+                );
+            } else {
+                assert!(
+                    (40..=47).contains(&last_sw),
+                    "{cat}: final sw={last_sw} deveria terminar antes do prestígio (40–47)"
+                );
+            }
         }
     }
 
@@ -654,7 +665,8 @@ mod tests {
                 );
             }
 
-            // Abertura e final em janelas corretas
+            // Abertura (10–13) e final escalonado por prestígio (topo 48–51, resto antes)
+            let prestige = ["production_challenger", "gt4", "endurance", "gt3"];
             let mut by_cat: HashMap<&str, Vec<_>> = HashMap::new();
             for e in &entries {
                 by_cat.entry(e.categoria.as_str()).or_default().push(e);
@@ -667,10 +679,12 @@ mod tests {
                     (10..=13).contains(&first_sw),
                     "seed={seed} {cat}: abertura sw={first_sw}"
                 );
-                assert!(
-                    (48..=51).contains(&last_sw),
-                    "seed={seed} {cat}: final sw={last_sw}"
-                );
+                let final_ok = if prestige.contains(&cat) {
+                    (48..=51).contains(&last_sw)
+                } else {
+                    (40..=47).contains(&last_sw)
+                };
+                assert!(final_ok, "seed={seed} {cat}: final sw={last_sw}");
             }
 
             // gt3 final ≠ endurance final
