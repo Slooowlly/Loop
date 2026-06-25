@@ -117,11 +117,12 @@ function Settings() {
   };
 
   if (loading || !config) {
+    // Só o fundo (sem texto piscando) até o config carregar — o conteúdo entra animado.
     return (
-      <div className="entry-shell flex items-center justify-center">
-        <p className="animate-pulse text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary">
-          Carregando Configurações...
-        </p>
+      <div className="entry-shell !block !h-full !min-h-0 px-4 py-12">
+        <div className="entry-backdrop" />
+        <div className="entry-glow left-[5%] top-[10%] h-80 w-80 bg-blue-500/10" />
+        <div className="entry-glow bottom-[5%] right-[5%] h-96 w-96 bg-cyan-500/10" />
       </div>
     );
   }
