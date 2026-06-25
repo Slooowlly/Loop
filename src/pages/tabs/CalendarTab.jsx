@@ -73,6 +73,14 @@ const MONTH_NAMES = [
 ];
 
 const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+// Barra de cabeçalho de cada mês (cor por fase). "active" = mês atual (preenchido).
+const MONTH_BAR_TINTS = {
+  mercado: { idle: "bg-status-yellow/12 text-status-yellow", active: "bg-status-yellow/80 text-[#1a1206]" },
+  regular: { idle: "bg-accent-primary/12 text-accent-primary", active: "bg-accent-primary text-[#05080c]" },
+  especial: { idle: "bg-status-purple/15 text-status-purple", active: "bg-status-purple/80 text-white" },
+  encerramento: { idle: "bg-white/[0.06] text-text-secondary", active: "bg-white/70 text-[#0e0e10]" },
+};
 const ALL_CALENDAR_CATEGORIES = [
   "mazda_rookie",
   "toyota_rookie",
@@ -643,8 +651,7 @@ function MonthCard({
   onCellHover,
 }) {
   const phase = getMonthPhase(month, isLegacyCalendar);
-  const prevPhase = month > 0 ? getMonthPhase(month - 1, isLegacyCalendar) : null;
-  const isPhaseStart = !prevPhase || prevPhase.type !== phase.type;
+  const tint = MONTH_BAR_TINTS[phase.type] ?? MONTH_BAR_TINTS.regular;
   const cells = buildMonthCells(year, month);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const isCurrentMonth = currentDateParts?.year === year && currentDateParts?.month === month;
@@ -685,30 +692,13 @@ function MonthCard({
         </div>
       )}
 
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span
-          className={`flex items-center gap-2 font-semibold ${
-            isCurrentMonth ? "text-[15px] font-bold text-accent-hover" : "text-[13px] text-text-primary"
-          }`}
-        >
-          {MONTH_NAMES[month]}
-          {isCurrentMonth && (
-            <span className="rounded-full bg-accent-primary px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wider text-[#05080c] shadow-[0_0_10px_rgba(88,166,255,0.65)]">
-              Atual
-            </span>
-          )}
-        </span>
-        {isPhaseStart && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${phase.badgeClass}`}
-          >
-            {phase.label}
-          </span>
-        )}
+      <div
+        className={`mb-2 rounded-lg px-3 py-1.5 text-center text-[12px] font-bold uppercase tracking-[0.16em] ${
+          isCurrentMonth ? tint.active : tint.idle
+        }`}
+      >
+        {MONTH_NAMES[month]}
       </div>
-      {isCurrentMonth && (
-        <div className="mb-2 h-[2px] w-10 rounded-full bg-accent-primary/70" />
-      )}
 
       <div className="grid grid-cols-7 gap-[2px]">
         {WEEKDAY_LABELS.map((weekday, index) => (
