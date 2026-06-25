@@ -52,15 +52,15 @@ function relativeTime(iso) {
   const a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const b = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((a - b) / DAY);
-  if (days <= 0) return "hoje";
-  if (days === 1) return "ontem";
-  if (days < 7) return `há ${days} dias`;
-  if (days < 14) return "há 1 semana";
-  if (days < 30) return `há ${Math.floor(days / 7)} semanas`;
-  if (days < 60) return "há 1 mês";
-  if (days < 365) return `há ${Math.floor(days / 30)} meses`;
+  if (days <= 0) return "Hoje";
+  if (days === 1) return "Ontem";
+  if (days < 7) return `Há ${days} dias`;
+  if (days < 14) return "Há 1 semana";
+  if (days < 30) return `Há ${Math.floor(days / 7)} semanas`;
+  if (days < 60) return "Há 1 mês";
+  if (days < 365) return `Há ${Math.floor(days / 30)} meses`;
   const y = Math.floor(days / 365);
-  return y === 1 ? "há 1 ano" : `há ${y} anos`;
+  return y === 1 ? "Há 1 ano" : `Há ${y} anos`;
 }
 
 // Categoria enxuta: tira sufixos longos (Cup/Series/etc) para virar uma tag curta.
