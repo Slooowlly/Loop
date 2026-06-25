@@ -49,52 +49,105 @@ function noiseBuffer(c, dur) {
   return buf;
 }
 
-// Transição suave e aérea (ruído por lowpass que abre e fecha devagar) — sem "corte".
+// Reverb leve (convolver com impulso sintético) para dar "espaço" ao whoosh.
+let reverb = null;
+function getReverb() {
+  const c = ensure();
+  if (!c) return null;
+  if (!reverb) {
+    reverb = c.createConvolver();
+    const len = Math.floor(c.sampleRate * 1.4);
+    const imp = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch += 1) {
+      const d = imp.getChannelData(ch);
+      for (let i = 0; i < len; i += 1) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2.5;
+    }
+    reverb.buffer = imp;
+    const wet = c.createGain();
+    wet.gain.value = 0.35;
+    reverb.connect(wet);
+    wet.connect(master);
+  }
+  return reverb;
+}
+
+// "Entrar no jogo" estilo console: corpo grave descendo + ar abrindo + brilho, com cauda.
 export function whoosh() {
   const c = ensure();
   if (!c) return;
+  const rev = getReverb();
   const t = c.currentTime;
-  const dur = 0.7;
+  const dur = 1.1;
+  const send = (node) => {
+    node.connect(master);
+    if (rev) node.connect(rev);
+  };
+  // corpo/sub
+  const o = c.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(170, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 0.9);
+  const og = c.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.linearRampToValueAtTime(0.34, t + 0.18);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(og);
+  send(og);
+  o.start(t);
+  o.stop(t + dur);
+  // ar (ruído lowpass abrindo)
   const src = c.createBufferSource();
   src.buffer = noiseBuffer(c, dur);
-  const hp = c.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 130;
   const lp = c.createBiquadFilter();
   lp.type = "lowpass";
-  lp.Q.value = 0.4;
-  lp.frequency.setValueAtTime(240, t);
-  lp.frequency.linearRampToValueAtTime(850, t + 0.28);
-  lp.frequency.linearRampToValueAtTime(180, t + dur);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(0.22, t + 0.14);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(hp);
-  hp.connect(lp);
-  lp.connect(g);
-  g.connect(master);
+  lp.Q.value = 0.6;
+  lp.frequency.setValueAtTime(200, t);
+  lp.frequency.exponentialRampToValueAtTime(2400, t + 0.5);
+  lp.frequency.exponentialRampToValueAtTime(500, t + dur);
+  const ng = c.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.linearRampToValueAtTime(0.1, t + 0.25);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(lp);
+  lp.connect(ng);
+  send(ng);
   src.start(t);
   src.stop(t + dur);
+  // brilho
+  const s = c.createOscillator();
+  s.type = "sine";
+  s.frequency.setValueAtTime(520, t);
+  s.frequency.exponentialRampToValueAtTime(900, t + 0.6);
+  const sg = c.createGain();
+  sg.gain.setValueAtTime(0.0001, t);
+  sg.gain.linearRampToValueAtTime(0.07, t + 0.3);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(sg);
+  send(sg);
+  s.start(t);
+  s.stop(t + dur);
 }
 
-// Blip curto e suave ao passar pelas opções do menu.
+// Tique abafado e curtinho ao passar pelas opções (discreto, não "joguinho").
 export function hover() {
   const c = ensure();
   if (!c) return;
   const t = c.currentTime;
-  const o = c.createOscillator();
-  o.type = "sine";
-  o.frequency.setValueAtTime(880, t);
-  o.frequency.exponentialRampToValueAtTime(1280, t + 0.06);
+  const dur = 0.06;
+  const src = c.createBufferSource();
+  src.buffer = noiseBuffer(c, dur);
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 1100;
   const g = c.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(0.1, t + 0.01);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-  o.connect(g);
+  g.gain.linearRampToValueAtTime(0.05, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(lp);
+  lp.connect(g);
   g.connect(master);
-  o.start(t);
-  o.stop(t + 0.1);
+  src.start(t);
+  src.stop(t + dur);
 }
 
 // Chime ascendente de confirmação (ex.: dados exportados).
