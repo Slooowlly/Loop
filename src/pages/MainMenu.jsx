@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import useCareerStore from "../stores/useCareerStore";
 import { formatDateTime } from "../utils/formatters";
+import { isMuted, setMuted, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 
 // Parametros visuais do menu (ajustados em debug e fixados).
 const CFG = {
@@ -150,12 +151,25 @@ function TrashIcon() {
   );
 }
 
+function SpeakerIcon({ off }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11 5 6 9H3v6h3l5 4z" />
+      {off ? (
+        <path d="M22 9l-6 6M16 9l6 6" />
+      ) : (
+        <>
+          <path d="M16 8a5 5 0 0 1 0 8" />
+          <path d="M19 5a9 9 0 0 1 0 14" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const SETTINGS_LINKS = [
   ["geral", "Preferências gerais"],
-  ["iracing", "Integração iRacing"],
-  ["monitor", "Monitor de corrida"],
   ["racecontrol", "Race control"],
-  ["roster", "Gerar AI roster"],
 ];
 
 function MainMenu({ intro = false }) {
@@ -177,6 +191,7 @@ function MainMenu({ intro = false }) {
   const [panelAnchor, setPanelAnchor] = useState(0);
   const [panelClosing, setPanelClosing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [muted, setMutedState] = useState(isMuted());
   const closeTimer = useRef(null);
 
   // Fecha com animacao: marca closing, e desmonta so quando a anim termina.
@@ -258,6 +273,17 @@ function MainMenu({ intro = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Pad ambiente suave no menu (retoma o audio no 1o gesto por causa do autoplay).
+  useEffect(() => {
+    startAmbient();
+    const resume = () => startAmbient();
+    window.addEventListener("pointerdown", resume, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", resume);
+      stopAmbient();
+    };
+  }, []);
+
   // Entrada: com intro (icone com zoom sobre o fundo borrado) ou direta.
   useEffect(() => {
     if (!intro) {
@@ -275,6 +301,7 @@ function MainMenu({ intro = false }) {
     const t2 = window.setTimeout(() => {
       setLogoStep(2); // zoom-out do icone
       setEntered(true); // tira o blur e revela o menu
+      whoosh();
     }, revealAt);
     const t3 = window.setTimeout(() => setIntroDone(true), doneAt); // remove o overlay
     return () => {
@@ -475,6 +502,7 @@ function MainMenu({ intro = false }) {
   function leaveTo(path) {
     if (exiting) return;
     setExiting(true);
+    whoosh();
     window.setTimeout(() => navigate(path), CUT_MS);
   }
 
@@ -482,6 +510,7 @@ function MainMenu({ intro = false }) {
   async function enterCareer(careerId) {
     if (!careerId || exiting) return;
     setExiting(true);
+    whoosh();
     try {
       await Promise.all([
         loadCareer(careerId),
@@ -693,6 +722,19 @@ function MainMenu({ intro = false }) {
           <img className="mm-intro-logo" style={introLogoStyle} src="/utilities/LOGO%20NOVA.png" alt="Loop" />
         </div>
       ) : null}
+
+      <button
+        type="button"
+        className="mm-mute"
+        onClick={() => {
+          const n = !muted;
+          setMuted(n);
+          setMutedState(n);
+        }}
+        aria-label={muted ? "Ativar som" : "Silenciar"}
+      >
+        <SpeakerIcon off={muted} />
+      </button>
     </div>
   );
 }

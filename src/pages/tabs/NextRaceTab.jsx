@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import GlassButton from "../../components/ui/GlassButton";
@@ -7,6 +7,7 @@ import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
 import useCareerStore from "../../stores/useCareerStore";
+import { exportSuccess } from "../../utils/sfx";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
 import {
@@ -35,6 +36,10 @@ function getDisplayError(error, fallback) {
   return fallback;
 }
 
+// Tempo (ms) na Sala de Estratégia a partir do qual consideramos que o jogador LEU a
+// prévia. Abaixo disso (simular/sair antes), conta como "não leu" para o gate de IA.
+const PRE_RACE_READ_MS = 10000;
+
 function NextRaceTab() {
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
@@ -62,11 +67,17 @@ function NextRaceTab() {
   const [briefingError, setBriefingError] = useState("");
   // Prévia pré-corrida por IA (narrativa + voz da equipe, curtas). null → template.
   const [aiBriefing, setAiBriefing] = useState(null);
+  // Reroll de debug da prévia por IA (força regenerar, ignora cache + cooldown).
+  const [aiReroll, setAiReroll] = useState({ busy: false, status: null });
+  // Debug: ver o template original mesmo quando há prévia de IA em cache. A IA fica
+  // guardada em `aiBriefing`, então alternar de volta não regenera nada.
+  const [showTemplate, setShowTemplate] = useState(false);
 
   const player = useCareerStore((state) => state.player);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const nextRace = useCareerStore((state) => state.nextRace);
   const nextRaceBriefing = useCareerStore((state) => state.nextRaceBriefing);
+  const preRaceAi = useCareerStore((state) => state.preRaceAi);
   const temporalSummary = useCareerStore((state) => state.temporalSummary);
   const season = useCareerStore((state) => state.season);
   const isSimulating = useCareerStore((state) => state.isSimulating);
@@ -333,6 +344,11 @@ function NextRaceTab() {
     const raceId = nextRace?.id;
     const facts = briefing.aiFacts;
     setAiBriefing(null);
+    // Prefetch durante a animação de avanço já gerou esta etapa → usa direto (sem
+    // novo fetch e sem flash; o render lê de `preRaceAi`).
+    if (preRaceAi?.raceId && preRaceAi.raceId === raceId) {
+      return undefined;
+    }
     // Só dispara com o contexto do briefing já carregado (standings/forma), senão
     // poderíamos cachear uma prévia com fatos incompletos.
     if (!careerId || !raceId || !facts || isLoadingBriefing) {
@@ -341,19 +357,76 @@ function NextRaceTab() {
     invoke("pre_race_briefing_ai", { careerId, raceId, facts })
       .then((res) => {
         if (active && res?.narrative && res?.team_voice) {
-          setAiBriefing({ narrative: res.narrative, teamVoice: res.team_voice });
+          setAiBriefing({
+            headline: res.headline ?? null,
+            narrative: res.narrative,
+            teamVoice: res.team_voice,
+          });
         }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [careerId, nextRace?.id, briefing.aiFacts, isLoadingBriefing]);
+  }, [careerId, nextRace?.id, briefing.aiFacts, isLoadingBriefing, preRaceAi?.raceId]);
+
+  // --- Detecção de leitura da prévia (alimenta o gate de engajamento da IA) ---
+  // Cronometra o tempo na Sala de Estratégia por etapa. "Leu" = ficou ≥ PRE_RACE_READ_MS
+  // (exportar não para o cronômetro; simular/sair antes conta como não-leu). Reporta no
+  // simular ou ao trocar de corrida / sair da tela (cleanup). Guard evita report duplo.
+  const viewStartRef = useRef(0);
+  const readReportedRef = useRef(false);
+
+  const reportPreRaceEngagement = useCallback(() => {
+    if (readReportedRef.current) return;
+    readReportedRef.current = true;
+    if (!careerId) return;
+    const read = Date.now() - viewStartRef.current >= PRE_RACE_READ_MS;
+    invoke("report_pre_race_engagement", { careerId, read }).catch(() => {});
+  }, [careerId]);
+
+  useEffect(() => {
+    if (!nextRace?.id) return undefined;
+    viewStartRef.current = Date.now();
+    readReportedRef.current = false;
+    return () => {
+      reportPreRaceEngagement();
+    };
+  }, [nextRace?.id, reportPreRaceEngagement]);
+
+  // Reroll de debug: força o servidor a regenerar a prévia (ignora cache e cooldown)
+  // e troca a narrativa + voz da equipe na hora. Útil para afinar fatos/prompt.
+  async function handleRerollAi() {
+    const raceId = nextRace?.id;
+    const facts = briefing.aiFacts;
+    if (!careerId || !raceId || !facts || aiReroll.busy) {
+      return;
+    }
+    setAiReroll({ busy: true, status: null });
+    try {
+      const res = await invoke("pre_race_briefing_ai", { careerId, raceId, facts, force: true });
+      if (res?.narrative && res?.team_voice) {
+        setAiBriefing({
+          headline: res.headline ?? null,
+          narrative: res.narrative,
+          teamVoice: res.team_voice,
+        });
+        setShowTemplate(false); // mostra o resultado novo da IA
+        setAiReroll({ busy: false, status: res.status ?? "ok" });
+      } else {
+        setAiReroll({ busy: false, status: res?.status ?? "error" });
+      }
+    } catch (e) {
+      setAiReroll({ busy: false, status: "error" });
+    }
+  }
 
   async function handleSimulate() {
     setConfirmSim(false);
     setError("");
     setExportNotice("");
+    // Registra a leitura desta etapa antes de sair da tela (simular = ação de saída).
+    reportPreRaceEngagement();
 
     try {
       await simulateRace();
@@ -421,6 +494,7 @@ function NextRaceTab() {
       await invoke("iracing_generate_season", { careerId, categoria, rosterName, carKey });
       dismissToasts();
       setExported(true);
+      exportSuccess();
       // Stack de toasts: "Dados exportados" agora; "Entrar no iRacing" surge logo
       // abaixo (empurrando o primeiro pra cima). Ambos somem em 15s.
       toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
@@ -613,6 +687,23 @@ function NextRaceTab() {
       </div>
     );
   }
+
+  // Prévia da IA a exibir: o reroll/fetch local (`aiBriefing`) tem prioridade; senão,
+  // a versão pré-buscada na animação de avanço (`preRaceAi`), se for desta etapa.
+  const prefetchedAi =
+    preRaceAi?.raceId && preRaceAi.raceId === nextRace?.id
+      ? {
+          headline: preRaceAi.headline ?? null,
+          narrative: preRaceAi.narrative,
+          teamVoice: preRaceAi.teamVoice,
+        }
+      : null;
+  const effectiveAi = aiBriefing ?? prefetchedAi;
+  // Exibindo a versão da IA? (há prévia e o debug não forçou o template.)
+  const usingAi = Boolean(effectiveAi?.narrative) && !showTemplate;
+  // Controles de debug da IA (Rerolar / Ver template / badge): só em dev, ou se
+  // VITE_AI_DEBUG=true. No build de produção ficam ocultos para o jogador.
+  const showAiDebug = import.meta.env.DEV || import.meta.env.VITE_AI_DEBUG === "true";
 
   return (
     <div className="relative min-h-[calc(100vh-100px)]">
@@ -835,15 +926,66 @@ function NextRaceTab() {
             {/* Narrativa Expandida */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">
               <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(240,195,107,0.1),transparent_65%)] pointer-events-none"></div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#f5c76d] mb-4 font-bold relative z-10 flex items-center">
-                <span className="mr-2 text-sm">📰</span>Narrativa da Etapa
-              </p>
+              <div className="flex items-center justify-between mb-4 relative z-10">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#f5c76d] font-bold flex items-center">
+                  <span className="mr-2 text-sm">🎧</span>Engenheiro de Pista
+                  {showAiDebug && effectiveAi ? (
+                    usingAi ? (
+                      <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30">
+                        ✨ IA
+                      </span>
+                    ) : (
+                      <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-white/[0.06] text-gray-400 border border-white/10">
+                        Template
+                      </span>
+                    )
+                  ) : null}
+                </p>
+                {showAiDebug ? (
+                  <div className="flex items-center gap-1.5">
+                    {effectiveAi ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowTemplate((v) => !v)}
+                        title="Debug: alternar entre o texto da IA (em cache) e o template original"
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-white/10 bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] hover:text-white transition flex items-center gap-1"
+                      >
+                        {showTemplate ? "Ver IA" : "Ver template"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleRerollAi}
+                      disabled={aiReroll.busy}
+                      title="Debug: regenerar a prévia por IA (força, ignora cache e cooldown)"
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide border border-white/10 bg-white/[0.04] text-gray-300 hover:bg-white/[0.08] hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      <span className={aiReroll.busy ? "animate-spin" : ""}>↻</span>
+                      {aiReroll.busy ? "Gerando…" : "Rerolar IA"}
+                      {!aiReroll.busy && aiReroll.status ? (
+                        <span className="text-gray-500">· {aiReroll.status}</span>
+                      ) : null}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10 flex flex-col">
-                {aiBriefing?.narrative ? (
-                  <p className="text-lg text-gray-100 leading-relaxed mb-6">
-                    {aiBriefing.narrative}
-                  </p>
+                {usingAi ? (
+                  <>
+                    {effectiveAi.headline ? (
+                      <h3 className="text-2xl font-bold text-white leading-snug mb-4">{effectiveAi.headline}</h3>
+                    ) : null}
+                    {effectiveAi.narrative
+                      .split(/\n{2,}/)
+                      .map((para) => para.trim())
+                      .filter(Boolean)
+                      .map((para, index) => (
+                        <p key={index} className="text-[15px] text-gray-300 leading-relaxed mb-4">
+                          {para}
+                        </p>
+                      ))}
+                  </>
                 ) : (
                   <>
                     <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
@@ -861,8 +1003,10 @@ function NextRaceTab() {
                   <div className="absolute top-2 right-4 text-[#58a6ff] opacity-20 pointer-events-none">
                     <span className="text-6xl font-serif leading-none h-[40px] block overflow-hidden">"</span>
                   </div>
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">Voz da Equipe</p>
-                  <p className="text-sm italic text-gray-200 leading-relaxed">"{aiBriefing?.teamVoice ?? briefing.quote}"</p>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">
+                    Voz da Equipe <span className="text-gray-500 font-semibold normal-case tracking-normal">· à imprensa</span>
+                  </p>
+                  <p className="text-sm italic text-gray-200 leading-relaxed">"{usingAi ? effectiveAi.teamVoice : briefing.quote}"</p>
                   <p className="text-xs font-semibold text-gray-400 mt-3 text-right">
                     -{" "}
                     <span style={briefing.teamColor ? { color: getReadableTeamColor(briefing.teamColor) } : undefined}>
@@ -1040,7 +1184,7 @@ function getFavoriteMedalTone(index) {
 }
 
 
-function buildBriefingContext({
+export function buildBriefingContext({
   player,
   playerTeam,
   season,
@@ -1126,12 +1270,17 @@ function buildBriefingContext({
     audienceEstimate > 0
       ? `A expectativa do paddock aponta para ${formatAudience(audienceEstimate)} de público estimado ao longo do fim de semana.`
       : "O paddock espera bom movimento de público nesta etapa.";
+  // Abertura de temporada: enquanto ninguém pontuou, a "tabela" é só ordem de largada
+  // (todos com 0 pontos). Tratar gaps/líder/posição como reais produz texto absurdo
+  // ("12º, 0 pontos atrás da liderança"). Detectamos isso e usamos o estado "opener".
+  const championshipUnderway = orderedDrivers.some((driver) => (driver.pontos ?? 0) > 0);
   const championshipState = classifyChampionshipState({
     playerStanding,
     leader,
     remainingRounds,
     outlook,
     gapBehind,
+    championshipUnderway,
   });
   const weekendState = classifyWeekendState({
     trackHistory,
@@ -1154,12 +1303,14 @@ function buildBriefingContext({
     gapBehind,
     remainingRounds,
     audienceEstimate,
+    favoriteName: favorites?.[0]?.nome ?? null,
   });
 
   // Fatos curados (PT) da PRÉVIA pré-corrida → enviados ao servidor de IA. Curtos e
   // factuais; o servidor escreve a narrativa + voz da equipe (no idioma do app) só
   // em cima disto. Reaproveita o que já computamos aqui (estado, gap, rival, forma).
   const stateLabel = {
+    opener: "na largada da temporada, com tudo ainda por definir",
     leader: "defendendo a liderança do campeonato",
     chase: "perseguindo o líder, com chance real de encurtar a tabela",
     pressure: "sob pressão para proteger a posição na tabela",
@@ -1170,25 +1321,107 @@ function buildBriefingContext({
     .map((r) => (r ? (r.is_dnf ? "DNF" : `P${r.position ?? "?"}`) : null))
     .filter(Boolean)
     .join(", ");
+  const targetLabel =
+    {
+      podium: "brigar pelo pódio",
+      top5: "buscar o top 5",
+      top8: "somar pontos sólidos no top 8",
+    }[outlook?.targetResult] ?? "fazer um fim de semana limpo e sem perdas";
+  const playerIsLeader = !!(playerStanding && leader && playerStanding.id === leader.id);
+  const topFavorite = favorites?.[0] ?? null;
+  const topFavoriteIsPlayer = !!(topFavorite && playerStanding && topFavorite.id === playerStanding.id);
+  const leadStory = weekendStories[0] ?? null;
+  const climaWet = ["Damp", "Wet", "HeavyRain"].includes(nextRace?.clima);
+  const weatherFact = nextRace?.clima
+    ? climaWet
+      ? `FATOR CLIMA (alto peso): previsão de ${buildWeatherSummary(nextRace.clima).toLowerCase()} — ${buildWeatherNarrative(nextRace.clima)} Pode embaralhar o grid e decidir a corrida.`
+      : `Previsão de clima: ${buildWeatherSummary(nextRace.clima)}, sem grandes surpresas no horizonte.`
+    : null;
+  const audienceRankLabel = buildAudienceRankLabel(nextRace, season);
+  const bigEvent = audienceEstimate >= 60000 || /maior|maiores/i.test(audienceRankLabel);
+  // IMPORTANTE: descrever o porte pela OCASIÃO, não com superlativo absoluto. O
+  // rótulo "maior público da temporada" é só um heurístico de UI (rodada 1 e final)
+  // e NÃO é uma comparação real do calendário — uma etapa principal ou a final podem
+  // atrair mais. Mandar isso como fato faria a IA cravar algo que não dá pra checar.
+  const isFinaleRound = totalRounds > 1 && currentRound === totalRounds;
+  const isOpenerRound = currentRound === 1;
+  const eventOccasion = isFinaleRound
+    ? "grande final da temporada"
+    : isOpenerRound
+      ? "abertura da temporada"
+      : "etapa de destaque do calendário";
+  const importanceFact =
+    audienceEstimate > 0
+      ? bigEvent
+        ? `ETAPA DE GRANDE IMPORTÂNCIA: ${eventOccasion} com casa cheia, cerca de ${formatAudience(audienceEstimate)} pessoas esperadas — vitrine e pressão extra pesam aqui.`
+        : `Público estimado: cerca de ${formatAudience(audienceEstimate)} pessoas ao longo do fim de semana.`
+      : null;
   const aiFacts = [
+    // --- Cenário da etapa ---
     `Corrida: ${nextRace?.track_name ?? "a etapa"} — temporada ${season?.ano ?? "atual"}, etapa ${currentRound} de ${totalRounds}.`,
     player?.nome
       ? `Piloto acompanhado pelo leitor: ${player.nome} (equipe ${playerTeam?.nome ?? "sem equipe"}).`
       : null,
-    playerStanding
-      ? `Situação no campeonato: ${playerStanding.posicao_campeonato}º lugar, ${stateLabel}${gapToLeader > 0 ? `, a ${gapToLeader} pontos da liderança` : ""}.`
-      : `Leitura do momento: ${stateLabel}.`,
-    gapBehind != null ? `Perseguidor direto a ${gapBehind} pontos atrás.` : null,
+    // --- Quadro do campeonato ---
+    // Na abertura (championshipUnderway=false) ninguém pontuou: nada de líder, gap ou
+    // "posição atrás na tabela" — só a moldura de estreia. Fora isso, quadro normal.
+    !championshipUnderway
+      ? "Abertura da temporada: ninguém pontuou ainda, todo o grid larga do zero e a tabela só começa a se formar nesta etapa."
+      : playerStanding
+        ? `Situação no campeonato: ${playerStanding.posicao_campeonato}º lugar, ${stateLabel}${gapToLeader > 0 ? `, a ${gapToLeader} pontos da liderança` : ""}.`
+        : `Leitura do momento: ${stateLabel}.`,
+    championshipUnderway && !playerIsLeader && leader?.nome
+      ? `Líder do campeonato: ${leader.nome}, ${leader.pontos ?? 0} pontos.`
+      : null,
+    championshipUnderway && gapBehind != null
+      ? `Perseguidor direto na tabela a ${gapBehind} pontos atrás.`
+      : null,
     `Faltam ${remainingRounds} etapa(s) após esta.`,
-    briefingRival?.driver_name
+    championshipUnderway
+      ? `Objetivo realista pela forma atual: ${targetLabel}.`
+      : "Objetivo da estreia: começar a temporada construindo, sem correr atrás de prejuízo logo de cara.",
+    // --- Equipe e companheiro de box ---
+    championshipUnderway && teamStanding
+      ? `Equipe ${playerTeam?.nome ?? ""} está em ${teamStanding.posicao}º entre os construtores${teamStanding.pontos != null ? ` (${teamStanding.pontos} pts)` : ""}.`.replace("  ", " ")
+      : null,
+    teammate?.nome
+      ? championshipUnderway
+        ? `Companheiro de equipe: ${teammate.nome} (${teammate.posicao_campeonato}º no campeonato) — referência interna do box.`
+        : `Companheiro de equipe: ${teammate.nome} — referência interna do box já na estreia.`
+      : null,
+    // --- Rivalidade ---
+    // Na abertura o gap/posição do rival é ruído (0 pontos, ordem alfabética); só
+    // mantém uma rivalidade NOMEADA, que carrega de temporadas anteriores.
+    championshipUnderway && briefingRival?.driver_name
       ? `Rival direto: ${briefingRival.driver_name} (${briefingRival.championship_position}º), ${briefingRival.is_ahead ? "à frente" : "atrás"} por ${briefingRival.gap_points} ponto(s).`
       : null,
+    briefingRival?.rivalry_label
+      ? championshipUnderway
+        ? `Essa rivalidade é conhecida como "${briefingRival.rivalry_label}".`
+        : `Rivalidade que vem de temporadas anteriores: "${briefingRival.rivalry_label}" (${briefingRival.driver_name}).`
+      : null,
+    // --- Forma e histórico na pista ---
     recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
+    outlook?.averageFinish != null
+      ? `Média de chegada recente: ${outlook.averageFinish.toFixed(1)}º${outlook.winCount > 0 ? `, ${outlook.winCount} vitória(s)` : ""}${outlook.podiumCount > 0 ? `, ${outlook.podiumCount} pódio(s)` : ""} nas últimas corridas.`
+      : null,
     trackHistory?.has_data
       ? `Histórico nesta pista: ${trackHistory.starts} largada(s)${trackHistory.best_finish != null ? `, melhor resultado ${trackHistory.best_finish}º` : ""}${trackHistory.dnfs > 0 ? `, ${trackHistory.dnfs} abandono(s)` : ""}.`
       : "Pouco ou nenhum histórico nesta pista.",
-    nextRace?.clima ? `Previsão de clima: ${buildWeatherSummary(nextRace.clima)}.` : null,
-    ...weekendStories.slice(0, 2).map((s) => `Pauta do fim de semana: ${s.title}.`),
+    trackHistory?.has_data && trackHistory.last_finish != null
+      ? `Última passagem por aqui terminou em ${trackHistory.last_finish}º${trackHistory.last_visit_season != null ? ` (temporada ${trackHistory.last_visit_season})` : ""}.`
+      : null,
+    // --- Favoritismo, clima e peso da etapa ---
+    topFavorite?.nome
+      ? topFavoriteIsPlayer
+        ? `A imprensa coloca o próprio ${topFavorite.nome} como favorito da etapa.`
+        : `Favorito da etapa pela imprensa: ${topFavorite.nome}.`
+      : null,
+    weatherFact,
+    importanceFact,
+    // --- Pautas do fim de semana (a primeira com resumo) ---
+    leadStory ? `Pauta do fim de semana: ${leadStory.title}${leadStory.summary ? ` — ${leadStory.summary}` : ""}.` : null,
+    ...weekendStories.slice(1, 3).map((s) => `Outra pauta: ${s.title}.`),
   ]
     .filter(Boolean)
     .join("\n");
