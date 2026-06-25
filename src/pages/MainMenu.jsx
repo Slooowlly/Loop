@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 
 import useCareerStore from "../stores/useCareerStore";
-import { formatDateTime } from "../utils/formatters";
 import { hover, resume as resumeAudio, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 
 // Parametros visuais do menu (ajustados em debug e fixados).
@@ -517,7 +516,7 @@ function MainMenu({ intro = false }) {
   const recentSave = saves[0] || null;
 
   const continueSub = recentSave
-    ? [recentSave.category_name, recentSave.last_played ? formatDateTime(recentSave.last_played) : null]
+    ? [shortCategory(recentSave.category_name), relativeTime(recentSave.last_played)]
         .filter(Boolean)
         .join(" · ")
     : "";
