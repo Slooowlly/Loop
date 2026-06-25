@@ -573,28 +573,6 @@ body {
   border-color: rgba(111, 212, 255, 0.5);
 }
 
-.mm-mute {
-  position: absolute;
-  right: 18px;
-  bottom: 16px;
-  z-index: 6;
-  display: inline-flex;
-  padding: 9px;
-  border-radius: 10px;
-  cursor: pointer;
-  color: rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(137, 201, 255, 0.14);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-}
-
-.mm-mute:hover {
-  color: #fff;
-  border-color: rgba(111, 212, 255, 0.4);
-}
-
 /* ─── Submenu lateral (carregar / configuracoes) ─── */
 
 .mm-panel {
