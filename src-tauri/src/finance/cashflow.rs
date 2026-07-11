@@ -299,6 +299,16 @@ fn season_strategy_bias(strategy: &str) -> FinanceBias {
             car_performance: 0.95,
             structure: -0.45,
         },
+        // Pilar D: dinastia de elite. Carro forte (nível all_in) SEM sacrificar
+        // confiabilidade/estrutura — sustentado pelo piso de recursos, não por aposta.
+        // O piso é quem separa as 3 elites do meio do grid; a agressividade fica
+        // contida (≈ all_in) para o título REVEZAR entre as 3 (sustos), sem uma só
+        // dominar tudo.
+        "elite_dominance" => FinanceBias {
+            reliability: 0.2,
+            car_performance: 0.95,
+            structure: 0.4,
+        },
         "survival" => FinanceBias {
             reliability: -0.45,
             car_performance: -0.55,

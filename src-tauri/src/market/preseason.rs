@@ -21,7 +21,9 @@ use crate::db::queries::teams as team_queries;
 use crate::finance::cashflow::{apply_offseason_competitiveness_impact, PENALTY_FADE_YEARS};
 use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
 use crate::finance::state::refresh_team_financial_state;
-use crate::finance::strategy::advance_strategic_plan;
+use crate::finance::strategy::{
+    advance_strategic_plan, apply_elite_resource_floor, designate_elite_teams,
+};
 use crate::market::car_build_strategy::choose_car_build_profile;
 use crate::market::pit_strategy::{
     recalculate_pit_crew_quality, recalculate_pit_strategy_risk, PreviousTeamStanding,
@@ -368,6 +370,10 @@ fn assign_seasonal_team_attributes(
     let teams =
         team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao carregar equipes: {e}"))?;
     let previous_standings = load_previous_team_standings(conn, season_number)?;
+    // Pilar D: as 3 elites por classe premium (Production auto por reputação;
+    // GT3/Endurance com as marcas reais fixas). Recebem plano de dinastia + piso de
+    // recursos abaixo, sustentando carro no topo temporada após temporada.
+    let elite_ids = designate_elite_teams(&teams);
 
     // Ano de carreira (0 = primeiro ano), usado para esmaecer a penalidade fictícia
     // GT3 ao longo dos primeiros anos. Saves antigos NÃO têm a meta "career_start_year"
@@ -424,6 +430,15 @@ fn assign_seasonal_team_attributes(
             updated_team.cash_balance -= profile_cost;
             updated_team.budget = derive_budget_index_from_money(&updated_team);
             refresh_team_financial_state(&mut updated_team);
+            // Pilar D: elite recebe o piso de recursos (patrocínio de dinastia) antes
+            // de recalcular o estado financeiro — assim nunca cai em colapso e sustenta
+            // o investimento máximo no carro.
+            let is_elite = elite_ids.contains(&updated_team.id);
+            if is_elite {
+                apply_elite_resource_floor(&mut updated_team);
+                updated_team.budget = derive_budget_index_from_money(&updated_team);
+                refresh_team_financial_state(&mut updated_team);
+            }
             // Equipe entrando na 2ª temporada consecutiva de colapso vai de all-in
             // numa tentativa de se salvar antes de ser vendida. Recebe um aporte de
             // "última chance" (investidores injetam capital): abate parte da dívida
@@ -431,14 +446,15 @@ fn assign_seasonal_team_attributes(
             // na pista escapa do colapso; o resto ainda termina vendido.
             let collapse_streak =
                 team_queries::get_collapse_streak(conn, &updated_team.id).unwrap_or(0);
-            updated_team.season_strategy = if collapse_streak == 1 {
+            updated_team.season_strategy = if collapse_streak == 1 && !is_elite {
                 apply_last_chance_package(&mut updated_team);
                 refresh_team_financial_state(&mut updated_team);
                 "all_in".to_string()
             } else {
                 // Pilar C: a estratégia da temporada vem do plano de 3 temporadas
                 // da equipe (arco sustentado), não de uma escolha reativa anual.
-                advance_strategic_plan(conn, &updated_team)
+                // Pilar D: elites rodam Elite Dominance permanente (dinastia).
+                advance_strategic_plan(conn, &updated_team, is_elite)
                     .map_err(|e| {
                         format!(
                             "Falha ao avançar plano estratégico da equipe {}: {e}",
@@ -549,11 +565,19 @@ pub fn advance_week(
         crate::market::pipeline::sign_player_to_vacancy(conn, season, seat)?;
     }
 
-    // Reserva 1 assento pro jogador (se agente livre ativo) — a escada não o
-    // preenche, garantindo que ele sempre tenha pelo menos uma oferta.
+    // Propostas formais de MÉRITO desta semana ("Proposta recebida"): equipes que
+    // escolheriam o jogador o cortejam nominalmente. Os assentos dessas propostas também
+    // são segurados (não podem ser preenchidos pela IA enquanto a proposta vive).
+    let proposal_seats =
+        crate::market::pipeline::generate_player_window_proposals(conn, season, week, &mut rng)?;
+
+    // Reserva alguns assentos pro jogador (se agente livre ativo) — a escada não os
+    // preenche, garantindo escolha real E que na última semana haja vaga vazia pra ele,
+    // sem dispensar ninguém. Une os assentos das propostas formais.
     let reserved: std::collections::HashSet<String> =
-        crate::market::pipeline::player_reserved_seat(conn, season)?
+        crate::market::pipeline::player_reserved_seats(conn, season)?
             .into_iter()
+            .chain(proposal_seats)
             .collect();
 
     // Categorias de ORIGEM (snapshot do INÍCIO da pré-temporada, antes das pré-passes
@@ -675,8 +699,9 @@ pub fn advance_week(
     let is_last_week =
         remaining <= reserved.len() as i32 || week >= i32::from(MARKET_DURATION_WEEKS);
     if is_last_week {
-        // Garante porta ao jogador (pode dispensar o mais fraco da pior equipe) e
-        // preenche TODAS as vagas restantes — nenhum time corre sem piloto.
+        // Garante porta ao jogador (num dos assentos vazios que a escada segurou pra ele,
+        // sem dispensar ninguém) e preenche TODAS as vagas restantes — nenhum time corre
+        // sem piloto.
         crate::market::pipeline::ensure_player_seated(conn, season)?;
         // O preenchimento final assina vários pilotos de uma vez. Captura essas
         // assinaturas num report e mapeia p/ feed — senão a última semana ficaria

@@ -495,7 +495,7 @@ describe("PreSeasonView", () => {
       "src",
       "/utilities/categorias/recortadas/ENDURANCE.png",
     );
-    expect(within(screen.getByTestId("preseason-category-header-production_challenger")).getByAltText("Production Challenger")).toHaveAttribute(
+    expect(within(screen.getByTestId("preseason-category-header-production_challenger")).getByAltText("Production")).toHaveAttribute(
       "src",
       "/utilities/categorias/recortadas/PRODUCTION.png",
     );
@@ -720,7 +720,7 @@ describe("PreSeasonView", () => {
     expect(weeklyClosing.getByText(/fechamento da semana/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/gt3 championship/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/mazda rookie/i)).toBeInTheDocument();
-    expect(weeklyClosing.getByText(/bmw m2 cup/i)).toBeInTheDocument();
+    expect(weeklyClosing.getByText(/bmw cup/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^1\\u00ba$"))).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^4\\u00ba$"))).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^3\\u00ba$"))).toBeInTheDocument();

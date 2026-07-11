@@ -74,8 +74,8 @@ pub fn category_car_performance(category_id: &str, car_performance: f64) -> f64 
 pub fn car_weight_scale(category_id: &str) -> f64 {
     match category_base(category_id) {
         "mazda_rookie" | "toyota_rookie" => 0.15,
-        "mazda_amador" | "toyota_amador" => 0.50,
-        "bmw_m2" => 0.70,
+        "mazda_amador" | "toyota_amador" => 0.65,
+        "bmw_m2" => 0.80,
         "gt4" => 1.00,
         "gt3" => 1.30,
         "production_challenger" => 1.40,

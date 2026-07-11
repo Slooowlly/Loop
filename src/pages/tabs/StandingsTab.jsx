@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 
 import DriverDetailModal from "../../components/driver/DriverDetailModal";
@@ -7,6 +8,7 @@ import TrophyBadge from "../../components/standings/TrophyBadge";
 import TeamLogoMarkShared from "../../components/team/TeamLogoMark";
 import FlagIcon from "../../components/ui/FlagIcon";
 import GlassCard from "../../components/ui/GlassCard";
+import useDeferredLoading from "../../hooks/useLoading";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
@@ -24,6 +26,76 @@ const ALL_CATEGORIES = [
   "endurance",
 ];
 
+// Escada apresentada como duas dimensões: a "série" (marca/linha de carro) que o
+// jogador troca por um dropdown agrupado, e o "tier" dentro dela que sobe/desce
+// com as setas ▲▼. As categorias multiclasse (production/endurance) NÃO são
+// séries próprias: elas ficam no TOPO de várias séries ao mesmo tempo. Subindo a
+// Mazda (rookie → championship) você "cai" na Production; a mesma Production também
+// é o topo de Toyota e BMW. Endurance é o topo de GT4, GT3 e LMP2. `classId` diz
+// qual classe da categoria multiclasse aparece PRIMEIRO quando você chega por
+// aquela linha (ex.: Endurance pela linha GT3 lista GT3 antes de LMP2/GT4).
+// `access` divide o conteúdo por licença: as linhas de entrada (Mazda/Toyota/BMW +
+// Production) são "pro"; as de topo (GT4/GT3/LMP2 + Endurance) são "elite". O menu
+// desenha uma separação física entre os dois grupos.
+const CATEGORY_SERIES = [
+  { id: "mazda", label: "Mazda", classId: "mazda", access: "pro", categories: ["mazda_rookie", "mazda_amador", "production_challenger"] },
+  { id: "toyota", label: "Toyota", classId: "toyota", access: "pro", categories: ["toyota_rookie", "toyota_amador", "production_challenger"] },
+  { id: "bmw", label: "BMW", classId: "bmw", access: "pro", categories: ["bmw_m2", "production_challenger"] },
+  { id: "gt4", label: "GT4", classId: "gt4", access: "elite", categories: ["gt4", "endurance"] },
+  { id: "gt3", label: "GT3", classId: "gt3", access: "elite", categories: ["gt3", "endurance"] },
+  { id: "lmp2", label: "LMP2", classId: "lmp2", access: "elite", categories: ["endurance"] },
+];
+
+// `label` (série) + tier reconstroem o nome. Para as multiclasse o tier é só o
+// nome da categoria ("Production"/"Endurance"), pois a série já dá a linha.
+const CATEGORY_TIER_LABEL = {
+  mazda_rookie: "Rookie",
+  mazda_amador: "Cup",
+  toyota_rookie: "Rookie",
+  toyota_amador: "Cup",
+  bmw_m2: "Cup",
+  production_challenger: "Production",
+  gt4: "Series",
+  gt3: "Championship",
+  endurance: "Endurance",
+};
+
+// A linha (série) de uma categoria. Categorias regulares pertencem a exatamente
+// uma série; as multiclasse (production/endurance) pertencem a várias, então a
+// pista de classe (do time do jogador) desempata.
+function resolveSeriesForLane(category, classHint) {
+  const hint = normalizeClassId(classHint);
+  const candidates = CATEGORY_SERIES.filter((serie) => serie.categories.includes(category));
+  if (candidates.length === 0) return CATEGORY_SERIES[0];
+  if (candidates.length === 1) return candidates[0];
+  return candidates.find((serie) => serie.classId === hint || serie.id === hint) ?? candidates[0];
+}
+
+// Nav inicial (série + categoria) a partir do time do jogador, respeitando o
+// Bloco Especial (que força production/endurance na linha do próprio jogador).
+function resolveInitialNav(phase, playerTeamCategory, classHint, acceptedSpecialOffer) {
+  const forced = getForcedSpecialStandingCategory(phase, playerTeamCategory, acceptedSpecialOffer);
+  const laneCategory = playerTeamCategory ?? ALL_CATEGORIES[0];
+  const series = resolveSeriesForLane(laneCategory, classHint);
+  const viewCategory = forced ?? laneCategory;
+  if (!series.categories.includes(viewCategory)) {
+    return { seriesId: resolveSeriesForLane(viewCategory, classHint).id, viewCategory };
+  }
+  return { seriesId: series.id, viewCategory };
+}
+
+// Reordena os grupos de classe de uma categoria multiclasse para que a classe da
+// linha atual apareça primeiro (mantendo a ordem relativa das demais).
+function orderSpecialGroupsForClass(groups, classId) {
+  if (!groups) return null;
+  const index = groups.findIndex((group) => group.id === classId);
+  if (index <= 0) return groups;
+  const reordered = [...groups];
+  const [lead] = reordered.splice(index, 1);
+  reordered.unshift(lead);
+  return reordered;
+}
+
 const STANDARD_POINTS = {
   1: 25,
   2: 18,
@@ -39,9 +111,9 @@ const STANDARD_POINTS = {
 
 const SPECIAL_STANDING_GROUPS = {
   production_challenger: [
-    { id: "bmw", label: "BMW M2", color: "#bc8cff" },
-    { id: "toyota", label: "Toyota GR86", color: "#f2cc60" },
-    { id: "mazda", label: "Mazda MX-5", color: "#c8102e" },
+    { id: "bmw", label: "BMW", color: "#bc8cff" },
+    { id: "toyota", label: "Toyota", color: "#f2cc60" },
+    { id: "mazda", label: "Mazda", color: "#c8102e" },
   ],
   endurance: [
     { id: "lmp2", label: "LMP2", color: "#f2cc60" },
@@ -159,9 +231,14 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     playerTeam?.categoria,
     acceptedSpecialOffer,
   );
-  const [viewCategory, setViewCategory] = useState(
-    () => forcedSpecialCategory ?? playerTeam?.categoria ?? ALL_CATEGORIES[0],
+  const initialNav = resolveInitialNav(
+    season?.fase,
+    playerTeam?.categoria,
+    playerTeam?.classe,
+    acceptedSpecialOffer,
   );
+  const [seriesId, setSeriesId] = useState(initialNav.seriesId);
+  const [viewCategory, setViewCategory] = useState(initialNav.viewCategory);
   const [driverStandings, setDriverStandings] = useState([]);
   const [teamStandings, setTeamStandings] = useState([]);
   const [previousChampionId, setPreviousChampionId] = useState(null);
@@ -172,35 +249,109 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
   const driverClickTimeoutRef = useRef(null);
   const teamClickTimeoutRef = useRef(null);
 
-  const categoryIndex = ALL_CATEGORIES.indexOf(viewCategory);
-  function goUpCategory() {
-    if (forcedSpecialCategory) {
+  const currentSeries =
+    CATEGORY_SERIES.find((serie) => serie.id === seriesId) ?? CATEGORY_SERIES[0];
+  const tierIndex = Math.max(0, currentSeries.categories.indexOf(viewCategory));
+  const navLocked = Boolean(forcedSpecialCategory);
+  const hasTierAbove = !navLocked && tierIndex < currentSeries.categories.length - 1;
+  const hasTierBelow = !navLocked && tierIndex > 0;
+  const seriesTriggerRef = useRef(null);
+  const seriesMenuRef = useRef(null);
+  const [seriesMenuOpen, setSeriesMenuOpen] = useState(false);
+  const [seriesMenuPos, setSeriesMenuPos] = useState(null);
+
+  function setNav(nextSeriesId, nextCategory) {
+    setSeriesId(nextSeriesId);
+    setViewCategory(nextCategory);
+  }
+  // Trocar de série preserva a "distância do topo": as multiclasse (production/
+  // endurance) alinham no topo, então trocar de série estando nelas mantém você
+  // na multiclasse — só muda qual classe aparece primeiro. Séries mais curtas
+  // clampam (ex.: Mazda Rookie → BMW cai no BMW M2, o mais baixo que a BMW tem).
+  function switchSeries(nextSeriesIndex) {
+    if (navLocked) return;
+    const next = CATEGORY_SERIES[nextSeriesIndex];
+    const depthFromTop = currentSeries.categories.length - 1 - tierIndex;
+    const clampedDepth = Math.min(depthFromTop, next.categories.length - 1);
+    const nextTier = next.categories.length - 1 - clampedDepth;
+    setNav(next.id, next.categories[nextTier]);
+  }
+  function toggleSeriesMenu() {
+    if (navLocked) return;
+    if (seriesMenuOpen) {
+      setSeriesMenuOpen(false);
       return;
     }
-    if (categoryIndex < ALL_CATEGORIES.length - 1) {
-      setViewCategory(ALL_CATEGORIES[categoryIndex + 1]);
-    }
+    const rect = seriesTriggerRef.current?.getBoundingClientRect();
+    setSeriesMenuPos(
+      rect ? { top: rect.bottom + 8, left: rect.left, minWidth: rect.width } : { top: 0, left: 0, minWidth: 0 },
+    );
+    setSeriesMenuOpen(true);
   }
-  function goDownCategory() {
-    if (forcedSpecialCategory) {
-      return;
-    }
-    if (categoryIndex > 0) {
-      setViewCategory(ALL_CATEGORIES[categoryIndex - 1]);
-    }
+  function selectSeries(nextSeriesIndex) {
+    switchSeries(nextSeriesIndex);
+    setSeriesMenuOpen(false);
   }
+  function goUpTier() {
+    if (hasTierAbove) setViewCategory(currentSeries.categories[tierIndex + 1]);
+  }
+  function goDownTier() {
+    if (hasTierBelow) setViewCategory(currentSeries.categories[tierIndex - 1]);
+  }
+
+  // Fecha o menu de linha ao clicar fora, com Escape, ou se a página rolar/mudar
+  // de tamanho (a posição é fixa, capturada na abertura, então rolar invalida).
+  useEffect(() => {
+    if (!seriesMenuOpen) return undefined;
+    function onPointerDown(event) {
+      if (
+        seriesTriggerRef.current?.contains(event.target) ||
+        seriesMenuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setSeriesMenuOpen(false);
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") setSeriesMenuOpen(false);
+    }
+    function dismiss() {
+      setSeriesMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [seriesMenuOpen]);
   const activeDriverId = hoveredDriverId ?? selectedDriverId;
   const activeDriver = driverStandings.find((d) => d.id === activeDriverId) ?? null;
   const selectedTeamId = activeDriver?.equipe_id ?? null;
   const selectedTeamColor = activeDriver?.equipe_cor ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Só mostra o placeholder de carregamento se o fetch demorar de verdade —
+  // evita o "flash" de "Carregando..." ao trocar de aba (fetch local é rápido).
+  const showLoadingUI = useDeferredLoading(loading);
 
   useEffect(() => {
-    if (forcedSpecialCategory && viewCategory !== forcedSpecialCategory) {
-      setViewCategory(forcedSpecialCategory);
+    if (!forcedSpecialCategory) return;
+    const nav = resolveInitialNav(
+      season?.fase,
+      playerTeam?.categoria,
+      playerTeam?.classe,
+      acceptedSpecialOffer,
+    );
+    if (viewCategory !== nav.viewCategory || seriesId !== nav.seriesId) {
+      setNav(nav.seriesId, nav.viewCategory);
     }
-  }, [forcedSpecialCategory, viewCategory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forcedSpecialCategory, viewCategory, seriesId]);
 
   useEffect(() => () => {
     clearDriverClickTimeout();
@@ -327,7 +478,12 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     () => buildPositionDeltaMap(driverStandings, completedRounds),
     [driverStandings, completedRounds],
   );
-  const specialClassGroups = SPECIAL_STANDING_GROUPS[viewCategory] ?? null;
+  // A classe da linha atual (Mazda→mazda, GT3→gt3, LMP2→lmp2) aparece primeiro
+  // dentro da categoria multiclasse; as demais seguem na ordem padrão.
+  const specialClassGroups = useMemo(
+    () => orderSpecialGroupsForClass(SPECIAL_STANDING_GROUPS[viewCategory] ?? null, currentSeries.classId),
+    [viewCategory, currentSeries.classId],
+  );
   const isLegacyPhase = isLegacySeasonPhase(season?.fase);
   const driverStandingSections = useMemo(
     () => buildSpecialStandingSections(driverStandings, specialClassGroups),
@@ -351,6 +507,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
 
 
   if (loading) {
+    if (!showLoadingUI) return null;
     return (
       <GlassCard hover={false} className="rounded-[28px] p-10">
         <p className="text-sm uppercase tracking-[0.22em] text-accent-primary">Dashboard</p>
@@ -378,32 +535,134 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
         <GlassCard hover={false} className="overflow-hidden rounded-[28px]">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
+              {/* Série (linha de carro): dropdown agrupado troca de linha. */}
+              <button
+                type="button"
+                ref={seriesTriggerRef}
+                onClick={toggleSeriesMenu}
+                disabled={navLocked}
+                aria-haspopup="listbox"
+                aria-expanded={seriesMenuOpen}
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary transition-colors hover:enabled:text-text-primary disabled:cursor-default disabled:opacity-70"
+                title="Trocar de linha"
+              >
+                <span className="whitespace-nowrap">{currentSeries.label}</span>
+                {!navLocked ? (
+                  <span
+                    className={[
+                      "text-[9px] text-text-muted transition-transform",
+                      seriesMenuOpen ? "rotate-180" : "",
+                    ].join(" ")}
+                  >
+                    ▾
+                  </span>
+                ) : null}
+              </button>
+              {seriesMenuOpen && seriesMenuPos && !navLocked
+                ? createPortal(
+                    <div
+                      ref={seriesMenuRef}
+                      role="listbox"
+                      aria-label="Linha de carro"
+                      className="fixed z-[120] rounded-2xl border border-white/10 bg-[#161b22]/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.55)] backdrop-blur-md"
+                      style={{
+                        top: seriesMenuPos.top,
+                        left: seriesMenuPos.left,
+                        minWidth: Math.max(seriesMenuPos.minWidth, 224),
+                      }}
+                    >
+                      {/* Ordem invertida: topo = ápice (LMP2), base = entrada
+                          (Mazda), pra deixar clara a "subida" da escada. Os dois
+                          grupos de acesso (premium em cima, free embaixo) ganham
+                          um cabeçalho e uma separação física entre eles. */}
+                      {CATEGORY_SERIES.slice().reverse().map((serie, displayIndex, ordered) => {
+                        const index = CATEGORY_SERIES.indexOf(serie);
+                        const isCurrent = serie.id === currentSeries.id;
+                        const previous = ordered[displayIndex - 1];
+                        const startsGroup = !previous || previous.access !== serie.access;
+                        return (
+                          <Fragment key={serie.id}>
+                            {startsGroup ? (
+                              <div
+                                className={[
+                                  "flex items-center gap-2 px-3 pb-1.5",
+                                  displayIndex === 0
+                                    ? "pt-1"
+                                    : "mt-1.5 border-t border-white/10 pt-2.5",
+                                ].join(" ")}
+                              >
+                                <span
+                                  className={[
+                                    "text-[9px] font-semibold uppercase tracking-[0.22em]",
+                                    serie.access === "elite" ? "text-accent-primary" : "text-text-muted",
+                                  ].join(" ")}
+                                >
+                                  {serie.access === "elite" ? "Elite" : "Pro"}
+                                </span>
+                              </div>
+                            ) : null}
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={isCurrent}
+                              onClick={() => selectSeries(index)}
+                              className={[
+                                "block w-full rounded-xl px-3 py-2 text-left transition-glass",
+                                isCurrent ? "bg-accent-primary/15" : "hover:bg-white/5",
+                              ].join(" ")}
+                            >
+                              <span
+                                className={[
+                                  "block text-xs font-semibold uppercase tracking-[0.12em]",
+                                  isCurrent ? "text-accent-primary" : "text-text-primary",
+                                ].join(" ")}
+                              >
+                                {serie.label}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] leading-relaxed text-text-muted">
+                                {serie.categories.map((cat, catIndex) => (
+                                  <Fragment key={cat}>
+                                    {catIndex > 0 ? " · " : ""}
+                                    <span className={isCurrent && cat === viewCategory ? "text-accent-primary" : ""}>
+                                      {CATEGORY_TIER_LABEL[cat] ?? cat}
+                                    </span>
+                                  </Fragment>
+                                ))}
+                              </span>
+                            </button>
+                          </Fragment>
+                        );
+                      })}
+                    </div>,
+                    document.body,
+                  )
+                : null}
+              {/* Tier dentro da série: setas verticais sobem/descem o nível. */}
+              <div className="mt-1.5 flex items-center gap-2">
                 <div className="flex flex-col">
                   <button
-                    onClick={goUpCategory}
-                    disabled={categoryIndex === ALL_CATEGORIES.length - 1}
+                    type="button"
+                    onClick={goUpTier}
+                    disabled={!hasTierAbove}
                     className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-                    title="Categoria superior"
+                    title="Tier superior"
                   >
                     ▲
                   </button>
                   <button
-                    onClick={goDownCategory}
-                    disabled={categoryIndex === 0}
+                    type="button"
+                    onClick={goDownTier}
+                    disabled={!hasTierBelow}
                     className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-                    title="Categoria inferior"
+                    title="Tier inferior"
                   >
                     ▼
                   </button>
                 </div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">
-                  {categoryLabel(viewCategory)}
-                </p>
+                <h2 className="text-2xl font-semibold text-text-primary">
+                  {CATEGORY_TIER_LABEL[viewCategory] ?? categoryLabel(viewCategory)}
+                </h2>
               </div>
-              <h2 className="mt-2 text-2xl font-semibold text-text-primary">
-                Classificação de pilotos
-              </h2>
             </div>
             <p className="text-sm text-text-secondary">{driverStandings.length} pilotos</p>
           </div>

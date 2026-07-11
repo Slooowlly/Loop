@@ -9,6 +9,8 @@ import IracingTutorialModal from "../../components/iracing/IracingTutorialModal"
 import WeatherButton from "../../components/race/WeatherButton";
 import useCareerStore from "../../stores/useCareerStore";
 import { exportSuccess } from "../../utils/sfx";
+import { renderTextWithDriverMentions } from "../../utils/driverMentions";
+import { getTeamGlow } from "../../utils/teamColors";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
 import {
@@ -41,6 +43,11 @@ function getDisplayError(error, fallback) {
 // prévia. Abaixo disso (simular/sair antes), conta como "não leu" para o gate de IA.
 const PRE_RACE_READ_MS = 10000;
 
+// Teto de espera (ms) do skeleton da prévia de IA. Enquanto a IA é buscada, mostramos
+// um placeholder (não o template) para evitar o flash template→IA. Se estourar esse
+// tempo, caímos no template em vez de segurar o skeleton indefinidamente.
+const AI_PREVIEW_MAX_WAIT_MS = 8000;
+
 function NextRaceTab() {
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
@@ -66,8 +73,17 @@ function NextRaceTab() {
   const [briefingPhraseHistory, setBriefingPhraseHistory] = useState({ season_number: 0, entries: [] });
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(true);
   const [briefingError, setBriefingError] = useState("");
+  // Tabela do campeonato: alterna entre pilotos e construtores; hover destaca a dupla da equipe.
+  const [standingsView, setStandingsView] = useState("pilotos");
+  const [hoveredStandingsTeamId, setHoveredStandingsTeamId] = useState(null);
+  // Piloto realçado ao passar o mouse num nome mencionado no texto do engenheiro: acende
+  // o mesmo piloto nos Favoritos e na Tabela do Campeonato.
+  const [hoveredDriverId, setHoveredDriverId] = useState(null);
   // Prévia pré-corrida por IA (narrativa + voz da equipe, curtas). null → template.
   const [aiBriefing, setAiBriefing] = useState(null);
+  // A prévia de IA está sendo buscada agora? Enquanto true, exibimos um skeleton no
+  // lugar do template (evita o flash template→IA quando a IA chega logo em seguida).
+  const [aiPending, setAiPending] = useState(false);
   // Reroll de debug da prévia por IA (força regenerar, ignora cache + cooldown).
   const [aiReroll, setAiReroll] = useState({ busy: false, status: null });
   // Debug: ver o template original mesmo quando há prévia de IA em cache. A IA fica
@@ -87,6 +103,7 @@ function NextRaceTab() {
   const simulateRace = useCareerStore((state) => state.simulateRace);
   const advanceSeason = useCareerStore((state) => state.advanceSeason);
   const skipAllPendingRaces = useCareerStore((state) => state.skipAllPendingRaces);
+  const debugGoToMarket = useCareerStore((state) => state.debugGoToMarket);
   const enterPreseason = useCareerStore((state) => state.enterPreseason);
   const runConvocationWindow = useCareerStore((state) => state.runConvocationWindow);
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
@@ -345,6 +362,7 @@ function NextRaceTab() {
     const raceId = nextRace?.id;
     const facts = briefing.aiFacts;
     setAiBriefing(null);
+    setAiPending(false);
     // Prefetch durante a animação de avanço já gerou esta etapa → usa direto (sem
     // novo fetch e sem flash; o render lê de `preRaceAi`).
     if (preRaceAi?.raceId && preRaceAi.raceId === raceId) {
@@ -355,6 +373,11 @@ function NextRaceTab() {
     if (!careerId || !raceId || !facts || isLoadingBriefing) {
       return undefined;
     }
+    // Busca em voo → skeleton no lugar do template até a IA chegar (ou o teto estourar).
+    setAiPending(true);
+    const maxWait = window.setTimeout(() => {
+      if (active) setAiPending(false);
+    }, AI_PREVIEW_MAX_WAIT_MS);
     invoke("pre_race_briefing_ai", { careerId, raceId, facts })
       .then((res) => {
         if (active && res?.narrative && res?.team_voice) {
@@ -365,9 +388,13 @@ function NextRaceTab() {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setAiPending(false);
+      });
     return () => {
       active = false;
+      window.clearTimeout(maxWait);
     };
   }, [careerId, nextRace?.id, briefing.aiFacts, isLoadingBriefing, preRaceAi?.raceId]);
 
@@ -706,9 +733,16 @@ function NextRaceTab() {
   const effectiveAi = aiBriefing ?? prefetchedAi;
   // Exibindo a versão da IA? (há prévia e o debug não forçou o template.)
   const usingAi = Boolean(effectiveAi?.narrative) && !showTemplate;
+  // Buscando a IA e ainda sem nada pra mostrar → skeleton (não o template), pra não
+  // piscar o template por 1s antes da IA. `showTemplate` (debug) sempre vence.
+  const showAiSkeleton = aiPending && !usingAi && !showTemplate;
   // Controles de debug da IA (Rerolar / Ver template / badge): só em dev, ou se
   // VITE_AI_DEBUG=true. No build de produção ficam ocultos para o jogador.
   const showAiDebug = import.meta.env.DEV || import.meta.env.VITE_AI_DEBUG === "true";
+  // Pilotos cujos nomes o texto do engenheiro pode mencionar (elenco da categoria).
+  const mentionDrivers = briefing.championshipTable ?? [];
+  const renderNarrative = (text) =>
+    renderTextWithDriverMentions(text, mentionDrivers, hoveredDriverId, setHoveredDriverId);
 
   return (
     <div className="relative min-h-[calc(100vh-100px)]">
@@ -821,6 +855,35 @@ function NextRaceTab() {
                 </span>
               )}
             </div>
+            {showAiDebug && (
+              <div className="flex flex-col items-center gap-1 w-full sm:w-auto">
+                <span className="text-[9px] uppercase tracking-[0.16em] text-amber-300/70">
+                  🐞 Ir pro mercado
+                </span>
+                <div className="flex flex-wrap justify-center gap-1">
+                  {[
+                    { key: null, label: "normal", title: "Pula as corridas e abre o mercado (resultado do sim)" },
+                    { key: "no_team", label: "sem time", title: "Entra no mercado como agente livre" },
+                    { key: "first", label: "1º", title: "Agente livre, campeão da temporada (máximo mérito)" },
+                    { key: "fifth", label: "5º", title: "Agente livre, meio do pelotão (mérito mediano)" },
+                  ].map((s) => (
+                    <button
+                      key={s.label}
+                      onClick={() => {
+                        setError("");
+                        const go = s.key ? debugGoToMarket(s.key) : skipAllPendingRaces();
+                        go.catch((e) => setError(getDisplayError(e, "Erro ao ir pro mercado.")));
+                      }}
+                      disabled={isSimulating || isAdvancing}
+                      title={s.title}
+                      className="px-2.5 py-1 border border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 font-semibold rounded-md transition text-[11px] disabled:opacity-50"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {canPickPaint && (
               <button
                 onClick={() => {
@@ -851,7 +914,7 @@ function NextRaceTab() {
               ) : isExporting ? (
                 "Exportando…"
               ) : (
-                "Exportar Dados"
+                "Correr"
               )}
             </button>
           </div>
@@ -910,7 +973,7 @@ function NextRaceTab() {
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch pb-10">
           
           {/* 1) NARRATIVA DA ETAPA */}
-          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[650px]">
+          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
             {/* Condições Compactas — o CARD INTEIRO abre a previsão do tempo. */}
             <WeatherButton
               careerId={careerId}
@@ -959,7 +1022,20 @@ function NextRaceTab() {
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10 flex flex-col">
-                {usingAi ? (
+                {showAiSkeleton ? (
+                  <div className="space-y-5" aria-hidden="true">
+                    <div className="h-7 w-3/4 rounded-lg bg-white/[0.07] animate-pulse" />
+                    <div className="space-y-2.5">
+                      <div className="h-4 w-full rounded bg-white/[0.05] animate-pulse" />
+                      <div className="h-4 w-[94%] rounded bg-white/[0.05] animate-pulse" />
+                      <div className="h-4 w-[86%] rounded bg-white/[0.05] animate-pulse" />
+                    </div>
+                    <div className="space-y-2.5">
+                      <div className="h-4 w-[96%] rounded bg-white/[0.05] animate-pulse" />
+                      <div className="h-4 w-[68%] rounded bg-white/[0.05] animate-pulse" />
+                    </div>
+                  </div>
+                ) : usingAi ? (
                   <>
                     {effectiveAi.headline ? (
                       <h3 className="text-2xl font-bold text-white leading-snug mb-4">{effectiveAi.headline}</h3>
@@ -970,7 +1046,7 @@ function NextRaceTab() {
                       .filter(Boolean)
                       .map((para, index) => (
                         <p key={index} className="text-[15px] text-gray-300 leading-relaxed mb-4">
-                          {para}
+                          {renderNarrative(para)}
                         </p>
                       ))}
                   </>
@@ -978,10 +1054,10 @@ function NextRaceTab() {
                   <>
                     <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
                     <p className="text-[15px] text-gray-300 leading-relaxed mb-4">
-                      {briefing.paragraphs[0] ?? briefing.attendanceNarrative}
+                      {renderNarrative(briefing.paragraphs[0] ?? briefing.attendanceNarrative)}
                     </p>
                     <p className="text-[15px] text-gray-300 leading-relaxed mb-6">
-                      {briefing.paragraphs[1] || briefing.actionHint}
+                      {renderNarrative(briefing.paragraphs[1] || briefing.actionHint)}
                     </p>
                   </>
                 )}
@@ -994,7 +1070,14 @@ function NextRaceTab() {
                   <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">
                     Voz da Equipe <span className="text-gray-500 font-semibold normal-case tracking-normal">· à imprensa</span>
                   </p>
-                  <p className="text-sm italic text-gray-200 leading-relaxed">"{usingAi ? effectiveAi.teamVoice : briefing.quote}"</p>
+                  {showAiSkeleton ? (
+                    <div className="space-y-2" aria-hidden="true">
+                      <div className="h-3.5 w-full rounded bg-white/[0.05] animate-pulse" />
+                      <div className="h-3.5 w-[72%] rounded bg-white/[0.05] animate-pulse" />
+                    </div>
+                  ) : (
+                    <p className="text-sm italic text-gray-200 leading-relaxed">"{renderNarrative(usingAi ? effectiveAi.teamVoice : briefing.quote)}"</p>
+                  )}
                   <p className="text-xs font-semibold text-gray-400 mt-3 text-right">
                     -{" "}
                     <span style={briefing.teamColor ? { color: getReadableTeamColor(briefing.teamColor) } : undefined}>
@@ -1007,7 +1090,7 @@ function NextRaceTab() {
           </div>
 
           {/* 2) METAS HORIZONTAIS E FAVORITOS */}
-          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[650px]">
+          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
             {/* Aviso de contrato expirando */}
             {nextRaceBriefing?.contract_warning != null &&
               Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0)) <= 1 && (
@@ -1049,7 +1132,7 @@ function NextRaceTab() {
 
             {/* Favoritos ao Pódio */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col min-h-0">
-              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-5">Os 5 Favoritos ao Pódio</p>
+              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-5">Os 6 Favoritos ao Pódio</p>
 
               <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
                 {isLoadingBriefing ? (
@@ -1058,6 +1141,7 @@ function NextRaceTab() {
                   briefing.favorites.map((driver, index) => {
                     let medalTone = getFavoriteMedalTone(index);
                     const isJogador = driver.is_jogador;
+                    const isMentionHovered = hoveredDriverId != null && driver.id === hoveredDriverId;
 
                     return (
                       <div
@@ -1065,6 +1149,14 @@ function NextRaceTab() {
                         className={`border rounded-2xl p-4 flex flex-col xl:flex-row gap-3 xl:gap-0 justify-between xl:items-center transition hover:bg-white/5 ${
                           isJogador ? "bg-[#58a6ff]/10 border-[#58a6ff]/30" : "bg-black/20 border-white/5"
                         }`}
+                        style={
+                          isMentionHovered
+                            ? (() => {
+                                const tone = getTeamGlow(driver.equipe_cor);
+                                return { borderColor: tone.solid, boxShadow: `0 0 18px ${tone.glow}` };
+                              })()
+                            : undefined
+                        }
                       >
                         <div className="flex items-center gap-4">
                           <span className={`font-black w-8 text-center text-[30px] ${isJogador ? "text-[#58a6ff]" : medalTone}`}>
@@ -1115,38 +1207,149 @@ function NextRaceTab() {
           </div>
 
           {/* 3) TABELA CAMPEONATO */}
-          <div className="xl:col-span-4 h-[500px] xl:h-[650px]">
+          <div className="xl:col-span-4 h-[500px] xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 h-full flex flex-col relative overflow-hidden">
-              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-4">Tabela Geral do Campeonato</p>
-              
-              {briefing.championshipTable.length === 0 ? (
-                <p className="text-sm text-gray-400">Classificação indisponível no momento.</p>
+              <div className="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">Tabela Geral do Campeonato</p>
+                <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/5 p-0.5">
+                  {[
+                    { id: "pilotos", label: "Pilotos" },
+                    { id: "construtores", label: "Construtores" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setStandingsView(tab.id)}
+                      className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-[0.06em] transition ${
+                        standingsView === tab.id
+                          ? "bg-[#58a6ff] text-[#06090e] shadow-[0_0_16px_rgba(88,166,255,0.35)]"
+                          : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {standingsView === "pilotos" ? (
+                briefing.championshipTable.length === 0 ? (
+                  <p className="text-sm text-gray-400">Classificação indisponível no momento.</p>
+                ) : (
+                  <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
+                        <tr>
+                          <th className="py-2 px-3 text-center w-8">#</th>
+                          <th className="py-2 px-1">Piloto</th>
+                          <th className="py-2 px-3 text-right">Pts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {briefing.championshipTable.map((driver) => {
+                          const isPlayer = driver.is_jogador;
+                          const isHoveredTeam =
+                            hoveredStandingsTeamId != null && driver.equipe_id === hoveredStandingsTeamId;
+                          const isMentionHovered = hoveredDriverId != null && driver.id === hoveredDriverId;
+                          const teamColor = getReadableTeamColor(driver.equipe_cor);
+                          return (
+                            <tr
+                              key={driver.id}
+                              onMouseEnter={() => setHoveredStandingsTeamId(driver.equipe_id ?? null)}
+                              onMouseLeave={() => setHoveredStandingsTeamId(null)}
+                              className={`border-b transition-glass ${
+                                isMentionHovered || isHoveredTeam
+                                  ? "border-transparent"
+                                  : isPlayer
+                                    ? "border-[#58a6ff]/40 bg-[#58a6ff]/10"
+                                    : "border-white/5 hover:bg-white/5"
+                              }`}
+                              style={
+                                isMentionHovered
+                                  ? (() => {
+                                      const tone = getTeamGlow(driver.equipe_cor);
+                                      return { backgroundColor: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` };
+                                    })()
+                                  : isHoveredTeam
+                                    ? (() => {
+                                        const tone = getTeamGlow(driver.equipe_cor);
+                                        return { backgroundColor: tone.soft, boxShadow: `inset 3px 0 0 0 ${tone.solid}` };
+                                      })()
+                                    : undefined
+                              }
+                            >
+                              <td className={`py-3 px-3 text-center ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                                {driver.posicao_campeonato}
+                              </td>
+                              <td className="py-3 px-1">
+                                <div className="flex items-center gap-2">
+                                  <TeamLogoMark
+                                    teamName={driver.equipe_nome}
+                                    color={driver.equipe_cor}
+                                    size="xs"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className={`truncate leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
+                                      {driver.nome_completo ?? driver.nome}
+                                    </p>
+                                    <p
+                                      className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
+                                      style={{ color: teamColor }}
+                                    >
+                                      {driver.equipe_nome_curto ?? driver.equipe_nome ?? "—"}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className={`py-3 px-3 text-right align-top ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                                {driver.pontos}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : briefing.constructorsTable.length === 0 ? (
+                <p className="text-sm text-gray-400">Classificação de equipes indisponível no momento.</p>
               ) : (
                 <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
                       <tr>
                         <th className="py-2 px-3 text-center w-8">#</th>
-                        <th className="py-2 px-1">Piloto</th>
+                        <th className="py-2 px-1">Equipe</th>
                         <th className="py-2 px-3 text-right">Pts</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {briefing.championshipTable.map((driver) => {
-                        const isPlayer = driver.is_jogador;
+                      {briefing.constructorsTable.map((team) => {
+                        const isPlayerTeam = briefing.playerTeamId != null && team.id === briefing.playerTeamId;
+                        const teamColor = getReadableTeamColor(team.cor_primaria);
                         return (
                           <tr
-                            key={driver.id}
-                            className={`border-b ${isPlayer ? "border-[#58a6ff]/40 bg-[#58a6ff]/10" : "border-white/5 hover:bg-white/5"}`}
+                            key={team.id}
+                            className={`border-b ${isPlayerTeam ? "border-[#58a6ff]/40 bg-[#58a6ff]/10" : "border-white/5 hover:bg-white/5"}`}
                           >
-                            <td className={`py-3 px-3 text-center ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                              {driver.posicao_campeonato}
+                            <td className={`py-3 px-3 text-center ${isPlayerTeam ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                              {team.posicao}
                             </td>
-                            <td className={`py-3 px-1 ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
-                              {driver.nome_completo ?? driver.nome}
+                            <td className="py-3 px-1">
+                              <div className="flex items-center gap-2">
+                                <TeamLogoMark teamName={team.nome} color={team.cor_primaria} size="xs" />
+                                <div className="min-w-0">
+                                  <p
+                                    className="truncate font-semibold leading-tight"
+                                    style={{ color: teamColor }}
+                                  >
+                                    {team.nome}
+                                  </p>
+                                </div>
+                              </div>
                             </td>
-                            <td className={`py-3 px-3 text-right ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                              {driver.pontos}
+                            <td className={`py-3 px-3 text-right align-top ${isPlayerTeam ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                              {team.pontos}
                             </td>
                           </tr>
                         );
@@ -1227,7 +1430,7 @@ export function buildBriefingContext({
   const favorites = ratedDrivers
     .slice()
     .sort((left, right) => right.rating - left.rating || left.posicao_campeonato - right.posicao_campeonato)
-    .slice(0, 5)
+    .slice(0, 6)
     .map((driver, index) => {
       const selection = buildFavoriteExpectationSelection(driver, index, {
         seasonNumber: season?.numero,
@@ -1441,6 +1644,8 @@ export function buildBriefingContext({
     }),
     favorites,
     championshipTable: orderedDrivers,
+    constructorsTable: orderedTeams,
+    playerTeamId: playerStanding?.equipe_id ?? playerTeam?.id ?? null,
     standingsTopFive,
     gapToLeaderLabel: gapToLeader === 0 ? "Liderança" : `${gapToLeader} pts`,
     gapBehindLabel: gapBehind == null ? "Sem perseguidor direto" : `${gapBehind} pts`,

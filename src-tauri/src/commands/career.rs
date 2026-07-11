@@ -88,6 +88,8 @@ pub struct PlayerProposalView {
     pub companheiro_nome: Option<String>,
     pub companheiro_skill: Option<u8>,
     pub status: String,
+    /// Semanas até a proposta expirar (Fase B). `None` = sem prazo (proposta de rollover).
+    pub semanas_restantes: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -924,11 +926,66 @@ pub(crate) fn get_preseason_state_in_base_dir(
     Ok(plan.state)
 }
 
+/// DEBUG: prepara o mercado num cenário específico. Simula as corridas restantes (encerra
+/// a temporada), torna o jogador AGENTE LIVRE (pra as propostas formais aparecerem) e força
+/// a posição final no campeonato (visibilidade → mérito). Cenários: "no_team" (livre, sem
+/// forçar posição), "first" (campeão), "fifth" (meio do pelotão). O chamador avança a
+/// temporada depois. Só usado pelos controles de debug da UI.
+pub(crate) fn debug_prepare_market_scenario_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    scenario: &str,
+) -> Result<(), String> {
+    skip_all_pending_races_in_base_dir(base_dir, career_id)?;
+
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+    let player = driver_queries::get_player_driver(&db.conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+
+    // Todos os cenários entram no mercado como agente livre (as propostas formais só são
+    // geradas pra quem está sem contrato nesta fase).
+    if let Some(contract) = contract_queries::get_active_contract_for_pilot(&db.conn, &player.id)
+        .map_err(|e| format!("Falha ao buscar contrato do jogador: {e}"))?
+    {
+        contract_queries::update_contract_status(
+            &db.conn,
+            &contract.id,
+            &ContractStatus::Rescindido,
+        )
+        .map_err(|e| format!("Falha ao rescindir contrato (debug): {e}"))?;
+        team_queries::remove_pilot_from_team(&db.conn, &player.id, &contract.equipe_id)
+            .map_err(|e| format!("Falha ao remover jogador da equipe (debug): {e}"))?;
+    }
+
+    // Força a posição final no campeonato (posicao, pontos, vitorias, podios).
+    let forced: Option<(i32, f64, i32)> = match scenario {
+        "first" => Some((1, 420.0, 10)),
+        "fifth" => Some((5, 180.0, 2)),
+        _ => None, // "no_team": não força posição
+    };
+    if let Some((pos, pts, wins)) = forced {
+        db.conn
+            .execute(
+                "UPDATE standings SET posicao = ?1, pontos = ?2, vitorias = ?3, podios = ?4
+                 WHERE temporada_id = ?5 AND piloto_id = ?6",
+                rusqlite::params![pos, pts, wins, wins + 3, season.id, player.id],
+            )
+            .map_err(|e| format!("Falha ao forcar classificacao (debug): {e}"))?;
+    }
+    Ok(())
+}
+
 pub(crate) fn get_player_proposals_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<Vec<PlayerProposalView>, String> {
-    let (db, _career_dir, _meta) = open_career_resources(base_dir, career_id)?;
+    let (db, career_dir, _meta) = open_career_resources(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
         .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
@@ -941,6 +998,34 @@ pub(crate) fn get_player_proposals_in_base_dir(
             .map(|proposal| build_player_proposal_view(&db.conn, &proposal))
             .collect::<Result<Vec<_>, _>>()?;
     proposals.sort_by(|a, b| b.car_performance.total_cmp(&a.car_performance));
+
+    // Prazo no card (Fase B): semanas restantes = semana_limite − semana atual da janela.
+    let current_week = load_preseason_plan(&career_dir)
+        .ok()
+        .flatten()
+        .map(|plan| plan.state.current_week);
+    if let Some(week) = current_week {
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT id, semana_limite FROM market_proposals
+                 WHERE temporada_id = ?1 AND piloto_id = ?2 AND status = 'Pendente'
+                   AND semana_limite IS NOT NULL",
+            )
+            .map_err(|e| format!("Falha ao preparar prazos das propostas: {e}"))?;
+        let deadlines: std::collections::HashMap<String, i32> = stmt
+            .query_map(rusqlite::params![season.id, player.id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+            })
+            .map_err(|e| format!("Falha ao consultar prazos: {e}"))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("Falha ao ler prazos: {e}"))?;
+        for view in &mut proposals {
+            if let Some(limite) = deadlines.get(&view.proposal_id) {
+                view.semanas_restantes = Some((limite - week).max(0));
+            }
+        }
+    }
     Ok(proposals)
 }
 
@@ -1496,6 +1581,7 @@ fn build_player_proposal_view(
             .as_ref()
             .map(|driver| driver.atributos.skill.round().clamp(0.0, 100.0) as u8),
         status: proposal.status.as_str().to_string(),
+        semanas_restantes: None, // preenchido pelo chamador que conhece a semana atual
     })
 }
 

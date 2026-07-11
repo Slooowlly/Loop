@@ -207,6 +207,102 @@ fn assign_constructor_positions(snapshots: &mut [TeamSeasonSnapshot]) {
     }
 }
 
+/// Consolida o histórico de CARREIRA de cada equipe a partir dos arquivos de
+/// temporada (ideia 2 do "sistema de equipes vivo"). Até aqui os campos
+/// `historico_*` do registro do time nunca eram gravados — ficavam em 0 — e por
+/// isso o termo `titulos_construtores*2` do `elite_score` das dinastias
+/// ([`crate::finance::strategy`]) era código morto: a elite fictícia (Production)
+/// era ordenada só por reputação. Com o roll-up, campeões passados acumulam
+/// títulos e ficam elite por LEGADO, não só por forma.
+///
+/// **Recompute-from-archive** (não incremento): recalcula o total como SOMA sobre
+/// `team_season_archive` a cada offseason. É idempotente (rodar 2× dá o mesmo
+/// resultado, sem dupla contagem) e faz backfill de saves antigos automaticamente.
+/// Deve rodar DEPOIS de `archive_team_season` (a linha da temporada atual já
+/// existe). Os títulos de PILOTO da equipe vêm do `driver_season_archive` (onde o
+/// `team_id` da temporada mora no snapshot JSON).
+pub(crate) fn roll_up_team_career_history(conn: &Connection) -> Result<(), String> {
+    // Agregados dos construtores: uma varredura do arquivo de equipes, agrupada
+    // por time (soma vitórias/pódios/poles/pontos/títulos de construtor).
+    let mut stmt = conn
+        .prepare(
+            "SELECT team_id,
+                    COALESCE(SUM(vitorias), 0),
+                    COALESCE(SUM(podios), 0),
+                    COALESCE(SUM(poles), 0),
+                    CAST(COALESCE(SUM(pontos), 0) AS INTEGER),
+                    COALESCE(SUM(titulos_construtores), 0)
+             FROM team_season_archive
+             GROUP BY team_id",
+        )
+        .map_err(|e| format!("Falha ao preparar roll-up de histórico: {e}"))?;
+    // team_id -> [vitorias, podios, poles, pontos, titulos_construtores, titulos_pilotos]
+    let mut totals: HashMap<String, [i64; 6]> = HashMap::new();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                [
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    0,
+                ],
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar roll-up de construtores: {e}"))?;
+    for row in rows {
+        let (team_id, agg) = row.map_err(|e| format!("Falha ao mapear roll-up: {e}"))?;
+        totals.insert(team_id, agg);
+    }
+    drop(stmt);
+
+    // Títulos de PILOTO por equipe: uma varredura do arquivo de pilotos, filtrando
+    // os campeões (titulos=1) e agrupando pelo team_id da temporada (no JSON).
+    let mut stmt = conn
+        .prepare(
+            "SELECT json_extract(snapshot_json, '$.team_id') AS tid, COUNT(*)
+             FROM driver_season_archive
+             WHERE json_extract(snapshot_json, '$.titulos') = 1
+               AND tid IS NOT NULL
+             GROUP BY tid",
+        )
+        .map_err(|e| format!("Falha ao preparar roll-up de títulos de piloto: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|e| format!("Falha ao consultar títulos de piloto: {e}"))?;
+    for row in rows {
+        let (team_id, driver_titles) =
+            row.map_err(|e| format!("Falha ao mapear títulos de piloto: {e}"))?;
+        totals.entry(team_id).or_insert([0; 6])[5] = driver_titles;
+    }
+    drop(stmt);
+
+    // Grava os totais recomputados no registro de cada equipe (só as colunas de
+    // histórico). Equipes sem arquivo mantêm 0.
+    for (team_id, t) in &totals {
+        conn.execute(
+            "UPDATE teams SET
+                historico_vitorias = ?1,
+                historico_podios = ?2,
+                historico_poles = ?3,
+                historico_pontos = ?4,
+                carreira_titulos = ?5,
+                historico_titulos_pilotos = ?6,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?7",
+            rusqlite::params![t[0], t[1], t[2], t[3], t[4], t[5], team_id],
+        )
+        .map_err(|e| format!("Falha ao gravar histórico da equipe {team_id}: {e}"))?;
+    }
+
+    Ok(())
+}
+
 fn constructor_ranking_group_key(snapshot: &TeamSeasonSnapshot) -> String {
     if matches!(
         snapshot.category.as_str(),
@@ -422,6 +518,63 @@ mod tests {
             )
             .expect("production archive row");
         assert_eq!(class_name.as_deref(), Some("mazda"));
+    }
+
+    #[test]
+    fn roll_up_consolidates_constructor_and_driver_history_into_team_record() {
+        let conn = setup_team_archive_conn();
+        let season = seed_completed_team_archive_world(&conn);
+        archive_team_season(&conn, &season).expect("archive");
+
+        // Título de PILOTO: P001 campeão da rookie pela T001 (team_id no snapshot).
+        conn.execute(
+            "INSERT INTO driver_season_archive
+                (piloto_id, season_number, ano, nome, categoria, posicao_campeonato, pontos, snapshot_json)
+             VALUES ('P001', ?1, 2024, 'Piloto Um', 'mazda_rookie', 1, 100,
+                     json_object('team_id', 'T001', 'titulos', 1))",
+            params![season.numero],
+        )
+        .expect("driver archive row");
+
+        roll_up_team_career_history(&conn).expect("roll-up");
+
+        let hist = read_team_history(&conn, "T001");
+        // vitorias, podios, poles, pontos, titulos_construtores, titulos_pilotos
+        assert_eq!(hist, [1, 2, 1, 100, 1, 1], "roll-up consolidou o histórico");
+    }
+
+    #[test]
+    fn roll_up_is_idempotent_and_does_not_double_count() {
+        let conn = setup_team_archive_conn();
+        let season = seed_completed_team_archive_world(&conn);
+        archive_team_season(&conn, &season).expect("archive");
+
+        roll_up_team_career_history(&conn).expect("first roll-up");
+        roll_up_team_career_history(&conn).expect("second roll-up");
+
+        let hist = read_team_history(&conn, "T001");
+        // Recompute-from-archive: rodar 2× NÃO dobra os totais.
+        assert_eq!(hist, [1, 2, 1, 100, 1, 0], "sem dupla contagem");
+    }
+
+    fn read_team_history(conn: &Connection, team_id: &str) -> [i64; 6] {
+        conn.query_row(
+            "SELECT historico_vitorias, historico_podios, historico_poles,
+                    historico_pontos, carreira_titulos, historico_titulos_pilotos
+             FROM teams WHERE id = ?1",
+            params![team_id],
+            |row| {
+                Ok([
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ])
+            },
+        )
+        .expect("team history row")
     }
 
     fn setup_team_archive_conn() -> Connection {

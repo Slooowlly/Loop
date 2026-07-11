@@ -4,6 +4,7 @@ use crate::calendar::CalendarEntry;
 use crate::constants::tracks::get_track;
 use crate::models::driver::Driver;
 use crate::models::enums::WeatherCondition;
+use crate::finance::morale::{morale_pace_delta, morale_reliability_delta};
 use crate::models::team::Team;
 
 use super::car_build::effective_car_performance;
@@ -173,8 +174,12 @@ impl SimDriver {
             smoothness: as_u8(driver.atributos.smoothness),
             mentalidade: as_u8(driver.atributos.mentalidade),
             confianca: as_u8(driver.atributos.confianca),
-            car_performance: team.car_performance,
-            car_reliability: team.confiabilidade,
+            // Moral viva (ideia 3): efeito sutil e SIMÉTRICO — um time em alta corre
+            // um tico melhor e mais confiável; em crise, pior e mais frágil. Vale
+            // para todo carro do grid (jogador simulado + IA).
+            car_performance: team.car_performance + morale_pace_delta(team.morale),
+            car_reliability: (team.confiabilidade + morale_reliability_delta(team.morale))
+                .clamp(0.0, 100.0),
             team_id: team.id.clone(),
             team_name: team.nome.clone(),
             corridas_na_categoria: driver.corridas_na_categoria as i32,
@@ -190,8 +195,12 @@ impl SimDriver {
             track.handling_weight,
         );
         let mut sim_driver = Self::from_driver_and_team(driver, team);
+        // effective_car_performance recalcula a partir do car_performance-base (sem
+        // moral), então re-aplicamos o delta de moral aqui. A confiabilidade já veio
+        // do construtor base com a moral e não é reescrita.
         sim_driver.car_performance =
-            effective_car_performance(team.car_performance, team.car_build_profile, track_weights);
+            effective_car_performance(team.car_performance, team.car_build_profile, track_weights)
+                + morale_pace_delta(team.morale);
         sim_driver
     }
 }

@@ -72,12 +72,12 @@ export function difficultyLabel(id) {
 
 export function categoryLabel(id) {
   const labels = {
-    mazda_rookie: "Mazda MX-5 Rookie Cup",
-    toyota_rookie: "Toyota GR86 Rookie Cup",
-    mazda_amador: "Mazda MX-5 Championship",
-    toyota_amador: "Toyota GR86 Cup",
-    bmw_m2: "BMW M2 CS Racing",
-    production_challenger: "Production Car Challenger",
+    mazda_rookie: "Mazda Rookie",
+    toyota_rookie: "Toyota Rookie",
+    mazda_amador: "Mazda Cup",
+    toyota_amador: "Toyota Cup",
+    bmw_m2: "BMW Cup",
+    production_challenger: "Production",
     gt4: "GT4 Series",
     gt3: "GT3 Championship",
     lmp2: "LMP2 Prototype Championship",

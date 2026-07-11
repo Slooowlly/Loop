@@ -5,7 +5,7 @@ use chrono::Local;
 use crate::calendar::full_season::generate_full_season_calendar;
 use crate::commands::career_types::{
     CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, DraftTeamOption,
-    FinalizeHistoricalDraftInput, SaveLifecycleStatus,
+    FinalizeHistoricalDraftInput, SaveLifecycleStatus, WorldSummary,
 };
 use crate::config::app_config::AppConfig;
 use crate::config::app_config::SaveMeta;
@@ -35,8 +35,8 @@ use crate::models::team::Team;
 use crate::world::integrity::{audit_historical_world, WorldAuditReport};
 
 const HISTORY_START_YEAR: i32 = 2000;
-const HISTORY_END_YEAR: i32 = 2024;
-const PLAYABLE_START_YEAR: i32 = 2025;
+const HISTORY_END_YEAR: i32 = 2025;
+const PLAYABLE_START_YEAR: i32 = 2026;
 const STARTING_CATEGORY_IDS: [&str; 2] = ["mazda_rookie", "toyota_rookie"];
 
 pub(crate) fn create_historical_career_draft_in_base_dir(
@@ -205,6 +205,7 @@ fn create_historical_career_draft_base(
             error: None,
             categories: Vec::new(),
             teams: Vec::new(),
+            world_summary: None,
         })
     })();
 
@@ -469,6 +470,7 @@ fn empty_draft_state() -> CareerDraftState {
         error: None,
         categories: Vec::new(),
         teams: Vec::new(),
+        world_summary: None,
     }
 }
 
@@ -519,6 +521,7 @@ fn build_draft_state(
         error: meta.draft_error.clone(),
         categories: Vec::new(),
         teams: Vec::new(),
+        world_summary: None,
     };
 
     if meta.lifecycle_status == SaveLifecycleStatus::Failed {
@@ -556,7 +559,44 @@ fn build_draft_state(
         }
     }
 
+    state.world_summary = build_world_summary(&db.conn);
+
     Ok(state)
+}
+
+/// Conta o mundo simulado a partir dos arquivos de temporada persistidos. Cada query
+/// degrada pra 0 se a tabela estiver vazia. `corridas` = soma das vitórias de equipe
+/// (cada corrida tem exatamente um vencedor). Retorna None se não houver histórico.
+fn build_world_summary(conn: &rusqlite::Connection) -> Option<WorldSummary> {
+    let count = |sql: &str| -> i64 {
+        conn.query_row(sql, [], |row| row.get::<_, i64>(0))
+            .unwrap_or(0)
+    };
+
+    let summary = WorldSummary {
+        temporadas: count("SELECT COUNT(DISTINCT season_number) FROM team_season_archive"),
+        pilotos: count("SELECT COUNT(DISTINCT piloto_id) FROM driver_season_archive"),
+        corridas: count("SELECT COALESCE(SUM(vitorias), 0) FROM team_season_archive"),
+        // Campeões = pilotos distintos que venceram ao menos um campeonato.
+        campeoes: count(
+            "SELECT COUNT(DISTINCT piloto_id) FROM driver_season_archive \
+             WHERE posicao_campeonato = 1",
+        ),
+        // Tricampeões = pilotos com 3+ títulos.
+        tricampeoes: count(
+            "SELECT COUNT(*) FROM ( \
+                SELECT piloto_id FROM driver_season_archive \
+                WHERE posicao_campeonato = 1 \
+                GROUP BY piloto_id HAVING COUNT(*) >= 3 \
+             )",
+        ),
+    };
+
+    // Sem nenhuma temporada arquivada não há mundo a resumir.
+    if summary.temporadas == 0 {
+        return None;
+    }
+    Some(summary)
 }
 
 fn audit_draft_world(conn: &rusqlite::Connection, playable_year: i32) -> Result<(), String> {

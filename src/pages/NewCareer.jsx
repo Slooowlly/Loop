@@ -2,16 +2,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 
+import FlagIcon from "../components/ui/FlagIcon";
 import GlassButton from "../components/ui/GlassButton";
 import GlassCard from "../components/ui/GlassCard";
 import GlassInput from "../components/ui/GlassInput";
 import GlassSelect from "../components/ui/GlassSelect";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
+import TeamLogoMark from "../components/team/TeamLogoMark";
 import CategoryCard from "../components/wizard/CategoryCard";
 import DifficultyCard from "../components/wizard/DifficultyCard";
 import StepIndicator from "../components/wizard/StepIndicator";
 import TeamCard from "../components/wizard/TeamCard";
 import useCareerStore from "../stores/useCareerStore";
+import { extractNationalityLabel } from "../utils/formatters";
 import {
   DIFFICULTIES,
   LOADING_MESSAGE_INTERVAL_MS,
@@ -33,7 +36,7 @@ const STEP_TITLES = {
 const STEP_DESCRIPTIONS = {
   1: "Defina o teto da IA antes de entrar no paddock.",
   2: "Monte a identidade do seu piloto para o save inicial.",
-  3: "Simule 2000 a 2024 antes de escolher onde entrar no grid de 2025.",
+  3: "Deixe o mundo correr sozinho de 2000 a 2025 e escolha onde estrear no grid de 2026.",
   4: "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
   5: "Selecione a equipe onde você vai estrear como segundo piloto.",
   6: "Confira tudo antes de transformar o rascunho histórico em save jogável.",
@@ -397,12 +400,11 @@ function NewCareer() {
               Rascunho histórico
             </p>
             <h3 className="mt-4 text-3xl font-semibold text-text-primary">
-              25 temporadas antes da estreia
+              26 temporadas antes da sua estreia
             </h3>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-text-secondary">
-              O jogo vai simular de 2000 até 2024 sem o jogador no grid, guardando resultados,
-              carreiras, trocas de equipe e evolução do mundo. Ao terminar, você entra em 2025
-              substituindo o N2 da equipe escolhida.
+              Um grid com 26 temporadas de estrada: títulos decididos, rivalidades formadas,
+              equipes que brilharam e outras que sumiram. É nele que você entra.
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -416,7 +418,7 @@ function NewCareer() {
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
                   Jogável
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-text-primary">2025</p>
+                <p className="mt-2 text-2xl font-semibold text-text-primary">2026</p>
               </div>
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
@@ -458,22 +460,41 @@ function NewCareer() {
     }
 
     if (step === 4) {
+      const sharedStats = categoryOptions[0];
       return (
-        <div className="grid gap-5 lg:grid-cols-2">
-          {categoryOptions.map((category) => (
-            <CategoryCard
-              key={category.id}
-              category={category}
-              selected={formData.category === category.id}
-              onSelect={(categoryId) =>
-                updateForm({
-                  category: categoryId,
-                  teamId:
-                    draftState?.teams?.find((team) => team.categoria === categoryId)?.id ?? "",
-                })
-              }
-            />
-          ))}
+        <div className="space-y-5">
+          {sharedStats ? (
+            <div className="glass-light mx-auto flex w-fit items-stretch divide-x divide-white/10 rounded-2xl">
+              {[
+                ["Equipes", sharedStats.teams],
+                ["Corridas", sharedStats.races],
+                ["Pilotos", sharedStats.drivers],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-baseline gap-2 px-8 py-4">
+                  <span className="text-2xl font-semibold text-text-primary">{value}</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-text-muted">
+                    {label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="grid gap-5 lg:grid-cols-2">
+            {categoryOptions.map((category) => (
+              <CategoryCard
+                key={category.id}
+                category={category}
+                selected={formData.category === category.id}
+                onSelect={(categoryId) =>
+                  updateForm({
+                    category: categoryId,
+                    teamId:
+                      draftState?.teams?.find((team) => team.categoria === categoryId)?.id ?? "",
+                  })
+                }
+              />
+            ))}
+          </div>
         </div>
       );
     }
@@ -494,74 +515,80 @@ function NewCareer() {
     }
 
     return (
-      <div className="grid gap-6 xl:grid-cols-[1fr_0.42fr]">
-        <GlassCard hover={false} className="glass-light rounded-[28px]">
-          <div className="space-y-6">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                Piloto
-              </p>
-              <h3 className="mt-3 text-3xl font-semibold text-text-primary">
-                {formData.playerName.trim() || "Seu piloto"}
-              </h3>
-              <p className="mt-2 text-sm text-text-secondary">
-                {selectedNationality.label} - {formData.age} anos
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="glass-light rounded-2xl p-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Categoria
-                </p>
-                <p className="mt-2 text-base font-semibold text-text-primary">
-                  {selectedCategory.name}
-                </p>
-              </div>
-              <div className="glass-light rounded-2xl p-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Equipe
-                </p>
-                <p className="mt-2 text-base font-semibold text-text-primary">
-                  {selectedTeam?.nome}
-                </p>
-              </div>
-              <div className="glass-light rounded-2xl p-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Dificuldade
-                </p>
-                <p className="mt-2 text-base font-semibold text-text-primary">
-                  {selectedDifficulty.name}
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-status-yellow/30 bg-status-yellow/10 px-4 py-4 text-sm text-text-secondary">
-              Esta ação ativa o save em 2025, insere o jogador como N2 e mantém o histórico
-              simulado salvo para futuras telas de legado.
-            </div>
-          </div>
-        </GlassCard>
-
-        <GlassCard hover={false} className="glass-light rounded-[28px]">
+      <div className="space-y-8">
+        {/* Piloto — herói centralizado */}
+        <div className="text-center">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-            Resumo rápido
+            Piloto
           </p>
-          <div className="mt-5 space-y-5 text-sm text-text-secondary">
-            <div>
-              <p className="text-text-muted">Carro</p>
-              <p className="mt-1 text-text-primary">{selectedCategory.car}</p>
+          <h3 className="mt-2 text-3xl font-semibold text-text-primary">
+            {formData.playerName.trim() || "Seu piloto"}
+          </h3>
+          <p className="mt-3 flex items-center justify-center gap-2 text-sm text-text-secondary">
+            <FlagIcon nacionalidade={selectedNationality.label} />
+            {extractNationalityLabel(selectedNationality.label)} · {formData.age} anos
+          </p>
+        </div>
+
+        {/* Escolhas — tiles centralizados, largura total */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Carro</p>
+            <p className="mt-2 text-2xl font-semibold text-text-primary">
+              {selectedCategory.car?.split(" ")[0] ?? selectedCategory.car}
+            </p>
+          </div>
+          <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Equipe</p>
+            <TeamLogoMark
+              teamName={selectedTeam?.nome}
+              color={selectedTeam?.cor_primaria}
+              size="md"
+              testId="confirm-team-logo"
+            />
+            <p className="mt-2 text-lg font-semibold leading-tight text-text-primary">
+              {selectedTeam?.nome}
+            </p>
+          </div>
+          <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Dificuldade</p>
+            <p className="mt-2 text-2xl font-semibold text-text-primary">
+              {selectedDifficulty.name}
+            </p>
+          </div>
+        </div>
+
+        {/* O mundo que você herda */}
+        {draftState?.world_summary ? (
+          <div className="border-t border-white/10 pt-8">
+            <div className="text-center">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
+                O mundo que você herda
+              </p>
+              <p className="mt-1 text-sm text-text-secondary">
+                {draftState.world_summary.temporadas} temporadas já foram disputadas antes da sua
+                estreia.
+              </p>
             </div>
-            <div>
-              <p className="text-text-muted">Equipe escolhida</p>
-              <p className="mt-1 text-text-primary">{selectedTeam?.nome_curto}</p>
-            </div>
-            <div>
-              <p className="text-text-muted">Perfil da IA</p>
-              <p className="mt-1 text-text-primary">{selectedDifficulty.desc}</p>
+            <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[
+                ["Pilotos", draftState.world_summary.pilotos],
+                ["Corridas", draftState.world_summary.corridas],
+                ["Campeões", draftState.world_summary.campeoes],
+                ["Tricampeões", draftState.world_summary.tricampeoes],
+              ].map(([label, value]) => (
+                <div key={label} className="glass-light rounded-2xl p-5 text-center">
+                  <p className="text-3xl font-semibold text-text-primary">
+                    {Number(value).toLocaleString("pt-BR")}
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">
+                    {label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
-        </GlassCard>
+        ) : null}
       </div>
     );
   }
@@ -612,7 +639,10 @@ function NewCareer() {
               </div>
             ) : null}
 
-            <div key={step} className="wizard-step-enter mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
+            {/* -mx-6 px-6: expande a caixa de corte do scroll pros lados (mantendo o
+                conteúdo alinhado) pra sombra/realce dos cards de canto não ser cortada.
+                py-2 dá folga vertical; o overflow-y-auto segue rolando quando precisa. */}
+            <div key={step} className="wizard-step-enter -mx-6 mt-8 min-h-0 flex-1 overflow-y-auto px-6 py-2">
               {renderStepContent()}
             </div>
 

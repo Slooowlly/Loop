@@ -5,6 +5,12 @@ import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
 import { MOCK_TELEMETRY } from "./__mockTelemetry";
+import {
+  buildDriverMentionMatcher,
+  driverMentionClass,
+  renderTextWithDriverMentions,
+} from "../../utils/driverMentions";
+import { getTeamGlow } from "../../utils/teamColors";
 
 // Tela pós-corrida REDESENHADA (v2), atrás de flag de dev. NÃO substitui a atual —
 // renderizada em paralelo no Dashboard só quando a flag liga, para comparar lado a
@@ -83,6 +89,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
   const lapSortTimer = useRef(null);
   // Hover: destaca a linha sob o mouse + companheiro(s) de equipe, na cor da equipe.
   const [hoverTeam, setHoverTeam] = useState(null);
+  // Piloto realçado ao passar o mouse no nome dele no texto do engenheiro → acende a
+  // linha correspondente na tabela de resultados (na cor da equipe).
+  const [hoveredDriverId, setHoveredDriverId] = useState(null);
 
   function handleSortByLap() {
     setSortByLap(true);
@@ -171,6 +180,13 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
   const playerEntry = useMemo(
     () => sortedResults.find((e) => e.is_jogador) ?? null,
     [sortedResults],
+  );
+
+  // Pilotos que o texto do engenheiro pode mencionar: os que correram esta etapa
+  // (id/nome vêm dos próprios resultados — auto-consistente com a tabela).
+  const mentionDrivers = useMemo(
+    () => (result?.race_results ?? []).map((e) => ({ id: e.pilot_id, nome: e.pilot_name })),
+    [result],
   );
 
   // Companheiro de equipe (mesmo team_id, não-jogador) — padrão do Gap na telemetria.
@@ -321,14 +337,22 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                       const teamColor = teamColorByName[e.team_name] || "#5f5e5a";
                       const pits = pitByName[e.pilot_name] ?? 0;
                       const isHoverTeam = hoverTeam && e.team_name === hoverTeam;
+                      const isMentionHovered = hoveredDriverId && e.pilot_id === hoveredDriverId;
                       const baseRow = { transition: "background 120ms", height: "46px" };
-                      const rowStyle = isHoverTeam
-                        ? { ...baseRow, background: withAlpha(teamColor, 0.2) || "rgba(255,255,255,0.06)" }
-                        : e.is_dnf
-                          ? { ...baseRow, background: "rgba(239,68,68,0.09)" }
-                          : isPlayer
-                            ? { ...baseRow, background: "rgba(45,212,191,0.08)" }
-                            : baseRow;
+                      const mentionTone = isMentionHovered ? getTeamGlow(teamColor) : null;
+                      const rowStyle = mentionTone
+                        ? {
+                            ...baseRow,
+                            background: mentionTone.soft,
+                            boxShadow: `inset 0 0 0 1.5px ${mentionTone.solid}`,
+                          }
+                        : isHoverTeam
+                          ? { ...baseRow, background: withAlpha(teamColor, 0.2) || "rgba(255,255,255,0.06)" }
+                          : e.is_dnf
+                            ? { ...baseRow, background: "rgba(239,68,68,0.09)" }
+                            : isPlayer
+                              ? { ...baseRow, background: "rgba(45,212,191,0.08)" }
+                              : baseRow;
                       const txt = e.is_dnf ? "#f0a3a3" : isPlayer ? "#ffffff" : "#e6edf3";
                       const isPodium = !e.is_dnf && PODIUM[e.finish_position];
                       return (
@@ -446,6 +470,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                       fallbackHeadline={evaluation.headline}
                       fallbackBody={evaluation.team_read}
                       accent={accent}
+                      mentionDrivers={mentionDrivers}
+                      hoveredDriverId={hoveredDriverId}
+                      onMentionHover={setHoveredDriverId}
                     />
                   </div>
 
@@ -491,27 +518,65 @@ function withAlpha(hex, a) {
 }
 
 // Revela um texto palavra por palavra, como fala chegando. Espaços preservados;
-// cada palavra entra com um pequeno atraso escalonado (CSS .speech-word).
-function SpeechWords({ text, delayStep = 30, startDelay = 0 }) {
-  const tokens = String(text).split(/(\s+)/);
+// cada palavra entra com um pequeno atraso escalonado (CSS .speech-word). Se `mentions`
+// for passado, nomes de piloto viram um único "word" animado + interativo (hover
+// acende o piloto na tabela de resultados).
+function SpeechWords({ text, delayStep = 30, startDelay = 0, mentions = null }) {
+  const matcher = mentions?.drivers ? buildDriverMentionMatcher(mentions.drivers) : null;
+  const segments = matcher ? String(text).split(matcher.regex) : [String(text)];
+  const nodes = [];
   let wi = 0;
-  return tokens.map((tok, i) => {
-    if (tok === "" ) return null;
-    if (/^\s+$/.test(tok)) return tok;
-    const delay = startDelay + wi * delayStep;
-    wi += 1;
-    return (
-      <span key={i} className="speech-word" style={{ animationDelay: `${delay}ms` }}>
-        {tok}
-      </span>
-    );
+  segments.forEach((seg, si) => {
+    if (seg === "") return;
+    const driverId = matcher?.byName.get(seg);
+    if (driverId) {
+      const delay = startDelay + wi * delayStep;
+      wi += 1;
+      const isActive = mentions.hoveredDriverId === driverId;
+      nodes.push(
+        <span key={`s${si}`} className="speech-word" style={{ animationDelay: `${delay}ms` }}>
+          <span
+            onMouseEnter={() => mentions.onHover(driverId)}
+            onMouseLeave={() => mentions.onHover(null)}
+            className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
+          >
+            {seg}
+          </span>
+        </span>,
+      );
+      return;
+    }
+    seg.split(/(\s+)/).forEach((tok, ti) => {
+      if (tok === "") return;
+      if (/^\s+$/.test(tok)) {
+        nodes.push(tok);
+        return;
+      }
+      const delay = startDelay + wi * delayStep;
+      wi += 1;
+      nodes.push(
+        <span key={`s${si}w${ti}`} className="speech-word" style={{ animationDelay: `${delay}ms` }}>
+          {tok}
+        </span>,
+      );
+    });
   });
+  return nodes;
 }
 
 // Bloco da fala do engenheiro: enquanto a IA gera, mostra o equalizer de rádio
 // (texto "tapado"); quando chega, revela manchete+corpo com animação de fala. Se a
 // IA falhar, cai no texto determinístico do cérebro (sem animação, nunca vazio).
-function EngineerSpeech({ loading, ai, fallbackHeadline, fallbackBody, accent }) {
+function EngineerSpeech({
+  loading,
+  ai,
+  fallbackHeadline,
+  fallbackBody,
+  accent,
+  mentionDrivers,
+  hoveredDriverId,
+  onMentionHover,
+}) {
   if (loading) {
     return (
       <div className="flex items-center gap-3.5 py-2.5">
@@ -525,17 +590,26 @@ function EngineerSpeech({ loading, ai, fallbackHeadline, fallbackBody, accent })
   const animated = !!ai;
   const headline = ai?.headline || fallbackHeadline;
   const body = ai?.body || fallbackBody;
+  const mentions = { drivers: mentionDrivers, hoveredDriverId, onHover: onMentionHover };
   // `key` por conteúdo: ao trocar de loading→texto, remonta e dispara a animação.
   return (
     <div key={animated ? "ai" : "fallback"}>
       {headline && (
         <div style={{ color: "#fff" }} className="text-[24px] font-semibold leading-snug tracking-tight max-w-[82%]">
-          {animated ? <SpeechWords text={headline} delayStep={45} startDelay={0} /> : headline}
+          {animated ? (
+            <SpeechWords text={headline} delayStep={45} startDelay={0} mentions={mentions} />
+          ) : (
+            renderTextWithDriverMentions(headline, mentionDrivers, hoveredDriverId, onMentionHover)
+          )}
         </div>
       )}
       {body && (
         <p style={{ color: "#9aa5b1" }} className="text-[14.5px] leading-relaxed mt-2.5 mb-0">
-          {animated ? <SpeechWords text={body} delayStep={26} startDelay={420} /> : body}
+          {animated ? (
+            <SpeechWords text={body} delayStep={26} startDelay={420} mentions={mentions} />
+          ) : (
+            renderTextWithDriverMentions(body, mentionDrivers, hoveredDriverId, onMentionHover)
+          )}
         </p>
       )}
     </div>

@@ -68,6 +68,19 @@ pub struct DraftTeamOption {
     pub n2_nome: Option<String>,
 }
 
+/// Resumo do mundo simulado (histórico), mostrado na confirmação da carreira.
+/// Todas as contagens vêm dos arquivos de temporada persistidos no banco do draft.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldSummary {
+    pub temporadas: i64,
+    pub pilotos: i64,
+    pub corridas: i64,
+    /// Pilotos DISTINTOS que foram campeões ao menos uma vez (cada um conta 1).
+    pub campeoes: i64,
+    /// Pilotos que chegaram a 3+ títulos (tricampeões ou mais).
+    pub tricampeoes: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CareerDraftState {
     pub exists: bool,
@@ -77,6 +90,7 @@ pub struct CareerDraftState {
     pub error: Option<String>,
     pub categories: Vec<String>,
     pub teams: Vec<DraftTeamOption>,
+    pub world_summary: Option<WorldSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

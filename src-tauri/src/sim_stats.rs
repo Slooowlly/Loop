@@ -234,6 +234,36 @@ fn constructor_titles_by_team(db_path: &Path) -> Vec<i64> {
     rows.filter_map(Result::ok).collect()
 }
 
+/// Distribuição de títulos de construtores POR CLASSE premium (Pilar D). Retorna,
+/// para cada (categoria, classe) premium, a lista de títulos por equipe que ganhou
+/// ≥1 — permite medir vencedores únicos e fatia da top NA GRANULARIDADE da dinastia
+/// (a métrica mundial dilui isso com os grids de rookie/amador).
+fn premium_class_title_dist(db_path: &Path) -> Vec<Vec<i64>> {
+    let db = Database::open_existing(db_path).expect("db");
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT categoria, IFNULL(classe,''), team_id, SUM(titulos_construtores) \
+             FROM team_season_archive \
+             WHERE categoria IN ('production_challenger','gt3','gt4','lmp2','endurance') \
+             GROUP BY categoria, classe, team_id HAVING SUM(titulos_construtores) > 0",
+        )
+        .expect("prepare premium titles");
+    let rows = stmt
+        .query_map([], |row| {
+            let cat: String = row.get(0)?;
+            let cls: String = row.get(1)?;
+            let n: i64 = row.get(3)?;
+            Ok((format!("{cat}|{cls}"), n))
+        })
+        .expect("query premium titles");
+    let mut by_class: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    for (key, n) in rows.filter_map(Result::ok) {
+        by_class.entry(key).or_default().push(n);
+    }
+    by_class.into_values().collect()
+}
+
 /// Salários anuais de contratos ativos (IA), por categoria.
 fn snapshot_salaries(db_path: &Path) -> Vec<(String, f64)> {
     let db = Database::open_existing(db_path).expect("db");
@@ -449,6 +479,12 @@ struct Totals {
     cash_sum: f64,
     debt_sum: f64,
     car_perf_by_tier: BTreeMap<u8, [f64; 2]>, // [soma, n]
+    // Reputação viva: dispersão por tier [soma, soma², min, max, n] — mede se a
+    // reputação deixou de ser plana (semente ~±3) e passou a separar topo/fundo.
+    rep_by_tier: BTreeMap<u8, [f64; 5]>,
+    // Moral viva: dispersão global [soma, soma², min, max, n] — mede se a moral
+    // deixou de ficar travada em 1.0 e passou a variar por forma/treta interna.
+    morale_dist: [f64; 5],
     team_attr_sum: [f64; 5], // facilities, engineering, reputacao, morale, confiabilidade
     team_promoted: u64,
     team_relegated: u64,
@@ -456,6 +492,18 @@ struct Totals {
     title_top_share_sum: f64,
     title_runs: u64,
     title_teams_with_any_sum: f64,
+    // Dinastia por classe premium (Pilar D): vencedores únicos + fatia da top, por classe
+    premium_unique_sum: f64,
+    premium_top_share_sum: f64,
+    premium_class_count: u64,
+    // DIAGNÓSTICO SNOWBALL: distribuição do maior "sobe-e-vence" por equipe (comprimento
+    // da cadeia de promoções consecutivas temporada+1/tier+1) e o máximo global.
+    ladder_chain_hist: BTreeMap<usize, u64>,
+    max_ladder_chain: usize,
+    // Identidade: nomes das equipes que fazem cadeia >=2 e nomes de todo campeão da
+    // rookie (promoção do tier 0). Se poucos nomes dominam → é sempre a mesma equipe.
+    climber_names: BTreeMap<String, u64>,
+    rookie_champ_names: BTreeMap<String, u64>,
 
     // ── Salários por tier ── [soma, n, min, max]
     salary_by_tier: BTreeMap<u8, [f64; 4]>,
@@ -607,6 +655,11 @@ fn monte_carlo() {
         // Textura de nomes do Rookie: ids já vistos nesta run e o grid rookie anterior.
         let mut seen_ever: HashSet<String> = HashSet::new();
         let mut prev_rookie: HashSet<String> = HashSet::new();
+        // DIAGNÓSTICO SNOWBALL: promoções (campeonatos) por equipe nesta run, como
+        // (temporada, tier_de_origem). Uma equipe que sobe a escada ganhando ano
+        // após ano vira uma cadeia de (s, t), (s+1, t+1), (s+2, t+2)...
+        let mut promo_by_team: HashMap<String, Vec<(usize, u8)>> = HashMap::new();
+        let mut team_name_of: HashMap<String, String> = HashMap::new();
 
         for season in 0..seasons {
             // Snapshot ANTES da temporada
@@ -719,11 +772,30 @@ fn monte_carlo() {
                 let e = t.car_perf_by_tier.entry(tier).or_insert([0.0, 0.0]);
                 e[0] += tm.car_performance;
                 e[1] += 1.0;
+                let r = t
+                    .rep_by_tier
+                    .entry(tier)
+                    .or_insert([0.0, 0.0, f64::MAX, f64::MIN, 0.0]);
+                r[0] += tm.reputacao;
+                r[1] += tm.reputacao * tm.reputacao;
+                r[2] = r[2].min(tm.reputacao);
+                r[3] = r[3].max(tm.reputacao);
+                r[4] += 1.0;
                 t.team_attr_sum[0] += tm.facilities;
                 t.team_attr_sum[1] += tm.engineering;
                 t.team_attr_sum[2] += tm.reputacao;
                 t.team_attr_sum[3] += tm.morale;
                 t.team_attr_sum[4] += tm.confiabilidade;
+                let md = &mut t.morale_dist;
+                if md[4] == 0.0 {
+                    md[2] = tm.morale;
+                    md[3] = tm.morale;
+                }
+                md[0] += tm.morale;
+                md[1] += tm.morale * tm.morale;
+                md[2] = md[2].min(tm.morale);
+                md[3] = md[3].max(tm.morale);
+                md[4] += 1.0;
 
                 // Trajetória financeira: detecta colapso e recuperação posterior
                 let rank = state_rank(&tm.financial_state);
@@ -747,7 +819,17 @@ fn monte_carlo() {
             // Movimentos de EQUIPE (promoção/rebaixamento de times)
             for m in &result.promotion_result.movements {
                 match m.movement_type {
-                    MovementType::Promocao => t.team_promoted += 1,
+                    MovementType::Promocao => {
+                        t.team_promoted += 1;
+                        promo_by_team
+                            .entry(m.team_id.clone())
+                            .or_default()
+                            .push((season, tier_of(&m.from_category)));
+                        team_name_of.insert(m.team_id.clone(), m.team_name.clone());
+                        if tier_of(&m.from_category) == 0 {
+                            *t.rookie_champ_names.entry(m.team_name.clone()).or_insert(0) += 1;
+                        }
+                    }
                     MovementType::Rebaixamento => t.team_relegated += 1,
                 }
             }
@@ -943,6 +1025,34 @@ fn monte_carlo() {
             }
         }
 
+        // DIAGNÓSTICO SNOWBALL: maior cadeia de promoções consecutivas (temporada+1,
+        // tier+1) por equipe = "sobe a escada ganhando todo ano". Cadeia de comprimento
+        // 1 = campeã uma vez. 3+ = exatamente o bug relatado (rookie→cup→production...).
+        for (team_id, promos) in &promo_by_team {
+            let mut seq = promos.clone();
+            seq.sort_by_key(|&(s, tier)| (s, tier));
+            let mut best = 1usize;
+            let mut cur = 1usize;
+            for w in seq.windows(2) {
+                let (s0, t0) = w[0];
+                let (s1, t1) = w[1];
+                if s1 == s0 + 1 && t1 == t0 + 1 {
+                    cur += 1;
+                    best = best.max(cur);
+                } else {
+                    cur = 1;
+                }
+            }
+            *t.ladder_chain_hist.entry(best).or_insert(0) += 1;
+            t.max_ladder_chain = t.max_ladder_chain.max(best);
+            // Identidade dos "climbers" (cadeia >= 2): mostra se é sempre a mesma equipe.
+            if best >= 2 {
+                if let Some(name) = team_name_of.get(team_id) {
+                    *t.climber_names.entry(name.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+
         // Consolida o funil de carreira do cohort que começou no rookie.
         for track in careers.values() {
             if !track.started_rookie {
@@ -991,6 +1101,16 @@ fn monte_carlo() {
                 t.title_top_share_sum += top as f64 / total_titles as f64;
                 t.title_teams_with_any_sum += with_any as f64;
                 t.title_runs += 1;
+            }
+            // Dinastia por classe premium (granularidade correta do Pilar D).
+            for class_titles in premium_class_title_dist(&db_path) {
+                let total: i64 = class_titles.iter().sum();
+                if total > 0 {
+                    let top = class_titles.iter().copied().max().unwrap_or(0);
+                    t.premium_top_share_sum += top as f64 / total as f64;
+                    t.premium_unique_sum += class_titles.len() as f64;
+                    t.premium_class_count += 1;
+                }
             }
         }
 
@@ -1327,6 +1447,33 @@ fn monte_carlo() {
         t.team_promoted, t.team_relegated
     );
 
+    println!("\n■ SNOWBALL — cadeia de 'sobe-e-vence' por equipe (promoções em temporadas");
+    println!("  e tiers consecutivos; 1 = campeã 1x, 3+ = sobe a escada ganhando todo ano)");
+    println!("    comprimento | nº de equipes");
+    println!("    ------------+--------------");
+    for (len, n) in &t.ladder_chain_hist {
+        println!("    {:<11} | {}", len, n);
+    }
+    println!("    Maior cadeia observada (qualquer run): {}", t.max_ladder_chain);
+    {
+        let total: u64 = t.rookie_champ_names.values().sum();
+        let mut ranked: Vec<(&String, &u64)> = t.rookie_champ_names.iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(a.1));
+        println!("\n  IDENTIDADE — campeões da ROOKIE (nome, nº de títulos, % do total={total}):");
+        for (name, n) in ranked.iter().take(10) {
+            let pct = if total > 0 { 100.0 * **n as f64 / total as f64 } else { 0.0 };
+            println!("    {:<28} | {:>3} | {:>4.1}%", name, n, pct);
+        }
+        let mut climbers: Vec<(&String, &u64)> = t.climber_names.iter().collect();
+        climbers.sort_by(|a, b| b.1.cmp(a.1));
+        if !climbers.is_empty() {
+            println!("  IDENTIDADE — equipes que sobem 2+ tiers seguidos (nome, nº):");
+            for (name, n) in climbers.iter().take(10) {
+                println!("    {:<28} | {:>3}", name, n);
+            }
+        }
+    }
+
     if t.title_runs > 0 {
         println!("\n■ CONCENTRAÇÃO DE TÍTULOS DE CONSTRUTORES (média entre runs)");
         println!(
@@ -1336,6 +1483,56 @@ fn monte_carlo() {
         println!(
             "    Nº de equipes que ganharam ≥1 título (por run): {:.1}",
             t.title_teams_with_any_sum / t.title_runs as f64
+        );
+    }
+
+    if t.premium_class_count > 0 {
+        println!("\n■ DINASTIAS por CLASSE premium (Production/GT3/GT4/LMP2/Endurance)");
+        println!(
+            "    Vencedores únicos por classe (média):  {:.2}   (sem dinastia ~6; alvo ~3)",
+            t.premium_unique_sum / t.premium_class_count as f64
+        );
+        println!(
+            "    Fatia da equipe TOP da classe (média): {:.1}%   (alvo alto mas < ~55%)",
+            100.0 * t.premium_top_share_sum / t.premium_class_count as f64
+        );
+    }
+
+    if !t.rep_by_tier.is_empty() {
+        println!("\n■ REPUTAÇÃO VIVA por tier (semente plana ~±3 → deve separar topo/fundo)");
+        println!("    tier | média | desv.pad | mínimo | máximo | nº");
+        println!("    -----+-------+----------+--------+--------+------");
+        for (tier, r) in &t.rep_by_tier {
+            let n = r[4];
+            if n <= 0.0 {
+                continue;
+            }
+            let mean = r[0] / n;
+            let var = (r[1] / n - mean * mean).max(0.0);
+            println!(
+                "     {:>3} | {:>5.1} | {:>8.1} | {:>6.1} | {:>6.1} | {:>5.0}",
+                tier,
+                mean,
+                var.sqrt(),
+                r[2],
+                r[3],
+                n
+            );
+        }
+    }
+
+    if t.morale_dist[4] > 0.0 {
+        let md = t.morale_dist;
+        let mean = md[0] / md[4];
+        let var = (md[1] / md[4] - mean * mean).max(0.0);
+        println!("\n■ MORAL VIVA (travada em 1.0 = morta → deve variar por forma/treta)");
+        println!(
+            "    média {:.3} | desv.pad {:.3} | mínimo {:.2} | máximo {:.2} | nº {:.0}",
+            mean,
+            var.sqrt(),
+            md[2],
+            md[3],
+            md[4]
         );
     }
 

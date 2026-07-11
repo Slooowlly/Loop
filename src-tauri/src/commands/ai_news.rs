@@ -269,6 +269,315 @@ fn weather_pt(w: &str) -> &'static str {
     }
 }
 
+/// Posição do jogador no PRIMEIRO ponto captado do race trace (≈ largada).
+fn player_first_position(tel: &serde_json::Value) -> Option<i64> {
+    tel.get("charts")?
+        .get("cars")?
+        .as_array()?
+        .iter()
+        .find(|c| c.get("is_player").and_then(|x| x.as_bool()) == Some(true))?
+        .get("points")?
+        .as_array()?
+        .first()?
+        .get("position")?
+        .as_i64()
+}
+
+/// Inclinação dos tempos de volta do jogador em ms/volta (mínimos quadrados).
+/// >0 = ritmo caindo (degradação); <0 = melhorando. `None` se poucas voltas.
+fn tire_deg_ms_per_lap(tel: &serde_json::Value) -> Option<f64> {
+    let laps = tel.get("charts")?.get("lap_times")?.as_array()?;
+    let pts: Vec<(f64, f64)> = laps
+        .iter()
+        .filter_map(|p| {
+            Some((
+                p.get("lap")?.as_f64()?,
+                p.get("time_s")?.as_f64()? * 1000.0,
+            ))
+        })
+        .collect();
+    if pts.len() < 4 {
+        return None;
+    }
+    let n = pts.len() as f64;
+    let sx: f64 = pts.iter().map(|(x, _)| x).sum();
+    let sy: f64 = pts.iter().map(|(_, y)| y).sum();
+    let sxx: f64 = pts.iter().map(|(x, _)| x * x).sum();
+    let sxy: f64 = pts.iter().map(|(x, y)| x * y).sum();
+    let denom = n * sxx - sx * sx;
+    if denom.abs() < 1e-9 {
+        return None;
+    }
+    Some((n * sxy - sx * sy) / denom)
+}
+
+/// Reconstrói as ultrapassagens do jogador a partir do race trace: cada vez que a
+/// posição dele muda entre dois pontos, o rival envolvido é o carro que assumiu a
+/// posição ANTIGA do jogador naquele mesmo instante. Devolve frases prontas.
+fn overtake_feed(tel: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(cars) = tel.get("charts").and_then(|c| c.get("cars")).and_then(|c| c.as_array())
+    else {
+        return out;
+    };
+    // Nome por idx + mapa (lap arredondado → posição → nome) de todos os carros.
+    let mut name_by_idx: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    let mut pos_at_lap: std::collections::HashMap<String, std::collections::HashMap<i64, String>> =
+        std::collections::HashMap::new();
+    for car in cars {
+        let idx = car.get("idx").and_then(|x| x.as_i64()).unwrap_or(-1);
+        let name = car
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("Carro")
+            .to_string();
+        name_by_idx.insert(idx, name.clone());
+        if let Some(points) = car.get("points").and_then(|p| p.as_array()) {
+            for p in points {
+                let (Some(lap), Some(pos)) = (
+                    p.get("lap").and_then(|x| x.as_f64()),
+                    p.get("position").and_then(|x| x.as_i64()),
+                ) else {
+                    continue;
+                };
+                pos_at_lap
+                    .entry(format!("{lap:.4}"))
+                    .or_default()
+                    .insert(pos, name.clone());
+            }
+        }
+    }
+    // Percorre os pontos do jogador procurando trocas de posição.
+    let Some(player) = cars
+        .iter()
+        .find(|c| c.get("is_player").and_then(|x| x.as_bool()) == Some(true))
+    else {
+        return out;
+    };
+    let Some(points) = player.get("points").and_then(|p| p.as_array()) else {
+        return out;
+    };
+    for w in points.windows(2) {
+        let (Some(lap0), Some(pos0)) = (
+            w[0].get("lap").and_then(|x| x.as_f64()),
+            w[0].get("position").and_then(|x| x.as_i64()),
+        ) else {
+            continue;
+        };
+        let (Some(lap1), Some(pos1)) = (
+            w[1].get("lap").and_then(|x| x.as_f64()),
+            w[1].get("position").and_then(|x| x.as_i64()),
+        ) else {
+            continue;
+        };
+        if pos0 < 1 || pos1 < 1 || pos0 == pos1 {
+            continue;
+        }
+        let _ = lap0;
+        // Quem assumiu a posição antiga do jogador no instante da troca = o rival.
+        let rival = pos_at_lap
+            .get(&format!("{lap1:.4}"))
+            .and_then(|m| m.get(&pos0))
+            .cloned()
+            .unwrap_or_else(|| "rival".to_string());
+        if pos1 < pos0 {
+            out.push(format!("volta {lap1:.1}: passou {rival} (subiu para P{pos1})"));
+        } else {
+            out.push(format!("volta {lap1:.1}: perdido para {rival} (caiu para P{pos1})"));
+        }
+    }
+    out
+}
+
+/// Transforma o bloco `telemetry` do race_screens em fatos pro debrief. PURO
+/// (testável): recebe o Value da telemetria e a posição de largada. Vazio se não
+/// houver telemetria de verdade.
+fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> String {
+    use std::fmt::Write;
+    let Some(tel) = tel else {
+        return String::new();
+    };
+    if tel.get("has_telemetry").and_then(|x| x.as_bool()) != Some(true) {
+        return String::new();
+    }
+
+    let mut f = String::new();
+    let _ = writeln!(f, "\nTELEMETRIA (dados reais da pista):");
+
+    if let Some(pace) = tel.get("pace") {
+        let vs_grid = pace.get("vs_grid_ms").and_then(|x| x.as_f64());
+        let reliable = pace
+            .get("vs_grid_reliable")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
+        if let Some(v) = vs_grid {
+            if reliable && v.abs() >= 30.0 {
+                let s = v.abs() / 1000.0;
+                let dir = if v < 0.0 { "MAIS RÁPIDO" } else { "mais lento" };
+                let _ = writeln!(f, "- Ritmo: {s:.2}s/volta {dir} que a média do grid");
+            }
+        }
+        let good = pace.get("good_laps").and_then(|x| x.as_i64()).unwrap_or(0);
+        if good > 0 {
+            let _ = writeln!(f, "- Voltas limpas (base de ritmo): {good}");
+        }
+    }
+
+    if let Some(deg) = tire_deg_ms_per_lap(tel) {
+        if deg >= 40.0 {
+            let _ = writeln!(
+                f,
+                "- Degradação: ritmo caiu ~{:.2}s/volta ao longo do stint",
+                deg / 1000.0
+            );
+        } else if deg <= -40.0 {
+            let _ = writeln!(
+                f,
+                "- Ritmo MELHOROU ~{:.2}s/volta ao longo do stint (pista/pneu esquentando)",
+                deg.abs() / 1000.0
+            );
+        }
+    }
+
+    if let Some(pf) = tel.get("position_flow") {
+        let gained = pf.get("gained_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
+        let lost = pf.get("lost_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
+        if gained > 0 || lost > 0 {
+            let _ = writeln!(f, "- Na pista: ganhou {gained}, perdeu {lost} (posições)");
+        }
+    }
+
+    if let Some(fuel) = tel.get("fuel") {
+        let per_lap = fuel.get("used_per_lap_l").and_then(|x| x.as_f64());
+        let laps_left = fuel.get("laps_left").and_then(|x| x.as_f64());
+        if let (Some(pl), Some(ll)) = (per_lap, laps_left) {
+            if pl > 0.0 {
+                let _ = writeln!(
+                    f,
+                    "- Combustível: {pl:.2} L/volta, terminou com ~{ll:.1} voltas de autonomia"
+                );
+            }
+        }
+    }
+
+    if let Some(sec) = tel.get("sectors") {
+        if let Some(best) = sec.get("best_ms").and_then(|x| x.as_array()) {
+            if best.len() == 3 {
+                let s1 = best[0].as_f64().unwrap_or(0.0) / 1000.0;
+                let s2 = best[1].as_f64().unwrap_or(0.0) / 1000.0;
+                let s3 = best[2].as_f64().unwrap_or(0.0) / 1000.0;
+                let _ = writeln!(
+                    f,
+                    "- Setores (seu melhor): S1 {s1:.1}s · S2 {s2:.1}s · S3 {s3:.1}s"
+                );
+            }
+        }
+        let weak = sec.get("weakest_sector").and_then(|x| x.as_i64()).unwrap_or(0);
+        let loss = sec.get("weakest_loss_ms").and_then(|x| x.as_f64()).unwrap_or(0.0) / 1000.0;
+        if weak >= 1 && loss >= 0.1 {
+            let _ = writeln!(
+                f,
+                "- Ponto fraco: setor {weak} (perde ~{loss:.2}s vs seu melhor por volta)"
+            );
+        }
+    }
+
+    let passes = overtake_feed(tel);
+    if !passes.is_empty() {
+        let _ = writeln!(f, "- Ultrapassagens ({} no total):", passes.len());
+        for p in passes.iter().take(8) {
+            let _ = writeln!(f, "  · {p}");
+        }
+    }
+
+    if let Some(first) = player_first_position(tel) {
+        if grid_position > 0 && first as i32 != grid_position {
+            let d = grid_position - first as i32;
+            let verb = if d > 0 {
+                format!("ganhou {d}")
+            } else {
+                format!("perdeu {}", d.abs())
+            };
+            let _ = writeln!(
+                f,
+                "- Largada: P{grid_position} → P{first} ({verb} na 1ª volta captada)"
+            );
+        }
+    }
+
+    if let Some(lap) = tel
+        .get("best_moment")
+        .and_then(|m| m.get("lap"))
+        .and_then(|x| x.as_i64())
+        .filter(|l| *l > 0)
+    {
+        let g = tel
+            .get("best_moment")
+            .and_then(|m| m.get("positions_gained"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
+        let extra = if g > 0 {
+            format!(" (+{g} posições)")
+        } else {
+            String::new()
+        };
+        let _ = writeln!(f, "- Melhor momento: volta {lap}{extra}");
+    }
+
+    if let Some(lap) = tel
+        .get("mistake")
+        .and_then(|m| m.get("lap"))
+        .and_then(|x| x.as_i64())
+        .filter(|l| *l > 0)
+    {
+        let l = tel
+            .get("mistake")
+            .and_then(|m| m.get("positions_lost"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
+        let t = tel
+            .get("mistake")
+            .and_then(|m| m.get("time_lost_ms"))
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0)
+            / 1000.0;
+        let mut extra = Vec::new();
+        if t >= 0.3 {
+            extra.push(format!("~{t:.1}s perdidos"));
+        }
+        if l > 0 {
+            extra.push(format!("{l} posição(ões)"));
+        }
+        let tail = if extra.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", extra.join(", "))
+        };
+        let _ = writeln!(f, "- Erro mais caro: volta {lap}{tail}");
+    }
+
+    if let Some(charts) = tel.get("charts") {
+        if let Some(rn) = charts.get("rival_name").and_then(|x| x.as_str()) {
+            if let Some(gap) = charts
+                .get("rival_gap")
+                .and_then(|x| x.as_array())
+                .and_then(|a| a.last())
+                .and_then(|last| last.get("gap_s"))
+                .and_then(|x| x.as_f64())
+            {
+                let who = if gap > 0.0 { "à sua frente" } else { "atrás de você" };
+                let _ = writeln!(
+                    f,
+                    "- Duelo direto: {rn} terminou {who} por {:.1}s",
+                    gap.abs()
+                );
+            }
+        }
+    }
+
+    f
+}
+
 /// Monta o "fact bundle" do pós-corrida a partir da tela salva (resultado +
 /// manutenção + avaliação) cruzada com o banco (companheiro, rival de campeonato,
 /// últimas 3 corridas, contexto da pré-corrida). Tudo FATO — o tom/voz fica no
@@ -457,6 +766,12 @@ fn build_post_race_facts(
         }
     }
 
+    // Telemetria real da pista (ritmo, ultrapassagens, degradação, erro/melhor
+    // momento, duelo direto) — o bloco `telemetry` da própria tela salva.
+    if !player.is_dnf {
+        let _ = write!(f, "{}", telemetry_facts(v.get("telemetry"), player.grid_position));
+    }
+
     // Últimas 3 corridas (memória curta pro engenheiro).
     if !categoria.is_empty() {
         if let Some(entry) = &calendar_entry {
@@ -632,4 +947,62 @@ pub fn player_race_news_id(
         .unwrap_or(None);
 
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn telemetry_facts_resume_ritmo_ultrapassagens_e_erro() {
+        let tel = json!({
+            "has_telemetry": true,
+            "pace": { "vs_grid_ms": -506.0, "vs_grid_reliable": true, "good_laps": 8 },
+            "position_flow": { "gained_on_track": 4, "lost_on_track": 1 },
+            "best_moment": { "lap": 8, "positions_gained": 3 },
+            "mistake": { "lap": 9, "positions_lost": 1, "time_lost_ms": 600.0 },
+            "charts": {
+                "rival_name": "Massimo Caruso",
+                "rival_gap": [ { "lap": 13.0, "gap_s": 0.8 } ],
+                "lap_times": [
+                    { "lap": 6.0, "time_s": 71.0 },
+                    { "lap": 7.0, "time_s": 71.3 },
+                    { "lap": 8.0, "time_s": 71.6 },
+                    { "lap": 9.0, "time_s": 71.9 }
+                ],
+                "cars": [
+                    { "idx": 0, "is_player": true, "name": "Você", "points": [
+                        { "lap": 6.0, "position": 7 },
+                        { "lap": 7.4, "position": 4 },
+                        { "lap": 9.0, "position": 6 }
+                    ] },
+                    { "idx": 1, "is_player": false, "name": "Bruno Perez", "points": [
+                        { "lap": 6.0, "position": 4 },
+                        { "lap": 7.4, "position": 7 },
+                        { "lap": 9.0, "position": 4 }
+                    ] }
+                ]
+            }
+        });
+        let out = telemetry_facts(Some(&tel), 8);
+        assert!(out.contains("MAIS RÁPIDO"), "ritmo vs grid: {out}");
+        assert!(out.contains("Degradação"), "degradação: {out}");
+        assert!(
+            out.contains("volta 7.4: passou Bruno Perez"),
+            "feed de ultrapassagem: {out}"
+        );
+        assert!(out.contains("Largada: P8 → P7"), "largada: {out}");
+        assert!(out.contains("Erro mais caro: volta 9"), "erro: {out}");
+        assert!(
+            out.contains("Massimo Caruso terminou à sua frente"),
+            "duelo direto: {out}"
+        );
+    }
+
+    #[test]
+    fn telemetry_facts_vazio_sem_telemetria() {
+        assert!(telemetry_facts(None, 5).is_empty());
+        assert!(telemetry_facts(Some(&json!({ "has_telemetry": false })), 5).is_empty());
+    }
 }

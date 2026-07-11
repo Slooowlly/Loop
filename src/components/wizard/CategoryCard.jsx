@@ -6,40 +6,29 @@ function CategoryCard({ category, selected, onSelect }) {
       selected={selected}
       darkBg
       onClick={() => onSelect(category.id)}
-      className="min-h-[260px]"
+      className="min-h-[170px]"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex items-center justify-between gap-6">
+        <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
             Categoria inicial
           </p>
           <h3 className="mt-3 text-2xl font-semibold text-text-primary">
             {category.name}
           </h3>
-          <p className="mt-2 text-sm text-text-secondary">{category.car}</p>
+          <p className="mt-1.5 text-sm text-text-secondary">{category.car}</p>
+          <p className="mt-4 text-sm leading-6 text-text-secondary">
+            {category.description}
+          </p>
         </div>
-        <div className="rounded-2xl bg-white/6 px-4 py-3 text-3xl">
-          {category.emoji}
-        </div>
-      </div>
-
-      <p className="mt-6 text-sm leading-6 text-text-secondary">
-        {category.description}
-      </p>
-
-      <div className="mt-8 grid grid-cols-3 gap-3">
-        <div className="glass-light rounded-2xl p-4 text-center">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Equipes</p>
-          <p className="mt-2 text-xl font-semibold text-text-primary">{category.teams}</p>
-        </div>
-        <div className="glass-light rounded-2xl p-4 text-center">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Corridas</p>
-          <p className="mt-2 text-xl font-semibold text-text-primary">{category.races}</p>
-        </div>
-        <div className="glass-light rounded-2xl p-4 text-center">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Pilotos</p>
-          <p className="mt-2 text-xl font-semibold text-text-primary">{category.drivers}</p>
-        </div>
+        {category.logo ? (
+          <img
+            src={category.logo}
+            alt={`${category.name} logo`}
+            className="h-28 w-auto max-w-[150px] shrink-0 self-center object-contain"
+            draggable={false}
+          />
+        ) : null}
       </div>
     </GlassCard>
   );

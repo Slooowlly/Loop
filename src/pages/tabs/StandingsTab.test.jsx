@@ -130,7 +130,11 @@ describe("StandingsTab", () => {
       }),
     );
 
-    fireEvent.click(screen.getByTitle("Categoria inferior"));
+    // O seletor de linha fica travado no Bloco Especial; clicar não abre o menu.
+    const seriesTrigger = screen.getByTitle("Trocar de linha");
+    expect(seriesTrigger).toBeDisabled();
+    fireEvent.click(seriesTrigger);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
 
     await waitFor(() =>
       expect(invoke).toHaveBeenLastCalledWith("get_previous_champions", {
@@ -140,7 +144,7 @@ describe("StandingsTab", () => {
     );
   });
 
-  it("orders endurance standings as LMP2, GT3 and GT4 without an Outros group", async () => {
+  it("orders endurance standings by the current lane class first (GT4 lane → GT4, then LMP2, GT3)", async () => {
     mockState = {
       ...mockState,
       playerTeam: {
@@ -250,13 +254,75 @@ describe("StandingsTab", () => {
     const gt3Header = classHeader("GT3");
     const gt4Header = classHeader("GT4");
 
+    // Linha GT4: a classe do jogador (GT4) encabeça; o resto segue na ordem padrão.
+    expect(gt4Header.compareDocumentPosition(lmp2Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(lmp2Header.compareDocumentPosition(gt3Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(gt3Header.compareDocumentPosition(gt4Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(within(driverTable).queryByText("Outros")).not.toBeInTheDocument();
     expect(within(screen.getByText("Lia Prototype").closest("tr")).getByText("1")).toBeInTheDocument();
   });
 
+  it("climbs a lane into its shared top category and reorders by lane, then LMP2 restores the default order", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "gt3" },
+      season: { ano: 2025, rodada_atual: 4, total_rodadas: 8, fase: "Temporada" },
+    };
+
+    const enduranceDrivers = [
+      { id: "E-LMP2", nome: "Lia Proto", nacionalidade: "br", idade: 27, equipe_id: "TL", equipe_nome: "Proto", equipe_nome_curto: "PRO", equipe_cor: "#f2cc60", classe: "lmp2", pontos: 90, posicao_campeonato: 1, results: [] },
+      { id: "E-GT3", nome: "Gabi GT3", nacionalidade: "pt", idade: 25, equipe_id: "TG3", equipe_nome: "GT3 Sq", equipe_nome_curto: "G3", equipe_cor: "#e73f47", classe: "gt3", pontos: 80, posicao_campeonato: 2, results: [] },
+      { id: "E-GT4", nome: "Gui GT4", nacionalidade: "br", idade: 23, equipe_id: "TG4", equipe_nome: "GT4 Sq", equipe_nome_curto: "G4", equipe_cor: "#58a6ff", classe: "gt4", pontos: 70, posicao_campeonato: 3, results: [] },
+    ];
+
+    invoke.mockImplementation(async (command, args = {}) => {
+      if (command === "get_drivers_by_category") {
+        if (args.category === "endurance") return enduranceDrivers;
+        return [{ id: "G3-1", nome: "Solo GT3", nacionalidade: "br", idade: 24, equipe_id: "T1", equipe_nome: "Aurora", equipe_nome_curto: "AUR", equipe_cor: "#58a6ff", pontos: 50, posicao_campeonato: 1, results: [] }];
+      }
+      if (command === "get_previous_champions") return { driver_champion_id: null, constructor_champions: [] };
+      return [];
+    });
+
+    render(<StandingsTab />);
+    await screen.findByText("Solo GT3");
+
+    // ▲ sobe da GT3 para a categoria multiclasse Endurance (topo da linha GT3).
+    fireEvent.click(screen.getByTitle("Tier superior"));
+    await screen.findByText("Gabi GT3");
+    expect(invoke).toHaveBeenCalledWith("get_drivers_by_category", {
+      careerId: "career-1",
+      category: "endurance",
+    });
+
+    const driverTable = screen.getByRole("table");
+    const classHeader = (label) =>
+      within(driverTable).getAllByText(label).find((el) => el.className.includes("font-black"));
+
+    // Chegando pela linha GT3, a classe GT3 encabeça a formação.
+    expect(classHeader("GT3").compareDocumentPosition(classHeader("LMP2"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    // Dropdown → LMP2 (mesma Endurance) volta à ordem padrão LMP2→GT3→GT4.
+    fireEvent.click(screen.getByTitle("Trocar de linha"));
+    const seriesMenu = screen.getByRole("listbox");
+    // O menu separa fisicamente os grupos por licença (Elite em cima, Pro embaixo).
+    const eliteLabel = within(seriesMenu).getByText("Elite");
+    const proLabel = within(seriesMenu).getByText("Pro");
+    expect(eliteLabel.compareDocumentPosition(proLabel)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(seriesMenu).getByText("LMP2").compareDocumentPosition(proLabel)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    fireEvent.click(within(seriesMenu).getByText("LMP2"));
+    await waitFor(() =>
+      expect(classHeader("LMP2").compareDocumentPosition(classHeader("GT3"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+  });
+
   it("groups special driver and team standings by car class", async () => {
+    // Jogador é o entrante BMW da Production → a série no cabeçalho é "BMW".
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "production_challenger", classe: "bmw" },
+    };
     invoke.mockImplementation(async (command) => {
       if (command === "get_drivers_by_category") {
         return [
@@ -267,7 +333,7 @@ describe("StandingsTab", () => {
             idade: 24,
             equipe_id: "TBMW",
             equipe_nome: "BMW Works",
-            equipe_nome_curto: "BMW",
+            equipe_nome_curto: "BWK",
             equipe_cor: "#bc8cff",
             classe: "bmw",
             pontos: 88,
@@ -389,20 +455,21 @@ describe("StandingsTab", () => {
 
     await screen.findByText("Bianca Rossi");
     const driverTable = screen.getByRole("table");
-    expect(within(driverTable).getByText("BMW M2")).toBeInTheDocument();
-    expect(within(driverTable).getByText("Toyota GR86")).toBeInTheDocument();
-    expect(within(driverTable).getByText("Mazda MX-5")).toBeInTheDocument();
-    expect(within(driverTable).getByText("BMW M2").closest("div")).toHaveClass("sticky", "left-0", "justify-center");
-    expect(within(driverTable).getByText("BMW M2").closest("div")).not.toHaveClass("rounded-xl", "border");
-    expect(within(driverTable).getByText("BMW M2")).toHaveClass("text-[17px]", "text-center");
+    expect(within(driverTable).getByText("BMW")).toBeInTheDocument();
+    expect(within(driverTable).getByText("Toyota")).toBeInTheDocument();
+    expect(within(driverTable).getByText("Mazda")).toBeInTheDocument();
+    expect(within(driverTable).getByText("BMW").closest("div")).toHaveClass("sticky", "left-0", "justify-center");
+    expect(within(driverTable).getByText("BMW").closest("div")).not.toHaveClass("rounded-xl", "border");
+    expect(within(driverTable).getByText("BMW")).toHaveClass("text-[17px]", "text-center");
     expect(within(driverTable).queryByText(/inscrito/i)).not.toBeInTheDocument();
     expect(within(screen.getByText("Bianca Rossi").closest("tr")).getByText("1")).toBeInTheDocument();
     expect(within(screen.getByText("Taro Sato").closest("tr")).getByText("1")).toBeInTheDocument();
     expect(within(screen.getByText("Marta Vega").closest("tr")).getByText("1")).toBeInTheDocument();
 
-    expect(screen.getAllByText("BMW M2")).toHaveLength(2);
-    expect(screen.getAllByText("Toyota GR86")).toHaveLength(2);
-    expect(screen.getAllByText("Mazda MX-5")).toHaveLength(2);
+    // BMW aparece 3×: rótulo da série (cabeçalho) + grupos de pilotos e equipes.
+    expect(screen.getAllByText("BMW")).toHaveLength(3);
+    expect(screen.getAllByText("Toyota")).toHaveLength(2);
+    expect(screen.getAllByText("Mazda")).toHaveLength(2);
     expect(screen.getByText("Bianca Rossi / Luca Neri")).toHaveClass("whitespace-nowrap");
     expect(screen.getByText("Maya Sun / -")).toHaveClass("whitespace-nowrap");
     expect(screen.queryByText(/Ã/)).not.toBeInTheDocument();
@@ -1431,7 +1498,8 @@ describe("StandingsTab", () => {
     render(<StandingsTab />);
 
     await screen.findByText("GT4 Atlas");
-    fireEvent.click(screen.getByTitle("Categoria superior"));
+    fireEvent.click(screen.getByTitle("Trocar de linha"));
+    fireEvent.click(within(screen.getByRole("listbox")).getByText("GT3"));
 
     const gt3Team = await screen.findByText("GT3 Titan");
     vi.useFakeTimers();

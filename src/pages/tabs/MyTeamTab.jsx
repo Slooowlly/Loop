@@ -1527,13 +1527,13 @@ function buildCategoryPath(origin, current, founded) {
 }
 
 function originCategoryLabel(category, position) {
-  if (category?.includes("toyota")) return "Toyota GR86";
-  if (category?.includes("mazda")) return "Mazda MX-5";
-  if (category === "bmw_m2") return "Mazda MX-5";
-  if (category === "gt4") return position <= 3 ? "BMW M2" : "Toyota GR86";
+  if (category?.includes("toyota")) return "Toyota";
+  if (category?.includes("mazda")) return "Mazda";
+  if (category === "bmw_m2") return "Mazda";
+  if (category === "gt4") return position <= 3 ? "BMW" : "Toyota";
   if (category === "gt3") return "GT4 Series";
   if (category === "lmp2" || category === "endurance") return "GT3 Championship";
-  return "Mazda MX-5";
+  return "Mazda";
 }
 
 function categoryGroupLabel(category) {

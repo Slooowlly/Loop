@@ -80,6 +80,17 @@
 .newsmag .r-grid-single{grid-template-columns:1fr}
 .newsmag .subhead{font-family:'OswaldNM';font-weight:700;font-size:14px;letter-spacing:.04em;color:var(--nm-accent2);
   text-transform:uppercase;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(88,166,255,0.22);break-after:avoid}
+/* Cabeçalho da classificação: título + toggle (Construtores/Pilotos) na mesma linha. */
+.newsmag .nm-standings-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;
+  margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid rgba(88,166,255,0.22)}
+.newsmag .nm-standings-head .subhead{margin:0;padding:0;border-bottom:0}
+.newsmag .nm-toggle{display:inline-flex;gap:2px;background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.10);border-radius:999px;padding:2px;flex:none}
+.newsmag .nm-toggle-btn{font-family:'OswaldNM';font-weight:600;font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--nm-muted);background:transparent;border:0;border-radius:999px;
+  padding:3px 9px;cursor:pointer;transition:background .15s ease,color .15s ease}
+.newsmag .nm-toggle-btn.active{background:var(--nm-accent);color:#0a0e14}
+.newsmag .nm-toggle-btn:not(.active):hover{color:var(--nm-text2)}
 .newsmag .page p{font-size:13px;line-height:1.7;color:#c1cad4;margin-bottom:11px;break-inside:avoid}
 .newsmag .prose-cols .pull{break-inside:avoid}
 .newsmag .pull{font-family:'OswaldNM';font-weight:600;font-size:17px;line-height:1.3;color:#eef3f8;

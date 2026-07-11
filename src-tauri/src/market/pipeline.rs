@@ -1315,32 +1315,12 @@ fn apply_signings(
     Ok(())
 }
 
-const PLAYER_UNEMPLOYED_KEY: &str = "player_seasons_unemployed";
-
-/// Temporadas consecutivas que o JOGADOR passou SEM equipe (guardado na tabela `meta`
-/// da carreira). 0 se nunca gravado.
-fn player_unemployed_seasons(conn: &Connection) -> i32 {
-    crate::db::queries::meta::get_meta_value(conn, PLAYER_UNEMPLOYED_KEY)
-        .ok()
-        .flatten()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
-}
-
-fn set_player_unemployed_seasons(conn: &Connection, value: i32) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
-        params![PLAYER_UNEMPLOYED_KEY, value.to_string()],
-    )
-    .map_err(|e| format!("Falha ao gravar contador de desemprego: {e}"))?;
-    Ok(())
-}
-
-/// GARANTIA DE PORTA + AUXÍLIO-DESEMPREGO (§6b): ao fechar a janela, se o JOGADOR ficou
-/// sem contrato, tenta colocá-lo numa vaga da própria categoria. Se NÃO houver vaga e
-/// ele já estiver ≥1 temporada sem time, o jogo GARANTE uma vaga na PIOR equipe da
-/// última categoria dele — dispensando o piloto mais fraco de lá. Mantém o contador de
-/// temporadas-sem-time (zera quando ele assina; incrementa quando segue sem time).
+/// GARANTIA DE PORTA (sem deslocar ninguém): ao fechar a janela, se o JOGADOR ficou sem
+/// contrato, coloca-o numa vaga VAZIA que a carteira dele alcança. Como o mercado segura
+/// 2-3 assentos vazios pra ele a semana toda (ver `player_reserved_seats`), sempre há
+/// vaga natural aqui — nenhum piloto da IA é dispensado pra abrir espaço. Em um save
+/// degenerado sem NENHUMA vaga licenciada, ele segue agente livre nesta temporada (a
+/// finalização aceita jogador sem time); volta a ter reserva na janela seguinte.
 pub(crate) fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(), String> {
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(());
@@ -1352,25 +1332,15 @@ pub(crate) fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(),
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
         .is_some()
     {
-        // Já tem time (assinou na janela) → zera o contador.
-        set_player_unemployed_seasons(conn, 0)?;
-        return Ok(());
+        return Ok(()); // Já tem time (assinou na janela).
     }
 
-    let unemployed_before = player_unemployed_seasons(conn);
-    // 1. Vaga na PRÓPRIA categoria / mesmo tier (sem demoção).
-    let mut placed = place_player_in_natural_vacancy(conn, &player, season, false)?;
-    // 2. Sem vaga aberta → GARANTE na pior equipe da categoria dele, dispensando o
-    //    piloto mais fraco de lá ("a pior do grid que eu estava antes").
-    if !placed {
-        placed = force_place_player_worst_team(conn, &player, season)?;
+    // 1. Vaga vazia na PRÓPRIA categoria / mesmo tier (sem demoção) — normalmente um dos
+    //    assentos reservados. 2. Recurso final: qualquer vaga vazia licenciada ou estreia
+    //    (rookie). Nunca dispensa um piloto pra abrir vaga.
+    if !place_player_in_natural_vacancy(conn, &player, season, false)? {
+        place_player_in_natural_vacancy(conn, &player, season, true)?;
     }
-    // 3. Último recurso (sem categoria/sem equipes): recomeço numa estreia (rookie) —
-    //    nunca deixa o jogador em limbo.
-    if !placed {
-        placed = place_player_in_natural_vacancy(conn, &player, season, true)?;
-    }
-    set_player_unemployed_seasons(conn, if placed { 0 } else { unemployed_before + 1 })?;
     Ok(())
 }
 
@@ -1383,12 +1353,7 @@ fn place_player_in_natural_vacancy(
     season: i32,
     allow_fallback: bool,
 ) -> Result<bool, String> {
-    let player_tier = player
-        .categoria_atual
-        .as_deref()
-        .and_then(crate::constants::categories::get_category_config)
-        .map(|c| c.tier)
-        .unwrap_or(0);
+    let player_tier = player_market_tier(conn, &player)?;
     let player_lic = load_max_license_levels(conn)?
         .get(&player.id)
         .copied()
@@ -1454,59 +1419,6 @@ fn place_player_in_natural_vacancy(
         vac.papel_necessario.clone(),
     )?;
     Ok(true)
-}
-
-/// AUXÍLIO: garante vaga ao jogador na PIOR equipe da última categoria dele, dispensando
-/// o piloto mais fraco de lá (vira agente livre). Devolve se conseguiu.
-fn force_place_player_worst_team(
-    conn: &Connection,
-    player: &Driver,
-    season: i32,
-) -> Result<bool, String> {
-    let cat = match player.categoria_atual.as_deref() {
-        Some(c) if !c.is_empty() => c.to_string(),
-        _ => return Ok(false),
-    };
-    let teams = team_queries::get_teams_by_category(conn, &cat)
-        .map_err(|e| format!("Falha ao carregar equipes da categoria: {e}"))?;
-    let drivers = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar pilotos: {e}"))?;
-    let skill_of = |id: &str| {
-        drivers
-            .iter()
-            .find(|d| d.id == id)
-            .map(|d| d.atributos.skill)
-            .unwrap_or(0.0)
-    };
-    // Pior equipe (menor car_performance) que esteja CHEIA — se tivesse vaga, a
-    // colocação natural já a teria usado.
-    let mut worst: Option<(String, String)> = None; // (team_id, piloto_mais_fraco_id)
-    let mut worst_car = f64::INFINITY;
-    for team in &teams {
-        let (Some(p1), Some(p2)) = (team.piloto_1_id.as_deref(), team.piloto_2_id.as_deref())
-        else {
-            continue;
-        };
-        if team.car_performance < worst_car {
-            worst_car = team.car_performance;
-            let weak = if skill_of(p1) <= skill_of(p2) { p1 } else { p2 };
-            worst = Some((team.id.clone(), weak.to_string()));
-        }
-    }
-    let Some((team_id, weak_id)) = worst else {
-        return Ok(false);
-    };
-    // Dispensa o mais fraco e libera o slot → abre a vaga pra o jogador.
-    if let Some(contract) = contract_queries::get_active_regular_contract_for_pilot(conn, &weak_id)
-        .map_err(|e| format!("Falha ao buscar contrato do dispensado: {e}"))?
-    {
-        contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
-            .map_err(|e| format!("Falha ao dispensar piloto mais fraco: {e}"))?;
-    }
-    team_queries::remove_pilot_from_team(conn, &weak_id, &team_id)
-        .map_err(|e| format!("Falha ao liberar slot da pior equipe: {e}"))?;
-    // A vaga aberta é na categoria do jogador → coloca sem fallback (sem demoção).
-    place_player_in_natural_vacancy(conn, player, season, false)
 }
 
 /// Carrega a janela persistida ou inicia uma nova (e persiste).
@@ -1628,7 +1540,7 @@ fn generate_player_proposals(
                 player.id,
                 vacancy.papel_necessario.as_str(),
             );
-            persist_player_proposal(conn, season_id, &proposal)?;
+            persist_player_proposal(conn, season_id, &proposal, None)?;
             proposals.push(proposal);
         }
     }
@@ -1695,7 +1607,7 @@ fn generate_player_proposals(
                     status: crate::market::proposals::ProposalStatus::Pendente,
                     motivo_recusa: None,
                 };
-                persist_player_proposal(conn, season_id, &proposal)?;
+                persist_player_proposal(conn, season_id, &proposal, None)?;
                 proposals.push(proposal);
             }
         }
@@ -1786,11 +1698,12 @@ fn persist_player_proposal(
     conn: &Connection,
     season_id: &str,
     proposal: &MarketProposal,
+    semana_limite: Option<i32>,
 ) -> Result<(), String> {
     conn.execute(
         "INSERT INTO market_proposals (
-            id, temporada_id, equipe_id, piloto_id, papel, salario, status, motivo_recusa, criado_em
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            id, temporada_id, equipe_id, piloto_id, papel, salario, status, motivo_recusa, criado_em, semana_limite
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             &proposal.id,
             season_id,
@@ -1801,10 +1714,221 @@ fn persist_player_proposal(
             proposal.status.as_str(),
             proposal.motivo_recusa.clone(),
             timestamp_now(),
+            semana_limite,
         ],
     )
     .map_err(|e| format!("Falha ao persistir proposta do jogador: {e}"))?;
     Ok(())
+}
+
+/// Teto do boost de pedigree e escala de referência (índice de carreira "forte").
+const PEDIGREE_BOOST_MAX: f64 = 0.4;
+const PEDIGREE_BOOST_SCALE: f64 = 4000.0;
+
+/// Semanas que uma proposta formal fica de pé antes de expirar (Fase B).
+const PROPOSAL_TTL_WEEKS: i32 = 3;
+
+/// Teto de propostas formais simultâneas por PRESTÍGIO (índice do ranking). Rookie recebe
+/// pouca atenção; estrela é disputada por muitas equipes. Fase B.
+fn prestige_proposal_cap(index: f64) -> usize {
+    match index {
+        i if i >= 3.0 * PEDIGREE_BOOST_SCALE => 5,
+        i if i >= 1.5 * PEDIGREE_BOOST_SCALE => 4,
+        i if i >= 0.5 * PEDIGREE_BOOST_SCALE => 3,
+        i if i >= 0.1 * PEDIGREE_BOOST_SCALE => 2,
+        _ => 1,
+    }
+}
+
+/// Curva saturante do pedigree: índice 0 → 0; cresce e satura em `PEDIGREE_BOOST_MAX`.
+fn pedigree_boost_from_index(index: f64) -> f64 {
+    let index = index.max(0.0);
+    PEDIGREE_BOOST_MAX * (index / (index + PEDIGREE_BOOST_SCALE))
+}
+
+/// Fator de pedigree ∈ [0, `PEDIGREE_BOOST_MAX`] a partir do índice do ranking mundial
+/// (currículo de carreira). Curva saturante: rookie ~0, campeão/estrela aproxima o teto.
+/// Barato (índice de um piloto só). Percentil entre ativos fica como refino futuro.
+fn pedigree_boost(conn: &Connection, driver: &Driver) -> Result<f64, String> {
+    let index = crate::commands::global_driver_rankings::historical_index_for_driver(conn, driver)?;
+    Ok(pedigree_boost_from_index(index))
+}
+
+/// FASE A das propostas formais ("Proposta recebida"): durante a janela semanal, gera
+/// propostas nominais de MÉRITO pro jogador AGENTE LIVRE. Para cada vaga do mesmo tier,
+/// roda a MESMA seleção da IA com o pool completo (jogador + agentes livres da IA); se a
+/// equipe escolheria o jogador (ele entra no top-3 da shortlist dela), cria a proposta
+/// formal. Isso é o que diferencia "Proposta recebida" (a equipe TE QUER) de "Suas
+/// ofertas" (vaga aberta qualquer). Dedup por ID determinístico: não recria proposta já
+/// criada e não reoferece assento recusado. Devolve os assentos das propostas PENDENTES,
+/// pra a escada segurá-los. Sem fallback de piso — os assentos reservados já cobrem isso.
+///
+/// FASE B: propostas expiram após `PROPOSAL_TTL_WEEKS` semanas (varredura no início) e o
+/// número de propostas simultâneas é limitado por PRESTÍGIO (`prestige_proposal_cap`).
+pub(crate) fn generate_player_window_proposals(
+    conn: &Connection,
+    season: i32,
+    week: i32,
+    rng: &mut impl Rng,
+) -> Result<Vec<String>, String> {
+    let Ok(player) = driver_queries::get_player_driver(conn) else {
+        return Ok(Vec::new());
+    };
+    if player.status != DriverStatus::Ativo {
+        return Ok(Vec::new());
+    }
+    if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
+        .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
+        .is_some()
+    {
+        // Só agente livre recebe proposta formal nesta fase (poaching mid-contrato é Fase D).
+        return Ok(Vec::new());
+    }
+
+    let season_row = get_season_by_number(conn, season)?
+        .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
+    let previous_season = get_season_by_number(conn, season - 1)?;
+
+    // EXPIRAÇÃO (Fase B): propostas cujo prazo venceu deixam de ser pendentes → o assento
+    // delas não é mais segurado e volta pra IA.
+    conn.execute(
+        "UPDATE market_proposals SET status = ?1
+         WHERE temporada_id = ?2 AND piloto_id = ?3 AND status = ?4
+           AND semana_limite IS NOT NULL AND semana_limite <= ?5",
+        params![
+            crate::market::proposals::ProposalStatus::Expirada.as_str(),
+            season_row.id,
+            player.id,
+            crate::market::proposals::ProposalStatus::Pendente.as_str(),
+            week,
+        ],
+    )
+    .map_err(|e| format!("Falha ao expirar propostas do jogador: {e}"))?;
+
+    // Contexto de visibilidade (mesmos dados usados pela IA).
+    let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar pilotos: {e}"))?
+        .into_iter()
+        .map(|d| (d.id.clone(), d))
+        .collect();
+    let contexts = load_market_contexts(
+        conn,
+        previous_season.as_ref().map(|s| s.id.as_str()),
+        &drivers_by_id,
+        &HashMap::new(),
+    )?;
+    let context = contexts
+        .get(&player.id)
+        .cloned()
+        .unwrap_or_else(|| default_market_context(&player));
+    let visibility = calculate_visibility(
+        &player,
+        context.posicao_campeonato,
+        context.total_pilotos,
+        context.category_tier,
+        context.vitorias,
+        context.titulos,
+        context.poles,
+        &context.papel,
+        &context.categoria,
+    );
+
+    // Pedigree (Feature 1): o índice do ranking mundial (currículo de carreira) eleva o
+    // valor de mercado — um veterano condecorado segue cortejado mesmo após temporada
+    // morna. Aplica ao jogador E ao pool da IA pra a comparação de mérito ser justa.
+    let player_index =
+        crate::commands::global_driver_rankings::historical_index_for_driver(conn, &player)?;
+    let visibility = visibility * (1.0 + pedigree_boost_from_index(player_index));
+
+    // Teto de propostas simultâneas por prestígio (Fase B): conta as que já estão de pé
+    // e só cria novas até o teto.
+    let cap = prestige_proposal_cap(player_index);
+    let pending_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM market_proposals
+             WHERE temporada_id = ?1 AND piloto_id = ?2 AND status = ?3",
+            params![
+                season_row.id,
+                player.id,
+                crate::market::proposals::ProposalStatus::Pendente.as_str()
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| format!("Falha ao contar propostas pendentes: {e}"))?;
+    let mut new_slots = cap.saturating_sub(pending_count as usize);
+
+    // Jogador entra no pool com is_jogador=false pra ser avaliado como qualquer piloto.
+    let license_levels = load_max_license_levels(conn)?;
+    let mut player_as_driver = player.clone();
+    player_as_driver.is_jogador = false;
+    let player_available = AvailableDriver {
+        driver: player_as_driver,
+        visibility,
+        posicao_campeonato: context.posicao_campeonato,
+        categoria_atual: context.categoria.clone(),
+        category_tier: context.category_tier,
+        max_license_level: license_levels.get(&player.id).copied(),
+    };
+    let player_tier = player_market_tier(conn, &player)?;
+
+    // Pool completo: jogador + agentes livres da IA — pra o mérito ser "a equipe te prefere
+    // aos livres dela", não só "você serve". O pedigree também entra no valor de cada IA.
+    let mut pool = find_available_drivers(conn, &contexts)?;
+    for candidate in &mut pool {
+        candidate.visibility *= 1.0 + pedigree_boost(conn, &candidate.driver)?;
+    }
+    pool.push(player_available);
+
+    // Fase A: só o MESMO tier (proposta de promoção é Fase C).
+    let vacancies: Vec<Vacancy> = find_vacancies(conn)?
+        .into_iter()
+        .filter(is_regular_vacancy)
+        .filter(|v| v.category_tier == player_tier)
+        .collect();
+
+    let mut held = Vec::new();
+    for vacancy in &vacancies {
+        let shortlist = generate_team_proposals(vacancy, &pool, season, rng);
+        // A equipe escolheria o jogador? (ele entrou no top-3 da shortlist dela)
+        let Some(mut proposal) = shortlist.into_iter().find(|p| p.piloto_id == player.id) else {
+            continue;
+        };
+        let seat = format!("{}#{}", vacancy.team_id, vacancy.papel_necessario.as_str());
+        proposal.id = format!(
+            "MP-{}-{}-{}-{}",
+            season, vacancy.team_id, player.id, vacancy.papel_necessario.as_str()
+        );
+        // Dedup por status da proposta já existente com esse ID.
+        let existing_status: Option<String> = conn
+            .query_row(
+                "SELECT status FROM market_proposals WHERE id = ?1 LIMIT 1",
+                params![proposal.id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Falha ao checar proposta existente: {e}"))?;
+        match existing_status.as_deref() {
+            Some(s) if s == crate::market::proposals::ProposalStatus::Pendente.as_str() => {
+                held.push(seat) // já pendente → segura
+            }
+            Some(_) => {} // recusada/aceita/expirada → não reoferece nem segura
+            None => {
+                if new_slots == 0 {
+                    continue; // teto de prestígio atingido nesta janela
+                }
+                proposal.piloto_nome = player.nome.clone();
+                persist_player_proposal(
+                    conn,
+                    &season_row.id,
+                    &proposal,
+                    Some(week + PROPOSAL_TTL_WEEKS),
+                )?;
+                held.push(seat);
+                new_slots -= 1;
+            }
+        }
+    }
+    Ok(held)
 }
 
 fn fill_remaining_vacancies_with_rookies(
@@ -2119,6 +2243,25 @@ pub(crate) fn fill_vacancies_paced(
     fill_remaining_vacancies_with_rookies(conn, &teams, season, report, rng, limit, reserved)
 }
 
+/// Tier de mercado do jogador para efeito de ofertas. Usa a `categoria_atual`; se ela
+/// já foi limpa (agente livre há tempo — `sync.rs` zera o categoria_atual de quem não
+/// tem contrato regular), cai na categoria do ÚLTIMO contrato. Assim um jogador que
+/// ficou sem correr volta a receber ofertas NO NÍVEL DELE, e não rebaixado a rookie.
+fn player_market_tier(conn: &Connection, player: &Driver) -> Result<u8, String> {
+    if let Some(tier) = player
+        .categoria_atual
+        .as_deref()
+        .and_then(crate::constants::categories::get_category_config)
+        .map(|c| c.tier)
+    {
+        return Ok(tier);
+    }
+    let last = find_last_player_category(conn, &player.id)?;
+    Ok(crate::constants::categories::get_category_config(&last)
+        .map(|c| c.tier)
+        .unwrap_or(0))
+}
+
 /// Nível de licença máximo do jogador (licença efetiva = maior entre a possuída e a
 /// exigida pela categoria atual). Reaproveita o estilo de `place_player_in_natural_vacancy`.
 fn player_effective_license(conn: &Connection, player: &Driver) -> Result<u8, String> {
@@ -2140,33 +2283,37 @@ fn player_offer_salary(skill: f64) -> f64 {
     (12_000.0 + skill * 1_800.0).max(5_000.0)
 }
 
-/// Se o jogador está ativo e SEM contrato regular ativo, reserva a vaga de PIOR carro
-/// (regular) no tier dele; senão no tier−1; senão qualquer licenciada. Devolve o
-/// seat_id `team#papel` reservado, ou `None` se ele já tem contrato / não está ativo.
-pub(crate) fn player_reserved_seat(
+/// Quantos assentos o mercado segura pro jogador agente livre. Segurar ALGUNS (não um
+/// só) dá escolha real e, principalmente, garante que na última semana haja vaga VAZIA
+/// pra ele — sem precisar dispensar nenhum piloto da IA pra abrir espaço.
+const MAX_PLAYER_RESERVED_SEATS: usize = 3;
+
+/// Se o jogador está ativo e SEM contrato regular ativo, SEGURA até
+/// `MAX_PLAYER_RESERVED_SEATS` assentos regulares que a carteira dele alcança — os mais
+/// acessíveis primeiro (tier dele → tier−1 → qualquer licenciada; pior carro primeiro
+/// dentro de cada faixa). A escada poupa esses assentos toda semana, então eles seguem
+/// VAZIOS até o fecho, quando o jogador escolhe um (ou é colocado) e os demais são
+/// repostos pela IA. Devolve os `seat_id` `team#papel`, ou vazio se ele já tem contrato
+/// / não está ativo. Nunca desloca ninguém: só reserva vagas já vazias.
+pub(crate) fn player_reserved_seats(
     conn: &Connection,
     season: i32,
-) -> Result<Option<String>, String> {
+) -> Result<Vec<String>, String> {
     let _ = season;
     let Ok(player) = driver_queries::get_player_driver(conn) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     if player.status != DriverStatus::Ativo {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
         .is_some()
     {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
-    let player_tier = player
-        .categoria_atual
-        .as_deref()
-        .and_then(crate::constants::categories::get_category_config)
-        .map(|c| c.tier)
-        .unwrap_or(0);
+    let player_tier = player_market_tier(conn, &player)?;
     let player_lic = player_effective_license(conn, &player)?;
     // Vaga de estreia (rookie) é sempre acessível ao jogador (piso de recomeço).
     let licensed = |vac: &Vacancy| {
@@ -2183,6 +2330,8 @@ pub(crate) fn player_reserved_seat(
         .filter(is_regular_vacancy)
         .collect();
     // Passes: tier do jogador → tier−1 → qualquer licenciada; pior carro primeiro.
+    // Acumula até o teto, sem repetir assento entre as faixas.
+    let mut seats: Vec<String> = Vec::new();
     for pass in 0..3 {
         let mut cands: Vec<&Vacancy> = vacancies
             .iter()
@@ -2195,17 +2344,18 @@ pub(crate) fn player_reserved_seat(
                     }
             })
             .collect();
-        if !cands.is_empty() {
-            cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
-            let vac = cands[0];
-            return Ok(Some(format!(
-                "{}#{}",
-                vac.team_id,
-                vac.papel_necessario.as_str()
-            )));
+        cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
+        for vac in cands {
+            let seat = format!("{}#{}", vac.team_id, vac.papel_necessario.as_str());
+            if !seats.contains(&seat) {
+                seats.push(seat);
+                if seats.len() >= MAX_PLAYER_RESERVED_SEATS {
+                    return Ok(seats);
+                }
+            }
         }
     }
-    Ok(None)
+    Ok(seats)
 }
 
 /// Ofertas do mercado pro JOGADOR nesta semana: toda vaga regular em que ele é
@@ -2215,7 +2365,6 @@ pub(crate) fn player_market_offers(
     conn: &Connection,
     season: i32,
 ) -> Result<Vec<crate::market::transfer_window::PlayerOffer>, String> {
-    let _ = season;
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(Vec::new());
     };
@@ -2229,14 +2378,23 @@ pub(crate) fn player_market_offers(
         return Ok(Vec::new());
     }
 
-    let player_tier = player
-        .categoria_atual
-        .as_deref()
-        .and_then(crate::constants::categories::get_category_config)
-        .map(|c| c.tier)
-        .unwrap_or(0);
+    let player_tier = player_market_tier(conn, &player)?;
     let player_lic = player_effective_license(conn, &player)?;
     let salary = player_offer_salary(player.atributos.skill);
+
+    // Assentos que já têm proposta formal PENDENTE ("Proposta recebida") não aparecem
+    // também em "Suas ofertas" — o mesmo assento não deve virar card E oferta passiva.
+    let proposal_seats: std::collections::HashSet<String> =
+        match get_season_by_number(conn, season)? {
+            Some(s) => crate::db::queries::market_proposals::get_pending_player_proposals(
+                conn, &s.id, &player.id,
+            )
+            .map_err(|e| format!("Falha ao carregar propostas pendentes: {e}"))?
+            .into_iter()
+            .map(|p| format!("{}#{}", p.equipe_id, p.papel.as_str()))
+            .collect(),
+            None => std::collections::HashSet::new(),
+        };
 
     let mut offers: Vec<crate::market::transfer_window::PlayerOffer> = Vec::new();
     // Um time com as DUAS vagas abertas geraria duas ofertas (N1 e N2). O jogador só
@@ -2244,6 +2402,10 @@ pub(crate) fn player_market_offers(
     let mut offer_by_team: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     for vac in find_vacancies(conn)?.into_iter().filter(is_regular_vacancy) {
+        // Assento já ofertado como card formal → não duplica em "Suas ofertas".
+        if proposal_seats.contains(&format!("{}#{}", vac.team_id, vac.papel_necessario.as_str())) {
+            continue;
+        }
         // Piso de RECOMEÇO: vaga de estreia (rookie) é sempre oferecida ao jogador,
         // mesmo fora do tier/licença — assim ele NUNCA fica sem nenhuma proposta.
         let is_debut = is_real_career_debut_category(&vac.categoria);
@@ -2279,6 +2441,33 @@ pub(crate) fn player_market_offers(
         offer_by_team.insert(vac.team_id.clone(), offers.len());
         offers.push(offer);
     }
+
+    // Piso de RECOMEÇO: se nenhuma vaga no tier/tier−1/estreia abriu, mostra as vagas que
+    // a escada reservou pro jogador (`player_reserved_seats` usa o fallback "qualquer vaga
+    // licenciada"). Sem isso, um agente livre há tempo teria vagas reservadas
+    // silenciosamente pela escada e NUNCA as veria ofertadas → zero propostas.
+    if offers.is_empty() {
+        let held = player_reserved_seats(conn, season)?;
+        if !held.is_empty() {
+            let vacs = find_vacancies(conn)?;
+            for seat_id in held {
+                if let Some(vac) = vacs
+                    .iter()
+                    .find(|v| format!("{}#{}", v.team_id, v.papel_necessario.as_str()) == seat_id)
+                {
+                    offers.push(crate::market::transfer_window::PlayerOffer {
+                        seat_id,
+                        team_id: vac.team_id.clone(),
+                        category: vac.categoria.clone(),
+                        class: vac.classe.clone(),
+                        salary,
+                        is_n1: matches!(vac.papel_necessario, TeamRole::Numero1),
+                    });
+                }
+            }
+        }
+    }
+
     Ok(offers)
 }
 
@@ -2297,25 +2486,18 @@ pub(crate) fn sign_player_to_vacancy(
         .find(|v| format!("{}#{}", v.team_id, v.papel_necessario.as_str()) == seat_id)
         .ok_or_else(|| format!("Vaga '{seat_id}' nao encontrada."))?;
 
-    // A vaga deve ser do jogador (elegível por tier + licenciada).
-    let player_tier = player
-        .categoria_atual
-        .as_deref()
-        .and_then(crate::constants::categories::get_category_config)
-        .map(|c| c.tier)
-        .unwrap_or(0);
+    // A vaga deve ser do jogador: licenciada (ou de estreia). Não exigimos in_tier aqui
+    // porque `player_market_offers` pode ofertar a vaga reservada fora do tier (piso de
+    // recomeço, "qualquer vaga licenciada") — o sign precisa aceitar tudo que é ofertado.
     let player_lic = player_effective_license(conn, &player)?;
-    // Vaga de estreia (rookie) é sempre aceitável (piso de recomeço), mesmo fora do
-    // tier/licença — consistente com player_market_offers.
+    // Vaga de estreia (rookie) é sempre aceitável (piso de recomeço), mesmo sem licença.
     let is_debut = is_real_career_debut_category(&vac.categoria);
     let required = crate::models::license::required_license_for_division(
         &vac.categoria,
         vac.classe.as_deref(),
     )
     .unwrap_or(0);
-    let in_tier =
-        vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
-    if !is_debut && (required > player_lic || !in_tier) {
+    if !is_debut && required > player_lic {
         return Err(format!("Vaga '{seat_id}' nao esta disponivel para o jogador."));
     }
 
@@ -3978,6 +4160,284 @@ mod tests {
                 .map(|contract| (&contract.id, &contract.equipe_id, &contract.categoria))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_player_reserved_seats_holds_multiple_for_free_agent() {
+        // Design do usuário: quando o jogador está sem vaga, o mercado SEGURA alguns
+        // assentos (2-3) que a carteira dele alcança — só vagas vazias, nunca dispensando
+        // ninguém. Com contrato ativo, não segura nada.
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        conn.execute("UPDATE meta SET value = '10' WHERE key = 'next_contract_id'", [])
+            .expect("contract counter");
+
+        // Dois times gt3 vazios → 4 vagas regulares abertas.
+        let mut rng = StdRng::seed_from_u64(880);
+        let t1 = sample_team("gt3", "T001", &mut rng);
+        let t2 = sample_team("gt3", "T002", &mut rng);
+        team_queries::insert_team(&conn, &t1).expect("t1");
+        team_queries::insert_team(&conn, &t2).expect("t2");
+
+        // Jogador livre, licenciado pra gt3, com último contrato em gt3 (define o tier).
+        let mut player = sample_driver("P001", "Jogador", None, 80.0, DriverStatus::Ativo);
+        player.is_jogador = true;
+        driver_queries::insert_driver(&conn, &player).expect("player");
+        let old = Contract::new(
+            "C001".to_string(), player.id.clone(), player.nome.clone(),
+            t1.id.clone(), t1.nome.clone(), 1, 1, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &old).expect("old contract");
+        contract_queries::update_contract_status(&conn, &old.id, &ContractStatus::Rescindido)
+            .expect("rescind");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P001', '3', 'gt3', '2024-12-31T00:00:00', 2)",
+            [],
+        )
+        .expect("license");
+
+        let seats = player_reserved_seats(&conn, 2).expect("seats");
+        assert_eq!(
+            seats.len(),
+            MAX_PLAYER_RESERVED_SEATS,
+            "deve segurar {MAX_PLAYER_RESERVED_SEATS} assentos pro agente livre licenciado, teve {}: {seats:?}",
+            seats.len()
+        );
+        let uniq: std::collections::HashSet<_> = seats.iter().collect();
+        assert_eq!(uniq.len(), seats.len(), "assentos reservados nao devem repetir");
+
+        // Com contrato ATIVO → não reserva nada (o mercado roda normal).
+        let active = Contract::new(
+            "C002".to_string(), player.id.clone(), player.nome.clone(),
+            t1.id.clone(), t1.nome.clone(), 2, 3, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &active).expect("active contract");
+        team_queries::update_team_pilots(&conn, &t1.id, Some(&player.id), None).expect("seat");
+        assert!(
+            player_reserved_seats(&conn, 2).expect("seats2").is_empty(),
+            "jogador com contrato ativo nao deve ter assentos reservados"
+        );
+    }
+
+    #[test]
+    fn test_pedigree_boost_is_bounded_and_monotonic() {
+        // Rookie (índice 0) não ganha nada; boost cresce com o índice e satura no teto.
+        assert_eq!(pedigree_boost_from_index(0.0), 0.0);
+        assert_eq!(pedigree_boost_from_index(-50.0), 0.0, "índice negativo tratado como 0");
+        let mid = pedigree_boost_from_index(PEDIGREE_BOOST_SCALE); // índice = escala → metade do teto
+        assert!((mid - PEDIGREE_BOOST_MAX / 2.0).abs() < 1e-9);
+        let strong = pedigree_boost_from_index(4.0 * PEDIGREE_BOOST_SCALE);
+        assert!(strong > mid, "mais pedigree → mais boost");
+        assert!(
+            pedigree_boost_from_index(1_000_000.0) < PEDIGREE_BOOST_MAX,
+            "nunca ultrapassa o teto"
+        );
+    }
+
+    #[test]
+    fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
+        // Fase A: agente livre FORTE (bate o pool) recebe proposta formal ("Proposta
+        // recebida"), o assento é segurado, é idempotente (não duplica), e jogador COM
+        // contrato ativo não recebe nada.
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        conn.execute("UPDATE meta SET value = '20' WHERE key = 'next_contract_id'", [])
+            .expect("contract counter");
+
+        let s1 = Season::new("S001".to_string(), 1, 2024);
+        let s2 = Season::new("S002".to_string(), 2, 2025);
+        season_queries::insert_season(&conn, &s1).expect("s1");
+        season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+        season_queries::insert_season(&conn, &s2).expect("s2");
+
+        let mut rng = StdRng::seed_from_u64(915);
+        let team = sample_team("gt3", "T001", &mut rng); // vazio → vagas gt3 abertas
+        team_queries::insert_team(&conn, &team).expect("team");
+
+        // Jogador livre, forte, licenciado gt3, com standing dominante na s1 (visibilidade alta).
+        let mut player = sample_driver("P001", "Jogador", Some("gt3"), 95.0, DriverStatus::Ativo);
+        player.is_jogador = true;
+        driver_queries::insert_driver(&conn, &player).expect("player");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P001', '3', 'gt3', '2024-12-31T00:00:00', 3)",
+            [],
+        )
+        .expect("license");
+        insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 1, 400.0, 10, 8);
+
+        let held = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen");
+        assert!(
+            !held.is_empty(),
+            "jogador forte livre deve receber ao menos uma proposta formal: held={held:?}"
+        );
+        let pending = crate::db::queries::market_proposals::get_pending_player_proposals(
+            &conn, &s2.id, &player.id,
+        )
+        .expect("pending");
+        assert!(!pending.is_empty(), "deve persistir proposta pendente pro jogador");
+
+        // Idempotência: rodar de novo não duplica (mesmo ID) e segue segurando o assento.
+        let held2 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen2");
+        let pending2 = crate::db::queries::market_proposals::get_pending_player_proposals(
+            &conn, &s2.id, &player.id,
+        )
+        .expect("pending2");
+        assert_eq!(
+            pending.len(),
+            pending2.len(),
+            "nao deve duplicar propostas ao rodar de novo"
+        );
+        assert!(!held2.is_empty(), "deve continuar segurando o assento da proposta pendente");
+
+        // Jogador COM contrato ativo → nenhuma proposta formal na Fase A.
+        let contract = Contract::new(
+            "C100".to_string(), player.id.clone(), player.nome.clone(),
+            team.id.clone(), team.nome.clone(), 2, 3, 100_000.0, TeamRole::Numero1, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("contract");
+        team_queries::update_team_pilots(&conn, &team.id, Some(&player.id), None).expect("seat");
+        let held3 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen3");
+        assert!(
+            held3.is_empty(),
+            "jogador com contrato ativo nao recebe proposta formal na Fase A"
+        );
+    }
+
+    #[test]
+    fn test_player_window_proposals_expire_after_ttl() {
+        // Fase B: proposta criada na semana 1 (prazo = 1 + PROPOSAL_TTL_WEEKS) expira na
+        // semana do prazo e não é reoferecida (o assento deixa de ser segurado).
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        conn.execute("UPDATE meta SET value = '30' WHERE key = 'next_contract_id'", [])
+            .expect("contract counter");
+
+        let s1 = Season::new("S001".to_string(), 1, 2024);
+        let s2 = Season::new("S002".to_string(), 2, 2025);
+        season_queries::insert_season(&conn, &s1).expect("s1");
+        season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+        season_queries::insert_season(&conn, &s2).expect("s2");
+
+        let mut rng = StdRng::seed_from_u64(732);
+        let team = sample_team("gt3", "T001", &mut rng);
+        team_queries::insert_team(&conn, &team).expect("team");
+
+        // Titular ocupa a N1 → sobra só UMA vaga (N2), pra o teste ser determinístico.
+        let teammate = sample_driver("P002", "Titular", Some("gt3"), 70.0, DriverStatus::Ativo);
+        driver_queries::insert_driver(&conn, &teammate).expect("teammate");
+        team_queries::update_team_pilots(&conn, &team.id, Some(&teammate.id), None).expect("lineup");
+        let tc = Contract::new(
+            "C001".to_string(), teammate.id.clone(), teammate.nome.clone(),
+            team.id.clone(), team.nome.clone(), 1, 3, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &tc).expect("teammate contract");
+
+        let mut player = sample_driver("P001", "Jogador", Some("gt3"), 95.0, DriverStatus::Ativo);
+        player.is_jogador = true;
+        driver_queries::insert_driver(&conn, &player).expect("player");
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P001', '3', 'gt3', '2024-12-31T00:00:00', 3)",
+            [],
+        )
+        .expect("license");
+        insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 1, 400.0, 10, 8);
+
+        let held_w1 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("w1");
+        let pending_w1 = crate::db::queries::market_proposals::get_pending_player_proposals(
+            &conn, &s2.id, &player.id,
+        )
+        .expect("p1");
+        assert_eq!(pending_w1.len(), 1, "semana 1 cria a proposta");
+        assert!(!held_w1.is_empty(), "semana 1 segura o assento da proposta");
+
+        // Semana 4 = criada(1) + TTL(3): expira e não reoferece.
+        let held_w4 = generate_player_window_proposals(&conn, 2, 4, &mut rng).expect("w4");
+        let pending_w4 = crate::db::queries::market_proposals::get_pending_player_proposals(
+            &conn, &s2.id, &player.id,
+        )
+        .expect("p4");
+        assert!(pending_w4.is_empty(), "proposta expira na semana do prazo e não é reoferecida");
+        assert!(held_w4.is_empty(), "assento expirado não é mais segurado");
+    }
+
+    #[test]
+    fn test_free_player_without_categoria_atual_still_gets_offers_at_last_level() {
+        // Regressão do bug relatado: jogador que fica um tempo sem correr tem o
+        // `categoria_atual` limpo pelo sync do mercado (sync.rs zera quem não tem
+        // contrato regular ativo). Antes, o tier dele caía a 0 (rookie) e o feed só
+        // mostrava vagas de estreia — ocupadas por rookies reais → ZERO propostas para
+        // sempre, mesmo com a escada segurando um assento invisível. Agora o tier vem
+        // do ÚLTIMO contrato (gt3) e ele volta a receber oferta no nível dele.
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+        conn.execute("UPDATE meta SET value = '10' WHERE key = 'next_contract_id'", [])
+            .expect("contract counter");
+
+        // Time gt3 (tier 4) com UMA vaga aberta (só o titular ocupa um assento).
+        // Nenhum time rookie no mundo: sem a correção, o jogador não veria vaga alguma.
+        let mut team_rng = StdRng::seed_from_u64(770);
+        let gt3_team = sample_team("gt3", "T001", &mut team_rng);
+        team_queries::insert_team(&conn, &gt3_team).expect("insert gt3 team");
+
+        // Jogador livre e SEM categoria_atual (limpo pelo sync após ficar sem correr).
+        let mut player = sample_driver("P001", "Jogador", None, 80.0, DriverStatus::Ativo);
+        player.is_jogador = true;
+        let teammate =
+            sample_driver("P002", "Titular GT3", Some("gt3"), 78.0, DriverStatus::Ativo);
+        driver_queries::insert_driver(&conn, &player).expect("insert player");
+        driver_queries::insert_driver(&conn, &teammate).expect("insert teammate");
+        team_queries::update_team_pilots(&conn, &gt3_team.id, Some(&teammate.id), None)
+            .expect("gt3 lineup deixa a vaga do jogador aberta");
+
+        // Contrato ATIVO do titular (ancora o time) + contrato PASSADO (rescindido) do
+        // jogador em gt3 — a única pista da categoria dele, já que categoria_atual é NULL.
+        let teammate_contract = Contract::new(
+            "C001".to_string(), teammate.id.clone(), teammate.nome.clone(),
+            gt3_team.id.clone(), gt3_team.nome.clone(), 1, 3, 120_000.0,
+            TeamRole::Numero1, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &teammate_contract).expect("teammate contract");
+        let player_old_contract = Contract::new(
+            "C002".to_string(), player.id.clone(), player.nome.clone(),
+            gt3_team.id.clone(), gt3_team.nome.clone(), 1, 1, 90_000.0,
+            TeamRole::Numero2, "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &player_old_contract).expect("player old contract");
+        contract_queries::update_contract_status(
+            &conn, &player_old_contract.id, &ContractStatus::Rescindido,
+        )
+        .expect("rescind player contract");
+
+        // Licença do jogador cobre gt3 (nível 3).
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P001', '3', 'gt3', '2024-12-31T00:00:00', 2)",
+            [],
+        )
+        .expect("insert player license");
+
+        // Sanidade: jogador está mesmo livre.
+        assert!(
+            contract_queries::get_active_regular_contract_for_pilot(&conn, &player.id)
+                .expect("check contract")
+                .is_none(),
+            "jogador deve estar sem contrato ativo"
+        );
+
+        let offers = player_market_offers(&conn, 2).expect("offers");
+        assert!(
+            offers.iter().any(|o| o.category == "gt3"),
+            "jogador livre sem categoria_atual deve receber oferta de gt3 (pelo último \
+             contrato), não zero propostas: {offers:?}"
+        );
+
+        // E deve conseguir ASSINAR a vaga ofertada (sign consistente com a oferta).
+        let seat = offers[0].seat_id.clone();
+        sign_player_to_vacancy(&conn, 2, &seat)
+            .expect("jogador deve conseguir assinar a vaga que lhe foi ofertada");
     }
 
     #[test]

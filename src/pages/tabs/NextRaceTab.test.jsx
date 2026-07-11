@@ -308,17 +308,17 @@ describe("NextRaceTab", () => {
     expect(screen.getByText(/25\/03/i)).toBeInTheDocument();
     expect(screen.getByText(/condi..o de pista/i)).toBeInTheDocument();
     expect(screen.getByText(/^p.blico$/i)).toBeInTheDocument();
-    expect(screen.getByText(/narrativa da etapa/i)).toBeInTheDocument();
+    expect(screen.getByText(/engenheiro de pista/i)).toBeInTheDocument();
     expect(screen.getByText(/voz da equipe/i)).toBeInTheDocument();
     expect(screen.getByText(/meta equipe/i)).toBeInTheDocument();
     expect(screen.getByText(/meta pessoal/i)).toBeInTheDocument();
     expect(screen.getByText(/meta t.tulo/i)).toBeInTheDocument();
-    expect(screen.getByText(/os 5 favoritos ao p.dio/i)).toBeInTheDocument();
+    expect(screen.getByText(/os 6 favoritos ao p.dio/i)).toBeInTheDocument();
     expect(screen.getByText(/tabela geral do campeonato/i)).toBeInTheDocument();
     expect(screen.getAllByText(/84\.200/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/equipe aurora/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/^sierra racing$/i)).toBeInTheDocument();
-    expect(screen.getByAltText("Mercedes-AMG logo")).toBeInTheDocument();
+    expect(screen.getAllByAltText("Mercedes-AMG logo").length).toBeGreaterThan(0);
     const championshipTable = screen.getByRole("table");
     const championshipRows = within(championshipTable).getAllByRole("row");
     expect(championshipRows).toHaveLength(6);
@@ -331,11 +331,19 @@ describe("NextRaceTab", () => {
     expect(within(championshipTable).getByText(/^88$/i)).toBeInTheDocument();
     expect(within(championshipTable).getByText(/^58$/i)).toBeInTheDocument();
 
+    // Simular pede confirmação ("Simular mesmo?") antes de disparar a simulação.
     fireEvent.click(screen.getByRole("button", { name: /simular corrida/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^sim$/i }));
     expect(mockSimulateRace).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: /exportar/i }));
-    expect(screen.getByText(/exportação para o iracing chega em breve/i)).toBeInTheDocument();
+    // "Correr" exporta o roster/temporada para o iRacing.
+    fireEvent.click(screen.getByRole("button", { name: /^correr$/i }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "iracing_generate_roster",
+        expect.objectContaining({ careerId: "career-1" }),
+      );
+    });
   });
 
   it("pula o bloco especial pelo CTA principal quando nao ha corrida jogavel do jogador", async () => {
@@ -582,7 +590,7 @@ describe("NextRaceTab", () => {
     render(<NextRaceTab />);
 
     await waitFor(() => {
-      expect(screen.getByText(/os 5 favoritos ao p.dio/i)).toBeInTheDocument();
+      expect(screen.getByText(/os 6 favoritos ao p.dio/i)).toBeInTheDocument();
     });
 
     expect(

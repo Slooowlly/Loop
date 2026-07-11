@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { getTrackImageSrc } from "../../utils/trackImages";
+import { buildDriverMentionMatcher, driverMentionClass } from "../../utils/driverMentions";
+import { getTeamGlow } from "../../utils/teamColors";
 import { getReadableTeamColor } from "./newsHelpers";
 import { buildInboxMessages } from "./inboxMessages";
 
@@ -37,6 +39,33 @@ function colorizeTeams(text, teams) {
   );
 }
 
+// Renderiza um parágrafo do boletim combinando duas camadas: nomes de PILOTO viram
+// spans interativos (hover acende o piloto/equipe na classificação ao lado) e o
+// restante passa por `colorizeTeams` (nomes de EQUIPE na cor do time).
+function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriverId, onHover) {
+  const matcher = buildDriverMentionMatcher(mentionDrivers);
+  if (!matcher) {
+    return colorizeTeams(text, teams);
+  }
+  return text.split(matcher.regex).map((part, i) => {
+    const driverId = matcher.byName.get(part);
+    if (driverId) {
+      const isActive = hoveredDriverId === driverId;
+      return (
+        <span
+          key={i}
+          onMouseEnter={() => onHover(driverId)}
+          onMouseLeave={() => onHover(null)}
+          className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <Fragment key={i}>{colorizeTeams(part, teams)}</Fragment>;
+  });
+}
+
 function NewsMagazineTab() {
   const careerId = useCareerStore((s) => s.careerId);
   const playerTeam = useCareerStore((s) => s.playerTeam);
@@ -46,7 +75,13 @@ function NewsMagazineTab() {
   const year = season?.ano ?? "";
 
   const [standings, setStandings] = useState([]);
+  const [driverStandings, setDriverStandings] = useState([]);
   const [calendar, setCalendar] = useState([]);
+  // Classificação ao lado do boletim: alterna entre pilotos (padrão) e equipes.
+  const [standingsView, setStandingsView] = useState("pilotos");
+  // Piloto realçado ao passar o mouse no nome dele no boletim → acende a equipe dele
+  // (view construtores) ou ele mesmo (view pilotos) na classificação.
+  const [hoveredDriverId, setHoveredDriverId] = useState(null);
 
   const [edIdx, setEdIdx] = useState(0);
   const [flipping, setFlipping] = useState(false);
@@ -98,6 +133,25 @@ function NewsMagazineTab() {
     };
   }, [careerId, category]);
 
+  // ── Pilotos reais (para a tabela alternativa e para realçar nomes no boletim) ──
+  useEffect(() => {
+    let mounted = true;
+    if (!careerId || !category) {
+      setDriverStandings([]);
+      return undefined;
+    }
+    invoke("get_drivers_by_category", { careerId, category })
+      .then((rows) => {
+        if (mounted) setDriverStandings(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (mounted) setDriverStandings([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [careerId, category]);
+
   // ── Calendário real (para montar as edições das corridas disputadas) ──
   useEffect(() => {
     let mounted = true;
@@ -122,14 +176,6 @@ function NewsMagazineTab() {
     return calendar
       .filter((r) => r.status === "Concluida")
       .sort((a, b) => (b.rodada ?? 0) - (a.rodada ?? 0));
-  }, [calendar]);
-
-  // Próxima corrida (primeira pendente por rodada).
-  const nextRace = useMemo(() => {
-    const pending = calendar
-      .filter((r) => r.status !== "Concluida")
-      .sort((a, b) => (a.rodada ?? 0) - (b.rodada ?? 0));
-    return pending[0] ?? null;
   }, [calendar]);
 
   const totalRounds = calendar.length;
@@ -180,6 +226,7 @@ function NewsMagazineTab() {
   // Construtores: top 6, garantindo que a equipe do jogador apareça.
   const construtores = useMemo(() => {
     const mapped = standings.map((t) => ({
+      id: t.id,
       pos: t.posicao,
       name: t.nome,
       pts: t.pontos,
@@ -193,6 +240,31 @@ function NewsMagazineTab() {
     }
     return top;
   }, [standings, playerTeam]);
+
+  // Pilotos: grid completo da categoria, por posição no campeonato.
+  const pilotos = useMemo(() => {
+    return [...driverStandings]
+      .sort((a, b) => (a.posicao_campeonato ?? 999) - (b.posicao_campeonato ?? 999))
+      .map((d) => ({
+        id: d.id,
+        pos: d.posicao_campeonato,
+        name: d.nome,
+        pts: d.pontos,
+        teamName: d.equipe_nome,
+        color: d.equipe_cor || "#888",
+        me: d.is_jogador,
+      }));
+  }, [driverStandings]);
+
+  // Nomes que o boletim pode mencionar + resolução do piloto realçado → equipe dele.
+  const mentionDrivers = useMemo(
+    () => driverStandings.map((d) => ({ id: d.id, nome: d.nome })),
+    [driverStandings],
+  );
+  const hoveredTeamId = useMemo(
+    () => driverStandings.find((d) => d.id === hoveredDriverId)?.equipe_id ?? null,
+    [driverStandings, hoveredDriverId],
+  );
 
   const unread = messages.filter((m) => !readIds.has(m.id)).length;
   const selected = messages.find((m) => m.id === selectedId) ?? null;
@@ -217,12 +289,9 @@ function NewsMagazineTab() {
   }
 
   const catLabel = category ? categoryLabel(category) : "";
-  const kicker = ed
-    ? `${catLabel} · Etapa ${ed.rodada} · ${ed.track_name}`
-    : catLabel;
+  const kicker = ed ? `${catLabel} · ${ed.track_name}` : catLabel;
   const footMeta = ed
-    ? `Etapa ${ed.rodada}${totalRounds ? ` de ${totalRounds}` : ""} · ${ed.display_date ?? ""}` +
-      (nextRace ? ` · Próxima: ${nextRace.track_name}, ${nextRace.display_date ?? ""}` : "")
+    ? `Edição ${ed.rodada}${totalRounds ? ` de ${totalRounds}` : ""}${year ? ` · Temporada ${year}` : ""}`
     : "";
 
   return (
@@ -256,7 +325,17 @@ function NewsMagazineTab() {
                 bulletin.story
                   .split(/\n\s*\n/)
                   .filter(Boolean)
-                  .map((para, i) => <p key={i}>{colorizeTeams(para, bulletin.teams)}</p>)
+                  .map((para, i) => (
+                    <p key={i}>
+                      {renderBulletinParagraph(
+                        para,
+                        mentionDrivers,
+                        bulletin.teams,
+                        hoveredDriverId,
+                        setHoveredDriverId,
+                      )}
+                    </p>
+                  ))
               ) : bulletin?.loading ? (
                 <p>Gerando o boletim desta etapa…</p>
               ) : (
@@ -299,18 +378,78 @@ function NewsMagazineTab() {
 
             <div className="r-grid r-grid-single">
               <div>
-                <h3 className="subhead">Construtores · {year}</h3>
-                {construtores.length > 0 ? (
-                  construtores.map((c) => (
-                    <div key={c.pos} className={c.me ? "res-row me" : "res-row"}>
-                      <span className="rp">{c.pos}</span>
-                      <TeamLogoMark teamName={c.name} color={c.color} size="xs" testId="news-team-logo" />
-                      <span className="rn">{c.name}</span>
-                      <span className="rpts">{c.pts}</span>
-                    </div>
-                  ))
+                <div className="nm-standings-head">
+                  <h3 className="subhead">
+                    {standingsView === "construtores" ? "Construtores" : "Pilotos"} · {year}
+                  </h3>
+                  <div className="nm-toggle">
+                    <button
+                      type="button"
+                      className={`nm-toggle-btn${standingsView === "pilotos" ? " active" : ""}`}
+                      onClick={() => setStandingsView("pilotos")}
+                    >
+                      Pilotos
+                    </button>
+                    <button
+                      type="button"
+                      className={`nm-toggle-btn${standingsView === "construtores" ? " active" : ""}`}
+                      onClick={() => setStandingsView("construtores")}
+                    >
+                      Construtores
+                    </button>
+                  </div>
+                </div>
+
+                {standingsView === "construtores" ? (
+                  construtores.length > 0 ? (
+                    construtores.map((c) => {
+                      const glow = hoveredTeamId != null && c.id === hoveredTeamId;
+                      const tone = glow ? getTeamGlow(c.color) : null;
+                      return (
+                        <div
+                          key={c.id ?? c.pos}
+                          className={c.me ? "res-row me" : "res-row"}
+                          style={
+                            tone
+                              ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
+                              : undefined
+                          }
+                        >
+                          <span className="rp">{c.pos}</span>
+                          <TeamLogoMark teamName={c.name} color={c.color} size="xs" testId="news-team-logo" />
+                          <span className="rn">{c.name}</span>
+                          <span className="rpts">{c.pts}</span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p>Classificação de equipes indisponível.</p>
+                  )
+                ) : pilotos.length > 0 ? (
+                  pilotos.map((p) => {
+                    const glow = hoveredDriverId != null && p.id === hoveredDriverId;
+                    const tone = glow ? getTeamGlow(p.color) : null;
+                    return (
+                      <div
+                        key={p.id ?? p.pos}
+                        className={p.me ? "res-row me" : "res-row"}
+                        style={
+                          tone
+                            ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
+                            : undefined
+                        }
+                        onMouseEnter={() => setHoveredDriverId(p.id)}
+                        onMouseLeave={() => setHoveredDriverId(null)}
+                      >
+                        <span className="rp">{p.pos}</span>
+                        <TeamLogoMark teamName={p.teamName} color={p.color} size="xs" testId="news-driver-team-logo" />
+                        <span className="rn">{p.name}</span>
+                        <span className="rpts">{p.pts}</span>
+                      </div>
+                    );
+                  })
                 ) : (
-                  <p>Classificação de equipes indisponível.</p>
+                  <p>Classificação de pilotos indisponível.</p>
                 )}
               </div>
             </div>

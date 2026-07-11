@@ -422,7 +422,8 @@ mod tests {
                 status TEXT NOT NULL DEFAULT 'Pendente',
                 motivo_recusa TEXT,
                 criado_em TEXT NOT NULL DEFAULT '',
-                respondido_em TEXT
+                respondido_em TEXT,
+                semana_limite INTEGER
             );",
         )?;
         Ok(conn)

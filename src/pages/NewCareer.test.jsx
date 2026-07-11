@@ -115,11 +115,11 @@ describe("NewCareer", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
 
-    expect(screen.queryByText("Mazda MX-5 Rookie Cup")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mazda Rookie")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
 
-    expect((await screen.findAllByText("Mazda MX-5 Rookie Cup")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Mazda Rookie")).length).toBeGreaterThan(0);
     expect(mockInvoke).toHaveBeenCalledWith("create_historical_career_draft", {
       input: {
         player_name: "Rodrigo Teste",
@@ -145,12 +145,12 @@ describe("NewCareer", () => {
     fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
     fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
 
-    fireEvent.click((await screen.findAllByText("Mazda MX-5 Rookie Cup")).at(-1));
+    fireEvent.click((await screen.findAllByText("Mazda Rookie")).at(-1));
     fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
     expect(await screen.findByText("Racing Academy Red")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
-    fireEvent.click(screen.getByText("Toyota GR86 Rookie Cup"));
+    fireEvent.click(screen.getByText("Toyota Rookie"));
     fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
 
     expect(screen.getByText("Sakura Driver Academy")).toBeInTheDocument();
@@ -217,7 +217,7 @@ describe("NewCareer", () => {
     fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
     fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
 
-    expect((await screen.findAllByText("Mazda MX-5 Rookie Cup")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Mazda Rookie")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
     fireEvent.click(screen.getByRole("button", { name: /voltar/i }));

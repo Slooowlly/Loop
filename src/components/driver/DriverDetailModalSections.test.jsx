@@ -168,7 +168,7 @@ describe("HistorySection", () => {
     expect(screen.getByText("Primeira vitória")).toBeInTheDocument();
     expect(screen.getByText("7ª corrida")).toBeInTheDocument();
     expect(screen.getByText("AUGE")).toBeInTheDocument();
-    expect(screen.getByText("2024, BMW M2")).toBeInTheDocument();
+    expect(screen.getByText("2024, BMW Cup")).toBeInTheDocument();
     expect(screen.getByText("MOBILIDADE")).toBeInTheDocument();
     expect(screen.getByText("Promoções")).toBeInTheDocument();
     expect(screen.getByText("LESÕES")).toBeInTheDocument();
@@ -189,7 +189,7 @@ describe("HistorySection", () => {
     expect(screen.getByAltText("Roadster Touring Club logo")).toBeInTheDocument();
     expect(screen.queryByText("Vivência atual")).not.toBeInTheDocument();
     expect(screen.getByText("Mazda Rookie 2017")).toBeInTheDocument();
-    expect(screen.getByText("Mazda Championship 2022")).toBeInTheDocument();
+    expect(screen.getByText("Mazda Cup 2022")).toBeInTheDocument();
     expect(screen.getByText("Mazda Rookie 2025")).toBeInTheDocument();
     expect(screen.getByText("GT3 Endurance 2026")).toBeInTheDocument();
     expect(screen.getByText("Mazda Production 2027")).toBeInTheDocument();

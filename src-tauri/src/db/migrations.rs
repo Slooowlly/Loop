@@ -557,6 +557,13 @@ fn migrate_v3(conn: &Connection) -> Result<(), DbError> {
     ensure_column(conn, "contracts", "categoria", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(conn, "contracts", "created_at", "TEXT NOT NULL DEFAULT ''")?;
 
+    // Propostas formais do jogador expiram após algumas semanas de janela (Fase B).
+    // Nullable: NULL = sem prazo (propostas de rollover/legado). DBs novos já têm a coluna
+    // no CREATE TABLE; o backfill só cobre saves antigos (guarda contra schema parcial).
+    if table_exists(conn, "market_proposals")? {
+        ensure_column(conn, "market_proposals", "semana_limite", "INTEGER")?;
+    }
+
     conn.execute_batch(
         "
         UPDATE contracts
@@ -3217,6 +3224,7 @@ CREATE TABLE IF NOT EXISTS market_proposals (
     motivo_recusa   TEXT,
     criado_em       TEXT NOT NULL DEFAULT '',
     respondido_em   TEXT,
+    semana_limite   INTEGER,
     FOREIGN KEY (temporada_id) REFERENCES seasons(id),
     FOREIGN KEY (equipe_id)    REFERENCES teams(id),
     FOREIGN KEY (piloto_id)    REFERENCES drivers(id)

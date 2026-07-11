@@ -123,6 +123,26 @@ fn run_end_of_season_with_mode(
     archive_team_season(&tx, season)
         .map_err(|e| format!("Falha ao arquivar temporada das equipes: {e}"))?;
 
+    // Reputação viva: com as posições já arquivadas, cada equipe tem a reputação
+    // ajustada pelo resultado (título sobe, fiasco desce, decai pro meio). Roda
+    // ANTES da promoção/rebaixamento, que somam o próprio degrau por cima.
+    crate::finance::reputation::update_team_reputations_from_season(&tx, season)
+        .map_err(|e| format!("Falha ao atualizar reputação das equipes: {e}"))?;
+
+    // Histórico de carreira vivo (ideia 2): consolida os arquivos de temporada nos
+    // campos `historico_*` do time. Faz o termo `titulos_construtores*2` do
+    // elite_score das dinastias deixar de ser 0 → campeões passados ficam elite por
+    // legado. Recompute idempotente; roda com o archive já gravado.
+    crate::world::team_archive::roll_up_team_career_history(&tx)
+        .map_err(|e| format!("Falha ao consolidar histórico das equipes: {e}"))?;
+
+    // Moral viva (ideia 3): move a moral de cada equipe pelo resultado da temporada
+    // + a treta interna N1/N2. A moral entra na simulação (efeito sutil, simétrico
+    // jogador+IA) e na eficiência de desenvolvimento do carro. Promoção/rebaixamento
+    // aplicam os próprios multiplicadores de moral depois.
+    crate::finance::morale::update_team_morale_from_season(&tx, season)
+        .map_err(|e| format!("Falha ao atualizar moral das equipes: {e}"))?;
+
     // Prêmio de fim de temporada por posição no campeonato de construtores.
     // Creditado após o arquivamento (que define posicao_campeonato) e antes da
     // promoção/rebaixamento, para que a equipe receba referente à categoria em

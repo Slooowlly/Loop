@@ -596,6 +596,21 @@ const useCareerStore = create((set, get) => ({
     return get().advanceSeason();
   },
 
+  // DEBUG: vai direto ao mercado num cenário (agente livre + posição forçada), pra testar
+  // as propostas por mérito. scenario ∈ "no_team" | "first" | "fifth".
+  debugGoToMarket: async (scenario) => {
+    const { careerId } = get();
+    if (!careerId) throw new Error("Carreira não carregada.");
+    set({ isAdvancing: true, error: null });
+    try {
+      await invoke("debug_prepare_market_scenario", { careerId, scenario });
+    } catch (error) {
+      set({ isAdvancing: false, error: getErrorMessage(error, "Erro ao preparar mercado (debug).") });
+      throw error;
+    }
+    return get().advanceSeason();
+  },
+
   // ── Bloco Especial ───────────────────────────────────────────────────────────
   // LEGADO 9D: comandos especiais ficam acessíveis apenas para saves pré-v33 em voo.
 

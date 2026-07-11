@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 
 import GlassCard from "../../components/ui/GlassCard";
+import useDeferredLoading from "../../hooks/useLoading";
 import useCareerStore from "../../stores/useCareerStore";
 import { getCategoryColor } from "../../utils/categoryColors";
 import { categoryLabel } from "../../utils/formatters";
@@ -366,6 +367,9 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tooltip, setTooltip] = useState(null);
+  // Só exibe "Carregando calendário..." se demorar de verdade — evita o flash na
+  // troca de aba, já que o fetch local resolve em poucos ms.
+  const showLoadingUI = useDeferredLoading(loading);
   const isLegacyCalendar = isLegacySeasonPhase(season?.fase);
 
   useEffect(() => {
@@ -564,7 +568,9 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
       </div>
 
       {loading ? (
-        <p className="mt-8 text-sm text-text-secondary">Carregando calendário da temporada...</p>
+        showLoadingUI ? (
+          <p className="mt-8 text-sm text-text-secondary">Carregando calendário da temporada...</p>
+        ) : null
       ) : error ? (
         <div className="mt-6 rounded-2xl border border-status-red/30 bg-status-red/10 px-4 py-3 text-sm text-status-red">
           {error}

@@ -12,7 +12,15 @@ pub fn calculate_promotion_effects(team: &Team, rng: &mut impl Rng) -> TeamAttri
         team_id: team.id.clone(),
         team_name: team.nome.clone(),
         movement_type: MovementType::Promocao,
-        car_performance_delta: rng.gen_range(5.0..=10.0),
+        // Anti-snowball: a promoção NÃO dá mais carro de graça. O ganho fixo
+        // (+5..10, independente de caixa) permitia que uma equipe rookie — carro
+        // spec, que nunca investiu no carro — chegasse na categoria de cima já com
+        // um carro forte, pulando o gating econômico e subindo a escada sem parar.
+        // Agora a equipe MANTÉM o número do carro dela (sem reset): como a banda de
+        // carro da categoria nova é mais alta, ela entra por baixo e tem que ganhar
+        // evolução via a economia da própria categoria (offseason em cashflow.rs).
+        // Prêmio da promoção segue nos demais atributos (orçamento, estrutura, etc.).
+        car_performance_delta: 0.0,
         budget_delta: rng.gen_range(5.0..=15.0),
         facilities_delta: rng.gen_range(0.0..=5.0),
         engineering_delta: rng.gen_range(0.0..=3.0),
@@ -87,7 +95,8 @@ mod tests {
         let delta = calculate_promotion_effects(&team, &mut rng);
 
         assert_eq!(delta.movement_type, MovementType::Promocao);
-        assert!(delta.car_performance_delta > 0.0);
+        // Anti-snowball: promoção não dá mais carro de graça (mantém o número atual).
+        assert_eq!(delta.car_performance_delta, 0.0);
         assert!(delta.budget_delta > 0.0);
         assert!(delta.facilities_delta >= 0.0);
         assert!(delta.engineering_delta >= 0.0);

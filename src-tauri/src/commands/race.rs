@@ -726,6 +726,29 @@ fn simulate_category_race_with_mode(
     let max_race_points =
         (get_points_for_position(1, category.id == "endurance") + BONUS_FASTEST_LAP) as f64;
 
+    // Casa cheia: interesse "de local" do evento (categoria + fase + rodada + papel
+    // narrativo), SEM protagonismo do jogador nem drama de título — esses já entram
+    // pela pressão de campeonato acima. Vale igual pra todos os pilotos do grid; a
+    // variação por piloto vem só da forma recente ("algo a provar"). Calculado uma vez.
+    let venue_ctx = EventInterestContext {
+        categoria: race_entry.categoria.clone(),
+        season_phase: race_entry.season_phase,
+        rodada: race_entry.rodada,
+        total_rodadas: category.corridas_por_temporada as i32,
+        week_of_year: race_entry.week_of_year,
+        track_id: race_entry.track_id as i32,
+        track_name: race_entry.track_name.clone(),
+        is_player_event: false,
+        player_championship_position: None,
+        player_media: None,
+        championship_gap_to_leader: None,
+        is_title_decider_candidate: false,
+        thematic_slot: race_entry.thematic_slot,
+    };
+    let event_stakes = crate::simulation::pressure::event_stakes_from_score(
+        calculate_expected_event_interest(&venue_ctx).score as f64,
+    );
+
     let mut orphaned_drivers = Vec::new();
     let sim_drivers: Vec<SimDriver> = driver_pool
         .into_iter()
@@ -749,16 +772,30 @@ fn simulate_category_race_with_mode(
                     races_left,
                     max_race_points,
                 );
-                let peff = crate::simulation::pressure::pressure_for(
+                let title_eff = crate::simulation::pressure::pressure_for(
                     &pctx,
                     races_left,
                     driver.atributos.mentalidade,
                     driver.atributos.experiencia,
                 );
-                sd.skill = (sd.skill as f64 + peff.pace_delta)
-                    .clamp(5.0, 100.0)
-                    .round() as u8;
-                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + peff.pace_delta)
+                // Pressão de casa cheia (universal): pesa mais em quem vem em má fase.
+                let event_eff = crate::simulation::pressure::event_pressure_for(
+                    event_stakes,
+                    recent_avg_finish(&driver.ultimos_resultados),
+                    driver.atributos.mentalidade,
+                    driver.atributos.experiencia,
+                );
+                let peff = crate::simulation::pressure::combine(title_eff, event_eff);
+                // Headroom: converte o Δpace da pressão em pontos de skill conforme onde
+                // o piloto está na curva (subir tem teto, cair tem chão). Usa o skill
+                // efetivo do fim de semana (já com a penalidade de conhecimento de pista).
+                let hr = crate::simulation::pressure::headroom_pace_mult(
+                    sd.skill as f64,
+                    peff.pace_delta >= 0.0,
+                );
+                let pace_delta = peff.pace_delta * hr;
+                sd.skill = (sd.skill as f64 + pace_delta).clamp(5.0, 100.0).round() as u8;
+                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + pace_delta)
                     .clamp(5.0, 100.0)
                     .round() as u8;
                 sd.pressure_error_mult = peff.error_mult;

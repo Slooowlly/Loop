@@ -1216,6 +1216,26 @@ pub fn iracing_generate_roster(
         let total = get_category_config(&categoria)
             .map(|c| c.corridas_por_temporada as i32)
             .unwrap_or(race.rodada);
+        // Casa cheia: interesse "de local" do evento (sem protagonismo do jogador nem
+        // drama de título — esses entram pela pressão de campeonato). MESMA fonte da sim.
+        let venue_ctx = crate::event_interest::EventInterestContext {
+            categoria: categoria.clone(),
+            season_phase: race.season_phase,
+            rodada: race.rodada,
+            total_rodadas: total,
+            week_of_year: race.week_of_year,
+            track_id: race.track_id as i32,
+            track_name: race.track_name.clone(),
+            is_player_event: false,
+            player_championship_position: None,
+            player_media: None,
+            championship_gap_to_leader: None,
+            is_title_decider_candidate: false,
+            thematic_slot: race.thematic_slot,
+        };
+        let event_stakes = crate::simulation::pressure::event_stakes_from_score(
+            crate::event_interest::calculate_expected_event_interest(&venue_ctx).score as f64,
+        );
         Some(roster_gen::BehaviorContext {
             current_season: season.numero as i32,
             track_id: race.track_id,
@@ -1223,6 +1243,7 @@ pub fn iracing_generate_roster(
             track_flag: track.pais.to_string(),
             title_points: title_points.clone(),
             races_left: (total - race.rodada + 1).max(1) as u32,
+            event_stakes,
             season_length: total.max(1) as u32,
             max_points: (get_points_for_position(1, categoria == "endurance") + BONUS_FASTEST_LAP)
                 as f64,

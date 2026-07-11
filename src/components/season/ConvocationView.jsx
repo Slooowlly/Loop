@@ -39,7 +39,7 @@ const CANDIDATE_GROUP_LABELS = {
   lmp2: "LMP2 Prototype Championship",
   gt3: "GT3 Championship",
   gt4: "GT4 Series",
-  bmw_m2: "BMW M2 Cup",
+  bmw_m2: "BMW Cup",
   toyota_amador: "Toyota Cup",
   mazda_amador: "Mazda Cup",
 };

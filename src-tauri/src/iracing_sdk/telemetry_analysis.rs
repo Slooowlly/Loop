@@ -112,10 +112,12 @@ pub struct BestMoment {
     pub confidence: String,
 }
 
-/// Um ponto do race trace de um carro: gap ao líder + posição naquela volta.
+/// Um ponto do race trace de um carro: gap ao líder + posição naquele instante.
+/// `lap` é FRACIONÁRIO (volta do líder + progresso dele na volta), pra ultrapassagem
+/// aparecer no ponto exato da volta em que aconteceu — não só na virada.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChartTracePoint {
-    pub lap: i32,
+    pub lap: f64,
     pub gap: f64,
     pub position: i32,
 }
@@ -199,6 +201,103 @@ pub struct TelemetryAnalysis {
     /// Atalho: a estratégia de pneu do PRÓPRIO jogador (None se não identificada).
     #[serde(default)]
     pub player_tire: Option<super::tire_strategy::CarTireStrategy>,
+    /// Consumo de combustível do jogador (None se o SDK não deu o dado).
+    #[serde(default)]
+    pub fuel: Option<FuelSummary>,
+    /// Parciais por setor do jogador (melhor por setor + setor fraco). None se
+    /// faltam voltas completas.
+    #[serde(default)]
+    pub sectors: Option<SectorAnalysis>,
+}
+
+/// Análise dos 3 setores do jogador: melhor por setor + onde você mais perde.
+#[derive(Debug, Clone, Serialize)]
+pub struct SectorAnalysis {
+    /// Melhor tempo por setor (ms): [S1, S2, S3].
+    pub best_ms: [f64; 3],
+    /// Volta teórica = soma dos melhores setores (ms).
+    pub theoretical_best_ms: f64,
+    /// Setor onde você mais perde vs seu próprio melhor (1..3). 0 = sem dado.
+    pub weakest_sector: i32,
+    /// Perda média nesse setor vs seu melhor dele (ms).
+    pub weakest_loss_ms: f64,
+}
+
+/// Melhor por setor + setor fraco a partir dos parciais do jogador. Precisa de ≥2
+/// parciais em CADA setor (senão o "melhor" é ruído de amostra única).
+fn analyze_sectors(history: &RaceHistory) -> Option<SectorAnalysis> {
+    let mut by_sector: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for s in &history.player_sectors {
+        if (1..=3).contains(&s.sector) && s.time > 0.0 {
+            by_sector[(s.sector - 1) as usize].push(s.time * 1000.0);
+        }
+    }
+    if by_sector.iter().any(|v| v.len() < 2) {
+        return None;
+    }
+    let mut best_ms = [0.0f64; 3];
+    let mut weakest_sector = 0;
+    let mut weakest_loss_ms = 0.0;
+    for i in 0..3 {
+        let best = by_sector[i].iter().copied().fold(f64::INFINITY, f64::min);
+        let avg = by_sector[i].iter().sum::<f64>() / by_sector[i].len() as f64;
+        best_ms[i] = best;
+        let loss = avg - best;
+        if loss > weakest_loss_ms {
+            weakest_loss_ms = loss;
+            weakest_sector = (i + 1) as i32;
+        }
+    }
+    Some(SectorAnalysis {
+        best_ms,
+        theoretical_best_ms: best_ms.iter().sum(),
+        weakest_sector,
+        weakest_loss_ms,
+    })
+}
+
+/// Consumo de combustível do jogador na corrida (litros).
+#[derive(Debug, Clone, Serialize)]
+pub struct FuelSummary {
+    /// Consumo médio por volta (L).
+    pub used_per_lap_l: f64,
+    /// Combustível restante na última volta captada (L).
+    pub remaining_l: f64,
+    /// Voltas de autonomia restantes no ritmo atual (remaining / used_per_lap).
+    pub laps_left: f64,
+}
+
+/// Consumo do jogador a partir das voltas com combustível captado. Precisa de ≥2
+/// voltas com `fuel_remaining >= 0` e consumo positivo (ruído/reabastecimento fora).
+fn analyze_fuel(history: &RaceHistory) -> Option<FuelSummary> {
+    let mut pts: Vec<(f64, f64)> = history
+        .player_laps
+        .iter()
+        .filter(|l| l.fuel_remaining >= 0.0)
+        .map(|l| (l.lap as f64, l.fuel_remaining))
+        .collect();
+    if pts.len() < 2 {
+        return None;
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let (lap0, fuel0) = pts[0];
+    let (lap1, fuel1) = *pts.last().unwrap();
+    let lap_span = lap1 - lap0;
+    let burned = fuel0 - fuel1;
+    if lap_span < 1.0 || burned <= 0.0 {
+        return None;
+    }
+    let used_per_lap_l = burned / lap_span;
+    let laps_left = if used_per_lap_l > 0.0 {
+        fuel1 / used_per_lap_l
+    } else {
+        0.0
+    };
+    Some(FuelSummary {
+        used_per_lap_l,
+        remaining_l: fuel1,
+        laps_left,
+    })
 }
 
 fn mean(v: &[f64]) -> f64 {
@@ -285,6 +384,8 @@ pub fn analyze(
         charts,
         tire_strategies,
         player_tire,
+        fuel: analyze_fuel(history),
+        sectors: analyze_sectors(history),
     }
 }
 
@@ -306,7 +407,7 @@ fn build_charts(history: &RaceHistory, name_by_idx: &HashMap<i32, String>) -> Op
                 .iter()
                 .filter_map(|snap| {
                     snap.cars.iter().find(|c| c.idx == idx).map(|c| ChartTracePoint {
-                        lap: snap.lap,
+                        lap: snap.lap as f64 + snap.progress as f64,
                         gap: c.gap,
                         position: c.position,
                     })
@@ -897,10 +998,10 @@ mod tests {
         let mut h = base_history();
         // Voltas do jogador: 90, 90.5, 91, e uma ruim 96 (erro).
         h.player_laps = vec![
-            PlayerLap { lap: 1, time: 90.0 },
-            PlayerLap { lap: 2, time: 90.5 },
-            PlayerLap { lap: 3, time: 91.0 },
-            PlayerLap { lap: 4, time: 96.0 },
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.5, fuel_remaining: -1.0 },
+            PlayerLap { lap: 3, time: 91.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 4, time: 96.0, fuel_remaining: -1.0 },
         ];
         // Campo um pouco mais lento.
         for lap in 1..=4 {
@@ -926,8 +1027,8 @@ mod tests {
     fn ritmo_some_mas_consistencia_nao_confiavel_com_2_voltas() {
         let mut h = base_history();
         h.player_laps = vec![
-            PlayerLap { lap: 1, time: 90.0 },
-            PlayerLap { lap: 2, time: 90.5 },
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.5, fuel_remaining: -1.0 },
         ];
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         let p = a.pace.expect("2 voltas já dá ritmo");
@@ -941,7 +1042,7 @@ mod tests {
     #[test]
     fn uma_volta_so_nao_gera_ritmo() {
         let mut h = base_history();
-        h.player_laps = vec![PlayerLap { lap: 1, time: 90.0 }];
+        h.player_laps = vec![PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 }];
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(a.pace.is_none());
     }
@@ -999,8 +1100,8 @@ mod tests {
         let mut h = base_history();
         // Corrida de 10 voltas (líder), jogador fez 10.
         for lap in 1..=10 {
-            h.laps.push(LapSnapshot { lap, cars: vec![] });
-            h.player_laps.push(PlayerLap { lap, time: 90.0 });
+            h.laps.push(LapSnapshot { lap, progress: 0.0, cars: vec![] });
+            h.player_laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });
         }
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert_eq!(a.race_laps, 10);
@@ -1014,10 +1115,10 @@ mod tests {
         let mut h = base_history();
         // Corrida de 12 voltas, jogador fez só 3 → saiu cedo.
         for lap in 1..=12 {
-            h.laps.push(LapSnapshot { lap, cars: vec![] });
+            h.laps.push(LapSnapshot { lap, progress: 0.0, cars: vec![] });
         }
         for lap in 1..=3 {
-            h.player_laps.push(PlayerLap { lap, time: 90.0 });
+            h.player_laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });
         }
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert_eq!(a.race_laps, 12);
@@ -1057,10 +1158,10 @@ mod tests {
         let mut h = base_history();
         // Ritmo limpo ~90s; volta 7 explode para 95s (perdeu ~5s).
         h.player_laps = vec![
-            PlayerLap { lap: 5, time: 90.0 },
-            PlayerLap { lap: 6, time: 90.0 },
-            PlayerLap { lap: 7, time: 95.0 },
-            PlayerLap { lap: 8, time: 90.0 },
+            PlayerLap { lap: 5, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 6, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 7, time: 95.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 8, time: 90.0, fuel_remaining: -1.0 },
         ];
         // Caiu de P7 (fim da volta 6) para P9 (fim da volta 7).
         h.player_track = vec![
@@ -1080,7 +1181,7 @@ mod tests {
     #[test]
     fn erro_mais_caro_dnf_domina() {
         let mut h = base_history();
-        h.player_laps = vec![PlayerLap { lap: 1, time: 90.0 }, PlayerLap { lap: 2, time: 90.0 }];
+        h.player_laps = vec![PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 }, PlayerLap { lap: 2, time: 90.0, fuel_remaining: -1.0 }];
         let inc = PlayerIncidents { crash_laps: vec![], is_dnf: true, dnf_lap: Some(9) };
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &inc);
         let m = a.mistake.expect("DNF é o erro mais caro");
@@ -1093,7 +1194,7 @@ mod tests {
         let mut h = base_history();
         // Voltas consistentes, sem incidente nem perda de posição.
         h.player_laps = (1..=8)
-            .map(|lap| PlayerLap { lap, time: 90.0 + (lap as f64 % 2.0) * 0.2 })
+            .map(|lap| PlayerLap { lap, time: 90.0 + (lap as f64 % 2.0) * 0.2, fuel_remaining: -1.0 })
             .collect();
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(a.mistake.is_none(), "corrida limpa não inventa erro");
@@ -1104,10 +1205,10 @@ mod tests {
         let mut h = base_history();
         // Ritmo ~90s; volta 2 é a melhor (89s) e ganhou 2 posições.
         h.player_laps = vec![
-            PlayerLap { lap: 1, time: 90.0 },
-            PlayerLap { lap: 2, time: 89.0 },
-            PlayerLap { lap: 3, time: 90.0 },
-            PlayerLap { lap: 4, time: 90.0 },
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 89.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 3, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 4, time: 90.0, fuel_remaining: -1.0 },
         ];
         // P10 no fim da volta 1 → P8 no fim da volta 2 (ganho de 2).
         h.player_track = vec![
@@ -1156,12 +1257,13 @@ mod tests {
         for lap in 1..=2 {
             h.laps.push(LapSnapshot {
                 lap,
+                progress: 0.0,
                 cars: vec![
                     CarGapPoint { idx: 0, position: 3, gap: 1.2 },
                     CarGapPoint { idx: 1, position: 1, gap: 0.0 },
                 ],
             });
-            h.player_laps.push(PlayerLap { lap, time: 90.0 });
+            h.player_laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });
         }
         let mut names = HashMap::new();
         names.insert(1, "Lider Silva".to_string());
@@ -1179,5 +1281,48 @@ mod tests {
         assert!(!a.has_telemetry);
         assert!(a.pace.is_none());
         assert!(a.rival.is_none());
+    }
+
+    #[test]
+    fn combustivel_calcula_consumo_e_autonomia() {
+        let mut h = base_history();
+        h.player_laps = vec![
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: 40.0 },
+            PlayerLap { lap: 2, time: 90.0, fuel_remaining: 38.0 },
+            PlayerLap { lap: 3, time: 90.0, fuel_remaining: 36.0 },
+        ];
+        let fuel = analyze_fuel(&h).expect("tem combustível");
+        assert!((fuel.used_per_lap_l - 2.0).abs() < 1e-6, "2 L/volta");
+        assert!((fuel.remaining_l - 36.0).abs() < 1e-6);
+        assert!((fuel.laps_left - 18.0).abs() < 1e-6, "36 / 2 = 18 voltas");
+    }
+
+    #[test]
+    fn combustivel_none_sem_dado() {
+        let mut h = base_history();
+        h.player_laps = vec![
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.0, fuel_remaining: -1.0 },
+        ];
+        assert!(analyze_fuel(&h).is_none());
+    }
+
+    #[test]
+    fn setores_apontam_o_ponto_fraco() {
+        use crate::iracing_sdk::race_monitor::SectorSplit;
+        let mut h = base_history();
+        // S2 é o fraco: 30.0 e 31.0 → melhor 30.0, média 30.5, perda 0.5s.
+        h.player_sectors = vec![
+            SectorSplit { lap: 1, sector: 1, time: 20.0 },
+            SectorSplit { lap: 2, sector: 1, time: 20.1 },
+            SectorSplit { lap: 1, sector: 2, time: 30.0 },
+            SectorSplit { lap: 2, sector: 2, time: 31.0 },
+            SectorSplit { lap: 1, sector: 3, time: 25.0 },
+            SectorSplit { lap: 2, sector: 3, time: 25.05 },
+        ];
+        let s = analyze_sectors(&h).expect("tem setores");
+        assert_eq!(s.weakest_sector, 2);
+        assert!((s.weakest_loss_ms - 500.0).abs() < 1.0, "perda ~0.5s no S2");
+        assert!((s.best_ms[1] - 30000.0).abs() < 1.0, "melhor S2 = 30.0s");
     }
 }

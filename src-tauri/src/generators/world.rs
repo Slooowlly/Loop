@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
+use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::constants::categories::{get_all_categories, get_category_config};
@@ -153,6 +154,17 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
                 .total_cmp(&category_teams[*left].car_performance)
                 .then(Ordering::Equal)
         });
+
+        // Anti-"sempre a mesma equipe": nas categorias SPEC (rookie), o carro não
+        // afeta o resultado (todos idênticos na sim), então casar o melhor piloto com
+        // o time de maior `car_performance` só serve pra entregar o ás pro mesmo time
+        // (o de maior template) em TODO save novo — que então vence a 1ª rookie e sobe
+        // a escada, roteirizando o começo de cada carreira. Embaralhando a ordem, o
+        // melhor talento rookie vai pra um time aleatório e qual equipe desponta varia
+        // por save. Fora da rookie o pareamento melhor-piloto↔melhor-carro é mantido.
+        if category.tier == 0 {
+            team_order.shuffle(rng);
+        }
 
         for (rank, team_index) in team_order.into_iter().enumerate() {
             let team = &mut category_teams[team_index];
@@ -456,6 +468,17 @@ pub(crate) fn generate_world_with_rng<R: Rng>(
                 .total_cmp(&category_teams[*left].car_performance)
                 .then(Ordering::Equal)
         });
+
+        // Anti-"sempre a mesma equipe": nas categorias SPEC (rookie), o carro não
+        // afeta o resultado (todos idênticos na sim), então casar o melhor piloto com
+        // o time de maior `car_performance` só serve pra entregar o ás pro mesmo time
+        // (o de maior template) em TODO save novo — que então vence a 1ª rookie e sobe
+        // a escada, roteirizando o começo de cada carreira. Embaralhando a ordem, o
+        // melhor talento rookie vai pra um time aleatório e qual equipe desponta varia
+        // por save. Fora da rookie o pareamento melhor-piloto↔melhor-carro é mantido.
+        if category.tier == 0 {
+            team_order.shuffle(rng);
+        }
 
         for (rank, team_index) in team_order.into_iter().enumerate() {
             let team = &mut category_teams[team_index];

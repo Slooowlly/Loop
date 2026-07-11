@@ -97,6 +97,15 @@ const PIT_CLUSTER_WINDOW_SECS: f64 = 15.0;
 const PIT_CLUSTER_MIN: usize = 2;
 /// Não realertar sobre o mesmo cluster por este tempo.
 const PIT_CLUSTER_COOLDOWN_SECS: f64 = 30.0;
+/// Intervalo mínimo (segundos) entre snapshots do trace disparados por TROCA de
+/// posição. Evita que uma disputa lado-a-lado (posições trocando tick a tick) gere
+/// um snapshot por frame. A virada de volta do líder ignora este throttle.
+const MIN_TRACE_EVENT_GAP_SECS: f64 = 0.25;
+/// Dwell mínimo (segundos) para uma passagem pela caixa contar como parada real.
+/// `CarIdxTrackSurface == InPitStall` pode piscar por 1 frame (carro cruzando a
+/// zona da caixa, ou leitura transiente do SDK) e gerar "pits" de ~0s. Uma parada
+/// de verdade sempre fica estacionada por vários segundos.
+const MIN_PIT_STALL_DWELL_SECS: f64 = 2.5;
 
 // Setores: divide a pista para detectar acidente coletivo (carros em apuros no
 // mesmo trecho ou em setores vizinhos).
@@ -371,11 +380,17 @@ pub struct CarGapPoint {
     pub gap: f64,
 }
 
-/// Snapshot de todos os carros no instante em que o líder completou uma volta.
+/// Snapshot de todos os carros num instante do race trace. Antes só saía na virada
+/// da volta do líder; agora também a cada TROCA de posição, pra mostrar a ultrapassagem
+/// na hora. `lap` + `progress` dão o X fracionário (ex.: volta 6 a 40% → 6.4).
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LapSnapshot {
-    /// Volta do líder (1-based) — o eixo X do race trace.
+    /// Voltas completas do líder no instante do snapshot (parte inteira do X).
     pub lap: i32,
+    /// Progresso do líder DENTRO da volta (0..1) no instante — a parte fracionária
+    /// do X. 0 nos snapshots de virada de volta.
+    #[serde(default)]
+    pub progress: f32,
     pub cars: Vec<CarGapPoint>,
 }
 
@@ -384,6 +399,14 @@ pub struct LapSnapshot {
 pub struct PlayerLap {
     pub lap: i32,
     pub time: f64,
+    /// Combustível restante (litros) ao COMPLETAR esta volta. A diferença entre
+    /// voltas dá o consumo por volta. -1 = não capturado (dado ausente).
+    #[serde(default = "neg_one")]
+    pub fuel_remaining: f64,
+}
+
+fn neg_one() -> f64 {
+    -1.0
 }
 
 /// Marcador de evento do JOGADOR no race trace (pin): posição = volta + fração
@@ -493,6 +516,19 @@ pub struct RaceHistory {
     /// Contexto de clima da corrida (molhada na largada / em algum momento / no fim).
     #[serde(default)]
     pub weather: super::tire_strategy::RaceWeatherContext,
+    /// Parciais por setor do JOGADOR (pista dividida em 3). Base do "seu setor fraco".
+    #[serde(default)]
+    pub player_sectors: Vec<SectorSplit>,
+}
+
+/// Parcial de um setor da volta do jogador (pista dividida em 3 por `lap_dist_pct`).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SectorSplit {
+    pub lap: i32,
+    /// Setor 1..3.
+    pub sector: i32,
+    /// Tempo do setor em segundos.
+    pub time: f64,
 }
 
 impl RaceHistory {
@@ -512,6 +548,7 @@ impl RaceHistory {
             qualy_laps: Vec::new(),
             pit_stops: Vec::new(),
             weather: super::tire_strategy::RaceWeatherContext::DRY,
+            player_sectors: Vec::new(),
         }
     }
 }
@@ -658,12 +695,26 @@ struct RaceMonitor {
 
     // Histórico volta a volta (painel pós-corrida)
     history: RaceHistory,
+    /// `session_num` que o histórico atual cobre. Muda (quali/treino → corrida) →
+    /// o histórico é zerado pra corrida não herdar nada da sessão anterior. -1 = ainda
+    /// não há sessão associada.
+    hist_session_num: i32,
     /// Última volta do líder já registrada no histórico.
     hist_leader_lap: i32,
     /// Última volta do jogador já registrada no histórico.
     hist_player_lap: i32,
     /// Última volta completada já registrada POR CARRO (detecta fim de volta da IA).
     hist_car_lap_completed: [i32; 64],
+    /// Última posição VÁLIDA (≥1) conhecida por carro. `CarIdxPosition` pisca 0
+    /// quando o carro está no box/entre estados; guardamos a última boa pra ele não
+    /// sumir do race trace num tick ruim. 0 = nunca teve posição válida.
+    hist_car_last_pos: [i32; 64],
+    /// Posição de cada carro no ÚLTIMO snapshot do trace — base pra detectar troca
+    /// de posição (evento) e gravar o ponto na hora. 0 = ainda sem snapshot.
+    hist_trace_pos: [i32; 64],
+    /// `session_time` do último snapshot por EVENTO (troca de posição). Throttle
+    /// leve pra oscilação lado-a-lado não gerar um snapshot por tick.
+    hist_last_trace_event_time: f64,
     /// `session_time` da última amostra da batalha (à frente/atrás).
     hist_last_neighbor_time: f64,
     /// Posição na classe de cada carro no instante da LARGADA (bandeira verde) =
@@ -682,6 +733,14 @@ struct RaceMonitor {
     pit_stall_wet: [bool; 64],
     /// Já capturamos o clima da LARGADA nesta tentativa (uma vez, no verde).
     weather_start_captured: bool,
+
+    // ── Parciais por setor do jogador (pista dividida em 3) ─────────────────
+    /// Setor em que o jogador estava no tick anterior (0..2). -1 = ainda sem base.
+    sec_prev: i32,
+    /// `session_time` de quando o jogador entrou no setor atual.
+    sec_enter_time: f64,
+    /// Entrou NESTE setor no começo dele (não no meio) → o parcial é válido.
+    sec_clean: bool,
 }
 
 impl RaceMonitor {
@@ -745,9 +804,13 @@ impl RaceMonitor {
             live_is_green: false,
             race_green_time: None,
             history: RaceHistory::empty(),
+            hist_session_num: -1,
             hist_leader_lap: 0,
             hist_player_lap: 0,
             hist_car_lap_completed: [0; 64],
+            hist_car_last_pos: [0; 64],
+            hist_trace_pos: [0; 64],
+            hist_last_trace_event_time: 0.0,
             hist_last_neighbor_time: 0.0,
             grid_class_pos: [0; 64],
             pit_in_stall: [false; 64],
@@ -755,6 +818,9 @@ impl RaceMonitor {
             pit_stall_enter_lap: [0; 64],
             pit_stall_wet: [false; 64],
             weather_start_captured: false,
+            sec_prev: -1,
+            sec_enter_time: 0.0,
+            sec_clean: false,
         }
     }
 
@@ -1208,6 +1274,14 @@ impl RaceMonitor {
         }
 
         // ── Paradas de box (todos os carros, menos o pace car) ──
+        // Só rastreia durante a corrida VERDE: a espera no box antes da largada
+        // (grid) ou numa classificatória não pode virar uma parada. Fora do verde,
+        // zera o rastreio pra uma caixa pré-largada não abrir uma "entrada" que
+        // fecharia (com dwell enorme) no instante da largada.
+        if t.session_state < STATE_RACING {
+            self.pit_in_stall = [false; 64];
+            return;
+        }
         for car in &t.cars {
             let i = car.idx as usize;
             if i >= 64 || self.car_is_pace[i] {
@@ -1221,9 +1295,14 @@ impl RaceMonitor {
                 self.pit_stall_enter_lap[i] = car.lap.max(car.lap_completed + 1).max(1);
                 self.pit_stall_wet[i] = wet;
             } else if !in_stall && self.pit_in_stall[i] {
-                // Saiu da caixa → fecha a parada e registra.
+                // Saiu da caixa → fecha a parada.
                 self.pit_in_stall[i] = false;
                 let dwell = (now - self.pit_stall_enter_time[i]).max(0.0);
+                // Ignora blips transientes de `InPitStall` (dwell ~0s): o carro
+                // apenas cruzou a zona da caixa, não parou. Só conta parada real.
+                if dwell < MIN_PIT_STALL_DWELL_SECS {
+                    continue;
+                }
                 self.history.pit_stops.push(super::tire_strategy::PitStop {
                     car_idx: car.idx,
                     lap: self.pit_stall_enter_lap[i],
@@ -1237,8 +1316,80 @@ impl RaceMonitor {
         }
     }
 
+    /// Cronometra os 3 setores do jogador dividindo `lap_dist_pct` em terços. Só na
+    /// corrida verde e com o carro na pista; sair da pista ou pular setor (teleporte/
+    /// reset) invalida o parcial em andamento pra não gravar tempo-lixo.
+    fn capture_player_sectors(&mut self, t: &IracingTelemetry) {
+        if t.session_state < STATE_RACING || t.track_surface != SURFACE_ON_TRACK {
+            self.sec_prev = -1;
+            return;
+        }
+        let pct = t.lap_dist_pct;
+        if !(0.0..=1.0).contains(&pct) {
+            return;
+        }
+        let sec = if pct < 1.0 / 3.0 {
+            0
+        } else if pct < 2.0 / 3.0 {
+            1
+        } else {
+            2
+        };
+        let now = t.session_time;
+        if self.sec_prev < 0 {
+            // Primeira base: começa a cronometrar, mas ESTE setor é parcial (entramos
+            // no meio dele) → não grava ao fechá-lo.
+            self.sec_prev = sec;
+            self.sec_enter_time = now;
+            self.sec_clean = false;
+            return;
+        }
+        if sec == self.sec_prev {
+            return;
+        }
+        let expected = (self.sec_prev + 1) % 3;
+        if sec == expected {
+            if self.sec_clean {
+                let dur = now - self.sec_enter_time;
+                if dur > 0.0 && dur < 600.0 {
+                    // O S3 fecha na linha (2→0) → pertence à volta recém-completada.
+                    let lap = if self.sec_prev == 2 {
+                        (t.lap - 1).max(1)
+                    } else {
+                        t.lap.max(1)
+                    };
+                    self.history.player_sectors.push(SectorSplit {
+                        lap,
+                        sector: self.sec_prev + 1,
+                        time: dur,
+                    });
+                    if self.history.player_sectors.len() > MAX_HISTORY_LAPS {
+                        self.history.player_sectors.remove(0);
+                    }
+                }
+            }
+            self.sec_prev = sec;
+            self.sec_enter_time = now;
+            self.sec_clean = true;
+        } else {
+            // Pulou setor (teleporte/reset/volta anulada) → invalida o parcial.
+            self.sec_prev = sec;
+            self.sec_enter_time = now;
+            self.sec_clean = false;
+        }
+    }
+
     fn record_history(&mut self, t: &IracingTelemetry) {
         let now = t.session_time;
+
+        // A CLASSIFICATÓRIA nunca entra no histórico da CORRIDA. Ela roda na mesma
+        // conexão de telemetria (com outro `session_num`) e, sem este gate, suas
+        // voltas + o retorno ao box no fim viravam voltas/paradas "da corrida" no
+        // pós-corrida. As voltas de quali que importam (grid) já são capturadas à
+        // parte em `capture_qualy` → `qualy_laps`.
+        if self.qualy_session_num >= 0 && t.session_num == self.qualy_session_num {
+            return;
+        }
 
         // Marca o histórico como encerrado quando a tentativa que ele cobre fecha
         // (checkered/DNF/etc) — sinaliza ao painel que pode salvar/auto-salvar.
@@ -1258,24 +1409,34 @@ impl RaceMonitor {
             Some(a) if a.status == "active" => a.number,
             _ => return,
         };
-        // Tentativa nova → começa um histórico limpo.
-        if self.history.attempt_number != attempt {
+        // Tentativa nova OU sessão de telemetria nova (quali/treino → corrida) →
+        // começa um histórico limpo. O gate por sessão é a rede de segurança caso
+        // a quali não tenha sido identificada a tempo pelo YAML.
+        if self.history.attempt_number != attempt || self.hist_session_num != t.session_num {
             self.history = RaceHistory::empty();
             self.history.attempt_number = attempt;
+            self.hist_session_num = t.session_num;
             self.hist_leader_lap = 0;
             self.hist_player_lap = 0;
             self.hist_car_lap_completed = [0; 64];
+            self.hist_car_last_pos = [0; 64];
+            self.hist_trace_pos = [0; 64];
+            self.hist_last_trace_event_time = 0.0;
             self.hist_last_neighbor_time = 0.0;
             // A quali precede a corrida → carrega as voltas dela no histórico (uma vez).
             self.history.qualy_laps = self.qualy_laps.clone();
-            // Reseta o detector de pit / clima para a tentativa nova.
+            // Reseta o detector de pit / clima / setor para a tentativa nova.
             self.pit_in_stall = [false; 64];
             self.weather_start_captured = false;
+            self.sec_prev = -1;
+            self.sec_enter_time = 0.0;
+            self.sec_clean = false;
         }
         self.history.player_car_idx = t.player_car_idx;
 
         // Clima da corrida + paradas de box (estratégia de pneu de todos os carros).
         self.capture_tire_strategy(t, now);
+        self.capture_player_sectors(t);
 
         // Volta do líder = voltas do carro em P1 (ou o maior valor, na largada
         // quando as posições ainda não assentaram).
@@ -1294,25 +1455,84 @@ impl RaceMonitor {
             self.history.yellow_laps.push(leader_lap);
         }
 
-        // Líder completou uma volta nova → snapshot de todos os carros.
-        if leader_lap > self.hist_leader_lap && leader_lap >= 1 {
-            self.hist_leader_lap = leader_lap;
+        // Guarda a última posição VÁLIDA de cada carro a cada tick. `CarIdxPosition`
+        // pisca 0 quando o carro está no box/entre estados; sem isso, um único tick
+        // ruim no instante do snapshot faria o carro sumir daquela volta do trace.
+        for c in &t.cars {
+            let i = c.idx;
+            if i >= 0 && (i as usize) < 64 && c.position >= 1 {
+                self.hist_car_last_pos[i as usize] = c.position;
+            }
+        }
+
+        // Snapshot do trace: na VIRADA de volta do líder (âncora, garante 1 ponto por
+        // volta) OU quando QUALQUER posição muda — aí a ultrapassagem entra no gráfico
+        // NA HORA, não só quando o líder fecha a volta. O X vira fracionário
+        // (volta do líder + progresso dele na volta).
+        let new_leader_lap = leader_lap > self.hist_leader_lap && leader_lap >= 1;
+        let positions_changed = t.session_state >= STATE_RACING
+            && leader_lap >= 1
+            && now - self.hist_last_trace_event_time >= MIN_TRACE_EVENT_GAP_SECS
+            && t.cars.iter().any(|c| {
+                let i = c.idx;
+                i >= 0
+                    && (i as usize) < 64
+                    && c.position >= 1
+                    && c.position != self.hist_trace_pos[i as usize]
+            });
+        if new_leader_lap || positions_changed {
+            if new_leader_lap {
+                self.hist_leader_lap = leader_lap;
+            }
+            if positions_changed {
+                self.hist_last_trace_event_time = now;
+            }
+            // Progresso do líder DENTRO da volta (0..1) → parte fracionária do X.
+            let leader_progress = t
+                .cars
+                .iter()
+                .find(|c| c.position == 1)
+                .map(|c| c.lap_dist_pct.clamp(0.0, 1.0))
+                .unwrap_or(0.0);
             let cars: Vec<CarGapPoint> = t
                 .cars
                 .iter()
-                .filter(|c| c.position >= 1) // ignora pace car / não classificados
-                .map(|c| CarGapPoint {
-                    idx: c.idx,
-                    position: c.position,
-                    gap: if c.f2_time.is_finite() {
-                        c.f2_time.max(0.0)
+                .filter_map(|c| {
+                    let i = c.idx;
+                    if i < 0 || i as usize >= 64 {
+                        return None;
+                    }
+                    // Posição atual (≥1), ou a última válida conhecida (carro num
+                    // blip de box). Sem nenhuma → pace car / nunca classificado.
+                    let position = if c.position >= 1 {
+                        c.position
                     } else {
-                        0.0
-                    },
+                        self.hist_car_last_pos[i as usize]
+                    };
+                    if position < 1 {
+                        return None;
+                    }
+                    Some(CarGapPoint {
+                        idx: c.idx,
+                        position,
+                        gap: if c.f2_time.is_finite() {
+                            c.f2_time.max(0.0)
+                        } else {
+                            0.0
+                        },
+                    })
                 })
                 .collect();
+            // Memoriza as posições gravadas pra detectar a PRÓXIMA troca.
+            for c in &t.cars {
+                let i = c.idx;
+                if i >= 0 && (i as usize) < 64 && c.position >= 1 {
+                    self.hist_trace_pos[i as usize] = c.position;
+                }
+            }
             self.history.laps.push(LapSnapshot {
                 lap: leader_lap,
+                progress: leader_progress as f32,
                 cars,
             });
             if self.history.laps.len() > MAX_HISTORY_LAPS {
@@ -1332,6 +1552,9 @@ impl RaceMonitor {
                 self.history.player_laps.push(PlayerLap {
                     lap: t.lap_completed,
                     time: t.last_lap_time,
+                    // Combustível restante ao fechar a volta (litros); consumo/volta
+                    // sai da diferença entre voltas. <0 no SDK = ignora.
+                    fuel_remaining: if t.fuel_level >= 0.0 { t.fuel_level } else { -1.0 },
                 });
                 if self.history.player_laps.len() > MAX_HISTORY_LAPS {
                     self.history.player_laps.remove(0);
@@ -2598,4 +2821,180 @@ pub fn get_feedback() -> RaceFeedback {
 /// Zera o monitor para começar um novo teste.
 pub fn reset() {
     *lock() = RaceMonitor::new();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::iracing_sdk::{CarSnapshot, IracingTelemetry};
+
+    fn active_attempt() -> Attempt {
+        Attempt {
+            number: 1,
+            status: "active".to_string(),
+            started_at_session_time: 0.0,
+            laps_completed: 0,
+            ended_by: None,
+            reason: None,
+            worst_crash: None,
+            evidence: AttemptEvidence::default(),
+            crashes: Vec::new(),
+            peak_crash_score: 0.0,
+            collided_with_car_number: None,
+        }
+    }
+
+    fn on_track(idx: i32, position: i32, lap_completed: i32) -> CarSnapshot {
+        CarSnapshot {
+            idx,
+            position,
+            lap_completed,
+            track_surface: SURFACE_ON_TRACK,
+            ..Default::default()
+        }
+    }
+
+    /// Frame de corrida verde: líder (idx 1) em P1 na volta `leader_lap`, jogador
+    /// (idx 0) em P2 logo atrás.
+    fn race_frame(session_num: i32, leader_lap: i32) -> IracingTelemetry {
+        IracingTelemetry {
+            session_num,
+            session_state: STATE_RACING,
+            session_time: 100.0,
+            player_car_idx: 0,
+            cars: vec![
+                on_track(0, 2, leader_lap - 1),
+                on_track(1, 1, leader_lap),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn quali_nao_entra_no_historico_da_corrida() {
+        let mut m = RaceMonitor::new();
+        m.qualy_session_num = 1;
+        m.attempts.push(active_attempt());
+
+        // Tick da CLASSIFICATÓRIA (session_num == qualy) não grava nada.
+        m.record_history(&race_frame(1, 3));
+        assert!(
+            m.history.laps.is_empty(),
+            "a quali não pode entrar no histórico da corrida"
+        );
+
+        // Tick da CORRIDA (outro session_num) grava normalmente.
+        m.record_history(&race_frame(2, 3));
+        assert!(!m.history.laps.is_empty(), "a corrida deve gravar snapshots");
+        assert_eq!(m.hist_session_num, 2);
+    }
+
+    #[test]
+    fn troca_de_sessao_zera_o_historico() {
+        let mut m = RaceMonitor::new();
+        m.attempts.push(active_attempt());
+
+        // Sessão anterior (ex.: treino, session 0) grava alguns snapshots.
+        m.record_history(&race_frame(0, 5));
+        assert!(!m.history.laps.is_empty());
+
+        // Corrida (session 2) → histórico limpo, sem herdar a sessão anterior.
+        m.record_history(&race_frame(2, 1));
+        assert_eq!(m.hist_session_num, 2);
+        assert!(
+            m.history.laps.iter().all(|s| s.lap <= 1),
+            "a corrida não pode herdar as voltas da sessão anterior"
+        );
+    }
+
+    #[test]
+    fn troca_de_posicao_gera_snapshot_na_hora() {
+        let mut m = RaceMonitor::new();
+        m.attempts.push(active_attempt());
+
+        // Volta 3 do líder; jogador (idx 0) em P3.
+        let mut f = race_frame(2, 3);
+        f.session_time = 10.0;
+        f.cars = vec![on_track(0, 3, 2), on_track(1, 1, 3), on_track(2, 2, 3)];
+        m.record_history(&f);
+        let n0 = m.history.laps.len();
+        assert!(n0 >= 1);
+
+        // MESMA volta do líder, mas o jogador passa o idx 2 (P3 → P2) no meio da
+        // volta. Líder a 40% da volta → o ponto sai em 3.4, não na virada.
+        let mut f2 = race_frame(2, 3);
+        f2.session_time = 12.0;
+        let mut leader = on_track(1, 1, 3);
+        leader.lap_dist_pct = 0.4;
+        f2.cars = vec![on_track(0, 2, 2), leader, on_track(2, 3, 2)];
+        m.record_history(&f2);
+
+        assert_eq!(
+            m.history.laps.len(),
+            n0 + 1,
+            "troca de posição deve gerar um snapshot na hora (sem virar a volta)"
+        );
+        let last = m.history.laps.last().unwrap();
+        assert_eq!(last.lap, 3);
+        assert!((last.progress - 0.4).abs() < 1e-5, "progresso do líder na volta");
+        assert_eq!(
+            last.cars.iter().find(|c| c.idx == 0).unwrap().position,
+            2,
+            "jogador subiu para P2 no ponto registrado"
+        );
+    }
+
+    #[test]
+    fn setores_do_jogador_sao_cronometrados() {
+        let mut m = RaceMonitor::new();
+        m.attempts.push(active_attempt());
+        // Jogador (idx 0) avança pela pista; capture_player_sectors cronometra ao
+        // fechar cada setor entrado LIMPO (do começo dele).
+        fn push(m: &mut RaceMonitor, pct: f64, time: f64, lap: i32) {
+            let mut f = race_frame(2, 3);
+            f.session_time = time;
+            f.lap = lap;
+            f.lap_dist_pct = pct;
+            f.track_surface = SURFACE_ON_TRACK;
+            f.cars = vec![on_track(0, 2, lap - 1), on_track(1, 1, lap)];
+            m.record_history(&f);
+        }
+        push(&mut m, 0.10, 100.0, 2); // base no S1 (parcial → não grava)
+        push(&mut m, 0.40, 110.0, 2); // entra S2 LIMPO
+        push(&mut m, 0.70, 118.0, 2); // entra S3 → fecha S2 (8s)
+        push(&mut m, 0.05, 126.0, 3); // cruza a linha → fecha S3 (8s)
+
+        let secs: Vec<(i32, f64)> = m
+            .history
+            .player_sectors
+            .iter()
+            .map(|s| (s.sector, (s.time * 10.0).round() / 10.0))
+            .collect();
+        assert!(secs.contains(&(2, 8.0)), "S2 cronometrado: {secs:?}");
+        assert!(secs.contains(&(3, 8.0)), "S3 cronometrado: {secs:?}");
+        // O S1 inicial era parcial (entramos no meio) → não pode ter sido gravado.
+        assert!(!secs.iter().any(|(s, _)| *s == 1), "S1 parcial não grava: {secs:?}");
+    }
+
+    #[test]
+    fn blip_de_pit_stall_de_dwell_zero_nao_vira_parada() {
+        let mut m = RaceMonitor::new();
+        m.attempts.push(active_attempt());
+
+        // Entra na corrida e assenta o histórico.
+        m.record_history(&race_frame(2, 2));
+
+        // Jogador pisca `InPitStall` por um instante (mesmo session_time → dwell 0).
+        let mut blip = race_frame(2, 3);
+        blip.cars[0].track_surface = SURFACE_IN_PIT_STALL;
+        m.record_history(&blip);
+        let mut leave = race_frame(2, 3);
+        leave.cars[0].track_surface = SURFACE_ON_TRACK; // saiu no mesmo instante
+        m.record_history(&leave);
+
+        assert!(
+            m.history.pit_stops.is_empty(),
+            "blip transiente de pit stall (dwell ~0) não pode virar parada"
+        );
+    }
 }

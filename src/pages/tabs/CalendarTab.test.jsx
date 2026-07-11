@@ -507,7 +507,7 @@ describe("CalendarTab", () => {
 
     const tooltip = await screen.findByTestId("calendar-tooltip");
     const logo = within(tooltip).getByTestId("calendar-tooltip-category-logo");
-    expect(logo).toHaveAttribute("alt", "BMW M2 CS Racing");
+    expect(logo).toHaveAttribute("alt", "BMW Cup");
     expect(logo).toHaveAttribute("src", "/utilities/categorias/M2%20CUP.png");
   });
 
@@ -519,7 +519,7 @@ describe("CalendarTab", () => {
 
     const tooltip = await screen.findByTestId("calendar-tooltip");
     expect(within(tooltip).queryByText(/outras categorias no dia/i)).not.toBeInTheDocument();
-    expect(within(tooltip).getByText(/mazda mx-5 championship/i)).toBeInTheDocument();
+    expect(within(tooltip).getByText(/mazda cup/i)).toBeInTheDocument();
     expect(within(tooltip).getByText(/laguna seca/i)).toBeInTheDocument();
     expect(within(tooltip).getByText("Etapa 2")).toBeInTheDocument();
   });
@@ -535,7 +535,7 @@ describe("CalendarTab", () => {
     const mainTicket = within(mainTooltip).getByTestId("calendar-tooltip-race-ticket");
     const mainLogo = within(mainTooltip).getByTestId("calendar-tooltip-category-logo");
     expect(mainTicket).toBeInTheDocument();
-    expect(mainLogo).toHaveAttribute("alt", "Mazda MX-5 Rookie Cup");
+    expect(mainLogo).toHaveAttribute("alt", "Mazda Rookie");
     expect(mainLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20ROOKIE.png");
 
     fireEvent.mouseLeave(raceDay);
@@ -545,7 +545,7 @@ describe("CalendarTab", () => {
 
     const otherTooltip = await screen.findByTestId("calendar-tooltip");
     const otherLogo = within(otherTooltip).getByTestId("calendar-tooltip-other-category-logo");
-    expect(otherLogo).toHaveAttribute("alt", "Mazda MX-5 Championship");
+    expect(otherLogo).toHaveAttribute("alt", "Mazda Cup");
     expect(otherLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.png");
   });
 
@@ -611,7 +611,7 @@ describe("CalendarTab", () => {
     expect(ticket).toHaveTextContent("Pendente");
 
     const logo = within(ticket).getByTestId("calendar-tooltip-other-category-logo");
-    expect(logo).toHaveAttribute("alt", "Mazda MX-5 Championship");
+    expect(logo).toHaveAttribute("alt", "Mazda Cup");
     expect(logo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.png");
     expect(logo).toHaveClass("h-32");
     expect(logo).toHaveClass("w-[200px]");
@@ -644,7 +644,7 @@ describe("CalendarTab", () => {
     expect(within(ticket).queryByText("R1")).not.toBeInTheDocument();
 
     const logo = within(ticket).getByTestId("calendar-tooltip-category-logo");
-    expect(logo).toHaveAttribute("alt", "Mazda MX-5 Rookie Cup");
+    expect(logo).toHaveAttribute("alt", "Mazda Rookie");
     expect(logo).toHaveClass("h-32");
     expect(logo).toHaveClass("w-[200px]");
 

@@ -45,23 +45,25 @@ export const NATIONALITIES = [
 export const STARTING_CATEGORIES = [
   {
     id: "mazda_rookie",
-    name: "Mazda MX-5 Rookie Cup",
-    car: "Mazda MX-5 2016",
-    emoji: "🔴",
+    name: "Mazda Rookie",
+    car: "Mazda MX-5",
+    logo: new URL("../assets/utilities/source-images/Categorias/MX5 ROOKIE.png", import.meta.url).href,
     teams: 6,
     races: 5,
     drivers: 12,
-    description: "Categoria de entrada para aprender leitura de corrida, pista e consistência.",
+    description:
+      "A escola clássica do Mazda MX-5: roadster leve e de tração traseira, onde só a pilotagem limpa faz diferença. O ponto de partida da escada Mazda.",
   },
   {
     id: "toyota_rookie",
-    name: "Toyota GR86 Rookie Cup",
+    name: "Toyota Rookie",
     car: "Toyota GR86",
-    emoji: "⚪",
+    logo: new URL("../assets/utilities/source-images/Categorias/GR ROOKIE.png", import.meta.url).href,
     teams: 6,
     races: 5,
     drivers: 12,
-    description: "Categoria de entrada com o mesmo tamanho de grid e foco total em fundamentos.",
+    description:
+      "A vitrine da Toyota Gazoo Racing: um grid irmão com a mesma proposta, sob a bandeira de uma marca que forma campeões pelo mundo. O início da escada Toyota.",
   },
 ];
 

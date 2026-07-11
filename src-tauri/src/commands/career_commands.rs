@@ -4,7 +4,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::career::{
     advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
-    delete_career_in_base_dir, finalize_preseason_in_base_dir,
+    debug_prepare_market_scenario_in_base_dir, delete_career_in_base_dir,
+    finalize_preseason_in_base_dir,
     get_briefing_phrase_history_in_base_dir, get_calendar_for_category_in_base_dir,
     get_driver_detail_in_base_dir, get_driver_in_base_dir, get_drivers_by_category_in_base_dir,
     get_news_in_base_dir, get_player_proposals_in_base_dir, get_preseason_free_agents_in_base_dir,
@@ -98,6 +99,18 @@ pub async fn advance_season(
 pub async fn skip_all_pending_races(app: AppHandle, career_id: String) -> Result<(), String> {
     let base_dir = app_data_dir(&app)?;
     skip_all_pending_races_in_base_dir(&base_dir, &career_id)
+}
+
+/// DEBUG: prepara o mercado num cenário (agente livre + posição forçada) antes de o
+/// chamador avançar a temporada. Cenários: "no_team", "first", "fifth".
+#[tauri::command]
+pub async fn debug_prepare_market_scenario(
+    app: AppHandle,
+    career_id: String,
+    scenario: String,
+) -> Result<(), String> {
+    let base_dir = app_data_dir(&app)?;
+    debug_prepare_market_scenario_in_base_dir(&base_dir, &career_id, &scenario)
 }
 
 #[tauri::command]

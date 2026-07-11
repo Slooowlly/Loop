@@ -1202,6 +1202,24 @@ fn compute_historical_index(stats: &[CategoryStats]) -> f64 {
     round_one(value.max(0.0))
 }
 
+/// Índice histórico (pedigree de CARREIRA) de UM piloto, para uso fora da tela de ranking
+/// (ex: valor de mercado nas propostas formais). Mesma régua de `compute_historical_index`,
+/// mas ignora títulos de construtores (aproximação barata: não constrói o mapa global de
+/// títulos de equipe). Devolve 0.0 se não há arquivo de temporadas.
+pub(crate) fn historical_index_for_driver(
+    conn: &Connection,
+    driver: &Driver,
+) -> Result<f64, String> {
+    let category = regular_category(driver.categoria_atual.as_deref(), None);
+    let stats = load_driver_category_stats(
+        conn,
+        driver,
+        category.as_deref(),
+        &TeamTitleStatsByDriver::new(),
+    )?;
+    Ok(compute_historical_index(&stats))
+}
+
 fn assign_ranks(rows: &mut [GlobalDriverRankingRow]) {
     rows.sort_by(compare_historical_rows);
     for (index, row) in rows.iter_mut().enumerate() {

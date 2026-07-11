@@ -47,6 +47,11 @@ const PRESS_AGG: f64 = 10.0;
 const PRESS_OPT: f64 = 8.0;
 const PRESS_SMO: f64 = 12.0;
 const PRESS_SKILL: f64 = 1.9; // pequeno de propósito (pace ~ ±2..4 no extremo)
+// Casa cheia (interesse do evento). Neutro mais baixo que o título (0.55) → palco =
+// oportunidade, a maioria rende. GAIN leva stakes×forma a uma intensidade ~0..3
+// comparável à do título. Reaproveita as magnitudes PRESS_* acima.
+const EVENT_PRESS_NEUTRAL: f64 = 0.42;
+const EVENT_PRESS_GAIN: f64 = 1.9;
 const CRUISE_AGG: f64 = 10.0;
 const CRUISE_SMO: f64 = 10.0;
 const FORM_OPT: f64 = 16.0;
@@ -185,6 +190,44 @@ pub fn pressure_title(title: &TitleContext, races_left: u32, resilience: f64) ->
         nudge,
         adverse: dir > 0.0,
     } // só o choke é adverso
+}
+
+/// Pressão de "casa cheia" (interesse do evento) — UNIVERSAL, ao contrário da de
+/// título (que só pega quem briga). Palco = oportunidade: neutro mais baixo (0.42),
+/// a maioria rende e só o frágil trava. Pesa MAIS em quem vem em má fase ("algo a
+/// provar"). `event_stakes` 0..1 = quanto o evento desperta público. Mesma semântica
+/// da sim (simulation/pressure.rs event_pressure_*). Choke = ADVERSO.
+pub fn pressure_event(
+    event_stakes: f64,
+    recent_positions: &[u32],
+    field_size: u32,
+    resilience: f64,
+) -> Signal {
+    let stakes = event_stakes.clamp(0.0, 1.0);
+    if stakes <= 0.0 {
+        return Signal::default();
+    }
+    // "Algo a provar": quem vem no fundo do grid sente mais (0.7 na frente .. 1.6 no fundo).
+    let form_weight = if recent_positions.is_empty() || field_size <= 1 {
+        1.0
+    } else {
+        let avg =
+            recent_positions.iter().map(|&p| p as f64).sum::<f64>() / recent_positions.len() as f64;
+        let depth = ((avg - 1.0) / (field_size as f64 - 1.0)).clamp(0.0, 1.0);
+        0.7 + depth * 0.9
+    };
+    let intensity = stakes * form_weight * EVENT_PRESS_GAIN; // ~0..3
+    let dir = EVENT_PRESS_NEUTRAL - resilience; // >0 choke (só frágil <0.42), <0 clutch
+    let nudge = Nudge {
+        aggression: intensity * dir * PRESS_AGG,
+        optimism: intensity * dir * PRESS_OPT,
+        smoothness: -intensity * dir * PRESS_SMO,
+        skill: -intensity * dir * PRESS_SKILL,
+    };
+    Signal {
+        nudge,
+        adverse: dir > 0.0, // só o choke é adverso (blindável pela compostura)
+    }
 }
 
 /// Forma/embalo pelos resultados recentes + "seca de resultados" (pressão de baixo).
@@ -647,12 +690,17 @@ pub fn compose(
 ) -> BehaviorOutput {
     let gain = malleability(mentality);
     let sum = nudges.iter().copied().fold(Nudge::default(), Nudge::add);
+    // Headroom: o nudge de pace (essencialmente da pressão) vira pontos de skill
+    // conforme onde o piloto está na curva — subir tem teto, cair tem chão. Mesma
+    // curva da sim (simulation/pressure.rs).
+    let skill_nudge = sum.skill * gain;
+    let hr = pressure::headroom_pace_mult(base_skill, skill_nudge >= 0.0);
     BehaviorOutput {
         aggression: (base_aggression + sum.aggression * gain).clamp(0.0, 100.0),
         optimism: (base_optimism + sum.optimism * gain).clamp(0.0, 100.0),
         smoothness: (base_smoothness + sum.smoothness * gain).clamp(0.0, 100.0),
-        // Pace: a base já entra com a penalidade de pista; aqui só o nudge pequeno.
-        skill: (base_skill + sum.skill * gain).clamp(0.0, 100.0),
+        // Pace: a base já entra com a penalidade de pista; aqui só o nudge, com headroom.
+        skill: (base_skill + skill_nudge * hr).clamp(0.0, 100.0),
     }
 }
 
@@ -667,6 +715,8 @@ pub struct BehaviorInputs {
     pub resilience: f64,
     pub title: TitleContext,
     pub races_left: u32,
+    /// Interesse "de local" do evento (0..1) — pressão de casa cheia (universal).
+    pub event_stakes: f64,
     pub recent_positions: Vec<u32>,
     pub field_size: u32,
     /// Total de corridas da temporada (p/ desgaste de fim de temporada).
@@ -711,6 +761,7 @@ pub fn compute(i: &BehaviorInputs) -> BehaviorOutput {
     let amult = adverse_multiplier(i.mentality, i.seed);
     let signals = [
         pressure_title(&i.title, i.races_left, i.resilience),
+        pressure_event(i.event_stakes, &i.recent_positions, i.field_size, i.resilience),
         form(&i.recent_positions, i.field_size, i.resilience),
         track_affinity(&i.track),
         weather(i.is_wet, i.fator_chuva, i.rain_intensity),
@@ -783,6 +834,7 @@ mod tests {
             resilience: 0.5,
             title: tc(false, false, false), // fora de briga → sem pressão
             races_left: 8,
+            event_stakes: 0.0, // sem casa cheia por padrão nos testes neutros
             recent_positions: Vec::new(),
             field_size: 20,
             season_length: 10,
@@ -832,22 +884,38 @@ mod tests {
     }
 
     #[test]
-    fn pace_no_export_e_pequeno() {
+    fn pace_export_respeita_headroom() {
         let title = tc(true, false, false);
-        let out = compose(
-            50.0,
-            50.0,
-            50.0,
-            60.0,
-            0.0,
-            &[pressure_title(&title, 1, 0.05).nudge],
-        );
+        // Choke forte (frágil, última corrida): craque (skill alto, espaço p/ cair)
+        // desaba MAIS que o azarão (perto do chão, quase não sente).
+        let choke = pressure_title(&title, 1, 0.05).nudge;
+        let drop_craque = 90.0 - compose(50.0, 50.0, 50.0, 90.0, 0.0, &[choke]).skill;
+        let drop_azarao = 55.0 - compose(50.0, 50.0, 50.0, 55.0, 0.0, &[choke]).skill;
         assert!(
-            (60.0 - out.skill) <= 4.5,
-            "queda de pace: {}",
-            60.0 - out.skill
+            drop_craque > drop_azarao,
+            "craque desaba mais: {drop_craque} vs {drop_azarao}"
         );
-        assert!((60.0 - out.skill) >= 1.5);
+        assert!(drop_craque <= 10.0, "não pode explodir: {drop_craque}");
+        // Clutch (resiliente): azarão sobe MAIS que o craque (espaço até o teto).
+        let clutch = pressure_title(&title, 1, 0.95).nudge;
+        let up_craque = compose(50.0, 50.0, 50.0, 90.0, 0.0, &[clutch]).skill - 90.0;
+        let up_azarao = compose(50.0, 50.0, 50.0, 55.0, 0.0, &[clutch]).skill - 55.0;
+        assert!(
+            up_azarao > up_craque,
+            "azarão salta mais: {up_azarao} vs {up_craque}"
+        );
+    }
+
+    #[test]
+    fn casa_cheia_export_universal_e_adversa_no_fragil() {
+        // Frágil sob casa cheia (sem briga de título) → choke: mais agressivo, adverso.
+        let fragil = pressure_event(1.0, &[18, 20, 19], 24, 0.20);
+        assert!(fragil.nudge.aggression > 0.0 && fragil.nudge.smoothness < 0.0 && fragil.adverse);
+        // Resiliente no mesmo palco → clutch: mais suave, não adverso.
+        let firme = pressure_event(1.0, &[18, 20, 19], 24, 0.85);
+        assert!(firme.nudge.aggression < 0.0 && firme.nudge.smoothness > 0.0 && !firme.adverse);
+        // Evento sem público → nada.
+        assert!(pressure_event(0.0, &[10], 24, 0.5).nudge.aggression == 0.0);
     }
 
     #[test]

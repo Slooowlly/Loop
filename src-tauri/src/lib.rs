@@ -270,6 +270,7 @@ pub fn run() {
             commands::career_commands::set_career_resume_context,
             commands::career_commands::get_player_proposals,
             commands::career_commands::respond_to_proposal,
+            commands::career_commands::debug_prepare_market_scenario,
             commands::career_commands::get_news,
             commands::career_commands::delete_career,
             commands::career_commands::list_saves,

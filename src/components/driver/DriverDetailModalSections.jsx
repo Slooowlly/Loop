@@ -442,9 +442,9 @@ function formatCategoryLabel(categoryId) {
   const map = {
     mazda_rookie: "Mazda Rookie",
     toyota_rookie: "Toyota Rookie",
-    mazda_amador: "Mazda Championship",
+    mazda_amador: "Mazda Cup",
     toyota_amador: "Toyota Cup",
-    bmw_m2: "BMW M2",
+    bmw_m2: "BMW Cup",
     production_challenger: "Production",
     gt4: "GT4",
     gt3: "GT3",

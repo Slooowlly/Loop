@@ -798,6 +798,7 @@ mod tests {
         let mut h = RaceHistory {
             laps: vec![LapSnapshot {
                 lap: 10,
+                progress: 0.0,
                 cars: vec![
                     CarGapPoint { idx: 0, position: 2, gap: 1.5 },
                     CarGapPoint { idx: 1, position: 1, gap: 0.0 },
@@ -821,6 +822,7 @@ mod tests {
             qualy_laps: vec![],
             pit_stops: vec![],
             weather: Default::default(),
+            player_sectors: vec![],
         };
         // Tempos de volta: idx1 mais rápido (90s), jogador 91s, idx2 92s.
         for (idx, t) in [(0, 91.0), (1, 90.0), (2, 92.0)] {

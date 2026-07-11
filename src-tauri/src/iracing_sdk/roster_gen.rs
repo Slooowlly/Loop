@@ -182,6 +182,8 @@ pub struct BehaviorContext {
     /// Pontos de TODOS da categoria (inclui o jogador) — base do cálculo do título.
     pub title_points: Vec<f64>,
     pub races_left: u32,
+    /// Interesse "de local" do evento (0..1) — pressão de casa cheia (universal).
+    pub event_stakes: f64,
     /// Total de corridas da temporada (p/ desgaste de fim de temporada).
     pub season_length: u32,
     /// Pontos do vencedor (P1 + volta rápida).
@@ -317,6 +319,7 @@ pub fn build_roster(
                         resilience: pressure::pressure_resilience(a.mentalidade, a.experiencia),
                         title,
                         races_left: bc.races_left,
+                        event_stakes: bc.event_stakes,
                         recent_positions: bc
                             .recent_positions
                             .get(&driver.id)
