@@ -608,7 +608,16 @@ const useCareerStore = create((set, get) => ({
       set({ isAdvancing: false, error: getErrorMessage(error, "Erro ao preparar mercado (debug).") });
       throw error;
     }
-    return get().advanceSeason();
+    const result = await get().advanceSeason();
+    // O avanço recalcula standings só de quem correu e exclui o jogador agente livre
+    // (posição vira null no arquivo). Carimba a posição forçada DEPOIS do avanço, pra
+    // o cenário de campeão/mediano habilitar as ofertas de promoção no mercado.
+    try {
+      await invoke("debug_stamp_player_championship", { careerId, scenario });
+    } catch (error) {
+      console.error("[debug] falha ao carimbar posição do jogador:", error);
+    }
+    return result;
   },
 
   // ── Bloco Especial ───────────────────────────────────────────────────────────

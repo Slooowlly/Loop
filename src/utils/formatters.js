@@ -143,6 +143,51 @@ export function formatSalary(value) {
   }).format(value);
 }
 
+// Dinheiro do jogo — SEMPRE em dólar (en-US). Fonte única de formatação monetária;
+// não criar formatadores de moeda locais nas telas, importar estes.
+export function formatMoney(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Math.round(Number(value) || 0));
+}
+
+export function formatSignedMoney(value) {
+  const v = Number(value) || 0;
+  return `${v >= 0 ? "+" : ""}${formatMoney(v)}`;
+}
+
+// Compacto para espaços apertados (tabelas/cards): $1.2M · $250k · $0.
+export function formatMoneyCompact(value) {
+  const v = Number(value) || 0;
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1_000_000) {
+    return `${sign}$${(abs / 1_000_000).toLocaleString("en-US", { maximumFractionDigits: 1 })}M`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}$${Math.round(abs / 1_000).toLocaleString("en-US")}k`;
+  }
+  return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
+}
+
+// Salário no backend é SEMPRE anual (`salario_anual`). Na UI exibimos SEMPRE mensal.
+// Este é o único lugar que fixa o divisor — não espalhar "/12" pelas telas.
+export const SALARY_MONTHS_PER_YEAR = 12;
+
+// Converte um salário ANUAL para o valor MENSAL exibido. A fonte de verdade continua anual.
+export function monthlySalary(annualValue) {
+  return (Number(annualValue) || 0) / SALARY_MONTHS_PER_YEAR;
+}
+
+// Salário mensal já formatado (mesma moeda de `formatSalary`) com sufixo "/mês".
+// Drop-in de `formatSalary` nos pontos que exibem salário (não usar para valor de mercado).
+export function formatSalaryMonthly(annualValue) {
+  if (annualValue == null || annualValue === "") return "-";
+  return `${formatSalary(monthlySalary(annualValue))}/mês`;
+}
+
 export function formatRoleLabel(value) {
   if (value === "Numero1" || value === "N1") return "N1";
   if (value === "Numero2" || value === "N2") return "N2";

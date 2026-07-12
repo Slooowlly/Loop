@@ -322,6 +322,148 @@ const MIN_RIVAL_LAPS: i32 = 3;
 /// Gap médio máximo (s) para considerar que houve disputa real.
 const MAX_RIVAL_GAP_S: f64 = 3.0;
 
+// ── Sinais compactos de telemetria para o DOSSIÊ DE HABILIDADE (Fase 2) ───────
+//
+// O dossiê agrega POR CORRIDA, então guardamos escalares (não os pontos brutos):
+// consistência de ritmo, fração de tempo em briga + saldo de posições na pista
+// (racecraft avançado) e o ganho de posições na largada. Persistidos em
+// `player_race_telemetry` no import e lidos depois pelo estimador (`player_skill`).
+
+/// Gap (s) abaixo do qual consideramos que havia um carro "em cima" — briga.
+const BATTLE_GAP_S: f64 = 1.0;
+/// Amostras mínimas da batalha para a fração fazer sentido.
+const MIN_BATTLE_POINTS: i32 = 10;
+/// Janela da largada: comparamos a posição inicial com a de +20s.
+const START_WINDOW_S: f64 = 20.0;
+/// Span mínimo de amostras para o `start_delta` valer numa corrida curta.
+const START_MIN_SPAN_S: f64 = 15.0;
+/// Escala do coeficiente de variação → nota de consistência (cv 0 → 100).
+const CONSISTENCY_CV_SCALE: f64 = 2000.0;
+
+/// Sinais COMPACTOS de telemetria de uma corrida do jogador, para o dossiê de
+/// habilidade (Fase 2). Um valor por corrida; o estimador agrega. Sentinela
+/// `-1.0` (ou `start_valid=false`) = não computável nesta corrida.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerRaceTelemetry {
+    pub laps_seen: i32,
+    pub race_laps: i32,
+    /// 0–100: quão parelhos foram os tempos de volta. -1 = poucas voltas.
+    pub consistency: f64,
+    /// 0–1: fração das amostras com um carro a < 1s. -1 = poucas amostras.
+    pub battle_fraction: f64,
+    /// Posições SUBIDAS na pista (bruto, do fluxo de posição).
+    pub on_track_gained: i32,
+    /// Posições PERDIDAS na pista (bruto).
+    pub on_track_lost: i32,
+    /// Posições ganhas nos ~20s iniciais (posição no start − posição em +20s).
+    pub start_delta: i32,
+    /// `start_delta` é confiável (houve amostra cobrindo a janela de largada).
+    pub start_valid: bool,
+}
+
+/// Extrai os sinais do dossiê do histórico ao vivo + a análise já feita. `None`
+/// quando não há nada utilizável (jogador não correu / não foi monitorado).
+pub fn extract_player_race_telemetry(
+    history: &RaceHistory,
+    telemetry: &TelemetryAnalysis,
+) -> Option<PlayerRaceTelemetry> {
+    let times: Vec<f64> = history
+        .player_laps
+        .iter()
+        .map(|l| l.time)
+        .filter(|t| *t > 0.0)
+        .collect();
+    let laps_seen = times.len() as i32;
+    let has_track = !history.player_track.is_empty();
+    if laps_seen == 0 && !has_track {
+        return None;
+    }
+
+    // Consistência: coeficiente de variação dos tempos de volta (menor = melhor).
+    let consistency = if laps_seen >= MIN_CONSISTENCY_LAPS {
+        let m = mean(&times);
+        if m > 0.0 {
+            let var = times.iter().map(|t| (t - m).powi(2)).sum::<f64>() / times.len() as f64;
+            let cv = var.sqrt() / m;
+            (100.0 - cv * CONSISTENCY_CV_SCALE).clamp(1.0, 100.0)
+        } else {
+            -1.0
+        }
+    } else {
+        -1.0
+    };
+
+    // Fração de tempo em briga: amostras com um vizinho a < BATTLE_GAP_S.
+    let mut battle = 0;
+    let mut pts = 0;
+    for p in &history.player_track {
+        let mut nearest = f64::INFINITY;
+        if p.ahead_idx >= 0 && p.gap_ahead.is_finite() && p.gap_ahead >= 0.0 {
+            nearest = nearest.min(p.gap_ahead);
+        }
+        if p.behind_idx >= 0 && p.gap_behind.is_finite() && p.gap_behind >= 0.0 {
+            nearest = nearest.min(p.gap_behind);
+        }
+        if nearest.is_finite() {
+            pts += 1;
+            if nearest < BATTLE_GAP_S {
+                battle += 1;
+            }
+        }
+    }
+    let battle_fraction = if pts >= MIN_BATTLE_POINTS {
+        battle as f64 / pts as f64
+    } else {
+        -1.0
+    };
+
+    // Saldo bruto de posições na pista (do fluxo de posição já calculado).
+    let (on_track_gained, on_track_lost) = telemetry
+        .position_flow
+        .as_ref()
+        .map(|f| (f.gained_on_track, f.lost_on_track))
+        .unwrap_or((0, 0));
+
+    let (start_delta, start_valid) = compute_start_delta(history);
+
+    Some(PlayerRaceTelemetry {
+        laps_seen,
+        race_laps: telemetry.race_laps,
+        consistency,
+        battle_fraction,
+        on_track_gained,
+        on_track_lost,
+        start_delta,
+        start_valid,
+    })
+}
+
+/// Posições ganhas na largada: posição na 1ª amostra vs. a de ~20s depois
+/// (positivo = subiu). Fallback: numa corrida curta, usa a última amostra se o
+/// span cobrir ao menos [`START_MIN_SPAN_S`].
+fn compute_start_delta(history: &RaceHistory) -> (i32, bool) {
+    let mut pts: Vec<(f64, i32)> = history
+        .player_track
+        .iter()
+        .filter(|p| p.position > 0)
+        .map(|p| (p.session_time, p.position))
+        .collect();
+    if pts.len() < 2 {
+        return (0, false);
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let (t0, pos0) = pts[0];
+    if let Some(&(_, pos20)) = pts.iter().find(|(t, _)| *t >= t0 + START_WINDOW_S) {
+        return (pos0 - pos20, true);
+    }
+    let (tl, posl) = *pts.last().unwrap();
+    if tl - t0 >= START_MIN_SPAN_S {
+        (pos0 - posl, true)
+    } else {
+        (0, false)
+    }
+}
+
 /// Analisa o histórico. `name_by_idx`: car_idx → nome do piloto (resolvido fora).
 /// `incidents`: sinais de batida/DNF do monitor (fora do `RaceHistory`).
 pub fn analyze(
@@ -1324,5 +1466,90 @@ mod tests {
         assert_eq!(s.weakest_sector, 2);
         assert!((s.weakest_loss_ms - 500.0).abs() < 1.0, "perda ~0.5s no S2");
         assert!((s.best_ms[1] - 30000.0).abs() < 1.0, "melhor S2 = 30.0s");
+    }
+
+    fn track_point(session_time: f64, lap: i32, position: i32, ahead: i32, ga: f64, behind: i32, gb: f64) -> PlayerTrackPoint {
+        PlayerTrackPoint {
+            session_time,
+            lap,
+            position,
+            speed_kmh: 200.0,
+            ahead_idx: ahead,
+            gap_ahead: ga,
+            behind_idx: behind,
+            gap_behind: gb,
+        }
+    }
+
+    #[test]
+    fn dossie_consistencia_maior_para_voltas_parelhas() {
+        let mut tight = base_history();
+        tight.player_laps = vec![
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.1, fuel_remaining: -1.0 },
+            PlayerLap { lap: 3, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 4, time: 90.2, fuel_remaining: -1.0 },
+        ];
+        let mut messy = base_history();
+        messy.player_laps = vec![
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 3, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 4, time: 97.0, fuel_remaining: -1.0 },
+        ];
+        let empty_tel = TelemetryAnalysis::default();
+        let c_tight = extract_player_race_telemetry(&tight, &empty_tel).unwrap().consistency;
+        let c_messy = extract_player_race_telemetry(&messy, &empty_tel).unwrap().consistency;
+        assert!(c_tight > c_messy, "parelho={c_tight} vs bagunçado={c_messy}");
+        assert!(c_tight > 90.0);
+    }
+
+    #[test]
+    fn dossie_consistencia_indisponivel_com_poucas_voltas() {
+        let mut h = base_history();
+        h.player_laps = vec![
+            PlayerLap { lap: 1, time: 90.0, fuel_remaining: -1.0 },
+            PlayerLap { lap: 2, time: 90.0, fuel_remaining: -1.0 },
+        ];
+        let row = extract_player_race_telemetry(&h, &TelemetryAnalysis::default()).unwrap();
+        assert_eq!(row.consistency, -1.0, "< 3 voltas → não computável");
+        assert_eq!(row.laps_seen, 2);
+    }
+
+    #[test]
+    fn dossie_fracao_de_briga() {
+        let mut h = base_history();
+        // 12 amostras: 9 com vizinho a < 1s (briga), 3 sozinho longe.
+        let mut pts = Vec::new();
+        for i in 0..9 {
+            pts.push(track_point(i as f64, 1, 5, 3, 0.4, -1, 0.0));
+        }
+        for i in 9..12 {
+            pts.push(track_point(i as f64, 1, 5, 3, 5.0, -1, 0.0));
+        }
+        h.player_track = pts;
+        let row = extract_player_race_telemetry(&h, &TelemetryAnalysis::default()).unwrap();
+        assert!((row.battle_fraction - 9.0 / 12.0).abs() < 1e-6, "got {}", row.battle_fraction);
+    }
+
+    #[test]
+    fn dossie_start_delta_conta_ganho_na_largada() {
+        let mut h = base_history();
+        // Largou P10 (t=0), em +20s já é P6 → ganhou 4 na largada.
+        h.player_track = vec![
+            track_point(0.0, 1, 10, -1, 0.0, -1, 0.0),
+            track_point(10.0, 1, 8, -1, 0.0, -1, 0.0),
+            track_point(21.0, 1, 6, -1, 0.0, -1, 0.0),
+            track_point(40.0, 2, 6, -1, 0.0, -1, 0.0),
+        ];
+        let row = extract_player_race_telemetry(&h, &TelemetryAnalysis::default()).unwrap();
+        assert!(row.start_valid);
+        assert_eq!(row.start_delta, 4);
+    }
+
+    #[test]
+    fn dossie_none_sem_nada_utilizavel() {
+        let h = base_history();
+        assert!(extract_player_race_telemetry(&h, &TelemetryAnalysis::default()).is_none());
     }
 }

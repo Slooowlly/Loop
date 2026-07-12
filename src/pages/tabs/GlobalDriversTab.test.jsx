@@ -39,6 +39,9 @@ const rows = [
     categoria_atual: "gt4",
     categorias_historicas: ["mazda_rookie", "gt4"],
     salario_anual: 250000,
+    fama: 78,
+    carisma: 88,
+    fama_delta: 6,
     ano_inicio_carreira: 2020,
     anos_carreira: 7,
     temporada_aposentadoria: null,
@@ -256,6 +259,21 @@ describe("GlobalDriversTab", () => {
     expect(screen.getByText(/Índice/i)).toBeInTheDocument();
 
     resolvePayload({ selected_driver_id: "D001", rows, leaders: {} });
+  });
+
+  it("shows fama in the ranking with a rising arrow chip when it climbed", async () => {
+    render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    expect(within(table).getByRole("button", { name: /Fama/i })).toBeInTheDocument();
+
+    const chip = within(table).getByText("▲6");
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass("text-status-green");
+    expect(chip.parentElement).toHaveAttribute(
+      "title",
+      expect.stringContaining("Ganhou 6 de fama"),
+    );
   });
 
   it("stops loading with a clear message when the career id is missing", async () => {
@@ -637,7 +655,7 @@ describe("GlobalDriversTab", () => {
     expect(within(table).getByText(/Equipe Azul \/ GT4/i)).toBeInTheDocument();
     expect(within(table).getByText("28")).toBeInTheDocument();
     expect(within(table).getAllByText(/7 anos/i).length).toBeGreaterThan(0);
-    expect(within(table).getByText(/\$250k/i)).toBeInTheDocument();
+    expect(within(table).getByText(/\$21k/i)).toBeInTheDocument();
     const retiredTeamCategory = within(table).getByText(/Há 2 anos \/ GT3/i);
     expect(retiredTeamCategory).toBeInTheDocument();
     expect(retiredTeamCategory).toHaveAttribute("title", "Aposentado em 2024");

@@ -68,8 +68,14 @@ pub(crate) enum RacePersistenceMode {
     HistoricalDraft,
 }
 
+/// Coeficiente do termo de PATROCÍNIO por fama do lineup (presença pública 0–100).
+/// Casado com o coeficiente da reputação (0.004) — a fama é uma 2ª moeda de receita
+/// no mesmo patamar: contratar um rosto famoso capta patrocínio de verdade. Tunável.
+const FAME_SPONSORSHIP_COEFF: f64 = 0.004;
+
 fn calculate_team_round_finance_context(
     team: &Team,
+    lineup_public_presence: f64,
     added_points: i32,
     added_victories: i32,
     added_podiums: i32,
@@ -90,7 +96,8 @@ fn calculate_team_round_finance_context(
     // grid do equilíbrio.
     let sponsorship_income = (scale.expected_cash_midpoint() / rounds_in_season.max(1.0) * 0.32
         + team.reputacao * round_operating_base * 0.004
-        + plan.budget_index * round_operating_base * 0.002)
+        + plan.budget_index * round_operating_base * 0.002
+        + lineup_public_presence * round_operating_base * FAME_SPONSORSHIP_COEFF)
         * income_modifier;
     let result_bonus = (added_points as f64 * 650.0
         + added_victories as f64 * 4_000.0
@@ -178,6 +185,194 @@ fn compute_post_race_impact(
         player_result.is_dnf,
         is_final_round_decider,
     ))
+}
+
+/// Interesse do evento "de local" para uma corrida SEM o jogador (categorias da IA):
+/// só o contexto do evento (categoria/fase/rodada/papel narrativo), sem protagonismo
+/// nem resultado de um piloto específico. Escala o impacto de fama dos pilotos IA
+/// quando o jogador não corre aquela categoria — é o que faz o astro nascer no mundo
+/// todo, não só na categoria do jogador. `None` se a categoria não tem config.
+fn compute_venue_impact(race_entry: &CalendarEntry) -> Option<RealizedEventInterest> {
+    let category = get_category_config(&race_entry.categoria)?;
+    let ctx = EventInterestContext {
+        categoria: race_entry.categoria.clone(),
+        season_phase: race_entry.season_phase,
+        rodada: race_entry.rodada,
+        total_rodadas: category.corridas_por_temporada as i32,
+        week_of_year: race_entry.week_of_year,
+        track_id: race_entry.track_id as i32,
+        track_name: race_entry.track_name.clone(),
+        is_player_event: false,
+        player_championship_position: None,
+        player_media: None,
+        championship_gap_to_leader: None,
+        is_title_decider_candidate: false,
+        thematic_slot: race_entry.thematic_slot,
+    };
+    let expected = calculate_expected_event_interest(&ctx);
+    Some(calculate_realized_event_interest(
+        &expected, &ctx, None, None, false, false, false, false,
+    ))
+}
+
+/// Aplica TODOS os efeitos de FAMA de uma corrida concluída. Vale IGUAL pra corrida
+/// SIMULADA offline e pra corrida IMPORTADA do iRacing — ambas produzem um `RaceResult`
+/// e persistem pelo mesmo caminho, então a fama reage idêntico. Efeitos:
+/// - mídia/motivação do JOGADOR (modulada pelo carisma dele),
+/// - impacto de mídia nos pilotos IA notáveis (vencedor/pole/pódio/incidente/lesão,
+///   modulado pelo carisma de cada um),
+/// - deriva leve de CARISMA por marcos do fim de semana ("drama vende"),
+/// - decaimento passivo da fama de todo o grid que correu.
+/// Retorna `(news_importance_bias, interest_tier)` pro caller alimentar as notícias.
+pub(crate) fn apply_post_race_fame(
+    conn: &rusqlite::Connection,
+    race_entry: &CalendarEntry,
+    result: &RaceResult,
+    new_injuries: &[Injury],
+) -> Result<(i32, InterestTier), String> {
+    // ID do jogador — excluído do bloco world-facing (já tratado no player-facing).
+    // Vazio quando o jogador não corre esta categoria (corrida 100% IA).
+    let excluded_driver_id = result
+        .race_results
+        .iter()
+        .find(|r| r.is_jogador)
+        .map(|r| r.pilot_id.clone())
+        .unwrap_or_default();
+
+    // Interesse REALIZADO ancorado no jogador — `Some` só se ele correu esta corrida.
+    let player_realized = compute_post_race_impact(conn, race_entry, result);
+
+    // ── Player-facing: mídia/motivação do JOGADOR (só quando ele correu) ──
+    if let Some(realized) = &player_realized {
+        if let Ok(player) = driver_queries::get_player_driver(conn) {
+            let player_result = result.race_results.iter().find(|r| r.is_jogador);
+            let base_midia_delta = if player_result.is_some_and(|r| r.finish_position == 1) {
+                3.0
+            } else if player_result.is_some_and(|r| r.finish_position <= 3 && !r.is_dnf) {
+                2.0
+            } else if player_result.is_some_and(|r| r.finish_position <= 5) {
+                1.0
+            } else if player_result.is_some_and(|r| r.is_dnf) {
+                -2.0
+            } else {
+                -1.0
+            };
+            // Carisma modula o delta de fama: estrela ganha mais e amortece a perda
+            // (mal cai terminando mal); apagado ganha menos e sangra.
+            let raw_midia_delta = base_midia_delta * realized.media_delta_modifier as f64;
+            let carisma_midia_delta =
+                crate::fame::apply_carisma_to_fame_delta(raw_midia_delta, player.atributos.carisma);
+            let new_midia = (player.atributos.midia + carisma_midia_delta).clamp(0.0, 100.0);
+            let _ = driver_queries::update_driver_midia(conn, &player.id, new_midia);
+
+            let base_mot_delta = if player_result.is_some_and(|r| r.finish_position == 1) {
+                4.0
+            } else if player_result.is_some_and(|r| r.finish_position <= 3 && !r.is_dnf) {
+                2.5
+            } else if player_result.is_some_and(|r| r.finish_position <= 5) {
+                1.0
+            } else if player_result.is_some_and(|r| r.is_dnf) {
+                -3.5
+            } else {
+                -0.5
+            };
+            let new_motivacao = (player.motivacao
+                + base_mot_delta * realized.motivation_delta_modifier as f64)
+                .clamp(0.0, 100.0);
+            let _ = driver_queries::update_driver_motivation(conn, &player.id, new_motivacao);
+        }
+    }
+
+    // Interesse do evento para o mundo: do jogador se ele correu; senão, "de local"
+    // (categoria da IA). É isto que faz a fama valer em TODAS as categorias.
+    let realized = match player_realized.or_else(|| compute_venue_impact(race_entry)) {
+        Some(r) => r,
+        None => return Ok((0, InterestTier::Baixo)), // sem config de categoria → nada a fazer
+    };
+    let post_race_bias = realized.news_importance_bias;
+    let interest_tier = realized.final_tier.clone();
+
+    // ── World-facing: impacto de mídia nos pilotos IA notáveis (SEMPRE) ──
+    // `excluded_driver_id` (jogador) omitido; vazio nas corridas 100% IA (ninguém excluído).
+    let main_incident_pilot: Option<String> = result
+        .notable_incident_pilot_ids
+        .iter()
+        .find(|id| id.as_str() != excluded_driver_id.as_str())
+        .cloned();
+    let podium_pilot_ids: Vec<&str> = result
+        .race_results
+        .iter()
+        .filter(|r| {
+            r.finish_position >= 2
+                && r.finish_position <= 3
+                && !r.is_dnf
+                && r.pilot_id != result.winner_id
+        })
+        .map(|r| r.pilot_id.as_str())
+        .collect();
+    let race_ctx = crate::event_interest::RaceEventContext {
+        winner_id: &result.winner_id,
+        pole_sitter_id: &result.pole_sitter_id,
+        podium_ids: &podium_pilot_ids,
+        main_incident_pilot_id: main_incident_pilot.as_deref(),
+        excluded_driver_id: &excluded_driver_id,
+    };
+    let ai_media_impacts =
+        crate::event_interest::compute_public_media_impacts(&race_ctx, new_injuries, &realized);
+
+    for impact in &ai_media_impacts {
+        // Carisma do piloto IA modula quanto de fama aquele feito rende. Neutro 50 sem leitura.
+        let carisma = driver_queries::get_driver_carisma(conn, &impact.driver_id)
+            .ok()
+            .flatten()
+            .unwrap_or(50.0);
+        let delta = crate::fame::apply_carisma_to_fame_delta(impact.delta, carisma);
+        driver_queries::update_driver_midia_delta(conn, &impact.driver_id, delta).map_err(|e| {
+            format!(
+                "Falha ao aplicar impacto de mídia para '{}': {e}",
+                impact.driver_id
+            )
+        })?;
+    }
+
+    // ── Deriva leve do CARISMA por marcos do fim de semana ("drama vende") ──
+    for pid in &result.notable_incident_pilot_ids {
+        let _ = driver_queries::bump_driver_carisma(conn, pid, crate::fame::CARISMA_DRIFT_INCIDENT);
+    }
+    if matches!(
+        interest_tier,
+        InterestTier::MuitoAlto | InterestTier::EventoPrincipal
+    ) && !result.winner_id.is_empty()
+    {
+        let _ = driver_queries::bump_driver_carisma(
+            conn,
+            &result.winner_id,
+            crate::fame::CARISMA_DRIFT_BIG_WIN,
+        );
+    }
+    // Remontada dos protagonistas (jogador e vencedor): subir muitas posições é magnético.
+    for r in result
+        .race_results
+        .iter()
+        .filter(|r| r.is_jogador || r.pilot_id == result.winner_id)
+    {
+        if !r.is_dnf && r.grid_position - r.finish_position >= crate::fame::COMEBACK_MIN_POSITIONS {
+            let _ =
+                driver_queries::bump_driver_carisma(conn, &r.pilot_id, crate::fame::CARISMA_DRIFT_COMEBACK);
+        }
+    }
+
+    // ── Decaimento passivo da FAMA de todo o grid que correu ──
+    for r in &result.race_results {
+        let _ = driver_queries::decay_driver_fame(
+            conn,
+            &r.pilot_id,
+            crate::fame::FAME_DECAY_FLOOR,
+            crate::fame::FAME_DECAY_BASE_RATE,
+        );
+    }
+
+    Ok((post_race_bias, interest_tier))
 }
 
 #[tauri::command]
@@ -277,108 +472,10 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
 
     let (player_race, player_new_injuries) = simulate_category_race(&mut db, &race_entry, true)?;
 
-    // Calcular repercussão pós-corrida e aplicar efeitos (fallback silencioso)
-    // ID do jogador extraído para exclusão no bloco de world-facing media impact
-    let excluded_driver_id = player_race
-        .race_results
-        .iter()
-        .find(|r| r.is_jogador)
-        .map(|r| r.pilot_id.clone())
-        .unwrap_or_default();
-
-    let (post_race_bias, ai_media_impacts, interest_tier) = if let Some(realized) =
-        compute_post_race_impact(&db.conn, &race_entry, &player_race)
-    {
-        if let Ok(player) = driver_queries::get_player_driver(&db.conn) {
-            let player_result = player_race.race_results.iter().find(|r| r.is_jogador);
-            let base_midia_delta = if player_result.is_some_and(|r| r.finish_position == 1) {
-                3.0
-            } else if player_result.is_some_and(|r| r.finish_position <= 3 && !r.is_dnf) {
-                2.0
-            } else if player_result.is_some_and(|r| r.finish_position <= 5) {
-                1.0
-            } else if player_result.is_some_and(|r| r.is_dnf) {
-                -2.0
-            } else {
-                -1.0
-            };
-            let new_midia = (player.atributos.midia
-                + base_midia_delta * realized.media_delta_modifier as f64)
-                .clamp(0.0, 100.0);
-            let _ = driver_queries::update_driver_midia(&db.conn, &player.id, new_midia);
-
-            let base_mot_delta = if player_result.is_some_and(|r| r.finish_position == 1) {
-                4.0
-            } else if player_result.is_some_and(|r| r.finish_position <= 3 && !r.is_dnf) {
-                2.5
-            } else if player_result.is_some_and(|r| r.finish_position <= 5) {
-                1.0
-            } else if player_result.is_some_and(|r| r.is_dnf) {
-                -3.5
-            } else {
-                -0.5
-            };
-            let new_motivacao = (player.motivacao
-                + base_mot_delta * realized.motivation_delta_modifier as f64)
-                .clamp(0.0, 100.0);
-            let _ = driver_queries::update_driver_motivation(&db.conn, &player.id, new_motivacao);
-        }
-
-        // World-facing media impact — pilotos AI relevantes.
-        // Dependência semântica intencional: sem `realized`, este bloco não roda.
-        // `excluded_driver_id` (jogador) omitido para evitar dupla aplicação com o pipeline player-facing.
-        let main_incident_pilot: Option<String> = player_race
-            .notable_incident_pilot_ids
-            .iter()
-            .find(|id| id.as_str() != excluded_driver_id.as_str())
-            .cloned();
-
-        // P2 e P3 elegíveis — winner explicitamente excluído (mutuidade Win/Podium)
-        let podium_pilot_ids: Vec<&str> = player_race
-            .race_results
-            .iter()
-            .filter(|r| {
-                r.finish_position >= 2
-                    && r.finish_position <= 3
-                    && !r.is_dnf
-                    && r.pilot_id != player_race.winner_id
-            })
-            .map(|r| r.pilot_id.as_str())
-            .collect();
-
-        let race_ctx = crate::event_interest::RaceEventContext {
-            winner_id: &player_race.winner_id,
-            pole_sitter_id: &player_race.pole_sitter_id,
-            podium_ids: &podium_pilot_ids,
-            main_incident_pilot_id: main_incident_pilot.as_deref(),
-            excluded_driver_id: &excluded_driver_id,
-        };
-
-        // `player_new_injuries` contém lesões novas geradas na corrida (pode incluir pilotos AI).
-        let impacts = crate::event_interest::compute_public_media_impacts(
-            &race_ctx,
-            &player_new_injuries,
-            &realized,
-        );
-
-        (
-            realized.news_importance_bias,
-            impacts,
-            realized.final_tier.clone(),
-        )
-    } else {
-        (0, vec![], InterestTier::Baixo)
-    };
-
-    for impact in &ai_media_impacts {
-        driver_queries::update_driver_midia_delta(&db.conn, &impact.driver_id, impact.delta)
-            .map_err(|e| {
-                format!(
-                    "Falha ao aplicar impacto de mídia para '{}': {e}",
-                    impact.driver_id
-                )
-            })?;
-    }
+    // Repercussão pós-corrida: fama (jogador + IA, modulada por carisma), deriva de
+    // carisma e decaimento passivo. MESMA lógica da corrida importada do iRacing.
+    let (post_race_bias, interest_tier) =
+        apply_post_race_fame(&db.conn, &race_entry, &player_race, &player_new_injuries)?;
 
     warn_if_side_effect_fails(
         append_race_result(
@@ -561,7 +658,9 @@ pub(crate) fn simulate_special_block_in_base_dir(
 
         let mut summaries = Vec::new();
         for entry in pending {
-            let (result, _) = simulate_category_race(&mut db, &entry, false)?;
+            let (result, special_injuries) = simulate_category_race(&mut db, &entry, false)?;
+            // Fama do MUNDO nas categorias especiais também (jogador ou IA). Best-effort.
+            let _ = apply_post_race_fame(&db.conn, &entry, &result, &special_injuries);
             warn_if_side_effect_fails(
                 append_race_result(
                     &career_dir,
@@ -708,17 +807,24 @@ fn simulate_category_race_with_mode(
     } else {
         build_team_lookup(&teams)
     };
-    let healthy_drivers: Vec<_> = drivers
+    // Lesionados CONTINUAM correndo (com penalidade de ritmo decrescente aplicada abaixo);
+    // ninguém é mais removido da grade por lesão. Só ficam de fora os aposentados — inclusive
+    // quem pendurou o capacete no meio da temporada por lesão grave, que segue congelado na
+    // classificação mas não volta à pista.
+    let driver_pool: Vec<_> = drivers
         .iter()
-        .filter(|driver| driver.status != crate::models::enums::DriverStatus::Lesionado)
+        .filter(|driver| driver.status != crate::models::enums::DriverStatus::Aposentado)
         .collect();
-    let historical_injury_fallback =
-        persistence_mode == RacePersistenceMode::HistoricalDraft && healthy_drivers.is_empty();
-    let driver_pool: Vec<_> = if historical_injury_fallback {
-        drivers.iter().collect()
-    } else {
-        healthy_drivers
-    };
+    // Lesões ativas da categoria, por piloto: alimentam a penalidade de ritmo do machucado.
+    let injuries_by_driver: HashMap<String, Injury> =
+        crate::db::queries::injuries::get_active_injuries_for_category(
+            &db.conn,
+            &race_entry.categoria,
+        )
+        .map_err(|e| format!("Falha ao buscar lesoes ativas da categoria: {e}"))?
+        .into_iter()
+        .map(|injury| (injury.pilot_id.clone(), injury))
+        .collect();
     // Pressão de campeonato: standings da categoria (pontos de todos) + corridas
     // restantes + pontos do vencedor (P1 + volta rápida). Usado por piloto abaixo.
     let title_points: Vec<f64> = drivers.iter().map(|d| d.stats_temporada.pontos).collect();
@@ -763,6 +869,19 @@ fn simulate_category_race_with_mode(
                 sd.skill = (sd.skill as f64 - pen).max(5.0).round() as u8;
                 sd.ritmo_classificacao =
                     (sd.ritmo_classificacao as f64 - pen).max(5.0).round() as u8;
+                // Lesão: o machucado CORRE, mas com o ritmo reduzido. A penalidade é cheia
+                // logo após a batida e DIMINUI a cada etapa até sarar (volta enferrujado e
+                // vai melhorando). Fração do skill × (corridas restantes / total). Liga os
+                // campos skill_penalty da lesão, antes só gravados e nunca lidos.
+                if let Some(injury) = injuries_by_driver.get(&driver.id) {
+                    let recovery = (injury.races_remaining as f64
+                        / injury.races_total.max(1) as f64)
+                        .clamp(0.0, 1.0);
+                    let inj_pen = sd.skill as f64 * injury.skill_penalty * recovery;
+                    sd.skill = (sd.skill as f64 - inj_pen).max(5.0).round() as u8;
+                    sd.ritmo_classificacao =
+                        (sd.ritmo_classificacao as f64 - inj_pen).max(5.0).round() as u8;
+                }
                 // (Chuva NÃO entra aqui: a sim já aplica rain_skill_penalty no score
                 // em simulation/race.rs + qualifying.rs — aplicar de novo dobraria.)
                 // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
@@ -915,6 +1034,7 @@ pub(crate) fn persist_race_result_tx(
             persistence_mode,
             race_entry.track_id,
             active_season.numero as i32,
+            race_entry.rodada,
         )?;
 
         // 3. Verifica os incidentes recém-gerados e processa possíveis lesões
@@ -931,6 +1051,11 @@ pub(crate) fn persist_race_result_tx(
             &mut *rng,
         )?;
         new_injuries_out = new_injuries;
+
+        // 3b. Lesão GRAVE pode (raramente, só IA) encerrar a carreira no meio da temporada.
+        // Quem pendura o capacete fica congelado na classificação e a vaga é preenchida por
+        // um substituto que entra como NOME NOVO (pilot_id próprio → começa do zero).
+        process_severe_injury_retirements(tx, &new_injuries_out, active_season, &mut *rng)?;
 
         // 4. Salva o resumo da corrida e avança
         crate::db::queries::races::insert_race_results_batch(
@@ -979,6 +1104,99 @@ pub(crate) fn persist_race_result_tx(
     .map_err(|e| format!("Falha ao persistir resultado da corrida: {e}"))?;
 
     Ok(new_injuries_out)
+}
+
+/// Esvazia o assento do piloto no time (libera a vaga para reposição), mantendo o
+/// companheiro no lugar.
+fn vacate_team_seat(
+    tx: &rusqlite::Transaction,
+    team_id: &str,
+    driver_id: &str,
+) -> Result<(), DbError> {
+    if let Some(team) = team_queries::get_team_by_id(tx, team_id)? {
+        let p1 = team.piloto_1_id.filter(|id| id.as_str() != driver_id);
+        let p2 = team.piloto_2_id.filter(|id| id.as_str() != driver_id);
+        team_queries::update_team_pilots(tx, team_id, p1.as_deref(), p2.as_deref())?;
+    }
+    Ok(())
+}
+
+/// Aposentadoria por lesão grave no meio da temporada (só IA). Para cada lesão GRAVE
+/// recém-gerada, rola a chance ponderada por idade; se aposentar: registra no hall dos
+/// aposentados, desativa a lesão (para a recuperação por corrida não "ressuscitar" o
+/// piloto para Ativo), marca Aposentado MANTENDO a categoria (fica congelado na
+/// classificação da temporada), rescinde o contrato, esvazia o assento e contrata um
+/// substituto que entra como nome novo (pilot_id próprio → não herda resultados).
+fn process_severe_injury_retirements(
+    tx: &rusqlite::Transaction,
+    new_injuries: &[Injury],
+    active_season: &Season,
+    rng: &mut impl rand::Rng,
+) -> Result<(), DbError> {
+    use crate::models::enums::InjuryType;
+    for injury in new_injuries {
+        if injury.injury_type != InjuryType::Grave {
+            continue;
+        }
+        let mut driver = driver_queries::get_driver(tx, &injury.pilot_id)?;
+        // O piloto do jogador NUNCA é aposentado à força (decisão de design).
+        if driver.is_jogador {
+            continue;
+        }
+        let chance =
+            crate::evolution::retirement::severe_injury_retirement_chance(driver.idade);
+        if !rng.gen_bool(chance.clamp(0.0, 1.0)) {
+            continue;
+        }
+
+        let final_category = driver
+            .categoria_atual
+            .clone()
+            .unwrap_or_else(|| "SemCategoria".to_string());
+        let reason = format!("Aposentou-se aos {} anos apos lesao grave", driver.idade);
+
+        // 1. Hall dos aposentados (snapshot de carreira).
+        crate::evolution::pipeline::persist_retired_driver(
+            tx,
+            &driver,
+            active_season,
+            &final_category,
+            &reason,
+        )
+        .map_err(DbError::InvalidData)?;
+
+        // 2. Desativa a lesão: senão a recuperação por corrida a zeraria e devolveria o
+        // piloto aposentado ao status Ativo.
+        crate::db::queries::injuries::update_injury_status(tx, &injury.id, 0, false)?;
+
+        // 3. Marca Aposentado, MANTENDO categoria_atual (fica congelado na classificação;
+        // a grade filtra Aposentado e a virada de temporada pula quem não é Ativo).
+        crate::evolution::retirement::process_retirement(&mut driver);
+        driver_queries::update_driver(tx, &driver).map_err(|e| {
+            DbError::InvalidData(format!("Falha ao aposentar piloto lesionado: {e}"))
+        })?;
+
+        // 4. Libera a vaga e contrata um substituto (agente livre licenciado ou novato).
+        if let Some(contract) =
+            contract_queries::get_active_regular_contract_for_pilot(tx, &driver.id)?
+        {
+            let team_id = contract.equipe_id.clone();
+            contract_queries::update_contract_status(
+                tx,
+                &contract.id,
+                &crate::models::enums::ContractStatus::Rescindido,
+            )?;
+            vacate_team_seat(tx, &team_id, &driver.id)?;
+            crate::commands::career::backfill_team_vacancy(
+                tx,
+                &team_id,
+                active_season.numero,
+                active_season.ano,
+            )
+            .map_err(DbError::InvalidData)?;
+        }
+    }
+    Ok(())
 }
 
 /// Resumo do que foi gravado ao importar uma corrida do iRacing — devolvido ao
@@ -1142,18 +1360,18 @@ fn compute_repair_cost(
     (frac * operating * car_factor * variance).round()
 }
 
-/// Formata um valor em reais no estilo PT-BR: "R$ 18.500".
+/// Formata um valor em dólar no estilo en-US: "$18,500" (negativo: "-$18,500").
 fn format_brl(value: f64) -> String {
     let n = value.round() as i64;
     let digits = n.abs().to_string();
     let mut out = String::new();
     for (i, ch) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('.');
+            out.push(',');
         }
         out.push(ch);
     }
-    format!("R$ {}{}", if n < 0 { "-" } else { "" }, out)
+    format!("{}${}", if n < 0 { "-" } else { "" }, out)
 }
 
 /// Lê/incrementa a contagem de batidas COBRÁVEIS do jogador na temporada atual,
@@ -1368,6 +1586,8 @@ pub(crate) fn import_iracing_race_result(
     // Telemetria REAL do SDK (ritmo/duelo/erro/melhor momento) — vira pano de fundo
     // do boletim de IA. Corrida real do iRacing tem; offline/sem monitor vem vazia.
     telemetry: &crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+    // Histórico ao vivo (voltas + batalha) — fonte dos sinais do dossiê de habilidade.
+    history: &crate::iracing_sdk::race_monitor::RaceHistory,
 ) -> Result<(ImportedRaceSummary, RaceResult), String> {
     let active_season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
@@ -1440,7 +1660,7 @@ pub(crate) fn import_iracing_race_result(
     let next_round =
         Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32));
     let mut rng = rand::thread_rng();
-    persist_race_result_tx(
+    let import_injuries = persist_race_result_tx(
         db,
         &race_entry,
         &result,
@@ -1451,6 +1671,12 @@ pub(crate) fn import_iracing_race_result(
         RacePersistenceMode::Playable,
         &mut rng,
     )?;
+
+    // Fama do resultado IMPORTADO do iRacing: MESMA lógica da corrida simulada — o
+    // astro nasce igual correndo na pista. Vitória/pódio sobem fama (modulada por
+    // carisma), incidente/remontada movem carisma, o grid decai. Best-effort: uma
+    // falha aqui não desfaz o resultado já persistido.
+    let _ = apply_post_race_fame(&db.conn, &race_entry, &result, &import_injuries);
 
     // Grava também o histórico por rodada (race_results.json) — é a fonte da grade
     // R1..R5 da classificação (build_driver_histories). O caminho offline faz o
@@ -1465,6 +1691,24 @@ pub(crate) fn import_iracing_race_result(
         ),
         "Falha ao gravar race_results.json do import",
     );
+
+    // ── Telemetria do jogador → dossiê de habilidade (Fase 2) ────────────────
+    // Extrai os sinais compactos (consistência, briga, largada) do histórico ao
+    // vivo e grava uma linha por corrida. Best-effort: só existe quando o jogador
+    // DIRIGIU no iRacing e foi monitorado; falha aqui não desfaz o resultado.
+    if let Some(dossier_row) =
+        crate::iracing_sdk::telemetry_analysis::extract_player_race_telemetry(history, telemetry)
+    {
+        warn_if_side_effect_fails(
+            crate::db::queries::race_history::upsert_player_race_telemetry(
+                &db.conn,
+                &race_entry.id,
+                &dossier_row,
+            )
+            .map_err(|e| e.to_string()),
+            "Falha ao gravar telemetria do jogador (dossiê de habilidade)",
+        );
+    }
 
     // ── Boletim de IA ────────────────────────────────────────────────────────
     // Gera a notícia de Corrida + guarda os fatos do boletim (igual ao fluxo
@@ -1659,7 +1903,10 @@ fn simulate_other_categories(
 
         let mut summaries = Vec::new();
         for entry in races_to_simulate {
-            let (result, _) = simulate_category_race(db, &entry, false)?;
+            let (result, ai_injuries) = simulate_category_race(db, &entry, false)?;
+            // Fama do MUNDO: astros da IA nascem nas outras categorias também. Usa o
+            // interesse "de local" (sem jogador). Best-effort — não quebra o sim.
+            let _ = apply_post_race_fame(&db.conn, &entry, &result, &ai_injuries);
             warn_if_side_effect_fails(
                 append_race_result(
                     career_dir,
@@ -1769,6 +2016,7 @@ fn apply_race_result_to_database(
     persistence_mode: RacePersistenceMode,
     track_id: u32,
     season_number: i32,
+    round: i32,
 ) -> Result<(), DbError> {
     for race_driver in &result.race_results {
         let mut driver = driver_queries::get_driver(tx, &race_driver.pilot_id)?;
@@ -1893,8 +2141,14 @@ fn apply_race_result_to_database(
             .map(|contract| contract.salario_anual)
             .sum();
         let salary_expense = team_salary_total / rounds_in_season;
+        // Fama de equipe → patrocínio: presença pública do lineup (fama dos pilotos).
+        // É o motor da "2ª moeda" — um rosto famoso capta patrocínio pra construir o carro.
+        let lineup_medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
+        let lineup_public_presence =
+            crate::public_presence::team::derive_team_public_presence(&lineup_medias).raw_score;
         let finance_context = calculate_team_round_finance_context(
             team,
+            lineup_public_presence,
             added_points,
             added_victories,
             added_podiums,
@@ -1905,10 +2159,20 @@ fn apply_race_result_to_database(
         );
 
         let mut updated_team = team.clone();
-        apply_round_cashflow(&mut updated_team, finance_context);
+        let cashflow_summary = apply_round_cashflow(&mut updated_team, finance_context);
         apply_crisis_event_if_needed(&mut updated_team);
         refresh_team_financial_state(&mut updated_team);
         team_queries::update_team_finance_snapshot(tx, &updated_team)?;
+        // Grava a divisão REAL da rodada (as 9 linhas) no histórico — fonte única do
+        // dossiê financeiro da aba My Team, no lugar dos números fabricados no front.
+        team_queries::insert_team_finance_history(
+            tx,
+            &updated_team,
+            &finance_context,
+            &cashflow_summary,
+            season_number,
+            round,
+        )?;
     }
 
     Ok(())
@@ -3876,6 +4140,7 @@ mod tests {
 
         let rich_context = calculate_team_round_finance_context(
             &rich,
+            0.0,
             4,
             0,
             0,
@@ -3886,6 +4151,7 @@ mod tests {
         );
         let poor_context = calculate_team_round_finance_context(
             &poor,
+            0.0,
             4,
             0,
             0,
@@ -3897,6 +4163,31 @@ mod tests {
 
         assert!(rich_context.sponsorship_income > poor_context.sponsorship_income);
         assert!(poor_context.debt_service_cost > rich_context.debt_service_cost);
+    }
+
+    #[test]
+    fn fama_do_lineup_sobe_o_patrocinio() {
+        // Mesmo time, mesma reputação: um lineup famoso (presença 85) capta MAIS
+        // patrocínio que um sem fama (presença 0). É o motor da "2ª moeda".
+        let mut team = placeholder_team_from_db(
+            "TFAME".to_string(),
+            "Fame Team".to_string(),
+            "gt4".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.reputacao = 50.0;
+        let sem_fama = calculate_team_round_finance_context(
+            &team, 0.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral,
+        );
+        let com_estrela = calculate_team_round_finance_context(
+            &team, 85.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral,
+        );
+        assert!(
+            com_estrela.sponsorship_income > sem_fama.sponsorship_income,
+            "lineup famoso deve captar mais patrocínio: {} vs {}",
+            com_estrela.sponsorship_income,
+            sem_fama.sponsorship_income
+        );
     }
 
     fn sample_driver_result(

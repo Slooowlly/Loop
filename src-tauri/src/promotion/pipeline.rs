@@ -8,11 +8,50 @@ use crate::db::queries::teams as team_queries;
 use crate::promotion::block1::execute_block1_for_year;
 use crate::promotion::block2::execute_block2_with_exclusions;
 use crate::promotion::block3::execute_block3_for_year;
+use crate::models::team::Team;
 use crate::promotion::effects::{
     apply_attribute_deltas, calculate_promotion_effects, calculate_relegation_effects,
+    promotion_car_landing_delta,
 };
 use crate::promotion::pilots::{apply_pilot_effect, resolve_pilot_situations};
 use crate::promotion::{MovementType, PromotionResult, TeamMovement};
+
+/// Soft-landing da promoção (Ideia 1), atrás de flag pra permitir A/B no Monte
+/// Carlo sem tocar no jogo real. `IRACER_PROMO_SOFT_LANDING=1` liga; retorna a
+/// margem (pontos de carro acima do pior incumbente) — `IRACER_PROMO_LANDING_MARGIN`
+/// ajusta (default 1.0). `None` = comportamento default (mantém o carro atual).
+fn promotion_soft_landing_margin() -> Option<f64> {
+    let enabled = std::env::var("IRACER_PROMO_SOFT_LANDING")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    let margin = std::env::var("IRACER_PROMO_LANDING_MARGIN")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    Some(margin)
+}
+
+/// car_performance dos incumbentes que PERMANECEM na categoria de destino do
+/// promovido — mesma categoria (e classe, quando houver), excluindo o próprio
+/// promovido. Nesta altura do pipeline a rebaixada já saiu na troca (as trocas de
+/// categoria foram aplicadas antes do loop de deltas), então o campo é só quem fica.
+fn promotion_field_cars(conn: &Connection, team: &Team) -> Result<Vec<f64>, String> {
+    let teams = match team.classe.as_deref() {
+        Some(class) => {
+            team_queries::get_teams_by_category_and_class(conn, &team.categoria, class)
+        }
+        None => team_queries::get_teams_by_category(conn, &team.categoria),
+    }
+    .map_err(|e| format!("Falha ao buscar campo da categoria '{}': {e}", team.categoria))?;
+    Ok(teams
+        .into_iter()
+        .filter(|t| t.id != team.id)
+        .map(|t| t.car_performance)
+        .collect())
+}
 
 fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
 where
@@ -98,13 +137,27 @@ pub(crate) fn run_promotion_relegation_for_year(
             apply_pilot_effect(conn, effect, &all_movements)?;
         }
 
+        let soft_landing_margin = promotion_soft_landing_margin();
         let mut attribute_deltas = Vec::new();
         for movement in &all_movements {
             let team = team_queries::get_team_by_id(conn, &movement.team_id)
                 .map_err(|e| format!("Falha ao buscar equipe '{}': {e}", movement.team_id))?
                 .ok_or_else(|| format!("Equipe '{}' nao encontrada", movement.team_id))?;
             let delta = match movement.movement_type {
-                MovementType::Promocao => calculate_promotion_effects(&team, rng),
+                MovementType::Promocao => {
+                    let mut delta = calculate_promotion_effects(&team, rng);
+                    // Ideia 1 (soft landing): substitui o car_performance_delta default
+                    // (0.0, mantém carro atual) por um alvo relativo ao campo de destino.
+                    if let Some(margin) = soft_landing_margin {
+                        let field = promotion_field_cars(conn, &team)?;
+                        if let Some(car_delta) =
+                            promotion_car_landing_delta(team.car_performance, &field, margin)
+                        {
+                            delta.car_performance_delta = car_delta;
+                        }
+                    }
+                    delta
+                }
                 MovementType::Rebaixamento => calculate_relegation_effects(&team, rng),
             };
             apply_attribute_deltas(conn, &movement.team_id, &delta)?;
@@ -715,6 +768,24 @@ mod tests {
             moved_team.categoria_anterior.as_deref(),
             Some(moved.from_category.as_str())
         );
+    }
+
+    #[test]
+    fn test_promotion_field_cars_excludes_self_and_scopes_to_category() {
+        let conn = setup_promotion_db();
+        // gt3 tem 14 equipes; o campo visto por uma delas deve ter 13 (exclui a própria).
+        let gt3_team = team_queries::get_team_by_id(&conn, "GT31")
+            .expect("team query")
+            .expect("gt3 team");
+        let field = promotion_field_cars(&conn, &gt3_team).expect("field cars");
+        assert_eq!(field.len(), 13, "13 incumbentes (14 - a própria)");
+
+        // Para uma categoria com classe (endurance/gt3), o campo é escopado à classe.
+        let end_gt3 = team_queries::get_team_by_id(&conn, "EG31")
+            .expect("team query")
+            .expect("endurance gt3 team");
+        let end_field = promotion_field_cars(&conn, &end_gt3).expect("field cars");
+        assert_eq!(end_field.len(), 5, "6 da classe gt3 - a própria");
     }
 
     #[test]

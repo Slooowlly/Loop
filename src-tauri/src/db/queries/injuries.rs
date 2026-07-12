@@ -79,10 +79,10 @@ pub fn insert_injury(tx: &Transaction, injury: &Injury) -> Result<(), DbError> {
 }
 
 pub fn get_active_injuries_for_category(
-    tx: &Transaction,
+    conn: &Connection,
     category_id: &str,
 ) -> Result<Vec<Injury>, DbError> {
-    let mut stmt = tx.prepare(
+    let mut stmt = conn.prepare(
         "SELECT i.id, i.pilot_id, i.type, COALESCE(i.injury_name, ''), i.modifier, i.races_total, i.races_remaining, i.skill_penalty, i.season, i.race_occurred, i.active
          FROM injuries i
          JOIN drivers d ON i.pilot_id = d.id

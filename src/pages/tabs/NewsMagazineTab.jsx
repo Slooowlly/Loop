@@ -426,28 +426,30 @@ function NewsMagazineTab() {
                     <p>Classificação de equipes indisponível.</p>
                   )
                 ) : pilotos.length > 0 ? (
-                  pilotos.map((p) => {
-                    const glow = hoveredDriverId != null && p.id === hoveredDriverId;
-                    const tone = glow ? getTeamGlow(p.color) : null;
-                    return (
-                      <div
-                        key={p.id ?? p.pos}
-                        className={p.me ? "res-row me" : "res-row"}
-                        style={
-                          tone
-                            ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
-                            : undefined
-                        }
-                        onMouseEnter={() => setHoveredDriverId(p.id)}
-                        onMouseLeave={() => setHoveredDriverId(null)}
-                      >
-                        <span className="rp">{p.pos}</span>
-                        <TeamLogoMark teamName={p.teamName} color={p.color} size="xs" testId="news-driver-team-logo" />
-                        <span className="rn">{p.name}</span>
-                        <span className="rpts">{p.pts}</span>
-                      </div>
-                    );
-                  })
+                  <div className={`res-list${pilotos.length > 12 ? " res-list--split" : ""}`}>
+                    {pilotos.map((p) => {
+                      const glow = hoveredDriverId != null && p.id === hoveredDriverId;
+                      const tone = glow ? getTeamGlow(p.color) : null;
+                      return (
+                        <div
+                          key={p.id ?? p.pos}
+                          className={p.me ? "res-row me" : "res-row"}
+                          style={
+                            tone
+                              ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
+                              : undefined
+                          }
+                          onMouseEnter={() => setHoveredDriverId(p.id)}
+                          onMouseLeave={() => setHoveredDriverId(null)}
+                        >
+                          <span className="rp">{p.pos}</span>
+                          <TeamLogoMark teamName={p.teamName} color={p.color} size="xs" testId="news-driver-team-logo" />
+                          <span className="rn">{p.name}</span>
+                          <span className="rpts">{p.pts}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <p>Classificação de pilotos indisponível.</p>
                 )}

@@ -106,10 +106,51 @@ function titleFavoriteMessage(f) {
   };
 }
 
+// Nível de fama (0–100) na mesma régua de 6 da ficha do piloto.
+function famaLevel(v) {
+  if (v <= 15) return "Anônimo";
+  if (v <= 30) return "Discreto";
+  if (v <= 50) return "Conhecido";
+  if (v <= 70) return "Nome forte";
+  if (v <= 87) return "Estrela";
+  return "Ídolo";
+}
+
+// "Times de olho em você" — interesse de equipes pela FAMA (Fase 2a do estrelato).
+function teamInterestMessage(t) {
+  if (!t || !Array.isArray(t.teams) || t.teams.length === 0) return null;
+  const names = t.teams.map((x) => bold(x.team_name));
+  const n = names.length;
+  const list = n === 1 ? names[0] : `${names.slice(0, -1).join(", ")} e ${names[n - 1]}`;
+  const nivel = famaLevel(t.player_fama);
+
+  const body =
+    `<p>Seu nome está circulando nos bastidores. ${list} ` +
+    `${plural(n, "demonstrou", "demonstraram")} interesse em te contratar — puxados menos pelo cronômetro e mais pelo seu apelo de ${bold(nivel)} junto ao público e aos patrocinadores.</p>` +
+    `<p>Na próxima janela, espere propostas dess${plural(n, "a equipe", "as equipes")} como ${bold("piloto titular")} e com ${bold("salário acima do mercado")}. É o seu peso de barganha falando mais alto.</p>`;
+
+  return {
+    id: "interest",
+    av: "g",
+    ini: "◆",
+    from: "Seu empresário",
+    kind: n === 1 ? "Interesse de equipe" : `Interesse de ${n} equipes`,
+    time: "mercado",
+    subject:
+      n === 1
+        ? `${t.teams[0].team_name} está de olho em você.`
+        : `${n} equipes de olho no seu nome.`,
+    body,
+    actions: [],
+  };
+}
+
 // Transforma os fatos do backend na lista de mensagens da caixa (na ordem de exibição).
 export function buildInboxMessages(facts) {
   if (!facts) return [];
-  return [headToHeadMessage(facts.head_to_head), titleFavoriteMessage(facts.title_favorite)].filter(
-    Boolean,
-  );
+  return [
+    teamInterestMessage(facts.team_interest),
+    headToHeadMessage(facts.head_to_head),
+    titleFavoriteMessage(facts.title_favorite),
+  ].filter(Boolean);
 }

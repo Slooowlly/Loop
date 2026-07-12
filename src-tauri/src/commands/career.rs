@@ -13,7 +13,8 @@ use crate::commands::career_types::{
     AcceptedSpecialOfferSummary, BriefingPhraseEntry, BriefingPhraseEntryInput,
     BriefingPhraseHistory, BriefingStorySummary, CareerData, CareerResumeContext, CareerResumeView,
     ContractWarningInfo, CreateCareerResult, DriverDetail, DriverSummary, NextRaceBriefingSummary,
-    PrimaryRivalSummary, RaceSummary, SaveInfo, SeasonSummary, TeamHistoryCategoryStep,
+    PrimaryRivalSummary, RaceSummary, SaveInfo, SeasonSummary, TeamFinanceCashPoint,
+    TeamFinanceReport, TeamFinanceRound, TeamHistoryCategoryStep,
     TeamHistoryDossier, TeamHistoryHighlight, TeamHistoryIdentity, TeamHistoryManagement,
     TeamHistoryMilestone, TeamHistoryMovement, TeamHistoryOwnershipEvent, TeamHistoryRecord,
     TeamHistoryRival, TeamHistorySeasonResult, TeamHistorySport, TeamHistoryTimelineItem,
@@ -372,6 +373,7 @@ pub(crate) fn load_career_in_base_dir(
             is_estreante: player.temporadas_na_categoria == 0,
             is_estreante_da_vida: player.stats_carreira.corridas == 0,
             lesao_ativa_tipo: None,
+            is_aposentado: false,
             pontos: player.stats_temporada.pontos.round() as i32,
             vitorias: player.stats_temporada.vitorias as i32,
             podios: player.stats_temporada.podios as i32,
@@ -624,6 +626,28 @@ pub(crate) fn test_list_drivers(app: AppHandle, career_number: u32) -> Result<Ve
     let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
     driver_queries::get_all_drivers(&db.conn).map_err(|e| format!("Falha ao listar pilotos: {e}"))
+}
+
+/// Dossiê de habilidade do JOGADOR: atributos inferidos do desempenho REAL na
+/// pista (só visual — o mercado NÃO consulta). Reconstrói o grid de cada corrida
+/// e roda o estimador puro (ver `crate::player_skill` e o spec de 2026-07-12).
+pub(crate) fn get_player_dossier_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<crate::player_skill::PlayerDossier, String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let player = driver_queries::get_player_driver(&db.conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+    let samples = crate::db::queries::race_history::get_player_race_samples(&db.conn, &player.id)
+        .map_err(|e| format!("Falha ao reconstruir histórico do jogador: {e}"))?;
+
+    Ok(crate::player_skill::build_dossier(
+        &samples,
+        player.atributos.midia,
+    ))
 }
 
 pub(crate) fn get_driver_in_base_dir(
@@ -970,13 +994,143 @@ pub(crate) fn debug_prepare_market_scenario_in_base_dir(
         _ => None, // "no_team": não força posição
     };
     if let Some((pos, pts, wins)) = forced {
-        db.conn
+        // Categoria do "campeão/mediano": usa a atual; se o jogador nunca teve categoria
+        // (ex.: save iniciado via "sem time"), assume rookie — assim a promoção mira a Cup.
+        let categoria = player
+            .categoria_atual
+            .clone()
+            .unwrap_or_else(|| "mazda_rookie".to_string());
+
+        // Garante categoria_atual no jogador (o tier de mercado deriva dela).
+        if player.categoria_atual.is_none() {
+            db.conn
+                .execute(
+                    "UPDATE drivers SET categoria_atual = ?1 WHERE id = ?2",
+                    rusqlite::params![categoria, player.id],
+                )
+                .map_err(|e| format!("Falha ao definir categoria do jogador (debug): {e}"))?;
+        }
+
+        // UPSERT do standings: atualiza a linha se existir, senão CRIA — sem isso o
+        // UPDATE não afeta nada quando o jogador nunca correu (standings vazio) e o
+        // cenário de campeão não surtia efeito (posição/pódio ausentes).
+        let updated = db
+            .conn
             .execute(
-                "UPDATE standings SET posicao = ?1, pontos = ?2, vitorias = ?3, podios = ?4
-                 WHERE temporada_id = ?5 AND piloto_id = ?6",
-                rusqlite::params![pos, pts, wins, wins + 3, season.id, player.id],
+                "UPDATE standings SET posicao = ?1, pontos = ?2, vitorias = ?3, podios = ?4,
+                     categoria = ?5
+                 WHERE temporada_id = ?6 AND piloto_id = ?7",
+                rusqlite::params![pos, pts, wins, wins + 3, categoria, season.id, player.id],
             )
             .map_err(|e| format!("Falha ao forcar classificacao (debug): {e}"))?;
+        if updated == 0 {
+            db.conn
+                .execute(
+                    "INSERT INTO standings
+                        (temporada_id, piloto_id, categoria, posicao, pontos, vitorias, podios, poles, corridas)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 14)",
+                    rusqlite::params![season.id, player.id, categoria, pos, pts, wins, wins + 3],
+                )
+                .map_err(|e| format!("Falha ao criar classificacao (debug): {e}"))?;
+        }
+    }
+
+    // DEBUG: um campeão/mediano chega FAMOSO — a fama que ele acumularia na temporada
+    // (que o atalho de debug pula ao não correr) é forçada aqui, pra dar pra testar o
+    // interesse de mercado do estrelato (Fase 2a). Só no debug; não afeta o jogo real.
+    let forced_fama: Option<f64> = match scenario {
+        "first" => Some(82.0), // Estrela
+        "fifth" => Some(55.0), // Nome forte
+        _ => None,             // "no_team": não mexe
+    };
+    if let Some(fama) = forced_fama {
+        db.conn
+            .execute(
+                "UPDATE drivers SET midia = ?1 WHERE id = ?2",
+                rusqlite::params![fama, player.id],
+            )
+            .map_err(|e| format!("Falha ao forcar fama do jogador (debug): {e}"))?;
+    }
+    Ok(())
+}
+
+/// DEBUG: carimba a posição final do jogador no ARQUIVO da temporada mais recente.
+/// Roda DEPOIS do avanço (o avanço recalcula standings só de quem correu e exclui o
+/// jogador agente livre, gravando posição `null` no arquivo). Sem isso, o cenário de
+/// campeão/mediano nunca vira pódio e o mercado não oferta promoção.
+pub(crate) fn debug_stamp_player_championship_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    scenario: &str,
+) -> Result<(), String> {
+    let position: i32 = match scenario {
+        "first" => 1,
+        "fifth" => 5,
+        _ => return Ok(()), // "no_team": não carimba
+    };
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+    let player = driver_queries::get_player_driver(&db.conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+
+    // Categoria de exibição: última por contrato, senão rookie.
+    let categoria: String = db
+        .conn
+        .query_row(
+            "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+            rusqlite::params![player.id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| format!("Falha ao buscar categoria do jogador (debug): {e}"))?
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or_else(|| "mazda_rookie".to_string());
+
+    // Temporada arquivada mais recente do jogador (agregado → sempre 1 linha, valor Option).
+    let latest: Option<i32> = db
+        .conn
+        .query_row(
+            "SELECT MAX(season_number) FROM driver_season_archive WHERE piloto_id = ?1",
+            rusqlite::params![player.id],
+            |r| r.get::<_, Option<i32>>(0),
+        )
+        .map_err(|e| format!("Falha ao buscar arquivo do jogador (debug): {e}"))?;
+
+    match latest {
+        Some(season_number) => {
+            db.conn
+                .execute(
+                    "UPDATE driver_season_archive
+                     SET posicao_campeonato = ?1, categoria = ?2
+                     WHERE piloto_id = ?3 AND season_number = ?4",
+                    rusqlite::params![position, categoria, player.id, season_number],
+                )
+                .map_err(|e| format!("Falha ao carimbar posicao do jogador (debug): {e}"))?;
+        }
+        None => {
+            // Sem arquivo ainda: cria uma linha pro ano da temporada ativa (edge case).
+            let season = season_queries::get_active_season(&db.conn)
+                .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+                .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+            db.conn
+                .execute(
+                    "INSERT INTO driver_season_archive
+                        (piloto_id, season_number, ano, nome, categoria, posicao_campeonato, pontos, snapshot_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '{}')",
+                    rusqlite::params![
+                        player.id,
+                        (season.numero - 1).max(1),
+                        season.ano,
+                        player.nome,
+                        categoria,
+                        position,
+                        0.0
+                    ],
+                )
+                .map_err(|e| format!("Falha ao criar arquivo do jogador (debug): {e}"))?;
+        }
     }
     Ok(())
 }
@@ -1228,6 +1382,24 @@ pub(crate) fn finalize_preseason_in_base_dir(
     Ok(())
 }
 
+/// Categorias onde um piloto pode realmente pegar vaga, espelhando o predicado
+/// `eligible` do motor de transferências: tier do assento em [tier−1, tier+1] E licença
+/// suficiente (com a exceção do +1 tier, cuja licença é concedida na assinatura).
+/// Não considera o bônus de craque (skill≥80 pula 2 tiers) — sem skill neste payload.
+fn eligible_categories_for(driver_tier: u8, license: u8) -> Vec<String> {
+    crate::constants::categories::get_all_categories()
+        .iter()
+        .filter(|cat| {
+            let seat_tier = cat.tier;
+            let required = cat.licenca_necessaria.unwrap_or(0);
+            let close = (seat_tier as i16 - driver_tier as i16).abs() <= 1;
+            let promotion = seat_tier == driver_tier + 1;
+            close && (license >= required || promotion)
+        })
+        .map(|cat| cat.id.to_string())
+        .collect()
+}
+
 pub(crate) fn get_preseason_free_agents_in_base_dir(
     base_dir: &Path,
     career_id: &str,
@@ -1252,6 +1424,11 @@ pub(crate) fn get_preseason_free_agents_in_base_dir(
                 Some(_) => ("Super Elite", "SE"),
                 None => ("Rookie", "R"),
             };
+            // Faixa de nível (tier da categoria onde corre hoje) — chave do agrupamento.
+            let market_tier = crate::constants::categories::get_category_config(&r.categoria)
+                .map(|config| config.tier);
+            let eligible_categories =
+                eligible_categories_for(market_tier.unwrap_or(0), r.max_license_level.unwrap_or(0));
             crate::commands::career_types::FreeAgentPreview {
                 driver_id: r.driver_id,
                 driver_name: r.driver_name,
@@ -1266,6 +1443,9 @@ pub(crate) fn get_preseason_free_agents_in_base_dir(
                 license_sigla: license_sigla.to_string(),
                 last_championship_position: r.last_championship_position,
                 last_championship_total_drivers: r.last_championship_total_drivers,
+                market_tier,
+                seasons_idle: r.seasons_idle,
+                eligible_categories,
             }
         })
         .collect();
@@ -2036,7 +2216,7 @@ fn force_place_player(
     Ok(Some(vacancy.team.nome))
 }
 
-fn backfill_team_vacancy(
+pub(crate) fn backfill_team_vacancy(
     conn: &rusqlite::Connection,
     team_id: &str,
     season_number: i32,
@@ -2586,6 +2766,19 @@ fn repair_regular_contract_consistency(
     Ok(())
 }
 
+// Melhor posição de chegada (ignorando DNF) usada como desempate de classificação.
+// Quem não terminou nenhuma corrida fica com o pior valor possível, então cai para
+// o fim do grupo empatado em vez de subir por não ter resultado.
+fn best_finish_position(results: &[Option<RoundResult>]) -> i32 {
+    results
+        .iter()
+        .filter_map(|result| result.as_ref())
+        .filter(|result| !result.is_dnf)
+        .map(|result| result.position)
+        .min()
+        .unwrap_or(i32::MAX)
+}
+
 pub(crate) fn get_drivers_by_category_in_base_dir(
     base_dir: &Path,
     career_id: &str,
@@ -2656,6 +2849,8 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
                 is_estreante: driver.temporadas_na_categoria == 0,
                 is_estreante_da_vida: driver.stats_carreira.corridas == 0,
                 lesao_ativa_tipo: active_injuries_by_driver.get(&driver_id).cloned(),
+                is_aposentado: driver.status
+                    == crate::models::enums::DriverStatus::Aposentado,
                 pontos: driver.stats_temporada.pontos.round() as i32,
                 vitorias: driver.stats_temporada.vitorias as i32,
                 podios: driver.stats_temporada.podios as i32,
@@ -2675,6 +2870,10 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
             .cmp(&a.pontos)
             .then_with(|| b.vitorias.cmp(&a.vitorias))
             .then_with(|| b.podios.cmp(&a.podios))
+            // Desempate por melhor chegada na pista: sem isso, pilotos empatados
+            // (tipicamente todo o pelotão de 0 ponto) caíam direto no nome, então
+            // o 20º podia aparecer atrás do 26º. Menor posição = melhor.
+            .then_with(|| best_finish_position(&a.results).cmp(&best_finish_position(&b.results)))
             .then_with(|| a.nome.cmp(&b.nome))
     });
 
@@ -2791,6 +2990,8 @@ fn get_special_driver_standings_from_results(
                 is_estreante: driver.temporadas_na_categoria == 0,
                 is_estreante_da_vida: driver.stats_carreira.corridas == 0,
                 lesao_ativa_tipo: active_injuries_by_driver.get(&driver.id).cloned(),
+                is_aposentado: driver.status
+                    == crate::models::enums::DriverStatus::Aposentado,
                 pontos: row.points.round() as i32,
                 vitorias: row.wins,
                 podios: row.podiums,
@@ -2834,7 +3035,9 @@ fn query_special_driver_standing_rows(
              WHERE COALESCE(c.season_id, c.temporada_id) = ?1
                AND c.categoria = ?2
              GROUP BY r.piloto_id
-             ORDER BY total_points DESC, total_wins DESC, total_podiums DESC, d.nome ASC",
+             ORDER BY total_points DESC, total_wins DESC, total_podiums DESC,
+                      COALESCE(MIN(CASE WHEN r.dnf = 0 THEN r.posicao_final END), 9999) ASC,
+                      d.nome ASC",
         )
         .map_err(|e| format!("Falha ao preparar standings especiais: {e}"))?;
 
@@ -3086,6 +3289,9 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 classe: team.classe.clone(),
                 temp_posicao: team.temp_posicao,
                 categoria_anterior: team.categoria_anterior.clone(),
+                historico_vitorias: team.historico_vitorias,
+                historico_podios: team.historico_podios,
+                historico_titulos_construtores: team.historico_titulos_construtores,
             }
         })
         .collect();
@@ -3208,6 +3414,122 @@ struct DriverSymbolAggregate {
     races: i32,
     wins: i32,
     podiums: i32,
+}
+
+/// Dossiê financeiro REAL de uma equipe, lido da tabela `team_finance_history`. Fonte
+/// única da aba My Team: ledgers da última rodada, rosca de custos acumulados da
+/// temporada e gráfico de caixa — substituindo os números fabricados no front. Save
+/// sem histórico (antigo / sem corridas ainda) devolve um relatório vazio (o front
+/// mostra estado honesto).
+pub(crate) fn get_team_finance_report_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    category: &str,
+    team_id: &str,
+) -> Result<TeamFinanceReport, String> {
+    /// Máximo de rodadas exibidas no gráfico de caixa.
+    const TIMELINE_MAX: usize = 12;
+    /// Janela lida do histórico: cobre a temporada corrente inteira + a cauda do gráfico.
+    const HISTORY_WINDOW: i64 = 200;
+
+    let category = category.trim().to_lowercase();
+    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+
+    let entries = team_queries::get_team_finance_history_recent(&db.conn, team_id, HISTORY_WINDOW)
+        .map_err(|e| format!("Falha ao carregar historico financeiro da equipe: {e}"))?;
+
+    let Some(latest_entry) = entries.last().cloned() else {
+        return Ok(TeamFinanceReport::default());
+    };
+
+    let current_season = latest_entry.season_number;
+
+    // Acumulado da temporada corrente (rosca de custos + leitura de receita).
+    let mut season = TeamFinanceRound {
+        season_number: current_season,
+        ..Default::default()
+    };
+    let mut season_rounds = 0;
+    for entry in entries.iter().filter(|e| e.season_number == current_season) {
+        season.sponsorship_income += entry.sponsorship_income;
+        season.result_bonus += entry.result_bonus;
+        season.partial_prize_income += entry.partial_prize_income;
+        season.aid_income += entry.aid_income;
+        season.salary_expense += entry.salary_expense;
+        season.event_operations_cost += entry.event_operations_cost;
+        season.structural_maintenance_cost += entry.structural_maintenance_cost;
+        season.technical_investment_cost += entry.technical_investment_cost;
+        season.debt_service_cost += entry.debt_service_cost;
+        season.constructor_prize_income += entry.constructor_prize_income;
+        season.income_total += entry.income_total;
+        season.expenses_total += entry.expenses_total;
+        season.net += entry.net;
+        season_rounds += 1;
+    }
+    season.round = season_rounds; // aqui `round` carrega a CONTAGEM de rodadas somadas.
+
+    let latest = TeamFinanceRound {
+        season_number: latest_entry.season_number,
+        round: latest_entry.round,
+        sponsorship_income: latest_entry.sponsorship_income,
+        result_bonus: latest_entry.result_bonus,
+        partial_prize_income: latest_entry.partial_prize_income,
+        aid_income: latest_entry.aid_income,
+        salary_expense: latest_entry.salary_expense,
+        event_operations_cost: latest_entry.event_operations_cost,
+        structural_maintenance_cost: latest_entry.structural_maintenance_cost,
+        technical_investment_cost: latest_entry.technical_investment_cost,
+        debt_service_cost: latest_entry.debt_service_cost,
+        constructor_prize_income: latest_entry.constructor_prize_income,
+        income_total: latest_entry.income_total,
+        expenses_total: latest_entry.expenses_total,
+        net: latest_entry.net,
+    };
+
+    let start = entries.len().saturating_sub(TIMELINE_MAX);
+    let cash_timeline = entries[start..]
+        .iter()
+        .map(|entry| TeamFinanceCashPoint {
+            season_number: entry.season_number,
+            round: entry.round,
+            cash_balance: entry.cash_balance,
+            net: entry.net,
+            is_season_close: entry.constructor_prize_income > 0.0,
+        })
+        .collect();
+
+    // Projeção: prêmio de construtores ESTIMADO se a temporada terminasse agora, pela
+    // posição atual no campeonato. Reusa as classificações (fórmula única em `prize`); é
+    // só exibição — não toca caixa nem IA. Falha nas classificações → projeção neutra (0).
+    let (expected_constructor_prize, current_position, grid_size) =
+        match get_teams_standings_in_base_dir(base_dir, career_id, &category) {
+            Ok(standings) => {
+                let grid_size = standings.len() as i32;
+                match standings.iter().find(|s| s.id == team_id) {
+                    Some(standing) => (
+                        crate::finance::prize::constructor_prize(
+                            &category,
+                            standing.posicao,
+                            grid_size,
+                        ),
+                        standing.posicao,
+                        grid_size,
+                    ),
+                    None => (0.0, 0, grid_size),
+                }
+            }
+            Err(_) => (0.0, 0, 0),
+        };
+
+    Ok(TeamFinanceReport {
+        rounds_recorded: entries.len() as i32,
+        latest: Some(latest),
+        season: Some(season),
+        cash_timeline,
+        expected_constructor_prize,
+        current_position,
+        grid_size,
+    })
 }
 
 pub(crate) fn get_team_history_dossier_in_base_dir(
@@ -3655,12 +3977,12 @@ fn format_brl(value: f64) -> String {
     let mut formatted = String::new();
     for (index, ch) in raw.chars().rev().enumerate() {
         if index > 0 && index % 3 == 0 {
-            formatted.push('.');
+            formatted.push(',');
         }
         formatted.push(ch);
     }
     let grouped: String = formatted.chars().rev().collect();
-    format!("R$ {grouped}")
+    format!("${grouped}")
 }
 
 fn format_decimal_pt(value: f64, decimals: usize) -> String {
@@ -4581,6 +4903,9 @@ fn get_special_team_standings_from_results(
                 classe: row.class_name.clone().or_else(|| team.classe.clone()),
                 temp_posicao: team.temp_posicao,
                 categoria_anterior: team.categoria_anterior.clone(),
+                historico_vitorias: team.historico_vitorias,
+                historico_podios: team.historico_podios,
+                historico_titulos_construtores: team.historico_titulos_construtores,
             })
         })
         .collect()
@@ -7406,8 +7731,8 @@ mod tests {
             .identity
             .symbol_driver_detail
             .contains("4 corridas, 1 vitória, 3 pódios"));
-        assert_eq!(dossier.management.peak_cash, "R$ 4.200.000");
-        assert_eq!(dossier.management.worst_crisis, "R$ 1.250.000 de dívida");
+        assert_eq!(dossier.management.peak_cash, "$4,200,000");
+        assert_eq!(dossier.management.worst_crisis, "$1,250,000 de dívida");
         assert_eq!(dossier.management.healthy_years, "0 Temporadas");
         assert_eq!(dossier.management.operation_health, "Pressionada");
         assert!(dossier.management.efficiency.contains("pts/temporada"));

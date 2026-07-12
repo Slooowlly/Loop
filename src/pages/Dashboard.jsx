@@ -210,7 +210,7 @@ function Dashboard() {
 }
 
 function RepairPopup({ repair, onClose }) {
-  const valor = `R$ ${Math.round(repair.repair_cost || 0).toLocaleString("pt-BR")}`;
+  const valor = `$${Math.round(repair.repair_cost || 0).toLocaleString("en-US")}`;
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"

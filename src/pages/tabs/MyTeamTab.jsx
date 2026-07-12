@@ -6,7 +6,13 @@ import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
-import { categoryLabel, extractNationalityLabel, getCategoryTier } from "../../utils/formatters";
+import {
+  categoryLabel,
+  extractNationalityLabel,
+  formatMoney,
+  formatSignedMoney,
+  monthlySalary,
+} from "../../utils/formatters";
 
 const BUILD_META = {
   balanced: { label: "Balanceado", weights: [34, 33, 33] },
@@ -24,6 +30,25 @@ const TECH_AXES = [
   { id: "pit", label: "Pit e corrida" },
 ];
 
+// Linhas REAIS de receita/despesa vindas de `get_team_finance_report` (backend
+// `team_finance_history`). A chave casa com o campo do payload; o rótulo/cor são do
+// front. Fonte única do dossiê financeiro — nada aqui é fabricado.
+const INCOME_LINES = [
+  { key: "sponsorship_income", label: "Patrocínios" },
+  { key: "result_bonus", label: "Bônus de resultado" },
+  { key: "partial_prize_income", label: "Prêmio parcial" },
+  { key: "aid_income", label: "Auxílios" },
+  { key: "constructor_prize_income", label: "Prêmio de construtores" },
+];
+
+const EXPENSE_LINES = [
+  { key: "salary_expense", label: "Salários", color: "#ff6b6b" },
+  { key: "event_operations_cost", label: "Operação", color: "#58a6ff" },
+  { key: "structural_maintenance_cost", label: "Manutenção", color: "#f59e0b" },
+  { key: "technical_investment_cost", label: "Investimento", color: "#22c55e" },
+  { key: "debt_service_cost", label: "Serviço da dívida", color: "#a371f7" },
+];
+
 const TEAM_HISTORY_TABS = [
   { id: "records", label: "Records" },
   { id: "sport", label: "Esportivo" },
@@ -32,39 +57,13 @@ const TEAM_HISTORY_TABS = [
   { id: "categories", label: "Categorias" },
 ];
 
-const KNOWN_TEAM_FOUNDING_YEARS = [
-  { names: ["ferrari"], year: 1929 },
-  { names: ["porsche", "wright motorsports", "ebimotors", "gpx racing"], year: 1931 },
-  { names: ["ford mustang", "multimatic motorsports"], year: 1903 },
-  { names: ["chevrolet", "corvette"], year: 1911 },
-  { names: ["bmw", "tr3 racing"], year: 1916 },
-  { names: ["mercedes-amg", "sunenergy1", "team korthoff"], year: 1967 },
-  { names: ["lamborghini", "paul miller"], year: 1963 },
-  { names: ["mclaren", "k-pax", "balfe endurance"], year: 1963 },
-  { names: ["acura team penske"], year: 1966 },
-  { names: ["acura"], year: 1986 },
-  { names: ["aston martin", "heart of racing gt3"], year: 1913 },
-  { names: ["audi", "r8g esports"], year: 1909 },
-];
-
-const CATEGORY_FOUNDING_BASE_YEARS = {
-  mazda_rookie: 2020,
-  mazda_amador: 2016,
-  toyota_rookie: 2021,
-  toyota_amador: 2012,
-  bmw_m2: 2015,
-  gt4: 2002,
-  gt3: 1999,
-  production_challenger: 2018,
-  endurance: 1998,
-};
-
 function MyTeamTab() {
   const careerId = useCareerStore((state) => state.careerId);
   const player = useCareerStore((state) => state.player);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const [drivers, setDrivers] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [financeReport, setFinanceReport] = useState(null);
   const [activeAxis, setActiveAxis] = useState("development");
   const [selectedHistoryTeam, setSelectedHistoryTeam] = useState(null);
   const [activeHistoryTab, setActiveHistoryTab] = useState("records");
@@ -74,16 +73,22 @@ function MyTeamTab() {
     let mounted = true;
 
     async function load() {
-      if (!careerId || !playerTeam?.categoria) return;
+      if (!careerId || !playerTeam?.categoria || !playerTeam?.id) return;
       try {
         setError("");
-        const [loadedDrivers, loadedTeams] = await Promise.all([
+        const [loadedDrivers, loadedTeams, loadedFinance] = await Promise.all([
           invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
           invoke("get_teams_standings", { careerId, category: playerTeam.categoria }),
+          invoke("get_team_finance_report", {
+            careerId,
+            category: playerTeam.categoria,
+            teamId: playerTeam.id,
+          }),
         ]);
         if (mounted) {
           setDrivers(Array.isArray(loadedDrivers) ? loadedDrivers : []);
           setTeams(Array.isArray(loadedTeams) ? loadedTeams : []);
+          setFinanceReport(loadedFinance ?? null);
         }
       } catch (invokeError) {
         if (mounted) {
@@ -96,7 +101,7 @@ function MyTeamTab() {
     return () => {
       mounted = false;
     };
-  }, [careerId, playerTeam?.categoria]);
+  }, [careerId, playerTeam?.categoria, playerTeam?.id]);
 
   const piloto1 = drivers.find((driver) => driver.id === playerTeam?.piloto_1_id);
   const piloto2 = drivers.find((driver) => driver.id === playerTeam?.piloto_2_id);
@@ -120,9 +125,9 @@ function MyTeamTab() {
         <div className="space-y-5" data-testid="my-team-side-rail">
           <DriverPanel drivers={driverRows} salaryCeiling={playerTeam?.salary_ceiling ?? 0} />
           <TechPanel team={playerTeam} activeAxis={activeAxis} setActiveAxis={setActiveAxis} />
-          <CostChart />
+          <CostChart report={financeReport} />
         </div>
-        <FinanceDossier team={playerTeam} drivers={driverRows} />
+        <FinanceDossier team={playerTeam} drivers={driverRows} report={financeReport} />
       </div>
 
       <RankingTable
@@ -229,7 +234,10 @@ function DriverRow({ driver, salaryCeiling }) {
         </div>
         <div className="text-right">
           <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Salário {driver.role}</p>
-          <p className="mt-1 font-mono text-sm text-status-green">{formatMoney(driver.salary)}</p>
+          <p className="mt-1 font-mono text-sm text-status-green">
+            {formatMoney(monthlySalary(driver.salary))}
+            <span className="ml-1 font-sans text-[10px] font-normal text-text-muted">/mês</span>
+          </p>
         </div>
       </div>
       <div className="mt-4">
@@ -278,43 +286,96 @@ function TechPanel({ team, activeAxis, setActiveAxis }) {
   );
 }
 
-function FinanceDossier({ team, drivers }) {
+function FinanceDossier({ team, drivers, report }) {
   const [showSecondaryCashIndicators, setShowSecondaryCashIndicators] = useState(false);
   const net = team?.last_round_net ?? 0;
-  const timeline = cashTimeline(team);
+  const timeline = cashTimelineFromReport(report);
+  const hasTimeline = timeline.length > 0;
   const payroll = drivers.reduce((sum, driver) => sum + driver.salary, 0);
-  const peakCash = Math.max(...timeline.map((point) => point.value));
-  const lowCash = Math.min(...timeline.map((point) => point.value));
+  const peakCash = hasTimeline ? Math.max(...timeline.map((point) => point.value)) : team?.cash_balance ?? 0;
+  const lowCash = hasTimeline ? Math.min(...timeline.map((point) => point.value)) : team?.cash_balance ?? 0;
   const openingCash = (team?.cash_balance ?? 0) - net;
   const projectedCash = team?.cash_balance ?? 0;
   const strategyLabel = seasonStrategy(team?.season_strategy);
   const debt = team?.debt_balance ?? 0;
+  const incomeLedger = ledgerRows(report?.latest, INCOME_LINES);
+  // A linha "Salários" da rodada é anual ÷ nº de corridas; ancoramos com a folha mensal
+  // para que o valor por rodada não pareça furado ao lado do salário mensal dos pilotos.
+  const expenseLedger = ledgerRows(report?.latest, EXPENSE_LINES).map((row) =>
+    row.label === "Salários" && payroll > 0 ? { ...row, hint: `${formatMoney(monthlySalary(payroll))}/mês` } : row,
+  );
+  // Média REAL por rodada: acumulado líquido da temporada ÷ rodadas registradas
+  // (report.season.round guarda a CONTAGEM de rodadas somadas). Sem histórico → cai no
+  // resultado da última rodada como aproximação.
+  const seasonRoundsCount = report?.season?.round ?? 0;
+  const avgRoundNet = seasonRoundsCount > 0 ? (report?.season?.net ?? 0) / seasonRoundsCount : net;
+  // Projeção "se a temporada terminasse agora": net acumulado da temporada + prêmio de
+  // construtores ESTIMADO pela posição atual no campeonato. Só exibição (o backend nunca
+  // credita a expectativa no caixa nem nas decisões da IA). Fecha o loop visual do déficit
+  // por rodada — o prêmio de fim de ano é o que traz o resultado pro verde.
+  // Net da temporada SEM prêmio já pago (a linha de encerramento entra em season.net);
+  // descontamos para não contar o prêmio duas vezes ao somar a expectativa.
+  const seasonNetToDate = (report?.season?.net ?? 0) - (report?.season?.constructor_prize_income ?? 0);
+  const expectedPrize = report?.expected_constructor_prize ?? 0;
+  const currentPosition = report?.current_position ?? 0;
+  const gridSize = report?.grid_size ?? 0;
+  const projectedAnnual = seasonNetToDate + expectedPrize;
+  const hasProjection = currentPosition > 0 && expectedPrize > 0;
   return (
     <GlassCard hover={false} className="rounded-[28px]">
       <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">Rodada atual + acumulado</p>
       <h3 className="mt-2 text-2xl font-semibold text-text-primary">Dossiê financeiro</h3>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Caixa" value={formatMoney(team?.cash_balance ?? 0)} caption="Saldo da operação" />
-        <Kpi label="Resultado rodada" value={formatSignedMoney(net)} caption="Última rodada" tone={net >= 0 ? "text-status-green" : "text-status-red"} />
-        <Kpi label="Dívida" value={formatMoney(debt)} caption="Passivo atual" tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
-        <Kpi label="Teto salarial" value={formatMoney(team?.salary_ceiling ?? 0)} caption="Limite atual" />
-        <Kpi label="Poder de gasto" value={formatSignedMoney(team?.spending_power ?? 0)} caption="Margem de investimento" tone={(team?.spending_power ?? 0) >= 0 ? "text-status-green" : "text-status-red"} />
+        <Kpi label="Caixa" value={formatMoney(team?.cash_balance ?? 0)} caption="Saldo da operação" period="atual" />
+        <Kpi label="Resultado rodada" value={formatSignedMoney(net)} caption="Última rodada" period="/rodada" tone={net >= 0 ? "text-status-green" : "text-status-red"} />
+        <Kpi label="Dívida" value={formatMoney(debt)} caption="Passivo atual" period="atual" tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
+        <Kpi label="Teto salarial" value={formatMoney(monthlySalary(team?.salary_ceiling ?? 0))} caption="Máx. por piloto" period="/mês" />
+        <Kpi label="Poder de gasto" value={formatSignedMoney(team?.spending_power ?? 0)} caption="Margem projetada" period="temporada" tone={(team?.spending_power ?? 0) >= 0 ? "text-status-green" : "text-status-red"} />
       </div>
 
+      <p className="mt-3 text-[11px] leading-5 text-text-muted">
+        As etiquetas indicam o horizonte de cada número: <span className="text-text-secondary">/rodada</span> é o fluxo de uma corrida,{" "}
+        <span className="text-text-secondary">/mês</span> é o salário por piloto e <span className="text-text-secondary">temporada</span> é a projeção do ano inteiro.
+      </p>
+
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <Ledger title="Entradas da rodada" rows={incomeRows(team)} positive />
-        <Ledger title="Saídas da rodada" rows={expenseRows(team)} />
+        <Ledger title="Entradas da rodada" rows={incomeLedger} positive />
+        <Ledger title="Saídas da rodada" rows={expenseLedger} />
       </div>
+
+      {hasProjection ? (
+        <div className="mt-5 rounded-[24px] border border-white/8 bg-white/[0.03] p-5" data-testid="season-projection">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">Se a temporada terminasse agora</p>
+              <h4 className="mt-2 text-lg font-semibold text-text-primary">Projeção de fim de temporada</h4>
+            </div>
+            <span className="rounded-full border border-status-yellow/25 bg-status-yellow/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-status-yellow">
+              {formatOrdinal(currentPosition)}{gridSize > 0 ? ` de ${gridSize}` : ""}
+            </span>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <Kpi compact label="Temporada até aqui" value={formatSignedMoney(seasonNetToDate)} tone={moneyTone(seasonNetToDate)} />
+            <Kpi compact label="Prêmio estimado" value={`+${formatMoney(expectedPrize)}`} caption="Pela posição atual" tone="text-status-green" />
+            <Kpi compact label="Projeção anual" value={formatSignedMoney(projectedAnnual)} tone={projectedAnnual >= 0 ? "text-status-green" : "text-status-red"} />
+          </div>
+          <p className={`mt-4 text-sm font-semibold ${projectedAnnual >= 0 ? "text-status-green" : "text-status-red"}`}>
+            {projectedAnnual >= 0
+              ? `No ritmo atual você fecha a temporada no verde — ${formatSignedMoney(projectedAnnual)} contando o prêmio de construtores.`
+              : `No ritmo atual você fecha a temporada no vermelho — ${formatSignedMoney(projectedAnnual)} mesmo com o prêmio de construtores.`}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-5 rounded-[24px] border border-white/8 bg-black/10 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">Linha do tempo do caixa acumulado</p>
-            <h4 className="mt-2 text-lg font-semibold text-text-primary">Projeção de caixa</h4>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">Caixa ao fim de cada rodada</p>
+            <h4 className="mt-2 text-lg font-semibold text-text-primary">Histórico de caixa</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-accent-primary">Acumulado</span>
+            <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-accent-primary">Real</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-text-secondary">
               Estratégia da temporada: <span className="text-text-primary">{strategyLabel}</span>
             </span>
@@ -322,28 +383,48 @@ function FinanceDossier({ team, drivers }) {
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Kpi compact label="Caixa inicial estimado" value={formatMoney(openingCash)} tone={moneyTone(openingCash)} />
-          <Kpi compact label="Entradas" value={`+${formatMoney(team?.last_round_income ?? 0)}`} tone="text-status-green" />
-          <Kpi compact label="Saídas" value={`-${formatMoney(team?.last_round_expenses ?? 0)}`} tone="text-status-red" />
+          <Kpi compact label="Caixa antes da rodada" value={formatMoney(openingCash)} tone={moneyTone(openingCash)} />
+          <Kpi compact label="Entradas" value={`+${formatMoney(team?.last_round_income ?? 0)}`} tone="text-status-green" period="/rodada" />
+          <Kpi compact label="Saídas" value={`-${formatMoney(team?.last_round_expenses ?? 0)}`} tone="text-status-red" period="/rodada" />
           <Kpi compact label="Dívida" value={formatMoney(debt)} tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
-          <Kpi compact label="Caixa projetado" value={formatMoney(projectedCash)} tone={moneyTone(projectedCash)} />
+          <Kpi compact label="Caixa atual" value={formatMoney(projectedCash)} tone={moneyTone(projectedCash)} />
         </div>
 
-        <div className="mt-6 flex h-56 items-end gap-2 rounded-[22px] border border-white/6 bg-white/[0.02] px-4 pb-4 pt-8">
-          {timeline.map((point) => (
-            <div key={point.label} className="flex h-full flex-1 flex-col justify-end gap-2">
-              <div
-                className={`min-h-3 rounded-t-xl bg-gradient-to-t ${
-                  point.value < 0 ? "from-status-red to-status-red" : "from-accent-primary/70 to-accent-hover"
-                }`}
-                data-testid={point.value < 0 ? "cash-timeline-negative" : undefined}
-                style={{ height: `${point.height}%` }}
-                title={`${point.label}: ${formatMoney(point.value)}`}
-              />
-              <span className="text-center font-mono text-[10px] text-text-muted">{point.label}</span>
-            </div>
-          ))}
-        </div>
+        {hasTimeline ? (
+          <div className="mt-6 flex h-56 items-end gap-2 rounded-[22px] border border-white/6 bg-white/[0.02] px-4 pb-4 pt-8">
+            {timeline.map((point, index) => (
+              <div key={index} className="flex h-full flex-1 flex-col justify-end gap-2">
+                <div
+                  className={`min-h-3 rounded-t-xl bg-gradient-to-t ${
+                    point.isSeasonClose
+                      ? "from-status-yellow/70 to-status-yellow"
+                      : point.value < 0
+                        ? "from-status-red to-status-red"
+                        : "from-accent-primary/70 to-accent-hover"
+                  }`}
+                  data-testid={
+                    point.isSeasonClose
+                      ? "cash-timeline-season-close"
+                      : point.value < 0
+                        ? "cash-timeline-negative"
+                        : undefined
+                  }
+                  style={{ height: `${point.height}%` }}
+                  title={
+                    point.isSeasonClose
+                      ? `Encerramento — prêmio de construtores (caixa ${formatMoney(point.value)})`
+                      : `${point.label}: ${formatMoney(point.value)}`
+                  }
+                />
+                <span className="text-center font-mono text-[10px] text-text-muted">{point.label}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-6 rounded-[22px] border border-white/6 bg-white/[0.02] px-4 py-8 text-center text-xs leading-5 text-text-secondary">
+            Sem histórico de caixa ainda. Cada corrida disputada acrescenta uma rodada aqui.
+          </p>
+        )}
         <div className="mt-4 rounded-[22px] border border-white/8 bg-white/[0.025] p-3">
           <button
             type="button"
@@ -369,8 +450,8 @@ function FinanceDossier({ team, drivers }) {
               <div className="mt-3 grid gap-3 sm:grid-cols-4">
                 <Kpi compact label="Pico de caixa" value={formatMoney(peakCash)} tone={moneyTone(peakCash)} />
                 <Kpi compact label="Pior trecho" value={formatMoney(lowCash)} tone={moneyTone(lowCash)} />
-                <Kpi compact label="Média por rodada" value={formatSignedMoney(net)} tone={moneyTone(net)} />
-                <Kpi compact label="Folha anual" value={formatMoney(payroll)} />
+                <Kpi compact label="Média por rodada" value={formatSignedMoney(avgRoundNet)} tone={moneyTone(avgRoundNet)} />
+                <Kpi compact label="Folha mensal" value={formatMoney(monthlySalary(payroll))} />
               </div>
             </>
           ) : null}
@@ -389,10 +470,17 @@ function FinanceDossier({ team, drivers }) {
   );
 }
 
-function Kpi({ label, value, caption, tone = "text-text-primary", compact = false }) {
+function Kpi({ label, value, caption, tone = "text-text-primary", compact = false, period }) {
   return (
     <div className={`rounded-2xl border border-white/8 bg-white/[0.03] ${compact ? "p-3" : "p-4"}`}>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{label}</p>
+        {period ? (
+          <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+            {period}
+          </span>
+        ) : null}
+      </div>
       <p className={`mt-2 font-mono ${compact ? "text-sm" : "text-lg"} font-semibold ${tone}`}>{value}</p>
       {caption ? <p className="mt-1 text-xs text-text-secondary">{caption}</p> : null}
     </div>
@@ -452,54 +540,87 @@ function Ledger({ title, rows, positive = false }) {
   return (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{title}</p>
+      {rows.length === 0 ? (
+        <p className="mt-4 text-xs leading-5 text-text-secondary">Sem rodada registrada ainda.</p>
+      ) : (
       <div className="mt-4 space-y-3">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center justify-between gap-3 border-b border-white/6 pb-2 last:border-0 last:pb-0">
-            <span className="text-sm text-text-primary">{row.label}</span>
+            <span className="text-sm text-text-primary">
+              {row.label}
+              {row.hint ? <span className="ml-2 text-[10px] font-normal text-text-muted">{row.hint}</span> : null}
+            </span>
             <span className={`font-mono text-sm ${positive ? "text-status-green" : "text-status-red"}`}>{positive ? "+" : "-"}{formatMoney(row.value)}</span>
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
 
-function CostChart() {
-  const rows = [
-    ["Salários", 42, "#ff6b6b"],
-    ["Operação", 24, "#58a6ff"],
-    ["Manutenção", 20, "#f59e0b"],
-    ["Investimento", 14, "#22c55e"],
-  ];
-  let cursor = 0;
-  const gradient = rows.map(([, percent, color]) => {
-    const start = cursor;
-    cursor += percent;
-    return `${color} ${start}% ${cursor}%`;
-  }).join(", ");
+function CostChart({ report }) {
+  const rows = costDistribution(report?.season);
+  const seasonRounds = report?.season?.round ?? 0;
   return (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
-      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Distribuição dos custos acumulados</p>
-      <div className="mt-5 grid gap-5 sm:grid-cols-[140px_1fr] xl:grid-cols-1 2xl:grid-cols-[150px_1fr]">
-        <div className="mx-auto grid h-36 w-36 place-items-center rounded-full 2xl:h-40 2xl:w-40" style={{ background: `conic-gradient(${gradient})` }}>
-          <div className="grid h-20 w-20 place-items-center rounded-full bg-bg-primary text-[10px] font-semibold uppercase tracking-[0.14em] text-text-primary 2xl:h-24 2xl:w-24">Custos</div>
-        </div>
-        <div className="space-y-3 self-center">
-          {rows.map(([label, percent, color]) => (
-            <div key={label} className="rounded-2xl border border-white/6 bg-black/10 px-3 py-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2 text-text-secondary"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>
-                <span className="font-mono text-text-primary">{percent}%</span>
-              </div>
-              <div className="mt-2 h-1.5 rounded-full bg-white/10">
-                <div className="h-1.5 rounded-full" style={{ width: `${percent}%`, backgroundColor: color }} />
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Distribuição dos custos acumulados</p>
+        {seasonRounds > 0 ? (
+          <span className="text-[9px] uppercase tracking-[0.14em] text-text-muted">{seasonRounds} {seasonRounds === 1 ? "rodada" : "rodadas"}</span>
+        ) : null}
       </div>
+      {rows.length === 0 ? (
+        <p className="mt-5 rounded-2xl border border-white/8 bg-black/10 px-4 py-6 text-center text-xs leading-5 text-text-secondary">
+          Sem custos registrados nesta temporada ainda. O gráfico é preenchido a cada corrida disputada.
+        </p>
+      ) : (
+        <div className="mt-5 grid gap-5 sm:grid-cols-[140px_1fr] xl:grid-cols-1 2xl:grid-cols-[150px_1fr]">
+          <div className="mx-auto grid h-36 w-36 place-items-center rounded-full 2xl:h-40 2xl:w-40" style={{ background: `conic-gradient(${costGradient(rows)})` }}>
+            <div className="grid h-20 w-20 place-items-center rounded-full bg-bg-primary text-[10px] font-semibold uppercase tracking-[0.14em] text-text-primary 2xl:h-24 2xl:w-24">Custos</div>
+          </div>
+          <div className="space-y-3 self-center">
+            {rows.map((row) => (
+              <div key={row.label} className="rounded-2xl border border-white/6 bg-black/10 px-3 py-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-text-secondary"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />{row.label}</span>
+                  <span className="font-mono text-text-primary">{formatPercent(row.percent)}</span>
+                </div>
+                <div className="mt-2 h-1.5 rounded-full bg-white/10">
+                  <div className="h-1.5 rounded-full" style={{ width: `${row.percent}%`, backgroundColor: row.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// Divisão REAL dos custos acumulados da temporada (rosca). Deriva percentuais dos
+// totais somados por `get_team_finance_report`; sem custos → lista vazia (estado vazio).
+function costDistribution(season) {
+  if (!season) return [];
+  const rows = EXPENSE_LINES.map((line) => ({
+    label: line.label,
+    color: line.color,
+    value: Math.max(0, season[line.key] ?? 0),
+  })).filter((row) => row.value > 0);
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total <= 0) return [];
+  return rows.map((row) => ({ ...row, percent: (row.value / total) * 100 }));
+}
+
+function costGradient(rows) {
+  let cursor = 0;
+  return rows
+    .map((row) => {
+      const start = cursor;
+      cursor += row.percent;
+      return `${row.color} ${start}% ${cursor}%`;
+    })
+    .join(", ");
 }
 
 function ExecutiveReading({ team, net, payroll }) {
@@ -691,9 +812,13 @@ function TeamHistoryEdgeNavigator({ previousTeam, nextTeam, onSelectTeam, placem
         "pointer-events-auto fixed top-24 z-[91] flex flex-col gap-2 max-lg:hidden sm:top-28",
         placement === "left" ? "animate-edge-rail-in-right" : "animate-edge-rail-in",
       ].join(" ")}
-      style={placement === "left"
-        ? { left: "calc(min(50vw, 720px) + 14px)" }
-        : { right: "calc(min(50vw, 720px) + 14px)" }}
+      style={
+        placement === "center"
+          ? { right: "18px" }
+          : placement === "left"
+            ? { left: "calc(min(50vw, 720px) + 14px)" }
+            : { right: "calc(min(50vw, 720px) + 14px)" }
+      }
     >
       <TeamNavigatorButton
         label="Equipe anterior"
@@ -775,7 +900,7 @@ export function TeamHistoryDrawer({
   }, [activeCategory, careerId, team?.id, team?.categoria, playerTeam?.categoria]);
 
   const drawerLayer = (
-    <div className="fixed inset-0 z-[90]" data-testid="team-history-layer" aria-hidden={false}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center" data-testid="team-history-layer" aria-hidden={false}>
       <button
         type="button"
         aria-label="Fechar histórico da equipe"
@@ -793,8 +918,13 @@ export function TeamHistoryDrawer({
         aria-modal="true"
         aria-labelledby="team-history-title"
         className={[
-          placement === "left" ? "animate-drawer-in-left left-0 border-r shadow-[28px_0_80px_rgba(0,0,0,0.72)]" : "animate-drawer-in right-0 border-l shadow-[-28px_0_80px_rgba(0,0,0,0.72)]",
-          "absolute inset-y-0 w-[min(50vw,720px)] overflow-y-auto border-white/15 bg-[#07101d] max-lg:w-full",
+          "overflow-y-auto border-white/15 bg-[#07101d]",
+          placement === "center"
+            ? "animate-scale-in relative z-10 max-h-[88vh] w-[min(92vw,760px)] rounded-[24px] border shadow-[0_30px_90px_rgba(0,0,0,0.72)]"
+            : [
+                placement === "left" ? "animate-drawer-in-left left-0 border-r shadow-[28px_0_80px_rgba(0,0,0,0.72)]" : "animate-drawer-in right-0 border-l shadow-[-28px_0_80px_rgba(0,0,0,0.72)]",
+                "absolute inset-y-0 w-[min(50vw,720px)] max-lg:w-full",
+              ].join(" "),
         ].join(" ")}
         data-testid="team-history-drawer"
         style={{
@@ -830,9 +960,11 @@ export function TeamHistoryDrawer({
                   <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
                     {dossier.state}
                   </span>
-                  <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
-                    Fundada em {dossier.founded}
-                  </span>
+                  {dossier.founded ? (
+                    <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
+                      Fundada em {dossier.founded}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1225,22 +1357,20 @@ function buildTeamHistoryDossier(
   const categoryName = categoryLabel(category);
   const rankedTeams = Array.isArray(teams) ? teams : [];
   const realHistory = normalizeTeamHistoryPayload(historyDossier);
-  const rankingIndex = rankedTeams.findIndex((entry) => entry.id === mergedTeam?.id);
-  const currentPosition = mergedTeam?.posicao ?? (rankingIndex >= 0 ? rankingIndex + 1 : 1);
   const rival = findHistoricRival(mergedTeam, rankedTeams);
-  const peakCash = Math.max(mergedTeam?.cash_balance ?? 0, (mergedTeam?.cash_balance ?? 0) + Math.max(mergedTeam?.last_round_income ?? 0, 0) * 3);
-  const debt = mergedTeam?.debt_balance ?? estimateHistoricDebt(mergedTeam);
-  const founded = resolveTeamFoundedYear(mergedTeam, rankedTeams, currentPosition, category);
-  const origin = originCategoryLabel(category, currentPosition);
-  const profile = teamHistoryProfile(mergedTeam, currentPosition);
+  const founded = resolveTeamFoundedYear(mergedTeam);
+  const categoryGroup = categoryGroupLabel(category);
 
+  // Fallbacks NEUTROS: quando o histórico real ainda não carregou (ou o backend não
+  // tem dados), mostramos "—"/estado honesto — nunca um número inventado. O histórico
+  // real (get_team_history_dossier) substitui tudo isto quando pronto.
   return {
     name: mergedTeam?.nome ?? "Equipe",
     color: mergedTeam?.cor_primaria ?? "#58a6ff",
     state: realHistory?.identity?.heritage ?? teamHeritageLabel(founded),
     founded,
     currentCategory: categoryName,
-    recordScope: realHistory?.recordScope ?? categoryGroupLabel(category),
+    recordScope: realHistory?.recordScope ?? categoryGroup,
     historyStatus,
     historyError,
     hasHistory: realHistory?.hasHistory ?? false,
@@ -1248,40 +1378,27 @@ function buildTeamHistoryDossier(
     titleCategories: realHistory?.titleCategories ?? [],
     sport: realHistory?.sport ?? emptyRealSport(),
     identity: realHistory?.identity ?? {
-      origin,
+      origin: "—",
       current: categoryName,
-      profile,
-      summary: identitySummary(mergedTeam, profile, currentPosition),
+      profile: "Perfil em formação",
+      summary: "Histórico real ainda insuficiente para formar a identidade da equipe.",
       rival: {
         name: rival?.nome ?? "Sem rival consolidado",
         currentCategory: categoryName,
         note: rival
-          ? `Disputa direta de referência dentro do ${categoryGroupLabel(category)}, com proximidade em pontos e desenvolvimento.`
+          ? `Adversário mais próximo em pontos dentro do ${categoryGroup}.`
           : "Histórico ainda sem confronto forte o bastante para formar rivalidade.",
       },
-      symbolDriver: mergedTeam?.piloto_1_nome ?? mergedTeam?.driver_name ?? "Piloto principal",
+      symbolDriver: mergedTeam?.piloto_1_nome ?? "Piloto principal",
       symbolDriverDetail: "Nome mais associado ao momento competitivo recente da escuderia.",
     },
-    management: realHistory?.management ?? {
-      operationHealth: financialState(mergedTeam?.financial_state),
-      peakCash: formatMoney(peakCash),
-      worstCrisis: debt > 0 ? `${formatMoney(debt)} de dívida` : "Sem dívida relevante",
-      healthyYears: `${healthySeasonEstimate(mergedTeam, founded)} Temporadas`,
-      efficiency: managementEfficiency(mergedTeam),
-      biggestInvestment: `${2026 - Math.min(1, currentPosition - 1)} - pacote técnico`,
-      summary: managementSummary(mergedTeam),
-      peakCashDetail: "Pico estimado a partir do caixa atual, prêmio recente e força de patrocínio.",
-      worstCrisisDetail: debt > 0 ? "Período de maior pressão financeira registrado no ciclo recente." : "Operação sem crise financeira severa no recorte atual.",
-      healthyYearsDetail: "Histórico sem dívida relevante.",
-      efficiencyDetail: "Pontos conquistados em relação ao dinheiro disponível.",
-      investmentDetail: "Ano em que a equipe mais converteu recursos em evolução do carro.",
-    },
+    management: realHistory?.management ?? emptyRealManagement(mergedTeam),
     movement: realHistory?.movement ?? {
-      promotions: Math.max(0, getCategoryTier(category) - 2),
-      relegations: mergedTeam?.relegations ?? 0,
-      timeByCategory: `${origin}: ${Math.max(1, 2026 - founded - 1)} anos | ${shortCategoryLabel(categoryName)}: ${Math.max(1, Math.min(4, 2026 - founded))} anos`,
+      promotions: "—",
+      relegations: "—",
+      timeByCategory: "Indisponível",
       bestCategory: categoryName,
-      hardestCategory: currentPosition <= 3 ? origin : categoryName,
+      hardestCategory: "—",
     },
     categoryPath: realHistory?.categoryPath ?? [],
     timeline: realHistory?.timeline ?? [],
@@ -1377,7 +1494,7 @@ function normalizeTeamHistoryPayload(payload) {
       peakCash: management.peak_cash ?? management.peakCash ?? "Sem saldo registrado",
       worstCrisis: management.worst_crisis ?? management.worstCrisis ?? "Sem crise registrada",
       healthyYears: management.healthy_years ?? management.healthyYears ?? "Sem temporadas registradas",
-      efficiency: management.efficiency ?? "0 pts/R$ mi",
+      efficiency: management.efficiency ?? "0 pts/temporada",
       biggestInvestment: management.biggest_investment ?? management.biggestInvestment ?? "Sem investimento registrado",
       summary: management.summary ?? "Gestão real ainda sem leitura consolidada.",
       peakCashDetail: management.peak_cash_detail ?? management.peakCashDetail ?? "Sem detalhe de saldo registrado.",
@@ -1389,44 +1506,19 @@ function normalizeTeamHistoryPayload(payload) {
   };
 }
 
-function resolveTeamFoundedYear(team, rankedTeams, currentPosition, category) {
-  const explicitYear = Number(team?.founded_year);
+// Ano de fundação REAL (payload do backend `founded_year`). Sem valor confiável → null,
+// e o front mostra estado neutro em vez de inventar um ano.
+function resolveTeamFoundedYear(team) {
+  const explicitYear = Number(team?.founded_year ?? team?.ano_fundacao);
   if (Number.isFinite(explicitYear) && explicitYear > 1800) {
     return explicitYear;
   }
-
-  const knownYear = knownTeamFoundedYear(team?.nome);
-  if (knownYear) {
-    return knownYear;
-  }
-
-  const totalTeams = Math.max(1, rankedTeams.length);
-  const rankIndex = clamp((currentPosition || 1) - 1, 0, totalTeams - 1);
-  const rankRatio = totalTeams > 1 ? rankIndex / (totalTeams - 1) : 0.5;
-  const baseYear = CATEGORY_FOUNDING_BASE_YEARS[category] ?? 2016;
-
-  return Math.round(baseYear + rankRatio * 4);
-}
-
-function knownTeamFoundedYear(teamName) {
-  const normalizedName = normalizeTeamNameForHistory(teamName);
-  const match = KNOWN_TEAM_FOUNDING_YEARS.find(({ names }) =>
-    names.some((name) => normalizedName.includes(name)),
-  );
-  return match?.year ?? null;
-}
-
-function normalizeTeamNameForHistory(teamName) {
-  return String(teamName ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+  return null;
 }
 
 function teamHeritageLabel(founded) {
-  if (founded <= 1970) {
-    return "Equipe histórica";
-  }
+  if (!founded) return "Equipe";
+  if (founded <= 1970) return "Equipe histórica";
   return "Projeto consolidado";
 }
 
@@ -1443,97 +1535,30 @@ function emptyRealSport() {
   };
 }
 
-function teamWins(team) {
-  return team?.vitorias ?? team?.wins ?? Math.max(0, Math.round((team?.pontos ?? 0) / 24));
-}
-
-function teamPodiums(team) {
-  return team?.podios ?? team?.podiums ?? Math.max(teamWins(team), Math.round((team?.pontos ?? 0) / 8));
-}
-
-function teamTitles(team) {
-  return team?.titulos ?? team?.titles ?? ((team?.posicao ?? 99) === 1 ? 1 : 0);
-}
-
-function teamRaces(team) {
-  return Math.max(10, Math.round((team?.pontos ?? 0) / 4) || 10);
-}
-
-function rankForMetric(teams, selectedTeam, metric) {
-  const ordered = [...(teams ?? [])].sort((a, b) => metric(b) - metric(a));
-  const index = ordered.findIndex((entry) => entry.id === selectedTeam?.id);
-  return formatOrdinal(index >= 0 ? index + 1 : 1);
+// Fallback NEUTRO de gestão: usa só o estado financeiro atual (real); o resto fica "—"
+// até o histórico real (get_team_history_dossier) chegar. Sem estimativas fabricadas.
+function emptyRealManagement(team) {
+  const debt = team?.debt_balance ?? 0;
+  return {
+    operationHealth: financialState(team?.financial_state),
+    peakCash: "—",
+    worstCrisis: debt > 0 ? `${formatMoney(debt)} de dívida atual` : "Sem dívida relevante",
+    healthyYears: "—",
+    efficiency: "—",
+    biggestInvestment: "—",
+    summary: "Histórico de gestão real ainda não consolidado.",
+    peakCashDetail: "Sem histórico de saldo registrado.",
+    worstCrisisDetail: debt > 0 ? "Passivo atual da operação." : "Operação sem crise financeira registrada.",
+    healthyYearsDetail: "Sem histórico registrado.",
+    efficiencyDetail: "Sem histórico registrado.",
+    investmentDetail: "Sem histórico registrado.",
+  };
 }
 
 function findHistoricRival(team, teams) {
   return [...(teams ?? [])]
     .filter((entry) => entry.id !== team?.id)
     .sort((a, b) => Math.abs((a.posicao ?? 99) - (team?.posicao ?? 99)) - Math.abs((b.posicao ?? 99) - (team?.posicao ?? 99)))[0];
-}
-
-function managementEfficiency(team) {
-  const cashMillions = Math.max(1, Math.abs(team?.cash_balance ?? 0) / 1_000_000);
-  return `${((team?.pontos ?? 0) / cashMillions).toFixed(2).replace(".", ",")} pts / R$ mi`;
-}
-
-function estimateHistoricDebt(team) {
-  if ((team?.cash_balance ?? 0) < 2_000_000) return Math.round(Math.abs(team?.cash_balance ?? 0) * 0.45);
-  return 0;
-}
-
-function healthySeasonEstimate(team, founded) {
-  const total = Math.max(1, 2026 - founded);
-  if ((team?.financial_state ?? "stable") === "crisis") return Math.max(1, total - 2);
-  if ((team?.financial_state ?? "stable") === "pressured") return Math.max(1, total - 1);
-  return total;
-}
-
-function buildTitleCategories(categoryName, titles) {
-  if (titles <= 0) {
-    return [{ category: categoryName, year: "buscando 1º título", color: "#58a6ff" }];
-  }
-  return Array.from({ length: titles }, (_, index) => ({
-    category: categoryName,
-    year: String(2026 - index),
-    color: ["#58a6ff", "#f2c46d", "#5ee7a8", "#ff6b6b"][index % 4],
-  }));
-}
-
-function buildCategoryPath(origin, current, founded) {
-  if (origin === current) {
-    return [
-      {
-        category: current,
-        years: `${founded}-atual`,
-        detail: "Trajetória concentrada no mesmo grupo, com evolução interna de estrutura e carro.",
-        color: "#58a6ff",
-      },
-    ];
-  }
-  return [
-    {
-      category: origin,
-      years: `${founded}-${Math.min(2025, founded + 1)}`,
-      detail: "Base inicial da equipe e construção de identidade competitiva.",
-      color: "#5ee7a8",
-    },
-    {
-      category: current,
-      years: `${Math.min(2026, founded + 2)}-atual`,
-      detail: "Fase atual de consolidação, gestão financeira e busca por resultados.",
-      color: "#58a6ff",
-    },
-  ];
-}
-
-function originCategoryLabel(category, position) {
-  if (category?.includes("toyota")) return "Toyota";
-  if (category?.includes("mazda")) return "Mazda";
-  if (category === "bmw_m2") return "Mazda";
-  if (category === "gt4") return position <= 3 ? "BMW" : "Toyota";
-  if (category === "gt3") return "GT4 Series";
-  if (category === "lmp2" || category === "endurance") return "GT3 Championship";
-  return "Mazda";
 }
 
 function categoryGroupLabel(category) {
@@ -1545,34 +1570,6 @@ function categoryGroupLabel(category) {
   if (category === "lmp2") return "Grupo LMP2";
   if (category === "endurance") return "Grupo Endurance";
   return "Grupo da categoria";
-}
-
-function shortCategoryLabel(label) {
-  return String(label).replace(" Series", "").replace(" Championship", "");
-}
-
-// Fallback usado só enquanto o histórico real carrega — sem inventar um perfil
-// divergente do backend (que é a fonte única de verdade por desempenho real).
-function teamHistoryProfile() {
-  return "Em formação";
-}
-
-function identitySummary(team, profile, position) {
-  if (profile === "Dominante") {
-    return `${team?.nome ?? "A equipe"} transformou resultado, caixa e carro forte em referência do grid.`;
-  }
-  if (profile === "Sobrevivente Competitiva") {
-    return `${team?.nome ?? "A equipe"} vive de resiliência: pressão financeira alta, mas ainda capaz de incomodar rivais diretas.`;
-  }
-  if (profile === "Especialista em Evolução") {
-    return `${team?.nome ?? "A equipe"} construiu reputação por desenvolver carro e operação acima do esperado.`;
-  }
-  return `${team?.nome ?? "A equipe"} ocupa o bloco de disputa constante, perto o bastante para crescer e longe o bastante para precisar escolher bem seus investimentos.`;
-}
-
-function managementSummary(team) {
-  const state = financialState(team?.financial_state).toLowerCase();
-  return `Operação ${state}, com leitura baseada no caixa, dívida e pressão financeira atual.`;
 }
 
 function MetricBar({ label, value, rawValue }) {
@@ -1595,7 +1592,8 @@ function buildDriverRow(role, driver, team, playerId) {
   const fallbackName = isN1 ? team?.piloto_1_nome : team?.piloto_2_nome;
   const fallbackSalary = isN1 ? team?.piloto_1_salario_anual : team?.piloto_2_salario_anual;
   const fallbackId = isN1 ? team?.piloto_1_id : team?.piloto_2_id;
-  const salary = fallbackSalary ?? driver?.salario_anual ?? estimateSalary(team, driver, isN1 ? 0.58 : 0.42);
+  // Salário REAL (contrato): do payload da equipe ou do piloto. Assento vazio → 0.
+  const salary = fallbackSalary ?? driver?.salario_anual ?? 0;
   return {
     role,
     name: driver?.nome ?? fallbackName ?? "-",
@@ -1604,12 +1602,6 @@ function buildDriverRow(role, driver, team, playerId) {
     salary,
     highlight: driver?.id === playerId || fallbackId === playerId,
   };
-}
-
-function estimateSalary(team, driver, share) {
-  const ceiling = team?.salary_ceiling ?? 0;
-  if (ceiling <= 0) return 0;
-  return Math.round(ceiling * share * clamp((driver?.skill ?? 70) / 75, 0.75, 1.25));
 }
 
 function technicalMetrics(team, axis) {
@@ -1635,42 +1627,38 @@ function technicalMetrics(team, axis) {
   ];
 }
 
-function incomeRows(team) {
-  return splitAmount(Math.max(0, team?.last_round_income ?? 0), [
-    ["Patrocínios", 0.5],
-    ["Bônus de resultado", 0.24],
-    ["Prêmio parcial", 0.18],
-    ["Auxílios", 0.08],
-  ]);
+// Linhas REAIS de um ledger (entradas ou saídas) a partir da última rodada do report.
+// Oculta linhas zeradas (ex.: sem auxílio / sem serviço de dívida naquela rodada).
+function ledgerRows(round, lines) {
+  if (!round) return [];
+  return lines
+    .map((line) => ({ label: line.label, value: Math.max(0, round[line.key] ?? 0) }))
+    .filter((row) => row.value >= 1);
 }
 
-function expenseRows(team) {
-  return splitAmount(Math.max(0, team?.last_round_expenses ?? 0), [
-    ["Salários", 0.42],
-    ["Operação do evento", 0.24],
-    ["Manutenção estrutural", 0.2],
-    ["Investimento técnico", 0.14],
-  ]);
-}
-
-function splitAmount(total, parts) {
-  return parts.map(([label, share], index) => {
-    const previous = parts.slice(0, index).reduce((sum, [, partShare]) => sum + Math.round(total * partShare), 0);
-    return { label, value: index === parts.length - 1 ? Math.max(0, total - previous) : Math.round(total * share) };
-  });
-}
-
-function cashTimeline(team) {
-  const cash = team?.cash_balance ?? 0;
-  const net = team?.last_round_net ?? 0;
-  const points = Array.from({ length: 10 }, (_, index) => ({
-    label: `R${index + 1}`,
-    value: cash - net * (9 - index) + ((index % 3) - 1) * Math.abs(net) * 0.22,
-  }));
-  const values = points.map((point) => point.value);
+// Gráfico de caixa REAL: caixa ao fim de cada rodada, vindo de `team_finance_history`.
+// Rótulo curto por rodada; prefixa a temporada quando a janela cruza temporadas.
+function cashTimelineFromReport(report) {
+  const points = report?.cash_timeline ?? [];
+  if (!Array.isArray(points) || points.length === 0) return [];
+  const values = points.map((point) => point.cash_balance ?? 0);
   const min = Math.min(...values);
   const span = Math.max(1, Math.max(...values) - min);
-  return points.map((point) => ({ ...point, height: 22 + ((point.value - min) / span) * 72 }));
+  // Rótulo sequencial (R1, R2, …) para corridas; a linha de ENCERRAMENTO (prêmio de
+  // construtores) ganha um troféu e cor própria — é o ponto onde o resultado do ano
+  // fecha. O contador só avança em corridas, então o troféu não "consome" um número.
+  let raceIndex = 0;
+  return points.map((point) => {
+    const value = point.cash_balance ?? 0;
+    const isSeasonClose = Boolean(point.is_season_close);
+    if (!isSeasonClose) raceIndex += 1;
+    return {
+      label: isSeasonClose ? "🏆" : `R${raceIndex}`,
+      value,
+      height: 22 + ((value - min) / span) * 72,
+      isSeasonClose,
+    };
+  });
 }
 
 function buildMeta(profile) {
@@ -1797,18 +1785,6 @@ function pitCrew(value) {
   if (value <= 60) return "Ok";
   if (value <= 80) return "Forte";
   return "Elite";
-}
-
-function formatMoney(value) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 0,
-  }).format(Math.round(value ?? 0));
-}
-
-function formatSignedMoney(value) {
-  return `${value >= 0 ? "+" : ""}${formatMoney(value)}`;
 }
 
 function formatPercent(value) {

@@ -4,13 +4,16 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::career::{
     advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
-    debug_prepare_market_scenario_in_base_dir, delete_career_in_base_dir,
+    debug_prepare_market_scenario_in_base_dir, debug_stamp_player_championship_in_base_dir,
+    delete_career_in_base_dir,
     finalize_preseason_in_base_dir,
     get_briefing_phrase_history_in_base_dir, get_calendar_for_category_in_base_dir,
     get_driver_detail_in_base_dir, get_driver_in_base_dir, get_drivers_by_category_in_base_dir,
+    get_player_dossier_in_base_dir,
     get_news_in_base_dir, get_player_proposals_in_base_dir, get_preseason_free_agents_in_base_dir,
     get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
-    get_race_results_by_category_in_base_dir, get_team_history_dossier_in_base_dir,
+    get_race_results_by_category_in_base_dir, get_team_finance_report_in_base_dir,
+    get_team_history_dossier_in_base_dir,
     get_teams_standings_in_base_dir, list_saves_in_base_dir, load_career_in_base_dir,
     persist_resume_context_in_base_dir, respond_to_proposal_in_base_dir,
     save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir,
@@ -21,7 +24,7 @@ use crate::commands::career_types::{
     CareerResumeView, CreateCareerInput, CreateCareerResult, CreateHistoricalDraftInput,
     DriverDetail, DriverSummary, FinalizeHistoricalDraftInput, FreeAgentPreview,
     GlobalDriverRankingPayload, GlobalTeamHistoryPayload, RaceSummary, SaveInfo,
-    TeamHistoryDossier, TeamStanding,
+    TeamFinanceReport, TeamHistoryDossier, TeamStanding,
 };
 use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
 use crate::commands::global_team_history::get_global_team_history_in_base_dir;
@@ -111,6 +114,18 @@ pub async fn debug_prepare_market_scenario(
 ) -> Result<(), String> {
     let base_dir = app_data_dir(&app)?;
     debug_prepare_market_scenario_in_base_dir(&base_dir, &career_id, &scenario)
+}
+
+/// DEBUG: carimba a posição do jogador no arquivo APÓS o avanço da temporada (o avanço
+/// recalcula standings só de quem correu e exclui o agente livre). Cenários: "first"/"fifth".
+#[tauri::command]
+pub async fn debug_stamp_player_championship(
+    app: AppHandle,
+    career_id: String,
+    scenario: String,
+) -> Result<(), String> {
+    let base_dir = app_data_dir(&app)?;
+    debug_stamp_player_championship_in_base_dir(&base_dir, &career_id, &scenario)
 }
 
 #[tauri::command]
@@ -225,6 +240,17 @@ pub async fn get_team_history_dossier(
 }
 
 #[tauri::command]
+pub async fn get_team_finance_report(
+    app: AppHandle,
+    career_id: String,
+    category: String,
+    team_id: String,
+) -> Result<TeamFinanceReport, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_team_finance_report_in_base_dir(&base_dir, &career_id, &category, &team_id)
+}
+
+#[tauri::command]
 pub async fn get_race_results_by_category(
     app: AppHandle,
     career_id: String,
@@ -258,6 +284,17 @@ pub async fn get_calendar_for_category(
 pub fn get_driver(app: AppHandle, career_number: u32, driver_id: String) -> Result<Driver, String> {
     let base_dir = app_data_dir(&app)?;
     get_driver_in_base_dir(&base_dir, career_number, &driver_id)
+}
+
+/// Dossiê de habilidade do jogador (atributos inferidos do desempenho real; só
+/// visual). Ver `crate::player_skill`.
+#[tauri::command]
+pub fn get_player_dossier(
+    app: AppHandle,
+    career_id: String,
+) -> Result<crate::player_skill::PlayerDossier, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_player_dossier_in_base_dir(&base_dir, &career_id)
 }
 
 #[tauri::command]

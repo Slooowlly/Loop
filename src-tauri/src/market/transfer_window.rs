@@ -509,6 +509,10 @@ pub struct PlayerOffer {
     pub class: Option<String>,
     pub salary: f64,
     pub is_n1: bool,
+    /// Interesse ATIVO (Fase 2a do estrelato): o time cobiça o nome do jogador pelo
+    /// apelo comercial da fama → oferta com salário-prêmio e destaque na UI.
+    #[serde(default)]
+    pub active_interest: bool,
 }
 
 /// Estado SERIALIZÁVEL e STEPÁVEL da janela — permite rodar semana a semana com a
@@ -627,6 +631,7 @@ impl WindowState {
                             class: seat.class.clone(),
                             salary,
                             is_n1: seat.is_n1,
+                            active_interest: false,
                         }
                     })
                     .collect()

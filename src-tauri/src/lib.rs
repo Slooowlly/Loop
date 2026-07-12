@@ -161,6 +161,7 @@ mod convocation;
 mod db;
 mod event_interest;
 mod evolution;
+mod fame;
 mod finance;
 mod generators;
 mod hierarchy;
@@ -168,6 +169,7 @@ mod iracing_sdk;
 mod market;
 mod models;
 mod narrative;
+mod player_skill;
 mod news;
 mod promotion;
 mod public_presence;
@@ -271,17 +273,20 @@ pub fn run() {
             commands::career_commands::get_player_proposals,
             commands::career_commands::respond_to_proposal,
             commands::career_commands::debug_prepare_market_scenario,
+            commands::career_commands::debug_stamp_player_championship,
             commands::career_commands::get_news,
             commands::career_commands::delete_career,
             commands::career_commands::list_saves,
             commands::career_commands::get_drivers_by_category,
             commands::career_commands::get_teams_standings,
             commands::career_commands::get_team_history_dossier,
+            commands::career_commands::get_team_finance_report,
             commands::career_commands::get_race_results_by_category,
             commands::career_commands::get_previous_champions,
             commands::career_commands::get_calendar_for_category,
             commands::career_commands::get_driver,
             commands::career_commands::get_driver_detail,
+            commands::career_commands::get_player_dossier,
             commands::career_commands::get_global_driver_rankings,
             commands::career_commands::toggle_driver_favorite,
             commands::career_commands::get_transfer_window_state,

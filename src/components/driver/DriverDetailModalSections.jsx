@@ -1,4 +1,7 @@
-import { formatSalary } from "../../utils/formatters";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+import { formatSalary, formatSalaryMonthly } from "../../utils/formatters";
 import TeamLogoMark from "../team/TeamLogoMark";
 
 function formatStatValue(value) {
@@ -881,12 +884,257 @@ export function RivalsSection({ SectionComponent, detail }) {
   );
 }
 
+const toneHex = {
+  danger: "#f85149",
+  warning: "#d29922",
+  neutral: "#8b949e",
+  info: "#58a6ff",
+  success: "#3fb950",
+  elite: "#bc8cff",
+};
+
+function StardomMeter({ label, value, nivel, tone }) {
+  const color = toneHex[tone] || toneHex.neutral;
+  const width = Math.max(0, Math.min(Number(value) || 0, 100));
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7d8590]">
+          {label}
+        </span>
+        <span className="text-sm font-bold" style={{ color }}>
+          {nivel}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#21262d]">
+        <div className="h-full rounded-full" style={{ width: `${width}%`, backgroundColor: color }} />
+      </div>
+      <div className="text-right font-mono text-[11px] text-[#7d8590]">{width}/100</div>
+    </div>
+  );
+}
+
+export function StardomSection({ SectionComponent, detail }) {
+  const stardom = detail.estrelato;
+  if (!stardom) return null;
+
+  return (
+    <SectionComponent title="Estrelato">
+      <div className="glass-light rounded-xl p-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <StardomMeter label="Fama" value={stardom.fama} nivel={stardom.nivel_fama} tone={stardom.tom_fama} />
+          <StardomMeter
+            label="Carisma"
+            value={stardom.carisma}
+            nivel={stardom.nivel_carisma}
+            tone={stardom.tom_carisma}
+          />
+        </div>
+        {stardom.resumo ? (
+          <div className="mt-4 rounded-xl border border-white/6 bg-black/10 p-3 text-sm text-[#c9d1d9]">
+            {stardom.resumo}
+          </div>
+        ) : null}
+        <div className="mt-2 text-[11px] leading-relaxed text-[#7d8590]">
+          A <span className="text-[#e6edf3]">fama</span> é a moeda pública que atrai patrocínio à equipe; o{" "}
+          <span className="text-[#e6edf3]">carisma</span> decide o quanto ela sobe num bom resultado e o quanto
+          resiste num jejum.
+        </div>
+      </div>
+    </SectionComponent>
+  );
+}
+
+// ── Dossiê de Habilidade do JOGADOR (atributos inferidos do desempenho real) ──
+
+const PLAYER_SKILL_LABELS = {
+  skill: "Velocidade",
+  ritmo_classificacao: "Classificação",
+  racecraft: "Racecraft",
+  consistencia: "Consistência",
+  habilidade_largada: "Largada",
+  aggression: "Agressividade",
+  fator_chuva: "Pilotagem na Chuva",
+  adaptabilidade: "Adaptabilidade",
+  experiencia: "Experiência",
+  midia: "Fama / Mídia",
+};
+
+function playerSkillToneHex(value) {
+  const v = Number(value) || 0;
+  if (v >= 85) return "#bc8cff"; // elite
+  if (v >= 75) return "#3fb950"; // qualidade
+  if (v >= 40) return "#58a6ff"; // médio
+  if (v >= 26) return "#d29922"; // fraco
+  return "#f85149"; // defeito
+}
+
+function playerSkillUnlockMessage(attr) {
+  const n = attr.remaining;
+  if (attr.unlock_kind === "wet_races") {
+    return `Corra mais ${n} corrida${n === 1 ? "" : "s"} na chuva para revelar`;
+  }
+  if (attr.unlock_kind === "seasons") {
+    return `Complete mais ${n} temporada${n === 1 ? "" : "s"} para revelar`;
+  }
+  if (attr.unlock_kind === "telemetry_races") {
+    return `Corra mais ${n} corrida${n === 1 ? "" : "s"} no iRacing para revelar`;
+  }
+  return `Corra mais ${n} corrida${n === 1 ? "" : "s"} para revelar`;
+}
+
+function PlayerSkillLockedRow({ attr }) {
+  const label = PLAYER_SKILL_LABELS[attr.key] || attr.key;
+  const progress = attr.unlock_threshold > 0
+    ? Math.min(100, (attr.sample_count / attr.unlock_threshold) * 100)
+    : 0;
+
+  return (
+    <div className="grid gap-1.5 rounded-lg border border-white/6 bg-black/10 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#6e7681]">
+          <span aria-hidden="true">🔒</span>
+          {label}
+        </span>
+        <span className="text-[10px] font-mono text-[#6e7681]">
+          {attr.sample_count}/{attr.unlock_threshold}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-[#161b22]">
+        <div className="h-full rounded-full bg-[#30363d]" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="text-[11px] text-[#7d8590]">{playerSkillUnlockMessage(attr)}</span>
+    </div>
+  );
+}
+
+function PlayerSkillRow({ attr }) {
+  if (!attr.unlocked) return <PlayerSkillLockedRow attr={attr} />;
+
+  const label = PLAYER_SKILL_LABELS[attr.key] || attr.key;
+  const value = Number(attr.value) || 0;
+  const color = playerSkillToneHex(value);
+  const firming = attr.confidence < 0.5;
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[#c9d1d9]">
+          {label}
+        </span>
+        <span className="flex items-baseline gap-2">
+          {attr.tag ? (
+            <span className="text-sm font-bold" style={{ color }}>
+              {attr.tag}
+            </span>
+          ) : null}
+          <span className="font-mono text-xs text-[#7d8590]">{value}</span>
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#21262d]">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${value}%`, backgroundColor: color, opacity: firming ? 0.55 : 1 }}
+        />
+      </div>
+      {firming ? (
+        <span className="text-[10px] italic text-[#6e7681]">
+          Estimativa firmando — corra mais para consolidar
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function PlayerSkillSection({ SectionComponent, careerId }) {
+  const [dossier, setDossier] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function fetchDossier() {
+      if (!careerId) {
+        if (active) {
+          setLoading(false);
+          setDossier(null);
+        }
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const data = await invoke("get_player_dossier", { careerId });
+        if (active) setDossier(data);
+      } catch (fetchError) {
+        if (active) {
+          setError(
+            typeof fetchError === "string"
+              ? fetchError
+              : fetchError?.toString?.() ?? "Erro ao carregar dossiê.",
+          );
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    fetchDossier();
+    return () => {
+      active = false;
+    };
+  }, [careerId]);
+
+  return (
+    <SectionComponent title="Dossiê de Habilidade">
+      <div className="grid gap-4">
+        <div className="rounded-xl border border-[#58a6ff]/18 bg-[#58a6ff]/[0.06] p-3 text-[11px] leading-relaxed text-[#8b949e]">
+          Estas notas saem do seu <span className="text-[#e6edf3]">desempenho real na pista</span> e vão se
+          firmando corrida a corrida. É só o seu retrato de piloto — o mercado{" "}
+          <span className="text-[#e6edf3]">não</span> usa estes números para contratar.
+        </div>
+
+        {loading ? (
+          <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
+            Lendo seu histórico de corridas…
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-[#f85149]/25 bg-[#f85149]/10 p-4 text-sm text-[#f85149]">
+            {error}
+          </div>
+        ) : dossier ? (
+          <>
+            <div className="glass-light rounded-xl p-4">
+              <div className="grid gap-4">
+                {dossier.attributes.map((attr) => (
+                  <PlayerSkillRow key={attr.key} attr={attr} />
+                ))}
+              </div>
+            </div>
+            <div className="text-[11px] text-[#6e7681]">
+              {dossier.total_races} corrida{dossier.total_races === 1 ? "" : "s"} ·{" "}
+              {dossier.total_seasons} temporada{dossier.total_seasons === 1 ? "" : "s"} de base
+            </div>
+          </>
+        ) : (
+          <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
+            Sem histórico suficiente para montar o dossiê ainda.
+          </div>
+        )}
+      </div>
+    </SectionComponent>
+  );
+}
+
 export function MarketSection({ SectionComponent, detail, market }) {
   const contract = detail.contrato_mercado?.contrato;
   const teamColor = detail.equipe_cor_primaria || detail.perfil?.equipe_cor_primaria || "#58a6ff";
 
   return (
     <>
+      <StardomSection SectionComponent={SectionComponent} detail={detail} />
       <SectionComponent title="Contrato e Mercado">
         <div className="grid gap-4">
           {contract ? (
@@ -896,7 +1144,7 @@ export function MarketSection({ SectionComponent, detail, market }) {
               </div>
               <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                 <DetailRow label="Papel" value={formatContractRole(contract.papel)} />
-                <DetailRow label="Salário anual" value={formatSalary(contract.salario_anual)} />
+                <DetailRow label="Salário" value={formatSalaryMonthly(contract.salario_anual)} />
                 <DetailRow label="Vigencia" value={formatContractPeriod(contract)} />
                 <DetailRow
                   label="Restante"
@@ -917,7 +1165,7 @@ export function MarketSection({ SectionComponent, detail, market }) {
               </div>
               <div className="grid gap-2 text-sm text-[#e6edf3] sm:grid-cols-3">
                 <div>Valor: {formatSalary(market.valor_mercado)}</div>
-                <div>Faixa salarial: {formatSalary(market.salario_estimado)}</div>
+                <div>Faixa salarial: {formatSalaryMonthly(market.salario_estimado)}</div>
                 <div>Chance de troca: {market.chance_transferencia ?? "-"}%</div>
               </div>
             </div>

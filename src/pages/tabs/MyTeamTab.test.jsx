@@ -4,10 +4,63 @@ import { invoke } from "@tauri-apps/api/core";
 import MyTeamTab from "./MyTeamTab";
 
 let mockState = {};
+let mockFinanceReport = null;
 
 vi.mock("../../stores/useCareerStore", () => ({
   default: (selector) => selector(mockState),
 }));
+
+// Report financeiro REAL simulado (backend `get_team_finance_report`). Últimas rodadas
+// com as 9 linhas reais + acumulado da temporada + timeline de caixa.
+function buildFinanceReport(overrides = {}) {
+  return {
+    rounds_recorded: 6,
+    latest: {
+      season_number: 1,
+      round: 6,
+      sponsorship_income: 200_000,
+      result_bonus: 90_000,
+      partial_prize_income: 60_000,
+      aid_income: 0,
+      salary_expense: 120_000,
+      event_operations_cost: 70_000,
+      structural_maintenance_cost: 40_000,
+      technical_investment_cost: 25_000,
+      debt_service_cost: 10_000,
+      income_total: 350_000,
+      expenses_total: 265_000,
+      net: 85_000,
+    },
+    season: {
+      season_number: 1,
+      round: 6,
+      sponsorship_income: 1_200_000,
+      result_bonus: 540_000,
+      partial_prize_income: 360_000,
+      aid_income: 0,
+      salary_expense: 720_000,
+      event_operations_cost: 420_000,
+      structural_maintenance_cost: 240_000,
+      technical_investment_cost: 150_000,
+      debt_service_cost: 60_000,
+      income_total: 2_100_000,
+      expenses_total: 1_590_000,
+      net: 510_000,
+    },
+    cash_timeline: [
+      { season_number: 1, round: 1, cash_balance: 6_000_000, net: 80_000 },
+      { season_number: 1, round: 2, cash_balance: 6_120_000, net: 120_000 },
+      { season_number: 1, round: 3, cash_balance: 6_240_000, net: 120_000 },
+      { season_number: 1, round: 4, cash_balance: 6_330_000, net: 90_000 },
+      { season_number: 1, round: 5, cash_balance: 6_415_000, net: 85_000 },
+      { season_number: 1, round: 6, cash_balance: 6_500_000, net: 85_000 },
+    ],
+    expected_constructor_prize: 0,
+    current_position: 0,
+    grid_size: 0,
+    ...overrides,
+  };
+}
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -62,8 +115,8 @@ function buildHistoryDossier(teamId = "T010") {
     },
     management: {
       operation_health: isVector ? "Saudável real" : "Pressionada real",
-      peak_cash: isVector ? "R$ 8.800.000" : "R$ 9.900.000",
-      worst_crisis: isVector ? "Sem dívida real registrada" : "R$ 1.200.000 de dívida real",
+      peak_cash: isVector ? "$8,800,000" : "$9,900,000",
+      worst_crisis: isVector ? "Sem dívida real registrada" : "$1,200,000 de dívida real",
       healthy_years: isVector ? "3 Temporadas" : "4 Temporadas",
       efficiency: isVector ? "18,4 pts/R$ mi real" : "22,1 pts/R$ mi real",
       biggest_investment: isVector ? "Nível 8 - pacote real" : "Nível 9 - pacote real",
@@ -103,6 +156,7 @@ function buildHistoryDossier(teamId = "T010") {
 describe("MyTeamTab", () => {
   beforeEach(() => {
     invoke.mockReset();
+    mockFinanceReport = buildFinanceReport();
     invoke.mockImplementation((command, args = {}) => {
       if (command === "get_drivers_by_category") {
         return Promise.resolve([
@@ -134,6 +188,7 @@ describe("MyTeamTab", () => {
             cash_balance: 132_565_957,
             car_performance: 9,
             car_build_profile: "power_intermediate",
+            founded_year: 2002,
             pontos: 188,
           },
           {
@@ -163,6 +218,10 @@ describe("MyTeamTab", () => {
 
       if (command === "get_team_history_dossier") {
         return Promise.resolve(buildHistoryDossier(args.teamId));
+      }
+
+      if (command === "get_team_finance_report") {
+        return Promise.resolve(mockFinanceReport);
       }
 
       return Promise.resolve([]);
@@ -218,7 +277,7 @@ describe("MyTeamTab", () => {
 
     const header = await screen.findByTestId("my-team-command-header");
     const financeStat = within(header).getByTestId("header-finance-stat");
-    expect(within(financeStat).getByText("R$ 6.500.000")).toBeInTheDocument();
+    expect(within(financeStat).getByText("$6,500,000")).toBeInTheDocument();
     expect(within(financeStat).getByText(/Saudável/i)).toBeInTheDocument();
     expect(within(financeStat).getByText(/Posição/i)).toBeInTheDocument();
     expect(within(financeStat).getByText("5º")).toBeInTheDocument();
@@ -227,7 +286,7 @@ describe("MyTeamTab", () => {
     expect(financeStat).not.toHaveClass("border-accent-primary/35");
     expect(financeStat).not.toHaveClass("rounded-[24px]");
     expect(financeStat).not.toHaveClass("py-5");
-    expect(within(financeStat).getByText("R$ 6.500.000")).toHaveClass("text-5xl");
+    expect(within(financeStat).getByText("$6,500,000")).toHaveClass("text-5xl");
     expect(financeStat.querySelector("[data-testid='header-finance-ornament']")).not.toBeInTheDocument();
     expect(within(financeStat).queryByText(/^Estado$/i)).not.toBeInTheDocument();
     expect(within(header).queryByTestId("header-position-stat")).not.toBeInTheDocument();
@@ -265,7 +324,7 @@ describe("MyTeamTab", () => {
     expect(await screen.findByText(/Dossiê financeiro/i)).toBeInTheDocument();
     expect(screen.getByText(/Entradas da rodada/i)).toBeInTheDocument();
     expect(screen.getByText(/Saídas da rodada/i)).toBeInTheDocument();
-    expect(screen.getByText(/Linha do tempo do caixa acumulado/i)).toBeInTheDocument();
+    expect(screen.getByText(/Caixa ao fim de cada rodada/i)).toBeInTheDocument();
     expect(screen.getByText(/Patrocínios/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Salários/i).length).toBeGreaterThan(0);
 
@@ -320,6 +379,10 @@ describe("MyTeamTab", () => {
 
       if (command === "get_team_history_dossier") {
         return Promise.resolve(buildHistoryDossier(args.teamId));
+      }
+
+      if (command === "get_team_finance_report") {
+        return Promise.resolve(mockFinanceReport);
       }
 
       return Promise.resolve([]);
@@ -396,15 +459,59 @@ describe("MyTeamTab", () => {
     expect(screen.queryByText(/ultimo evento/i)).not.toBeInTheDocument();
   });
 
-  it("highlights negative accumulated cash timeline bars in red", async () => {
-    mockState.playerTeam.cash_balance = -50_000;
-    mockState.playerTeam.last_round_net = 10_000;
+  it("highlights negative cash timeline bars in red", async () => {
+    mockFinanceReport = buildFinanceReport({
+      cash_timeline: [
+        { season_number: 1, round: 1, cash_balance: 200_000, net: -100_000 },
+        { season_number: 1, round: 2, cash_balance: -50_000, net: -250_000 },
+        { season_number: 1, round: 3, cash_balance: 120_000, net: 170_000 },
+      ],
+    });
 
     render(<MyTeamTab />);
 
     const negativeBars = await screen.findAllByTestId("cash-timeline-negative");
     expect(negativeBars.length).toBeGreaterThan(0);
     expect(negativeBars[0]).toHaveClass("from-status-red");
+  });
+
+  it("projects the season close in the green when the estimated constructor prize covers the deficit", async () => {
+    mockFinanceReport = buildFinanceReport({
+      season: { ...buildFinanceReport().season, net: -2_100_000 },
+      expected_constructor_prize: 5_200_000,
+      current_position: 1,
+      grid_size: 14,
+    });
+
+    render(<MyTeamTab />);
+
+    const projection = await screen.findByTestId("season-projection");
+    expect(within(projection).getByText(/Se a temporada terminasse agora/i)).toBeInTheDocument();
+    // Posição atual + prêmio estimado + veredito no verde (deficit -2.1M + prêmio 5.2M = +3.1M).
+    expect(within(projection).getByText(/1º de 14/i)).toBeInTheDocument();
+    expect(within(projection).getByText(/Prêmio estimado/i)).toBeInTheDocument();
+    expect(within(projection).getByText(/fecha a temporada no verde/i)).toBeInTheDocument();
+  });
+
+  it("renders the constructor prize as a real income line and a distinct season-close bar", async () => {
+    mockFinanceReport = buildFinanceReport({
+      latest: {
+        ...buildFinanceReport().latest,
+        constructor_prize_income: 5_200_000,
+        income_total: 5_200_000,
+      },
+      cash_timeline: [
+        { season_number: 1, round: 5, cash_balance: 6_415_000, net: 85_000, is_season_close: false },
+        { season_number: 1, round: 6, cash_balance: 6_500_000, net: 85_000, is_season_close: false },
+        { season_number: 1, round: 1000, cash_balance: 11_700_000, net: 5_200_000, is_season_close: true },
+      ],
+    });
+
+    render(<MyTeamTab />);
+
+    expect(await screen.findAllByText(/Prêmio de construtores/i)).not.toHaveLength(0);
+    const closeBar = screen.getByTestId("cash-timeline-season-close");
+    expect(closeBar).toHaveClass("from-status-yellow/70");
   });
 
   it("places the accumulated cost distribution in the side operations rail", async () => {
@@ -445,30 +552,30 @@ describe("MyTeamTab", () => {
 
     render(<MyTeamTab />);
 
-    expect(await screen.findByText(/Projeção de caixa/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Histórico de caixa/i)).toBeInTheDocument();
     expect(screen.getByText(/Estratégia da temporada/i)).toBeInTheDocument();
     expect(screen.getByText("Equilíbrio")).toBeInTheDocument();
     expect(screen.getAllByText(/^Dívida$/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Caixa inicial estimado/i)).toBeInTheDocument();
-    expect(screen.getByText(/Caixa projetado/i)).toBeInTheDocument();
+    expect(screen.getByText(/Caixa antes da rodada/i)).toBeInTheDocument();
+    expect(screen.getByText(/Caixa atual/i)).toBeInTheDocument();
     expect(screen.getByText(/Auxílio de rebaixamento restante/i)).toBeInTheDocument();
   });
 
   it("keeps secondary cash projection indicators collapsed until requested", async () => {
     render(<MyTeamTab />);
 
-    expect(await screen.findByText(/Projeção de caixa/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Histórico de caixa/i)).toBeInTheDocument();
     expect(screen.queryByText(/Pico de caixa/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pior trecho/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Média por rodada/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Folha anual/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Folha mensal/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Ver indicadores secundários/i }));
 
     expect(screen.getByText(/Pico de caixa/i)).toBeInTheDocument();
     expect(screen.getByText(/Pior trecho/i)).toBeInTheDocument();
     expect(screen.getByText(/Média por rodada/i)).toBeInTheDocument();
-    expect(screen.getByText(/Folha anual/i)).toBeInTheDocument();
+    expect(screen.getByText(/Folha mensal/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Ocultar indicadores secundários/i }));
 
@@ -478,7 +585,7 @@ describe("MyTeamTab", () => {
   it("shows a financial risk panel in the cash projection", async () => {
     render(<MyTeamTab />);
 
-    expect(await screen.findByText(/Projeção de caixa/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Histórico de caixa/i)).toBeInTheDocument();
     expect(screen.queryByText(/Painel de risco financeiro/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Ver indicadores secundários/i }));
@@ -580,7 +687,7 @@ describe("MyTeamTab", () => {
     expect(within(drawer).queryByText("18,4 pts/R$ mi real")).not.toBeInTheDocument();
     expect(within(drawer).getByText("Gestão real da Vector calculada no backend.")).toBeInTheDocument();
     expect(within(drawer).getByText(/Maior saldo histórico/i)).toBeInTheDocument();
-    expect(within(drawer).getAllByText("R$ 8.800.000")).not.toHaveLength(0);
+    expect(within(drawer).getAllByText("$8,800,000")).not.toHaveLength(0);
     expect(within(drawer).getByText("Pico real da Vector vindo do backend.")).toBeInTheDocument();
     expect(within(drawer).getByText(/Pior crise financeira/i)).toBeInTheDocument();
     expect(within(drawer).getByText("Sem dívida real registrada")).toBeInTheDocument();
@@ -609,6 +716,7 @@ describe("MyTeamTab", () => {
             cash_balance: 42_000_000,
             car_performance: 10,
             car_build_profile: "power_extreme",
+            founded_year: 1929,
             pontos: 240,
           },
           {
@@ -630,6 +738,10 @@ describe("MyTeamTab", () => {
           ...buildHistoryDossier(args.teamId),
           title_categories: [{ category: "GT3", year: "2003", color: "#dc0000" }],
         });
+      }
+
+      if (command === "get_team_finance_report") {
+        return Promise.resolve(mockFinanceReport);
       }
 
       return Promise.resolve([]);
@@ -672,6 +784,7 @@ describe("MyTeamTab", () => {
             cash_balance: 1_100_000,
             car_performance: 5,
             car_build_profile: "balanced",
+            founded_year: 2020,
             pontos: 0,
           },
           {
@@ -695,6 +808,10 @@ describe("MyTeamTab", () => {
           record_scope: "Mazda Rookie",
           title_categories: [],
         });
+      }
+
+      if (command === "get_team_finance_report") {
+        return Promise.resolve(mockFinanceReport);
       }
 
       return Promise.resolve([]);

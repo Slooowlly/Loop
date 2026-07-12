@@ -424,6 +424,9 @@ pub struct FreeAgentRaw {
     pub max_license_level: Option<u8>,
     pub last_championship_position: Option<i32>,
     pub last_championship_total_drivers: Option<i32>,
+    /// Temporadas sem correr = (última temporada arquivada no mundo) − (última do piloto).
+    /// `None` = nunca correu (rookie). `0` = correu na última temporada (agente fresco).
+    pub seasons_idle: Option<i32>,
 }
 
 /// Retorna pilotos ativos sem contrato Regular ativo, com dados do último time e contagem de temporadas.
@@ -489,7 +492,13 @@ pub fn get_free_agents_for_preseason(conn: &Connection) -> Result<Vec<FreeAgentR
                 AND tipo = 'Regular') AS career_seasons,
              (SELECT MAX(CAST(nivel AS INTEGER))
               FROM licenses
-              WHERE piloto_id = d.id) AS max_license
+              WHERE piloto_id = d.id) AS max_license,
+             (
+                 (SELECT MAX(CAST(season_number AS INTEGER)) FROM driver_season_archive)
+                 - (SELECT MAX(CAST(season_number AS INTEGER))
+                    FROM driver_season_archive
+                    WHERE piloto_id = d.id)
+             ) AS seasons_idle
          FROM drivers d
          WHERE NOT EXISTS (
              SELECT 1 FROM contracts c
@@ -520,6 +529,7 @@ pub fn get_free_agents_for_preseason(conn: &Connection) -> Result<Vec<FreeAgentR
             max_license_level: max_license_raw.map(|v| v as u8),
             last_championship_position: None,
             last_championship_total_drivers: None,
+            seasons_idle: row.get::<_, Option<i32>>("seasons_idle")?,
         })
     })?;
     for row in mapped {

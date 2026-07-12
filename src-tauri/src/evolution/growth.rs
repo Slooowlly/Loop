@@ -301,6 +301,7 @@ pub(crate) fn get_attribute(driver: &Driver, key: DriverAttributeKey) -> f64 {
         DriverAttributeKey::Aggression => driver.atributos.aggression,
         DriverAttributeKey::Smoothness => driver.atributos.smoothness,
         DriverAttributeKey::Midia => driver.atributos.midia,
+        DriverAttributeKey::Carisma => driver.atributos.carisma,
         DriverAttributeKey::Mentalidade => driver.atributos.mentalidade,
         DriverAttributeKey::Confianca => driver.atributos.confianca,
     }
@@ -323,6 +324,7 @@ pub(crate) fn set_attribute(driver: &mut Driver, key: DriverAttributeKey, value:
         DriverAttributeKey::Aggression => driver.atributos.aggression = value,
         DriverAttributeKey::Smoothness => driver.atributos.smoothness = value,
         DriverAttributeKey::Midia => driver.atributos.midia = value,
+        DriverAttributeKey::Carisma => driver.atributos.carisma = value,
         DriverAttributeKey::Mentalidade => driver.atributos.mentalidade = value,
         DriverAttributeKey::Confianca => driver.atributos.confianca = value,
     }

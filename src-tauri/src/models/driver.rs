@@ -31,6 +31,13 @@ pub struct DriverAttributes {
     pub aggression: f64,
     pub smoothness: f64,
     pub midia: f64,
+    /// Carisma (0–100): magnetismo / qualidade de estrela da PESSOA. Modula a
+    /// dinâmica da fama (`midia`): quanto ganha num bom resultado, quanto perde
+    /// num mau, e quão grudenta é. Inato (personalidade + sorteio) com deriva
+    /// leve de carreira. NÃO afeta a pista (não vai pro export).
+    /// `#[serde(default)]` para snapshots/saves antigos sem o campo.
+    #[serde(default = "default_carisma")]
+    pub carisma: f64,
     pub mentalidade: f64,
     pub confianca: f64,
     /// Teto pessoal de habilidade deste piloto (ligado ao talento inicial). A
@@ -43,6 +50,11 @@ pub struct DriverAttributes {
 /// Teto absoluto de habilidade do jogo: pilotos podem chegar muito perto, mas
 /// nunca alcançar 100. Acima disto a evolução para.
 pub const POTENTIAL_HARD_MAX: f64 = 98.0;
+
+/// Carisma neutro — usado como default de serde para saves/snapshots antigos.
+fn default_carisma() -> f64 {
+    50.0
+}
 
 /// Headroom de potencial acima da habilidade atual — quanto o piloto ainda pode
 /// crescer. Depende de `desenvolvimento` (talento bruto) e da juventude.
@@ -81,6 +93,7 @@ impl Default for DriverAttributes {
             aggression: 50.0,
             smoothness: 50.0,
             midia: 50.0,
+            carisma: 50.0,
             mentalidade: 50.0,
             confianca: 50.0,
             potencial: 0.0,

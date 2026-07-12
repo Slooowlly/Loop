@@ -1,7 +1,18 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { HistorySection, MarketSection, SummarySection } from "./DriverDetailModalSections";
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args) => invokeMock(...args),
+}));
+
+import {
+  HistorySection,
+  MarketSection,
+  PlayerSkillSection,
+  StardomSection,
+  SummarySection,
+} from "./DriverDetailModalSections";
 
 function Section({ title, children }) {
   return (
@@ -193,6 +204,128 @@ describe("HistorySection", () => {
     expect(screen.getByText("Mazda Rookie 2025")).toBeInTheDocument();
     expect(screen.getByText("GT3 Endurance 2026")).toBeInTheDocument();
     expect(screen.getByText("Mazda Production 2027")).toBeInTheDocument();
+  });
+});
+
+describe("StardomSection", () => {
+  it("surfaces fama and carisma with their tier labels and the combined reading", () => {
+    render(
+      <StardomSection
+        SectionComponent={Section}
+        detail={{
+          estrelato: {
+            fama: 82,
+            carisma: 91,
+            nivel_fama: "Nome forte",
+            tom_fama: "success",
+            nivel_carisma: "Ídolo natural",
+            tom_carisma: "elite",
+            resumo: "Ídolo consolidado — o público responde a cada aparição.",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Estrelato")).toBeInTheDocument();
+    expect(screen.getByText("Fama")).toBeInTheDocument();
+    expect(screen.getByText("Carisma")).toBeInTheDocument();
+    expect(screen.getByText("Nome forte")).toBeInTheDocument();
+    expect(screen.getByText("Ídolo natural")).toBeInTheDocument();
+    expect(screen.getByText("82/100")).toBeInTheDocument();
+    expect(screen.getByText("91/100")).toBeInTheDocument();
+    expect(
+      screen.getByText("Ídolo consolidado — o público responde a cada aparição."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders nothing when the driver has no stardom block", () => {
+    const { container } = render(<StardomSection SectionComponent={Section} detail={{}} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("appears inside the market tab above the contract block", () => {
+    render(
+      <MarketSection
+        SectionComponent={Section}
+        detail={{
+          nome: "Arthur Lefebvre",
+          stats_carreira: { corridas: 31, vitorias: 4, podios: 9 },
+          trajetoria: { titulos: 0 },
+          estrelato: {
+            fama: 40,
+            carisma: 55,
+            nivel_fama: "Reconhecível",
+            tom_fama: "info",
+            nivel_carisma: "Cativante",
+            tom_carisma: "neutral",
+            resumo: "Cativa fácil, só falta palco.",
+          },
+          leitura_tecnica: { itens: [] },
+          leitura_desempenho: {},
+          contrato_mercado: {},
+        }}
+        market={null}
+      />,
+    );
+
+    expect(screen.getByText("Estrelato")).toBeInTheDocument();
+    expect(screen.getByText("Contrato e Mercado")).toBeInTheDocument();
+  });
+});
+
+describe("PlayerSkillSection", () => {
+  it("reveals an unlocked attribute with its value and tag", async () => {
+    invokeMock.mockResolvedValueOnce({
+      total_races: 15,
+      total_seasons: 2,
+      attributes: [
+        {
+          key: "skill",
+          unlocked: true,
+          value: 88,
+          confidence: 1,
+          sample_count: 15,
+          unlock_threshold: 5,
+          unlock_kind: "races",
+          remaining: 0,
+          tag: "Super Veloz",
+        },
+      ],
+    });
+
+    render(<PlayerSkillSection SectionComponent={Section} careerId="c1" />);
+
+    expect(await screen.findByText("Velocidade")).toBeInTheDocument();
+    expect(screen.getByText("Super Veloz")).toBeInTheDocument();
+    expect(screen.getByText("88")).toBeInTheDocument();
+    expect(screen.getByText(/não/)).toBeInTheDocument(); // aviso: mercado não usa
+  });
+
+  it("shows the unlock instruction for a locked attribute", async () => {
+    invokeMock.mockResolvedValueOnce({
+      total_races: 1,
+      total_seasons: 1,
+      attributes: [
+        {
+          key: "fator_chuva",
+          unlocked: false,
+          value: null,
+          confidence: 0,
+          sample_count: 1,
+          unlock_threshold: 3,
+          unlock_kind: "wet_races",
+          remaining: 2,
+          tag: null,
+        },
+      ],
+    });
+
+    render(<PlayerSkillSection SectionComponent={Section} careerId="c1" />);
+
+    expect(
+      await screen.findByText("Corra mais 2 corridas na chuva para revelar"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1/3")).toBeInTheDocument();
   });
 });
 

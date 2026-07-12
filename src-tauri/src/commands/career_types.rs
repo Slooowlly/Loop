@@ -162,6 +162,10 @@ pub struct DriverSummary {
     pub is_estreante_da_vida: bool,
     #[serde(default)]
     pub lesao_ativa_tipo: Option<String>,
+    /// Piloto que encerrou a carreira (aposentado). Fica congelado na classificação da
+    /// temporada com os pontos que somou, mas não volta à pista. Ganha selo na UI.
+    #[serde(default)]
+    pub is_aposentado: bool,
     pub pontos: i32,
     pub vitorias: i32,
     pub podios: i32,
@@ -602,6 +606,8 @@ pub struct DriverDetail {
     pub competitivo: DriverCompetitiveBlock,
     #[serde(default)]
     pub leitura_tecnica: DriverTechnicalReadBlock,
+    #[serde(default)]
+    pub estrelato: DriverStardomBlock,
     pub performance: DriverPerformanceBlock,
     pub forma: DriverFormBlock,
     #[serde(default)]
@@ -664,6 +670,15 @@ pub struct GlobalDriverRankingRow {
     pub historical_index: f64,
     pub historical_rank: i32,
     pub historical_rank_delta: Option<i32>,
+    /// Estrelato: fama (`midia`) e carisma atuais, 0–100. `fama_delta` = quanto a
+    /// fama subiu/caiu desde o fim da temporada passada (snapshot arquivado); `None`
+    /// quando não há histórico para comparar (ex.: 1ª temporada). Alimenta a seta ▲/▼.
+    #[serde(default)]
+    pub fama: i32,
+    #[serde(default)]
+    pub carisma: i32,
+    #[serde(default)]
+    pub fama_delta: Option<i32>,
     pub wins_rank: i32,
     pub titles_rank: i32,
     pub podiums_rank: i32,
@@ -872,6 +887,22 @@ pub struct DriverCompetitiveBlock {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DriverTechnicalReadBlock {
     pub itens: Vec<DriverTechnicalReadItem>,
+}
+
+/// Bloco de ESTRELATO — a segunda moeda ("Nasce um astro") na ficha do piloto.
+/// `fama` é o estoque público (atributo `midia`, 0–100), `carisma` o traço estável
+/// (0–100) que modula quão rápido a fama sobe/desce. Os níveis são rótulos legíveis
+/// e `tom` mapeia para as cores de tom já usadas no dossiê (neutral/info/success/elite…).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverStardomBlock {
+    pub fama: u8,
+    pub carisma: u8,
+    pub nivel_fama: String,
+    pub tom_fama: String,
+    pub nivel_carisma: String,
+    pub tom_carisma: String,
+    /// Leitura de uma linha combinando fama × carisma (a dinâmica, não os números).
+    pub resumo: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1168,6 +1199,70 @@ pub struct TeamStanding {
     pub classe: Option<String>,
     pub temp_posicao: i32,
     pub categoria_anterior: Option<String>,
+    /// Históricos acumulados de carreira da equipe (reais, do modelo Team). Alimentam o
+    /// ranking e o fallback do drawer sem estimativas fabricadas no front.
+    #[serde(default)]
+    pub historico_vitorias: i32,
+    #[serde(default)]
+    pub historico_podios: i32,
+    #[serde(default)]
+    pub historico_titulos_construtores: i32,
+}
+
+/// Resposta do comando `get_team_finance_report`: a divisão financeira REAL da equipe,
+/// lida da tabela `team_finance_history`. Números crus (o front cuida de rótulos, cores
+/// e formatação). Substitui os valores fabricados na aba My Team.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamFinanceReport {
+    /// Total de rodadas com histórico registrado (0 = save antigo / sem corridas ainda).
+    pub rounds_recorded: i32,
+    /// Última rodada com histórico (para os ledgers de entradas/saídas).
+    pub latest: Option<TeamFinanceRound>,
+    /// Acumulado da temporada corrente (para a rosca de custos e a leitura de receita).
+    /// Aqui `round` carrega a CONTAGEM de rodadas somadas na temporada.
+    pub season: Option<TeamFinanceRound>,
+    /// Caixa ao fim de cada rodada recente, em ordem cronológica (para o gráfico de caixa).
+    pub cash_timeline: Vec<TeamFinanceCashPoint>,
+    /// Prêmio de construtores ESTIMADO se a temporada terminasse agora (pela posição atual
+    /// no campeonato). Só projeção de exibição — NÃO entra no caixa nem nas decisões da IA.
+    pub expected_constructor_prize: f64,
+    /// Posição atual da equipe no campeonato de construtores (0 = indisponível).
+    pub current_position: i32,
+    /// Nº de equipes no grupo do campeonato (para contextualizar a posição/projeção).
+    pub grid_size: i32,
+}
+
+/// As 9 linhas reais de receita/despesa + totais. Serve tanto para a última rodada
+/// quanto para o acumulado da temporada.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamFinanceRound {
+    pub season_number: i32,
+    pub round: i32,
+    pub sponsorship_income: f64,
+    pub result_bonus: f64,
+    pub partial_prize_income: f64,
+    pub aid_income: f64,
+    pub salary_expense: f64,
+    pub event_operations_cost: f64,
+    pub structural_maintenance_cost: f64,
+    pub technical_investment_cost: f64,
+    pub debt_service_cost: f64,
+    /// Prêmio de construtores creditado (só > 0 na linha de encerramento da temporada).
+    pub constructor_prize_income: f64,
+    pub income_total: f64,
+    pub expenses_total: f64,
+    pub net: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamFinanceCashPoint {
+    pub season_number: i32,
+    pub round: i32,
+    pub cash_balance: f64,
+    pub net: f64,
+    /// `true` na linha de ENCERRAMENTO (prêmio de construtores) — o front rotula/colore
+    /// esse ponto de forma distinta no gráfico de caixa.
+    pub is_season_close: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1239,7 +1334,7 @@ pub struct TeamHistoryOwnershipEvent {
     pub title: String,
     /// Descrição contextual.
     pub detail: String,
-    /// Resumo financeiro para a aba Gestão (ex.: "Dívida de R$ 38,0M zerada · aporte de R$ 7,0M").
+    /// Resumo financeiro para a aba Gestão (ex.: "Dívida de $38M zerada · aporte de $7M").
     pub financial_note: String,
 }
 
@@ -1345,4 +1440,12 @@ pub struct FreeAgentPreview {
     pub license_sigla: String,
     pub last_championship_position: Option<i32>,
     pub last_championship_total_drivers: Option<i32>,
+    /// Tier de prestígio (0=Rookie … 6=Endurance) da categoria onde ele corre hoje.
+    /// É a chave de agrupamento da coluna (faixa de nível). `None` = rookie/sem categoria.
+    pub market_tier: Option<u8>,
+    /// Temporadas parado (ver `FreeAgentRaw::seasons_idle`). Usado pelo marcador "parado".
+    pub seasons_idle: Option<i32>,
+    /// IDs das categorias onde ele pode realmente pegar vaga (mesma regra do leilão:
+    /// tier ±1 + licença exigida, com +1 de promoção liberado). Usado pelo filtro do topo.
+    pub eligible_categories: Vec<String>,
 }

@@ -115,6 +115,9 @@ describe("PreSeasonView", () => {
           driver_id: "driver-amg",
           driver_name: "Marco Rossi",
           categoria: "gt3",
+          market_tier: 4,
+          seasons_idle: 0,
+          eligible_categories: ["gt4", "gt3"],
           previous_team_name: "Mercedes-AMG",
           previous_team_color: "#00d2be",
           previous_team_abbr: "AMG",
@@ -135,11 +138,78 @@ describe("PreSeasonView", () => {
     const logo = screen.getByAltText("Mercedes-AMG logo");
     expect(logo).toHaveAttribute("src", expect.stringContaining("TimesNormalized"));
     expect(logo).toHaveClass("object-contain");
-    expect(screen.getByTitle("Carteira Super Pro")).toHaveAttribute(
-      "aria-label",
-      "Carteira Super Pro",
-    );
+    // Agrupado pela faixa de nível (tier 4 = Master), não pela carteira.
+    expect(screen.getByText("Master")).toBeInTheDocument();
+    // Etiqueta de destino provável no lugar da licença (escopada ao card do piloto,
+    // pois "GT3" também é um chip de filtro no topo).
+    const driverCard = screen.getByText("Marco Rossi").closest("div");
+    expect(within(driverCard).getByText("GT3")).toBeInTheDocument();
+    // A carteira agora fica escondida na coluna.
+    expect(screen.queryByTitle("Carteira Super Pro")).not.toBeInTheDocument();
+    expect(screen.queryByText("SP")).not.toBeInTheDocument();
     expect(screen.queryByText("AMG")).not.toBeInTheDocument();
+  });
+
+  it("groups free agents by brand within a level band (no Toyota/Mazda interleaving)", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {}, // sem categoria → filtro do topo em "all" (não recorta a coluna)
+      // Duas marcas na MESMA banda (Amador, tier 1). Nomes escolhidos para que a ordem
+      // por marca (Toyota antes de Mazda) difira da ordem puramente alfabética.
+      preseasonFreeAgents: [
+        { driver_id: "m1", driver_name: "Alan Prost", categoria: "mazda_amador", market_tier: 1, seasons_idle: 0, license_sigla: "A", is_rookie: false, eligible_categories: ["mazda_amador", "bmw_m2"] },
+        { driver_id: "t1", driver_name: "Yuki Yamamoto", categoria: "toyota_amador", market_tier: 1, seasons_idle: 0, license_sigla: "A", is_rookie: false, eligible_categories: ["toyota_amador", "bmw_m2"] },
+        { driver_id: "m2", driver_name: "Bruno Senna", categoria: "mazda_amador", market_tier: 1, seasons_idle: 0, license_sigla: "A", is_rookie: false, eligible_categories: ["mazda_amador", "bmw_m2"] },
+        { driver_id: "t2", driver_name: "Austin Moore", categoria: "toyota_amador", market_tier: 1, seasons_idle: 0, license_sigla: "A", is_rookie: false, eligible_categories: ["toyota_amador", "bmw_m2"] },
+      ],
+    };
+
+    render(<PreSeasonView />);
+
+    await screen.findByText("Austin Moore");
+
+    const order = screen
+      .getAllByText(/^(Alan Prost|Bruno Senna|Yuki Yamamoto|Austin Moore)$/)
+      .map((node) => node.textContent);
+
+    // Toyota (contígua, por nome) primeiro, depois Mazda (contígua) — não intercalado
+    // nem meramente alfabético (que daria Alan, Austin, Bruno, Yuki).
+    expect(order).toEqual(["Austin Moore", "Yuki Yamamoto", "Alan Prost", "Bruno Senna"]);
+
+    // Separador físico por marca (1) + etiqueta em cada linha (2 por marca) = 3 ocorrências.
+    expect(screen.getAllByText("Toyota Cup")).toHaveLength(3);
+    expect(screen.getAllByText("Mazda Cup")).toHaveLength(3);
+  });
+
+  it("filters the driver market by the selected top category (eligibility)", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: {}, // começa em "all"
+      preseasonFreeAgents: [
+        {
+          driver_id: "pro1", driver_name: "Paulo Pro", categoria: "bmw_m2",
+          market_tier: 2, seasons_idle: 0, license_sigla: "P", is_rookie: false,
+          eligible_categories: ["toyota_amador", "mazda_amador", "bmw_m2", "production_challenger", "gt4"],
+        },
+        {
+          driver_id: "eli1", driver_name: "Elena Elite", categoria: "endurance",
+          market_tier: 6, seasons_idle: 0, license_sigla: "SE", is_rookie: false,
+          eligible_categories: ["gt3", "endurance"],
+        },
+      ],
+    };
+
+    render(<PreSeasonView />);
+
+    // "Todas" (padrão) mostra os dois.
+    await screen.findByText("Paulo Pro");
+    expect(screen.getByText("Elena Elite")).toBeInTheDocument();
+
+    // Filtrar por Production → só quem pode pegar vaga production permanece.
+    fireEvent.click(screen.getByRole("button", { name: "Production" }));
+
+    expect(screen.getByText("Paulo Pro")).toBeInTheDocument();
+    expect(screen.queryByText("Elena Elite")).not.toBeInTheDocument();
   });
 
   it("shows compact tenure counters in the team mapping", async () => {

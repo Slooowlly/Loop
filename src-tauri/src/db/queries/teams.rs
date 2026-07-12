@@ -3,9 +3,24 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
+use crate::finance::cashflow::{RoundCashflowSummary, TeamRoundFinanceContext};
 use crate::finance::planning::sync_legacy_budget_index;
 use crate::models::team::{Team, TeamHierarchyClimate};
 use crate::simulation::car_build::CarBuildProfile;
+
+/// Fama (midia) dos pilotos do lineup REGULAR ativo de uma equipe. Base da presença
+/// pública do time → patrocínio ([[fama → dinheiro]]). Vazio se o time não tem lineup.
+pub fn get_team_lineup_medias(conn: &Connection, team_id: &str) -> Result<Vec<f64>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT d.midia FROM drivers d
+         JOIN contracts c ON c.piloto_id = d.id
+         WHERE c.equipe_id = ?1 AND c.status = 'Ativo' AND c.tipo = 'Regular'",
+    )?;
+    let medias = stmt
+        .query_map(params![team_id], |row| row.get::<_, f64>(0))?
+        .collect::<Result<Vec<f64>, _>>()?;
+    Ok(medias)
+}
 
 pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
     let mut persisted_team = team.clone();
@@ -588,6 +603,181 @@ pub fn update_team_finance_snapshot(conn: &Connection, team: &Team) -> Result<()
     Ok(())
 }
 
+/// Ajusta o caixa de um time por um delta (positivo credita, negativo debita). Base
+/// da 1ª transferência de dinheiro time→time (multa de rescisão do poaching, Fase 2b).
+pub fn adjust_team_cash(conn: &Connection, team_id: &str, delta: f64) -> Result<(), DbError> {
+    let affected = conn.execute(
+        "UPDATE teams SET cash_balance = cash_balance + ?1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?2",
+        params![delta, team_id],
+    )?;
+    ensure_team_rows_affected(affected, team_id, "ajustar caixa da equipe")?;
+    Ok(())
+}
+
+/// Uma linha do histórico financeiro por rodada (tabela `team_finance_history`).
+/// Carrega a divisão REAL de receita/despesa da rodada + caixa/dívida resultantes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TeamFinanceHistoryEntry {
+    pub season_number: i32,
+    pub round: i32,
+    pub category: String,
+    pub sponsorship_income: f64,
+    pub result_bonus: f64,
+    pub partial_prize_income: f64,
+    pub aid_income: f64,
+    pub salary_expense: f64,
+    pub event_operations_cost: f64,
+    pub structural_maintenance_cost: f64,
+    pub technical_investment_cost: f64,
+    pub debt_service_cost: f64,
+    /// Prêmio de construtores creditado no encerramento da temporada (0 em rodadas de
+    /// corrida; > 0 só na linha de fechamento gravada por `insert_team_finance_season_close`).
+    pub constructor_prize_income: f64,
+    pub income_total: f64,
+    pub expenses_total: f64,
+    pub net: f64,
+    pub cash_balance: f64,
+    pub debt_balance: f64,
+}
+
+/// Grava a divisão financeira REAL de uma rodada para uma equipe. `team` deve estar no
+/// estado PÓS-rodada (já com `apply_round_cashflow` aplicado), para `cash_balance`/
+/// `debt_balance` refletirem o resultado. `INSERT OR REPLACE` na chave
+/// (team_id, season_number, round) torna a gravação idempotente contra re-simulação.
+pub fn insert_team_finance_history(
+    conn: &Connection,
+    team: &Team,
+    context: &TeamRoundFinanceContext,
+    summary: &RoundCashflowSummary,
+    season_number: i32,
+    round: i32,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO team_finance_history (
+            team_id, season_number, round, category,
+            sponsorship_income, result_bonus, partial_prize_income, aid_income,
+            salary_expense, event_operations_cost, structural_maintenance_cost,
+            technical_investment_cost, debt_service_cost,
+            income_total, expenses_total, net, cash_balance, debt_balance
+        ) VALUES (
+            :team_id, :season_number, :round, :category,
+            :sponsorship_income, :result_bonus, :partial_prize_income, :aid_income,
+            :salary_expense, :event_operations_cost, :structural_maintenance_cost,
+            :technical_investment_cost, :debt_service_cost,
+            :income_total, :expenses_total, :net, :cash_balance, :debt_balance
+        )",
+        rusqlite::named_params! {
+            ":team_id": &team.id,
+            ":season_number": season_number,
+            ":round": round,
+            ":category": &team.categoria,
+            ":sponsorship_income": context.sponsorship_income,
+            ":result_bonus": context.result_bonus,
+            ":partial_prize_income": context.partial_prize_income,
+            ":aid_income": context.aid_income,
+            ":salary_expense": context.salary_expense,
+            ":event_operations_cost": context.event_operations_cost,
+            ":structural_maintenance_cost": context.structural_maintenance_cost,
+            ":technical_investment_cost": context.technical_investment_cost,
+            ":debt_service_cost": context.debt_service_cost,
+            ":income_total": summary.income,
+            ":expenses_total": summary.expenses,
+            ":net": summary.net,
+            ":cash_balance": team.cash_balance,
+            ":debt_balance": team.debt_balance,
+        },
+    )?;
+    Ok(())
+}
+
+/// Últimas `limit` rodadas do histórico financeiro de uma equipe, em ordem cronológica
+/// (season_number, round) ASC. Fonte do dossiê financeiro real da aba My Team.
+pub fn get_team_finance_history_recent(
+    conn: &Connection,
+    team_id: &str,
+    limit: i64,
+) -> Result<Vec<TeamFinanceHistoryEntry>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT season_number, round, category,
+                sponsorship_income, result_bonus, partial_prize_income, aid_income,
+                salary_expense, event_operations_cost, structural_maintenance_cost,
+                technical_investment_cost, debt_service_cost,
+                income_total, expenses_total, net, cash_balance, debt_balance,
+                constructor_prize_income
+         FROM team_finance_history
+         WHERE team_id = ?1
+         ORDER BY season_number DESC, round DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![team_id, limit], |row| {
+        Ok(TeamFinanceHistoryEntry {
+            season_number: row.get(0)?,
+            round: row.get(1)?,
+            category: row.get(2)?,
+            sponsorship_income: row.get(3)?,
+            result_bonus: row.get(4)?,
+            partial_prize_income: row.get(5)?,
+            aid_income: row.get(6)?,
+            salary_expense: row.get(7)?,
+            event_operations_cost: row.get(8)?,
+            structural_maintenance_cost: row.get(9)?,
+            technical_investment_cost: row.get(10)?,
+            debt_service_cost: row.get(11)?,
+            income_total: row.get(12)?,
+            expenses_total: row.get(13)?,
+            net: row.get(14)?,
+            cash_balance: row.get(15)?,
+            debt_balance: row.get(16)?,
+            constructor_prize_income: row.get(17)?,
+        })
+    })?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?);
+    }
+    // Consultado DESC (para o LIMIT pegar as mais recentes); devolve ASC (cronológico).
+    entries.reverse();
+    Ok(entries)
+}
+
+/// Rodada "sintética" da linha de encerramento (prêmio de construtores). Alta o bastante
+/// para nenhuma temporada real alcançar, então ordena SEMPRE depois da última corrida da
+/// temporada no gráfico de caixa.
+pub const SEASON_CLOSE_ROUND: i32 = 1000;
+
+/// Grava a linha de ENCERRAMENTO da temporada com o prêmio de construtores como receita
+/// REAL. `team` deve estar no estado PÓS-prêmio (caixa já creditado). `INSERT OR REPLACE`
+/// na chave (team_id, season_number, round = SEASON_CLOSE_ROUND) — idempotente contra
+/// reprocessamento do encerramento. As 9 linhas de corrida ficam 0; só o prêmio entra.
+pub fn insert_team_finance_season_close(
+    conn: &Connection,
+    team: &Team,
+    season_number: i32,
+    prize: f64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO team_finance_history (
+            team_id, season_number, round, category,
+            constructor_prize_income, income_total, expenses_total, net,
+            cash_balance, debt_balance
+        ) VALUES (
+            :team_id, :season_number, :round, :category,
+            :prize, :prize, 0.0, :prize, :cash_balance, :debt_balance
+        )",
+        rusqlite::named_params! {
+            ":team_id": &team.id,
+            ":season_number": season_number,
+            ":round": SEASON_CLOSE_ROUND,
+            ":category": &team.categoria,
+            ":prize": prize,
+            ":cash_balance": team.cash_balance,
+            ":debt_balance": team.debt_balance,
+        },
+    )?;
+    Ok(())
+}
+
 pub fn remove_pilot_from_team(
     conn: &Connection,
     driver_id: &str,
@@ -848,6 +1038,156 @@ mod tests {
         assert_eq!(loaded.nome, team.nome);
         assert_eq!(loaded.categoria, "gt3");
         assert_eq!(loaded.stats_vitorias, 0);
+    }
+
+    fn create_finance_history_table(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE team_finance_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                round INTEGER NOT NULL,
+                category TEXT NOT NULL DEFAULT '',
+                sponsorship_income REAL NOT NULL DEFAULT 0.0,
+                result_bonus REAL NOT NULL DEFAULT 0.0,
+                partial_prize_income REAL NOT NULL DEFAULT 0.0,
+                aid_income REAL NOT NULL DEFAULT 0.0,
+                salary_expense REAL NOT NULL DEFAULT 0.0,
+                event_operations_cost REAL NOT NULL DEFAULT 0.0,
+                structural_maintenance_cost REAL NOT NULL DEFAULT 0.0,
+                technical_investment_cost REAL NOT NULL DEFAULT 0.0,
+                debt_service_cost REAL NOT NULL DEFAULT 0.0,
+                income_total REAL NOT NULL DEFAULT 0.0,
+                expenses_total REAL NOT NULL DEFAULT 0.0,
+                net REAL NOT NULL DEFAULT 0.0,
+                cash_balance REAL NOT NULL DEFAULT 0.0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                constructor_prize_income REAL NOT NULL DEFAULT 0.0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(team_id, season_number, round)
+            );",
+        )
+        .expect("create team_finance_history table");
+    }
+
+    fn sample_finance_context() -> TeamRoundFinanceContext {
+        TeamRoundFinanceContext {
+            sponsorship_income: 100_000.0,
+            result_bonus: 20_000.0,
+            partial_prize_income: 5_000.0,
+            aid_income: 0.0,
+            salary_expense: 60_000.0,
+            event_operations_cost: 25_000.0,
+            structural_maintenance_cost: 12_000.0,
+            technical_investment_cost: 8_000.0,
+            debt_service_cost: 3_000.0,
+        }
+    }
+
+    #[test]
+    fn test_insert_and_read_team_finance_history_roundtrip() {
+        let conn = setup_test_db().expect("test db");
+        create_finance_history_table(&conn);
+        let mut team = sample_team("gt3", "T001");
+        insert_team(&conn, &team).expect("insert team");
+
+        let context = sample_finance_context();
+        let summary_r3 = RoundCashflowSummary {
+            income: 125_000.0,
+            expenses: 108_000.0,
+            net: 17_000.0,
+        };
+        team.cash_balance = 517_000.0;
+        team.debt_balance = 0.0;
+        insert_team_finance_history(&conn, &team, &context, &summary_r3, 1, 3)
+            .expect("insert history r3");
+
+        let summary_r4 = RoundCashflowSummary {
+            income: 130_000.0,
+            expenses: 110_000.0,
+            net: 20_000.0,
+        };
+        team.cash_balance = 537_000.0;
+        insert_team_finance_history(&conn, &team, &context, &summary_r4, 1, 4)
+            .expect("insert history r4");
+
+        let entries = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
+        assert_eq!(entries.len(), 2);
+        // Ordem cronológica ASC (season, round).
+        assert_eq!(entries[0].round, 3);
+        assert_eq!(entries[1].round, 4);
+        assert_eq!(entries[0].sponsorship_income, 100_000.0);
+        assert_eq!(entries[0].income_total, 125_000.0);
+        assert_eq!(entries[0].net, 17_000.0);
+        assert_eq!(entries[0].cash_balance, 517_000.0);
+        assert_eq!(entries[1].cash_balance, 537_000.0);
+    }
+
+    #[test]
+    fn test_season_close_row_records_constructor_prize_after_races() {
+        let conn = setup_test_db().expect("test db");
+        create_finance_history_table(&conn);
+        let mut team = sample_team("gt3", "T001");
+        insert_team(&conn, &team).expect("insert team");
+
+        // Uma rodada de corrida normal (sem prêmio).
+        let context = sample_finance_context();
+        let summary = RoundCashflowSummary {
+            income: 125_000.0,
+            expenses: 108_000.0,
+            net: 17_000.0,
+        };
+        team.cash_balance = 517_000.0;
+        insert_team_finance_history(&conn, &team, &context, &summary, 1, 14)
+            .expect("insert last race round");
+
+        // Encerramento: prêmio de construtores creditado como linha de receita real.
+        team.cash_balance = 517_000.0 + 5_200_000.0;
+        insert_team_finance_season_close(&conn, &team, 1, 5_200_000.0).expect("insert prize row");
+
+        let entries = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
+        assert_eq!(entries.len(), 2);
+        // A rodada de corrida não tem prêmio.
+        assert_eq!(entries[0].round, 14);
+        assert_eq!(entries[0].constructor_prize_income, 0.0);
+        // A linha de encerramento ordena DEPOIS da última corrida e carrega o prêmio.
+        assert_eq!(entries[1].round, SEASON_CLOSE_ROUND);
+        assert_eq!(entries[1].constructor_prize_income, 5_200_000.0);
+        assert_eq!(entries[1].income_total, 5_200_000.0);
+        assert_eq!(entries[1].net, 5_200_000.0);
+        assert_eq!(entries[1].expenses_total, 0.0);
+        assert_eq!(entries[1].cash_balance, 5_717_000.0);
+    }
+
+    #[test]
+    fn test_team_finance_history_reround_is_idempotent() {
+        let conn = setup_test_db().expect("test db");
+        create_finance_history_table(&conn);
+        let mut team = sample_team("gt3", "T001");
+        insert_team(&conn, &team).expect("insert team");
+        let context = sample_finance_context();
+
+        let first = RoundCashflowSummary {
+            income: 125_000.0,
+            expenses: 108_000.0,
+            net: 17_000.0,
+        };
+        team.cash_balance = 517_000.0;
+        insert_team_finance_history(&conn, &team, &context, &first, 1, 4).expect("insert r4");
+
+        // Re-simular a MESMA (season, round) substitui a linha, não duplica.
+        let second = RoundCashflowSummary {
+            income: 200_000.0,
+            expenses: 100_000.0,
+            net: 100_000.0,
+        };
+        team.cash_balance = 999_000.0;
+        insert_team_finance_history(&conn, &team, &context, &second, 1, 4).expect("re-insert r4");
+
+        let entries = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
+        assert_eq!(entries.len(), 1, "re-gravar a mesma rodada não deve duplicar");
+        assert_eq!(entries[0].cash_balance, 999_000.0, "deve refletir o novo valor");
+        assert_eq!(entries[0].income_total, 200_000.0);
     }
 
     #[test]

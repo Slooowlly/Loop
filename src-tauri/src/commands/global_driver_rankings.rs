@@ -264,6 +264,12 @@ fn build_current_driver_entry(
     let debut_year = active_driver_debut_year(conn, driver, current_year)?;
     let career_years = active_driver_career_years(driver, debut_year, current_year);
 
+    let fama = driver.atributos.midia.clamp(0.0, 100.0).round() as i32;
+    let carisma = driver.atributos.carisma.clamp(0.0, 100.0).round() as i32;
+    let fama_delta = latest_archived_media(conn, &driver.id)?
+        .map(|previous| fama - previous.clamp(0.0, 100.0).round() as i32)
+        .filter(|delta| *delta != 0);
+
     let row = GlobalDriverRankingRow {
         id: driver.id.clone(),
         nome: driver.nome.clone(),
@@ -287,6 +293,9 @@ fn build_current_driver_entry(
         historical_index: round_one(historical_index),
         historical_rank: 0,
         historical_rank_delta: None,
+        fama,
+        carisma,
+        fama_delta,
         wins_rank: 0,
         titles_rank: 0,
         podiums_rank: 0,
@@ -375,6 +384,9 @@ fn build_retired_driver_entry(
         historical_index: score,
         historical_rank: 0,
         historical_rank_delta: None,
+        fama: 0,
+        carisma: 0,
+        fama_delta: None,
         wins_rank: 0,
         titles_rank: 0,
         podiums_rank: 0,
@@ -410,6 +422,8 @@ fn build_retired_driver_entry_from_driver(
     entry.row.nacionalidade = driver.nacionalidade.clone();
     entry.row.idade = driver.idade as i32;
     entry.row.is_jogador = driver.is_jogador;
+    entry.row.fama = driver.atributos.midia.clamp(0.0, 100.0).round() as i32;
+    entry.row.carisma = driver.atributos.carisma.clamp(0.0, 100.0).round() as i32;
     entry.row.ano_inicio_carreira = entry
         .row
         .ano_inicio_carreira
@@ -502,6 +516,34 @@ fn read_archive_category_stats(
     }
 
     Ok((stats, counted_title_events))
+}
+
+/// Fama (`atributos.midia`) registrada no snapshot MAIS RECENTE do archive de
+/// temporadas — a base pra medir "quanto a fama subiu" nesta temporada. `None`
+/// quando não há archive/tabela/snapshot com o campo (ex.: 1ª temporada).
+fn latest_archived_media(conn: &Connection, driver_id: &str) -> Result<Option<f64>, String> {
+    if !table_exists(conn, "driver_season_archive")? {
+        return Ok(None);
+    }
+    let snapshot_json: Option<String> = conn
+        .query_row(
+            "SELECT snapshot_json FROM driver_season_archive
+             WHERE piloto_id = ?1
+             ORDER BY season_number DESC, ano DESC
+             LIMIT 1",
+            params![driver_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| format!("Falha ao carregar fama arquivada do piloto: {e}"))?;
+    let Some(snapshot_json) = snapshot_json else {
+        return Ok(None);
+    };
+    let snapshot: Value = serde_json::from_str(&snapshot_json).unwrap_or_default();
+    Ok(snapshot
+        .get("atributos")
+        .and_then(|atributos| atributos.get("midia"))
+        .and_then(Value::as_f64))
 }
 
 /// Histórico por categoria de um piloto (por id), incluindo títulos como campeão

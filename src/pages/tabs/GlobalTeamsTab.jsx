@@ -38,6 +38,8 @@ const BAND_TROPHY_IMAGES = {
 
 const DEFAULT_FAMILY = "mazda";
 const DEFAULT_WINDOW_SIZE = 20;
+// Zoom "recente": quantos anos a linha do tempo mostra quando o zoom está ligado.
+const ZOOM_RECENT_YEARS = 10;
 const HISTORY_FETCH_WINDOW_SIZE = 32;
 const HISTORY_FETCH_START_YEAR = 2000;
 const TEAM_CLICK_DELAY_MS = 220;
@@ -59,10 +61,15 @@ function GlobalTeamsTab({
   selectedTeamId = null,
   selectedTeamCategory = null,
   selectedTeamClassName = null,
+  initialZoomYears = null,
+  pinnedTeamId = null,
+  drawerPlacement = "right",
   onBack,
 }) {
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
+  // Zoom da linha do tempo: null = janela cheia; N = mostra só os últimos N anos.
+  const [zoomYears, setZoomYears] = useState(initialZoomYears);
   const [family, setFamily] = useState(() => familyFromTeamContext(selectedTeamCategory, selectedTeamClassName));
   const [startYear, setStartYear] = useState(HISTORY_FETCH_START_YEAR);
   const [payload, setPayload] = useState(null);
@@ -134,7 +141,10 @@ function GlobalTeamsTab({
     setPreviewStartYear(null);
   }, [payload?.window_start, payload?.selected_family]);
 
-  const windowSize = useMemo(() => visibleWindowSize(payload), [payload]);
+  const windowSize = useMemo(() => {
+    const base = visibleWindowSize(payload);
+    return zoomYears ? Math.min(base, zoomYears) : base;
+  }, [payload, zoomYears]);
   const visibleStartYear = useMemo(() => clampVisibleStart(payload, startYear, windowSize), [payload, startYear, windowSize]);
   const displayStartYear = useMemo(
     () => roundedDisplayStartYear(payload, previewStartYear ?? visibleStartYear, windowSize),
@@ -144,7 +154,7 @@ function GlobalTeamsTab({
     () => visibleWindowEndYear(payload, visibleStartYear, windowSize),
     [payload, visibleStartYear, windowSize],
   );
-  const years = useMemo(() => buildYears(payload), [payload]);
+  const years = useMemo(() => buildYears(payload, zoomYears), [payload, zoomYears]);
   const geometry = useMemo(() => buildGeometry(payload, years), [payload, years]);
   const teamTracks = useMemo(() => buildTeamTracks(payload, geometry, years), [payload, geometry, years]);
   const allTeams = useMemo(() => flattenTeams(payload), [payload]);
@@ -220,6 +230,19 @@ function GlobalTeamsTab({
             </h3>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              aria-pressed={zoomYears != null}
+              onClick={() => setZoomYears((current) => (current == null ? ZOOM_RECENT_YEARS : null))}
+              title={zoomYears != null ? "Ver a linha do tempo inteira" : `Ver só os últimos ${ZOOM_RECENT_YEARS} anos`}
+              className={`mr-1 rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.13em] transition-glass ${
+                zoomYears != null
+                  ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
+                  : "border-white/10 bg-white/[0.04] text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {zoomYears != null ? `Últimos ${ZOOM_RECENT_YEARS} anos` : "Tudo"}
+            </button>
             {(payload?.families ?? []).map((item) => (
               <button
                 key={item.id}
@@ -249,6 +272,7 @@ function GlobalTeamsTab({
               visibleStartYear={visibleStartYear}
               windowSize={windowSize}
               focusedTeamId={focusedTeamId}
+              pinnedTeamId={pinnedTeamId}
               onFocus={setFocusedTeamId}
               onTeamClick={handleTeamClick}
               onTeamDoubleClick={handleTeamDoubleClick}
@@ -256,17 +280,21 @@ function GlobalTeamsTab({
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-40 border-t border-white/10 bg-[#07101d]/95 px-5 py-3 shadow-[0_-18px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl">
-          <YearWindowScrubber
-            payload={payload}
-            visibleStart={visibleStartYear}
-            previewStart={previewStartYear}
-            windowSize={windowSize}
-            onPreviewChange={setPreviewStartYear}
-            onChange={handleWindowStartChange}
-            compact
-          />
-        </div>
+        {/* No zoom "recente" a janela é fixa (últimos N anos) → o scrubber não faz
+            sentido (rolar desincronizaria o gráfico recortado); só aparece na visão cheia. */}
+        {zoomYears == null && (
+          <div className="sticky bottom-0 z-40 border-t border-white/10 bg-[#07101d]/95 px-5 py-3 shadow-[0_-18px_36px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+            <YearWindowScrubber
+              payload={payload}
+              visibleStart={visibleStartYear}
+              previewStart={previewStartYear}
+              windowSize={windowSize}
+              onPreviewChange={setPreviewStartYear}
+              onChange={handleWindowStartChange}
+              compact
+            />
+          </div>
+        )}
       </GlassCard>
 
       {selectedTeam ? (
@@ -277,6 +305,7 @@ function GlobalTeamsTab({
           playerTeam={playerTeam}
           activeCategory={selectedTeam.category ?? selectedTeam.points?.[0]?.category ?? selectedTeam.band_category ?? ""}
           activeTab={activeHistoryTab}
+          placement={drawerPlacement}
           onTabChange={setActiveHistoryTab}
           onSelectTeam={(team) => setSelectedTeam(teamToTeamRow(team, selectedTeam))}
           onClose={() => setSelectedTeam(null)}
@@ -445,6 +474,7 @@ function InlineTeamTables({
   displayEndYear,
   windowSize = DEFAULT_WINDOW_SIZE,
   focusedTeamId,
+  pinnedTeamId,
   onFocus,
   onTeamClick,
   onTeamDoubleClick,
@@ -512,8 +542,7 @@ function InlineTeamTables({
               ) : null}
 
               {displayRows.map((row) => {
-              const isFocused = focusedTeamId === row.team_id;
-              const isDimmed = focusedTeamId && !isFocused;
+              const { isFocused, isDimmed } = teamHighlight(row.team_id, focusedTeamId, pinnedTeamId);
               const displayPosition = rowPositionAtYear(row, referenceYear);
               const y = bandRowOffsetY(bandBox.top, displayPosition);
               const teamColor = getReadableWorldTeamColor(row.cor_primaria);
@@ -570,7 +599,16 @@ function InlineTeamTables({
   );
 }
 
-function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYear, visibleStartYear, windowSize = DEFAULT_WINDOW_SIZE, focusedTeamId, onFocus, onTeamClick, onTeamDoubleClick }) {
+// Um time fica "aceso" se está sob o mouse (focused) OU fixado em análise (pinned —
+// o time em evidência ao abrir daqui). Assim o highlight do time selecionado NÃO some
+// ao passar o mouse por outra linha; a linha sob o mouse acende junto, pra comparação.
+function teamHighlight(teamId, focusedTeamId, pinnedTeamId) {
+  const isFocused = teamId === focusedTeamId || teamId === pinnedTeamId;
+  const anyActive = focusedTeamId != null || pinnedTeamId != null;
+  return { isFocused, isDimmed: anyActive && !isFocused };
+}
+
+function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYear, visibleStartYear, windowSize = DEFAULT_WINDOW_SIZE, focusedTeamId, pinnedTeamId, onFocus, onTeamClick, onTeamDoubleClick }) {
   const gridStartYear = previewStartYear ?? visibleStartYear;
   const displayStartYear = roundedDisplayStartYear(payload, gridStartYear, windowSize);
   const displayEndYear = displayStartYear + windowSize - 1;
@@ -600,13 +638,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
       className="relative h-full overflow-hidden bg-[#07101d]"
       data-testid="world-team-grid"
       onMouseLeave={() => onFocus(null)}
-      style={{
-        height: geometry.totalHeight,
-        backgroundImage:
-          "linear-gradient(90deg, rgba(255,255,255,0.075) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(180deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
-        backgroundSize: `calc(100% / ${Math.max(years.length, 1)}) 100%, calc(100% / ${Math.max(years.length, 1) * 2}) 100%, 100% ${ROW_HEIGHT}px`,
-        backgroundPosition: `0 0, calc(100% / ${Math.max(years.length, 1) * 4}) 0, 0 ${CHART_HEADER_HEIGHT}px`,
-      }}
+      style={{ height: geometry.totalHeight }}
     >
       <div
         className="absolute bottom-0 left-0 top-0"
@@ -635,6 +667,23 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
             </>
           );
         })()}
+        {/* Grade de anos: colunas alternadas (zebra) + separadores verticais em cada
+            ano, atrás das linhas. Alinhada às colunas do gráfico e rola junto — deixa
+            fácil ler a posição de um time ao longo dos anos sem o fundo confundir. */}
+        <div
+          aria-hidden="true"
+          data-testid="world-team-year-grid"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-0 grid"
+          style={{ top: CHART_HEADER_HEIGHT, gridTemplateColumns: `repeat(${Math.max(years.length, 1)}, minmax(0, 1fr))` }}
+        >
+          {years.map((year, i) => (
+            <div
+              key={year}
+              className="border-l border-white/[0.08]"
+              style={i % 2 === 1 ? { background: "rgba(255,255,255,0.025)" } : undefined}
+            />
+          ))}
+        </div>
         <div className="absolute inset-x-0 top-0 z-20 grid h-14 border-b border-white/10 bg-[#07101d]/90" style={{ gridTemplateColumns: `repeat(${years.length}, minmax(0, 1fr))` }}>
           {years.map((year) => (
             <div key={year} data-testid={`world-team-year-${year}`} className="grid place-items-center border-l border-white/8 text-center">
@@ -694,8 +743,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
           {teamTracks.flatMap((track) => trackLineGroups(track).map((line) => {
               const d = buildPath(line, geometry, years, lastDataYear, bandFirstYear);
               if (!d) return null;
-              const isFocused = focusedTeamId === track.team_id;
-              const isDimmed = focusedTeamId && !isFocused;
+              const { isFocused, isDimmed } = teamHighlight(track.team_id, focusedTeamId, pinnedTeamId);
               return (
                 <path
                   key={`${track.team_id}-${line.line_key}`}
@@ -721,6 +769,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
               marker={marker}
               teamId={track.team_id}
               focusedTeamId={focusedTeamId}
+              pinnedTeamId={pinnedTeamId}
               onFocus={onFocus}
             />
           )))}
@@ -732,6 +781,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
             team={track}
             band={bandByKey.get(label.band_key)}
             focusedTeamId={focusedTeamId}
+            pinnedTeamId={pinnedTeamId}
             onFocus={onFocus}
             onClick={onTeamClick}
           />
@@ -744,6 +794,7 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
         displayEndYear={displayEndYear}
         windowSize={windowSize}
         focusedTeamId={focusedTeamId}
+        pinnedTeamId={pinnedTeamId}
         onFocus={onFocus}
         onTeamClick={onTeamClick}
         onTeamDoubleClick={onTeamDoubleClick}
@@ -752,8 +803,8 @@ function TeamHistoryGrid({ payload, years, geometry, teamTracks, previewStartYea
   );
 }
 
-function TeamEntryLabel({ label, team, band, focusedTeamId, onFocus, onClick }) {
-  const isDimmed = focusedTeamId && focusedTeamId !== team.team_id;
+function TeamEntryLabel({ label, team, band, focusedTeamId, pinnedTeamId, onFocus, onClick }) {
+  const { isDimmed } = teamHighlight(team.team_id, focusedTeamId, pinnedTeamId);
   return (
     <button
       type="button"
@@ -785,11 +836,11 @@ function TeamEntryLabel({ label, team, band, focusedTeamId, onFocus, onClick }) 
   );
 }
 
-function SpecialMovementMarker({ marker, teamId, focusedTeamId, onFocus }) {
+function SpecialMovementMarker({ marker, teamId, focusedTeamId, pinnedTeamId, onFocus }) {
   const isPromotion = marker.type === "promotion";
   const color = isPromotion ? "#5ee7a8" : "#ff5b57";
   const points = isPromotion ? "-2.4,1.6 0,-1.6 2.4,1.6" : "-2.4,-1.6 0,1.6 2.4,-1.6";
-  const isDimmed = focusedTeamId && focusedTeamId !== teamId;
+  const { isDimmed } = teamHighlight(teamId, focusedTeamId, pinnedTeamId);
 
   return (
     <g
@@ -891,10 +942,19 @@ function bandStartPosition(band, firstYear) {
   return band.starts_year - firstYear;
 }
 
-function buildYears(payload) {
+function buildYears(payload, zoomYears = null) {
   if (!payload) return [];
-  const start = axisStartYear(payload);
-  const end = renderEndYear(payload);
+  let start = axisStartYear(payload);
+  let end = renderEndYear(payload);
+  // Zoom: recorta a linha do tempo para os últimos N anos (start sobe até maxYear-N+1)
+  // e encolhe a folga futura proporcionalmente, pra não render dezenas de colunas vazias.
+  if (zoomYears != null && Number.isFinite(zoomYears)) {
+    const maxYear = familyMaxYear(payload);
+    if (Number.isFinite(maxYear)) {
+      start = Math.max(start, maxYear - zoomYears + 1);
+      end = Math.min(end, maxYear + Math.ceil(zoomYears / 3) + 1);
+    }
+  }
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return [];
   const years = [];
   for (let year = start; year <= end; year += 1) years.push(year);
@@ -1060,7 +1120,7 @@ function teamMovementMarkers(track, geometry, years, lastDataYear, bandFirstYear
     if (!Number.isFinite(currentY) || !Number.isFinite(nextY)) return;
 
     // Match the line vertex anchor so the arrow sits exactly on the path.
-    const x = anchoredPointX(point, years, lastDataYear, bandFirstYear);
+    const x = anchoredPointX(point, years);
 
     if (nextY < currentY) {
       markers.push({
@@ -1116,26 +1176,27 @@ function teamEntryLabels(track, geometry, years, payload, displayStartYear) {
 
 function buildPath(track, geometry, years, lastDataYear, bandFirstYear) {
   if (!track.points?.length || !years.length) return "";
-  const coordinates = [];
+  // Diagonal reta entre 2 ÂNCORAS: início do ano (posição daquele ano) → início do
+  // ano seguinte (nova posição). Sem platô horizontal — a linha sobe/desce direto de
+  // um começo de ano ao outro. A última temporada segura até a borda direita da sua
+  // coluna, só pra encostar na tabela/hachura do fim.
+  const yearCount = Math.max(years.length, 1);
+  const anchors = [];
   track.points.forEach((point) => {
     const yearIndex = years.indexOf(point.year);
     if (yearIndex < 0) return;
     const y = pointY(point, geometry);
     if (!Number.isFinite(y)) return;
-    // Column-edge anchoring so seasons read as full years, not mid-year:
-    //  • Any point on its band's first data year sits at the year-start (left edge),
-    //    so a category's whole debut column lines up with its start divider — whether
-    //    the team is founding it or was promoted into it.
-    //  • The family's last completed season reaches the year-end (right edge), meeting
-    //    the "no championship" hatch which begins at that exact boundary.
-    //  • Everything else keeps the mid-column anchor (aligned with entry labels).
-    coordinates.push([anchoredPointX(point, years, lastDataYear, bandFirstYear), y]);
+    anchors.push({
+      leftX: (yearIndex / yearCount) * CHART_WIDTH,
+      rightX: ((yearIndex + 1) / yearCount) * CHART_WIDTH,
+      y,
+    });
   });
-  if (coordinates.length === 0) return "";
-  if (coordinates.length === 1) {
-    const [x, y] = coordinates[0];
-    return `M ${round(Math.max(0, x - 7))} ${round(y)} L ${round(Math.min(CHART_WIDTH, x + 7))} ${round(y)}`;
-  }
+  if (anchors.length === 0) return "";
+  const coordinates = anchors.map((a) => [a.leftX, a.y]);
+  const last = anchors[anchors.length - 1];
+  coordinates.push([last.rightX, last.y]);
   return coordinates
     .map(([x, y], index) => `${index === 0 ? "M" : "L"} ${round(x)} ${round(y)}`)
     .join(" ");
@@ -1147,21 +1208,13 @@ function pointX(point, years) {
   return ((yearIndex + 0.5) / years.length) * CHART_WIDTH;
 }
 
-// Horizontal position of a data point, with column-edge anchoring at the timeline
-// boundaries (see buildPath): a band's first data year sits at the year-start (left
-// edge), the family's last completed season at the year-end (right edge), everything
-// else at the mid-column. Shared by the line path and the movement markers so they
-// always coincide.
-function anchoredPointX(point, years, lastDataYear, bandFirstYear) {
+// Âncora X de um ponto = borda ESQUERDA da coluna (início do ano), igual aos vértices
+// da linha (2 âncoras: início do ano → início do ano seguinte). Marcadores de
+// promoção/rebaixamento usam a mesma âncora pra ficar exatamente sobre a linha.
+function anchoredPointX(point, years) {
   const yearIndex = years.indexOf(point.year);
   if (yearIndex < 0) return NaN;
-  if (bandFirstYear?.get?.(point.band_key) === point.year) {
-    return (yearIndex / years.length) * CHART_WIDTH;
-  }
-  if (Number.isFinite(lastDataYear) && point.year === lastDataYear) {
-    return ((yearIndex + 1) / years.length) * CHART_WIDTH;
-  }
-  return ((yearIndex + 0.5) / years.length) * CHART_WIDTH;
+  return (yearIndex / Math.max(years.length, 1)) * CHART_WIDTH;
 }
 
 function pointY(point, geometry) {

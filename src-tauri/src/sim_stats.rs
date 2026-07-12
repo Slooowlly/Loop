@@ -160,6 +160,7 @@ fn snapshot_season_perf(db_path: &Path) -> Vec<SeasonPerf> {
 struct TeamSnap {
     id: String,
     categoria: String,
+    classe: String,
     car_performance: f64,
     confiabilidade: f64,
     reputacao: f64,
@@ -169,6 +170,7 @@ struct TeamSnap {
     cash_balance: f64,
     debt_balance: f64,
     financial_state: String,
+    foco: String,
 }
 
 fn snapshot_teams(db_path: &Path) -> Vec<TeamSnap> {
@@ -176,10 +178,11 @@ fn snapshot_teams(db_path: &Path) -> Vec<TeamSnap> {
     let mut stmt = db
         .conn
         .prepare(
-            "SELECT id, categoria, car_performance, confiabilidade, reputacao, facilities, \
-             engineering, morale, cash_balance, debt_balance, \
-             COALESCE(financial_state,'?') \
-             FROM teams WHERE ativa = 1 AND is_player_team = 0",
+            "SELECT teams.id, categoria, COALESCE(classe,''), car_performance, confiabilidade, \
+             reputacao, facilities, engineering, morale, cash_balance, debt_balance, \
+             COALESCE(financial_state,'?'), COALESCE(tf.foco,'meio_de_grid') \
+             FROM teams LEFT JOIN team_focus tf ON tf.team_id = teams.id \
+             WHERE ativa = 1 AND is_player_team = 0",
         )
         .expect("prepare teams");
     let rows = stmt
@@ -187,15 +190,17 @@ fn snapshot_teams(db_path: &Path) -> Vec<TeamSnap> {
             Ok(TeamSnap {
                 id: row.get(0)?,
                 categoria: row.get(1)?,
-                car_performance: row.get(2)?,
-                confiabilidade: row.get(3)?,
-                reputacao: row.get(4)?,
-                facilities: row.get(5)?,
-                engineering: row.get(6)?,
-                morale: row.get(7)?,
-                cash_balance: row.get(8)?,
-                debt_balance: row.get(9)?,
-                financial_state: row.get(10)?,
+                classe: row.get(2)?,
+                car_performance: row.get(3)?,
+                confiabilidade: row.get(4)?,
+                reputacao: row.get(5)?,
+                facilities: row.get(6)?,
+                engineering: row.get(7)?,
+                morale: row.get(8)?,
+                cash_balance: row.get(9)?,
+                debt_balance: row.get(10)?,
+                financial_state: row.get(11)?,
+                foco: row.get(12)?,
             })
         })
         .expect("query teams");
@@ -238,6 +243,30 @@ fn constructor_titles_by_team(db_path: &Path) -> Vec<i64> {
 /// para cada (categoria, classe) premium, a lista de títulos por equipe que ganhou
 /// ≥1 — permite medir vencedores únicos e fatia da top NA GRANULARIDADE da dinastia
 /// (a métrica mundial dilui isso com os grids de rookie/amador).
+/// Estatística de tenure dos vínculos ao fim de uma run:
+/// (soma_temporadas, nº_pares, max_temporadas, nº≥3, nº≥4).
+fn bond_tenure_snapshot(db_path: &Path) -> (f64, i64, i64, i64, i64) {
+    let db = Database::open_existing(db_path).expect("db");
+    db.conn
+        .query_row(
+            "SELECT COALESCE(SUM(temporadas),0), COUNT(*), COALESCE(MAX(temporadas),0),
+                    COALESCE(SUM(CASE WHEN temporadas>=3 THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN temporadas>=4 THEN 1 ELSE 0 END),0)
+             FROM driver_team_bond",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as f64,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .unwrap_or((0.0, 0, 0, 0, 0))
+}
+
 fn premium_class_title_dist(db_path: &Path) -> Vec<Vec<i64>> {
     let db = Database::open_existing(db_path).expect("db");
     let mut stmt = db
@@ -475,6 +504,9 @@ struct Totals {
     // ── Equipes ──
     team_seasons: u64,
     fin_state: BTreeMap<String, u64>,
+    // Foco da equipe (ideia 4): distribuição das fases (deve espalhar entre os 6,
+    // não travar num só).
+    focus_dist: BTreeMap<String, u64>,
     team_insolvent: u64, // cash<0 ou debt>0
     cash_sum: f64,
     debt_sum: f64,
@@ -488,6 +520,21 @@ struct Totals {
     team_attr_sum: [f64; 5], // facilities, engineering, reputacao, morale, confiabilidade
     team_promoted: u64,
     team_relegated: u64,
+    // ── Ideia 1 (soft landing): sobrevivência do promovido ──
+    // Onde o carro do promovido aterrissou no campo de destino (pós-promoção):
+    promo_landing_gap_sum: f64, // soma (car_promovido − pior_do_campo); <0 = isolado abaixo do lanterna
+    promo_landing_n: u64,
+    promo_landing_rank_worst: u64, // aterrissou como PIOR do campo (rank 0 vindo de baixo)
+    promo_landing_rank_near: u64,  // logo acima do pior (rank 1–2)
+    promo_landing_rank_mid: u64,   // meio de tabela+ (rank 3+)
+    // Bounce-down: promovida rebaixada logo em seguida (janelas observáveis).
+    promo_events_obs1: u64, // promoções com S+1 dentro do horizonte
+    promo_bounce_1: u64,    // dessas, rebaixadas já em S+1
+    promo_events_obs2: u64, // promoções com S+2 dentro do horizonte
+    promo_bounce_2: u64,    // dessas, rebaixadas em S+1 ou S+2
+    // Ricochete do rebaixado: caiu e voltou a subir em ≤2 temporadas.
+    releg_events_obs2: u64,
+    releg_bounce_back_2: u64,
     // Concentração de títulos de construtores (consolidado por run)
     title_top_share_sum: f64,
     title_runs: u64,
@@ -496,6 +543,13 @@ struct Totals {
     premium_unique_sum: f64,
     premium_top_share_sum: f64,
     premium_class_count: u64,
+    // Vínculo piloto-equipe (ideia 4): tenure das duplas ao fim de cada run — mede se
+    // times seguram pilotos (duplas de era) SEM congelar o mercado.
+    bond_tenure_sum: f64,
+    bond_pairs: u64,
+    bond_max_tenure: i64,
+    bond_ge3: u64,
+    bond_ge4: u64,
     // DIAGNÓSTICO SNOWBALL: distribuição do maior "sobe-e-vence" por equipe (comprimento
     // da cadeia de promoções consecutivas temporada+1/tier+1) e o máximo global.
     ladder_chain_hist: BTreeMap<usize, u64>,
@@ -660,6 +714,10 @@ fn monte_carlo() {
         // após ano vira uma cadeia de (s, t), (s+1, t+1), (s+2, t+2)...
         let mut promo_by_team: HashMap<String, Vec<(usize, u8)>> = HashMap::new();
         let mut team_name_of: HashMap<String, String> = HashMap::new();
+        // Ideia 1: eventos de promoção/rebaixamento por equipe nesta run, para medir
+        // bounce-down (promovida cai logo) e ricochete (rebaixada volta logo).
+        let mut promoted_at: Vec<(String, usize)> = Vec::new();
+        let mut relegated_seasons: HashMap<String, Vec<usize>> = HashMap::new();
 
         for season in 0..seasons {
             // Snapshot ANTES da temporada
@@ -760,9 +818,21 @@ fn monte_carlo() {
                 advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
 
             // ── Equipes: snapshot pós-temporada ──
-            for tm in snapshot_teams(&db_path) {
+            let team_snaps = snapshot_teams(&db_path);
+            // Mapa id → (categoria, classe, car) para medir onde o promovido aterrissou.
+            let car_by_id: HashMap<String, (String, String, f64)> = team_snaps
+                .iter()
+                .map(|tm| {
+                    (
+                        tm.id.clone(),
+                        (tm.categoria.clone(), tm.classe.clone(), tm.car_performance),
+                    )
+                })
+                .collect();
+            for tm in &team_snaps {
                 t.team_seasons += 1;
                 *t.fin_state.entry(tm.financial_state.clone()).or_insert(0) += 1;
+                *t.focus_dist.entry(tm.foco.clone()).or_insert(0) += 1;
                 if tm.cash_balance < 0.0 || tm.debt_balance > 0.0 {
                     t.team_insolvent += 1;
                 }
@@ -829,8 +899,41 @@ fn monte_carlo() {
                         if tier_of(&m.from_category) == 0 {
                             *t.rookie_champ_names.entry(m.team_name.clone()).or_insert(0) += 1;
                         }
+                        promoted_at.push((m.team_id.clone(), season));
+                        // Onde o carro do promovido aterrissou no campo de destino
+                        // (mesma categoria+classe, excluindo ele próprio; a rebaixada
+                        // já saiu na troca). Mede se entra isolado em último (gap<0)
+                        // ou logo acima do lanterna (Ideia 1: gap≈margem).
+                        if let Some((cat, cls, car)) = car_by_id.get(&m.team_id) {
+                            let others: Vec<f64> = car_by_id
+                                .iter()
+                                .filter(|(id, (c, cl, _))| {
+                                    id.as_str() != m.team_id && c == cat && cl == cls
+                                })
+                                .map(|(_, (_, _, cp))| *cp)
+                                .collect();
+                            if !others.is_empty() {
+                                let worst =
+                                    others.iter().copied().fold(f64::INFINITY, f64::min);
+                                t.promo_landing_gap_sum += car - worst;
+                                t.promo_landing_n += 1;
+                                let rank_from_bottom =
+                                    others.iter().filter(|&&c| c < *car).count();
+                                match rank_from_bottom {
+                                    0 => t.promo_landing_rank_worst += 1,
+                                    1..=2 => t.promo_landing_rank_near += 1,
+                                    _ => t.promo_landing_rank_mid += 1,
+                                }
+                            }
+                        }
                     }
-                    MovementType::Rebaixamento => t.team_relegated += 1,
+                    MovementType::Rebaixamento => {
+                        t.team_relegated += 1;
+                        relegated_seasons
+                            .entry(m.team_id.clone())
+                            .or_default()
+                            .push(season);
+                    }
                 }
             }
 
@@ -1053,6 +1156,40 @@ fn monte_carlo() {
             }
         }
 
+        // Ideia 1: bounce-down do promovido — promovida em S rebaixada em S+1 (ou S+2).
+        // Só conta promoções cuja janela é observável dentro do horizonte da run.
+        for (team_id, s) in &promoted_at {
+            let rels = relegated_seasons.get(team_id);
+            if s + 1 < seasons {
+                t.promo_events_obs1 += 1;
+                if rels.is_some_and(|v| v.contains(&(s + 1))) {
+                    t.promo_bounce_1 += 1;
+                }
+            }
+            if s + 2 < seasons {
+                t.promo_events_obs2 += 1;
+                if rels.is_some_and(|v| v.iter().any(|&r| r == s + 1 || r == s + 2)) {
+                    t.promo_bounce_2 += 1;
+                }
+            }
+        }
+        // Ricochete do rebaixado — rebaixada em S volta a ser promovida em ≤2 temporadas.
+        for (team_id, seasons_down) in &relegated_seasons {
+            let ups: Vec<usize> = promoted_at
+                .iter()
+                .filter(|(id, _)| id == team_id)
+                .map(|(_, s)| *s)
+                .collect();
+            for &s in seasons_down {
+                if s + 2 < seasons {
+                    t.releg_events_obs2 += 1;
+                    if ups.iter().any(|&u| u == s + 1 || u == s + 2) {
+                        t.releg_bounce_back_2 += 1;
+                    }
+                }
+            }
+        }
+
         // Consolida o funil de carreira do cohort que começou no rookie.
         for track in careers.values() {
             if !track.started_rookie {
@@ -1111,6 +1248,18 @@ fn monte_carlo() {
                     t.premium_unique_sum += class_titles.len() as f64;
                     t.premium_class_count += 1;
                 }
+            }
+        }
+
+        // Tenure de vínculo ao fim da run (ideia 4): duplas de era vs mercado congelado.
+        {
+            let (sum, count, max_t, ge3, ge4) = bond_tenure_snapshot(&db_path);
+            if count > 0 {
+                t.bond_tenure_sum += sum;
+                t.bond_pairs += count as u64;
+                t.bond_max_tenure = t.bond_max_tenure.max(max_t);
+                t.bond_ge3 += ge3 as u64;
+                t.bond_ge4 += ge4 as u64;
             }
         }
 
@@ -1447,6 +1596,63 @@ fn monte_carlo() {
         t.team_promoted, t.team_relegated
     );
 
+    println!(
+        "\n■ SOFT LANDING — sobrevivência do promovido (Ideia 1; flag IRACER_PROMO_SOFT_LANDING)"
+    );
+    println!("  Onde o carro do promovido aterrissa no campo de destino (pós-promoção):");
+    if t.promo_landing_n > 0 {
+        println!(
+            "    Gap médio p/ o lanterna do campo: {:+.2} pts de carro   (>0 acima do pior; <0 ISOLADO abaixo)",
+            t.promo_landing_gap_sum / t.promo_landing_n as f64
+        );
+        let n = t.promo_landing_n;
+        println!(
+            "    Aterrissou como PIOR do campo (isolado):  {:.1}%   ({} de {})",
+            pct(t.promo_landing_rank_worst, n),
+            t.promo_landing_rank_worst,
+            n
+        );
+        println!(
+            "    Logo acima do lanterna (2º/3º pior):      {:.1}%   ({} de {})",
+            pct(t.promo_landing_rank_near, n),
+            t.promo_landing_rank_near,
+            n
+        );
+        println!(
+            "    Meio de tabela ou melhor:                 {:.1}%   ({} de {})",
+            pct(t.promo_landing_rank_mid, n),
+            t.promo_landing_rank_mid,
+            n
+        );
+    } else {
+        println!("    (sem promoções observadas)");
+    }
+    println!("  Bounce-down (subiu e caiu logo — o 'vai não vai'):");
+    if t.promo_events_obs1 > 0 {
+        println!(
+            "    Rebaixada já na temporada seguinte (S+1): {:.1}%   ({} de {})",
+            pct(t.promo_bounce_1, t.promo_events_obs1),
+            t.promo_bounce_1,
+            t.promo_events_obs1
+        );
+    }
+    if t.promo_events_obs2 > 0 {
+        println!(
+            "    Rebaixada em ≤2 temporadas (S+1 ou S+2):  {:.1}%   ({} de {})",
+            pct(t.promo_bounce_2, t.promo_events_obs2),
+            t.promo_bounce_2,
+            t.promo_events_obs2
+        );
+    }
+    if t.releg_events_obs2 > 0 {
+        println!(
+            "  Ricochete do rebaixado (caiu e voltou a subir em ≤2): {:.1}%   ({} de {})",
+            pct(t.releg_bounce_back_2, t.releg_events_obs2),
+            t.releg_bounce_back_2,
+            t.releg_events_obs2
+        );
+    }
+
     println!("\n■ SNOWBALL — cadeia de 'sobe-e-vence' por equipe (promoções em temporadas");
     println!("  e tiers consecutivos; 1 = campeã 1x, 3+ = sobe a escada ganhando todo ano)");
     println!("    comprimento | nº de equipes");
@@ -1525,6 +1731,32 @@ fn monte_carlo() {
         let md = t.morale_dist;
         let mean = md[0] / md[4];
         let var = (md[1] / md[4] - mean * mean).max(0.0);
+        if !t.focus_dist.is_empty() {
+            let total: u64 = t.focus_dist.values().sum();
+            println!("\n■ FOCO DA EQUIPE (deve espalhar entre as 6 fases, não travar)");
+            let mut rows: Vec<(&String, &u64)> = t.focus_dist.iter().collect();
+            rows.sort_by(|a, b| b.1.cmp(a.1));
+            for (foco, n) in rows {
+                let pct = if total > 0 {
+                    100.0 * *n as f64 / total as f64
+                } else {
+                    0.0
+                };
+                println!("    {:<20} | {:>5} | {:>4.1}%", foco, n, pct);
+            }
+        }
+
+        if t.bond_pairs > 0 {
+            let avg = t.bond_tenure_sum / t.bond_pairs as f64;
+            let pct_ge3 = 100.0 * t.bond_ge3 as f64 / t.bond_pairs as f64;
+            let pct_ge4 = 100.0 * t.bond_ge4 as f64 / t.bond_pairs as f64;
+            println!("\n■ VÍNCULO piloto-equipe (duplas de era SEM congelar o mercado)");
+            println!(
+                "    tenure médio {:.2} temporadas | ≥3 juntos {:.1}% | ≥4 (era) {:.1}% | máx {} | pares {}",
+                avg, pct_ge3, pct_ge4, t.bond_max_tenure, t.bond_pairs
+            );
+        }
+
         println!("\n■ MORAL VIVA (travada em 1.0 = morta → deve variar por forma/treta)");
         println!(
             "    média {:.3} | desv.pad {:.3} | mínimo {:.2} | máximo {:.2} | nº {:.0}",

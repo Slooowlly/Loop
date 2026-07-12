@@ -106,6 +106,7 @@ pub(crate) fn archive_driver_season(
                 "aggression":           driver.atributos.aggression,
                 "smoothness":           driver.atributos.smoothness,
                 "midia":                driver.atributos.midia,
+                "carisma":              driver.atributos.carisma,
                 "mentalidade":          driver.atributos.mentalidade,
                 "confianca":            driver.atributos.confianca,
             },

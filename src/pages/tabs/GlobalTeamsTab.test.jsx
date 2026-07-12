@@ -486,7 +486,10 @@ describe("GlobalTeamsTab", () => {
 
     const regularPath = screen.getByTestId("world-team-track-T001-regular").getAttribute("d");
 
-    expect(regularPath.match(/[ML]/g)).toHaveLength(5);
+    // Diagonal reta entre 2 âncoras: 1 vértice por temporada (borda esquerda = início
+    // do ano) + 1 vértice final na borda direita da última temporada. T001 = 5 pontos
+    // → 5 + 1 = 6 comandos M/L, tudo numa linha contínua.
+    expect(regularPath.match(/[ML]/g)).toHaveLength(6);
     expect(screen.queryByTestId("world-team-track-T001-special")).not.toBeInTheDocument();
   });
 
@@ -496,19 +499,19 @@ describe("GlobalTeamsTab", () => {
     await screen.findByRole("heading", { name: /^Hist.rico mundial de equipes$/i });
 
     // axis = [2013..2032] (20 cols), CHART_WIDTH=1000 → 1 column = 50 units. years[0]=2013.
-    // T002 is in mazda_amador from its debut year (2016 = band's first data year),
-    // so its line STARTS at the left edge of 2016: idx 3 → 3/20*1000 = 150.
+    // Degrau ancorado no começo do ano: cada temporada = um traço da borda ESQUERDA
+    // (início do ano) à borda DIREITA (fim do ano) da coluna, na posição daquele ano.
+    // T002 debuta em mazda_amador em 2016 → 1º vértice na borda esquerda de 2016:
+    // idx 3 → 3/20*1000 = 150.
     const dual = screen.getByTestId("world-team-track-T002-regular").getAttribute("d");
     expect(dual.startsWith("M 150 ")).toBe(true);
 
-    // T005 joins mazda_amador in 2018 (after the 2016 debut) → mid-history entry,
-    // kept at the mid-column anchor: idx 5 → (5+0.5)/20*1000 = 275.
+    // T005 entra em mazda_amador em 2018 → a âncora fica na borda esquerda de 2018
+    // (início do ano): idx 5 → 5/20*1000 = 250.
     const grid = screen.getByTestId("world-team-track-T005-regular").getAttribute("d");
-    expect(grid.startsWith("M 275 ")).toBe(true);
-    // ...then T005 is promoted INTO production in 2020, which is production's first
-    // plotted data year. Even though it's mid-line (a continuation), that point snaps
-    // to the year start (left edge): idx 7 → 7/20*1000 = 350. This is the promoted case.
-    // It is the SECOND vertex (first "L"), since T005 returns to amador in 2022 after.
+    expect(grid.startsWith("M 250 ")).toBe(true);
+    // ...e a promoção pra production em 2020 fica ancorada no COMEÇO de 2020 (borda
+    // esquerda): idx 7 → 7/20*1000 = 350. É a 2ª âncora (1º "L"), ligada por diagonal.
     expect(grid.split("L")[1].trim().startsWith("350 ")).toBe(true);
 
     // T001's last season is 2026 (familyMaxYear) → ends at the year-end (right edge
@@ -524,7 +527,9 @@ describe("GlobalTeamsTab", () => {
 
     const regularPath = screen.getByTestId("world-team-track-T005-regular").getAttribute("d");
 
-    expect(regularPath.match(/[ML]/g)).toHaveLength(3);
+    // 3 temporadas (2018, 2020, 2022) = 3 âncoras + 1 vértice final na borda direita
+    // da última = 4 comandos M/L (diagonal reta entre os começos de ano).
+    expect(regularPath.match(/[ML]/g)).toHaveLength(4);
   });
 
   it("marks the years before each category exists inside the moving grid", async () => {

@@ -29,10 +29,17 @@ pub fn calculate_renewal_pressure_from_money(team: &Team, current_salary: f64) -
 }
 
 fn category_salary_base(category: &str) -> f64 {
-    match get_category_config(category)
+    let tier = get_category_config(category)
         .map(|config| config.tier)
-        .unwrap_or(0)
-    {
+        .unwrap_or(0);
+    category_salary_base_for_tier(tier)
+}
+
+/// Base salarial de mercado por tier (ponto médio). FONTE ÚNICA da escala por tier —
+/// a faixa de geração de contratos (`contract::salary_range_for_tier`) deve sempre
+/// abraçar estes valores (garantido pelo teste de acoplamento em `contract`).
+pub(crate) fn category_salary_base_for_tier(tier: u8) -> f64 {
+    match tier {
         0 => 12_000.0,
         1 => 28_000.0,
         2 => 55_000.0,

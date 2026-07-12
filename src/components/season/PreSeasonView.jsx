@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
-import { formatSalary, extractNationalityLabel } from "../../utils/formatters";
+import { formatSalaryMonthly, formatMoneyCompact, extractNationalityLabel } from "../../utils/formatters";
 import TeamLogoMark from "../team/TeamLogoMark";
 import FlagIcon from "../ui/FlagIcon";
+import GlobalTeamsTab from "../../pages/tabs/GlobalTeamsTab";
 
 // ─── Category Definitions ─────────────────────────────────────────────────────
 
@@ -12,11 +13,11 @@ const CATEGORIES = [
   { id: "mazda",      dbIds: ["mazda_rookie", "mazda_amador"],   label: "Mazda",      color: "#F01010" },
   { id: "toyota",     dbIds: ["toyota_rookie", "toyota_amador"], label: "Toyota",     color: "#FF1010" },
   { id: "bmw",        dbIds: ["bmw_m2"],                         label: "BMW",        color: "#F00010" },
+  { id: "production_challenger", dbIds: ["production_challenger"], label: "Production", color: "#a855f7" },
   { id: "sep1", isSeparator: true },
-  { id: "production_challenger", dbIds: ["production_challenger"], label: "Production", color: "#3fb950" },
   { id: "gt4",       dbIds: ["gt4"],       label: "GT4",       color: "#3080FF" },
   { id: "gt3",       dbIds: ["gt3"],       label: "GT3",       color: "#00FFFF" },
-  { id: "endurance", dbIds: ["endurance"], label: "Endurance", color: "#3671C6" },
+  { id: "endurance", dbIds: ["endurance"], label: "Endurance", color: "#43c948" },
 ];
 
 const SUBCAT_LABELS = {
@@ -115,11 +116,21 @@ const SUBCAT_COLORS = {
   toyota_amador: "#FF1010",
   bmw: "#F00010",
   bmw_m2: "#F00010",
-  production_challenger: "#3fb950",
+  production_challenger: "#a855f7",
   gt4: "#3080FF",
   gt3: "#00FFFF",
   lmp2: "#F2CC60",
-  endurance: "#3671C6",
+  endurance: "#43c948",
+};
+
+// Rótulo curto da CLASSE dentro de categorias multiclasse (Production/Endurance).
+const CLASS_LABELS = {
+  mazda: "Mazda",
+  toyota: "Toyota",
+  bmw: "BMW",
+  gt3: "GT3",
+  gt4: "GT4",
+  lmp2: "LMP2",
 };
 
 // Ordem usada no grid central quando todas as categorias estao visiveis.
@@ -135,6 +146,20 @@ const CLASS_PRIORITY = [
   "mazda_rookie",
 ];
 
+// Ordem das CLASSES (carros) dentro de cada categoria multiclasse.
+const MULTICLASS_ORDER = {
+  production_challenger: ["bmw", "toyota", "mazda"],
+  endurance: ["lmp2", "gt3", "gt4"],
+};
+
+// Tom dos divisores de sub-classe DENTRO de uma categoria multiclasse (só o MENU,
+// não as equipes): Production em tons de roxo, Endurance em tons de verde — pra o
+// divisor puxar a cor da categoria-pai, não a cor original da classe (BMW=vermelho etc.).
+const MULTICLASS_SUBCLASS_TONES = {
+  production_challenger: { bmw: "#c084fc", toyota: "#a855f7", mazda: "#7c3aed" },
+  endurance: { lmp2: "#7ee787", gt3: "#43c948", gt4: "#22a94e" },
+};
+
 // Ordem do painel "Mercado de Pilotos": maior categoria primeiro,
 // dentro de cada marca Cup > Amador > Rookie
 const FREE_AGENT_ORDER = [
@@ -146,6 +171,33 @@ const FREE_AGENT_ORDER = [
   "toyota", "toyota_amador", "toyota_rookie",
   "mazda", "mazda_amador", "mazda_rookie",
 ];
+
+// Faixas de nível do "Mercado de Pilotos": agrupamos os pilotos livres pelo TIER da
+// categoria onde correm hoje (market_tier vindo do backend, 0=Rookie … 6=Endurance),
+// não pela carteira nem pelo time anterior. Ordenadas do mais prestigioso pro menos.
+// `minTier` casa o primeiro cujo tier do piloto é >= minTier (lista já em ordem desc).
+const LEVEL_BANDS = [
+  { key: "elite",    label: "Elite",     color: "#43c948", minTier: 5 }, // endurance/lmp2
+  { key: "master",   label: "Master",    color: "#00FFFF", minTier: 4 }, // gt3
+  { key: "superpro", label: "Super Pro", color: "#3080FF", minTier: 3 }, // gt4
+  { key: "pro",      label: "Pro",       color: "#a855f7", minTier: 2 }, // bmw m2 / production
+  { key: "amador",   label: "Amador",    color: "#FF3B3B", minTier: 1 }, // amador
+  { key: "rookie",   label: "Rookie",    color: "#FFE000", minTier: 0 }, // rookie
+];
+
+function bandForTier(tier) {
+  const t = typeof tier === "number" ? tier : 0;
+  return LEVEL_BANDS.find((b) => t >= b.minTier) ?? LEVEL_BANDS[LEVEL_BANDS.length - 1];
+}
+
+// Espelha os tiers do backend (constants/categories.rs) — usado só para achar a banda
+// do JOGADOR (que não vem com market_tier, ao contrário dos agentes livres).
+const MARKET_TIER_BY_CATEGORY = {
+  mazda_rookie: 0, toyota_rookie: 0,
+  mazda_amador: 1, toyota_amador: 1,
+  bmw_m2: 2, production_challenger: 2,
+  gt4: 3, gt3: 4, lmp2: 5, endurance: 6,
+};
 
 const REGULAR_MARKET_CATEGORY_IDS = new Set([
   "mazda_rookie",
@@ -289,15 +341,38 @@ function getRankStyle(pos) {
   return null;
 }
 
+// Nome curto de uma categoria multiclasse (pra compor "Production · Mazda").
+function shortCatName(cat) {
+  if (cat === "production_challenger") return "Production";
+  if (cat === "endurance") return "Endurance";
+  return SUBCAT_LABELS[cat] ?? cat;
+}
+
+// Chaves podem ser compostas "categoria:classe" (Production/Endurance) nas ofertas.
 function subcatLabel(key) {
+  if (typeof key === "string" && key.includes(":")) {
+    const [cat, cls] = key.split(":");
+    return `${shortCatName(cat)} · ${CLASS_LABELS[cls] ?? cls.toUpperCase()}`;
+  }
   return SUBCAT_LABELS[key] ?? key;
 }
 
 function subcatColor(key) {
-  return SUBCAT_COLORS[key] ?? "#58a6ff";
+  const base = typeof key === "string" && key.includes(":") ? key.split(":")[0] : key;
+  return SUBCAT_COLORS[base] ?? "#58a6ff";
+}
+
+// Rótulo CURTO da categoria-destino (etiqueta à direita do piloto livre): tira o
+// "Championship"/"Prototype" do label longo. Ex.: gt3 → "GT3", endurance → "Endurance".
+function shortDestLabel(key) {
+  return (SUBCAT_LABELS[key] ?? key)
+    .replace(" Championship", "")
+    .replace(" Prototype", "")
+    .replace(" Principal", "");
 }
 
 function subcatLogo(key) {
+  if (typeof key === "string" && key.includes(":")) return null;
   return SUBCAT_LOGOS[key] ?? null;
 }
 
@@ -306,6 +381,9 @@ const PRESTIGE_TIERS   = ["Anônima", "Promissora", "Respeitada", "Renomada", "L
 const RELIABILITY_TIERS = ["Frágil", "Instável", "Consistente", "Sólida", "Impecável"];
 const CAR_TIERS        = ["Defasado", "Modesto", "Competitivo", "Forte", "Ponta"];
 const TIER_COLORS      = ["#f85149", "#f0a45a", "#e3c15a", "#7ee787", "#3fb950"];
+
+// Cores do selo de vínculo piloto-equipe (6 níveis: Recém-chegado → Casa).
+const BOND_LEVEL_COLORS = ["#8b949e", "#58a6ff", "#56d4dd", "#7ee787", "#e3c15a", "#f0a45a"];
 
 const PIP_COUNT = 6;
 function tierBucket(value) {
@@ -335,6 +413,15 @@ function isRookieCategory(cat) {
   return typeof cat === "string" && cat.endsWith("_rookie");
 }
 
+// Marca da categoria — usada pra agrupar/ordenar as ofertas pela marca do jogador.
+function brandOf(cat) {
+  if (!cat) return null;
+  if (cat.startsWith("mazda")) return "mazda";
+  if (cat.startsWith("toyota")) return "toyota";
+  if (cat.startsWith("bmw")) return "bmw";
+  return cat;
+}
+
 // Tempo do companheiro na equipe (temporadas consecutivas).
 function formatTeammateTenure(tenure) {
   if (tenure == null || tenure <= 0) return "Recém-chegado";
@@ -342,13 +429,22 @@ function formatTeammateTenure(tenure) {
   return `${tenure}ª temporada na equipe`;
 }
 
+// Rótulo de fama (0–100) na mesma régua de 6 níveis da ficha do piloto
+// (fama_level_for_value no backend) — mantém a leitura de estrelato consistente.
+function famaTierLabel(fama) {
+  const value = Number(fama ?? 0);
+  if (value <= 15) return "Anônimo";
+  if (value <= 30) return "Discreto";
+  if (value <= 50) return "Conhecido";
+  if (value <= 70) return "Nome forte";
+  if (value <= 87) return "Estrela";
+  return "Ídolo";
+}
+
 // Caixa real compacto da equipe: $450 mil / $1,2 mi.
 function formatCashCompact(value) {
   if (value == null) return "—";
-  const v = Math.round(value);
-  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1).replace(".", ",")} mi`;
-  if (Math.abs(v) >= 1_000) return `$${Math.round(v / 1000)} mil`;
-  return `$${v}`;
+  return formatMoneyCompact(value);
 }
 
 function subcatLogoFit(key) {
@@ -646,14 +742,34 @@ function MarketCategoryHeader({ categoryKey, detail }) {
   );
 }
 
-function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false }) {
+function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false, accent = "#58a6ff" }) {
   const isOpenSlot = !driverName;
-  const tenureCounter = !isOpenSlot ? formatTenureCounter(tenureSeasons) : null;
+
+  // Vaga aberta: chip tracejado na cor da categoria (lê como oportunidade, não como
+  // "erro"/vazio como o antigo "Sem piloto" vermelho).
+  if (isOpenSlot) {
+    return (
+      <div className="flex items-center py-2">
+        <span
+          className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-1.5 text-body font-semibold"
+          style={{ borderColor: `${accent}66`, color: accent, background: `${accent}12` }}
+        >
+          <span className="text-[14px] font-bold leading-none opacity-80">+</span>
+          Vaga aberta
+        </span>
+      </div>
+    );
+  }
+
+  const tenureCounter = formatTenureCounter(tenureSeasons);
+  // Pips de tempo de casa: 1 pip por temporada (teto de 5); o rótulo numérico
+  // mantém a precisão exata. Estreante (1ª temp.) segue com o badge dedicado.
+  const pipCount = Math.min(Math.max(tenureSeasons ?? 0, 0), 5);
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <div className="flex min-w-0 flex-1 items-center">
-        <p className={`truncate leading-[1.1] ${isOpenSlot ? "text-body font-semibold text-[#f85149]" : isPrimarySlot ? "text-[15px] font-bold text-[color:var(--text-primary)]" : "text-[14px] font-semibold text-[color:var(--text-primary)]"}`}>
-            {driverName ?? "Sem piloto"}
+        <p className={`truncate leading-[1.1] ${isPrimarySlot ? "text-[15px] font-bold text-[color:var(--text-primary)]" : "text-[14px] font-semibold text-[color:var(--text-primary)]"}`}>
+            {driverName}
         </p>
       </div>
       {tenureCounter && (
@@ -662,8 +778,15 @@ function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false }) {
             {tenureCounter.label}
           </span>
         ) : (
-          <span className="shrink-0 text-[11px] font-semibold text-[color:var(--text-muted)]">
-            {tenureCounter.label}
+          <span className="flex shrink-0 items-center gap-2">
+            <span className="flex items-center gap-[3px]" aria-hidden="true">
+              {Array.from({ length: pipCount }).map((_, i) => (
+                <span key={i} className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
+              ))}
+            </span>
+            <span className="text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)]">
+              {tenureCounter.label}
+            </span>
           </span>
         )
       )}
@@ -696,11 +819,17 @@ function licenseTooltip(sigla) {
   return `Carteira ${label}`;
 }
 
-function FreeAgentCard({ driver, color, isRookie }) {
-  const lic = LICENSE_COLORS[driver.license_sigla] ?? LICENSE_COLORS.R;
-  const licenseTitle = licenseTooltip(driver.license_sigla);
+function FreeAgentCard({ driver, isRookie, onHoverCat }) {
+  const destColor = subcatColor(driver.categoria);
+  const destLabel = shortDestLabel(driver.categoria);
+  const idle = driver.seasons_idle ?? 0;
+  const isParado = idle >= 1; // sentou fora ao menos uma temporada
   return (
-    <div className="glass-light flex items-center gap-2 rounded-xl px-2.5 py-2">
+    <div
+      className={`glass-light flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-opacity ${isParado ? "opacity-55" : ""}`}
+      onMouseEnter={() => onHoverCat?.(driver.categoria)}
+      onMouseLeave={() => onHoverCat?.(null)}
+    >
       {isRookie ? (
         <span className="shrink-0 rounded-md bg-[#bc8cff22] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#bc8cff]">
           Novo
@@ -709,14 +838,14 @@ function FreeAgentCard({ driver, color, isRookie }) {
         driver.previous_team_name ? (
           <TeamLogoMark
             teamName={driver.previous_team_name}
-            color={driver.previous_team_color ?? color}
+            color={driver.previous_team_color ?? destColor}
             size="xs"
             testId="driver-market-previous-team-logo"
           />
         ) : (
           <span
             className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em]"
-            style={{ background: `${color}22`, color }}
+            style={{ background: `${destColor}22`, color: destColor }}
           >
             {driver.previous_team_abbr ?? "—"}
           </span>
@@ -725,13 +854,22 @@ function FreeAgentCard({ driver, color, isRookie }) {
       <p className="min-w-0 flex-1 truncate text-body text-[color:var(--text-primary)]">
         {driver.driver_name}
       </p>
+      {isParado && (
+        <span
+          className="shrink-0 rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-[color:var(--text-muted)]"
+          title={`Parado há ${idle} ${idle === 1 ? "temporada" : "temporadas"}`}
+        >
+          {`parado ${idle}t`}
+        </span>
+      )}
+      {/* Etiqueta de destino provável (categoria onde as propostas chegam) — sempre
+          visível no canto, mesmo com separador de marca. Substitui a carteira, escondida. */}
       <span
-        aria-label={licenseTitle}
-        className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em]"
-        style={{ background: lic.bg, color: lic.text }}
-        title={licenseTitle}
+        className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
+        style={{ background: `${destColor}1f`, color: destColor }}
+        title={`Destino provável: ${destLabel}`}
       >
-        {driver.license_sigla}
+        {destLabel}
       </span>
     </div>
   );
@@ -763,9 +901,24 @@ export default function PreSeasonView() {
   const [showOffersModal, setShowOffersModal] = useState(false);
   // Categoria filtrada no modal de ofertas (null = mostrar todas).
   const [offersModalCat, setOffersModalCat] = useState(null);
+  // Oferta cujo "contrato" (tela detalhada de assinatura) está aberto (null = fechado).
+  const [contractOffer, setContractOffer] = useState(null);
+  // Animação de assinatura: enquanto true, o nome do piloto é "escrito" na linha
+  // antes de a oferta ser efetivada.
+  const [isSigning, setIsSigning] = useState(false);
+  // Equipe do grid cujo Histórico mundial de equipes (atlas) está aberto — duplo clique no card.
+  const [historyTeam, setHistoryTeam] = useState(null);
+  // Categoria do piloto livre sob o cursor → acende as equipes dela no grid central.
+  const [hoveredFreeAgentCat, setHoveredFreeAgentCat] = useState(null);
 
   const freeAgentContainerRef = useRef(null);
   const freeAgentSectionRefs  = useRef({});
+  const mainGridRef           = useRef(null);
+  // Scroll a restaurar após avançar a semana (mantém o usuário onde estava, em vez
+  // de jogar os painéis pro topo enquanto o grid recarrega). null = nada a restaurar.
+  const preserveScrollRef     = useRef(null);
+  // Auto-scroll pra categoria do jogador só na 1ª carga (não brigar com o restore).
+  const didInitialScrollRef   = useRef(false);
 
   // Semana atual e total
   const currentWeek = Math.min(preseasonState?.current_week ?? 1, preseasonState?.total_weeks ?? 1);
@@ -778,48 +931,112 @@ export default function PreSeasonView() {
   const playerOffers = transferWindow?.player_offers ?? [];
   const playerSignedThisWindow = preseasonState?.player_has_team ?? false;
 
-  // Categoria atual do jogador (para priorizar suas ofertas na ordenação).
-  const playerCategory = playerTeam?.categoria ?? null;
-  const playerTier = playerCategory ? (CATEGORY_TIER[playerCategory] ?? null) : null;
+  // Categoria/tier efetivos do jogador (vêm do backend — funciona mesmo como agente
+  // livre, quando não há playerTeam). Tier na convenção do backend (= offer.category_tier).
+  const playerCategory = transferWindow?.player_category ?? playerTeam?.categoria ?? null;
+  const playerTier = transferWindow?.player_tier ?? null;
+  const playerBrand = brandOf(playerCategory);
+  const playerName = transferWindow?.player_name ?? null;
 
-  // Ofertas agrupadas por categoria e, dentro de cada categoria, separadas por
-  // Piloto Nº 1 (titular) e Nº 2. Ordem: categorias de tier SUPERIOR ao do jogador
-  // no topo (promoções em destaque), depois a categoria ATUAL do jogador, e por fim
-  // as demais (mesmo tier lateral / inferiores) por tier decrescente.
+  // Ofertas agrupadas por categoria (N1/N2 dentro). Ordem: MARCA do jogador primeiro
+  // (ex.: Mazda antes de Toyota) e, dentro de cada marca, tier maior primeiro (Cup antes
+  // de Rookie). As demais marcas vêm depois, agrupadas, também por tier decrescente.
   const offersByCategory = useMemo(() => {
     const groups = new Map();
     for (const offer of playerOffers) {
-      const cat = offer.category || "outras";
-      if (!groups.has(cat)) {
-        groups.set(cat, {
-          cat,
-          tier: offer.category_tier ?? CATEGORY_TIER[cat] ?? 0,
-          label: offer.category_label || subcatLabel(cat),
+      const baseCat = offer.category || "outras";
+      // Production/Endurance dividem por CLASSE (carro): chave "categoria:classe".
+      const isMulti =
+        (baseCat === "production_challenger" || baseCat === "endurance") && offer.class;
+      const key = isMulti ? `${baseCat}:${offer.class}` : baseCat;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          cat: key,
+          baseCat,
+          classe: isMulti ? offer.class : null,
+          tier: offer.category_tier ?? CATEGORY_TIER[baseCat] ?? 0,
+          label: isMulti
+            ? `${shortCatName(baseCat)} · ${CLASS_LABELS[offer.class] ?? offer.class.toUpperCase()}`
+            : offer.category_label || subcatLabel(baseCat),
           n1: [],
           n2: [],
         });
       }
-      const g = groups.get(cat);
+      const g = groups.get(key);
       if (offer.role === "N1") g.n1.push(offer);
       else g.n2.push(offer);
     }
-    // Prioridade: 0 = tier superior (promoção), 1 = categoria do jogador, 2 = demais.
-    const priority = (g) => {
+    // Bucket de ordenação: 0 = PROMOÇÃO (tier acima do jogador, sempre no topo),
+    // 1 = marca do jogador, 2 = demais marcas. Usa a categoria BASE (não a classe).
+    // Tier de EXIBIÇÃO usa CATEGORY_TIER (distingue Production=3 de BMW=2, que no
+    // backend são ambos tier 2).
+    const bucketOf = (g) => {
       if (playerTier != null && g.tier > playerTier) return 0;
-      if (playerCategory && g.cat === playerCategory) return 1;
+      if (playerBrand && brandOf(g.baseCat) === playerBrand) return 1;
       return 2;
     };
+    for (const g of groups.values()) g.bucket = bucketOf(g);
+    const dispTier = (g) => CATEGORY_TIER[g.baseCat] ?? g.tier;
     return [...groups.values()].sort((a, b) => {
-      const pa = priority(a);
-      const pb = priority(b);
-      if (pa !== pb) return pa - pb;
-      return b.tier - a.tier;
+      if (a.bucket !== b.bucket) return a.bucket - b.bucket;
+      // Ordena por NÍVEL da categoria: maior no topo, rookies no fundo.
+      // (GT3 > GT4 > Production > BMW/Cup > Rookie.)
+      const dt = dispTier(b) - dispTier(a);
+      if (dt !== 0) return dt;
+      // Mesmo nível, mesma categoria multiclasse → ordem MULTICLASS_ORDER das classes.
+      if (a.baseCat === b.baseCat && a.classe && b.classe) {
+        const order = MULTICLASS_ORDER[a.baseCat] ?? [];
+        const ia = order.indexOf(a.classe);
+        const ib = order.indexOf(b.classe);
+        if (ia !== ib) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      }
+      // Mesmo nível, marcas diferentes (ex.: BMW vs Cups) → desempate por marca
+      // (bmw < mazda < toyota), deixando o BMW acima das cups.
+      const na = brandOf(a.baseCat) ?? "";
+      const nb = brandOf(b.baseCat) ?? "";
+      if (na !== nb) return na < nb ? -1 : 1;
+      return 0;
     });
-  }, [playerOffers, playerCategory, playerTier]);
+  }, [playerOffers, playerBrand, playerTier]);
 
   const totalOffers = playerOffers.length;
 
+  // Três andares de importância (offersByCategory já vem ordenado por bucket):
+  // 0 = promoção (destaque), 1 = marca atual do jogador, 2 = demais marcas.
+  const promoOfferGroups = offersByCategory.filter((g) => g.bucket === 0);
+  const brandOfferGroups = offersByCategory.filter((g) => g.bucket === 1);
+  const otherOfferGroups = offersByCategory.filter((g) => g.bucket === 2);
+
+  // Fileira DENSA (uma linha) para os andares 2 e 3: borda colorida + rótulo +
+  // contagem de vagas discreta. Sem o chip numérico grande (era só ruído).
+  const renderOfferRowDense = (group) => {
+    const n = group.n1.length + group.n2.length;
+    const accent = subcatColor(group.cat);
+    return (
+      <button
+        key={group.cat}
+        type="button"
+        onClick={() => { setOffersModalCat(group.cat); setShowOffersModal(true); }}
+        data-testid={`offer-category-row-${group.cat}`}
+        className="transition-glass glass-light hover:glass group flex w-full items-center gap-3 rounded-lg py-2 pl-3 pr-2.5 text-left"
+        style={{ borderLeft: `3px solid ${accent}` }}
+      >
+        <span
+          className="min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-[0.12em]"
+          style={{ color: accent }}
+        >
+          {group.label}
+        </span>
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--text-muted)]">
+          {n} vaga{n > 1 ? "s" : ""}
+        </span>
+        <span className="shrink-0 text-[color:var(--text-muted)] transition-transform group-hover:translate-x-0.5">›</span>
+      </button>
+    );
+  };
+
   // Card RICO (ficha da equipe) usado dentro do modal de ofertas.
+  // Mostra os dados de scouting; o foco e a relação (vínculo) ficam na tela de contrato.
   const renderOfferCardRich = (offer) => {
     const accent = offer.team_color || "#58a6ff";
     const rookie = isRookieCategory(offer.category);
@@ -828,6 +1045,7 @@ export default function PreSeasonView() {
       (offer.team_titles_constructors ?? 0) +
       (offer.team_historic_wins ?? 0);
     const countryLabel = extractNationalityLabel(offer.team_country) || offer.team_country || "";
+    const dur = offer.offer_duration ?? 1;
     // No rookie o carro não afeta o resultado → não mostrar (seria enganoso).
     const stats = [
       !rookie && { label: "Carro", value: offer.car_performance_rating, tiers: CAR_TIERS },
@@ -837,9 +1055,20 @@ export default function PreSeasonView() {
     return (
       <article
         key={offer.seat_id}
-        className="glass animate-scale-in overflow-hidden rounded-2xl"
+        className={[
+          "glass animate-scale-in overflow-hidden rounded-2xl",
+          offer.active_interest
+            ? "ring-2 ring-[#f2c46d]/70 shadow-[0_0_28px_rgba(242,196,109,0.22)]"
+            : "",
+        ].join(" ")}
         style={{ borderLeft: `3px solid ${accent}` }}
       >
+        {offer.active_interest && (
+          <div className="flex items-center gap-1.5 bg-[#f2c46d1a] px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f2c46d]">
+            <span>◆</span>
+            <span>Interesse ativo — te querem pelo seu nome</span>
+          </div>
+        )}
         {/* Cabeçalho: identidade da equipe */}
         <div
           className="flex items-center gap-3 px-4 py-3.5"
@@ -870,7 +1099,7 @@ export default function PreSeasonView() {
           </div>
           <div className="text-right">
             <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Salário</p>
-            <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalary(offer.salary)}</p>
+            <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalaryMonthly(offer.salary)}</p>
           </div>
         </div>
 
@@ -924,7 +1153,12 @@ export default function PreSeasonView() {
           <div className={`grid grid-cols-2 gap-2 ${rookie ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
             <div className="glass-light rounded-lg p-2.5">
               <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Caixa</p>
-              <p className="mt-0.5 num-medium font-bold text-[color:var(--status-green)]">{formatCashCompact(offer.team_cash)}</p>
+              <p
+                className="mt-0.5 num-medium font-bold"
+                style={{ color: offer.team_cash < 0 ? "var(--status-red)" : "var(--status-green)" }}
+              >
+                {formatCashCompact(offer.team_cash)}
+              </p>
             </div>
             {!rookie && (
               <div className="glass-light rounded-lg p-2.5">
@@ -953,17 +1187,21 @@ export default function PreSeasonView() {
             {offer.teammate_name ? (
               <div className="group relative mt-0.5 cursor-help">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-body min-w-0 truncate font-semibold text-[color:var(--text-primary)]">
-                    {offer.teammate_name}
-                    {offer.teammate_skill != null ? ` (${offer.teammate_skill})` : ""}
-                  </p>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <p className="text-body min-w-0 truncate font-semibold text-[color:var(--text-primary)]">
+                      {offer.teammate_name}
+                    </p>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/25 text-[9px] font-bold text-[color:var(--text-muted)] transition-colors group-hover:border-[color:var(--accent-primary)] group-hover:text-[color:var(--accent-primary)]">
+                      ?
+                    </span>
+                  </div>
                   <span className="shrink-0 text-[10px] text-[color:var(--text-muted)]">
                     {formatTeammateTenure(offer.teammate_tenure)}
                   </span>
                 </div>
                 {/* Tooltip de estatísticas */}
-                <div className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-60 rounded-xl border border-white/10 bg-[#0d1117] p-3 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.5)] transition-opacity duration-150 group-hover:opacity-100">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-secondary)]">
+                <div className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border border-white/10 bg-[#0d1117] p-3 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.5)] transition-opacity duration-150 group-hover:opacity-100">
+                  <p className="mb-2 min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-secondary)]">
                     {offer.teammate_name}
                     {offer.teammate_age != null ? ` · ${offer.teammate_age} anos` : ""}
                   </p>
@@ -982,29 +1220,160 @@ export default function PreSeasonView() {
                       </div>
                     ))}
                   </div>
+                  {(offer.teammate_strengths?.length > 0 || offer.teammate_weaknesses?.length > 0) && (
+                    <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
+                      {offer.teammate_strengths?.length > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <span className="mt-px shrink-0 text-[11px] font-bold text-[color:var(--status-green)]">▲</span>
+                          <span className="text-[11px] text-[color:var(--text-secondary)]">
+                            {offer.teammate_strengths.join(" · ")}
+                          </span>
+                        </div>
+                      )}
+                      {offer.teammate_weaknesses?.length > 0 && (
+                        <div className="flex items-start gap-1.5">
+                          <span className="mt-px shrink-0 text-[11px] font-bold text-[#f85149]">▼</span>
+                          <span className="text-[11px] text-[color:var(--text-secondary)]">
+                            {offer.teammate_weaknesses.join(" · ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {offer.teammate_fama != null && (
+                    <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
+                      <span className="text-[11px] text-[color:var(--text-muted)]">Fama</span>
+                      <span
+                        title={
+                          offer.teammate_carisma != null
+                            ? `Fama ${offer.teammate_fama}/100 · Carisma ${offer.teammate_carisma}/100`
+                            : `Fama ${offer.teammate_fama}/100`
+                        }
+                        className="num-medium text-[12px] font-bold text-[color:var(--accent-secondary)]"
+                      >
+                        {famaTierLabel(offer.teammate_fama)}
+                      </span>
+                    </div>
+                  )}
                   <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
                     <span className="text-[11px] text-[color:var(--text-muted)]">Salário</span>
                     <span className="num-medium text-[12px] font-bold text-[color:var(--status-green)]">
-                      {offer.teammate_salary != null ? formatSalary(offer.teammate_salary) : "—"}
+                      {offer.teammate_salary != null ? formatSalaryMonthly(offer.teammate_salary) : "—"}
                     </span>
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-body mt-0.5 text-[color:var(--text-muted)]">Vaga livre — você escolhe o rumo.</p>
+              <p className="text-body mt-0.5 text-[color:var(--text-muted)]">Vaga livre.</p>
             )}
           </div>
 
+          {/* Duração do contrato ofertado */}
+          <div className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
+              Contrato ofertado
+            </span>
+            <span
+              className="num-medium text-body font-bold"
+              style={{ color: dur >= 2 ? "var(--status-green)" : "var(--text-primary)" }}
+            >
+              {dur} temporada{dur > 1 ? "s" : ""}
+              {dur >= 2 && <span className="ml-1.5 text-[9px] font-semibold">· projeto</span>}
+            </span>
+          </div>
+
           <button
-            onClick={() => { setShowOffersModal(false); handleAcceptOffer(offer); }}
+            onClick={() => { setIsSigning(false); setContractOffer(offer); }}
             disabled={isAdvancingWeek}
             className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Aceitar e assinar
+            Ver contrato
           </button>
           {pedigree === 0 && (
             <p className="text-center text-[10px] text-[color:var(--text-muted)]">Equipe sem histórico expressivo ainda.</p>
           )}
+        </div>
+      </article>
+    );
+  };
+
+  // Card de time do grid central (reutilizado no fluxo normal e nas sub-classes
+  // de Production/Endurance).
+  const renderTeamCard = (team, accent) => {
+    const rankStyle = getRankStyle(team.temp_posicao);
+    const movement = getTeamMovementBadge(team.categoria_anterior, team._categoria || team.classe);
+    const teamLogoFallback = movement?.color ?? team.cor_primaria ?? accent;
+    // Conexão entre colunas: passar o mouse sobre um piloto livre acende as equipes
+    // da mesma categoria (por championship OU por classe) e esmaece as demais.
+    const matchesHover = hoveredFreeAgentCat != null
+      && (team._categoria === hoveredFreeAgentCat || team.classe === hoveredFreeAgentCat);
+    const isDimmed = hoveredFreeAgentCat != null && !matchesHover;
+    return (
+      <article
+        key={team.id}
+        onDoubleClick={() => setHistoryTeam(team)}
+        title="Duplo clique: histórico mundial de equipes"
+        className="glass transition-glass relative cursor-pointer select-none overflow-hidden rounded-xl border p-3 hover:-translate-y-0.5 hover:scale-[1.01]"
+        style={{
+          borderColor: matchesHover
+            ? accent
+            : movement
+              ? movement.border
+              : rankStyle?.border
+                ? `${rankStyle.border}88`
+                : "rgba(255,255,255,0.11)",
+          opacity: isDimmed ? 0.32 : 1,
+          boxShadow: matchesHover ? `0 0 0 1px ${accent}, 0 10px 34px -14px ${accent}` : undefined,
+          transition: "opacity .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease",
+        }}
+      >
+        {rankStyle && !movement && (
+          <div
+            className="pointer-events-none absolute right-0 top-0 h-full w-28"
+            style={{ background: `radial-gradient(circle at 94% 14%, ${rankStyle.glow} 0%, transparent 68%)` }}
+          />
+        )}
+        {movement && (
+          <div
+            className="pointer-events-none absolute right-0 top-0 h-full w-32"
+            style={{ background: `radial-gradient(circle at 94% 14%, ${movement.bg.replace("0.12", "0.18")} 0%, transparent 68%)` }}
+          />
+        )}
+
+        <div className="relative mb-3 flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <TeamLogoMark
+              teamName={team.nome}
+              color={teamLogoFallback}
+              size="md"
+              testId="preseason-team-logo"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[19px] font-bold leading-[1.05]">{team.nome}</p>
+            </div>
+            {movement && (
+              <span
+                className="ml-auto shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
+                style={{ color: movement.color, backgroundColor: movement.bg, borderColor: movement.border }}
+              >
+                {movement.label}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="relative divide-y divide-white/8">
+          <TeamDriverRow
+            driverName={team.piloto_1_nome}
+            tenureSeasons={team.piloto_1_tenure_seasons}
+            accent={accent}
+            isPrimarySlot
+          />
+          <TeamDriverRow
+            driverName={team.piloto_2_nome}
+            tenureSeasons={team.piloto_2_tenure_seasons}
+            accent={accent}
+          />
         </div>
       </article>
     );
@@ -1102,30 +1471,53 @@ export default function PreSeasonView() {
     });
   }, [groupedTeams]);
 
-  // ── Free agents agrupados por categoria ────────────────────────────────────
-  const freeAgentsByCategory = useMemo(() => {
+  // ── Free agents agrupados por FAIXA DE NÍVEL (onde correm hoje) ─────────────
+  // Chave = banda do tier (market_tier), não a categoria/carteira. Dentro da banda,
+  // pilotos "frescos" primeiro e os "parados" no fim (marcador de inatividade).
+  const freeAgentsByBand = useMemo(() => {
+    // Filtro do topo também recorta a coluna: mostra só quem pode pegar vaga na
+    // categoria selecionada (interseção com eligible_categories, vindo do backend).
+    const filterCfg = selectedCat === "all" ? null : CATEGORIES.find((c) => c.id === selectedCat);
+    const filterDbIds = filterCfg?.dbIds ? new Set(filterCfg.dbIds) : null;
     const grouped = {};
     (preseasonFreeAgents ?? []).forEach((d) => {
       const cat = d.categoria || "outras";
       if (!is_regular_market_category(cat)) return;
-      grouped[cat] = grouped[cat] ?? { veterans: [], rookies: [] };
-      if (d.is_rookie) grouped[cat].rookies.push(d);
-      else grouped[cat].veterans.push(d);
+      if (filterDbIds && !(d.eligible_categories ?? []).some((id) => filterDbIds.has(id))) return;
+      const band = bandForTier(d.market_tier);
+      (grouped[band.key] = grouped[band.key] ?? []).push(d);
     });
+    Object.values(grouped).forEach((list) =>
+      list.sort((a, b) => {
+        // 1) Agrupa por marca/categoria dentro da banda: Toyota e Mazda têm a mesma cor,
+        //    então intercalá-los confunde — cada marca vira uma sequência contígua.
+        const pa = FREE_AGENT_ORDER.indexOf(a.categoria);
+        const pb = FREE_AGENT_ORDER.indexOf(b.categoria);
+        const oa = pa === -1 ? 999 : pa;
+        const ob = pb === -1 ? 999 : pb;
+        if (oa !== ob) return oa - ob;
+        // 2) Dentro da marca: fresco antes do parado.
+        const ia = a.seasons_idle ?? 0;
+        const ib = b.seasons_idle ?? 0;
+        if (ia !== ib) return ia - ib;
+        // 3) Por nome.
+        return (a.driver_name ?? "").localeCompare(b.driver_name ?? "");
+      }),
+    );
     return grouped;
-  }, [preseasonFreeAgents]);
+  }, [preseasonFreeAgents, selectedCat]);
 
-  // Endurance → GT3 → GT4 → ... → Toyota Cup → Rookie → Mazda Cup → Rookie → outras
-  const freeAgentCategoryOrder = useMemo(() => {
-    return Object.keys(freeAgentsByCategory).sort((a, b) => {
-      const pa = FREE_AGENT_ORDER.indexOf(a);
-      const pb = FREE_AGENT_ORDER.indexOf(b);
-      if (pa !== -1 && pb !== -1) return pa - pb;
-      if (pa !== -1) return -1;
-      if (pb !== -1) return 1;
-      return a.localeCompare(b);
-    });
-  }, [freeAgentsByCategory]);
+  // Bandas presentes, do mais prestigioso pro menos (ordem de LEVEL_BANDS).
+  const freeAgentBandOrder = useMemo(
+    () => LEVEL_BANDS.filter((b) => freeAgentsByBand[b.key]?.length),
+    [freeAgentsByBand],
+  );
+
+  // Total visível (após o filtro do topo) — alimenta o contador do cabeçalho.
+  const visibleFreeAgentCount = useMemo(
+    () => freeAgentBandOrder.reduce((n, b) => n + freeAgentsByBand[b.key].length, 0),
+    [freeAgentBandOrder, freeAgentsByBand],
+  );
 
   const displacedVeterans = useMemo(
     () => (preseasonFreeAgents ?? []).filter((d) => !d.is_rookie),
@@ -1164,18 +1556,35 @@ export default function PreSeasonView() {
     [lastMarketWeekResult],
   );
 
-  // ── Auto-scroll para categoria do jogador ao carregar ──────────────────────
+  // ── Auto-scroll para a BANDA do jogador ao carregar ────────────────────────
   useEffect(() => {
-    if (!freeAgentCategoryOrder.length || !playerTeam?.categoria) return;
-    const playerCat = playerTeam.categoria;
-    const el = freeAgentSectionRefs.current[playerCat];
+    if (didInitialScrollRef.current) return; // só na 1ª carga; depois preserva o scroll do usuário
+    if (!freeAgentBandOrder.length || !playerTeam?.categoria) return;
+    const playerBand = bandForTier(MARKET_TIER_BY_CATEGORY[playerTeam.categoria]).key;
+    const el = freeAgentSectionRefs.current[playerBand];
     const container = freeAgentContainerRef.current;
     if (el && container) {
+      didInitialScrollRef.current = true;
       requestAnimationFrame(() => {
         container.scrollTop = Math.max(0, el.offsetTop - container.offsetTop - 8);
       });
     }
-  }, [freeAgentCategoryOrder.length]); // dispara quando a lista carrega
+  }, [freeAgentBandOrder.length]); // dispara quando a lista carrega
+
+  // ── Restaura o scroll dos painéis após avançar a semana ────────────────────
+  // O grid recarrega de forma assíncrona (mostra "Carregando grid..." e esvazia o
+  // conteúdo, o que zera o scrollTop). Guardamos a posição antes de avançar e a
+  // devolvemos quando o grid termina de recarregar.
+  useEffect(() => {
+    if (loadingGrid) return;             // espera o grid voltar a ter conteúdo
+    const saved = preserveScrollRef.current;
+    if (!saved) return;
+    preserveScrollRef.current = null;
+    requestAnimationFrame(() => {
+      if (mainGridRef.current) mainGridRef.current.scrollTop = saved.main;
+      if (freeAgentContainerRef.current) freeAgentContainerRef.current.scrollTop = saved.aside;
+    });
+  }, [loadingGrid]);
 
   // ── Ações ───────────────────────────────────────────────────────────────────
   const handleAdvanceWeek = async () => {
@@ -1198,7 +1607,16 @@ export default function PreSeasonView() {
         setStartError(typeof e === "string" ? e : e?.message ?? "Erro ao iniciar a temporada.");
       }
     } else {
-      try { await advanceMarketWeek(); } catch (e) { console.error(e); }
+      // Guarda o scroll atual dos painéis pra restaurar quando o grid recarregar
+      // (senão a tela pula pro topo a cada avanço de semana).
+      preserveScrollRef.current = {
+        main: mainGridRef.current?.scrollTop ?? 0,
+        aside: freeAgentContainerRef.current?.scrollTop ?? 0,
+      };
+      try { await advanceMarketWeek(); } catch (e) {
+        preserveScrollRef.current = null;
+        console.error(e);
+      }
     }
   };
 
@@ -1306,7 +1724,7 @@ export default function PreSeasonView() {
             Salário
           </p>
           <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
-            {formatSalary(p.salario_oferecido)}
+            {formatSalaryMonthly(p.salario_oferecido)}
           </p>
         </div>
         <div className="glass-light rounded-lg p-2.5">
@@ -1500,7 +1918,7 @@ export default function PreSeasonView() {
               </p>
               {(preseasonFreeAgents ?? []).length > 0 && (
                 <span className="text-body-sm text-[color:var(--text-muted)]">
-                  {(preseasonFreeAgents ?? []).length} livres
+                  {visibleFreeAgentCount} {selectedCat === "all" ? "livres" : "elegíveis"}
                 </span>
               )}
             </div>
@@ -1509,35 +1927,74 @@ export default function PreSeasonView() {
               <div className="py-10 text-center text-body text-[color:var(--text-muted)]">
                 Todos os pilotos têm equipe.
               </div>
+            ) : freeAgentBandOrder.length === 0 ? (
+              <div className="py-10 text-center text-body text-[color:var(--text-muted)]">
+                Nenhum piloto livre elegível para esta categoria.
+              </div>
             ) : (
-              <div className="space-y-5">
-                {freeAgentCategoryOrder.map((cat) => {
-                  const { veterans, rookies } = freeAgentsByCategory[cat];
-                  const color = SUBCAT_COLORS[cat] ?? "#58a6ff";
+              <div className="space-y-4">
+                {freeAgentBandOrder.map((band) => {
+                  const drivers = freeAgentsByBand[band.key];
                   return (
-                    <section key={cat} ref={(el) => { freeAgentSectionRefs.current[cat] = el; }}>
-                      <div className="mb-2 flex items-center gap-2">
+                    <section key={band.key} ref={(el) => { freeAgentSectionRefs.current[band.key] = el; }}>
+                      <div className="mb-1.5 flex items-center gap-2">
                         <span
-                          className="text-[9px] font-bold uppercase tracking-[0.2em]"
-                          style={{ color }}
+                          className="h-2 w-2 shrink-0 rounded-[3px]"
+                          style={{ background: band.color, boxShadow: `0 0 8px ${band.color}88` }}
+                        />
+                        <span
+                          className="text-[10px] font-black uppercase tracking-[0.2em]"
+                          style={{ color: band.color }}
                         >
-                          {subcatLabel(cat)}
+                          {band.label}
                         </span>
                         <div
                           className="h-px flex-1"
-                          style={{ background: `linear-gradient(to right, ${color}55, transparent)` }}
+                          style={{ background: `linear-gradient(to right, ${band.color}55, transparent)` }}
                         />
                         <span className="text-[9px] text-[color:var(--text-muted)]">
-                          {veterans.length + rookies.length}
+                          {drivers.length}
                         </span>
                       </div>
-                      <div className="space-y-1.5">
-                        {veterans.map((d) => (
-                          <FreeAgentCard key={d.driver_id} driver={d} color={color} />
-                        ))}
-                        {rookies.map((d) => (
-                          <FreeAgentCard key={d.driver_id} driver={d} color={color} isRookie />
-                        ))}
+                      <div className="space-y-2.5">
+                        {(() => {
+                          // Sub-agrupa por marca/categoria (drivers já ordenado por marca).
+                          // Separador físico entre marcas quando a banda tem mais de uma
+                          // (Amador/Pro/Rookie) — senão Toyota e Mazda, de mesma cor, embolam.
+                          const groups = [];
+                          drivers.forEach((d) => {
+                            const last = groups[groups.length - 1];
+                            if (last && last.cat === d.categoria) last.list.push(d);
+                            else groups.push({ cat: d.categoria, list: [d] });
+                          });
+                          const multiBrand = groups.length > 1;
+                          return groups.map(({ cat, list }) => (
+                            <div key={cat} className="space-y-1">
+                              {multiBrand && (
+                                <div className="flex items-center gap-2 px-0.5 pt-0.5">
+                                  <span
+                                    className="text-[8px] font-bold uppercase tracking-[0.18em]"
+                                    style={{ color: subcatColor(cat) }}
+                                  >
+                                    {shortDestLabel(cat)}
+                                  </span>
+                                  <div
+                                    className="h-px flex-1"
+                                    style={{ background: `linear-gradient(to right, ${subcatColor(cat)}44, transparent)` }}
+                                  />
+                                </div>
+                              )}
+                              {list.map((d) => (
+                                <FreeAgentCard
+                                  key={d.driver_id}
+                                  driver={d}
+                                  onHoverCat={setHoveredFreeAgentCat}
+                                  isRookie={d.is_rookie}
+                                />
+                              ))}
+                            </div>
+                          ));
+                        })()}
                       </div>
                     </section>
                   );
@@ -1547,7 +2004,7 @@ export default function PreSeasonView() {
           </aside>
 
           {/* ── CENTRO: Grid de Equipes ── */}
-          <main className="glass scroll-area animate-fade-in min-h-0 overflow-y-auto rounded-2xl px-5 py-4 lg:px-6 lg:py-5">
+          <main ref={mainGridRef} className="glass scroll-area animate-fade-in min-h-0 overflow-y-auto rounded-2xl px-5 py-4 lg:px-6 lg:py-5">
             <div className="mb-5 flex h-6 items-center justify-between">
               <p className="text-body-sm font-bold uppercase tracking-[0.2em] text-[color:var(--text-secondary)]">
                 Mapeamento das equipes
@@ -1590,78 +2047,71 @@ export default function PreSeasonView() {
                         detail={`${totalVacancies} ${totalVacancies === 1 ? "vaga" : "vagas"}`}
                       />
 
-                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                        {teams.map((team) => {
-                          const rankStyle = getRankStyle(team.temp_posicao);
-                          const movement = getTeamMovementBadge(team.categoria_anterior, team._categoria || team.classe);
-                          const teamLogoFallback = movement?.color ?? team.cor_primaria ?? accent;
-
-                          return (
-                            <article
-                              key={team.id}
-                              className="glass transition-glass relative overflow-hidden rounded-xl border p-3 hover:-translate-y-0.5 hover:scale-[1.01]"
-                              style={{
-                                borderColor: movement
-                                  ? movement.border
-                                  : rankStyle?.border
-                                    ? `${rankStyle.border}88`
-                                    : "rgba(255,255,255,0.11)",
-                              }}
-                            >
-                              {rankStyle && !movement && (
-                                <div
-                                  className="pointer-events-none absolute right-0 top-0 h-full w-28"
-                                  style={{
-                                    background: `radial-gradient(circle at 94% 14%, ${rankStyle.glow} 0%, transparent 68%)`,
-                                  }}
-                                />
-                              )}
-                              {movement && (
-                                <div
-                                  className="pointer-events-none absolute right-0 top-0 h-full w-32"
-                                  style={{
-                                    background: `radial-gradient(circle at 94% 14%, ${movement.bg.replace("0.12", "0.18")} 0%, transparent 68%)`,
-                                  }}
-                                />
-                              )}
-
-                              <div className="relative mb-3 flex items-start gap-3">
-                                <div className="flex min-w-0 flex-1 items-center gap-3">
-                                  <TeamLogoMark
-                                    teamName={team.nome}
-                                    color={teamLogoFallback}
-                                    size="md"
-                                    testId="preseason-team-logo"
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <p className="truncate text-[19px] font-bold leading-[1.05]">{team.nome}</p>
+                      {MULTICLASS_ORDER[teamClass] ? (
+                        <div className="space-y-5">
+                          {(() => {
+                            const order = MULTICLASS_ORDER[teamClass];
+                            const byClass = new Map();
+                            for (const team of teams) {
+                              const cls = team.classe || "outras";
+                              if (!byClass.has(cls)) byClass.set(cls, []);
+                              byClass.get(cls).push(team);
+                            }
+                            const orderedClasses = [...byClass.keys()].sort((a, b) => {
+                              const ia = order.indexOf(a);
+                              const ib = order.indexOf(b);
+                              if (ia !== -1 && ib !== -1) return ia - ib;
+                              if (ia !== -1) return -1;
+                              if (ib !== -1) return 1;
+                              return a.localeCompare(b);
+                            });
+                            return orderedClasses.map((cls) => {
+                              const clsColor = subcatColor(cls);
+                              // Cor do MENU (divisor): puxa o tom da categoria-pai (roxo
+                              // no Production, verde no Endurance); cai na cor da classe
+                              // fora das multiclasses. As equipes seguem com a cor delas.
+                              const dividerColor = MULTICLASS_SUBCLASS_TONES[teamClass]?.[cls] ?? clsColor;
+                              const clsTeams = byClass.get(cls);
+                              return (
+                                <div key={cls}>
+                                  {/* Divisor GRANDE centralizado por classe (carro). */}
+                                  <div className="mb-4 mt-1 flex items-center gap-4">
+                                    <div
+                                      className="h-px flex-1"
+                                      style={{ background: `linear-gradient(to right, transparent, ${dividerColor}88)` }}
+                                    />
+                                    <div className="flex flex-col items-center">
+                                      <span
+                                        className="text-[24px] font-black uppercase leading-none tracking-[0.22em]"
+                                        style={{ color: dividerColor, textShadow: `0 0 22px ${dividerColor}55` }}
+                                      >
+                                        {CLASS_LABELS[cls] ?? cls.toUpperCase()}
+                                      </span>
+                                      <span className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+                                        {clsTeams.length} {clsTeams.length === 1 ? "equipe" : "equipes"}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className="h-px flex-1"
+                                      style={{ background: `linear-gradient(to left, transparent, ${dividerColor}88)` }}
+                                    />
                                   </div>
-                                  {movement && (
-                                    <span
-                                      className="ml-auto shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
-                                      style={{ color: movement.color, backgroundColor: movement.bg, borderColor: movement.border }}
-                                    >
-                                      {movement.label}
-                                    </span>
-                                  )}
+                                  {/* accent do card = tom da categoria (roxo/verde): pinta as
+                                      pills "Vaga aberta" e o glow de hover; o logo do time
+                                      segue com a cor_primaria própria. */}
+                                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                    {clsTeams.map((team) => renderTeamCard(team, dividerColor))}
+                                  </div>
                                 </div>
-                              </div>
-
-                              <div className="relative divide-y divide-white/8">
-                                <TeamDriverRow
-                                  driverName={team.piloto_1_nome}
-                                  tenureSeasons={team.piloto_1_tenure_seasons}
-                                  isPrimarySlot
-                                />
-                                <TeamDriverRow
-                                  driverName={team.piloto_2_nome}
-                                  tenureSeasons={team.piloto_2_tenure_seasons}
-                                />
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                          {teams.map((team) => renderTeamCard(team, accent))}
+                        </div>
+                      )}
                     </section>
                   );
                 })}
@@ -1670,7 +2120,10 @@ export default function PreSeasonView() {
           </main>
 
           {/* ── DIREITA: Decisões Pendentes ── */}
-          <aside className="glass scroll-area animate-drawer-in self-start overflow-y-auto rounded-2xl px-4 py-4 lg:px-5 lg:py-5 xl:max-h-[calc(100vh-96px)]">
+          {/* min-h-0 + overflow-y-auto (igual às outras 2 colunas): fica preso à altura
+              da linha do grid e rola até o fim. NÃO usar self-start + max-h fixo, senão
+              o painel cresce com o conteúdo e o fundo some sob o overflow-hidden do shell. */}
+          <aside className="glass scroll-area animate-drawer-in min-h-0 overflow-y-auto rounded-2xl px-4 py-4 lg:px-5 lg:py-5">
             {/* Propostas formais: equipes que cortejam o jogador por mérito (com prazo). */}
             {playerProposals.length > 0 && (
               <div className="mb-5">
@@ -1713,51 +2166,67 @@ export default function PreSeasonView() {
                     : "Nenhuma oferta nova esta semana. Avance a semana para esperar — um time ainda pode aparecer."}
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-4">
                 <p className="text-body-sm text-[color:var(--text-secondary)]">
                   {totalOffers} vaga{totalOffers > 1 ? "s" : ""} te querendo esta semana. Toque numa categoria para ver as fichas das equipes.
                 </p>
-                {offersByCategory.map((group) => {
-                  const n = group.n1.length + group.n2.length;
-                  const isPromotion = playerTier != null && group.tier > playerTier;
-                  const accent = subcatColor(group.cat);
-                  return (
-                    <button
-                      key={group.cat}
-                      type="button"
-                      onClick={() => { setOffersModalCat(group.cat); setShowOffersModal(true); }}
-                      data-testid={`offer-category-row-${group.cat}`}
-                      className="transition-glass glass-light hover:glass flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left"
-                      style={{ borderLeft: `3px solid ${accent}` }}
-                    >
-                      <span
-                        className="flex h-8 min-w-[2rem] items-center justify-center rounded-lg px-2 text-body font-black"
-                        style={{ color: accent, background: `${accent}1f` }}
-                      >
-                        {n}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className="block truncate text-body-sm font-black uppercase tracking-[0.14em]"
-                          style={{ color: accent }}
+
+                {/* ANDAR 1 — Promoção: destaque. Card grande, verde, no topo. */}
+                {promoOfferGroups.length > 0 && (
+                  <div className="space-y-2">
+                    {promoOfferGroups.map((group) => {
+                      const n = group.n1.length + group.n2.length;
+                      return (
+                        <button
+                          key={group.cat}
+                          type="button"
+                          onClick={() => { setOffersModalCat(group.cat); setShowOffersModal(true); }}
+                          data-testid={`offer-category-row-${group.cat}`}
+                          className="transition-glass glow-green group flex w-full items-center gap-3 rounded-xl border border-[color:var(--status-green)]/45 bg-[color:var(--status-green)]/10 px-4 py-3.5 text-left hover:bg-[color:var(--status-green)]/16"
                         >
-                          {group.label}
-                        </span>
-                        <span className="block text-[10px] uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
-                          {n} vaga{n > 1 ? "s" : ""}
-                          {isPromotion && (
-                            <span className="ml-1.5 font-bold text-[color:var(--status-green)]">↑ promoção</span>
-                          )}
-                        </span>
-                      </span>
-                      <span className="text-[color:var(--text-muted)]">›</span>
-                    </button>
-                  );
-                })}
+                          <span className="text-[20px] leading-none">⭐</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--status-green)]">
+                              Promoção
+                            </span>
+                            <span className="mt-0.5 block truncate text-title-md font-black">
+                              {group.label}
+                            </span>
+                            <span className="block text-[10px] uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+                              {n} vaga{n > 1 ? "s" : ""} · subir de categoria
+                            </span>
+                          </span>
+                          <span className="text-title-md text-[color:var(--status-green)] transition-transform group-hover:translate-x-0.5">›</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* ANDAR 2 — Sua marca: agrupada, fileira densa. */}
+                {brandOfferGroups.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
+                      Continuar na {CLASS_LABELS[playerBrand] ?? playerBrand}
+                    </p>
+                    {brandOfferGroups.map(renderOfferRowDense)}
+                  </div>
+                )}
+
+                {/* ANDAR 3 — Outras oportunidades: fileira densa, sem chip. */}
+                {otherOfferGroups.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
+                      Outras oportunidades
+                    </p>
+                    {otherOfferGroups.map(renderOfferRowDense)}
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => { setOffersModalCat(null); setShowOffersModal(true); }}
-                  className="transition-glass glow-blue w-full rounded-xl border border-[#58a6ff66] bg-[#58a6ff22] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff44]"
+                  className="transition-glass glow-blue mt-1 w-full rounded-xl border border-[#58a6ff66] bg-[#58a6ff22] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff44]"
                 >
                   Ver ofertas ({totalOffers})
                 </button>
@@ -1903,6 +2372,272 @@ export default function PreSeasonView() {
           })()}
         </div>
       )}
+
+      {/* ══ MODAL: Contrato — documento A4 de assinatura ══ */}
+      {contractOffer && (() => {
+        const offer = contractOffer;
+        const accent = offer.team_color || "#58a6ff";
+        const countryLabel = extractNationalityLabel(offer.team_country) || offer.team_country || "";
+        const bondLevel = offer.bond_level ?? 1;
+        const bondColor = BOND_LEVEL_COLORS[Math.min(bondLevel, BOND_LEVEL_COLORS.length) - 1];
+        const hasHistory = bondLevel >= 2;
+        const dur = offer.offer_duration ?? 1;
+        const isProject = dur >= 2;
+        const docRef = String(offer.seat_id ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase() || "000000";
+        const signName = playerName || "Piloto";
+        // Paleta do documento (folha escura, tinta clara — combina com o resto do app).
+        const paper = "#0e1319";
+        const ink = "var(--text-primary)";
+        const inkSoft = "var(--text-secondary)";
+        const inkMute = "var(--text-muted)";
+        const hair = "rgba(255,255,255,0.08)";
+        const money = "var(--status-green)";
+        return (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+            onClick={(e) => { if (isSigning) return; if (e.target === e.currentTarget) setContractOffer(null); }}
+          >
+            <div
+              className="animate-scale-in relative flex max-h-[94vh] w-full max-w-[600px] flex-col overflow-hidden rounded-[14px] shadow-[0_40px_120px_-24px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
+              style={{ background: paper }}
+            >
+              {/* Faixa de cor da equipe no topo da folha */}
+              <div className="h-1.5 w-full shrink-0" style={{ background: accent }} />
+
+              {/* Botão fechar (canto) */}
+              <button
+                type="button"
+                onClick={() => setContractOffer(null)}
+                disabled={isSigning}
+                className="absolute right-3 top-4 z-10 rounded-lg bg-white/5 px-3 py-2 text-body font-bold transition-colors hover:bg-white/10 disabled:opacity-40"
+                style={{ color: inkSoft }}
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+
+              {/* Folha rolável, com moldura interna estilo documento */}
+              <div className="scroll-area relative flex-1 overflow-y-auto">
+                {/* Marca d'água: logo gigante da equipe ao fundo */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04]">
+                  <div className="scale-[3.2]">
+                    <TeamLogoMark teamName={offer.team_name} color="#ffffff" size="hero" />
+                  </div>
+                </div>
+
+                {/* Moldura interna (margem do documento) */}
+                <div className="pointer-events-none absolute inset-4 rounded-md border" style={{ borderColor: hair }} />
+
+                <div className="relative px-8 py-8 sm:px-10">
+                  {/* ── Timbre: logo + identidade da equipe ── */}
+                  <header className="flex flex-col items-center text-center">
+                    <TeamLogoMark teamName={offer.team_name} color={accent} size="lg" />
+                    <h2 className="mt-3 text-[22px] font-black leading-tight" style={{ color: ink }}>
+                      {offer.team_name}
+                    </h2>
+                    <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: inkMute }}>
+                      <FlagIcon nacionalidade={offer.team_country} className="h-3.5 w-5" />
+                      {countryLabel && <span>{countryLabel}</span>}
+                      {offer.team_founded_year ? <span>· desde {offer.team_founded_year}</span> : null}
+                    </div>
+                  </header>
+
+                  {/* ── Título do documento ── */}
+                  <div className="mt-6 flex items-center gap-3">
+                    <div className="h-px flex-1" style={{ background: `linear-gradient(to right, transparent, ${accent}88)` }} />
+                    <div className="text-center">
+                      <p className="text-[15px] font-black uppercase tracking-[0.3em]" style={{ color: ink }}>
+                        Contrato de Piloto
+                      </p>
+                      <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.24em]" style={{ color: accent }}>
+                        {offer.category_label || offer.category} · Ref. {docRef}
+                      </p>
+                    </div>
+                    <div className="h-px flex-1" style={{ background: `linear-gradient(to left, transparent, ${accent}88)` }} />
+                  </div>
+
+                  {/* ── Preâmbulo ── */}
+                  <p className="mt-5 text-[12px] leading-relaxed" style={{ color: inkSoft }}>
+                    <span className="font-bold" style={{ color: ink }}>{offer.team_name}</span>
+                    {" "}(a Equipe) e <span className="font-bold" style={{ color: ink }}>{signName}</span>{" "}
+                    (o Piloto) firmam o presente contrato de pilotagem, nos termos das cláusulas a seguir:
+                  </p>
+
+                  {/* ── Cláusulas ── */}
+                  <div className="mt-5 space-y-0">
+                    {/* I — Função */}
+                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
+                          Cláusula I · Função
+                        </p>
+                        <p className="text-right text-body font-bold" style={{ color: accent }}>
+                          {offer.role === "N1" ? "Piloto Titular (N1)" : "Segundo Piloto (N2)"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* II — Remuneração */}
+                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
+                          Cláusula II · Remuneração
+                        </p>
+                        <p className="num-medium text-title-md font-black" style={{ color: money }}>
+                          {formatSalaryMonthly(offer.salary)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* III — Vigência */}
+                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
+                          Cláusula III · Vigência
+                        </p>
+                        <p className="num-medium text-body font-bold" style={{ color: isProject ? money : ink }}>
+                          {dur} temporada{dur > 1 ? "s" : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* IV — Projeto esportivo (foco do time) */}
+                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
+                          Cláusula IV · Projeto Esportivo
+                        </p>
+                        <p className="text-right text-body font-bold" style={{ color: accent }}>
+                          {offer.team_focus || "Meio de grid"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* V — Relação com a equipe (vínculo) */}
+                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}`, borderBottom: `1px solid ${hair}` }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
+                          Cláusula V · Relação com a Equipe
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-0.5">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                              <span
+                                key={i}
+                                className="h-2 w-4 rounded-full"
+                                style={{ background: i < bondLevel ? bondColor : "#21262d" }}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-body-sm font-bold" style={{ color: hasHistory ? bondColor : inkMute }}>
+                            {offer.bond_label || "Recém-chegado"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Área de assinatura ── */}
+                  <div className="mt-8 grid grid-cols-2 gap-8">
+                    {/* Piloto (você) — assinado com animação manuscrita ao aceitar */}
+                    <div>
+                      <div
+                        className="flex h-14 items-end justify-center overflow-hidden border-b-2 border-dashed"
+                        style={{ borderColor: `${accent}88` }}
+                      >
+                        {isSigning ? (
+                          <span
+                            className="animate-signature truncate pb-0.5 text-[24px] leading-none"
+                            style={{ fontFamily: "'Segoe Script','Brush Script MT','Comic Sans MS',cursive", color: accent }}
+                          >
+                            {signName}
+                          </span>
+                        ) : (
+                          <span className="pb-1.5 text-[11px] italic" style={{ color: inkMute }}>
+                            assine ao aceitar ↓
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
+                        Piloto
+                      </p>
+                      <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{signName}</p>
+                    </div>
+                    {/* Equipe (já assinado) */}
+                    <div>
+                      <div className="flex h-14 items-end justify-center border-b-2" style={{ borderColor: "rgba(255,255,255,0.25)" }}>
+                        <span
+                          className="truncate pb-0.5 text-[24px] leading-none"
+                          style={{ fontFamily: "'Segoe Script','Brush Script MT','Comic Sans MS',cursive", color: accent }}
+                        >
+                          {offer.team_name}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
+                        Equipe
+                      </p>
+                      <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{offer.team_name}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Rodapé de ações ── */}
+              <div className="flex shrink-0 gap-3 border-t border-white/10 bg-black/30 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setContractOffer(null)}
+                  disabled={isSigning}
+                  className="transition-glass glass-light rounded-lg px-4 py-2.5 text-body font-bold text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSigning) return;
+                    // Escreve a assinatura (~1.25s) e só então efetiva a oferta.
+                    setIsSigning(true);
+                    setTimeout(() => {
+                      setContractOffer(null);
+                      setShowOffersModal(false);
+                      handleAcceptOffer(offer);
+                    }, 1550);
+                  }}
+                  disabled={isAdvancingWeek || isSigning}
+                  className="transition-glass glow-blue flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-[15px] leading-none">✒️</span>
+                  {isSigning ? "Assinando…" : "Assinar contrato"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══ OVERLAY: Histórico mundial de equipes (atlas, duplo clique no card) ══ */}
+      {historyTeam ? (
+        <div
+          className="fixed inset-0 z-[80] overflow-y-auto bg-black/80 backdrop-blur-md"
+          onClick={() => setHistoryTeam(null)}
+        >
+          <div
+            className="mx-auto max-w-7xl px-4 py-6 sm:px-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlobalTeamsTab
+              selectedTeamId={historyTeam.id}
+              selectedTeamCategory={historyTeam._categoria ?? historyTeam.categoria ?? null}
+              selectedTeamClassName={historyTeam.classe ?? null}
+              initialZoomYears={10}
+              pinnedTeamId={historyTeam.id}
+              drawerPlacement="center"
+              onBack={() => setHistoryTeam(null)}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {/* ══ MODAL: Pilotos sem vaga ══ */}
       {showDisplacedModal && (

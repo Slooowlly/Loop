@@ -808,14 +808,14 @@ fn build_post_race_facts(
     if maintenance.total > 0.0 {
         let _ = writeln!(
             f,
-            "\nMANUTENÇÃO DO CARRO: R$ {} no total",
+            "\nMANUTENÇÃO DO CARRO: $ {} no total",
             maintenance.total.round() as i64
         );
         let danos: Vec<String> = maintenance
             .items
             .iter()
             .filter(|i| !matches!(i.key.as_str(), "gasolina" | "pneus"))
-            .map(|i| format!("{} R$ {}", i.label, i.cost.round() as i64))
+            .map(|i| format!("{} $ {}", i.label, i.cost.round() as i64))
             .collect();
         if !danos.is_empty() {
             let _ = writeln!(f, "- CONSERTO DA BATIDA: {}", danos.join(", "));

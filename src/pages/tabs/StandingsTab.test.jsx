@@ -1106,7 +1106,7 @@ describe("StandingsTab", () => {
             symbol_driver_detail: "20 corridas, 9 vitórias, 16 pódios pela equipe.",
           },
           management: {
-            peak_cash: "R$ 8.800.000",
+            peak_cash: "$8,800,000",
             worst_crisis: "Sem dívida real registrada",
             healthy_years: "3 Temporadas saudáveis reais",
             efficiency: "18,4 pts/R$ mi real",
@@ -1471,7 +1471,7 @@ describe("StandingsTab", () => {
               symbol_driver_detail: "Piloto símbolo real do backend.",
             },
             management: {
-              peak_cash: "R$ 22.000.000",
+              peak_cash: "$22,000,000",
               worst_crisis: "Crise de 2023",
               healthy_years: "4 temporadas saudáveis",
               efficiency: "19 pts/R$ mi",

@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 40;
+const CURRENT_VERSION: u32 = 47;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -50,6 +50,13 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v38(conn)?;
     migrate_v39(conn)?;
     migrate_v40(conn)?;
+    migrate_v41(conn)?;
+    migrate_v42(conn)?;
+    migrate_v43(conn)?;
+    migrate_v44(conn)?;
+    migrate_v45(conn)?;
+    migrate_v46(conn)?;
+    migrate_v47(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -216,6 +223,190 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     if version < 40 {
         migrate_v40(conn)?;
         set_schema_version(conn, 40)?;
+    }
+    if version < 41 {
+        migrate_v41(conn)?;
+        set_schema_version(conn, 41)?;
+    }
+    if version < 42 {
+        migrate_v42(conn)?;
+        set_schema_version(conn, 42)?;
+    }
+    if version < 43 {
+        migrate_v43(conn)?;
+        set_schema_version(conn, 43)?;
+    }
+    if version < 44 {
+        migrate_v44(conn)?;
+        set_schema_version(conn, 44)?;
+    }
+    if version < 45 {
+        migrate_v45(conn)?;
+        set_schema_version(conn, 45)?;
+    }
+    if version < 46 {
+        migrate_v46(conn)?;
+        set_schema_version(conn, 46)?;
+    }
+    if version < 47 {
+        migrate_v47(conn)?;
+        set_schema_version(conn, 47)?;
+    }
+    Ok(())
+}
+
+/// v47 — PRÊMIO DE CONSTRUTORES como linha de receita REAL. Até aqui o prêmio de fim de
+/// temporada (`award_constructor_prizes`) só bumpava o `cash_balance` entre temporadas —
+/// invisível no dossiê (maior evento financeiro do ano, sem aparecer em ledger nem gráfico).
+/// Nova coluna guarda o prêmio numa linha dedicada de encerramento no `team_finance_history`,
+/// para ele surgir como ponto próprio no gráfico de caixa e como entrada nos ledgers.
+fn migrate_v47(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "team_finance_history")? {
+        // Idempotente (via ensure_column): `run_all` carimba a versão baseline, então
+        // `run_pending` reaplica v41+ na reabertura — este ADD COLUMN não pode falhar
+        // se a coluna já existir.
+        ensure_column(
+            conn,
+            "team_finance_history",
+            "constructor_prize_income",
+            "REAL NOT NULL DEFAULT 0.0",
+        )?;
+    }
+    Ok(())
+}
+
+/// v46 — TELEMETRIA por corrida do JOGADOR (Fase 2 do dossiê de habilidade). Uma
+/// linha por corrida que o jogador DIRIGIU no iRacing, com sinais compactos
+/// derivados da telemetria ao vivo (não os pontos brutos): consistência de ritmo,
+/// fração de tempo em briga + saldo de posições na pista (racecraft avançado) e o
+/// ganho de posições na largada. Alimenta os atributos do Grupo A do estimador
+/// (`player_skill`). `race_id` = id da entrada do calendário (mesma convenção de
+/// `race_results`), então a query do dossiê junta as duas. Por-save; só enche
+/// quando o jogador corre no iRacing (corrida simulada não gera telemetria).
+fn migrate_v46(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS player_race_telemetry (
+            race_id          TEXT PRIMARY KEY,
+            laps_seen        INTEGER NOT NULL DEFAULT 0,
+            race_laps        INTEGER NOT NULL DEFAULT 0,
+            consistency      REAL NOT NULL DEFAULT -1.0,
+            battle_fraction  REAL NOT NULL DEFAULT -1.0,
+            on_track_gained  INTEGER NOT NULL DEFAULT 0,
+            on_track_lost    INTEGER NOT NULL DEFAULT 0,
+            start_delta      INTEGER NOT NULL DEFAULT 0,
+            start_valid      INTEGER NOT NULL DEFAULT 0,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    )?;
+    Ok(())
+}
+
+/// v45 — SEED retroativo do histórico financeiro (`team_finance_history`, criada na v43).
+/// Saves migrados antes deste seed (ou vindos de versões anteriores) já têm o snapshot da
+/// última rodada (`last_round_*`) mas SEM a divisão em 9 linhas — ela foi descartada antes
+/// da v43 e NÃO é reconstruída aqui (seria fabricar). Semeia 1 linha `round = 0` ("Início")
+/// por equipe que de fato correu, só com os TOTAIS reais + caixa/dívida, para o gráfico de
+/// caixa já ter um ponto no 1º acesso; ledgers/rosca (que dependem das 9 linhas) seguem no
+/// estado honesto até a próxima corrida real. Migração SEPARADA da v43 (em vez de embutida)
+/// para aplicar mesmo em saves que já haviam atingido a v43 sem o seed. As 9 linhas ficam no
+/// DEFAULT 0.0. Idempotente por `UNIQUE(team_id, season_number, round)`.
+fn migrate_v45(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "teams")? && table_exists(conn, "team_finance_history")? {
+        conn.execute(
+            "INSERT OR IGNORE INTO team_finance_history
+                (team_id, season_number, round, category,
+                 income_total, expenses_total, net, cash_balance, debt_balance)
+             SELECT id, temporada_atual, 0, categoria,
+                    last_round_income, last_round_expenses, last_round_net,
+                    cash_balance, debt_balance
+             FROM teams
+             WHERE last_round_income <> 0 OR last_round_expenses <> 0 OR last_round_net <> 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// v44 — FOCO DA EQUIPE (ideia 4 "Foco + Vínculo"). Fase/filosofia atual do time
+/// (sobrevivencia/reconstrucao/celeiro/meio_de_grid/projeto_de_titulo/dinastia),
+/// derivada de financial_state+strategic_plan+reputação, com histerese (dwell em
+/// `temporadas`). NÃO é permanente — vira em eventos + após um dwell mínimo. Por-save.
+fn migrate_v44(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS team_focus (
+            team_id     TEXT PRIMARY KEY,
+            foco        TEXT NOT NULL DEFAULT 'meio_de_grid',
+            temporadas  INTEGER NOT NULL DEFAULT 0
+        );",
+    )?;
+    Ok(())
+}
+
+/// v43 — HISTÓRICO financeiro por rodada. Cada corrida grava uma linha por equipe com
+/// a divisão REAL de receita/despesa (as 9 linhas do `TeamRoundFinanceContext`, que
+/// antes eram calculadas e descartadas) + caixa/dívida resultantes. É a fonte única do
+/// dossiê financeiro da aba My Team (rosca de custos acumulados, ledgers da rodada e
+/// gráfico de caixa), substituindo os números fabricados no front. Por-save; saves
+/// antigos nascem sem histórico e enchem a cada rodada corrida.
+fn migrate_v43(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS team_finance_history (
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_id                     TEXT NOT NULL,
+            season_number               INTEGER NOT NULL,
+            round                       INTEGER NOT NULL,
+            category                    TEXT NOT NULL DEFAULT '',
+            sponsorship_income          REAL NOT NULL DEFAULT 0.0,
+            result_bonus                REAL NOT NULL DEFAULT 0.0,
+            partial_prize_income        REAL NOT NULL DEFAULT 0.0,
+            aid_income                  REAL NOT NULL DEFAULT 0.0,
+            salary_expense              REAL NOT NULL DEFAULT 0.0,
+            event_operations_cost       REAL NOT NULL DEFAULT 0.0,
+            structural_maintenance_cost REAL NOT NULL DEFAULT 0.0,
+            technical_investment_cost   REAL NOT NULL DEFAULT 0.0,
+            debt_service_cost           REAL NOT NULL DEFAULT 0.0,
+            income_total                REAL NOT NULL DEFAULT 0.0,
+            expenses_total              REAL NOT NULL DEFAULT 0.0,
+            net                         REAL NOT NULL DEFAULT 0.0,
+            cash_balance                REAL NOT NULL DEFAULT 0.0,
+            debt_balance                REAL NOT NULL DEFAULT 0.0,
+            created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(team_id, season_number, round),
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_finance_history_team_season
+            ON team_finance_history(team_id, season_number, round);
+        ",
+    )?;
+    Ok(())
+}
+
+/// v42 — VÍNCULO piloto-equipe (ideia 4 "Foco da equipe + Vínculo"). Relação de
+/// longo prazo por par (piloto, equipe): `vinculo` 0–100 acumula a cada temporada
+/// juntos (+ rápido vencendo) e decai devagar separados; `temporadas` conta anos
+/// juntos (tenure / duplas de era). Alimenta renovação leal, segurar-vs-vender e,
+/// depois, casa espiritual / honras de legado. Por-save.
+fn migrate_v42(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS driver_team_bond (
+            piloto_id   TEXT NOT NULL,
+            equipe_id   TEXT NOT NULL,
+            vinculo     REAL NOT NULL DEFAULT 0.0,
+            temporadas  INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (piloto_id, equipe_id)
+        );",
+    )?;
+    Ok(())
+}
+
+/// v41 — CARISMA do piloto (0–100): traço de estrela que modula a dinâmica da
+/// fama (midia). Coluna nova em `drivers`; saves antigos recebem o neutro 50.0.
+/// Inato (personalidade + sorteio) com deriva leve de carreira. NÃO afeta a pista.
+fn migrate_v41(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "drivers")? {
+        ensure_column(conn, "drivers", "carisma", "REAL NOT NULL DEFAULT 50.0")?;
     }
     Ok(())
 }
@@ -3025,6 +3216,7 @@ CREATE TABLE IF NOT EXISTS drivers (
     aggression               REAL NOT NULL DEFAULT 50.0,
     smoothness               REAL NOT NULL DEFAULT 50.0,
     midia                    REAL NOT NULL DEFAULT 50.0,
+    carisma                  REAL NOT NULL DEFAULT 50.0,
     mentalidade              REAL NOT NULL DEFAULT 50.0,
     confianca                REAL NOT NULL DEFAULT 50.0,
     potencial                REAL NOT NULL DEFAULT 0.0,
@@ -3902,6 +4094,7 @@ mod tests {
                 nome TEXT NOT NULL,
                 nome_curto TEXT NOT NULL DEFAULT '',
                 categoria TEXT NOT NULL,
+                temporada_atual INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT ''
             );
@@ -3957,6 +4150,83 @@ mod tests {
         assert_eq!(row.5, 0.0);
         assert_eq!(row.6, 0.0);
         assert_eq!(row.7, 0.0);
+    }
+
+    #[test]
+    fn test_run_pending_v43_creates_team_finance_history_table() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+
+        run_pending(&conn).expect("migrations should succeed on a fresh db");
+
+        assert_eq!(
+            get_schema_version(&conn).expect("schema version"),
+            CURRENT_VERSION
+        );
+        assert!(table_exists(&conn, "team_finance_history").expect("table check"));
+        // Colunas-chave da divisão financeira real por rodada.
+        assert!(column_exists(&conn, "team_finance_history", "sponsorship_income"));
+        assert!(column_exists(&conn, "team_finance_history", "debt_service_cost"));
+        assert!(column_exists(&conn, "team_finance_history", "cash_balance"));
+        assert!(column_exists(&conn, "team_finance_history", "debt_balance"));
+        // v47: prêmio de construtores como linha de receita real.
+        assert!(column_exists(
+            &conn,
+            "team_finance_history",
+            "constructor_prize_income"
+        ));
+    }
+
+    #[test]
+    fn test_migrate_v45_seeds_snapshot_row_only_for_raced_teams() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE teams (
+                id                  TEXT PRIMARY KEY,
+                categoria           TEXT NOT NULL DEFAULT '',
+                temporada_atual     INTEGER NOT NULL DEFAULT 1,
+                cash_balance        REAL NOT NULL DEFAULT 0.0,
+                debt_balance        REAL NOT NULL DEFAULT 0.0,
+                last_round_income   REAL NOT NULL DEFAULT 0.0,
+                last_round_expenses REAL NOT NULL DEFAULT 0.0,
+                last_round_net      REAL NOT NULL DEFAULT 0.0
+            );
+            INSERT INTO teams (id, categoria, temporada_atual, cash_balance, debt_balance,
+                               last_round_income, last_round_expenses, last_round_net)
+            VALUES ('T001', 'gt3', 2, 500000.0, 0.0, 300000.0, 250000.0, 50000.0),
+                   ('T002', 'gt3', 2, 100000.0, 0.0, 0.0, 0.0, 0.0);
+            ",
+        )
+        .expect("seed teams");
+
+        migrate_v43(&conn).expect("v43 cria a tabela");
+        migrate_v45(&conn).expect("v45 semeia");
+
+        // Só a equipe que correu (T001) recebe seed; T002 (tudo zero) fica de fora.
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM team_finance_history", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(count, 1);
+
+        let (round, income_total, cash, sponsorship): (i64, f64, f64, f64) = conn
+            .query_row(
+                "SELECT round, income_total, cash_balance, sponsorship_income
+                 FROM team_finance_history WHERE team_id = 'T001'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .expect("seed row");
+        assert_eq!(round, 0, "seed usa round 0 (abertura)");
+        assert_eq!(income_total, 300000.0, "totais reais do snapshot");
+        assert_eq!(cash, 500000.0);
+        assert_eq!(sponsorship, 0.0, "seed NÃO fabrica a divisão em 9 linhas");
+
+        // Idempotente: re-rodar a migração não duplica o seed.
+        migrate_v45(&conn).expect("v45 again");
+        let count_again: i64 = conn
+            .query_row("SELECT COUNT(*) FROM team_finance_history", [], |r| r.get(0))
+            .expect("count again");
+        assert_eq!(count_again, 1);
     }
 
     #[test]

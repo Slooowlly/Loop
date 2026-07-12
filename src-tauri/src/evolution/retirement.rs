@@ -95,6 +95,48 @@ pub fn process_retirement(driver: &mut Driver) {
     driver.status = DriverStatus::Aposentado;
 }
 
+/// Chance de um órfão OCIOSO aposentar (item 6). Órfão ocioso = IA sem assento que
+/// NÃO correu na temporada: o mercado teve uma janela inteira e não o contratou.
+/// Para não acumular como agente livre eterno (o que alimentava os resgates de
+/// última hora sem piso), tem chance de pendurar o capacete — alta para
+/// fracos/veteranos, baixa para os bons. Uma jovem promessa (≤21 e skill ≥55) é
+/// preservada (ainda pode ser resgatada na próxima janela): chance 0.
+pub fn idle_orphan_retirement_chance(age: u32, skill: f64) -> f64 {
+    if age <= 21 && skill >= 55.0 {
+        return 0.0;
+    }
+    let base: f64 = if skill < 45.0 {
+        0.55
+    } else if skill < 60.0 {
+        0.30
+    } else {
+        0.12
+    };
+    let age_bonus: f64 = if age >= 33 {
+        0.25
+    } else if age >= 28 {
+        0.12
+    } else {
+        0.0
+    };
+    (base + age_bonus).min(0.95)
+}
+
+/// Chance de uma lesão GRAVE encerrar a carreira no meio da temporada. Base baixa
+/// (~10% num grid típico), ponderada por idade: um jovem quase nunca pendura o capacete
+/// por uma fratura; um veterano tem bem mais chance. Só IA — o piloto do jogador nunca é
+/// aposentado à força (checado no chamador).
+pub fn severe_injury_retirement_chance(age: u32) -> f64 {
+    match age {
+        0..=22 => 0.03,
+        23..=27 => 0.06,
+        28..=32 => 0.10,
+        33..=36 => 0.16,
+        37..=40 => 0.24,
+        _ => 0.35,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, SeedableRng};
@@ -192,6 +234,37 @@ mod tests {
                 "jogador nunca deve ser aposentado pela regra de nunca-correu (seed {seed})"
             );
         }
+    }
+
+    #[test]
+    fn test_severe_injury_retirement_chance_increases_with_age() {
+        assert!(
+            severe_injury_retirement_chance(20) < severe_injury_retirement_chance(30),
+            "jovem deve ter menos chance que piloto de 30"
+        );
+        assert!(severe_injury_retirement_chance(30) < severe_injury_retirement_chance(38));
+        assert!(severe_injury_retirement_chance(38) < severe_injury_retirement_chance(45));
+        // Jovem: bem raro. Veterano: elevado, mas nunca uma certeza.
+        assert!(severe_injury_retirement_chance(20) <= 0.05);
+        assert!(severe_injury_retirement_chance(45) < 1.0);
+    }
+
+    #[test]
+    fn test_idle_orphan_retirement_scales_and_protects_young_talent() {
+        // Jovem promessa (≤21 e skill ≥55): nunca forçado a aposentar.
+        assert_eq!(idle_orphan_retirement_chance(20, 70.0), 0.0);
+        assert_eq!(idle_orphan_retirement_chance(21, 55.0), 0.0);
+        // Fraco aposenta muito mais que um bom piloto na mesma idade.
+        assert!(
+            idle_orphan_retirement_chance(25, 30.0) > idle_orphan_retirement_chance(25, 75.0)
+        );
+        // A idade aumenta a chance para o mesmo skill.
+        assert!(
+            idle_orphan_retirement_chance(35, 40.0) > idle_orphan_retirement_chance(24, 40.0)
+        );
+        // Lanterna jovem (skill baixo, fora da proteção) tem chance alta — é o caso
+        // do "Oliver" depois que A+B pararem de encaixá-lo em categorias acima.
+        assert!(idle_orphan_retirement_chance(24, 28.0) >= 0.5);
     }
 
     #[test]

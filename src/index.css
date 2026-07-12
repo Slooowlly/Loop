@@ -1101,6 +1101,27 @@ select option {
   animation: edgeRailInRight 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Assinatura manuscrita: o nome é "escrito" da esquerda pra direita.
+   O inset inferior (-25%) preserva as hastes descendentes (g, y, j). */
+@keyframes signatureWrite {
+  from {
+    clip-path: inset(0 100% -25% 0);
+  }
+  to {
+    clip-path: inset(0 0 -25% 0);
+  }
+}
+
+.animate-signature {
+  animation: signatureWrite 1.25s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-signature {
+    animation-duration: 1ms;
+  }
+}
+
 /* ─── Animation Classes (legado — mantidos para outros componentes) ───────── */
 
 @keyframes toastUp {

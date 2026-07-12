@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 use crate::models::driver::{Driver, DriverAttributes, DriverCareerStats, DriverSeasonStats};
@@ -16,7 +16,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             categoria_especial_ativa, status, personalidade_primaria, personalidade_secundaria,
             ano_inicio_carreira, skill, consistencia, racecraft, defesa, ritmo_classificacao,
             gestao_pneus, habilidade_largada, adaptabilidade, fator_chuva, fitness, experiencia,
-            desenvolvimento, aggression, smoothness, midia, mentalidade, confianca, potencial,
+            desenvolvimento, aggression, smoothness, midia, carisma, mentalidade, confianca, potencial,
             temp_pontos, temp_vitorias, temp_podios, temp_poles, temp_corridas, temp_dnfs,
             temp_posicao_media, carreira_pontos_total, carreira_vitorias, carreira_podios,
             carreira_poles, carreira_corridas, carreira_temporadas, carreira_titulos,
@@ -28,7 +28,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             :categoria_especial_ativa, :status, :personalidade_primaria, :personalidade_secundaria,
             :ano_inicio_carreira, :skill, :consistencia, :racecraft, :defesa, :ritmo_classificacao,
             :gestao_pneus, :habilidade_largada, :adaptabilidade, :fator_chuva, :fitness, :experiencia,
-            :desenvolvimento, :aggression, :smoothness, :midia, :mentalidade, :confianca, :potencial,
+            :desenvolvimento, :aggression, :smoothness, :midia, :carisma, :mentalidade, :confianca, :potencial,
             :temp_pontos, :temp_vitorias, :temp_podios, :temp_poles, :temp_corridas, :temp_dnfs,
             :temp_posicao_media, :carreira_pontos_total, :carreira_vitorias, :carreira_podios,
             :carreira_poles, :carreira_corridas, :carreira_temporadas, :carreira_titulos,
@@ -64,6 +64,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":aggression": driver.atributos.aggression,
             ":smoothness": driver.atributos.smoothness,
             ":midia": driver.atributos.midia,
+            ":carisma": driver.atributos.carisma,
             ":mentalidade": driver.atributos.mentalidade,
             ":confianca": driver.atributos.confianca,
             ":potencial": driver.atributos.potencial,
@@ -210,7 +211,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             racecraft = :racecraft, defesa = :defesa, ritmo_classificacao = :ritmo_classificacao,
             gestao_pneus = :gestao_pneus, habilidade_largada = :habilidade_largada, adaptabilidade = :adaptabilidade,
             fator_chuva = :fator_chuva, fitness = :fitness, experiencia = :experiencia, desenvolvimento = :desenvolvimento,
-            aggression = :aggression, smoothness = :smoothness, midia = :midia, mentalidade = :mentalidade,
+            aggression = :aggression, smoothness = :smoothness, midia = :midia, carisma = :carisma, mentalidade = :mentalidade,
             confianca = :confianca, potencial = :potencial, temp_pontos = :temp_pontos, temp_vitorias = :temp_vitorias,
             temp_podios = :temp_podios, temp_poles = :temp_poles, temp_corridas = :temp_corridas,
             temp_dnfs = :temp_dnfs, temp_posicao_media = :temp_posicao_media,
@@ -236,6 +237,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":fitness": driver.atributos.fitness, ":experiencia": driver.atributos.experiencia,
             ":desenvolvimento": driver.atributos.desenvolvimento, ":aggression": driver.atributos.aggression,
             ":smoothness": driver.atributos.smoothness, ":midia": driver.atributos.midia,
+            ":carisma": driver.atributos.carisma,
             ":mentalidade": driver.atributos.mentalidade, ":confianca": driver.atributos.confianca,
             ":potencial": driver.atributos.potencial,
             ":temp_pontos": driver.stats_temporada.pontos, ":temp_vitorias": driver.stats_temporada.vitorias as i64,
@@ -319,7 +321,7 @@ pub fn update_driver_attributes(
             habilidade_largada = :habilidade_largada, adaptabilidade = :adaptabilidade,
             fator_chuva = :fator_chuva, fitness = :fitness, experiencia = :experiencia,
             desenvolvimento = :desenvolvimento, aggression = :aggression, smoothness = :smoothness,
-            midia = :midia, mentalidade = :mentalidade, confianca = :confianca, potencial = :potencial
+            midia = :midia, carisma = :carisma, mentalidade = :mentalidade, confianca = :confianca, potencial = :potencial
         WHERE id = :id",
         rusqlite::named_params! {
             ":id": id,
@@ -338,6 +340,7 @@ pub fn update_driver_attributes(
             ":aggression": attrs.aggression,
             ":smoothness": attrs.smoothness,
             ":midia": attrs.midia,
+            ":carisma": attrs.carisma,
             ":mentalidade": attrs.mentalidade,
             ":confianca": attrs.confianca,
             ":potencial": attrs.potencial,
@@ -401,6 +404,45 @@ pub fn update_driver_midia(conn: &Connection, id: &str, midia: f64) -> Result<()
         rusqlite::params![midia.clamp(0.0, 100.0), id],
     )?;
     Ok(())
+}
+
+/// Decaimento passivo da fama de um piloto rumo ao piso, escalado pelo carisma
+/// (carismático decai mais devagar). Espelha `fame::decay_fame_toward`: o fator
+/// `(1.5 − carisma/100)` é o `fame_decay_mult`. Não mexe em quem já está no piso.
+pub fn decay_driver_fame(
+    conn: &Connection,
+    id: &str,
+    floor: f64,
+    base_rate: f64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE drivers
+         SET midia = midia - (midia - ?1) * MIN(1.0, MAX(0.0, ?2 * (1.5 - carisma / 100.0)))
+         WHERE id = ?3 AND midia > ?1",
+        rusqlite::params![floor, base_rate, id],
+    )?;
+    Ok(())
+}
+
+/// Ajusta o carisma de um piloto por um delta (deriva de carreira), preso a 0–100.
+pub fn bump_driver_carisma(conn: &Connection, id: &str, delta: f64) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE drivers SET carisma = MAX(0.0, MIN(100.0, carisma + ?1)) WHERE id = ?2",
+        rusqlite::params![delta, id],
+    )?;
+    Ok(())
+}
+
+/// Carisma (0–100) de um piloto. `None` se o id não existir. Leve — só a coluna.
+pub fn get_driver_carisma(conn: &Connection, id: &str) -> Result<Option<f64>, DbError> {
+    let v = conn
+        .query_row(
+            "SELECT carisma FROM drivers WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    Ok(v)
 }
 
 pub fn update_driver_midia_delta(conn: &Connection, id: &str, delta: f64) -> Result<(), DbError> {
@@ -486,6 +528,7 @@ fn driver_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Driver> {
             aggression: row.get("aggression")?,
             smoothness: row.get("smoothness")?,
             midia: row.get("midia")?,
+            carisma: row.get("carisma")?,
             mentalidade: row.get("mentalidade")?,
             confianca: row.get("confianca")?,
             potencial: row.get("potencial")?,
@@ -738,6 +781,7 @@ mod tests {
                 aggression REAL NOT NULL DEFAULT 50.0,
                 smoothness REAL NOT NULL DEFAULT 50.0,
                 midia REAL NOT NULL DEFAULT 50.0,
+                carisma REAL NOT NULL DEFAULT 50.0,
                 mentalidade REAL NOT NULL DEFAULT 50.0,
                 confianca REAL NOT NULL DEFAULT 50.0,
                 potencial REAL NOT NULL DEFAULT 0.0,

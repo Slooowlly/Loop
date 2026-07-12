@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use rand::Rng;
 
-use crate::generators::driver_helpers::{random_primary_personality, random_secondary_personality};
+use crate::generators::driver_helpers::{
+    random_primary_personality, random_secondary_personality, roll_carisma,
+};
 use crate::generators::names::generate_pilot_identity;
 use crate::models::driver::{potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX};
 use crate::models::enums::DriverStatus;
@@ -80,6 +82,11 @@ fn generate_single_rookie(
     driver.personalidade_primaria = Some(random_primary_personality(rng));
     driver.personalidade_secundaria = Some(random_secondary_personality(rng));
     driver.motivacao = rng.gen_range(70..=90) as f64;
+    let carisma = roll_carisma(
+        driver.personalidade_primaria.as_ref(),
+        driver.personalidade_secundaria.as_ref(),
+        rng,
+    );
     driver.atributos = DriverAttributes {
         skill,
         consistencia: correlated_stat(skill, 12.0, rng),
@@ -96,6 +103,7 @@ fn generate_single_rookie(
         aggression,
         smoothness,
         midia: rng.gen_range(20..=55) as f64,
+        carisma,
         mentalidade: rng.gen_range(40..=75) as f64,
         confianca: rng.gen_range(55..=80) as f64,
         potencial: (skill + potential_headroom(development, age) * rng.gen_range(0.85..=1.15))

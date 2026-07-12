@@ -13,8 +13,9 @@ use crate::commands::career_types::{
     DriverCurrentSummaryBlock, DriverDetail, DriverFormBlock, DriverHealthBlock, DriverLicenseInfo,
     DriverMarketBlock, DriverPerformanceBlock, DriverPerformanceReadBlock, DriverProfileBlock,
     DriverRivalInfo, DriverRivalsBlock, DriverSpecialCampaignBlock, DriverSpecialEventEntry,
-    DriverSpecialEventRankBlock, DriverTechnicalReadBlock, DriverTechnicalReadItem,
-    FormResultEntry, PerformanceStatsBlock, PersonalityInfo, StatsBlock, TagInfo,
+    DriverSpecialEventRankBlock, DriverStardomBlock, DriverTechnicalReadBlock,
+    DriverTechnicalReadItem, FormResultEntry, PerformanceStatsBlock, PersonalityInfo, StatsBlock,
+    TagInfo,
 };
 use crate::commands::race_history::build_driver_histories;
 use crate::constants::categories;
@@ -168,6 +169,7 @@ pub(crate) fn build_driver_detail_payload(
             neutro: tags.is_empty() && !driver.is_jogador,
         },
         leitura_tecnica: build_driver_technical_read_block(driver),
+        estrelato: build_driver_stardom_block(driver),
         performance: build_driver_performance_block(driver, &recent_results),
         forma: build_driver_form_block(&recent_results, form_context.as_deref()),
         resumo_atual: build_current_summary_block(driver, &recent_results, championship_position),
@@ -486,6 +488,88 @@ fn build_driver_technical_read_block(driver: &Driver) -> DriverTechnicalReadBloc
             build_technical_read_item("resistencia", "Resistencia", resistencia),
         ],
     }
+}
+
+/// Monta o bloco de ESTRELATO (fama + carisma) para a ficha do piloto.
+/// Fama (`midia`) usa a MESMA classificação de tier do mercado (visibility.rs) pra
+/// ficar coerente com o resto do jogo; carisma tem escala descritiva própria; e o
+/// `resumo` traduz a DINÂMICA (carisma modula a fama) em uma linha.
+fn build_driver_stardom_block(driver: &Driver) -> DriverStardomBlock {
+    let fama = driver.atributos.midia.clamp(0.0, 100.0);
+    let carisma = driver.atributos.carisma.clamp(0.0, 100.0);
+
+    let (nivel_fama, tom_fama) = fama_level_for_value(fama);
+    let (nivel_carisma, tom_carisma) = carisma_level_for_value(carisma);
+    let resumo = stardom_reading(fama, carisma);
+
+    DriverStardomBlock {
+        fama: fama.round() as u8,
+        carisma: carisma.round() as u8,
+        nivel_fama: nivel_fama.to_string(),
+        tom_fama: tom_fama.to_string(),
+        nivel_carisma: nivel_carisma.to_string(),
+        tom_carisma: tom_carisma.to_string(),
+        resumo,
+    }
+}
+
+/// Escala de FAMA para exibição — 6 níveis, mais rica que os 4 tiers de mercado
+/// internos (o display pode ser mais granular que a lógica comercial de
+/// salário/patrocínio). Vai de Anônimo a Ídolo; o topo é aspiracional e raro.
+fn fama_level_for_value(value: f64) -> (&'static str, &'static str) {
+    let value = value.clamp(0.0, 100.0);
+    if value <= 15.0 {
+        ("Anônimo", "neutral")
+    } else if value <= 30.0 {
+        ("Discreto", "neutral")
+    } else if value <= 50.0 {
+        ("Conhecido", "info")
+    } else if value <= 70.0 {
+        ("Nome forte", "info")
+    } else if value <= 87.0 {
+        ("Estrela", "success")
+    } else {
+        ("Ídolo", "elite")
+    }
+}
+
+fn carisma_level_for_value(value: f64) -> (&'static str, &'static str) {
+    let value = value.clamp(0.0, 100.0);
+    if value < 30.0 {
+        ("Apagado", "danger")
+    } else if value < 45.0 {
+        ("Reservado", "warning")
+    } else if value < 60.0 {
+        ("Cativante", "neutral")
+    } else if value < 75.0 {
+        ("Magnético", "info")
+    } else if value < 88.0 {
+        ("Carismático", "success")
+    } else {
+        ("Ídolo natural", "elite")
+    }
+}
+
+/// Leitura de uma linha: como o carisma (retenção/conversão) conversa com a fama
+/// (estoque). Alto carisma + baixa fama = pólvora seca; baixo carisma + alta fama =
+/// holofote volátil construído só pelo resultado.
+fn stardom_reading(fama: f64, carisma: f64) -> String {
+    let fama_alta = fama >= 60.0;
+    let carisma_alto = carisma >= 60.0;
+
+    match (fama_alta, carisma_alto) {
+        (true, true) => {
+            "Ídolo consolidado — o público responde a cada aparição e a fama resiste às quedas."
+        }
+        (false, true) => {
+            "Cativa fácil, só falta palco: um bom momento e a fama dispara — e custa a cair."
+        }
+        (true, false) => {
+            "Fama erguida pelo resultado, não pelo carisma — é holofote volátil, sangra rápido no jejum."
+        }
+        (false, false) => "Fora do radar do público, e sem o carisma para virar o jogo depressa.",
+    }
+    .to_string()
 }
 
 fn build_technical_read_item(chave: &str, label: &str, value: f64) -> DriverTechnicalReadItem {

@@ -5,10 +5,11 @@ import { createPortal } from "react-dom";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
 import useCareerStore from "../../stores/useCareerStore";
-import { formatSalary } from "../../utils/formatters";
+import { formatSalaryMonthly } from "../../utils/formatters";
 import {
   HistorySection as HistorySectionContent,
   MarketSection as MarketSectionContent,
+  PlayerSkillSection as PlayerSkillSectionContent,
   RivalsSection as RivalsSectionContent,
   SummarySection as SummarySectionContent,
   formatMoment,
@@ -446,7 +447,7 @@ function CurrentMomentSection({ forma, moment, contract }) {
                 label="Funcao"
                 value={formatContractRole(contract.papel)}
               />
-              <DetailRow label="Salario anual" value={formatSalary(contract.salario_anual)} />
+              <DetailRow label="Salário" value={formatSalaryMonthly(contract.salario_anual)} />
               <DetailRow
                 label="Expira em"
                 value={`${contract.anos_restantes} ano${contract.anos_restantes !== 1 ? "s" : ""}`}
@@ -479,6 +480,10 @@ function RivalsSection({ detail }) {
 
 function MarketSection({ detail, market }) {
   return <MarketSectionContent SectionComponent={Section} detail={detail} market={market} />;
+}
+
+function PlayerSkillSection({ careerId }) {
+  return <PlayerSkillSectionContent SectionComponent={Section} careerId={careerId} />;
 }
 
 function formatAttributeName(name) {
@@ -688,7 +693,11 @@ export default function DriverDetailModal({
   const market = detail?.contrato_mercado?.mercado;
   const moment = formatMoment(detail ? detail.forma?.momento : null);
   const isRetiredDriver = isRetiredDetail(detail);
-  const dossierTabs = isRetiredDriver ? RETIRED_DOSSIER_TABS : DOSSIER_TABS;
+  const dossierTabs = isRetiredDriver
+    ? RETIRED_DOSSIER_TABS
+    : detail?.is_jogador
+      ? [...DOSSIER_TABS, { id: "habilidade", label: "Habilidade" }]
+      : DOSSIER_TABS;
   const effectiveActiveTab = isRetiredDriver ? "historico" : activeTab;
   const titleCount = trajetoria?.titulos ?? 0;
   const hasChampionship = Boolean(trajetoria?.foi_campeao);
@@ -858,6 +867,10 @@ export default function DriverDetailModal({
 
             {effectiveActiveTab === "mercado" ? (
               <MarketSection detail={detail} market={market} />
+            ) : null}
+
+            {effectiveActiveTab === "habilidade" ? (
+              <PlayerSkillSection careerId={careerId} />
             ) : null}
             </div>
 

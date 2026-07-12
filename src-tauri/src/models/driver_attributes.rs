@@ -17,6 +17,7 @@ pub enum DriverAttributeKey {
     Aggression,
     Smoothness,
     Midia,
+    Carisma,
     Mentalidade,
     Confianca,
 }
@@ -39,6 +40,7 @@ impl DriverAttributeKey {
             Self::Aggression => "aggression",
             Self::Smoothness => "smoothness",
             Self::Midia => "midia",
+            Self::Carisma => "carisma",
             Self::Mentalidade => "mentalidade",
             Self::Confianca => "confianca",
         }

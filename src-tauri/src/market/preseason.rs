@@ -476,6 +476,22 @@ fn assign_seasonal_team_attributes(
                     updated_team.nome
                 )
             })?;
+
+            // Foco da equipe (ideia 4): deriva a fase atual do estado já calculado,
+            // com histerese; promoção/rebaixamento (categoria_anterior) é evento duro
+            // que fura a histerese e troca na hora. O retorno (virada) alimentará a
+            // notícia da mudança de foco.
+            let (plan_type, _) = team_queries::get_strategic_plan(conn, &updated_team.id)
+                .unwrap_or_else(|_| ("sustainable".to_string(), 0));
+            let hard_event = updated_team.categoria_anterior.is_some();
+            crate::finance::focus::update_team_focus(
+                conn,
+                &updated_team,
+                is_elite,
+                &plan_type,
+                hard_event,
+            )
+            .map_err(|e| format!("Falha ao atualizar foco da equipe {}: {e}", updated_team.nome))?;
         }
     }
 

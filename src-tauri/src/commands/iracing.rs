@@ -585,6 +585,7 @@ fn build_session_race_result(
         String, // pior severidade de batida do jogador (base do conserto)
         crate::simulation::race::RaceResult,
         crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+        crate::iracing_sdk::race_monitor::RaceHistory,
     ),
     String,
 > {
@@ -793,6 +794,7 @@ fn build_session_race_result(
         player_crash,
         result,
         telemetry,
+        history,
     ))
 }
 
@@ -805,7 +807,8 @@ pub fn iracing_preview_race_result(
     app: tauri::AppHandle,
     career_id: String,
 ) -> Result<crate::simulation::race::RaceResult, String> {
-    let (_db, _dir, _track_id, _sev, result, _tel) = build_session_race_result(&app, &career_id)?;
+    let (_db, _dir, _track_id, _sev, result, _tel, _hist) =
+        build_session_race_result(&app, &career_id)?;
     Ok(result)
 }
 
@@ -837,7 +840,7 @@ pub fn iracing_auto_import_if_ready(
     // "Não está pronto / nada a importar" não é erro: o resultado só existe depois
     // que o jogador termina/sai da corrida no iRacing. Qualquer falha de "ainda
     // não" vira None silencioso; o poller tenta de novo no próximo tick.
-    let (mut db, career_dir, track_id, player_crash, result, telemetry) =
+    let (mut db, career_dir, track_id, player_crash, result, telemetry, history) =
         match build_session_race_result(&app, &career_id) {
             Ok(v) => v,
             Err(_) => return Ok(None),
@@ -849,6 +852,7 @@ pub fn iracing_auto_import_if_ready(
         &player_crash,
         result,
         &telemetry,
+        &history,
     )?;
 
     // Clima da corrida importada: resolve+persiste pela fonte única (mesmo do export).

@@ -43,6 +43,59 @@ pub fn calculate_relegation_effects(team: &Team, rng: &mut impl Rng) -> TeamAttr
     }
 }
 
+/// Soft-landing da promoção (Ideia 1), atrás da flag `IRACER_PROMO_SOFT_LANDING`.
+///
+/// Em vez de manter o carro EXATO da categoria de baixo (comportamento default,
+/// `car_performance_delta: 0.0`), que deixava o campeão promovido isolado em
+/// último — 30s atrás de um campo com carros muito mais fortes —, posiciona o
+/// carro do promovido logo ACIMA do pior incumbente da categoria de destino.
+///
+/// Intenção de design: o campeão da categoria inferior deve, teoricamente, ser
+/// "um pouco melhor que a pior da categoria superior": entra com chance real de
+/// brigar pela PERMANÊNCIA, mas longe de brigar por título. Quem passa a ser o
+/// mais ameaçado de rebaixamento é o pior incumbente — o fundo da categoria gira.
+///
+/// - `current_car` = car_performance atual do promovido (carro da categoria de baixo).
+/// - `field_cars`  = car_performance dos incumbentes que PERMANECEM na categoria
+///   de destino (exclui o próprio promovido e a rebaixada, que já saiu na troca).
+/// - `margin`      = quão acima do pior incumbente o promovido aterrissa (pontos
+///   de carro; calibrável no Monte Carlo).
+///
+/// Retorna o delta a aplicar sobre `current_car` — pode ser NEGATIVO: se o carro
+/// do promovido já for alto (amador dominante), clampa PRA BAIXO, porque a
+/// tecnologia da categoria inferior não traduz pra superior. `None` se o campo
+/// estiver vazio (nada a posicionar).
+pub fn promotion_car_landing_delta(
+    current_car: f64,
+    field_cars: &[f64],
+    margin: f64,
+) -> Option<f64> {
+    if field_cars.is_empty() {
+        return None;
+    }
+    let worst = field_cars.iter().copied().fold(f64::INFINITY, f64::min);
+    let median = median_of(field_cars);
+    // Alvo = logo acima do pior incumbente. Teto de segurança na mediana do campo
+    // (anti-título: nunca aterrissa no meio do pelotão, mesmo com margem grande ou
+    // campo degenerado); piso no pior (nunca isolado abaixo do lanterna atual).
+    let target = (worst + margin).clamp(worst, median.max(worst));
+    Some(target - current_car)
+}
+
+fn median_of(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let n = sorted.len();
+    if n % 2 == 1 {
+        sorted[n / 2]
+    } else {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    }
+}
+
 pub fn apply_attribute_deltas(
     conn: &Connection,
     team_id: &str,
@@ -209,5 +262,44 @@ mod tests {
         let template = get_team_templates(category)[0];
         let mut rng = StdRng::seed_from_u64(404);
         Team::from_template_with_rng(template, category, id.to_string(), 2025, &mut rng)
+    }
+
+    #[test]
+    fn test_landing_raises_a_car_that_is_below_the_field_floor() {
+        // Campeão de amador (carro 5) sobe para um campo GT3 forte (10..16).
+        // Deve aterrissar logo acima do pior (10) — não isolado 5 pontos abaixo.
+        let field = [10.0, 12.0, 14.0, 16.0];
+        let delta = promotion_car_landing_delta(5.0, &field, 1.0).expect("delta");
+        assert!((5.0 + delta - 11.0).abs() < 1e-9, "alvo = pior(10) + margem(1)");
+        assert!(delta > 0.0, "carro fraco deve SUBIR até o fundo do campo");
+    }
+
+    #[test]
+    fn test_landing_clamps_down_a_car_stronger_than_the_field_floor() {
+        // Amador dominante (carro 14) sobe para um campo cujo pior é 10.
+        // Tecnologia da categoria de baixo não traduz: clampa PRA BAIXO até ~11.
+        let field = [10.0, 12.0, 13.0, 16.0];
+        let delta = promotion_car_landing_delta(14.0, &field, 1.0).expect("delta");
+        assert!(delta < 0.0, "carro forte demais deve DESCER para perto do fundo");
+        assert!((14.0 + delta - 11.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_landing_never_lands_above_field_median() {
+        // Margem absurda não pode jogar o promovido pro meio do pelotão (anti-título).
+        let field = [10.0, 12.0, 14.0, 16.0]; // mediana = 13
+        let delta = promotion_car_landing_delta(5.0, &field, 99.0).expect("delta");
+        assert!((5.0 + delta - 13.0).abs() < 1e-9, "teto na mediana do campo");
+    }
+
+    #[test]
+    fn test_landing_none_when_field_empty() {
+        assert!(promotion_car_landing_delta(5.0, &[], 1.0).is_none());
+    }
+
+    #[test]
+    fn test_median_of_even_and_odd() {
+        assert!((median_of(&[1.0, 3.0, 2.0]) - 2.0).abs() < 1e-9);
+        assert!((median_of(&[1.0, 2.0, 3.0, 4.0]) - 2.5).abs() < 1e-9);
     }
 }

@@ -1,6 +1,8 @@
 use rand::Rng;
 
+use crate::finance::focus::TeamFocus;
 use crate::finance::salary::{calculate_renewal_pressure_from_money, calculate_salary_ceiling};
+use crate::market::bond::bond_level;
 use crate::market::visibility::{
     derive_market_visibility_profile, MarketVisibilityProfile, MarketVisibilityTier,
 };
@@ -129,6 +131,71 @@ pub fn should_renew_contract(
     decision
 }
 
+/// Aplica **Vínculo + Foco** à decisão-base de renovação (ideia 4 "Foco + Vínculo",
+/// Fase 1). Layer NÃO-invasiva: roda DEPOIS de [`should_renew_contract`] sem alterar
+/// os gates estruturais dele — só adiciona a lealdade da relação/fase por cima.
+///
+/// - **Buffer de confiança:** um par com história (Vínculo nível ≥ 4, "Pilar do time")
+///   banca uma temporada mediana — é o "segurar o piloto pra fazer história". Não vale
+///   em Sobrevivência (fase mercenária) nem com desempenho muito fraco.
+/// - **Contrato de projeto:** foco de longo prazo (Celeiro/Dinastia) + vínculo → renovação
+///   plurianual.
+/// - **Mercenário:** em Sobrevivência, nada de longo prazo (1 ano).
+pub fn apply_bond_and_focus_to_renewal(
+    mut decision: RenewalDecision,
+    driver: &Driver,
+    performance_score: f64,
+    contract: &Contract,
+    team: &Team,
+    vinculo: f64,
+    foco: TeamFocus,
+) -> RenewalDecision {
+    let level = bond_level(vinculo);
+    let mercenary_focus = matches!(foco, TeamFocus::Sobrevivencia);
+    let long_term_focus = matches!(foco, TeamFocus::Dinastia | TeamFocus::Celeiro);
+
+    if !decision.should_renew && level >= 4 && !mercenary_focus && performance_score > 40.0 {
+        let salary = (calculate_renewal_salary(contract, performance_score, driver, team) * 0.95)
+            .max(5_000.0)
+            .round();
+        decision.should_renew = true;
+        decision.reason = "Vínculo forte — a equipe banca mais um ano".into();
+        decision.new_salary = Some(salary);
+        decision.new_duration = Some(1);
+        decision.new_role = Some(contract.papel.clone());
+    }
+
+    if decision.should_renew {
+        if mercenary_focus {
+            decision.new_duration = Some(1);
+        } else if long_term_focus && level >= 3 {
+            let want = if level >= 5 { 3 } else { 2 };
+            let current = decision.new_duration.unwrap_or(1);
+            decision.new_duration = Some(current.max(want));
+        }
+    }
+
+    decision
+}
+
+/// Duração (anos) da oferta ao JOGADOR conforme Foco do time + Vínculo com ele
+/// (ideia 4). É o "segurar-vs-vender" do lado do jogador: um time-casa (vínculo alto)
+/// ou de foco de longo prazo oferece um **contrato de projeto plurianual**; um time
+/// em Sobrevivência (mercenário) só um ano. O jogador SEMPRE decide — isto só define
+/// o que ELE vê na oferta e assina se aceitar.
+pub fn player_offer_duration(foco: TeamFocus, vinculo: f64) -> i32 {
+    let level = bond_level(vinculo);
+    if matches!(foco, TeamFocus::Sobrevivencia) {
+        1
+    } else if level >= 5 {
+        3
+    } else if level >= 3 || matches!(foco, TeamFocus::Dinastia | TeamFocus::Celeiro) {
+        2
+    } else {
+        1
+    }
+}
+
 fn n2_consistency_retention_guard(driver: &Driver, performance_score: f64) -> N2ConsistencyGuard {
     if performance_score >= 65.0 {
         return N2ConsistencyGuard {
@@ -219,6 +286,19 @@ fn no_renewal(reason: &str) -> RenewalDecision {
     }
 }
 
+/// Prêmio salarial pela FAMA pública (midia) na renovação: apelo de mercado vira
+/// poder de barganha do piloto. SEMPRE ≥ 1.0 — é um prêmio POR CIMA do valor
+/// esportivo, nunca o substitui (o mérito vem de `perf_modifier`). Decisão travada:
+/// o jogador famoso ganha salário melhor sem depender só de resultado.
+fn fame_salary_premium(media: f64) -> f64 {
+    match derive_market_visibility_profile(media).tier {
+        MarketVisibilityTier::Baixa => 1.0,
+        MarketVisibilityTier::Relevante => 1.03,
+        MarketVisibilityTier::Alta => 1.08,
+        MarketVisibilityTier::Elite => 1.15,
+    }
+}
+
 fn calculate_renewal_salary(
     contract: &Contract,
     performance: f64,
@@ -235,8 +315,9 @@ fn calculate_renewal_salary(
     };
 
     let age_modifier = if driver.idade > 34 { 0.85 } else { 1.0 };
+    let fame_modifier = fame_salary_premium(driver.atributos.midia);
 
-    (base * perf_modifier * age_modifier)
+    (base * perf_modifier * age_modifier * fame_modifier)
         .min(calculate_salary_ceiling(team))
         .max(5_000.0)
 }
@@ -248,6 +329,26 @@ mod tests {
     use super::*;
     use crate::market::visibility::derive_market_visibility_profile;
     use crate::models::team::{placeholder_team_from_db, Team};
+
+    #[test]
+    fn fama_da_premio_de_salario_por_cima_do_merito() {
+        // Prêmio SEMPRE ≥ 1.0 (nunca reduz) e monotônico: Elite > Baixa.
+        assert!((fame_salary_premium(10.0) - 1.0).abs() < 1e-9);
+        assert!(fame_salary_premium(90.0) > fame_salary_premium(10.0));
+        for m in [0.0, 30.0, 60.0, 90.0, 100.0] {
+            assert!(fame_salary_premium(m) >= 1.0, "prêmio nunca reduz: {m}");
+        }
+        // Na renovação: mesmo piloto/contrato, mais fama = salário maior.
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        let mut apagado = sample_driver(29, None);
+        apagado.atributos.midia = 10.0;
+        let mut estrela = sample_driver(29, None);
+        estrela.atributos.midia = 95.0;
+        let s_apagado = calculate_renewal_salary(&contract, 82.0, &apagado, &team);
+        let s_estrela = calculate_renewal_salary(&contract, 82.0, &estrela, &team);
+        assert!(s_estrela > s_apagado, "estrela: {s_estrela} vs apagado: {s_apagado}");
+    }
 
     #[test]
     fn test_renew_good_performer() {
@@ -501,6 +602,121 @@ mod tests {
         let dec_baixa = should_renew_contract(&driver_baixa, 82.0, &contract, &team, &mut rng_b);
 
         assert_eq!(dec_elite.should_renew, dec_baixa.should_renew);
+    }
+
+    // ── Layer de Vínculo + Foco (ideia 4) ─────────────────────────────────────
+
+    fn renew_decision(duration: i32) -> RenewalDecision {
+        RenewalDecision {
+            should_renew: true,
+            reason: "base".into(),
+            new_salary: Some(80_000.0),
+            new_duration: Some(duration),
+            new_role: Some(TeamRole::Numero1),
+        }
+    }
+
+    #[test]
+    fn strong_bond_buffers_a_mediocre_season() {
+        let driver = sample_driver(29, None);
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        // Vínculo nível 4 (Pilar do time) + Celeiro + desempenho mediano (45) → banca.
+        let out = apply_bond_and_focus_to_renewal(
+            no_renewal("Desempenho abaixo da média"),
+            &driver,
+            45.0,
+            &contract,
+            &team,
+            60.0,
+            TeamFocus::Celeiro,
+        );
+        assert!(out.should_renew);
+        assert!(out.reason.contains("Vínculo forte"));
+        assert!(out.new_salary.is_some());
+    }
+
+    #[test]
+    fn survival_focus_does_not_buffer_and_stays_mercenary() {
+        let driver = sample_driver(29, None);
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        let out = apply_bond_and_focus_to_renewal(
+            no_renewal("Desempenho abaixo da média"),
+            &driver,
+            45.0,
+            &contract,
+            &team,
+            90.0, // vínculo altíssimo não salva na fase mercenária
+            TeamFocus::Sobrevivencia,
+        );
+        assert!(!out.should_renew);
+    }
+
+    #[test]
+    fn weak_bond_does_not_buffer() {
+        let driver = sample_driver(29, None);
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        let out = apply_bond_and_focus_to_renewal(
+            no_renewal("Desempenho abaixo da média"),
+            &driver,
+            45.0,
+            &contract,
+            &team,
+            20.0, // nível 2 — sem história ainda
+            TeamFocus::Celeiro,
+        );
+        assert!(!out.should_renew);
+    }
+
+    #[test]
+    fn long_term_focus_offers_multi_year_project_contract() {
+        let driver = sample_driver(29, None);
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        // Dinastia + vínculo nível 5 (Símbolo) → contrato de 3 anos.
+        let out = apply_bond_and_focus_to_renewal(
+            renew_decision(1),
+            &driver,
+            75.0,
+            &contract,
+            &team,
+            80.0,
+            TeamFocus::Dinastia,
+        );
+        assert_eq!(out.new_duration, Some(3));
+    }
+
+    #[test]
+    fn survival_focus_caps_duration_to_one_year() {
+        let driver = sample_driver(29, None);
+        let contract = sample_contract(TeamRole::Numero1, 80_000.0);
+        let team = sample_healthy_team();
+        let out = apply_bond_and_focus_to_renewal(
+            renew_decision(3),
+            &driver,
+            75.0,
+            &contract,
+            &team,
+            90.0,
+            TeamFocus::Sobrevivencia,
+        );
+        assert_eq!(out.new_duration, Some(1));
+    }
+
+    #[test]
+    fn player_offer_duration_reflects_focus_and_bond() {
+        // Sobrevivência (mercenário) = sempre 1 ano, mesmo com vínculo altíssimo.
+        assert_eq!(player_offer_duration(TeamFocus::Sobrevivencia, 95.0), 1);
+        // Vínculo nível 5+ (Símbolo/Casa) = projeto de 3 anos.
+        assert_eq!(player_offer_duration(TeamFocus::MeioDeGrid, 80.0), 3);
+        // Vínculo nível 3 (Confiança) = 2 anos.
+        assert_eq!(player_offer_duration(TeamFocus::MeioDeGrid, 40.0), 2);
+        // Time novo (sem história) mas de foco de longo prazo = 2 anos (projeto).
+        assert_eq!(player_offer_duration(TeamFocus::Dinastia, 0.0), 2);
+        // Time comum sem história = 1 ano.
+        assert_eq!(player_offer_duration(TeamFocus::MeioDeGrid, 0.0), 1);
     }
 
     fn sample_contract(role: TeamRole, salary: f64) -> Contract {

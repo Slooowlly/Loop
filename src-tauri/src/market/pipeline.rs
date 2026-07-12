@@ -232,6 +232,23 @@ fn run_market_inner(
                 expected_position,
             );
             let decision = should_renew_contract(driver, performance_score, contract, team, rng);
+            // Ideia 4: Vínculo + Foco por cima da decisão-base (buffer de confiança da
+            // relação + contrato de projeto plurianual). É o "segurar pra fazer história"
+            // rodando na grade da IA (o jogador decide na janela). Falha na leitura →
+            // neutro (vínculo 0 / foco meio-de-grid), sem alterar o comportamento base.
+            let vinculo = crate::market::bond::get_bond(conn, &driver.id, &team.id).unwrap_or(0.0);
+            let foco = crate::finance::focus::get_focus(conn, &team.id)
+                .map(|(f, _)| f)
+                .unwrap_or(crate::finance::focus::TeamFocus::MeioDeGrid);
+            let decision = crate::market::renewal::apply_bond_and_focus_to_renewal(
+                decision,
+                driver,
+                performance_score,
+                contract,
+                team,
+                vinculo,
+                foco,
+            );
             if !decision.should_renew {
                 continue;
             }
@@ -275,6 +292,11 @@ fn run_market_inner(
             &standings_by_driver,
             &mut report,
         )?;
+
+        // Poaching / quebra de contrato (Fase 2b.1, só IA): times com caixa arrancam
+        // astros contratados da mesma categoria pagando a multa. Abre vagas que a
+        // escada preenche depois.
+        run_poaching_pass(conn, &teams, new_season_number, rng, &mut report)?;
 
         // (Flag IRACER_ROOKIE_MERIT) Subida garantida do campeão do Rookie: cobre o
         // caso "Amador cheio" forçando a troca com o pior do Amador. Sem a flag é
@@ -602,6 +624,35 @@ fn default_market_context(driver: &Driver) -> DriverMarketContext {
     }
 }
 
+/// Mapa piloto → categoria do contrato Regular mais recente (por `temporada_fim`).
+/// Serve para resgatar o nível de veteranos parados no leilão (ver `find_available_drivers`).
+fn load_last_regular_categories(conn: &Connection) -> Result<HashMap<String, String>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c1.piloto_id, c1.categoria
+             FROM contracts c1
+             WHERE c1.tipo = 'Regular'
+               AND CAST(c1.temporada_fim AS INTEGER) = (
+                   SELECT MAX(CAST(c2.temporada_fim AS INTEGER))
+                   FROM contracts c2
+                   WHERE c2.piloto_id = c1.piloto_id AND c2.tipo = 'Regular'
+               )",
+        )
+        .map_err(|e| format!("Falha ao preparar últimas categorias: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("Falha ao consultar últimas categorias: {e}"))?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (piloto_id, categoria) =
+            row.map_err(|e| format!("Falha ao ler última categoria: {e}"))?;
+        map.insert(piloto_id, categoria);
+    }
+    Ok(map)
+}
+
 fn sync_team_slots(
     conn: &Connection,
     teams: &[crate::models::team::Team],
@@ -729,6 +780,9 @@ fn find_available_drivers(
     let drivers = driver_queries::get_all_drivers(conn)
         .map_err(|e| format!("Falha ao carregar pilotos disponiveis: {e}"))?;
     let license_levels = load_max_license_levels(conn)?;
+    // Última categoria contratada por piloto — para resgatar o nível de veteranos parados
+    // (categoria_atual zerada por sync.rs) em vez de rebaixá-los a tier 0 no leilão.
+    let last_categories = load_last_regular_categories(conn)?;
     let mut available = Vec::new();
 
     for driver in drivers {
@@ -738,10 +792,21 @@ fn find_available_drivers(
         {
             continue;
         }
-        let context = standings_by_driver
+        let mut context = standings_by_driver
             .get(&driver.id)
             .cloned()
             .unwrap_or_else(|| default_market_context(&driver));
+        // Piloto parado (sem categoria atual nem standing da última temporada): ancora no
+        // nível da última categoria que correu, espelhando `player_market_tier`. Sem isso,
+        // um ex-GT3 vira candidato tier 0 (só recebe proposta de rookie).
+        if context.categoria.is_empty() {
+            if let Some(last_cat) = last_categories.get(&driver.id) {
+                if let Some(config) = get_category_config(last_cat) {
+                    context.categoria = last_cat.clone();
+                    context.category_tier = config.tier;
+                }
+            }
+        }
         let visibility = calculate_visibility(
             &driver,
             context.posicao_campeonato,
@@ -814,6 +879,275 @@ pub(crate) fn sign_driver_to_team(
         })?;
         Ok(())
     })
+}
+
+/// Transfere `amount` do caixa do time `from` para o `to` — a 1ª mecânica de dinheiro
+/// time→time (a multa de rescisão do poaching, Fase 2b). No-op se `amount ≤ 0` ou
+/// mesma equipe. Debita o assediante e credita o vendedor.
+pub(crate) fn transfer_between_teams(
+    conn: &Connection,
+    from_team: &str,
+    to_team: &str,
+    amount: f64,
+) -> Result<(), String> {
+    if amount <= 0.0 || from_team == to_team {
+        return Ok(());
+    }
+    team_queries::adjust_team_cash(conn, from_team, -amount)
+        .map_err(|e| format!("Falha ao debitar multa do assediante: {e}"))?;
+    team_queries::adjust_team_cash(conn, to_team, amount)
+        .map_err(|e| format!("Falha ao creditar multa ao vendedor: {e}"))?;
+    Ok(())
+}
+
+/// Valor de um piloto (por id) para o assediante: `poach_target_value` (skill +
+/// apelo comercial × necessidade). 0 se o piloto não existe.
+fn poach_value_of(drivers_by_id: &HashMap<String, Driver>, id: &str, need: f64) -> f64 {
+    drivers_by_id
+        .get(id)
+        .map(|d| {
+            crate::market::poaching::poach_target_value(
+                d.atributos.skill,
+                d.atributos.midia,
+                need,
+            )
+        })
+        .unwrap_or(0.0)
+}
+
+/// Executa uma quebra de contrato: o `poacher` arranca `target` (contratado no
+/// `seller`) pagando a `multa`; o piloto dispensado (`incumbent`) vira agente livre
+/// limpo (categoria zerada → a escada o repesca). A vaga aberta no vendedor é
+/// preenchida depois pela escada. (Fase 2b.1, só IA.)
+#[allow(clippy::too_many_arguments)]
+fn execute_poach(
+    conn: &Connection,
+    poacher: &crate::models::team::Team,
+    seller_team_id: &str,
+    target: &Driver,
+    target_contract: &Contract,
+    incumbent_contract: &Contract,
+    buyout: f64,
+    salary: f64,
+    new_season_number: i32,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    // Rescinde o alvo (no vendedor) e o dispensado (no poacher).
+    for cid in [&target_contract.id, &incumbent_contract.id] {
+        contract_queries::update_contract_status(conn, cid, &ContractStatus::Rescindido)
+            .map_err(|e| format!("Falha ao rescindir contrato no poaching: {e}"))?;
+    }
+
+    // O dispensado volta ao pool como agente livre LIMPO (categoria None) — senão
+    // vira órfão que a escada não repesca.
+    if let Some(mut incumbent) = driver_queries::get_driver(conn, &incumbent_contract.piloto_id).ok()
+    {
+        incumbent.categoria_atual = None;
+        driver_queries::update_driver(conn, &incumbent)
+            .map_err(|e| format!("Falha ao liberar dispensado no poaching: {e}"))?;
+    }
+
+    // Novo contrato: alvo → poacher, no papel do assento liberado.
+    let mut contract = Contract::new(
+        next_id(conn, IdType::Contract)
+            .map_err(|e| format!("Falha ao gerar ID de contrato no poaching: {e}"))?,
+        target.id.clone(),
+        target.nome.clone(),
+        poacher.id.clone(),
+        poacher.nome.clone(),
+        new_season_number,
+        1,
+        salary,
+        incumbent_contract.papel.clone(),
+        poacher.categoria.clone(),
+    );
+    contract.classe = poacher.classe.clone();
+    contract_queries::insert_contract(conn, &contract)
+        .map_err(|e| format!("Falha ao inserir contrato no poaching: {e}"))?;
+
+    let mut moved = target.clone();
+    moved.categoria_atual = Some(poacher.categoria.clone());
+    driver_queries::update_driver(conn, &moved)
+        .map_err(|e| format!("Falha ao atualizar piloto arrancado: {e}"))?;
+
+    // A multa: dinheiro do assediante → vendedor.
+    transfer_between_teams(conn, &poacher.id, seller_team_id, buyout)?;
+
+    report.new_signings.push(SigningInfo {
+        driver_id: target.id.clone(),
+        driver_name: target.nome.clone(),
+        team_id: poacher.id.clone(),
+        team_name: poacher.nome.clone(),
+        categoria: poacher.categoria.clone(),
+        papel: incumbent_contract.papel.as_str().to_string(),
+        tipo: "poaching".to_string(),
+    });
+    Ok(())
+}
+
+/// Passe de POACHING / quebra de contrato (Fase 2b.1, só IA): na janela, times com
+/// caixa arrancam astros CONTRATADOS de outros times da mesma categoria, pagando a
+/// multa. Gatilho = fama + mérito (`poach_target_value`); conservador (poucos por
+/// janela). NUNCA mexe no jogador nem no time dele (isso é 2b.3).
+fn run_poaching_pass(
+    conn: &Connection,
+    teams: &[crate::models::team::Team],
+    new_season_number: i32,
+    rng: &mut impl Rng,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao carregar pilotos p/ poaching: {e}"))?
+        .into_iter()
+        .map(|d| (d.id.clone(), d))
+        .collect();
+    let active = contract_queries::get_all_active_regular_contracts(conn)
+        .map_err(|e| format!("Falha ao carregar contratos p/ poaching: {e}"))?;
+    let contract_by_driver: HashMap<String, Contract> = active
+        .iter()
+        .cloned()
+        .map(|c| (c.piloto_id.clone(), c))
+        .collect();
+    let player_seller_teams: HashSet<String> = teams
+        .iter()
+        .filter(|t| t.is_player_team)
+        .map(|t| t.id.clone())
+        .collect();
+
+    let is_active_non_player = |id: &str| {
+        drivers_by_id
+            .get(id)
+            .is_some_and(|d| !d.is_jogador && d.status == DriverStatus::Ativo)
+    };
+
+    // Poachers: times regulares, não do jogador, com AS DUAS vagas preenchidas (só
+    // substituem quem já têm). Embaralha (determinístico via rng).
+    let mut poachers: Vec<crate::models::team::Team> = teams
+        .iter()
+        .filter(|t| uses_regular_contracts(&t.categoria) && !t.is_player_team)
+        .filter(|t| t.piloto_1_id.is_some() && t.piloto_2_id.is_some())
+        .cloned()
+        .collect();
+    for i in (1..poachers.len()).rev() {
+        let j = rng.gen_range(0..=i);
+        poachers.swap(i, j);
+    }
+
+    let max_poaches = (teams.len() / 8).clamp(1, 3);
+    let mut done = 0usize;
+    let mut moved: HashSet<String> = HashSet::new();
+
+    for poacher_stale in poachers {
+        if done >= max_poaches {
+            break;
+        }
+        let Some(poacher) = team_queries::get_team_by_id(conn, &poacher_stale.id)
+            .ok()
+            .flatten()
+        else {
+            continue;
+        };
+        let (Some(p1), Some(p2)) = (poacher.piloto_1_id.clone(), poacher.piloto_2_id.clone())
+        else {
+            continue; // perdeu uma vaga no meio do passe
+        };
+        let need = crate::fame::team_need_factor(
+            crate::finance::planning::derive_budget_index_from_money(&poacher),
+            poacher.reputacao,
+        );
+
+        // Incumbente = o mais fraco dos dois (por valor), não-jogador, ainda não movido.
+        let mut inc_candidates: Vec<String> = [p1, p2]
+            .into_iter()
+            .filter(|id| is_active_non_player(id) && !moved.contains(id))
+            .collect();
+        inc_candidates.sort_by(|a, b| {
+            poach_value_of(&drivers_by_id, a, need)
+                .total_cmp(&poach_value_of(&drivers_by_id, b, need))
+        });
+        let Some(incumbent_id) = inc_candidates.first().cloned() else {
+            continue;
+        };
+        let Some(incumbent_contract) = contract_by_driver.get(&incumbent_id) else {
+            continue;
+        };
+        let incumbent_value = poach_value_of(&drivers_by_id, &incumbent_id, need);
+
+        // Melhor alvo: contratado, mesma categoria/classe, outro time (não do jogador),
+        // não-jogador, upgrade claro, multa que cabe no caixa.
+        let mut best: Option<(Contract, Driver, f64)> = None;
+        for c in &active {
+            if c.categoria != poacher.categoria
+                || c.classe != poacher.classe
+                || c.equipe_id == poacher.id
+                || moved.contains(&c.piloto_id)
+                || player_seller_teams.contains(&c.equipe_id)
+                || !is_active_non_player(&c.piloto_id)
+            {
+                continue;
+            }
+            let Some(target) = drivers_by_id.get(&c.piloto_id) else {
+                continue;
+            };
+            let tv = crate::market::poaching::poach_target_value(
+                target.atributos.skill,
+                target.atributos.midia,
+                need,
+            );
+            if !crate::market::poaching::is_clear_upgrade(tv, incumbent_value) {
+                continue;
+            }
+            let years = (c.temporada_fim - new_season_number + 1).max(1);
+            let buyout = crate::market::poaching::buyout_fee(
+                c.salario_anual,
+                years,
+                target.atributos.skill,
+                target.atributos.midia,
+            );
+            if !crate::market::poaching::can_afford_buyout(poacher.cash_balance, buyout) {
+                continue;
+            }
+            let better = best.as_ref().is_none_or(|(_, bd, _)| {
+                tv > crate::market::poaching::poach_target_value(
+                    bd.atributos.skill,
+                    bd.atributos.midia,
+                    need,
+                )
+            });
+            if better {
+                best = Some((c.clone(), target.clone(), buyout));
+            }
+        }
+
+        if let Some((target_contract, target, buyout)) = best {
+            let salary = (target_contract.salario_anual * 1.10).round();
+            execute_poach(
+                conn,
+                &poacher,
+                &target_contract.equipe_id,
+                &target,
+                &target_contract,
+                incumbent_contract,
+                buyout,
+                salary,
+                new_season_number,
+                report,
+            )?;
+            moved.insert(target.id.clone());
+            moved.insert(incumbent_id);
+            done += 1;
+        }
+    }
+
+    if done > 0 {
+        let refreshed: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
+            .map_err(|e| format!("Falha ao recarregar pilotos apos poaching: {e}"))?
+            .into_iter()
+            .map(|d| (d.id.clone(), d))
+            .collect();
+        sync_team_slots_from_active_regular_contracts(conn, teams, &refreshed)?;
+    }
+    Ok(())
 }
 
 /// Monta o histórico de slam de um piloto a partir do archive: todos os títulos
@@ -1944,6 +2278,19 @@ fn fill_remaining_vacancies_with_rookies(
         .map(|season| season.ano)
         .unwrap_or_else(|| Local::now().year());
 
+    // Necessidade financeira por time (Fase 2a): quanto o time pesa a fama de um
+    // candidato. Carente pesa alto (precisa do patrocínio); dinastia rica pesa baixo.
+    let team_need_by_id: HashMap<String, f64> = teams
+        .iter()
+        .map(|team| {
+            let budget_index = crate::finance::planning::derive_budget_index_from_money(team);
+            (
+                team.id.clone(),
+                crate::fame::team_need_factor(budget_index, team.reputacao),
+            )
+        })
+        .collect();
+
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
@@ -1982,13 +2329,25 @@ fn fill_remaining_vacancies_with_rookies(
             if limit.is_some_and(|l| report.new_signings.len() >= l) {
                 return Ok(());
             }
+            let need_factor = team_need_by_id
+                .get(&vacancy.team_id)
+                .copied()
+                .unwrap_or(crate::fame::TEAM_NEED_MIN);
+            let is_debut_vacancy = is_real_career_debut_category(&vacancy.categoria)
+                || is_entry_category_for_year(&vacancy.categoria, debut_year);
             let fallback_index = available
                 .iter()
                 .enumerate()
                 .filter(|(_, candidate)| is_pool_fallback_candidate(candidate, &vacancy))
-                .max_by(|(_, a), (_, b)| compare_pool_fallback_candidates(a, b, &vacancy))
+                .max_by(|(_, a), (_, b)| {
+                    compare_pool_fallback_candidates(a, b, &vacancy, need_factor)
+                })
                 .map(|(index, _)| index);
 
+            // O pool de resgate roda primeiro (mais barato que a cascata de promoção).
+            // O item B (piso de skill em is_pool_fallback_candidate) já barra órfão fraco
+            // aqui, então não é preciso reordenar antes da promoção meritória — reordenar
+            // disparava re-scans em cascata a cada promoção e travava o sim multi-temporada.
             if let Some(index) = fallback_index {
                 let candidate = available.remove(index);
                 grant_driver_license_for_division_if_needed(
@@ -2025,9 +2384,7 @@ fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
-            if is_real_career_debut_category(&vacancy.categoria)
-                || is_entry_category_for_year(&vacancy.categoria, debut_year)
-            {
+            if is_debut_vacancy {
                 let rookie = generate_and_sign_rookie_for_vacancy(
                     conn,
                     &vacancy,
@@ -2054,10 +2411,10 @@ fn fill_remaining_vacancies_with_rookies(
             // de gerar um piloto novo do nada ou abortar. Promover abre o assento
             // dele lá embaixo, que será preenchido na próxima volta do loop — a
             // cascata desce até a categoria de estreia, onde aí sim nasce um rookie.
-            // Portão de MÉRITO só na escada regular. Categorias de fase especial
-            // (endurance/production) têm elegibilidade própria (convocação) e uma
-            // progressão de classe que os feeders regulares não conseguem licenciar,
-            // então ali mantemos o comportamento antigo (concede a licença ao assinar).
+            // Portão de MÉRITO na escada regular. Categorias de fase especial
+            // (endurance/production) hoje mantêm o comportamento antigo (concede a
+            // licença ao assinar) — endurecer isso (gate de licença real) desestabilizou
+            // o sim multi-temporada; fica para uma investigação à parte de #3.
             let is_special_vacancy = runs_in_special_phase(&vacancy.categoria);
             let required_license = if is_special_vacancy {
                 None
@@ -2087,7 +2444,7 @@ fn fill_remaining_vacancies_with_rookies(
                     .map_err(|e| format!("Falha ao rescindir contrato do promovido: {e}"))?;
                 }
                 if is_special_vacancy {
-                    // Especiais: concede a licença da divisão (elegibilidade via convocação).
+                    // Especiais: concede a licença da divisão ao assinar.
                     grant_driver_license_for_division_if_needed(
                         conn,
                         &candidate.id,
@@ -2095,8 +2452,8 @@ fn fill_remaining_vacancies_with_rookies(
                         vacancy.classe.as_deref(),
                     )?;
                 }
-                // Escada regular: sem concessão — o candidato JÁ tem a licença exigida
-                // (filtro de mérito em best_feeder_promotion_candidate).
+                // Escada regular: sem concessão — o candidato JÁ possui a licença
+                // exigida (filtro de mérito em best_feeder_promotion_candidate).
                 sign_driver_to_team(
                     conn,
                     &candidate,
@@ -2279,8 +2636,34 @@ fn player_effective_license(conn: &Connection, player: &Driver) -> Result<u8, St
 }
 
 /// Salário ofertado ao jogador numa vaga. Mesma fórmula usada na garantia de porta.
-fn player_offer_salary(skill: f64) -> f64 {
-    (12_000.0 + skill * 1_800.0).max(5_000.0)
+/// Salário ofertado ao jogador, na MESMA escala dos contratos da IA: faixa por tier
+/// (`salary_range_for_tier`) posicionada pela skill, com fator de papel (N1 titular
+/// ganha mais que N2). Antes usava uma fórmula fixa `12k + skill*1.8k` que ignorava a
+/// categoria e inflava o valor (ex.: ~100k no rookie, que na verdade paga ~5k–21k).
+/// O `team_id` aplica uma variação ESTÁVEL (±7%, determinística) pra cada equipe ter
+/// seu próprio número — sem isso todas ofereciam exatamente o mesmo valor.
+fn player_offer_salary(tier: u8, is_n1: bool, skill: f64, team_id: &str) -> f64 {
+    let (base_min, base_max) = crate::models::contract::salary_range_for_tier(tier);
+    let t = (skill / 100.0).clamp(0.0, 1.0);
+    let base = base_min + (base_max - base_min) * t;
+    // Fatores no MEIO das faixas da IA (N1 1.20–1.40, N2 1.00–1.12).
+    let role_mult = if is_n1 { 1.30 } else { 1.06 };
+    (base * role_mult * team_salary_multiplier(team_id))
+        .round()
+        .max(5_000.0)
+}
+
+/// Multiplicador salarial ESTÁVEL por equipe (0.93–1.07 = ±7%), derivado de um hash
+/// determinístico do id — mesmo time sempre dá o mesmo número (oferta = assinatura),
+/// mas times diferentes variam. Dá "personalidade" às ofertas sem aleatoriedade.
+fn team_salary_multiplier(team_id: &str) -> f64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a offset basis
+    for b in team_id.bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3); // FNV prime
+    }
+    let frac = (hash % 1000) as f64 / 999.0; // 0.0..1.0
+    0.93 + frac * 0.14 // 0.93..1.07
 }
 
 /// Quantos assentos o mercado segura pro jogador agente livre. Segurar ALGUNS (não um
@@ -2361,6 +2744,85 @@ pub(crate) fn player_reserved_seats(
 /// Ofertas do mercado pro JOGADOR nesta semana: toda vaga regular em que ele é
 /// elegível+licenciado, no tier dele OU tier−1. Vazio se ele já tem contrato / não
 /// está ativo. (`is_n1` = papel Numero1; salário = fórmula de garantia de porta.)
+/// Posição final do jogador na temporada arquivada mais recente (menor número = melhor).
+/// None se ainda não correu. Usado pra decidir ofertas de promoção (pódio). Lê do ARQUIVO
+/// persistente (`driver_season_archive`) — NÃO do `standings`, que é recalculado do zero e
+/// deletado a cada avanço de temporada (e exclui agentes livres que não correram).
+fn player_last_finish_position(conn: &Connection, player_id: &str) -> Option<i32> {
+    conn.query_row(
+        "SELECT posicao_campeonato FROM driver_season_archive
+         WHERE piloto_id = ?1 AND posicao_campeonato IS NOT NULL
+         ORDER BY season_number DESC
+         LIMIT 1",
+        params![player_id],
+        |row| row.get::<_, i32>(0),
+    )
+    .ok()
+}
+
+/// Os POUCOS MELHORES times que cobiçam o jogador pela fama — o "interesse ativo"
+/// VISÍVEL ao jogador (badge + N1 + prêmio + e-mail). Retorna `(team_id, nome,
+/// categoria)` dos melhores da categoria do jogador (exceto o dele), quantos =
+/// `active_interest_team_count(fama)`. Decoplado da economia da IA (que dá apelo aos
+/// times CARENTES): pro jogador, "me querem" tem que ler como "time bom". Fase 2a.
+pub(crate) fn player_active_interest_teams(
+    conn: &Connection,
+    player: &Driver,
+) -> Result<Vec<(String, String, String)>, String> {
+    let count = crate::fame::active_interest_team_count(player.atributos.midia);
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let categoria = match player.categoria_atual.as_deref() {
+        Some(c) if !c.is_empty() => c.to_string(),
+        _ => return Ok(Vec::new()),
+    };
+    let player_team_id = contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
+        .ok()
+        .flatten()
+        .map(|c| c.equipe_id);
+    let mut teams: Vec<_> = team_queries::get_all_teams(conn)
+        .map_err(|e| format!("Falha ao carregar times p/ interesse do astro: {e}"))?
+        .into_iter()
+        .filter(|team| team.ativa && team.categoria == categoria)
+        .filter(|team| Some(&team.id) != player_team_id.as_ref())
+        .collect();
+    teams.sort_by(|a, b| {
+        team_quality(b).total_cmp(&team_quality(a))
+    });
+    Ok(teams
+        .into_iter()
+        .take(count)
+        .map(|team| (team.id, team.nome, team.categoria))
+        .collect())
+}
+
+fn team_quality(team: &crate::models::team::Team) -> f64 {
+    crate::fame::team_prestige_quality(
+        team.reputacao,
+        team.car_performance,
+        team.historico_titulos_pilotos + team.historico_titulos_construtores,
+    )
+}
+
+/// Salário da oferta ao jogador, com o prêmio de interesse ativo aplicado quando o
+/// time cobiça o nome dele — usado no MESMO ponto pela listagem e pela assinatura,
+/// pra o que é mostrado bater com o que é assinado.
+fn player_offer_salary_with_interest(
+    tier: u8,
+    is_n1: bool,
+    skill: f64,
+    team_id: &str,
+    active_interest: bool,
+) -> f64 {
+    let base = player_offer_salary(tier, is_n1, skill, team_id);
+    if active_interest {
+        base * crate::fame::ACTIVE_INTEREST_SALARY_PREMIUM
+    } else {
+        base
+    }
+}
+
 pub(crate) fn player_market_offers(
     conn: &Connection,
     season: i32,
@@ -2380,7 +2842,15 @@ pub(crate) fn player_market_offers(
 
     let player_tier = player_market_tier(conn, &player)?;
     let player_lic = player_effective_license(conn, &player)?;
-    let salary = player_offer_salary(player.atributos.skill);
+    // Pódio (1º–3º) na última temporada → habilita ofertas de PROMOÇÃO (tier acima).
+    let player_podium = player_last_finish_position(conn, &player.id)
+        .is_some_and(|pos| (1..=3).contains(&pos));
+    // Interesse ativo (Fase 2a): os poucos MELHORES times que cobiçam o jogador.
+    let interest_team_ids: std::collections::HashSet<String> =
+        player_active_interest_teams(conn, &player)?
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect();
 
     // Assentos que já têm proposta formal PENDENTE ("Proposta recebida") não aparecem
     // também em "Suas ofertas" — o mesmo assento não deve virar card E oferta passiva.
@@ -2409,20 +2879,33 @@ pub(crate) fn player_market_offers(
         // Piso de RECOMEÇO: vaga de estreia (rookie) é sempre oferecida ao jogador,
         // mesmo fora do tier/licença — assim ele NUNCA fica sem nenhuma proposta.
         let is_debut = is_real_career_debut_category(&vac.categoria);
+        // PROMOÇÃO: quem foi pódio recebe ofertas do tier ACIMA. A licença é concedida
+        // ao assinar (grant_driver_license_for_division_if_needed), então o portão de
+        // licença é dispensado aqui, como no caso de estreia.
+        let is_promotion = player_podium && vac.category_tier == player_tier + 1;
         let required = crate::models::license::required_license_for_division(
             &vac.categoria,
             vac.classe.as_deref(),
         )
         .unwrap_or(0);
-        if required > player_lic && !is_debut {
+        if required > player_lic && !is_debut && !is_promotion {
             continue;
         }
-        let in_tier =
-            vac.category_tier == player_tier || (player_tier > 0 && vac.category_tier == player_tier - 1);
+        let in_tier = vac.category_tier == player_tier
+            || (player_tier > 0 && vac.category_tier == player_tier - 1)
+            || is_promotion;
         if !in_tier && !is_debut {
             continue;
         }
         let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+        let active_interest = interest_team_ids.contains(&vac.team_id);
+        let salary = player_offer_salary_with_interest(
+            vac.category_tier,
+            is_n1,
+            player.atributos.skill,
+            &vac.team_id,
+            active_interest,
+        );
         let offer = crate::market::transfer_window::PlayerOffer {
             seat_id: format!("{}#{}", vac.team_id, vac.papel_necessario.as_str()),
             team_id: vac.team_id.clone(),
@@ -2430,6 +2913,7 @@ pub(crate) fn player_market_offers(
             class: vac.classe.clone(),
             salary,
             is_n1,
+            active_interest,
         };
         if let Some(&idx) = offer_by_team.get(&vac.team_id) {
             // Já há oferta deste time: só troca se a nova for titular (N1) e a atual for N2.
@@ -2455,13 +2939,22 @@ pub(crate) fn player_market_offers(
                     .iter()
                     .find(|v| format!("{}#{}", v.team_id, v.papel_necessario.as_str()) == seat_id)
                 {
+                    let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+                    let active_interest = interest_team_ids.contains(&vac.team_id);
                     offers.push(crate::market::transfer_window::PlayerOffer {
                         seat_id,
                         team_id: vac.team_id.clone(),
                         category: vac.categoria.clone(),
                         class: vac.classe.clone(),
-                        salary,
-                        is_n1: matches!(vac.papel_necessario, TeamRole::Numero1),
+                        salary: player_offer_salary_with_interest(
+                            vac.category_tier,
+                            is_n1,
+                            player.atributos.skill,
+                            &vac.team_id,
+                            active_interest,
+                        ),
+                        is_n1,
+                        active_interest,
                     });
                 }
             }
@@ -2492,12 +2985,17 @@ pub(crate) fn sign_player_to_vacancy(
     let player_lic = player_effective_license(conn, &player)?;
     // Vaga de estreia (rookie) é sempre aceitável (piso de recomeço), mesmo sem licença.
     let is_debut = is_real_career_debut_category(&vac.categoria);
+    // Promoção do pódio (tier acima): também aceitável — a licença é concedida logo
+    // abaixo. Espelha a elegibilidade de `player_market_offers`.
+    let player_tier = player_market_tier(conn, &player)?;
+    let is_promotion = vac.category_tier == player_tier + 1
+        && player_last_finish_position(conn, &player.id).is_some_and(|pos| (1..=3).contains(&pos));
     let required = crate::models::license::required_license_for_division(
         &vac.categoria,
         vac.classe.as_deref(),
     )
     .unwrap_or(0);
-    if !is_debut && required > player_lic {
+    if !is_debut && !is_promotion && required > player_lic {
         return Err(format!("Vaga '{seat_id}' nao esta disponivel para o jogador."));
     }
 
@@ -2507,13 +3005,32 @@ pub(crate) fn sign_player_to_vacancy(
         &vac.categoria,
         vac.classe.as_deref(),
     )?;
+    let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+    // Ideia 4: a duração honra o Foco do time + o Vínculo do jogador com ele — um
+    // time-casa/leal assina o jogador num contrato de projeto plurianual (o mesmo
+    // número mostrado na oferta). Falha na leitura → 1 ano (neutro).
+    let vinculo = crate::market::bond::get_bond(conn, &player.id, &vac.team_id).unwrap_or(0.0);
+    let foco = crate::finance::focus::get_focus(conn, &vac.team_id)
+        .map(|(f, _)| f)
+        .unwrap_or(crate::finance::focus::TeamFocus::MeioDeGrid);
+    let duration = crate::market::renewal::player_offer_duration(foco, vinculo);
+    // O salário assinado honra o prêmio de interesse ativo (o mesmo mostrado na oferta).
+    let active_interest = player_active_interest_teams(conn, &player)?
+        .iter()
+        .any(|(id, _, _)| id == &vac.team_id);
     sign_driver_to_team(
         conn,
         &player,
         &vac,
         season,
-        player_offer_salary(player.atributos.skill),
-        1,
+        player_offer_salary_with_interest(
+            vac.category_tier,
+            is_n1,
+            player.atributos.skill,
+            &vac.team_id,
+            active_interest,
+        ),
+        duration,
         vac.papel_necessario.clone(),
     )
 }
@@ -2972,15 +3489,42 @@ fn compare_pool_fallback_candidates(
     a: &AvailableDriver,
     b: &AvailableDriver,
     vacancy: &Vacancy,
+    need_factor: f64,
 ) -> std::cmp::Ordering {
+    // Gates duros (experiência/licença) mandam primeiro; o VALOR do time desempata:
+    // mérito esportivo (skill) + apelo comercial da fama ponderado pela necessidade
+    // do time. Time carente pode preferir um nome famoso a um rápido anônimo; numa
+    // dinastia a fama pesa pouco e a velocidade decide (Fase 2a do estrelato).
     pool_fallback_candidate_rank(a, vacancy)
         .cmp(&pool_fallback_candidate_rank(b, vacancy))
         .then_with(|| {
-            a.driver
-                .atributos
-                .skill
-                .total_cmp(&b.driver.atributos.skill)
+            team_candidate_value(a, need_factor).total_cmp(&team_candidate_value(b, need_factor))
         })
+}
+
+/// Valor de um candidato para o time: skill + apelo comercial da fama ponderado
+/// pela necessidade do time (`fame_commercial_units × need_factor`).
+fn team_candidate_value(candidate: &AvailableDriver, need_factor: f64) -> f64 {
+    candidate.driver.atributos.skill
+        + crate::fame::fame_commercial_units(candidate.driver.atributos.midia) * need_factor
+}
+
+/// Margem do piso de skill do pool de resgate: um órfão só preenche uma vaga
+/// NÃO-estreia se o skill dele estiver, no máximo, esta distância ABAIXO da média
+/// típica do tier da categoria. Sem isto, um lanterna (skill ~28) era resgatado
+/// direto para GT3/Endurance só por estar sem categoria no momento. (Item B.)
+///
+/// Usamos SKILL (sinal confiável) e não o tier ancorado: um órfão sem histórico de
+/// contrato ancora em tier 0 mesmo com skill alto, o que bloquearia resgates
+/// legítimos (ex.: um skill-65 para a Production).
+const POOL_FALLBACK_SKILL_MARGIN: f64 = 20.0;
+
+/// Piso de skill exigido do órfão para uma vaga do tier dado (média do tier − margem).
+fn pool_fallback_skill_floor(vacancy_tier: u8) -> f64 {
+    let media = crate::constants::skill_ranges::get_skill_range_by_tier(vacancy_tier.min(4))
+        .map(|range| range.skill_media as f64)
+        .unwrap_or(60.0);
+    (media - POOL_FALLBACK_SKILL_MARGIN).max(0.0)
 }
 
 fn is_pool_fallback_candidate(candidate: &AvailableDriver, vacancy: &Vacancy) -> bool {
@@ -2993,7 +3537,10 @@ fn is_pool_fallback_candidate(candidate: &AvailableDriver, vacancy: &Vacancy) ->
         );
     }
 
+    // Vaga NÃO-estreia: precisa ser órfão (sem categoria atual) E ter skill
+    // compatível com o nível da categoria (piso = média do tier − margem). Item B.
     candidate.driver.categoria_atual.is_none()
+        && candidate.driver.atributos.skill >= pool_fallback_skill_floor(vacancy.category_tier)
 }
 
 fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) -> (u8, u8, u8) {
@@ -3242,6 +3789,104 @@ mod tests {
             .iter()
             .any(|s| s.tipo == "promocao_merito"));
         assert!(report.new_signings.iter().any(|s| s.tipo == "rebaixamento"));
+    }
+
+    #[test]
+    fn poaching_pass_ia_arranca_astro_contratado_pagando_multa() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        migrations::run_all(&conn).expect("schema");
+
+        let mut team_rng = StdRng::seed_from_u64(4242);
+        let mut poacher = sample_team("gt3", "TPOA", &mut team_rng);
+        poacher.cash_balance = 2_000_000.0;
+        let seller = sample_team("gt3", "TSEL", &mut team_rng);
+        team_queries::insert_team(&conn, &poacher).expect("poacher team");
+        team_queries::insert_team(&conn, &seller).expect("seller team");
+
+        // Poacher: um razoável (mantém) + um FRACO (será dispensado no poaching).
+        let poa_keep =
+            sample_driver("P_KEEP", "Poacher N1", Some("gt3"), 75.0, DriverStatus::Ativo);
+        let mut poa_weak =
+            sample_driver("P_WEAK", "Poacher N2 Fraco", Some("gt3"), 55.0, DriverStatus::Ativo);
+        poa_weak.atributos.midia = 20.0;
+        // Seller: o ASTRO (skill+fama alto) + um coadjuvante forte (que NÃO é upgrade
+        // sobre o elenco do poacher → o seller nunca vira poacher).
+        let mut astro = sample_driver("P_ASTRO", "O Astro", Some("gt3"), 92.0, DriverStatus::Ativo);
+        astro.atributos.midia = 90.0;
+        let sel_other =
+            sample_driver("P_SEL2", "Seller N2", Some("gt3"), 80.0, DriverStatus::Ativo);
+        for d in [&poa_keep, &poa_weak, &astro, &sel_other] {
+            driver_queries::insert_driver(&conn, d).expect("driver");
+        }
+
+        let seed = |id: &str,
+                    d: &Driver,
+                    t: &crate::models::team::Team,
+                    role: TeamRole,
+                    salary: f64| {
+            let c = Contract::new(
+                id.to_string(),
+                d.id.clone(),
+                d.nome.clone(),
+                t.id.clone(),
+                t.nome.clone(),
+                1,
+                2,
+                salary,
+                role,
+                "gt3".to_string(),
+            );
+            contract_queries::insert_contract(&conn, &c).expect("contract");
+        };
+        seed("C_KEEP", &poa_keep, &poacher, TeamRole::Numero1, 150_000.0);
+        seed("C_WEAK", &poa_weak, &poacher, TeamRole::Numero2, 100_000.0);
+        seed("C_ASTRO", &astro, &seller, TeamRole::Numero1, 300_000.0);
+        seed("C_SEL2", &sel_other, &seller, TeamRole::Numero2, 120_000.0);
+        team_queries::update_team_pilots(&conn, &poacher.id, Some("P_KEEP"), Some("P_WEAK"))
+            .expect("poacher lineup");
+        team_queries::update_team_pilots(&conn, &seller.id, Some("P_ASTRO"), Some("P_SEL2"))
+            .expect("seller lineup");
+
+        let expected_buyout = crate::market::poaching::buyout_fee(300_000.0, 1, 92.0, 90.0);
+
+        let teams = team_queries::get_all_teams(&conn).expect("teams");
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut report = MarketReport::default();
+        run_poaching_pass(&conn, &teams, 2, &mut rng, &mut report).expect("poaching pass");
+
+        // O astro foi arrancado pra TPOA.
+        let astro_contract =
+            contract_queries::get_active_regular_contract_for_pilot(&conn, "P_ASTRO")
+                .expect("query")
+                .expect("astro tem contrato ativo");
+        assert_eq!(astro_contract.equipe_id, "TPOA");
+        // O dispensado ficou sem contrato e virou agente livre LIMPO (categoria None).
+        assert!(contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+            .expect("query")
+            .is_none());
+        let weak = driver_queries::get_driver(&conn, "P_WEAK").expect("weak driver");
+        assert!(weak.categoria_atual.is_none(), "dispensado deve ser agente livre limpo");
+        // A multa andou de TPOA → TSEL.
+        let poa = team_queries::get_team_by_id(&conn, "TPOA")
+            .expect("q")
+            .expect("poa");
+        let sel = team_queries::get_team_by_id(&conn, "TSEL")
+            .expect("q")
+            .expect("sel");
+        assert!(
+            (poa.cash_balance - (2_000_000.0 - expected_buyout)).abs() < 1.0,
+            "poacher pagou a multa: {}",
+            poa.cash_balance
+        );
+        assert!(
+            sel.cash_balance > seller.cash_balance,
+            "seller recebeu a multa"
+        );
+        // Feed marcou como poaching.
+        assert!(report
+            .new_signings
+            .iter()
+            .any(|s| s.tipo == "poaching" && s.driver_id == "P_ASTRO"));
     }
 
     #[test]
@@ -3651,6 +4296,45 @@ mod tests {
             "toyota_rookie"
         ));
         assert!(!is_rookie_signing_candidate(&candidate, &expiring, "gt3"));
+    }
+
+    #[test]
+    fn test_pool_fallback_skill_floor_blocks_weak_orphan_but_allows_capable_one() {
+        // Item B (unitário): o pool de resgate exige skill compatível com o nível da
+        // categoria (piso = média do tier − margem). Um lanterna (skill ~28) não é
+        // mais içado para GT3/Endurance; um skill compatível ainda passa.
+        let mut rng = StdRng::seed_from_u64(77);
+        let gt3_team = sample_team("gt3", "TGT3B", &mut rng);
+        let gt3_vac = fallback_vacancy_from_team(&gt3_team);
+        let floor = pool_fallback_skill_floor(gt3_vac.category_tier);
+        assert!(floor > 40.0, "o piso do GT3 deve ser alto o suficiente");
+
+        let mk = |id: &str, cat: Option<&str>, skill: f64| AvailableDriver {
+            driver: sample_driver(id, id, cat, skill, DriverStatus::Ativo),
+            visibility: 1.0,
+            posicao_campeonato: 99,
+            categoria_atual: cat.map(str::to_string).unwrap_or_default(),
+            category_tier: 0,
+            max_license_level: Some(0),
+        };
+
+        // Lanterna órfão (o caso "Oliver", skill 28) → BLOQUEADO no GT3.
+        let weak = mk("O_WEAK", None, 28.0);
+        assert!(
+            !is_pool_fallback_candidate(&weak, &gt3_vac),
+            "órfão fraco não pode ser resgatado direto para GT3"
+        );
+
+        // Órfão com skill no nível da categoria → PERMITIDO.
+        let capable = mk("O_CAP", None, floor + 5.0);
+        assert!(
+            is_pool_fallback_candidate(&capable, &gt3_vac),
+            "órfão com skill compatível ainda pode preencher GT3"
+        );
+
+        // Piloto COM categoria atual (não é órfão) → nunca é candidato de pool.
+        let contracted = mk("O_CONTRACTED", Some("gt3"), 90.0);
+        assert!(!is_pool_fallback_candidate(&contracted, &gt3_vac));
     }
 
     #[test]

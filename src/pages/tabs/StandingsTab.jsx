@@ -187,6 +187,15 @@ function DriverStatusMarkers({ driver }) {
           {injuryMarker.emoji}
         </span>
       ) : null}
+      {driver.is_aposentado ? (
+        <span
+          className="shrink-0 rounded bg-white/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/55"
+          title="Aposentado — encerrou a carreira (pontos congelados)"
+          aria-label="Aposentado"
+        >
+          Aposentado
+        </span>
+      ) : null}
     </>
   );
 }

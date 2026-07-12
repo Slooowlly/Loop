@@ -46,6 +46,13 @@ pub struct PlayerOfferView {
     pub teammate_titles: Option<u32>,
     pub teammate_career_points: Option<f64>,
     pub teammate_salary: Option<f64>,
+    /// Estrelato do companheiro: fama (`midia`) e carisma, 0–100. Deixa o jogador
+    /// pesar se a vaga é ao lado de um astro (mais holofote/patrocínio) na decisão.
+    pub teammate_fama: Option<u8>,
+    pub teammate_carisma: Option<u8>,
+    /// Até 2 atributos mais fortes e mais fracos do companheiro (rótulos em PT).
+    pub teammate_strengths: Vec<String>,
+    pub teammate_weaknesses: Vec<String>,
     // ── Ficha da equipe (dados ricos para o modal robusto de ofertas) ──
     pub team_reputation: u8,
     pub team_reliability: u8,
@@ -59,6 +66,19 @@ pub struct PlayerOfferView {
     pub team_historic_podiums: i32,
     /// Posição final da equipe na última temporada arquivada (None = estreante/sem histórico).
     pub team_last_position: Option<i32>,
+    // ── Foco + Vínculo (ideia 4: segurar-vs-vender do lado do jogador) ──
+    /// Fase atual do time que faz a oferta (ex.: "Celeiro de talentos", "Dinastia").
+    pub team_focus: String,
+    /// Nível do vínculo do jogador com este time (1–6; 1 = sem história ainda).
+    pub bond_level: u8,
+    /// Selo qualitativo do vínculo ("Recém-chegado" … "Casa").
+    pub bond_label: String,
+    /// Anos do contrato ofertado — plurianual num time-casa/leal (contrato de projeto).
+    pub offer_duration: i32,
+    /// Interesse ATIVO (Fase 2a do estrelato): o time cobiça o nome do jogador pela
+    /// fama → oferta com salário-prêmio, sempre destacada na Janela.
+    #[serde(default)]
+    pub active_interest: bool,
 }
 
 /// Estado da janela apresentado à UI.
@@ -70,6 +90,13 @@ pub struct TransferWindowPayload {
     pub player_offers: Vec<PlayerOfferView>,
     /// Assinaturas da janela até agora (feed do mercado).
     pub signings: Vec<Signing>,
+    /// Categoria efetiva do jogador (atual, senão a última por contrato) — a UI ordena as
+    /// ofertas pela MARCA do jogador primeiro. None se nunca teve categoria.
+    pub player_category: Option<String>,
+    /// Tier da categoria do jogador (convenção do backend) — pra UI destacar promoção.
+    pub player_tier: Option<u8>,
+    /// Nome do piloto do jogador — usado na assinatura da tela de contrato.
+    pub player_name: Option<String>,
 }
 
 /// Posição final da equipe na temporada arquivada mais recente (None se estreante
@@ -86,6 +113,32 @@ fn last_championship_position(conn: &rusqlite::Connection, team_id: &str) -> Opt
     .ok()
 }
 
+/// Pontos fortes e fracos do piloto: os 2 maiores e os 2 menores entre um conjunto
+/// CURADO de atributos de pilotagem (exclui skill geral, mídia, estilo e meta).
+fn driver_strengths_weaknesses(
+    attrs: &crate::models::driver::DriverAttributes,
+) -> (Vec<String>, Vec<String>) {
+    let mut scored: Vec<(&str, f64)> = vec![
+        ("Consistência", attrs.consistencia),
+        ("Corpo a corpo", attrs.racecraft),
+        ("Defesa", attrs.defesa),
+        ("Classificação", attrs.ritmo_classificacao),
+        ("Gestão de pneus", attrs.gestao_pneus),
+        ("Largada", attrs.habilidade_largada),
+        ("Adaptabilidade", attrs.adaptabilidade),
+        ("Pilotagem na chuva", attrs.fator_chuva),
+    ];
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let strengths = scored.iter().take(2).map(|(l, _)| l.to_string()).collect();
+    let weaknesses = scored
+        .iter()
+        .rev()
+        .take(2)
+        .map(|(l, _)| l.to_string())
+        .collect();
+    (strengths, weaknesses)
+}
+
 /// Enriquece uma oferta do motor com os dados de exibição (time, categoria, carro).
 fn build_offer_view(
     conn: &rusqlite::Connection,
@@ -95,6 +148,14 @@ fn build_offer_view(
     let team = team_queries::get_team_by_id(conn, &offer.team_id)
         .map_err(|e| format!("Falha ao carregar equipe da oferta: {e}"))?
         .ok_or_else(|| "Equipe da oferta nao encontrada.".to_string())?;
+    // Ideia 4: vínculo do jogador com este time + foco atual do time (segurar-vs-vender).
+    let player_bond = driver_queries::get_player_driver(conn)
+        .ok()
+        .map(|p| crate::market::bond::get_bond(conn, &p.id, &team.id).unwrap_or(0.0))
+        .unwrap_or(0.0);
+    let offer_focus = crate::finance::focus::get_focus(conn, &team.id)
+        .map(|(f, _)| f)
+        .unwrap_or(crate::finance::focus::TeamFocus::MeioDeGrid);
     let category = categories::get_category_config(&offer.category);
     // Companheiro = piloto da OUTRA vaga do time (se já preenchida).
     let companion_id = if offer.is_n1 {
@@ -117,6 +178,9 @@ fn build_offer_view(
             .flatten()
             .map(|c| c.salario_anual)
     });
+    let (teammate_strengths, teammate_weaknesses) = companion_ref
+        .map(|d| driver_strengths_weaknesses(&d.atributos))
+        .unwrap_or_default();
     Ok(PlayerOfferView {
         seat_id: offer.seat_id.clone(),
         team_id: team.id.clone(),
@@ -145,6 +209,11 @@ fn build_offer_view(
         teammate_titles: companion_ref.map(|d| d.stats_carreira.titulos),
         teammate_career_points: companion_ref.map(|d| d.stats_carreira.pontos_total),
         teammate_salary,
+        teammate_fama: companion_ref.map(|d| d.atributos.midia.round().clamp(0.0, 100.0) as u8),
+        teammate_carisma: companion_ref
+            .map(|d| d.atributos.carisma.round().clamp(0.0, 100.0) as u8),
+        teammate_strengths,
+        teammate_weaknesses,
         team_reputation: team.reputacao.round().clamp(0.0, 100.0) as u8,
         team_reliability: team.confiabilidade.round().clamp(0.0, 100.0) as u8,
         team_cash: team.cash_balance,
@@ -155,6 +224,11 @@ fn build_offer_view(
         team_historic_wins: team.historico_vitorias,
         team_historic_podiums: team.historico_podios,
         team_last_position: last_championship_position(conn, &team.id),
+        team_focus: offer_focus.label().to_string(),
+        bond_level: crate::market::bond::bond_level(player_bond),
+        bond_label: crate::market::bond::bond_level_label(player_bond).to_string(),
+        offer_duration: crate::market::renewal::player_offer_duration(offer_focus, player_bond),
+        active_interest: offer.active_interest,
     })
 }
 
@@ -168,11 +242,31 @@ fn build_payload(conn: &rusqlite::Connection, season: i32) -> Result<TransferWin
         .iter()
         .map(|offer| build_offer_view(conn, offer, season))
         .collect::<Result<Vec<_>, String>>()?;
+    // Categoria efetiva do jogador: a atual, senão a última por contrato (mesmo critério
+    // do tier de mercado). A UI usa a MARCA disso pra ordenar as ofertas.
+    let player_category = driver_queries::get_player_driver(conn).ok().and_then(|p| {
+        p.categoria_atual.clone().or_else(|| {
+            conn.query_row(
+                "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+                [&p.id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+        })
+    });
+    let player_tier = player_category
+        .as_deref()
+        .and_then(categories::get_category_config)
+        .map(|c| c.tier);
+    let player_name = driver_queries::get_player_driver(conn).ok().map(|p| p.nome);
     Ok(TransferWindowPayload {
         week: 0,
         closed: player_offers.is_empty(),
         player_offers,
         signings: Vec::new(),
+        player_category,
+        player_tier,
+        player_name,
     })
 }
 

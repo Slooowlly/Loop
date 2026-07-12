@@ -165,15 +165,21 @@ fn weighted_duration(rng: &mut impl Rng) -> i32 {
     }
 }
 
-fn salary_range_for_tier(tier: u8) -> (f64, f64) {
+/// Faixa salarial (min, max) de geração de contratos por tier. Deve abraçar a base de
+/// mercado (`finance::salary::category_salary_base_for_tier`) e crescer monotonicamente
+/// — o teste `salary_range_is_monotonic_and_brackets_market_base` trava as duas coisas.
+/// Enumera TODOS os tiers reais (0–6): endurance é tier 6; deixá-lo cair no `_` fazia o
+/// piloto de endurance nascer com salário de rookie.
+pub(crate) fn salary_range_for_tier(tier: u8) -> (f64, f64) {
     match tier {
         0 => (5_000.0, 15_000.0),
         1 => (15_000.0, 40_000.0),
         2 => (30_000.0, 80_000.0),
         3 => (60_000.0, 150_000.0),
         4 => (100_000.0, 300_000.0),
-        5 => (80_000.0, 250_000.0),
-        _ => (5_000.0, 15_000.0),
+        5 => (165_000.0, 435_000.0),
+        6 => (180_000.0, 480_000.0),
+        _ => (90_000.0, 230_000.0),
     }
 }
 
@@ -264,6 +270,33 @@ mod tests {
 
         assert!(contract.salario_anual >= 100_000.0);
         assert!(contract.salario_anual <= 336_000.0);
+    }
+
+    // Trava os 3 bugs de escala salarial de uma vez: (a) faixa cresce monotonicamente
+    // por tier — pega a inversão tier5<tier4; (b) a base de mercado por tier cai DENTRO
+    // da faixa de geração — pega tanto o endurance (tier6) caindo no default de rookie
+    // quanto qualquer divergência futura entre as duas tabelas.
+    #[test]
+    fn salary_range_is_monotonic_and_brackets_market_base() {
+        use crate::finance::salary::category_salary_base_for_tier;
+
+        let mut prev = (0.0_f64, 0.0_f64);
+        for tier in 0..=6u8 {
+            let (min, max) = salary_range_for_tier(tier);
+            assert!(min <= max, "tier {tier}: min {min} > max {max}");
+            assert!(
+                min >= prev.0 && max >= prev.1,
+                "tier {tier}: faixa ({min}, {max}) não é monotônica vs tier anterior {prev:?}"
+            );
+
+            let base = category_salary_base_for_tier(tier);
+            assert!(
+                min <= base && base <= max,
+                "tier {tier}: base de mercado {base} fora da faixa de geração ({min}, {max})"
+            );
+
+            prev = (min, max);
+        }
     }
 
     #[test]

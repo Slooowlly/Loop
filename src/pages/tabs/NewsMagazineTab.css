@@ -105,6 +105,9 @@
 .newsmag .chip{width:18px;height:18px;border-radius:5px}
 .newsmag .rn{font-size:12.5px;font-weight:600;line-height:1.1}
 .newsmag .rpts{font-family:'OswaldNM';font-weight:700;font-size:14px;text-align:right}
+/* Grade cheia de pilotos (ex.: GT3, muito piloto): quebra em 2 colunas p/ não esticar a página. */
+.newsmag .res-list--split{columns:2;column-gap:26px}
+.newsmag .res-list--split .res-row{break-inside:avoid;-webkit-column-break-inside:avoid}
 
 .newsmag .mag-foot{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
 .newsmag .brand{font-family:'Anton';font-size:20px;letter-spacing:1px;color:#fff;text-transform:uppercase}
@@ -162,6 +165,7 @@
   .newsmag .spread{grid-template-columns:1fr;column-gap:0}
   .newsmag .prose-cols{columns:1}
   .newsmag .r-grid{grid-template-columns:1fr}
+  .newsmag .res-list--split{columns:1}
   .newsmag .display .l1{font-size:48px}.newsmag .display .l2{font-size:22px}
   .newsmag .mb-split{grid-template-columns:1fr}
   .newsmag .mb-list{border-right:none;border-bottom:1px solid rgba(255,255,255,0.09);max-height:220px}

@@ -18,7 +18,9 @@ use crate::evolution::licenses::persist_licenses;
 use crate::evolution::motivation::{
     adjust_end_of_season_motivation, MotivationContext, MotivationReport,
 };
-use crate::evolution::retirement::{check_retirement, process_retirement};
+use crate::evolution::retirement::{
+    check_retirement, idle_orphan_retirement_chance, process_retirement,
+};
 use crate::evolution::season_transition::{
     archive_driver_season, create_next_season_9d, reset_driver_season_stats,
     reset_team_season_stats, update_meta_for_new_season,
@@ -143,6 +145,13 @@ fn run_end_of_season_with_mode(
     crate::finance::morale::update_team_morale_from_season(&tx, season)
         .map_err(|e| format!("Falha ao atualizar moral das equipes: {e}"))?;
 
+    // Vínculo piloto-equipe (ideia 4, Fase 1): pares que ficaram juntos acumulam
+    // (bônus por título); os demais decaem. É o motor de "segurar um piloto pra
+    // fazer história" — as consequências (renovação leal, segurar-vs-vender) vêm
+    // depois. Roda com o archive já gravado (fonte de quem esteve com quem).
+    crate::market::bond::update_bonds_from_season(&tx, season)
+        .map_err(|e| format!("Falha ao atualizar vínculos piloto-equipe: {e}"))?;
+
     // Prêmio de fim de temporada por posição no campeonato de construtores.
     // Creditado após o arquivamento (que define posicao_campeonato) e antes da
     // promoção/rebaixamento, para que a equipe receba referente à categoria em
@@ -238,6 +247,10 @@ fn award_constructor_prizes(conn: &Connection, season: &Season) -> Result<(), St
         refresh_team_financial_state(&mut team);
         team_queries::update_team_finance_snapshot(conn, &team)
             .map_err(|e| format!("Falha ao creditar prêmio à equipe {team_id}: {e}"))?;
+        // Grava o prêmio como linha de receita REAL de encerramento — é o que o faz
+        // aparecer no gráfico de caixa e nos ledgers do dossiê (antes era invisível).
+        team_queries::insert_team_finance_season_close(conn, &team, season.numero, prize)
+            .map_err(|e| format!("Falha ao gravar linha de prêmio da equipe {team_id}: {e}"))?;
     }
 
     Ok(())
@@ -417,8 +430,23 @@ fn process_driver_evolution(
             driver.stats_carreira.titulos += *titles as u32;
         }
 
-        let retirement =
+        let mut retirement =
             check_retirement(driver, driver.temporadas_motivacao_baixa as i32, false, rng);
+        // Item 6: órfão ocioso (IA sem assento que não correu nesta temporada nem tem
+        // categoria) — o mercado o preteriu. Se o check padrão não o aposentou, aplica
+        // a chance de aposentadoria por falta de equipe (evita agente livre eterno).
+        if !retirement.should_retire && !driver.is_jogador {
+            let idle_orphan = !standings_by_driver.contains_key(&driver.id)
+                && !contracts_by_driver.contains_key(&driver.id)
+                && driver.categoria_atual.is_none();
+            if idle_orphan
+                && rng.gen::<f64>()
+                    < idle_orphan_retirement_chance(driver.idade, driver.atributos.skill)
+            {
+                retirement.should_retire = true;
+                retirement.reason = Some("Aposentou-se sem encontrar equipe".to_string());
+            }
+        }
         // Retenção de lenda: se o piloto quer se aposentar mas é INSUBSTITUÍVEL (nenhum
         // piloto licenciado da categoria de baixo o supera), o time o segura por +1 ano
         // com salário maior. Adia a aposentadoria até surgir um substituto à altura
@@ -593,7 +621,7 @@ fn initialize_preseason_phase(
     Ok((true, preseason_plan.state.total_weeks))
 }
 
-fn persist_retired_driver(
+pub(crate) fn persist_retired_driver(
     conn: &Connection,
     driver: &Driver,
     season: &Season,

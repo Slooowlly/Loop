@@ -8,6 +8,7 @@ use crate::constants::{
 };
 use crate::generators::driver_helpers::{
     career_start_year_from_age, random_primary_personality, random_secondary_personality,
+    roll_carisma,
 };
 use crate::generators::names::generate_pilot_identity;
 use crate::models::driver::{potential_headroom, Driver, DriverAttributes, POTENTIAL_HARD_MAX};
@@ -122,6 +123,11 @@ where
         driver.personalidade_primaria = Some(random_primary_personality(rng));
         driver.personalidade_secundaria = Some(random_secondary_personality(rng));
         driver.motivacao = roll_stat(rng, 50, 80) as f64;
+        let carisma = roll_carisma(
+            driver.personalidade_primaria.as_ref(),
+            driver.personalidade_secundaria.as_ref(),
+            rng,
+        );
         let mut atributos = DriverAttributes {
             skill: skill as f64,
             consistencia: consistencia as f64,
@@ -138,6 +144,7 @@ where
             aggression: aggression as f64,
             smoothness: smoothness as f64,
             midia: midia as f64,
+            carisma,
             mentalidade: mentalidade as f64,
             confianca: confianca as f64,
             potencial,

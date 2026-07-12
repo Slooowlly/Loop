@@ -6,7 +6,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
-import { extractNationalityCode, getCategoryTier } from "../../utils/formatters";
+import { extractNationalityCode, formatMoneyCompact, getCategoryTier, monthlySalary } from "../../utils/formatters";
 
 const DEFAULT_SORT = { key: "historical_index", direction: "desc" };
 const DEFAULT_FILTERS = {
@@ -28,6 +28,7 @@ const SORTERS = {
   idade: (row) => row.idade ?? 0,
   anos_carreira: (row) => row.anos_carreira ?? 0,
   salario_anual: (row) => row.salario_anual ?? 0,
+  fama: (row) => row.fama ?? 0,
   historical_index: (row) => row.historical_index ?? 0,
   titulos: (row) => row.titulos ?? 0,
   vitorias: (row) => row.vitorias ?? 0,
@@ -256,7 +257,8 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
                 <SortableHeader label="Equipe/Categoria" sortKey="team_category" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Idade" sortKey="idade" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Carreira" sortKey="anos_carreira" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Salario" sortKey="salario_anual" sort={sort} onSort={handleSort} />
+                <SortableHeader label="Salário/mês" sortKey="salario_anual" sort={sort} onSort={handleSort} />
+                <SortableHeader label="Fama" sortKey="fama" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Indice" sortKey="historical_index" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Titulos" sortKey="titulos" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Vit." sortKey="vitorias" sort={sort} onSort={handleSort} />
@@ -628,7 +630,7 @@ function FilterInput({ label, value, onChange }) {
 function CategorySectionRow({ label }) {
   return (
     <tr className="border-y border-accent-primary/15 bg-accent-primary/[0.06]">
-      <td colSpan={16} className="px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent-primary">
+      <td colSpan={17} className="px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent-primary">
         {label}
       </td>
     </tr>
@@ -727,7 +729,8 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
       </td>
       <MetricCell value={row.idade || "-"} />
       <td className="px-4 py-3 font-mono text-text-primary">{formatYears(row.anos_carreira)}</td>
-      <td className="px-4 py-3 font-mono text-text-primary">{formatMoney(row.salario_anual)}</td>
+      <td className="px-4 py-3 font-mono text-text-primary">{row.salario_anual ? formatMoneyCompact(monthlySalary(row.salario_anual)) : "-"}</td>
+      <FamaCell row={row} />
       <td className="px-4 py-3 font-mono text-text-primary">{formatIndex(row.historical_index)}</td>
       <TitleMetricCell row={row} onOpenTitles={onOpenTitles} />
       <MetricCell value={row.vitorias} />
@@ -920,6 +923,49 @@ function SortableHeader({ label, sortKey, sort, onSort, className = "px-4 py-3" 
 
 function MetricCell({ value }) {
   return <td className="px-4 py-3 font-mono text-text-primary">{value ?? 0}</td>;
+}
+
+// Célula de Fama (estrelato). Mostra a fama atual (0–100) e, quando houve
+// movimento desde a temporada passada, um selo ▲/▼ com o tamanho da subida —
+// é a vitrine "quem está em alta". Aposentados/sem fama caem no traço.
+function FamaCell({ row }) {
+  const fama = Number(row.fama ?? 0);
+  const delta = Number(row.fama_delta ?? 0);
+  const carismaTitle = row.carisma != null ? ` Carisma ${row.carisma}/100.` : "";
+
+  if (fama <= 0) {
+    return <td className="px-4 py-3 font-mono text-text-muted">-</td>;
+  }
+
+  if (!delta) {
+    return (
+      <td className="px-4 py-3 font-mono text-text-primary" title={`Fama ${fama}/100.${carismaTitle}`}>
+        {fama}
+      </td>
+    );
+  }
+
+  const gained = delta > 0;
+  const amount = Math.abs(delta);
+  const deltaTitle = `${gained ? "Ganhou" : "Perdeu"} ${amount} de fama desde a temporada passada.${carismaTitle}`;
+
+  return (
+    <td className="px-4 py-3 font-mono text-text-primary">
+      <span className="inline-flex items-center gap-1.5" title={deltaTitle}>
+        <span>{fama}</span>
+        <span
+          className={[
+            "whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+            gained
+              ? "border-status-green/25 bg-status-green/10 text-status-green"
+              : "border-status-red/25 bg-status-red/10 text-status-red",
+          ].join(" ")}
+        >
+          {`${gained ? "▲" : "▼"}${amount}`}
+        </span>
+      </span>
+    </td>
+  );
 }
 
 function RankCell({ rank, delta, globalRank = null, scoped = false }) {
@@ -1380,16 +1426,6 @@ function formatIndex(value) {
 
 function formatYears(value) {
   return value == null || value < 0 ? "-" : `${value} anos`;
-}
-
-function formatMoney(value) {
-  if (value == null || value <= 0) return "-";
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toLocaleString("pt-BR", {
-      maximumFractionDigits: 1,
-    })}M`;
-  }
-  return `$${Math.round(value / 1000).toLocaleString("pt-BR")}k`;
 }
 
 export default GlobalDriversTab;

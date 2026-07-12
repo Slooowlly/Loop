@@ -18,6 +18,26 @@ pub struct InboxFacts {
     pub category: Option<String>,
     pub head_to_head: Option<HeadToHeadFact>,
     pub title_favorite: Option<TitleFavoriteFact>,
+    /// Fase 2a do estrelato: equipes cobiçando o nome do jogador pela FAMA (apelo
+    /// comercial). None quando ninguém tem interesse ativo (fama baixa).
+    pub team_interest: Option<TeamInterestFact>,
+}
+
+/// "Times de olho em você": equipes com interesse ATIVO no jogador por conta da
+/// fama (apelo comercial ponderado pela necessidade financeira). É o aviso de
+/// poder de barganha — na Janela essas equipes ofertam N1 + salário-prêmio.
+#[derive(serde::Serialize)]
+pub struct TeamInterestFact {
+    /// Fama atual do jogador (0–100) — o JS traduz para o nível (Estrela/Ídolo…).
+    pub player_fama: u8,
+    /// Times interessados, do maior apelo comercial para o menor.
+    pub teams: Vec<InterestedTeam>,
+}
+
+#[derive(serde::Serialize)]
+pub struct InterestedTeam {
+    pub team_name: String,
+    pub category: String,
 }
 
 /// "Já cruzei com esse cara": confronto direto com o rival de história mais longa
@@ -140,7 +160,30 @@ pub fn get_inbox_messages(app: tauri::AppHandle, career_id: String) -> Result<In
         }
     }
 
+    // ── Times de olho no jogador pela fama (Fase 2a) ────────────────────────────
+    facts.team_interest = build_team_interest(conn, &player);
+
     Ok(facts)
+}
+
+/// Os poucos MELHORES times que cobiçam o jogador pela fama — mesma seleção usada
+/// nas ofertas destacadas da Janela (`pipeline::player_active_interest_teams`), pra
+/// o e-mail e o card baterem. None quando a fama ainda não atrai ninguém.
+fn build_team_interest(conn: &rusqlite::Connection, player: &Driver) -> Option<TeamInterestFact> {
+    let teams = crate::market::pipeline::player_active_interest_teams(conn, player).ok()?;
+    if teams.is_empty() {
+        return None;
+    }
+    Some(TeamInterestFact {
+        player_fama: player.atributos.midia.round().clamp(0.0, 100.0) as u8,
+        teams: teams
+            .into_iter()
+            .map(|(_, team_name, category)| InterestedTeam {
+                team_name,
+                category,
+            })
+            .collect(),
+    })
 }
 
 fn build_favorite(

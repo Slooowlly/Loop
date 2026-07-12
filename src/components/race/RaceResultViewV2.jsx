@@ -54,9 +54,9 @@ function formatLapMs(ms) {
   return `${m}:${rest.toFixed(3).padStart(6, "0")}`;
 }
 
-function formatBRL(v) {
+function formatUSD(v) {
   const n = Math.round(v || 0);
-  return `R$ ${n.toLocaleString("pt-BR")}`;
+  return `$${n.toLocaleString("en-US")}`;
 }
 
 function formatGap(entry) {
@@ -642,7 +642,7 @@ function MaintenanceMetric({ maintenance }) {
         style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
         className="text-[19px] mt-2 leading-none inline-flex items-center gap-1.5 cursor-help"
       >
-        {formatBRL(total)}
+        {formatUSD(total)}
         {items.length > 0 && <span style={{ color: "#6e7681" }} className="text-[11px]">ⓘ</span>}
       </div>
       {items.length > 0 && (
@@ -660,13 +660,13 @@ function MaintenanceMetric({ maintenance }) {
             {items.map((it) => (
               <div key={it.key} className="flex items-center justify-between gap-6">
                 <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">{it.label}</span>
-                <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatBRL(it.cost)}</span>
+                <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatUSD(it.cost)}</span>
               </div>
             ))}
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-2.5 pt-2.5">
             <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">Total</span>
-            <span style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatBRL(total)}</span>
+            <span style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
           </div>
         </div>
       )}
