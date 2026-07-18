@@ -557,6 +557,9 @@ struct Totals {
     part_level_by_type: BTreeMap<String, [f64; 2]>,
     // Distribuição de FOCO do carro (potência/handling/aceleração/balanceado): contagem.
     shape_focus: BTreeMap<String, u64>,
+    // Nível médio POR PEÇA quebrado por ARQUÉTIPO de foco: chave "foco|peça" → [soma, n].
+    // Mostra COMO cada arquétipo distribui as peças (onde o de-investimento aparece).
+    part_level_by_focus: BTreeMap<String, [f64; 2]>,
     // Reputação viva: dispersão por tier [soma, soma², min, max, n] — mede se a
     // reputação deixou de ser plana (semente ~±3) e passou a separar topo/fundo.
     rep_by_tier: BTreeMap<u8, [f64; 5]>,
@@ -900,6 +903,7 @@ fn monte_carlo() {
                 // Distribuição por peça + foco do carro (só categorias não-spec: teto > 1).
                 if let Some(car) = &tm.car {
                     if crate::car::cost::category_ceiling(&tm.categoria) > 1 {
+                        let focus = classify_shape(car);
                         for part in &car.parts {
                             let pe = t
                                 .part_level_by_type
@@ -907,8 +911,14 @@ fn monte_carlo() {
                                 .or_insert([0.0, 0.0]);
                             pe[0] += part.level as f64;
                             pe[1] += 1.0;
+                            let fe = t
+                                .part_level_by_focus
+                                .entry(format!("{focus}|{}", part.part_type.as_str()))
+                                .or_insert([0.0, 0.0]);
+                            fe[0] += part.level as f64;
+                            fe[1] += 1.0;
                         }
-                        *t.shape_focus.entry(classify_shape(car).to_string()).or_insert(0) += 1;
+                        *t.shape_focus.entry(focus.to_string()).or_insert(0) += 1;
                     }
                 }
                 let r = t
@@ -1701,6 +1711,58 @@ fn monte_carlo() {
                 focus,
                 n,
                 *n as f64 / focus_total as f64 * 100.0
+            );
+        }
+    }
+
+    // ── (2b) Distribuição por peça QUEBRADA por arquétipo — onde o foco/de-investimento aparece ──
+    println!("\n■ DISTRIBUIÇÃO POR PEÇA × ARQUÉTIPO (nível médio; onde cada foco investe/larga)");
+    {
+        use crate::car::PartType;
+        let focuses = ["balanceado", "potência", "handling", "aceleração"];
+        let avg = |focus: &str, part: &str| -> Option<f64> {
+            t.part_level_by_focus
+                .get(&format!("{focus}|{part}"))
+                .filter(|a| a[1] > 0.0)
+                .map(|a| a[0] / a[1])
+        };
+        println!("    peça          | balanc. | potênc. | handl. | aceler.");
+        println!("    --------------+---------+---------+--------+--------");
+        // Ordena as peças pela dispersão entre arquétipos (as que mais separam no topo).
+        let mut rows: Vec<(&'static str, [Option<f64>; 4], f64)> = PartType::ALL
+            .iter()
+            .map(|pt| {
+                let name = pt.as_str();
+                let vals = [
+                    avg(focuses[0], name),
+                    avg(focuses[1], name),
+                    avg(focuses[2], name),
+                    avg(focuses[3], name),
+                ];
+                let present: Vec<f64> = vals.iter().flatten().copied().collect();
+                let spread = match (
+                    present.iter().cloned().fold(f64::MIN, f64::max),
+                    present.iter().cloned().fold(f64::MAX, f64::min),
+                ) {
+                    (mx, mn) if present.len() > 1 => mx - mn,
+                    _ => 0.0,
+                };
+                (name, vals, spread)
+            })
+            .collect();
+        rows.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        let cell = |v: Option<f64>| match v {
+            Some(x) => format!("{x:>5.1}  "),
+            None => "   -   ".to_string(),
+        };
+        for (name, vals, _) in rows {
+            println!(
+                "    {:<13} | {} | {} | {} | {}",
+                name,
+                cell(vals[0]),
+                cell(vals[1]),
+                cell(vals[2]),
+                cell(vals[3])
             );
         }
     }
