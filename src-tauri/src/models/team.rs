@@ -9,9 +9,9 @@ use crate::market::pit_strategy::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::car::Car;
 use crate::constants::categories::{get_category_config, is_especial};
 use crate::constants::teams::{get_team_templates, TeamTemplate};
-use crate::simulation::car_build::CarBuildProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TeamHierarchyClimate {
@@ -94,7 +94,12 @@ pub struct Team {
     pub piloto_1_id: Option<String>,
     pub piloto_2_id: Option<String>,
     pub car_performance: f64,
-    pub car_build_profile: CarBuildProfile,
+    /// Carro do time (Sistema de Nível do Carro): 11 peças → magnitude + shape. É a
+    /// fonte do `car_performance` efetivo e do casamento com a pista no sim. `None` em
+    /// saves antigos (pré-seed) → fallback ao `car_performance` escalar. Não é persistido
+    /// aqui; vive na tabela `team_car` e é anexado ao carregar o time.
+    #[serde(skip)]
+    pub car: Option<Car>,
     pub confiabilidade: f64,
     pub pit_strategy_risk: f64,
     pub pit_crew_quality: f64,
@@ -192,7 +197,7 @@ impl Team {
             piloto_1_id: None,
             piloto_2_id: None,
             car_performance,
-            car_build_profile: CarBuildProfile::Balanced,
+            car: None,
             confiabilidade: clamp_f64(60.0 + rng.gen_range(-10.0..=10.0), 0.0, 100.0),
             pit_strategy_risk: 50.0,
             pit_crew_quality: 50.0,
@@ -329,7 +334,7 @@ pub fn placeholder_team_from_db(
         piloto_1_id: None,
         piloto_2_id: None,
         car_performance: 50.0,
-        car_build_profile: CarBuildProfile::Balanced,
+        car: None,
         confiabilidade: 50.0,
         pit_strategy_risk: 50.0,
         pit_crew_quality: 50.0,
@@ -436,7 +441,7 @@ mod tests {
         assert_eq!(team.morale, 1.0);
         assert_eq!(team.hierarquia_status, "estavel");
         assert_eq!(team.hierarquia_tensao, 0.0);
-        assert_eq!(team.car_build_profile, CarBuildProfile::Balanced);
+        assert!(team.car.is_none());
         assert!((0.0..=100.0).contains(&team.pit_strategy_risk));
         assert!((0.0..=100.0).contains(&team.pit_crew_quality));
         assert_eq!(team.stats_vitorias, 0);

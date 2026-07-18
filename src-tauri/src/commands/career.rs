@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Local;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -155,6 +157,9 @@ pub(crate) fn create_career_in_base_dir(
                 }
 
                 team_queries::insert_teams(tx, &world.teams)?;
+                // Semeia o carro inicial de cada time (Sistema de Nível do Carro):
+                // correlacionado com a qualidade na categoria; rookie = spec.
+                crate::market::car_maintenance::seed_and_persist_team_cars(tx, &world.teams)?;
                 contract_queries::insert_contracts(tx, &world.contracts)?;
                 for contract in &world.contracts {
                     grant_driver_license_for_division_if_needed(
@@ -342,6 +347,7 @@ pub(crate) fn load_career_in_base_dir(
         week_of_year: race.week_of_year,
         season_phase: race.season_phase.as_str().to_string(),
         display_date: race.display_date.clone(),
+        thematic_slot: race.thematic_slot.as_str().to_string(),
         event_interest: event_interest_summary.clone(),
     });
     let next_race_briefing_summary = next_race.as_ref().map(|race| {
@@ -950,6 +956,75 @@ pub(crate) fn get_preseason_state_in_base_dir(
     Ok(plan.state)
 }
 
+/// Quebra de contrato do jogador (Fase 2b.3): a oferta guardada no plano da janela,
+/// ou None. Enriquecida no setup (`compute_player_poach_offer`); só leitura aqui.
+pub(crate) fn get_player_poach_offer_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
+    let (_, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
+    let plan = load_preseason_plan(&career_dir)?
+        .ok_or_else(|| "Plano da pre-temporada nao encontrado.".to_string())?;
+    Ok(plan.player_poach_offer)
+}
+
+/// Resolve a decisão do jogador na quebra de contrato: `accept = true` sai pro
+/// pretendente, `false` fica no time atual. Recebe a oferta que o jogador VIU (a UI a
+/// tem em mãos), aplica no banco e — se existir um plano de janela — limpa a oferta
+/// dele. Independente do plano, pra o debug funcionar de qualquer tela.
+pub(crate) fn resolve_player_poach_offer_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    offer: &crate::market::pipeline::PlayerPoachOffer,
+    accept: bool,
+) -> Result<crate::market::pipeline::PlayerPoachOutcome, String> {
+    let (db, career_dir, _) = open_career_resources(base_dir, career_id)?;
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
+        .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
+
+    let tx = db
+        .conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Falha ao iniciar transacao da quebra de contrato: {e}"))?;
+    let outcome = crate::market::pipeline::resolve_player_poach(&tx, offer, accept, season.numero)?;
+    tx.commit()
+        .map_err(|e| format!("Falha ao confirmar quebra de contrato: {e}"))?;
+
+    // Consome a oferta do plano da janela, se houver (uma decisão por janela).
+    if let Ok(Some(mut plan)) = load_preseason_plan(&career_dir) {
+        if plan.player_poach_offer.is_some() {
+            plan.player_poach_offer = None;
+            plan.state.player_has_team = true;
+            crate::market::preseason::save_preseason_plan(&career_dir, &plan)?;
+        }
+    }
+    Ok(outcome)
+}
+
+/// DEBUG: força uma proposta de quebra de contrato pro jogador (Fase 2b.3), pra testar
+/// a tela do leilão mesmo num save sem o cenário raro. Relaxa os portões e escolhe o
+/// pretendente mais rico da categoria. NÃO exige a janela de mercado — se houver um
+/// plano, guarda a oferta nele; senão, só devolve pra UI mostrar. Exige o jogador sob
+/// contrato regular (agente livre não é "arrancado").
+pub(crate) fn debug_force_player_poach_offer_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
+    let (db, career_dir, _) = open_career_resources(base_dir, career_id)?;
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
+        .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
+    let offer =
+        crate::market::pipeline::debug_build_player_poach_offer(&db.conn, season.numero)?;
+    // Se estamos numa janela de mercado, persiste no plano (fluxo real); senão só devolve.
+    if let Ok(Some(mut plan)) = load_preseason_plan(&career_dir) {
+        plan.player_poach_offer = offer.clone();
+        crate::market::preseason::save_preseason_plan(&career_dir, &plan)?;
+    }
+    Ok(offer)
+}
+
 /// DEBUG: prepara o mercado num cenário específico. Simula as corridas restantes (encerra
 /// a temporada), torna o jogador AGENTE LIVRE (pra as propostas formais aparecerem) e força
 /// a posição final no campeonato (visibilidade → mérito). Cenários: "no_team" (livre, sem
@@ -1052,6 +1127,127 @@ pub(crate) fn debug_prepare_market_scenario_in_base_dir(
             .map_err(|e| format!("Falha ao forcar fama do jogador (debug): {e}"))?;
     }
     Ok(())
+}
+
+/// DEBUG: relatório do dry-run do leilão de poaching (Fase 2b.2).
+#[derive(Debug, Serialize)]
+pub(crate) struct PoachDebugReport {
+    /// `true` = o mundo foi TEMPERADO pra garantir briga (não é o estado real do save).
+    pub forced: bool,
+    pub nota: String,
+    pub auctions: Vec<crate::market::pipeline::PoachAudit>,
+}
+
+/// DEBUG: roda o passe de poaching **de verdade** e desfaz tudo (transação com
+/// rollback), devolvendo o raio-x de cada leilão. O leilão só acontece entre IAs e
+/// não tem tela até o 2b.3 — isto é a janela pra vê-lo. Não altera o save.
+///
+/// Se o save, como está, não gera nenhum assédio (ninguém tem caixa pra multa ou
+/// não há upgrade claro), roda de novo TEMPERANDO o mundo (`forced`): fama 95 nos
+/// melhores pilotos da categoria do jogador + caixa gordo nos times dela. Como tudo
+/// é desfeito, é só uma simulação — mas mostra o leilão brigando de verdade.
+pub(crate) fn debug_poaching_auctions_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<PoachDebugReport, String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+    let player = driver_queries::get_player_driver(&db.conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+    let categoria = player
+        .categoria_atual
+        .clone()
+        .unwrap_or_else(|| "gt3".to_string());
+
+    // Passada 1: o mundo como ele está.
+    let real = debug_run_poaching_dry(&db, season.numero + 1, None)?;
+    if !real.is_empty() {
+        return Ok(PoachDebugReport {
+            forced: false,
+            nota: format!(
+                "{} assédio(s) que aconteceriam AGORA, do seu save como está. \
+                 Nada foi salvo (a simulação é desfeita).",
+                real.len()
+            ),
+            auctions: real,
+        });
+    }
+
+    // Passada 2: temperando o mundo, já que o save não tinha briga nenhuma.
+    let forced = debug_run_poaching_dry(&db, season.numero + 1, Some(&categoria))?;
+    let nota = if forced.is_empty() {
+        format!(
+            "Nem temperando saiu briga em '{categoria}' — provavelmente não há dois times \
+             regulares com as duas vagas cheias na categoria. Nada foi salvo."
+        )
+    } else {
+        format!(
+            "Seu save, como está, não gera assédio nenhum agora. Então TEMPEREI o mundo \
+             (fama 95 nos melhores de '{categoria}' + caixa gordo nos times de lá) só pra \
+             te mostrar o leilão brigando: {} assédio(s). É simulação — nada foi salvo.",
+            forced.len()
+        )
+    };
+    Ok(PoachDebugReport {
+        forced: true,
+        nota,
+        auctions: forced,
+    })
+}
+
+/// Roda o passe numa transação e SEMPRE desfaz. `spice` = categoria a temperar
+/// (fama alta + caixa) antes de rodar, ou `None` pra usar o mundo como está.
+fn debug_run_poaching_dry(
+    db: &Database,
+    new_season_number: i32,
+    spice: Option<&str>,
+) -> Result<Vec<crate::market::pipeline::PoachAudit>, String> {
+    let tx = db
+        .conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Falha ao abrir transacao de debug: {e}"))?;
+
+    if let Some(categoria) = spice {
+        // Caixa gordo nos times da categoria (pra terem como pagar multa e salário).
+        tx.execute(
+            "UPDATE teams SET cash_balance = cash_balance + 8000000 WHERE categoria = ?1",
+            rusqlite::params![categoria],
+        )
+        .map_err(|e| format!("Falha ao temperar caixa (debug): {e}"))?;
+        // Os 3 melhores pilotos da categoria viram ídolos (fama 95).
+        tx.execute(
+            "UPDATE drivers SET midia = 95 WHERE id IN (
+                 SELECT id FROM drivers
+                 WHERE categoria_atual = ?1 AND is_jogador = 0 AND status = 'Ativo'
+                 ORDER BY skill DESC LIMIT 3
+             )",
+            rusqlite::params![categoria],
+        )
+        .map_err(|e| format!("Falha ao temperar fama (debug): {e}"))?;
+    }
+
+    let teams = team_queries::get_all_teams(&tx).map_err(|e| format!("Falha ao carregar times: {e}"))?;
+    let mut rng = StdRng::seed_from_u64(2026);
+    let mut report = crate::market::proposals::MarketReport::default();
+    let mut audit = Vec::new();
+    let result = crate::market::pipeline::run_poaching_pass(
+        &tx,
+        &teams,
+        new_season_number,
+        &mut rng,
+        &mut report,
+        &mut audit,
+    );
+    // Desfaz SEMPRE — inclusive se o passe falhou no meio.
+    tx.rollback()
+        .map_err(|e| format!("Falha ao desfazer simulacao de debug: {e}"))?;
+    result?;
+    Ok(audit)
 }
 
 /// DEBUG: carimba a posição final do jogador no ARQUIVO da temporada mais recente.
@@ -3266,7 +3462,7 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 cor_primaria: team.cor_primaria,
                 cash_balance: team.cash_balance,
                 car_performance: team.car_performance,
-                car_build_profile: team.car_build_profile.as_str().to_string(),
+                car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
                 founded_year,
                 pontos: team.stats_pontos,
                 vitorias: team.stats_vitorias,
@@ -4880,7 +5076,7 @@ fn get_special_team_standings_from_results(
                 cor_primaria: team.cor_primaria,
                 cash_balance: team.cash_balance,
                 car_performance: team.car_performance,
-                car_build_profile: team.car_build_profile.as_str().to_string(),
+                car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
                 founded_year,
                 pontos: row.points.round() as i32,
                 vitorias: row.wins,
@@ -5061,6 +5257,7 @@ pub(crate) fn get_calendar_for_category_in_base_dir(
             week_of_year: race.week_of_year,
             season_phase: race.season_phase.as_str().to_string(),
             display_date: race.display_date.clone(),
+            thematic_slot: race.thematic_slot.as_str().to_string(),
             event_interest: None,
         })
         .collect())
@@ -5221,7 +5418,7 @@ fn build_team_summary(conn: &rusqlite::Connection, team: &Team) -> Result<TeamSu
         categoria: team.categoria.clone(),
         classe: team.classe.clone(),
         car_performance: team.car_performance,
-        car_build_profile: team.car_build_profile.as_str().to_string(),
+        car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
         confiabilidade: team.confiabilidade,
         pit_strategy_risk: team.pit_strategy_risk,
         pit_crew_quality: team.pit_crew_quality,

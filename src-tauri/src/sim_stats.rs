@@ -162,6 +162,10 @@ struct TeamSnap {
     categoria: String,
     classe: String,
     car_performance: f64,
+    /// Nível do Carro (1–10) do Sistema de Nível do Carro (tabela team_car).
+    car_level: u8,
+    /// Carro completo (11 peças) para diagnósticos de distribuição/foco.
+    car: Option<crate::car::Car>,
     confiabilidade: f64,
     reputacao: f64,
     facilities: f64,
@@ -175,36 +179,70 @@ struct TeamSnap {
 
 fn snapshot_teams(db_path: &Path) -> Vec<TeamSnap> {
     let db = Database::open_existing(db_path).expect("db");
-    let mut stmt = db
-        .conn
-        .prepare(
-            "SELECT teams.id, categoria, COALESCE(classe,''), car_performance, confiabilidade, \
-             reputacao, facilities, engineering, morale, cash_balance, debt_balance, \
-             COALESCE(financial_state,'?'), COALESCE(tf.foco,'meio_de_grid') \
-             FROM teams LEFT JOIN team_focus tf ON tf.team_id = teams.id \
-             WHERE ativa = 1 AND is_player_team = 0",
-        )
-        .expect("prepare teams");
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(TeamSnap {
-                id: row.get(0)?,
-                categoria: row.get(1)?,
-                classe: row.get(2)?,
-                car_performance: row.get(3)?,
-                confiabilidade: row.get(4)?,
-                reputacao: row.get(5)?,
-                facilities: row.get(6)?,
-                engineering: row.get(7)?,
-                morale: row.get(8)?,
-                cash_balance: row.get(9)?,
-                debt_balance: row.get(10)?,
-                financial_state: row.get(11)?,
-                foco: row.get(12)?,
+    let mut snaps: Vec<TeamSnap> = {
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT teams.id, categoria, COALESCE(classe,''), car_performance, confiabilidade, \
+                 reputacao, facilities, engineering, morale, cash_balance, debt_balance, \
+                 COALESCE(financial_state,'?'), COALESCE(tf.foco,'meio_de_grid') \
+                 FROM teams LEFT JOIN team_focus tf ON tf.team_id = teams.id \
+                 WHERE ativa = 1 AND is_player_team = 0",
+            )
+            .expect("prepare teams");
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(TeamSnap {
+                    id: row.get(0)?,
+                    categoria: row.get(1)?,
+                    classe: row.get(2)?,
+                    car_performance: row.get(3)?,
+                    car_level: 1,
+                    car: None,
+                    confiabilidade: row.get(4)?,
+                    reputacao: row.get(5)?,
+                    facilities: row.get(6)?,
+                    engineering: row.get(7)?,
+                    morale: row.get(8)?,
+                    cash_balance: row.get(9)?,
+                    debt_balance: row.get(10)?,
+                    financial_state: row.get(11)?,
+                    foco: row.get(12)?,
+                })
             })
-        })
-        .expect("query teams");
-    rows.filter_map(Result::ok).collect()
+            .expect("query teams");
+        rows.filter_map(Result::ok).collect()
+    };
+    // 2ª passada: carro completo (tabela team_car) → Nível + peças + shape.
+    for snap in snaps.iter_mut() {
+        let car = crate::db::queries::team_car::get_team_car(&db.conn, &snap.id)
+            .ok()
+            .flatten();
+        snap.car_level = car.as_ref().map(|c| c.display_level()).unwrap_or(1);
+        snap.car = car;
+    }
+    snaps
+}
+
+/// Classifica o FOCO do carro pelo vetor PHA: o atributo dominante (se passar de ~37% do
+/// total) ou "balanceado".
+fn classify_shape(car: &crate::car::Car) -> &'static str {
+    let (p, h, a) = car.pha();
+    let total = p + h + a;
+    if total <= 0.0 {
+        return "balanceado";
+    }
+    let (pf, hf, af) = (p / total, h / total, a / total);
+    let max = pf.max(hf).max(af);
+    if max < 0.37 {
+        "balanceado"
+    } else if pf >= hf && pf >= af {
+        "potência"
+    } else if hf >= af {
+        "handling"
+    } else {
+        "aceleração"
+    }
 }
 
 /// Lê um contador agregado de eventos de resgate de equipe (0 se ausente).
@@ -511,6 +549,14 @@ struct Totals {
     cash_sum: f64,
     debt_sum: f64,
     car_perf_by_tier: BTreeMap<u8, [f64; 2]>, // [soma, n]
+    // Nível do Carro (1–10) por CATEGORIA: [soma, n, min, max] — mede se o spread emerge
+    // e converge perto dos tetos (calibração do Sistema de Nível do Carro).
+    car_level_by_category: BTreeMap<String, [f64; 4]>,
+    // Nível médio POR PEÇA (só times não-rookie): [soma, n] por nome de peça — mostra em
+    // quais peças o cérebro investe.
+    part_level_by_type: BTreeMap<String, [f64; 2]>,
+    // Distribuição de FOCO do carro (potência/handling/aceleração/balanceado): contagem.
+    shape_focus: BTreeMap<String, u64>,
     // Reputação viva: dispersão por tier [soma, soma², min, max, n] — mede se a
     // reputação deixou de ser plana (semente ~±3) e passou a separar topo/fundo.
     rep_by_tier: BTreeMap<u8, [f64; 5]>,
@@ -842,6 +888,29 @@ fn monte_carlo() {
                 let e = t.car_perf_by_tier.entry(tier).or_insert([0.0, 0.0]);
                 e[0] += tm.car_performance;
                 e[1] += 1.0;
+                // Nível do Carro (1–10) por categoria.
+                let cl = t
+                    .car_level_by_category
+                    .entry(tm.categoria.clone())
+                    .or_insert([0.0, 0.0, f64::MAX, f64::MIN]);
+                cl[0] += tm.car_level as f64;
+                cl[1] += 1.0;
+                cl[2] = cl[2].min(tm.car_level as f64);
+                cl[3] = cl[3].max(tm.car_level as f64);
+                // Distribuição por peça + foco do carro (só categorias não-spec: teto > 1).
+                if let Some(car) = &tm.car {
+                    if crate::car::cost::category_ceiling(&tm.categoria) > 1 {
+                        for part in &car.parts {
+                            let pe = t
+                                .part_level_by_type
+                                .entry(part.part_type.as_str().to_string())
+                                .or_insert([0.0, 0.0]);
+                            pe[0] += part.level as f64;
+                            pe[1] += 1.0;
+                        }
+                        *t.shape_focus.entry(classify_shape(car).to_string()).or_insert(0) += 1;
+                    }
+                }
                 let r = t
                     .rep_by_tier
                     .entry(tier)
@@ -1588,6 +1657,96 @@ fn monte_carlo() {
             continue;
         }
         println!("    {:<4} | {:>15.1} | {:.0}", tier, a[0] / a[1], a[1]);
+    }
+
+    println!("\n■ NÍVEL DO CARRO (1–10) por categoria — Sistema de Nível do Carro");
+    println!("    Alvo: a média deveria convergir perto do TETO da categoria, com spread (min<max).");
+    println!("    categoria             | teto | média | min | max | nº");
+    println!("    ----------------------+------+-------+-----+-----+-----");
+    for (cat, a) in &t.car_level_by_category {
+        if a[1] == 0.0 {
+            continue;
+        }
+        let ceiling = crate::car::cost::category_ceiling(cat);
+        println!(
+            "    {:<21} | {:>4} | {:>5.1} | {:>3.0} | {:>3.0} | {:.0}",
+            cat, ceiling, a[0] / a[1], a[2], a[3], a[1]
+        );
+    }
+
+    // ── (1) Distribuição por peça ──
+    println!("\n■ NÍVEL MÉDIO POR PEÇA (times não-spec) — onde o cérebro investe");
+    println!("    peça          | nível médio | nº");
+    println!("    --------------+-------------+------");
+    let mut parts: Vec<(&String, &[f64; 2])> = t.part_level_by_type.iter().collect();
+    parts.sort_by(|a, b| {
+        let av = if a.1[1] > 0.0 { a.1[0] / a.1[1] } else { 0.0 };
+        let bv = if b.1[1] > 0.0 { b.1[0] / b.1[1] } else { 0.0 };
+        bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for (name, a) in parts {
+        if a[1] == 0.0 {
+            continue;
+        }
+        println!("    {:<13} | {:>11.2} | {:.0}", name, a[0] / a[1], a[1]);
+    }
+
+    // ── (2) Foco do carro ──
+    println!("\n■ FOCO DO CARRO (times não-spec) — tendência de shape");
+    let focus_total: u64 = t.shape_focus.values().sum();
+    if focus_total > 0 {
+        for (focus, n) in &t.shape_focus {
+            println!(
+                "    {:<12} {:>6} ({:.1}%)",
+                focus,
+                n,
+                *n as f64 / focus_total as f64 * 100.0
+            );
+        }
+    }
+
+    // ── (3) Foco vs pista: o ganho de um carro focado na pista do seu atributo ──
+    println!("\n■ FOCO vs PISTA — bônus de car_performance por (foco do carro × tipo de pista)");
+    println!("    Carros FORTEMENTE focados (4 peças no talo, resto no piso). Diagonal = casado.");
+    println!("    ~1,6 pts de car_performance ≈ 1 nível de carro NAQUELA pista; ainda ×car_weight na corrida.");
+    {
+        use crate::car::sim_bridge::car_shape_weights;
+        use crate::car::PartType::*;
+        use crate::simulation::car_build::track_delta_from_shape;
+        use crate::simulation::track_profile::get_track_simulation_data;
+        let mk = |focus: &[crate::car::PartType]| -> crate::car::Car {
+            let mut c = crate::car::Car::uniform(2);
+            for &p in focus {
+                c.set_level(p, 10);
+            }
+            c
+        };
+        let cars = [
+            ("potência", mk(&[Engine, Gearbox, Cooling, Electronics])),
+            ("handling", mk(&[FrontWing, RearWing, Brakes, Suspension])),
+            ("aceleração", mk(&[Gearbox, Chassis, Suspension, Electronics])),
+            ("balanceado", crate::car::Car::uniform(6)),
+        ];
+        let tracks = [
+            ("power(Monza)", 93u32),
+            ("handl(Ledenon)", 489u32),
+            ("accel(Tsukuba)", 325u32),
+        ];
+        print!("    {:<12}", "carro\\pista");
+        for (tname, _) in &tracks {
+            print!(" | {:>14}", tname);
+        }
+        println!();
+        for (cname, car) in &cars {
+            let shape = car_shape_weights(car);
+            print!("    {:<12}", cname);
+            for (_, tid) in &tracks {
+                let d = get_track_simulation_data(*tid);
+                let tw = (d.acceleration_weight, d.power_weight, d.handling_weight);
+                print!(" | {:>+14.2}", track_delta_from_shape(shape, tw));
+            }
+            println!();
+        }
     }
 
     println!("\n■ MOVIMENTOS DE EQUIPE (promoção/rebaixamento entre categorias)");

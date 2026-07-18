@@ -145,6 +145,104 @@ fn attr(value: f64) -> i64 {
     value.round().clamp(0.0, 100.0) as i64
 }
 
+// ─── CURVA DE SKILL EM DOIS TRECHOS ──────────────────────────────────────────
+// O iRacing estica linearmente o grid pra preencher [min_skill, max_skill]. Isso
+// AMPLIFICA todo gap real pelo fator (banda/span). Num grid apertado (rookie: todos
+// ~30–49) a banda larga inflava os gaps ~2,6× — 3 pontos reais viravam ~8 efetivos e o
+// líder abria 15s. A curva conserta em DOIS trechos:
+//   • TOPO (os melhores, fração `SKILL_CURVE_FRONT_FRAC`): gaps FIÉIS (k_top≈1 → o líder
+//     abre só o que a skill real dele diz; briga limpa na frente).
+//   • CAUDA (do "corte" pra baixo): gaps ESTICADOS (k_bottom>1) pra AFUNDAR o fundo de
+//     grid — no rookie o piloto ~30 tem que ser GENUINAMENTE ruim, não só um pouco atrás.
+// A banda da season re-ancora essa FORMA no sweet spot do tier, então o roster só precisa
+// do formato (lo/hi/corte/k) e a season passa o `top_anchor` = sweet spot real.
+
+/// Fração do topo do grid (por skill) que mantém gaps FIÉIS. 0,36 ≈ top-4 num grid de 11
+/// (rookie) → "do 5º pra baixo estica". Escala com o tamanho do grid.
+pub const SKILL_CURVE_FRONT_FRAC: f64 = 0.36;
+/// Amplificação DESEJADA da cauda (>1 afunda o fundo de grid). É um TETO: a curva reduz
+/// automaticamente se esse valor faria o pior piloto cair ABAIXO do próprio skill real
+/// (ver o cap em `skill_curve_from`). Subir = fundo mais afundado nos grids apertados.
+pub const SKILL_CURVE_K_BOTTOM: f64 = 3.0;
+
+/// Parâmetros da curva (derivados das skills da IA + o sweet spot do tier).
+pub struct SkillCurve {
+    /// Maior skill real da IA no grid (o melhor → `top_anchor`).
+    pub hi: f64,
+    /// Skill do último piloto FIEL (sorted desc). Abaixo dele, a cauda estica.
+    pub boundary: f64,
+    /// Skill efetiva do melhor da IA = sweet spot do tier. Season e roster passam o MESMO
+    /// valor pra a curva (e o cabo da cauda) baterem dos dois lados.
+    pub top_anchor: f64,
+    /// Inclinação do TOPO. `min(1, (sweet − lo)/(hi − lo))`: quando o campo é mais APERTADO
+    /// que a banda (rookie: sweet acima das skills), trava em 1 (fiel, sem amplificar o
+    /// líder); quando é mais LARGO (elite: sweet abaixo do topo real), comprime (<1) pra o
+    /// pelotão caber perto do sweet — ex.: 98→80, 90→77. Auto, sem "if de tier".
+    pub k_top: f64,
+    /// Amplificação EFETIVA da cauda, já CAPADA pra o pior piloto não cair abaixo do skill
+    /// real dele (o piso é o menor skill do grid). Rookie (grid apertado, sweet alto) afunda
+    /// o fundo; elite (grid largo, sweet baixo) vira ~linear com o topo.
+    pub k_bottom: f64,
+    /// Menor skill real da IA — o piso do grid.
+    pub lo: f64,
+}
+
+/// Monta a curva a partir das skills da IA (só IA — o jogador não entra na banda) e do
+/// sweet spot do tier (valor efetivo do melhor). `k_top` comprime o topo quando o sweet
+/// fica abaixo do topo real; `k_bottom` é limitado pra o PIOR piloto aterrissar no máximo
+/// no próprio skill real, nunca abaixo.
+pub fn skill_curve_from(ai_skills: &[f64], top_anchor: f64) -> SkillCurve {
+    let hi = ai_skills.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let lo = ai_skills.iter().cloned().fold(f64::INFINITY, f64::min);
+    let hi = if hi.is_finite() { hi } else { top_anchor };
+    let lo = if lo.is_finite() { lo } else { top_anchor };
+    let mut sorted: Vec<f64> = ai_skills.to_vec();
+    sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    let n = sorted.len();
+    let boundary = if n <= 1 {
+        lo
+    } else {
+        let front = ((n as f64) * SKILL_CURVE_FRONT_FRAC).round().max(1.0) as usize;
+        sorted[front.min(n) - 1]
+    };
+    // Inclinação do topo: nunca amplifica (cap em 1). Quando o sweet < topo real, comprime
+    // pra caber o campo na banda [lo, sweet] (melhor→sweet, pior→lo, ~linear).
+    let real_span = hi - lo;
+    let k_top = if real_span > 0.0 {
+        ((top_anchor - lo) / real_span).min(1.0).max(0.0)
+    } else {
+        1.0
+    };
+    // Efetivo do corte (fim do trecho fiel). O k_bottom máximo é o que leva o pior piloto
+    // EXATAMENTE ao skill real dele (piso = lo): k_cap = (corte_efetivo − lo)/(corte − lo).
+    let boundary_eff = top_anchor - k_top * (hi - boundary);
+    let tail_real = boundary - lo;
+    let k_bottom = if tail_real > 0.0 {
+        let cap = (boundary_eff - lo) / tail_real;
+        SKILL_CURVE_K_BOTTOM.min(cap).max(0.0)
+    } else {
+        SKILL_CURVE_K_BOTTOM
+    };
+    SkillCurve {
+        hi,
+        boundary,
+        top_anchor,
+        k_top,
+        k_bottom,
+        lo,
+    }
+}
+
+/// Skill efetiva pela curva de 2 trechos. Melhor da IA → `top_anchor`; cada ponto real
+/// abaixo custa `k_top` até o corte e `k_bottom` (capado) na cauda.
+pub fn skill_curve(real: f64, c: &SkillCurve) -> f64 {
+    if real >= c.boundary {
+        c.top_anchor - c.k_top * (c.hi - real)
+    } else {
+        c.top_anchor - c.k_top * (c.hi - c.boundary) - c.k_bottom * (c.boundary - real)
+    }
+}
+
 /// Escolhe deterministicamente um item do pool a partir de uma semente estável
 /// (id de time/piloto) — mantém a aparência consistente ao longo da temporada.
 fn pick(pool: &[i64], seed: &str) -> i64 {
@@ -204,6 +302,10 @@ pub struct BehaviorContext {
     pub global_percentile: HashMap<String, f64>,
     /// id do piloto → dados do Tier 2 Batch B.
     pub driver_ctx: HashMap<String, DriverCtx>,
+    /// Sweet spot do tier (efetivo do melhor da IA) na pista alvo — âncora da curva de
+    /// skill. MESMO valor que a season usa no `max_skill` (pré-chuva), pra a forma bater
+    /// dos dois lados.
+    pub ai_sweet_spot: f64,
 }
 
 /// Percentil de skill dentro do grid (0 pior … 1 melhor).
@@ -250,6 +352,14 @@ pub fn build_roster(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Curva de skill em 2 trechos (topo fiel + cauda com cap no piso real). Derivada das
+    // skills da IA do próprio grid e ancorada no MESMO sweet spot que a season usa — assim
+    // o cap da cauda (pior piloto ≥ skill real dele) bate exatamente dos dois lados. Sem
+    // behavior (testes) cai num sweet spot neutro (100).
+    let ai_skills: Vec<f64> = entries.iter().map(|(d, _)| d.atributos.skill).collect();
+    let sweet = behavior.map(|bc| bc.ai_sweet_spot).unwrap_or(100.0);
+    let curve = skill_curve_from(&ai_skills, sweet);
+
     let drivers = order
         .iter()
         .enumerate()
@@ -289,8 +399,12 @@ pub fn build_roster(
             // Camada de comportamento por corrida (só no export): o skill quase não
             // se move (já com a penalidade de conhecimento de pista), mas os atributos
             // secundários variam MUITO conforme o contexto. None = atributos crus.
+            // Skill de referência do piloto já pela CURVA de 2 trechos (topo fiel, cauda
+            // afundada). É a base pra tudo: sem behavior sai direto, com behavior recebe a
+            // penalidade de pista + os nudges por cima.
+            let curved_skill = skill_curve(a.skill, &curve);
             let (d_skill, d_aggression, d_optimism, d_smoothness) = match behavior {
-                None => (a.skill, a.aggression, a.confianca, a.smoothness),
+                None => (curved_skill, a.aggression, a.confianca, a.smoothness),
                 Some(bc) => {
                     use crate::simulation::{pressure, track_knowledge};
                     let knowledge = track_knowledge::from_history(
@@ -314,7 +428,7 @@ pub fn build_roster(
                         base_aggression: a.aggression,
                         base_optimism: a.confianca,
                         base_smoothness: a.smoothness,
-                        base_skill: a.skill - track_pen,
+                        base_skill: curved_skill - track_pen,
                         mentality: a.mentalidade,
                         resilience: pressure::pressure_resilience(a.mentalidade, a.experiencia),
                         title,
@@ -479,9 +593,67 @@ mod tests {
         // Mesma cor (E63946) nos dois.
         assert!(ana.car_design.contains("E63946"));
         assert!(bia.car_design.contains("E63946"));
-        // optimism ← confianca; skill direto.
+        // optimism ← confianca (não passa pela curva de skill).
         assert_eq!(bia.driver_optimism, 90);
-        assert_eq!(bia.driver_skill, 80);
+        // skill passa pela curva de 2 trechos: Bia é a melhor do grid → topo (100 no
+        // roster; a banda da season re-ancora no sweet spot do tier).
+        assert_eq!(bia.driver_skill, 100);
+    }
+
+    #[test]
+    fn curva_de_skill_topo_fiel_e_cauda_esticada() {
+        // Grid rookie real: apertado (30..49). Ancorado no sweet spot 82.
+        let ai = [49.0, 45.0, 43.0, 43.0, 40.0, 40.0, 38.0, 36.0, 35.0, 32.0, 30.0];
+        let c = skill_curve_from(&ai, 82.0);
+        assert_eq!(c.hi, 49.0);
+        assert_eq!(c.boundary, 43.0); // top-4 fiel (round(11*0.36)=4)
+
+        // Topo: gaps FIÉIS (1 ponto real = 1 ponto efetivo).
+        assert!((skill_curve(49.0, &c) - 82.0).abs() < 1e-9); // melhor → sweet spot
+        assert!((skill_curve(45.0, &c) - 78.0).abs() < 1e-9); // 4 reais abaixo → 4 abaixo
+        assert!((skill_curve(43.0, &c) - 76.0).abs() < 1e-9); // no corte
+
+        // Cauda: gaps ESTICADOS (k_bottom=3 afunda o fundo).
+        assert!((skill_curve(40.0, &c) - 67.0).abs() < 1e-9); // 3 reais → 9 abaixo do corte
+        assert!((skill_curve(30.0, &c) - 37.0).abs() < 1e-9); // pior piloto: genuinamente ruim
+
+        // O gap real de 3 pontos vale 3 no topo mas 9 na cauda (o fundo despenca).
+        let gap_topo = skill_curve(49.0, &c) - skill_curve(46.0, &c);
+        let gap_cauda = skill_curve(40.0, &c) - skill_curve(37.0, &c);
+        assert!((gap_topo - 3.0).abs() < 1e-9);
+        assert!((gap_cauda - 9.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cap_da_cauda_segura_o_pior_no_skill_real_em_grid_largo() {
+        // Grid GT3 real: largo (59..96). O k_bottom desejado (3) afundaria o pior a ~10;
+        // o cap segura ele NO skill real (59), nunca abaixo — regra do usuário.
+        let ai = [
+            96.0, 89.0, 88.0, 88.0, 87.0, 87.0, 86.0, 86.0, 83.0, 83.0, 80.0, 79.0, 78.0, 75.0,
+            74.0, 72.0, 72.0, 70.0, 69.0, 69.0, 66.0, 65.0, 65.0, 63.0, 62.0, 61.0, 61.0, 59.0,
+        ];
+        let c = skill_curve_from(&ai, 95.0); // GT3 sweet spot 95
+        assert!(c.k_bottom < 1.0); // cauda quase fiel (cap mordeu forte)
+        assert!(c.k_bottom > 0.0);
+        // Pior piloto (59) NÃO cai abaixo do skill real dele.
+        let pior = skill_curve(59.0, &c);
+        assert!((pior - 59.0).abs() < 0.5, "pior efetivo {pior} deveria ~= 59");
+        // Melhor → sweet spot; grid fica ~fiel (não afunda como no rookie).
+        assert!((skill_curve(96.0, &c) - 95.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn curva_comprime_topo_quando_sweet_abaixo_do_real() {
+        // Regime ELITE: skills reais ALTOS (68..98), sweet BAIXO (80). O topo comprime —
+        // 98→80, 90→~77 (não fiel 72, nem grudado em 80). k_top < 1.
+        let ai = [98.0, 95.0, 90.0, 88.0, 85.0, 80.0, 75.0, 70.0, 68.0];
+        let c = skill_curve_from(&ai, 80.0);
+        assert!(c.k_top < 1.0, "k_top {} deveria comprimir", c.k_top);
+        assert!((skill_curve(98.0, &c) - 80.0).abs() < 1e-9); // melhor → sweet
+        let p90 = skill_curve(90.0, &c);
+        assert!((p90 - 77.0).abs() < 0.6, "90 deveria virar ~77, virou {p90}");
+        // Pior (68) nunca abaixo do próprio skill real.
+        assert!(skill_curve(68.0, &c) >= 68.0 - 0.5);
     }
 
     #[test]

@@ -195,6 +195,17 @@ pub struct IracingTelemetry {
     /// 2 MostlyDry, 3 VeryLightlyWet, 4 LightlyWet, 5 ModeratelyWet, 6 VeryWet,
     /// 7 ExtremelyWet. Base da inferência de composto (seco/chuva).
     pub track_wetness: i32,
+    /// Temperatura do ar em °C (`AirTemp`).
+    pub air_temp: f64,
+    /// Temperatura da pista em °C (`TrackTemp`).
+    pub track_temp: f64,
+    /// Duração total da sessão em segundos (`SessionTimeTotal`) — corridas por tempo.
+    pub session_time_total: f64,
+    /// Tempo restante da sessão em segundos (`SessionTimeRemain`).
+    pub session_time_remain: f64,
+    /// Estimativa do iRacing de voltas restantes na sessão (`SessionLapsRemainEx`),
+    /// válida INCLUSIVE em corrida por tempo. -1/0 quando indisponível.
+    pub session_laps_remain_ex: i32,
     /// Snapshot de TODOS os carros na sessão (lido das variáveis de array
     /// `CarIdx*`). Só os carros presentes (no mundo) entram aqui.
     pub cars: Vec<CarSnapshot>,
@@ -649,6 +660,11 @@ mod imp {
                 "PitOptRepairNeeded" => t.pit_opt_repair_needed = value,
                 "IsOnTrackCar" => t.is_on_track_car = value != 0.0,
                 "TrackWetness" => t.track_wetness = value as i32,
+                "AirTemp" => t.air_temp = value,
+                "TrackTemp" => t.track_temp = value,
+                "SessionTimeTotal" => t.session_time_total = value,
+                "SessionTimeRemain" => t.session_time_remain = value,
+                "SessionLapsRemainEx" => t.session_laps_remain_ex = value as i32,
                 _ => {}
             }
         }

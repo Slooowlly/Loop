@@ -28,22 +28,41 @@ const OUTLIER_SECONDS: f64 = 4.0;
 /// Mínimo de voltas limpas pra a amostra de ritmo valer.
 const MIN_CLEAN_LAPS: usize = 2;
 
-/// Limiares de gap de ritmo (jogador − referência), em s/volta (negativo = + rápido).
-const G_DOMINATE: f64 = -0.7; // ≤ isto = dominou
-const G_CLEAR: f64 = -0.3; // ≤ isto = venceu com folga
-const G_BEHIND: f64 = 0.3; // < isto (e ≥ G_CLEAR) = equilíbrio; ≥ isto = atrás
-const G_FAR: f64 = 1.0; // ≥ isto = muito atrás
-/// Escudo da melhor volta: se o best_gap fica abaixo disto, foi trânsito → não desce.
-const SHIELD: f64 = 0.3;
-
-/// Piso ASSIMÉTRICO (desce pouco, sobe muito = sempre competitivo).
+/// Piso/teto do delta global. O teto é ALTO (a base dos tiers é achatada, então a
+/// dificuldade real mora aqui) — um alien alcança bem acima da base.
 const GLOBAL_MIN: i64 = -5;
-const GLOBAL_MAX: i64 = 15;
-const TRACK_MIN: i64 = -3;
-const TRACK_MAX: i64 = 8;
-/// Acima deste delta global, o passo de SUBIDA é amortecido (no máx +1/corrida),
-/// pra estabilizar e não punir quem vai bem.
-const SOFT_CAP_GLOBAL: i64 = 10;
+const GLOBAL_MAX: i64 = 40;
+
+// ─── Regime RÁPIDO (ritmo LIMPO vs a FRENTE) — TODOS os tiers ─────────────────
+// Filosofia (A): o alvo é BRIGAR PELA VITÓRIA. A régua é o RITMO da FRENTE = mediana dos 2
+// melhores da IA (robusto a 1 outlier), comparada ao ritmo LIMPO do jogador (voltas de
+// erro/pit/rodada descartadas) em FRAÇÃO do tempo de volta (imune a duração da prova e
+// comprimento da pista). Se você não anda no ritmo da frente, é difícil demais → desce,
+// MESMO terminando no meio do grid (posição não salva). Um erro pontual não desce (ritmo
+// limpo competitivo = escudo). Mais rápido que a frente → sobe. Delta = `global` (amortecido
+// por tier no export). "Mais fácil descer quando está alto" é AUTOMÁTICO: no topo a frente
+// é mais rápida, então o jogador cai mais fácil nas faixas de descida.
+// Passos (simétricos): subida/descida com patamar BRANDO e FORTE.
+/// Muito mais rápido que a frente (dominou) → sobe ISTO.
+pub const FAST_UP_DOMINATE: i64 = 5;
+/// Mais rápido que a frente, mas < domínio → sobe ISTO.
+pub const FAST_UP_CLEAR: i64 = 3;
+/// Fora do ritmo da frente (difícil) → desce ISTO.
+pub const FAST_DOWN: i64 = 3;
+/// Muito fora do ritmo da frente (difícil demais) → desce ISTO.
+pub const FAST_DOWN_HARD: i64 = 5;
+// Limites de ritmo vs a frente, em fração do tempo de volta. >0 = jogador mais LENTO.
+/// Mais rápido que a frente por MAIS que isto (1,0%) → domínio.
+pub const FAST_DOMINATE_PCT: f64 = 0.010;
+/// Mais rápido que a frente por mais que isto (0,45%) → venceu/andou folgado.
+pub const FAST_CLEAR_PCT: f64 = 0.0045;
+/// ESCUDO / banda "brigando": ritmo dentro de ±isto (0,4%) da frente = competitivo →
+/// mantém. É o que impede um erro pontual (posição ruim, ritmo limpo competitivo) de baixar
+/// a dificuldade.
+pub const FAST_SHIELD_PCT: f64 = 0.004;
+/// Mais lento que a frente por MAIS que isto (1,4%) → difícil demais (desce forte); entre o
+/// escudo e isto → difícil (desce brando).
+pub const FAST_BEHIND_PCT: f64 = 0.014;
 
 // ─── Entrada (o que a Fase A vai preencher) ─────────────────────────────────
 
@@ -113,6 +132,100 @@ impl AdaptiveUpdate {
     }
 }
 
+/// Resultado da corrida reduzido ao que a regra rápida usa: o RITMO do jogador vs a FRENTE.
+#[derive(Clone, Copy, Debug)]
+pub struct FastResult {
+    /// Posição final do jogador NA CLASSE (só p/ texto do veredito; a decisão é por ritmo).
+    pub finish_pos: i32,
+    /// Ritmo LIMPO do jogador vs a FRENTE (mediana dos 2 melhores da IA), em FRAÇÃO do tempo
+    /// de volta. >0 = mais LENTO que a frente; <0 = mais rápido. `None` = sem voltas limpas
+    /// suficientes pra medir → mantém. Erro/pit/rodada NÃO entram (voltas descartadas).
+    pub pace_vs_front: Option<f64>,
+    pub player_dnf: bool,
+}
+
+/// Reduz um [`RaceResult`] ao [`FastResult`]: ritmo LIMPO do jogador vs a FRENTE = mediana
+/// dos 2 melhores RITMOS da IA da classe (robusto a 1 outlier). Reusa [`clean_pace`] →
+/// voltas de erro/pit/rodada (muito mais lentas que a mediana do piloto) saem da conta.
+pub fn fast_result_from(race: &RaceResult) -> FastResult {
+    let drivers = &race.race;
+    let Some(player) = drivers.iter().find(|d| d.is_player) else {
+        return FastResult {
+            finish_pos: 0,
+            pace_vs_front: None,
+            player_dnf: true,
+        };
+    };
+    let class = player.car_class_id;
+    let pace = |d: &DriverData| clean_pace(&d.laps, &race.yellow_laps).map(|(typ, _)| typ);
+    let player_pace = pace(player);
+    // Frente = mediana (média) dos 2 RITMOS LIMPOS mais rápidos da IA da classe.
+    let mut ai_paces: Vec<f64> = drivers
+        .iter()
+        .filter(|d| d.is_ai && d.car_class_id == class)
+        .filter_map(pace)
+        .collect();
+    ai_paces.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let front = match ai_paces.as_slice() {
+        [] => None,
+        [only] => Some(*only),
+        [a, b, ..] => Some((a + b) / 2.0),
+    };
+    let pace_vs_front = match (player_pace, front) {
+        (Some(pp), Some(fr)) if fr > 0.0 => Some((pp - fr) / fr),
+        _ => None,
+    };
+    FastResult {
+        finish_pos: player.finish_pos_in_class,
+        pace_vs_front,
+        player_dnf: player.dnf,
+    }
+}
+
+/// Regra RÁPIDA (mexe só no `global`). Os gaps viram % DO TEMPO DE VOLTA antes de decidir,
+/// pra o veredito não depender da duração da corrida nem do comprimento da pista. SUBIDA
+/// (só o líder): dominou (> `FAST_DOMINATE_PCT`) → +forte; venceu folgado (> `FAST_CLEAR_PCT`)
+/// → +médio. DESCIDA (2 gatilhos, valem em qualquer posição do pódio): ritmo pro líder pior
+/// que `FAST_BEHIND_PCT`, OU terminou FORA da zona segura (gravidade). Dentro da zona e com
+/// ritmo → mantém. DNF/sem posição/sem voltas/sem tempo de volta não mexe.
+pub fn compute_fast_update(r: &FastResult, current: &Deltas) -> AdaptiveUpdate {
+    if r.player_dnf {
+        return AdaptiveUpdate::unchanged(current, "DNF → mantém");
+    }
+    let Some(g) = r.pace_vs_front else {
+        return AdaptiveUpdate::unchanged(current, "Sem dados de ritmo → mantém");
+    };
+    // g = ritmo LIMPO do jogador vs a frente (fração de volta; >0 = mais lento). A régua é
+    // BRIGAR PELA VITÓRIA: perto da frente (±escudo) = mantém; mais rápido = sobe; mais
+    // lento = desce, mesmo terminando no meio do grid (a posição não salva). Como é ritmo
+    // limpo, um erro pontual (que só afundou a posição) não conta.
+    let pc = g * 100.0;
+    let p = r.finish_pos; // só pro texto (debug); a decisão é 100% por ritmo.
+    let (d, verdict) = if g <= -FAST_DOMINATE_PCT {
+        (FAST_UP_DOMINATE, format!("Dominou a frente (P{p}, {pc:+.1}%/volta) → sobe forte"))
+    } else if g <= -FAST_CLEAR_PCT {
+        (FAST_UP_CLEAR, format!("Mais rápido que a frente (P{p}, {pc:+.1}%/volta) → sobe"))
+    } else if g <= FAST_SHIELD_PCT {
+        (0, format!("Brigando com a frente (P{p}, {pc:+.1}%/volta) → mantém"))
+    } else if g <= FAST_BEHIND_PCT {
+        (-FAST_DOWN, format!("Fora do ritmo da frente (P{p}, {pc:+.1}%/volta) → desce"))
+    } else {
+        (-FAST_DOWN_HARD, format!("Sem ritmo pra frente (P{p}, {pc:+.1}%/volta) → desce forte"))
+    };
+    let new_global = (current.global + d).clamp(GLOBAL_MIN, GLOBAL_MAX);
+    let d_global = new_global - current.global;
+    AdaptiveUpdate {
+        new: Deltas {
+            global: new_global,
+            track: current.track,
+        },
+        d_global,
+        d_track: 0,
+        applied: d_global != 0,
+        verdict,
+    }
+}
+
 // ─── Lógica ─────────────────────────────────────────────────────────────────
 
 fn median(values: &[f64]) -> Option<f64> {
@@ -155,171 +268,98 @@ fn clean_pace(laps: &[Lap], yellow: &[i32]) -> Option<(f64, f64)> {
     Some((typical, best))
 }
 
-/// Só a melhor volta limpa de um piloto (usada pra quali, como reforço do escudo).
-fn clean_best(laps: &[Lap], yellow: &[i32]) -> Option<f64> {
-    clean_pace(laps, yellow).map(|(_, best)| best)
-}
-
-/// Referência da classe = mediana (= média, p/ 2) do ritmo e da melhor volta dos
-/// 2 melhores colocados da classe do jogador (IA, com amostra válida).
-fn class_reference(result: &RaceResult, class_id: i64) -> Option<(f64, f64)> {
-    let mut rivals: Vec<(i32, f64, f64)> = result
-        .race
-        .iter()
-        .filter(|d| d.is_ai && d.car_class_id == class_id && !d.dnf)
-        .filter_map(|d| {
-            clean_pace(&d.laps, &result.yellow_laps).map(|(t, b)| (d.finish_pos_in_class, t, b))
-        })
-        .collect();
-    if rivals.is_empty() {
-        return None;
-    }
-    rivals.sort_by_key(|r| r.0);
-    rivals.truncate(2);
-    let n = rivals.len() as f64;
-    let ref_typ = rivals.iter().map(|r| r.1).sum::<f64>() / n;
-    let ref_best = rivals.iter().map(|r| r.2).sum::<f64>() / n;
-    Some((ref_typ, ref_best))
-}
-
-/// Melhor volta de referência na QUALI = média das 2 melhores voltas limpas de
-/// quali entre os carros de IA da classe.
-fn class_qualy_best(qualy: &[DriverData], class_id: i64) -> Option<f64> {
-    let mut bests: Vec<f64> = qualy
-        .iter()
-        .filter(|d| d.is_ai && d.car_class_id == class_id)
-        .filter_map(|d| clean_best(&d.laps, &[]))
-        .collect();
-    if bests.is_empty() {
-        return None;
-    }
-    bests.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    bests.truncate(2);
-    Some(bests.iter().sum::<f64>() / bests.len() as f64)
-}
-
-/// Núcleo: calcula como os deltas evoluem dada uma corrida e os deltas atuais.
-pub fn compute_adaptive_update(result: &RaceResult, current: &Deltas) -> AdaptiveUpdate {
-    // Porta 1: jogador presente e SEM DNF (corrida representativa).
-    let player = match result.race.iter().find(|d| d.is_player) {
-        Some(p) if !p.dnf => p,
-        Some(_) => {
-            return AdaptiveUpdate::unchanged(current, "Jogador não terminou (DNF) → sem ajuste")
-        }
-        None => {
-            return AdaptiveUpdate::unchanged(current, "Jogador ausente nos dados → sem ajuste")
-        }
-    };
-
-    // Ritmo limpo do jogador + referência da classe.
-    let (player_typ, player_best) = match clean_pace(&player.laps, &result.yellow_laps) {
-        Some(p) => p,
-        None => {
-            return AdaptiveUpdate::unchanged(
-                current,
-                "Poucas voltas limpas do jogador → sem ajuste",
-            )
-        }
-    };
-    let (ref_typ, ref_best) = match class_reference(result, player.car_class_id) {
-        Some(r) => r,
-        None => {
-            return AdaptiveUpdate::unchanged(
-                current,
-                "Sem referência válida na classe → sem ajuste",
-            )
-        }
-    };
-
-    // Melhor volta "potencial" = melhor da corrida OU da quali (o que for mais
-    // rápido) — quali limpa reforça o escudo quando a corrida teve trânsito.
-    let player_pot = match result.qualy.as_deref().and_then(|q| {
-        q.iter()
-            .find(|d| d.is_player)
-            .and_then(|d| clean_best(&d.laps, &[]))
-    }) {
-        Some(q) => player_best.min(q),
-        None => player_best,
-    };
-    let ref_pot = match result
-        .qualy
-        .as_deref()
-        .and_then(|q| class_qualy_best(q, player.car_class_id))
-    {
-        Some(q) => ref_best.min(q),
-        None => ref_best,
-    };
-
-    let avg_gap = player_typ - ref_typ; // negativo = jogador mais rápido
-    let best_gap = player_pot - ref_pot;
-
-    // Decisão. Ritmo médio é o porteiro pra subir; melhor volta é o escudo p/ descer.
-    let (raw_global, raw_track, why): (i64, i64, String) = if avg_gap <= G_DOMINATE {
-        (
-            2,
-            2,
-            format!("Dominou (ritmo {avg_gap:+.2}s/volta) → sobe forte"),
-        )
-    } else if avg_gap <= G_CLEAR {
-        (
-            1,
-            1,
-            format!("Venceu com folga (ritmo {avg_gap:+.2}s/volta) → sobe"),
-        )
-    } else if avg_gap < G_BEHIND {
-        (
-            0,
-            0,
-            format!("Equilíbrio (ritmo {avg_gap:+.2}s/volta) → mantém"),
-        )
-    } else if best_gap < SHIELD {
-        (
-            0,
-            0,
-            format!("Trânsito: ritmo {avg_gap:+.2}s mas melhor volta competitiva ({best_gap:+.2}s) → mantém"),
-        )
-    } else if avg_gap < G_FAR {
-        (
-            -1,
-            0,
-            format!("Abaixo do ritmo ({avg_gap:+.2}s/volta) → desce"),
-        )
-    } else {
-        (
-            -1,
-            -1,
-            format!("Muito atrás ({avg_gap:+.2}s/volta) → desce"),
-        )
-    };
-
-    // Amortece a subida perto do teto (não punir quem vai bem).
-    let damped_global = if raw_global > 0 && current.global >= SOFT_CAP_GLOBAL {
-        raw_global.min(1)
-    } else {
-        raw_global
-    };
-
-    // Aplica piso/teto e mede a mudança real.
-    let new_global = (current.global + damped_global).clamp(GLOBAL_MIN, GLOBAL_MAX);
-    let new_track = (current.track + raw_track).clamp(TRACK_MIN, TRACK_MAX);
-
-    AdaptiveUpdate {
-        new: Deltas {
-            global: new_global,
-            track: new_track,
-        },
-        d_global: new_global - current.global,
-        d_track: new_track - current.track,
-        applied: true,
-        verdict: why,
-    }
-}
+// NOTA: o núcleo por-ritmo antigo (`compute_adaptive_update` + `class_reference` +
+// `clean_best` + `class_qualy_best`) foi REMOVIDO — a regra rápida (`compute_fast_update`)
+// absorveu a ideia (ritmo LIMPO do jogador vs a frente) de forma mais direta. `clean_pace`
+// e `median` ficaram por serem reusados por ela.
 
 // ─── Testes ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Só o ritmo vs a frente importa (fração de volta; >0 = mais lento). finish_pos é só
+    /// texto. field_size sumiu (a decisão não é mais por posição).
+    fn fast(pace_vs_front: f64) -> FastResult {
+        FastResult {
+            finish_pos: 5,
+            pace_vs_front: Some(pace_vs_front),
+            player_dnf: false,
+        }
+    }
+
+    #[test]
+    fn ritmo_vs_frente_decide_os_5_patamares() {
+        let cur = Deltas { global: 0, track: 0 };
+        let d = |g: f64| compute_fast_update(&fast(g), &cur).d_global;
+        assert_eq!(d(-0.015), FAST_UP_DOMINATE); // 1,5% mais rápido → domina → +5
+        assert_eq!(d(-0.006), FAST_UP_CLEAR); //     0,6% mais rápido → folgado → +3
+        assert_eq!(d(-0.002), 0); //                 0,2% mais rápido (dentro do escudo) → mantém
+        assert_eq!(d(0.003), 0); //                  0,3% mais lento (brigando) → mantém
+        assert_eq!(d(0.008), -FAST_DOWN); //         0,8% mais lento → difícil → −3
+        assert_eq!(d(0.02), -FAST_DOWN_HARD); //     2% mais lento → difícil demais → −5
+    }
+
+    #[test]
+    fn erro_pontual_nao_baixa_a_dificuldade() {
+        // Caso real do molde: rodou, terminou P7, MAS o ritmo LIMPO vs a frente era
+        // competitivo (0,3%, dentro do escudo). Filosofia A + ritmo limpo → mantém, NÃO
+        // baixa. A posição P7 (custo do erro) é ignorada pela decisão.
+        let cur = Deltas { global: 30, track: 0 };
+        assert_eq!(
+            compute_fast_update(&FastResult { finish_pos: 7, ..fast(0.003) }, &cur).d_global,
+            0
+        );
+        // Contraste: genuinamente sem ritmo pra frente (1,8%) → desce forte, mesmo em P4.
+        assert_eq!(
+            compute_fast_update(&FastResult { finish_pos: 4, ..fast(0.018) }, &cur).d_global,
+            -FAST_DOWN_HARD
+        );
+    }
+
+    #[test]
+    fn frente_e_a_mediana_dos_2_melhores_da_ia() {
+        // Jogador ~70,3s (com uma rodada de 95 descartada). Duas IA da frente a 70,0 e 70,2
+        // → frente = 70,1. Um 3º carro lento (73) NÃO puxa a frente. Déficit ≈ 0,2/70 ≈ 0,3%.
+        let race = RaceResult {
+            track_id: 1,
+            yellow_laps: vec![],
+            race: vec![
+                driver(false, 1, &[70.0, 70.0, 70.0, 70.0, 70.0]), // frente 1
+                driver(false, 2, &[70.2, 70.2, 70.2, 70.2, 70.2]), // frente 2
+                driver(false, 3, &[73.0, 73.0, 73.0, 73.0, 73.0]), // IA lenta (fora da frente)
+                DriverData {
+                    finish_pos_in_class: 7,
+                    ..driver(true, 4, &[70.3, 70.3, 95.0, 70.3, 70.3]) // jogador + rodada
+                },
+            ],
+            qualy: None,
+        };
+        let r = fast_result_from(&race);
+        let g = r.pace_vs_front.unwrap();
+        assert!((g - 0.00285).abs() < 0.001, "déficit vs frente {g} (~0,3%)");
+        // Competitivo (< escudo) → não desce, apesar do P7.
+        assert_eq!(compute_fast_update(&r, &Deltas { global: 30, track: 0 }).d_global, 0);
+    }
+
+    #[test]
+    fn fast_dnf_e_sem_dados_e_teto() {
+        let cur = Deltas { global: 0, track: 0 };
+        assert!(!compute_fast_update(&FastResult { player_dnf: true, ..fast(-0.02) }, &cur).applied);
+        assert!(
+            !compute_fast_update(
+                &FastResult { pace_vs_front: None, ..fast(0.0) },
+                &cur
+            )
+            .applied
+        );
+        // No teto global (+40), domínio não passa do limite.
+        let topo = Deltas { global: GLOBAL_MAX, track: 0 };
+        let u = compute_fast_update(&fast(-0.02), &topo);
+        assert_eq!(u.new.global, GLOBAL_MAX);
+        assert_eq!(u.d_global, 0);
+    }
 
     fn laps(times: &[f64]) -> Vec<Lap> {
         times
@@ -344,202 +384,4 @@ mod tests {
         }
     }
 
-    /// Monta uma corrida: jogador + 2 rivais de IA na mesma classe. A volta 1 de
-    /// cada um é "lenta" (largada) e descartada — por isso repito o ritmo.
-    fn race(player_times: &[f64], r1: &[f64], r2: &[f64]) -> RaceResult {
-        RaceResult {
-            track_id: 489,
-            yellow_laps: vec![],
-            race: vec![
-                driver(true, 1, player_times),
-                driver(false, 2, r1),
-                driver(false, 3, r2),
-            ],
-            qualy: None,
-        }
-    }
-
-    // Ritmos: volta 1 inflada (largada) + voltas representativas.
-    const LEADER_START: f64 = 110.0;
-
-    fn with_start(rep: &[f64]) -> Vec<f64> {
-        let mut v = vec![LEADER_START];
-        v.extend_from_slice(rep);
-        v
-    }
-
-    #[test]
-    fn dominou_sobe_forte() {
-        // jogador ~95.0, rivais ~96.0 → -1.0s/volta → dominou.
-        let r = race(
-            &with_start(&[95.0, 95.1, 94.9]),
-            &with_start(&[96.0, 96.1, 95.9]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert!(u.applied);
-        assert_eq!(u.d_global, 2, "{}", u.verdict);
-        assert_eq!(u.d_track, 2);
-    }
-
-    #[test]
-    fn venceu_com_folga_sobe_um() {
-        // jogador ~95.5, rivais ~96.0 → -0.5s → folga.
-        let r = race(
-            &with_start(&[95.5, 95.5, 95.5]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 1, "{}", u.verdict);
-        assert_eq!(u.d_track, 1);
-    }
-
-    #[test]
-    fn equilibrio_nao_mexe() {
-        // jogador ~95.9, rivais ~96.0 → -0.1s → equilíbrio.
-        let r = race(
-            &with_start(&[95.9, 95.9, 95.9]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 0, "{}", u.verdict);
-        assert_eq!(u.d_track, 0);
-    }
-
-    #[test]
-    fn muito_atras_desce_global_e_pista() {
-        // jogador ~97.3, rivais ~96.0 → +1.3s, e best também lento → desce os dois.
-        let r = race(
-            &with_start(&[97.3, 97.3, 97.3]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, -1, "{}", u.verdict);
-        assert_eq!(u.d_track, -1);
-    }
-
-    #[test]
-    fn atras_moderado_desce_so_global() {
-        // jogador ~96.6, rivais ~96.0 → +0.6s (entre BEHIND e FAR) → -1 global, 0 pista.
-        let r = race(
-            &with_start(&[96.6, 96.6, 96.6]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, -1, "{}", u.verdict);
-        assert_eq!(u.d_track, 0);
-    }
-
-    #[test]
-    fn transito_escudo_nao_desce() {
-        // Ritmo médio ruim (+1.0s) MAS melhor volta competitiva (best -0.2s vs ref).
-        // jogador: voltas lentas por trânsito (97.0) + uma volta limpa boa (95.8).
-        // rivais best ~96.0 → best_gap = 95.8 - 96.0 = -0.2 < SHIELD → não desce.
-        let r = race(
-            &with_start(&[97.0, 97.0, 95.8, 97.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 0, "escudo do trânsito falhou: {}", u.verdict);
-        assert_eq!(u.d_track, 0);
-        assert!(u.verdict.contains("Trânsito"));
-    }
-
-    #[test]
-    fn dnf_nao_ajusta() {
-        let mut r = race(
-            &with_start(&[95.0, 95.0, 95.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        r.race[0].dnf = true;
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert!(!u.applied);
-        assert_eq!(u.d_global, 0);
-    }
-
-    #[test]
-    fn erro_de_10s_nao_conta_como_lento() {
-        // jogador domina (95.0) mas tem UMA volta de 105 (rodada). Não pode parecer lento.
-        let r = race(
-            &with_start(&[95.0, 95.0, 105.0, 95.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 2, "outlier não foi descartado: {}", u.verdict);
-    }
-
-    #[test]
-    fn voltas_amarelas_sao_ignoradas() {
-        // jogador rápido (95.0), mas voltas 4-5 são amarelas e lentas — devem sair.
-        let mut r = race(
-            &[LEADER_START, 95.0, 95.0, 130.0, 130.0],
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        r.yellow_laps = vec![4, 5];
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 2, "amarela não foi ignorada: {}", u.verdict);
-    }
-
-    #[test]
-    fn piso_global_trava_em_menos_cinco() {
-        let r = race(
-            &with_start(&[98.0, 98.0, 98.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(
-            &r,
-            &Deltas {
-                global: -5,
-                track: 0,
-            },
-        );
-        assert_eq!(u.new.global, -5, "furou o piso: {}", u.verdict);
-        assert_eq!(u.d_global, 0);
-    }
-
-    #[test]
-    fn subida_amortecida_perto_do_teto() {
-        // Dominou (+2 cru) mas já está em +12 → amortece p/ +1.
-        let r = race(
-            &with_start(&[95.0, 95.0, 95.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        let u = compute_adaptive_update(
-            &r,
-            &Deltas {
-                global: 12,
-                track: 0,
-            },
-        );
-        assert_eq!(u.d_global, 1, "não amorteceu: {}", u.verdict);
-        assert_eq!(u.new.global, 13);
-    }
-
-    #[test]
-    fn quali_reforca_escudo() {
-        // Corrida: ritmo médio ruim (+1.0s) E melhor volta da corrida ruim (96.9),
-        // MAS na QUALI o jogador fez 95.7 (rivais quali 96.0) → potencial bom → não desce.
-        let mut r = race(
-            &with_start(&[97.0, 96.9, 97.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-            &with_start(&[96.0, 96.0, 96.0]),
-        );
-        r.qualy = Some(vec![
-            driver(true, 1, &[120.0, 95.7, 95.8]),  // jogador voou na quali
-            driver(false, 2, &[120.0, 96.0, 96.1]), // rival
-            driver(false, 3, &[120.0, 96.0, 96.0]),
-        ]);
-        let u = compute_adaptive_update(&r, &Deltas::default());
-        assert_eq!(u.d_global, 0, "quali não reforçou o escudo: {}", u.verdict);
-    }
 }

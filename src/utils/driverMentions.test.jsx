@@ -1,0 +1,56 @@
+import { describe, it, expect } from "vitest";
+import { buildDriverMentionMatcher } from "./driverMentions";
+
+// Ajuda: quais ids o matcher extrai de um texto (na ordem em que aparecem).
+function mentionsIn(text, drivers) {
+  const matcher = buildDriverMentionMatcher(drivers);
+  if (!matcher) return [];
+  return text
+    .split(matcher.regex)
+    .map((part) => matcher.byName.get(part))
+    .filter(Boolean);
+}
+
+describe("buildDriverMentionMatcher", () => {
+  it("realça o nome completo", () => {
+    const drivers = [{ id: "1", nome: "Ramiro Ruiz" }];
+    expect(mentionsIn("Grande corrida de Ramiro Ruiz hoje.", drivers)).toEqual(["1"]);
+  });
+
+  it("realça o sobrenome sozinho (segunda menção da IA)", () => {
+    const drivers = [{ id: "1", nome: "Ramiro Ruiz" }];
+    expect(mentionsIn("Ruiz saiu fortalecido do fim de semana.", drivers)).toEqual(["1"]);
+  });
+
+  it("realça o primeiro nome sozinho", () => {
+    const drivers = [{ id: "1", nome: "Rodrigo Carvalho" }];
+    expect(mentionsIn("Rodrigo cometeu um erro caro.", drivers)).toEqual(["1"]);
+  });
+
+  it("prioriza o nome completo sobre o sobrenome quando ambos aparecem", () => {
+    const drivers = [{ id: "1", nome: "Ramiro Ruiz" }];
+    // Um único match para o nome completo, não dois (nome + sobrenome).
+    expect(mentionsIn("Ramiro Ruiz venceu.", drivers)).toEqual(["1"]);
+  });
+
+  it("não realça sobrenome ambíguo compartilhado por dois pilotos", () => {
+    const drivers = [
+      { id: "1", nome: "Bruno Silva" },
+      { id: "2", nome: "Carlos Silva" },
+    ];
+    // "Silva" sozinho é ambíguo → não realça (evita acender o piloto errado).
+    expect(mentionsIn("Silva liderou a prova.", drivers)).toEqual([]);
+    // Mas os nomes completos continuam funcionando.
+    expect(mentionsIn("Bruno Silva e Carlos Silva brigaram.", drivers)).toEqual(["1", "2"]);
+  });
+
+  it("não realça pedaço de outra palavra", () => {
+    const drivers = [{ id: "1", nome: "Ramiro Ruiz" }];
+    expect(mentionsIn("O cruzeiro passou.", drivers)).toEqual([]);
+  });
+
+  it("retorna null sem pilotos utilizáveis", () => {
+    expect(buildDriverMentionMatcher([])).toBeNull();
+    expect(buildDriverMentionMatcher(null)).toBeNull();
+  });
+});

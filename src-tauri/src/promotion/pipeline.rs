@@ -185,6 +185,20 @@ fn apply_team_category_change(conn: &Connection, movement: &TeamMovement) -> Res
     team.classe = infer_team_class(movement);
     team_queries::update_team(conn, &team)
         .map_err(|e| format!("Falha ao atualizar equipe '{}': {e}", team.nome))?;
+    // Sistema de Nível do Carro: re-ancora o carro ao teto da nova categoria no ATO da
+    // mudança. Um time rebaixado não pode carregar um carro acima do teto de onde chegou
+    // (regride ao teto, valendo já na 1ª corrida); um promovido mantém o carro — abaixo do
+    // novo teto — e evolui (soft landing).
+    if let Some(car) = team.car.as_mut() {
+        let ceiling = crate::car::cost::category_ceiling(&team.categoria);
+        for part in car.parts.iter_mut() {
+            if part.level > ceiling {
+                part.level = ceiling;
+            }
+        }
+        crate::db::queries::team_car::upsert_team_car(conn, &team.id, car)
+            .map_err(|e| format!("Falha ao re-ancorar carro de '{}': {e}", team.nome))?;
+    }
     // Pilar C: a mudança de categoria zera o plano estratégico — a próxima
     // pré-temporada re-avalia o arco para a nova realidade da equipe.
     team_queries::reset_strategic_plan(conn, &team.id)

@@ -819,6 +819,7 @@ mod tests {
                 meta(2, 33, 3, 100), // IA P3
             ],
             track_id: 1,
+            subsession_id: 0,
             qualy_laps: vec![],
             pit_stops: vec![],
             weather: Default::default(),

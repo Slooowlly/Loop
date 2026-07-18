@@ -109,6 +109,16 @@ fn run_end_of_season_with_mode(
         *titles_by_driver.entry(entry.driver_id.clone()).or_insert(0) += 1;
     }
 
+    // Cura lesões de pilotos sem assento (passo 1 de 2). O tick por corrida
+    // (`process_injury_recovery`) só enxerga quem tem `categoria_atual`; um piloto
+    // que perde o assento enquanto lesionado nunca cicatriza e fica preso fora da
+    // grade para sempre. Esta 1ª passagem cobre os órfãos que JÁ entraram na virada
+    // sem assento (passivo de saves antigas): roda antes da evolução para que o
+    // recuperado volte a `Ativo` e dispute já o mercado da pré-temporada desta virada.
+    // A 2ª passagem (após o mercado, abaixo) cobre quem VIRA órfão agora — ver lá.
+    crate::evolution::injury::process_injury_recovery_without_seat(&tx)
+        .map_err(|e| format!("Falha ao recuperar lesões de pilotos sem assento: {e}"))?;
+
     let (growth_reports, motivation_reports, retirements, _existing_names) =
         process_driver_evolution(
             &tx,
@@ -181,6 +191,16 @@ fn run_end_of_season_with_mode(
 
     let (preseason_initialized, preseason_total_weeks) =
         initialize_preseason_phase(&tx, &new_season, save_path, &mut rng, mode)?;
+
+    // Cura lesões de pilotos sem assento (passo 2 de 2). O mercado da pré-temporada
+    // (dentro de `initialize_preseason_phase`) larga o piloto que se lesionou na
+    // última corrida e teve o contrato expirando: a renovação e o leilão pulam quem
+    // não está `Ativo`, e o `sync` zera a categoria dele. Sem esta 2ª passagem ele só
+    // seria curado na PRÓXIMA virada (a 1ª passagem já rodou antes de virar órfão),
+    // ficando uma temporada inteira na bancada. Curando-o aqui, entra a temporada que
+    // vem como agente livre `Ativo` e a janela de transferências semanal o recontrata.
+    crate::evolution::injury::process_injury_recovery_without_seat(&tx)
+        .map_err(|e| format!("Falha ao recuperar lesões de pilotos recém-liberados: {e}"))?;
 
     tx.commit().map_err(|e| {
         let _ = std::fs::remove_file(save_path.join("preseason_plan.json"));
@@ -361,6 +381,44 @@ fn process_driver_evolution(
     let mut motivation_reports = Vec::new();
     let mut retirements = Vec::new();
 
+    // Distribuição de car_performance por categoria (times DISTINTOS que competem
+    // nela), pra medir o percentil do carro de cada piloto — base da "superação de
+    // expectativa" no crescimento (talento = render acima da própria máquina).
+    let mut cat_car_perfs: HashMap<String, Vec<f64>> = HashMap::new();
+    {
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for (driver_id, standing) in standings_by_driver {
+            if let Some(contract) = contracts_by_driver.get(driver_id) {
+                if let Some(team) = teams_by_id.get(&contract.equipe_id) {
+                    if seen.insert((standing.category.clone(), contract.equipe_id.clone())) {
+                        cat_car_perfs
+                            .entry(standing.category.clone())
+                            .or_default()
+                            .push(team.car_performance);
+                    }
+                }
+            }
+        }
+        for perfs in cat_car_perfs.values_mut() {
+            perfs.sort_by(|a, b| a.total_cmp(b));
+        }
+    }
+    // Percentil do carro na categoria (0 = pior, 1 = melhor); midrank pra empates.
+    // Categoria trivial/desconhecida → 0.5 (neutro, sem bônus nem penalidade).
+    let car_percentile = |category: &str, perf: f64| -> f64 {
+        match cat_car_perfs.get(category) {
+            Some(perfs) if perfs.len() > 1 => {
+                let below = perfs.iter().filter(|&&p| p < perf).count() as f64;
+                let equal = perfs
+                    .iter()
+                    .filter(|&&p| (p - perf).abs() < f64::EPSILON)
+                    .count() as f64;
+                (below + equal / 2.0) / perfs.len() as f64
+            }
+            _ => 0.5,
+        }
+    };
+
     for driver in &mut all_drivers {
         if driver.status != DriverStatus::Ativo {
             continue;
@@ -368,11 +426,13 @@ fn process_driver_evolution(
 
         let standing = standings_by_driver.get(&driver.id).cloned();
         if let Some(standing) = standing {
-            let team_car_performance = contracts_by_driver
+            let team = contracts_by_driver
                 .get(&driver.id)
-                .and_then(|contract| teams_by_id.get(&contract.equipe_id))
-                .map(|team| team.car_performance)
-                .unwrap_or(0.0);
+                .and_then(|contract| teams_by_id.get(&contract.equipe_id));
+            let team_car_performance = team.map(|team| team.car_performance).unwrap_or(0.0);
+            let car_field_percentile = team
+                .map(|team| car_percentile(&standing.category, team.car_performance))
+                .unwrap_or(0.5);
 
             let category_tier = get_category_config(&standing.category)
                 .map(|config| config.tier)
@@ -382,6 +442,7 @@ fn process_driver_evolution(
                 &standing.stats,
                 team_car_performance,
                 category_tier,
+                car_field_percentile,
                 rng,
             );
             if !growth_report.changes.is_empty() {

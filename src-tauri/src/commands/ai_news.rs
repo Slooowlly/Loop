@@ -124,6 +124,88 @@ pub struct PreRaceAiResult {
 }
 
 /// Prévia pré-corrida (narrativa + voz da equipe, CURTAS) para a Sala de Estratégia.
+/// Monta o bloco "ARCO RECENTE" que dá MEMÓRIA entre etapas ao briefing: um resumão
+/// das últimas até 3 corridas do jogador na categoria (chegada + manchete do debrief
+/// de cada uma) e, para a etapa imediatamente anterior, o corpo completo do que o
+/// engenheiro te disse — para que o briefing retome promessas e mostre continuidade.
+///
+/// Só depende do banco (`conn` + `race_id`), como `build_post_race_facts`. Sem
+/// histórico (1ª corrida da carreira / 1ª na categoria) devolve string vazia e o
+/// briefing fica idêntico ao de hoje. Etapa antiga sem debrief de IA (offline / gate
+/// de engajamento) ainda entra pela chegada — a fala aparece só quando existe.
+fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String {
+    use std::fmt::Write;
+
+    let Some(entry) = crate::db::queries::calendar::get_calendar_entry_by_id(conn, race_id)
+        .ok()
+        .flatten()
+    else {
+        return String::new();
+    };
+    let Ok(player) = crate::db::queries::drivers::get_player_driver(conn) else {
+        return String::new();
+    };
+    let season_num = crate::db::queries::seasons::get_active_season(conn)
+        .ok()
+        .flatten()
+        .map(|s| s.numero)
+        .unwrap_or(0);
+
+    let recent = match crate::db::queries::race_history::get_recent_races_before(
+        conn,
+        &player.id,
+        &entry.categoria,
+        season_num,
+        entry.rodada,
+        3,
+    ) {
+        Ok(r) if !r.is_empty() => r,
+        _ => return String::new(),
+    };
+
+    let mut f = String::new();
+    let _ = writeln!(
+        f,
+        "\nARCO RECENTE (o que você e a equipe já viveram nas últimas etapas — use para retomar promessas, mostrar memória e dar continuidade; NÃO liste como estatística):"
+    );
+    for r in &recent {
+        let resultado = if r.is_dnf {
+            "DNF".to_string()
+        } else {
+            format!("P{}", r.finish)
+        };
+        let manchete = crate::db::queries::ai_post_race::get_post_race(conn, &r.race_id)
+            .ok()
+            .flatten()
+            .map(|d| d.headline)
+            .filter(|h| !h.is_empty());
+        match manchete {
+            Some(h) => {
+                let _ = writeln!(f, "- R{} · {}: {} — «{}»", r.round, r.track_name, resultado, h);
+            }
+            None => {
+                let _ = writeln!(f, "- R{} · {}: {}", r.round, r.track_name, resultado);
+            }
+        }
+    }
+
+    // Corpo completo só da etapa imediatamente anterior (a mais recente) — continuidade
+    // de voz sem inflar o prompt com o debrief inteiro de todas as etapas.
+    if let Some(prev) = recent.first() {
+        if let Ok(Some(d)) = crate::db::queries::ai_post_race::get_post_race(conn, &prev.race_id) {
+            if !d.body.is_empty() {
+                let _ = writeln!(
+                    f,
+                    "\nNA ÚLTIMA CORRIDA (R{}), O ENGENHEIRO TE DISSE: {}",
+                    prev.round, d.body
+                );
+            }
+        }
+    }
+
+    f
+}
+
 /// O front monta os `facts` do briefing e chama isto ao abrir a tela. Cacheia por
 /// `race_id` (reentrar não regenera). Em cooldown/rede/cota → textos `None` e o front
 /// usa o template. O cooldown de 10 min entre prévias é imposto pelo servidor
@@ -187,6 +269,18 @@ pub fn pre_race_briefing_ai(
             status: "unavailable".to_string(),
         });
     }
+
+    // Arco narrativo entre etapas: anexa a memória das últimas corridas (chegada +
+    // manchete do debrief, e o corpo do debrief anterior) para o engenheiro retomar de
+    // onde parou. Vazio na 1ª corrida da carreira/categoria → briefing inalterado.
+    let facts = {
+        let arc = build_recent_arc_facts(&db.conn, &race_id);
+        if arc.trim().is_empty() {
+            facts
+        } else {
+            format!("{facts}\n{arc}")
+        }
+    };
 
     match client::fetch_pre_race_briefing(&facts, &lang, &install_id, force) {
         Ok(b) => {
@@ -772,37 +866,11 @@ fn build_post_race_facts(
         let _ = write!(f, "{}", telemetry_facts(v.get("telemetry"), player.grid_position));
     }
 
-    // Últimas 3 corridas (memória curta pro engenheiro).
-    if !categoria.is_empty() {
-        if let Some(entry) = &calendar_entry {
-            if let Ok(recent) = crate::db::queries::race_history::get_recent_finishes_before(
-                conn,
-                &player.pilot_id,
-                &categoria,
-                season_num,
-                entry.rodada,
-                3,
-            ) {
-                if !recent.is_empty() {
-                    let items: Vec<String> = recent
-                        .iter()
-                        .map(|r| {
-                            if r.is_dnf {
-                                format!("R{}: DNF", r.round)
-                            } else {
-                                format!("R{}: P{}", r.round, r.finish)
-                            }
-                        })
-                        .collect();
-                    let _ = writeln!(
-                        f,
-                        "\nSUAS ÚLTIMAS CORRIDAS (mais recente primeiro): {}",
-                        items.join(" · ")
-                    );
-                }
-            }
-        }
-    }
+    // Memória entre etapas: resumão das últimas corridas (chegada + manchete do
+    // debrief de cada uma) e o corpo do debrief anterior — a MESMA peça do briefing
+    // pré-corrida, para o engenheiro falar com continuidade de fim de semana a fim de
+    // semana, não só com a lista fria de resultados.
+    let _ = write!(f, "{}", build_recent_arc_facts(conn, race_id));
 
     // Manutenção / batida.
     if maintenance.total > 0.0 {

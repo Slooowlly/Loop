@@ -1321,6 +1321,367 @@ mod tests {
         );
     }
 
+    // Harness de MEDIÇÃO da deflação da grade: roda um mundo maduro por várias
+    // temporadas e imprime o skill médio por categoria (a escada) a cada ano, para
+    // observar se o topo (GT3/endurance) deflaciona e se a escada mantém a ordem.
+    // Serve de laboratório A/B para correções de alocação do mercado. #[ignore] (lento).
+    #[test]
+    #[ignore = "harness de medição de deflação da escada (lento); rodar sob demanda"]
+    fn grid_skill_ladder_over_time() {
+        use super::{
+            clear_historical_news, simulate_current_historical_season,
+            stabilize_historical_performance_bands,
+        };
+        use crate::constants::categories::get_category_config;
+        use crate::evolution::pipeline::run_historical_end_of_season;
+        use crate::market::pipeline::{fill_all_remaining_vacancies, read_slam_history};
+        use crate::market::slam_ambition::{self, SlamDecision};
+        use crate::models::enums::{DriverStatus, PrimaryPersonality};
+
+        let base_dir = unique_test_dir("ladder_deflation");
+        let input = sample_draft_input();
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2024, 2025)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id").to_string();
+        let config = AppConfig::load_or_default(&base_dir);
+        let career_dir = config.saves_dir().join(&career_id);
+        let mut db = open_draft_db(&base_dir, &career_id);
+
+        // Categorias-chave da escada, do topo p/ baixo.
+        let cats = ["endurance", "gt3", "gt4", "production_challenger", "bmw_m2"];
+        let measure = |db: &Database, ano: i32| {
+            let mut cells = Vec::new();
+            for cat in &cats {
+                let (avg, n): (f64, i64) = db
+                    .conn
+                    .query_row(
+                        "SELECT COALESCE(AVG(skill),0), COUNT(*) FROM drivers \
+                         WHERE is_jogador=0 AND status IN ('Ativo','Lesionado') AND categoria_atual=?1",
+                        [cat],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .expect("cat skill");
+                cells.push(format!("{cat}={avg:.1}(n{n})"));
+            }
+            // Craques skill>=74: quantos existem e quantos no GT3.
+            let craques: i64 = db
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM drivers WHERE is_jogador=0 \
+                     AND status IN ('Ativo','Lesionado') AND skill>=74",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("craques");
+            let craques_gt3: i64 = db
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM drivers WHERE is_jogador=0 \
+                     AND status IN ('Ativo','Lesionado') AND skill>=74 AND categoria_atual='gt3'",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("craques gt3");
+            eprintln!("{ano} | {} | craques74={craques} (gt3={craques_gt3})", cells.join(" "));
+
+            // ── DIAGNÓSTICO teto vs oportunidade ──────────────────────────────
+            // Pergunta: o pool de craque encolhe porque FALTAM pilotos capazes de
+            // virar craque (teto pessoal baixo = problema de INTAKE), ou porque
+            // pilotos CAPAZES ficam presos embaixo sem chance de subir (problema de
+            // OPORTUNIDADE/pódio)? Só medimos os vivos, sem contar o jogador.
+            let one = |sql: &str| -> i64 {
+                db.conn
+                    .query_row(
+                        &format!(
+                            "SELECT COUNT(*) FROM drivers WHERE is_jogador=0 \
+                             AND status IN ('Ativo','Lesionado') AND {sql}"
+                        ),
+                        [],
+                        |r| r.get(0),
+                    )
+                    .expect(sql)
+            };
+            // capaz = teto pessoal já permite virar craque (independe do skill atual)
+            let capaz = one("potencial>=74");
+            // teto de ELITE: sustentar GT3/endurance nos 80s precisa de teto nos 80s,
+            // não teto 74. Se pot>=82/>=88 forem escassos e caírem, o gargalo é a
+            // GERAÇÃO da cauda de elite (intake), não conversão/alocação.
+            let cap82 = one("potencial>=82");
+            let cap88 = one("potencial>=88");
+            // teto realmente alcançado no topo: média das 28 maiores skills (= vagas GT3)
+            let top28_skill: f64 = db
+                .conn
+                .query_row(
+                    "SELECT COALESCE(AVG(skill),0) FROM (SELECT skill FROM drivers \
+                     WHERE is_jogador=0 AND status IN ('Ativo','Lesionado') \
+                     ORDER BY skill DESC LIMIT 28)",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("top28 skill");
+            // preso = capaz mas ainda NÃO chegou (tem o teto, falta subir)
+            let preso = one("potencial>=74 AND skill<74");
+            // oportunidade-bloqueado = capaz, longe do teto E já não é jovem (não vai
+            // mais crescer sozinho): talento desperdiçado por falta de carro/pódio
+            let opp_travado = one("potencial>=74 AND skill<70 AND idade>=27");
+            // intake-bloqueado = piloto BOM (skill>=60) mas com teto que PROÍBE craque
+            let bom_capado = one("skill>=60 AND potencial<74");
+            // cobertura: quantos ainda sem teto derivado (potencial=0) => ruído
+            let sem_teto = one("potencial<=0");
+            eprintln!(
+                "      diag: capazes(pot>=74)={capaz} presos={preso} opp_travado={opp_travado} \
+                 bom_capado(skill>=60,pot<74)={bom_capado} sem_teto={sem_teto}"
+            );
+            eprintln!(
+                "      elite: teto>=82={cap82} teto>=88={cap88} top28_skill={top28_skill:.1}"
+            );
+            // ONDE estão os 28 melhores do mundo? Se a elite (skill ~90) não está no
+            // GT3/endurance, é ralo de ALOCAÇÃO (órfão, classe excluída, tier inferior).
+            let elite_loc: Vec<(String, i64)> = {
+                let mut stmt = db
+                    .conn
+                    .prepare(
+                        "SELECT COALESCE(categoria_atual,'ORFAO') AS cat, COUNT(*) \
+                         FROM (SELECT categoria_atual, skill FROM drivers \
+                               WHERE is_jogador=0 AND status IN ('Ativo','Lesionado') \
+                               ORDER BY skill DESC LIMIT 28) \
+                         GROUP BY cat ORDER BY COUNT(*) DESC",
+                    )
+                    .expect("prep elite loc");
+                let rows = stmt
+                    .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                    .expect("elite loc rows")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("elite loc collect");
+                rows
+            };
+            let loc_str = elite_loc
+                .iter()
+                .map(|(cat, n)| format!("{cat}={n}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!("      top28-onde: {loc_str}");
+
+            // ── FSM de ambição: a elite presa na várzea QUER subir ou está feliz? ──
+            // Roda a `slam_ambition::decide` REAL em cada craque preso abaixo do gt3
+            // (skill>=82, sentado, fora de gt3/endurance) pra separar quem a escada
+            // deveria promover (frustrado) de quem está construindo/perseguindo título
+            // (contente — não deve ser forçado). Isso prevê se ligar a FSM enche o GT3.
+            let all_drivers = crate::db::queries::drivers::get_all_drivers(&db.conn)
+                .expect("get all drivers");
+            let (mut nao_amb, mut fica_dinastia, mut fica_lado, mut quer_subir, mut sobe_normal) =
+                (0i32, 0i32, 0i32, 0i32, 0i32);
+            let mut com_historico = 0i32;
+            for d in &all_drivers {
+                if d.is_jogador
+                    || !matches!(d.status, DriverStatus::Ativo | DriverStatus::Lesionado)
+                    || d.atributos.skill < 82.0
+                {
+                    continue;
+                }
+                let cur = match &d.categoria_atual {
+                    Some(c) if c != "gt3" && c != "endurance" => c.clone(),
+                    _ => continue, // órfão ou já no topo → não é "preso na várzea"
+                };
+                let ambicioso =
+                    d.personalidade_primaria == Some(PrimaryPersonality::Ambicioso);
+                if !ambicioso {
+                    nao_amb += 1;
+                    continue;
+                }
+                let (history, current_results) =
+                    read_slam_history(&db.conn, d).unwrap_or_default();
+                if !history.is_empty() || !current_results.is_empty() {
+                    com_historico += 1;
+                }
+                let cur_tier = get_category_config(&cur).map(|c| c.tier).unwrap_or(0);
+                match slam_ambition::decide(
+                    &history,
+                    &cur,
+                    d.atributos.skill,
+                    true,
+                    &current_results,
+                ) {
+                    Some(SlamDecision::Stay { .. }) => fica_dinastia += 1,
+                    Some(SlamDecision::Chase { category, .. }) => {
+                        let alvo_tier =
+                            get_category_config(&category).map(|c| c.tier).unwrap_or(0);
+                        if alvo_tier > cur_tier {
+                            quer_subir += 1;
+                        } else {
+                            fica_lado += 1; // persegue base na categoria atual/lateral
+                        }
+                    }
+                    None => sobe_normal += 1, // ambicioso, esgotou/desistiu → sobe normal
+                }
+            }
+            let sobem = quer_subir + sobe_normal;
+            let ficam = nao_amb + fica_dinastia + fica_lado;
+            eprintln!(
+                "      elite-presa(skill>=82,fora gt3/endur): SOBEM={sobem} [quer_subir={quer_subir} \
+                 sobe_normal={sobe_normal}] | FICAM={ficam} [nao_amb={nao_amb} dinastia={fica_dinastia} \
+                 base_atual={fica_lado}] (com_historico={com_historico})"
+            );
+
+            // ── Composição dos PRESOS (capaz, pot>=74, skill<74) ──────────────
+            // Quebra por IDADE (o age_factor do crescimento cai a 0.7 aos 29-32 e
+            // 0.3 aos 33+: quem passa disso está age-locked, nenhum peso salva) e por
+            // ASSENTO (órfão sem categoria não corre → não cresce nunca).
+            const PRESO: &str = "potencial>=74 AND skill<74";
+            let p_jovem = one(&format!("{PRESO} AND idade<=24"));
+            let p_meio = one(&format!("{PRESO} AND idade BETWEEN 25 AND 28"));
+            let p_2932 = one(&format!("{PRESO} AND idade BETWEEN 29 AND 32"));
+            let p_velho = one(&format!("{PRESO} AND idade>=33"));
+            let p_orfao = one(&format!("{PRESO} AND categoria_atual IS NULL"));
+            let p_sentado = one(&format!("{PRESO} AND categoria_atual IS NOT NULL"));
+            let (skill_med, gap_med): (f64, f64) = db
+                .conn
+                .query_row(
+                    &format!(
+                        "SELECT COALESCE(AVG(skill),0), COALESCE(AVG(potencial-skill),0) \
+                         FROM drivers WHERE is_jogador=0 \
+                         AND status IN ('Ativo','Lesionado') AND {PRESO}"
+                    ),
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .expect("preso stats");
+            eprintln!(
+                "      preso-comp: idade[<=24={p_jovem} 25-28={p_meio} 29-32={p_2932} 33+={p_velho}] \
+                 assento[orfao={p_orfao} sentado={p_sentado}] skill_med={skill_med:.1} folga_ate_teto={gap_med:.1}"
+            );
+        };
+
+        eprintln!("=== BASELINE (fim da geração 2000-2024) ===");
+        measure(&db, 2025);
+        eprintln!("=== +15 temporadas ===");
+        for _ in 0..15 {
+            stabilize_historical_performance_bands(&db.conn).expect("stabilize");
+            simulate_current_historical_season(&mut db).expect("simulate season");
+            let season = season_queries::get_active_season(&db.conn)
+                .expect("active season query")
+                .expect("active season exists");
+            run_historical_end_of_season(&mut db.conn, &season, &career_dir).expect("eos");
+            let next = season_queries::get_active_season(&db.conn)
+                .expect("next season query")
+                .expect("next season exists");
+            fill_all_remaining_vacancies(&db.conn, next.numero, &mut rand::thread_rng())
+                .expect("fill vacancies");
+            clear_historical_news(&db.conn).expect("clear news");
+            measure(&db, next.ano);
+        }
+    }
+
+    // Harness de MEDIÇÃO (não regressão): roda um mundo maduro por várias temporadas
+    // e observa se os pilotos que se lesionam e perdem o assento são REABSORVIDOS pelo
+    // mercado, ou se acumulam como órfãos ao longo do tempo. Marcado #[ignore] porque
+    // simula ~40 temporadas (lento); rodar com `--ignored --nocapture`.
+    #[test]
+    #[ignore = "harness de medição de absorção de lesionados (lento); rodar sob demanda"]
+    fn injured_orphans_are_reabsorbed_by_market_over_time() {
+        use super::{
+            clear_historical_news, simulate_current_historical_season,
+            stabilize_historical_performance_bands,
+        };
+        use crate::evolution::pipeline::run_historical_end_of_season;
+        use crate::market::pipeline::fill_all_remaining_vacancies;
+
+        let base_dir = unique_test_dir("injury_absorption");
+        let input = sample_draft_input();
+        // Mundo maduro (escada cheia, aposentadorias em regime) já em 2025.
+        let state =
+            create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2024, 2025)
+                .expect("historical generation should finish");
+        let career_id = state.career_id.as_deref().expect("draft career id").to_string();
+        let config = AppConfig::load_or_default(&base_dir);
+        let career_dir = config.saves_dir().join(&career_id);
+        let mut db = open_draft_db(&base_dir, &career_id);
+
+        let count = |db: &Database, sql: &str| -> i64 {
+            db.conn.query_row(sql, [], |row| row.get(0)).expect(sql)
+        };
+        // "Vivos" = na ativa. Aposentados ficam na tabela para sempre (histórico) e
+        // cresceriam sempre — não são o que interessa para "sistema fechado inflando".
+        const Q_TOTAL: &str =
+            "SELECT COUNT(*) FROM drivers WHERE is_jogador=0 AND status IN ('Ativo','Lesionado')";
+        const Q_SEATED: &str =
+            "SELECT COUNT(*) FROM drivers WHERE is_jogador=0 AND categoria_atual IS NOT NULL";
+        const Q_ORPHAN_ACTIVE: &str = "SELECT COUNT(*) FROM drivers \
+             WHERE is_jogador=0 AND status='Ativo' AND categoria_atual IS NULL";
+        const Q_ORPHAN_INJURED: &str = "SELECT COUNT(*) FROM drivers \
+             WHERE is_jogador=0 AND status='Lesionado' AND categoria_atual IS NULL";
+        const Q_INJURED_SEATED: &str = "SELECT COUNT(*) FROM drivers \
+             WHERE is_jogador=0 AND status='Lesionado' AND categoria_atual IS NOT NULL";
+
+        // 15 temporadas adicionais em modo histórico não-interativo (janela semanal
+        // resolvida sozinha por advance_week dentro do EOS).
+        let mut trajectory: Vec<(i32, i64, i64, i64, i64, i64)> = Vec::new();
+        for _ in 0..15 {
+            stabilize_historical_performance_bands(&db.conn).expect("stabilize");
+            simulate_current_historical_season(&mut db).expect("simulate season");
+            let season = season_queries::get_active_season(&db.conn)
+                .expect("active season query")
+                .expect("active season exists");
+            run_historical_end_of_season(&mut db.conn, &season, &career_dir).expect("eos");
+            let next = season_queries::get_active_season(&db.conn)
+                .expect("next season query")
+                .expect("next season exists");
+            fill_all_remaining_vacancies(&db.conn, next.numero, &mut rand::thread_rng())
+                .expect("fill vacancies");
+            clear_historical_news(&db.conn).expect("clear news");
+
+            trajectory.push((
+                next.ano,
+                count(&db, Q_TOTAL),
+                count(&db, Q_SEATED),
+                count(&db, Q_ORPHAN_ACTIVE),
+                count(&db, Q_ORPHAN_INJURED),
+                count(&db, Q_INJURED_SEATED),
+            ));
+        }
+
+        eprintln!("ano  | total | assento | orf_ativo | orf_lesionado | lesionado_c/assento");
+        for (ano, total, seated, orf_a, orf_i, inj_seat) in &trajectory {
+            eprintln!(
+                "{ano} |  {total:4} |   {seated:4}  |    {orf_a:3}    |      {orf_i:3}      |        {inj_seat:3}"
+            );
+        }
+
+        // Órfãos-Lesionados NÃO podem acumular: a cura de fim de temporada os zera.
+        // Se o deadlock voltasse, este número cresceria monotonicamente.
+        let max_orphan_injured = trajectory.iter().map(|t| t.4).max().unwrap_or(0);
+        assert!(
+            max_orphan_injured <= 8,
+            "órfãos-lesionados não devem acumular (deadlock de recuperação): pico={max_orphan_injured}\n{trajectory:?}"
+        );
+
+        // ABSORÇÃO: os órfãos-Ativo (lesionados curados sem assento) não podem crescer
+        // sem parar. Comparo a média da 2ª metade com a 1ª — não deve explodir.
+        let n = trajectory.len();
+        let first_half: f64 =
+            trajectory[..n / 2].iter().map(|t| t.3 as f64).sum::<f64>() / (n / 2) as f64;
+        let second_half: f64 =
+            trajectory[n / 2..].iter().map(|t| t.3 as f64).sum::<f64>() / (n - n / 2) as f64;
+        eprintln!(
+            "[ABSORÇÃO] orf_ativo média 1ª metade={first_half:.1} | 2ª metade={second_half:.1}"
+        );
+        assert!(
+            second_half <= first_half + 15.0,
+            "órfãos-Ativo crescendo sem absorção: 1ª metade {first_half:.1} → 2ª metade {second_half:.1}\n{trajectory:?}"
+        );
+
+        // População VIVA estável (sistema fechado não pode inflar por pilotos extras
+        // que se lesionam, perdem o assento e nunca são reabsorvidos).
+        let alive_start = trajectory.first().map(|t| t.1).unwrap_or(0);
+        let alive_end = trajectory.last().map(|t| t.1).unwrap_or(0);
+        eprintln!("[POPULAÇÃO VIVA] início={alive_start} → fim={alive_end}");
+        assert!(
+            alive_end < alive_start + 60,
+            "população viva inflando (piloto extra por lesão não reabsorvido): {alive_start} → {alive_end}"
+        );
+    }
+
     #[test]
     fn historical_playable_year_regular_categories_have_full_lineups() {
         let base_dir = unique_test_dir("historical_regular_lineups");

@@ -361,7 +361,7 @@ function FocusedDriverCard({ row, ranks, userRow, userRanks }) {
     { label: "Indice", value: formatIndex(row.historical_index), rank: row.historical_rank },
     { label: "Corridas", value: row.corridas, rank: ranks.races },
     { label: "Vitorias", value: row.vitorias, rank: ranks.wins },
-    { label: "Podios", value: row.podios, rank: ranks.podiums },
+    { label: "Podios", value: row.podios, rank: ranks.podiums, title: podiumBreakdownTitle(row) },
     { label: "Carreira", value: formatYears(row.anos_carreira), rank: ranks.careerYears },
   ];
 
@@ -430,9 +430,12 @@ function UserDriverFocusCard({ row, ranks }) {
   );
 }
 
-function FocusStat({ label, value, rank }) {
+function FocusStat({ label, value, rank, title }) {
   return (
-    <div className="min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3">
+    <div
+      className={`min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3${title ? " cursor-help" : ""}`}
+      title={title || undefined}
+    >
       <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</p>
       <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value ?? 0}</p>
       <p className="mt-1 text-xs text-accent-primary">Top #{rank || "--"}</p>
@@ -734,7 +737,7 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
       <td className="px-4 py-3 font-mono text-text-primary">{formatIndex(row.historical_index)}</td>
       <TitleMetricCell row={row} onOpenTitles={onOpenTitles} />
       <MetricCell value={row.vitorias} />
-      <MetricCell value={row.podios} />
+      <PodiumMetricCell row={row} />
       <MetricCell value={row.poles} />
       <MetricCell value={row.pontos} />
       <MetricCell value={row.corridas} />
@@ -923,6 +926,45 @@ function SortableHeader({ label, sortKey, sort, onSort, className = "px-4 py-3" 
 
 function MetricCell({ value }) {
   return <td className="px-4 py-3 font-mono text-text-primary">{value ?? 0}</td>;
+}
+
+// Quebra o total de pódios em vitória / 2º / 3º usando o detalhe real dos resultados
+// (segundos/terceiros vindos da race_results). Ancorado no total OFICIAL (row.podios):
+// o que não tem detalhe por posição — caso dos pilotos históricos pré-gerados, que
+// nunca tiveram race_results — aparece como "sem detalhe", em vez de sumir.
+function podiumBreakdownTitle(row) {
+  const podios = row.podios ?? 0;
+  if (podios <= 0) return "Nenhum pódio";
+  const vitorias = Math.min(Math.max(0, row.vitorias ?? 0), podios);
+  const naoVitorias = Math.max(0, podios - vitorias);
+  const segundos = Math.max(0, row.segundos ?? 0);
+  const terceiros = Math.max(0, row.terceiros ?? 0);
+  const detalhados = Math.min(segundos + terceiros, naoVitorias);
+  const semDetalhe = Math.max(0, naoVitorias - detalhados);
+
+  const linhas = [`${podios} pódios no total`];
+  if (vitorias > 0) linhas.push(`${vitorias} ${vitorias === 1 ? "vitória" : "vitórias"} (1º)`);
+  if (segundos > 0) linhas.push(`${segundos} × 2º`);
+  if (terceiros > 0) linhas.push(`${terceiros} × 3º`);
+  if (semDetalhe > 0) {
+    linhas.push(`${semDetalhe} sem detalhe (corridas anteriores ao registro)`);
+  }
+  return linhas.join("\n");
+}
+
+function PodiumMetricCell({ row }) {
+  const podios = row.podios ?? 0;
+  if (podios <= 0) {
+    return <td className="px-4 py-3 font-mono text-text-primary">0</td>;
+  }
+  return (
+    <td
+      className="px-4 py-3 font-mono text-text-primary cursor-help underline decoration-dotted decoration-white/25 underline-offset-4"
+      title={podiumBreakdownTitle(row)}
+    >
+      {podios}
+    </td>
+  );
 }
 
 // Célula de Fama (estrelato). Mostra a fama atual (0–100) e, quando houve

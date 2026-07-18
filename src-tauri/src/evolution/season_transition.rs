@@ -135,6 +135,96 @@ pub(crate) fn archive_driver_season(
                 driver.id
             )
         })?;
+
+        // Marco de TÍTULOS: com o arquivo desta temporada já gravado, o campeão pode
+        // ter se tornado o dono ISOLADO do recorde de títulos da categoria. A partir de
+        // 3 títulos, para não marcar o bicampeão. Camada narrativa — erro é silencioso.
+        if posicao_campeonato == Some(1) && !categoria.is_empty() {
+            let champ_titles =
+                crate::db::queries::race_history::get_pilot_category_titles(conn, &driver.id, categoria)
+                    .unwrap_or(0);
+            let others_max =
+                crate::db::queries::race_history::get_category_titles_leader_excluding(
+                    conn, categoria, &driver.id,
+                )
+                .unwrap_or(0);
+            if champ_titles >= 3 && champ_titles > others_max {
+                let _ = crate::db::queries::milestones::insert_milestone(
+                    conn,
+                    categoria,
+                    &crate::db::queries::milestones::RecordMilestone {
+                        metric: "titles".to_string(),
+                        pilot_id: driver.id.clone(),
+                        pilot_name: driver.nome.clone(),
+                        value: champ_titles,
+                        previous_value: Some(champ_titles - 1),
+                        context: String::new(),
+                        season_number: season.numero,
+                        ano: season.ano,
+                        round: 0,
+                    },
+                );
+            }
+
+            // Marcos escalares de fim de temporada (rodam uma vez por categoria, aqui no
+            // campeão): campeão mais jovem, campeonato mais apertado/dominante, dupla mais
+            // longeva. Emite quando o candidato supera o recorde existente.
+            let emit_scalar = |kind: &str, subj_id: &str, subj_name: &str, value: i32, higher: bool| {
+                if let Ok(Some(prev)) = crate::db::queries::milestones::update_scalar_and_check(
+                    conn,
+                    categoria,
+                    kind,
+                    subj_id,
+                    subj_name,
+                    value,
+                    "",
+                    season.numero,
+                    0,
+                    higher,
+                ) {
+                    let _ = crate::db::queries::milestones::insert_milestone(
+                        conn,
+                        categoria,
+                        &crate::db::queries::milestones::RecordMilestone {
+                            metric: kind.to_string(),
+                            pilot_id: subj_id.to_string(),
+                            pilot_name: subj_name.to_string(),
+                            value,
+                            previous_value: Some(prev),
+                            context: String::new(),
+                            season_number: season.numero,
+                            ano: season.ano,
+                            round: 0,
+                        },
+                    );
+                }
+            };
+
+            // Campeão mais jovem (idade do campeão nesta temporada).
+            if driver.idade > 0 {
+                emit_scalar("youngest_champion", &driver.id, &driver.nome, driver.idade as i32, false);
+            }
+
+            // Campeonato mais apertado / mais dominante (gap de pontos entre 1º e 2º).
+            if let Ok(standings) =
+                crate::db::queries::race_history::get_category_standings(conn, &season.id, categoria)
+            {
+                if standings.len() >= 2 {
+                    let gap = (standings[0].points - standings[1].points).round() as i32;
+                    if gap >= 0 {
+                        emit_scalar("closest_championship", &driver.id, &driver.nome, gap, false);
+                        emit_scalar("biggest_blowout", &driver.id, &driver.nome, gap, true);
+                    }
+                }
+            }
+
+            // Dupla piloto-equipe mais longeva da categoria.
+            if let Ok(Some(pair)) =
+                crate::db::queries::race_history::get_category_longest_pairing(conn, categoria)
+            {
+                emit_scalar("longest_pairing", &pair.pilot_id, &pair.pilot_name, pair.value, true);
+            }
+        }
     }
     Ok(())
 }

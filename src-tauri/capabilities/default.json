@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "Permissões core das janelas do Loop (principal + overlay de monitor). O app usa comandos custom pra quase tudo; estas permissões liberam só as APIs core do JS que o overlay de monitor precisa: eventos (mover) + arrastar/posicionar a janela.",
+  "windows": ["main", "overlay"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-focus"
+  ]
+}

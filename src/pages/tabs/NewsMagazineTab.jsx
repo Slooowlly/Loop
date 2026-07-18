@@ -114,6 +114,28 @@ function NewsMagazineTab() {
 
   const [bulletin, setBulletin] = useState(null);
 
+  // ── Rodapé "notícias do mundo": notinhas sobre ex-equipes e ex-companheiros do
+  // jogador, só da categoria atual (crise, dívida, clima pesado, nova diretoria).
+  // Determinístico hoje; migra pra IA quando o endpoint /world-notes existir.
+  const [worldNotes, setWorldNotes] = useState([]);
+  useEffect(() => {
+    let mounted = true;
+    if (!careerId) {
+      setWorldNotes([]);
+      return undefined;
+    }
+    invoke("get_world_footer", { careerId })
+      .then((res) => {
+        if (mounted) setWorldNotes(Array.isArray(res?.notes) ? res.notes : []);
+      })
+      .catch(() => {
+        if (mounted) setWorldNotes([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [careerId]);
+
   // ── Construtores reais ──
   useEffect(() => {
     let mounted = true;
@@ -457,6 +479,20 @@ function NewsMagazineTab() {
             </div>
           </div>
         </div>
+
+        {worldNotes.length > 0 && (
+          <div className="world-notes" aria-label="Notícias do mundo">
+            <div className="wn-head">DO MUNDO DO GRID</div>
+            <div className="wn-list">
+              {worldNotes.map((n) => (
+                <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
+                  <span className="wn-tag">{n.tag}</span>
+                  <span className="wn-text">{n.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mag-foot">
           <div className="foot-left">

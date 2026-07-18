@@ -21,6 +21,33 @@ const POTENTIAL_APPROACH_WINDOW: f64 = 22.0;
 /// azarão, o piloto para de receber o boost.
 const POTENTIAL_BOOST_PER_SURPRISE: f64 = 1.3;
 
+/// Peso do termo de "superação de expectativa": o quanto render ACIMA do que o
+/// carro entregaria acelera o crescimento. É o que converte o talento reprimido
+/// (piloto com teto de craque preso num carro fraco) em skill de verdade, sem
+/// depender de pódio absoluto. Calibrável.
+const OVERPERF_WEIGHT: f64 = 8.0;
+
+/// Teto do termo de superação: mesmo uma temporada milagrosa (pior carro vira
+/// campeão) não injeta crescimento sem limite. Calibrável.
+const OVERPERF_CAP: f64 = 4.0;
+
+/// Maturação da juventude: até esta idade, o jovem talentoso cresce só por TEMPO DE
+/// PISTA (correr uma temporada), independente de pódio/superação — é o prodígio que
+/// floresce mesmo num carro adequado terminando onde o carro manda. Acima disto o
+/// crescimento volta a depender só de resultado.
+const YOUTH_MATURATION_AGE_CAP: u32 = 24;
+
+/// Magnitude por temporada cheia do termo de maturação (escalado pela folga até o
+/// teto e pelo tempo de pista). Calibrável.
+const YOUTH_MATURATION: f64 = 4.0;
+
+/// Denominador da folga (teto − skill) na maturação: quanto maior a folga, mais
+/// rápido o jovem sobe — autolimitante, pois some ao chegar perto do teto.
+const YOUTH_MATURATION_FOLGA_SCALE: f64 = 30.0;
+
+/// Folga mínima até o teto para a maturação valer (evita ruído em quem já chegou).
+const YOUTH_MATURATION_MIN_FOLGA: f64 = 3.0;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeasonStats {
     pub posicao_campeonato: i32,
@@ -67,6 +94,7 @@ pub fn calculate_growth(
     season_stats: &SeasonStats,
     team_car_performance: f64,
     category_tier: u8,
+    car_field_percentile: f64,
     rng: &mut impl Rng,
 ) -> GrowthReport {
     let mut changes = Vec::new();
@@ -82,7 +110,16 @@ pub fn calculate_growth(
     }
     let potencial = driver.atributos.potencial.min(POTENTIAL_HARD_MAX);
 
-    let base_growth = (result_base_growth(season_stats) + car_bonus(team_car_performance)).max(0.0);
+    let base_growth = (result_base_growth(season_stats)
+        + car_bonus(team_car_performance)
+        + overperformance_growth(season_stats, car_field_percentile)
+        + youth_maturation_growth(
+            driver.idade,
+            driver.atributos.skill,
+            potencial,
+            season_stats.corridas,
+        ))
+    .max(0.0);
 
     for (attribute, weight) in GROWABLE_ATTRIBUTES {
         let delta = growth_for_attribute(
@@ -174,6 +211,47 @@ fn result_base_growth(stats: &SeasonStats) -> f64 {
         + plain_finishes * FINISH_GROWTH_WEIGHT
         - dnfs * DNF_GROWTH_PENALTY;
     base.max(0.0)
+}
+
+/// Superação de expectativa: o piloto rendeu ACIMA do que o carro dele entregaria?
+/// `car_field_percentile` = posição do carro na categoria (0 = pior carro do grid,
+/// 1 = melhor). Isola talento de máquina: terminar 8º num carro que vale 12º cresce;
+/// vencer no melhor carro (o esperado) não dá bônus. Só superação POSITIVA conta —
+/// render abaixo do carro já é penalizado pelo caminho de pódio/DNF. É a trava
+/// anti-inflação: a skill injetada é limitada pela "surpresa" real da temporada.
+fn overperformance_growth(stats: &SeasonStats, car_field_percentile: f64) -> f64 {
+    if stats.corridas <= 0 || stats.total_pilotos <= 1 {
+        return 0.0;
+    }
+    let car_pct = car_field_percentile.clamp(0.0, 1.0);
+    // Pior carro (pct 0) → esperado no fundo (frac 1); melhor carro (pct 1) → frac 0.
+    let esperado_frac = 1.0 - car_pct;
+    // Posição real normalizada: 0 = campeão, 1 = último.
+    let real_frac =
+        ((stats.posicao_campeonato - 1).max(0) as f64) / ((stats.total_pilotos - 1) as f64);
+    let superacao = (esperado_frac - real_frac).max(0.0);
+    (OVERPERF_WEIGHT * superacao).min(OVERPERF_CAP)
+}
+
+/// Maturação da juventude: crescimento por TEMPO DE PISTA para o jovem (≤ idade-teto)
+/// com folga até o teto pessoal, escalado pela folga e pelas corridas disputadas.
+/// É o que converte o talento reprimido que não pódia nem supera o carro — o prodígio
+/// num carro adequado que hoje estagna. Anti-inflação: gate de idade (veterano não
+/// pega), escala pela folga (quem está perto do teto quase não muda) e o cap por
+/// headroom em `growth_for_attribute` (nunca passa do teto pessoal). Não muda o
+/// equilíbrio (limitado pelos tetos): só faz o capaz CHEGAR ao teto antes de
+/// envelhecer, em vez de virar "preso velho" e se aposentar sem converter.
+fn youth_maturation_growth(idade: u32, skill: f64, potencial: f64, corridas: i32) -> f64 {
+    if idade > YOUTH_MATURATION_AGE_CAP || corridas <= 0 {
+        return 0.0;
+    }
+    let folga = (potencial - skill).max(0.0);
+    if folga <= YOUTH_MATURATION_MIN_FOLGA {
+        return 0.0;
+    }
+    let folga_frac = (folga / YOUTH_MATURATION_FOLGA_SCALE).min(1.0);
+    let corridas_frac = (corridas as f64 / 8.0).clamp(0.0, 1.0);
+    YOUTH_MATURATION * folga_frac * corridas_frac
 }
 
 /// Pódios "de azarão" (piloto abaixo da média de habilidade da categoria) sobem o
@@ -342,7 +420,7 @@ mod tests {
         let stats = champion_stats();
         let mut rng = StdRng::seed_from_u64(7);
 
-        let report = calculate_growth(&mut driver, &stats, 8.0, 0, &mut rng);
+        let report = calculate_growth(&mut driver, &stats, 8.0, 0, 0.5, &mut rng);
 
         assert!(report.overall_delta > 0.0);
         assert!(driver.atributos.skill > 45.0);
@@ -365,10 +443,11 @@ mod tests {
         let mut last_driver = sample_driver(22, 45.0);
 
         let mut rng_top = StdRng::seed_from_u64(12);
-        let report_top = calculate_growth(&mut top_driver, &stats_top, 4.0, 1, &mut rng_top);
+        let report_top = calculate_growth(&mut top_driver, &stats_top, 4.0, 1, 0.5, &mut rng_top);
 
         let mut rng_last = StdRng::seed_from_u64(12);
-        let report_last = calculate_growth(&mut last_driver, &stats_last, 4.0, 1, &mut rng_last);
+        let report_last =
+            calculate_growth(&mut last_driver, &stats_last, 4.0, 1, 0.5, &mut rng_last);
 
         assert!(report_top.overall_delta > report_last.overall_delta);
     }
@@ -380,10 +459,10 @@ mod tests {
         let mut veteran = sample_driver(31, 50.0);
 
         let mut rng_young = StdRng::seed_from_u64(24);
-        let report_young = calculate_growth(&mut young, &stats, 2.0, 1, &mut rng_young);
+        let report_young = calculate_growth(&mut young, &stats, 2.0, 1, 0.5, &mut rng_young);
 
         let mut rng_veteran = StdRng::seed_from_u64(24);
-        let report_veteran = calculate_growth(&mut veteran, &stats, 2.0, 1, &mut rng_veteran);
+        let report_veteran = calculate_growth(&mut veteran, &stats, 2.0, 1, 0.5, &mut rng_veteran);
 
         assert!(report_young.overall_delta > report_veteran.overall_delta);
     }
@@ -395,10 +474,10 @@ mod tests {
         let mut high_skill = sample_driver(21, 88.0);
 
         let mut rng_low = StdRng::seed_from_u64(35);
-        let report_low = calculate_growth(&mut low_skill, &stats, 5.0, 2, &mut rng_low);
+        let report_low = calculate_growth(&mut low_skill, &stats, 5.0, 2, 0.5, &mut rng_low);
 
         let mut rng_high = StdRng::seed_from_u64(35);
-        let report_high = calculate_growth(&mut high_skill, &stats, 5.0, 2, &mut rng_high);
+        let report_high = calculate_growth(&mut high_skill, &stats, 5.0, 2, 0.5, &mut rng_high);
 
         assert!(report_low.overall_delta > report_high.overall_delta);
     }
@@ -410,12 +489,129 @@ mod tests {
         let mut top_driver = sample_driver(20, 50.0);
 
         let mut rng_rookie = StdRng::seed_from_u64(46);
-        let rookie_report = calculate_growth(&mut rookie_driver, &stats, 1.0, 0, &mut rng_rookie);
+        let rookie_report =
+            calculate_growth(&mut rookie_driver, &stats, 1.0, 0, 0.5, &mut rng_rookie);
 
         let mut rng_top = StdRng::seed_from_u64(46);
-        let top_report = calculate_growth(&mut top_driver, &stats, 1.0, 4, &mut rng_top);
+        let top_report = calculate_growth(&mut top_driver, &stats, 1.0, 4, 0.5, &mut rng_top);
 
         assert!(rookie_report.overall_delta > top_report.overall_delta);
+    }
+
+    // ── Superação de expectativa ──────────────────────────────────────────────
+    fn stats_pos(posicao: i32, total: i32, corridas: i32) -> SeasonStats {
+        SeasonStats {
+            posicao_campeonato: posicao,
+            total_pilotos: total,
+            pontos: 0,
+            vitorias: 0,
+            podios: 0,
+            corridas,
+            dnfs: 0,
+        }
+    }
+
+    #[test]
+    fn overperf_positive_when_beating_the_car() {
+        // Carro fraco (percentil 0.2) terminando 4º de 20 = muito acima do carro.
+        let term = overperformance_growth(&stats_pos(4, 20, 12), 0.2);
+        assert!(term > 0.0, "superar o carro tem que crescer, got {term}");
+    }
+
+    #[test]
+    fn overperf_zero_when_only_meeting_car_expectation() {
+        // Melhor carro do grid (percentil 1.0) vencendo = exatamente o esperado, sem
+        // bônus. (Um carro quase-topo que vence ainda rende um resíduo pequeno, o que
+        // é correto: venceu de uma posição de largada esperada logo atrás da frente.)
+        let term = overperformance_growth(&stats_pos(1, 20, 12), 1.0);
+        assert_eq!(term, 0.0, "vencer no melhor carro não é superação, got {term}");
+    }
+
+    #[test]
+    fn overperf_zero_when_underperforming_the_car() {
+        // Carro bom (0.9) terminando em último = rendeu ABAIXO do carro → sem bônus.
+        let term = overperformance_growth(&stats_pos(20, 20, 12), 0.9);
+        assert_eq!(term, 0.0);
+    }
+
+    #[test]
+    fn overperf_is_capped() {
+        // Pior carro (0.0) virando campeão = superação máxima, mas travada no CAP.
+        let term = overperformance_growth(&stats_pos(1, 20, 12), 0.0);
+        assert!((term - OVERPERF_CAP).abs() < 1e-9, "deveria bater o teto, got {term}");
+    }
+
+    #[test]
+    fn overperf_guards_degenerate_seasons() {
+        assert_eq!(overperformance_growth(&stats_pos(1, 20, 0), 0.1), 0.0); // sem corridas
+        assert_eq!(overperformance_growth(&stats_pos(1, 1, 12), 0.1), 0.0); // grid de 1
+    }
+
+    #[test]
+    fn stuck_talent_in_weak_car_grows_more_than_when_expected() {
+        // Mesmo piloto capaz (teto de craque, skill baixo) e mesmo resultado (8º/20),
+        // mas num carro FRACO (superou) vs num carro à altura (só cumpriu). O carro
+        // fraco tem que render MAIS crescimento — é a conversão do "preso".
+        let stats = stats_pos(8, 20, 12);
+        let mut surprised = sample_driver(20, 55.0);
+        let mut expected = sample_driver(20, 55.0);
+
+        let mut rng_a = StdRng::seed_from_u64(99);
+        let report_weak_car = calculate_growth(&mut surprised, &stats, 0.0, 3, 0.2, &mut rng_a);
+
+        let mut rng_b = StdRng::seed_from_u64(99);
+        let report_fair_car = calculate_growth(&mut expected, &stats, 0.0, 3, 0.6, &mut rng_b);
+
+        assert!(
+            report_weak_car.overall_delta > report_fair_car.overall_delta,
+            "carro fraco={} deveria crescer mais que carro à altura={}",
+            report_weak_car.overall_delta,
+            report_fair_car.overall_delta
+        );
+        assert!(surprised.atributos.skill > 55.0);
+    }
+
+    // ── Maturação da juventude ────────────────────────────────────────────────
+    #[test]
+    fn maturation_only_for_the_young() {
+        // Jovem capaz com folga cresce por tempo de pista; veterano igual não.
+        let jovem = youth_maturation_growth(20, 58.0, 85.0, 12);
+        let velho = youth_maturation_growth(30, 58.0, 85.0, 12);
+        assert!(jovem > 0.0, "jovem capaz deveria maturar, got {jovem}");
+        assert_eq!(velho, 0.0, "veterano não matura");
+    }
+
+    #[test]
+    fn maturation_scales_with_folga_and_vanishes_at_ceiling() {
+        // Muita folga cresce mais que pouca; quase-no-teto não pega nada.
+        let muita = youth_maturation_growth(20, 55.0, 90.0, 12); // folga 35
+        let pouca = youth_maturation_growth(20, 70.0, 76.0, 12); // folga 6
+        let no_teto = youth_maturation_growth(20, 74.0, 76.0, 12); // folga 2 < min
+        assert!(muita > pouca, "mais folga cresce mais: {muita} vs {pouca}");
+        assert_eq!(no_teto, 0.0, "perto do teto não matura");
+    }
+
+    #[test]
+    fn maturation_requires_seat_time() {
+        assert_eq!(youth_maturation_growth(20, 55.0, 90.0, 0), 0.0);
+    }
+
+    #[test]
+    fn young_prodigy_in_midfield_car_still_grows() {
+        // Jovem capaz num carro adequado terminando ONDE O CARRO MANDA (percentil do
+        // carro = posição real): não pódia, não supera — antes estagnava. Com a
+        // maturação, ainda cresce só por correr a temporada.
+        let stats = stats_pos(10, 20, 12); // meio de grid, sem pódio
+        // carro percentil ~0.53 pra bater a posição real (10/20) → superação ≈ 0
+        let mut prodigy = sample_driver(20, 56.0);
+        let mut rng = StdRng::seed_from_u64(77);
+        let report = calculate_growth(&mut prodigy, &stats, 0.0, 3, 0.53, &mut rng);
+        assert!(
+            prodigy.atributos.skill > 56.0,
+            "prodígio jovem tem que crescer só por maturar, skill={}",
+            prodigy.atributos.skill
+        );
+        assert!(report.overall_delta > 0.0);
     }
 
     fn sample_driver(age: u32, skill: f64) -> Driver {

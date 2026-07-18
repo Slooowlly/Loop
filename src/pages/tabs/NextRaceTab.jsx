@@ -103,7 +103,6 @@ function NextRaceTab() {
   const simulateRace = useCareerStore((state) => state.simulateRace);
   const advanceSeason = useCareerStore((state) => state.advanceSeason);
   const skipAllPendingRaces = useCareerStore((state) => state.skipAllPendingRaces);
-  const debugGoToMarket = useCareerStore((state) => state.debugGoToMarket);
   const enterPreseason = useCareerStore((state) => state.enterPreseason);
   const runConvocationWindow = useCareerStore((state) => state.runConvocationWindow);
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
@@ -855,35 +854,6 @@ function NextRaceTab() {
                 </span>
               )}
             </div>
-            {showAiDebug && (
-              <div className="flex flex-col items-center gap-1 w-full sm:w-auto">
-                <span className="text-[9px] uppercase tracking-[0.16em] text-amber-300/70">
-                  🐞 Ir pro mercado
-                </span>
-                <div className="flex flex-wrap justify-center gap-1">
-                  {[
-                    { key: null, label: "normal", title: "Pula as corridas e abre o mercado (resultado do sim)" },
-                    { key: "no_team", label: "sem time", title: "Entra no mercado como agente livre" },
-                    { key: "first", label: "1º", title: "Agente livre, campeão da temporada (máximo mérito)" },
-                    { key: "fifth", label: "5º", title: "Agente livre, meio do pelotão (mérito mediano)" },
-                  ].map((s) => (
-                    <button
-                      key={s.label}
-                      onClick={() => {
-                        setError("");
-                        const go = s.key ? debugGoToMarket(s.key) : skipAllPendingRaces();
-                        go.catch((e) => setError(getDisplayError(e, "Erro ao ir pro mercado.")));
-                      }}
-                      disabled={isSimulating || isAdvancing}
-                      title={s.title}
-                      className="px-2.5 py-1 border border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 font-semibold rounded-md transition text-[11px] disabled:opacity-50"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
             {canPickPaint && (
               <button
                 onClick={() => {

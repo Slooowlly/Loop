@@ -35,20 +35,39 @@ fn category_salary_base(category: &str) -> f64 {
     category_salary_base_for_tier(tier)
 }
 
-/// Base salarial de mercado por tier (ponto médio). FONTE ÚNICA da escala por tier —
-/// a faixa de geração de contratos (`contract::salary_range_for_tier`) deve sempre
-/// abraçar estes valores (garantido pelo teste de acoplamento em `contract`).
+/// Fração do custo operacional que a FOLHA de uma equipe (2 pilotos) deve representar.
+/// Peso CONSTANTE em toda a escada (decisão travada com o user): o salário pesa o mesmo
+/// no rookie e no endurance, em vez de comprimir de ~15% pra ~5% subindo. 0.15 ≈ o nível
+/// que o rookie/amador já tinham, então o piso não muda e o topo sobe pra alcançá-lo.
+/// TUNÁVEL: é o único botão da magnitude salarial da grade — calibrado por Monte Carlo.
+/// Pode ser sobrescrito por `IRACER_SALARY_SHARE` (lido uma vez) para varreduras de MC.
+const DEFAULT_TEAM_SALARY_SHARE_OF_OPERATING: f64 = 0.15;
+
+pub(crate) fn team_salary_share_of_operating() -> f64 {
+    static SHARE: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|| {
+        std::env::var("IRACER_SALARY_SHARE")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0 && *v < 1.0)
+            .unwrap_or(DEFAULT_TEAM_SALARY_SHARE_OF_OPERATING)
+    });
+    *SHARE
+}
+
+/// Soma dos multiplicadores de papel de uma dupla (N1 ~1.30 + N2 ~1.06), usada em
+/// `models::contract` na geração inicial. Converte "folha da equipe" em "base por piloto":
+/// `base × ROLE_SUM ≈ folha`, de modo que `folha ≈ SHARE × custo operacional`.
+const PAYROLL_ROLE_SUM: f64 = 2.36;
+
+/// Base salarial de mercado por tier (ponto médio, por piloto). DERIVADA do custo
+/// operacional do tier (`planning::operating_cost_midpoint_for_tier`) — não é mais uma
+/// tabela escrita à mão em paralelo à de custos, então as duas escadas não podem
+/// divergir. FONTE ÚNICA da escala por tier: a faixa de geração de contratos
+/// (`contract::salary_range_for_tier`) deve sempre abraçar estes valores (garantido
+/// pelo teste de acoplamento em `contract`).
 pub(crate) fn category_salary_base_for_tier(tier: u8) -> f64 {
-    match tier {
-        0 => 12_000.0,
-        1 => 28_000.0,
-        2 => 55_000.0,
-        3 => 105_000.0,
-        4 => 210_000.0,
-        5 => 300_000.0,
-        6 => 330_000.0,
-        _ => 160_000.0,
-    }
+    let op_mid = crate::finance::planning::operating_cost_midpoint_for_tier(tier);
+    op_mid * team_salary_share_of_operating() / PAYROLL_ROLE_SUM
 }
 
 #[cfg(test)]

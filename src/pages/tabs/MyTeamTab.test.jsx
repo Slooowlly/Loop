@@ -408,22 +408,22 @@ describe("MyTeamTab", () => {
     expect(await screen.findByRole("dialog", { name: /Ferrari/i })).toBeInTheDocument();
   });
 
-  it("uses polished management labels for standings and technical development", async () => {
+  it("shows the car level column and hides the (retired) car build type", async () => {
     render(<MyTeamTab />);
 
     expect(await screen.findByText("5º")).toBeInTheDocument();
-    expect(screen.getAllByText(/Tipo do carro/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Balanceado").length).toBeGreaterThan(0);
-    expect(screen.getByText("Potência")).toBeInTheDocument();
-    expect(screen.queryByText(/Potência e dirigibilidade/i)).not.toBeInTheDocument();
+    // Sistema de Nível do Carro: o jogador vê só o Nível do Carro; o "tipo/shape" foi aposentado.
+    expect(screen.getAllByText(/Nível do carro/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Tipo do carro/i)).not.toBeInTheDocument();
   });
 
   it("shows a cleaner development axis for the technical operation", async () => {
     render(<MyTeamTab />);
 
     expect(await screen.findByText(/Pacote do carro/i)).toBeInTheDocument();
-    expect(screen.getByText(/Foco do projeto/i)).toBeInTheDocument();
-    expect(screen.getByText(/Equilíbrio do acerto/i)).toBeInTheDocument();
+    expect(screen.getByText(/Desempenho na pista/i)).toBeInTheDocument();
+    // Shape do carro escondido: nada de "Foco do projeto"/"Equilíbrio do acerto".
+    expect(screen.queryByText(/Foco do projeto/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Distribuição técnica/i)).not.toBeInTheDocument();
   });
 

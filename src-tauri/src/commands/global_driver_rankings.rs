@@ -198,8 +198,15 @@ fn build_global_driver_rankings(
     rows.retain(has_ranking_visibility);
     // Marca os favoritados (watchlist) — alimenta a estrela inline + o filtro "Favoritos".
     let favorites = crate::db::queries::favorites::get_favorite_ids(conn).unwrap_or_default();
+    // Split dos pódios por posição (2º/3º) direto dos resultados reais — alimenta o
+    // tooltip "quantos pódios não foram vitória". Pilotos sem `race_results` ficam 0.
+    let podium_splits = career_podium_splits(conn)?;
     for row in &mut rows {
         row.is_favorito = favorites.contains(&row.id);
+        if let Some(&(segundos, terceiros)) = podium_splits.get(&row.id) {
+            row.segundos = segundos;
+            row.terceiros = terceiros;
+        }
     }
     assign_ranks(&mut rows);
     assign_rank_deltas(conn, &mut rows, &stats_by_driver)?;
@@ -216,6 +223,40 @@ fn build_global_driver_rankings(
         rows,
         leaders,
     })
+}
+
+/// Conta, por piloto e pela carreira inteira, quantas vezes terminou em 2º e em 3º
+/// — o detalhe que quebra "pódios que não foram vitória". Lê os resultados reais
+/// (`race_results`, nunca podados entre temporadas), então cobre tudo o que foi
+/// corrido no jogo. Pilotos históricos pré-gerados não têm linhas aqui e simplesmente
+/// não aparecem no mapa (o chamador os deixa em 0). Uma varredura indexada, barata.
+fn career_podium_splits(conn: &Connection) -> Result<HashMap<String, (i32, i32)>, String> {
+    if !table_exists(conn, "race_results")? {
+        return Ok(HashMap::new());
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT piloto_id,
+                COALESCE(SUM(CASE WHEN posicao_final = 2 THEN 1 ELSE 0 END), 0) AS segundos,
+                COALESCE(SUM(CASE WHEN posicao_final = 3 THEN 1 ELSE 0 END), 0) AS terceiros
+             FROM race_results
+             GROUP BY piloto_id",
+        )
+        .map_err(|e| format!("Falha ao preparar split de podios: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get::<_, i32>(1)?, row.get::<_, i32>(2)?),
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar split de podios: {e}"))?;
+    let mut splits = HashMap::new();
+    for row in rows {
+        let (id, split) = row.map_err(|e| format!("Falha ao ler split de podios: {e}"))?;
+        splits.insert(id, split);
+    }
+    Ok(splits)
 }
 
 fn build_current_driver_entry(
@@ -304,6 +345,8 @@ fn build_current_driver_entry(
         pontos: total.points.round() as i32,
         vitorias: total.wins,
         podios: total.podiums,
+        segundos: 0,  // preenchido adiante pela agregação de race_results
+        terceiros: 0, // preenchido adiante pela agregação de race_results
         poles: total.poles,
         titulos: total.titles,
         titulos_por_categoria: title_categories(&stats_by_category, team_lookup),
@@ -395,6 +438,8 @@ fn build_retired_driver_entry(
         pontos: retired.stats.points.round() as i32,
         vitorias: retired.stats.wins,
         podios: retired.stats.podiums,
+        segundos: 0,  // preenchido adiante pela agregação de race_results
+        terceiros: 0, // preenchido adiante pela agregação de race_results
         poles: retired.stats.poles,
         titulos: retired.stats.titles,
         titulos_por_categoria: title_categories,

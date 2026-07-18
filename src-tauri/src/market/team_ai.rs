@@ -360,6 +360,43 @@ mod tests {
         assert!(rich_offer[0].salario_oferecido > poor_offer[0].salario_oferecido);
     }
 
+    /// REGRESSÃO: os caminhos de preenchimento sem negociação (resgate de vaga
+    /// vazia, cascata de promoção, promoção de emergência, rookie gerado) já
+    /// tiveram uma TABELA PARALELA de salário por tier — `calculate_fallback_salary`,
+    /// hoje deletada — que pagava ~40% da base de mercado e, por causa de um piso
+    /// `.max(0.7)` no modificador de skill, carimbava o MESMO valor exato em todo
+    /// piloto fraco: 13 de 28 contratos GT3 de uma carreira real valiam
+    /// exatamente 84.000, da equipe falida à bilionária. Estes dois assertos
+    /// prendem o que aquela tabela destruía: o dinheiro da equipe importa, e o
+    /// valor não é uma constante carimbada.
+    #[test]
+    fn fallback_signings_use_market_scale_and_still_price_team_money() {
+        let mut rich = sample_vacancy(4);
+        rich.cash_balance = 28_000_000.0;
+        rich.financial_state = "elite".to_string();
+
+        let mut broke = sample_vacancy(4);
+        broke.cash_balance = 990_000.0;
+        broke.debt_balance = 3_000_000.0;
+        broke.financial_state = "crisis".to_string();
+
+        // Skill 44: abaixo do limiar 52,5 onde a tabela-fantasma carimbava 84.000.
+        let weak = sample_available_driver("P001", "gt3", 4, 5.0, 44.0).driver;
+
+        let rich_offer = calculate_offer_salary(&rich, &weak, &mut StdRng::seed_from_u64(11));
+        let broke_offer = calculate_offer_salary(&broke, &weak, &mut StdRng::seed_from_u64(11));
+
+        assert!(
+            rich_offer > broke_offer * 1.2,
+            "o caixa da equipe precisa mover o salário do preenchimento: \
+             rica={rich_offer:.0} vs quebrada={broke_offer:.0} (a tabela-fantasma pagava 84.000 nas duas)"
+        );
+        assert!(
+            rich_offer > 84_000.0,
+            "equipe elite do GT3 não pode pagar o valor carimbado da tabela-fantasma: {rich_offer:.0}"
+        );
+    }
+
     fn sample_vacancy(tier: u8) -> Vacancy {
         let categoria = match tier {
             0 => "mazda_rookie",

@@ -475,6 +475,20 @@ pub struct CarMeta {
     pub grid_class_position: i32,
 }
 
+/// Identidade do carro DIRETO do YAML da sessão — sem os gates de tentativa/quali
+/// do histórico de corrida (`history.cars_meta` só enche com tentativa ativa e
+/// fora da quali). É a fonte certa pra consumo AO VIVO (overlay VR): existe em
+/// qualquer sessão segundos após o sampler ler o YAML.
+#[derive(Clone, Serialize)]
+pub struct YamlCarMeta {
+    pub idx: i32,
+    pub is_ai: bool,
+    pub is_pace: bool,
+    pub class_id: i64,
+    /// Número do carro (`CarNumberRaw`) — ponte pro `driver_id` da carreira.
+    pub car_number: i32,
+}
+
 /// Histórico volta a volta da tentativa atual, montado ao vivo para o painel
 /// pós-corrida: race trace de posições, gap ao líder, ritmo do jogador e a
 /// batalha (à frente/atrás) ao longo da corrida.
@@ -506,6 +520,9 @@ pub struct RaceHistory {
     /// Pista da sessão (`WeekendInfo:TrackID`) — a corrida que foi disputada.
     #[serde(default)]
     pub track_id: i64,
+    /// Identidade única do evento (`WeekendInfo:SubSessionID`).
+    #[serde(default)]
+    pub subsession_id: i64,
     /// Voltas da QUALI (capturadas na sessão de qualify que precede a corrida) —
     /// reforço do escudo anti-trânsito na adaptação. Vazio se não houve quali.
     #[serde(default)]
@@ -545,6 +562,7 @@ impl RaceHistory {
             car_laps: Vec::new(),
             cars_meta: Vec::new(),
             track_id: 0,
+            subsession_id: 0,
             qualy_laps: Vec::new(),
             pit_stops: Vec::new(),
             weather: super::tire_strategy::RaceWeatherContext::DRY,
@@ -677,6 +695,8 @@ struct RaceMonitor {
     car_number: [i32; 64],
     /// Pista da sessão (`WeekendInfo:TrackID`) — copiada para o histórico.
     session_track_id: i64,
+    /// Identidade única do evento (`WeekendInfo:SubSessionID`).
+    session_subsession_id: i64,
     /// `SessionNum` da sessão de qualify (-1 se não houver) — detecta a quali.
     qualy_session_num: i32,
     /// Se estávamos em quali no tick anterior (detecta entrada numa quali nova).
@@ -795,6 +815,7 @@ impl RaceMonitor {
             player_incidents: Vec::new(),
             car_number: [0; 64],
             session_track_id: 0,
+            session_subsession_id: 0,
             qualy_session_num: -1,
             prev_in_qualy: false,
             qualy_laps: Vec::new(),
@@ -913,8 +934,27 @@ impl RaceMonitor {
         }
     }
 
+    fn reset_qualy_state(&mut self) {
+        self.prev_in_qualy = false;
+        self.qualy_laps.clear();
+        self.qualy_car_lap_completed = [0; 64];
+    }
+
+    fn set_session_subsession_id(&mut self, id: i64) {
+        if id <= 0 {
+            return;
+        }
+        if self.session_subsession_id != id {
+            self.reset_qualy_state();
+            self.session_subsession_id = id;
+        }
+    }
+
     /// Guarda o número da sessão de qualify (do YAML).
     fn set_qualy_session_num(&mut self, num: i32) {
+        if self.qualy_session_num != num {
+            self.reset_qualy_state();
+        }
         self.qualy_session_num = num;
     }
 
@@ -929,8 +969,7 @@ impl RaceMonitor {
     fn capture_qualy(&mut self, t: &IracingTelemetry) {
         let in_qualy = self.qualy_session_num >= 0 && t.session_num == self.qualy_session_num;
         if in_qualy && !self.prev_in_qualy {
-            self.qualy_laps.clear();
-            self.qualy_car_lap_completed = [0; 64];
+            self.reset_qualy_state();
         }
         self.prev_in_qualy = in_qualy;
         if !in_qualy {
@@ -955,6 +994,10 @@ impl RaceMonitor {
                 }
             }
         }
+    }
+
+    fn qualy_laps_snapshot(&self) -> Vec<CarLap> {
+        self.qualy_laps.clone()
     }
 
     /// Carro elegível para as regras de IA: é IA e NÃO é pace car.
@@ -1412,9 +1455,15 @@ impl RaceMonitor {
         // Tentativa nova OU sessão de telemetria nova (quali/treino → corrida) →
         // começa um histórico limpo. O gate por sessão é a rede de segurança caso
         // a quali não tenha sido identificada a tempo pelo YAML.
-        if self.history.attempt_number != attempt || self.hist_session_num != t.session_num {
+        let subsession_changed = self.session_subsession_id > 0
+            && self.history.subsession_id != self.session_subsession_id;
+        if self.history.attempt_number != attempt
+            || self.hist_session_num != t.session_num
+            || subsession_changed
+        {
             self.history = RaceHistory::empty();
             self.history.attempt_number = attempt;
+            self.history.subsession_id = self.session_subsession_id;
             self.hist_session_num = t.session_num;
             self.hist_leader_lap = 0;
             self.hist_player_lap = 0;
@@ -2333,6 +2382,18 @@ fn parse_track_id(yaml: &str) -> i64 {
     0
 }
 
+/// Lê `WeekendInfo:SubSessionID` do YAML. 0 se ausente ou inválido.
+fn parse_subsession_id(yaml: &str) -> i64 {
+    for line in yaml.lines() {
+        if let Some(rest) = line.trim().strip_prefix("SubSessionID:") {
+            if let Ok(id) = rest.trim().parse::<i64>() {
+                return id;
+            }
+        }
+    }
+    0
+}
+
 /// `SessionNum` da sessão de QUALIFY no YAML (-1 se não houver). Varre
 /// `SessionInfo:Sessions` e casa o `SessionType` que contém "qualify".
 fn parse_qualy_session_num(yaml: &str) -> i32 {
@@ -2489,6 +2550,7 @@ pub fn build_adaptive_result(history: &RaceHistory, track_id: i64) -> super::ada
         qualy,
     }
 }
+
 
 // ─── Helpers de desfecho ─────────────────────────────────────────────────────
 /// Posto da severidade (0 = "nenhum", 5 = "catastrófico"). Usado para comparar
@@ -2660,6 +2722,7 @@ fn start_sampler() {
                                 let class_names = parse_class_names(&session.session_yaml);
                                 let driver_names = parse_driver_names(&session.session_yaml);
                                 let track_id = parse_track_id(&session.session_yaml);
+                                let subsession_id = parse_subsession_id(&session.session_yaml);
                                 let qualy_num = parse_qualy_session_num(&session.session_yaml);
                                 let numbers = parse_car_numbers(&session.session_yaml);
                                 {
@@ -2668,6 +2731,7 @@ fn start_sampler() {
                                     m.set_class_names(class_names);
                                     m.set_driver_names(driver_names);
                                     m.set_session_track_id(track_id);
+                                    m.set_session_subsession_id(subsession_id);
                                     m.set_qualy_session_num(qualy_num);
                                     m.set_car_numbers(&numbers);
                                 }
@@ -2695,6 +2759,7 @@ fn start_sampler() {
                             }
                             m.was_connected = false;
                             m.prev = None;
+                            m.reset_qualy_state();
                             // Borda de descida: arma a janela de foco da nossa janela.
                             arm_focus_self();
                         }
@@ -2777,6 +2842,18 @@ pub fn get_history() -> RaceHistory {
     lock().history.clone()
 }
 
+/// Lê as voltas de qualify capturadas ao vivo, sem misturá-las ao histórico da corrida.
+pub fn get_qualy_laps() -> Vec<CarLap> {
+    start_sampler();
+    lock().qualy_laps_snapshot()
+}
+
+/// Lê a identidade única do evento atualmente observado pelo monitor.
+pub fn get_subsession_id() -> i64 {
+    start_sampler();
+    lock().session_subsession_id
+}
+
 /// Versão ENXUTA do histórico para o overlay "iRacing Conectado": só o que os
 /// gráficos ao vivo usam (sem `qualy_laps`). Inclui `car_laps` para o seletor de
 /// ritmo por piloto. Leve o suficiente para o polling a 1Hz.
@@ -2787,6 +2864,10 @@ pub struct RaceFeedback {
     pub player_track: Vec<PlayerTrackPoint>,
     pub yellow_laps: Vec<i32>,
     pub cars_meta: Vec<CarMeta>,
+    /// Identidade por carro DIRETO do YAML (sem gates de tentativa/quali) — para
+    /// consumidores AO VIVO como o overlay de VR. `cars_meta` continua sendo a
+    /// visão do histórico (grid, posições finais).
+    pub cars_yaml_meta: Vec<YamlCarMeta>,
     pub player_car_idx: i32,
     /// `class_id -> nome curto` para rotular as abas por categoria.
     pub class_names: std::collections::HashMap<i64, String>,
@@ -2803,12 +2884,27 @@ pub struct RaceFeedback {
 pub fn get_feedback() -> RaceFeedback {
     start_sampler();
     let m = lock();
+    // Identidade "ao vivo": todo carro que o YAML da sessão conhece (tem nome de
+    // piloto ou número). Independe de tentativa ativa / não-quali.
+    let named: std::collections::HashSet<i32> =
+        m.driver_names.iter().map(|(idx, _)| *idx).collect();
+    let cars_yaml_meta = (0..64i32)
+        .filter(|&i| named.contains(&i) || m.car_number[i as usize] > 0)
+        .map(|i| YamlCarMeta {
+            idx: i,
+            is_ai: m.car_is_ai[i as usize],
+            is_pace: m.car_is_pace[i as usize],
+            class_id: m.car_class_id[i as usize],
+            car_number: m.car_number[i as usize],
+        })
+        .collect();
     RaceFeedback {
         laps: m.history.laps.clone(),
         player_laps: m.history.player_laps.clone(),
         player_track: m.history.player_track.clone(),
         yellow_laps: m.history.yellow_laps.clone(),
         cars_meta: m.history.cars_meta.clone(),
+        cars_yaml_meta,
         player_car_idx: m.history.player_car_idx,
         class_names: m.class_names.iter().cloned().collect(),
         driver_names: m.driver_names.iter().cloned().collect(),
@@ -2868,6 +2964,131 @@ mod tests {
             ],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn parser_extrai_subsession_id_do_weekend_info() {
+        let yaml = "WeekendInfo:\n  TrackID: 123\n  SubSessionID: 987654\n";
+
+        assert_eq!(parse_subsession_id(yaml), 987654);
+    }
+
+    #[test]
+    fn snapshot_de_quali_fica_disponivel_apos_captura() {
+        let mut m = RaceMonitor::new();
+        m.qualy_session_num = 1;
+        m.car_is_pace[7] = false;
+
+        let mut car = on_track(7, 0, 1);
+        car.last_lap_time = 82.345;
+        let quali = IracingTelemetry {
+            session_num: 1,
+            cars: vec![car],
+            ..Default::default()
+        };
+
+        m.capture_qualy(&quali);
+
+        let snapshot = m.qualy_laps_snapshot();
+        assert_eq!(snapshot.len(), 1);
+        let lap = &snapshot[0];
+        assert_eq!(lap.car_idx, 7);
+        assert_eq!(lap.lap, 1);
+        assert!((lap.time - 82.345).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn troca_do_numero_da_quali_reseta_estado_e_captura_a_sessao_nova() {
+        let mut m = RaceMonitor::new();
+        m.set_qualy_session_num(1);
+
+        let mut car = on_track(7, 0, 1);
+        car.last_lap_time = 82.345;
+        m.capture_qualy(&IracingTelemetry {
+            session_num: 1,
+            cars: vec![car],
+            ..Default::default()
+        });
+        assert_eq!(m.qualy_laps_snapshot().len(), 1);
+
+        m.set_qualy_session_num(2);
+        assert!(!m.prev_in_qualy, "a nova sessão precisa rearmar a borda de entrada");
+        assert!(
+            m.qualy_laps_snapshot().is_empty(),
+            "as voltas antigas devem sumir imediatamente"
+        );
+        assert_eq!(m.qualy_car_lap_completed, [0; 64]);
+
+        let mut new_car = on_track(7, 0, 1);
+        new_car.last_lap_time = 81.234;
+        m.capture_qualy(&IracingTelemetry {
+            session_num: 2,
+            cars: vec![new_car],
+            ..Default::default()
+        });
+        assert!(m.prev_in_qualy);
+        let snapshot = m.qualy_laps_snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert!((snapshot[0].time - 81.234).abs() < f64::EPSILON);
+        assert_eq!(m.qualy_car_lap_completed[7], 1);
+    }
+
+    #[test]
+    fn troca_de_subsession_reseta_quali_com_session_num_igual() {
+        let mut m = RaceMonitor::new();
+        m.set_qualy_session_num(1);
+        m.set_session_subsession_id(1001);
+
+        let mut car = on_track(7, 0, 1);
+        car.last_lap_time = 82.345;
+        m.capture_qualy(&IracingTelemetry {
+            session_num: 1,
+            cars: vec![car],
+            ..Default::default()
+        });
+        assert_eq!(m.qualy_laps_snapshot().len(), 1);
+        assert_eq!(m.qualy_car_lap_completed[7], 1);
+
+        m.set_session_subsession_id(1002);
+
+        assert_eq!(m.session_subsession_id, 1002);
+        assert_eq!(m.qualy_session_num, 1);
+        assert!(!m.prev_in_qualy);
+        assert!(m.qualy_laps_snapshot().is_empty());
+        assert_eq!(m.qualy_car_lap_completed, [0; 64]);
+    }
+
+    #[test]
+    fn subsession_zero_nao_descarta_estado_valido() {
+        let mut m = RaceMonitor::new();
+        m.set_qualy_session_num(1);
+        m.set_session_subsession_id(1001);
+
+        let mut car = on_track(7, 0, 1);
+        car.last_lap_time = 82.345;
+        m.capture_qualy(&IracingTelemetry {
+            session_num: 1,
+            cars: vec![car],
+            ..Default::default()
+        });
+
+        m.set_session_subsession_id(0);
+
+        assert_eq!(m.session_subsession_id, 1001);
+        assert!(m.prev_in_qualy);
+        assert_eq!(m.qualy_laps_snapshot().len(), 1);
+        assert_eq!(m.qualy_car_lap_completed[7], 1);
+    }
+
+    #[test]
+    fn historico_da_tentativa_recebe_subsession_atual() {
+        let mut m = RaceMonitor::new();
+        m.set_session_subsession_id(4242);
+        m.attempts.push(active_attempt());
+
+        m.record_history(&race_frame(2, 1));
+
+        assert_eq!(m.history.subsession_id, 4242);
     }
 
     #[test]

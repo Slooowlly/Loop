@@ -14,16 +14,6 @@ import {
   monthlySalary,
 } from "../../utils/formatters";
 
-const BUILD_META = {
-  balanced: { label: "Balanceado", weights: [34, 33, 33] },
-  acceleration_intermediate: { label: "Aceleração", weights: [47, 27, 27] },
-  power_intermediate: { label: "Potência", weights: [27, 47, 27] },
-  handling_intermediate: { label: "Dirigibilidade", weights: [27, 27, 47] },
-  acceleration_extreme: { label: "Aceleração extrema", weights: [60, 20, 20] },
-  power_extreme: { label: "Potência extrema", weights: [20, 60, 20] },
-  handling_extreme: { label: "Dirigibilidade extrema", weights: [20, 20, 60] },
-};
-
 const TECH_AXES = [
   { id: "development", label: "Desenvolvimento" },
   { id: "reliability", label: "Confiabilidade" },
@@ -698,7 +688,6 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
               <SortableHeader label="Equipe" sortKey="nome" sort={sort} onSort={handleSort} />
               <SortableHeader label="Dinheiro" sortKey="cash_balance" sort={sort} onSort={handleSort} />
               <SortableHeader label="Nível do carro" sortKey="car_performance" sort={sort} onSort={handleSort} />
-              <SortableHeader label="Tipo do carro" sortKey="car_build_profile" sort={sort} onSort={handleSort} />
               <SortableHeader label="Pontos" sortKey="pontos" sort={sort} onSort={handleSort} />
             </tr>
           </thead>
@@ -738,8 +727,7 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
                   </div>
                 </td>
                 <td className="px-4 py-3 font-mono">{formatMoney(team.cash_balance ?? 0)}</td>
-                <td className="px-4 py-3 font-mono">{carLevel(team.car_performance)}</td>
-                <td className="px-4 py-3 font-mono">{buildMeta(team.car_build_profile).label}</td>
+                <td className="px-4 py-3 font-mono">{team.car_level ?? carLevel(team.car_performance)}</td>
                 <td className="px-4 py-3 font-mono text-text-primary">{team.pontos ?? 0}</td>
               </tr>
             ))}
@@ -1318,7 +1306,6 @@ function sortRankingRows(rows, sort) {
 
 function rankingSortValue(team, key) {
   if (key === "nome") return team.nome ?? "";
-  if (key === "car_build_profile") return buildMeta(team.car_build_profile).label;
   return team?.[key] ?? 0;
 }
 
@@ -1605,7 +1592,6 @@ function buildDriverRow(role, driver, team, playerId) {
 }
 
 function technicalMetrics(team, axis) {
-  const meta = buildMeta(team?.car_build_profile);
   if (axis === "reliability") {
     return [
       { label: "Confiabilidade", value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
@@ -1620,10 +1606,11 @@ function technicalMetrics(team, axis) {
       { label: "Consistencia geral", value: ((team?.pit_crew_quality ?? 0) + (team?.confiabilidade ?? 0)) / 2, rawValue: "Pit + confiabilidade" },
     ];
   }
+  const level = team?.car_level ?? carLevel(team?.car_performance);
   return [
-    { label: "Pacote do carro", value: normalizeCar(team?.car_performance ?? 0), rawValue: `Nível ${carLevel(team?.car_performance)}/10` },
-    { label: "Foco do projeto", value: profileFocusScore(meta.weights), rawValue: meta.label },
-    { label: "Equilíbrio do acerto", value: profileBalanceScore(meta.weights), rawValue: profileBalanceLabel(meta.weights) },
+    { label: "Pacote do carro", value: (level / 10) * 100, rawValue: `Nível ${level}/10` },
+    { label: "Desempenho na pista", value: normalizeCar(team?.car_performance ?? 0), rawValue: `${Math.round(normalizeCar(team?.car_performance ?? 0))}/100` },
+    { label: "Confiabilidade", value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
   ];
 }
 
@@ -1661,10 +1648,6 @@ function cashTimelineFromReport(report) {
   });
 }
 
-function buildMeta(profile) {
-  return BUILD_META[profile] ?? BUILD_META.balanced;
-}
-
 function normalizeCar(value) {
   return clamp(((value + 5) / 21) * 100, 0, 100);
 }
@@ -1675,22 +1658,6 @@ function carLevel(value) {
 
 function formatOrdinal(value) {
   return Number.isFinite(value) ? `${value}º` : "-";
-}
-
-function profileBalanceScore(weights) {
-  const spread = Math.max(...weights) - Math.min(...weights);
-  return clamp(100 - spread, 0, 100);
-}
-
-function profileFocusScore(weights) {
-  return Math.max(...weights);
-}
-
-function profileBalanceLabel(weights) {
-  const spread = Math.max(...weights) - Math.min(...weights);
-  if (spread <= 5) return "Acerto equilibrado";
-  if (spread <= 20) return "Leve especialização";
-  return "Especialização forte";
 }
 
 function moneyTone(value) {

@@ -153,6 +153,7 @@ fn snapshot_from_window<R: tauri::Runtime>(
 
 // Modulos do sistema
 mod calendar;
+mod car;
 mod commands;
 mod common;
 mod config;
@@ -219,9 +220,21 @@ pub fn run() {
             // ativam sozinhos, sem toggle.
             iracing_sdk::race_monitor::start_watching();
 
+            // Overlay de monitor: click-through por PADRÃO (o mouse vai pro jogo).
+            // Definido uma vez aqui; o modo "mover" alterna via set_interactive.
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.set_ignore_cursor_events(true);
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Só a janela PRINCIPAL persiste tamanho/estado. A janela "overlay"
+            // (512×1024, por cima do iRacing) emite resize/close próprios — sem esse
+            // guard, o boot seguinte abriria a principal no tamanho do overlay.
+            if window.label() != "main" {
+                return;
+            }
             let app = window.app_handle();
             let base_dir = match app.path().app_data_dir() {
                 Ok(path) => path,
@@ -273,6 +286,10 @@ pub fn run() {
             commands::career_commands::get_player_proposals,
             commands::career_commands::respond_to_proposal,
             commands::career_commands::debug_prepare_market_scenario,
+            commands::career_commands::debug_poaching_auctions,
+            commands::career_commands::get_player_poach_offer,
+            commands::career_commands::resolve_player_poach_offer,
+            commands::career_commands::debug_force_player_poach_offer,
             commands::career_commands::debug_stamp_player_championship,
             commands::career_commands::get_news,
             commands::career_commands::delete_career,
@@ -302,6 +319,7 @@ pub fn run() {
             commands::ai_news::report_pre_race_engagement,
             commands::ai_news::post_race_debrief_ai,
             commands::ai_news::player_race_news_id,
+            commands::world_footer::get_world_footer,
             commands::race::simulate_race_weekend,
             commands::race::get_saved_race_screen,
             commands::race::simulate_special_block,
@@ -365,6 +383,16 @@ pub fn run() {
             commands::convocation::encerrar_bloco_especial,
             commands::convocation::run_pos_especial,
             commands::calendar::get_temporal_summary,
+            commands::vr_overlay::vr_overlay_write_frame,
+            commands::vr_overlay::vr_overlay_set_pose,
+            commands::vr_overlay::vr_overlay_get_pose,
+            commands::vr_overlay::vr_overlay_recenter,
+            commands::vr_overlay::vr_overlay_set_recenter_key,
+            commands::overlay_window::overlay_window_show,
+            commands::overlay_window::overlay_window_hide,
+            commands::overlay_window::overlay_window_set_interactive,
+            commands::overlay_window::overlay_active_career,
+            commands::overlay::get_overlay_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

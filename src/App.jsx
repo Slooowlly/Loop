@@ -5,11 +5,19 @@ import LoadSave from "./pages/LoadSave";
 import Settings from "./pages/Settings";
 import Dashboard from "./pages/Dashboard";
 import WindowControlsDrawer from "./components/layout/WindowControlsDrawer";
+import OverlayVrWriter from "./overlay/OverlayVrWriter";
+import OverlayPositionPanel from "./overlay/OverlayPositionPanel";
+import OverlayMonitorAuto from "./overlay/OverlayMonitorAuto";
+import PoachAuctionHost from "./components/season/PoachAuctionHost";
 
 function App() {
   return (
     <BrowserRouter>
       <WindowControlsDrawer />
+      <OverlayVrWriter />
+      <OverlayPositionPanel />
+      <OverlayMonitorAuto />
+      <PoachAuctionHost />
       <Routes>
         <Route path="/" element={<MainMenu intro />} />
         <Route path="/menu" element={<MainMenu />} />

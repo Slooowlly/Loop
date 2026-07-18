@@ -1,7 +1,10 @@
 use rand::Rng;
 
 use crate::finance::focus::TeamFocus;
-use crate::finance::salary::{calculate_renewal_pressure_from_money, calculate_salary_ceiling};
+use crate::finance::salary::{
+    calculate_offer_salary_from_money, calculate_renewal_pressure_from_money,
+    calculate_salary_ceiling,
+};
 use crate::market::bond::bond_level;
 use crate::market::visibility::{
     derive_market_visibility_profile, MarketVisibilityProfile, MarketVisibilityTier,
@@ -299,13 +302,30 @@ fn fame_salary_premium(media: f64) -> f64 {
     }
 }
 
-fn calculate_renewal_salary(
-    contract: &Contract,
-    performance: f64,
-    driver: &Driver,
-    team: &Team,
-) -> f64 {
-    let base = contract.salario_anual;
+/// Velocidade com que o salário persegue o valor de mercado a cada renovação.
+/// ASSIMÉTRICO de propósito: sobe rápido, desce devagar — o contrato protege o
+/// piloto no curto prazo, mas o veterano em declínio acaba cedendo, em vez de
+/// congelar num "salário zumbi" que o time nunca consegue reajustar.
+const RENEWAL_CATCHUP_UP: f64 = 0.60;
+const RENEWAL_CATCHUP_DOWN: f64 = 0.25;
+
+/// Salário-ALVO da renovação: o que este piloto valeria indo ao mercado hoje,
+/// nesta equipe e nesta categoria.
+///
+/// Ancorar no MERCADO (e não no salário anterior) é o que faz o salário
+/// acompanhar a escada. A versão antiga fazia `base = contract.salario_anual`,
+/// e daí dois defeitos: (a) nunca se re-ancorava na categoria, então quem subia
+/// de divisão carregava o salário velho pra sempre; (b) o modificador de
+/// performance ≤ 60 — o caso da MAIORIA, já que performance é relativa —
+/// multiplicava por 0.90 a cada renovação, uma catraca composta que só descia.
+/// Medido numa carreira real: o salário médio do GT3 caiu de 216k (temp. 1) para
+/// 101k (temp. 42) enquanto o caixa das equipes subia.
+///
+/// Performance, idade e fama agora modulam o ALVO, não o histórico — um ano ruim
+/// custa um desconto sobre o valor de mercado, não um corte permanente que se
+/// acumula sobre todos os anos ruins anteriores.
+fn renewal_target_salary(driver: &Driver, team: &Team, performance: f64) -> f64 {
+    let market_value = calculate_offer_salary_from_money(team, driver.atributos.skill);
     let perf_modifier = if performance > 80.0 {
         1.20
     } else if performance > 60.0 {
@@ -313,11 +333,27 @@ fn calculate_renewal_salary(
     } else {
         0.90
     };
-
     let age_modifier = if driver.idade > 34 { 0.85 } else { 1.0 };
     let fame_modifier = fame_salary_premium(driver.atributos.midia);
 
-    (base * perf_modifier * age_modifier * fame_modifier)
+    market_value * perf_modifier * age_modifier * fame_modifier
+}
+
+fn calculate_renewal_salary(
+    contract: &Contract,
+    performance: f64,
+    driver: &Driver,
+    team: &Team,
+) -> f64 {
+    let current = contract.salario_anual;
+    let gap = renewal_target_salary(driver, team, performance) - current;
+    let catchup = if gap >= 0.0 {
+        RENEWAL_CATCHUP_UP
+    } else {
+        RENEWAL_CATCHUP_DOWN
+    };
+
+    (current + gap * catchup)
         .min(calculate_salary_ceiling(team))
         .max(5_000.0)
 }
@@ -446,11 +482,15 @@ mod tests {
     #[test]
     fn renewal_uses_real_money_instead_of_legacy_budget() {
         let driver = sample_driver(29, None);
-        let contract = sample_contract(TeamRole::Numero1, 160_000.0);
         let mut rich = sample_team("gt4", 6_000_000.0, 0.0, "healthy");
         rich.budget = 1.0;
         let mut poor = sample_team("gt4", 100_000.0, 2_500_000.0, "crisis");
         poor.budget = 99.0;
+        // Salário desproporcional PARA A EQUIPE POBRE, ancorado no teto dela (não num
+        // número fixo) — resiste a recalibrações do peso salarial. Acima do teto do
+        // pobre mas confortável pro teto muito maior do rico.
+        let salario = calculate_salary_ceiling(&poor) * 1.20;
+        let contract = sample_contract(TeamRole::Numero1, salario);
         let mut rng_rich = StdRng::seed_from_u64(21);
         let mut rng_poor = StdRng::seed_from_u64(21);
 
@@ -717,6 +757,71 @@ mod tests {
         assert_eq!(player_offer_duration(TeamFocus::Dinastia, 0.0), 2);
         // Time comum sem história = 1 ano.
         assert_eq!(player_offer_duration(TeamFocus::MeioDeGrid, 0.0), 1);
+    }
+
+    /// REGRESSÃO — a CATRACA. A versão antiga ancorava no próprio salário anterior
+    /// (`base = contract.salario_anual`) e multiplicava por 0.90 sempre que a
+    /// performance ficasse ≤ 60 — o caso da MAIORIA, porque performance é relativa.
+    /// Resultado: decaimento composto que só descia, e um piloto subvalorizado
+    /// jamais alcançava a categoria. Aqui o salário PERSEGUE o valor de mercado.
+    #[test]
+    fn renewal_lifts_an_underpaid_driver_instead_of_ratcheting_him_down() {
+        let team = sample_healthy_team();
+        let mut driver = sample_driver(26, None);
+        driver.atributos.skill = 78.0;
+
+        // Bem abaixo do que ele vale — o caso do piloto que subiu de categoria
+        // carregando o salário velho.
+        let contract = sample_contract(TeamRole::Numero1, 20_000.0);
+        // Performance medíocre: exatamente o caso que a catraca antiga cortava 10%.
+        let renovado = calculate_renewal_salary(&contract, 55.0, &driver, &team);
+
+        assert!(
+            renovado > 20_000.0,
+            "piloto subvalorizado tem de SUBIR rumo ao mercado, não cair: {renovado:.0}"
+        );
+
+        // E converge: renovações sucessivas aproximam do alvo, sem ultrapassá-lo.
+        let alvo = renewal_target_salary(&driver, &team, 55.0);
+        let mut salario = 20_000.0;
+        for _ in 0..6 {
+            let c = sample_contract(TeamRole::Numero1, salario);
+            salario = calculate_renewal_salary(&c, 55.0, &driver, &team);
+            assert!(
+                salario <= alvo + 1.0,
+                "a convergência nunca deve ultrapassar o alvo: {salario:.0} > {alvo:.0}"
+            );
+        }
+        assert!(
+            (salario - alvo).abs() < alvo * 0.05,
+            "após 6 renovações o salário deve estar colado no mercado: {salario:.0} vs alvo {alvo:.0}"
+        );
+    }
+
+    /// A queda é LENTA de propósito (decisão travada): o contrato protege o piloto
+    /// no curto prazo, mas o declínio acaba chegando — sem virar salário zumbi.
+    #[test]
+    fn renewal_cuts_an_overpaid_driver_slowly_but_really_cuts() {
+        let team = sample_healthy_team();
+        let mut driver = sample_driver(35, None);
+        driver.atributos.skill = 40.0;
+
+        let caro = 200_000.0;
+        let contract = sample_contract(TeamRole::Numero1, caro);
+        let alvo = renewal_target_salary(&driver, &team, 55.0);
+        let renovado = calculate_renewal_salary(&contract, 55.0, &driver, &team);
+
+        assert!(alvo < caro, "cenário inválido: o alvo precisa estar abaixo do salário atual");
+        assert!(renovado < caro, "piloto acima do mercado precisa ceder: {renovado:.0}");
+        assert!(
+            renovado > alvo,
+            "mas a queda é gradual — não desaba pro alvo de uma vez: {renovado:.0} vs alvo {alvo:.0}"
+        );
+        // Sobe mais rápido do que desce.
+        assert!(
+            RENEWAL_CATCHUP_DOWN < RENEWAL_CATCHUP_UP,
+            "a assimetria é o coração da regra"
+        );
     }
 
     fn sample_contract(role: TeamRole, salary: f64) -> Contract {

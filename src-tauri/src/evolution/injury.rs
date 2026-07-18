@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use crate::db::connection::DbError;
 use crate::db::queries::drivers::update_driver_status;
 use crate::db::queries::injuries::{
-    get_active_injuries_for_category, has_active_injury_for_pilot, insert_injury,
-    update_injury_status,
+    get_active_injuries_for_category, get_active_injuries_without_category,
+    has_active_injury_for_pilot, insert_injury, update_injury_status,
 };
 use crate::models::enums::DriverStatus;
 use crate::models::injury::Injury;
@@ -28,6 +28,39 @@ pub fn process_injury_recovery(tx: &Transaction, category_id: &str) -> Result<()
 
         if !injury.active && !has_active_injury_for_pilot(tx, &injury.pilot_id)? {
             // Driver recovered
+            update_driver_status(tx, &injury.pilot_id, &DriverStatus::Ativo)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Recupera as lesões de pilotos SEM assento (`categoria_atual IS NULL`).
+///
+/// `process_injury_recovery` decrementa a lesão na corrida da categoria do piloto.
+/// Um piloto que se lesiona e depois perde o assento (contrato expira → `sync.rs`
+/// zera `categoria_atual`) some desse tick: nenhuma corrida de categoria o alcança,
+/// a lesão nunca cicatriza e ele fica `Lesionado` para sempre, invisível ao mercado
+/// (`find_available_drivers` exige `status == Ativo`). Resultado observado numa save
+/// madura: pilotos presos há dezenas de temporadas, incluindo o nº 1 do mundo.
+///
+/// Este tick roda uma vez por temporada (fim de temporada) e cura TOTALMENTE esses
+/// órfãos: quem passou uma temporada inteira fora está recuperado de qualquer lesão
+/// (a mais longa dura 8 corridas; uma temporada de categoria tem bem mais que isso),
+/// então zerar `races_remaining` é o modelo correto — e cura o passivo acumulado das
+/// saves antigas em uma única virada de temporada, em vez de arrastar uma lesão grave
+/// por até 8 temporadas. É disjunto do tick por corrida (aquele só vê
+/// `categoria_atual = ?`, este só `categoria_atual IS NULL`), então nunca há
+/// decremento duplo.
+pub fn process_injury_recovery_without_seat(tx: &Transaction) -> Result<(), DbError> {
+    let orphan_injuries = get_active_injuries_without_category(tx)?;
+
+    for injury in orphan_injuries {
+        // Cura total: uma temporada fora basta para qualquer gravidade.
+        update_injury_status(tx, &injury.id, 0, false)?;
+
+        if !has_active_injury_for_pilot(tx, &injury.pilot_id)? {
+            // Recuperado: volta a Ativo para o mercado poder recontratá-lo.
             update_driver_status(tx, &injury.pilot_id, &DriverStatus::Ativo)?;
         }
     }
@@ -166,6 +199,164 @@ mod tests {
             })
             .unwrap();
         assert_eq!(status2, "Ativo");
+    }
+
+    #[test]
+    fn test_seated_injury_is_untouched_by_orphan_recovery_tick() {
+        // Guard contra decremento duplo: o tick de órfãos NÃO pode tocar quem tem
+        // assento (esse é responsabilidade do tick por corrida).
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+
+        update_driver_status(&tx, "P001", &DriverStatus::Lesionado).unwrap();
+        tx.execute(
+            "UPDATE drivers SET categoria_atual = 'F1' WHERE id = 'P001'",
+            [],
+        )
+        .unwrap();
+        let injury = crate::models::injury::Injury {
+            id: "INJ-SEAT".to_string(),
+            pilot_id: "P001".to_string(),
+            injury_type: InjuryType::Moderada,
+            injury_name: "Costela".to_string(),
+            modifier: 0.88,
+            races_total: 4,
+            races_remaining: 4,
+            skill_penalty: 0.10,
+            season: 1,
+            race_occurred: "R001".to_string(),
+            active: true,
+        };
+        insert_injury(&tx, &injury).unwrap();
+
+        process_injury_recovery_without_seat(&tx).unwrap();
+
+        let rem: i32 = tx
+            .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rem, 4, "piloto com assento não deve ser tocado pelo tick de órfãos");
+    }
+
+    #[test]
+    fn test_orphan_injury_recovers_and_reactivates_driver() {
+        // Reproduz o deadlock: piloto lesionado que perdeu o assento
+        // (`categoria_atual IS NULL`). O tick por corrida nunca o alcança; só o tick
+        // de órfãos cura. Ao cicatrizar, volta a `Ativo` para o mercado recontratá-lo.
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+
+        update_driver_status(&tx, "P001", &DriverStatus::Lesionado).unwrap();
+        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
+            .unwrap();
+        let injury = crate::models::injury::Injury {
+            id: "INJ-ORF".to_string(),
+            pilot_id: "P001".to_string(),
+            injury_type: InjuryType::Leve,
+            injury_name: "Punho".to_string(),
+            modifier: 0.95,
+            races_total: 2,
+            races_remaining: 2,
+            skill_penalty: 0.05,
+            season: 1,
+            race_occurred: "R001".to_string(),
+            active: true,
+        };
+        insert_injury(&tx, &injury).unwrap();
+
+        // Sanidade: o tick por corrida NÃO vê o órfão (categoria nula).
+        process_injury_recovery(&tx, "F1").unwrap();
+        let rem_after_race_tick: i32 = tx
+            .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rem_after_race_tick, 2, "tick por corrida não deve ver o órfão");
+
+        // Tick de órfãos: uma temporada fora cura totalmente e reativa.
+        process_injury_recovery_without_seat(&tx).unwrap();
+        let (rem, act): (i32, bool) = tx
+            .query_row("SELECT races_remaining, active FROM injuries", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(rem, 0);
+        assert!(!act);
+        let status: String = tx
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "Ativo", "recuperado deve voltar a Ativo para o mercado");
+    }
+
+    #[test]
+    fn test_orphan_grave_injury_heals_in_a_single_season() {
+        // Uma lesão grave (8 corridas) não pode arrastar por 8 temporadas: uma
+        // temporada inteira fora do grid já é recuperação suficiente.
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+
+        update_driver_status(&tx, "P001", &DriverStatus::Lesionado).unwrap();
+        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
+            .unwrap();
+        let injury = crate::models::injury::Injury {
+            id: "INJ-GRAVE".to_string(),
+            pilot_id: "P001".to_string(),
+            injury_type: InjuryType::Grave,
+            injury_name: "Fratura".to_string(),
+            modifier: 0.75,
+            races_total: 8,
+            races_remaining: 8,
+            skill_penalty: 0.15,
+            season: 1,
+            race_occurred: "R001".to_string(),
+            active: true,
+        };
+        insert_injury(&tx, &injury).unwrap();
+
+        process_injury_recovery_without_seat(&tx).unwrap();
+
+        let act: bool = tx
+            .query_row("SELECT active FROM injuries", [], |r| r.get(0))
+            .unwrap();
+        assert!(!act, "lesão grave de órfão deve cicatrizar em uma temporada");
+        let status: String = tx
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "Ativo");
+    }
+
+    #[test]
+    fn test_retired_driver_with_pending_injury_is_not_reactivated() {
+        // Aposentado/suspenso também têm categoria nula; o tick de órfãos NÃO pode
+        // ressuscitá-los — só cura quem está `Lesionado`.
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+
+        update_driver_status(&tx, "P001", &DriverStatus::Aposentado).unwrap();
+        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
+            .unwrap();
+        let injury = crate::models::injury::Injury {
+            id: "INJ-RET".to_string(),
+            pilot_id: "P001".to_string(),
+            injury_type: InjuryType::Leve,
+            injury_name: "Punho".to_string(),
+            modifier: 0.95,
+            races_total: 1,
+            races_remaining: 1,
+            skill_penalty: 0.05,
+            season: 1,
+            race_occurred: "R001".to_string(),
+            active: true,
+        };
+        insert_injury(&tx, &injury).unwrap();
+
+        process_injury_recovery_without_seat(&tx).unwrap();
+
+        let status: String = tx
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "Aposentado", "aposentado não pode ser reativado por lesão");
+        let rem: i32 = tx
+            .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rem, 1, "lesão de aposentado não deve ser decrementada");
     }
 
     #[test]

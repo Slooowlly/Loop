@@ -113,6 +113,44 @@ pub fn get_active_injuries_for_category(
     Ok(injuries)
 }
 
+/// Lesões ativas de pilotos SEM assento (`categoria_atual IS NULL`), que o tick por
+/// corrida nunca alcança: ele filtra por `d.categoria_atual = ?1` e em SQL
+/// `NULL = 'gt3'` nunca é verdadeiro. Sem isto a lesão fica ativa para sempre.
+///
+/// Restrito a `status = 'Lesionado'` de propósito: aposentado/suspenso também têm
+/// `categoria_atual` nula e não podem ser reativados por uma lesão pendente.
+pub fn get_active_injuries_without_category(conn: &Connection) -> Result<Vec<Injury>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT i.id, i.pilot_id, i.type, COALESCE(i.injury_name, ''), i.modifier, i.races_total, i.races_remaining, i.skill_penalty, i.season, i.race_occurred, i.active
+         FROM injuries i
+         JOIN drivers d ON i.pilot_id = d.id
+         WHERE i.active = 1 AND d.categoria_atual IS NULL AND d.status = 'Lesionado'",
+    )?;
+
+    let iter = stmt.query_map([], |row| {
+        Ok(Injury {
+            id: row.get(0)?,
+            pilot_id: row.get(1)?,
+            injury_type: InjuryType::from_str_strict(&row.get::<_, String>(2)?)
+                .map_err(rusqlite::Error::InvalidParameterName)?,
+            injury_name: row.get(3)?,
+            modifier: row.get(4)?,
+            races_total: row.get(5)?,
+            races_remaining: row.get(6)?,
+            skill_penalty: row.get(7)?,
+            season: row.get(8)?,
+            race_occurred: row.get(9)?,
+            active: row.get::<_, i32>(10)? == 1,
+        })
+    })?;
+
+    let mut injuries = Vec::new();
+    for i in iter {
+        injuries.push(i?);
+    }
+    Ok(injuries)
+}
+
 pub fn get_active_injury_types_by_pilot(
     conn: &Connection,
     pilot_ids: &[String],

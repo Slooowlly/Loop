@@ -7,7 +7,8 @@ use crate::models::enums::WeatherCondition;
 use crate::finance::morale::{morale_pace_delta, morale_reliability_delta};
 use crate::models::team::Team;
 
-use super::car_build::effective_car_performance;
+use crate::car::sim_bridge::{car_performance_from, car_shape_weights};
+use super::car_build::effective_car_performance_from_shape;
 use super::catalog::{vehicle_class_from_category, VehicleClass};
 use super::profile::resolve_simulation_profile;
 use super::track_profile::{get_track_simulation_data, pack_density_factor, TrackCharacter};
@@ -195,12 +196,19 @@ impl SimDriver {
             track.handling_weight,
         );
         let mut sim_driver = Self::from_driver_and_team(driver, team);
-        // effective_car_performance recalcula a partir do car_performance-base (sem
-        // moral), então re-aplicamos o delta de moral aqui. A confiabilidade já veio
-        // do construtor base com a moral e não é reescrita.
-        sim_driver.car_performance =
-            effective_car_performance(team.car_performance, team.car_build_profile, track_weights)
-                + morale_pace_delta(team.morale);
+        // Sistema de Nível do Carro: a magnitude do carro vira o car_performance-base e o
+        // shape (contínuo) casa com a pista. Save antigo sem carro semeado → fallback ao
+        // escalar legado. Re-aplicamos o delta de moral aqui (a confiabilidade já veio do
+        // construtor base com a moral e não é reescrita).
+        let base_car_performance = match &team.car {
+            Some(car) => effective_car_performance_from_shape(
+                car_performance_from(car),
+                car_shape_weights(car),
+                track_weights,
+            ),
+            None => team.car_performance,
+        };
+        sim_driver.car_performance = base_car_performance + morale_pace_delta(team.morale);
         sim_driver
     }
 }
@@ -325,8 +333,22 @@ mod tests {
         assert_eq!(sim_driver.corridas_na_categoria, 7);
     }
 
+    /// Carro com shape de potência (motor/câmbio/cooling/eletrônica no talo).
+    fn power_car() -> crate::car::Car {
+        let mut car = crate::car::Car::uniform(5);
+        for part in [
+            crate::car::PartType::Engine,
+            crate::car::PartType::Gearbox,
+            crate::car::PartType::Cooling,
+            crate::car::PartType::Electronics,
+        ] {
+            car.set_level(part, 10);
+        }
+        car
+    }
+
     #[test]
-    fn test_sim_driver_uses_track_adjusted_car_performance_when_profile_matches() {
+    fn test_carro_de_potencia_rende_mais_na_pista_de_power() {
         let driver = Driver::create_player(
             "P002".to_string(),
             "Carlos Match".to_string(),
@@ -339,33 +361,40 @@ mod tests {
             "gt3".to_string(),
             "2026-01-01T00:00:00".to_string(),
         );
-        team.car_performance = 8.0;
-        team.car_build_profile = crate::simulation::car_build::CarBuildProfile::PowerExtreme;
+        team.car = Some(power_car());
 
-        let sim_driver = SimDriver::from_driver_team_and_track(&driver, &team, 93);
+        // Monza (93) = power-heavy → shape casa; Tsukuba (325) = accel → shape erra.
+        let monza = SimDriver::from_driver_team_and_track(&driver, &team, 93);
+        let tsukuba = SimDriver::from_driver_team_and_track(&driver, &team, 325);
 
-        assert!(sim_driver.car_performance > team.car_performance);
+        assert!(
+            monza.car_performance > tsukuba.car_performance,
+            "carro de potência deveria render mais em power (monza={}, tsukuba={})",
+            monza.car_performance,
+            tsukuba.car_performance
+        );
     }
 
     #[test]
-    fn test_sim_driver_uses_track_adjusted_car_performance_when_profile_is_wrong() {
+    fn test_sem_carro_semeado_cai_no_fallback_do_escalar() {
         let driver = Driver::create_player(
             "P003".to_string(),
-            "Carlos Mismatch".to_string(),
+            "Carlos Legacy".to_string(),
             "Brasileiro".to_string(),
             20,
         );
         let mut team = placeholder_team_from_db(
             "T003".to_string(),
-            "Team Mismatch".to_string(),
+            "Team Legacy".to_string(),
             "gt3".to_string(),
             "2026-01-01T00:00:00".to_string(),
         );
         team.car_performance = 8.0;
-        team.car_build_profile = crate::simulation::car_build::CarBuildProfile::PowerExtreme;
+        team.car = None; // save antigo, sem carro
 
-        let sim_driver = SimDriver::from_driver_team_and_track(&driver, &team, 325);
+        let sim_driver = SimDriver::from_driver_team_and_track(&driver, &team, 93);
 
-        assert!(sim_driver.car_performance < team.car_performance);
+        // Sem carro: usa o escalar (8.0) + moral, sem delta de shape.
+        assert!((sim_driver.car_performance - 8.0).abs() < 3.0);
     }
 }

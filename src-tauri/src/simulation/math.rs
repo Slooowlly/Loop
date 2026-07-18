@@ -75,10 +75,12 @@ pub fn car_weight_scale(category_id: &str) -> f64 {
     match category_base(category_id) {
         "mazda_rookie" | "toyota_rookie" => 0.15,
         "mazda_amador" | "toyota_amador" => 0.65,
+        // Production é categoria de baixo prestígio (escada entre amador e bmw): o carro
+        // pesa pouco na corrida, entre amador (0.65) e bmw (0.80). Calibrável (chunk 8).
+        "production_challenger" => 0.72,
         "bmw_m2" => 0.80,
         "gt4" => 1.00,
         "gt3" => 1.30,
-        "production_challenger" => 1.40,
         "lmp2" | "endurance" => 1.60,
         _ => 1.00,
     }
@@ -172,7 +174,13 @@ mod tests {
             car_weight_scale("endurance:gt3") > 1.3,
             "classe de endurance herda o peso alto"
         );
-        assert!(car_weight_scale("production_challenger") > 1.0);
+        // Production é de baixo prestígio (escada entre amador e bmw): peso do carro
+        // baixo, entre amador e bmw.
+        assert!(
+            car_weight_scale("mazda_amador") < car_weight_scale("production_challenger")
+                && car_weight_scale("production_challenger") < car_weight_scale("bmw_m2"),
+            "production deve ter peso de carro entre amador e bmw"
+        );
         assert!(car_weight_scale("mazda_rookie") < car_weight_scale("mazda_amador"));
         assert!(car_weight_scale("gt4") < car_weight_scale("gt3"));
     }

@@ -4,14 +4,18 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::career::{
     advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
-    debug_prepare_market_scenario_in_base_dir, debug_stamp_player_championship_in_base_dir,
+    debug_poaching_auctions_in_base_dir, debug_prepare_market_scenario_in_base_dir,
+    debug_stamp_player_championship_in_base_dir,
     delete_career_in_base_dir,
     finalize_preseason_in_base_dir,
     get_briefing_phrase_history_in_base_dir, get_calendar_for_category_in_base_dir,
     get_driver_detail_in_base_dir, get_driver_in_base_dir, get_drivers_by_category_in_base_dir,
     get_player_dossier_in_base_dir,
-    get_news_in_base_dir, get_player_proposals_in_base_dir, get_preseason_free_agents_in_base_dir,
+    debug_force_player_poach_offer_in_base_dir,
+    get_news_in_base_dir, get_player_poach_offer_in_base_dir, get_player_proposals_in_base_dir,
+    get_preseason_free_agents_in_base_dir,
     get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
+    resolve_player_poach_offer_in_base_dir,
     get_race_results_by_category_in_base_dir, get_team_finance_report_in_base_dir,
     get_team_history_dossier_in_base_dir,
     get_teams_standings_in_base_dir, list_saves_in_base_dir, load_career_in_base_dir,
@@ -114,6 +118,49 @@ pub async fn debug_prepare_market_scenario(
 ) -> Result<(), String> {
     let base_dir = app_data_dir(&app)?;
     debug_prepare_market_scenario_in_base_dir(&base_dir, &career_id, &scenario)
+}
+
+/// Quebra de contrato do jogador (Fase 2b.3): a oferta ativa da janela, ou null.
+#[tauri::command]
+pub async fn get_player_poach_offer(
+    app: AppHandle,
+    career_id: String,
+) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_player_poach_offer_in_base_dir(&base_dir, &career_id)
+}
+
+/// Resolve a decisão do jogador na quebra de contrato (accept = sair; false = ficar).
+#[tauri::command]
+pub async fn resolve_player_poach_offer(
+    app: AppHandle,
+    career_id: String,
+    offer: crate::market::pipeline::PlayerPoachOffer,
+    accept: bool,
+) -> Result<crate::market::pipeline::PlayerPoachOutcome, String> {
+    let base_dir = app_data_dir(&app)?;
+    resolve_player_poach_offer_in_base_dir(&base_dir, &career_id, &offer, accept)
+}
+
+/// DEBUG: força uma proposta de quebra de contrato pro jogador (Fase 2b.3).
+#[tauri::command]
+pub async fn debug_force_player_poach_offer(
+    app: AppHandle,
+    career_id: String,
+) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
+    let base_dir = app_data_dir(&app)?;
+    debug_force_player_poach_offer_in_base_dir(&base_dir, &career_id)
+}
+
+/// DEBUG: simula o leilão de poaching (Fase 2b.2) e DESFAZ tudo, devolvendo o
+/// raio-x de cada assédio. Não altera o save.
+#[tauri::command]
+pub async fn debug_poaching_auctions(
+    app: AppHandle,
+    career_id: String,
+) -> Result<crate::commands::career::PoachDebugReport, String> {
+    let base_dir = app_data_dir(&app)?;
+    debug_poaching_auctions_in_base_dir(&base_dir, &career_id)
 }
 
 /// DEBUG: carimba a posição do jogador no arquivo APÓS o avanço da temporada (o avanço

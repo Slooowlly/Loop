@@ -165,22 +165,14 @@ fn weighted_duration(rng: &mut impl Rng) -> i32 {
     }
 }
 
-/// Faixa salarial (min, max) de geração de contratos por tier. Deve abraçar a base de
-/// mercado (`finance::salary::category_salary_base_for_tier`) e crescer monotonicamente
-/// — o teste `salary_range_is_monotonic_and_brackets_market_base` trava as duas coisas.
-/// Enumera TODOS os tiers reais (0–6): endurance é tier 6; deixá-lo cair no `_` fazia o
-/// piloto de endurance nascer com salário de rookie.
+/// Faixa salarial (min, max) de geração de contratos por tier: uma banda em torno da
+/// base de mercado. DERIVADA da base (`finance::salary::category_salary_base_for_tier`),
+/// que por sua vez deriva do custo operacional — não é mais uma tabela à mão em paralelo,
+/// então não pode divergir nem inverter (tier5<tier4) nem cair no default de rookie.
+/// O teste `salary_range_is_monotonic_and_brackets_market_base` ainda trava a relação.
 pub(crate) fn salary_range_for_tier(tier: u8) -> (f64, f64) {
-    match tier {
-        0 => (5_000.0, 15_000.0),
-        1 => (15_000.0, 40_000.0),
-        2 => (30_000.0, 80_000.0),
-        3 => (60_000.0, 150_000.0),
-        4 => (100_000.0, 300_000.0),
-        5 => (165_000.0, 435_000.0),
-        6 => (180_000.0, 480_000.0),
-        _ => (90_000.0, 230_000.0),
-    }
+    let base = crate::finance::salary::category_salary_base_for_tier(tier);
+    (base * 0.5, base * 1.45)
 }
 
 #[cfg(test)]
@@ -268,8 +260,11 @@ mod tests {
             &mut rng,
         );
 
-        assert!(contract.salario_anual >= 100_000.0);
-        assert!(contract.salario_anual <= 336_000.0);
+        // Ancorado na faixa DERIVADA do tier (não em números fixos), então resiste a
+        // recalibrações do peso salarial. N2 = multiplicador de papel 1.00..=1.12.
+        let (min, max) = salary_range_for_tier(4); // gt3
+        assert!(contract.salario_anual >= (min * 1.00).round());
+        assert!(contract.salario_anual <= (max * 1.12).round());
     }
 
     // Trava os 3 bugs de escala salarial de uma vez: (a) faixa cresce monotonicamente

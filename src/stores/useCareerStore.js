@@ -1,6 +1,7 @@
 ﻿import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { isLegacySeasonPhase } from "../utils/seasonPhases";
+import { isFinaleSlot } from "../utils/postRaceLanding";
 
 const initialState = {
   isLoaded: false,
@@ -11,6 +12,7 @@ const initialState = {
   isAdvancingWeek: false,
   isEnteringPreseason: false,
   isRespondingProposal: false,
+  isResolvingPoach: false,
   isConvocating: false,
   isDirty: false,
   lastSaved: null,
@@ -42,6 +44,13 @@ const initialState = {
   otherCategoriesResult: null,
   showResult: false,
   showRaceBriefing: false,
+  // A corrida recém-terminada era o final de campeonato (thematic_slot final)?
+  // Usado pelo Dashboard para forçar a aba "Notícias" no pós-corrida.
+  lastRaceWasFinale: false,
+  // A tela de resultado aberta é de uma corrida ACABADA AGORA (true) ou é uma
+  // reabertura de corrida antiga pela Home (false)? Só a fresca aciona a lógica
+  // de aba pós-corrida.
+  resultIsFresh: false,
   // Conserto do carro a mostrar no pop-up ao abrir o resultado (import do iRacing).
   iracingRepair: null,
   // Trava p/ o poller do iRacing não importar a mesma corrida duas vezes em voo.
@@ -52,6 +61,7 @@ const initialState = {
   playerProposals: [],
   transferWindow: null,
   preseasonFreeAgents: [],
+  poachOffer: null,
   endOfSeasonResult: null,
   showEndOfSeason: false,
   showPreseason: false,
@@ -435,6 +445,8 @@ const useCareerStore = create((set, get) => ({
         lastRaceEvaluation: result.evaluation ?? null, // mesmo cérebro do import iRacing
         lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
         lastRaceMaintenance: result.maintenance ?? null,
+        lastRaceWasFinale: isFinaleSlot(nextRace.thematic_slot),
+        resultIsFresh: true,
         otherCategoriesResult: result.other_categories,
         isSimulating: false,
         showResult: true,
@@ -454,7 +466,7 @@ const useCareerStore = create((set, get) => ({
   // corrida já foi gravado (jogador terminou/saiu). Se sim, importa e abre a tela
   // de resultado sozinha. Chamado em loop por um poller no Dashboard. Idempotente.
   pollIracingResult: async () => {
-    const { careerId, showResult, isSimulating, iracingImporting } = get();
+    const { careerId, showResult, isSimulating, iracingImporting, nextRace } = get();
     if (!careerId || showResult || isSimulating || iracingImporting) return;
     set({ iracingImporting: true });
     try {
@@ -466,6 +478,8 @@ const useCareerStore = create((set, get) => ({
           lastRaceEvaluation: payload.evaluation ?? null,
           lastRaceTelemetry: payload.telemetry ?? null,
           lastRaceMaintenance: payload.summary?.maintenance ?? null,
+          lastRaceWasFinale: isFinaleSlot(nextRace?.thematic_slot),
+          resultIsFresh: true,
           showResult: true,
           showRaceBriefing: false,
           isDirty: true,
@@ -496,6 +510,9 @@ const useCareerStore = create((set, get) => ({
           lastRaceTelemetry: screen.telemetry ?? null,
           lastRaceMaintenance: screen.maintenance ?? null,
           iracingRepair: null,
+          // Reabertura de corrida antiga: NÃO aciona a aba pós-corrida.
+          lastRaceWasFinale: false,
+          resultIsFresh: false,
           showResult: true,
           showRaceBriefing: false,
         });
@@ -517,6 +534,7 @@ const useCareerStore = create((set, get) => ({
       iracingRepair: null,
       lastRaceEvaluation: null,
       lastRaceTelemetry: null,
+      resultIsFresh: false,
     });
 
     if (!careerId) return;
@@ -618,6 +636,14 @@ const useCareerStore = create((set, get) => ({
       console.error("[debug] falha ao carimbar posição do jogador:", error);
     }
     return result;
+  },
+
+  // DEBUG: simula os leilões de poaching (quebra de contrato entre IAs) e devolve o
+  // raio-x de cada assédio. NÃO altera o save — o backend desfaz tudo (rollback).
+  debugPoachingAuctions: async () => {
+    const { careerId } = get();
+    if (!careerId) throw new Error("Carreira não carregada.");
+    return invoke("debug_poaching_auctions", { careerId });
   },
 
   // ── Bloco Especial ───────────────────────────────────────────────────────────
@@ -845,11 +871,12 @@ const useCareerStore = create((set, get) => ({
     set({ isEnteringPreseason: true, error: null });
 
     try {
-      const [state, proposals, freeAgents, transferWindow] = await Promise.all([
+      const [state, proposals, freeAgents, transferWindow, poachOffer] = await Promise.all([
         invoke("get_preseason_state", { careerId }),
         invoke("get_player_proposals", { careerId }).catch(() => []),
         invoke("get_preseason_free_agents", { careerId }).catch(() => []),
         invoke("get_transfer_window_state", { careerId }).catch(() => null),
+        invoke("get_player_poach_offer", { careerId }).catch(() => null),
       ]);
       const news = await invoke("get_news", {
         careerId,
@@ -877,6 +904,7 @@ const useCareerStore = create((set, get) => ({
         playerProposals: proposals,
         transferWindow,
         preseasonFreeAgents: freeAgents,
+        poachOffer,
         playerSpecialOffers: [],
         acceptedSpecialOffer: null,
         error: null,
@@ -905,7 +933,7 @@ const useCareerStore = create((set, get) => ({
         acceptedSeatId,
       });
 
-      const [state, freeAgents, transferWindow] = await Promise.all([
+      const [state, freeAgents, transferWindow, poachOffer] = await Promise.all([
         invoke("get_preseason_state", { careerId }),
         invoke("get_preseason_free_agents", { careerId }).catch((e) => {
           console.error("[preseason] get_preseason_free_agents falhou:", e);
@@ -914,6 +942,7 @@ const useCareerStore = create((set, get) => ({
         invoke("get_transfer_window_state", { careerId }).catch(
           () => get().transferWindow,
         ),
+        invoke("get_player_poach_offer", { careerId }).catch(() => get().poachOffer ?? null),
       ]);
       const news = await invoke("get_news", {
         careerId,
@@ -928,6 +957,7 @@ const useCareerStore = create((set, get) => ({
         lastMarketWeekResult: weekResult,
         transferWindow,
         preseasonFreeAgents: freeAgents,
+        poachOffer,
         isAdvancingWeek: false,
         isDirty: true,
       });
@@ -940,6 +970,51 @@ const useCareerStore = create((set, get) => ({
       });
       throw error;
     }
+  },
+
+  // Quebra de contrato do jogador (Fase 2b.3): resolve a decisão (accept = sair pro
+  // pretendente; false = ficar). Aplica no backend, limpa a oferta e recarrega o estado
+  // da pré-temporada (o time do jogador mudou).
+  resolvePlayerPoachOffer: async (accept) => {
+    const { careerId, poachOffer } = get();
+    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!poachOffer) throw new Error("Nenhuma proposta de quebra ativa.");
+    set({ isResolvingPoach: true, error: null });
+    try {
+      const outcome = await invoke("resolve_player_poach_offer", {
+        careerId,
+        offer: poachOffer,
+        accept,
+      });
+      const [state, transferWindow] = await Promise.all([
+        invoke("get_preseason_state", { careerId }).catch(() => get().preseasonState),
+        invoke("get_transfer_window_state", { careerId }).catch(() => get().transferWindow),
+      ]);
+      set({
+        poachOffer: null,
+        preseasonState: state,
+        transferWindow,
+        isResolvingPoach: false,
+        isDirty: true,
+      });
+      return outcome;
+    } catch (error) {
+      set({
+        isResolvingPoach: false,
+        error: getErrorMessage(error, "Erro ao resolver a quebra de contrato."),
+      });
+      throw error;
+    }
+  },
+
+  // DEBUG: força uma oferta de quebra de contrato pro jogador e a carrega no store,
+  // pra testar a tela do leilão. Não é usado no fluxo normal.
+  debugForcePlayerPoach: async () => {
+    const { careerId } = get();
+    if (!careerId) throw new Error("Carreira não carregada.");
+    const offer = await invoke("debug_force_player_poach_offer", { careerId });
+    set({ poachOffer: offer });
+    return offer;
   },
 
   respondToProposal: async (proposalId, accept) => {

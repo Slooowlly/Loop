@@ -6,7 +6,6 @@ use crate::db::connection::DbError;
 use crate::finance::cashflow::{RoundCashflowSummary, TeamRoundFinanceContext};
 use crate::finance::planning::sync_legacy_budget_index;
 use crate::models::team::{Team, TeamHierarchyClimate};
-use crate::simulation::car_build::CarBuildProfile;
 
 /// Fama (midia) dos pilotos do lineup REGULAR ativo de uma equipe. Base da presença
 /// pública do time → patrocínio ([[fama → dinheiro]]). Vazio se o time não tem lineup.
@@ -31,7 +30,7 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
         "INSERT INTO teams (
             id, nome, nome_curto, cor_primaria, cor_secundaria, pais_sede,
             ano_fundacao, categoria, ativa, marca, classe, piloto_1_id, piloto_2_id,
-            is_player_team, car_performance, car_build_profile, confiabilidade, pit_strategy_risk,
+            is_player_team, car_performance, confiabilidade, pit_strategy_risk,
             pit_crew_quality, budget, cash_balance, debt_balance, financial_state,
             season_strategy, last_round_income, last_round_expenses, last_round_net,
             parachute_payment_remaining, facilities,
@@ -48,7 +47,7 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
         ) VALUES (
             :id, :nome, :nome_curto, :cor_primaria, :cor_secundaria, :pais_sede,
             :ano_fundacao, :categoria, :ativa, :marca, :classe, :piloto_1_id, :piloto_2_id,
-            :is_player_team, :car_performance, :car_build_profile, :confiabilidade, :pit_strategy_risk,
+            :is_player_team, :car_performance, :confiabilidade, :pit_strategy_risk,
             :pit_crew_quality, :budget, :cash_balance, :debt_balance, :financial_state,
             :season_strategy, :last_round_income, :last_round_expenses, :last_round_net,
             :parachute_payment_remaining, :facilities,
@@ -79,7 +78,6 @@ pub fn insert_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":piloto_2_id": &team.piloto_2_id,
             ":is_player_team": team.is_player_team as i64,
             ":car_performance": team.car_performance,
-            ":car_build_profile": team.car_build_profile.as_str(),
             ":confiabilidade": team.confiabilidade,
             ":pit_strategy_risk": team.pit_strategy_risk,
             ":pit_crew_quality": team.pit_crew_quality,
@@ -141,14 +139,28 @@ pub fn insert_teams(conn: &Connection, teams: &[Team]) -> Result<(), DbError> {
 
 pub fn get_team_by_id(conn: &Connection, id: &str) -> Result<Option<Team>, DbError> {
     let mut stmt = conn.prepare("SELECT * FROM teams WHERE id = ?1")?;
-    let team = stmt.query_row(params![id], team_from_row).optional()?;
+    let mut team = stmt.query_row(params![id], team_from_row).optional()?;
+    if let Some(team) = team.as_mut() {
+        team.car = crate::db::queries::team_car::get_team_car(conn, &team.id)?;
+    }
     Ok(team)
+}
+
+/// Anexa o carro (tabela `team_car`) a cada time carregado — o Sistema de Nível do Carro.
+/// Times sem carro persistido (saves antigos, pré-seed) ficam com `car: None` (o sim cai
+/// no fallback do `car_performance` escalar).
+fn attach_cars(conn: &Connection, teams: &mut [Team]) -> Result<(), DbError> {
+    for team in teams.iter_mut() {
+        team.car = crate::db::queries::team_car::get_team_car(conn, &team.id)?;
+    }
+    Ok(())
 }
 
 pub fn get_all_teams(conn: &Connection) -> Result<Vec<Team>, DbError> {
     let mut stmt = conn.prepare("SELECT * FROM teams ORDER BY nome")?;
     let mapped = stmt.query_map([], team_from_row)?;
-    let teams = collect_teams(mapped)?;
+    let mut teams = collect_teams(mapped)?;
+    attach_cars(conn, &mut teams)?;
     Ok(teams)
 }
 
@@ -280,10 +292,140 @@ pub fn insert_team_ownership_event(
     Ok(())
 }
 
+/// Evento de mudança de dono/diretoria mais recente de uma equipe (ex.: venda após
+/// colapso). Devolve `(event_type, season_number)` do último evento, se houver. Usado
+/// no rodapé de notícias para a notinha "nova diretoria assumiu a equipe X".
+pub fn get_latest_ownership_event(
+    conn: &Connection,
+    team_id: &str,
+) -> Result<Option<(String, i32)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT event_type, season_number
+         FROM team_ownership_events
+         WHERE team_id = ?1
+         ORDER BY season_number DESC, id DESC
+         LIMIT 1",
+    )?;
+    let row = stmt
+        .query_row(params![team_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?;
+    Ok(row)
+}
+
+/// Total de títulos de CONSTRUTORES de uma equipe na categoria (soma do arquivo).
+pub fn get_team_category_constructor_titles(
+    conn: &Connection,
+    team_id: &str,
+    categoria: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COALESCE(SUM(titulos_construtores), 0) FROM team_season_archive
+         WHERE team_id = ?1 AND categoria = ?2",
+        params![team_id, categoria],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+/// Maior número de títulos de construtores na categoria entre TODAS as equipes EXCETO
+/// uma (para saber se a campeã da temporada virou dona isolada do recorde). 0 se nenhuma.
+pub fn get_category_constructor_titles_leader_excluding(
+    conn: &Connection,
+    categoria: &str,
+    exclude_team: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(cnt), 0) FROM (
+            SELECT team_id, SUM(titulos_construtores) AS cnt FROM team_season_archive
+            WHERE categoria = ?1 AND team_id <> ?2
+            GROUP BY team_id
+         )",
+        params![categoria, exclude_team],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+/// Vitórias de uma equipe na categoria (todas as temporadas), contadas do resultado.
+pub fn get_team_category_wins(
+    conn: &Connection,
+    team_id: &str,
+    categoria: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM race_results r JOIN calendar c ON r.race_id = c.id
+         WHERE r.equipe_id = ?1 AND c.categoria = ?2 AND r.posicao_final = 1",
+        params![team_id, categoria],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+/// Maior número de vitórias na categoria entre TODAS as equipes EXCETO uma. 0 se nenhuma.
+pub fn get_category_team_win_leader_excluding(
+    conn: &Connection,
+    categoria: &str,
+    exclude_team: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(cnt), 0) FROM (
+            SELECT r.equipe_id, COUNT(*) AS cnt FROM race_results r
+            JOIN calendar c ON r.race_id = c.id
+            WHERE c.categoria = ?1 AND r.posicao_final = 1 AND r.equipe_id <> ?2
+            GROUP BY r.equipe_id
+         )",
+        params![categoria, exclude_team],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+/// Dobradinhas (1-2 na mesma corrida) de uma equipe na categoria: corridas em que a
+/// equipe terminou com um carro em 1º E outro em 2º.
+pub fn get_team_category_one_two(
+    conn: &Connection,
+    team_id: &str,
+    categoria: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+            SELECT r.race_id FROM race_results r JOIN calendar c ON r.race_id = c.id
+            WHERE r.equipe_id = ?1 AND c.categoria = ?2 AND r.posicao_final IN (1, 2)
+            GROUP BY r.race_id HAVING COUNT(*) = 2
+         )",
+        params![team_id, categoria],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
+/// Maior número de dobradinhas na categoria entre TODAS as equipes EXCETO uma. 0 se nenhuma.
+pub fn get_category_one_two_leader_excluding(
+    conn: &Connection,
+    categoria: &str,
+    exclude_team: &str,
+) -> Result<i32, DbError> {
+    let n: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(cnt), 0) FROM (
+            SELECT equipe_id, COUNT(*) AS cnt FROM (
+                SELECT r.equipe_id, r.race_id FROM race_results r
+                JOIN calendar c ON r.race_id = c.id
+                WHERE c.categoria = ?1 AND r.posicao_final IN (1, 2) AND r.equipe_id <> ?2
+                GROUP BY r.equipe_id, r.race_id HAVING COUNT(*) = 2
+            )
+            GROUP BY equipe_id
+         )",
+        params![categoria, exclude_team],
+        |r| r.get(0),
+    )?;
+    Ok(n)
+}
+
 pub fn get_teams_by_category(conn: &Connection, category_id: &str) -> Result<Vec<Team>, DbError> {
     let mut stmt = conn.prepare("SELECT * FROM teams WHERE categoria = ?1 ORDER BY nome")?;
     let mapped = stmt.query_map(params![category_id], team_from_row)?;
-    let teams = collect_teams(mapped)?;
+    let mut teams = collect_teams(mapped)?;
+    attach_cars(conn, &mut teams)?;
     Ok(teams)
 }
 
@@ -298,7 +440,9 @@ pub fn get_teams_by_category_and_class(
         "SELECT * FROM teams WHERE categoria = ?1 AND classe = ?2 ORDER BY car_performance DESC",
     )?;
     let mapped = stmt.query_map(params![categoria, classe], team_from_row)?;
-    collect_teams(mapped)
+    let mut teams = collect_teams(mapped)?;
+    attach_cars(conn, &mut teams)?;
+    Ok(teams)
 }
 
 /// Limpa `piloto_1_id` e `piloto_2_id` de todas as equipes especiais.
@@ -348,7 +492,6 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             piloto_2_id = :piloto_2_id,
             is_player_team = :is_player_team,
             car_performance = :car_performance,
-            car_build_profile = :car_build_profile,
             confiabilidade = :confiabilidade,
             pit_strategy_risk = :pit_strategy_risk,
             pit_crew_quality = :pit_crew_quality,
@@ -412,7 +555,6 @@ pub fn update_team(conn: &Connection, team: &Team) -> Result<(), DbError> {
             ":piloto_2_id": &team.piloto_2_id,
             ":is_player_team": team.is_player_team as i64,
             ":car_performance": team.car_performance,
-            ":car_build_profile": team.car_build_profile.as_str(),
             ":confiabilidade": team.confiabilidade,
             ":pit_strategy_risk": team.pit_strategy_risk,
             ":pit_crew_quality": team.pit_crew_quality,
@@ -899,16 +1041,6 @@ fn collect_teams(
 }
 
 fn team_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Team> {
-    let car_build_profile_value: String = row.get("car_build_profile")?;
-    let car_build_profile =
-        CarBuildProfile::from_str_strict(&car_build_profile_value).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
-            )
-        })?;
-
     let hierarquia_status_value: String = row.get("hierarquia_status")?;
     let hierarquia_status = TeamHierarchyClimate::from_str_strict(&hierarquia_status_value)
         .map(|status| status.as_str().to_string())
@@ -935,7 +1067,8 @@ fn team_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Team> {
         piloto_1_id: row.get("piloto_1_id")?,
         piloto_2_id: row.get("piloto_2_id")?,
         car_performance: row.get("car_performance")?,
-        car_build_profile,
+        // Anexado pelos loaders (get_teams_*) a partir da tabela `team_car`.
+        car: None,
         confiabilidade: row.get("confiabilidade")?,
         pit_strategy_risk: row.get("pit_strategy_risk")?,
         pit_crew_quality: row.get("pit_crew_quality")?,
@@ -1239,7 +1372,6 @@ mod tests {
         assert_eq!(loaded.pais_sede, team.pais_sede);
         assert_eq!(loaded.piloto_1_id.as_deref(), Some("P001"));
         assert_eq!(loaded.piloto_2_id.as_deref(), Some("P002"));
-        assert_eq!(loaded.car_build_profile, team.car_build_profile);
         assert_eq!(loaded.pit_strategy_risk, team.pit_strategy_risk);
         assert_eq!(loaded.pit_crew_quality, team.pit_crew_quality);
         assert_eq!(loaded.cash_balance, team.cash_balance);
@@ -1628,5 +1760,77 @@ mod tests {
         }
 
         false
+    }
+
+    #[test]
+    fn test_constructor_title_queries() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE team_season_archive (
+                team_id TEXT, season_number INTEGER, categoria TEXT, titulos_construtores INTEGER
+             );
+             INSERT INTO team_season_archive (team_id, season_number, categoria, titulos_construtores) VALUES
+             ('TA', 1, 'gt3', 1), ('TA', 2, 'gt3', 1), ('TA', 3, 'gt3', 1),
+             ('TB', 1, 'gt3', 1), ('TB', 4, 'gt3', 0);",
+        )
+        .unwrap();
+        assert_eq!(
+            get_team_category_constructor_titles(&conn, "TA", "gt3").unwrap(),
+            3
+        );
+        assert_eq!(
+            get_team_category_constructor_titles(&conn, "TB", "gt3").unwrap(),
+            1
+        );
+        // Maior entre as outras exceto TA → TB, com 1.
+        assert_eq!(
+            get_category_constructor_titles_leader_excluding(&conn, "gt3", "TA").unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_team_win_queries() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE calendar (id TEXT PRIMARY KEY, categoria TEXT);
+             CREATE TABLE race_results (race_id TEXT, equipe_id TEXT, posicao_final INTEGER);
+             INSERT INTO calendar (id, categoria) VALUES ('R1', 'gt3'), ('R2', 'gt3'), ('R3', 'gt3');
+             INSERT INTO race_results (race_id, equipe_id, posicao_final) VALUES
+             ('R1', 'TA', 1), ('R2', 'TA', 1), ('R3', 'TB', 1), ('R1', 'TB', 2);",
+        )
+        .unwrap();
+        assert_eq!(get_team_category_wins(&conn, "TA", "gt3").unwrap(), 2);
+        assert_eq!(get_team_category_wins(&conn, "TB", "gt3").unwrap(), 1);
+        // Maior entre as outras exceto TA → TB, com 1.
+        assert_eq!(
+            get_category_team_win_leader_excluding(&conn, "gt3", "TA").unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_one_two_queries() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE calendar (id TEXT PRIMARY KEY, categoria TEXT);
+             CREATE TABLE race_results (race_id TEXT, equipe_id TEXT, posicao_final INTEGER);
+             INSERT INTO calendar (id, categoria) VALUES ('R1', 'gt3'), ('R2', 'gt3'), ('R3', 'gt3');
+             -- R1: TA faz dobradinha (1 e 2). R2: TA vence mas 2º é da TB (não é dobradinha).
+             -- R3: TA dobradinha de novo (1 e 2).
+             INSERT INTO race_results (race_id, equipe_id, posicao_final) VALUES
+             ('R1', 'TA', 1), ('R1', 'TA', 2),
+             ('R2', 'TA', 1), ('R2', 'TB', 2),
+             ('R3', 'TA', 1), ('R3', 'TA', 2);",
+        )
+        .unwrap();
+        // TA tem 2 dobradinhas (R1 e R3); a R2 não conta (2º foi da TB).
+        assert_eq!(get_team_category_one_two(&conn, "TA", "gt3").unwrap(), 2);
+        assert_eq!(get_team_category_one_two(&conn, "TB", "gt3").unwrap(), 0);
+        // Ninguém além de TA fez dobradinha.
+        assert_eq!(
+            get_category_one_two_leader_excluding(&conn, "gt3", "TA").unwrap(),
+            0
+        );
     }
 }

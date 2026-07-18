@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 47;
+const CURRENT_VERSION: u32 = 48;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v45(conn)?;
     migrate_v46(conn)?;
     migrate_v47(conn)?;
+    migrate_v48(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -252,6 +253,10 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v47(conn)?;
         set_schema_version(conn, 47)?;
     }
+    if version < 48 {
+        migrate_v48(conn)?;
+        set_schema_version(conn, 48)?;
+    }
     Ok(())
 }
 
@@ -272,6 +277,24 @@ fn migrate_v47(conn: &Connection) -> Result<(), DbError> {
             "REAL NOT NULL DEFAULT 0.0",
         )?;
     }
+    Ok(())
+}
+
+/// v48 — SISTEMA DE NÍVEL DO CARRO. Estado das 11 peças de cada time (nível, desgaste e
+/// esgotamento pós-esticar), uma linha por (time, peça). O Nível do Carro (1–10) e o
+/// shape PHA são derivados disso. Ver design em
+/// `docs/superpowers/specs/2026-07-17-car-level-system-design.md`.
+fn migrate_v48(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS team_car (
+            team_id    TEXT NOT NULL,
+            part_type  TEXT NOT NULL,
+            level      INTEGER NOT NULL DEFAULT 1,
+            wear       REAL NOT NULL DEFAULT 0.0,
+            spent      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (team_id, part_type)
+        );",
+    )?;
     Ok(())
 }
 

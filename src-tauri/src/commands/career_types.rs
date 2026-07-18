@@ -184,8 +184,10 @@ pub struct TeamSummary {
     #[serde(default)]
     pub classe: Option<String>,
     pub car_performance: f64,
+    /// Nível do Carro (1–10) do Sistema de Nível do Carro — a ÚNICA leitura de carro que
+    /// o jogador vê. Derivado das 11 peças (média dos níveis).
     #[serde(default)]
-    pub car_build_profile: String,
+    pub car_level: u8,
     pub confiabilidade: f64,
     #[serde(default)]
     pub pit_strategy_risk: f64,
@@ -369,6 +371,9 @@ pub struct RaceSummary {
     pub week_of_year: i32,
     pub season_phase: String,
     pub display_date: String,
+    /// Papel narrativo da corrida (ex.: "FinalDaTemporada"/"FinalEspecial" marcam
+    /// o final de campeonato). Usado pela UI para decidir a aba pós-corrida.
+    pub thematic_slot: String,
     pub event_interest: Option<EventInterestSummary>,
 }
 
@@ -687,6 +692,14 @@ pub struct GlobalDriverRankingRow {
     pub pontos: i32,
     pub vitorias: i32,
     pub podios: i32,
+    /// Pódios que NÃO foram vitória, quebrados por posição. Vêm dos resultados reais
+    /// (`race_results`), então cobrem a carreira inteira jogada; pilotos históricos
+    /// pré-gerados (sem `race_results`) ficam em 0 — o front trata como "sem detalhe".
+    /// `segundos + terceiros + vitorias` pode ser < `podios` nesse caso.
+    #[serde(default)]
+    pub segundos: i32,
+    #[serde(default)]
+    pub terceiros: i32,
     pub poles: i32,
     pub titulos: i32,
     #[serde(default)]
@@ -1185,8 +1198,9 @@ pub struct TeamStanding {
     pub cash_balance: f64,
     #[serde(default)]
     pub car_performance: f64,
+    /// Nível do Carro (1–10) — Sistema de Nível do Carro (a leitura de carro do jogador).
     #[serde(default)]
-    pub car_build_profile: String,
+    pub car_level: u8,
     #[serde(default)]
     pub founded_year: i32,
     pub pontos: i32,

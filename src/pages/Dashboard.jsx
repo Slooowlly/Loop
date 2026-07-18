@@ -8,6 +8,12 @@ import ConvocationView from "../components/season/ConvocationView";
 import EndOfSeasonView from "../components/season/EndOfSeasonView";
 import PreSeasonView from "../components/season/PreSeasonView";
 import useCareerStore from "../stores/useCareerStore";
+import {
+  NEWS_READ_MS,
+  recordNewsRead,
+  recordNewsSkip,
+  resolvePostRaceLanding,
+} from "../utils/postRaceLanding";
 import CalendarTab from "./tabs/CalendarTab";
 import MyTeamTab from "./tabs/MyTeamTab";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
@@ -28,6 +34,9 @@ function Dashboard() {
   const lastRaceTelemetry = useCareerStore((state) => state.lastRaceTelemetry);
   const lastRaceMaintenance = useCareerStore((state) => state.lastRaceMaintenance);
   const dismissResult = useCareerStore((state) => state.dismissResult);
+  const lastRaceWasFinale = useCareerStore((state) => state.lastRaceWasFinale);
+  const resultIsFresh = useCareerStore((state) => state.resultIsFresh);
+  const season = useCareerStore((state) => state.season);
   const careerId = useCareerStore((state) => state.careerId);
   const pollIracingResult = useCareerStore((state) => state.pollIracingResult);
   const iracingRepair = useCareerStore((state) => state.iracingRepair);
@@ -41,8 +50,14 @@ function Dashboard() {
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
   const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
+  // DEBUG (Ctrl+M): mensagem efêmera do atalho "pular corridas → mercado".
+  const [debugSkipFlash, setDebugSkipFlash] = useState("");
   const previousShowRaceBriefingRef = useRef(showRaceBriefing);
   const raceArrivalFeedbackTimeoutRef = useRef(null);
+  // Avaliação de leitura das Notícias pós-corrida: enquanto `active`, um timer de 15s
+  // conta como "leu"; sair da aba antes disso conta como "pulou". `seasonKey` guarda a
+  // temporada da corrida para creditar leitura/pulo na temporada certa.
+  const newsReadEvalRef = useRef({ timer: null, active: false, seasonKey: null });
   const shouldStartRaceArrivalFeedback =
     activeTab === "calendar" &&
     showRaceBriefing &&
@@ -98,9 +113,97 @@ function Dashboard() {
     };
   }, [careerId, pollIracingResult]);
 
+  // Cancela uma avaliação de leitura em andamento (timer + estado).
+  function cancelNewsReadEval() {
+    if (newsReadEvalRef.current.timer) {
+      clearTimeout(newsReadEvalRef.current.timer);
+    }
+    newsReadEvalRef.current = { timer: null, active: false, seasonKey: null };
+  }
+
+  // Sair da aba Notícias antes dos 15s (com uma avaliação ativa) = "pulou".
+  useEffect(() => {
+    if (newsReadEvalRef.current.active && activeTab !== "news") {
+      recordNewsSkip(careerId, newsReadEvalRef.current.seasonKey);
+      cancelNewsReadEval();
+    }
+  }, [activeTab, careerId]);
+
+  // Limpa o timer ao desmontar.
+  useEffect(() => cancelNewsReadEval, []);
+
+  // DEBUG hotkey — Ctrl+M (ou Cmd+M): pula TODAS as corridas pendentes da temporada
+  // e cai direto no mercado (mesmo caminho de `skipAllPendingRaces`). Só dispara com
+  // uma carreira ativa e nenhuma tela de resultado/mercado por cima, e nunca em cima
+  // de um avanço já em curso. Lê o estado fresco do store para evitar closure velha.
+  useEffect(() => {
+    function handleDebugSkip(event) {
+      const isMod = event.ctrlKey || event.metaKey;
+      if (!isMod || (event.key !== "m" && event.key !== "M")) return;
+
+      const s = useCareerStore.getState();
+      if (!s.isLoaded || !s.careerId) return;
+      if (
+        s.isAdvancing ||
+        s.isSimulating ||
+        s.isConvocating ||
+        s.isEnteringPreseason ||
+        s.showResult ||
+        s.showEndOfSeason ||
+        s.showPreseason ||
+        s.showConvocation
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setDebugSkipFlash("⏭️ DEBUG: pulando corridas → mercado…");
+      Promise.resolve(s.skipAllPendingRaces?.())
+        .then(() => setDebugSkipFlash(""))
+        .catch((err) => {
+          console.error("[debug] Ctrl+M (pular temporada) falhou:", err);
+          setDebugSkipFlash("");
+        });
+    }
+
+    window.addEventListener("keydown", handleDebugSkip);
+    return () => window.removeEventListener("keydown", handleDebugSkip);
+  }, []);
+
+  // "Continuar" no pós-corrida: decide a aba de destino (Notícias por padrão; Home
+  // depois de 3 pulos; sempre Notícias no final de campeonato) e, quando cai em
+  // Notícias, arma a medição de leitura. Só corridas recém-terminadas contam.
+  function handleDismissResult() {
+    if (resultIsFresh) {
+      const seasonKey = season?.numero ?? season?.ano ?? null;
+      const { tab, evaluate } = resolvePostRaceLanding(careerId, seasonKey, lastRaceWasFinale);
+      cancelNewsReadEval();
+      setActiveTab(tab);
+      if (evaluate) {
+        newsReadEvalRef.current = {
+          active: true,
+          seasonKey,
+          timer: setTimeout(() => {
+            recordNewsRead(careerId, seasonKey);
+            newsReadEvalRef.current = { timer: null, active: false, seasonKey: null };
+          }, NEWS_READ_MS),
+        };
+      }
+    }
+    dismissResult();
+  }
+
   if (!isLoaded) {
     return <Navigate to="/menu" replace />;
   }
+
+  const debugFlashOverlay = debugSkipFlash ? (
+    <div className="pointer-events-none fixed bottom-6 left-1/2 z-[300] -translate-x-1/2">
+      <div className="rounded-full border border-accent-primary/40 bg-black/80 px-5 py-2 text-sm font-semibold text-accent-primary shadow-[0_0_30px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+        {debugSkipFlash}
+      </div>
+    </div>
+  ) : null;
 
   function renderTab() {
     switch (activeTab) {
@@ -160,7 +263,7 @@ function Dashboard() {
           evaluation={lastRaceEvaluation}
           telemetry={lastRaceTelemetry}
           maintenance={lastRaceMaintenance}
-          onDismiss={dismissResult}
+          onDismiss={handleDismissResult}
         />
         {iracingRepair && (
           <RepairPopup repair={iracingRepair} onClose={dismissIracingRepair} />
@@ -194,6 +297,7 @@ function Dashboard() {
         <div className="tab-pane-fade">
           <NextRaceTab />
         </div>
+        {debugFlashOverlay}
       </MainLayout>
     );
   }
@@ -205,6 +309,7 @@ function Dashboard() {
       <div key={activeTab} className="tab-pane-fade">
         {renderTab()}
       </div>
+      {debugFlashOverlay}
     </MainLayout>
   );
 }

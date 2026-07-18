@@ -169,6 +169,74 @@ export function exportSuccess() {
   });
 }
 
+// Leilão: tom que DESLIZA subindo enquanto a torre cresce. `fromProg`/`toProg` em
+// 0..1 (posição do valor na escala do leilão) mapeiam a altura → o pitch acompanha a
+// coluna. `durMs` = duração do glide (casa com o tween visual).
+export function bidRise(fromProg = 0, toProg = 1, durMs = 1050) {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  const dur = Math.max(0.2, durMs / 1000);
+  const pitch = (p) => 300 + Math.min(1, Math.max(0, p)) * 620; // 300..920 Hz
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.12, t + 0.05);
+  g.gain.setValueAtTime(0.12, t + dur * 0.82);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 2200;
+  lp.connect(g);
+  g.connect(master);
+  [0, 1].forEach((i) => {
+    const o = c.createOscillator();
+    o.type = i === 0 ? "sine" : "triangle";
+    o.frequency.setValueAtTime(pitch(fromProg) * (i === 0 ? 1 : 2), t); // 2ª voz uma 8ª acima
+    o.frequency.linearRampToValueAtTime(pitch(toProg) * (i === 0 ? 1 : 2), t + dur * 0.85);
+    o.detune.value = i * 3;
+    const og = c.createGain();
+    og.gain.value = i === 0 ? 1 : 0.4;
+    o.connect(og);
+    og.connect(lp);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  });
+}
+
+// Leilão: martelada seca de fechamento (o negócio bateu o martelo).
+export function auctionHammer() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  // "thud" grave
+  const o = c.createOscillator();
+  o.type = "sine";
+  o.frequency.setValueAtTime(180, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 0.18);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.4, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o.connect(g);
+  g.connect(master);
+  o.start(t);
+  o.stop(t + 0.3);
+  // "click" do impacto
+  const src = c.createBufferSource();
+  src.buffer = noiseBuffer(c, 0.05);
+  const hp = c.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 1800;
+  const ng = c.createGain();
+  ng.gain.setValueAtTime(0.25, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  src.connect(hp);
+  hp.connect(ng);
+  ng.connect(master);
+  src.start(t);
+  src.stop(t + 0.06);
+}
+
 // Pad ambiente suave (acorde grave + LFO lento no filtro).
 export function startAmbient() {
   const c = ensure();

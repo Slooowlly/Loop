@@ -86,6 +86,31 @@ pub fn get_contracts_for_pilot(
     collect_contracts(mapped)
 }
 
+/// Ex-companheiros de equipe do piloto: outros pilotos que dividiram a MESMA equipe
+/// em temporadas SOBREPOSTAS (dupla real de alguma temporada). Devolve pares
+/// `(piloto_id, piloto_nome)` distintos, excluindo o próprio piloto. Base para o
+/// rodapé de notícias do mundo (laço "já correu com você"). A fonte é a tabela
+/// `contracts` — o histórico de duplas está nela.
+pub fn get_former_teammates(
+    conn: &Connection,
+    piloto_id: &str,
+) -> Result<Vec<(String, String)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT c2.piloto_id, c2.piloto_nome
+         FROM contracts c1
+         JOIN contracts c2
+           ON c1.equipe_id = c2.equipe_id
+          AND c2.piloto_id <> c1.piloto_id
+          AND c2.temporada_inicio <= c1.temporada_fim
+          AND c2.temporada_fim >= c1.temporada_inicio
+         WHERE c1.piloto_id = ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![piloto_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn get_active_contracts_for_team(
     conn: &Connection,
     equipe_id: &str,
@@ -180,6 +205,22 @@ pub fn update_contract_status(
     if affected == 0 {
         return Err(DbError::NotFound(format!(
             "Contrato '{id}' nao encontrado para atualizar status"
+        )));
+    }
+    Ok(())
+}
+
+/// Reajusta o salário anual de um contrato. Usado pela **retenção** do poaching
+/// (Fase 2b.2): segurar um piloto assediado custa aumento, e o aumento fica no
+/// contrato — pesando no orçamento do time nas temporadas seguintes.
+pub fn update_contract_salary(conn: &Connection, id: &str, salario_anual: f64) -> Result<(), DbError> {
+    let affected = conn.execute(
+        "UPDATE contracts SET salario_anual = ?1 WHERE id = ?2",
+        params![salario_anual, id],
+    )?;
+    if affected == 0 {
+        return Err(DbError::NotFound(format!(
+            "Contrato '{id}' nao encontrado para reajustar salario"
         )));
     }
     Ok(())
@@ -377,7 +418,13 @@ pub fn generate_especial_contract(
     // Legacy/future special-event contract factory. Real Production/Endurance
     // teams should be populated through regular market/lineup flows instead.
     let tier = get_category_config(categoria).map(|c| c.tier).unwrap_or(2);
-    let salario_anual = salary_midpoint_for_tier(tier) * 0.5;
+    // Salário do contrato especial = ~50% do ponto médio da faixa regular do tier.
+    // Derivado da FONTE ÚNICA (`salary_range_for_tier`) em vez de uma tabela própria:
+    // a antiga `salary_midpoint_for_tier` era uma cópia desatualizada desses pontos
+    // médios e havia derivado nos tiers 5 (165k vs 300k) e 6 (caía no default de 10k,
+    // fazendo o endurance especial pagar 5k). Uma tabela só, sem como derivar de novo.
+    let (range_min, range_max) = crate::models::contract::salary_range_for_tier(tier);
+    let salario_anual = (range_min + range_max) / 2.0 * 0.5;
     let mut contract = Contract::new(
         id,
         piloto_id.to_string(),
@@ -393,18 +440,6 @@ pub fn generate_especial_contract(
     contract.tipo = ContractType::Especial;
     contract.classe = Some(classe.to_string());
     contract
-}
-
-fn salary_midpoint_for_tier(tier: u8) -> f64 {
-    match tier {
-        0 => 10_000.0,
-        1 => 27_500.0,
-        2 => 55_000.0,
-        3 => 105_000.0,
-        4 => 200_000.0,
-        5 => 165_000.0,
-        _ => 10_000.0,
-    }
 }
 
 pub fn delete_contract(conn: &Connection, id: &str) -> Result<(), DbError> {
@@ -1161,5 +1196,36 @@ mod tests {
             params![format!("L_{piloto_id}_{nivel}"), piloto_id, nivel],
         )
         .expect("insert license stub");
+    }
+
+    #[test]
+    fn test_get_former_teammates_requires_same_team_and_season_overlap() {
+        let conn = setup_test_db().unwrap();
+        let ins = |id: &str, pid: &str, nome: &str, eq: &str, ini: i32, fim: i32| {
+            conn.execute(
+                "INSERT INTO contracts
+                    (id, piloto_id, piloto_nome, equipe_id, equipe_nome,
+                     temporada_inicio, duracao_anos, temporada_fim, categoria)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'gt3')",
+                params![id, pid, nome, eq, "Team", ini, fim - ini + 1, fim],
+            )
+            .unwrap();
+        };
+        // Jogador P001 correu na Team A nas temporadas 1–3.
+        ins("c1", "P001", "Piloto 1", "TA", 1, 3);
+        // P002 na Team A nas temporadas 3–5 → sobrepõe em 3 → é ex-companheiro.
+        ins("c2", "P002", "Piloto 2", "TA", 3, 5);
+        // P003 na Team A nas temporadas 5–6 → NÃO sobrepõe com 1–3.
+        ins("c3", "P003", "Piloto 3", "TA", 5, 6);
+        // P002 também passou pela Team B, onde o jogador nunca esteve → não conta.
+        ins("c4", "P002", "Piloto 2", "TB", 1, 2);
+
+        let mates = get_former_teammates(&conn, "P001").unwrap();
+        let ids: Vec<&str> = mates.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids.contains(&"P002"), "P002 dividiu a Team A na temporada 3");
+        assert!(!ids.contains(&"P003"), "P003 não sobrepôs com o jogador");
+        assert!(!ids.contains(&"P001"), "não inclui o próprio piloto");
+        // Distinto: P002 aparece uma única vez apesar de dois contratos.
+        assert_eq!(ids.iter().filter(|i| **i == "P002").count(), 1);
     }
 }

@@ -82,6 +82,25 @@ pub fn category_finance_scale(category: &str) -> CategoryFinanceScale {
     }
 }
 
+/// Custo operacional médio de cada tier — a MESMA escala de `category_finance_scale`,
+/// resolvida por tier em vez de por id de categoria. É a âncora da base salarial
+/// (`finance::salary::category_salary_base_for_tier`): a escada de salário é DERIVADA
+/// desta, não escrita à mão em paralelo. Antes as duas eram tabelas independentes e o
+/// salário comprimia de ~15% do custo (rookie) pra ~5% (endurance) subindo a escada —
+/// derivar mata esse descasamento na origem.
+pub fn operating_cost_midpoint_for_tier(tier: u8) -> f64 {
+    let category = match tier {
+        0 => "mazda_rookie",
+        1 => "mazda_amador",
+        2 => "bmw_m2",
+        3 => "gt4",
+        4 => "gt3",
+        5 => "lmp2",
+        _ => "endurance", // tier 6
+    };
+    category_finance_scale(category).operating_cost_midpoint()
+}
+
 pub fn income_confidence_for_state(state: &str) -> f64 {
     match state {
         "elite" => 0.90,

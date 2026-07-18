@@ -24,7 +24,6 @@ use crate::finance::state::refresh_team_financial_state;
 use crate::finance::strategy::{
     advance_strategic_plan, apply_elite_resource_floor, designate_elite_teams,
 };
-use crate::market::car_build_strategy::choose_car_build_profile;
 use crate::market::pit_strategy::{
     recalculate_pit_crew_quality, recalculate_pit_strategy_risk, PreviousTeamStanding,
 };
@@ -33,7 +32,6 @@ use crate::market::sync::sync_team_slots_from_active_regular_contracts;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::license::repair_missing_licenses_for_current_categories;
-use crate::simulation::car_build::profile_money_cost;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PreSeasonPhase {
@@ -129,6 +127,11 @@ pub struct PreSeasonPlan {
     /// detalhe da transferência (de qual equipe veio + quanto tempo ficou lá).
     #[serde(default)]
     pub previous_team: std::collections::HashMap<String, (String, i32)>,
+    /// Proposta de QUEBRA DE CONTRATO ao jogador (Fase 2b.3): computada uma vez no
+    /// setup (rara), mostrada como o leilão ao vivo e limpa quando ele decide. None
+    /// na esmagadora maioria das janelas.
+    #[serde(default)]
+    pub player_poach_offer: Option<crate::market::pipeline::PlayerPoachOffer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,6 +339,11 @@ pub fn initialize_preseason(
     };
     refresh_preseason_state_display_date(conn, &season_id, &mut state)?;
 
+    // Quebra de contrato do jogador (Fase 2b.3): se um time claramente melhor cobiça o
+    // jogador CONTRATADO, guarda o leilão pra ele ver e decidir. Raro; None quase sempre.
+    let player_poach_offer =
+        crate::market::pipeline::compute_player_poach_offer(conn, season_number)?;
+
     Ok(PreSeasonPlan {
         state,
         planned_events: Vec::new(),
@@ -343,6 +351,7 @@ pub fn initialize_preseason(
         pending_departures,
         category_snapshot,
         previous_team,
+        player_poach_offer,
     })
 }
 
@@ -421,13 +430,11 @@ fn assign_seasonal_team_attributes(
 
         for team in &category_teams {
             let mut updated_team = team.clone();
-            updated_team.car_build_profile =
-                choose_car_build_profile(team, &category_teams, &calendar);
+            // O shape/nível do carro agora vive no Sistema de Nível do Carro (tabela
+            // team_car), decidido pelo cérebro de manutenção por corrida — não mais por
+            // um perfil discreto escolhido aqui. O custo do carro vira depreciação real
+            // na fatura (chunk 6).
             updated_team.pit_strategy_risk = recalculate_pit_strategy_risk(team, &category_teams);
-            let scale = category_finance_scale(&updated_team.categoria);
-            let car_unit = scale.operating_cost_midpoint() * 0.30;
-            let profile_cost = profile_money_cost(updated_team.car_build_profile, car_unit);
-            updated_team.cash_balance -= profile_cost;
             updated_team.budget = derive_budget_index_from_money(&updated_team);
             refresh_team_financial_state(&mut updated_team);
             // Pilar D: elite recebe o piso de recursos (patrocínio de dinastia) antes
@@ -1178,7 +1185,6 @@ mod tests {
         DriverStatus, RaceStatus, SeasonPhase, TeamRole, ThematicSlot, WeatherCondition,
     };
     use crate::models::season::Season;
-    use crate::simulation::car_build::CarBuildProfile;
 
     fn sample_calendar_entry(
         id: &str,
@@ -1256,7 +1262,7 @@ mod tests {
     }
 
     #[test]
-    fn test_initialize_preseason_assigns_power_profile_for_weak_team_on_power_calendar() {
+    fn test_initialize_preseason_recalculates_pit_and_strategy() {
         let conn = setup_market_fixture();
         for entry in [
             sample_calendar_entry("R101", "S002", "gt4", 1, 93),
@@ -1284,7 +1290,6 @@ mod tests {
         team_b.cash_balance = 2_500_000.0;
         team_b.engineering = 35.0;
         team_b.facilities = 30.0;
-        let team_b_cash_before = team_b.cash_balance;
         team_queries::update_team(&conn, &team_b).expect("update team b");
 
         let mut rng = StdRng::seed_from_u64(502);
@@ -1296,16 +1301,6 @@ mod tests {
         let updated_team_a = team_queries::get_team_by_id(&conn, "T001")
             .expect("reload team a")
             .expect("team a exists after preseason");
-        assert!(matches!(
-            updated_team_b.car_build_profile,
-            CarBuildProfile::PowerIntermediate | CarBuildProfile::PowerExtreme
-        ));
-        assert!(
-            updated_team_b.cash_balance < team_b_cash_before,
-            "expected car profile cost to consume cash: before={}, after={}",
-            team_b_cash_before,
-            updated_team_b.cash_balance
-        );
         let expected_budget = derive_budget_index_from_money(&updated_team_b);
         assert!(
             (updated_team_b.budget - expected_budget).abs() < 0.0001,

@@ -133,7 +133,6 @@ mod tests {
     use crate::models::driver::Driver;
     use crate::models::enums::WeatherCondition;
     use crate::models::team::placeholder_team_from_db;
-    use crate::simulation::car_build::CarBuildProfile;
     use crate::simulation::context::SimulationContext;
     use crate::simulation::track_profile::TrackCharacter;
 
@@ -183,46 +182,6 @@ mod tests {
                 )
             })
             .collect()
-    }
-
-    fn build_driver_for_track(
-        id: &str,
-        profile: CarBuildProfile,
-        track_id: u32,
-        track_character: TrackCharacter,
-    ) -> (SimDriver, SimulationContext) {
-        let mut driver = Driver::create_player(
-            id.to_string(),
-            format!("Driver {}", id),
-            "Brasileiro".to_string(),
-            20,
-        );
-        driver.is_jogador = false;
-        driver.atributos.skill = 75.0;
-        driver.atributos.ritmo_classificacao = 75.0;
-        driver.atributos.fator_chuva = 50.0;
-        driver.atributos.consistencia = 80.0;
-        driver.atributos.adaptabilidade = 65.0;
-
-        let mut team = placeholder_team_from_db(
-            format!("T{}", id),
-            format!("Team {}", id),
-            "gt4".to_string(),
-            "2026-01-01T00:00:00".to_string(),
-        );
-        team.car_performance = 8.0;
-        team.car_build_profile = profile;
-
-        let ctx = SimulationContext {
-            track_id,
-            track_character,
-            ..SimulationContext::test_default()
-        };
-
-        (
-            SimDriver::from_driver_team_and_track(&driver, &team, track_id),
-            ctx,
-        )
     }
 
     #[test]
@@ -416,42 +375,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_qualifying_power_profile_beats_wrong_profile_at_monza() {
-        let (power_driver, ctx) = build_driver_for_track(
-            "PWR",
-            CarBuildProfile::PowerExtreme,
-            93,
-            TrackCharacter::Flowing,
-        );
-        let (accel_driver, _) = build_driver_for_track(
-            "ACC",
-            CarBuildProfile::AccelerationExtreme,
-            93,
-            TrackCharacter::Flowing,
-        );
-
-        let mut rng = StdRng::seed_from_u64(123);
-        let results = simulate_qualifying(
-            &[power_driver.clone(), accel_driver.clone()],
-            &ctx,
-            &mut rng,
-        );
-
-        let power_pos = results
-            .iter()
-            .find(|result| result.pilot_id == power_driver.id)
-            .expect("power result")
-            .position;
-        let accel_pos = results
-            .iter()
-            .find(|result| result.pilot_id == accel_driver.id)
-            .expect("accel result")
-            .position;
-
-        assert!(
-            power_pos < accel_pos,
-            "expected power profile to qualify ahead at Monza"
-        );
-    }
+    // O casamento shape↔pista na classificação segue o mesmo `car_performance` efetivo
+    // do sim (via `effective_car_performance_from_shape`), testado deterministicamente em
+    // `car_build` e `context`. O antigo teste por perfil discreto foi aposentado com o
+    // `CarBuildProfile`.
 }

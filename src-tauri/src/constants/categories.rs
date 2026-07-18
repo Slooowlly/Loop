@@ -313,7 +313,12 @@ pub fn get_feeder_categories(id: &str) -> Vec<&'static str> {
             "toyota_amador",
         ],
         "gt3" => vec!["gt4"],
-        "endurance" => vec!["gt4", "gt3"],
+        // Endurance recruta SÓ do gt3 (não mais do gt4): o gt4 não cria gente pro
+        // ápice direto. Antes o feeder [gt4, gt3] fazia o endurance skimmar o craque
+        // do gt4 pulando o gt3 — a elite contornava o GT3 inteiro e ele deflacionava.
+        // Com [gt3], o único caminho ao topo passa pelo gt3, que vira a antecâmara do
+        // endurance e acumula a elite (a "circulação gt3↔endurance" do design).
+        "endurance" => vec!["gt3"],
         _ => vec![],
     }
 }
@@ -526,7 +531,7 @@ mod tests {
             .iter()
             .any(|category| category.id == "lmp2"));
         assert_eq!(get_target_categories("gt3"), vec!["endurance"]);
-        assert_eq!(get_feeder_categories("endurance"), vec!["gt4", "gt3"]);
+        assert_eq!(get_feeder_categories("endurance"), vec!["gt3"]);
     }
 
     #[test]

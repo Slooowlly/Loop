@@ -333,7 +333,7 @@ pub struct RosterGenResult {
 }
 
 /// Caminho do mapa de números fixos de uma carreira.
-fn numbers_path(base_dir: &std::path::Path, career_id: &str) -> std::path::PathBuf {
+pub(crate) fn numbers_path(base_dir: &std::path::Path, career_id: &str) -> std::path::PathBuf {
     base_dir
         .join("iracing_numbers")
         .join(format!("{career_id}.json"))
@@ -437,12 +437,17 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
         .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
     let mut profile = load_adaptive_profile(&base_dir, custid);
 
-    let result = race_monitor::build_adaptive_result(&history, track_id);
     let current = adaptive::Deltas {
         global: profile.global,
         track: profile.track_delta(track_id),
     };
-    let update = adaptive::compute_adaptive_update(&result, &current);
+    // Regime RÁPIDO (posição+gravidade+RITMO LIMPO) em TODOS os tiers. Reusa
+    // build_adaptive_result (voltas por carro) → fast_result_from descarta voltas de erro,
+    // então uma rodada não baixa a dificuldade. O regime por ritmo completo
+    // (compute_adaptive_update) segue dormente — mantido no código pra revisitar.
+    let race = race_monitor::build_adaptive_result(&history, track_id);
+    let summary = adaptive::fast_result_from(&race);
+    let update = adaptive::compute_fast_update(&summary, &current);
     if update.applied {
         profile.global = update.new.global;
         profile
@@ -1240,6 +1245,15 @@ pub fn iracing_generate_roster(
         let event_stakes = crate::simulation::pressure::event_stakes_from_score(
             crate::event_interest::calculate_expected_event_interest(&venue_ctx).score as f64,
         );
+        // Sweet spot do tier na pista alvo — MESMA âncora da curva de skill usada na
+        // season. Garante que o cap da cauda (pior piloto ≥ skill real) bata dos 2 lados.
+        let custid = crate::iracing_sdk::cached_custid().unwrap_or(0);
+        let ai_sweet = ai_sweet_spot(
+            current_tier as u8,
+            Some(race.track_id as i64),
+            &base_dir,
+            custid,
+        ) as f64;
         Some(roster_gen::BehaviorContext {
             current_season: season.numero as i32,
             track_id: race.track_id,
@@ -1261,6 +1275,7 @@ pub fn iracing_generate_roster(
             recent_positions,
             global_percentile,
             driver_ctx,
+            ai_sweet_spot: ai_sweet,
         })
     });
 
@@ -1313,14 +1328,47 @@ pub struct SeasonGenResult {
 /// jogador (decisão do user). Sweet spot final da pista = este base + offset da pista.
 /// Acima de rookie é progressivamente mais difícil (sweet spot maior).
 fn tier_difficulty_base(tier: u8) -> i64 {
+    // ESCADA ACHATADA (frente efetiva). A diferença entre divisões é pequena de propósito:
+    // no iRacing o CARRO já faz a divisão de cima ser mais rápida; o driverSkill% só precisa
+    // subir um pouco. Isso deixa MARGEM (até 125) pro offset de pista + adaptativo + futuro
+    // efeito de carro, e a dificuldade real mora no adaptativo (que se estica pra quem é bom).
     match tier {
-        0 => 73, // Rookie (validado: Rudskogen 73; Lédenon vira 82 com offset +9)
-        1 => 80, // Amador      (provisório — calibrar)
-        2 => 86, // Pro/Especial (provisório)
-        3 => 91, // Super Pro/GT4 (provisório)
-        4 => 95, // GT3          (provisório)
-        _ => 98, // Elite/LMP2   (provisório)
+        0 => 72, // Rookie   (base baixa = "rodinhas"; o adaptativo sobe se dominar)
+        1 => 79, // Amador
+        2 => 81, // Pro / Production / BMW
+        3 => 82, // GT4
+        4 => 83, // GT3
+        5 => 84, // LMP2
+        _ => 84, // Endurance / Elite
     }
+}
+
+/// Amortecimento do delta GLOBAL por tier. O `global` é por-jogador e compartilhado entre
+/// divisões/carreiras; sem isto, um alien acumularia +40 na elite e o rookie da carreira
+/// nova viraria absurdo. Aqui o boost pesa menos nas divisões baixas: o alien sente a elite
+/// cheia, mas o rookie continua sendo rookie.
+fn tier_difficulty_damp(tier: u8) -> f64 {
+    match tier {
+        0 => 0.50, // Rookie
+        1 => 0.70, // Amador
+        2 => 0.85, // Pro
+        3 => 0.90, // GT4
+        4 => 0.95, // GT3
+        _ => 1.00, // LMP2 / Endurance
+    }
+}
+
+/// Sweet spot da ponta da IA (efetivo do melhor) ANTES da penalidade de chuva: base do
+/// tier + offset da pista + perfil adaptativo do jogador (global amortecido por tier). É a
+/// ÂNCORA da curva de skill — a season (banda) e o roster (skill por piloto) chamam o
+/// MESMO valor pra a forma e o cap da cauda baterem dos dois lados.
+fn ai_sweet_spot(tier: u8, track_id: Option<i64>, base_dir: &std::path::Path, custid: i64) -> i64 {
+    let track_offset = track_id.map(track_skill_offset).unwrap_or(0);
+    let profile = load_adaptive_profile(base_dir, custid);
+    let adapt_track = track_id.map(|id| profile.track_delta(id)).unwrap_or(0);
+    // Boost global amortecido por tier (não infla as divisões baixas — ver tier_difficulty_damp).
+    let global_eff = (profile.global as f64 * tier_difficulty_damp(tier)).round() as i64;
+    (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track).clamp(0, 125)
 }
 
 /// Offset de skill por PISTA (a "margem por pista"). A IA rende diferente em cada
@@ -1618,20 +1666,19 @@ pub fn iracing_generate_season(
     // ponta da IA (não um teto rígido). Teto 125 = limite real do iRacing (não 100):
     // pistas com "macetes" que a IA não pega (ex.: Summit Point) precisam de offsets
     // altos que passam de 100 nos tiers acima do rookie.
-    let track_offset = resolved_track_id.map(track_skill_offset).unwrap_or(0);
-    // Perfil ADAPTATIVO do jogador (por custid): nível geral + aptidão na pista alvo.
-    // Carreira nova herda o perfil; começa em 0 se for um jogador sem histórico.
-    let profile = load_adaptive_profile(&base_dir, custid);
-    let adapt_track = resolved_track_id
-        .map(|id| profile.track_delta(id))
-        .unwrap_or(0);
-    let max_skill = (tier_difficulty_base(cat.tier) + track_offset + profile.global + adapt_track)
-        .clamp(0, 125);
+    // Sweet spot do tier na pista alvo (âncora da curva; MESMO valor que o roster usa).
+    // Perfil adaptativo por custid entra aqui dentro.
+    let max_skill = ai_sweet_spot(cat.tier, resolved_track_id, &base_dir, custid);
+    // Piso da banda pela CURVA DE 2 TRECHOS (ver roster_gen::skill_curve): o melhor da IA
+    // vira max_skill (frente fiel/competitiva); o PIOR aterrissa onde a cauda o joga — mas
+    // NUNCA abaixo do skill real dele (cap da cauda). No rookie (grid apertado) o fundo
+    // afunda de propósito; no GT3 (grid largo) o cap segura o pior no próprio skill real.
+    // O roster escreve a MESMA forma por piloto; a banda re-ancora no sweet spot.
     let min_skill = if skills.is_empty() {
         (max_skill - 25).max(0)
     } else {
-        let lo = skills.iter().cloned().fold(f64::INFINITY, f64::min);
-        (lo.round() as i64).clamp(0, max_skill)
+        let curve = roster_gen::skill_curve_from(&skills, max_skill as f64);
+        (roster_gen::skill_curve(curve.lo, &curve).round() as i64).clamp(0, max_skill)
     };
     // Chuva: se a corrida ALVO é molhada, baixa a banda (pelotão mais lento — chuva
     // no iRacing é punitiva; subir a IA faria o humano forçar e rodar). v1: rebaixa o

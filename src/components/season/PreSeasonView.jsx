@@ -667,18 +667,29 @@ function WeeklyClosingMovement({ event, color, onSelect }) {
         <p className="min-w-0 flex-1 truncate text-[13px] font-extrabold leading-[1.05] text-[color:var(--text-primary)]">
           {event.driver_name}
         </p>
-        {emphasis && (
-          <span
-            title={emphasis.label}
-            className={`flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 leading-none ${
-              strong ? "text-[10px] font-black uppercase tracking-[0.08em]" : "text-[10px] font-bold"
-            }`}
-            style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
-          >
-            <span className="text-[11px] leading-none">{emphasis.symbol}</span>
-            {strong ? emphasis.label : "Já correu"}
-          </span>
-        )}
+        {emphasis &&
+          (strong ? (
+            // Rival/favorito: raros e significativos → mantêm o rótulo escrito.
+            <span
+              title={emphasis.label}
+              className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-[0.08em]"
+              style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
+            >
+              <span className="text-[11px] leading-none">{emphasis.symbol}</span>
+              {emphasis.label}
+            </span>
+          ) : (
+            // "Já correu": comum → só um marcador pequeno com tooltip, pra não
+            // roubar largura do nome do piloto.
+            <span
+              title={emphasis.label}
+              aria-label={emphasis.label}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black leading-none"
+              style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
+            >
+              {emphasis.symbol}
+            </span>
+          ))}
         {event.team_name && (
           <TeamLogoMark
             teamName={event.team_name}
@@ -1803,6 +1814,7 @@ export default function PreSeasonView() {
           {paintToast}
         </div>
       )}
+
 
       <div className="relative z-10 mx-auto flex h-full max-w-[1680px] flex-col px-3 pb-3 pt-3 sm:px-4 lg:px-5 xl:px-6">
 
@@ -2947,6 +2959,7 @@ export default function PreSeasonView() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

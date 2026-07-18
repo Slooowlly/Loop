@@ -660,6 +660,18 @@ fn analyze_mistake(
     let yellow: std::collections::HashSet<i32> = history.yellow_laps.iter().copied().collect();
     let crash: std::collections::HashSet<i32> = incidents.crash_laps.iter().copied().collect();
 
+    // Volta de largada: o campo inteiro larga junto e acelera do grid, então ela é
+    // SEMPRE ~vários segundos mais lenta que o ritmo — sistêmico, não erro do piloto.
+    // (O ritmo limpo já a ignora via CLEAN_LAP_FACTOR; aqui neutralizamos só o sinal
+    // de RITMO dela pra não virar o "erro mais caro" falso.) Batida/perda de posição
+    // na largada continuam contando — um incidente de 1ª volta ainda é flagrado.
+    let opening_lap = history
+        .player_laps
+        .iter()
+        .map(|l| l.lap)
+        .filter(|lap| *lap > 0)
+        .min();
+
     // Posição representativa por volta = última amostra daquela volta.
     let mut pos_by_lap: HashMap<i32, i32> = HashMap::new();
     for p in &history.player_track {
@@ -676,7 +688,10 @@ fn analyze_mistake(
             continue;
         }
         let lap_ms = l.time * 1000.0;
-        let slow_excess = if clean > 0.0 && lap_ms > 0.0 {
+        // Na largada, a lentidão é do procedimento (grid parado/pack), não erro —
+        // zera o excesso de tempo dela. Perda de posição/batida abaixo ainda valem.
+        let is_opening = Some(lap) == opening_lap;
+        let slow_excess = if clean > 0.0 && lap_ms > 0.0 && !is_opening {
             (lap_ms - clean).max(0.0)
         } else {
             0.0
@@ -1340,6 +1355,40 @@ mod tests {
             .collect();
         let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
         assert!(a.mistake.is_none(), "corrida limpa não inventa erro");
+    }
+
+    #[test]
+    fn largada_lenta_nao_vira_erro_mais_caro() {
+        let mut h = base_history();
+        // Volta de largada (2) larga do grid: +10s vs ritmo. O erro REAL é na 13
+        // (+4s). Sem a proteção, a largada (+10s) domina; com ela, o erro certo aparece.
+        let mut laps = vec![PlayerLap { lap: 2, time: 100.0, fuel_remaining: -1.0 }];
+        for lap in 3..=12 {
+            laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });
+        }
+        laps.push(PlayerLap { lap: 13, time: 94.0, fuel_remaining: -1.0 });
+        h.player_laps = laps;
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &PlayerIncidents::default());
+        let m = a.mistake.expect("o erro da volta 13 ainda é um erro");
+        assert_eq!(m.lap, 13, "a largada não pode roubar o erro mais caro");
+        assert_eq!(m.kind, "pace_drop");
+    }
+
+    #[test]
+    fn batida_na_largada_ainda_conta() {
+        let mut h = base_history();
+        // Largada lenta E com batida: o incidente na largada continua flagrado
+        // (só a lentidão sistêmica é neutralizada, não o contato real).
+        let mut laps = vec![PlayerLap { lap: 2, time: 100.0, fuel_remaining: -1.0 }];
+        for lap in 3..=8 {
+            laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });
+        }
+        h.player_laps = laps;
+        let inc = PlayerIncidents { crash_laps: vec![2], is_dnf: false, dnf_lap: None };
+        let a = analyze(&h, &HashMap::new(), &HashMap::new(), &inc);
+        let m = a.mistake.expect("batida na largada é um incidente");
+        assert_eq!(m.lap, 2);
+        assert_eq!(m.kind, "incident");
     }
 
     #[test]

@@ -69,6 +69,47 @@ pub(crate) fn archive_team_season(conn: &Connection, season: &Season) -> Result<
             ],
         )
         .map_err(|e| format!("Falha ao arquivar equipe na temporada: {e}"))?;
+
+        // Marco de TÍTULOS DE CONSTRUTORES: com o arquivo desta temporada já gravado, a
+        // campeã pode ter virado a dona ISOLADA do recorde da categoria. A partir de 3,
+        // para não marcar a bicampeã. Camada narrativa — erro é silencioso. O marco
+        // guarda a EQUIPE nos campos `pilot_id`/`pilot_name` (o rodapé trata por métrica).
+        if snapshot.championship_position == Some(1) && !snapshot.category.is_empty() {
+            let titles = crate::db::queries::teams::get_team_category_constructor_titles(
+                conn,
+                &snapshot.team_id,
+                &snapshot.category,
+            )
+            .unwrap_or(0);
+            let others = crate::db::queries::teams::get_category_constructor_titles_leader_excluding(
+                conn,
+                &snapshot.category,
+                &snapshot.team_id,
+            )
+            .unwrap_or(0);
+            if titles >= 3 && titles > others {
+                let team_name = crate::db::queries::teams::get_team_by_id(conn, &snapshot.team_id)
+                    .ok()
+                    .flatten()
+                    .map(|t| t.nome)
+                    .unwrap_or_else(|| snapshot.team_id.clone());
+                let _ = crate::db::queries::milestones::insert_milestone(
+                    conn,
+                    &snapshot.category,
+                    &crate::db::queries::milestones::RecordMilestone {
+                        metric: "constructor_titles".to_string(),
+                        pilot_id: snapshot.team_id.clone(),
+                        pilot_name: team_name,
+                        value: titles,
+                        previous_value: Some(titles - 1),
+                        context: String::new(),
+                        season_number: snapshot.season_number,
+                        ano: snapshot.year,
+                        round: 0,
+                    },
+                );
+            }
+        }
     }
 
     Ok(())
