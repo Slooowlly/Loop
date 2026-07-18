@@ -57,23 +57,23 @@ pub fn get_track_simulation_data(track_id: u32) -> TrackSimulationData {
     use TrackCharacter::*;
     match track_id {
         // Rovals
-        554 => TrackSimulationData::new(Roval, 0.95, 0.90, 40.0, 35.0, 25.0), // Charlotte Roval
+        554 => TrackSimulationData::new(Roval, 0.95, 0.90, 50.0, 30.0, 20.0), // Charlotte Roval
         45 => TrackSimulationData::new(Roval, 0.95, 0.90, 30.0, 50.0, 20.0),  // Daytona Road
-        185 => TrackSimulationData::new(Roval, 0.90, 0.88, 35.0, 40.0, 25.0), // Indianapolis Road
+        185 => TrackSimulationData::new(Roval, 0.90, 0.88, 30.0, 50.0, 20.0), // Indianapolis Road
 
         // Flowing
         188 => TrackSimulationData::new(Flowing, 1.25, 1.25, 15.0, 60.0, 25.0), // Spa
         52 => TrackSimulationData::new(Flowing, 1.10, 1.20, 20.0, 50.0, 30.0),  // Road America
         106 => TrackSimulationData::new(Flowing, 1.20, 1.15, 15.0, 55.0, 30.0), // Silverstone GP
         93 => TrackSimulationData::new(Flowing, 1.00, 1.00, 10.0, 70.0, 20.0),  // Monza
-        169 => TrackSimulationData::new(Flowing, 1.00, 1.05, 20.0, 45.0, 35.0), // Philip Island
+        169 => TrackSimulationData::new(Flowing, 1.00, 1.05, 15.0, 50.0, 35.0), // Philip Island
         393 => TrackSimulationData::new(Flowing, 1.05, 1.00, 25.0, 55.0, 20.0), // Bahrain
         193 => TrackSimulationData::new(Flowing, 0.95, 0.95, 20.0, 60.0, 20.0), // Hockenheim GP
-        53 => TrackSimulationData::new(Flowing, 1.00, 1.00, 30.0, 35.0, 35.0),  // Sonoma
+        53 => TrackSimulationData::new(Flowing, 1.00, 1.00, 30.0, 25.0, 45.0),  // Sonoma
         360 => TrackSimulationData::new(Flowing, 1.00, 1.00, 20.0, 50.0, 30.0), // Paul Ricard
         373 => TrackSimulationData::new(Flowing, 1.00, 1.05, 25.0, 50.0, 25.0), // Fuji
-        389 => TrackSimulationData::new(Flowing, 1.00, 1.00, 25.0, 40.0, 35.0), // Zandvoort
-        516 => TrackSimulationData::new(Flowing, 1.00, 0.95, 30.0, 45.0, 25.0), // Yas Marina
+        389 => TrackSimulationData::new(Flowing, 1.00, 1.00, 20.0, 50.0, 30.0), // Zandvoort
+        516 => TrackSimulationData::new(Flowing, 1.00, 0.95, 25.0, 50.0, 25.0), // Yas Marina
 
         // Tight
         196 => TrackSimulationData::new(Tight, 1.30, 1.45, 20.0, 30.0, 50.0), // Nordschleife
@@ -82,67 +82,67 @@ pub fn get_track_simulation_data(track_id: u32) -> TrackSimulationData {
         325 => TrackSimulationData::new(Tight, 0.82, 0.80, 50.0, 10.0, 40.0), // Tsukuba
         318 => TrackSimulationData::new(Tight, 1.05, 1.05, 55.0, 10.0, 35.0), // Long Beach
         504 => TrackSimulationData::new(Tight, 1.05, 1.05, 50.0, 15.0, 35.0), // Detroit
-        261 => TrackSimulationData::new(Tight, 1.00, 1.05, 45.0, 35.0, 20.0), // Oulton Fosters
-        341 => TrackSimulationData::new(Tight, 1.00, 1.05, 45.0, 15.0, 40.0), // Oulton Island
+        261 => TrackSimulationData::new(Tight, 1.00, 1.05, 55.0, 25.0, 20.0), // Oulton Fosters
+        341 => TrackSimulationData::new(Tight, 1.00, 1.05, 50.0, 15.0, 35.0), // Oulton Island
         8 => TrackSimulationData::new(Tight, 0.85, 0.82, 50.0, 10.0, 40.0),   // Jefferson
 
         // Technical with explicit stress tuning
-        238 => TrackSimulationData::new(Technical, 1.35, 1.30, 35.0, 30.0, 35.0), // Sebring
-        528 => TrackSimulationData::new(Technical, 1.20, 1.60, 25.0, 30.0, 45.0), // Nurburgring 24H
+        238 => TrackSimulationData::new(Technical, 1.35, 1.30, 35.0, 30.0, 35.0), // Sebring (all-rounder de referência)
+        528 => TrackSimulationData::new(Technical, 1.20, 1.60, 20.0, 25.0, 55.0), // Nurburgring 24H
         287 => TrackSimulationData::new(Technical, 1.20, 1.50, 15.0, 65.0, 20.0), // Le Mans
-        119 => TrackSimulationData::new(Technical, 1.20, 1.30, 25.0, 40.0, 35.0), // Bathurst
-        164 => TrackSimulationData::new(Technical, 1.15, 1.25, 25.0, 35.0, 40.0), // Suzuka
-        212 => TrackSimulationData::new(Technical, 1.20, 1.15, 30.0, 35.0, 35.0), // COTA
-        58 => TrackSimulationData::new(Technical, 1.25, 1.20, 30.0, 30.0, 40.0),  // VIR Full
-        67 => TrackSimulationData::new(Technical, 1.10, 1.20, 30.0, 35.0, 35.0),  // Watkins Boot
-        14 => TrackSimulationData::new(Technical, 0.85, 0.82, 40.0, 20.0, 40.0),  // Lime Rock
-        9 => TrackSimulationData::new(Technical, 0.85, 0.85, 40.0, 25.0, 35.0),   // Summit Point
-        195 => TrackSimulationData::new(Technical, 0.88, 0.85, 35.0, 40.0, 25.0), // Hockenheim Short
-        301 => TrackSimulationData::new(Technical, 0.88, 0.85, 40.0, 25.0, 35.0), // Brands Indy
-        520 => TrackSimulationData::new(Technical, 0.85, 0.85, 35.0, 30.0, 35.0), // Modena
+        119 => TrackSimulationData::new(Technical, 1.20, 1.30, 20.0, 50.0, 30.0), // Bathurst
+        164 => TrackSimulationData::new(Technical, 1.15, 1.25, 20.0, 30.0, 50.0), // Suzuka
+        212 => TrackSimulationData::new(Technical, 1.20, 1.15, 25.0, 45.0, 30.0), // COTA
+        58 => TrackSimulationData::new(Technical, 1.25, 1.20, 25.0, 25.0, 50.0),  // VIR Full
+        67 => TrackSimulationData::new(Technical, 1.10, 1.20, 25.0, 45.0, 30.0),  // Watkins Boot
+        14 => TrackSimulationData::new(Technical, 0.85, 0.82, 50.0, 20.0, 30.0),  // Lime Rock
+        9 => TrackSimulationData::new(Technical, 0.85, 0.85, 50.0, 20.0, 30.0),   // Summit Point
+        195 => TrackSimulationData::new(Technical, 0.88, 0.85, 30.0, 50.0, 20.0), // Hockenheim Short
+        301 => TrackSimulationData::new(Technical, 0.88, 0.85, 50.0, 20.0, 30.0), // Brands Indy
+        520 => TrackSimulationData::new(Technical, 0.85, 0.85, 50.0, 15.0, 35.0), // Modena
 
         // Technical with neutral stress but explicit car weights
-        47 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Laguna Seca
-        51 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Mid-Ohio
-        68 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Watkins Short
-        125 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 40.0, 35.0), // Mosport
-        166 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Okayama
-        192 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Nurburgring GP
-        197 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Nurburgring Sprint
-        199 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Interlagos
-        202 => TrackSimulationData::new(Technical, 1.00, 1.00, 40.0, 15.0, 45.0), // Oran Park
-        244 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Magny-Cours
-        249 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 40.0, 35.0), // Road Atlanta
-        259 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // VIR Patriot
-        281 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Barcelona
-        300 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Brands GP
-        316 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Snetterton 300
+        47 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 20.0, 50.0), // Laguna Seca
+        51 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 20.0, 50.0), // Mid-Ohio
+        68 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Watkins Short
+        125 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Mosport
+        166 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Okayama
+        192 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Nurburgring GP
+        197 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Nurburgring Sprint
+        199 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Interlagos
+        202 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 15.0, 50.0), // Oran Park
+        244 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Magny-Cours
+        249 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Road Atlanta
+        259 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // VIR Patriot
+        281 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Barcelona
+        300 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Brands GP
+        316 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Snetterton 300
         335 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 55.0, 25.0), // Thruxton
         342 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 20.0, 60.0), // Oulton Intl
-        350 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Zolder
-        363 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Misano
-        382 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Vallelunga
+        350 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Zolder
+        363 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 20.0, 50.0), // Misano
+        382 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 45.0, 25.0), // Vallelunga
         397 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 50.0, 25.0), // Red Bull Ring
-        399 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Donington GP
-        400 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Donington Natl
-        404 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Brno
-        409 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 40.0, 35.0), // Assen
-        413 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 40.0, 30.0), // Mexico City
-        420 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 40.0, 35.0), // Istanbul
-        421 => TrackSimulationData::new(Technical, 1.00, 1.00, 40.0, 25.0, 35.0), // Sandown
-        425 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 35.0, 35.0), // Portimao
+        399 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Donington GP
+        400 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Donington Natl
+        404 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Brno
+        409 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Assen
+        413 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 50.0, 25.0), // Mexico City
+        420 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Istanbul
+        421 => TrackSimulationData::new(Technical, 1.00, 1.00, 50.0, 20.0, 30.0), // Sandown
+        425 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Portimao
         440 => TrackSimulationData::new(Technical, 1.00, 1.00, 55.0, 10.0, 35.0), // Winton
-        449 => TrackSimulationData::new(Technical, 1.00, 1.00, 40.0, 40.0, 20.0), // Oschersleben
-        451 => TrackSimulationData::new(Technical, 1.00, 1.00, 45.0, 15.0, 40.0), // Rudskogen
-        452 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Mugello
-        455 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Imola
+        449 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 50.0, 20.0), // Oschersleben
+        451 => TrackSimulationData::new(Technical, 1.00, 1.00, 50.0, 15.0, 35.0), // Rudskogen
+        452 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Mugello
+        455 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 25.0, 40.0), // Imola
         489 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 15.0, 65.0), // Ledenon
-        513 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Kyalami
-        515 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 45.0, 30.0), // Navarra
-        524 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Barcelona Natl
-        532 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 40.0, 30.0), // Silverstone Natl
-        538 => TrackSimulationData::new(Technical, 1.00, 1.00, 35.0, 30.0, 35.0), // Suzuka East
-        542 => TrackSimulationData::new(Technical, 1.00, 1.00, 40.0, 25.0, 35.0), // Okayama Short
+        513 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Kyalami
+        515 => TrackSimulationData::new(Technical, 1.00, 1.00, 20.0, 50.0, 30.0), // Navarra
+        524 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Barcelona Natl
+        532 => TrackSimulationData::new(Technical, 1.00, 1.00, 25.0, 50.0, 25.0), // Silverstone Natl
+        538 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 25.0, 45.0), // Suzuka East
+        542 => TrackSimulationData::new(Technical, 1.00, 1.00, 50.0, 20.0, 30.0), // Okayama Short
         548 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 50.0, 20.0), // Monza Junior
 
         // Unknown track fallback
@@ -294,5 +294,59 @@ mod tests {
         assert_eq!(data.acceleration_weight, 35.0);
         assert_eq!(data.power_weight, 30.0);
         assert_eq!(data.handling_weight, 35.0);
+    }
+
+    /// Depois do retune, o grid tem que ser majoritariamente peaked (foco importa);
+    /// balanceado é minoria. Varre todas as pistas nomeadas e conta o spread.
+    #[test]
+    fn test_peaked_tracks_are_the_majority() {
+        let ids = [
+            554, 45, 185, 188, 52, 106, 93, 169, 393, 193, 53, 360, 373, 389, 516, 196, 339, 194,
+            325, 318, 504, 261, 341, 8, 238, 528, 287, 119, 164, 212, 58, 67, 14, 9, 195, 301, 520,
+            47, 51, 68, 125, 166, 192, 197, 199, 202, 244, 249, 259, 281, 300, 316, 335, 342, 350,
+            363, 382, 397, 399, 400, 404, 409, 413, 420, 421, 425, 440, 449, 451, 452, 455, 489,
+            513, 515, 524, 532, 538, 542, 548,
+        ];
+        let mut peaked = 0usize;
+        let mut balanced = 0usize;
+        for id in ids {
+            let d = get_track_simulation_data(id);
+            let mx = d
+                .acceleration_weight
+                .max(d.power_weight)
+                .max(d.handling_weight);
+            let mn = d
+                .acceleration_weight
+                .min(d.power_weight)
+                .min(d.handling_weight);
+            if mx - mn >= 15.0 {
+                peaked += 1;
+            } else {
+                balanced += 1;
+            }
+        }
+        assert!(
+            peaked > balanced * 4,
+            "peaked={} deveria dominar balanced={} (balanceado é secundário)",
+            peaked,
+            balanced
+        );
+    }
+
+    /// Empates 30/35/35 antigos foram resolvidos por caráter real do circuito.
+    #[test]
+    fn test_former_balanced_tracks_now_lean() {
+        // Interlagos: reta oposta + altitude => potência.
+        let inter = get_track_simulation_data(199);
+        assert!(inter.power_weight > inter.acceleration_weight);
+        assert!(inter.power_weight > inter.handling_weight);
+        // Laguna Seca: técnica lenta => handling.
+        let laguna = get_track_simulation_data(47);
+        assert!(laguna.handling_weight > laguna.power_weight);
+        assert!(laguna.handling_weight > laguna.acceleration_weight);
+        // Okayama Short: clube apertado => aceleração.
+        let okayama = get_track_simulation_data(542);
+        assert!(okayama.acceleration_weight > okayama.power_weight);
+        assert!(okayama.acceleration_weight > okayama.handling_weight);
     }
 }

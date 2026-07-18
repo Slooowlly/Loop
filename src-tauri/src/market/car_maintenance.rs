@@ -84,6 +84,73 @@ pub fn planning_horizon(team_id: &str, season: i32) -> PlanningHorizon {
     }
 }
 
+// ===================== Identidade / DNA de carro do time =====================
+
+/// Viés inato de construção de carro do time — **PERSISTENTE** (não muda por temporada).
+/// É a fonte de foco que a média do calendário NÃO lava: um time "de potência" sempre puxa
+/// o carro pra potência, independente das pistas do calendário. O jogador não vê (o shape
+/// continua oculto; isto é identidade de bastidor). Relaciona com a identidade viva do time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarFocus {
+    Balanced,
+    Power,
+    Handling,
+    Acceleration,
+}
+
+/// Peso do DNA na demanda efetiva (o resto vem do calendário). Alto o bastante para um time
+/// focado cruzar o gatilho de especialização mesmo num calendário diverso (que lava pra
+/// balanceado). Calibrável.
+const DNA_DEMAND_WEIGHT: f64 = 0.6;
+
+/// Intensidade do pico do DNA focado (fração do eixo dominante; o resto é dividido igual).
+const DNA_PEAK: f64 = 0.70;
+
+/// DNA determinístico e **estável** por time (sem temporada → não re-rola; é permanente).
+/// Distribuição: 40% balanceado / 20% potência / 20% handling / 20% aceleração — foco é
+/// maioria, mas generalistas continuam existindo.
+pub fn team_car_focus(team_id: &str) -> CarFocus {
+    let mut seed: u32 = 0x85EB_CA6B;
+    for byte in team_id.bytes() {
+        seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+    // avalanche (descorrelaciona o módulo 100 do input)
+    seed ^= seed >> 15;
+    seed = seed.wrapping_mul(0x2c1b_3c6d);
+    seed ^= seed >> 13;
+
+    match seed % 100 {
+        0..=39 => CarFocus::Balanced,
+        40..=59 => CarFocus::Power,
+        60..=79 => CarFocus::Handling,
+        _ => CarFocus::Acceleration,
+    }
+}
+
+/// Demanda PHA `(P, H, A)` que o DNA sozinho pediria.
+fn focus_demand(focus: CarFocus) -> (f64, f64, f64) {
+    let lo = (1.0 - DNA_PEAK) / 2.0;
+    match focus {
+        CarFocus::Balanced => (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+        CarFocus::Power => (DNA_PEAK, lo, lo),
+        CarFocus::Handling => (lo, DNA_PEAK, lo),
+        CarFocus::Acceleration => (lo, lo, DNA_PEAK),
+    }
+}
+
+/// Mistura a demanda do calendário com o DNA (persistente) do time. O DNA domina; o
+/// calendário só modula. Para times balanceados, o resultado fica ~equilibrado (não foca).
+fn blend_with_focus(calendar: (f64, f64, f64), focus: CarFocus) -> (f64, f64, f64) {
+    let (cp, ch, ca) = calendar;
+    let (fp, fh, fa) = focus_demand(focus);
+    let w = DNA_DEMAND_WEIGHT;
+    (
+        w * fp + (1.0 - w) * cp,
+        w * fh + (1.0 - w) * ch,
+        w * fa + (1.0 - w) * ca,
+    )
+}
+
 // ===================== Plano de manutenção =====================
 
 /// Plano de manutenção do carro para UMA corrida.
@@ -124,11 +191,18 @@ fn demand_spread(demand: (f64, f64, f64)) -> f64 {
     p.max(h).max(a) - p.min(h).min(a)
 }
 
-/// Quanto uma peça serve à demanda PHA (produto escalar do viés com a demanda).
+/// Quão ALINHADA uma peça está com o eixo exigido pela demanda (não a magnitude bruta).
+///
+/// Usa a demanda **centrada** (subtrai o equilíbrio 1/3 de cada eixo): mede se a peça puxa
+/// PARA o atributo exigido ou PARA LONGE dele. Sem centrar, peças de coeficiente enorme (o
+/// motor pesa 5,78 em potência) pareceriam "relevantes" a qualquer demanda — e o carro só
+/// inclinaria pra potência, nunca pra handling/aceleração. Centrado, o motor fica NEGATIVO
+/// sob demanda de handling (ele puxa pra potência) e é corretamente de-investido.
 fn part_relevance(part: PartType, demand: (f64, f64, f64)) -> f64 {
     let (pp, ph, pa) = part.pha_per_level();
     let (dp, dh, da) = demand;
-    pp * dp + ph * dh + pa * da
+    let third = 1.0 / 3.0;
+    pp * (dp - third) + ph * (dh - third) + pa * (da - third)
 }
 
 /// Uma peça precisa de decisão nesta corrida? (esgotada, ou cruzaria 100% ao correr).
@@ -158,6 +232,20 @@ pub fn decide_maintenance(
         .fold(0.0_f64, f64::max);
     let rel_threshold = RELEVANCE_FRACTION * max_rel;
 
+    // Numa janela peaked (o calendário/DNA puxa um atributo), o time ESPECIALIZA: as peças
+    // IRRELEVANTES têm o teto rebaixado `FOCUS_GAP` abaixo do teto da categoria; as relevantes
+    // vão ao teto. Numa janela equilibrada, todas vão ao teto (carro balanceado). O horizonte
+    // modula quais pistas entram na demanda; o DNA do time (em `decide_car_maintenance`)
+    // sustenta o pico que a média do calendário lavaria.
+    let demand_peaked = demand_spread(demand) >= DEMAND_PEAK_THRESHOLD;
+    let part_cap = |pt: PartType| -> u8 {
+        if !demand_peaked || part_relevance(pt, demand) >= rel_threshold {
+            ceiling
+        } else {
+            ceiling.saturating_sub(FOCUS_GAP).max(1)
+        }
+    };
+
     // 1) Peças no fim da vida, mais relevantes primeiro.
     let mut eol: Vec<CarPart> = car.parts.iter().copied().filter(needs_decision).collect();
     eol.sort_by(|a, b| {
@@ -170,6 +258,13 @@ pub fn decide_maintenance(
         let rc = replace_cost(category_id, part);
         let sc = stretch_cost(category_id, part);
         let relevant = part_relevance(part.part_type, demand) >= rel_threshold;
+        // FOCO REAL: peça irrelevante ACIMA do teto de foco é DEIXADA degradar de propósito
+        // (de-investimento no eixo errado). É isto — e não só "não subir" — que inclina o
+        // shape; sem, o time rico repõe tudo e mantém o carro parelho, e o foco nunca emerge.
+        if demand_peaked && !relevant && part.level > part_cap(part.part_type) {
+            plan.actions.insert(part.part_type, PartAction::Degrade);
+            continue;
+        }
         if budget >= rc {
             plan.actions.insert(part.part_type, PartAction::Replace);
             budget -= rc;
@@ -183,20 +278,8 @@ pub fn decide_maintenance(
         }
     }
 
-    // 2) Passe de upgrade: com caixa sobrando, sobe as peças rumo ao seu TETO EFETIVO.
-    //    ESPECIALIZAÇÃO: numa janela peaked (o calendário puxa um atributo), as peças
-    //    IRRELEVANTES têm o teto rebaixado (ficam abaixo do teto da categoria) → o carro
-    //    FOCA no atributo exigido; numa janela equilibrada, todas vão ao teto (balanceado).
-    //    O horizonte do time modula: míope vê 1 pista (peaked → foca), temporada inteira vê
-    //    a média (equilibra). Peças esticadas (spent) ficam de fora.
-    let demand_peaked = demand_spread(demand) >= DEMAND_PEAK_THRESHOLD;
-    let part_cap = |pt: PartType| -> u8 {
-        if !demand_peaked || part_relevance(pt, demand) >= rel_threshold {
-            ceiling
-        } else {
-            ceiling.saturating_sub(FOCUS_GAP).max(1)
-        }
-    };
+    // 2) Passe de upgrade: com caixa sobrando, sobe as peças rumo ao seu TETO EFETIVO
+    //    (relevantes → teto da categoria; irrelevantes → teto de foco). Esticadas ficam fora.
     let mut upgradable: Vec<PartType> = PartType::ALL
         .iter()
         .copied()
@@ -242,7 +325,10 @@ pub fn decide_car_maintenance(
     upcoming_track_ids: &[u32],
 ) -> CarMaintenancePlan {
     let budget = calculate_financial_plan(team).spending_power.max(0.0);
-    let demand = maintenance_demand(upcoming_track_ids);
+    // Demanda efetiva = calendário misturado com o DNA persistente do time. É o que faz o
+    // foco EMERGIR: a média do calendário sozinha lava pra balanceado; o DNA sustenta o pico.
+    let calendar_demand = maintenance_demand(upcoming_track_ids);
+    let demand = blend_with_focus(calendar_demand, team_car_focus(&team.id));
     decide_maintenance(car, category_id, budget, demand)
 }
 
@@ -603,6 +689,104 @@ mod tests {
         );
         let (p, h, _a) = car.pha();
         assert!(p > h, "o shape deveria pesar power: P={p:.1} H={h:.1}");
+    }
+
+    // -------- DNA / identidade de carro do time --------
+
+    #[test]
+    fn dna_e_estavel_e_nao_depende_de_temporada() {
+        // Determinístico e permanente (a assinatura nem recebe temporada).
+        assert_eq!(team_car_focus("Team-42"), team_car_focus("Team-42"));
+    }
+
+    #[test]
+    fn dna_distribuicao_40_20_20_20() {
+        let n = 3000;
+        let (mut b, mut p, mut h, mut a) = (0, 0, 0, 0);
+        for i in 0..n {
+            match team_car_focus(&format!("T{i}")) {
+                CarFocus::Balanced => b += 1,
+                CarFocus::Power => p += 1,
+                CarFocus::Handling => h += 1,
+                CarFocus::Acceleration => a += 1,
+            }
+        }
+        let frac = |x: i32| x as f64 / n as f64;
+        assert!((frac(b) - 0.40).abs() < 0.05, "balanced={}", frac(b));
+        assert!((frac(p) - 0.20).abs() < 0.05, "power={}", frac(p));
+        assert!((frac(h) - 0.20).abs() < 0.05, "handling={}", frac(h));
+        assert!((frac(a) - 0.20).abs() < 0.05, "accel={}", frac(a));
+    }
+
+    #[test]
+    fn dna_pica_a_demanda_que_o_calendario_diverso_lavaria() {
+        // Calendário diverso (2 P + 1 H + 1 A) → média ~balanceada, spread abaixo do gatilho.
+        let diverse = maintenance_demand(&[93, 188, 489, 318]); // Monza+Spa(P) Ledenon(H) LongBeach(A)
+        assert!(
+            demand_spread(diverse) < DEMAND_PEAK_THRESHOLD,
+            "calendário diverso deveria lavar pra balanceado: spread={}",
+            demand_spread(diverse)
+        );
+        // DNA de potência empurra a demanda efetiva acima do gatilho.
+        let blended = blend_with_focus(diverse, CarFocus::Power);
+        let (p, h, a) = blended;
+        assert!(p > h && p > a, "DNA deveria puxar power: P={p:.2} H={h:.2} A={a:.2}");
+        assert!(
+            demand_spread(blended) >= DEMAND_PEAK_THRESHOLD,
+            "DNA deveria peakar a demanda: spread={}",
+            demand_spread(blended)
+        );
+        // DNA balanceado NÃO peaka (generalista continua generalista).
+        assert!(
+            demand_spread(blend_with_focus(diverse, CarFocus::Balanced)) < DEMAND_PEAK_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn time_com_dna_de_potencia_foca_mesmo_em_calendario_diverso() {
+        use crate::models::team::placeholder_team_from_db;
+        // Acha um id cujo DNA é potência.
+        let team_id = (0..10_000)
+            .map(|i| format!("P{i}"))
+            .find(|id| team_car_focus(id) == CarFocus::Power)
+            .expect("deveria existir id com DNA de potência");
+
+        let conn = Connection::open_in_memory().unwrap();
+        let mut team = placeholder_team_from_db(
+            team_id.clone(),
+            "Power DNA".to_string(),
+            "gt3".to_string(),
+            "2026-01-01T00:00:00".to_string(),
+        );
+        team.cash_balance = 1e12;
+        team.debt_balance = 0.0;
+        team.financial_state = "healthy".to_string();
+        let car = seed_car("gt3", 0.5);
+        team_car::upsert_team_car(&conn, &team_id, &car).unwrap();
+        team.car = Some(car);
+
+        // Calendário DIVERSO cuja média até pende de leve pra HANDLING (contra o DNA):
+        // se mesmo assim o carro pesa power, é o DNA sustentando o foco, não o calendário.
+        let diverse = [489, 325, 342, 318, 93, 188];
+        for season in 1..=4 {
+            for _ in 0..15 {
+                maintain_team_car(&conn, &team, "gt3", season, &diverse).unwrap();
+                team.car = team_car::get_team_car(&conn, &team_id).unwrap();
+            }
+        }
+
+        let car = team.car.as_ref().unwrap();
+        let (p, h, a) = car.pha();
+        assert!(
+            p > h && p > a,
+            "carro de DNA-power deveria pesar power num calendário diverso: P={p:.1} H={h:.1} A={a:.1}"
+        );
+        let engine = car.part(PartType::Engine).unwrap().level;
+        let brakes = car.part(PartType::Brakes).unwrap().level;
+        assert!(
+            engine > brakes,
+            "peça de power (motor {engine}) deveria superar a de handling (freios {brakes})"
+        );
     }
 
     #[test]
