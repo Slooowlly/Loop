@@ -106,7 +106,7 @@ describe("Header", () => {
     expect(screen.getByText(/próxima corrida em 2 meses/i)).toBeInTheDocument();
   });
 
-  it("maps known track names to the stored thumbnail filenames", () => {
+  it("maps known track names to the wide banner images (Pistas Header)", () => {
     mockState.nextRace = {
       ...mockState.nextRace,
       track_name: "Charlotte Motor Speedway - Roval",
@@ -115,7 +115,25 @@ describe("Header", () => {
     render(<Header activeTab="standings" onTabChange={vi.fn()} />);
 
     const image = screen.getByAltText("Charlotte Motor Speedway - Roval");
-    expect(image).toHaveAttribute("src", "/utilities/tracks/charlotte.png");
+    expect(image).toHaveAttribute(
+      "src",
+      "/utilities/tracks/Pistas%20Header/chartlotte.jpg",
+    );
+  });
+
+  it("falls back to the thumbnail when a track has no wide banner image", () => {
+    mockState.nextRace = {
+      ...mockState.nextRace,
+      track_name: "Circuito Desconhecido XYZ",
+    };
+
+    render(<Header activeTab="standings" onTabChange={vi.fn()} />);
+
+    const image = screen.getByAltText("Circuito Desconhecido XYZ");
+    expect(image).toHaveAttribute(
+      "src",
+      "/utilities/tracks/Circuito%20Desconhecido%20XYZ.png",
+    );
   });
 
   it("hides the standings race banner while the pre-race briefing is open", () => {

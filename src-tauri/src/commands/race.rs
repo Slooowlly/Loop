@@ -859,6 +859,27 @@ fn simulate_category_race_with_mode(
         calculate_expected_event_interest(&venue_ctx).score as f64,
     );
 
+    // Bônus de rivalidade (Pressão de Duelo): os pilotos de interesse do jogador
+    // correm MAIS FORTE contra ele — Nemesis +2 skill, Rivais +1. Só vale quando o
+    // jogador está NESTA corrida (senão o rival não está duelando com ele).
+    let rival_skill_bonus: std::collections::HashMap<String, f64> =
+        if driver_pool.iter().any(|d| d.is_jogador) {
+            let current =
+                crate::db::queries::player_nemesis::get_current_nemesis(&db.conn).unwrap_or(None);
+            let interests =
+                crate::commands::career::select_player_interests(&db.conn, current.as_deref());
+            let mut m = std::collections::HashMap::new();
+            if let Some(n) = interests.nemesis {
+                m.insert(n.driver_id, 2.0);
+            }
+            for r in interests.rivais {
+                m.insert(r.driver_id, 1.0);
+            }
+            m
+        } else {
+            std::collections::HashMap::new()
+        };
+
     let mut orphaned_drivers = Vec::new();
     let sim_drivers: Vec<SimDriver> = driver_pool
         .into_iter()
@@ -922,6 +943,12 @@ fn simulate_category_race_with_mode(
                     .clamp(5.0, 100.0)
                     .round() as u8;
                 sd.pressure_error_mult = peff.error_mult;
+                // Pressão de Duelo: o rival do jogador rende mais contra ele.
+                if let Some(bonus) = rival_skill_bonus.get(&driver.id) {
+                    sd.skill = (sd.skill as f64 + bonus).clamp(5.0, 100.0).round() as u8;
+                    sd.ritmo_classificacao =
+                        (sd.ritmo_classificacao as f64 + bonus).clamp(5.0, 100.0).round() as u8;
+                }
                 Some(sd)
             }
             None if persistence_mode == RacePersistenceMode::HistoricalDraft => None,
@@ -1595,6 +1622,8 @@ pub(crate) fn import_iracing_race_result(
     career_dir: &Path,
     session_track_id: i64,
     player_crash_severity: &str,
+    // Direção do impacto no pico (front/rear/side/vertical) — do monitor. Vazia = frontal.
+    player_impact_dir: &str,
     mut result: RaceResult,
     // Telemetria REAL do SDK (ritmo/duelo/erro/melhor momento) — vira pano de fundo
     // do boletim de IA. Corrida real do iRacing tem; offline/sem monitor vem vazia.
@@ -1805,14 +1834,24 @@ pub(crate) fn import_iracing_race_result(
     let mut repair_count = 0;
     let mut repair_message = String::new();
     let player_team_id = player.map(|r| r.team_id.clone()).unwrap_or_default();
-    if !player_team_id.is_empty() {
+    // Dano por PEÇA da batida (car::crash): amassa/destrói peças conforme a DIREÇÃO do
+    // impacto e a CONDIÇÃO de cada uma; o custo vem das peças (não mais flat). O carro
+    // danificado PERSISTE — e como `persist_race_result_tx` (que já rodou acima) mantém o
+    // carro antes, aplicamos o dano por CIMA; o cérebro de manutenção responde na PRÓXIMA
+    // corrida (trocar/degradar conforme o caixa). Só há dano se houve batida (≠ "nenhum").
+    if !player_team_id.is_empty() && !player_crash_severity.eq_ignore_ascii_case("nenhum") {
         if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &player_team_id) {
-            let cost = compute_repair_cost(
-                player_crash_severity,
-                &team.categoria,
-                team.car_performance,
-                &mut rng,
-            );
+            use crate::car::crash::{apply_crash_damage, CrashSeverity, ImpactDirection};
+            use crate::db::queries::team_car;
+            let severity = CrashSeverity::from_label(player_crash_severity);
+            let direction = ImpactDirection::from_str(player_impact_dir);
+            let mut car = team_car::get_team_car(&db.conn, &player_team_id)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| crate::car::seed::seed_car(&team.categoria, 0.5));
+            let damage = apply_crash_damage(&mut car, &team.categoria, severity, direction);
+            let _ = team_car::upsert_team_car(&db.conn, &player_team_id, &car);
+            let cost = damage.cost.round();
             if cost > 0.0 {
                 team.cash_balance -= cost;
                 team.last_round_expenses += cost;

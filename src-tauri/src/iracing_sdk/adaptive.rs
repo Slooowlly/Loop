@@ -20,6 +20,20 @@
 //!   piloto (rodada/saída), em vez de confiar na invalidação do iRacing.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Contexto de CARRO para o mecanismo 2 (adaptativo **cego ao carro**): a vantagem de carro
+/// do jogador e de cada IA (por `car_idx`) na pista. Como enfraquecemos a frente de propósito
+/// (carro do jogador), o adaptativo veria "jogador dominando" e subiria a IA — este contexto
+/// deixa [`fast_result_from`] descontar do ritmo o que o CARRO explica, sobrando as MÃOS.
+/// `None` = sem carro (rookie/spec) → comportamento antigo. Ver [`crate::iracing_sdk::car_difficulty`].
+#[derive(Clone, Debug, Default)]
+pub struct CarContext {
+    /// Vantagem de carro do jogador (car-perf) na pista.
+    pub player_advantage: f64,
+    /// `car_idx` → vantagem de carro daquela IA (car-perf) na pista.
+    pub by_idx: HashMap<i32, f64>,
+}
 
 // ─── Parâmetros (ajustáveis) ────────────────────────────────────────────────
 
@@ -147,7 +161,7 @@ pub struct FastResult {
 /// Reduz um [`RaceResult`] ao [`FastResult`]: ritmo LIMPO do jogador vs a FRENTE = mediana
 /// dos 2 melhores RITMOS da IA da classe (robusto a 1 outlier). Reusa [`clean_pace`] →
 /// voltas de erro/pit/rodada (muito mais lentas que a mediana do piloto) saem da conta.
-pub fn fast_result_from(race: &RaceResult) -> FastResult {
+pub fn fast_result_from(race: &RaceResult, car: Option<&CarContext>) -> FastResult {
     let drivers = &race.race;
     let Some(player) = drivers.iter().find(|d| d.is_player) else {
         return FastResult {
@@ -159,20 +173,40 @@ pub fn fast_result_from(race: &RaceResult) -> FastResult {
     let class = player.car_class_id;
     let pace = |d: &DriverData| clean_pace(&d.laps, &race.yellow_laps).map(|(typ, _)| typ);
     let player_pace = pace(player);
-    // Frente = mediana (média) dos 2 RITMOS LIMPOS mais rápidos da IA da classe.
-    let mut ai_paces: Vec<f64> = drivers
+    // (ritmo, car_idx) das IAs da classe, ordenado por ritmo → as 2 mais rápidas = a FRENTE
+    // (mediana robusta a 1 outlier). Guardamos o car_idx pra casar o carro da frente (mec. 2).
+    let mut ai: Vec<(f64, i32)> = drivers
         .iter()
         .filter(|d| d.is_ai && d.car_class_id == class)
-        .filter_map(pace)
+        .filter_map(|d| pace(d).map(|p| (p, d.car_idx)))
         .collect();
-    ai_paces.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let front = match ai_paces.as_slice() {
+    ai.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let front = match ai.as_slice() {
         [] => None,
-        [only] => Some(*only),
-        [a, b, ..] => Some((a + b) / 2.0),
+        [only] => Some(only.0),
+        [a, b, ..] => Some((a.0 + b.0) / 2.0),
     };
     let pace_vs_front = match (player_pace, front) {
-        (Some(pp), Some(fr)) if fr > 0.0 => Some((pp - fr) / fr),
+        (Some(pp), Some(fr)) if fr > 0.0 => {
+            let raw = (pp - fr) / fr;
+            // Mecanismo 2 (cego ao carro): soma de volta o que o CARRO explica — a frente foi
+            // enfraquecida de propósito pelo carro do jogador. Usa as 2 IAs da frente (as mais
+            // rápidas). Sem contexto de carro → 0 (comportamento antigo).
+            let credit = car
+                .map(|c| {
+                    let front_advs: Vec<f64> = ai
+                        .iter()
+                        .take(2)
+                        .map(|(_, idx)| c.by_idx.get(idx).copied().unwrap_or(0.0))
+                        .collect();
+                    crate::iracing_sdk::car_difficulty::car_pace_credit(
+                        c.player_advantage,
+                        &front_advs,
+                    )
+                })
+                .unwrap_or(0.0);
+            Some(raw + credit)
+        }
         _ => None,
     };
     FastResult {
@@ -336,11 +370,41 @@ mod tests {
             ],
             qualy: None,
         };
-        let r = fast_result_from(&race);
+        let r = fast_result_from(&race, None);
         let g = r.pace_vs_front.unwrap();
         assert!((g - 0.00285).abs() < 0.001, "déficit vs frente {g} (~0,3%)");
         // Competitivo (< escudo) → não desce, apesar do P7.
         assert_eq!(compute_fast_update(&r, &Deltas { global: 30, track: 0 }).d_global, 0);
+    }
+
+    #[test]
+    fn mecanismo_2_carro_desconta_o_ritmo_da_frente() {
+        // Jogador anda NO ritmo da frente (empate ~0), mas com um CARRO melhor que a frente.
+        // Cego ao carro: o crédito soma de volta a vantagem do carro → ritmo corrigido fica
+        // POSITIVO (você só empatou apesar do carrão → suas mãos estão atrás) → não credita.
+        let race = RaceResult {
+            track_id: 1,
+            yellow_laps: vec![],
+            race: vec![
+                driver(false, 1, &[70.0, 70.0, 70.0, 70.0]), // frente 1 (car_idx 1)
+                driver(false, 2, &[70.0, 70.0, 70.0, 70.0]), // frente 2 (car_idx 2)
+                DriverData {
+                    finish_pos_in_class: 1,
+                    ..driver(true, 4, &[70.0, 70.0, 70.0, 70.0]) // jogador, mesmo ritmo
+                },
+            ],
+            qualy: None,
+        };
+        let sem = fast_result_from(&race, None).pace_vs_front.unwrap();
+        assert!(sem.abs() < 1e-6, "sem carro: empate ~0, veio {sem}");
+        // Jogador com carro bem melhor que a frente (idx 1 e 2 fracos).
+        let mut by_idx = std::collections::HashMap::new();
+        by_idx.insert(1, 2.0);
+        by_idx.insert(2, 2.0);
+        let car = CarContext { player_advantage: 14.0, by_idx };
+        let com = fast_result_from(&race, Some(&car)).pace_vs_front.unwrap();
+        assert!(com > sem, "o crédito do carro deveria PIORAR o ritmo aparente: {com} > {sem}");
+        assert!(com > 0.0, "carro melhor + só empatou → resíduo positivo (mãos atrás)");
     }
 
     #[test]

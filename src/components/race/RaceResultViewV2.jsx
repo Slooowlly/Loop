@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
+import RivalMarker from "../driver/RivalMarker";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
 import { MOCK_TELEMETRY } from "./__mockTelemetry";
 import {
@@ -400,6 +401,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                             {e.has_fastest_lap && (
                               <span title="Volta mais rápida" style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
                             )}
+                            <RivalMarker driverId={e.pilot_id} className="ml-1 inline-block" />
                             {isPlayer && <span style={{ color: "#8b949e" }} className="text-[11px]"> você</span>}
                           </td>
                           <td className="text-left px-2 py-2" style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)" }}>

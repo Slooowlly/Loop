@@ -226,6 +226,10 @@ pub fn run() {
                 let _ = overlay.set_ignore_cursor_events(true);
             }
 
+            // Vigia de cursor do "hover": revela cadeado+olho quando o mouse entra na
+            // torre travada (que é clique-atravessa e não enxerga o mouse sozinha).
+            commands::overlay_window::start_hover_watcher(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -296,6 +300,7 @@ pub fn run() {
             commands::career_commands::list_saves,
             commands::career_commands::get_drivers_by_category,
             commands::career_commands::get_teams_standings,
+            commands::career_commands::get_player_interests,
             commands::career_commands::get_team_history_dossier,
             commands::career_commands::get_team_finance_report,
             commands::career_commands::get_race_results_by_category,
@@ -354,11 +359,13 @@ pub fn run() {
             commands::iracing::iracing_save_race_history,
             commands::iracing::iracing_list_saved_races,
             commands::iracing::iracing_load_saved_race,
+            commands::iracing::iracing_perceive_rivalries,
             commands::iracing::iracing_yellow_macro_status,
             commands::iracing::iracing_install_yellow_macro,
             commands::iracing::iracing_restore_yellow_macro,
             commands::iracing::iracing_throw_yellow,
             commands::iracing::iracing_send_chat_macro,
+            commands::iracing::iracing_send_chat_text,
             commands::iracing::iracing_set_auto_yellow,
             commands::iracing::iracing_auto_yellow_enabled,
             commands::window::minimize_window,
@@ -392,6 +399,8 @@ pub fn run() {
             commands::overlay_window::overlay_window_hide,
             commands::overlay_window::overlay_window_set_interactive,
             commands::overlay_window::overlay_active_career,
+            commands::overlay_window::overlay_set_hover_watch,
+            commands::overlay_window::overlay_set_hover_rect,
             commands::overlay::get_overlay_data,
         ])
         .run(tauri::generate_context!())

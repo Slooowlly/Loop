@@ -9,18 +9,16 @@ import { getCategoryColor } from "../../utils/categoryColors";
 import { categoryLabel } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 
-// Imagens por track_id
+// Imagens por track_id (ids reais do iRacing)
 const TRACK_IMAGES = {
-  8: "/utilities/tracks/summitpoint.png",
   9: "/utilities/tracks/summitpoint.png",
-  14: "/utilities/tracks/limerock.jpeg",
-  47: "/utilities/tracks/lagunaseca.png",
+  353: "/utilities/tracks/limerock.jpeg",
+  586: "/utilities/tracks/lagunaseca.png",
   166: "/utilities/tracks/okayama.png",
-  261: "/utilities/tracks/oultonpark.jpeg",
-  300: null,
-  301: null,
-  325: "/utilities/tracks/Tsukuba.png",
-  341: "/utilities/tracks/oultonpark.jpeg",
+  180: "/utilities/tracks/oultonpark.jpeg",
+  181: "/utilities/tracks/oultonpark.jpeg",
+  182: "/utilities/tracks/oultonpark.jpeg",
+  324: "/utilities/tracks/Tsukuba.png",
   449: "/utilities/tracks/motorsport arena.png",
   451: "/utilities/tracks/rudskogen.jpeg",
   489: "/utilities/tracks/ledenon.png",
@@ -28,12 +26,7 @@ const TRACK_IMAGES = {
   440: "/utilities/tracks/winton.jpeg",
   515: "/utilities/tracks/Navarra.png",
   554: "/utilities/tracks/charlotte.png",
-  45: null,
-  51: null,
-  52: null,
-  53: null,
-  58: "/utilities/tracks/virginia.jpeg",
-  67: null,
+  465: "/utilities/tracks/virginia.jpeg",
 };
 
 const TRACK_IMAGE_FILES = [

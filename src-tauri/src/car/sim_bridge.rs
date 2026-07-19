@@ -8,7 +8,7 @@
 #![allow(dead_code)] // Chunk 5: consumido pela integração no sim (context.rs) em seguida.
 
 use crate::car::Car;
-use crate::simulation::car_build::CarAttributeWeights;
+use crate::simulation::car_build::{effective_car_performance_from_shape, CarAttributeWeights};
 use crate::simulation::track_profile::BALANCED_CAR_WEIGHTS;
 
 /// Topo da faixa de `car_performance` que um carro nível 10 alcança (domínio do
@@ -35,6 +35,23 @@ pub fn car_shape_weights(car: &Car) -> CarAttributeWeights {
         return BALANCED_CAR_WEIGHTS;
     }
     (a / total * 100.0, p / total * 100.0, h / total * 100.0)
+}
+
+/// **Vantagem de carro nesta pista** (unidades de `car_performance`): funde a MAGNITUDE
+/// (nível) com o CASAMENTO do shape (foco) com a pista, exatamente como o sim faria pra te
+/// deixar mais rápido. Carro spec de rookie (tudo nível 1, sem shape) → 0.
+///
+/// É o escalar que o EXPORT inverte em skill de IA: no iRacing o carro é spec (não dá pra
+/// te acelerar), então um carro melhor só pode ENFRAQUECER a IA. `track_weights` na ordem
+/// `(acceleration, power, handling)` — a mesma de [`get_track_simulation_data`].
+///
+/// [`get_track_simulation_data`]: crate::simulation::track_profile::get_track_simulation_data
+pub fn car_advantage(car: &Car, track_weights: CarAttributeWeights) -> f64 {
+    effective_car_performance_from_shape(
+        car_performance_from(car),
+        car_shape_weights(car),
+        track_weights,
+    )
 }
 
 #[cfg(test)]

@@ -7,11 +7,17 @@
 //! `docs/superpowers/specs/2026-07-17-car-level-system-design.md`.
 #![allow(dead_code)] // Chunk 1: modelo puro; wiring na simulação/finanças vem nos chunks 5+.
 
+pub mod breakdown;
 pub mod cost;
+pub mod crash;
 pub mod parts;
 pub mod seed;
 pub mod sim_bridge;
 pub mod wear;
+
+/// Harness de experimento (Monte Carlo) do sistema de quebra — só em teste, throwaway.
+#[cfg(test)]
+mod breakdown_sim;
 
 pub use parts::PartType;
 

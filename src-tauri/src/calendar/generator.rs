@@ -79,7 +79,7 @@ pub(crate) fn free_tracks_for_region(region: CalendarRegion) -> &'static [u32] {
             465, 467, 466, // Virginia International Raceway – Full / North / Grand
         ],
         CalendarRegion::Europa => &[
-            181, 180, 183, 184, 185, 186, // Oulton Park – Fosters / Intl / ... layouts
+            181, 180, 183, 184, 185, // Oulton Park – Fosters / Intl / ... layouts
             297, 298, // Snetterton Circuit – 300 / 200
             489, // Circuit de Lédenon
             515, 516, // Circuito de Navarra – Speed Circuit / Medium
@@ -101,7 +101,7 @@ pub(crate) fn production_free_mix_pool() -> &'static [u32] {
     &[
         // USA (Jefferson 8 fica de fora — pequeno demais p/ carro)
         554, 353, 352, 354, 9, 465, 467, 466, // Europa
-        181, 180, 183, 184, 185, 186, 297, 298, 489, 515, 516, 449, 454, 455,
+        181, 180, 183, 184, 185, 297, 298, 489, 515, 516, 449, 454, 455,
         451, // Japão/Oceania
         166, 167, 324, 202, 208, 440, 439,
     ]
@@ -113,79 +113,125 @@ pub(crate) fn gt4_curated_pool() -> &'static [u32] {
         181, // Oulton Park – Fosters
         297, // Snetterton Circuit – 300
         465, // Virginia International Raceway – Full Course
-        47,  // WeatherTech Raceway at Laguna Seca
-        300, // Brands Hatch – Grand Prix
-        399, // Donington Park – Grand Prix
-        106, // Silverstone Circuit – Grand Prix
-        389, // Circuit Zandvoort
-        363, // Misano World Circuit Marco Simoncelli
-        455, // Autodromo Enzo e Dino Ferrari (Imola)
-        249, // Road Atlanta – Full Course
-        238, // Sebring International Raceway
-        67,  // Watkins Glen International – Boot
-        51,  // Mid-Ohio Sports Car Course
-        52,  // Road America
-        125, // Canadian Tire Motorsport Park (Mosport)
-             // TODO: Circuito de Navarra (not yet in DB)
-             // TODO: Motorsport Arena Oschersleben (not yet in DB)
+        586, // WeatherTech Raceway at Laguna Seca
+        145, // Brands Hatch – Grand Prix
+        233, // Donington Park – Grand Prix
+        341, // Silverstone Circuit – Grand Prix
+        485, // Circuit Zandvoort
+        501, // Misano World Circuit Marco Simoncelli
+        266, // Autodromo Enzo e Dino Ferrari (Imola)
+        127, // Road Atlanta – Full Course
+        95,  // Sebring International Raceway
+        433, // Watkins Glen International – Cup
+        153, // Mid-Ohio Sports Car Course
+        18,  // Road America
+        144, // Canadian Tire Motorsport Park (Mosport)
+        // ── Catálogo expandido (jul/2026): palcos regionais/nacionais (British GT, GT4 Euro, IMSA) ──
+        229, // Circuit of the Americas – Grand Prix (top-tier, âncora)
+        509, // Algarve International Circuit – Portimão (top-tier, âncora)
+        413, // Hungaroring
+        199, // Circuit Zolder
+        475, // MotorLand Aragón – Grand Prix
+        473, // Circuito de Jerez
+        463, // Circuit de Nevers Magny-Cours
+        585, // Barber Motorsports Park
+        566, // Sonoma Raceway
+        448, // Indianapolis Motor Speedway – Road Course
+        218, // Circuit Gilles Villeneuve – Montreal
+        521, // Sachsenring
     ]
 }
 
 /// Pool GT3: campeonato internacional de prestígio.
 pub(crate) fn gt3_curated_pool() -> &'static [u32] {
     &[
-        188, // Circuit de Spa-Francorchamps
-        93,  // Autodromo Nazionale Monza
-        106, // Silverstone Circuit – Grand Prix
-        164, // Suzuka International Racing Course
-        199, // Autódromo José Carlos Pace (Interlagos)
-        45,  // Daytona International Speedway – Road Course
-        238, // Sebring International Raceway
-        67,  // Watkins Glen International – Boot
-        249, // Road Atlanta – Full Course
-        455, // Autodromo Enzo e Dino Ferrari (Imola)
-        397, // Red Bull Ring
-        192, // Nürburgring – Grand Prix Strecke
-        528, // Nürburgring – Combined (24H)
-        281, // Circuit de Barcelona-Catalunya
-        452, // Autodromo Internazionale del Mugello
-        193, // Hockenheimring Baden-Württemberg – GP
-        373, // Fuji International Speedway
-        119, // Mount Panorama Motor Racing Circuit (Bathurst)
+        523, // Circuit de Spa-Francorchamps
+        239, // Autodromo Nazionale Monza
+        341, // Silverstone Circuit – Grand Prix
+        168, // Suzuka International Racing Course
+        212, // Autódromo José Carlos Pace (Interlagos)
+        192, // Daytona International Speedway – Road Course
+        95,  // Sebring International Raceway
+        433, // Watkins Glen International – Cup
+        127, // Road Atlanta – Full Course
+        266, // Autodromo Enzo e Dino Ferrari (Imola)
+        403, // Red Bull Ring
+        263, // Nürburgring – Combined (Short)
+        252, // Nürburgring – Combined (24H)
+        345, // Circuit de Barcelona-Catalunya
+        498, // Autodromo Internazionale del Mugello
+        390, // Hockenheimring Baden-Württemberg – GP
+        444, // Fuji International Speedway
+        219, // Mount Panorama Motor Racing Circuit (Bathurst)
+        // ── Catálogo expandido (jul/2026): palcos reais de GTWC / Intercontinental GT / IMSA GTD ──
+        229, // Circuit of the Americas – Grand Prix (top-tier, âncora)
+        509, // Algarve International Circuit – Portimão (top-tier, âncora)
+        413, // Hungaroring
+        199, // Circuit Zolder (GTWC sprint)
+        475, // MotorLand Aragón – Grand Prix (GTWC)
+        473, // Circuito de Jerez (GTWC)
+        485, // Circuit Zandvoort – Grand Prix (GTWC)
+        145, // Brands Hatch – Grand Prix (GTWC)
+        501, // Misano World Circuit (GTWC)
+        540, // The Bend Motorsport Park – GT Circuit (Intercontinental GT)
+        152, // Phillip Island (endurance GT3)
+        566, // Sonoma Raceway (IMSA GTD)
+        218, // Circuit Gilles Villeneuve – Montreal
+        448, // Indianapolis Motor Speedway – Road Course
+        521, // Sachsenring (ADAC GT Masters)
+        195, // Mobility Resort Motegi (Super GT)
+        585, // Barber Motorsports Park
     ]
 }
 
 /// Pool LMP2: mistura palcos fortes de GT3 com provas clássicas de endurance.
 pub(crate) fn lmp2_curated_pool() -> &'static [u32] {
     &[
-        45,  // Daytona International Speedway – Road Course
-        238, // Sebring International Raceway
-        188, // Circuit de Spa-Francorchamps
-        287, // Circuit de la Sarthe – Le Mans 24H
-        249, // Road Atlanta – Full Course
-        67,  // Watkins Glen International – Boot
-        106, // Silverstone Circuit – Grand Prix
-        93,  // Autodromo Nazionale Monza
-        164, // Suzuka International Racing Course
-        373, // Fuji International Speedway
-        199, // Autódromo José Carlos Pace (Interlagos)
-        455, // Autodromo Enzo e Dino Ferrari (Imola)
+        192, // Daytona International Speedway – Road Course
+        95,  // Sebring International Raceway
+        523, // Circuit de Spa-Francorchamps
+        268, // Circuit des 24 Heures du Mans
+        127, // Road Atlanta – Full Course
+        433, // Watkins Glen International – Cup
+        341, // Silverstone Circuit – Grand Prix
+        239, // Autodromo Nazionale Monza
+        168, // Suzuka International Racing Course
+        444, // Fuji International Speedway
+        212, // Autódromo José Carlos Pace (Interlagos)
+        266, // Autodromo Enzo e Dino Ferrari (Imola)
+        // ── Catálogo expandido (jul/2026): protótipo IMSA/WEC + rounds urbanos ──
+        229, // Circuit of the Americas (WEC/IMSA, top-tier)
+        448, // Indianapolis Motor Speedway – Road Course (IMSA)
+        218, // Circuit Gilles Villeneuve – Montreal (IMSA)
+        536, // Portland International Raceway (IMSA)
+        566, // Sonoma Raceway (IMSA)
+        509, // Algarve International Circuit – Portimão (WEC)
+        179, // Long Beach Street Circuit (IMSA street)
+        584, // St. Petersburg Grand Prix (IMSA street)
+        319, // Detroit Grand Prix at Belle Isle (IMSA street)
+        405, // Chicago Street Course (IMSA street)
     ]
 }
 
 /// Pool Endurance: pequeno e rotativo, apenas grandes palcos.
 pub(crate) fn endurance_curated_pool() -> &'static [u32] {
     &[
-        45,  // Daytona International Speedway – Road Course
-        238, // Sebring International Raceway
-        188, // Circuit de Spa-Francorchamps
-        287, // Circuit de la Sarthe – Le Mans 24H
-        249, // Road Atlanta – Full Course
-        67,  // Watkins Glen International – Boot
-        164, // Suzuka International Racing Course
-        373, // Fuji International Speedway
-        528, // Nürburgring – Combined (24H)
-        199, // Autódromo José Carlos Pace (Interlagos)
+        192, // Daytona International Speedway – Road Course
+        95,  // Sebring International Raceway
+        523, // Circuit de Spa-Francorchamps
+        268, // Circuit des 24 Heures du Mans
+        127, // Road Atlanta – Full Course
+        433, // Watkins Glen International – Cup
+        168, // Suzuka International Racing Course
+        444, // Fuji International Speedway
+        252, // Nürburgring – Combined (24H)
+        212, // Autódromo José Carlos Pace (Interlagos)
+        // ── Catálogo expandido (jul/2026): grandes provas de resistência ──
+        219, // Mount Panorama (Bathurst 12h)
+        152, // Phillip Island (12h)
+        541, // The Bend Motorsport Park – International (endurance)
+        229, // Circuit of the Americas
+        509, // Algarve International Circuit – Portimão (WEC)
     ]
 }
 
@@ -207,25 +253,27 @@ pub(crate) fn strong_production_tracks() -> &'static [u32] {
 
 /// Pistas fortes GT4: abertura e final devem sair deste conjunto.
 pub(crate) fn strong_gt4_tracks() -> &'static [u32] {
-    &[300, 106, 455, 238, 67, 249, 181]
-    // Brands Hatch GP, Silverstone, Imola, Sebring, Watkins Glen, Road Atlanta, Oulton Park
+    &[145, 341, 266, 95, 433, 127, 181, 229, 509]
+    // Brands Hatch GP, Silverstone, Imola, Sebring, Watkins Glen, Road Atlanta,
+    // Oulton Park, COTA, Portimão
 }
 
 /// Pistas fortes GT3: abertura, penúltima (opcional) e final devem sair deste conjunto.
 pub(crate) fn strong_gt3_tracks() -> &'static [u32] {
-    &[188, 93, 164, 199, 45, 238, 67, 119, 106]
-    // Spa, Monza, Suzuka, Interlagos, Daytona, Sebring, Watkins Glen, Bathurst, Silverstone
+    &[523, 239, 168, 212, 192, 95, 433, 219, 341, 229, 509]
+    // Spa, Monza, Suzuka, Interlagos, Daytona, Sebring, Watkins Glen, Bathurst,
+    // Silverstone, COTA, Portimão
 }
 
 /// Pistas fortes LMP2: abertura e final devem parecer evento principal.
 pub(crate) fn strong_lmp2_tracks() -> &'static [u32] {
-    &[45, 238, 188, 287, 249, 67, 106]
+    &[192, 95, 523, 268, 127, 433, 341]
     // Daytona, Sebring, Spa, Le Mans, Road Atlanta, Watkins Glen, Silverstone
 }
 
 /// Âncoras Endurance: final + âncora de miolo devem sair deste conjunto.
 pub(crate) fn strong_endurance_tracks() -> &'static [u32] {
-    &[45, 238, 188, 287, 249]
+    &[192, 95, 523, 268, 127]
     // Daytona, Sebring, Spa, Le Mans, Road Atlanta
 }
 
@@ -561,13 +609,13 @@ mod tests {
     #[test]
     fn gt3_pool_has_spa_and_monza() {
         let pool = gt3_curated_pool();
-        assert!(pool.contains(&188)); // Spa
-        assert!(pool.contains(&93)); // Monza
+        assert!(pool.contains(&523)); // Spa
+        assert!(pool.contains(&239)); // Monza
     }
 
     #[test]
     fn endurance_pool_has_le_mans() {
-        assert!(endurance_curated_pool().contains(&287));
+        assert!(endurance_curated_pool().contains(&268));
     }
 
     #[test]
@@ -629,8 +677,8 @@ mod tests {
             calendar_family_for_category("lmp2"),
             Some(CalendarFamily::Lmp2Prototype)
         );
-        assert!(lmp2_curated_pool().contains(&188)); // Spa
-        assert!(lmp2_curated_pool().contains(&287)); // Le Mans
+        assert!(lmp2_curated_pool().contains(&523)); // Spa
+        assert!(lmp2_curated_pool().contains(&268)); // Le Mans
         assert!(lmp2_curated_pool().len() >= 10);
     }
 
@@ -641,9 +689,43 @@ mod tests {
     }
 
     #[test]
+    fn expanded_catalog_tracks_wired_into_gt_pools() {
+        // As âncoras top-tier do catálogo expandido entram nos pools GT e nas
+        // listas fortes (elegíveis a abertura/final).
+        for id in [229, 509] {
+            assert!(gt3_curated_pool().contains(&id), "GT3 pool sem {id}");
+            assert!(gt4_curated_pool().contains(&id), "GT4 pool sem {id}");
+            assert!(strong_gt3_tracks().contains(&id), "strong GT3 sem {id}");
+            assert!(strong_gt4_tracks().contains(&id), "strong GT4 sem {id}");
+        }
+        // Amostra das "menos conhecidas" que ficam só na rotação (pool, sem ser forte).
+        assert!(gt3_curated_pool().contains(&413)); // Hungaroring
+        assert!(gt3_curated_pool().contains(&199)); // Zolder
+        assert!(lmp2_curated_pool().contains(&179)); // Long Beach (protótipo urbano)
+        assert!(endurance_curated_pool().contains(&219)); // Bathurst 12h
+    }
+
+    #[test]
+    fn all_pool_ids_exist_in_catalog() {
+        // Nenhum id de pool pode ser fantasma — todos precisam existir no catálogo.
+        use crate::constants::tracks::get_track;
+        let pools: [&[u32]; 4] = [
+            gt3_curated_pool(),
+            gt4_curated_pool(),
+            lmp2_curated_pool(),
+            endurance_curated_pool(),
+        ];
+        for pool in pools {
+            for &id in pool {
+                assert!(get_track(id).is_some(), "pool referencia track inexistente {id}");
+            }
+        }
+    }
+
+    #[test]
     fn venue_rotation_um_por_venue_e_varia_por_temporada() {
         // Oulton tem vários layouts free — cada temporada pega UM, e muda.
-        let oulton = [181, 180, 183, 184, 186];
+        let oulton = [181, 180, 183, 184, 185];
         let s1 = one_layout_per_venue(&oulton, 1);
         let s2 = one_layout_per_venue(&oulton, 2);
         assert_eq!(s1.len(), 1, "1 layout por venue");

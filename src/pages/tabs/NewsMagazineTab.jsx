@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import TeamLogoMark from "../../components/team/TeamLogoMark";
+import RivalMarker from "../../components/driver/RivalMarker";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { getTrackImageSrc } from "../../utils/trackImages";
@@ -59,6 +60,7 @@ function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriverId, o
           className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
         >
           {part}
+          <RivalMarker driverId={driverId} className="ml-0.5 align-middle" />
         </span>
       );
     }
@@ -312,6 +314,29 @@ function NewsMagazineTab() {
 
   const catLabel = category ? categoryLabel(category) : "";
   const kicker = ed ? `${catLabel} · ${ed.track_name}` : catLabel;
+
+  // Auto-ajusta o título da capa para caber na largura do livro, independente
+  // do tamanho do nome da categoria (ex.: "LMP2 Prototype Championship").
+  const coverTitleRef = useRef(null);
+  useLayoutEffect(() => {
+    if (ed) return; // só na capa (sem edição aberta)
+    const el = coverTitleRef.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.fontSize = "";
+      const base = parseFloat(getComputedStyle(el).fontSize) || 64;
+      let size = base;
+      el.style.fontSize = `${size}px`;
+      // Reduz até a maior palavra caber na coluna (63% do livro).
+      while (el.scrollWidth > el.clientWidth + 1 && size > 20) {
+        size -= 2;
+        el.style.fontSize = `${size}px`;
+      }
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [ed, catLabel]);
   const footMeta = ed
     ? `Edição ${ed.rodada}${totalRounds ? ` de ${totalRounds}` : ""}${year ? ` · Temporada ${year}` : ""}`
     : "";
@@ -534,7 +559,13 @@ function NewsMagazineTab() {
                 alt=""
                 draggable={false}
               />
-              <span className="mag-cover-title">{catLabel}</span>
+              <span className="mag-cover-title" ref={coverTitleRef}>
+                {catLabel.split(/\s+/).map((word, i) => (
+                  <span className="mag-cover-word" key={i}>
+                    {word}
+                  </span>
+                ))}
+              </span>
             </div>
             <div className="mag-cover-side">
               {year ? <p className="mag-cover-cap">Temporada {year}</p> : null}

@@ -85,6 +85,9 @@ pub struct OverlayCar {
     pit: bool,
     flag: Option<String>, // só do jogador (black), IA não tem canal por carro
     player: bool,
+    /// Papel de rivalidade relativo ao jogador: "nemesis" | "rival" | None. Alimenta
+    /// o marcador 💥/🔥 ao lado do nome na torre.
+    rival_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -396,6 +399,22 @@ pub fn get_overlay_data(
         .unwrap_or_default();
     let is_endurance = category == "endurance";
 
+    // Papéis de rivalidade do jogador (Nemesis/Rivais) → marcador na torre.
+    let rival_roles: std::collections::HashMap<String, &'static str> = {
+        let current =
+            crate::db::queries::player_nemesis::get_current_nemesis(&db.conn).unwrap_or(None);
+        let interests =
+            crate::commands::career::select_player_interests(&db.conn, current.as_deref());
+        let mut m = std::collections::HashMap::new();
+        if let Some(n) = &interests.nemesis {
+            m.insert(n.driver_id.clone(), "nemesis");
+        }
+        for r in &interests.rivais {
+            m.insert(r.driver_id.clone(), "rival");
+        }
+        m
+    };
+
     // Resolve driver_id → (nome, pontos, time, cor).
     let resolve = |driver_id: &str| -> Option<(String, i32, String, String)> {
         let d = dq::get_driver(&db.conn, driver_id).ok()?;
@@ -540,6 +559,9 @@ pub fn get_overlay_data(
                     None
                 },
                 player: is_player,
+                rival_role: driver_id
+                    .as_deref()
+                    .and_then(|id| rival_roles.get(id).map(|s| s.to_string())),
             },
             best_lap,
             unclass_key,

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 
 import DriverDetailModal from "../../components/driver/DriverDetailModal";
+import RivalMarker from "../../components/driver/RivalMarker";
 import ResultBadge from "../../components/standings/ResultBadge";
 import TrophyBadge from "../../components/standings/TrophyBadge";
 import TeamLogoMarkShared from "../../components/team/TeamLogoMark";
@@ -172,6 +173,7 @@ function DriverStatusMarkers({ driver }) {
 
   return (
     <>
+      <RivalMarker driverId={driver.id} />
       {driver.is_estreante_da_vida ? (
         <span className="shrink-0 text-xs" title="Estreante da vida" aria-label="Estreante da vida">
           {"\u{1F331}"}

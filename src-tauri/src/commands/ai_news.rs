@@ -860,6 +860,56 @@ fn build_post_race_facts(
         }
     }
 
+    // Rivalidade VIVIDA (motor de rivalidade): Nemesis + Rivais de pista — o duelo
+    // pessoal do jogador, com o nome da rivalidade e o retrospecto direto. Distinto do
+    // rival de campeonato acima (que é só posicional nos pontos).
+    {
+        use std::cmp::Ordering;
+        let current =
+            crate::db::queries::player_nemesis::get_current_nemesis(conn).unwrap_or(None);
+        let interests =
+            crate::commands::career::select_player_interests(conn, current.as_deref());
+        let mut rows: Vec<(&str, crate::commands::career::RivalInterest)> = Vec::new();
+        if let Some(n) = interests.nemesis {
+            rows.push(("NEMESIS", n));
+        }
+        for r in interests.rivais {
+            rows.push(("RIVAL", r));
+        }
+        for (role, ri) in rows {
+            let today = match result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
+                Some(rr) => {
+                    let pos = if rr.is_dnf {
+                        "DNF".to_string()
+                    } else {
+                        format!("P{}", rr.finish_position)
+                    };
+                    let cmp = if !player.is_dnf && !rr.is_dnf {
+                        match player.finish_position.cmp(&rr.finish_position) {
+                            Ordering::Less => " — você chegou na frente dele hoje",
+                            Ordering::Greater => " — ele chegou na sua frente hoje",
+                            Ordering::Equal => "",
+                        }
+                    } else {
+                        ""
+                    };
+                    format!("terminou {pos}{cmp}")
+                }
+                None => "não correu esta etapa".to_string(),
+            };
+            let label = ri
+                .label
+                .map(|l| format!(" \"{l}\""))
+                .unwrap_or_default();
+            let h2h = if ri.chapters > 0 {
+                format!("; confronto direto {}-{}", ri.h2h_player_wins, ri.h2h_rival_wins)
+            } else {
+                String::new()
+            };
+            let _ = writeln!(f, "{role}{label}: {} {today}{h2h}", ri.driver_name);
+        }
+    }
+
     // Telemetria real da pista (ritmo, ultrapassagens, degradação, erro/melhor
     // momento, duelo direto) — o bloco `telemetry` da própria tela salva.
     if !player.is_dnf {

@@ -1166,6 +1166,30 @@ select option {
   to { opacity: 0; }
 }
 
+/* ─── Banner cinematográfico do Próximo Evento (Home) ─────────────────────
+   Zoom lentíssimo (ken-burns de uma passada só, sem loop, pra não pesar) e
+   entrada suave do conteúdo. Ambos respeitam prefers-reduced-motion. */
+@keyframes nrbZoom {
+  from { transform: scale(1); }
+  to { transform: scale(1.045); }
+}
+.nrb-zoom {
+  animation: nrbZoom 26s ease-out both;
+}
+@keyframes nrbRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.nrb-rise {
+  animation: nrbRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nrb-zoom,
+  .nrb-rise {
+    animation: none;
+  }
+}
+
 /* ─── Tailwind @layer components ─────────────────────────────────────────── */
 
 @layer components {

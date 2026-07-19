@@ -363,9 +363,9 @@ mod tests {
         );
         team.car = Some(power_car());
 
-        // Monza (93) = power-heavy → shape casa; Tsukuba (325) = accel → shape erra.
-        let monza = SimDriver::from_driver_team_and_track(&driver, &team, 93);
-        let tsukuba = SimDriver::from_driver_team_and_track(&driver, &team, 325);
+        // Monza (239) = power-heavy → shape casa; Tsukuba (324) = accel → shape erra.
+        let monza = SimDriver::from_driver_team_and_track(&driver, &team, 239);
+        let tsukuba = SimDriver::from_driver_team_and_track(&driver, &team, 324);
 
         assert!(
             monza.car_performance > tsukuba.car_performance,
@@ -392,7 +392,7 @@ mod tests {
         team.car_performance = 8.0;
         team.car = None; // save antigo, sem carro
 
-        let sim_driver = SimDriver::from_driver_team_and_track(&driver, &team, 93);
+        let sim_driver = SimDriver::from_driver_team_and_track(&driver, &team, 239);
 
         // Sem carro: usa o escalar (8.0) + moral, sem delta de shape.
         assert!((sim_driver.car_performance - 8.0).abs() < 3.0);

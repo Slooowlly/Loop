@@ -813,6 +813,30 @@ pub fn get_track_crash_pilots(
     Ok(set)
 }
 
+/// Campeão da categoria numa temporada: o piloto que somou mais pontos. `None` se a
+/// temporada não tem resultados na categoria. Base do sinal "campeão reinante" (a IA
+/// que defende o título da temporada passada). Empate → menor `piloto_id` (determinístico).
+pub fn get_category_champion_for_season(
+    conn: &Connection,
+    temporada_id: &str,
+    categoria: &str,
+) -> Result<Option<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.piloto_id, COALESCE(SUM(r.pontos), 0.0) AS pts
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         WHERE c.temporada_id = ?1 AND c.categoria = ?2
+         GROUP BY r.piloto_id
+         ORDER BY pts DESC, r.piloto_id ASC
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query(rusqlite::params![temporada_id, categoria])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get::<_, String>(0)?)),
+        None => Ok(None),
+    }
+}
+
 /// Reconstrói as amostras de corrida do JOGADOR para o dossiê de habilidade: para
 /// cada corrida que ele disputou, monta o grid de IAs com o atributo ATUAL de cada
 /// uma (proxy do valor à época — deriva lenta, aceitável pra estimativa visual).

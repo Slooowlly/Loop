@@ -31,6 +31,9 @@ const initialState = {
   displayDaysUntilNextEvent: null,
   totalDrivers: 0,
   totalTeams: 0,
+  // Pilotos de interesse do jogador (1 Nemesis + até 2 Rivais) — decoram os nomes
+  // com o marcador de rivalidade (💥/🔥). { nemesis, rivais } ou null enquanto carrega.
+  playerInterests: null,
   lastRaceResult: null,
   // ID da corrida do pós-corrida (race_id) — usado para reconstruir o timeline de clima.
   lastRaceId: null,
@@ -407,11 +410,26 @@ const useCareerStore = create((set, get) => ({
         ...convocationResumeState,
         isDirty: false,
       });
+      // Rivalidades de interesse (Nemesis/Rivais) — fire-and-forget; decora os nomes.
+      void get().loadPlayerInterests();
       return data;
     } catch (error) {
       const message = getErrorMessage(error, "Erro ao carregar carreira.");
       set({ isLoading: false, error: message });
       throw error;
+    }
+  },
+
+  // Carrega os pilotos de interesse (Nemesis + Rivais) do backend. Best-effort:
+  // qualquer falha deixa o marcador ausente, sem quebrar a tela.
+  loadPlayerInterests: async () => {
+    const { careerId } = get();
+    if (!careerId) return;
+    try {
+      const interests = await invoke("get_player_interests", { careerId });
+      set({ playerInterests: interests });
+    } catch {
+      /* sem rivalidades / falha — marcador simplesmente não aparece */
     }
   },
 
@@ -1148,6 +1166,7 @@ const useCareerStore = create((set, get) => ({
           phraseHistory && Array.isArray(phraseHistory.entries)
             ? phraseHistory
             : { season_number: 0, entries: [] },
+        playerInterests: get().playerInterests,
       });
       if (!aiFacts || !aiFacts.trim()) return;
 

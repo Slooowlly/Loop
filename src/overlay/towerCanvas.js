@@ -50,9 +50,9 @@ export const VR_H = LOGICAL_H * SUPERSAMPLE;
 const FONT = "'Space Grotesk', 'Segoe UI', sans-serif";
 
 // ─── Métricas (compartilhadas por todos os temas) ─────────────────────────────
-const PANEL_W = 452;
+export const PANEL_W = 452;
 const PAD = 10;
-const SESSION_H = 58; // 2 linhas de info + os rótulos "pits"/"best" no fim
+export const SESSION_H = 58; // 2 linhas de info + os rótulos "pits"/"best" no fim
 const CLASS_H = 26;
 const ROW_H = 30;
 const SEP_H = 12;
@@ -139,11 +139,18 @@ function loadImage(src) {
   });
 }
 
-// Caixa útil (não-transparente) de uma imagem. Alguns PNGs de categoria (ex.:
-// GT3) foram recortados com margem transparente ASSIMÉTRICA — o selo fica no topo
-// e sobra vazio embaixo. Aparando aqui, todo selo preenche a caixa do cabeçalho
-// igual, sem depender do recorte do arquivo. Cacheado por src (o loop é caro).
+// Caixa útil de uma imagem — aparando margens/lixo pra todo selo preencher a
+// caixa do cabeçalho igual, sem depender do recorte do arquivo.
+//
+// Aparo por COBERTURA, não por "qualquer pixel". Alguns PNGs (ex.: GT3) têm o selo
+// no topo e, lá embaixo, uma barra/véu SEMITRANSPARENTE (alpha ~180) que um aparo
+// ingênuo (>8) conta como conteúdo — daí a caixa cobria a imagem toda e sobrava
+// vazio embaixo. Aqui uma linha/coluna só conta se tiver uma fração mínima de
+// pixels REALMENTE opacos (alpha > ALPHA_SOLID). Margens transparentes e véus
+// fracos ficam de fora; selos limpos não mudam. Cacheado por src (o loop é caro).
 const _trimCache = new Map();
+const ALPHA_SOLID = 200; // pixel "de verdade" (acima do véu/anti-aliasing)
+const COVER_FRAC = 0.05; // fração do eixo cruzado pra linha/coluna contar
 function trimTransparent(img, key) {
   if (key && _trimCache.has(key)) return _trimCache.get(key);
   const w = img.naturalWidth || img.width;
@@ -156,20 +163,35 @@ function trimTransparent(img, key) {
     const cx = c.getContext("2d", { willReadFrequently: true });
     cx.drawImage(img, 0, 0);
     const data = cx.getImageData(0, 0, w, h).data;
+    const rowCount = new Array(h).fill(0);
+    const colCount = new Array(w).fill(0);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (data[(y * w + x) * 4 + 3] > ALPHA_SOLID) {
+          rowCount[y]++;
+          colCount[x]++;
+        }
+      }
+    }
+    const rowMin = Math.max(2, COVER_FRAC * w);
+    const colMin = Math.max(2, COVER_FRAC * h);
     let minX = w;
     let minY = h;
     let maxX = -1;
     let maxY = -1;
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        if (data[(y * w + x) * 4 + 3] > 8) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
+      if (rowCount[y] >= rowMin) {
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
       }
     }
+    for (let x = 0; x < w; x++) {
+      if (colCount[x] >= colMin) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+      }
+    }
+    // Achou conteúdo opaco → usa a caixa. Senão (logo inteiro fraco) mantém tudo.
     if (maxX >= minX && maxY >= minY) {
       box = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
     }
@@ -353,13 +375,23 @@ function drawRow(ctx, car, y, assets, team, theme) {
   const img = assets.logos.get(car.team);
   if (img) ctx.drawImage(img, LOGO_X, y + (ROW_H - LOGO_H) / 2, LOGO_W, LOGO_H);
 
+  // Marcador de rivalidade (💥 nemesis / 🔥 rival) à esquerda do nome, empurrando-o.
+  ctx.textAlign = "left";
+  let nameX = NAME_X;
+  const rivalGlyph =
+    car.rivalRole === "nemesis" ? "\u{1F4A5}" : car.rivalRole === "rival" ? "\u{1F525}" : null;
+  if (rivalGlyph) {
+    ctx.font = `12px ${FONT}`;
+    ctx.fillText(rivalGlyph, nameX, cy);
+    nameX += ctx.measureText(rivalGlyph).width + 3;
+  }
+
   // Nome: verde = você, azul = companheiro, senão o texto do tema.
   const nameColor = isPlayer ? theme.playerColor : mate ? theme.teammateColor : theme.text;
   const nameWeight = isPlayer || mate || theme.rowStyle === "block" ? 700 : 600;
   ctx.fillStyle = nameColor;
   ctx.font = `${nameWeight} 14px ${FONT}`;
-  ctx.textAlign = "left";
-  ctx.fillText(truncate(ctx, car.name, NAME_RIGHT - NAME_X), NAME_X, cy);
+  ctx.fillText(truncate(ctx, car.name, NAME_RIGHT - nameX), nameX, cy);
 
   // Delta.
   ctx.textAlign = "right";
@@ -693,6 +725,13 @@ function sectionsHeight(sections) {
   return h;
 }
 
+// Altura (px lógicos = CSS) que a torre ocupa pros dados atuais — usada pra dizer
+// ao vigia de cursor onde é "em cima da torre" (área de hover).
+export function towerContentHeight(data) {
+  if (!data) return 0;
+  return sectionsHeight(buildTowerSections(data));
+}
+
 // ─── Torre ───────────────────────────────────────────────────────────────────
 export function drawTower(ctx, data, assets, theme = DEFAULT_THEME) {
   // Desenha em coordenadas LÓGICAS; o supersample vira pixels de verdade.
@@ -701,6 +740,16 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME) {
 
   const team = playerTeam(data);
   const sections = buildTowerSections(data);
+
+  // Classe única (MX5 Cup, GR Rookie, etc.): o iRacing não manda nome de classe,
+  // então o `label` vem vazio e a banda fica só com o contador, sem "GT3". Cai pro
+  // nome da categoria do evento (o mesmo que aparece no topo). Copia a `cls` pra
+  // não mexer no dado ao vivo.
+  const fallbackLabel = categoryMeta(data.session?.category).name;
+  sections.forEach((s) => {
+    if (!s.cls.label && fallbackLabel) s.cls = { ...s.cls, label: fallbackLabel };
+  });
+
   const total = sectionsHeight(sections);
 
   // Faixa da sessão (topo do painel).

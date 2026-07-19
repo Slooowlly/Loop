@@ -323,6 +323,74 @@ pub fn iracing_load_saved_race(app: tauri::AppHandle, name: String) -> Result<Ra
     serde_json::from_str(&s).map_err(|e| format!("Falha ao interpretar: {e}"))
 }
 
+/// PERCEPÇÃO de rivalidade (calibração/debug): roda o motor de percepção sobre uma
+/// corrida — ao vivo (`saved_name = None`) ou salva — para um CARRO-SONDA
+/// (`probe_car_idx`; default = o jogador). Devolve o livro-razão por oponente SEM
+/// aplicar nada no motor de rivalidade. Contato atribuído só é resolvido no caso
+/// ao-vivo + probe-jogador (para uma IA-sonda vem vazio, como projetado).
+///
+/// Ver `docs/superpowers/specs/2026-07-18-track-rivalry-perception-design.md`.
+#[tauri::command]
+pub fn iracing_perceive_rivalries(
+    app: tauri::AppHandle,
+    saved_name: Option<String>,
+    probe_car_idx: Option<i32>,
+) -> Result<crate::iracing_sdk::rivalry_perception::RivalryPerception, String> {
+    use crate::iracing_sdk::rivalry_perception::{
+        perceive_rivalries, ContactSeed, ContactTier, PerceptionParams,
+    };
+
+    let history = match &saved_name {
+        Some(name) => iracing_load_saved_race(app, name.clone())?,
+        None => race_monitor::get_history(),
+    };
+    if history.laps.is_empty() {
+        return Err("Sem trace de campo — a corrida não gerou voltas.".to_string());
+    }
+
+    let probe = probe_car_idx.unwrap_or(history.player_car_idx);
+
+    // Contato só quando analisamos a corrida AO VIVO e o probe é o jogador.
+    let contact: Option<ContactSeed> = if saved_name.is_none() && probe == history.player_car_idx {
+        let status = race_monitor::poll();
+        let attempt = status
+            .attempts
+            .iter()
+            .find(|a| a.number == status.attempt_number)
+            .or_else(|| status.attempts.last());
+        attempt.and_then(|a| {
+            a.collided_with_car_number.and_then(|num| {
+                history
+                    .cars_meta
+                    .iter()
+                    .find(|m| m.car_number == num)
+                    .map(|m| {
+                        // Tier fino (crítico/leve) fica pra fase de calibração; por ora
+                        // DNF vs. contato grave é o suficiente.
+                        let tier = if a.evidence.raced && !a.evidence.reached_checkered {
+                            ContactTier::Dnf
+                        } else {
+                            ContactTier::Major
+                        };
+                        ContactSeed {
+                            opponent_car_idx: m.idx,
+                            tier,
+                        }
+                    })
+            })
+        })
+    } else {
+        None
+    };
+
+    Ok(perceive_rivalries(
+        &history,
+        probe,
+        contact,
+        &PerceptionParams::default(),
+    ))
+}
+
 // ─── Geração de AI roster (carreira → iRacing) ───────────────────────────────
 
 /// Resultado da geração de roster (para a UI).
@@ -397,6 +465,51 @@ fn save_adaptive_profile(
     std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))
 }
 
+/// Contexto de carro do ÚLTIMO export (por custid), pro mecanismo 2 (adaptativo cego ao
+/// carro). O export sabe os carros e os NÚMEROS; o pós-corrida casa a frente
+/// (`car_idx`→número via `cars_meta`) e desconta do ritmo o que o carro explica. Persistido
+/// junto do perfil adaptativo. Ver [`crate::iracing_sdk::car_difficulty`].
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct CarDifficultyContext {
+    /// Pista alvo do export (o pós-corrida só usa se casar com a pista corrida).
+    track_id: i64,
+    /// Vantagem de carro do jogador (car-perf) na pista.
+    player_advantage: f64,
+    /// número do carro (string) → vantagem de carro (car-perf) na pista.
+    by_number: std::collections::HashMap<String, f64>,
+}
+
+fn car_difficulty_context_path(base_dir: &std::path::Path, custid: i64) -> std::path::PathBuf {
+    base_dir
+        .join("iracing_adaptive")
+        .join(format!("{custid}_car.json"))
+}
+
+/// Persiste o contexto de carro do export (best-effort; erro só é logado pelo chamador).
+fn save_car_difficulty_context(
+    base_dir: &std::path::Path,
+    custid: i64,
+    ctx: &CarDifficultyContext,
+) -> Result<(), String> {
+    let path = car_difficulty_context_path(base_dir, custid);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
+    }
+    let json =
+        serde_json::to_string_pretty(ctx).map_err(|e| format!("Falha ao serializar: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))
+}
+
+/// Lê o contexto de carro do último export (None se não existe).
+fn load_car_difficulty_context(
+    base_dir: &std::path::Path,
+    custid: i64,
+) -> Option<CarDifficultyContext> {
+    std::fs::read_to_string(car_difficulty_context_path(base_dir, custid))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
 /// Resultado do processamento adaptativo pós-corrida (para a UI).
 #[derive(serde::Serialize)]
 pub struct AdaptiveResult {
@@ -446,7 +559,27 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
     // então uma rodada não baixa a dificuldade. O regime por ritmo completo
     // (compute_adaptive_update) segue dormente — mantido no código pra revisitar.
     let race = race_monitor::build_adaptive_result(&history, track_id);
-    let summary = adaptive::fast_result_from(&race);
+    // Mecanismo 2 (cego ao carro): carrega o contexto de carro do último export e casa a
+    // frente (car_idx→número via cars_meta → vantagem). Só usa se a pista bater. Sem contexto
+    // ou pista diferente → None → comportamento antigo (adaptativo puro por ritmo).
+    let car_ctx = load_car_difficulty_context(&base_dir, custid)
+        .filter(|c| c.track_id == track_id)
+        .map(|c| {
+            let by_idx = history
+                .cars_meta
+                .iter()
+                .filter_map(|m| {
+                    c.by_number
+                        .get(&m.car_number.to_string())
+                        .map(|adv| (m.idx, *adv))
+                })
+                .collect();
+            adaptive::CarContext {
+                player_advantage: c.player_advantage,
+                by_idx,
+            }
+        });
+    let summary = adaptive::fast_result_from(&race, car_ctx.as_ref());
     let update = adaptive::compute_fast_update(&summary, &current);
     if update.applied {
         profile.global = update.new.global;
@@ -591,6 +724,11 @@ fn build_session_race_result(
         crate::simulation::race::RaceResult,
         crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
         crate::iracing_sdk::race_monitor::RaceHistory,
+        // Mapa número do carro → driver_id (para resolver a identidade dos rivais
+        // percebidos do SDK na ponte de rivalidade).
+        std::collections::HashMap<i64, String>,
+        // Direção do impacto no pico do jogador (front/rear/side/vertical; vazia se sem batida).
+        String,
     ),
     String,
 > {
@@ -697,6 +835,10 @@ fn build_session_race_result(
     let player_collided_with_id: Option<String> = player_attempt
         .and_then(|a| a.collided_with_car_number)
         .and_then(|num| by_number.get(&(num as i64)).cloned());
+    // Direção do impacto no pico (front/rear/side/vertical) — base do dano por peça no import.
+    let player_impact_dir: String = player_attempt
+        .and_then(|a| a.peak_impact_dir.clone())
+        .unwrap_or_default();
     // Carros que o monitor confirmou ter abandonado → número do carro.
     let num_by_idx: std::collections::HashMap<i32, i32> = history
         .cars_meta
@@ -800,6 +942,8 @@ fn build_session_race_result(
         result,
         telemetry,
         history,
+        by_number,
+        player_impact_dir,
     ))
 }
 
@@ -812,9 +956,180 @@ pub fn iracing_preview_race_result(
     app: tauri::AppHandle,
     career_id: String,
 ) -> Result<crate::simulation::race::RaceResult, String> {
-    let (_db, _dir, _track_id, _sev, result, _tel, _hist) =
+    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir) =
         build_session_race_result(&app, &career_id)?;
     Ok(result)
+}
+
+/// Ponte de rivalidade de PISTA: aplica no motor de rivalidade as rivalidades que a
+/// percepção do SDK detectou na corrida importada, resolvendo a identidade dos
+/// oponentes (car_number → driver_id via `by_number`). Só o jogador é o probe.
+///
+/// Best-effort: qualquer falha é engolida (o import já foi persistido). Atualiza os
+/// eixos (histórico/recente) E grava um CAPÍTULO do arco por rival (a "novela" que a
+/// IA recapitula), com a interação REAL da percepção. Idempotente por rodada (o
+/// `insert_episode` deduplica com o `record_rivalry_episodes` do boletim).
+/// Ver `docs/superpowers/specs/2026-07-18-track-rivalry-perception-design.md` §10.
+fn apply_track_rivalries(
+    conn: &rusqlite::Connection,
+    history: &crate::iracing_sdk::race_monitor::RaceHistory,
+    by_number: &std::collections::HashMap<i64, String>,
+    race_result: &crate::simulation::race::RaceResult,
+    rodada: i32,
+    categoria: &str,
+) {
+    use crate::iracing_sdk::rivalry_perception::{
+        perceive_rivalries, ContactSeed, ContactTier, PerceptionParams,
+    };
+    use crate::models::rivalry::RivalryType;
+    use crate::rivalry::{apply_rivalry_event, RivalryEvent};
+
+    // driver_id do jogador (o probe).
+    let Some(player_id) = race_result
+        .race_results
+        .iter()
+        .find(|r| r.is_jogador)
+        .map(|r| r.pilot_id.clone())
+    else {
+        return;
+    };
+
+    // car_idx → driver_id, via car_number (cars_meta) + by_number. Só carros mapeados.
+    let driver_by_idx: std::collections::HashMap<i32, String> = history
+        .cars_meta
+        .iter()
+        .filter_map(|m| {
+            by_number
+                .get(&(m.car_number as i64))
+                .map(|id| (m.idx, id.clone()))
+        })
+        .collect();
+
+    // Contato atribuído ("quem bateu em mim"), do monitor ao vivo → semente da percepção.
+    let contact: Option<ContactSeed> = {
+        let status = race_monitor::poll();
+        let attempt = status
+            .attempts
+            .iter()
+            .find(|a| a.number == status.attempt_number)
+            .or_else(|| status.attempts.last());
+        attempt.and_then(|a| {
+            a.collided_with_car_number.and_then(|num| {
+                history
+                    .cars_meta
+                    .iter()
+                    .find(|m| m.car_number == num)
+                    .map(|m| {
+                        let tier = if a.evidence.raced && !a.evidence.reached_checkered {
+                            ContactTier::Dnf
+                        } else {
+                            ContactTier::Major
+                        };
+                        ContactSeed {
+                            opponent_car_idx: m.idx,
+                            tier,
+                        }
+                    })
+            })
+        })
+    };
+
+    let season = crate::db::queries::seasons::get_active_season(conn)
+        .ok()
+        .flatten();
+    let temporada = season.as_ref().map(|s| s.numero).unwrap_or(0);
+    let ano = season.as_ref().map(|s| s.ano).unwrap_or(0);
+
+    // Posição final do jogador (para decidir quem levou a melhor em cada capítulo).
+    let player_res = race_result
+        .race_results
+        .iter()
+        .find(|d| d.pilot_id == player_id);
+
+    let perception =
+        perceive_rivalries(history, history.player_car_idx, contact, &PerceptionParams::default());
+
+    for opp in &perception.opponents {
+        let Some(opp_id) = driver_by_idx.get(&opp.car_idx) else {
+            continue;
+        };
+        if *opp_id == player_id {
+            continue;
+        }
+        let is_contact = opp.hits.iter().any(|h| h.kind == "contato");
+        let tipo = if is_contact {
+            RivalryType::Colisao
+        } else {
+            RivalryType::Pista
+        };
+        let applied = match apply_rivalry_event(
+            conn,
+            &RivalryEvent {
+                piloto_a: player_id.clone(),
+                piloto_b: opp_id.clone(),
+                tipo,
+                historical_delta: opp.historical_delta,
+                recent_delta: opp.recent_delta,
+                temporada,
+            },
+        ) {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+
+        // Capítulo do arco: interação real + quem levou a melhor hoje.
+        let opp_res = race_result
+            .race_results
+            .iter()
+            .find(|d| &d.pilot_id == opp_id);
+        let winner_id = match (player_res, opp_res) {
+            (Some(p), Some(o)) => {
+                let (p_ok, o_ok) = (!p.is_dnf, !o.is_dnf);
+                if p_ok && o_ok {
+                    match p.finish_position.cmp(&o.finish_position) {
+                        std::cmp::Ordering::Less => Some(player_id.clone()),
+                        std::cmp::Ordering::Greater => Some(opp_id.clone()),
+                        std::cmp::Ordering::Equal => None,
+                    }
+                } else if p_ok {
+                    Some(player_id.clone())
+                } else if o_ok {
+                    Some(opp_id.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        let opp_name = opp_res
+            .map(|o| o.pilot_name.clone())
+            .unwrap_or_else(|| opp_id.clone());
+        let interaction = if is_contact { "colisao" } else { "duelo" };
+        let summary = if is_contact {
+            format!("contato com {opp_name} em {}", race_result.track_name)
+        } else {
+            format!(
+                "duelo de {} voltas com {opp_name} em {}",
+                opp.duel_laps, race_result.track_name
+            )
+        };
+        let _ = crate::db::queries::rivalry_episodes::insert_episode(
+            conn,
+            &crate::db::queries::rivalry_episodes::RivalryEpisode {
+                piloto1_id: player_id.clone(),
+                piloto2_id: opp_id.clone(),
+                temporada,
+                rodada,
+                ano,
+                categoria: categoria.to_string(),
+                track_name: race_result.track_name.clone(),
+                interaction: interaction.to_string(),
+                winner_id,
+                summary,
+                perceived: applied.new_perceived,
+            },
+        );
+    }
 }
 
 /// Resultado de um import automático: o `RaceResult` (para a TELA de resultado) +
@@ -845,20 +1160,49 @@ pub fn iracing_auto_import_if_ready(
     // "Não está pronto / nada a importar" não é erro: o resultado só existe depois
     // que o jogador termina/sai da corrida no iRacing. Qualquer falha de "ainda
     // não" vira None silencioso; o poller tenta de novo no próximo tick.
-    let (mut db, career_dir, track_id, player_crash, result, telemetry, history) =
-        match build_session_race_result(&app, &career_id) {
-            Ok(v) => v,
-            Err(_) => return Ok(None),
-        };
+    let (
+        mut db,
+        career_dir,
+        track_id,
+        player_crash,
+        result,
+        telemetry,
+        history,
+        by_number,
+        player_impact_dir,
+    ) = match build_session_race_result(&app, &career_id) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
     let (summary, race_result) = crate::commands::race::import_iracing_race_result(
         &mut db,
         &career_dir,
         track_id,
         &player_crash,
+        &player_impact_dir,
         result,
         &telemetry,
         &history,
     )?;
+
+    // Ponte de rivalidade de pista: aplica no motor as rivalidades percebidas do SDK
+    // nesta corrida (só o jogador). Atrás da flag IRACER_TRACK_RIVALRY e best-effort —
+    // nunca desfaz o import. Idempotente por construção: só roda após um import
+    // bem-sucedido (a corrida deixa de ser a pendente e não é reimportada).
+    if std::env::var("IRACER_TRACK_RIVALRY").is_ok() {
+        if let Ok(Some(entry)) =
+            crate::db::queries::calendar::get_calendar_entry_by_id(&db.conn, &summary.race_id)
+        {
+            apply_track_rivalries(
+                &db.conn,
+                &history,
+                &by_number,
+                &race_result,
+                entry.rodada,
+                &entry.categoria,
+            );
+        }
+    }
 
     // Clima da corrida importada: resolve+persiste pela fonte única (mesmo do export).
     if let Some(track) = crate::constants::tracks::get_track(track_id as u32) {
@@ -1012,6 +1356,16 @@ pub fn iracing_generate_roster(
     let current_tier = get_category_config(&categoria)
         .map(|c| c.tier as i32)
         .unwrap_or(0);
+    // Campeão reinante: quem venceu a categoria na temporada PASSADA (numero-1) →
+    // defende o título nesta. Vazio na 1ª temporada (sem passado).
+    let prev_champion_id: Option<String> = sq::get_all_seasons(&db.conn)
+        .ok()
+        .and_then(|all| all.into_iter().find(|s| s.numero as i32 == season_num - 1))
+        .and_then(|prev| {
+            rhq::get_category_champion_for_season(&db.conn, &prev.id, &categoria)
+                .ok()
+                .flatten()
+        });
 
     let mut entries = Vec::new();
     // Pontos por time (inclui o jogador) p/ o duelo interno; ctx por piloto (Tier 2B).
@@ -1039,6 +1393,20 @@ pub fn iracing_generate_roster(
             .and_then(get_category_config)
             .map(|prev| (current_tier - prev.tier as i32).signum())
             .unwrap_or(0);
+        // Contra a ex-equipe: chegou ao time atual NESTA temporada E já teve OUTRO time
+        // antes (não é rookie no 1º time nem re-assinatura). Rivalidade com o passado.
+        let switched_teams = contract
+            .as_ref()
+            .map(|cur| {
+                cur.temporada_inicio == season_num
+                    && cq::get_contracts_for_pilot(&db.conn, &driver.id)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|p| {
+                            p.temporada_inicio < cur.temporada_inicio && p.equipe_id != cur.equipe_id
+                        })
+            })
+            .unwrap_or(false);
         driver_ctx.insert(
             driver.id.clone(),
             roster_gen::DriverCtx {
@@ -1051,6 +1419,11 @@ pub fn iracing_generate_roster(
                 crashed_out_last_race: false,
                 not_at_fault_dnfs: 0,
                 track_crash: false,
+                nemesis: false,        // preenchido após resolver a próxima corrida
+                mechanical_dnfs: 0,    // idem
+                switched_teams,
+                reigning_champion: prev_champion_id.as_deref() == Some(driver.id.as_str()),
+                career_debut: driver.stats_carreira.corridas == 0,
                 honeymoon: contract
                     .as_ref()
                     .map(|c| c.temporada_inicio == season_num)
@@ -1147,9 +1520,14 @@ pub fn iracing_generate_roster(
                 }
             }
         }
-        // Vingança / azar acumulado: DNFs por fonte nas últimas 3 rodadas.
+        // Vingança / azar / desconfiança mecânica: DNFs por FONTE nas últimas 3 rodadas.
+        // Fontes disjuntas: DriverError = culpa própria (ignora); Mechanical/Operational =
+        // carro quebrou (desconfiança, poupa); resto (PostCollision etc.) = tirado/azar
+        // (frustração). Nêmesis = cruzou a linha lado a lado com o mesmo rival ≥2 vezes.
         let mut last_crashout: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut bad_luck: HashMap<String, u32> = HashMap::new();
+        let mut mechanical: HashMap<String, u32> = HashMap::new();
+        let mut adjacency: HashMap<String, HashMap<String, u32>> = HashMap::new();
         for back in 1..=3 {
             let round = race.rodada - back;
             if round < 1 {
@@ -1162,13 +1540,38 @@ pub fn iracing_generate_roster(
                     if !dnf {
                         continue;
                     }
-                    // azar = DNF que não foi erro do piloto.
-                    if source.as_deref() != Some("DriverError") {
-                        *bad_luck.entry(pid.clone()).or_default() += 1;
+                    match source.as_deref() {
+                        Some("DriverError") => {} // culpa própria: nem azar nem desconfiança
+                        Some("Mechanical") | Some("Operational") => {
+                            *mechanical.entry(pid).or_default() += 1;
+                        }
+                        src => {
+                            // tirado de corrida (PostCollision) na última = vingança.
+                            if back == 1 && src == Some("PostCollision") {
+                                last_crashout.insert(pid.clone());
+                            }
+                            *bad_luck.entry(pid).or_default() += 1;
+                        }
                     }
-                    // vingança = tirado de corrida (PostCollision) na ÚLTIMA corrida.
-                    if back == 1 && source.as_deref() == Some("PostCollision") {
-                        last_crashout.insert(pid);
+                }
+            }
+            // Nêmesis: rivais que terminaram em posições vizinhas (±1 no grid de chegada).
+            if let Ok(rows) = rhq::get_results_for_round(&db.conn, &season.id, &categoria, round) {
+                let mut finishers: Vec<(String, i32)> = rows
+                    .into_iter()
+                    .filter(|(_, _, fin, dnf)| !dnf && *fin > 0)
+                    .map(|(id, _, fin, _)| (id, fin))
+                    .collect();
+                finishers.sort_by_key(|(_, fin)| *fin);
+                for i in 0..finishers.len() {
+                    for j in [i.wrapping_sub(1), i + 1] {
+                        if j < finishers.len() && j != i {
+                            *adjacency
+                                .entry(finishers[i].0.clone())
+                                .or_default()
+                                .entry(finishers[j].0.clone())
+                                .or_default() += 1;
+                        }
                     }
                 }
             }
@@ -1179,7 +1582,12 @@ pub fn iracing_generate_roster(
         for (id, ctx) in driver_ctx.iter_mut() {
             ctx.crashed_out_last_race = last_crashout.contains(id);
             ctx.not_at_fault_dnfs = bad_luck.get(id).copied().unwrap_or(0);
+            ctx.mechanical_dnfs = mechanical.get(id).copied().unwrap_or(0);
             ctx.track_crash = track_crash_set.contains(id);
+            ctx.nemesis = adjacency
+                .get(id)
+                .map(|rivals| rivals.values().any(|&c| c >= 2))
+                .unwrap_or(false);
         }
     }
 
@@ -1248,12 +1656,67 @@ pub fn iracing_generate_roster(
         // Sweet spot do tier na pista alvo — MESMA âncora da curva de skill usada na
         // season. Garante que o cap da cauda (pior piloto ≥ skill real) bata dos 2 lados.
         let custid = crate::iracing_sdk::cached_custid().unwrap_or(0);
-        let ai_sweet = ai_sweet_spot(
+        let base_sweet = ai_sweet_spot(
             current_tier as u8,
             Some(race.track_id as i64),
             &base_dir,
             custid,
         ) as f64;
+        // Sistema de Nível do Carro → dificuldade da IA (inversão: carro spec no iRacing, então
+        // carro melhor só ENFRAQUECE a IA). BANDA (você vs a média do campo) rebaixa/eleva o
+        // sweet inteiro; SPREAD por-IA (zero-mean) cavalga o roster. Ver `car_difficulty`.
+        let (player_adv, ai_advs, per_ai_adv) = field_car_advantages(
+            &db.conn,
+            &categoria,
+            player_team_id.as_deref(),
+            race.track_id as i64,
+        );
+        let ai_sweet = (base_sweet
+            + crate::iracing_sdk::car_difficulty::band_skill_delta(player_adv, &ai_advs))
+        .clamp(0.0, 125.0);
+        let field_mean = crate::iracing_sdk::car_difficulty::field_mean(&ai_advs);
+        let car_spread_nudge: std::collections::HashMap<String, f64> = per_ai_adv
+            .iter()
+            .map(|(id, adv)| {
+                (
+                    id.clone(),
+                    crate::iracing_sdk::car_difficulty::ai_spread_nudge(*adv, field_mean),
+                )
+            })
+            .collect();
+        // Persiste o contexto de carro (número do carro → vantagem) + a vantagem do jogador,
+        // pro pós-corrida descontar a FRENTE (mecanismo 2, cego ao carro). Best-effort.
+        {
+            let by_number: std::collections::HashMap<String, f64> = per_ai_adv
+                .iter()
+                .filter_map(|(id, adv)| numbers.get(id).map(|n| (n.to_string(), *adv)))
+                .collect();
+            let _ = save_car_difficulty_context(
+                &base_dir,
+                custid,
+                &CarDifficultyContext {
+                    track_id: race.track_id as i64,
+                    player_advantage: player_adv,
+                    by_number,
+                },
+            );
+        }
+        // Bônus de rivalidade (Pressão de Duelo, export): Nemesis +2 / Rivais +1 no
+        // AI rival do jogador — corre mais forte contra ele na pista.
+        let rival_skill_bonus: std::collections::HashMap<String, f64> = {
+            let current =
+                crate::db::queries::player_nemesis::get_current_nemesis(&db.conn).unwrap_or(None);
+            let interests =
+                crate::commands::career::select_player_interests(&db.conn, current.as_deref());
+            let mut m = std::collections::HashMap::new();
+            if let Some(n) = interests.nemesis {
+                m.insert(n.driver_id, 2.0);
+            }
+            for r in interests.rivais {
+                m.insert(r.driver_id, 1.0);
+            }
+            m
+        };
         Some(roster_gen::BehaviorContext {
             current_season: season.numero as i32,
             track_id: race.track_id,
@@ -1276,6 +1739,8 @@ pub fn iracing_generate_roster(
             global_percentile,
             driver_ctx,
             ai_sweet_spot: ai_sweet,
+            car_spread_nudge,
+            rival_skill_bonus,
         })
     });
 
@@ -1371,6 +1836,63 @@ fn ai_sweet_spot(tier: u8, track_id: Option<i64>, base_dir: &std::path::Path, cu
     (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track).clamp(0, 125)
 }
 
+/// Vantagens de carro (car-perf) do CAMPO e do JOGADOR na pista alvo, para a inversão
+/// carro→dificuldade (Sistema de Nível do Carro). Mapeia cada piloto de IA → time → carro
+/// (`team_car`); carro ausente ou rookie spec → vantagem 0. Devolve
+/// `(vantagem_do_jogador, vantagens_da_ia, mapa piloto→vantagem)`. Cache por time (os
+/// companheiros dividem o mesmo carro). Usado pela season (banda) e pelo roster (banda +
+/// spread) com a MESMA fonte, pra os dois lados baterem sob o esticão do iRacing.
+fn field_car_advantages(
+    conn: &rusqlite::Connection,
+    categoria: &str,
+    player_team_id: Option<&str>,
+    track_id: i64,
+) -> (f64, Vec<f64>, std::collections::HashMap<String, f64>) {
+    use crate::car::sim_bridge::car_advantage;
+    use crate::db::queries::{contracts as cq, drivers as dq, team_car as tcq};
+    use crate::simulation::track_profile::get_track_simulation_data;
+    use std::collections::HashMap;
+
+    let tsd = get_track_simulation_data(track_id as u32);
+    let track = (
+        tsd.acceleration_weight,
+        tsd.power_weight,
+        tsd.handling_weight,
+    );
+
+    let load = |team_id: &str, cache: &mut HashMap<String, f64>| -> f64 {
+        if let Some(v) = cache.get(team_id) {
+            return *v;
+        }
+        let v = tcq::get_team_car(conn, team_id)
+            .ok()
+            .flatten()
+            .map(|car| car_advantage(&car, track))
+            .unwrap_or(0.0);
+        cache.insert(team_id.to_string(), v);
+        v
+    };
+
+    let mut cache: HashMap<String, f64> = HashMap::new();
+    let player_adv = player_team_id.map(|t| load(t, &mut cache)).unwrap_or(0.0);
+
+    let mut ai_advs = Vec::new();
+    let mut per_ai = HashMap::new();
+    for d in dq::get_drivers_by_category(conn, categoria).unwrap_or_default() {
+        if d.is_jogador {
+            continue;
+        }
+        let team = cq::get_active_contract_for_pilot(conn, &d.id)
+            .ok()
+            .flatten()
+            .map(|c| c.equipe_id);
+        let adv = team.as_deref().map(|t| load(t, &mut cache)).unwrap_or(0.0);
+        ai_advs.push(adv);
+        per_ai.insert(d.id, adv);
+    }
+    (player_adv, ai_advs, per_ai)
+}
+
 /// Offset de skill por PISTA (a "margem por pista"). A IA rende diferente em cada
 /// circuito para o mesmo skill% (no Rudskogen efetivo 73 → 1:36.15; no Lédenon o
 /// mesmo 73 → 1:36.95, ~0,8s mais lenta). Então cada pista soma/subtrai do sweet spot
@@ -1398,18 +1920,18 @@ fn track_skill_offset(track_id: i64) -> i64 {
         // se sentir diferente, a gente separa o 455 depois.
         449 | 454 | 455 => 9,
         // Okayama (166 full 3,7 km / 167 Short 2,4 km): sweet spot 80. User mandou o
-        // mesmo valor nos dois layouts livres. (542 Short 1,7 km é pago, fora.)
+        // mesmo valor nos dois layouts livres. (o Short duplicado 542 foi removido do catálogo.)
         166 | 167 => 7,
         // Oran Park Raceway (202 GP 2,6 km / 208 South 2,0 km): sweet spot 74 — quase
         // baseline, IA já competitiva com pouco skill (igual Rudskogen). Mesmo valor nos 2.
         202 | 208 => 1,
         // Oulton Park - International (180, 4.4 km) + variações da Intl: 183 w/out Hislop,
         // 184 w/out Brittens, 185 w/no Chicanes. Sweet spot 79 nos 4 layouts livres da
-        // família Intl. (342 é a Intl paga, fora; Fosters/Island não são variação da Intl.)
+        // família Intl. (a Intl duplicada 342 foi removida; Fosters/Island não são variação da Intl.)
         180 | 183 | 184 | 185 => 6,
-        // Oulton Park - Fosters (181), Island (182), Fosters w/Hislop (186): layouts não-Intl
-        // do mesmo venue. User mandou herdar o valor do Oulton (sweet spot 79) sem teste à parte.
-        181 | 182 | 186 => 6,
+        // Oulton Park - Fosters (181), Island (182): layouts não-Intl do mesmo venue.
+        // User mandou herdar o valor do Oulton (sweet spot 79) sem teste à parte.
+        181 | 182 => 6,
         // Snetterton Circuit - 300 (297, 4.8 km) + 200 (298, 3.2 km): sweet spot 82.
         // User mandou o mesmo valor nos dois layouts livres.
         297 | 298 => 9,
@@ -1668,7 +2190,26 @@ pub fn iracing_generate_season(
     // altos que passam de 100 nos tiers acima do rookie.
     // Sweet spot do tier na pista alvo (âncora da curva; MESMO valor que o roster usa).
     // Perfil adaptativo por custid entra aqui dentro.
-    let max_skill = ai_sweet_spot(cat.tier, resolved_track_id, &base_dir, custid);
+    let base_sweet = ai_sweet_spot(cat.tier, resolved_track_id, &base_dir, custid);
+    // Sistema de Nível do Carro → dificuldade: rebaixa/eleva a BANDA inteira pela vantagem do
+    // SEU carro vs a média do campo na pista alvo (o spread por-IA vai no roster). MESMO
+    // cálculo que o roster usa, pra os dois baterem sob o esticão do iRacing.
+    let player_team_id = dq::get_player_driver(&db.conn)
+        .ok()
+        .and_then(|p| {
+            crate::db::queries::contracts::get_active_contract_for_pilot(&db.conn, &p.id)
+                .ok()
+                .flatten()
+        })
+        .map(|c| c.equipe_id);
+    let car_band = resolved_track_id
+        .map(|tid| {
+            let (player_adv, ai_advs, _) =
+                field_car_advantages(&db.conn, &categoria, player_team_id.as_deref(), tid);
+            crate::iracing_sdk::car_difficulty::band_skill_delta(player_adv, &ai_advs)
+        })
+        .unwrap_or(0.0);
+    let max_skill = ((base_sweet as f64 + car_band).round() as i64).clamp(0, 125);
     // Piso da banda pela CURVA DE 2 TRECHOS (ver roster_gen::skill_curve): o melhor da IA
     // vira max_skill (frente fiel/competitiva); o PIOR aterrissa onde a cauda o joga — mas
     // NUNCA abaixo do skill real dele (cap da cauda). No rookie (grid apertado) o fundo
@@ -2596,4 +3137,12 @@ pub fn iracing_auto_yellow_enabled() -> bool {
 #[tauri::command]
 pub fn iracing_send_chat_macro(macro_num: i32) -> Result<(), String> {
     iracing_sdk::send_chat_macro(macro_num).map_err(|e| e.to_string())
+}
+
+/// Envia um comando de chat de TEXTO LIVRE ao iRacing (ex.: `!black #1 20`).
+/// Teste do caminho parametrizado (foca a janela → abre o chat → digita + Enter),
+/// sem depender de macro no `app.ini`.
+#[tauri::command]
+pub fn iracing_send_chat_text(text: String) -> Result<(), String> {
+    iracing_sdk::send_chat_text(&text).map_err(|e| e.to_string())
 }

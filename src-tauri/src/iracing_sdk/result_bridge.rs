@@ -800,9 +800,9 @@ mod tests {
                 lap: 10,
                 progress: 0.0,
                 cars: vec![
-                    CarGapPoint { idx: 0, position: 2, gap: 1.5 },
-                    CarGapPoint { idx: 1, position: 1, gap: 0.0 },
-                    CarGapPoint { idx: 2, position: 3, gap: 4.0 },
+                    CarGapPoint { idx: 0, position: 2, gap: 1.5, ..Default::default() },
+                    CarGapPoint { idx: 1, position: 1, gap: 0.0, ..Default::default() },
+                    CarGapPoint { idx: 2, position: 3, gap: 4.0, ..Default::default() },
                 ],
             }],
             player_laps: vec![],

@@ -227,7 +227,12 @@ pub fn generate_weather(
     let is_wet_race = roll01(&mut state) < p_wet;
 
     if is_wet_race {
-        // Intensidade cresce com a tendência.
+        // Intensidade cresce com a tendência. PISO = Decente: uma corrida "molhada"
+        // NUNCA é só garoa (`Light`). Garoa deixa a pista no limiar seco/molhado e o
+        // iRacing larga metade do grid de SLICK — o que quebra a punição de chuva, que
+        // é aplicada ao pelotão INTEIRO (todo mundo tem que largar de wet). A garoa
+        // segue existindo só na QUALI e como TRECHO tardio de um arco (ver
+        // `story_to_profile`), nunca como caráter de uma corrida molhada.
         let r = roll01(&mut state);
         let race_intensity = if tendency > 0.8 {
             if r < 0.5 {
@@ -244,7 +249,7 @@ pub fn generate_weather(
         } else if r < 0.5 {
             RainIntensity::Decent
         } else {
-            RainIntensity::Light
+            RainIntensity::Heavy
         };
         let s = roll01(&mut state);
         let scenario = if s < 0.35 {
@@ -367,7 +372,26 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     let off = |race_min: f64| ((race_min - 7.0) / 0.68).round() as i64;
     let at = |f: f64| off(r as f64 * f);
     let rend = at(1.0);
-    let iw = intensity_water(story.race_intensity);
+    // Água na PISTA na largada de uma corrida molhada. PISO = 4 ("Wet" firme): o
+    // problema real do user foi uma corrida que "começou com chuva leve, tão leve que
+    // a maioria largou de pneu seco e depois trocou pra chuva". Como a punição de
+    // habilidade de chuva é aplicada ao pelotão INTEIRO, não pode haver dúvida de pneu
+    // na largada — a pista tem que estar comprovadamente encharcada quando abre a
+    // bandeira, pra o iRacing pôr TODOS de wet. `track_water` não afeta a UI (que usa
+    // event_type) nem a punição do sim (que usa `race_intensity`): é só a alavanca da
+    // escolha de pneu da largada. Corrida seca segue em 0.
+    let iw = if story.is_wet_race {
+        intensity_water(story.race_intensity).max(4)
+    } else {
+        intensity_water(story.race_intensity)
+    };
+    // Chuva na LARGADA de uma corrida molhada nunca é garoa (event 6): piso = 7 (chuva
+    // de verdade). Garoa+pista-no-limiar é justamente o que faz o grid largar dividido.
+    let start_iet = if story.is_wet_race {
+        intensity_event_type(story.race_intensity).max(7)
+    } else {
+        intensity_event_type(story.race_intensity)
+    };
     let iet = intensity_event_type(story.race_intensity);
     use WeatherScenario::*;
     let (skies, humidity, water, kf): (i64, i64, i64, Vec<(i64, i64)>) = match story.scenario {
@@ -432,7 +456,7 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             ],
         ),
         // Molhadas — ficam molhadas o tempo todo da CORRIDA (nunca seca).
-        SteadyRain => (3, 88, iw, vec![(3, QUALI), (iet, at(0.0)), (iet, rend)]),
+        SteadyRain => (3, 88, iw, vec![(3, QUALI), (start_iet, at(0.0)), (iet, rend)]),
         Improving => (
             3,
             90,
@@ -445,13 +469,16 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
                 (6, rend),
             ],
         ),
+        // "Tempestade chegando": ANTES abria de garoa (6) e crescia — mas garoa na
+        // largada é exatamente o que dividia o grid. Abre já com chuva de verdade (7)
+        // e adensa pro fim (8). O arco de "piorar" continua legível, sem ambiguidade.
         StormArrives => (
             2,
             85,
             iw,
             vec![
                 (2, QUALI),
-                (6, at(0.0)),
+                (start_iet.max(7), at(0.0)),
                 (7, at(0.4)),
                 (8, at(0.8)),
                 (8, rend),
@@ -470,11 +497,13 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
                 (8, rend),
             ],
         ),
+        // Garoa na QUALI (6, aceitável — quali é sessão à parte), mas a CORRIDA já
+        // larga molhada de verdade (7) e piora (`iet` ≥ 7). Nunca larga de garoa.
         LightQualyWorseRace => (
             3,
             85,
             iw,
-            vec![(6, QUALI), (6, at(0.0)), (7, at(0.5)), (iet, rend)],
+            vec![(6, QUALI), (start_iet.max(7), at(0.0)), (7, at(0.5)), (iet.max(7), rend)],
         ),
         // 1ª corrida: largada LIMPA → céu fecha no MEIO (frente entrando) → garoa leve
         // CAINDO na 2ª metade (vento forte global ajuda a frente a chegar de verdade).
@@ -832,6 +861,69 @@ mod tests {
         );
         assert_eq!(p.track_water, 0);
         assert!(p.keyframes.iter().all(|(et, _)| *et < 6));
+    }
+
+    const WET_SCENARIOS: [WeatherScenario; 5] = [
+        WeatherScenario::SteadyRain,
+        WeatherScenario::Improving,
+        WeatherScenario::StormArrives,
+        WeatherScenario::PulsingStorm,
+        WeatherScenario::LightQualyWorseRace,
+    ];
+
+    #[test]
+    fn corrida_molhada_nunca_e_so_garoa() {
+        // O gerador NUNCA deve entregar `Light` como caráter de uma corrida molhada
+        // (garoa = pista no limiar → grid larga dividido de pneu). Varre tendências e
+        // seeds e confere o piso.
+        for month in 1..=12u32 {
+            for hemi in [Hemisphere::North, Hemisphere::South] {
+                for group in [
+                    ClimateTendency::Dry,
+                    ClimateTendency::Normal,
+                    ClimateTendency::Rainy,
+                ] {
+                    for seed in 0..300u64 {
+                        let w = generate_weather(month, hemi, group, seed, false);
+                        if w.is_wet_race {
+                            assert_ne!(
+                                w.race_intensity,
+                                RainIntensity::Light,
+                                "corrida molhada saiu como garoa (seed {seed})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn corrida_molhada_larga_inequivocamente_molhada() {
+        // Para TODO cenário molhado e TODA intensidade de corrida molhada, a largada
+        // (keyframe logo após a âncora QUALI) tem chuva de verdade (≥7) e a pista já
+        // está encharcada (track_water ≥4) → o iRacing põe TODOS de wet, sem dúvida.
+        for scenario in WET_SCENARIOS {
+            for intensity in [
+                RainIntensity::Decent,
+                RainIntensity::Heavy,
+                RainIntensity::VeryHeavy,
+            ] {
+                let p = story_to_profile(&story(scenario, true, intensity), 30);
+                assert!(
+                    p.track_water >= 4,
+                    "{scenario:?}/{intensity:?}: pista seca demais na largada (water {})",
+                    p.track_water
+                );
+                // kf[0] é a âncora de QUALI (offset -90); kf[1] é a LARGADA da corrida.
+                let start = p.keyframes[1];
+                assert!(
+                    start.0 >= 7,
+                    "{scenario:?}/{intensity:?}: largada de garoa (event {}) — grid divide o pneu",
+                    start.0
+                );
+            }
+        }
     }
 
     #[test]

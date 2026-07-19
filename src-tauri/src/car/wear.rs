@@ -16,6 +16,13 @@ pub const STRETCH_MAX_WEAR: f64 = 0.95;
 /// Custo de esticar, como fração do preço de uma peça nova do mesmo nível.
 pub const STRETCH_COST_FRACTION: f64 = 0.40;
 
+/// Voltas de REFERÊNCIA que ancoram a durabilidade (expressa "em corridas") ao desgaste
+/// POR VOLTA: uma corrida deste tamanho consome exatamente `1/durabilidade` da peça —
+/// então a cadência de troca da economia fica IDÊNTICA à histórica. É também a ponte
+/// usada pelo Sistema de Quebra (risco por volta, ciente do tamanho real da corrida).
+/// Ver `docs/superpowers/specs/2026-07-18-car-breakdown-system.md` §5.
+pub const REF_RACE_LAPS: f64 = 18.0;
+
 /// O que o time faz com uma peça nesta corrida. Default = `Keep`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartAction {
@@ -29,9 +36,19 @@ pub enum PartAction {
     Degrade,
 }
 
-/// Fração de desgaste que uma corrida adiciona a esta peça (= `1/durabilidade`).
+/// Fração de desgaste que uma corrida de REFERÊNCIA adiciona a esta peça
+/// (= `1/durabilidade`). Valor histórico preservado EXATAMENTE — a economia não muda.
 pub fn wear_per_race(part_type: PartType) -> f64 {
     1.0 / part_type.durability() as f64
+}
+
+/// Fração de desgaste que uma peça acumula por VOLTA (= `wear_per_race / REF_RACE_LAPS`
+/// = `1/(durabilidade × voltas-ref)`). Base COMPARTILHADA: a economia soma um bloco de
+/// corrida (via [`wear_per_race`], inalterada); o Sistema de Quebra soma por volta na
+/// corrida ao vivo, então uma corrida do tamanho de referência acumula o mesmo total, e
+/// corridas mais longas/curtas escalam proporcionalmente (o "tamanho importa" da quebra).
+pub fn wear_per_lap(part_type: PartType) -> f64 {
+    wear_per_race(part_type) / REF_RACE_LAPS
 }
 
 /// A peça pode ser esticada? Só se não estiver esgotada e o desgaste for ≤95%.
@@ -109,6 +126,51 @@ mod tests {
         let mut d = HashMap::new();
         d.insert(part_type, action);
         d
+    }
+
+    // -------- Fundação da escala unificada (Fase 1 do Sistema de Quebra) --------
+
+    /// REGRESSÃO: `wear_per_race` continua sendo EXATAMENTE `1/durabilidade` para toda
+    /// peça — a economia/finança não muda com a introdução da escala por volta.
+    #[test]
+    fn wear_per_race_permanece_um_sobre_durabilidade() {
+        for &pt in &PartType::ALL {
+            assert_eq!(
+                wear_per_race(pt),
+                1.0 / pt.durability() as f64,
+                "wear_per_race de {:?} mudou — a economia NÃO pode se alterar",
+                pt
+            );
+        }
+    }
+
+    /// Uma corrida do TAMANHO DE REFERÊNCIA (somando por volta) acumula o mesmo total que
+    /// um bloco de corrida — a ponte entre a economia (por corrida) e a quebra (por volta).
+    #[test]
+    fn desgaste_por_volta_x_voltas_ref_bate_com_a_corrida() {
+        for &pt in &PartType::ALL {
+            let por_voltas = wear_per_lap(pt) * REF_RACE_LAPS;
+            assert!(
+                (por_voltas - wear_per_race(pt)).abs() < 1e-12,
+                "{:?}: {} voltas de desgaste ({}) deveria bater com a corrida ({})",
+                pt,
+                REF_RACE_LAPS,
+                por_voltas,
+                wear_per_race(pt)
+            );
+        }
+    }
+
+    /// Corrida mais LONGA que a referência gasta MAIS por corrida; mais curta gasta menos
+    /// (o "tamanho da corrida importa" — usado só na corrida ao vivo, não na economia da IA).
+    #[test]
+    fn corrida_mais_longa_gasta_mais_por_volta() {
+        let pt = PartType::Engine;
+        let sprint = wear_per_lap(pt) * 14.0;
+        let referencia = wear_per_lap(pt) * REF_RACE_LAPS;
+        let enduro = wear_per_lap(pt) * 50.0;
+        assert!(sprint < referencia, "sprint curto deveria gastar menos");
+        assert!(enduro > referencia, "enduro longo deveria gastar mais");
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod milestones;
 pub mod news;
 pub mod race_history;
 pub mod races;
+pub mod player_nemesis;
 pub mod rivalries;
 pub mod rivalry_episodes;
 pub mod seasons;

@@ -5,6 +5,7 @@ import GlassSelect from "../components/ui/GlassSelect";
 import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
+import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
 
 // Fundo da tela: "particles" (campo de partículas, igual ao menu) ou "glass"
 // (gradiente azul original). Para voltar ao fundo anterior, troque para "glass".
@@ -26,6 +27,26 @@ function Settings() {
   // Estado do "automático" (flag do RaceControl) e trava anti-duplo-clique.
   const [autoYellow, setAutoYellow] = useState(false);
   const [yellowBusy, setYellowBusy] = useState(false);
+
+  // Teste de comando de chat de TEXTO LIVRE (ex.: !black #1 20) — caminho
+  // parametrizado que NÃO depende de macro no app.ini. Só pra validar.
+  const [chatText, setChatText] = useState("!black #1 20");
+  const [chatMsg, setChatMsg] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  async function sendChatTest() {
+    const text = chatText.trim();
+    if (chatBusy || !text) return;
+    setChatBusy(true);
+    setChatMsg("");
+    try {
+      await invoke("iracing_send_chat_text", { text });
+      setChatMsg(`Enviado: "${text}"`);
+    } catch (err) {
+      setChatMsg(String(err));
+    } finally {
+      setChatBusy(false);
+    }
+  }
 
   // A macro já é instalada sozinha ao abrir as Configurações (useEffect abaixo);
   // aqui o toggle só liga/desliga o disparo automático da bandeira.
@@ -319,6 +340,43 @@ function Settings() {
               </p>
             </div>
           </details>
+
+          {/* Teste de comando de chat livre (ex.: !black #1 20) — caminho parametrizado, sem macro */}
+          <div className="border-t border-white/10 px-5 py-3.5">
+            <p className="text-[13px] font-medium text-text-primary">Comando de chat (teste)</p>
+            <p className="pb-2.5 text-[11px] text-text-secondary">
+              Envia texto livre ao chat do iRacing (foca a janela, abre o chat e digita). Com o sim aberto numa sessão com IA.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendChatTest()}
+                spellCheck={false}
+                placeholder="!black #1 20"
+                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[12px] text-text-primary outline-none transition-glass focus:border-white/25"
+              />
+              <button
+                type="button"
+                onClick={sendChatTest}
+                disabled={chatBusy || !chatText.trim()}
+                className={`shrink-0 rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
+                  chatBusy || !chatText.trim()
+                    ? "cursor-default bg-white/5 text-text-muted"
+                    : "cursor-pointer bg-status-yellow/20 text-text-primary hover:bg-status-yellow/30"
+                }`}
+              >
+                {chatBusy ? "Enviando…" : "Enviar"}
+              </button>
+            </div>
+            {chatMsg && (
+              <p className="mt-2.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{chatMsg}</p>
+            )}
+          </div>
+
+          {/* Explicador de rivalidades percebidas (debug/calibração) */}
+          <RivalryPerceptionPanel />
         </div>
 
         <div className="flex flex-col items-center gap-4 pt-8">

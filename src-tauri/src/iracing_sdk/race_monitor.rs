@@ -303,6 +303,10 @@ pub struct Attempt {
     /// foi solo (sem carro perto). Identifica "quem bateu em mim".
     #[serde(default)]
     pub collided_with_car_number: Option<i32>,
+    /// Direção do impacto no PICO da batida (front/rear/side/vertical), do sinal
+    /// dominante do G-force. Base do dano por peça na batida (`car::crash`).
+    #[serde(default)]
+    pub peak_impact_dir: Option<String>,
 }
 
 /// Um evento discreto da corrida (saída do RaceEventEngine).
@@ -372,12 +376,20 @@ pub struct RaceStatus {
 
 // ─── Histórico volta a volta (painel pós-corrida) ───────────────────────────
 /// O gap de um carro ao líder numa volta — um ponto do race trace.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct CarGapPoint {
     pub idx: i32,
     pub position: i32,
     /// Gap ao líder em segundos (`CarIdxF2Time`); 0 para o líder.
     pub gap: f64,
+    /// Progresso na volta (`CarIdxLapDistPct`, 0..1) — proximidade à prova de wrap
+    /// entre carros. Default 0 em saves antigos (campo ausente).
+    #[serde(default)]
+    pub lap_dist_pct: f32,
+    /// Tempo estimado desde a linha (`CarIdxEstTime`, s) — escala a fração de volta
+    /// em segundos. Default 0 em saves antigos.
+    #[serde(default)]
+    pub est_time: f32,
 }
 
 /// Snapshot de todos os carros num instante do race trace. Antes só saía na virada
@@ -1061,6 +1073,7 @@ impl RaceMonitor {
             crashes: Vec::new(),
             peak_crash_score: 0.0,
             collided_with_car_number: None,
+            peak_impact_dir: None,
         });
     }
 
@@ -1569,6 +1582,16 @@ impl RaceMonitor {
                         } else {
                             0.0
                         },
+                        lap_dist_pct: if c.lap_dist_pct.is_finite() {
+                            c.lap_dist_pct.clamp(0.0, 1.0) as f32
+                        } else {
+                            0.0
+                        },
+                        est_time: if c.est_time.is_finite() {
+                            c.est_time.max(0.0) as f32
+                        } else {
+                            0.0
+                        },
                     })
                 })
                 .collect();
@@ -1865,6 +1888,16 @@ impl RaceMonitor {
             if let Some(attempt) = self.attempts.last_mut() {
                 if peak > attempt.peak_crash_score {
                     attempt.peak_crash_score = peak;
+                    // Direção do impacto no instante do maior pico — para o dano por peça.
+                    attempt.peak_impact_dir = Some(
+                        crate::car::crash::impact_direction(
+                            t.lat_accel,
+                            t.long_accel,
+                            t.vert_accel,
+                        )
+                        .as_str()
+                        .to_string(),
+                    );
                 }
             }
         } else if self.in_crash {
@@ -2937,6 +2970,7 @@ mod tests {
             crashes: Vec::new(),
             peak_crash_score: 0.0,
             collided_with_car_number: None,
+            peak_impact_dir: None,
         }
     }
 

@@ -5,6 +5,7 @@ import GlassButton from "../../components/ui/GlassButton";
 import GlassCard from "../../components/ui/GlassCard";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
+import RivalMarker from "../../components/driver/RivalMarker";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
 import WeatherButton from "../../components/race/WeatherButton";
 import useCareerStore from "../../stores/useCareerStore";
@@ -97,6 +98,7 @@ function NextRaceTab() {
   const preRaceAi = useCareerStore((state) => state.preRaceAi);
   const temporalSummary = useCareerStore((state) => state.temporalSummary);
   const season = useCareerStore((state) => state.season);
+  const playerInterests = useCareerStore((state) => state.playerInterests);
   const isSimulating = useCareerStore((state) => state.isSimulating);
   const isAdvancing = useCareerStore((state) => state.isAdvancing);
   const careerId = useCareerStore((state) => state.careerId);
@@ -214,6 +216,7 @@ function NextRaceTab() {
         driverStandings,
         teamStandings,
         briefingPhraseHistory,
+        playerInterests,
       }),
     [
       player,
@@ -221,6 +224,7 @@ function NextRaceTab() {
       season,
       nextRace,
       nextRaceBriefing,
+      playerInterests,
       driverStandings,
       teamStandings,
       briefingPhraseHistory,
@@ -1139,7 +1143,10 @@ function NextRaceTab() {
                             testId="strategy-favorite-team-logo"
                           />
                           <div>
-                            <p className="text-base font-bold text-white leading-none mb-1.5">{driver.nome}</p>
+                            <p className="text-base font-bold text-white leading-none mb-1.5 flex items-center gap-1.5">
+                              {driver.nome}
+                              <RivalMarker driverId={driver.id} />
+                            </p>
                             <p
                               className="text-[11px] font-bold uppercase"
                               style={{ color: getReadableTeamColor(driver.equipe_cor) }}
@@ -1259,8 +1266,9 @@ function NextRaceTab() {
                                     size="xs"
                                   />
                                   <div className="min-w-0">
-                                    <p className={`truncate leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
-                                      {driver.nome_completo ?? driver.nome}
+                                    <p className={`flex items-center gap-1 leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
+                                      <span className="truncate">{driver.nome_completo ?? driver.nome}</span>
+                                      <RivalMarker driverId={driver.id} />
                                     </p>
                                     <p
                                       className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
@@ -1354,6 +1362,7 @@ export function buildBriefingContext({
   driverStandings,
   teamStandings,
   briefingPhraseHistory,
+  playerInterests = null,
 }) {
   const orderedDrivers = [...driverStandings].sort(
     (left, right) => (left.posicao_campeonato ?? 999) - (right.posicao_campeonato ?? 999),
@@ -1561,6 +1570,18 @@ export function buildBriefingContext({
         ? `Essa rivalidade é conhecida como "${briefingRival.rivalry_label}".`
         : `Rivalidade que vem de temporadas anteriores: "${briefingRival.rivalry_label}" (${briefingRival.driver_name}).`
       : null,
+    // Nemesis / rivais de pista (motor de rivalidade) — o duelo pessoal vivido, só
+    // quando o rival está NESTE grid. Traz o nome da rivalidade e o retrospecto direto.
+    playerInterests?.nemesis &&
+    orderedDrivers.some((d) => d.id === playerInterests.nemesis.driver_id)
+      ? `Seu nemesis está no grid: ${playerInterests.nemesis.driver_name}${playerInterests.nemesis.label ? ` ("${playerInterests.nemesis.label}")` : ""}${playerInterests.nemesis.chapters > 0 ? ` — confronto direto ${playerInterests.nemesis.h2h_player_wins}-${playerInterests.nemesis.h2h_rival_wins}` : ""}.`
+      : null,
+    ...(playerInterests?.rivais ?? [])
+      .filter((r) => orderedDrivers.some((d) => d.id === r.driver_id))
+      .map(
+        (r) =>
+          `Rival de pista no grid: ${r.driver_name}${r.label ? ` ("${r.label}")` : ""}${r.chapters > 0 ? ` — ${r.h2h_player_wins}-${r.h2h_rival_wins}` : ""}.`,
+      ),
     // --- Forma e histórico na pista ---
     recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
     outlook?.averageFinish != null

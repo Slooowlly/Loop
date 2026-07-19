@@ -111,6 +111,38 @@ impl PartType {
         }
     }
 
+    /// Nome legível da peça, **adaptado ao carro da categoria** (só nomenclatura). As peças
+    /// aerodinâmicas mudam de nome conforme o carro: um Mazda MX-5 não tem asa (vira
+    /// "parachoque"); GT/Toyota/BMW têm asa traseira. Usado na narrativa da quebra.
+    pub fn display_name(self, category_id: &str) -> &'static str {
+        let sem_asa = category_id.starts_with("mazda"); // Mazda MX-5: sem aerofólio
+        match self {
+            PartType::Chassis => "Chassi",
+            PartType::Engine => "Motor",
+            PartType::FrontWing => {
+                if sem_asa {
+                    "Parachoque dianteiro" // Mazda MX-5: sem aero dianteiro
+                } else {
+                    "Splitter" // GT/BMW/Toyota/proto: splitter dianteiro, não asa
+                }
+            }
+            PartType::RearWing => {
+                if sem_asa {
+                    "Parachoque traseiro"
+                } else {
+                    "Asa traseira"
+                }
+            }
+            PartType::Underbody => "Assoalho",
+            PartType::Sidepods => "Laterais",
+            PartType::Cooling => "Arrefecimento",
+            PartType::Gearbox => "Câmbio",
+            PartType::Brakes => "Freios",
+            PartType::Suspension => "Suspensão",
+            PartType::Electronics => "Eletrônica",
+        }
+    }
+
     /// Custo-base relativo (Cooling = 1.0). Reescalado por categoria em [`super::cost`].
     /// Note: Motor e Câmbio são os mais caros — e também os de vida mais curta.
     pub fn relative_cost(self) -> f64 {
@@ -163,5 +195,20 @@ mod tests {
         assert!(PartType::Engine.relative_cost() > PartType::Cooling.relative_cost());
         assert_eq!(PartType::Engine.durability(), 3);
         assert_eq!(PartType::Electronics.durability(), 6);
+    }
+
+    #[test]
+    fn nome_da_peca_adapta_ao_carro() {
+        // Mazda não tem asa → parachoque.
+        assert_eq!(PartType::RearWing.display_name("mazda_rookie"), "Parachoque traseiro");
+        assert_eq!(PartType::FrontWing.display_name("mazda_amador"), "Parachoque dianteiro");
+        // GT/BMW/Toyota têm asa traseira e splitter dianteiro.
+        assert_eq!(PartType::RearWing.display_name("gt3"), "Asa traseira");
+        assert_eq!(PartType::RearWing.display_name("bmw_m2"), "Asa traseira");
+        assert_eq!(PartType::FrontWing.display_name("gt3"), "Splitter");
+        assert_eq!(PartType::FrontWing.display_name("gt4"), "Splitter");
+        // Peça não-aero é constante.
+        assert_eq!(PartType::Engine.display_name("mazda_rookie"), "Motor");
+        assert_eq!(PartType::Gearbox.display_name("gt3"), "Câmbio");
     }
 }

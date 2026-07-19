@@ -19,12 +19,14 @@ use thiserror::Error;
 pub mod adaptive;
 pub mod aiseason_results;
 pub mod behavior;
+pub mod car_difficulty;
 pub mod paint_gen;
 pub mod paths;
 pub mod race_control;
 pub mod race_monitor;
 pub mod result_bridge;
 pub mod results_gen;
+pub mod rivalry_perception;
 pub mod session_results;
 pub mod roster_gen;
 pub mod season_gen;
@@ -246,8 +248,15 @@ pub struct CarSnapshot {
     pub track_surface: i32,
     /// Marcha (`CarIdxGear`).
     pub gear: i32,
-    /// Tempo atrás do líder em segundos (`CarIdxF2Time`) — o gap.
+    /// Tempo atrás do líder em segundos (`CarIdxF2Time`) — o gap AO LÍDER. Só é
+    /// confiável em sessões hosted/multiplayer; em corrida de IA costuma vir 0.
+    /// NÃO usar como proximidade entre carros (ver `est_time`).
     pub f2_time: f64,
+    /// Tempo estimado até a posição atual na pista (`CarIdxEstTime`, segundos desde a
+    /// linha). Populado em qualquer sessão (inclusive IA). A diferença de `est_time`
+    /// entre dois carros na MESMA volta ≈ o gap na pista entre eles — a fonte certa
+    /// para proximidade/duelo.
+    pub est_time: f64,
     /// Última volta completa do carro (`CarIdxLastLapTime`); ≤0 = sem volta válida.
     pub last_lap_time: f64,
     /// Melhor volta do carro na sessão (`CarIdxBestLapTime`); ≤0 = nenhuma.
@@ -269,6 +278,7 @@ impl Default for CarSnapshot {
             track_surface: -1,
             gear: 0,
             f2_time: 0.0,
+            est_time: 0.0,
             last_lap_time: 0.0,
             best_lap_time: 0.0,
         }
@@ -295,6 +305,15 @@ pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
 /// único jeito do SDK "digitar" um comando de chat como `!yellow`.
 pub fn send_chat_macro(macro_num: i32) -> Result<(), IracingError> {
     imp::send_chat_macro(macro_num)
+}
+
+/// Envia um comando de chat de TEXTO LIVRE ao iRacing (foca a janela, abre o
+/// chat e digita o texto + Enter). Ao contrário do macro, o texto é montado em
+/// runtime — é o caminho para comandos parametrizados como `!black #1 20`.
+/// Requer a janela do sim em foreground; falha com [`IracingError::NotRunning`]
+/// se o iRacing não estiver aberto. Fora do Windows, [`IracingError::Unsupported`].
+pub fn send_chat_text(text: &str) -> Result<(), IracingError> {
+    imp::send_chat_text(text)
 }
 
 /// Traz a janela do iRacing para frente (para o jogador "cair" no sim logo após
@@ -612,6 +631,7 @@ mod imp {
                         "CarIdxTrackSurface" => car.track_surface = v as i32,
                         "CarIdxGear" => car.gear = v as i32,
                         "CarIdxF2Time" => car.f2_time = v,
+                        "CarIdxEstTime" => car.est_time = v,
                         "CarIdxLastLapTime" => car.last_lap_time = v,
                         "CarIdxBestLapTime" => car.best_lap_time = v,
                         _ => {}
@@ -706,6 +726,94 @@ mod imp {
             SendNotifyMessageW(HWND_BROADCAST, msg_id, wparam, lparam);
         }
         Ok(())
+    }
+
+    /// Abre a linha de chat do iRacing via broadcast `ChatCommand_BeginChat`
+    /// (subcomando 1 do `BroadcastChatCommand`). Diferente do macro, isto só
+    /// ABRE a caixa de digitação — o texto vem depois, por [`type_unicode`].
+    fn begin_chat() -> Result<(), IracingError> {
+        use winapi::um::winuser::{RegisterWindowMessageW, SendNotifyMessageW, HWND_BROADCAST};
+
+        // irsdk_BroadcastChatComand = 8; irsdk_ChatCommand_BeginChat = 1.
+        const BROADCAST_CHAT_COMMAND: i32 = 8;
+        const CHAT_COMMAND_BEGIN: i32 = 1;
+
+        let name = wide_null("IRSDK_BROADCASTMSG");
+        unsafe {
+            let msg_id = RegisterWindowMessageW(name.as_ptr());
+            if msg_id == 0 {
+                return Err(IracingError::MapFailed(
+                    winapi::um::errhandlingapi::GetLastError(),
+                ));
+            }
+            let wparam = (BROADCAST_CHAT_COMMAND as usize & 0xffff)
+                | ((CHAT_COMMAND_BEGIN as usize & 0xffff) << 16);
+            SendNotifyMessageW(HWND_BROADCAST, msg_id, wparam, 0);
+        }
+        Ok(())
+    }
+
+    /// Digita `text` (e Enter no fim) via `SendInput` a nível de SO — cada char
+    /// vai como evento Unicode, então funciona com qualquer caractere sem depender
+    /// de layout de teclado. Requer que a janela ALVO esteja em foreground (é o
+    /// papel do `focus_iracing_window` antes desta chamada). Injeta tudo num único
+    /// `SendInput` para preservar a ordem.
+    fn type_unicode(text: &str) -> Result<(), IracingError> {
+        use winapi::um::winuser::{
+            SendInput, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VK_RETURN,
+        };
+
+        unsafe fn key_event(scan: u16, vk: u16, flags: u32) -> INPUT {
+            let mut input: INPUT = std::mem::zeroed();
+            input.type_ = INPUT_KEYBOARD;
+            let ki = input.u.ki_mut();
+            ki.wVk = vk;
+            ki.wScan = scan;
+            ki.dwFlags = flags;
+            input
+        }
+
+        let mut inputs: Vec<INPUT> = Vec::new();
+        unsafe {
+            // Texto: cada unidade UTF-16 como key-down/key-up Unicode.
+            for unit in text.encode_utf16() {
+                inputs.push(key_event(unit, 0, KEYEVENTF_UNICODE));
+                inputs.push(key_event(unit, 0, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+            }
+            // Enter: por virtual-key (mais confiável que '\n' num jogo).
+            inputs.push(key_event(0, VK_RETURN as u16, 0));
+            inputs.push(key_event(0, VK_RETURN as u16, KEYEVENTF_KEYUP));
+
+            let sent = SendInput(
+                inputs.len() as u32,
+                inputs.as_mut_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            );
+            if sent as usize != inputs.len() {
+                return Err(IracingError::MapFailed(
+                    winapi::um::errhandlingapi::GetLastError(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Envia um comando de chat de TEXTO LIVRE ao iRacing (ex.: `!black #1 20`).
+    /// Foca a janela do sim → abre o chat (`begin_chat`) → digita o texto + Enter
+    /// (`type_unicode`). É o caminho para comandos PARAMETRIZADOS, que o macro
+    /// (texto fixo em `app.ini`, cacheado pelo sim) não cobre. Os `sleep` dão
+    /// tempo do foco assentar e da caixa de chat abrir antes de digitar.
+    pub fn send_chat_text(text: &str) -> Result<(), IracingError> {
+        use std::thread::sleep;
+        use std::time::Duration;
+
+        if !focus_iracing_window()? {
+            return Err(IracingError::NotRunning("iRacing".to_string()));
+        }
+        sleep(Duration::from_millis(150));
+        begin_chat()?;
+        sleep(Duration::from_millis(150));
+        type_unicode(text)
     }
 
     /// Acha a janela do iRacing por título (varrendo as janelas de topo) e a traz
@@ -849,6 +957,10 @@ mod imp {
     }
 
     pub fn send_chat_macro(_macro_num: i32) -> Result<(), IracingError> {
+        Err(IracingError::Unsupported)
+    }
+
+    pub fn send_chat_text(_text: &str) -> Result<(), IracingError> {
         Err(IracingError::Unsupported)
     }
 

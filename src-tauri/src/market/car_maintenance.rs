@@ -479,8 +479,8 @@ mod tests {
         let (p, h, a) = maintenance_demand(&[]);
         assert!((p + h + a - 1.0).abs() < 1e-9);
         assert!((p - 1.0 / 3.0).abs() < 1e-9);
-        // Monza (93) é power-heavy → P domina.
-        let (p2, h2, a2) = maintenance_demand(&[93]);
+        // Monza (239) é power-heavy → P domina.
+        let (p2, h2, a2) = maintenance_demand(&[239]);
         assert!((p2 + h2 + a2 - 1.0).abs() < 1e-6);
         assert!(p2 > h2 && p2 > a2, "Monza deveria exigir Power: P={p2} H={h2} A={a2}");
     }
@@ -637,7 +637,7 @@ mod tests {
 
         // Várias rodadas com caixa alto → o carro sobe rumo ao teto, e cada rodada tem custo.
         for _ in 0..20 {
-            let cost = maintain_team_car(&conn, &team, "gt3", 1, &[93, 489, 325]).unwrap();
+            let cost = maintain_team_car(&conn, &team, "gt3", 1, &[239, 489, 324]).unwrap();
             assert!(cost >= 0.0);
             team.car = team_car::get_team_car(&conn, "T1").unwrap();
         }
@@ -721,7 +721,7 @@ mod tests {
     #[test]
     fn dna_pica_a_demanda_que_o_calendario_diverso_lavaria() {
         // Calendário diverso (2 P + 1 H + 1 A) → média ~balanceada, spread abaixo do gatilho.
-        let diverse = maintenance_demand(&[93, 188, 489, 318]); // Monza+Spa(P) Ledenon(H) LongBeach(A)
+        let diverse = maintenance_demand(&[239, 523, 489, 179]); // Monza+Spa(P) Ledenon(H) LongBeach(A)
         assert!(
             demand_spread(diverse) < DEMAND_PEAK_THRESHOLD,
             "calendário diverso deveria lavar pra balanceado: spread={}",
@@ -767,7 +767,7 @@ mod tests {
 
         // Calendário DIVERSO cuja média até pende de leve pra HANDLING (contra o DNA):
         // se mesmo assim o carro pesa power, é o DNA sustentando o foco, não o calendário.
-        let diverse = [489, 325, 342, 318, 93, 188];
+        let diverse = [489, 325, 180, 318, 93, 188];
         for season in 1..=4 {
             for _ in 0..15 {
                 maintain_team_car(&conn, &team, "gt3", season, &diverse).unwrap();

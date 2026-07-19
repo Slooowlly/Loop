@@ -1450,8 +1450,8 @@ mod tests {
                 lap,
                 progress: 0.0,
                 cars: vec![
-                    CarGapPoint { idx: 0, position: 3, gap: 1.2 },
-                    CarGapPoint { idx: 1, position: 1, gap: 0.0 },
+                    CarGapPoint { idx: 0, position: 3, gap: 1.2, ..Default::default() },
+                    CarGapPoint { idx: 1, position: 1, gap: 0.0, ..Default::default() },
                 ],
             });
             h.player_laps.push(PlayerLap { lap, time: 90.0, fuel_remaining: -1.0 });

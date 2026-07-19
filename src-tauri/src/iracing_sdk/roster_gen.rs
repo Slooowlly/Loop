@@ -267,6 +267,16 @@ pub struct DriverCtx {
     pub crashed_out_last_race: bool,
     pub not_at_fault_dnfs: u32,
     pub track_crash: bool,
+    /// Cruzou a linha lado a lado com o mesmo rival em ≥2 das últimas corridas.
+    pub nemesis: bool,
+    /// Trocou de equipe nesta virada de temporada (tinha outro time antes).
+    pub switched_teams: bool,
+    /// Campeão da categoria na temporada passada.
+    pub reigning_champion: bool,
+    /// Primeira corrida da carreira (nunca largou).
+    pub career_debut: bool,
+    /// DNFs mecânicos (Mechanical/Operational) nas últimas corridas.
+    pub mechanical_dnfs: u32,
 }
 
 /// Contexto compartilhado da corrida-alvo para a camada de comportamento por corrida
@@ -304,8 +314,17 @@ pub struct BehaviorContext {
     pub driver_ctx: HashMap<String, DriverCtx>,
     /// Sweet spot do tier (efetivo do melhor da IA) na pista alvo — âncora da curva de
     /// skill. MESMO valor que a season usa no `max_skill` (pré-chuva), pra a forma bater
-    /// dos dois lados.
+    /// dos dois lados. Já com o delta da BANDA do carro (você vs a média do campo).
     pub ai_sweet_spot: f64,
+    /// id do piloto → **spread por-IA do carro** (skill, zero-mean): quanto o carro daquela
+    /// IA desvia da média do campo na pista alvo (Sistema de Nível do Carro → export). Somado
+    /// ao skill final; junto do `ai_sweet_spot` já rebaixado, reconstrói `adv(IA) − adv(você)`.
+    /// Ver [`crate::iracing_sdk::car_difficulty`].
+    pub car_spread_nudge: HashMap<String, f64>,
+    /// id do piloto → **bônus de rivalidade** (skill) contra o JOGADOR: Nemesis +2,
+    /// Rivais +1. Faz o rival correr mais forte na pista do jogador (Pressão de Duelo,
+    /// lado export). Vazio quando não há rivalidade de interesse.
+    pub rival_skill_bonus: HashMap<String, f64>,
 }
 
 /// Percentil de skill dentro do grid (0 pior … 1 melhor).
@@ -469,6 +488,11 @@ pub fn build_roster(
                             .unwrap_or(false),
                         not_at_fault_dnfs: dctx.map(|d| d.not_at_fault_dnfs).unwrap_or(0),
                         track_crash: dctx.map(|d| d.track_crash).unwrap_or(false),
+                        nemesis: dctx.map(|d| d.nemesis).unwrap_or(false),
+                        switched_teams: dctx.map(|d| d.switched_teams).unwrap_or(false),
+                        reigning_champion: dctx.map(|d| d.reigning_champion).unwrap_or(false),
+                        career_debut: dctx.map(|d| d.career_debut).unwrap_or(false),
+                        mechanical_dnfs: dctx.map(|d| d.mechanical_dnfs).unwrap_or(0),
                         seed: bc.seed_base ^ fnv1a(&driver.id),
                     };
                     let out = crate::iracing_sdk::behavior::compute(&inputs);
@@ -485,8 +509,23 @@ pub fn build_roster(
                     } else {
                         0.0
                     };
+                    // SPREAD POR-IA DO CARRO (Sistema de Nível do Carro → export): quanto o
+                    // carro desta IA desvia da média do campo na pista. Zero-mean, cavalga o
+                    // roster como o re-rank de chuva; o delta da BANDA (você vs campo) já foi
+                    // aplicado no `ai_sweet_spot`. Carro ausente → 0.
+                    let car_spread = bc
+                        .car_spread_nudge
+                        .get(&driver.id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    // Pressão de Duelo (export): o rival do jogador rende mais contra ele.
+                    let rival_bonus = bc
+                        .rival_skill_bonus
+                        .get(&driver.id)
+                        .copied()
+                        .unwrap_or(0.0);
                     (
-                        out.skill + wet_rerank,
+                        out.skill + wet_rerank + car_spread + rival_bonus,
                         out.aggression,
                         out.optimism,
                         out.smoothness,

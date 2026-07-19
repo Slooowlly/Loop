@@ -53,6 +53,10 @@ pub struct RivalryEpisode {
 }
 
 /// Registra um capítulo. O par é normalizado (menor id primeiro) antes de gravar.
+/// Idempotente por (par, temporada, rodada): se já existe um capítulo desse par
+/// naquela rodada, NÃO grava outro — assim a percepção do import e o
+/// `record_rivalry_episodes` do boletim não duplicam o capítulo de hoje (quem gravar
+/// primeiro vence).
 pub fn insert_episode(conn: &Connection, ep: &RivalryEpisode) -> Result<(), DbError> {
     ensure_table(conn)?;
     let now = chrono::Local::now().timestamp().to_string();
@@ -61,6 +65,17 @@ pub fn insert_episode(conn: &Connection, ep: &RivalryEpisode) -> Result<(), DbEr
     } else {
         (&ep.piloto2_id, &ep.piloto1_id)
     };
+    let already: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM rivalry_episodes
+             WHERE piloto1_id = ?1 AND piloto2_id = ?2 AND temporada = ?3 AND rodada = ?4",
+            params![p1, p2, ep.temporada, ep.rodada],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if already > 0 {
+        return Ok(());
+    }
     conn.execute(
         "INSERT INTO rivalry_episodes
             (piloto1_id, piloto2_id, temporada, rodada, ano, categoria, track_name,
@@ -82,6 +97,20 @@ pub fn insert_episode(conn: &Connection, ep: &RivalryEpisode) -> Result<(), DbEr
         ],
     )?;
     Ok(())
+}
+
+/// Nome DETERMINÍSTICO da rivalidade, derivado do PRIMEIRO capítulo (a origem). É o
+/// `rivalry_label` que dá identidade ("A Revanche de Interlagos") para a UI e para os
+/// fatos da IA. Sem episódio → o caller usa `None`.
+pub fn rivalry_label(first: &RivalryEpisode) -> String {
+    let track = first.track_name.trim();
+    match first.interaction.as_str() {
+        "colisao" if !track.is_empty() => format!("A Revanche de {track}"),
+        "colisao" => "A Revanche".to_string(),
+        "campeonato" => "A Disputa pelo Título".to_string(),
+        _ if !track.is_empty() => format!("O Clássico de {track}"),
+        _ => "Rivalidade de Pista".to_string(),
+    }
 }
 
 /// Todos os capítulos de um par, em ordem cronológica (temporada, rodada).

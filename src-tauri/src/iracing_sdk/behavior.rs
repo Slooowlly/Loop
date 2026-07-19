@@ -117,6 +117,26 @@ const BADLUCK_SMO: f64 = 10.0;
 const TRAUMA_AGG: f64 = 12.0;
 const TRAUMA_OPT: f64 = 8.0;
 const TRAUMA_SMO: f64 = 14.0;
+// Lote novo (rivalidade / história / carro / pista) — mesmo padrão de sourcing dos
+// anteriores, sem schema novo.
+const NEMESIS_AGG: f64 = 12.0;
+const NEMESIS_SMO: f64 = 8.0;
+const FORMER_TEAM_AGG: f64 = 10.0;
+const FORMER_TEAM_OPT: f64 = 8.0;
+const CHAMP_OPT: f64 = 10.0;
+const CHAMP_SMO: f64 = 8.0;
+const CHAMP_AGG: f64 = 8.0; // lado frágil, sob o peso de defender o título
+const CHAMP_NEUTRAL: f64 = 0.5; // resiliência acima disto → autoridade; abaixo → peso
+const DEBUT_AGG: f64 = 10.0;
+const DEBUT_OPT: f64 = 12.0;
+const DEBUT_SMO: f64 = 10.0;
+const MECHDIST_AGG: f64 = 10.0;
+const MECHDIST_SMO: f64 = 12.0;
+const BOGEY_AGG: f64 = 8.0;
+const BOGEY_OPT: f64 = 12.0;
+const BOGEY_SMO: f64 = 8.0;
+const BOGEY_MIN_STARTS: u32 = 3; // precisa ter corrido aqui várias vezes
+const BOGEY_DEPTH: f64 = 0.45; // e o melhor resultado ainda pior que ~45% do grid
 
 /// Empurrões de UM sinal (pontos crus, antes do ganho). Skill quase sempre 0.
 #[derive(Clone, Copy, Debug, Default)]
@@ -273,7 +293,11 @@ pub fn track_affinity(k: &TrackKnowledge) -> Signal {
             adverse: true,
         };
     }
-    let masters = k.starts >= 4 || k.best_finish.is_some_and(|b| b <= 3);
+    // Domínio = pódio aqui, OU experiente (≥4 largadas) COM um resultado ao menos
+    // decente (≤P8). Experiência sem resultado não é mais domínio — abre espaço p/ a
+    // pista-fantasma (bogey_track) tratar o experiente-mas-ruim.
+    let masters =
+        k.best_finish.is_some_and(|b| b <= 3) || (k.starts >= 4 && k.best_finish.is_some_and(|b| b <= 8));
     if masters {
         return fav(Nudge {
             aggression: AFF_AGG,
@@ -643,6 +667,133 @@ pub fn track_trauma(crashed_here_before: bool) -> Signal {
     }
 }
 
+/// Nêmesis: cruzou a linha lado a lado (±1 posição) com o MESMO rival em ≥2 das últimas
+/// corridas → rivalidade pessoal, corre no limite contra ele. ADVERSO (emoção que a
+/// cabeça fria controla). O rival pode ser o próprio jogador.
+pub fn nemesis(has_nemesis: bool) -> Signal {
+    if !has_nemesis {
+        return Signal::default();
+    }
+    Signal {
+        nudge: Nudge {
+            aggression: NEMESIS_AGG,
+            smoothness: -NEMESIS_SMO,
+            ..Default::default()
+        },
+        adverse: true,
+    }
+}
+
+/// Contra a ex-equipe: trocou de time NESTA virada de temporada e tinha OUTRO time antes
+/// → algo a provar pra quem o deixou ir. ADVERSO (chip no ombro, pode sobre-pilotar).
+/// Distinto da lua de mel (que todo recém-chegado sente, favorável): aqui é a rivalidade
+/// com o passado.
+pub fn former_team_grudge(switched_teams: bool) -> Signal {
+    if !switched_teams {
+        return Signal::default();
+    }
+    Signal {
+        nudge: Nudge {
+            aggression: FORMER_TEAM_AGG,
+            optimism: FORMER_TEAM_OPT,
+            ..Default::default()
+        },
+        adverse: true,
+    }
+}
+
+/// Campeão reinante: venceu o título da categoria na temporada passada → alvo nas costas
+/// + expectativa. Resiliente → autoridade serena (favorável, calmo/confiante); frágil →
+/// peso de defender (ADVERSO, tenso/bruto).
+pub fn reigning_champion(is_champion: bool, resilience: f64) -> Signal {
+    if !is_champion {
+        return Signal::default();
+    }
+    let dir = (CHAMP_NEUTRAL - resilience) * 2.0; // -1 autoridade .. +1 peso
+    if dir <= 0.0 {
+        fav(Nudge {
+            optimism: -dir * CHAMP_OPT,
+            smoothness: -dir * CHAMP_SMO,
+            ..Default::default()
+        })
+    } else {
+        Signal {
+            nudge: Nudge {
+                aggression: dir * CHAMP_AGG,
+                smoothness: -dir * CHAMP_SMO,
+                ..Default::default()
+            },
+            adverse: true,
+        }
+    }
+}
+
+/// Estreia absoluta: a PRIMEIRA corrida da carreira → nervo cru, tateando (recolhido).
+/// ADVERSO (mental forte segura melhor o frio na barriga). Distinto de idade jovem (traço
+/// permanente) e lua de mel (chegou no time, não na carreira).
+pub fn career_debut(is_debut: bool) -> Signal {
+    if !is_debut {
+        return Signal::default();
+    }
+    Signal {
+        nudge: Nudge {
+            aggression: -DEBUT_AGG,
+            optimism: -DEBUT_OPT,
+            smoothness: DEBUT_SMO,
+            ..Default::default()
+        },
+        adverse: true,
+    }
+}
+
+/// Desconfiança mecânica: o carro quebrou (Mechanical/Operational) nas últimas corridas →
+/// passa a poupar a máquina, mais cauteloso. ADVERSO. Contraste proposital com o azar
+/// (`bad_luck`, que é frustração → agressivo): aqui a resposta é recolher, não atacar.
+pub fn mechanical_distrust(mech_dnfs: u32) -> Signal {
+    if mech_dnfs == 0 {
+        return Signal::default();
+    }
+    let k = mech_dnfs.min(3) as f64 / 3.0;
+    Signal {
+        nudge: Nudge {
+            aggression: -k * MECHDIST_AGG,
+            smoothness: k * MECHDIST_SMO,
+            ..Default::default()
+        },
+        adverse: true,
+    }
+}
+
+/// Pista-fantasma: já correu bastante aqui (≥3 largadas) mas o melhor resultado ainda é
+/// ruim (pior que ~60% do grid) e não é trauma de batida → a pista simplesmente não
+/// combina, leve resignação. ADVERSO. Não colide com `track_affinity` (cujo "domínio"
+/// agora exige um resultado decente, não só experiência).
+pub fn bogey_track(k: &TrackKnowledge, field_size: u32) -> Signal {
+    if k.starts < BOGEY_MIN_STARTS || field_size <= 1 {
+        return Signal::default();
+    }
+    let Some(best) = k.best_finish else {
+        return Signal::default();
+    };
+    if best <= 3 {
+        return Signal::default(); // pódio aqui = não é bogey
+    }
+    let depth = (best as f64 - 1.0) / (field_size as f64 - 1.0); // 0 frente .. 1 fundo
+    if depth < BOGEY_DEPTH {
+        return Signal::default();
+    }
+    let severity = ((depth - BOGEY_DEPTH) / (1.0 - BOGEY_DEPTH)).clamp(0.0, 1.0);
+    Signal {
+        nudge: Nudge {
+            aggression: -severity * BOGEY_AGG,
+            optimism: -severity * BOGEY_OPT,
+            smoothness: severity * BOGEY_SMO,
+            ..Default::default()
+        },
+        adverse: true,
+    }
+}
+
 fn splitmix(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = x;
@@ -752,6 +903,17 @@ pub struct BehaviorInputs {
     pub crashed_out_last_race: bool,
     pub not_at_fault_dnfs: u32,
     pub track_crash: bool,
+    // Lote novo.
+    /// Cruzou a linha lado a lado com o mesmo rival em ≥2 das últimas corridas.
+    pub nemesis: bool,
+    /// Trocou de equipe nesta virada de temporada (tinha outro time antes).
+    pub switched_teams: bool,
+    /// Campeão da categoria na temporada passada.
+    pub reigning_champion: bool,
+    /// Primeira corrida da carreira.
+    pub career_debut: bool,
+    /// DNFs mecânicos (Mechanical/Operational) nas últimas corridas.
+    pub mechanical_dnfs: u32,
     pub seed: u64,
 }
 
@@ -790,6 +952,12 @@ pub fn compute(i: &BehaviorInputs) -> BehaviorOutput {
         revenge(i.crashed_out_last_race),
         bad_luck(i.not_at_fault_dnfs),
         track_trauma(i.track_crash),
+        nemesis(i.nemesis),
+        former_team_grudge(i.switched_teams),
+        reigning_champion(i.reigning_champion, i.resilience),
+        career_debut(i.career_debut),
+        mechanical_distrust(i.mechanical_dnfs),
+        bogey_track(&i.track, i.field_size),
         wobble(i.seed),
     ];
     let nudges: Vec<Nudge> = signals
@@ -864,6 +1032,11 @@ mod tests {
             crashed_out_last_race: false,
             not_at_fault_dnfs: 0,
             track_crash: false,
+            nemesis: false,
+            switched_teams: false,
+            reigning_champion: false,
+            career_debut: false,
+            mechanical_dnfs: 0,
             seed: 1,
         }
     }
@@ -1069,6 +1242,46 @@ mod tests {
     }
 
     #[test]
+    fn lote_novo_sinais() {
+        // Nêmesis: rivalidade → agressivo e menos suave, adverso; sem rival = nada.
+        let nem = nemesis(true);
+        assert!(nem.nudge.aggression > 0.0 && nem.nudge.smoothness < 0.0 && nem.adverse);
+        assert_eq!(nemesis(false).nudge.aggression, 0.0);
+        // Ex-equipe: algo a provar → agressivo/otimista, adverso; sem troca = nada.
+        let ex = former_team_grudge(true);
+        assert!(ex.nudge.aggression > 0.0 && ex.nudge.optimism > 0.0 && ex.adverse);
+        assert_eq!(former_team_grudge(false).nudge.aggression, 0.0);
+        // Campeão reinante: resiliente = autoridade serena (favorável); frágil = peso
+        // tenso (adverso). Não-campeão = nada.
+        let autoridade = reigning_champion(true, 0.95);
+        let peso = reigning_champion(true, 0.05);
+        assert!(autoridade.nudge.optimism > 0.0 && autoridade.nudge.smoothness > 0.0 && !autoridade.adverse);
+        assert!(peso.nudge.aggression > 0.0 && peso.nudge.smoothness < 0.0 && peso.adverse);
+        assert_eq!(reigning_champion(false, 0.5).nudge.optimism, 0.0);
+        // Estreia: nervo → recolhido (agg↓ opt↓ suav↑), adverso; veterano = nada.
+        let deb = career_debut(true);
+        assert!(deb.nudge.aggression < 0.0 && deb.nudge.optimism < 0.0 && deb.nudge.smoothness > 0.0 && deb.adverse);
+        assert_eq!(career_debut(false).nudge.smoothness, 0.0);
+        // Desconfiança mecânica: poupa o carro (agg↓ suav↑), adverso, escala com DNFs;
+        // 0 = nada. Contraste com bad_luck (agg↑).
+        let md = mechanical_distrust(3);
+        assert!(md.nudge.aggression < 0.0 && md.nudge.smoothness > 0.0 && md.adverse);
+        assert!(mechanical_distrust(3).nudge.smoothness > mechanical_distrust(1).nudge.smoothness);
+        assert_eq!(mechanical_distrust(0).nudge.aggression, 0.0);
+        assert!(mechanical_distrust(2).nudge.aggression < 0.0 && bad_luck(2).nudge.aggression > 0.0);
+        // Pista-fantasma: experiente mas ruim aqui (best P15 em 20) → resignação, adverso.
+        let bogey = bogey_track(&TrackKnowledge { starts: 5, best_finish: Some(15), last_season: Some(2) }, 20);
+        assert!(bogey.nudge.aggression < 0.0 && bogey.nudge.optimism < 0.0 && bogey.nudge.smoothness > 0.0 && bogey.adverse);
+        // Não é bogey: pouca experiência, ou pódio aqui, ou resultado decente.
+        assert_eq!(bogey_track(&TrackKnowledge { starts: 2, best_finish: Some(18), last_season: None }, 20).nudge.aggression, 0.0);
+        assert_eq!(bogey_track(&TrackKnowledge { starts: 6, best_finish: Some(2), last_season: None }, 20).nudge.aggression, 0.0);
+        assert_eq!(bogey_track(&TrackKnowledge { starts: 6, best_finish: Some(6), last_season: None }, 20).nudge.aggression, 0.0);
+        // E o experiente-mas-ruim NÃO é mais tratado como domínio pelo track_affinity.
+        let aff = track_affinity(&TrackKnowledge { starts: 6, best_finish: Some(15), last_season: Some(2) });
+        assert_eq!(aff.nudge.aggression, 0.0, "experiência sem resultado ≠ domínio");
+    }
+
+    #[test]
     fn prize_e_lesao() {
         // Briga por grana: fim de temporada, fora do título, rival colado → tensão.
         let pf = prize_fight(40.0, &[100.0, 42.0, 40.0, 10.0], 2, 26.0, false);
@@ -1138,5 +1351,242 @@ mod tests {
         assert!(max_fraco < 42.0, "fraco max {max_fraco}");
         // Forte, num bom dia, reduz muito o adverso → chega perto da base.
         assert!(max_forte > 45.0, "forte max {max_forte}");
+    }
+
+    // ─── HARNESS DE CALIBRAÇÃO ───────────────────────────────────────────────────
+    // Não valida nada: IMPRIME tabelas pra calibrar as magnitudes vendo números.
+    //   cargo test --lib behavior::tests::calibracao -- --nocapture --test-threads=1
+    // (rode com CARGO_TARGET_DIR fora do OneDrive)
+
+    fn row(label: &str, s: Signal) {
+        let n = s.nudge;
+        println!(
+            "{:<26} agg {:>6.1}  opt {:>6.1}  suav {:>6.1}  pace {:>5.1}   {}",
+            label,
+            n.aggression,
+            n.optimism,
+            n.smoothness,
+            n.skill,
+            if s.adverse { "ADVERSO" } else { "favor." }
+        );
+    }
+
+    /// TABELA A: peso CRU de cada sinal (antes de ganho×mentalidade e da blindagem do
+    /// adverso). É o "quanto cada lever vale" — a referência principal pra calibrar.
+    #[test]
+    fn calibracao_magnitudes() {
+        println!("\n=== TABELA A · magnitude CRUA por sinal (gain=1, sem blindagem) ===");
+        let title = tc(true, false, false);
+        row("pressao_titulo choke", pressure_title(&title, 1, 0.15));
+        row("pressao_titulo clutch", pressure_title(&title, 1, 0.90));
+        row("cruzeiro (titulo ganho)", pressure_title(&tc(true, true, true), 1, 0.5));
+        row("casa_cheia choke", pressure_event(1.0, &[18, 20, 19], 24, 0.15));
+        row("casa_cheia clutch", pressure_event(1.0, &[18, 20, 19], 24, 0.90));
+        row("forma_alta", form(&[1, 2, 1], 20, 0.5));
+        row("forma_seca (fragil)", form(&[18, 19, 20], 20, 0.15));
+        row(
+            "pista_nova",
+            track_affinity(&TrackKnowledge { starts: 0, best_finish: None, last_season: None }),
+        );
+        row(
+            "pista_dominio",
+            track_affinity(&TrackKnowledge { starts: 5, best_finish: Some(2), last_season: Some(1) }),
+        );
+        row("chuva_teme", weather(true, 10.0, 1.0));
+        row("chuva_mestre", weather(true, 95.0, 1.0));
+        row("calor_extremo (38C)", heat(38.0));
+        row("jovem (18)", age_phase(18));
+        row("veterano (38)", age_phase(38));
+        row("status_alto (alfa grid)", status(0.5, 1.0));
+        row("status_baixo (fundo)", status(0.1, 0.1));
+        row("casa (pais natal)", home_race(true));
+        row("win_streak (3)", win_streak(&[1, 1, 1]));
+        row("near_miss (podios)", near_miss(&[2, 3, 2]));
+        row("fim_temporada_fadiga", end_season_fatigue(1, 14));
+        row("prodigio_ascensao", rising_prodigy(18, &[1, 2, 1], 20));
+        row("caca_marco (99->100)", milestone_chase(99));
+        row("contrato_ult_ano (frag)", contract_year(true, 0.15));
+        row("duelo_companheiro", teammate_duel(30.0, Some(80.0)));
+        row("promovido", category_move(1));
+        row("rebaixado", category_move(-1));
+        row("moral_feliz", team_morale(1.4));
+        row("moral_infeliz", team_morale(0.6));
+        row(
+            "briga_grana (prize)",
+            prize_fight(40.0, &[100.0, 42.0, 40.0, 10.0], 2, 26.0, false),
+        );
+        row("retorno_lesao", injury_return(true));
+        row("lua_de_mel", honeymoon(true));
+        row("vinganca", revenge(true));
+        row("azar (3 dnf)", bad_luck(3));
+        row("trauma_pista", track_trauma(true));
+        row("NEMESIS", nemesis(true));
+        row("EX-EQUIPE", former_team_grudge(true));
+        row("CAMPEAO autoridade", reigning_champion(true, 0.90));
+        row("CAMPEAO peso (fragil)", reigning_champion(true, 0.15));
+        row("ESTREIA", career_debut(true));
+        row("DESCONFIANCA_MEC (3)", mechanical_distrust(3));
+        row(
+            "PISTA-FANTASMA (P15/20)",
+            bogey_track(&TrackKnowledge { starts: 5, best_finish: Some(15), last_season: Some(2) }, 20),
+        );
+        row("wobble (humor, seed 7)", wobble(7));
+        println!("(crus; no jogo cada um leva ×gain[0.6..1.4] e o ADVERSO ainda é blindado pela compostura)\n");
+    }
+
+    /// Roda 200 "dias" (seeds) e imprime a média final vs base — o adverso não depende
+    /// mais do sorteio do dia.
+    fn profile(label: &str, mut base: BehaviorInputs) {
+        let n = 200u64;
+        let (ba, bo, bs, bk) = (
+            base.base_aggression,
+            base.base_optimism,
+            base.base_smoothness,
+            base.base_skill,
+        );
+        let (mut a, mut o, mut s, mut k) = (0.0, 0.0, 0.0, 0.0);
+        for seed in 0..n {
+            base.seed = seed;
+            let out = compute(&base);
+            a += out.aggression;
+            o += out.optimism;
+            s += out.smoothness;
+            k += out.skill;
+        }
+        let f = n as f64;
+        println!(
+            "{:<34} agg {:>5.1} (b{:>3.0})  opt {:>5.1} (b{:>3.0})  suav {:>5.1} (b{:>3.0})  pace {:>5.1} (b{:>3.0})",
+            label, a / f, ba, o / f, bo, s / f, bs, k / f, bk,
+        );
+    }
+
+    /// TABELA B: perfis realistas end-to-end. Mostra onde os stacks aterrissam e como a
+    /// mentalidade blinda o adverso.
+    #[test]
+    fn calibracao_perfis() {
+        println!("\n=== TABELA B · perfis realistas (média de 200 dias) ===");
+
+        // 1. Rookie estreante, pista nova, chuva forte, mental fraco.
+        let mut p = neutral_inputs();
+        p.base_aggression = 55.0;
+        p.base_optimism = 50.0;
+        p.base_smoothness = 48.0;
+        p.base_skill = 45.0;
+        p.mentality = 30.0;
+        p.resilience = pressure::pressure_resilience(30.0, 10.0);
+        p.age = 18;
+        p.track = TrackKnowledge { starts: 0, best_finish: None, last_season: None };
+        p.is_wet = true;
+        p.fator_chuva = 20.0;
+        p.rain_intensity = 1.0;
+        p.career_debut = true;
+        profile("1. rookie estreante·pista nova·chuva", p);
+
+        // 2. Campeão reinante frágil, defendendo, última corrida, título em jogo.
+        let mut p = neutral_inputs();
+        p.base_aggression = 52.0;
+        p.base_optimism = 60.0;
+        p.base_smoothness = 55.0;
+        p.base_skill = 88.0;
+        p.mentality = 35.0;
+        p.resilience = pressure::pressure_resilience(35.0, 60.0);
+        p.title = tc(true, false, false);
+        p.races_left = 1;
+        p.reigning_champion = true;
+        profile("2. campeao reinante fragil·defesa", p);
+
+        // 3. Veterano, fim de temporada, azar mecânico, moral baixa.
+        let mut p = neutral_inputs();
+        p.base_aggression = 48.0;
+        p.base_optimism = 50.0;
+        p.base_smoothness = 62.0;
+        p.base_skill = 72.0;
+        p.mentality = 55.0;
+        p.resilience = pressure::pressure_resilience(55.0, 90.0);
+        p.age = 38;
+        p.races_left = 1;
+        p.season_length = 14;
+        p.mechanical_dnfs = 2;
+        p.team_morale = 0.7;
+        profile("3. veterano·fim season·azar mec", p);
+
+        // 4. Jovem prodígio em alta, casa, win streak, mental forte.
+        let mut p = neutral_inputs();
+        p.base_aggression = 60.0;
+        p.base_optimism = 58.0;
+        p.base_smoothness = 50.0;
+        p.base_skill = 78.0;
+        p.mentality = 85.0;
+        p.resilience = pressure::pressure_resilience(85.0, 40.0);
+        p.age = 19;
+        p.recent_positions = vec![1, 1, 1];
+        p.home_race = true;
+        profile("4. jovem prodigio·alta·casa", p);
+
+        // 5. Rivalidade carregada: nêmesis + ex-equipe + trauma de pista.
+        let mut p = neutral_inputs();
+        p.base_aggression = 58.0;
+        p.base_optimism = 52.0;
+        p.base_smoothness = 54.0;
+        p.base_skill = 74.0;
+        p.mentality = 50.0;
+        p.resilience = pressure::pressure_resilience(50.0, 50.0);
+        p.nemesis = true;
+        p.switched_teams = true;
+        p.track_crash = true;
+        profile("5. nemesis+ex-equipe+trauma", p);
+
+        println!("\n--- combos EXTREMOS (tudo alinhado) ---");
+        // 6. COMBO FAVORÁVEL MÁXIMO (mental fraco = gain 1.4 amplifica o favorável):
+        // jovem prodígio, tri-vitória, casa, status topo, domínio de pista, mestre de
+        // chuva, rebaixado (swagger), lua de mel, caça-marco, moral alta. Empurra
+        // agg/opt pro TETO 100.
+        let mut p = neutral_inputs();
+        p.base_aggression = 55.0;
+        p.base_optimism = 55.0;
+        p.base_smoothness = 50.0;
+        p.base_skill = 78.0;
+        p.mentality = 20.0; // fraco → gain alto → favorável amplificado
+        p.resilience = pressure::pressure_resilience(20.0, 20.0);
+        p.age = 18;
+        p.recent_positions = vec![1, 1, 1];
+        p.field_size = 20;
+        p.home_race = true;
+        p.global_rank_percentile = 1.0;
+        p.grid_rank_percentile = 1.0;
+        p.track = TrackKnowledge { starts: 6, best_finish: Some(1), last_season: Some(1) };
+        p.is_wet = true;
+        p.fator_chuva = 95.0;
+        p.rain_intensity = 1.0;
+        p.category_move = -1; // rebaixado → swagger
+        p.honeymoon = true;
+        p.career_wins = 99; // próxima = marco 100
+        p.team_morale = 1.5;
+        profile("6. COMBO favoravel max (fraco)", p);
+
+        // 7. COMBO ADVERSO MÁXIMO (mental fraco, tudo contra, sinais que RECOLHEM):
+        // pista nova, teme a chuva, veterano, calor, retorno de lesão, promovido,
+        // desconfiança mecânica, trauma de pista. Empurra agg/opt pro CHÃO 0 e suav pro
+        // teto. (Sem choke/vingança/nêmesis, que SOBEM a agressividade.)
+        let mut p = neutral_inputs();
+        p.base_aggression = 45.0;
+        p.base_optimism = 45.0;
+        p.base_smoothness = 55.0;
+        p.base_skill = 60.0;
+        p.mentality = 5.0; // fraco → não blinda nada, gain máximo
+        p.resilience = pressure::pressure_resilience(5.0, 5.0);
+        p.age = 38; // veterano
+        p.field_size = 20;
+        p.track = TrackKnowledge { starts: 0, best_finish: None, last_season: None }; // nova
+        p.is_wet = true;
+        p.fator_chuva = 5.0; // teme a chuva
+        p.rain_intensity = 1.0;
+        p.temp_c = 39.0; // calor extremo
+        p.injury_return = true;
+        p.category_move = 1; // promovido → cautela
+        p.mechanical_dnfs = 3;
+        p.track_crash = true; // trauma
+        profile("7. COMBO adverso max (fraco)", p);
+        println!();
     }
 }
