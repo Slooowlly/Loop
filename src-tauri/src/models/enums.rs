@@ -310,6 +310,18 @@ impl WeatherCondition {
             other => Err(format!("WeatherCondition invalido: '{other}'")),
         }
     }
+
+    /// Fração de "molhado" da pista (0 = seco, 1 = aguaceiro) que a condição representa para o
+    /// desgaste das peças: a chuva estressa a eletrônica e alivia a térmica (motor/arrefecimento).
+    /// Escala com a severidade da condição. Consumido pelo Sistema de Quebra.
+    pub fn wetness(&self) -> f64 {
+        match self {
+            WeatherCondition::Dry => 0.0,
+            WeatherCondition::Damp => 0.35,
+            WeatherCondition::Wet => 0.70,
+            WeatherCondition::HeavyRain => 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

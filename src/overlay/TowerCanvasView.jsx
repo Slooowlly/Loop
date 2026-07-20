@@ -5,20 +5,33 @@ import { DEFAULT_THEME } from "./towerThemes";
 
 // A torre para o overlay de MONITOR — desenhada pelo MESMO `drawTower` que
 // alimenta o VR. Uma fonte de verdade, zero divergência. `theme` escolhe a pele.
-export default function TowerCanvasView({ data = OVERLAY_MOCK, theme = DEFAULT_THEME, style }) {
+export default function TowerCanvasView({
+  data = OVERLAY_MOCK,
+  theme = DEFAULT_THEME,
+  style,
+  animate = false,
+}) {
   const ref = useRef(null);
 
   useEffect(() => {
     const ctx = ref.current.getContext("2d", { willReadFrequently: true });
     let cancelled = false;
+    let raf = null;
     (async () => {
-      const assets = await preloadAssets(data);
-      if (!cancelled) drawTower(ctx, data, assets, theme);
+      const assets = await preloadAssets(data); // carrega uma vez por data
+      if (cancelled) return;
+      const draw = () => {
+        drawTower(ctx, data, assets, theme);
+        // `animate` redesenha a cada frame → o piscar (alerta/flash) pulsa de verdade.
+        if (animate) raf = requestAnimationFrame(draw);
+      };
+      draw();
     })();
     return () => {
       cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
     };
-  }, [data, theme]);
+  }, [data, theme, animate]);
 
   // Buffer em 2× (VR_W×VR_H) pra nitidez; DISPLAY no tamanho lógico, senão o
   // canvas apareceria com o dobro do tamanho no monitor. `style` do chamador vence.

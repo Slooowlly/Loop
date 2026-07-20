@@ -132,7 +132,7 @@ describe("Header", () => {
     const image = screen.getByAltText("Circuito Desconhecido XYZ");
     expect(image).toHaveAttribute(
       "src",
-      "/utilities/tracks/Circuito%20Desconhecido%20XYZ.png",
+      "/utilities/tracks/Circuito%20Desconhecido%20XYZ.webp",
     );
   });
 

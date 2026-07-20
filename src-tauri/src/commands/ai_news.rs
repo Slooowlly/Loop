@@ -124,10 +124,15 @@ pub struct PreRaceAiResult {
 }
 
 /// Prévia pré-corrida (narrativa + voz da equipe, CURTAS) para a Sala de Estratégia.
-/// Monta o bloco "ARCO RECENTE" que dá MEMÓRIA entre etapas ao briefing: um resumão
+/// Monta o bloco "MEMÓRIA RECENTE" que dá continuidade entre etapas: uma LISTA CURTA
 /// das últimas até 3 corridas do jogador na categoria (chegada + manchete do debrief
-/// de cada uma) e, para a etapa imediatamente anterior, o corpo completo do que o
-/// engenheiro te disse — para que o briefing retome promessas e mostre continuidade.
+/// de cada uma). É de propósito compacto — apenas o fio da meada para o servidor
+/// retomar a voz, NÃO o debrief inteiro.
+///
+/// Histórico: antes este bloco despejava o corpo COMPLETO do debrief anterior. Com a
+/// prévia reescrita em torno de uma tese dominante (o front já marca o eixo, ex.:
+/// "reação a um DNF"), esse despejo passava por cima do eixo e fazia o texto colapsar
+/// no último tombo. Agora a memória reforça o eixo em vez de competir com ele.
 ///
 /// Só depende do banco (`conn` + `race_id`), como `build_post_race_facts`. Sem
 /// histórico (1ª corrida da carreira / 1ª na categoria) devolve string vazia e o
@@ -166,7 +171,7 @@ fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String 
     let mut f = String::new();
     let _ = writeln!(
         f,
-        "\nARCO RECENTE (o que você e a equipe já viveram nas últimas etapas — use para retomar promessas, mostrar memória e dar continuidade; NÃO liste como estatística):"
+        "\nMEMÓRIA RECENTE (as últimas etapas que você e a equipe viveram — use APENAS para dar continuidade de voz e retomar o fio da narrativa; é contexto, NÃO reconte cada corrida nem trate como estatística):"
     );
     for r in &recent {
         let resultado = if r.is_dnf {
@@ -185,20 +190,6 @@ fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String 
             }
             None => {
                 let _ = writeln!(f, "- R{} · {}: {}", r.round, r.track_name, resultado);
-            }
-        }
-    }
-
-    // Corpo completo só da etapa imediatamente anterior (a mais recente) — continuidade
-    // de voz sem inflar o prompt com o debrief inteiro de todas as etapas.
-    if let Some(prev) = recent.first() {
-        if let Ok(Some(d)) = crate::db::queries::ai_post_race::get_post_race(conn, &prev.race_id) {
-            if !d.body.is_empty() {
-                let _ = writeln!(
-                    f,
-                    "\nNA ÚLTIMA CORRIDA (R{}), O ENGENHEIRO TE DISSE: {}",
-                    prev.round, d.body
-                );
             }
         }
     }
@@ -672,10 +663,130 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
     f
 }
 
+/// Duelo pessoal DECIDIDO na corrida (nemesis ou rival de pista) — usado quando o
+/// resultado em si foi morno mas o confronto direto é a história do dia.
+struct PostRaceDuel {
+    name: String,
+    player_won: bool,
+    is_nemesis: bool,
+    h2h: Option<(i32, i32)>,
+}
+
+/// Sinais destilados da corrida que alimentam a tese do debrief.
+struct PostRaceSignals {
+    is_dnf: bool,
+    dnf_mechanical: bool,
+    grid: i32,
+    finish: i32,
+    positions_gained: i32,
+    has_fastest_lap: bool,
+    assessment: Option<crate::race_eval::Assessment>,
+    target_low: i32,
+    target_high: i32,
+    duel: Option<PostRaceDuel>,
+    track_name: String,
+}
+
+/// A TESE DOMINANTE do debrief pós-corrida. Mesmo princípio da prévia (nextRaceThesis.js):
+/// em vez de despejar todos os blocos achatados e deixar o servidor adivinhar QUAL foi a
+/// história da corrida, elegemos UM eixo e organizamos o resto em APOIO/PANO DE FUNDO.
+/// Semeado pelo cérebro `race_eval` (assessment/nota/meta) + o evento de destaque (DNF
+/// mecânico vs erro, remontada, colapso, vitória, over/under, ou um duelo decidido).
+/// Devolve (statement do eixo, ids de bloco promovidos ao APOIO). `resultado` e `pre_race`
+/// são sempre promovidos pelo chamador (resultado é o núcleo; pre_race fecha o loop).
+fn select_post_race_thesis(s: &PostRaceSignals) -> (String, Vec<&'static str>) {
+    use crate::race_eval::Assessment::{Abaixo, Acima, MuitoAbaixo, MuitoAcima};
+    let track = &s.track_name;
+    let overperf = matches!(s.assessment, Some(Acima) | Some(MuitoAcima));
+    let underperf = matches!(s.assessment, Some(Abaixo) | Some(MuitoAbaixo));
+
+    // 1) DNF mecânico — o carro falhou, não foi erro seu.
+    if s.is_dnf && s.dnf_mechanical {
+        return (
+            format!("Gancho central — DRAMA MECÂNICO: o carro falhou e causou o abandono em {track} — não foi erro de pilotagem. A história é a frustração de um resultado roubado pela mecânica: acolher o baque, tirar o aprendizado e virar a página."),
+            vec!["breakdowns", "maintenance"],
+        );
+    }
+    // 2) DNF por incidente/contato — fim precoce na pista.
+    if s.is_dnf {
+        return (
+            format!("Gancho central — FIM PRECOCE: a corrida acabou antes da hora em {track} (incidente na pista, não mecânica). A história é encarar o que deu errado de frente, sem drama excessivo, e recarregar para a próxima."),
+            vec![],
+        );
+    }
+    // 3) Vitória — a manchete é a própria vitória.
+    if s.finish == 1 {
+        let fl = if s.has_fastest_lap {
+            ", com direito à volta mais rápida"
+        } else {
+            ""
+        };
+        return (
+            format!("Gancho central — VITÓRIA: você venceu em {track}{fl}. A história é o peso e a autoridade dessa vitória, e o que ela muda no campeonato."),
+            vec!["telemetry", "lived_rivalry", "champ_rival"],
+        );
+    }
+    // 4) Remontada — ganhou muitas posições e não ficou abaixo da meta.
+    if s.positions_gained >= 5 && !underperf {
+        return (
+            format!("Gancho central — RECUPERAÇÃO: largou P{} e terminou P{} (+{} posições), na faixa alta da meta. A história é a remontada — o que se construiu do grid à bandeirada.", s.grid, s.finish, s.positions_gained),
+            vec!["telemetry", "eval", "lived_rivalry"],
+        );
+    }
+    // 5) Colapso — perdeu muitas posições, ou ficou abaixo da meta largando bem.
+    if s.positions_gained <= -4 || (underperf && s.grid <= s.target_low) {
+        return (
+            format!("Gancho central — CORRIDA QUE ESCAPOU: largou P{} e terminou P{} — perdeu terreno num dia que prometia mais. A história é o que se deixou pelo caminho, sem culpar a mecânica.", s.grid, s.finish),
+            vec!["eval", "telemetry"],
+        );
+    }
+    // 6) Acima do esperado (entrega além do conjunto).
+    if overperf {
+        return (
+            format!("Gancho central — ACIMA DO ESPERADO: P{} superou a meta (P{}–P{}). A história é ter entregue além do que o conjunto prometia.", s.finish, s.target_low, s.target_high),
+            vec!["eval", "telemetry"],
+        );
+    }
+    // 7) Aquém do esperado (sem drama de abandono).
+    if underperf {
+        return (
+            format!("Gancho central — AQUÉM: P{} ficou abaixo da meta (P{}–P{}), sem o drama de um abandono. A história é a frustração de um dia que pedia mais, e como reagir.", s.finish, s.target_low, s.target_high),
+            vec!["eval", "telemetry"],
+        );
+    }
+    // 8) Resultado morno, mas um DUELO pessoal foi decidido → ele é a história.
+    if let Some(d) = &s.duel {
+        let verbo = if d.player_won {
+            "ter batido"
+        } else {
+            "ter perdido para"
+        };
+        let quem = if d.is_nemesis {
+            "seu nemesis"
+        } else {
+            "seu rival direto"
+        };
+        let h2h = d
+            .h2h
+            .map(|(p, r)| format!(" (o confronto direto vai {p}-{r})"))
+            .unwrap_or_default();
+        return (
+            format!("Gancho central — O DUELO: o resultado ficou dentro do esperado, mas o que marca o dia é {verbo} {quem} {}{h2h}. A história é esse confronto direto.", d.name),
+            vec!["lived_rivalry", "champ_rival"],
+        );
+    }
+    // 9) Dia de somar — dentro do esperado, sem grande drama.
+    (
+        format!("Gancho central — DIA DE SOMAR: corrida dentro do esperado (P{}), sem grande drama. A história é a consistência e o que esse resultado significa para o campeonato.", s.finish),
+        vec!["eval", "champ_rival"],
+    )
+}
+
 /// Monta o "fact bundle" do pós-corrida a partir da tela salva (resultado +
 /// manutenção + avaliação) cruzada com o banco (companheiro, rival de campeonato,
-/// últimas 3 corridas, contexto da pré-corrida). Tudo FATO — o tom/voz fica no
-/// prompt do servidor. String vazia → sem fatos suficientes (front cai no template).
+/// últimas 3 corridas, contexto da pré-corrida). Organizado em torno de uma TESE
+/// dominante (EIXO → APOIO → PANO DE FUNDO); o tom/voz fica no prompt do servidor.
+/// String vazia → sem fatos suficientes (front cai no template).
 fn build_post_race_facts(
     conn: &rusqlite::Connection,
     career_dir: &std::path::Path,
@@ -717,12 +828,7 @@ fn build_post_race_facts(
         .map(|t| t.categoria)
         .unwrap_or_default();
 
-    let mut f = String::new();
-    let _ = writeln!(f, "PISTA: {}", result.track_name);
-    let _ = writeln!(f, "CLIMA: {}", weather_pt(&result.weather));
-    if !categoria.is_empty() {
-        let _ = writeln!(f, "CATEGORIA: {categoria}");
-    }
+    // ---- CENÁRIO (cabeçalho) ----
     let calendar_entry = crate::db::queries::calendar::get_calendar_entry_by_id(conn, race_id)
         .ok()
         .flatten();
@@ -731,33 +837,47 @@ fn build_post_race_facts(
         .flatten()
         .map(|s| s.numero)
         .unwrap_or(0);
-    if let Some(entry) = &calendar_entry {
-        let _ = writeln!(f, "TEMPORADA {season_num} · RODADA {}", entry.rodada);
+    let mut cenario = String::new();
+    let _ = write!(
+        cenario,
+        "PISTA: {} · CLIMA: {}",
+        result.track_name,
+        weather_pt(&result.weather)
+    );
+    if !categoria.is_empty() {
+        let _ = write!(cenario, " · CATEGORIA: {categoria}");
     }
-    let _ = writeln!(f, "VOLTAS: {}", result.total_laps);
+    if let Some(entry) = &calendar_entry {
+        let _ = write!(cenario, " · TEMPORADA {season_num} RODADA {}", entry.rodada);
+    }
+    let _ = write!(cenario, " · VOLTAS: {}", result.total_laps);
 
+    // ---- Bloco: META + NOTA (cérebro race_eval) ----
+    let mut eval_b = String::new();
     if let Some(ev) = &evaluation {
         let _ = writeln!(
-            f,
-            "\nMETA DA CORRIDA: P{}–P{} (faixa esperada do conjunto)",
+            eval_b,
+            "META DA CORRIDA: P{}–P{} (faixa esperada do conjunto)",
             ev.target_low, ev.target_high
         );
-        let _ = writeln!(f, "NOTA: {:.1}/10 ({})", ev.grade, ev.assessment.label());
+        let _ = write!(eval_b, "NOTA: {:.1}/10 ({})", ev.grade, ev.assessment.label());
     }
 
-    let _ = writeln!(f, "\nSEU RESULTADO:");
-    let _ = writeln!(f, "- Largou em P{}", player.grid_position);
+    // ---- Bloco: SEU RESULTADO ----
+    let mut res_b = String::new();
+    let _ = writeln!(res_b, "SEU RESULTADO:");
+    let _ = writeln!(res_b, "- Largou em P{}", player.grid_position);
     if player.is_dnf {
         match player.dnf_reason.as_deref().filter(|s| !s.is_empty()) {
             Some(m) => {
-                let _ = writeln!(f, "- ABANDONOU (DNF): {m}");
+                let _ = writeln!(res_b, "- ABANDONOU (DNF): {m}");
             }
             None => {
-                let _ = writeln!(f, "- ABANDONOU (DNF)");
+                let _ = writeln!(res_b, "- ABANDONOU (DNF)");
             }
         }
     } else {
-        let _ = writeln!(f, "- Chegou em P{}", player.finish_position);
+        let _ = writeln!(res_b, "- Chegou em P{}", player.finish_position);
     }
     let saldo = player.positions_gained;
     let saldo_txt = if saldo > 0 {
@@ -767,11 +887,11 @@ fn build_post_race_facts(
     } else {
         "manteve a posição de largada".to_string()
     };
-    let _ = writeln!(f, "- Saldo: {saldo_txt}");
+    let _ = writeln!(res_b, "- Saldo: {saldo_txt}");
     if !player.is_dnf && player.finish_position > 1 {
         let gap = player.gap_to_winner_ms / 1000.0;
         if gap > 0.0 {
-            let _ = writeln!(f, "- Gap pro vencedor: +{gap:.3}s");
+            let _ = writeln!(res_b, "- Gap pro vencedor: +{gap:.3}s");
         }
     }
     if player.best_lap_time_ms > 0.0 {
@@ -783,12 +903,13 @@ fn build_post_race_facts(
         } else {
             ""
         };
-        let _ = writeln!(f, "- Melhor volta: {}:{:06.3}{fastest}", m as i64, rest);
+        let _ = writeln!(res_b, "- Melhor volta: {}:{:06.3}{fastest}", m as i64, rest);
     }
-    let _ = writeln!(f, "- Pontos: {}", player.points_earned);
-    let _ = writeln!(f, "- Incidentes: {}", player.incidents_count);
+    let _ = writeln!(res_b, "- Pontos: {}", player.points_earned);
+    let _ = write!(res_b, "- Incidentes: {}", player.incidents_count);
 
-    // Companheiro de equipe (o duelo que mais importa).
+    // ---- Bloco: companheiro de equipe ----
+    let mut mate_b = String::new();
     if let Some(mate) = result
         .race_results
         .iter()
@@ -806,14 +927,15 @@ fn build_post_race_facts(
         } else {
             " — ele ficou na sua frente"
         };
-        let _ = writeln!(
-            f,
-            "\nCOMPANHEIRO DE EQUIPE: {} terminou em {mate_pos}{cmp}",
+        let _ = write!(
+            mate_b,
+            "COMPANHEIRO DE EQUIPE: {} terminou em {mate_pos}{cmp}",
             mate.pilot_name
         );
     }
 
-    // Rival de campeonato (o MESMO que a pré-corrida marcou).
+    // ---- Bloco: rival de campeonato (o MESMO que a pré-corrida marcou) ----
+    let mut champ_b = String::new();
     if !categoria.is_empty() {
         if let Ok(Some(rival)) =
             crate::commands::career::build_primary_rival_summary(conn, &player.pilot_id, &categoria)
@@ -843,15 +965,15 @@ fn build_post_race_facts(
                     } else {
                         ""
                     };
-                    let _ = writeln!(
-                        f,
+                    let _ = write!(
+                        champ_b,
                         "RIVAL DE CAMPEONATO: {} ({standing}) terminou em {rpos}{cmp}",
                         rival.driver_name
                     );
                 }
                 None => {
-                    let _ = writeln!(
-                        f,
+                    let _ = write!(
+                        champ_b,
                         "RIVAL DE CAMPEONATO: {} ({standing}) — não correu esta etapa",
                         rival.driver_name
                     );
@@ -860,9 +982,9 @@ fn build_post_race_facts(
         }
     }
 
-    // Rivalidade VIVIDA (motor de rivalidade): Nemesis + Rivais de pista — o duelo
-    // pessoal do jogador, com o nome da rivalidade e o retrospecto direto. Distinto do
-    // rival de campeonato acima (que é só posicional nos pontos).
+    // ---- Bloco: rivalidade VIVIDA (nemesis + rivais) + captura do DUELO decidido ----
+    let mut lived_b = String::new();
+    let mut duel: Option<PostRaceDuel> = None;
     {
         use std::cmp::Ordering;
         let current =
@@ -877,6 +999,24 @@ fn build_post_race_facts(
             rows.push(("RIVAL", r));
         }
         for (role, ri) in rows {
+            // O 1º duelo DECIDIDO (nemesis vem primeiro, então tem prioridade) vira sinal
+            // para a tese `DuelDecided` quando o resultado em si foi morno.
+            if duel.is_none() && !player.is_dnf {
+                if let Some(rr) = result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
+                    if !rr.is_dnf && rr.finish_position != player.finish_position {
+                        duel = Some(PostRaceDuel {
+                            name: ri.driver_name.clone(),
+                            player_won: player.finish_position < rr.finish_position,
+                            is_nemesis: role == "NEMESIS",
+                            h2h: if ri.chapters > 0 {
+                                Some((ri.h2h_player_wins, ri.h2h_rival_wins))
+                            } else {
+                                None
+                            },
+                        });
+                    }
+                }
+            }
             let today = match result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
                 Some(rr) => {
                     let pos = if rr.is_dnf {
@@ -897,36 +1037,32 @@ fn build_post_race_facts(
                 }
                 None => "não correu esta etapa".to_string(),
             };
-            let label = ri
-                .label
-                .map(|l| format!(" \"{l}\""))
-                .unwrap_or_default();
+            let label = ri.label.map(|l| format!(" \"{l}\"")).unwrap_or_default();
             let h2h = if ri.chapters > 0 {
                 format!("; confronto direto {}-{}", ri.h2h_player_wins, ri.h2h_rival_wins)
             } else {
                 String::new()
             };
-            let _ = writeln!(f, "{role}{label}: {} {today}{h2h}", ri.driver_name);
+            let _ = writeln!(lived_b, "{role}{label}: {} {today}{h2h}", ri.driver_name);
         }
     }
 
-    // Telemetria real da pista (ritmo, ultrapassagens, degradação, erro/melhor
-    // momento, duelo direto) — o bloco `telemetry` da própria tela salva.
-    if !player.is_dnf {
-        let _ = write!(f, "{}", telemetry_facts(v.get("telemetry"), player.grid_position));
-    }
+    // ---- Bloco: telemetria real (só se terminou) ----
+    let tel_b = if !player.is_dnf {
+        telemetry_facts(v.get("telemetry"), player.grid_position)
+    } else {
+        String::new()
+    };
 
-    // Memória entre etapas: resumão das últimas corridas (chegada + manchete do
-    // debrief de cada uma) e o corpo do debrief anterior — a MESMA peça do briefing
-    // pré-corrida, para o engenheiro falar com continuidade de fim de semana a fim de
-    // semana, não só com a lista fria de resultados.
-    let _ = write!(f, "{}", build_recent_arc_facts(conn, race_id));
+    // ---- Bloco: memória entre etapas (arco) — sempre PANO DE FUNDO ----
+    let arc_b = build_recent_arc_facts(conn, race_id);
 
-    // Manutenção / batida.
+    // ---- Bloco: manutenção / batida ----
+    let mut mnt_b = String::new();
     if maintenance.total > 0.0 {
         let _ = writeln!(
-            f,
-            "\nMANUTENÇÃO DO CARRO: $ {} no total",
+            mnt_b,
+            "MANUTENÇÃO DO CARRO: $ {} no total",
             maintenance.total.round() as i64
         );
         let danos: Vec<String> = maintenance
@@ -936,21 +1072,171 @@ fn build_post_race_facts(
             .map(|i| format!("{} $ {}", i.label, i.cost.round() as i64))
             .collect();
         if !danos.is_empty() {
-            let _ = writeln!(f, "- CONSERTO DA BATIDA: {}", danos.join(", "));
+            let _ = write!(mnt_b, "- CONSERTO DA BATIDA: {}", danos.join(", "));
         }
     }
 
-    // Contexto da pré-corrida (pra FECHAR o loop do que foi prometido).
+    // ---- Bloco: quebras de peça + captura do DNF MECÂNICO ----
+    let breakdowns = crate::db::queries::race_breakdowns::get_breakdowns_for_race(conn, race_id)
+        .unwrap_or_default();
+    let mut brk_b = String::new();
+    let mut player_mech_break = false;
+    if !breakdowns.is_empty() {
+        let mine: Vec<_> = breakdowns
+            .iter()
+            .filter(|b| b.driver_id == player.pilot_id)
+            .collect();
+        if !mine.is_empty() {
+            player_mech_break = mine
+                .iter()
+                .any(|b| matches!(b.severity.as_str(), "dnf" | "heavy"));
+            let _ = writeln!(brk_b, "SEU CARRO — PEÇAS QUE LARGARAM:");
+            for b in &mine {
+                let desfecho = match b.penalty_secs {
+                    Some(s) => format!("{s}s perdidos no box"),
+                    None => "abandono (carro fora)".to_string(),
+                };
+                let grav = match b.severity.as_str() {
+                    "dnf" => "grave",
+                    "heavy" => "grave",
+                    _ => "leve",
+                };
+                let _ = writeln!(brk_b, "- Volta {}: {} — {desfecho} ({grav})", b.lap, b.label);
+            }
+        }
+        let grid_dnf = breakdowns
+            .iter()
+            .filter(|b| b.severity == "dnf" && b.driver_id != player.pilot_id)
+            .count();
+        let grid_pen = breakdowns
+            .iter()
+            .filter(|b| b.severity != "dnf" && b.driver_id != player.pilot_id)
+            .count();
+        if grid_dnf + grid_pen > 0 {
+            let _ = write!(
+                brk_b,
+                "QUEBRAS NA GRADE: {grid_dnf} abandono(s) mecânico(s), {grid_pen} parada(s) por peça"
+            );
+        }
+    }
+
+    // ---- Bloco: pré-corrida (FECHA o loop do que foi prometido) ----
+    let mut pre_b = String::new();
     if let Ok(Some(pre)) = crate::db::queries::ai_pre_race::get_pre_race(conn, race_id) {
-        let _ = writeln!(f, "\nO QUE A EQUIPE TE DISSE ANTES DA LARGADA:");
+        let _ = writeln!(pre_b, "O QUE A EQUIPE TE DISSE ANTES DA LARGADA:");
         if !pre.headline.is_empty() {
-            let _ = writeln!(f, "Manchete: {}", pre.headline);
+            let _ = writeln!(pre_b, "Manchete: {}", pre.headline);
         }
         if !pre.narrative.is_empty() {
-            let _ = writeln!(f, "Briefing: {}", pre.narrative);
+            let _ = write!(pre_b, "Briefing: {}", pre.narrative);
         }
     }
 
+    // DNF mecânico = peça grave no carro do jogador OU motivo textual mecânico (vs
+    // batida/incidente). Separa "o carro te traiu" de "você/alguém rodou".
+    let dnf_mechanical = player.is_dnf
+        && (player_mech_break
+            || player
+                .dnf_reason
+                .as_deref()
+                .map(|r| {
+                    let r = r.to_lowercase();
+                    [
+                        "motor", "câmbio", "cambio", "mecân", "mecan", "suspens", "freio",
+                        "transmiss", "embreagem", "turbo", "óleo", "oleo", "superaquec", "pane",
+                        "elétric", "eletric", "diferencial",
+                    ]
+                    .iter()
+                    .any(|k| r.contains(k))
+                })
+                .unwrap_or(false));
+
+    // ---- TESE DOMINANTE ----
+    let signals = PostRaceSignals {
+        is_dnf: player.is_dnf,
+        dnf_mechanical,
+        grid: player.grid_position,
+        finish: player.finish_position,
+        positions_gained: player.positions_gained,
+        has_fastest_lap: player.has_fastest_lap,
+        assessment: evaluation.as_ref().map(|e| e.assessment),
+        target_low: evaluation.as_ref().map(|e| e.target_low).unwrap_or(0),
+        target_high: evaluation.as_ref().map(|e| e.target_high).unwrap_or(0),
+        duel,
+        track_name: result.track_name.clone(),
+    };
+    let (statement, mut support) = select_post_race_thesis(&signals);
+    // Núcleo sempre promovido: o resultado (o que aconteceu) e o pré-corrida (fecha o loop).
+    for id in ["resultado", "pre_race"] {
+        if !support.contains(&id) {
+            support.push(id);
+        }
+    }
+
+    // ---- Montagem em camadas (EIXO → APOIO → PANO DE FUNDO) ----
+    let block_for = |id: &str| -> &str {
+        match id {
+            "eval" => eval_b.as_str(),
+            "resultado" => res_b.as_str(),
+            "telemetry" => tel_b.as_str(),
+            "teammate" => mate_b.as_str(),
+            "champ_rival" => champ_b.as_str(),
+            "lived_rivalry" => lived_b.as_str(),
+            "breakdowns" => brk_b.as_str(),
+            "maintenance" => mnt_b.as_str(),
+            "pre_race" => pre_b.as_str(),
+            "arc" => arc_b.as_str(),
+            _ => "",
+        }
+    };
+    let order = [
+        "eval",
+        "resultado",
+        "telemetry",
+        "teammate",
+        "champ_rival",
+        "lived_rivalry",
+        "breakdowns",
+        "maintenance",
+        "pre_race",
+        "arc",
+    ];
+    let mut apoio = String::new();
+    let mut fundo = String::new();
+    for id in order {
+        let text = block_for(id).trim();
+        if text.is_empty() {
+            continue;
+        }
+        let target = if support.contains(&id) {
+            &mut apoio
+        } else {
+            &mut fundo
+        };
+        let _ = writeln!(target, "\n{text}");
+    }
+
+    let mut f = String::new();
+    let _ = writeln!(f, "CENÁRIO: {}", cenario.trim());
+    let _ = writeln!(
+        f,
+        "\nEIXO DO DEBRIEF — a história desta corrida, o coração do texto (desenvolva a narrativa a partir dele; NÃO é uma linha solta):"
+    );
+    let _ = writeln!(f, "{statement}");
+    if !apoio.trim().is_empty() {
+        let _ = writeln!(
+            f,
+            "\nAPOIO — fatos que sustentam a história (use os que reforçarem):"
+        );
+        let _ = write!(f, "{}", apoio.trim_start_matches('\n'));
+    }
+    if !fundo.trim().is_empty() {
+        let _ = writeln!(
+            f,
+            "\nPANO DE FUNDO — contexto secundário (use com parcimônia; NÃO liste como estatística):"
+        );
+        let _ = write!(f, "{}", fundo.trim_start_matches('\n'));
+    }
     f
 }
 
@@ -1070,7 +1356,114 @@ pub fn player_race_news_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::race_eval::Assessment;
     use serde_json::json;
+
+    fn sig() -> PostRaceSignals {
+        // Base neutra: terminou dentro do esperado, sem drama.
+        PostRaceSignals {
+            is_dnf: false,
+            dnf_mechanical: false,
+            grid: 6,
+            finish: 6,
+            positions_gained: 0,
+            has_fastest_lap: false,
+            assessment: Some(Assessment::Dentro),
+            target_low: 5,
+            target_high: 7,
+            duel: None,
+            track_name: "Interlagos".to_string(),
+        }
+    }
+
+    fn thesis_of(s: &PostRaceSignals) -> String {
+        select_post_race_thesis(s).0
+    }
+
+    #[test]
+    fn dnf_mecanico_vence_tudo_e_isenta_o_piloto() {
+        let mut s = sig();
+        s.is_dnf = true;
+        s.dnf_mechanical = true;
+        s.assessment = Some(Assessment::MuitoAbaixo);
+        let (stmt, support) = select_post_race_thesis(&s);
+        assert!(stmt.contains("DRAMA MECÂNICO"));
+        assert!(stmt.contains("não foi erro"));
+        assert!(support.contains(&"breakdowns"));
+    }
+
+    #[test]
+    fn dnf_por_incidente_e_fim_precoce() {
+        let mut s = sig();
+        s.is_dnf = true;
+        s.dnf_mechanical = false;
+        assert!(thesis_of(&s).contains("FIM PRECOCE"));
+    }
+
+    #[test]
+    fn vitoria_e_a_manchete() {
+        let mut s = sig();
+        s.finish = 1;
+        s.positions_gained = 5;
+        s.has_fastest_lap = true;
+        let stmt = thesis_of(&s);
+        assert!(stmt.contains("VITÓRIA"));
+        assert!(stmt.contains("volta mais rápida"));
+    }
+
+    #[test]
+    fn remontada_quando_ganha_muitas_posicoes() {
+        let mut s = sig();
+        s.grid = 12;
+        s.finish = 4;
+        s.positions_gained = 8;
+        s.assessment = Some(Assessment::Acima);
+        assert!(thesis_of(&s).contains("RECUPERAÇÃO"));
+    }
+
+    #[test]
+    fn colapso_quando_perde_muitas_posicoes() {
+        let mut s = sig();
+        s.grid = 3;
+        s.finish = 11;
+        s.positions_gained = -8;
+        s.assessment = Some(Assessment::Abaixo);
+        assert!(thesis_of(&s).contains("ESCAPOU"));
+    }
+
+    #[test]
+    fn acima_e_abaixo_do_esperado_sem_drama() {
+        let mut over = sig();
+        over.finish = 3;
+        over.assessment = Some(Assessment::Acima);
+        assert!(thesis_of(&over).contains("ACIMA DO ESPERADO"));
+
+        let mut under = sig();
+        under.finish = 9;
+        under.assessment = Some(Assessment::Abaixo);
+        assert!(thesis_of(&under).contains("AQUÉM"));
+    }
+
+    #[test]
+    fn duelo_decide_um_dia_morno() {
+        let mut s = sig(); // assessment Dentro, nada extremo
+        s.duel = Some(PostRaceDuel {
+            name: "K. Novak".to_string(),
+            player_won: true,
+            is_nemesis: true,
+            h2h: Some((3, 2)),
+        });
+        let stmt = thesis_of(&s);
+        assert!(stmt.contains("O DUELO"));
+        assert!(stmt.contains("K. Novak"));
+        assert!(stmt.contains("nemesis"));
+        assert!(stmt.contains("3-2"));
+    }
+
+    #[test]
+    fn dia_de_somar_quando_nada_se_destaca() {
+        assert!(thesis_of(&sig()).contains("DIA DE SOMAR"));
+    }
 
     #[test]
     fn telemetry_facts_resume_ritmo_ultrapassagens_e_erro() {

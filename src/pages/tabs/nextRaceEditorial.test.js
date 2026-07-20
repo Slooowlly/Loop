@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildEditorialCopy,
-  classifyChampionshipState,
-  classifyWeekendState,
-  EDITORIAL_COPY_POOLS,
-} from "./nextRaceEditorial";
+import { buildEditorialCopy, classifyChampionshipState, THESIS_EDITORIAL } from "./nextRaceEditorial";
+import { THESIS_PRIORITY } from "./nextRaceThesis";
 
 describe("classifyChampionshipState", () => {
   it("marks a close title chase as chase", () => {
@@ -45,104 +41,87 @@ describe("classifyChampionshipState", () => {
   });
 });
 
-describe("classifyWeekendState", () => {
-  it("marks a heated weekend when stories and rival are active", () => {
-    expect(
-      classifyWeekendState({
-        trackHistory: { has_data: true, best_finish: 2, dnfs: 0 },
-        briefingRival: { driver_name: "M. Costa" },
-        nextRace: { clima: "Wet" },
-        weekendStories: [{ importanceLabel: "Alta" }, { importanceLabel: "Media" }],
-      }),
-    ).toBe("weekend_hot");
-  });
-
-  it("marks a negative-history weekend when the track has only bad memories", () => {
-    expect(
-      classifyWeekendState({
-        trackHistory: { has_data: true, starts: 3, best_finish: 11, dnfs: 2 },
-        briefingRival: null,
-        nextRace: { clima: "Dry" },
-        weekendStories: [],
-      }),
-    ).toBe("history_negative");
-  });
-});
-
 describe("buildEditorialCopy", () => {
-  it("uses title-chase language when the championship is alive", () => {
-    const copy = buildEditorialCopy({
-      championshipState: "chase",
-      weekendState: "rival_spotlight",
-      playerStanding: { posicao_campeonato: 2, pontos: 88 },
-      leader: { nome: "M. Costa", pontos: 94 },
-      rival: { nome: "M. Costa" },
-      briefingRival: {
-        driver_name: "M. Costa",
-        championship_position: 1,
-        gap_points: 6,
-        is_ahead: true,
-      },
-      playerTeam: { nome: "Equipe Aurora" },
-      nextRace: { track_name: "Interlagos" },
-      trackHistory: { has_data: true, starts: 4, best_finish: 1, dnfs: 0, last_visit_season: 1 },
-      weekendStories: [{ title: "Duelo esquenta a abertura", summary: "Paddock em alerta.", importanceLabel: "Alta" }],
-      gapToLeader: 6,
-      gapBehind: 16,
-      remainingRounds: 5,
-      audienceEstimate: 84200,
-    });
+  const base = {
+    playerStanding: { id: "p1", posicao_campeonato: 2, pontos: 88, results: [{ position: 3, is_dnf: false }] },
+    leader: { nome: "M. Costa", pontos: 94 },
+    briefingRival: { driver_name: "M. Costa", championship_position: 1, gap_points: 6, is_ahead: true },
+    playerTeam: { nome: "Equipe Aurora" },
+    nextRace: { track_name: "Interlagos", rodada: 5 },
+    trackHistory: { has_data: true, starts: 4, best_finish: 1, dnfs: 0, last_visit_season: 1 },
+    gapToLeader: 6,
+    remainingRounds: 5,
+  };
 
-    expect(copy.headline).toMatch(/encurtar|pressionar|aproximar/i);
-    expect(copy.rivalSummary).toMatch(/M\. Costa/i);
-    expect(copy.actionHint).toMatch(/duelo|simular/i);
+  it("returns exactly the fields the screen renders", () => {
+    const copy = buildEditorialCopy({ thesis: { key: "title_chase" }, ...base });
+    expect(copy.headline).toBeTruthy();
+    expect(copy.paragraphs).toHaveLength(2);
+    expect(copy.quote).toBeTruthy();
+    expect(copy.actionHint).toBeTruthy();
   });
 
-  it("uses survival language when the title is already out of reach", () => {
-    const copy = buildEditorialCopy({
-      championshipState: "outsider",
-      weekendState: "history_positive",
-      playerStanding: { posicao_campeonato: 8, pontos: 9 },
-      leader: { nome: "M. Costa", pontos: 50 },
-      rival: { nome: "M. Costa" },
-      briefingRival: {
-        driver_name: "M. Costa",
-        championship_position: 1,
-        gap_points: 41,
-        is_ahead: true,
-      },
-      playerTeam: { nome: "Equipe Aurora" },
-      nextRace: { track_name: "Interlagos" },
-      trackHistory: { has_data: true, starts: 4, best_finish: 1, dnfs: 0, last_visit_season: 1 },
-      weekendStories: [],
-      gapToLeader: 41,
-      gapBehind: 2,
-      remainingRounds: 1,
-      audienceEstimate: 84200,
-    });
+  it("drives the copy from the dominant thesis (title chase)", () => {
+    const copy = buildEditorialCopy({ thesis: { key: "title_chase" }, ...base });
+    expect(copy.headline).toMatch(/conta|caça/i);
+    expect(copy.paragraphs[0]).toMatch(/M\. Costa/);
+    expect(copy.paragraphs[0]).toMatch(/6 ponto/);
+  });
 
-    expect(copy.headline).toMatch(/dignidade competitiva|reagir|fechar a temporada/i);
-    expect(copy.scenario).toMatch(/muito improvavel|somar pontos|caos da prova/i);
-    expect(copy.weekendStoriesEmpty).toMatch(/paddock|pista/i);
+  it("switches voice entirely when the thesis is redemption", () => {
+    const copy = buildEditorialCopy({ thesis: { key: "redemption" }, ...base });
+    expect(copy.headline).toMatch(/virar a chave|reação/i);
+    expect(copy.paragraphs.join(" ")).toMatch(/resposta|trilhos|virada/i);
+  });
+
+  it("uses the nemesis name when the thesis is a personal duel", () => {
+    const copy = buildEditorialCopy({
+      thesis: { key: "nemesis" },
+      ...base,
+      nemesisName: "K. Novak",
+    });
+    expect(copy.headline + copy.paragraphs.join(" ")).toMatch(/K\. Novak/);
+  });
+
+  it("produces weather-flavored copy on a wet thesis", () => {
+    const copy = buildEditorialCopy({ thesis: { key: "weather" }, ...base, climaLabel: "chuva forte" });
+    expect(copy.paragraphs[0]).toMatch(/pista molha|corrida de leitura|reescrever o grid|previsível|meteorologia/i);
+  });
+
+  it("threads the weather label into the variant that uses it", () => {
+    // A variante 1 do clima cita o rótulo; escolhemos uma etapa cujo seed a seleciona.
+    const wet = buildEditorialCopy({
+      thesis: { key: "weather" },
+      ...base,
+      nextRace: { track_name: "Spa", rodada: 3 },
+      climaLabel: "chuva forte",
+    });
+    // Ou o rótulo aparece (variante 1), ou o texto é claramente de clima (variante 2).
+    expect(wet.paragraphs[0]).toMatch(/chuva forte|pista molha/i);
+  });
+
+  it("is deterministic for the same race", () => {
+    const a = buildEditorialCopy({ thesis: { key: "baseline" }, ...base });
+    const b = buildEditorialCopy({ thesis: { key: "baseline" }, ...base });
+    expect(a.headline).toBe(b.headline);
+    expect(a.paragraphs).toEqual(b.paragraphs);
+  });
+
+  it("falls back to baseline copy for an unknown thesis key", () => {
+    const copy = buildEditorialCopy({ thesis: { key: "does-not-exist" }, ...base });
+    expect(copy.paragraphs).toHaveLength(2);
+    expect(copy.headline).toBeTruthy();
   });
 });
 
-describe("EDITORIAL_COPY_POOLS", () => {
-  it("keeps at least 10 alternatives for each main editorial block", () => {
-    const sections = [
-      EDITORIAL_COPY_POOLS.headline,
-      EDITORIAL_COPY_POOLS.championshipParagraph,
-      EDITORIAL_COPY_POOLS.weekendParagraph,
-      EDITORIAL_COPY_POOLS.quote,
-      EDITORIAL_COPY_POOLS.rivalSummaryAhead,
-      EDITORIAL_COPY_POOLS.scenario,
-      EDITORIAL_COPY_POOLS.actionHint,
-    ];
-
-    for (const section of sections) {
-      for (const variants of Object.values(section)) {
-        expect(Array.isArray(variants)).toBe(true);
-        expect(variants.length).toBeGreaterThanOrEqual(10);
+describe("THESIS_EDITORIAL", () => {
+  it("covers every thesis in the priority list with all four fields and 2 variants", () => {
+    for (const key of THESIS_PRIORITY) {
+      const entry = THESIS_EDITORIAL[key];
+      expect(entry, `missing editorial for thesis "${key}"`).toBeTruthy();
+      for (const field of ["headline", "lead", "outlook", "quote"]) {
+        expect(Array.isArray(entry[field]), `${key}.${field} should be an array`).toBe(true);
+        expect(entry[field].length, `${key}.${field} should have 2 variants`).toBe(2);
       }
     }
   });

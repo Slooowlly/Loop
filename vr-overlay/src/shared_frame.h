@@ -28,6 +28,14 @@ static const uint32_t IRACER_SHM_MAGIC = 0x52414352;  // 'RACR'
 static const uint32_t IRACER_OVERLAY_W = 1024;
 static const uint32_t IRACER_OVERLAY_H = 2048;
 
+// ── 2º painel: RÁDIO DA EQUIPE (quad independente da torre) ──
+// Mesmo cabeçalho (IracerFrameHeader) e mesmo magic; muda só o NOME do mapeamento e a
+// resolução (banner largo e baixo, não retrato). O layer abre os dois mapeamentos e
+// desenha dois quads com config separada. 2× do lógico ~512×128.
+#define IRACER_ENGINEER_SHM_NAME L"Local\\iRacerEngineerFrame"
+static const uint32_t IRACER_ENGINEER_W = 1024;
+static const uint32_t IRACER_ENGINEER_H = 256;
+
 // Modos de trava do painel no espaço VR.
 static const int32_t IRACER_LOCK_HEAD  = 0;  // preso à cabeça (VIEW): segue o olhar
 static const int32_t IRACER_LOCK_WORLD = 1;  // preso ao cockpit (LOCAL): fica fixo
@@ -57,3 +65,7 @@ struct IracerFrameHeader {
 static const uint64_t IRACER_SHM_SIZE =
     sizeof(IracerFrameHeader) +
     static_cast<uint64_t>(IRACER_OVERLAY_W) * IRACER_OVERLAY_H * 4;
+
+static const uint64_t IRACER_ENGINEER_SHM_SIZE =
+    sizeof(IracerFrameHeader) +
+    static_cast<uint64_t>(IRACER_ENGINEER_W) * IRACER_ENGINEER_H * 4;

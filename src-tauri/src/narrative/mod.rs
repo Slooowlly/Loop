@@ -266,6 +266,129 @@ pub fn select(mut beats: Vec<Beat>) -> Vec<Beat> {
     beats
 }
 
+/// A TESE JORNALÍSTICA do boletim — o ângulo dominante da matéria (voz de revista,
+/// grid inteiro). Diferente da prévia/debrief (que giram no piloto do leitor), aqui o
+/// eixo é a HISTÓRIA DA CORRIDA: caos, vitória improvável, pole que afundou, remontada,
+/// domínio, ou dia de administração. O piloto do leitor segue citado, nunca protagonista.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RaceThesis {
+    Caos,
+    VitoriaImprovavel,
+    PoleFrustrada,
+    Remontada,
+    Dominio,
+    CorridaLimpa,
+}
+
+/// Sinais destilados do resultado que alimentam a tese (puros/testáveis, sem depender
+/// da estrutura inteira do `RaceResult`).
+pub struct RaceThesisSignals {
+    pub total_dnfs: i32,
+    pub field_size: i32,
+    pub winner_name: String,
+    pub winner_team: String,
+    pub winner_grid: i32,
+    /// (nome, chegada) da POLE quando ela NÃO venceu e afundou (>= P5).
+    pub pole_flopped: Option<(String, i32)>,
+    /// (nome, largada, chegada, ganho) da maior recuperação, se NÃO foi o vencedor.
+    pub biggest_recovery: Option<(String, i32, i32, i32)>,
+}
+
+/// Extrai os sinais da tese do resultado bruto.
+pub fn race_thesis_signals(result: &RaceResult) -> RaceThesisSignals {
+    let rows = &result.race_results;
+    let winner = find(rows, &result.winner_id);
+    let pole_flopped = find(rows, &result.pole_sitter_id).and_then(|p| {
+        if p.pilot_id != result.winner_id && !p.is_dnf && p.finish_position >= 5 {
+            Some((p.pilot_name.clone(), p.finish_position))
+        } else {
+            None
+        }
+    });
+    let biggest_recovery = result
+        .most_positions_gained_id
+        .as_ref()
+        .and_then(|id| find(rows, id))
+        .and_then(|d| {
+            if d.pilot_id != result.winner_id && d.positions_gained >= 1 {
+                Some((
+                    d.pilot_name.clone(),
+                    d.grid_position,
+                    d.finish_position,
+                    d.positions_gained,
+                ))
+            } else {
+                None
+            }
+        });
+    RaceThesisSignals {
+        total_dnfs: result.total_dnfs,
+        field_size: rows.len() as i32,
+        winner_name: winner
+            .map(|w| w.pilot_name.clone())
+            .unwrap_or_else(|| "o vencedor".to_string()),
+        winner_team: winner.map(|w| w.team_name.clone()).unwrap_or_default(),
+        winner_grid: winner.map(|w| w.grid_position).unwrap_or(0),
+        pole_flopped,
+        biggest_recovery,
+    }
+}
+
+/// Elege a tese dominante (1ª que casar vence). Devolve o statement do EIXO + os
+/// `BeatKind` que devem subir para a camada de DESTAQUES; o resto vira pano de fundo.
+pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<BeatKind>) {
+    use BeatKind::*;
+    // Caos: muitos abandonos redesenharam o grid.
+    let caos_gate = 4.max(s.field_size / 4);
+    if s.total_dnfs >= caos_gate {
+        return (
+            RaceThesis::Caos,
+            format!("Ângulo central — CORRIDA DE ATRITO: {} abandonos redesenharam o grid. O dia foi de sobrevivência e de quem capitalizou o caos, não de uma disputa limpa de ponta a ponta.", s.total_dnfs),
+            vec![Abandono, Vitoria],
+        );
+    }
+    // Vitória improvável: o vencedor veio lá de trás.
+    if s.winner_grid >= 6 {
+        return (
+            RaceThesis::VitoriaImprovavel,
+            format!("Ângulo central — VITÓRIA IMPROVÁVEL: {} ({}) venceu largando lá atrás, em P{}. A matéria é essa cavalgada do meio do grid até a ponta.", s.winner_name, s.winner_team, s.winner_grid),
+            vec![Vitoria, Recuperacao],
+        );
+    }
+    // Pole frustrada: o favorito da pole afundou.
+    if let Some((pole_name, finish)) = &s.pole_flopped {
+        return (
+            RaceThesis::PoleFrustrada,
+            format!("Ângulo central — A POLE VIROU PÓ: {} largou na frente e afundou até P{}, enquanto {} herdou a corrida. A matéria é a queda do favorito.", pole_name, finish, s.winner_name),
+            vec![Decepcao, Vitoria],
+        );
+    }
+    // Remontada épica de um não-vencedor.
+    if let Some((name, grid, finish, gained)) = &s.biggest_recovery {
+        if *gained >= 8 && *finish <= 6 {
+            return (
+                RaceThesis::Remontada,
+                format!("Ângulo central — REMONTADA DO DIA: {} saiu de P{} e chegou a P{} ({} posições ganhas). A matéria é essa recuperação, mais marcante que a disputa na ponta.", name, grid, finish, gained),
+                vec![Recuperacao, Vitoria],
+            );
+        }
+    }
+    // Domínio de quem largou na frente.
+    if s.winner_grid >= 1 && s.winner_grid <= 2 {
+        return (
+            RaceThesis::Dominio,
+            format!("Ângulo central — DOMÍNIO NA PONTA: {} ({}) largou em P{} e controlou a corrida. A matéria é o controle e a autoridade, não a surpresa.", s.winner_name, s.winner_team, s.winner_grid),
+            vec![Vitoria, VoltaRapida],
+        );
+    }
+    // Baseline: dia de administração.
+    (
+        RaceThesis::CorridaLimpa,
+        format!("Ângulo central — DIA DE ADMINISTRAÇÃO: {} ({}) venceu numa corrida controlada, sem grandes reviravoltas. A matéria é a consistência de quem executou o esperado.", s.winner_name, s.winner_team),
+        vec![Vitoria, Podio],
+    )
+}
+
 /// Renderiza o contexto curado final a partir do resultado + metadados.
 pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> RaceContext {
     let mut beats = build_beats(result);
@@ -305,13 +428,36 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
             facts.push_str(&format!("\nPiloto acompanhado pelo leitor: {name}"));
         }
     }
-    facts.push_str("\n\nFatos (não invente nada além destes):\n");
-    for beat in &selected {
-        facts.push_str(&format!("- {}\n", beat.text));
+    // Tese jornalística: elege o ÂNGULO da matéria e hierarquiza os beats em
+    // DESTAQUES (que sustentam o ângulo) vs PANO DE FUNDO (cor). Antes era uma lista
+    // plana "Fatos" e o servidor tinha que adivinhar a manchete.
+    let sig = race_thesis_signals(result);
+    let (_thesis, statement, support) = select_race_thesis(&sig);
+
+    facts.push_str(
+        "\n\nEIXO DA MATÉRIA — o ângulo que este boletim deve desenvolver (voz de revista, 3ª pessoa; construa a narrativa a partir dele, não como uma linha solta):\n",
+    );
+    facts.push_str(&statement);
+    facts.push('\n');
+
+    let (apoio, fundo): (Vec<&Beat>, Vec<&Beat>) =
+        selected.iter().partition(|b| support.contains(&b.kind));
+
+    if !apoio.is_empty() {
+        facts.push_str("\nDESTAQUES QUE SUSTENTAM O ÂNGULO (fatos reais — não invente nada além destes):\n");
+        for beat in &apoio {
+            facts.push_str(&format!("- {}\n", beat.text));
+        }
+    }
+    if !fundo.is_empty() {
+        facts.push_str("\nPANO DE FUNDO — outros fatos reais da corrida (dê cor com eles, sem virar o assunto principal):\n");
+        for beat in &fundo {
+            facts.push_str(&format!("- {}\n", beat.text));
+        }
     }
 
     if !input.context_facts.is_empty() {
-        facts.push_str("\nContexto (pano de fundo — use para dar cor quando fizer sentido, sem virar o assunto principal):\n");
+        facts.push_str("\nCONTEXTO (bastidores/carreira — cor extra quando fizer sentido):\n");
         for fact in input.context_facts {
             facts.push_str(&format!("- {fact}\n"));
         }
@@ -361,5 +507,81 @@ mod tests {
         let sel = select(beats);
         assert_eq!(sel.first().map(|b| b.kind.clone()), Some(BeatKind::Vitoria));
         assert_eq!(sel.last().map(|b| b.kind.clone()), Some(BeatKind::Podio));
+    }
+
+    fn sig() -> RaceThesisSignals {
+        // Base: vencedor de P3, sem caos, sem pole frustrada, sem remontada.
+        RaceThesisSignals {
+            total_dnfs: 1,
+            field_size: 20,
+            winner_name: "A. Vega".to_string(),
+            winner_team: "Aurora".to_string(),
+            winner_grid: 3,
+            pole_flopped: None,
+            biggest_recovery: None,
+        }
+    }
+
+    fn thesis_of(s: &RaceThesisSignals) -> RaceThesis {
+        select_race_thesis(s).0
+    }
+
+    #[test]
+    fn caos_quando_muitos_abandonos() {
+        let mut s = sig();
+        s.total_dnfs = 6; // >= max(4, 20/4=5)
+        assert_eq!(thesis_of(&s), RaceThesis::Caos);
+    }
+
+    #[test]
+    fn caos_vence_ate_a_vitoria_improvavel() {
+        let mut s = sig();
+        s.total_dnfs = 7;
+        s.winner_grid = 9; // seria VitoriaImprovavel, mas o caos é o ângulo
+        assert_eq!(thesis_of(&s), RaceThesis::Caos);
+    }
+
+    #[test]
+    fn vitoria_improvavel_quando_vencedor_veio_de_tras() {
+        let mut s = sig();
+        s.winner_grid = 8;
+        let (t, stmt, _) = select_race_thesis(&s);
+        assert_eq!(t, RaceThesis::VitoriaImprovavel);
+        assert!(stmt.contains("P8"));
+    }
+
+    #[test]
+    fn pole_frustrada_quando_pole_afunda() {
+        let mut s = sig();
+        s.pole_flopped = Some(("R. Silva".to_string(), 9));
+        let (t, stmt, _) = select_race_thesis(&s);
+        assert_eq!(t, RaceThesis::PoleFrustrada);
+        assert!(stmt.contains("R. Silva"));
+    }
+
+    #[test]
+    fn remontada_quando_recuperacao_epica_de_nao_vencedor() {
+        let mut s = sig();
+        s.biggest_recovery = Some(("K. Novak".to_string(), 18, 4, 14));
+        assert_eq!(thesis_of(&s), RaceThesis::Remontada);
+    }
+
+    #[test]
+    fn recuperacao_pequena_nao_vira_remontada() {
+        let mut s = sig();
+        s.biggest_recovery = Some(("K. Novak".to_string(), 8, 5, 3)); // gained 3 < 8
+        assert_eq!(thesis_of(&s), RaceThesis::CorridaLimpa);
+    }
+
+    #[test]
+    fn dominio_quando_vencedor_larga_na_frente() {
+        let mut s = sig();
+        s.winner_grid = 1;
+        assert_eq!(thesis_of(&s), RaceThesis::Dominio);
+    }
+
+    #[test]
+    fn corrida_limpa_como_piso() {
+        assert_eq!(thesis_of(&sig()), RaceThesis::CorridaLimpa);
     }
 }

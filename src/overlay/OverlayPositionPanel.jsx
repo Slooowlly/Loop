@@ -35,12 +35,12 @@ function loadRecenterKey() {
 // pode sobrescrevê-los ("Definir padrão"); aí o reset volta pra pose salva dele.
 const FACTORY = {
   lockMode: 1, // 1 = cockpit (world), 0 = cabeça (view)
-  x: 0.3,
-  y: -0.1,
-  z: -1.0,
-  yaw: -12,
-  pitch: 8,
-  scale: 1.0,
+  x: 0,
+  y: 0.61,
+  z: -1.29,
+  yaw: 0,
+  pitch: 30,
+  scale: 1.7,
   visible: true,
 };
 

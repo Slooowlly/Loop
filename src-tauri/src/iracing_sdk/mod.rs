@@ -22,6 +22,7 @@ pub mod behavior;
 pub mod car_difficulty;
 pub mod paint_gen;
 pub mod paths;
+pub mod race_capture;
 pub mod race_control;
 pub mod race_monitor;
 pub mod result_bridge;
@@ -191,6 +192,10 @@ pub struct IracingTelemetry {
     pub is_replay_playing: bool,
     /// Índice do carro do jogador (`PlayerCarIdx`) — qual entrada de `cars` é a dele.
     pub player_car_idx: i32,
+    /// Índice do carro que a CÂMERA está assistindo (`CamCarIdx`). No replay/spectate
+    /// segue quem você olha; dirigindo normal fica no seu carro (= `player_car_idx`).
+    /// -1 = ainda não lido. Alimenta o destaque da torre "linha = quem você assiste".
+    pub cam_car_idx: i32,
     /// Se o carro do jogador está no pit road (`OnPitRoad`).
     pub player_on_pit_road: bool,
     /// Umidade da pista (`TrackWetness`, irsdk_TrackWetness): 0 Unknown, 1 Dry,
@@ -201,6 +206,12 @@ pub struct IracingTelemetry {
     pub air_temp: f64,
     /// Temperatura da pista em °C (`TrackTemp`).
     pub track_temp: f64,
+    /// Umidade relativa do ar, fração 0.0–1.0 (`RelativeHumidity`). Alimenta o Sistema de
+    /// Quebra (umidade amplifica o calor no motor). 0 = ainda não lido.
+    pub relative_humidity: f64,
+    /// Velocidade do vento em m/s (`WindVel`). Alimenta o Sistema de Quebra (vento estressa
+    /// suspensão + asas). 0 = ainda não lido.
+    pub wind_ms: f64,
     /// Duração total da sessão em segundos (`SessionTimeTotal`) — corridas por tempo.
     pub session_time_total: f64,
     /// Tempo restante da sessão em segundos (`SessionTimeRemain`).
@@ -261,6 +272,11 @@ pub struct CarSnapshot {
     pub last_lap_time: f64,
     /// Melhor volta do carro na sessão (`CarIdxBestLapTime`); ≤0 = nenhuma.
     pub best_lap_time: f64,
+    /// Composto de pneu ESCOLHIDO pelo carro (`CarIdxTireCompound`, irsdk). Índice
+    /// 0-based por série (0 = 1º composto, 1 = 2º…); -1 = desconhecido/indisponível.
+    /// É a MESMA info que o RaceLab mostra — e vem preenchida inclusive pra IA e ANTES
+    /// da largada (assim que os carros escolhem o pneu). O mapa índice→nome é por série.
+    pub tire_compound: i32,
 }
 
 impl Default for CarSnapshot {
@@ -281,6 +297,7 @@ impl Default for CarSnapshot {
             est_time: 0.0,
             last_lap_time: 0.0,
             best_lap_time: 0.0,
+            tire_compound: -1,
         }
     }
 }
@@ -372,6 +389,16 @@ pub fn parse_player_custid(yaml: &str) -> Option<i64> {
         }
     }
     None
+}
+
+/// Redline do carro do jogador (RPM) do YAML de sessão (`DriverInfo.DriverCarRedLine`).
+/// Referência pro estilo de pilotagem (colado no limitador / short-shift). Varredura por
+/// linha. `None` se ausente (o consumidor trata como redline desconhecido → ignora rotação).
+pub fn parse_car_redline(yaml: &str) -> Option<f64> {
+    yaml.lines()
+        .find_map(|line| line.trim().strip_prefix("DriverCarRedLine:"))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|rpm| *rpm > 0.0)
 }
 
 // ─── Custid do jogador: capturado automaticamente e persistido ───────────────
@@ -585,6 +612,9 @@ mod imp {
         let buffer = base.add(buf_offset as usize);
 
         let mut t = IracingTelemetry::default();
+        // -1 = "não lido" (Default dá 0, que é um idx válido). Se o `CamCarIdx` não
+        // vier no frame, o overlay cai no carro do jogador em vez de destacar o carro 0.
+        t.cam_car_idx = -1;
         // Pré-aloca todos os slots de carro (idx correto); slots não preenchidos
         // ficam com os padrões "ausente" e são filtrados no fim.
         let mut cars: Vec<CarSnapshot> = (0..IRSDK_MAX_CARS)
@@ -634,6 +664,7 @@ mod imp {
                         "CarIdxEstTime" => car.est_time = v,
                         "CarIdxLastLapTime" => car.last_lap_time = v,
                         "CarIdxBestLapTime" => car.best_lap_time = v,
+                        "CarIdxTireCompound" => car.tire_compound = v as i32,
                         _ => {}
                     }
                 }
@@ -643,6 +674,7 @@ mod imp {
             let value = read_value(buffer.add(var_offset as usize), var_type);
             match name {
                 "PlayerCarIdx" => t.player_car_idx = value as i32,
+                "CamCarIdx" => t.cam_car_idx = value as i32,
                 "OnPitRoad" => t.player_on_pit_road = value != 0.0,
                 "Speed" => t.speed_ms = value,
                 "RPM" => t.rpm = value,
@@ -682,6 +714,8 @@ mod imp {
                 "TrackWetness" => t.track_wetness = value as i32,
                 "AirTemp" => t.air_temp = value,
                 "TrackTemp" => t.track_temp = value,
+                "RelativeHumidity" => t.relative_humidity = value,
+                "WindVel" => t.wind_ms = value,
                 "SessionTimeTotal" => t.session_time_total = value,
                 "SessionTimeRemain" => t.session_time_remain = value,
                 "SessionLapsRemainEx" => t.session_laps_remain_ex = value as i32,

@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isLegacySeasonPhase } from "../utils/seasonPhases";
 import { isFinaleSlot } from "../utils/postRaceLanding";
+import { applyLanguage } from "../i18n/index.js";
 
 const initialState = {
   isLoaded: false,
@@ -19,6 +20,10 @@ const initialState = {
   error: null,
   careerId: null,
   difficulty: null,
+  // Idioma escolhido no menu (Settings). Decide se os FALLBACKS determinísticos
+  // (PT) aparecem, ou se, em outro idioma, mostramos "erro na geração de texto"
+  // no idioma escolhido em vez de texto em português.
+  language: "pt-BR",
   player: null,
   playerTeam: null,
   season: null,
@@ -412,6 +417,8 @@ const useCareerStore = create((set, get) => ({
       });
       // Rivalidades de interesse (Nemesis/Rivais) — fire-and-forget; decora os nomes.
       void get().loadPlayerInterests();
+      // Idioma escolhido — fire-and-forget; decide fallback PT vs "erro" localizado.
+      void get().loadLanguage();
       return data;
     } catch (error) {
       const message = getErrorMessage(error, "Erro ao carregar carreira.");
@@ -430,6 +437,27 @@ const useCareerStore = create((set, get) => ({
       set({ playerInterests: interests });
     } catch {
       /* sem rivalidades / falha — marcador simplesmente não aparece */
+    }
+  },
+
+  // Carrega o idioma escolhido do config (best-effort; default pt-BR se falhar).
+  loadLanguage: async () => {
+    try {
+      const cfg = await invoke("get_config");
+      if (cfg?.language) {
+        set({ language: cfg.language });
+        applyLanguage(cfg.language); // sincroniza o i18next (UI estática).
+      }
+    } catch {
+      /* mantém o default */
+    }
+  },
+
+  // Atualização imediata do idioma (o Settings chama ao trocar, sem exigir reload).
+  setLanguage: (language) => {
+    if (language) {
+      set({ language });
+      applyLanguage(language); // troca a UI na hora, sem reload.
     }
   },
 
@@ -1141,7 +1169,7 @@ const useCareerStore = create((set, get) => ({
     if (preRaceAi?.raceId === raceId) return; // já temos desta etapa
 
     try {
-      const [{ buildBriefingContext }, drivers, teams, phraseHistory] = await Promise.all([
+      const [{ buildBriefingContext }, drivers, teams, phraseHistory, forecast] = await Promise.all([
         import("../pages/tabs/NextRaceTab"),
         invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
         invoke("get_teams_standings", { careerId, category: playerTeam.categoria }),
@@ -1149,6 +1177,7 @@ const useCareerStore = create((set, get) => ({
           season_number: 0,
           entries: [],
         })),
+        invoke("get_breakdown_forecast", { careerId }).catch(() => null),
       ]);
 
       // Outra etapa pode ter virado a corrente enquanto buscávamos — aborta se mudou.
@@ -1167,6 +1196,7 @@ const useCareerStore = create((set, get) => ({
             ? phraseHistory
             : { season_number: 0, entries: [] },
         playerInterests: get().playerInterests,
+        breakdownForecast: forecast && forecast.available ? forecast : null,
       });
       if (!aiFacts || !aiFacts.trim()) return;
 

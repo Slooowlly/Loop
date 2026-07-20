@@ -1,0 +1,263 @@
+{
+  "settings": {
+    "general": "General",
+    "language": {
+      "label": "Language",
+      "desc": "Game menus and tools."
+    },
+    "back": "Back",
+    "autosave": {
+      "label": "Auto-save",
+      "desc": "Saves progress at the end of each week/race."
+    },
+    "raceSection": "Race",
+    "autoYellow": {
+      "label": "Automatic yellow flag",
+      "notFound": "iRacing not found on this PC.",
+      "on": "On — throws a yellow automatically in crashes against the AI.",
+      "off": "Throws a yellow flag automatically in crashes against the AI."
+    },
+    "save": "Save",
+    "saving": "Saving",
+    "applying": "Applying settings...",
+    "firstCareerConfirm": "Create your first career now?"
+  },
+  "difficulty": {
+    "facil": "Easy",
+    "medio": "Medium",
+    "dificil": "Hard",
+    "lendario": "Legendary"
+  },
+  "license": {
+    "none": "No license",
+    "0": "Amateur",
+    "1": "Pro",
+    "2": "Super Pro",
+    "3": "Elite",
+    "4": "Super Elite"
+  },
+  "preseasonPhase": {
+    "ContractExpiry": "Contracts",
+    "Transfers": "Transfers",
+    "PlayerProposals": "Your Offers",
+    "RookiePlacement": "Rookies",
+    "Finalization": "Finalization",
+    "Complete": "Complete"
+  },
+  "seasonPhase": {
+    "PreTemporada": "Preseason",
+    "Temporada": "Season",
+    "Encerramento": "Closing",
+    "BlocoRegular": "Regular Block",
+    "JanelaConvocacao": "Call-up",
+    "BlocoEspecial": "Special Block",
+    "PosEspecial": "Post-Special"
+  },
+  "attribute": {
+    "skill": "Skill",
+    "consistencia": "Consistency",
+    "racecraft": "Racecraft",
+    "defesa": "Defense",
+    "ritmo_classificacao": "Quali",
+    "gestao_pneus": "Tires",
+    "adaptabilidade": "Adaptability",
+    "mentalidade": "Mentality",
+    "confianca": "Confidence",
+    "smoothness": "Smoothness",
+    "experiencia": "Experience",
+    "fitness": "Fitness",
+    "fator_chuva": "Rain",
+    "habilidade_largada": "Start",
+    "agressividade": "Aggression",
+    "aggression": "Aggression",
+    "midia": "Media",
+    "desenvolvimento": "Development"
+  },
+  "countdown": {
+    "none": "No race scheduled",
+    "today": "Next race today",
+    "tomorrow": "Next race tomorrow",
+    "days_one": "Next race in {{count}} day",
+    "days_other": "Next race in {{count}} days",
+    "weeks_one": "Next race in 1 week",
+    "weeks_other": "Next race in {{count}} weeks",
+    "month": "Next race in 1 month",
+    "months_one": "Next race in {{count}} month",
+    "months_other": "Next race in {{count}} months"
+  },
+  "seasonYear": "Year {{year}}",
+  "salary": {
+    "perMonthSuffix": "/mo"
+  },
+  "nav": {
+    "tab": {
+      "standings": "Home",
+      "news": "News",
+      "myTeam": "My Team",
+      "calendar": "Calendar"
+    },
+    "date": "Date",
+    "back": "Back",
+    "loading": "Loading...",
+    "exitToMenu": "Exit to main menu",
+    "advance": {
+      "advancing": "Advancing...",
+      "calendar": "Advance calendar",
+      "skipSeason": "Skip season",
+      "toCallup": "Advance to call-up",
+      "skipSpecial": "Skip special block",
+      "endSeason": "End season",
+      "toPreseason": "Advance to preseason",
+      "openMarket": "Open market",
+      "advanceSeason": "Advance season"
+    }
+  },
+  "pause": {
+    "title": "Paused",
+    "continue": "Continue",
+    "save": "Save",
+    "saved": "Saved ✓",
+    "settings": "Settings",
+    "exit": "Exit to main menu"
+  },
+  "leaveModal": {
+    "title": "Exit to main menu?",
+    "desc": "You can save your progress before returning to the menu.",
+    "saving": "Saving...",
+    "saveAndExit": "Save and exit",
+    "exitNoSave": "Exit without saving",
+    "cancel": "Cancel"
+  },
+  "seasonBanner": {
+    "finished": "Season Ended",
+    "championTbd": "Champion decided",
+    "seasonEnd": "Season's end",
+    "summary": "{{season}} ended with {{champion}} atop the {{championship}}.",
+    "noTeam": "- No team this season",
+    "noPendingRace": "- No pending race"
+  },
+  "raceBanner": {
+    "raceN": "Race {{round}}",
+    "raceNofTotal": "Race {{round}} of {{total}}",
+    "local": "LOCAL",
+    "weather": "Weather",
+    "countdown": {
+      "today": "TODAY",
+      "tomorrow": "TOMORROW",
+      "days": "IN {{count}} DAYS",
+      "weeks_one": "IN 1 WEEK",
+      "weeks_other": "IN {{count}} WEEKS",
+      "months": "IN {{count}} MONTHS"
+    }
+  },
+  "weather": {
+    "heavyRain": "Heavy Rain",
+    "wet": "Rain",
+    "damp": "Damp",
+    "partlyCloudy": "Partly Cloudy",
+    "dry": "Dry"
+  },
+  "calendar": {
+    "title": "Calendar",
+    "stepsDone": "{{completed}}/{{total}} stages done",
+    "loading": "Loading season calendar...",
+    "loadError": "Couldn't load the calendar.",
+    "tbd": "TBD",
+    "phase": {
+      "mercado": "Market",
+      "regularLegacy": "Regular Season",
+      "especial": "Special Block",
+      "pretemporada": "Preseason",
+      "temporada": "Season",
+      "encerramento": "Closing"
+    },
+    "phaseEmpty": {
+      "mercado": "Transfer and contract window for the season.",
+      "especial": "Special block stages and call-up window.",
+      "pretemporada": "Preseason market window.",
+      "encerramento": "End of year with no official races."
+    },
+    "legend": {
+      "mercado": "Market",
+      "convocacao": "Call-up",
+      "especial": "Special Block",
+      "pretemporada": "Preseason",
+      "temporada": "Season",
+      "encerramento": "Closing"
+    },
+    "detail": {
+      "round": "Round",
+      "duration": "Duration",
+      "weather": "Weather",
+      "status": "Status",
+      "done": "Done",
+      "pending": "Pending"
+    }
+  },
+  "menu": {
+    "eyebrow": "Career",
+    "season": "Season {{year}}",
+    "continueCareer": "Continue career",
+    "newCareer": "New career",
+    "loadSave": "Load save",
+    "settings": "Settings",
+    "noCareers": "No careers yet.",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "deleteSaveAria": "Delete save",
+    "relative": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "days": "{{count}} days ago",
+      "weekAgo": "1 week ago",
+      "weeks": "{{count}} weeks ago",
+      "monthAgo": "1 month ago",
+      "months": "{{count}} months ago",
+      "yearAgo": "1 year ago",
+      "years": "{{count}} years ago"
+    }
+  },
+  "standings": {
+    "loading": "Loading standings",
+    "loadError": "Couldn't load the standings.",
+    "teamsTitle": "Team standings",
+    "constructors": "Constructors",
+    "teamsCount": "{{count}} teams",
+    "col": { "pos": "Pos", "driver": "Driver", "team": "Team" },
+    "series": {
+      "changeLine": "Change line",
+      "carLine": "Car line",
+      "tierUp": "Higher tier",
+      "tierDown": "Lower tier"
+    },
+    "badge": {
+      "injurySevere": "Serious injury",
+      "injuryActive": "Active injury",
+      "lifeRookie": "Career debut",
+      "rookie": "Rookie",
+      "retired": "Retired",
+      "retiredTitle": "Retired — career ended (points frozen)",
+      "prevChampion": "Previous season champion",
+      "reviewRace": "Double-click: review this race's standings"
+    },
+    "zone": { "promotion": "PROMOTION ↑", "relegation": "RELEGATION ↓" },
+    "others": "Others",
+    "winsShort": "wins",
+    "special": {
+      "notYetTitle": "Special competition hasn't happened yet",
+      "teamsPending": "Team standings will be released along with the special block results.",
+      "callupWindow": "The competition starts once the call-up window is finalized. Results appear here when the first race is simulated.",
+      "specialOpen": "The special block has opened, but there's no recorded result yet. Standings appear when the first race is simulated.",
+      "afterRegular": "This competition happens after the regular season and the call-up window. Results appear here when the special block is simulated."
+    }
+  },
+  "closeApp": {
+    "title": "Close Loop?",
+    "desc": "You can save your progress before closing the game."
+  },
+  "windowControls": {
+    "drag": "Drag window",
+    "dragHint": "Drag window (hold and move)",
+    "close": "Close app"
+  }
+}

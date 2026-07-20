@@ -10,6 +10,7 @@ import { buildDriverMentionMatcher, driverMentionClass } from "../../utils/drive
 import { getTeamGlow } from "../../utils/teamColors";
 import { getReadableTeamColor } from "./newsHelpers";
 import { buildInboxMessages } from "./inboxMessages";
+import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
 import "./NewsMagazineTab.css";
 
@@ -72,6 +73,7 @@ function NewsMagazineTab() {
   const careerId = useCareerStore((s) => s.careerId);
   const playerTeam = useCareerStore((s) => s.playerTeam);
   const season = useCareerStore((s) => s.season);
+  const language = useCareerStore((s) => s.language);
 
   const category = playerTeam?.categoria ?? null;
   const year = season?.ano ?? "";
@@ -120,15 +122,31 @@ function NewsMagazineTab() {
   // jogador, só da categoria atual (crise, dívida, clima pesado, nova diretoria).
   // Determinístico hoje; migra pra IA quando o endpoint /world-notes existir.
   const [worldNotes, setWorldNotes] = useState([]);
+  // As notas vieram da IA (idioma certo) ou do template determinístico (PT)?
+  const [worldNotesAi, setWorldNotesAi] = useState(false);
   useEffect(() => {
     let mounted = true;
     if (!careerId) {
       setWorldNotes([]);
+      setWorldNotesAi(false);
       return undefined;
     }
+    setWorldNotesAi(false);
+    // Mostra o texto determinístico na hora; a IA (se disponível no servidor) troca
+    // as notas depois, sem bloquear a abertura da revista. Em qualquer falha —
+    // inclusive o endpoint /world-notes ainda não existir — mantém o template.
     invoke("get_world_footer", { careerId })
       .then((res) => {
-        if (mounted) setWorldNotes(Array.isArray(res?.notes) ? res.notes : []);
+        if (!mounted) return;
+        setWorldNotes(Array.isArray(res?.notes) ? res.notes : []);
+        invoke("enrich_world_footer_ai", { careerId })
+          .then((ai) => {
+            if (mounted && ai?.source === "ai" && Array.isArray(ai?.notes)) {
+              setWorldNotes(ai.notes);
+              setWorldNotesAi(true);
+            }
+          })
+          .catch(() => {});
       })
       .catch(() => {
         if (mounted) setWorldNotes([]);
@@ -315,27 +333,41 @@ function NewsMagazineTab() {
   const catLabel = category ? categoryLabel(category) : "";
   const kicker = ed ? `${catLabel} · ${ed.track_name}` : catLabel;
 
-  // Auto-ajusta o título da capa para caber na largura do livro, independente
-  // do tamanho do nome da categoria (ex.: "LMP2 Prototype Championship").
+  // Auto-ajusta o título da capa: teto de 57px (calibrado p/ todas as
+  // categorias reais), encolhendo só se algum nome futuro estourar a coluna.
+  const COVER_TITLE_BASE_PX = 57;
   const coverTitleRef = useRef(null);
+  const coverBookRef = useRef(null);
   useLayoutEffect(() => {
     if (ed) return; // só na capa (sem edição aberta)
     const el = coverTitleRef.current;
     if (!el) return;
     const fit = () => {
-      el.style.fontSize = "";
-      const base = parseFloat(getComputedStyle(el).fontSize) || 64;
-      let size = base;
+      // Enquanto o livro (imagem) não carrega, a coluna tem largura ~0 e a
+      // medição sairia errada (título minúsculo). Deixa no 57px do CSS e
+      // espera o ResizeObserver disparar quando a imagem definir a largura.
+      if (el.clientWidth < 2) return;
+      let size = COVER_TITLE_BASE_PX;
       el.style.fontSize = `${size}px`;
-      // Reduz até a maior palavra caber na coluna (63% do livro).
-      while (el.scrollWidth > el.clientWidth + 1 && size > 20) {
+      while (el.scrollWidth > el.clientWidth + 1 && size > 12) {
         size -= 2;
         el.style.fontSize = `${size}px`;
       }
     };
     fit();
+    // Re-mede quando a imagem do livro e a fonte web terminam de carregar
+    // (é aí que a largura da coluna passa a existir de verdade).
+    let ro;
+    if (typeof ResizeObserver !== "undefined" && coverBookRef.current) {
+      ro = new ResizeObserver(fit);
+      ro.observe(coverBookRef.current);
+    }
+    if (document?.fonts?.ready) document.fonts.ready.then(fit).catch(() => {});
     window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      if (ro) ro.disconnect();
+    };
   }, [ed, catLabel]);
   const footMeta = ed
     ? `Edição ${ed.rodada}${totalRounds ? ` de ${totalRounds}` : ""}${year ? ` · Temporada ${year}` : ""}`
@@ -385,6 +417,8 @@ function NewsMagazineTab() {
                   ))
               ) : bulletin?.loading ? (
                 <p>Gerando o boletim desta etapa…</p>
+              ) : !isPortuguese(language) ? (
+                <p style={{ fontStyle: "italic", opacity: 0.6 }}>{localizedAiError(language)}</p>
               ) : (
                 <>
                   <p>
@@ -509,12 +543,22 @@ function NewsMagazineTab() {
           <div className="world-notes" aria-label="Notícias do mundo">
             <div className="wn-head">DO MUNDO DO GRID</div>
             <div className="wn-list">
-              {worldNotes.map((n) => (
-                <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
-                  <span className="wn-tag">{n.tag}</span>
-                  <span className="wn-text">{n.text}</span>
+              {/* Notas são PT (template determinístico). Em outro idioma, sem versão de
+                  IA, mostramos "erro na geração de texto" em vez de despejar português. */}
+              {!worldNotesAi && !isPortuguese(language) ? (
+                <div className="wn-item wn-neutro">
+                  <span className="wn-text" style={{ fontStyle: "italic", opacity: 0.6 }}>
+                    {localizedAiError(language)}
+                  </span>
                 </div>
-              ))}
+              ) : (
+                worldNotes.map((n) => (
+                  <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
+                    <span className="wn-tag">{n.tag}</span>
+                    <span className="wn-text">{n.text}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -555,6 +599,7 @@ function NewsMagazineTab() {
             <div className="mag-cover-frame">
               <img
                 className="mag-cover-book"
+                ref={coverBookRef}
                 src="/utilities/news/magazine-cover.png"
                 alt=""
                 draggable={false}

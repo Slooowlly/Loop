@@ -28,5 +28,8 @@ pub fn update_config(app: AppHandle, new_config: AppConfig) -> Result<(), String
 
     // last_career, window_state e base_dir são preservados de current_config ou atualizados via eventos específicos.
 
+    // Reflete a troca de idioma no locale do backend na hora (sem exigir restart).
+    rust_i18n::set_locale(&current_config.language);
+
     current_config.save()
 }

@@ -12,6 +12,7 @@
 //! pra revelar cadeado+olho; ao sair, volta a clique-atravessa. Assim o mouse só é
 //! "capturado" enquanto está EM CIMA da torre — fora dela vai direto pro iRacing.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -19,6 +20,29 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 const LABEL: &str = "overlay";
+const ENGINEER_LABEL: &str = "engineer";
+
+// DEMO do overlay (Configurações → "Testar overlay de rádio"). Quando ligado, o card do
+// rádio cicla mensagens de exemplo — pra você achar/posicionar o overlay sem esperar uma
+// quebra real. Também honra a env `IRACER_OVERLAY_DEMO` (retrocompat). Volátil (não persiste).
+static OVERLAY_DEMO: AtomicBool = AtomicBool::new(false);
+
+/// O modo demo está ligado? (botão nas Configurações OU env `IRACER_OVERLAY_DEMO`).
+pub fn demo_enabled() -> bool {
+    OVERLAY_DEMO.load(Ordering::Relaxed) || std::env::var("IRACER_OVERLAY_DEMO").is_ok()
+}
+
+/// Liga/desliga o modo demo do overlay (chamado pelo toggle das Configurações).
+#[tauri::command]
+pub fn overlay_set_demo(on: bool) {
+    OVERLAY_DEMO.store(on, Ordering::Relaxed);
+}
+
+/// O modo demo está ligado? (a janela do rádio lê por poll pra ciclar os exemplos).
+#[tauri::command]
+pub fn overlay_demo_enabled() -> bool {
+    demo_enabled()
+}
 
 // careerId da sessão que o overlay está mostrando (a janela lê via comando + poll).
 fn active_career() -> &'static Mutex<Option<String>> {
@@ -163,6 +187,33 @@ pub fn overlay_window_set_interactive(app: AppHandle, interactive: bool) -> Resu
 #[tauri::command]
 pub fn overlay_window_hide(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window(LABEL) {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Mostra o overlay do RÁDIO DA EQUIPE (card central de quebra) no monitor. O card
+/// se posiciona em % da própria janela (top 30% / centro), então a janela é
+/// esticada pra cobrir o monitor primário — assim o card cai no centro-alto do jogo.
+/// Sempre clique-atravessa (display-only): o mouse vai pro iRacing. Reusa o
+/// `active_career` já setado pelo overlay da torre (a janela lê via `overlay_active_career`).
+#[tauri::command]
+pub fn engineer_window_show(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(ENGINEER_LABEL) {
+        if let Ok(Some(mon)) = win.primary_monitor() {
+            let _ = win.set_position(*mon.position());
+            let _ = win.set_size(*mon.size());
+        }
+        let _ = win.set_ignore_cursor_events(true);
+        win.show().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Esconde o overlay do rádio (mantém a janela viva pra reexibir instantâneo).
+#[tauri::command]
+pub fn engineer_window_hide(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(ENGINEER_LABEL) {
         win.hide().map_err(|e| e.to_string())?;
     }
     Ok(())

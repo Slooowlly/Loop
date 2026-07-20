@@ -28,6 +28,10 @@ pub struct EventWeather {
     pub temp_c: i64,
     /// Molhado da pista: 0 seco … 5 muito intenso.
     pub track_water: i64,
+    /// Velocidade do vento em km/h [2, 48] (varia por corrida).
+    pub wind_kmh: i64,
+    /// Direção do vento em graus [0, 359].
+    pub wind_dir_deg: i64,
     /// Linha do tempo do clima (quadros-chave). Clima DINÂMICO (version 3).
     pub keyframes: Vec<WeatherKeyframe>,
     /// `{custid}_{uuid}` que o iRacing usa para identificar o clima.
@@ -78,6 +82,27 @@ fn temp_option(temp_c: i64) -> i64 {
     }
 }
 
+/// `wind_speed_option` (preset) do iRacing a partir de km/h. No clima dinâmico v3 o
+/// PRESET é o que vale (o `wind_value` contínuo é IGNORADO pelo sim — medido na
+/// pista). O mapa preset→km/h NÃO é monotônico, então cravamos pela `WIND_LADDER`
+/// medida: escolhe o degrau de km/h mais próximo e devolve o preset dele.
+fn wind_speed_option(kmh: i64) -> i64 {
+    use crate::iracing_sdk::weather::WIND_LADDER;
+    WIND_LADDER
+        .iter()
+        .min_by_key(|(k, _)| (k - kmh).abs())
+        .map(|(_, opt)| *opt)
+        .unwrap_or(2)
+}
+
+/// `wind_direction_option` do iRacing a partir de graus. MEDIDO na pista: o preset
+/// de direção fica DESLOCADO +1 octante (mandar octante N rende N−1). Então somamos
+/// 1: octante(graus) + 1. (Confirmado: 0°/N→option 1 · 135°/SE→option 4.)
+fn wind_direction_option(deg: i64) -> i64 {
+    let octant = ((deg % 360 + 360) % 360 + 22) / 45 % 8;
+    (octant + 1) % 8
+}
+
 /// Monta o bloco `weather` DINÂMICO (version 3) com `weather_timeline` +
 /// `keyframes`. `event_id` presente → timeline da etapa; `None` → clima global.
 fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
@@ -92,10 +117,10 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
 
     let mut timeline = json!({
         "keyframes": keyframes,
-        "wind_direction_option": 0,
-        // wind_speed_option é um PRESET que IGNORA wind_value: 4 = forte (~58 km/h) trazia
-        // a frente cedo demais (molhava antes da largada). 2 = mais calmo, frente devagar.
-        "wind_speed_option": 2,
+        // Vento VARIÁVEL por corrida (testado: não afeta a frente de chuva). No clima
+        // dinâmico o preset é o que vale — mapeado da velocidade/direção sorteadas.
+        "wind_direction_option": wind_direction_option(w.wind_dir_deg),
+        "wind_speed_option": wind_speed_option(w.wind_kmh),
         "temperature_option": temp_option(w.temp_c),
         "weatherId": w.weather_id,
     });
@@ -109,12 +134,11 @@ fn weather_value(w: &EventWeather, event_id: Option<&str>) -> Value {
         "temp_value": w.temp_c,
         "rel_humidity": w.humidity,
         "fog": 0,
-        "wind_dir": 0,
+        // Bloco legado: o sim IGNORA estes campos no v3 (só o preset da timeline vale),
+        // mas espelhamos o vento sorteado por coerência. wind_units 1 (o comprovado).
+        "wind_dir": w.wind_dir_deg,
         "wind_units": 1,
-        // Vento MODERADO: forte demais (15 ≈ 26-61 km/h) trazia a frente cedo demais e
-        // estourava a largada. Moderado deixa a frente chegar mais perto do keyframe (2ª
-        // metade), com menos variância entre exports.
-        "wind_value": 8,
+        "wind_value": w.wind_kmh,
         "skies": w.skies,
         "simulated_start_time": w.start_time,
         "simulated_time_multiplier": 1,
@@ -266,6 +290,8 @@ mod tests {
                 humidity: 45,
                 temp_c: 22,
                 track_water: 0,
+                wind_kmh: 10,
+                wind_dir_deg: 0,
                 keyframes: vec![WeatherKeyframe {
                     event_type: 1,
                     time_offset: -120,
@@ -283,6 +309,8 @@ mod tests {
                         humidity: 45,
                         temp_c: 22,
                         track_water: 0,
+                        wind_kmh: 10,
+                        wind_dir_deg: 0,
                         keyframes: vec![WeatherKeyframe {
                             event_type: 1,
                             time_offset: -120,
@@ -301,6 +329,8 @@ mod tests {
                         humidity: 96,
                         temp_c: 18,
                         track_water: 5,
+                        wind_kmh: 35,
+                        wind_dir_deg: 200,
                         keyframes: vec![
                             WeatherKeyframe {
                                 event_type: 3,
@@ -335,6 +365,19 @@ mod tests {
         assert_eq!(v["events"][0]["weather"]["track_water"], 0);
         assert_eq!(v["events"][1]["weather"]["track_water"], 5);
         assert_eq!(v["events"][1]["weather"]["temp_value"], 18);
+        // Vento por corrida: 35 km/h → degrau mais próximo 30 = preset 6; 200° → octante
+        // 4 + 1 = option 5. wind_value/units são legado (ignorados pelo sim).
+        assert_eq!(v["events"][1]["weather"]["wind_value"], 35);
+        assert_eq!(v["events"][1]["weather"]["wind_units"], 1);
+        assert_eq!(v["events"][1]["weather"]["wind_dir"], 200);
+        assert_eq!(
+            v["events"][1]["weather"]["weather_timeline"]["wind_speed_option"],
+            6
+        );
+        assert_eq!(
+            v["events"][1]["weather"]["weather_timeline"]["wind_direction_option"],
+            5
+        );
         // Clima DINÂMICO (version 3) + timeline.
         assert_eq!(v["events"][1]["weather"]["version"], 3);
         assert_eq!(v["events"][1]["weather"]["weather_id"], "747998_b");

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import useCareerStore from "../../stores/useCareerStore";
 import useExitToMenu from "../../hooks/useExitToMenu";
@@ -14,6 +15,7 @@ const btnBase =
  * vale em todas as telas da carreira.
  */
 export default function PauseMenu() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const flushSave = useCareerStore((state) => state.flushSave);
   const { isSaving, exit, saveAndExit } = useExitToMenu();
@@ -58,7 +60,7 @@ export default function PauseMenu() {
       <div className="glass-strong relative w-[320px] rounded-2xl border border-white/12 p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-primary">
-            Pausa
+            {t("pause.title")}
           </p>
           <span className="text-[10px] text-text-secondary/70">ESC</span>
         </div>
@@ -69,14 +71,14 @@ export default function PauseMenu() {
             onClick={() => setOpen(false)}
             className={`${btnBase} bg-accent-primary text-white hover:opacity-90`}
           >
-            Continuar
+            {t("pause.continue")}
           </button>
           <button
             type="button"
             onClick={handleSave}
             className={`${btnBase} border border-white/10 bg-white/6 text-text-secondary hover:bg-white/10 hover:text-text-primary`}
           >
-            {savedFlash ? "Salvo ✓" : "Salvar"}
+            {savedFlash ? t("pause.saved") : t("pause.save")}
           </button>
           <button
             type="button"
@@ -86,14 +88,14 @@ export default function PauseMenu() {
             }}
             className={`${btnBase} border border-white/10 bg-white/6 text-text-secondary hover:bg-white/10 hover:text-text-primary`}
           >
-            Configurações
+            {t("pause.settings")}
           </button>
           <button
             type="button"
             onClick={() => setConfirm(true)}
             className={`${btnBase} border border-status-red/25 bg-status-red/10 text-status-red hover:bg-status-red/20`}
           >
-            Sair para o menu principal
+            {t("pause.exit")}
           </button>
         </div>
       </div>

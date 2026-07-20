@@ -32,7 +32,7 @@ function categoryMeta(id) {
 
 function categoryLogoSrc(id) {
   const m = categoryMeta(id);
-  return m.logo ? `/utilities/categorias/recortadas/${encodeURIComponent(m.logo)}.png` : null;
+  return m.logo ? `/utilities/categorias/recortadas/${encodeURIComponent(m.logo)}.webp` : null;
 }
 
 // O layout é todo pensado em unidades LÓGICAS (512×1024). Pra deixar o texto
@@ -55,7 +55,7 @@ const PAD = 10;
 export const SESSION_H = 58; // 2 linhas de info + os rótulos "pits"/"best" no fim
 const CLASS_H = 26;
 const ROW_H = 30;
-const SEP_H = 12;
+const SEP_H = 18;
 const CLASS_GAP = 5;
 
 const POS_RIGHT = 28;
@@ -72,6 +72,12 @@ const TIRE_SIZE = 20;
 const TIRE_STEP = 13;
 const TIRE_MAX = 6;
 const TIRE_SPAN = 54;
+// Tamanho VISÍVEL (do conteúdo, sem a margem transparente) que todos os ícones da coluna de
+// paradas compartilham — normaliza pneu/combustível/triângulo pra ficarem do mesmo tamanho.
+const ICON_TARGET = 16;
+// Combustível/peça são menores que o pneu → sobra folga ao lado. Quando um deles é vizinho de
+// um pneu, encosta MAIS (passo menor) do que pneu↔pneu, pra ficar "grudado".
+const SMALL_ICON_GLUE = 3;
 const FASTEST_RIGHT = 356;
 const POINTS_RIGHT = 414;
 const POINTS_GAIN_X = 418;
@@ -129,6 +135,7 @@ function fgShadow(ctx, on) {
 const TX = "/utilities/textures/";
 const TIRE_DRY_SRC = `${TX}Pneu%20Seco.png`;
 const TIRE_WET_SRC = `${TX}Pneu%20Molhado.png`;
+const FUEL_SRC = `${TX}Fuel.png`;
 
 function loadImage(src) {
   return new Promise((resolve) => {
@@ -217,23 +224,29 @@ export async function preloadAssets(data) {
   );
 
   const catSrc = categoryLogoSrc(data.session?.category);
-  const [tireDry, tireWet, categoryLogo] = await Promise.all([
+  const [tireDry, tireWet, fuel, categoryLogo] = await Promise.all([
     loadImage(TIRE_DRY_SRC),
     loadImage(TIRE_WET_SRC),
+    loadImage(FUEL_SRC),
     catSrc ? loadImage(catSrc) : Promise.resolve(null),
   ]);
   const categoryLogoTrim = categoryLogo ? trimTransparent(categoryLogo, catSrc) : null;
-  return { logos, tireDry, tireWet, categoryLogo, categoryLogoTrim };
+  return { logos, tireDry, tireWet, fuel, categoryLogo, categoryLogoTrim };
 }
 
 // ─── Pins externos (iguais em todos os temas) ─────────────────────────────────
-function pinsFor(car) {
+// Cada pino é um descritor `{ type, ... }`, desenhado da esquerda pra direita. O "P"
+// (no box) vem ANTES do triângulo de alerta — quando o carro entra pra reparar, o P
+// aparece primeiro e o triângulo fica ao lado. O tempo de pit NÃO é pino: é desenhado
+// em cima da coluna de pneus (ver `drawPitTimeBadge`), pois é a métrica da parada.
+export function pinsFor(car) {
   const pins = [];
-  if (car.fol) pins.push("fastest");
-  if (car.flag === "meatball") pins.push("meatball");
-  if (car.flag === "black") pins.push("black");
-  if (car.flag === "checkered") pins.push("checkered");
-  if (car.pit) pins.push("pit");
+  if (car.pit) pins.push({ type: "pit" }); // "P" primeiro
+  if (car.alert === "heavy") pins.push({ type: "alertHeavy" });
+  else if (car.alert === "light") pins.push({ type: "alertLight" });
+  if (car.fol) pins.push({ type: "fastest" });
+  if (car.flag === "black") pins.push({ type: "black" }); // DNF (!dq) — IA vem direto pra cá
+  if (car.flag === "checkered") pins.push({ type: "checkered" });
   return pins;
 }
 
@@ -265,17 +278,68 @@ function drawStopwatch(ctx, cx, cy) {
   ctx.stroke();
 }
 
-function drawPin(ctx, type, left, cy, theme) {
+// Triângulo de ALERTA de peça quebrada (piscando). GRANDE — preenche quase todo o
+// quadrado, sobrando só uma moldura escura fina, pra ler como um triângulo de aviso
+// (⚠) e NÃO como o meatball. Laranja claro = penalidade leve (`!black` curto),
+// vermelho claro = grave (`!black` longo). Some quando o carro sai do box já
+// reparado (o backend zera `car.alert`). DNF NÃO usa isto — usa a bandeira preta.
+function drawAlertTriangle(ctx, left, cy, heavy) {
+  const color = heavy ? "#ff5347" : "#ffab2e";
+  const top = cy - PIN_SIZE / 2;
+  const c = left + PIN_SIZE / 2;
+  // Moldura escura fina só pra dar contorno sobre o jogo (não é um "quadrado" cheio).
+  ctx.fillStyle = "rgba(11,13,16,0.85)";
+  ctx.fillRect(left, top, PIN_SIZE, PIN_SIZE);
+  const blink = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+  ctx.save();
+  ctx.globalAlpha = 0.72 + 0.28 * blink; // brilhante; pulsa de leve, sem apagar
+  ctx.beginPath();
+  ctx.moveTo(c, top + 1); // ápice em cima, quase encostando na borda
+  ctx.lineTo(left + 1, top + PIN_SIZE - 1.5);
+  ctx.lineTo(left + PIN_SIZE - 1, top + PIN_SIZE - 1.5);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  // "!" escuro no miolo do triângulo
+  ctx.fillStyle = "#0b0d10";
+  ctx.fillRect(c - 0.9, cy - 1.5, 1.8, 3.6);
+  ctx.fillRect(c - 0.9, cy + 3.4, 1.8, 1.8);
+  ctx.restore();
+}
+
+// Badge de TEMPO DE PIT desenhado EM CIMA da coluna de pneus (é a métrica da
+// parada). Cronômetro + segundos parados na caixa. Compacto e TRANSLÚCIDO de
+// propósito, pra ainda dar pra ver a cor das rodas por baixo. Aparece por ~3 voltas
+// após a parada (o backend decide a janela e só então manda `pitSecs`). Centrado em `cx`.
+function drawPitTimeBadge(ctx, cx, cy, secs) {
+  const label = `${secs}s`;
+  const H = 13;
+  ctx.font = `800 8px ${FONT}`;
+  const tw = ctx.measureText(label).width;
+  const w = 12 + tw + 6; // cronômetro + texto + folga (menor)
+  const x = cx - w / 2;
+  const top = cy - H / 2;
+  // Só o FUNDO é translúcido — pra ainda ver a cor dos pneus por baixo.
+  roundRect(ctx, x, top, w, H, 3);
+  ctx.fillStyle = "rgba(11,13,16,0.45)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // Cronômetro + texto a 100% (nítidos sobre o fundo translúcido).
+  drawStopwatch(ctx, x + 7, cy);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x + 12, cy + 0.5);
+}
+
+function drawPin(ctx, pin, left, cy, theme) {
+  const type = pin.type;
   const c = left + PIN_SIZE / 2;
   if (type === "fastest") {
     pinSquare(ctx, left, cy, theme.purple);
     drawStopwatch(ctx, c, cy);
-  } else if (type === "meatball") {
-    pinSquare(ctx, left, cy, "#0b0d10");
-    ctx.fillStyle = "#ff8c1a";
-    ctx.beginPath();
-    ctx.arc(c, cy, 4.2, 0, Math.PI * 2);
-    ctx.fill();
   } else if (type === "black") {
     pinSquare(ctx, left, cy, "#0b0d10");
   } else if (type === "checkered") {
@@ -297,31 +361,102 @@ function drawPin(ctx, type, left, cy, theme) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("P", c, cy + 0.5);
+  } else if (type === "alertLight" || type === "alertHeavy") {
+    drawAlertTriangle(ctx, left, cy, type === "alertHeavy");
   }
   return PIN_SIZE;
 }
 
 function drawPins(ctx, car, cy, theme) {
   let left = PIN_X;
-  for (const type of pinsFor(car)) {
-    left += drawPin(ctx, type, left, cy, theme) + PIN_GAP;
+  for (const pin of pinsFor(car)) {
+    left += drawPin(ctx, pin, left, cy, theme) + PIN_GAP;
   }
+}
+
+// Composto de LARGADA escolhido pelo carro, do `CarIdxTireCompound` (a mesma info que o
+// RaceLab mostra). Nesta série só há seco/chuva: índice ≥1 = chuva, 0 = seco, -1 = ainda
+// não escolhido/desconhecido → cai no que já se sabia (car.tire) ou seco. É isso que deixa
+// a torre revelar o pneu da IA ANTES da largada, e não só o padrão seco pra todos.
+function startCompound(car) {
+  if (typeof car.tireCompound === "number" && car.tireCompound >= 0) {
+    return car.tireCompound >= 1 ? "wet" : "dry";
+  }
+  return car.tire === "wet" ? "wet" : "dry";
 }
 
 function tireStints(car) {
   if (Array.isArray(car.tireHistory) && car.tireHistory.length) return car.tireHistory;
   const n = (car.stops ?? 0) + 1;
-  const compound = car.tire === "wet" ? "wet" : "dry";
-  return Array(n).fill(compound);
+  return Array(n).fill(startCompound(car));
 }
 
-function drawTireStack(ctx, car, cy, assets) {
-  const stints = tireStints(car);
-  const count = Math.min(stints.length, TIRE_MAX);
+// Sequência de ícones da coluna de paradas: 1º = pneu de largada, depois um por PARADA
+// ("dry"/"wet" = troca de pneu; "fuel" = só abasteceu; "part" = reparo de peça). Vem do
+// backend (`pitIcons`); sem ele (pré-corrida) cai nos compostos por stint.
+function stopIcons(car) {
+  if (Array.isArray(car.pitIcons) && car.pitIcons.length) return car.pitIcons;
+  return tireStints(car);
+}
+
+// Desenha um asset com o CONTEÚDO (sem a margem transparente do PNG) normalizado a `target`
+// px, centrado em (cx,cy). Sem isso cada PNG sai com tamanho visual diferente (o Fuel.png tem
+// ~40% de vazio → saía minúsculo; o pneu quase preenche → maior). Cacheado por `key`.
+function drawIconFit(ctx, img, key, cx, cy, target) {
+  const t = trimTransparent(img, key);
+  const scale = target / Math.max(t.w, t.h);
+  const w = t.w * scale;
+  const h = t.h * scale;
+  ctx.drawImage(img, t.x, t.y, t.w, t.h, cx - w / 2, cy - h / 2, w, h);
+}
+
+// Triângulo de "parou pra arrumar peça" (no lugar do pneu). Laranja, fixo (histórico da
+// parada, não pisca como o alerta ao vivo). Sólido "pesa" mais que o anel do pneu, então usa
+// um alvo um tico menor. Posição = 60% acima / 40% abaixo de `cy`: entre o baricentro (subia
+// demais) e o centro geométrico (afundava) → alinhado com os pneus.
+function drawPartIcon(ctx, cx, cy) {
+  const s = ICON_TARGET - 1;
+  const apexY = cy - s * 0.6;
+  const baseY = cy + s * 0.4;
+  ctx.fillStyle = "#ffab2e";
+  ctx.beginPath();
+  ctx.moveTo(cx, apexY);
+  ctx.lineTo(cx - s / 2, baseY);
+  ctx.lineTo(cx + s / 2, baseY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = "#0b0d10"; // "!" no meio da massa
+  ctx.fillRect(cx - 1, cy - 1, 2, 3.6);
+  ctx.fillRect(cx - 1, cy + 4, 2, 1.8);
+}
+
+function drawStopStack(ctx, car, cy, assets) {
+  const icons = stopIcons(car);
+  const count = Math.min(icons.length, TIRE_MAX);
   const step = count > 1 ? Math.min(TIRE_STEP, (TIRE_SPAN - TIRE_SIZE) / (count - 1)) : 0;
+  const small = (k) => k === "fuel" || k === "part";
+  let x = STOPS_LEFT;
   for (let i = 0; i < count; i++) {
-    const img = stints[i] === "wet" ? assets.tireWet : assets.tireDry;
-    if (img) ctx.drawImage(img, STOPS_LEFT + i * step, cy - TIRE_SIZE / 2, TIRE_SIZE, TIRE_SIZE);
+    if (i > 0) {
+      // Cola mais quando o ícone atual OU o anterior é menor (combustível/peça).
+      const glue = small(icons[i]) || small(icons[i - 1]) ? SMALL_ICON_GLUE : 0;
+      x += step - glue;
+    }
+    const kind = icons[i];
+    const cx = x + TIRE_SIZE / 2;
+    if (kind === "fuel") {
+      // Fuel.png é mais "cheio" que o anel do pneu → 2px menor pra bater o peso visual.
+      if (assets.fuel) drawIconFit(ctx, assets.fuel, FUEL_SRC, cx, cy, ICON_TARGET - 2);
+    } else if (kind === "part") {
+      drawPartIcon(ctx, cx, cy);
+    } else {
+      const img = kind === "wet" ? assets.tireWet : assets.tireDry;
+      const key = kind === "wet" ? TIRE_WET_SRC : TIRE_DRY_SRC;
+      if (img) drawIconFit(ctx, img, key, cx, cy, ICON_TARGET);
+    }
   }
 }
 
@@ -347,6 +482,35 @@ function drawRow(ctx, car, y, assets, team, theme) {
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(0, y, PANEL_W, 1);
     }
+  }
+
+  // FLASH de quebra: a linha PISCA (lento) por ~5 s quando o piloto acaba de quebrar (em
+  // sincronia com o rádio). A COR segue a severidade: âmbar = leve, vermelho = grave, preto
+  // = DNF (bandeira preta). Preenchimento com piso alto pra aparecer sobre cores escuras.
+  if (car.flash) {
+    const blink = 0.5 + 0.5 * Math.sin(Date.now() / 430); // pulso lento (~2,7 s por ciclo)
+    let fillRGB;
+    let borderRGB;
+    let fillA;
+    if (car.flag === "black") {
+      // DNF → preto: blackout QUASE OPACO (o texto fica por cima), senão some sobre linha escura.
+      fillRGB = "0,0,0";
+      borderRGB = "255,255,255"; // borda branca emoldura o preto
+      fillA = 0.7 + 0.25 * blink; // 0.70 → 0.95
+    } else if (car.alert === "heavy") {
+      fillRGB = "248,81,73"; // grave → vermelho
+      borderRGB = "255,99,90";
+      fillA = 0.32 + 0.3 * blink;
+    } else {
+      fillRGB = "255,193,48"; // leve → âmbar
+      borderRGB = "255,214,64";
+      fillA = 0.32 + 0.3 * blink;
+    }
+    ctx.fillStyle = `rgba(${fillRGB},${fillA.toFixed(3)})`;
+    ctx.fillRect(0, y, PANEL_W, ROW_H);
+    ctx.strokeStyle = `rgba(${borderRGB},${(0.55 + 0.45 * blink).toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, y + 1, PANEL_W - 2, ROW_H - 2);
   }
 
   fgShadow(ctx, true); // conteúdo da linha (texto/logo/pneus/pins) com sombra
@@ -405,8 +569,10 @@ function drawRow(ctx, car, y, assets, team, theme) {
     ctx.fillText(`${up ? "▲" : "▼"} ${Math.abs(car.delta)}`, DELTA_RIGHT, cy);
   }
 
-  // Pilha de pneus.
-  drawTireStack(ctx, car, cy, assets);
+  // Coluna de paradas: pneu (seco/molhado) / combustível / reparo de peça por parada,
+  // com o tempo de pit por cima, se o carro parou há ≤3 voltas.
+  drawStopStack(ctx, car, cy, assets);
+  if (car.pitSecs != null) drawPitTimeBadge(ctx, STOPS_CENTER, cy, car.pitSecs);
 
   // Melhor volta.
   ctx.fillStyle = car.fol ? theme.purple : theme.text;
@@ -432,14 +598,38 @@ function drawRow(ctx, car, y, assets, team, theme) {
 
 function drawSeparator(ctx, y) {
   const cy = y + SEP_H / 2;
-  ctx.strokeStyle = "rgba(255,255,255,0.16)";
+  // Divisor GROSSO entre o pódio e a vizinhança do jogador: uma faixa escurecida
+  // de fundo (dá peso ao corte) + linha central sólida e forte, com um fio sutil
+  // acima/abaixo pra realçar o degrau. Continua "vazando" pros lados (gradiente) pra
+  // não virar uma barra dura.
+  const band = ctx.createLinearGradient(0, 0, PANEL_W, 0);
+  band.addColorStop(0, "rgba(0,0,0,0.34)");
+  band.addColorStop(0.5, "rgba(0,0,0,0.42)");
+  band.addColorStop(1, "rgba(0,0,0,0.34)");
+  ctx.fillStyle = band;
+  ctx.fillRect(0, y + 1, PANEL_W, SEP_H - 2);
+
+  // Fios finos de contorno da faixa (topo e base).
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
   ctx.lineWidth = 1;
-  ctx.setLineDash([3, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, y + 1.5);
+  ctx.lineTo(PANEL_W, y + 1.5);
+  ctx.moveTo(0, y + SEP_H - 1.5);
+  ctx.lineTo(PANEL_W, y + SEP_H - 1.5);
+  ctx.stroke();
+
+  // Linha central: forte, sólida, esvaindo pras bordas.
+  const line = ctx.createLinearGradient(0, 0, PANEL_W, 0);
+  line.addColorStop(0, "rgba(255,255,255,0.05)");
+  line.addColorStop(0.5, "rgba(255,255,255,0.42)");
+  line.addColorStop(1, "rgba(255,255,255,0.05)");
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.moveTo(PAD, cy);
   ctx.lineTo(PANEL_W - PAD, cy);
   ctx.stroke();
-  ctx.setLineDash([]);
 }
 
 // Cabeçalho de uma classe — 3 estilos.

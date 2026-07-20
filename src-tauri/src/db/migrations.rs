@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 48;
+const CURRENT_VERSION: u32 = 52;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -58,6 +58,10 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     migrate_v46(conn)?;
     migrate_v47(conn)?;
     migrate_v48(conn)?;
+    migrate_v49(conn)?;
+    migrate_v50(conn)?;
+    migrate_v51(conn)?;
+    migrate_v52(conn)?;
     set_schema_version(conn, CURRENT_VERSION)?;
     Ok(())
 }
@@ -257,6 +261,22 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
         migrate_v48(conn)?;
         set_schema_version(conn, 48)?;
     }
+    if version < 49 {
+        migrate_v49(conn)?;
+        set_schema_version(conn, 49)?;
+    }
+    if version < 50 {
+        migrate_v50(conn)?;
+        set_schema_version(conn, 50)?;
+    }
+    if version < 51 {
+        migrate_v51(conn)?;
+        set_schema_version(conn, 51)?;
+    }
+    if version < 52 {
+        migrate_v52(conn)?;
+        set_schema_version(conn, 52)?;
+    }
     Ok(())
 }
 
@@ -294,6 +314,90 @@ fn migrate_v48(conn: &Connection) -> Result<(), DbError> {
             spent      INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (team_id, part_type)
         );",
+    )?;
+    Ok(())
+}
+
+/// v49 — RIVALIDADE ENTRE EQUIPES (fundação). Espelha `rivalries` para o par de TIMES
+/// (`team1_id < team2_id`), com os mesmos dois eixos: histórico lento (memória) +
+/// recente volátil (calor). `tipo` = `TeamRivalryType` (Campeonato/Mercado/Pista/Herdada).
+/// Fase 1: só a tabela + o motor; nenhuma fonte plugada ainda. Ver design em
+/// `docs/superpowers/specs/2026-07-19-team-rivalry-design.md`.
+fn migrate_v49(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS team_rivalries (
+            id                   TEXT PRIMARY KEY,
+            team1_id             TEXT NOT NULL,
+            team2_id             TEXT NOT NULL,
+            historical_intensity REAL NOT NULL DEFAULT 0.0,
+            recent_activity      REAL NOT NULL DEFAULT 0.0,
+            tipo                 TEXT NOT NULL DEFAULT 'Campeonato',
+            criado_em            TEXT NOT NULL DEFAULT '',
+            ultima_atualizacao   TEXT NOT NULL DEFAULT '',
+            temporada_update     INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (team1_id) REFERENCES teams(id),
+            FOREIGN KEY (team2_id) REFERENCES teams(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_team_rivalries_team1 ON team_rivalries(team1_id);
+        CREATE INDEX IF NOT EXISTS idx_team_rivalries_team2 ON team_rivalries(team2_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_team_rivalries_pair_unique
+            ON team_rivalries(team1_id, team2_id);",
+    )?;
+    Ok(())
+}
+
+/// v50 — BILHETERIA como linha de receita REAL (Fase 3 do Estrelato). O público que a
+/// fama do lineup atrai, escalado pelo prestígio do evento, vira dinheiro no caixa —
+/// canal distinto do patrocínio. Nova coluna guarda a bilheteria por rodada no
+/// `team_finance_history` para o dossiê da aba My Team.
+fn migrate_v50(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "team_finance_history")? {
+        // Idempotente (via ensure_column): `run_all` carimba a versão baseline, então
+        // `run_pending` reaplica v41+ na reabertura — este ADD COLUMN não pode falhar
+        // se a coluna já existir.
+        ensure_column(
+            conn,
+            "team_finance_history",
+            "gate_income",
+            "REAL NOT NULL DEFAULT 0.0",
+        )?;
+    }
+    Ok(())
+}
+
+/// v51 — UMIDADE e VENTO por etapa (faixas reais do iRacing: umidade 0-100 %, vento 2-48
+/// km/h), resolvidos da MESMA `WeatherStory` que o export roda e persistidos junto de
+/// `clima`/`temperatura`. Alimentam o Sistema de Quebra: umidade amplifica o calor no motor;
+/// vento estressa suspensão + asas. Defaults NEUTROS (umidade 45, vento 25 = típico → sem
+/// efeito) para saves antigos até a próxima resolução de clima.
+fn migrate_v51(conn: &Connection) -> Result<(), DbError> {
+    if table_exists(conn, "calendar")? {
+        ensure_column(conn, "calendar", "umidade", "REAL NOT NULL DEFAULT 45.0")?;
+        ensure_column(conn, "calendar", "vento", "REAL NOT NULL DEFAULT 25.0")?;
+    }
+    Ok(())
+}
+
+/// v52 — DESFECHOS DE QUEBRA (Peça 3 do Sistema de Quebra). Uma linha por peça que largou numa
+/// corrida DIRIGIDA no iRacing (o disparo ao vivo `!black`/`!dq`), por piloto: qual peça, o modo
+/// concreto do problema, a volta, a severidade (light/heavy/dnf), a penalidade e se foi na
+/// parede. `label` = a frase pronta pro debrief/notícia. `race_id` = id da entrada do calendário
+/// (mesma convenção de `race_results`). Só enche na corrida ao vivo (sim offline não dispara).
+fn migrate_v52(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS race_breakdowns (
+            race_id      TEXT NOT NULL,
+            driver_id    TEXT NOT NULL,
+            part         TEXT NOT NULL,
+            problem      INTEGER NOT NULL DEFAULT 0,
+            lap          INTEGER NOT NULL,
+            severity     TEXT NOT NULL,
+            penalty_secs INTEGER,
+            forced       INTEGER NOT NULL DEFAULT 0,
+            label        TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (race_id, driver_id, part, lap)
+        );
+        CREATE INDEX IF NOT EXISTS idx_race_breakdowns_race ON race_breakdowns(race_id);",
     )?;
     Ok(())
 }
@@ -3555,6 +3659,7 @@ fn seed_meta(conn: &Connection) -> Result<(), DbError> {
         ("next_contract_id", "1"),
         ("next_news_id", "1"),
         ("next_rivalry_id", "1"),
+        ("next_team_rivalry_id", "1"),
         ("current_season", "1"),
         ("current_year", "2024"),
         ("career_start_year", "2024"),
@@ -4197,6 +4302,8 @@ mod tests {
             "team_finance_history",
             "constructor_prize_income"
         ));
+        // v50: bilheteria como linha de receita real (Fase 3 do Estrelato).
+        assert!(column_exists(&conn, "team_finance_history", "gate_income"));
     }
 
     #[test]

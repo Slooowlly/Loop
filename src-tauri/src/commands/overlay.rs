@@ -83,11 +83,29 @@ pub struct OverlayCar {
     fastest: String,
     fol: bool, // volta mais rápida da classe
     pit: bool,
-    flag: Option<String>, // só do jogador (black), IA não tem canal por carro
+    flag: Option<String>, // "black" = DNF (!dq); só do jogador ao vivo, IA vem do motor de quebra
     player: bool,
     /// Papel de rivalidade relativo ao jogador: "nemesis" | "rival" | None. Alimenta
     /// o marcador 💥/🔥 ao lado do nome na torre.
     rival_role: Option<String>,
+    /// Alerta de QUEBRA de peça pendente: "light" (triângulo laranja) | "heavy"
+    /// (vermelho) | None. Some quando o carro sai do box reparado. Preenchido pelo
+    /// motor de quebra ao vivo (wiring da grade toda — fase 2).
+    alert: Option<String>,
+    /// Tempo PARADO no box (s) da última parada, exposto só nas ~3 voltas seguintes
+    /// (badge sobre os pneus). None fora dessa janela. Fonte: tire_strategy.
+    pit_secs: Option<i32>,
+    /// Ícones da coluna de paradas: 1º = pneu de largada, depois um por PARADA — "dry"/"wet"
+    /// (troca de pneu), "fuel" (só abasteceu), "part" (reparo de peça → triângulo no lugar do
+    /// pneu). Diferencia POR QUE o piloto parou. Fonte: tire_strategy + voltas de reparo.
+    pit_icons: Vec<String>,
+    /// FLASH: a linha do piloto pisca por ~5 s quando ele acabou de quebrar (em sincronia com
+    /// o rádio do engenheiro). Fonte: `race_monitor::get_breakdown_flashes`.
+    flash: bool,
+    /// Composto de pneu ESCOLHIDO pelo carro (`CarIdxTireCompound`): índice 0-based por
+    /// série, -1 = desconhecido. Preenchido inclusive pra IA e ANTES da largada — a mesma
+    /// info que o RaceLab expõe. O mapa índice→nome fica na UI (é por série).
+    tire_compound: i32,
 }
 
 #[derive(Serialize)]
@@ -177,8 +195,19 @@ fn best_positive_lap(live: Option<f64>, recorded: Option<f64>) -> f64 {
     }
 }
 
+/// O histórico capturado é da MESMA sessão que está rolando agora?
+///
+/// Igualdade simples — cobre os dois mundos:
+///   • ONLINE/hosted: `WeekendInfo:SubSessionID` > 0, único por evento.
+///   • OFFLINE (aiseason de IA — o caso do jogo): o iRacing manda SubSessionID = **0**.
+///
+/// Antes exigíamos `> 0`, então offline caía em `0 == 0` → **false**, e o overlay descartava
+/// TODO o histórico ao vivo: sem `grid_by_idx` (delta sempre "— 0") e sem `tire_by_idx`
+/// (a coluna de pneu nunca acumulava as paradas). O histórico já é resetado por
+/// tentativa/`session_num` (`record_history`), então confiar no id igual — inclusive 0 —
+/// é seguro contra dados de uma corrida anterior.
 fn history_matches_subsession(history_id: i64, current_id: i64) -> bool {
-    history_id > 0 && history_id == current_id
+    history_id == current_id
 }
 
 fn roster_with_telemetry<'a>(
@@ -227,12 +256,16 @@ mod tests {
     }
 
     #[test]
-    fn history_match_exige_ids_positivos_e_iguais() {
+    fn history_match_exige_ids_iguais_online_e_offline() {
+        // Online: ids iguais e positivos casam; diferentes não.
         assert!(history_matches_subsession(4242, 4242));
         assert!(!history_matches_subsession(4242, 4243));
+        // Transição de evento online (histórico ainda não resetado) NÃO casa.
         assert!(!history_matches_subsession(0, 4242));
         assert!(!history_matches_subsession(4242, 0));
-        assert!(!history_matches_subsession(0, 0));
+        // OFFLINE (aiseason de IA): SubSessionID = 0 nos dois lados → CASA. Sem isto o
+        // overlay descartava grid/delta e os ícones de pneu na corrida de IA.
+        assert!(history_matches_subsession(0, 0));
     }
 
     #[test]
@@ -434,6 +467,15 @@ pub fn get_overlay_data(
     let player_idx = tele.player_car_idx;
     let player_black = (tele.session_flags as u32 & 0x0001_0000) != 0;
 
+    // Carro DESTACADO na torre = quem a câmera assiste (`CamCarIdx`). No replay/spectate
+    // segue quem você olha; dirigindo normal a câmera fica no seu carro, então isto vira
+    // o próprio jogador. Só vale se for um carro real do grid (não o pace, presente no
+    // roster); senão cai no carro do jogador. Identidade/black flag continuam no jogador.
+    let cam_idx = tele.cam_car_idx;
+    let cam_is_valid =
+        cam_idx >= 0 && feedback.cars_yaml_meta.iter().any(|m| m.idx == cam_idx && !m.is_pace);
+    let focus_idx = if cam_is_valid { cam_idx } else { player_idx };
+
     // Tipo de sessão (do YAML) — necessário ANTES do loop: o grid da qualy só é
     // usado pra ordenar fora de treino livre ("P"), onde o `qualy_laps` pode ser
     // resto de outro fim de semana.
@@ -476,6 +518,25 @@ pub fn get_overlay_data(
         HashMap::new()
     };
 
+    // Volta do líder AGORA — janela do tracker de tempo de pit (maior volta completa
+    // + 1). O total de voltas/estado do cabeçalho é recalculado no fim.
+    let lead_lap_now = tele.cars.iter().map(|c| c.lap_completed).max().unwrap_or(0) + 1;
+
+    // Alertas de quebra ao vivo por car_idx (triângulo laranja/vermelho; DNF → bandeira preta).
+    let breakdown_by_idx: HashMap<i32, &'static str> =
+        race_monitor::get_breakdown_alerts().into_iter().collect();
+    // Voltas de reparo de peça por car_idx (→ ícone "part" no lugar do pneu na coluna de paradas).
+    let repair_laps_by_idx: HashMap<i32, Vec<u32>> = {
+        let mut m: HashMap<i32, Vec<u32>> = HashMap::new();
+        for (idx, lap) in race_monitor::get_breakdown_repair_laps() {
+            m.entry(idx).or_default().push(lap);
+        }
+        m
+    };
+    // car_idx que devem PISCAR agora (quebrou nos últimos 5 s).
+    let flash_idxs: std::collections::HashSet<i32> =
+        race_monitor::get_breakdown_flashes().into_iter().collect();
+
     // ── Monta carros, agrupados por classe (class_id) ──
     // (carro, melhor_volta_s, chave_pra_nao_classificado)
     let mut by_class: HashMap<i64, Vec<(OverlayCar, f64, (i64, i64))>> = HashMap::new();
@@ -494,8 +555,12 @@ pub fn get_overlay_data(
             recorded_best_lap.get(&meta.idx).copied(),
         );
 
-        let is_player = meta.idx == player_idx;
-        let driver_id = if is_player {
+        // `is_self` = o carro do JOGADOR (resolve nome pela identidade do save + dona da
+        // black flag ao vivo). `is_focused` = o carro ASSISTIDO na câmera (a linha em
+        // destaque). Dirigindo normal os dois coincidem; no replay o destaque migra.
+        let is_self = meta.idx == player_idx;
+        let is_focused = meta.idx == focus_idx;
+        let driver_id = if is_self {
             player_driver.as_ref().map(|d| d.id.clone())
         } else {
             by_number.get(&(meta.car_number as i64)).cloned()
@@ -516,6 +581,46 @@ pub fn get_overlay_data(
             .map(|s| s.stints.iter().map(|st| compound_str(st.compound).to_string()).collect())
             .unwrap_or_default();
         let stops = strat.map(|s| s.tire_changes).unwrap_or(0);
+
+        // Tracker de tempo de pit: última parada do carro, só nas ~3 voltas seguintes.
+        let pit_secs = strat.and_then(|s| s.stops.last()).and_then(|last| {
+            let since = lead_lap_now - last.lap;
+            (0..=3).contains(&since).then(|| last.box_secs.round() as i32)
+        });
+
+        // Alerta de quebra: "light"/"heavy" → triângulo; "dnf" → bandeira preta.
+        let bd = breakdown_by_idx.get(&meta.idx).copied();
+        let alert = match bd {
+            Some("light") => Some("light".to_string()),
+            Some("heavy") => Some("heavy".to_string()),
+            _ => None,
+        };
+
+        // Ícones da coluna de paradas: pneu de largada, depois um por parada (troca/abastece/repara).
+        let pit_icons: Vec<String> = strat
+            .map(|s| {
+                let reps = repair_laps_by_idx.get(&meta.idx);
+                let mut v = vec![compound_str(s.start_compound).to_string()];
+                for stop in &s.stops {
+                    let is_repair = reps.is_some_and(|ls| {
+                        ls.iter().any(|&l| (l as i32 - stop.lap).abs() <= 1)
+                    });
+                    let icon = if is_repair {
+                        "part"
+                    } else if stop.tire_change {
+                        if stop.track_wet {
+                            "wet"
+                        } else {
+                            "dry"
+                        }
+                    } else {
+                        "fuel"
+                    };
+                    v.push(icon.to_string());
+                }
+                v
+            })
+            .unwrap_or_default();
 
         let grid_pos = grid_by_idx.get(&meta.idx).copied().unwrap_or(0);
         let delta = if class_pos > 0 && grid_pos > 0 {
@@ -553,15 +658,21 @@ pub fn get_overlay_data(
                 fastest: fmt_lap(best_lap),
                 fol: false, // definido após agrupar
                 pit: car.map(|snapshot| snapshot.on_pit_road).unwrap_or(false),
-                flag: if is_player && player_black {
+                // DNF (quebra) → bandeira preta pra grade toda; senão, black flag viva do jogador.
+                flag: if bd == Some("dnf") || (is_self && player_black) {
                     Some("black".to_string())
                 } else {
                     None
                 },
-                player: is_player,
+                player: is_focused,
                 rival_role: driver_id
                     .as_deref()
                     .and_then(|id| rival_roles.get(id).map(|s| s.to_string())),
+                alert,
+                pit_secs,
+                pit_icons,
+                flash: flash_idxs.contains(&meta.idx),
+                tire_compound: car.map(|snapshot| snapshot.tire_compound).unwrap_or(-1),
             },
             best_lap,
             unclass_key,
@@ -648,4 +759,473 @@ pub fn get_overlay_data(
         sem_pos_incluido
     ));
     Ok(Some(OverlayData { session, classes }))
+}
+
+// ───────────────────────── RÁDIO DA EQUIPE (feed de quebras) ─────────────────────────
+
+/// Uma mensagem do overlay do engenheiro sobre uma quebra na grade.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BreakdownMessage {
+    /// Índice no log da corrida — cursor crescente pro front saber o que é NOVO.
+    id: usize,
+    /// "light" | "heavy" | "dnf" — tinge o acento do card.
+    severity: String,
+    /// Frase principal (voz do engenheiro, 3ª pessoa sobre o piloto).
+    text: String,
+    /// Detalhe concreto do problema (o `problem_label`), como subtítulo.
+    detail: String,
+}
+
+/// Peça com preposição/artigo pra frase do engenheiro ("no motor", "na suspensão").
+fn part_com_artigo(part_key: &str) -> &'static str {
+    match part_key {
+        "engine" => "no motor",
+        "gearbox" => "no câmbio",
+        "brakes" => "nos freios",
+        "suspension" => "na suspensão",
+        "cooling" => "no arrefecimento",
+        "front_wing" => "na asa dianteira",
+        "rear_wing" => "na asa traseira",
+        "sidepods" => "nas laterais",
+        "underbody" => "no assoalho",
+        "chassis" => "no chassi",
+        "electronics" => "na parte elétrica",
+        _ => "no carro",
+    }
+}
+
+/// FONTE ÚNICA das redações do rádio: 3 opções por (peça, severidade), voz do engenheiro,
+/// 3ª pessoa. Devolve o TRECHO depois do nome (a peça já vem escrita no texto). A causa
+/// concreta (`detail`) é anexada pelo card na mesma linha. Peça/severidade desconhecida cai
+/// num genérico. O DNF é tratado à parte (`dnf_frase`), pois a redação é diferente.
+fn breakdown_frases(part_key: &str, severity: &str) -> [&'static str; 3] {
+    match (severity, part_key) {
+        // ── MOTOR ──
+        ("light", "engine") => [
+            "sente o motor perdendo fôlego",
+            "relata o motor engasgando",
+            "avisa que o motor não está redondo",
+        ],
+        ("heavy", "engine") => [
+            "está com o motor em pane",
+            "perdeu potência e o motor pode não aguentar",
+            "relata o motor no limite — situação séria",
+        ],
+        // ── CÂMBIO ──
+        ("light", "gearbox") => [
+            "está com o câmbio arisco nas trocas",
+            "relata engates falhando no câmbio",
+            "sente o câmbio embolando as marchas",
+        ],
+        ("heavy", "gearbox") => [
+            "está com o câmbio travando",
+            "perdeu marchas — o câmbio está indo embora",
+            "relata o câmbio prestes a parar",
+        ],
+        // ── FREIOS ──
+        ("light", "brakes") => [
+            "sente o pedal de freio amolecendo",
+            "relata os freios pedindo água",
+            "avisa que os freios estão longos",
+        ],
+        ("heavy", "brakes") => [
+            "está praticamente sem freio",
+            "relata os freios cozinhando",
+            "perdeu o pedal — freios em pane",
+        ],
+        // ── SUSPENSÃO ──
+        ("light", "suspension") => [
+            "sente a suspensão reclamando nas zebras",
+            "relata o carro batendo demais atrás",
+            "avisa de uma folga na suspensão",
+        ],
+        ("heavy", "suspension") => [
+            "está com a suspensão comprometida",
+            "relata algo quebrado na suspensão",
+            "perdeu firmeza — suspensão em pane",
+        ],
+        // ── ARREFECIMENTO ──
+        ("light", "cooling") => [
+            "vê a temperatura subindo aos poucos",
+            "relata o arrefecimento no limite",
+            "avisa que a água está esquentando",
+        ],
+        ("heavy", "cooling") => [
+            "está com o arrefecimento estourando",
+            "relata superaquecimento crítico",
+            "perdeu o arrefecimento — temperatura no vermelho",
+        ],
+        // ── ASA DIANTEIRA ──
+        ("light", "front_wing") => [
+            "relata a asa dianteira leve",
+            "sente o bico perdendo apoio",
+            "avisa de dano na asa dianteira",
+        ],
+        ("heavy", "front_wing") => [
+            "está com a asa dianteira danificada",
+            "perdeu apoio na frente — asa comprometida",
+            "relata a asa dianteira se soltando",
+        ],
+        // ── ASA TRASEIRA ──
+        ("light", "rear_wing") => [
+            "sente a traseira solta na reta",
+            "relata a asa traseira leve",
+            "avisa de dano na asa traseira",
+        ],
+        ("heavy", "rear_wing") => [
+            "está com a asa traseira danificada",
+            "perdeu apoio atrás — traseira nervosa",
+            "relata a asa traseira cedendo",
+        ],
+        // ── LATERAIS ──
+        ("light", "sidepods") => [
+            "relata dano nas laterais",
+            "sente o carro puxando de lado",
+            "avisa de um amassado nas laterais",
+        ],
+        ("heavy", "sidepods") => [
+            "está com as laterais abertas",
+            "perdeu parte da lateral — carro ferido",
+            "relata dano sério nas laterais",
+        ],
+        // ── ASSOALHO ──
+        ("light", "underbody") => [
+            "sente o assoalho raspando",
+            "relata perda de apoio no assoalho",
+            "avisa de dano no assoalho",
+        ],
+        ("heavy", "underbody") => [
+            "está com o assoalho comprometido",
+            "perdeu downforce — assoalho ferido",
+            "relata o assoalho arrastando forte",
+        ],
+        // ── CHASSI ──
+        ("light", "chassis") => [
+            "sente o chassi estranho",
+            "relata o carro desalinhado",
+            "avisa de algo torto no chassi",
+        ],
+        ("heavy", "chassis") => [
+            "está com o chassi comprometido",
+            "relata dano estrutural no chassi",
+            "perdeu rigidez — chassi ferido",
+        ],
+        // ── PARTE ELÉTRICA ──
+        ("light", "electronics") => [
+            "relata oscilações na parte elétrica",
+            "sente o painel piscando",
+            "avisa de falha elétrica intermitente",
+        ],
+        ("heavy", "electronics") => [
+            "está com pane elétrica",
+            "perdeu comandos — parte elétrica em pane",
+            "relata o carro cortando — falha elétrica",
+        ],
+        // ── genérico ──
+        ("heavy", _) => [
+            "está com um problema grave no carro",
+            "relata um problema sério no carro",
+            "perdeu desempenho — algo grave no carro",
+        ],
+        _ => [
+            "apresenta um problema no carro",
+            "relata algo estranho no carro",
+            "avisa de um problema no carro",
+        ],
+    }
+}
+
+/// Redação de ABANDONO (DNF) — 3 opções. Usa a peça com preposição (`part_com_artigo`).
+fn dnf_frase(name: &str, part: &str, variant: usize) -> String {
+    match variant % 3 {
+        0 => format!("{name} está fora — problemas {part}"),
+        1 => format!("{name} abandona a corrida com problemas {part}"),
+        _ => format!("{name} foi retirado da corrida — problemas {part}"),
+    }
+}
+
+/// Causa de exemplo por peça (só pro DEMO — na corrida real vem do `problem_label`).
+fn demo_causa(part_key: &str) -> &'static str {
+    match part_key {
+        "engine" => "superaquecimento",
+        "gearbox" => "engrenagem gasta",
+        "brakes" => "freios superaquecidos",
+        "suspension" => "braço trincado",
+        "cooling" => "vazamento de água",
+        "front_wing" => "toque na dianteira",
+        "rear_wing" => "flap solto",
+        "sidepods" => "batida na lateral",
+        "underbody" => "assoalho danificado",
+        "chassis" => "dano estrutural",
+        "electronics" => "falha no chicote",
+        _ => "",
+    }
+}
+
+/// Nomes REAIS do grid da sessão atual (roster do monitor → número → nosso elenco), pra
+/// o demo usar pilotos de verdade. `None`/vazio quando não há sessão/save → o tour cai
+/// nos nomes fictícios.
+fn session_driver_names(app: &tauri::AppHandle, career_id: &str) -> Vec<String> {
+    use tauri::Manager;
+    let Ok(base_dir) = app.path().app_data_dir() else {
+        return Vec::new();
+    };
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let Ok(db) = Database::open_existing(&db_path) else {
+        return Vec::new();
+    };
+    let numbers: HashMap<String, i64> =
+        std::fs::read_to_string(super::iracing::numbers_path(&base_dir, career_id))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+    let by_number: HashMap<i64, String> = numbers.into_iter().map(|(id, n)| (n, id)).collect();
+
+    let feedback = race_monitor::get_feedback();
+    let mut names = Vec::new();
+    for meta in &feedback.cars_yaml_meta {
+        if meta.is_pace {
+            continue;
+        }
+        if let Some(id) = by_number.get(&(meta.car_number as i64)) {
+            if let Ok(d) = dq::get_driver(&db.conn, id) {
+                names.push(d.nome);
+            }
+        }
+    }
+    names
+}
+
+/// Monta o TOUR de exemplos do demo a partir da fonte única (`breakdown_frases`): toda
+/// peça × leve/grave × 3 redações + alguns abandonos. Usa `real_names` (pilotos do grid)
+/// se houver; senão, nomes fictícios. É o que o overlay cicla no modo demo.
+fn demo_tour(real_names: &[String]) -> Vec<BreakdownMessage> {
+    const FALLBACK: [&str; 6] = [
+        "Ryan Jones",
+        "Hunter Jackson",
+        "Logan Garcia",
+        "Adrian Alvarez",
+        "Nathan Brown",
+        "Camila Monteiro",
+    ];
+    const PARTS: [&str; 11] = [
+        "engine", "gearbox", "brakes", "suspension", "cooling", "front_wing", "rear_wing",
+        "sidepods", "underbody", "chassis", "electronics",
+    ];
+    let name_at = |i: usize| -> String {
+        if real_names.is_empty() {
+            FALLBACK[i % FALLBACK.len()].to_string()
+        } else {
+            real_names[i % real_names.len()].clone()
+        }
+    };
+    let mut out = Vec::new();
+    let mut ni = 0usize;
+    for part in PARTS {
+        for sev in ["light", "heavy"] {
+            for frase in breakdown_frases(part, sev) {
+                let name = name_at(ni);
+                ni += 1;
+                out.push(BreakdownMessage {
+                    id: out.len(),
+                    severity: sev.to_string(),
+                    text: format!("{name} {frase}"),
+                    detail: demo_causa(part).to_string(),
+                });
+            }
+        }
+    }
+    for v in 0..3 {
+        let name = name_at(ni);
+        ni += 1;
+        out.push(BreakdownMessage {
+            id: out.len(),
+            severity: "dnf".to_string(),
+            text: dnf_frase(&name, part_com_artigo("gearbox"), v),
+            detail: String::new(),
+        });
+    }
+    out
+}
+
+/// Lista completa de exemplos do demo (a janela do rádio busca uma vez e cicla localmente).
+/// Usa os pilotos REAIS do grid da carreira quando há sessão; senão, nomes fictícios.
+#[tauri::command]
+pub fn overlay_demo_messages(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Vec<BreakdownMessage>, String> {
+    Ok(demo_tour(&session_driver_names(&app, &career_id)))
+}
+
+/// Modo DEMO do rádio (VR / fallback): cicla o tour pelo tempo. Troca a cada ~5 s; o `id`
+/// cresce, então o front reconhece como novo. Ligado pelo botão das Configurações ou env.
+fn demo_breakdown_feed(real_names: &[String]) -> Vec<BreakdownMessage> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let tour = demo_tour(real_names);
+    if tour.is_empty() {
+        return Vec::new();
+    }
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let step = (secs / 5) as usize; // avança um exemplo a cada 5 s
+    let mut m = tour[step % tour.len()].clone();
+    m.id = step; // id crescente → o front troca o card
+    vec![m]
+}
+
+// ───────────────────── AVISO PESSOAL (peça do jogador na zona de risco) ─────────────────────
+
+/// Peça com preposição na 2ª pessoa ("no seu motor", "na sua suspensão") — pro engenheiro.
+fn part_com_seu(part_key: &str) -> &'static str {
+    match part_key {
+        "engine" => "no seu motor",
+        "gearbox" => "no seu câmbio",
+        "brakes" => "nos seus freios",
+        "suspension" => "na sua suspensão",
+        "cooling" => "no seu arrefecimento",
+        "front_wing" => "na sua asa dianteira",
+        "rear_wing" => "na sua asa traseira",
+        "sidepods" => "nas suas laterais",
+        "underbody" => "no seu assoalho",
+        "chassis" => "no seu chassi",
+        "electronics" => "na sua parte elétrica",
+        _ => "no seu carro",
+    }
+}
+
+/// Monta o AVISO pessoal na VOZ DO ENGENHEIRO (rádio, 1ª pessoa dele → você). Sem número:
+/// ele "ouve algo estranho" e alerta que a peça pode dar problema a qualquer momento. 3
+/// variações; severidade "warn" → card distinto no front.
+fn player_warning_msg(part_key: &str, id: usize) -> BreakdownMessage {
+    let onde = part_com_seu(part_key);
+    // (abertura, alerta) — a peça (`onde`) é encaixada na abertura.
+    let variants: [(&str, &str); 3] = [
+        ("Estou ouvindo algo estranho", "pode dar problema a qualquer momento"),
+        ("Não gostei de um barulho", "fica de olho — pode falhar a qualquer hora"),
+        ("Tem algo esquisito acontecendo", "risco de pane a qualquer momento"),
+    ];
+    let (open, detail) = variants[id % variants.len()];
+    BreakdownMessage {
+        id,
+        severity: "warn".to_string(),
+        text: format!("{open} {onde}"),
+        detail: detail.to_string(),
+    }
+}
+
+/// Tour de avisos do demo: um por peça (desgaste 95–100%). Fonte única do card de aviso.
+fn demo_player_warnings() -> Vec<BreakdownMessage> {
+    const PARTS: [&str; 11] = [
+        "engine", "gearbox", "brakes", "suspension", "cooling", "front_wing", "rear_wing",
+        "sidepods", "underbody", "chassis", "electronics",
+    ];
+    PARTS
+        .iter()
+        .enumerate()
+        .map(|(i, p)| player_warning_msg(p, i))
+        .collect()
+}
+
+/// AVISOS pessoais do jogador (peça DELE entrou na zona de risco) — o overlay mostra num card
+/// DISTINTO (2ª pessoa). Lê o log vivo do monitor. No demo, cicla o tour pelo tempo.
+#[tauri::command]
+pub fn get_player_warnings() -> Result<Vec<BreakdownMessage>, String> {
+    if crate::commands::overlay_window::demo_enabled() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let tour = demo_player_warnings();
+        if tour.is_empty() {
+            return Ok(Vec::new());
+        }
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let step = (secs / 6) as usize; // troca a cada 6 s
+        let mut m = tour[step % tour.len()].clone();
+        m.id = step;
+        return Ok(vec![m]);
+    }
+    let warns = race_monitor::peek_player_warnings();
+    Ok(warns
+        .iter()
+        .enumerate()
+        .map(|(i, w)| player_warning_msg(w.part, i))
+        .collect())
+}
+
+/// Lista completa dos avisos de exemplo (a janela do rádio busca uma vez e cicla localmente).
+#[tauri::command]
+pub fn overlay_demo_warnings() -> Vec<BreakdownMessage> {
+    demo_player_warnings()
+}
+
+/// Feed do RÁDIO DA EQUIPE: as quebras da corrida em andamento viram frases do engenheiro
+/// (piloto resolvido pelo número → nosso elenco). O front mostra as NOVAS (por `id`). Não
+/// depende de telemetria — lê o log vivo do monitor + o banco da carreira.
+#[tauri::command]
+pub fn get_breakdown_feed(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Vec<BreakdownMessage>, String> {
+    use tauri::Manager;
+
+    // Modo demo: mostra templates ciclando (pra posicionar/ver o overlay do rádio), com
+    // os pilotos REAIS do grid. Ligado pelo botão das Configurações OU pela env.
+    if crate::commands::overlay_window::demo_enabled() {
+        return Ok(demo_breakdown_feed(&session_driver_names(&app, &career_id)));
+    }
+
+    let log = race_monitor::peek_breakdown_log();
+    if log.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let numbers: HashMap<String, i64> =
+        std::fs::read_to_string(super::iracing::numbers_path(&base_dir, &career_id))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+    let by_number: HashMap<i64, String> = numbers.into_iter().map(|(id, n)| (n, id)).collect();
+
+    let out = log
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let name = by_number
+                .get(&(o.car_number as i64))
+                .and_then(|id| dq::get_driver(&db.conn, id).ok())
+                .map(|d| d.nome)
+                .unwrap_or_else(|| format!("Carro #{}", o.car_number));
+            // Redação DIRETA a partir da fonte única (`breakdown_frases`): 3 opções por
+            // (peça, severidade). Variante ESTÁVEL por carro+ordem (mesma quebra → mesma
+            // frase; a grade varia). A causa (`detail`) segue na mesma linha no card.
+            let variant = (o.car_number as usize).wrapping_add(i) % 3;
+            let text = if o.severity == "dnf" {
+                dnf_frase(&name, part_com_artigo(&o.part), variant)
+            } else {
+                format!("{name} {}", breakdown_frases(&o.part, &o.severity)[variant])
+            };
+            BreakdownMessage {
+                id: i,
+                severity: o.severity.clone(),
+                text,
+                detail: o.label.clone(),
+            }
+        })
+        .collect();
+
+    Ok(out)
 }

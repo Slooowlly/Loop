@@ -1,0 +1,4 @@
+# English locale. One file per locale (filename = locale code). Grown by phase 3+
+# (deterministic text + AI "facts"). See docs/i18n-translation-spec.md.
+diagnostics:
+  ping: "pong-en"

@@ -92,7 +92,7 @@ function Chip({ active, onClick, children }) {
 // Estimativa do bloco de troca de pneus (s) — não exato, ~20–22s.
 const TIRE_EST_SECS = 21;
 
-function RaceTelemetryCockpit({ telemetry, teammateName = null }) {
+function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] }) {
   const careerId = useCareerStore((s) => s.careerId);
   const lastRaceId = useCareerStore((s) => s.lastRaceId);
   const [traceMode, setTraceMode] = useState("gap");
@@ -436,6 +436,53 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null }) {
             colorFor={colorFor}
             nameByIdx={nameByIdx}
           />
+        </Panel>
+      )}
+
+      {/* QUEBRAS DE PEÇA — detalhe por piloto (Peça 3): peça, problema, volta e desfecho */}
+      {breakdowns && breakdowns.length > 0 && (
+        <Panel>
+          <SectionTitle
+            right={<span style={{ color: "#6e7681" }} className="text-[10px]">peça · problema · volta · desfecho</span>}
+          >
+            Quebras de peça
+          </SectionTitle>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.025)" }}>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>piloto</th>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>peça</th>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>problema</th>
+                  <th className="text-center font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>volta</th>
+                  <th className="text-right font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>desfecho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakdowns.map((b, i) => {
+                  const isDnf = b.severity === "dnf";
+                  const color = isDnf ? "#f0a3a3" : b.severity === "heavy" ? "#f0b37a" : "#e6d27a";
+                  return (
+                    <tr
+                      key={`${b.driver_id}-${b.part}-${b.lap}-${i}`}
+                      style={{
+                        background: b.is_player ? "rgba(45,212,191,0.08)" : "transparent",
+                        borderTop: "1px solid rgba(255,255,255,0.05)",
+                      }}
+                    >
+                      <td className="py-1.5 px-2" style={{ color: b.is_player ? "#5eead4" : "#e6edf3" }}>{b.driver_name}</td>
+                      <td className="py-1.5 px-2" style={{ color: "#c9d1d9" }}>{b.part_name}</td>
+                      <td className="py-1.5 px-2" style={{ color: "#9da7b0" }}>{b.label}</td>
+                      <td className="py-1.5 px-2 text-center" style={{ color: "#8b949e" }}>{b.lap}</td>
+                      <td className="py-1.5 px-2 text-right font-medium" style={{ color }}>
+                        {isDnf ? "ABANDONO" : `+${b.penalty_secs}s`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </Panel>
       )}
 

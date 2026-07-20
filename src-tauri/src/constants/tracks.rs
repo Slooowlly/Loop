@@ -1177,6 +1177,49 @@ pub fn get_free_tracks() -> Vec<&'static TrackInfo> {
     TRACKS.iter().filter(|track| track.gratuita).collect()
 }
 
+/// Fallback de TESTE: quando a pista pedida é conteúdo PAGO (que o jogador pode
+/// não possuir), devolve uma pista GRÁTIS determinística no lugar, para o export
+/// conseguir rodar mesmo sem a pista real. Pistas já grátis (e a própria escolha)
+/// passam intactas.
+///
+/// A escolha é determinística e INDEPENDENTE de ordem (`track_id % pool`): a mesma
+/// pista paga sempre mapeia para a mesma free em todo export — o import compara o
+/// resultado do iRacing contra a pista que foi de fato exportada, então o mapa
+/// precisa ser estável entre exports. Prefere free do mesmo tipo (road/roval).
+///
+/// TODO(design final): trocar por "pistas que o jogador realmente possui" em vez
+/// de substituir todo conteúdo pago — ver backlog de posse de pistas.
+pub fn free_or_substitute(track_id: u32) -> Option<&'static TrackInfo> {
+    let original = get_track(track_id);
+    if let Some(track) = original {
+        if track.gratuita {
+            return Some(track);
+        }
+    }
+
+    let free = get_free_tracks();
+    if free.is_empty() {
+        return original;
+    }
+
+    // Prefere manter o tipo (road/roval) da pista original; se não houver free do
+    // mesmo tipo, cai para o pool free inteiro.
+    let pool: Vec<&'static TrackInfo> = match original.map(|t| t.tipo) {
+        Some(tipo) => {
+            let same: Vec<&'static TrackInfo> =
+                free.iter().copied().filter(|t| t.tipo == tipo).collect();
+            if same.is_empty() {
+                free
+            } else {
+                same
+            }
+        }
+        None => free,
+    };
+
+    Some(pool[(track_id as usize) % pool.len()])
+}
+
 pub fn get_tracks_for_tier(tier: u8) -> Vec<&'static TrackInfo> {
     if tier <= 2 {
         get_free_tracks()
@@ -1244,6 +1287,31 @@ mod tests {
     #[test]
     fn brands_hatch_is_paid_content() {
         assert!(!get_track(145).expect("Brands GP").gratuita);
+    }
+
+    #[test]
+    fn free_or_substitute_swaps_paid_for_free_and_is_stable() {
+        // Adelaide (580) é conteúdo pago no catálogo.
+        assert!(!get_track(580).expect("Adelaide").gratuita);
+        let sub = free_or_substitute(580).expect("deve devolver uma substituta");
+        assert!(sub.gratuita, "a substituta precisa ser uma pista grátis");
+        // Determinístico: a mesma pista paga sempre mapeia para a mesma free (o import
+        // compara o resultado contra a pista exportada).
+        assert_eq!(sub.track_id, free_or_substitute(580).expect("estável").track_id);
+    }
+
+    #[test]
+    fn free_or_substitute_keeps_free_tracks_untouched() {
+        // 451 é uma pista grátis do catálogo → passa intacta.
+        assert!(get_track(451).expect("free 451").gratuita);
+        assert_eq!(free_or_substitute(451).expect("free").track_id, 451);
+    }
+
+    #[test]
+    fn free_or_substitute_prefers_same_track_type() {
+        // Adelaide (580) é Road; a substituta também deve ser Road (todas as free são).
+        let sub = free_or_substitute(580).expect("substituta");
+        assert_eq!(sub.tipo, TrackType::Road);
     }
 
     #[test]

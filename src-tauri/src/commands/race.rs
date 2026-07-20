@@ -84,6 +84,12 @@ fn calculate_team_round_finance_context(
     rounds_in_season: f64,
     economic_health: GlobalEconomicHealth,
     car_maintenance_cost: f64,
+    // Bilheteria (Fase 3 do Estrelato): prestígio do evento (score do event_interest,
+    // pré-vendido) + presença pública somada do grid + nº de times, para dividir o
+    // bolo de público por cota de fama competitiva.
+    event_prestige_score: f64,
+    grid_total_presence: f64,
+    grid_team_count: f64,
 ) -> TeamRoundFinanceContext {
     let income_modifier = economy_income_modifier(economic_health);
     let cost_modifier = economy_cost_modifier(economic_health);
@@ -122,8 +128,21 @@ fn calculate_team_round_finance_context(
         round_operating_base * 0.16 * cost_modifier + car_maintenance_cost.max(0.0);
     let debt_service_cost = debt_service_for_state(team.debt_balance, &team.financial_state);
 
+    // Bilheteria: o público que a fama do lineup atrai, escalado pelo prestígio do
+    // evento e dividido por cota competitiva (presença deste time / grid) + piso.
+    // Canal distinto do patrocínio — fecha o loop "casa cheia → dinheiro".
+    let gate_income = crate::finance::cashflow::calculate_gate_income(
+        event_prestige_score,
+        round_operating_base,
+        lineup_public_presence,
+        grid_total_presence,
+        grid_team_count,
+        income_modifier,
+    );
+
     TeamRoundFinanceContext {
         sponsorship_income,
+        gate_income,
         result_bonus,
         partial_prize_income,
         aid_income,
@@ -217,6 +236,32 @@ fn compute_venue_impact(race_entry: &CalendarEntry) -> Option<RealizedEventInter
     Some(calculate_realized_event_interest(
         &expected, &ctx, None, None, false, false, false, false,
     ))
+}
+
+/// Score de PRESTÍGIO "de local" do evento (pré-vendido / esperado), sem protagonismo
+/// nem resultado — a mesma base que dimensiona a pressão de "casa cheia". Alimenta a
+/// BILHETERIA (Fase 3 do Estrelato): evento maior (endurance, final, decisão) lota mais
+/// → bolo de público maior. `0.0` se a categoria não tem config (bilheteria some).
+fn venue_prestige_score(race_entry: &CalendarEntry) -> f64 {
+    let Some(category) = get_category_config(&race_entry.categoria) else {
+        return 0.0;
+    };
+    let ctx = EventInterestContext {
+        categoria: race_entry.categoria.clone(),
+        season_phase: race_entry.season_phase,
+        rodada: race_entry.rodada,
+        total_rodadas: category.corridas_por_temporada as i32,
+        week_of_year: race_entry.week_of_year,
+        track_id: race_entry.track_id as i32,
+        track_name: race_entry.track_name.clone(),
+        is_player_event: false,
+        player_championship_position: None,
+        player_media: None,
+        championship_gap_to_leader: None,
+        is_title_decider_candidate: false,
+        thematic_slot: race_entry.thematic_slot,
+    };
+    calculate_expected_event_interest(&ctx).score as f64
 }
 
 /// Aplica TODOS os efeitos de FAMA de uma corrida concluída. Vale IGUAL pra corrida
@@ -1007,6 +1052,8 @@ fn simulate_category_race_with_mode(
         category,
         next_round,
         persistence_mode,
+        None, // sim offline: sem inputs do jogador → sem estilo
+        0,    // sim offline: sem paradas reais (a IA modela pela duração)
         &mut rng,
     )?;
 
@@ -1028,6 +1075,12 @@ pub(crate) fn persist_race_result_tx(
     category: &CategoryConfig,
     next_round: Option<i32>,
     persistence_mode: RacePersistenceMode,
+    // Estilo de pilotagem do JOGADOR (só quando ele correu no iRacing); `None` na sim offline.
+    // Modula o desgaste SÓ do carro dele.
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+    // Nº de paradas REAIS do jogador (do SDK) — alívio de gasto de peça do enduro (só no carro
+    // dele; 10%/parada, teto 30%). 0 na sim offline (a IA modela as paradas pela duração).
+    player_pits: u32,
     rng: &mut impl rand::Rng,
 ) -> Result<Vec<Injury>, String> {
     let mut new_injuries_out: Vec<Injury> = Vec::new();
@@ -1064,6 +1117,79 @@ pub(crate) fn persist_race_result_tx(
                 .filter(|entry| entry.rodada > race_entry.rodada)
                 .map(|entry| entry.track_id)
                 .collect();
+        // Condições reais da corrida → o desgaste da grade toda responde à pista + clima
+        // desta rodada (o cérebro de manutenção reage a corridas brutais). Todos os 4 canais
+        // vêm dos campos AUTORITATIVOS persistidos da MESMA história que o iRacing roda: clima
+        // e temperatura no `race_entry`; umidade e vento nas colunas da etapa (via A, gravadas
+        // por `resolve_and_persist_race_weather`). Saves antigos → default neutro (45/25).
+        let (humidity, wind_kmh) = tx
+            .query_row(
+                "SELECT umidade, vento FROM calendar WHERE id = ?1",
+                [race_entry.id.as_str()],
+                |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+            )
+            .unwrap_or((
+                crate::car::breakdown::Weather::NEUTRAL.humidity,
+                crate::car::breakdown::Weather::NEUTRAL.wind_kmh,
+            ));
+        let weather = crate::car::breakdown::Weather {
+            wetness: race_entry.clima.wetness(),
+            temperature: race_entry.temperatura,
+            humidity,
+            wind_kmh,
+        };
+        // Duração da corrida (min) da categoria — acima do gate de enduro, o desgaste de peça
+        // sobe pra grade toda. Fonte de verdade = config da categoria (mesma que a sim usa em
+        // context.rs); categoria não resolvida → 30 (sprint/neutro).
+        let duracao_min = crate::constants::categories::get_category_config(&race_entry.categoria)
+            .map(|c| c.duracao_corrida_min)
+            .unwrap_or(30);
+        let wear_conditions = crate::market::car_maintenance::WearConditions::from_race(
+            race_entry.track_id,
+            weather,
+            duracao_min,
+        );
+        // Time do JOGADOR (só se há estilo capturado) — o estilo modula o desgaste só do carro
+        // dele. Piloto → contrato ativo → equipe.
+        let player_team_id: Option<String> = if player_style.is_some() {
+            crate::db::queries::drivers::get_player_driver(tx)
+                .ok()
+                .and_then(|p| {
+                    crate::db::queries::contracts::get_active_contract_for_pilot(tx, &p.id)
+                        .ok()
+                        .flatten()
+                })
+                .map(|c| c.equipe_id)
+        } else {
+            None
+        };
+        // Peça 3 · desconfiança mecânica → menos desgaste: times com DNF MECÂNICO nas rodadas
+        // recentes POUPAM as peças (o loop emergente da quebra: quebrou → desconfia → poupa →
+        // quebra menos). Janela = as 3 rodadas ANTERIORES (a atual ainda não foi persistida).
+        let team_cautions: std::collections::HashMap<
+            String,
+            crate::car::driving_style::StyleFactors,
+        > = {
+            let r = race_entry.rodada;
+            crate::db::queries::race_history::mechanical_dnf_counts_by_team(
+                tx,
+                &active_season.id,
+                &race_entry.categoria,
+                (r - 3).max(1),
+                r - 1,
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(team, count)| {
+                (
+                    team,
+                    crate::car::driving_style::StyleFactors::uniform(mechanical_caution_factor(
+                        count,
+                    )),
+                )
+            })
+            .collect()
+        };
         apply_race_result_to_database(
             tx,
             result,
@@ -1075,6 +1201,12 @@ pub(crate) fn persist_race_result_tx(
             active_season.numero as i32,
             race_entry.rodada,
             &upcoming_track_ids,
+            wear_conditions,
+            venue_prestige_score(race_entry),
+            player_team_id.as_deref(),
+            player_style,
+            player_pits,
+            &team_cautions,
         )?;
 
         // 3. Verifica os incidentes recém-gerados e processa possíveis lesões
@@ -1568,6 +1700,78 @@ pub fn get_saved_race_screen(
     }
 }
 
+/// Uma quebra de peça pra UI pós-corrida (Peça 3): já resolvida com o nome do piloto e da peça.
+#[derive(serde::Serialize)]
+pub struct RaceBreakdownView {
+    pub driver_id: String,
+    pub driver_name: String,
+    /// Chave da peça (`PartType::as_str`).
+    pub part: String,
+    /// Nome legível da peça na categoria (Motor/Câmbio/Asa dianteira…).
+    pub part_name: String,
+    pub lap: u32,
+    /// "light" | "heavy" | "dnf".
+    pub severity: String,
+    /// Segundos perdidos no box; `null` = DNF.
+    pub penalty_secs: Option<u32>,
+    /// Frase do problema concreto (ex.: "motor fundiu por superaquecimento").
+    pub label: String,
+    pub is_player: bool,
+}
+
+/// Quebras de peça de uma corrida, pra tela pós-corrida (resumo no Debrief + detalhe por piloto
+/// na Telemetria). Vazio se a corrida não teve quebra (ou é save antigo).
+#[tauri::command]
+pub fn get_race_breakdowns(
+    app: AppHandle,
+    career_id: String,
+    race_id: String,
+) -> Result<Vec<RaceBreakdownView>, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+    let rows = crate::db::queries::race_breakdowns::get_breakdowns_for_race(&db.conn, &race_id)
+        .map_err(|e| format!("Falha ao ler quebras: {e}"))?;
+    let categoria = calendar_queries::get_calendar_entry_by_id(&db.conn, &race_id)
+        .ok()
+        .flatten()
+        .map(|e| e.categoria)
+        .unwrap_or_default();
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            let driver = driver_queries::get_driver(&db.conn, &r.driver_id).ok();
+            let (driver_name, is_player) = driver
+                .as_ref()
+                .map(|d| (d.nome.clone(), d.is_jogador))
+                .unwrap_or_else(|| (r.driver_id.clone(), false));
+            let part_name = crate::car::PartType::from_str(&r.part)
+                .map(|pt| pt.display_name(&categoria).to_string())
+                .unwrap_or_else(|| r.part.clone());
+            RaceBreakdownView {
+                driver_id: r.driver_id,
+                driver_name,
+                part: r.part,
+                part_name,
+                lap: r.lap,
+                severity: r.severity,
+                penalty_secs: r.penalty_secs,
+                label: r.label,
+                is_player,
+            }
+        })
+        .collect();
+    Ok(out)
+}
+
 pub(crate) fn compute_race_evaluation(
     conn: &rusqlite::Connection,
     result: &RaceResult,
@@ -1630,6 +1834,12 @@ pub(crate) fn import_iracing_race_result(
     telemetry: &crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
     // Histórico ao vivo (voltas + batalha) — fonte dos sinais do dossiê de habilidade.
     history: &crate::iracing_sdk::race_monitor::RaceHistory,
+    // Estilo de pilotagem do jogador (fatores por peça do monitor) — modula o desgaste só do
+    // carro dele. `None`/neutro numa corrida sem estilo capturado.
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+    // Desfechos de quebra da corrida (Peça 3), já resolvidos para driver_id. Vazio numa corrida
+    // sem quebra. Persistidos na `race_breakdowns` (debrief/notícia).
+    breakdowns: Vec<crate::db::queries::race_breakdowns::RaceBreakdownRow>,
 ) -> Result<(ImportedRaceSummary, RaceResult), String> {
     let active_season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
@@ -1699,6 +1909,44 @@ pub(crate) fn import_iracing_race_result(
         }
     }
 
+    // Peça 3 · Camada B: os DNFs de QUEBRA viram DNF MECÂNICO no resultado (antes de persistir).
+    // Assim a revista (beat "Abandono"), a desconfiança mecânica da IA e o motor editorial acendem
+    // de graça: `dnf_catalog_id` aponta pra uma entry `Mechanical` do catálogo (fonte do join) e a
+    // frase do problema vira o `dnf_reason` (a narrativa cita a peça). Só carimba quem o iRacing
+    // também marcou como DNF — nunca fabrica um abandono que não aconteceu.
+    if breakdowns.iter().any(|b| b.severity == "dnf") {
+        let mech_id: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT id FROM incident_catalog WHERE incident_source = 'Mechanical' LIMIT 1",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        for b in breakdowns.iter().filter(|b| b.severity == "dnf") {
+            if let Some(dr) = result
+                .race_results
+                .iter_mut()
+                .find(|d| d.pilot_id == b.driver_id && d.is_dnf)
+            {
+                if let Some(id) = &mech_id {
+                    dr.dnf_catalog_id = Some(id.clone());
+                }
+                dr.dnf_reason = Some(b.label.clone());
+            }
+        }
+    }
+
+    // Enduro: paradas REAIS do jogador (pneu/combustível) → alívio de gasto de peça (10%/parada,
+    // teto 30%, só em corrida >40 min, aplicado no cérebro). Conta só paradas de SERVIÇO genuínas
+    // (dwell ≥ limiar) do carro do jogador — não passagem no pit lane. A IA modela pela duração.
+    const GENUINE_PIT_MIN_SECS: f64 = 4.0;
+    let player_pits = history
+        .pit_stops
+        .iter()
+        .filter(|s| s.car_idx == history.player_car_idx && s.stationary_secs >= GENUINE_PIT_MIN_SECS)
+        .count() as u32;
+
     let next_round =
         Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32));
     let mut rng = rand::thread_rng();
@@ -1711,8 +1959,22 @@ pub(crate) fn import_iracing_race_result(
         category,
         next_round,
         RacePersistenceMode::Playable,
+        player_style,
+        player_pits,
         &mut rng,
     )?;
+
+    // Peça 3: grava os desfechos de quebra da corrida (debrief/notícia). Best-effort — uma
+    // falha aqui não desfaz o resultado já persistido.
+    warn_if_side_effect_fails(
+        crate::db::queries::race_breakdowns::insert_breakdowns_batch(
+            &db.conn,
+            &race_entry.id,
+            &breakdowns,
+        )
+        .map_err(|e| e.to_string()),
+        "Falha ao gravar race_breakdowns do import",
+    );
 
     // Fama do resultado IMPORTADO do iRacing: MESMA lógica da corrida simulada — o
     // astro nasce igual correndo na pista. Vitória/pódio sobem fama (modulada por
@@ -2059,6 +2321,18 @@ fn track_penalty_for(driver: &Driver, track_id: u32, season: i32) -> f64 {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+/// Fator de cautela mecânica por nº de DNFs mecânicos recentes do time (< 1.0 = poupa mais).
+/// 1 DNF → 0.90 · 2 → 0.83 · 3+ → 0.78. Assimétrico com a economia do jogador (piso 0.75).
+fn mechanical_caution_factor(mechanical_dnfs: u32) -> f64 {
+    match mechanical_dnfs {
+        0 => 1.0,
+        1 => 0.90,
+        2 => 0.83,
+        _ => 0.78,
+    }
+}
+
 fn apply_race_result_to_database(
     tx: &rusqlite::Transaction<'_>,
     result: &RaceResult,
@@ -2070,6 +2344,18 @@ fn apply_race_result_to_database(
     season_number: i32,
     round: i32,
     upcoming_track_ids: &[u32],
+    wear_conditions: crate::market::car_maintenance::WearConditions,
+    // Bilheteria (Fase 3 do Estrelato): prestígio "de local" do evento (pré-vendido),
+    // usado pra dimensionar o bolo de público da rodada.
+    event_prestige_score: f64,
+    // Estilo de pilotagem do JOGADOR (só quando ele correu no iRacing) + o time dele — o
+    // estilo modula o desgaste SÓ do carro do jogador. `None` = corrida sem estilo capturado.
+    player_team_id: Option<&str>,
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+    // Nº de paradas REAIS do jogador (SDK) — alívio de gasto de peça do enduro só no carro dele.
+    player_pits: u32,
+    // Desconfiança mecânica por time (DNF mecânico recente) → poupa as peças. Vazio = ninguém.
+    team_cautions: &std::collections::HashMap<String, crate::car::driving_style::StyleFactors>,
 ) -> Result<(), DbError> {
     for race_driver in &result.race_results {
         let mut driver = driver_queries::get_driver(tx, &race_driver.pilot_id)?;
@@ -2144,6 +2430,20 @@ fn apply_race_result_to_database(
     let rounds_in_season = get_category_config(category_id)
         .map(|config| f64::from(config.corridas_por_temporada.max(1)))
         .unwrap_or(1.0);
+    // Bilheteria (Fase 3 do Estrelato): presença pública (fama do lineup) de cada time do
+    // grid, pré-computada 1× por rodada. A soma é o denominador da cota competitiva de
+    // bilheteria; o loop abaixo reusa a presença por time (evita 2ª consulta ao lineup).
+    let team_presences: std::collections::HashMap<String, f64> = teams
+        .iter()
+        .map(|team| {
+            let medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
+            let presence =
+                crate::public_presence::team::derive_team_public_presence(&medias).raw_score;
+            (team.id.clone(), presence)
+        })
+        .collect();
+    let grid_total_presence: f64 = team_presences.values().sum();
+    let grid_team_count = teams.len().max(1) as f64;
     for team in teams {
         let Some(team_results) = race_results_by_team.get(&team.id) else {
             continue;
@@ -2194,19 +2494,31 @@ fn apply_race_result_to_database(
             .map(|contract| contract.salario_anual)
             .sum();
         let salary_expense = team_salary_total / rounds_in_season;
-        // Fama de equipe → patrocínio: presença pública do lineup (fama dos pilotos).
-        // É o motor da "2ª moeda" — um rosto famoso capta patrocínio pra construir o carro.
-        let lineup_medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
-        let lineup_public_presence =
-            crate::public_presence::team::derive_team_public_presence(&lineup_medias).raw_score;
+        // Fama de equipe → patrocínio + bilheteria: presença pública do lineup (fama dos
+        // pilotos). É o motor da "2ª moeda" — um rosto famoso capta patrocínio pra construir
+        // o carro E puxa público pro portão. Reusa o pré-cômputo do grid.
+        let lineup_public_presence = team_presences.get(&team.id).copied().unwrap_or(0.0);
         // Sistema de Nível do Carro: o cérebro decide a manutenção, aplica o desgaste e
         // persiste o carro; o custo decidido vira depreciação REAL na fatura abaixo.
-        let car_maintenance_cost = crate::market::car_maintenance::maintain_team_car(
+        // O estilo de pilotagem só incide no carro do JOGADOR (o time dele nesta corrida). Os
+        // demais times podem POUPAR as peças por desconfiança mecânica (DNF mecânico recente).
+        let is_player_car = player_team_id == Some(team.id.as_str());
+        let team_style = if is_player_car {
+            player_style
+        } else {
+            team_cautions.get(&team.id).copied()
+        };
+        // Carro do JOGADOR usa o pit REAL do SDK pro alívio de enduro; a IA modela pela duração.
+        let car_maintenance_cost = crate::market::car_maintenance::maintain_team_car_pits(
             tx,
             team,
             category_id,
             season_number,
             upcoming_track_ids,
+            wear_conditions,
+            team_style,
+            is_player_car,
+            player_pits,
         )?;
 
         let finance_context = calculate_team_round_finance_context(
@@ -2220,6 +2532,9 @@ fn apply_race_result_to_database(
             rounds_in_season,
             economic_health,
             car_maintenance_cost,
+            event_prestige_score,
+            grid_total_presence,
+            grid_team_count,
         );
 
         let mut updated_team = team.clone();
@@ -3790,6 +4105,48 @@ fn persist_race_news(
             context_facts.push(fact.clone());
         }
 
+        // Peça 3 · notícia: PENALIDADES de quebra (não-DNF) — "perdeu tempo arrumando a peça X,
+        // problema leve/grave". Os DNFs de quebra já entram pelo beat Abandono (Camada B); aqui
+        // entram as paradas `!black`. Vazio no sim offline (só corrida ao vivo dispara quebra).
+        let race_id_for_breakdowns = crate::db::queries::calendar::get_calendar(
+            conn,
+            &active_season.id,
+            category_id,
+        )
+        .ok()
+        .and_then(|entries| entries.into_iter().find(|e| e.rodada == round).map(|e| e.id));
+        if let Some(rid) = &race_id_for_breakdowns {
+            if let Ok(bds) = crate::db::queries::race_breakdowns::get_breakdowns_for_race(conn, rid) {
+                let mut count = 0;
+                for b in bds.iter().filter(|b| b.severity != "dnf") {
+                    if count >= 6 {
+                        break;
+                    }
+                    let Some(dr) = race_result
+                        .race_results
+                        .iter()
+                        .find(|d| d.pilot_id == b.driver_id)
+                    else {
+                        continue;
+                    };
+                    let part_name = crate::car::PartType::from_str(&b.part)
+                        .map(|pt| pt.display_name(category_id).to_string())
+                        .unwrap_or_else(|| b.part.clone());
+                    let grav = if b.severity == "heavy" { "grave" } else { "leve" };
+                    context_facts.push(format!(
+                        "{} ({}) perdeu {}s nos boxes por problema em {}: {} (problema {})",
+                        dr.pilot_name,
+                        dr.team_name,
+                        b.penalty_secs.unwrap_or(0),
+                        part_name,
+                        b.label,
+                        grav
+                    ));
+                    count += 1;
+                }
+            }
+        }
+
         let ctx = crate::narrative::build_race_context(
             race_result,
             &crate::narrative::RaceContextInput {
@@ -4663,6 +5020,9 @@ mod tests {
             8.0,
             GlobalEconomicHealth::Neutral,
             0.0,
+            0.0,
+            0.0,
+            1.0,
         );
         let poor_context = calculate_team_round_finance_context(
             &poor,
@@ -4675,6 +5035,9 @@ mod tests {
             8.0,
             GlobalEconomicHealth::Neutral,
             0.0,
+            0.0,
+            0.0,
+            1.0,
         );
 
         assert!(rich_context.sponsorship_income > poor_context.sponsorship_income);
@@ -4693,10 +5056,12 @@ mod tests {
         );
         team.reputacao = 50.0;
         let sem_fama = calculate_team_round_finance_context(
-            &team, 0.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            &team, 0.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 0.0, 0.0,
+            1.0,
         );
         let com_estrela = calculate_team_round_finance_context(
-            &team, 85.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            &team, 85.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 0.0, 0.0,
+            1.0,
         );
         assert!(
             com_estrela.sponsorship_income > sem_fama.sponsorship_income,
@@ -4704,6 +5069,35 @@ mod tests {
             com_estrela.sponsorship_income,
             sem_fama.sponsorship_income
         );
+    }
+
+    #[test]
+    fn fama_do_lineup_sobe_a_bilheteria() {
+        // Mesmo evento e mesmo grid: um lineup famoso leva uma fatia MAIOR da bilheteria
+        // que um anônimo (cota competitiva por fama). É a 2ª receita de fama da Fase 3.
+        let mut team = placeholder_team_from_db(
+            "TGATE".to_string(),
+            "Gate Team".to_string(),
+            "gt4".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.reputacao = 50.0;
+        // Evento de prestígio 60, grid com presença total 300 e 8 times.
+        let anonimo = calculate_team_round_finance_context(
+            &team, 30.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 60.0,
+            300.0, 8.0,
+        );
+        let estrela = calculate_team_round_finance_context(
+            &team, 150.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 60.0,
+            300.0, 8.0,
+        );
+        assert!(
+            estrela.gate_income > anonimo.gate_income,
+            "lineup famoso deve puxar mais bilheteria: {} vs {}",
+            estrela.gate_income,
+            anonimo.gate_income
+        );
+        assert!(anonimo.gate_income > 0.0, "piso de público garante bilheteria > 0");
     }
 
     fn sample_driver_result(

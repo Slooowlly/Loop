@@ -20,8 +20,10 @@
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2",
     "@tauri-apps/plugin-shell": "^2",
+    "i18next": "^26.3.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.10",
     "react-router-dom": "^6.26.2",
     "recharts": "^2.12.7",
     "zustand": "^5.0.0"
@@ -34,6 +36,7 @@
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.0.1",
     "postcss": "^8.4.47",
+    "sharp": "^0.35.3",
     "tailwindcss": "^3.4.13",
     "vite": "^5.4.8",
     "vitest": "^4.1.1"

@@ -1,11 +1,15 @@
+import { useTranslation } from "react-i18next";
+
+// labelKey resolvido no render (i18n) — não congela no idioma do boot.
 const tabs = [
-  { id: "standings", label: "Home" },
-  { id: "news", label: "Notícias" },
-  { id: "my-team", label: "Minha Equipe" },
-  { id: "calendar", label: "Calendário" },
+  { id: "standings", labelKey: "nav.tab.standings" },
+  { id: "news", labelKey: "nav.tab.news" },
+  { id: "my-team", labelKey: "nav.tab.myTeam" },
+  { id: "calendar", labelKey: "nav.tab.calendar" },
 ];
 
 function TabNavigation({ activeTab, onTabChange }) {
+  const { t } = useTranslation();
   return (
     <nav className="inline-flex items-center gap-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 px-1">
       {tabs.map((tab) => {
@@ -22,7 +26,7 @@ function TabNavigation({ activeTab, onTabChange }) {
                 : "text-text-secondary hover:text-text-primary hover:bg-white/5",
             ].join(" ")}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         );
       })}

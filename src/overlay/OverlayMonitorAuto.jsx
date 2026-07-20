@@ -31,25 +31,59 @@ export default function OverlayMonitorAuto() {
   const careerId = useCareerStore((s) => s.careerId);
   const data = useOverlayData(careerId, { intervalMs: 1000 });
   const [enabled, setEnabled] = useState(loadEnabled);
-  const shownRef = useRef(false);
+  const [demo, setDemo] = useState(false); // demo do rádio ligado (Configurações)?
+  const towerShownRef = useRef(false);
+  const engShownRef = useRef(false);
 
   const live = Boolean(careerId) && Boolean(data); // iRacing com sessão ativa
   const shouldShow = live;
 
-  // Visibilidade da janela (fonte única). Ao mostrar, sincroniza o olho no overlay.
+  // Poll do estado do demo (fonte no backend) — decide se a janela do rádio aparece
+  // mesmo sem corrida, pra você achar/posicionar o overlay quando quiser.
+  useEffect(() => {
+    if (!IN_TAURI) return undefined;
+    let stopped = false;
+    const tick = () =>
+      invoke("overlay_demo_enabled")
+        .then((v) => {
+          if (!stopped) setDemo(Boolean(v));
+        })
+        .catch(() => {});
+    tick();
+    const t = setInterval(tick, 1500);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, []);
+
+  // TORRE: só com dados ao vivo. Ao mostrar, sincroniza o olho no overlay.
   useEffect(() => {
     if (!IN_TAURI) return;
-    if (shouldShow) {
-      shownRef.current = true;
+    if (live) {
+      towerShownRef.current = true;
       invoke("overlay_window_show", { careerId: careerId || "setup" }).catch(() => {});
       emitTo("overlay", "overlay-enabled", { on: enabled }).catch(() => {});
-    } else if (shownRef.current) {
-      shownRef.current = false;
+    } else if (towerShownRef.current) {
+      towerShownRef.current = false;
       invoke("overlay_window_hide").catch(() => {});
     }
-  }, [shouldShow, careerId, enabled]);
+  }, [live, careerId, enabled]);
 
-  // Vigia de hover: ativo enquanto a janela está visível (torre OU nub).
+  // RÁDIO: ao vivo OU em demo (assim dá pra ver/posicionar o card sem esperar quebra).
+  useEffect(() => {
+    if (!IN_TAURI) return;
+    const showRadio = live || demo;
+    if (showRadio) {
+      engShownRef.current = true;
+      invoke("engineer_window_show").catch(() => {});
+    } else if (engShownRef.current) {
+      engShownRef.current = false;
+      invoke("engineer_window_hide").catch(() => {});
+    }
+  }, [live, demo]);
+
+  // Vigia de hover: ativo enquanto a torre está visível (torre OU nub).
   useEffect(() => {
     if (!IN_TAURI) return;
     invoke("overlay_set_hover_watch", { active: shouldShow }).catch(() => {});

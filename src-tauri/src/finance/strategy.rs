@@ -263,9 +263,9 @@ mod tests {
 
         for _ in 0..3 {
             pusher.season_strategy = advance_strategic_plan(&conn, &pusher, false).unwrap().to_string();
-            apply_offseason_competitiveness_impact(&mut pusher, 0);
+            apply_offseason_competitiveness_impact(&mut pusher, 0, crate::finance::focus::TeamFocus::MeioDeGrid);
             steady.season_strategy = advance_strategic_plan(&conn, &steady, false).unwrap().to_string();
-            apply_offseason_competitiveness_impact(&mut steady, 0);
+            apply_offseason_competitiveness_impact(&mut steady, 0, crate::finance::focus::TeamFocus::MeioDeGrid);
         }
 
         assert!(

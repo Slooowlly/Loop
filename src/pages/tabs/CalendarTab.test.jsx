@@ -248,7 +248,9 @@ describe("CalendarTab", () => {
     const legend = within(screen.getByTestId("calendar-legend"));
     expect(legend.queryByText("ConvocaÃ§Ã£o")).not.toBeInTheDocument();
     expect(legend.queryByText("Bloco Especial")).not.toBeInTheDocument();
-    expect(within(screen.getByTestId("calendar-month-2026-09")).getByText("Temporada")).toBeInTheDocument();
+    const septemberCard = within(screen.getByTestId("calendar-month-2026-09"));
+    expect(septemberCard.getByText("Setembro")).toBeInTheDocument();
+    expect(septemberCard.queryByText(/bloco especial/i)).not.toBeInTheDocument();
   });
 
   it("keeps the day-pass animation visible even when the current date has no race", async () => {
@@ -298,10 +300,10 @@ describe("CalendarTab", () => {
     const futureCurrentMonthDay = screen.getByTestId("calendar-day-2026-03-16");
     const futureMonthDay = screen.getByTestId("calendar-day-2026-04-01");
 
-    expect(reachedCurrentMonthDay).toHaveClass("text-text-primary");
+    expect(reachedCurrentMonthDay).toHaveClass("text-text-secondary");
     expect(futureCurrentMonthDay).toHaveClass("text-text-muted/50");
     expect(futureMonthDay).toHaveClass("text-text-muted/50");
-    expect(futureCurrentMonthDay).not.toHaveClass("text-text-primary");
+    expect(futureCurrentMonthDay).not.toHaveClass("text-text-secondary");
   });
 
   it("opens the calendar after the player category loads without waiting for other categories", async () => {
@@ -471,7 +473,7 @@ describe("CalendarTab", () => {
     const raceDay = await screen.findByTestId("calendar-day-2026-03-12");
     const image = within(raceDay).getByRole("img", { name: "Charlotte Motor Speedway - Roval" });
 
-    expect(image).toHaveAttribute("src", "/utilities/tracks/charlotte.png");
+    expect(image).toHaveAttribute("src", "/utilities/tracks/charlotte.webp");
   });
 
   it("keeps the dedicated BMW M2 Cup logo in the tooltip while the race day relies on the track image", async () => {
@@ -508,7 +510,7 @@ describe("CalendarTab", () => {
     const tooltip = await screen.findByTestId("calendar-tooltip");
     const logo = within(tooltip).getByTestId("calendar-tooltip-category-logo");
     expect(logo).toHaveAttribute("alt", "BMW Cup");
-    expect(logo).toHaveAttribute("src", "/utilities/categorias/M2%20CUP.png");
+    expect(logo).toHaveAttribute("src", "/utilities/categorias/M2%20CUP.webp");
   });
 
   it("shows a tooltip with other-category race details when hovering a ghost-dot day", async () => {
@@ -536,7 +538,7 @@ describe("CalendarTab", () => {
     const mainLogo = within(mainTooltip).getByTestId("calendar-tooltip-category-logo");
     expect(mainTicket).toBeInTheDocument();
     expect(mainLogo).toHaveAttribute("alt", "Mazda Rookie");
-    expect(mainLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20ROOKIE.png");
+    expect(mainLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20ROOKIE.webp");
 
     fireEvent.mouseLeave(raceDay);
 
@@ -546,7 +548,7 @@ describe("CalendarTab", () => {
     const otherTooltip = await screen.findByTestId("calendar-tooltip");
     const otherLogo = within(otherTooltip).getByTestId("calendar-tooltip-other-category-logo");
     expect(otherLogo).toHaveAttribute("alt", "Mazda Cup");
-    expect(otherLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.png");
+    expect(otherLogo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.webp");
   });
 
   it("shows the LMP2 logo inside calendar tooltip race details", async () => {
@@ -581,7 +583,7 @@ describe("CalendarTab", () => {
     const lmp2Logo = within(tooltip).getByTestId("calendar-tooltip-category-logo");
 
     expect(lmp2Logo).toHaveAttribute("alt", "LMP2 Prototype Championship");
-    expect(lmp2Logo).toHaveAttribute("src", "/utilities/categorias/LMP2.png");
+    expect(lmp2Logo).toHaveAttribute("src", "/utilities/categorias/LMP2.webp");
   });
 
   it("renders other-category races as compact ticket tooltips", async () => {
@@ -612,7 +614,7 @@ describe("CalendarTab", () => {
 
     const logo = within(ticket).getByTestId("calendar-tooltip-other-category-logo");
     expect(logo).toHaveAttribute("alt", "Mazda Cup");
-    expect(logo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.png");
+    expect(logo).toHaveAttribute("src", "/utilities/categorias/MX5%20CUP.webp");
     expect(logo).toHaveClass("h-32");
     expect(logo).toHaveClass("w-[200px]");
 

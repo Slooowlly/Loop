@@ -43,7 +43,8 @@ pub fn calculate_relegation_effects(team: &Team, rng: &mut impl Rng) -> TeamAttr
     }
 }
 
-/// Soft-landing da promoção (Ideia 1), atrás da flag `IRACER_PROMO_SOFT_LANDING`.
+/// Soft-landing da promoção (Ideia 1), LIGADO por padrão (desligável via
+/// `IRACER_PROMO_SOFT_LANDING=0` para A/B no Monte Carlo).
 ///
 /// Em vez de manter o carro EXATO da categoria de baixo (comportamento default,
 /// `car_performance_delta: 0.0`), que deixava o campeão promovido isolado em

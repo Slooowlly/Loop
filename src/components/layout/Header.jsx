@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../../i18n/index.js";
 import useCareerStore from "../../stores/useCareerStore";
 import useExitToMenu from "../../hooks/useExitToMenu";
 import LeaveToMenuModal from "./LeaveToMenuModal";
@@ -17,6 +19,7 @@ import TeamLogoMark from "../team/TeamLogoMark";
 import TabNavigation from "./TabNavigation";
 
 function Header({ activeTab, onTabChange }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
@@ -137,39 +140,39 @@ function Header({ activeTab, onTabChange }) {
 
   function getAdvanceButtonLabel() {
     if (isCalendarAdvancing || isAdvancing || isConvocating) {
-      return "Avançando...";
+      return t("nav.advance.advancing");
     }
 
     if (canAdvanceCalendar) {
-      return "Avançar calendário";
+      return t("nav.advance.calendar");
     }
 
     if (isFreeAgent && hasNoPendingRace) {
-      return "Pular temporada";
+      return t("nav.advance.skipSeason");
     }
 
     // LEGADO 9D: estes labels só aparecem em saves pré-v33 em voo.
     if (isLegacyPhase && hasNoPendingRace && phase === "BlocoRegular") {
-      return "Avançar para convocação";
+      return t("nav.advance.toCallup");
     }
 
     if (isLegacyPhase && hasNoPendingRace && phase === "BlocoEspecial") {
-      return "Pular bloco especial";
+      return t("nav.advance.skipSpecial");
     }
 
     if (isLegacyPhase && hasNoPendingRace && phase === "PosEspecial") {
-      return "Encerrar temporada";
+      return t("nav.advance.endSeason");
     }
 
     if (phase === "Encerramento" || (hasNoPendingRace && phase === "Temporada")) {
-      return "Avançar para pré-temporada";
+      return t("nav.advance.toPreseason");
     }
 
     if (phase === "PreTemporada") {
-      return "Abrir mercado";
+      return t("nav.advance.openMarket");
     }
 
-    return "Avançar temporada";
+    return t("nav.advance.advanceSeason");
   }
 
   function handleBackToBriefingOrigin() {
@@ -186,7 +189,7 @@ function Header({ activeTab, onTabChange }) {
                 type="button"
                 onClick={() => setLeaveConfirm(true)}
                 className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
-                title="Sair para o menu principal"
+                title={t("nav.exitToMenu")}
               >
                 <TeamLogoMark
                   teamName={playerTeam?.nome}
@@ -219,7 +222,7 @@ function Header({ activeTab, onTabChange }) {
             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 backdrop-blur-md">
               <div className="text-right">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-secondary">
-                  Data {formatCompactDate(visibleDate)}
+                  {t("nav.date")} {formatCompactDate(visibleDate)}
                 </p>
                 <p className="mt-1 text-xs font-semibold text-text-primary">
                   {formatNextRaceCountdown(visibleCountdown)}
@@ -231,7 +234,7 @@ function Header({ activeTab, onTabChange }) {
                   className="rounded-full px-5 py-2.5"
                   onClick={handleBackToBriefingOrigin}
                 >
-                  Voltar
+                  {t("nav.back")}
                 </GlassButton>
               ) : bannerOwnsAdvance ? null : (
                 <GlassButton
@@ -272,9 +275,9 @@ function Header({ activeTab, onTabChange }) {
                 <p className="text-sm text-text-muted">
                   {season
                     ? isFreeAgent
-                      ? `${formatSurfaceSeasonLabel(season)} - Sem equipe nesta temporada`
-                      : `${formatSurfaceSeasonLabel(season)} - Sem corrida pendente`
-                    : "Carregando..."}
+                      ? `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noTeam")}`
+                      : `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noPendingRace")}`
+                    : t("nav.loading")}
                 </p>
               )}
             </div>
@@ -294,8 +297,8 @@ function Header({ activeTab, onTabChange }) {
 }
 
 function SeasonFinishedBanner({ season, category, champion }) {
-  const championName = champion?.nome ?? "Campeão definido";
-  const seasonLabel = season ? formatSurfaceSeasonLabel(season) : "Fim de temporada";
+  const championName = champion?.nome ?? i18n.t("seasonBanner.championTbd");
+  const seasonLabel = season ? formatSurfaceSeasonLabel(season) : i18n.t("seasonBanner.seasonEnd");
 
   return (
     <div className="relative flex w-full items-center overflow-hidden rounded-[28px] border border-yellow-500/20 bg-[linear-gradient(135deg,rgba(24,17,5,0.96),rgba(9,15,26,0.95))] px-6 py-5 shadow-[0_18px_45px_rgba(0,0,0,0.28)]">
@@ -309,13 +312,17 @@ function SeasonFinishedBanner({ season, category, champion }) {
 
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-yellow-300">
-            Temporada Encerrada
+            {i18n.t("seasonBanner.finished")}
           </p>
           <h2 className="mt-2 truncate text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">
             {championName}
           </h2>
           <p className="mt-2 text-sm text-yellow-50/80 sm:text-base">
-            {seasonLabel} terminou com {championName} no topo da {categoryLabel(category)}.
+            {i18n.t("seasonBanner.summary", {
+              season: seasonLabel,
+              champion: championName,
+              championship: categoryLabel(category),
+            })}
           </p>
         </div>
       </div>
@@ -388,8 +395,9 @@ function NextRaceBanner({
         <div className="nrb-rise relative z-10 flex h-full flex-col justify-end gap-4 p-5 sm:p-6 md:flex-row md:items-end md:justify-between md:p-7">
           <div className="flex min-w-0 max-w-full flex-col md:max-w-[62%]">
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-accent-primary">
-              Corrida {nextRace.rodada}
-              {totalRodadas ? ` de ${totalRodadas}` : ""}
+              {totalRodadas
+                ? i18n.t("raceBanner.raceNofTotal", { round: nextRace.rodada, total: totalRodadas })
+                : i18n.t("raceBanner.raceN", { round: nextRace.rodada })}
             </p>
 
             <h2
@@ -426,12 +434,12 @@ function NextRaceBanner({
               {nextRace.horario && (
                 <span className="flex items-center gap-1.5">
                   <ClockGlyph />
-                  <span className="text-text-primary/90">{nextRace.horario} LOCAL</span>
+                  <span className="text-text-primary/90">{nextRace.horario} {i18n.t("raceBanner.local")}</span>
                 </span>
               )}
               {hasWeather && (
                 <span className="flex items-center gap-1.5">
-                  <span className="sr-only">Clima</span>
+                  <span className="sr-only">{i18n.t("raceBanner.weather")}</span>
                   <span aria-hidden="true" className="text-base leading-none">
                     {weatherEmoji(nextRace.clima)}
                   </span>
@@ -510,19 +518,19 @@ function BannerTrackImage({ trackName }) {
 }
 
 const TRACK_IMAGE_FILES = [
-  { match: ["charlotte"], file: "charlotte.png" },
-  { match: ["laguna seca"], file: "lagunaseca.png" },
+  { match: ["charlotte"], file: "charlotte.webp" },
+  { match: ["laguna seca"], file: "lagunaseca.webp" },
   { match: ["lime rock"], file: "limerock.jpeg" },
-  { match: ["okayama"], file: "okayama.png" },
+  { match: ["okayama"], file: "okayama.webp" },
   { match: ["oulton park"], file: "oultonpark.jpeg" },
   { match: ["snetterton"], file: "snetterton.jpeg" },
-  { match: ["summit point", "jefferson"], file: "summitpoint.png" },
-  { match: ["tsukuba"], file: "Tsukuba.png" },
+  { match: ["summit point", "jefferson"], file: "summitpoint.webp" },
+  { match: ["tsukuba"], file: "Tsukuba.webp" },
   { match: ["virginia international raceway", "vir full", "vir patriot"], file: "virginia.jpeg" },
-  { match: ["ledenon"], file: "ledenon.png" },
-  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.png" },
-  { match: ["navarra"], file: "Navarra.png" },
-  { match: ["oran park"], file: "oranpark.png" },
+  { match: ["ledenon"], file: "ledenon.webp" },
+  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.webp" },
+  { match: ["navarra"], file: "Navarra.webp" },
+  { match: ["oran park"], file: "oranpark.webp" },
   { match: ["rudskogen"], file: "rudskogen.jpeg" },
   { match: ["winton"], file: "winton.jpeg" },
 ];
@@ -537,7 +545,7 @@ function getTrackImageSrc(trackName) {
     return `/utilities/tracks/${encodeURIComponent(entry.file)}`;
   }
 
-  return `/utilities/tracks/${encodeURIComponent(trackName)}.png`;
+  return `/utilities/tracks/${encodeURIComponent(trackName)}.webp`;
 }
 
 // Imagens LARGAS/cinematográficas do banner do Home (pasta "Pistas Header").
@@ -602,26 +610,26 @@ const BANNER_IMAGE_FILES = [
   { match: ["philip island", "phillip island"], file: "Philip Island Grand Prix Circuit.jpg" },
   { match: ["zolder"], file: "Circuit Zolder.jpg" },
   // Arte adicionada recentemente (arquivos .png em disco).
-  { match: ["adelaide"], file: "Adelaide Street Circuit.png" },
-  { match: ["enzo e dino", "imola"], file: "Autódromo Internazionale Enzo e Dino Ferrari.png" },
-  { match: ["barber"], file: "Barber Motorsports Park.png" },
-  { match: ["chicago"], file: "Chicago Street Course.png" },
-  { match: ["gilles villeneuve", "montreal"], file: "Circuit Gilles Villeneuve.png" },
-  { match: ["jerez"], file: "Circuito de Jerez.png" },
-  { match: ["indianapolis", "indy road"], file: "Indianapolis Motor Speedway.png" },
-  { match: ["knockhill"], file: "Knockhill.png" },
-  { match: ["miami"], file: "Miami.png" },
+  { match: ["adelaide"], file: "Adelaide Street Circuit.webp" },
+  { match: ["enzo e dino", "imola"], file: "Autódromo Internazionale Enzo e Dino Ferrari.webp" },
+  { match: ["barber"], file: "Barber Motorsports Park.webp" },
+  { match: ["chicago"], file: "Chicago Street Course.webp" },
+  { match: ["gilles villeneuve", "montreal"], file: "Circuit Gilles Villeneuve.webp" },
+  { match: ["jerez"], file: "Circuito de Jerez.webp" },
+  { match: ["indianapolis", "indy road"], file: "Indianapolis Motor Speedway.webp" },
+  { match: ["knockhill"], file: "Knockhill.webp" },
+  { match: ["miami"], file: "Miami.webp" },
   // Pistas AINDA sem arte na pasta: o mapa já espera estes arquivos.
   // Basta soltar um arquivo com EXATAMENTE este nome em "Pistas Header/" que o banner
   // passa a usá-lo. Enquanto não existir, cai no fundo premium (fallback).
-  { match: ["motegi", "mobility resort"], file: "Mobility Resort Motegi.png" },
-  { match: ["aragon", "motorland"], file: "MotorLand Aragon.png" },
-  { match: ["portland"], file: "Portland International Raceway.png" },
-  { match: ["qualcomm", "coronado", "naval base"], file: "Qualcomm Circuit.png" },
-  { match: ["sachsenring"], file: "Sachsenring.png" },
-  { match: ["the bend", "shell v-power"], file: "The Bend Motorsport Park.png" },
-  { match: ["petersburg", "st. pete", "st pete"], file: "St Petersburg Grand Prix.png" },
-  { match: ["willow springs"], file: "Willow Springs International Raceway.png" },
+  { match: ["motegi", "mobility resort"], file: "Mobility Resort Motegi.webp" },
+  { match: ["aragon", "motorland"], file: "MotorLand Aragon.webp" },
+  { match: ["portland"], file: "Portland International Raceway.webp" },
+  { match: ["qualcomm", "coronado", "naval base"], file: "Qualcomm Circuit.webp" },
+  { match: ["sachsenring"], file: "Sachsenring.webp" },
+  { match: ["the bend", "shell v-power"], file: "The Bend Motorsport Park.webp" },
+  { match: ["petersburg", "st. pete", "st pete"], file: "St Petersburg Grand Prix.webp" },
+  { match: ["willow springs"], file: "Willow Springs International Raceway.webp" },
 ];
 
 function getBannerImageSrc(trackName) {
@@ -646,10 +654,10 @@ function normalizeTrackName(trackName) {
 }
 
 function weatherLabel(value) {
-  if (value === "HeavyRain") return "Chuva Forte";
-  if (value === "Wet") return "Chuva";
-  if (value === "Damp") return "Úmido";
-  return "Parcialmente Nublado";
+  if (value === "HeavyRain") return i18n.t("weather.heavyRain");
+  if (value === "Wet") return i18n.t("weather.wet");
+  if (value === "Damp") return i18n.t("weather.damp");
+  return i18n.t("weather.partlyCloudy");
 }
 
 function weatherEmoji(value) {
@@ -778,15 +786,15 @@ function compactCountdown(days) {
   if (days == null) return null;
   const value = Number(days);
   if (!Number.isFinite(value)) return null;
-  if (value <= 0) return "HOJE";
-  if (value === 1) return "AMANHÃ";
-  if (value <= 27) return `EM ${value} DIAS`;
+  if (value <= 0) return i18n.t("raceBanner.countdown.today");
+  if (value === 1) return i18n.t("raceBanner.countdown.tomorrow");
+  if (value <= 27) return i18n.t("raceBanner.countdown.days", { count: value });
   if (value < 56) {
     const weeks = Math.max(1, Math.floor(value / 7));
-    return weeks === 1 ? "EM 1 SEMANA" : `EM ${weeks} SEMANAS`;
+    return i18n.t("raceBanner.countdown.weeks", { count: weeks });
   }
   const months = Math.max(2, Math.floor(value / 28));
-  return `EM ${months} MESES`;
+  return i18n.t("raceBanner.countdown.months", { count: months });
 }
 
 function CalendarGlyph() {

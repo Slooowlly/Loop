@@ -14,6 +14,11 @@ use std::sync::{
 use std::time::Duration;
 use tauri::Manager;
 
+// i18n do backend: carrega os locales de src-tauri/locales/*.yml em tempo de
+// compilação. Locale ativo é global (1 usuário/1 idioma), setado do
+// config.language no boot (setup) e na troca (update_config). PT é o fallback.
+rust_i18n::i18n!("locales", fallback = "pt-BR");
+
 const RESIZE_DEBOUNCE_MS: u64 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +190,20 @@ mod tests_9d;
 #[cfg(test)]
 mod sim_stats;
 
+#[cfg(test)]
+mod i18n_smoke {
+    // Prova o encanamento do backend: set_locale troca a saída de t!(). Serial pra
+    // não brigar com o locale global de outros testes.
+    #[test]
+    fn backend_locale_switches_text() {
+        rust_i18n::set_locale("pt-BR");
+        assert_eq!(rust_i18n::t!("diagnostics.ping").to_string(), "pong-pt");
+        rust_i18n::set_locale("en-US");
+        assert_eq!(rust_i18n::t!("diagnostics.ping").to_string(), "pong-en");
+        rust_i18n::set_locale("pt-BR"); // restaura o default pros demais testes.
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -197,6 +216,10 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
             let config = config::app_config::AppConfig::load_or_default(&base_dir);
+
+            // Idioma ativo do backend (texto determinístico + "fatos" pra IA)
+            // segue o config. Reforçado na troca em update_config.
+            rust_i18n::set_locale(&config.language);
 
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = window.set_size(tauri::LogicalSize::new(
@@ -317,16 +340,17 @@ pub fn run() {
             commands::career_commands::get_briefing_phrase_history,
             commands::career_commands::save_briefing_phrase_history,
             commands::career_commands::get_preseason_free_agents,
-            commands::news_tab::get_news_tab_bootstrap,
-            commands::news_tab::get_news_tab_snapshot,
             commands::ai_news::enrich_race_news_ai,
             commands::ai_news::pre_race_briefing_ai,
             commands::ai_news::report_pre_race_engagement,
             commands::ai_news::post_race_debrief_ai,
             commands::ai_news::player_race_news_id,
             commands::world_footer::get_world_footer,
+            commands::world_footer::enrich_world_footer_ai,
             commands::race::simulate_race_weekend,
             commands::race::get_saved_race_screen,
+            commands::race::get_race_breakdowns,
+            commands::iracing::get_breakdown_forecast,
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
@@ -366,6 +390,8 @@ pub fn run() {
             commands::iracing::iracing_throw_yellow,
             commands::iracing::iracing_send_chat_macro,
             commands::iracing::iracing_send_chat_text,
+            commands::iracing::iracing_arm_test_breakdown,
+            commands::iracing::iracing_arm_test_breakdown_grid,
             commands::iracing::iracing_set_auto_yellow,
             commands::iracing::iracing_auto_yellow_enabled,
             commands::window::minimize_window,
@@ -395,13 +421,29 @@ pub fn run() {
             commands::vr_overlay::vr_overlay_get_pose,
             commands::vr_overlay::vr_overlay_recenter,
             commands::vr_overlay::vr_overlay_set_recenter_key,
+            commands::vr_overlay::vr_engineer_write_frame,
+            commands::vr_overlay::vr_engineer_set_pose,
+            commands::vr_overlay::vr_engineer_get_pose,
+            commands::vr_overlay::vr_engineer_recenter,
+            commands::vr_overlay::vr_engineer_set_recenter_key,
             commands::overlay_window::overlay_window_show,
             commands::overlay_window::overlay_window_hide,
+            commands::overlay_window::engineer_window_show,
+            commands::overlay_window::engineer_window_hide,
             commands::overlay_window::overlay_window_set_interactive,
             commands::overlay_window::overlay_active_career,
             commands::overlay_window::overlay_set_hover_watch,
             commands::overlay_window::overlay_set_hover_rect,
+            commands::overlay_window::overlay_set_demo,
+            commands::overlay_window::overlay_demo_enabled,
             commands::overlay::get_overlay_data,
+            commands::overlay::get_breakdown_feed,
+            commands::overlay::overlay_demo_messages,
+            commands::overlay::get_player_warnings,
+            commands::overlay::overlay_demo_warnings,
+            commands::debug_capture::race_capture_start,
+            commands::debug_capture::race_capture_stop,
+            commands::debug_capture::race_capture_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

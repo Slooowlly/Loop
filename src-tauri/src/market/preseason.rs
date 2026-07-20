@@ -470,7 +470,13 @@ fn assign_seasonal_team_attributes(
                     })?
                     .to_string()
             };
-            apply_offseason_competitiveness_impact(&mut updated_team, career_year);
+            // Foco vigente (da temporada que passou) decide quanto o time canaliza
+            // para o carro neste offseason — a consequência real do foco (ideia 4).
+            // Lido ANTES do update_team_focus abaixo (que só recalcula a fase nova).
+            let current_focus = crate::finance::focus::get_focus(conn, &updated_team.id)
+                .map(|(foco, _)| foco)
+                .unwrap_or(crate::finance::focus::TeamFocus::MeioDeGrid);
+            apply_offseason_competitiveness_impact(&mut updated_team, career_year, current_focus);
             updated_team.pit_crew_quality = recalculate_pit_crew_quality(
                 &updated_team,
                 previous_standings.get(&team.id).copied(),

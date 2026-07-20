@@ -12,6 +12,7 @@ import {
   renderTextWithDriverMentions,
 } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
+import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
 // Tela pós-corrida REDESENHADA (v2), atrás de flag de dev. NÃO substitui a atual —
 // renderizada em paralelo no Dashboard só quando a flag liga, para comparar lado a
@@ -74,6 +75,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
   const lastRaceId = useCareerStore((state) => state.lastRaceId);
+  const language = useCareerStore((state) => state.language);
   const [tab, setTab] = useState("debrief");
   // Debrief por IA (engenheiro → você). Lazy: gera ao abrir, cacheado por corrida.
   // Fallback pro texto determinístico do cérebro enquanto carrega / se falhar.
@@ -140,6 +142,31 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
       active = false;
     };
   }, [careerId, playerTeam?.categoria]);
+
+  // Quebras de peça da corrida (Peça 3): quem teve problema, qual peça, e o desfecho.
+  // Resumo no Debrief + detalhe por piloto na Telemetria. Cruzado por pilot_id/nome.
+  const [breakdowns, setBreakdowns] = useState([]);
+  useEffect(() => {
+    let active = true;
+    if (!careerId || !lastRaceId) return undefined;
+    invoke("get_race_breakdowns", { careerId, raceId: lastRaceId })
+      .then((data) => {
+        if (active) setBreakdowns(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [careerId, lastRaceId]);
+
+  // Agrupa as quebras por piloto (um piloto pode ter mais de uma peça largando).
+  const breakdownsByDriver = useMemo(() => {
+    const m = {};
+    for (const b of breakdowns) {
+      (m[b.driver_id] ||= []).push(b);
+    }
+    return m;
+  }, [breakdowns]);
 
   const natById = useMemo(() => {
     const m = {};
@@ -436,6 +463,52 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 </table>
               </div>
 
+              {/* Resumo de quebras (Peça 3): quem teve problema de peça e o desfecho. O
+                  detalhe volta a volta fica na aba Telemetria. */}
+              {breakdowns.length > 0 && (
+                <div
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  className="rounded-2xl px-5 py-3"
+                >
+                  <div className="text-[11px] uppercase tracking-[0.14em] mb-2" style={{ color: "#8b949e" }}>
+                    🔧 Problemas de peça
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(breakdownsByDriver).map(([id, list]) => {
+                      const first = list[0];
+                      const hasDnf = list.some((b) => b.severity === "dnf");
+                      const hasHeavy = list.some((b) => b.severity === "heavy");
+                      const color = hasDnf ? "#f0a3a3" : hasHeavy ? "#f0b37a" : "#e6d27a";
+                      const parts = list
+                        .map((b) => `${b.part_name} (${b.penalty_secs != null ? `${b.penalty_secs}s` : "DNF"})`)
+                        .join(", ");
+                      const tip = list.map((b) => `V${b.lap}: ${b.label}`).join(" · ");
+                      return (
+                        <div
+                          key={id}
+                          title={tip}
+                          style={{
+                            background: first.is_player ? "rgba(45,212,191,0.10)" : "rgba(255,255,255,0.04)",
+                            border: `1px solid ${first.is_player ? "rgba(45,212,191,0.4)" : "rgba(255,255,255,0.08)"}`,
+                          }}
+                          className="rounded-lg px-2.5 py-1 text-[12px]"
+                        >
+                          <span
+                            style={{ color: first.is_player ? "#5eead4" : "#e6edf3" }}
+                            className="font-medium"
+                          >
+                            {first.driver_name}
+                          </span>
+                          <span style={{ color }} className="ml-1.5">
+                            {parts}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Debrief do engenheiro — painel completo (placeholder até a IA pós-corrida) */}
               {evaluation && (
                 <div
@@ -471,6 +544,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                       ai={aiDebrief}
                       fallbackHeadline={evaluation.headline}
                       fallbackBody={evaluation.team_read}
+                      language={language}
                       accent={accent}
                       mentionDrivers={mentionDrivers}
                       hoveredDriverId={hoveredDriverId}
@@ -504,7 +578,11 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
               )}
             </>
           ) : (
-            <RaceTelemetryCockpit telemetry={telemetryForCockpit} teammateName={teammateName} />
+            <RaceTelemetryCockpit
+              telemetry={telemetryForCockpit}
+              teammateName={teammateName}
+              breakdowns={breakdowns}
+            />
           )}
         </div>
       </div>
@@ -574,6 +652,7 @@ function EngineerSpeech({
   ai,
   fallbackHeadline,
   fallbackBody,
+  language,
   accent,
   mentionDrivers,
   hoveredDriverId,
@@ -590,6 +669,16 @@ function EngineerSpeech({
     );
   }
   const animated = !!ai;
+  // Sem IA: em português cai no texto determinístico do cérebro; em outro idioma
+  // mostra "erro na geração de texto" localizado (não despeja PT para não-PT).
+  const noAi = !ai?.headline && !ai?.body;
+  if (noAi && !isPortuguese(language)) {
+    return (
+      <p style={{ color: "#6b7280" }} className="text-[14.5px] italic leading-relaxed">
+        {localizedAiError(language)}
+      </p>
+    );
+  }
   const headline = ai?.headline || fallbackHeadline;
   const body = ai?.body || fallbackBody;
   const mentions = { drivers: mentionDrivers, hoveredDriverId, onHover: onMentionHover };

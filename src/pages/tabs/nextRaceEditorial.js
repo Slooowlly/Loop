@@ -1,25 +1,23 @@
-﻿import { recentResults } from "./nextRaceBriefing";
+// Template DETERMINÍSTICO da prévia pré-corrida (o fallback da Sala de Estratégia
+// quando a IA não está disponível: 1ª corrida da carreira/categoria, cooldown do
+// servidor, offline, ou gate de engajamento).
+//
+// Reescrito para ser dirigido pela MESMA tese dominante que monta os `facts` da IA
+// (ver `nextRaceThesis.js`). Uma fonte só de verdade: o eixo escolhido decide o
+// headline, os dois parágrafos e a voz da equipe. Antes, este arquivo tinha ~930
+// linhas de pools combinatórios — e ~2/3 alimentavam campos que a tela NUNCA
+// renderiza (scenario, rivalSummary, rivalSupport, paddockSupport, history*,
+// weekendStories*). Tudo isso foi removido. A superfície real é: headline, os dois
+// parágrafos do corpo, e a citação.
 
-function combineVariants(openers, closers) {
-  const variants = [];
-
-  for (const opener of openers) {
-    for (const closer of closers) {
-      variants.push((context) => `${opener(context)} ${closer(context)}`.trim());
-    }
-  }
-
-  return variants;
-}
+import { recentResults } from "./nextRaceBriefing";
 
 function hashString(value) {
   const text = String(value ?? "");
   let hash = 0;
-
   for (let index = 0; index < text.length; index += 1) {
     hash = (hash * 31 + text.charCodeAt(index)) | 0;
   }
-
   return Math.abs(hash);
 }
 
@@ -27,7 +25,6 @@ function pickVariant(variants, seed, context) {
   if (!Array.isArray(variants) || variants.length === 0) {
     return "";
   }
-
   const selected = variants[hashString(seed) % variants.length];
   return typeof selected === "function" ? selected(context) : selected;
 }
@@ -36,573 +33,255 @@ function buildSeed(...parts) {
   return parts.filter(Boolean).join("|");
 }
 
-const headlinePools = {
-  opener: combineVariants(
-    [
-      ({ trackName }) => `A temporada começa em ${trackName}, com o grid inteiro partindo do zero.`,
-      ({ trackName }) => `${trackName} abre o campeonato, e ninguém largou na frente: todos no mesmo ponto de partida.`,
-      ({ trackName }) => `O campeonato estreia em ${trackName}, e a primeira etapa vale a primeira leitura de forças.`,
-      ({ trackName }) => `Tudo recomeça em ${trackName}: tabela zerada e uma temporada inteira pela frente.`,
-      ({ trackName }) => `A largada da temporada acontece em ${trackName}, ainda sem favoritismos consolidados na tabela.`,
+// Frase de forma recente (reusada em vários parágrafos como "cauda" factual).
+function buildFormSentence(playerStanding) {
+  if (!playerStanding) {
+    return "A equipe quer transformar o ritmo de treino em um resultado limpo.";
+  }
+  const readable = recentResults(playerStanding)
+    .map((result) => {
+      if (!result) return "resultado indefinido";
+      if (result.is_dnf) return "DNF";
+      return `${result.position ?? "--"}º lugar`;
+    })
+    .join(", ");
+  return readable
+    ? `Nas três leituras mais recentes você veio de ${readable}.`
+    : "O momento recente ainda não criou uma tendência clara.";
+}
+
+// Copy voltado ao LEITOR (2ª pessoa, voz do jogo), uma entrada por tese. Cada campo
+// tem 2 variantes, escolhidas por seed determinístico (mesma etapa ⇒ mesmo texto).
+// `lead` = parágrafo do eixo; `outlook` = o que isso significa para a corrida;
+// `quote` = voz da equipe à imprensa.
+export const THESIS_EDITORIAL = {
+  redemption: {
+    headline: [(c) => `${c.trackName}: hora de virar a chave.`, (c) => `A reação começa em ${c.trackName}.`],
+    lead: [
+      (c) => `A última corrida deixou marca, e ${c.trackName} chega como a etapa da resposta. O fim de semana inteiro se organiza em torno de uma ideia simples: recolocar a campanha nos trilhos.`,
+      (c) => `Depois do tombo recente, a equipe trata ${c.trackName} como ponto de virada. Não é sobre esquecer o que passou — é sobre transformar frustração em execução limpa.`,
     ],
-    [
-      () => "É hora de transformar a expectativa da pré-temporada em pontos de verdade.",
-      () => "A etapa define o tom inicial da campanha antes de a tabela ganhar forma.",
+    outlook: [
+      (c) => `O plano não é heroísmo: é uma corrida sólida, sem novos erros, que devolva confiança ao box. ${c.formSentence}`,
+      (c) => `A prioridade é estancar a sangria e sair daqui com pontos de verdade. ${c.formSentence}`,
     ],
-  ),
-  leader_hot: combineVariants(
-    [
-      ({ trackName }) => `Você chega a ${trackName} defendendo a liderança em um fim de semana que promete tensão alta.`,
-      ({ trackName }) => `Você desembarca em ${trackName} com a ponta do campeonato nas maos e um clima de pressão imediata.`,
-      ({ trackName }) => `A defesa da liderança passa por ${trackName}, uma etapa que já nasce carregada.`,
-      ({ trackName }) => `Chegar lider a ${trackName} muda o tom da rodada e aumenta o peso de cada detalhe.`,
-      ({ trackName }) => `A liderança chega com você a ${trackName}, mas a etapa não promete conforto.`,
+    quote: [
+      () => `A gente sabe o que aconteceu. Agora é cabeça fria, corrida limpa e recomeçar a somar.`,
+      (c) => `Página virada. ${c.trackName} é onde a nossa resposta começa.`,
     ],
-    [
-      () => "A largada tende a abrir um fim de semana de controle fino e margem curta.",
-      () => "Desde o inicio, a rodada aponta para uma defesa de liderança sob calor competitivo.",
+  },
+  title_defense: {
+    headline: [(c) => `${c.trackName}: defender a ponta.`, (c) => `Liderança em jogo em ${c.trackName}.`],
+    lead: [
+      (c) => `Você chega a ${c.trackName} na frente do campeonato, e isso muda o peso de cada detalhe. A etapa é menos sobre atacar e mais sobre não entregar o que já é seu.`,
+      (c) => `Estar no topo transforma ${c.trackName} num teste de sangue frio. O trabalho do fim de semana é sair daqui ainda ditando o ritmo.`,
     ],
-  ),
-  leader: combineVariants(
-    [
-      ({ trackName }) => `Você chega a ${trackName} defendendo a liderança do campeonato.`,
-      ({ trackName }) => `A etapa de ${trackName} abre com você no topo da tabela.`,
-      ({ trackName }) => `Você desembarca em ${trackName} com a responsabilidade de sustentar a ponta.`,
-      ({ trackName }) => `Chegar lider a ${trackName} coloca você no centro da narrativa da rodada.`,
-      ({ trackName }) => `A rodada comeca em ${trackName} com você como referência do campeonato.`,
+    outlook: [
+      (c) => `Controlar a pressão, administrar riscos e proteger a diferença já basta — não é preciso vencer para vencer. ${c.formSentence}`,
+      (c) => `Um resultado alto e limpo mantém a arquitetura da temporada intacta. ${c.formSentence}`,
     ],
-    [
-      () => "O desafio agora e seguir ditando o ritmo sem oferecer brecha ao pelotao de perseguição.",
-      () => "A pauta esportiva da etapa passa por manter a ponta e administrar a pressão com autoridade.",
+    quote: [
+      () => `Entramos para defender o que é nosso. Cabeça no lugar e a ponta continua conosco.`,
+      () => `Liderar cobra frieza. É isso que a gente vai entregar aqui.`,
     ],
-  ),
-  chase: combineVariants(
-    [
-      ({ trackName, leaderName }) => `Você chega a ${trackName} tentando encurtar a distância para ${leaderName ?? "a ponta"}.`,
-      ({ trackName, leaderName }) => `A rodada de ${trackName} abre com uma chance real de pressionar ${leaderName ?? "o lider"}.`,
-      ({ trackName, leaderName }) => `Você vai a ${trackName} com a missao clara de apróximar a tabela de ${leaderName ?? "quem lidera"}.`,
-      ({ trackName, leaderName }) => `Em ${trackName}, a ordem do fim de semana e pressionar ${leaderName ?? "a liderança"}.`,
-      ({ trackName, leaderName }) => `A visita a ${trackName} coloca você diante de uma oportunidade concreta de encurtar o campeonato para ${leaderName ?? "o lider"}.`,
+  },
+  title_chase: {
+    headline: [(c) => `${c.trackName}: encurtar a conta.`, (c) => `A caça ao título passa por ${c.trackName}.`],
+    lead: [
+      (c) => `A ${c.gapToLeader} ponto(s) de ${c.leaderName} e com ${c.remainingRounds} etapa(s) pela frente, ${c.trackName} vira uma chance real de mexer na tabela. A conta do título segue viva.`,
+      (c) => `O campeonato ainda está ao alcance, e ${c.trackName} é o tipo de etapa que decide caças a título. Cada ponto sobre ${c.leaderName} pesa daqui pra frente.`,
     ],
-    [
-      ({ remainingRounds }) => `${remainingRounds} etapas seguem abertas depois desta corrida.`,
-      () => "O recado do campeonato e simples: esta e uma rodada para mexer na frente.",
+    outlook: [
+      (c) => `O recado é agressividade controlada: buscar a frente sem rasgar a corrida. ${c.formSentence}`,
+      (c) => `Encostar de vez exige um domingo forte e limpo. ${c.formSentence}`,
     ],
-  ),
-  pressure: combineVariants(
-    [
-      ({ trackName }) => `Você chega a ${trackName} precisando proteger terreno na tabela.`,
-      ({ trackName }) => `A etapa de ${trackName} coloca sua posição sob vigilancia direta.`,
-      ({ trackName }) => `Você desembarca em ${trackName} sabendo que a rodada pode redesenhar o bloco da frente.`,
-      ({ trackName }) => `Em ${trackName}, a prioridade competitiva passa por segurar a sua faixa do campeonato.`,
-      ({ trackName }) => `A visita a ${trackName} não abre espaço para um fim de semana neutro na classificação geral.`,
+    quote: [
+      () => `Estamos perto. Não é hora de ansiedade — é hora de encostar.`,
+      () => `A distância existe, mas dá pra reduzir aqui. Vamos pra cima com juízo.`,
     ],
-    [
-      () => "Cada ponto da rodada pode alterar a ordem imediata da disputa.",
-      () => "A margem de conforto e curta, e a etapa pede resposta imediata.",
+  },
+  nemesis: {
+    headline: [(c) => `${c.trackName}: acerto de contas.`, (c) => `O duelo com ${c.nemesisName} esquenta.`],
+    lead: [
+      (c) => `${c.nemesisName} está neste grid, e é impossível separar a sua etapa desse confronto. ${c.trackName} vira palco de um duelo que já tem história.`,
+      (c) => `Toda temporada tem uma rivalidade que define corridas, e a sua está aqui em ${c.trackName}. ${c.nemesisName} é a régua que mede o seu fim de semana.`,
     ],
-  ),
-  outsider: combineVariants(
-    [
-      ({ trackName }) => `Você chega a ${trackName} buscando fechar a temporada com dignidade competitiva.`,
-      ({ trackName }) => `A etapa de ${trackName} vira oportunidade para salvar lastro esportivo na reta final.`,
-      ({ trackName }) => `Você vai a ${trackName} tentando reagir com maturidade em um campeonato que ficou distante.`,
-      ({ trackName }) => `Em ${trackName}, a meta já não e sonhar alto, e sim recolocar a campanha em pe firme.`,
-      ({ trackName }) => `A rodada de ${trackName} abre uma chance de resposta honesta antes do fim da temporada.`,
+    outlook: [
+      (c) => `Bater o rival direto vale mais que a posição no papel — mas sem deixar o duelo custar a corrida. ${c.formSentence}`,
+      (c) => `O foco é ganhar a comparação direta e sair por cima. ${c.formSentence}`,
     ],
-    [
-      () => "O objetivo agora e competir com peso, mesmo sem a conta do título ao alcance imediato.",
-      () => "A pauta esportiva da corrida passa mais por recuperar respeito competitivo do que por fantasia de tabela.",
+    quote: [
+      () => `Sabemos exatamente com quem estamos brigando. Essa é pessoal, e a gente quer ganhar.`,
+      () => `Tem confronto marcado aqui. É disso que corrida boa é feita.`,
     ],
-  ),
-  survival: combineVariants(
-    [
-      ({ trackName }) => `Você chega a ${trackName} precisando reagir para recolocar a campanha em movimento.`,
-      ({ trackName }) => `A etapa de ${trackName} pede uma resposta direta da equipe no campeonato.`,
-      ({ trackName }) => `Você desembarca em ${trackName} com a necessidade clara de interromper a inércia da campanha.`,
-      ({ trackName }) => `A rodada de ${trackName} se apresenta como uma prova importante de recuperacao esportiva.`,
-      ({ trackName }) => `Em ${trackName}, o campeonato cobra uma corrida que devolva tração ao projeto.`,
+  },
+  pressure: {
+    headline: [(c) => `${c.trackName}: segurar o terreno.`, (c) => `Sob pressão em ${c.trackName}.`],
+    lead: [
+      (c) => `A tabela apertou atrás de você, e ${c.trackName} não abre espaço para um fim de semana passivo. A etapa é sobre defender a sua faixa no campeonato.`,
+      (c) => `Com a diferença cada vez mais curta, ${c.trackName} pede resposta imediata. Não dá para administrar de forma passiva o que a tabela está cobrando.`,
     ],
-    [
-      () => "Pontuar com autoridade aqui pode mudar o humor da temporada.",
-      () => "Mais do que um resultado isolado, a corrida pede um sinal de retomada.",
+    outlook: [
+      (c) => `Correr com clareza, sem desperdício, e impedir que a classificação aperte ainda mais. ${c.formSentence}`,
+      (c) => `Pontuar forte aqui virou obrigação, não luxo. ${c.formSentence}`,
     ],
-  ),
+    quote: [
+      () => `A margem ficou curta. A resposta precisa aparecer agora, nesta corrida.`,
+      () => `Não dá pra entregar um fim de semana burocrático neste momento.`,
+    ],
+  },
+  weather: {
+    headline: [(c) => `${c.trackName} molhada embaralha tudo.`, (c) => `Loteria do clima em ${c.trackName}.`],
+    lead: [
+      (c) => `A previsão de ${c.climaLabel} transforma ${c.trackName} numa corrida de leitura, não de bravata. O clima pode reescrever o grid do começo ao fim.`,
+      (c) => `Quando a pista molha, ${c.trackName} deixa de ser previsível. A meteorologia entra como fator real de distorção da etapa.`,
+    ],
+    outlook: [
+      (c) => `A pista vai premiar quem erra menos, não quem ataca mais. Sobreviver bem ao caos já altera a corrida. ${c.formSentence}`,
+      (c) => `Frieza acima de tudo: um resultado limpo aqui pode valer mais do que parece. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Com esse clima, a corrida é de cabeça. Menos erro, mais paciência.`,
+      () => `Chuva iguala o grid. A gente lê a corrida e aproveita a abertura.`,
+    ],
+  },
+  track_trauma: {
+    headline: [(c) => `${c.trackName} tem contas a acertar.`, (c) => `Respeito a ${c.trackName}.`],
+    lead: [
+      (c) => `${c.trackName} não é uma pista qualquer para você — o histórico aqui pede cautela antes de qualquer promessa ousada. Execução limpa vale mais que bravata.`,
+      (c) => `A memória recente de ${c.trackName} recomenda prudência. A etapa chega com um alerta claro: aqui, errar pouco é o caminho.`,
+    ],
+    outlook: [
+      (c) => `Disciplina do começo ao fim, sem forçar o que a pista costuma cobrar caro. ${c.formSentence}`,
+      (c) => `A meta é quebrar o retrospecto com uma corrida madura. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Essa pista já nos cobrou caro. Desta vez, é foco e disciplina.`,
+      () => `Sabemos o histórico aqui. Nada de facilitar.`,
+    ],
+  },
+  track_fortress: {
+    headline: [(c) => `${c.trackName}: terreno amigo.`, (c) => `Boas lembranças em ${c.trackName}.`],
+    lead: [
+      (c) => `${c.trackName} guarda boas memórias suas, e isso autoriza uma leitura mais ousada da etapa. A pista joga a favor desde o primeiro treino.`,
+      (c) => `Poucas pistas caem tão bem para você quanto ${c.trackName}. O retrospecto aqui dá base para atacar com ambição legítima.`,
+    ],
+    outlook: [
+      (c) => `A questão é transformar referência passada em resultado presente. ${c.formSentence}`,
+      (c) => `Com a pista a favor, dá para pensar grande sem ilusão. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Gostamos daqui. É hora de transformar essa memória boa em pontos.`,
+      () => `Essa pista combina com a gente. Vamos aproveitar.`,
+    ],
+  },
+  breakdown: {
+    headline: [(c) => `${c.trackName}: administrar o carro.`, (c) => `Confiabilidade em xeque em ${c.trackName}.`],
+    lead: [
+      (c) => `O carro chega a ${c.trackName} com risco real de quebra, e isso muda o cálculo do fim de semana. É risco, não certeza — mas pesa em cada decisão.`,
+      (c) => `Fragilidade mecânica é o assunto de ${c.trackName}. A etapa vira um equilíbrio entre ataque e preservar o carro até a bandeirada.`,
+    ],
+    outlook: [
+      (c) => `Talvez valha poupar em alguns momentos para garantir a chegada. ${c.formSentence}`,
+      (c) => `Chegar inteiro pode valer mais do que arriscar tudo. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `O carro pede atenção. Vamos pesar cada ataque contra o risco de não terminar.`,
+      () => `Melhor um ponto garantido que um zero heroico. Cabeça fria aqui.`,
+    ],
+  },
+  grand_stage: {
+    headline: [(c) => `${c.trackName}: o grande palco.`, (c) => `Holofotes em ${c.trackName}.`],
+    lead: [
+      (c) => `${c.eventOccasion} coloca ${c.trackName} sob os holofotes. A vitrine e a pressão pesam além dos pontos em jogo.`,
+      (c) => `Nem toda corrida carrega o peso de ${c.trackName} nesta ocasião. É o tipo de etapa que separa quem se agiganta de quem encolhe.`,
+    ],
+    outlook: [
+      (c) => `O palco cobra presença: entregar sob pressão é metade da história aqui. ${c.formSentence}`,
+      (c) => `Grandes ocasiões se lembram de quem apareceu. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Etapa assim a gente marca na memória. Viemos para aparecer.`,
+      () => `O palco é grande. É exatamente onde queremos estar.`,
+    ],
+  },
+  debut: {
+    headline: [(c) => `${c.trackName} abre a temporada.`, (c) => `Recomeço em ${c.trackName}.`],
+    lead: [
+      (c) => `A temporada começa em ${c.trackName} com o grid inteiro partindo do zero. Não há tabela para defender — há uma campanha inteira para construir.`,
+      (c) => `${c.trackName} recomeça tudo: tabela zerada e a primeira leitura de forças do ano. A etapa é sobre plantar a base da temporada.`,
+    ],
+    outlook: [
+      (c) => `Um começo sólido evita ter que correr atrás do prejuízo logo de cara. ${c.formSentence}`,
+      (c) => `Largar bem na estreia dá lastro de confiança para o resto do calendário. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Temporada nova, conta zerada. Queremos começar com o pé direito.`,
+      () => `É a hora de transformar a pré-temporada em pontos de verdade.`,
+    ],
+  },
+  baseline: {
+    headline: [(c) => `${c.trackName}: somar e crescer.`, (c) => `Construção em ${c.trackName}.`],
+    lead: [
+      (c) => `Sem um enredo dominante, ${c.trackName} é uma rodada de construção: pontuar forte, ganhar posição e evitar perdas bobas. Consistência é o nome do jogo.`,
+      (c) => `${c.trackName} não traz um grande drama de tabela, e tudo bem. A etapa é sobre fazer o simples bem feito e crescer no campeonato.`,
+    ],
+    outlook: [
+      (c) => `Uma corrida limpa e eficiente aqui melhora a respiração da temporada. ${c.formSentence}`,
+      (c) => `Cada ponto somado sem sustos reorganiza a campanha ao seu redor. ${c.formSentence}`,
+    ],
+    quote: [
+      () => `Nada de invenção. Corrida limpa, pontos no bolso e seguimos crescendo.`,
+      () => `Foco no básico bem feito. É assim que a temporada se constrói.`,
+    ],
+  },
 };
 
-const championshipParagraphPools = {
-  opener: combineVariants(
-    [
-      () => "Com o campeonato no ponto de partida, ninguém pontuou ainda e cada piloto chega com a conta zerada.",
-      () => "A tabela ainda não existe na prática: é a primeira etapa que começa a desenhar a hierarquia da temporada.",
-      () => "Sem rodadas disputadas, a classificação é só uma lista de largada — o campeonato de fato começa aqui.",
-      () => "Todos partem empatados, e o primeiro fim de semana costuma pesar na confiança do restante da campanha.",
-      () => "A temporada abre sem histórico recente para sustentar favoritismos; a pista é que vai dar o primeiro veredito.",
-    ],
-    [
-      () => "Um começo sólido evita ter que correr atrás do prejuízo logo na sequência.",
-      () => "Largar bem na estreia dá lastro de confiança para o resto do calendário.",
-    ],
-  ),
-  leader: combineVariants(
-    [
-      ({ trackName }) => `A equipe desembarca em ${trackName} com você na ponta da tabela.`,
-      ({ trackName }) => `Chegar líder a ${trackName} muda o peso de toda a preparação da rodada.`,
-      ({ trackName }) => `O box chega a ${trackName} defendendo a primeira colocação.`,
-      ({ trackName }) => `A liderança transforma ${trackName} em um teste de gestão de pressão.`,
-      ({ trackName }) => `Com você no topo, ${trackName} deixa de ser apenas mais uma etapa do calendário.`,
-    ],
-    [
-      () => "O trabalho da rodada é controlar a pressão imediata sem ceder o comando da narrativa esportiva.",
-      () => "A missão do fim de semana é sair daqui ainda ditando o ritmo do campeonato.",
-    ],
-  ),
-  chase: combineVariants(
-    [
-      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atrás da liderança.`,
-      ({ playerStanding, gapToLeader }) => `A ${playerStanding.posicao_campeonato}ª posição ainda mantém a disputa aberta, mas os ${gapToLeader} pontos de diferença cobram agressividade limpa.`,
-      ({ playerStanding, gapToLeader }) => `Você abre a rodada na ${playerStanding.posicao_campeonato}ª colocação, com ${gapToLeader} pontos separando a campanha da ponta.`,
-      ({ playerStanding, gapToLeader }) => `A leitura do campeonato coloca você na ${playerStanding.posicao_campeonato}ª colocação e a ${gapToLeader} pontos do líder.`,
-      ({ playerStanding, gapToLeader }) => `Entrar nesta etapa na ${playerStanding.posicao_campeonato}ª posição e com ${gapToLeader} pontos de desvantagem mantém a conta do título viva, mas apertada.`,
-    ],
-    [
-      () => "Cada resultado limpo agora pesa diretamente na luta pelo título.",
-      () => "A rodada ganhou valor de confronto direto na parte alta da tabela.",
-    ],
-  ),
-  pressure: combineVariants(
-    [
-      () => "Você entra nesta etapa precisando proteger a sua faixa da tabela.",
-      () => "A sua posição no campeonato passa por uma rodada de defesa esportiva.",
-      () => "O campeonato empurrou você para um fim de semana de contenção e resposta.",
-      () => "A corrida chega com uma tarefa clara: impedir que a tabela aperte ainda mais.",
-      () => "O momento da temporada não abre espaço para administração passiva da pontuação.",
-    ],
-    [
-      () => "A rodada carrega pontos demais para permitir um fim de semana burocratico.",
-      () => "Qualquer perda aqui tende a ser sentida de imediato no bloco da frente.",
-    ],
-  ),
-  outsider: combineVariants(
-    [
-      ({ playerStanding, gapToLeader }) => `Você ocupa a ${playerStanding.posicao_campeonato}ª colocação e entra nesta etapa ${gapToLeader} pontos atrás da liderança.`,
-      ({ playerStanding, gapToLeader }) => `A ${playerStanding.posicao_campeonato}ª colocação e a distância de ${gapToLeader} pontos mudam a escala da ambição para esta rodada.`,
-      ({ playerStanding, gapToLeader }) => `Você abre a etapa na ${playerStanding.posicao_campeonato}ª posição, com ${gapToLeader} pontos de desvantagem para a ponta.`,
-      ({ playerStanding, gapToLeader }) => `O recorte do campeonato coloca você longe da liderança: ${playerStanding.posicao_campeonato}ª colocação e ${gapToLeader} pontos de margem.`,
-      ({ playerStanding, gapToLeader }) => `Entrar nesta rodada a ${gapToLeader} pontos do topo e na ${playerStanding.posicao_campeonato}ª colocação exige uma leitura mais realista da campanha.`,
-    ],
-    [
-      () => "O foco realista agora é somar forte, recuperar confiança e evitar que a reta final escape de vez do controle.",
-      () => "A tarefa esportiva virou recuperar consistência e voltar a produzir rodadas com peso competitivo.",
-    ],
-  ),
-  survival: combineVariants(
-    [
-      ({ trackName }) => `A equipe chega a ${trackName} precisando reagir no campeonato.`,
-      ({ trackName }) => `A rodada de ${trackName} aparece como chance de estancar a perda de ritmo na temporada.`,
-      ({ trackName }) => `Você desembarca em ${trackName} com necessidade clara de resposta esportiva.`,
-      ({ trackName }) => `O campeonato empurra a campanha para uma etapa de reacerto em ${trackName}.`,
-      ({ trackName }) => `A visita a ${trackName} abre um ponto de inflexão importante para a equipe.`,
-    ],
-    [
-      () => "O objetivo esportivo da rodada é recuperar consistência antes que a temporada aperte ainda mais.",
-      () => "Mais do que o resultado final, o campeonato pede uma corrida que devolva direção ao projeto.",
-    ],
-  ),
-};
+// Monta o copy da Sala de Estratégia a partir da tese dominante já eleita. Devolve
+// só o que a tela usa: headline, os dois parágrafos e a citação. `actionHint` é
+// mantido como fallback do 2º parágrafo (o render usa `paragraphs[1] || actionHint`).
+export function buildEditorialCopy({
+  thesis,
+  playerStanding,
+  leader,
+  briefingRival,
+  playerTeam,
+  nextRace,
+  trackHistory,
+  gapToLeader = 0,
+  remainingRounds = 0,
+  nemesisName = null,
+  climaLabel = null,
+  eventOccasion = null,
+}) {
+  const key = thesis?.key ?? "baseline";
+  const pool = THESIS_EDITORIAL[key] ?? THESIS_EDITORIAL.baseline;
+  const ctx = {
+    trackName: nextRace?.track_name ?? "esta etapa",
+    teamName: playerTeam?.nome ?? "a equipe",
+    leaderName: leader?.nome ?? "a ponta",
+    rivalName: briefingRival?.driver_name ?? "o rival direto",
+    nemesisName: nemesisName ?? briefingRival?.driver_name ?? "seu rival",
+    gapToLeader,
+    remainingRounds,
+    bestFinish: trackHistory?.best_finish ?? null,
+    climaLabel: climaLabel ?? "pista molhada",
+    eventOccasion: eventOccasion ?? "Uma etapa de destaque",
+    formSentence: buildFormSentence(playerStanding),
+  };
+  const seed = buildSeed(key, ctx.trackName, ctx.rivalName, playerStanding?.id, nextRace?.rodada);
+  const lead = pickVariant(pool.lead, `${seed}|lead`, ctx);
+  const outlook = pickVariant(pool.outlook, `${seed}|outlook`, ctx);
+  return {
+    headline: pickVariant(pool.headline, `${seed}|headline`, ctx),
+    paragraphs: [lead, outlook].filter(Boolean),
+    quote: pickVariant(pool.quote, `${seed}|quote`, ctx),
+    actionHint: outlook,
+  };
+}
 
-const weekendParagraphPools = {
-  opener: combineVariants(
-    [
-      ({ favoriteName }) =>
-        favoriteName
-          ? `${favoriteName} aparece como um dos nomes a observar na estreia, mas a pré-temporada raramente entrega certezas.`
-          : "A estreia chega cercada de expectativa, ainda sem certezas vindas da pré-temporada.",
-      () => "A primeira corrida costuma separar quem chegou afiado de quem ainda busca ritmo.",
-      () => "Sem histórico da temporada para se apoiar, a leitura do fim de semana fica na mão da pista.",
-      () => "O paddock chega curioso para ver as primeiras forças reais do campeonato.",
-      () => "A abertura tende a recompensar quem traduzir a preparação em execução logo de cara.",
-    ],
-    [
-      ({ formSentence }) => formSentence,
-      () => "O importante é largar a temporada construindo, não correndo atrás.",
-    ],
-  ),
-  weekend_hot: combineVariants(
-    [
-      ({ rivalName }) => `${rivalName} chega como referência direta em um fim de semana tratado pelo paddock como ponto de virada.`,
-      ({ rivalName }) => `O paddock lê a rodada como um confronto aberto, com ${rivalName} no centro da tensão competitiva.`,
-      ({ rivalName }) => `${rivalName} entra na etapa como figura dominante de um fim de semana que ganhou temperatura cedo.`,
-      ({ rivalName }) => `A leitura externa aponta para uma rodada quente, e ${rivalName} aparece como termômetro imediato da disputa.`,
-      ({ rivalName }) => `Há clima de duelo grande no paddock, com ${rivalName} puxando a referência da frente.`,
-    ],
-    [
-      ({ formSentence, remainingRounds }) => `${formSentence} ${remainingRounds > 0 ? `Depois desta corrida ainda restam ${remainingRounds} etapas para mexer na tabela.` : "Esta corrida fecha a conta da temporada."}`,
-      ({ formSentence }) => `${formSentence} O fim de semana ganhou peso de rodada-charneira para a parte alta do campeonato.`,
-    ],
-  ),
-  history_positive: combineVariants(
-    [
-      () => "O histórico recente nesta pista ajuda a sustentar uma leitura mais agressiva para a etapa.",
-      () => "A memória esportiva do circuito joga a favor de um fim de semana mais afirmativo.",
-      () => "Os antecedentes nesta pista permitem olhar a rodada com ambição legitima.",
-      () => "O retrospecto aqui oferece base para pensar em uma etapa de ataque controlado.",
-      () => "A pista devolve lembranças boas o bastante para autorizar uma leitura mais ousada da rodada.",
-    ],
-    [
-      ({ formSentence }) => formSentence,
-      ({ formSentence }) => `${formSentence} A questao agora e transformar referência passada em resultado presente.`,
-    ],
-  ),
-  history_negative: combineVariants(
-    [
-      () => "A pista cobra respeito: o histórico aqui pede execução limpa antes de qualquer promessa mais ousada.",
-      () => "O retrospecto neste circuito recomenda prudencia antes de discurso agressivo.",
-      () => "A etapa chega em uma pista que ainda guarda contas em aberto com a campanha.",
-      () => "A memória recente do circuito não permite tratar esta corrida como rodada comum.",
-      () => "O histórico da pista funciona como alerta para um fim de semana de disciplina.",
-    ],
-    [
-      ({ formSentence }) => formSentence,
-      ({ formSentence }) => `${formSentence} Aqui, errar pouco pode valer mais do que atacar demais.`,
-    ],
-  ),
-  weather_unstable: combineVariants(
-    [
-      () => "O clima deve embaralhar a etapa e ampliar o valor de uma corrida sem erros.",
-      () => "A previsao deixa a rodada mais movediça e aumenta o peso de cada decisão.",
-      () => "Com tempo instavel no radar, a etapa tende a punir exageros e premiar leitura fria.",
-      () => "O clima retira previsibilidade da corrida e coloca execução acima de bravata.",
-      () => "A meteorologia entra na pauta da etapa como fator real de distorcao competitiva.",
-    ],
-    [
-      ({ formSentence }) => formSentence,
-      ({ formSentence }) => `${formSentence} Numa rodada assim, a pista costuma recompensar quem erra menos.`,
-    ],
-  ),
-  outsider: combineVariants(
-    [
-      ({ rivalName }) => `${rivalName} e o restante da frente chegam com margem clara nesta rodada.`,
-      ({ rivalName }) => `A dianteira chega respaldada, com ${rivalName} puxando um bloco que corre com folga sobre a sua campanha.`,
-      ({ rivalName }) => `${rivalName} comanda a referência externa de uma etapa em que a frente chega mais leve do que você.`,
-      ({ rivalName }) => `O pelotao principal abre a rodada com margem, e ${rivalName} simboliza essa vantagem imediata.`,
-      ({ rivalName }) => `A etapa comeca com ${rivalName} e a frente operando de uma posição de conforto relativa.`,
-    ],
-    [
-      ({ formSentence }) => `${formSentence} O título depende de uma combinacao muito improvável de resultados, entao o box ajusta a expectativa para uma corrida limpa e oportunista.`,
-      ({ formSentence }) => `${formSentence} A leitura do fim de semana sai do romantismo da tabela e entra no territorio do oportunismo competitivo.`,
-    ],
-  ),
-  neutral: combineVariants(
-    [
-      ({ rivalName }) => `${rivalName} segue como referência direta desta rodada.`,
-      ({ rivalName }) => `${rivalName} continua servindo como comparacao imediata para medir o fim de semana.`,
-      ({ rivalName }) => `A leitura competitiva da etapa passa por como você responde ao ritmo de ${rivalName}.`,
-      ({ rivalName }) => `${rivalName} permanece como espelho mais visivel do bloco em que a rodada será decidida.`,
-      ({ rivalName }) => `No recorte esportivo desta etapa, ${rivalName} ainda e o nome que melhor mede a sua margem de crescimento.`,
-    ],
-    [
-      ({ formSentence }) => `Enquanto isso, ${formSentence}`,
-      ({ formSentence }) => `${formSentence} A rodada ainda oferece espaço para reorganizar a narrativa do campeonato.`,
-    ],
-  ),
-};
-
-const quotePools = {
-  opener: combineVariants(
-    [
-      () => `"Nossa equipe encara a estreia com ambição`,
-      () => `"Nossa equipe quer começar a temporada com o pé direito`,
-      () => `"Nossa equipe trata a abertura como chance de dar o tom da campanha`,
-      () => `"Nossa equipe sabe que a primeira etapa já constrói confiança`,
-      () => `"Nossa equipe entra na estreia sem peso de tabela, mas com fome de pontos`,
-    ],
-    [
-      () => "e quer sair daqui com uma base forte para o campeonato.\"",
-      () => "e pretende transformar a expectativa da pré-temporada em resultado.\"",
-    ],
-  ),
-  leader: combineVariants(
-    [
-      () => "\"Entramos para defender o que e nosso.",
-      () => "\"Chegamos lideres e a responsabilidade agora e corresponder a isso.",
-      () => "\"A ponta do campeonato não permite dispersao.",
-      () => "\"Estar na frente muda o peso de cada detalhe deste fim de semana.",
-      () => "\"A liderança exige frieza antes de qualquer impulso.",
-    ],
-    [
-      () => "O importante e sair daqui ainda ditando o ritmo do campeonato.\"",
-      () => "Nosso trabalho e transformar controle em resultado.\"",
-    ],
-  ),
-  chase: combineVariants(
-    [
-      () => "\"Estamos perto.",
-      () => "\"A distância existe, mas a rodada oferece espaço para reduzir isso.",
-      () => "\"O campeonato ainda esta acessivel se a execução vier limpa.",
-      () => "\"Não e hora de ansiedade; e hora de encostar na frente.",
-      () => "\"Estamos numa faixa em que um fim de semana forte muda a conversa.",
-    ],
-    [
-      () => "A equipe quer agressividade controlada desde a classificação para encostar de vez na ponta.\"",
-      () => "Precisamos sair daqui tendo pressionado a frente de verdade.\"",
-    ],
-  ),
-  pressure: combineVariants(
-    [
-      () => "\"A tabela apertou e isso muda a forma de encarar a rodada.",
-      () => "\"Não da para entregar um fim de semana passivo neste momento.",
-      () => "\"A margem ficou curta e a resposta precisa aparecer agora.",
-      () => "\"Esta e uma etapa para correr com clareza e sem desperdicio.",
-      () => "\"O campeonato esta cobrando firmeza competitiva nesta rodada.",
-    ],
-    [
-      () => "A prioridade e sair daqui com a posição protegida e a campanha respirando.\"",
-      () => "Pontuar forte virou obrigação esportiva, não luxo.\"",
-    ],
-  ),
-  outsider: combineVariants(
-    [
-      () => `"Nossa equipe quer uma rodada limpa, madura`,
-      () => `"Nossa equipe sabe que a tabela já não permite fantasia`,
-      () => `"Nossa equipe olha para esta etapa como chance de reconstrução esportiva`,
-      () => `"Nossa equipe precisa voltar a produzir um fim de semana respeitavel`,
-      () => `"Nossa equipe entra na rodada pensando mais em consistência do que em bravata`,
-    ],
-    [
-      () => "e forte o bastante para recolocar a campanha em trilho competitivo.\"",
-      () => "e devolver peso competitivo a uma campanha que perdeu altitude.\"",
-    ],
-  ),
-  survival: combineVariants(
-    [
-      () => `"Nossa equipe espera um fim de semana forte`,
-      () => `"Nossa equipe entra na etapa precisando de uma resposta clara`,
-      () => `"Nossa equipe quer recuperar tração competitiva nesta rodada`,
-      () => `"Nossa equipe sabe que esta e uma corrida importante para reorganizar a campanha`,
-      () => `"Nossa equipe trata a etapa como ponto de retomada`,
-    ],
-    [
-      () => "para recolocar a campanha no rumo certo.\"",
-      () => "para dar direcao esportiva ao restante da temporada.\"",
-    ],
-  ),
-};
-
-const rivalSummaryPools = {
-  ahead: combineVariants(
-    [
-      ({ briefingRival }) => `${briefingRival.driver_name} chega como referência imediata do campeonato, ocupando a P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} abre a rodada como o nome mais próximo a ser alcancado, na P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} aparece na frente da sua campanha, segurando a P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `A referência direta da tabela atende por ${briefingRival.driver_name}, atual P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} entra nesta etapa como espelho mais imediato da sua luta na classificação, na P${briefingRival.championship_position}`,
-    ],
-    [
-      ({ briefingRival }) => `com ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} de margem.`,
-      ({ briefingRival }) => `e leva ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} de vantagem para a largada.`,
-    ],
-  ),
-  aheadOutsider: combineVariants(
-    [
-      ({ briefingRival }) => `${briefingRival.driver_name} lidera a referência esportiva da rodada, ocupando a P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `No seu recorte de campanha, ${briefingRival.driver_name} aparece como principal parametro da etapa na P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} simboliza a frente da disputa que ainda da para morder, abrindo a etapa em P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `A referência mais concreta desta rodada passa por ${briefingRival.driver_name}, atual P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} funciona como alvo esportivo mais util da etapa, largando da P${briefingRival.championship_position}`,
-    ],
-    [
-      ({ briefingRival }) => `com ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} de margem sobre você.`,
-      ({ briefingRival }) => `e carrega ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} de vantagem neste recorte da tabela.`,
-    ],
-  ),
-  behind: combineVariants(
-    [
-      ({ briefingRival }) => `${briefingRival.driver_name} aparece como alvo direto na tabela, ocupando a P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `A perseguição mais imediata atende por ${briefingRival.driver_name}, hoje na P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} e o piloto que a rodada permite mirar de forma mais concreta, na P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `${briefingRival.driver_name} abre a etapa como presa esportiva mais clara do seu bloco, ocupando a P${briefingRival.championship_position}`,
-      ({ briefingRival }) => `No recorte da classificação, ${briefingRival.driver_name} e o alvo direto da rodada a partir da P${briefingRival.championship_position}`,
-    ],
-    [
-      ({ briefingRival }) => `e andando ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} atras.`,
-      ({ briefingRival }) => `com uma diferenca de ${briefingRival.gap_points} ponto${briefingRival.gap_points === 1 ? "" : "s"} para o seu lado.`,
-    ],
-  ),
-  neutral: combineVariants(
-    [
-      ({ rivalName }) => `${rivalName} segue como a comparacao mais imediata desta etapa`,
-      ({ rivalName }) => `${rivalName} permanece como o nome mais util para medir a rodada`,
-      ({ rivalName }) => `A referência direta do fim de semana continua sendo ${rivalName}`,
-      ({ rivalName }) => `${rivalName} ainda funciona como espelho esportivo mais claro para a etapa`,
-      ({ rivalName }) => `No bloco em que a corrida deve se decidir, ${rivalName} segue como parametro central`,
-    ],
-    [
-      () => "para medir o fim de semana.",
-      () => "na leitura esportiva desta rodada.",
-    ],
-  ),
-};
-
-const scenarioPools = {
-  leader: combineVariants(
-    [
-      () => "Um top 5 mantem a pressão sob controle",
-      () => "Sair desta rodada entre os cinco primeiros segura o campeonato",
-      () => "Controlar danos com um resultado alto preserva a arquitetura da temporada",
-      () => "Pontuar forte sem dramatizar a etapa já cumpre boa parte da missao do lider",
-      () => "A referência de resultado para quem lidera passa por não entregar terreno desnecessario",
-    ],
-    [
-      () => "e protege a liderança para a próxima rodada.",
-      () => "e sustenta a dianteira antes do próximo compromisso.",
-    ],
-  ),
-  outsider: combineVariants(
-    [
-      () => "O título depende de uma combinacao muito improvável de resultados.",
-      () => "A conta do campeonato ficou improvável demais para ser tratada como meta central.",
-      () => "A luta pelo título entrou em um territorio pouco realista para esta campanha.",
-      () => "O campeonato já não responde apenas a um bom domingo; a conta virou improvável.",
-      () => "A temporada deixou o título em uma faixa muito improvável de alcance imediato.",
-    ],
-    [
-      () => "O foco realista e somar pontos, ganhar ritmo e aproveitar qualquer abertura que apareca no caos da prova.",
-      () => "A pauta esportiva agora e pontuar, recuperar forma e capitalizar qualquer corrida quebrada a frente.",
-    ],
-  ),
-  chaseRivalSpotlight: combineVariants(
-    [
-      ({ rivalName }) => `Se você vencer e ${rivalName} perder terreno fora do top 5`,
-      ({ rivalName }) => `Uma vitoria combinada com uma rodada ruim de ${rivalName}`,
-      ({ rivalName }) => `Caso você transforme a etapa em triunfo e ${rivalName} escape da zona alta`,
-      ({ rivalName }) => `A combinacao de um domingo forte seu com perda de ritmo de ${rivalName}`,
-      ({ rivalName }) => `Se a corrida sorrir para você e ${rivalName} não sustentar a frente`,
-    ],
-    [
-      () => "pode recolocar a liderança em distância de ataque imediato.",
-      () => "devolve tração direta para a luta pela ponta do campeonato.",
-    ],
-  ),
-  weatherUnstable: combineVariants(
-    [
-      () => "A margem entre ataque e prejuizo fica menor quando o clima embaralha a etapa.",
-      () => "Com tempo instavel, o limite entre boa leitura e desastre esportivo encurta rapidamente.",
-      () => "Corridas assim apertam a diferenca entre ousadia boa e dano grande.",
-      () => "Quando o clima interfere, a etapa costuma premiar menos o brilho e mais a disciplina.",
-      () => "A meteorologia torna a rodada menos linear e aumenta o custo de um erro simples.",
-    ],
-    [
-      () => "Um resultado limpo aqui pode valer mais do que parece.",
-      () => "Nessas condições, sobreviver bem ao caos já altera o campeonato.",
-    ],
-  ),
-  pressure: combineVariants(
-    [
-      () => "Pontuar forte aqui e o que separa uma campanha viva de uma rodada que aperta ainda mais a tabela.",
-      () => "Esta e uma etapa em que um domingo solido evita que o campeonato deslize para uma faixa desconfortavel.",
-      () => "O peso esportivo da corrida passa por impedir que a classificação aperte ainda mais.",
-      () => "A rodada tem cara de divisoria entre estabilizar a campanha e perder terreno sensivel.",
-      () => "O campeonato transformou esta corrida em um teste direto de sustentacao da campanha.",
-    ],
-    [
-      () => "Perder pontos demais aqui tende a ser sentido imediatamente.",
-      () => "A tabela vai cobrar cada detalhe da execução deste fim de semana.",
-    ],
-  ),
-  fallback: combineVariants(
-    [
-      () => "Um podio aqui reduz a pressão do campeonato",
-      () => "Levar a campanha ao bloco da frente nesta etapa alivia a tabela",
-      () => "Um resultado alto nesta corrida melhora a respiracao esportiva da temporada",
-      () => "Voltar ao top da rodada já muda a temperatura da campanha",
-      () => "A etapa oferece espaço para um resultado que reorganize o campeonato ao seu redor",
-    ],
-    [
-      () => "e abre espaço para atacar nas próximas etapas.",
-      () => "e devolve margem de manobra para o trecho seguinte da temporada.",
-    ],
-  ),
-};
-
-const actionHintPools = {
-  leader: combineVariants(
-    [
-      () => "O box esta pronto para controlar a rodada.",
-      () => "A equipe entra nesta etapa com plano claro de defesa da ponta.",
-      () => "A largada pede execução fria de quem tem a liderança nas maos.",
-      () => "A estrutura do fim de semana foi desenhada para proteger a dianteira.",
-      () => "Tudo converge para uma corrida de lider que sabe a hora de atacar e a hora de administrar.",
-    ],
-    [
-      () => "Simule agora para transformar a liderança em resultado.",
-      () => "Levar a etapa para a simulação agora é o passo natural desta defesa de campeonato.",
-    ],
-  ),
-  outsider: combineVariants(
-    [
-      () => "Buscar um top 8 limpo",
-      () => "A meta prática da rodada e sair com pontos fortes e poucos danos",
-      () => "O alvo mais realista do fim de semana passa por uma corrida madura e eficiente",
-      () => "Esta etapa pede oportunismo e controle de perdas antes de qualquer heroismo",
-      () => "O caminho esportivo mais sensato e construir uma prova limpa e firme",
-    ],
-    [
-      () => "e capitalizar qualquer erro a frente e o caminho mais realista para esta etapa.",
-      () => "para depois aproveitar o caos eventual a frente e converter isso em pontos pesados.",
-    ],
-  ),
-  chase: combineVariants(
-    [
-      ({ rivalName }) => `O duelo direto com ${rivalName} esta armado.`,
-      ({ rivalName }) => `${rivalName} aparece como medida imediata desta corrida.`,
-      ({ rivalName }) => `A rodada coloca ${rivalName} no centro do seu recorte esportivo.`,
-      ({ rivalName }) => `${rivalName} e a referência direta de uma etapa feita para mexer na ponta.`,
-      ({ rivalName }) => `O caminho para encurtar a tabela passa por responder ao ritmo de ${rivalName}.`,
-    ],
-    [
-      () => "Simular agora leva o fim de semana direto para a tela de resultados.",
-      () => "Levar a etapa para a simulação agora coloca esse confronto em campo imediatamente.",
-    ],
-  ),
-  pressure: combineVariants(
-    [
-      ({ rivalName }) => `A etapa pede resposta direta no duelo com ${rivalName}.`,
-      ({ rivalName }) => `${rivalName} aparece como a barreira mais imediata entre você e uma rodada segura.`,
-      ({ rivalName }) => `O recorte da corrida passa por não deixar ${rivalName} controlar esse bloco sozinho.`,
-      ({ rivalName }) => `A pressão da tabela transforma o duelo com ${rivalName} em prioridade prática.`,
-      ({ rivalName }) => `Segurar a rodada passa, inevitavelmente, por como você enfrenta ${rivalName}.`,
-    ],
-    [
-      () => "Simular agora coloca a briga decisiva da etapa em movimento.",
-      () => "Levar a corrida para a simulação agora é o passo seguinte dessa defesa de terreno.",
-    ],
-  ),
-  fallback: combineVariants(
-    [
-      () => "Quando estiver pronto,",
-      () => "A etapa já esta desenhada no painel.",
-      () => "O briefing já aponta os riscos e oportunidades do fim de semana.",
-      () => "A leitura competitiva da rodada esta fechada.",
-      () => "O próximo passo agora e simples.",
-    ],
-    [
-      () => "simule a corrida para fechar o fim de semana e atualizar o campeonato.",
-      () => "leve a corrida para a simulação e transforme a prévia em classificação real.",
-    ],
-  ),
-};
-
-export const EDITORIAL_COPY_POOLS = {
-  headline: headlinePools,
-  championshipParagraph: championshipParagraphPools,
-  weekendParagraph: weekendParagraphPools,
-  quote: quotePools,
-  rivalSummaryAhead: rivalSummaryPools,
-  scenario: scenarioPools,
-  actionHint: actionHintPools,
-};
-
+// Estado do campeonato — ainda usado fora do editorial (rótulo de estado nos `facts`
+// e sinais da tese). Mantido intacto.
 export function classifyChampionshipState({
   playerStanding,
   leader,
@@ -638,292 +317,4 @@ export function classifyChampionshipState({
   }
 
   return "survival";
-}
-
-export function classifyWeekendState({
-  trackHistory,
-  briefingRival,
-  nextRace,
-  weekendStories = [],
-}) {
-  const unstableWeather =
-    nextRace?.clima === "Wet" || nextRace?.clima === "HeavyRain" || nextRace?.clima === "Damp";
-  const strongStories = weekendStories.filter((story) => {
-    const importance = String(story?.importanceLabel ?? story?.importance ?? "").toLowerCase();
-    return importance.includes("alta") || importance.includes("destaque");
-  }).length;
-
-  if (strongStories > 0 && briefingRival?.driver_name) {
-    return "weekend_hot";
-  }
-
-  if (trackHistory?.has_data) {
-    if ((trackHistory.best_finish ?? 99) <= 3 && (trackHistory.dnfs ?? 0) === 0) {
-      return "history_positive";
-    }
-
-    if ((trackHistory.dnfs ?? 0) >= 1 || (trackHistory.best_finish ?? 99) >= 8) {
-      return "history_negative";
-    }
-  }
-
-  if (unstableWeather) {
-    return "weather_unstable";
-  }
-
-  if (briefingRival?.driver_name) {
-    return "rival_spotlight";
-  }
-
-  return "weekend_neutral";
-}
-
-export function buildEditorialCopy({
-  championshipState,
-  weekendState,
-  playerStanding,
-  leader,
-  rival,
-  briefingRival,
-  playerTeam,
-  nextRace,
-  trackHistory,
-  weekendStories = [],
-  gapToLeader = 0,
-  remainingRounds = 0,
-  audienceEstimate = 0,
-  favoriteName = null,
-}) {
-  const rivalName = briefingRival?.driver_name ?? rival?.nome ?? "o rival direto";
-  const trackName = nextRace?.track_name ?? "esta etapa";
-  const teamName = playerTeam?.nome ?? "a equipe";
-  const formSentence = buildFormSentence(playerStanding);
-  const storyLead = weekendStories[0]?.summary ?? null;
-  const context = {
-    playerStanding,
-    leader,
-    briefingRival,
-    playerTeam,
-    nextRace,
-    trackHistory,
-    weekendStories,
-    gapToLeader,
-    remainingRounds,
-    audienceEstimate,
-    rivalName,
-    trackName,
-    teamName,
-    leaderName: leader?.nome ?? "a ponta",
-    formSentence,
-    favoriteName,
-  };
-  const headlineKey =
-    championshipState === "leader" &&
-    (weekendState === "weather_unstable" || weekendState === "weekend_hot")
-      ? "leader_hot"
-      : championshipState;
-  const weekendParagraphKey =
-    // Na abertura, evitar pools que citam rival/tabela; usar pista/clima quando há
-    // dado real, senão o pool "opener" (sem rival inventado).
-    championshipState === "opener"
-      ? weekendState === "weather_unstable" ||
-        weekendState === "history_positive" ||
-        weekendState === "history_negative"
-        ? weekendState
-        : "opener"
-      : championshipState === "outsider" && weekendState !== "weekend_hot"
-        ? "outsider"
-        : weekendState === "rival_spotlight" || weekendState === "weekend_neutral"
-          ? "neutral"
-          : weekendState;
-  const quoteKey =
-    championshipState === "opener" ||
-    championshipState === "leader" ||
-    championshipState === "chase" ||
-    championshipState === "pressure" ||
-    championshipState === "outsider"
-      ? championshipState
-      : "survival";
-  const rivalSummaryKey = !briefingRival
-    ? "neutral"
-    : briefingRival.is_ahead
-      ? championshipState === "outsider"
-        ? "aheadOutsider"
-        : "ahead"
-      : "behind";
-  const scenarioKey =
-    championshipState === "leader"
-      ? "leader"
-      : championshipState === "outsider"
-        ? "outsider"
-        : championshipState === "pressure"
-          ? "pressure"
-          : championshipState === "chase" && weekendState === "rival_spotlight"
-            ? "chaseRivalSpotlight"
-            : weekendState === "weather_unstable"
-              ? "weatherUnstable"
-              : "fallback";
-  const actionHintKey =
-    championshipState === "leader"
-      ? "leader"
-      : championshipState === "outsider"
-        ? "outsider"
-        : championshipState === "pressure"
-          ? "pressure"
-          : championshipState === "chase"
-            ? "chase"
-            : "fallback";
-  const seedBase = buildSeed(
-    championshipState,
-    weekendState,
-    trackName,
-    rivalName,
-    playerStanding?.id,
-    nextRace?.rodada,
-  );
-
-  return {
-    headline: pickVariant(EDITORIAL_COPY_POOLS.headline[headlineKey], `${seedBase}|headline`, context),
-    paragraphs: [
-      pickVariant(
-        EDITORIAL_COPY_POOLS.championshipParagraph[championshipState],
-        `${seedBase}|championship-paragraph`,
-        context,
-      ),
-      pickVariant(
-        EDITORIAL_COPY_POOLS.weekendParagraph[weekendParagraphKey],
-        `${seedBase}|weekend-paragraph`,
-        context,
-      ),
-    ].filter(Boolean),
-    quote: pickVariant(EDITORIAL_COPY_POOLS.quote[quoteKey], `${seedBase}|quote`, context),
-    rivalSummary: pickVariant(
-      EDITORIAL_COPY_POOLS.rivalSummaryAhead[rivalSummaryKey],
-      `${seedBase}|rival-summary`,
-      context,
-    ),
-    rivalSupport: buildRivalSupport({ championshipState, briefingRival, rivalName, gapToLeader }),
-    scenario: pickVariant(EDITORIAL_COPY_POOLS.scenario[scenarioKey], `${seedBase}|scenario`, context),
-    actionHint: pickVariant(EDITORIAL_COPY_POOLS.actionHint[actionHintKey], `${seedBase}|action`, context),
-    historyValue: buildHistoryValue(trackHistory, playerStanding),
-    historyMeta: buildHistoryMeta(trackHistory, playerStanding),
-    paddockSupport: storyLead ?? buildPaddockSupport({ weekendState, audienceEstimate, trackName }),
-    weekendStoriesEmpty:
-      "O paddock ainda não produziu manchetes fortes para esta etapa, entao a leitura segue focada na pista.",
-    weekendStoriesMeta: buildWeekendStoriesMeta(weekendStories),
-  };
-}
-
-function buildRivalSupport({ championshipState, briefingRival, rivalName, gapToLeader }) {
-  if (briefingRival?.driver_name) {
-    if (briefingRival.is_ahead) {
-      if (championshipState === "outsider") {
-        return `O duelo com ${briefingRival.driver_name} vale mais pela reaceleraçao da campanha do que pela conta do título neste momento.`;
-      }
-
-      return `O duelo com ${briefingRival.driver_name} ajuda a medir se a etapa serve para encurtar os ${gapToLeader} ponto${gapToLeader === 1 ? "" : "s"} para a ponta.`;
-    }
-
-    return `Passar ${briefingRival.driver_name} nesta rodada muda a leitura imediata do campeonato e limpa a pressão no bloco da frente.`;
-  }
-
-  return `A referência direta segue sendo ${rivalName}, especialmente no recorte esportivo desta rodada.`;
-}
-
-
-function buildPaddockSupport({ weekendState, audienceEstimate, trackName }) {
-  if (weekendState === "weekend_hot") {
-    return `O paddock trata ${trackName} como uma das rodadas mais tensas deste trecho da temporada.`;
-  }
-
-  if (weekendState === "history_negative") {
-    return "A leitura do fim de semana passa menos por bravata e mais por disciplina de execução.";
-  }
-
-  if (audienceEstimate > 0) {
-    return `A expectativa do paddock aponta para ${formatAudience(audienceEstimate)} de publico estimado ao longo do fim de semana.`;
-  }
-
-  return "O paddock espera bom movimento de publico nesta etapa.";
-}
-
-function buildHistoryValue(trackHistory, playerStanding) {
-  const starts = trackHistory?.has_data ? (trackHistory.starts ?? 0) : recentHistoryStarts(playerStanding);
-  return `${starts} ${starts === 1 ? "Largada" : "Largadas"}`;
-}
-
-function buildHistoryMeta(trackHistory, playerStanding) {
-  if (trackHistory?.has_data) {
-    if (trackHistory.best_finish == null) {
-      return trackHistory.dnfs > 0
-        ? `${trackHistory.dnfs} abandono${trackHistory.dnfs === 1 ? "" : "s"} nesta pista`
-        : "Histórico discreto nesta pista até aqui.";
-    }
-
-    if ((trackHistory.best_finish ?? 99) <= 3 && (trackHistory.dnfs ?? 0) === 0) {
-      return `Pista de boas lembranças: melhor resultado P${trackHistory.best_finish} na temporada ${trackHistory.last_visit_season ?? "atual"}.`;
-    }
-
-    if ((trackHistory.dnfs ?? 0) >= 1) {
-      return `Ha velocidade para reagir aqui, mas o retrospecto inclui ${trackHistory.dnfs} abandono${trackHistory.dnfs === 1 ? "" : "s"}.`;
-    }
-
-    return `Melhor resultado: P${trackHistory.best_finish} (Temporada ${trackHistory.last_visit_season ?? "atual"})`;
-  }
-
-  const bestFinish = recentBestFinish(playerStanding);
-  if (bestFinish == null) {
-    return "Sem referência historica forte nesta pista.";
-  }
-
-  return `Melhor resultado recente: P${bestFinish}.`;
-}
-
-function buildWeekendStoriesMeta(stories) {
-  if (!stories.length) {
-    return "Sem chamadas fortes";
-  }
-
-  return `${stories.length} manchete${stories.length === 1 ? "" : "s"} filtrada${stories.length === 1 ? "" : "s"}`;
-}
-
-function buildFormSentence(playerStanding) {
-  if (!playerStanding) {
-    return "A equipe quer transformar o ritmo de treino em um resultado limpo.";
-  }
-
-  const readable = recentResults(playerStanding)
-    .map((result) => {
-      if (!result) return "resultado indefinido";
-      if (result.is_dnf) return "DNF";
-      return `${result.position ?? "--"}º lugar`;
-    })
-    .join(", ");
-
-  return readable
-    ? `Nas tres leituras mais recentes você veio de ${readable}.`
-    : "O momento recente ainda não criou uma tendência clara.";
-}
-
-function recentHistoryStarts(playerStanding) {
-  if (!playerStanding?.results) return 0;
-  return playerStanding.results.filter(Boolean).length;
-}
-
-function recentBestFinish(playerStanding) {
-  if (!playerStanding?.results) return null;
-
-  const finishes = playerStanding.results
-    .filter((result) => result && !result.is_dnf && Number.isFinite(result.position))
-    .map((result) => result.position);
-
-  if (finishes.length === 0) {
-    return null;
-  }
-
-  return Math.min(...finishes);
-}
-
-function formatAudience(value) {
-  return value ? value.toLocaleString("pt-BR") : "-";
 }

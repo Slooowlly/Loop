@@ -79,8 +79,10 @@ pub fn stretch_cost(category_id: &str, part: &CarPart) -> f64 {
     STRETCH_COST_FRACTION * replace_cost(category_id, part)
 }
 
-/// Aplica a ação escolhida e roda a corrida (acumula desgaste) para uma peça.
-fn apply_action_then_race(part: &mut CarPart, action: PartAction) {
+/// Aplica a ação escolhida e roda a corrida (acumula desgaste) para uma peça. O
+/// `wear_mult` escala o desgaste desta corrida pelas condições reais (pista × clima × —
+/// só no jogador — estilo de pilotagem). `1.0` = corrida de referência neutra.
+fn apply_action_then_race(part: &mut CarPart, action: PartAction, wear_mult: f64) {
     match action {
         PartAction::Replace => {
             // A punição do sobreuso incide AQUI: repor uma peça esticada cai um nível.
@@ -97,8 +99,8 @@ fn apply_action_then_race(part: &mut CarPart, action: PartAction) {
         PartAction::Keep | PartAction::Stretch => {}
     }
 
-    // A corrida aconteceu: acumula desgaste.
-    part.wear += wear_per_race(part.part_type);
+    // A corrida aconteceu: acumula desgaste, modulado pelas condições reais.
+    part.wear += wear_per_race(part.part_type) * wear_mult;
 
     // Peça esticada esgota o bônus ao fim da sua corrida extra.
     if action == PartAction::Stretch {
@@ -107,14 +109,28 @@ fn apply_action_then_race(part: &mut CarPart, action: PartAction) {
 }
 
 /// Avança uma corrida no carro inteiro, aplicando as decisões do time por peça
-/// (peças ausentes no mapa recebem `Keep`).
+/// (peças ausentes no mapa recebem `Keep`). Desgaste NEUTRO (mult 1.0) — corrida de
+/// referência. A economia histórica passa por aqui, byte-idêntica.
 pub fn advance_race(car: &mut Car, decisions: &HashMap<PartType, PartAction>) {
+    advance_race_scaled(car, decisions, |_| 1.0);
+}
+
+/// Igual a [`advance_race`], mas cada peça acumula `wear_per_race × wear_mult(peça)` —
+/// o desgaste responde às condições REAIS da corrida (pista + clima da grade toda; +
+/// estilo de pilotagem só no carro do jogador). O wear resultante PERSISTE e alimenta o
+/// cérebro de manutenção do time (trocar/esticar/degradar). Com `wear_mult ≡ 1.0` o
+/// resultado é idêntico a [`advance_race`].
+pub fn advance_race_scaled(
+    car: &mut Car,
+    decisions: &HashMap<PartType, PartAction>,
+    wear_mult: impl Fn(PartType) -> f64,
+) {
     for part in car.parts.iter_mut() {
         let action = decisions
             .get(&part.part_type)
             .copied()
             .unwrap_or(PartAction::Keep);
-        apply_action_then_race(part, action);
+        apply_action_then_race(part, action, wear_mult(part.part_type));
     }
 }
 
@@ -126,6 +142,60 @@ mod tests {
         let mut d = HashMap::new();
         d.insert(part_type, action);
         d
+    }
+
+    // -------- Escala de desgaste por condições (pista × clima × estilo) --------
+
+    /// REGRESSÃO: `advance_race_scaled` com mult ≡ 1.0 é byte-idêntico a `advance_race`.
+    /// A economia neutra NÃO pode mudar ao introduzir a modulação por condições.
+    #[test]
+    fn escala_neutra_e_identica_a_advance_race() {
+        let decisions: HashMap<PartType, PartAction> = HashMap::new(); // tudo Keep
+        let mut a = Car::uniform(5);
+        let mut b = Car::uniform(5);
+        advance_race(&mut a, &decisions);
+        advance_race_scaled(&mut b, &decisions, |_| 1.0);
+        for &pt in &PartType::ALL {
+            assert_eq!(
+                a.part(pt).unwrap().wear,
+                b.part(pt).unwrap().wear,
+                "{pt:?}: escala neutra deveria bater com advance_race"
+            );
+        }
+    }
+
+    /// O multiplicador escala o INCREMENTO desta corrida (2× dobra o desgaste somado).
+    #[test]
+    fn multiplicador_escala_o_incremento() {
+        let decisions: HashMap<PartType, PartAction> = HashMap::new();
+        let mut car = Car::uniform(5); // wear 0
+        advance_race_scaled(&mut car, &decisions, |_| 2.0);
+        for &pt in &PartType::ALL {
+            let esperado = wear_per_race(pt) * 2.0;
+            assert!(
+                (car.part(pt).unwrap().wear - esperado).abs() < 1e-12,
+                "{pt:?}: mult 2× deveria somar {esperado}, deu {}",
+                car.part(pt).unwrap().wear
+            );
+        }
+    }
+
+    /// O mult é POR PEÇA: castigar só o motor não toca as outras peças.
+    #[test]
+    fn multiplicador_e_por_peca() {
+        let decisions: HashMap<PartType, PartAction> = HashMap::new();
+        let mut car = Car::uniform(5);
+        advance_race_scaled(&mut car, &decisions, |pt| {
+            if pt == PartType::Engine {
+                3.0
+            } else {
+                1.0
+            }
+        });
+        let motor = car.part(PartType::Engine).unwrap().wear;
+        let freios = car.part(PartType::Brakes).unwrap().wear;
+        assert!((motor - wear_per_race(PartType::Engine) * 3.0).abs() < 1e-12);
+        assert!((freios - wear_per_race(PartType::Brakes)).abs() < 1e-12);
     }
 
     // -------- Fundação da escala unificada (Fase 1 do Sistema de Quebra) --------

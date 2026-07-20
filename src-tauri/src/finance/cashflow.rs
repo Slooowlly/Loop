@@ -1,4 +1,5 @@
 use crate::finance::events::technical_breakthrough_chance;
+use crate::finance::focus::TeamFocus;
 use crate::finance::planning::category_finance_scale;
 use crate::models::team::Team;
 
@@ -24,6 +25,10 @@ pub struct RoundCashflowSummary {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TeamRoundFinanceContext {
     pub sponsorship_income: f64,
+    /// Bilheteria/portão da rodada (Fase 3 do Estrelato): público que a fama do
+    /// lineup atrai, escalado pelo prestígio do evento. Canal distinto do patrocínio
+    /// (portão volátil e por-evento vs. patrocínio suave e de-temporada).
+    pub gate_income: f64,
     pub result_bonus: f64,
     pub partial_prize_income: f64,
     pub aid_income: f64,
@@ -42,13 +47,83 @@ pub struct OffseasonCompetitivenessImpact {
     pub facilities_delta: f64,
 }
 
+/// Fração do custo operacional médio da rodada que vira o BOLO de bilheteria de um
+/// evento de prestígio médio. Botão único da magnitude da 2ª receita de fama —
+/// calibrado por Monte Carlo. Alvo: bilheteria média por rodada MENOR que o
+/// patrocínio (fama já ganha por 2 canais; não pode dominar a economia).
+/// Sobrescrevível por `IRACER_GATE_SHARE` (lido uma vez) para varreduras de MC.
+const DEFAULT_GATE_POT_COEFF: f64 = 0.12;
+
+/// Peso do PISO de público (a parte da multidão que vem pela corrida, dividida em
+/// partes iguais entre os times) vs. o PRÊMIO de estrela (dividido por cota de fama).
+/// 0.5 = metade piso, metade estrela. Garante que um time sem astro não zere a
+/// bilheteria, e que o estrelato seja um prêmio SOBRE um piso, não tudo-ou-nada.
+const GATE_FLOOR_WEIGHT: f64 = 0.5;
+
+pub(crate) fn gate_pot_coeff() -> f64 {
+    static COEFF: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|| {
+        std::env::var("IRACER_GATE_SHARE")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0 && *v < 1.0)
+            .unwrap_or(DEFAULT_GATE_POT_COEFF)
+    });
+    *COEFF
+}
+
+/// Bilheteria da rodada para UM time (Fase 3 do Estrelato). Motor puro e testável.
+///
+/// - `event_prestige_score`: score do `event_interest` do evento (pré-vendido / esperado).
+///   Um evento maior (endurance, final, decisão de título) lota mais → bolo maior.
+/// - `round_operating_base`: custo operacional médio da rodada (escala da categoria).
+/// - `team_presence`: presença pública do lineup DESTE time (fama dos pilotos).
+/// - `grid_total_presence`: soma da presença de TODOS os lineups do grid da categoria.
+/// - `n_teams`: nº de times no grid (para o piso dividido em partes iguais).
+/// - `income_modifier`: modulador macroeconômico (mesmo das outras receitas).
+///
+/// `fame_share` = cota competitiva do time no público (presença dele / grid). Se o grid
+/// inteiro é anônimo (`grid_total_presence == 0`), cai para cota igual (1/N) — o piso
+/// sozinho. Um astro num time pobre puxa portão mesmo sem vencer; o ídolo vale mais se
+/// os rivais forem anônimos.
+/// Cota de um time no PÚBLICO/bilheteria do evento: piso (dividido igual entre os N
+/// times, a multidão que vem pela corrida) + prêmio de estrela (por fama do lineup).
+/// Fração ∈ [0,1] do bolo do portão que o time captura. Reusada pela bilheteria e pela
+/// prévia da Sala de Estratégia ("sua estrela puxa Y% do público"). Se o grid é anônimo
+/// (`grid_total_presence == 0`), cai para cota igual (só o piso).
+pub fn team_gate_share(team_presence: f64, grid_total_presence: f64, n_teams: f64) -> f64 {
+    let n = n_teams.max(1.0);
+    let fame_share = if grid_total_presence > 0.0 {
+        (team_presence / grid_total_presence).clamp(0.0, 1.0)
+    } else {
+        1.0 / n
+    };
+    (GATE_FLOOR_WEIGHT / n + (1.0 - GATE_FLOOR_WEIGHT) * fame_share).clamp(0.0, 1.0)
+}
+
+pub fn calculate_gate_income(
+    event_prestige_score: f64,
+    round_operating_base: f64,
+    team_presence: f64,
+    grid_total_presence: f64,
+    n_teams: f64,
+    income_modifier: f64,
+) -> f64 {
+    // 60 ≈ evento GT3 médio → fator 1.0; clamp evita bolo negativo/absurdo.
+    let prestige_factor = (event_prestige_score / 60.0).clamp(0.3, 2.2);
+    let gate_pot = round_operating_base * gate_pot_coeff() * prestige_factor * income_modifier;
+
+    (gate_pot * team_gate_share(team_presence, grid_total_presence, n_teams)).max(0.0)
+}
+
 pub fn calculate_round_income(
     sponsorship_income: f64,
+    gate_income: f64,
     result_bonus: f64,
     partial_prize_income: f64,
     aid_income: f64,
 ) -> f64 {
     sponsorship_income.max(0.0)
+        + gate_income.max(0.0)
         + result_bonus.max(0.0)
         + partial_prize_income.max(0.0)
         + aid_income.max(0.0)
@@ -82,6 +157,7 @@ pub fn apply_round_cashflow(
 ) -> RoundCashflowSummary {
     let income = calculate_round_income(
         context.sponsorship_income,
+        context.gate_income,
         context.result_bonus,
         context.partial_prize_income,
         context.aid_income,
@@ -160,11 +236,29 @@ fn car_dev_gain_factor(team: &Team, career_year: i32) -> f64 {
     }
 }
 
+/// Multiplicador do GANHO de car_performance no offseason segundo o FOCO da equipe
+/// (ideia 4). É a consequência real do foco no carro: um time de projeto de longo
+/// prazo canaliza mais verba para o desenvolvimento; um time em sobrevivência corta
+/// custo; um celeiro de talentos investe nos pilotos/base, não no carro. Neutro
+/// (1.0) para meio de grid / reconstrução. Só modula o ganho (drive > 0), igual ao
+/// `car_dev_gain_factor` — quedas por falta de verba aplicam cheias.
+fn focus_car_dev_factor(focus: TeamFocus) -> f64 {
+    match focus {
+        TeamFocus::Dinastia => 1.20,
+        TeamFocus::ProjetoDeTitulo => 1.12,
+        TeamFocus::MeioDeGrid | TeamFocus::Reconstrucao => 1.0,
+        TeamFocus::Celeiro => 0.90,
+        TeamFocus::Sobrevivencia => 0.82,
+    }
+}
+
 /// `career_year` é o ano da carreira do jogador (0 = primeiro ano). Modula a
 /// penalidade fictícia GT3, que some por completo ao atingir `PENALTY_FADE_YEARS`.
+/// `focus` é o foco vigente da equipe (ideia 4): modula o GANHO no carro.
 pub fn calculate_offseason_competitiveness_impact(
     team: &Team,
     career_year: i32,
+    focus: TeamFocus,
 ) -> OffseasonCompetitivenessImpact {
     let efficiency = management_efficiency_modifier(team);
     // Teto de caixa elevado (1.2 -> 2.5): equipes realmente ricas investem mais
@@ -194,7 +288,7 @@ pub fn calculate_offseason_competitiveness_impact(
     // direto, para que elites defundadas ainda percam terreno. O fator real-vs-
     // fictícia só penaliza o GANHO (não as quedas), para as fábricas se distanciarem.
     let car_performance_delta = if car_drive > 0.0 {
-        car_drive * car_dev_gain_factor(team, career_year)
+        car_drive * car_dev_gain_factor(team, career_year) * focus_car_dev_factor(focus)
             / (1.0 + team.car_performance.max(0.0) / CAR_INVEST_DIMINISH_K)
     } else {
         car_drive
@@ -215,11 +309,13 @@ pub fn calculate_offseason_competitiveness_impact(
 
 /// `career_year` é o ano da carreira do jogador (0 = primeiro ano); é repassado a
 /// `calculate_offseason_competitiveness_impact` para modular a penalidade fictícia GT3.
+/// `focus` é o foco vigente da equipe (ideia 4): modula o GANHO no carro.
 pub fn apply_offseason_competitiveness_impact(
     team: &mut Team,
     career_year: i32,
+    focus: TeamFocus,
 ) -> OffseasonCompetitivenessImpact {
-    let impact = calculate_offseason_competitiveness_impact(team, career_year);
+    let impact = calculate_offseason_competitiveness_impact(team, career_year, focus);
 
     team.confiabilidade = (team.confiabilidade + impact.reliability_delta).clamp(0.0, 100.0);
     // Sem teto superior (Pilar B): só piso em −5; os retornos decrescentes regulam o topo.
@@ -359,8 +455,8 @@ mod tests {
         real.marca = Some("Ferrari".to_string());
 
         let fictional_gain =
-            calculate_offseason_competitiveness_impact(&fictional, 0).car_performance_delta;
-        let real_gain = calculate_offseason_competitiveness_impact(&real, 0).car_performance_delta;
+            calculate_offseason_competitiveness_impact(&fictional, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let real_gain = calculate_offseason_competitiveness_impact(&real, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
 
         assert!(
             fictional_gain > 0.0,
@@ -406,8 +502,8 @@ mod tests {
 
         // Year 0: full penalty — fictional develops less than the real marque.
         let fictional_y0 =
-            calculate_offseason_competitiveness_impact(&fictional, 0).car_performance_delta;
-        let real_y0 = calculate_offseason_competitiveness_impact(&real, 0).car_performance_delta;
+            calculate_offseason_competitiveness_impact(&fictional, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let real_y0 = calculate_offseason_competitiveness_impact(&real, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
         assert!(
             fictional_y0 < real_y0,
             "year 0: fictional ({fictional_y0}) must develop less than real ({real_y0})"
@@ -415,16 +511,16 @@ mod tests {
 
         // Year 5 and 10: penalty fully faded — gains are identical.
         let fictional_y5 =
-            calculate_offseason_competitiveness_impact(&fictional, 5).car_performance_delta;
-        let real_y5 = calculate_offseason_competitiveness_impact(&real, 5).car_performance_delta;
+            calculate_offseason_competitiveness_impact(&fictional, 5, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let real_y5 = calculate_offseason_competitiveness_impact(&real, 5, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
         assert!(
             (fictional_y5 - real_y5).abs() < 1e-9,
             "year 5: penalty gone, fictional ({fictional_y5}) == real ({real_y5})"
         );
 
         let fictional_y10 =
-            calculate_offseason_competitiveness_impact(&fictional, 10).car_performance_delta;
-        let real_y10 = calculate_offseason_competitiveness_impact(&real, 10).car_performance_delta;
+            calculate_offseason_competitiveness_impact(&fictional, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let real_y10 = calculate_offseason_competitiveness_impact(&real, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
         assert!(
             (fictional_y10 - real_y10).abs() < 1e-9,
             "year 10: penalty gone, fictional ({fictional_y10}) == real ({real_y10})"
@@ -433,8 +529,46 @@ mod tests {
 
     #[test]
     fn round_income_stays_positive_for_basic_team_revenue() {
-        let round_income = calculate_round_income(125_000.0, 25_000.0, 8_000.0, 0.0);
+        let round_income = calculate_round_income(125_000.0, 12_000.0, 25_000.0, 8_000.0, 0.0);
         assert!(round_income > 0.0);
+    }
+
+    #[test]
+    fn gate_income_sobe_com_a_fama_do_lineup() {
+        // Mesmo evento, mesmo grid: o time com lineup mais famoso leva a maior fatia.
+        let famoso = calculate_gate_income(60.0, 500_000.0, 160.0, 300.0, 8.0, 1.0);
+        let anonimo = calculate_gate_income(60.0, 500_000.0, 40.0, 300.0, 8.0, 1.0);
+        assert!(
+            famoso > anonimo,
+            "lineup famoso ({famoso}) deveria puxar mais bilheteria que o anônimo ({anonimo})"
+        );
+    }
+
+    #[test]
+    fn gate_income_sobe_com_o_prestigio_do_evento() {
+        // Mesmo time/grid: evento de prestígio (endurance/final) lota mais que rodada fraca.
+        let grande = calculate_gate_income(95.0, 500_000.0, 100.0, 300.0, 8.0, 1.0);
+        let pequeno = calculate_gate_income(25.0, 500_000.0, 100.0, 300.0, 8.0, 1.0);
+        assert!(grande > pequeno, "evento grande ({grande}) > pequeno ({pequeno})");
+    }
+
+    #[test]
+    fn team_gate_share_soma_piso_mais_premio_de_estrela() {
+        // Estrela (presença 200/400) leva mais que anônimo (50/400); ambos ∈ (0,1).
+        let estrela = team_gate_share(200.0, 400.0, 8.0);
+        let anonimo = team_gate_share(50.0, 400.0, 8.0);
+        assert!(estrela > anonimo);
+        assert!(estrela < 1.0 && anonimo > 0.0);
+        // Grid anônimo → só o piso (cota igual 1/N).
+        let piso = team_gate_share(0.0, 0.0, 8.0);
+        assert!((piso - 1.0 / 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gate_income_tem_piso_mesmo_sem_estrela() {
+        // Grid inteiro anônimo (presença total 0): ainda há bilheteria (piso, cota igual).
+        let sem_fama = calculate_gate_income(60.0, 500_000.0, 0.0, 0.0, 8.0, 1.0);
+        assert!(sem_fama > 0.0, "piso de público deveria garantir bilheteria > 0");
     }
 
     #[test]
@@ -465,6 +599,7 @@ mod tests {
             &mut team,
             TeamRoundFinanceContext {
                 sponsorship_income: 120_000.0,
+                gate_income: 0.0,
                 result_bonus: 25_000.0,
                 partial_prize_income: 10_000.0,
                 aid_income: 0.0,
@@ -498,6 +633,7 @@ mod tests {
             &mut team,
             TeamRoundFinanceContext {
                 sponsorship_income: 100_000.0,
+                gate_income: 0.0,
                 result_bonus: 0.0,
                 partial_prize_income: 0.0,
                 aid_income: 0.0,
@@ -535,6 +671,7 @@ mod tests {
             &mut team,
             TeamRoundFinanceContext {
                 sponsorship_income: 50_000.0,
+                gate_income: 0.0,
                 result_bonus: 0.0,
                 partial_prize_income: 0.0,
                 aid_income: 0.0,
@@ -557,8 +694,8 @@ mod tests {
         let rich = sample_team("T001", 1_500_000.0, 0.0, "healthy", "balanced");
         let poor = sample_team("T002", -100_000.0, 650_000.0, "crisis", "survival");
 
-        let rich_impact = calculate_offseason_competitiveness_impact(&rich, 10);
-        let poor_impact = calculate_offseason_competitiveness_impact(&poor, 10);
+        let rich_impact = calculate_offseason_competitiveness_impact(&rich, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+        let poor_impact = calculate_offseason_competitiveness_impact(&poor, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
 
         assert!(rich_impact.reliability_delta > poor_impact.reliability_delta);
         assert!(poor_impact.reliability_delta < 0.0);
@@ -569,8 +706,8 @@ mod tests {
         let balanced = sample_team("T001", 600_000.0, 0.0, "stable", "balanced");
         let all_in = sample_team("T002", 600_000.0, 0.0, "pressured", "all_in");
 
-        let balanced_impact = calculate_offseason_competitiveness_impact(&balanced, 10);
-        let all_in_impact = calculate_offseason_competitiveness_impact(&all_in, 10);
+        let balanced_impact = calculate_offseason_competitiveness_impact(&balanced, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+        let all_in_impact = calculate_offseason_competitiveness_impact(&all_in, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
 
         assert!(all_in_impact.car_performance_delta > balanced_impact.car_performance_delta);
         assert!(all_in_impact.reliability_delta < balanced_impact.reliability_delta);
@@ -584,7 +721,7 @@ mod tests {
         team.engineering = 2.0;
         team.facilities = 2.0;
 
-        apply_offseason_competitiveness_impact(&mut team, 10);
+        apply_offseason_competitiveness_impact(&mut team, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
 
         assert!((0.0..=100.0).contains(&team.confiabilidade));
         // Pilar B: piso em −5, sem teto superior.
@@ -601,8 +738,8 @@ mod tests {
         let mut high = sample_team("T002", 5_000_000.0, 0.0, "elite", "balanced");
         high.car_performance = 24.0;
 
-        let low_gain = calculate_offseason_competitiveness_impact(&low, 10).car_performance_delta;
-        let high_gain = calculate_offseason_competitiveness_impact(&high, 10).car_performance_delta;
+        let low_gain = calculate_offseason_competitiveness_impact(&low, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let high_gain = calculate_offseason_competitiveness_impact(&high, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
 
         assert!(low_gain > 0.0 && high_gain > 0.0);
         assert!(
@@ -618,7 +755,7 @@ mod tests {
         let mut team = sample_team("T001", 30_000_000.0, 0.0, "elite", "expansion");
         team.car_performance = 15.0;
         for _ in 0..8 {
-            apply_offseason_competitiveness_impact(&mut team, 10);
+            apply_offseason_competitiveness_impact(&mut team, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
         }
         assert!(
             team.car_performance > 16.0,

@@ -25,6 +25,7 @@ const TECH_AXES = [
 // front. Fonte única do dossiê financeiro — nada aqui é fabricado.
 const INCOME_LINES = [
   { key: "sponsorship_income", label: "Patrocínios" },
+  { key: "gate_income", label: "Bilheteria" },
   { key: "result_bonus", label: "Bônus de resultado" },
   { key: "partial_prize_income", label: "Prêmio parcial" },
   { key: "aid_income", label: "Auxílios" },

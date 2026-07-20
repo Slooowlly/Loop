@@ -729,6 +729,8 @@ fn build_session_race_result(
         std::collections::HashMap<i64, String>,
         // Direção do impacto no pico do jogador (front/rear/side/vertical; vazia se sem batida).
         String,
+        // Estilo de pilotagem do jogador (fatores de desgaste por peça; neutro se sem estilo).
+        crate::car::driving_style::StyleFactors,
     ),
     String,
 > {
@@ -803,10 +805,19 @@ fn build_session_race_result(
                 .to_string(),
         );
     }
-    if event.track_id != next_race.track_id as i64 {
+    // Pista de fato EXPORTADA para este evento — pode ser uma FREE substituta quando a
+    // pista real do calendário é conteúdo pago (ver `free_or_substitute` no export).
+    // Comparamos o resultado do iRacing contra o que foi exportado, não contra a pista
+    // original da carreira (senão a substituição de teste tropeçaria aqui).
+    let exported_track_id = events
+        .and_then(|evs| evs.get(event_index))
+        .and_then(|e| e.get("track_id"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(next_race.track_id as i64);
+    if event.track_id != exported_track_id {
         return Err(format!(
-            "A pista do resultado (id {}) não bate com a próxima corrida ({}, id {}).",
-            event.track_id, next_race.track_name, next_race.track_id
+            "A pista do resultado (id {}) não bate com a corrida exportada ({}, id {}).",
+            event.track_id, next_race.track_name, exported_track_id
         ));
     }
 
@@ -838,6 +849,10 @@ fn build_session_race_result(
     // Direção do impacto no pico (front/rear/side/vertical) — base do dano por peça no import.
     let player_impact_dir: String = player_attempt
         .and_then(|a| a.peak_impact_dir.clone())
+        .unwrap_or_default();
+    // Estilo de pilotagem do jogador (fatores de desgaste por peça) — do acumulador ao vivo.
+    let player_style: crate::car::driving_style::StyleFactors = player_attempt
+        .map(|a| a.style.factors())
         .unwrap_or_default();
     // Carros que o monitor confirmou ter abandonado → número do carro.
     let num_by_idx: std::collections::HashMap<i32, i32> = history
@@ -944,7 +959,46 @@ fn build_session_race_result(
         history,
         by_number,
         player_impact_dir,
+        player_style,
     ))
+}
+
+/// Peça 3: converte o log de quebras drenado do monitor em linhas prontas pra persistir,
+/// resolvendo car_number → driver_id. O número do JOGADOR não está no `by_number` (só IAs) →
+/// resolve pelo idx dele (`num_by_idx` do histórico) + o driver do save. Chamado SÓ no import
+/// (one-shot); o `drain` esvazia o log, então nunca no preview (que repete).
+fn resolve_breakdown_rows(
+    conn: &rusqlite::Connection,
+    history: &crate::iracing_sdk::race_monitor::RaceHistory,
+    by_number: &std::collections::HashMap<i64, String>,
+) -> Vec<crate::db::queries::race_breakdowns::RaceBreakdownRow> {
+    use crate::db::queries::drivers as dq;
+    let player_id: Option<String> = dq::get_player_driver(conn).ok().map(|p| p.id);
+    let num_by_idx: std::collections::HashMap<i32, i32> =
+        history.cars_meta.iter().map(|m| (m.idx, m.car_number)).collect();
+    let player_number: Option<i32> = num_by_idx
+        .get(&history.player_car_idx)
+        .copied()
+        .filter(|n| *n > 0);
+    crate::iracing_sdk::race_monitor::drain_breakdown_log()
+        .into_iter()
+        .filter_map(|o| {
+            let driver_id = match (player_number, player_id.as_ref()) {
+                (Some(pnum), Some(pid)) if o.car_number as i32 == pnum => Some(pid.clone()),
+                _ => by_number.get(&(o.car_number as i64)).cloned(),
+            }?;
+            Some(crate::db::queries::race_breakdowns::RaceBreakdownRow {
+                driver_id,
+                part: o.part,
+                problem: o.problem,
+                lap: o.lap,
+                severity: o.severity,
+                penalty_secs: o.penalty_secs,
+                forced: o.forced,
+                label: o.label,
+            })
+        })
+        .collect()
 }
 
 /// PREVIEW (read-only) da ponte sessão→`RaceResult`: reconstrói o resultado da
@@ -956,7 +1010,7 @@ pub fn iracing_preview_race_result(
     app: tauri::AppHandle,
     career_id: String,
 ) -> Result<crate::simulation::race::RaceResult, String> {
-    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir) =
+    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir, _style) =
         build_session_race_result(&app, &career_id)?;
     Ok(result)
 }
@@ -1170,10 +1224,13 @@ pub fn iracing_auto_import_if_ready(
         history,
         by_number,
         player_impact_dir,
+        player_style,
     ) = match build_session_race_result(&app, &career_id) {
         Ok(v) => v,
         Err(_) => return Ok(None),
     };
+    // Peça 3: drena os desfechos de quebra (one-shot, só aqui) e resolve para driver_id.
+    let breakdowns = resolve_breakdown_rows(&db.conn, &history, &by_number);
     let (summary, race_result) = crate::commands::race::import_iracing_race_result(
         &mut db,
         &career_dir,
@@ -1183,6 +1240,9 @@ pub fn iracing_auto_import_if_ready(
         result,
         &telemetry,
         &history,
+        // Estilo neutro (sem sinal capturado) → None, pra não pagar a query de time à toa.
+        (!player_style.is_neutral()).then_some(player_style),
+        breakdowns,
     )?;
 
     // Ponte de rivalidade de pista: aplica no motor as rivalidades percebidas do SDK
@@ -1733,7 +1793,8 @@ pub fn iracing_generate_roster(
             is_wet: story.is_wet_race,
             rain_intensity,
             rain_level: story.race_intensity,
-            temp_c: race.temperatura,
+            // Temp alinhada à MESMA história de chuva (não o placeholder do calendário).
+            temp_c: weather::story_temperature(&story, event_seed(&career_id, &race.id)) as f64,
             seed_base: event_seed(&career_id, &race.id),
             recent_positions,
             global_percentile,
@@ -1765,6 +1826,88 @@ pub fn iracing_generate_roster(
     let json =
         serde_json::to_string_pretty(&roster).map_err(|e| format!("Falha ao serializar: {e}"))?;
     std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))?;
+
+    // ── Sistema de Quebra: monta o diretor de disparo AO VIVO com o DESGASTE REAL de cada time
+    // e o instala no monitor (auto no export). Durante a corrida ele dispara `!black`/`!dq`
+    // conforme as peças largam. O número do JOGADOR só é conhecido ao vivo → guardamos o estado
+    // dele e o monitor o vincula no verde. Best-effort: falha aqui não bloqueia o export.
+    if let Some((_season, race)) = next.as_ref() {
+        use crate::car::breakdown::{BreakdownDirector, LiveBreakdown};
+        use crate::db::queries::team_car as tcq;
+        use crate::market::car_maintenance::maintenance_demand;
+
+        let ev_seed = event_seed(&career_id, &race.id);
+        // Clima da corrida — MESMA história determinística do resto do export (o "cache" do clima).
+        let weather = if let Some(track) = get_track(race.track_id) {
+            let mut story = weather::generate_weather(
+                month_from_week(race.week_of_year),
+                track_hemisphere(track.pais),
+                climate_tendency(track.rain_group),
+                ev_seed,
+                false,
+            );
+            if force_wet.unwrap_or(false) {
+                story.is_wet_race = true;
+                story.race_intensity = weather::RainIntensity::Heavy;
+                story.scenario = weather::WeatherScenario::SteadyRain;
+            }
+            crate::car::breakdown::Weather {
+                wetness: story_to_weather_condition(&story).wetness(),
+                temperature: weather::story_temperature(&story, ev_seed) as f64,
+                humidity: weather::story_to_profile(&story, 60).humidity as f64,
+                wind_kmh: weather::generate_wind(&story, ev_seed).speed_kmh as f64,
+            }
+        } else {
+            crate::car::breakdown::Weather::NEUTRAL
+        };
+        let track_pha = maintenance_demand(&[race.track_id]);
+
+        // Semente por carro: mistura o piloto na semente do evento → o aviso pré-corrida (pré-roll)
+        // e o disparo ao vivo rolam a MESMA sorte.
+        let seed_for = |driver_id: &str| -> u64 {
+            let mut s = ev_seed;
+            for b in driver_id.bytes() {
+                s = s.wrapping_mul(0x0000_0100_0000_01B3).wrapping_add(b as u64);
+            }
+            s
+        };
+
+        // Enduro (corrida longa): o disparo ao vivo abranda o DNF (grid não esvazia) e agrava o
+        // desgaste da metade pro fim da corrida. Gate único por duração da categoria.
+        let is_enduro = get_category_config(&categoria)
+            .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
+            .unwrap_or(false);
+
+        let mut dir = BreakdownDirector::new();
+        for (driver, team_info) in &entries {
+            let Some(ti) = team_info else { continue };
+            let Some(num) = numbers.get(&driver.id).copied() else { continue };
+            if num <= 0 {
+                continue;
+            }
+            let Ok(Some(car)) = tcq::get_team_car(&db.conn, &ti.team_id) else {
+                continue;
+            };
+            let live = LiveBreakdown::new(&car, seed_for(&driver.id), ti.pit_crew, track_pha)
+                .with_enduro(is_enduro);
+            dir.add_car(num as u32, live, Vec::new());
+        }
+
+        // Jogador no disparo: estado montado do carro do time dele (desgaste já ajustado pelo
+        // estilo na manutenção). Vinculado ao número ao vivo no verde.
+        let player_live = player_team_id.as_ref().and_then(|tid| {
+            let player = dq::get_player_driver(&db.conn).ok()?;
+            let car = tcq::get_team_car(&db.conn, tid).ok().flatten()?;
+            let pit = tq::get_team_by_id(&db.conn, tid)
+                .ok()
+                .flatten()
+                .map(|t| t.pit_crew_quality)
+                .unwrap_or(50.0);
+            Some(LiveBreakdown::new(&car, seed_for(&player.id), pit, track_pha).with_enduro(is_enduro))
+        });
+
+        race_monitor::install_breakdown_director(dir, player_live, weather);
+    }
 
     Ok(RosterGenResult {
         path: path.display().to_string(),
@@ -1981,7 +2124,7 @@ pub fn iracing_generate_season(
 ) -> Result<SeasonGenResult, String> {
     use crate::config::app_config::AppConfig;
     use crate::constants::categories::get_category_config;
-    use crate::constants::tracks::get_track;
+    use crate::constants::tracks::{free_or_substitute, get_track};
     use crate::db::connection::Database;
     use crate::db::queries::calendar as calq;
     use crate::db::queries::{drivers as dq, race_history as rhq, seasons as sq};
@@ -2064,18 +2207,29 @@ pub fn iracing_generate_season(
     // história de cada pista para a penalidade da chuva na banda.
     let mut stories: std::collections::HashMap<i64, crate::iracing_sdk::weather::WeatherStory> =
         std::collections::HashMap::new();
-    let mut skipped_paid = 0;
+    let mut substituted = 0;
     for entry in &entries {
-        match get_track(entry.track_id) {
-            Some(track) if track.gratuita => {
+        // Fallback de TESTE: se a pista do calendário é conteúdo PAGO (que o jogador
+        // pode não possuir), roda numa pista GRÁTIS no lugar — o iRacing só carrega
+        // pistas que o jogador tem. Pista já grátis passa intacta. A banda de skill /
+        // sweet spot continua ancorada no `entry.track_id` ORIGINAL (alinhada com o
+        // roster); só o que o iRacing carrega (EventInput/import) vira a free.
+        let Some(track) = free_or_substitute(entry.track_id) else {
+            continue;
+        };
+        {
+            if track.track_id != entry.track_id {
+                substituted += 1;
+            }
                 let is_first = (career_first_race && entry.week_of_year == first_week)
                     || (test_blank && first_race_id.as_deref() == Some(entry.id.as_str()));
                 let wet_here = force_wet && next_pending_id.as_deref() == Some(entry.id.as_str());
+                // Etapa noturna designada pelo calendário (≥1 corrida de noite/temporada).
+                let night_here = crate::calendar::is_night_horario(&entry.horario);
                 let seed = event_seed(&career_id, &entry.id);
                 let (ew, story) = build_event_weather(
                     track,
                     entry.week_of_year,
-                    entry.temperatura,
                     season.ano,
                     cat.tier,
                     custid,
@@ -2083,13 +2237,15 @@ pub fn iracing_generate_season(
                     is_first,
                     race_end,
                     wet_here,
+                    night_here,
                 );
-                // FONTE ÚNICA: persiste o entry.clima a partir desta MESMA história, pra
-                // a UI e a simulação offline baterem com o que o iRacing vai rodar.
+                // FONTE ÚNICA: persiste clima E temperatura desta MESMA história, pra a
+                // UI e a simulação offline baterem com o que o iRacing vai rodar (e a
+                // temp nunca destoar da chuva real).
                 let wc = story_to_weather_condition(&story);
                 let _ = db.conn.execute(
-                    "UPDATE calendar SET clima = ?1 WHERE id = ?2",
-                    rusqlite::params![wc.as_str(), entry.id],
+                    "UPDATE calendar SET clima = ?1, temperatura = ?2 WHERE id = ?3",
+                    rusqlite::params![wc.as_str(), ew.temp_c as f64, entry.id],
                 );
                 stories.insert(entry.track_id as i64, story);
                 // Etapa já disputada no app → escreve os resultados (iRacing "pula").
@@ -2133,22 +2289,24 @@ pub fn iracing_generate_season(
                     None
                 };
                 events.push(season_gen::EventInput {
-                    track_id: entry.track_id as i64,
-                    // Nenhuma pista free é oval de verdade — Roval (Charlotte) é
-                    // ROAD no iRacing (paceCar road, sem largada lançada).
+                    // Pista EFETIVA que o iRacing carrega (a free substituta, quando a
+                    // original é paga). Nenhuma pista free é oval de verdade — Roval
+                    // (Charlotte) é ROAD no iRacing (paceCar road, sem largada lançada).
+                    track_id: track.track_id as i64,
                     is_oval: false,
                     event_id: uuid::Uuid::new_v4().to_string(),
                     weather: ew,
                     results,
                 });
-                event_race_map.push((entry.id.clone(), entry.track_id as i64));
-            }
-            _ => skipped_paid += 1, // paga ou desconhecida → fora (ex.: Laguna)
+                // Guarda a pista EFETIVA no post-it: o import compara o resultado do
+                // iRacing contra o que foi de fato exportado (não contra a original paga).
+                event_race_map.push((entry.id.clone(), track.track_id as i64));
         }
     }
+    let _ = substituted; // (contagem de substituições — reservado p/ UI/log futuro)
     if events.is_empty() {
         return Err(format!(
-            "Nenhuma pista grátis no calendário da categoria '{categoria}' ({skipped_paid} pagas/ignoradas)."
+            "Calendário da categoria '{categoria}' está vazio — nada para exportar."
         ));
     }
 
@@ -2240,6 +2398,8 @@ pub fn iracing_generate_season(
         humidity: 45,
         temp_c: 26,
         track_water: 0,
+        wind_kmh: 10,
+        wind_dir_deg: 0,
         keyframes: vec![
             season_gen::WeatherKeyframe {
                 event_type: 1,
@@ -2255,7 +2415,7 @@ pub fn iracing_generate_season(
             },
         ],
         weather_id: format!("{custid}_global"),
-        start_time: format!("{}-06-01T16:00:00", season.ano),
+        start_time: format!("{}-06-01T16:00:00", sim_safe_year(season.ano)),
     };
 
     let name = format!("{} - {}", cat.nome_curto, season.ano);
@@ -2456,11 +2616,14 @@ pub fn iracing_export_rain_test() -> Result<RainTestResult, String> {
             tendency: 0.0,
         };
         let profile = weather::story_to_profile(&story, race_end);
+        let wind = weather::generate_wind(&story, 0x5EED ^ story.race_intensity as u64);
         let ew = season_gen::EventWeather {
             skies: profile.skies,
             humidity: profile.humidity,
             temp_c: 18,
             track_water: profile.track_water,
+            wind_kmh: wind.speed_kmh,
+            wind_dir_deg: wind.dir_deg,
             keyframes: profile
                 .keyframes
                 .into_iter()
@@ -2477,6 +2640,8 @@ pub fn iracing_export_rain_test() -> Result<RainTestResult, String> {
             humidity: 45,
             temp_c: 18,
             track_water: 0,
+            wind_kmh: 10,
+            wind_dir_deg: 0,
             keyframes: vec![season_gen::WeatherKeyframe {
                 event_type: 1,
                 time_offset: 0,
@@ -2553,6 +2718,169 @@ fn rains_label(fator: f64) -> &'static str {
         78 => "Bom",
         _ => "Mestre",
     }
+}
+
+/// Risco de UMA peça na previsão pré-corrida (probabilidade + nível pra UI).
+#[derive(serde::Serialize)]
+pub struct ForecastPartView {
+    pub part: String,
+    pub part_name: String,
+    pub any_prob: f64,
+    pub dnf_prob: f64,
+    /// "baixo" | "médio" | "alto".
+    pub level: String,
+}
+
+/// Previsão de risco de quebra do carro do jogador pra próxima corrida (aviso pré-corrida).
+#[derive(serde::Serialize)]
+pub struct BreakdownForecastView {
+    /// `false` se não deu pra prever (sem time/corrida/carro) — a UI esconde o card.
+    pub available: bool,
+    /// Risco geral de ABANDONO por quebra nesta corrida.
+    pub dnf_prob: f64,
+    pub overall_level: String,
+    /// Peças em risco, a mais arriscada primeiro (só as relevantes, no máx. 5).
+    pub parts: Vec<ForecastPartView>,
+}
+
+/// AVISO PRÉ-CORRIDA: prevê o risco de quebra do carro do JOGADOR na PRÓXIMA corrida via Monte
+/// Carlo sobre o desgaste REAL do `team_car` + a pista + o clima da etapa — os MESMOS inputs do
+/// disparo ao vivo. É RISCO (probabilidade), não o desfecho: não revela qual peça/volta vai
+/// quebrar. Alimenta o card da Sala de Estratégia e um fato do briefing do engenheiro.
+#[tauri::command]
+pub fn get_breakdown_forecast(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<BreakdownForecastView, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::constants::tracks::get_track;
+    use crate::db::connection::Database;
+    use crate::db::queries::{
+        calendar as calq, contracts as cq, drivers as dq, seasons as sq, team_car as tcq,
+        teams as tq,
+    };
+    use crate::iracing_sdk::weather;
+    use crate::market::car_maintenance::maintenance_demand;
+    use tauri::Manager;
+
+    let none = BreakdownForecastView {
+        available: false,
+        dnf_prob: 0.0,
+        overall_level: "baixo".to_string(),
+        parts: Vec::new(),
+    };
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Ok(none);
+    }
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    // Time + categoria do jogador.
+    let Some(team_id) = dq::get_player_driver(&db.conn)
+        .ok()
+        .and_then(|p| cq::get_active_contract_for_pilot(&db.conn, &p.id).ok().flatten())
+        .map(|c| c.equipe_id)
+    else {
+        return Ok(none);
+    };
+    let Some(team) = tq::get_team_by_id(&db.conn, &team_id).ok().flatten() else {
+        return Ok(none);
+    };
+    let categoria = team.categoria.clone();
+
+    // Próxima corrida pendente + carro real do time.
+    let Some(season) = sq::get_active_season(&db.conn).ok().flatten() else {
+        return Ok(none);
+    };
+    let Some(race) = calq::get_next_race(&db.conn, &season.id, &categoria).ok().flatten() else {
+        return Ok(none);
+    };
+    let Some(car) = tcq::get_team_car(&db.conn, &team_id).ok().flatten() else {
+        return Ok(none);
+    };
+
+    // Clima da etapa — MESMA história determinística do export/disparo vivo.
+    let ev_seed = event_seed(&career_id, &race.id);
+    let weather = if let Some(track) = get_track(race.track_id) {
+        let story = weather::generate_weather(
+            month_from_week(race.week_of_year),
+            track_hemisphere(track.pais),
+            climate_tendency(track.rain_group),
+            ev_seed,
+            false,
+        );
+        crate::car::breakdown::Weather {
+            wetness: story_to_weather_condition(&story).wetness(),
+            temperature: weather::story_temperature(&story, ev_seed) as f64,
+            humidity: weather::story_to_profile(&story, 60).humidity as f64,
+            wind_kmh: weather::generate_wind(&story, ev_seed).speed_kmh as f64,
+        }
+    } else {
+        crate::car::breakdown::Weather::NEUTRAL
+    };
+    let track_pha = maintenance_demand(&[race.track_id]);
+
+    // Enduro (corrida longa) → o forecast reflete o DNF raro (severidade abrandada).
+    let is_enduro = crate::constants::categories::get_category_config(&categoria)
+        .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
+        .unwrap_or(false);
+
+    // 18 voltas = referência de sprint (a escala calibrada). 400 amostras dão um % estável.
+    let f = crate::car::breakdown::forecast_breakdown_risk(
+        &car,
+        18,
+        ev_seed,
+        team.pit_crew_quality,
+        track_pha,
+        weather,
+        &[],
+        400,
+        is_enduro,
+    );
+
+    let part_level = |p: f64| {
+        if p < 0.08 {
+            "baixo"
+        } else if p < 0.20 {
+            "médio"
+        } else {
+            "alto"
+        }
+    };
+    let overall_level = if f.dnf_prob < 0.05 {
+        "baixo"
+    } else if f.dnf_prob < 0.12 {
+        "médio"
+    } else {
+        "alto"
+    };
+    let parts = f
+        .parts
+        .iter()
+        .filter(|r| r.any_prob >= 0.03)
+        .take(5)
+        .map(|r| ForecastPartView {
+            part: r.part.as_str().to_string(),
+            part_name: r.part.display_name(&categoria).to_string(),
+            any_prob: r.any_prob,
+            dnf_prob: r.dnf_prob,
+            level: part_level(r.any_prob).to_string(),
+        })
+        .collect();
+
+    Ok(BreakdownForecastView {
+        available: true,
+        dnf_prob: f.dnf_prob,
+        overall_level: overall_level.to_string(),
+        parts,
+    })
 }
 
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
@@ -2633,27 +2961,44 @@ pub(crate) fn resolve_and_persist_race_weather(
     race_id: &str,
     is_first_race: bool,
 ) -> crate::models::enums::WeatherCondition {
+    let seed = event_seed(career_id, race_id);
     let story = crate::iracing_sdk::weather::generate_weather(
         month_from_week(week_of_year),
         track_hemisphere(track.pais),
         climate_tendency(track.rain_group),
-        event_seed(career_id, race_id),
+        seed,
         is_first_race,
     );
     let wc = story_to_weather_condition(&story);
+    // Temperatura alinhada à MESMA história (mesma fonte do export) → UI e sim batem.
+    let temp_c = crate::iracing_sdk::weather::story_temperature(&story, seed) as f64;
+    // Umidade e vento da MESMA história (o Sistema de Quebra usa: umidade amplifica o calor
+    // no motor; vento estressa suspensão + asas). A umidade é constante por cenário no perfil.
+    let humidity = crate::iracing_sdk::weather::story_to_profile(&story, 60).humidity as f64;
+    let wind_kmh = crate::iracing_sdk::weather::generate_wind(&story, seed).speed_kmh as f64;
     let _ = conn.execute(
-        "UPDATE calendar SET clima = ?1 WHERE id = ?2",
-        rusqlite::params![wc.as_str(), race_id],
+        "UPDATE calendar SET clima = ?1, temperatura = ?2, umidade = ?3, vento = ?4 WHERE id = ?5",
+        rusqlite::params![wc.as_str(), temp_c, humidity, wind_kmh, race_id],
     );
     wc
 }
 
 /// Monta o `EventWeather` de uma etapa via o gerador de clima + horário (golden
 /// hour por estação). Devolve também a `WeatherStory` (p/ a penalidade da chuva).
+/// Ano SEGURO para o `simulated_start_time` do clima. O iRacing calcula sol/estação a
+/// partir dessa data e ENGASGA com anos muito no futuro (a carreira pode estar em 2042+):
+/// cada bloco de clima fica lento o bastante para, somado em muitas etapas, estourar o
+/// watchdog de load do sim ("Simulator appeared to be unresponsive for more than 25
+/// seconds"). Mapeia o ano da carreira para a janela recente [2024, 2027] preservando
+/// mês/dia/hora (o que importa para estação e golden hour) e a fase de ano bissexto. Só o
+/// iRacing vê o ano trocado — a carreira segue no ano real. Ver [[project_aiseason_weather_hang]].
+fn sim_safe_year(year: i32) -> i32 {
+    2024 + (year - 2024).rem_euclid(4)
+}
+
 fn build_event_weather(
     track: &crate::constants::tracks::TrackInfo,
     week_of_year: i32,
-    temp_c: f64,
     year: i32,
     tier: u8,
     custid: i64,
@@ -2661,6 +3006,7 @@ fn build_event_weather(
     is_first_race: bool,
     race_end: i64,
     force_wet: bool,
+    force_night: bool,
 ) -> (
     crate::iracing_sdk::season_gen::EventWeather,
     crate::iracing_sdk::weather::WeatherStory,
@@ -2681,16 +3027,35 @@ fn build_event_weather(
         story.scenario = weather::WeatherScenario::SteadyRain;
     }
     let is_lit = track.track_id == 556; // Charlotte Roval — única com iluminação
-    let hour = weather::generate_race_start_hour(story.season, tier, is_lit, seed ^ 0x55);
+    // Etapa designada como noturna pelo calendário força a hora no escuro (sobrepõe
+    // o sorteio por-pista, mas nunca em rookie — o calendário nunca designa tier 0).
+    let hour = if force_night {
+        weather::night_start_hour(story.season, seed ^ 0x55)
+    } else {
+        weather::generate_race_start_hour(story.season, tier, is_lit, seed ^ 0x55)
+    };
     let profile = weather::story_to_profile(&story, race_end);
+    // Temperatura ALINHADA à história de chuva (mesma fonte determinística) — nunca
+    // uma temp "de chuva" numa corrida que roda seca. Presa em [18, 32] pelo gerador.
+    let temp_c = weather::story_temperature(&story, seed);
+    // Vento VARIÁVEL por corrida (2–48 km/h + direção).
+    let wind = weather::generate_wind(&story, seed);
+    // Umidade com pequeno jitter determinístico (varia por corrida, ±8), clamp [0,100].
+    let hum_jitter = ((seed >> 17) % 17) as i64 - 8;
+    let humidity = (profile.humidity + hum_jitter).clamp(0, 100);
     let hh = (hour.floor() as i64).clamp(0, 23);
     let mm = (((hour - hour.floor()) * 60.0).round() as i64).clamp(0, 59);
-    let start_time = format!("{year}-{month:02}-15T{hh:02}:{mm:02}:00");
+    let start_time = format!(
+        "{}-{month:02}-15T{hh:02}:{mm:02}:00",
+        sim_safe_year(year)
+    );
     let ew = season_gen::EventWeather {
         skies: profile.skies,
-        humidity: profile.humidity,
-        temp_c: temp_c.round() as i64,
+        humidity,
+        temp_c,
         track_water: profile.track_water,
+        wind_kmh: wind.speed_kmh,
+        wind_dir_deg: wind.dir_deg,
         keyframes: profile
             .keyframes
             .into_iter()
@@ -3145,4 +3510,20 @@ pub fn iracing_send_chat_macro(macro_num: i32) -> Result<(), String> {
 #[tauri::command]
 pub fn iracing_send_chat_text(text: String) -> Result<(), String> {
     iracing_sdk::send_chat_text(&text).map_err(|e| e.to_string())
+}
+
+/// DEBUG: arma uma quebra GARANTIDA no carro do jogador pra próxima volta cruzada (motor na
+/// parede). Testa o disparo ao vivo ponta a ponta: ao cruzar a linha, o monitor manda o
+/// `!black`/`!dq` sozinho. Requer estar numa sessão do iRacing (número do carro conhecido).
+#[tauri::command]
+pub fn iracing_arm_test_breakdown() -> Result<bool, String> {
+    Ok(crate::iracing_sdk::race_monitor::arm_test_breakdown())
+}
+
+/// DEBUG: arma a GRADE TODA com uma peça perto de quebrar por carro. Ao longo das próximas
+/// voltas, os carros vão largando peças (`!black`/`!dq`), estrangulado pra não spammar o chat.
+#[tauri::command]
+pub fn iracing_arm_test_breakdown_grid() -> Result<(), String> {
+    crate::iracing_sdk::race_monitor::arm_test_breakdown_grid();
+    Ok(())
 }

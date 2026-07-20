@@ -22,7 +22,7 @@ describe("TeamLogoMark", () => {
     render(<TeamLogoMark teamName="Belgian Racing Team" color="#0b3d91" />);
 
     const logo = screen.getByRole("img", { name: "Belgian Racing Team logo" });
-    expect(logo).toHaveAttribute("src", expect.stringContaining("belgian%20racing%20team.png"));
+    expect(logo).toHaveAttribute("src", expect.stringContaining("belgian%20racing%20team.webp"));
     expect(logo).toHaveClass("object-contain");
   });
 });

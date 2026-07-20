@@ -15,7 +15,8 @@ use rusqlite::Connection;
 use crate::car::cost::{category_ceiling, part_cost};
 use crate::car::seed::seed_car;
 use crate::car::wear::{
-    advance_race, can_stretch, replace_cost, stretch_cost, wear_per_race, PartAction,
+    advance_race, advance_race_scaled, can_stretch, replace_cost, stretch_cost, wear_per_race,
+    PartAction,
 };
 use crate::car::{Car, CarPart, PartType};
 use crate::db::connection::DbError;
@@ -332,12 +333,29 @@ pub fn decide_car_maintenance(
     decide_maintenance(car, category_id, budget, demand)
 }
 
-/// Aplica o plano ao carro: instala os upgrades e roda a corrida (desgaste + ações).
+/// Aplica o plano ao carro: instala os upgrades e roda a corrida (desgaste + ações) com
+/// desgaste NEUTRO (corrida de referência).
 pub fn apply_plan(car: &mut Car, plan: &CarMaintenancePlan) {
     for (&part, &level) in &plan.target_levels {
         car.set_level(part, level);
     }
     advance_race(car, &plan.actions);
+}
+
+/// Igual a [`apply_plan`], mas o desgaste desta corrida é escalado por peça pelas condições
+/// REAIS (pista × clima via `wear_mults`; peças ausentes no mapa → 1.0). É o que faz o
+/// desgaste persistido responder à corrida.
+pub fn apply_plan_scaled(
+    car: &mut Car,
+    plan: &CarMaintenancePlan,
+    wear_mults: &std::collections::HashMap<PartType, f64>,
+) {
+    for (&part, &level) in &plan.target_levels {
+        car.set_level(part, level);
+    }
+    advance_race_scaled(car, &plan.actions, |pt| {
+        wear_mults.get(&pt).copied().unwrap_or(1.0)
+    });
 }
 
 // ===================== Seed inicial dos carros =====================
@@ -387,17 +405,88 @@ pub fn seed_and_persist_team_cars(conn: &Connection, teams: &[Team]) -> Result<(
 
 // ===================== Tick de manutenção por corrida =====================
 
+/// Condições REAIS da corrida que acabou, que modulam o desgaste PERSISTIDO (grade toda): a
+/// pista (qual peça sofre) e o clima (chuva → eletrônica; calor+umidade → térmica; vento →
+/// suspensão/asas). O estilo de pilotagem do jogador é aplicado por cima, só no carro dele
+/// (ver wiring do import).
+#[derive(Debug, Clone, Copy)]
+pub struct WearConditions {
+    /// Demanda PHA normalizada da pista corrida (via [`maintenance_demand`]).
+    pub track_pha: (f64, f64, f64),
+    /// Clima da rodada (mesma `WeatherStory` que o iRacing roda).
+    pub weather: crate::car::breakdown::Weather,
+    /// Duração da corrida (min) da categoria. Acima do gate de enduro, o desgaste de peça (→
+    /// custo) sobe pra grade toda; parada real alivia. Sprint (≤ gate) → sem efeito.
+    pub duracao_min: u8,
+}
+
+impl WearConditions {
+    /// Corrida de referência neutra → todos os mults = 1.0 (economia inalterada). Usada em
+    /// caminhos sem pista/clima resolvidos (testes, robustez). Duração de sprint (30 min).
+    pub fn neutral() -> Self {
+        Self {
+            track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+            weather: crate::car::breakdown::Weather::NEUTRAL,
+            duracao_min: 30,
+        }
+    }
+
+    /// Resolve a partir da pista corrida + clima da rodada + duração da categoria.
+    pub fn from_race(track_id: u32, weather: crate::car::breakdown::Weather, duracao_min: u8) -> Self {
+        Self {
+            track_pha: maintenance_demand(&[track_id]),
+            weather,
+            duracao_min,
+        }
+    }
+}
+
 /// Manutenção do carro de UM time após a corrida: o cérebro decide (trocar/esticar/
 /// degradar/upgrade) olhando o caixa e as próximas pistas (cortadas pelo horizonte do
-/// time), aplica o desgaste e persiste. Devolve o **custo gasto** — que vira depreciação
-/// REAL na fatura (technical_investment_cost). Chamado por time dentro do
-/// `persist_race_result_tx` (que já tem guard de idempotência), 1×/rodada.
+/// time), aplica o desgaste (modulado pelas `conditions` reais da corrida) e persiste.
+/// Devolve o **custo gasto** — que vira depreciação REAL na fatura (technical_investment_cost).
+/// Chamado por time dentro do `persist_race_result_tx` (que já tem guard de idempotência),
+/// 1×/rodada.
+/// Manutenção do carro de UM time após a corrida. Ver [`maintain_team_car`]; aqui o
+/// `player_pits` é o nº de paradas REAIS do jogador (do SDK) — só usado quando `player_style`
+/// é `Some` (o carro do jogador). A IA modela as paradas pela duração.
 pub fn maintain_team_car(
     conn: &Connection,
     team: &Team,
     category_id: &str,
     season_number: i32,
     all_upcoming_track_ids: &[u32],
+    conditions: WearConditions,
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+) -> Result<f64, DbError> {
+    maintain_team_car_pits(
+        conn,
+        team,
+        category_id,
+        season_number,
+        all_upcoming_track_ids,
+        conditions,
+        player_style,
+        false,
+        0,
+    )
+}
+
+/// Igual a [`maintain_team_car`], recebendo o alívio de gasto de peça do enduro do carro do
+/// JOGADOR: `is_player_car` marca o carro dele (o único que usa o pit REAL do SDK, `player_pits`,
+/// 10%/parada, teto 30%); todo o resto (IA) modela as paradas pela duração. NÃO confundir com
+/// `player_style` (que também vem `Some` na desconfiança mecânica de times de IA).
+#[allow(clippy::too_many_arguments)]
+pub fn maintain_team_car_pits(
+    conn: &Connection,
+    team: &Team,
+    category_id: &str,
+    season_number: i32,
+    all_upcoming_track_ids: &[u32],
+    conditions: WearConditions,
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+    is_player_car: bool,
+    player_pits: u32,
 ) -> Result<f64, DbError> {
     // Usa o carro anexado; senão carrega; senão semeia neutro (save antigo/robustez).
     let mut car = match &team.car {
@@ -425,7 +514,33 @@ pub fn maintain_team_car(
 
     let plan = decide_car_maintenance(team, &car, category_id, window);
     let cost = plan.estimated_cost;
-    apply_plan(&mut car, &plan);
+    // O desgaste desta corrida responde à pista + clima reais (grade toda). Corrida neutra
+    // → mults ~1.0, e a economia calibrada não muda.
+    let mut wear_mults =
+        crate::car::breakdown::conditions_wear_mults(conditions.track_pha, conditions.weather);
+    // ENDURO (corrida longa): o desgaste de peça (→ custo) sobe com a duração pra GRADE TODA e
+    // é aliviado por paradas reais. O jogador usa suas paradas do SDK; a IA modela pela duração.
+    // Sprint → mult 1.0, economia inalterada. "Todos sentem" (o jogador também paga o sobrecusto).
+    let genuine_pits = if is_player_car {
+        player_pits
+    } else {
+        crate::car::breakdown::modeled_ai_pits(conditions.duracao_min)
+    };
+    let enduro_mult =
+        crate::car::breakdown::enduro_economy_wear_mult(conditions.duracao_min, genuine_pits);
+    if (enduro_mult - 1.0).abs() > f64::EPSILON {
+        for mult in wear_mults.values_mut() {
+            *mult *= enduro_mult;
+        }
+    }
+    // Só o carro do JOGADOR: o estilo de pilotagem multiplica os mults por peça (economizar
+    // → desconto; abusar → mais desgaste). A IA passa `None`. Peça sem estilo → fator 1.0.
+    if let Some(style) = player_style {
+        for (&pt, mult) in wear_mults.iter_mut() {
+            *mult *= style.factor_for(pt);
+        }
+    }
+    apply_plan_scaled(&mut car, &plan, &wear_mults);
     team_car::upsert_team_car(conn, &team.id, &car)?;
     Ok(cost)
 }
@@ -637,7 +752,9 @@ mod tests {
 
         // Várias rodadas com caixa alto → o carro sobe rumo ao teto, e cada rodada tem custo.
         for _ in 0..20 {
-            let cost = maintain_team_car(&conn, &team, "gt3", 1, &[239, 489, 324]).unwrap();
+            let cost =
+                maintain_team_car(&conn, &team, "gt3", 1, &[239, 489, 324], WearConditions::neutral(), None)
+                    .unwrap();
             assert!(cost >= 0.0);
             team.car = team_car::get_team_car(&conn, "T1").unwrap();
         }
@@ -662,7 +779,7 @@ mod tests {
         team.car = Some(high);
 
         // Amador tem teto 2 → o carro deve regredir a ≤ 2.
-        maintain_team_car(&conn, &team, "mazda_amador", 1, &[]).unwrap();
+        maintain_team_car(&conn, &team, "mazda_amador", 1, &[], WearConditions::neutral(), None).unwrap();
 
         let after = team_car::get_team_car(&conn, "T1").unwrap().unwrap();
         assert!(
@@ -770,7 +887,8 @@ mod tests {
         let diverse = [489, 325, 180, 318, 93, 188];
         for season in 1..=4 {
             for _ in 0..15 {
-                maintain_team_car(&conn, &team, "gt3", season, &diverse).unwrap();
+                maintain_team_car(&conn, &team, "gt3", season, &diverse, WearConditions::neutral(), None)
+                    .unwrap();
                 team.car = team_car::get_team_car(&conn, &team_id).unwrap();
             }
         }
@@ -787,6 +905,81 @@ mod tests {
             engine > brakes,
             "peça de power (motor {engine}) deveria superar a de handling (freios {brakes})"
         );
+    }
+
+    // -------- Economia do enduro (custo por duração + alívio de parada) --------
+
+    /// Um time pobre (sem caixa pra trocar) só ACUMULA desgaste. No enduro (60 min) o desgaste
+    /// persistido é bem maior que num sprint (30 min); paradas reais aliviam, mas o enduro ainda
+    /// custa mais. É a conta do enduro fluindo pela economia calibrada, atrás do gate de 40 min.
+    #[test]
+    fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
+        use crate::models::team::placeholder_team_from_db;
+        let total_wear = |duracao_min: u8, pits: u32| -> f64 {
+            let conn = Connection::open_in_memory().unwrap();
+            let mut team = placeholder_team_from_db(
+                "T".to_string(),
+                "T".to_string(),
+                "gt3".to_string(),
+                "2026-01-01T00:00:00".to_string(),
+            );
+            team.cash_balance = 0.0; // sem caixa → não troca, só acumula desgaste
+            team.debt_balance = 1e9;
+            team.financial_state = "critical".to_string();
+            let car = Car::uniform(5);
+            team_car::upsert_team_car(&conn, "T", &car).unwrap();
+            team.car = Some(car);
+            let cond = WearConditions {
+                track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+                weather: crate::car::breakdown::Weather::NEUTRAL,
+                duracao_min,
+            };
+            // Carro do JOGADOR (Some) com paradas reais; estilo neutro (fator 1.0).
+            maintain_team_car_pits(
+                &conn, &team, "gt3", 1, &[], cond,
+                Some(crate::car::driving_style::StyleFactors::uniform(1.0)), true, pits,
+            )
+            .unwrap();
+            let after = team_car::get_team_car(&conn, "T").unwrap().unwrap();
+            after.parts.iter().map(|p| p.wear).sum()
+        };
+        let sprint = total_wear(30, 0);
+        let enduro = total_wear(60, 0);
+        let enduro_pit = total_wear(60, 3); // teto de alívio (−30% do sobrecusto)
+        assert!(enduro > sprint * 1.5, "enduro deveria desgastar bem mais (sprint={sprint:.4} enduro={enduro:.4})");
+        assert!(enduro_pit < enduro, "paradas deveriam aliviar o enduro ({enduro_pit:.4} < {enduro:.4})");
+        assert!(enduro_pit > sprint, "mesmo com paradas o enduro custa mais que o sprint");
+    }
+
+    /// A IA (player_style = None) modela as paradas pela duração — recebe o alívio SOZINHA, sem
+    /// receber contagem de pit. Enduro da IA custa mais que sprint, mas menos que enduro sem alívio.
+    #[test]
+    fn ia_recebe_alivio_modelado_no_enduro() {
+        use crate::models::team::placeholder_team_from_db;
+        let ai_wear = |duracao_min: u8| -> f64 {
+            let conn = Connection::open_in_memory().unwrap();
+            let mut team = placeholder_team_from_db(
+                "T".to_string(), "T".to_string(), "gt3".to_string(), "2026-01-01T00:00:00".to_string(),
+            );
+            team.cash_balance = 0.0;
+            team.debt_balance = 1e9;
+            team.financial_state = "critical".to_string();
+            let car = Car::uniform(5);
+            team_car::upsert_team_car(&conn, "T", &car).unwrap();
+            team.car = Some(car);
+            let cond = WearConditions {
+                track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+                weather: crate::car::breakdown::Weather::NEUTRAL,
+                duracao_min,
+            };
+            maintain_team_car(&conn, &team, "gt3", 1, &[], cond, None).unwrap();
+            team_car::get_team_car(&conn, "T").unwrap().unwrap().parts.iter().map(|p| p.wear).sum()
+        };
+        let sprint = ai_wear(30);
+        let enduro = ai_wear(60); // 2 paradas modeladas → −20% do sobrecusto
+        assert!(enduro > sprint, "enduro da IA deveria custar mais ({enduro:.4} > {sprint:.4})");
+        // Sobrecusto 60min = 1.0; com 2 paradas modeladas (−20%) → mult 1.8 → 1.8× o sprint.
+        assert!((enduro / sprint - 1.8).abs() < 0.02, "IA 60min deveria ser ~1.8× o sprint, deu {:.3}", enduro / sprint);
     }
 
     #[test]

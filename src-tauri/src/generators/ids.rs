@@ -15,6 +15,7 @@ pub enum IdType {
     Contract,
     News,
     Rivalry,
+    TeamRivalry,
 }
 
 impl IdType {
@@ -28,6 +29,7 @@ impl IdType {
             IdType::Contract => "next_contract_id",
             IdType::News => "next_news_id",
             IdType::Rivalry => "next_rivalry_id",
+            IdType::TeamRivalry => "next_team_rivalry_id",
         }
     }
 
@@ -41,6 +43,7 @@ impl IdType {
             IdType::Contract => "C",
             IdType::News => "N",
             IdType::Rivalry => "RV",
+            IdType::TeamRivalry => "TRV",
         }
     }
 
@@ -53,6 +56,7 @@ impl IdType {
             IdType::Contract => &["contracts"],
             IdType::News => &["news"],
             IdType::Rivalry => &["rivalries"],
+            IdType::TeamRivalry => &["team_rivalries"],
         }
     }
 }

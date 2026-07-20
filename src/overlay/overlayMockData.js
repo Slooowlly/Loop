@@ -17,7 +17,17 @@
 //   fastest    melhor volta (mm:ss.mmm)
 //   fol        fastest of lap — se é a volta mais rápida da CLASSE (roxo + pin)
 //   pit        está no pit agora (pin)
-//   flag       bandeira ativa: "meatball" | "black" | "checkered" | ausente (pin)
+//   flag       bandeira ativa: "black" | "checkered" | ausente (pin)
+//               "black" = DNF (!dq) — a IA vai direto pra cá.
+//   alert      quebra de peça pendente (triângulo piscando): "light" (laranja) |
+//               "heavy" (vermelho) | ausente. Some quando o carro sai do box reparado.
+//   pitSecs    tempo parado no box (s) da última parada — mostrado ~3 voltas depois
+//               como badge EM CIMA dos pneus. Ausente fora dessa janela.
+//   pitIcons   sequência da coluna de paradas: 1º = pneu de largada, depois um por
+//               PARADA — "dry"/"wet" (troca de pneu), "fuel" (abasteceu), "part"
+//               (reparo de peça, triângulo no lugar do pneu). Sem ele, cai em tireHistory.
+//   tireCompound  composto de LARGADA escolhido (CarIdxTireCompound): 0 = seco, ≥1 = chuva,
+//               -1 = desconhecido. Sem pitIcons/tireHistory (pré-corrida), define o 1º pneu.
 //   player     é o carro do jogador (linha verde)
 //
 // O COMPANHEIRO DE EQUIPE não é campo: é derivado (mesmo `team` do jogador) e
@@ -42,19 +52,27 @@ export const OVERLAY_MOCK = {
         { pos: 2, name: "Marco I D'Acunto", team: "Porsche", color: "#111111", delta: 0, stops: 1, points: 138, gain: 18, fastest: "01:42.089", fol: true, pit: false, player: false },
         { pos: 3, name: "Fabian Seischegg", team: "Mercedes-AMG", color: "#00d2be", delta: 1, stops: 1, points: 120, gain: 15, fastest: "01:42.702", fol: false, pit: false, player: false },
         { pos: 4, name: "Sergi Heras", team: "Lamborghini", color: "#ffd100", delta: 1, stops: 1, points: 110, gain: 12, fastest: "01:43.383", fol: false, pit: true, player: false },
-        { pos: 5, name: "Rogerio Silva", team: "Audi", color: "#bb0a21", delta: 3, stops: 1, points: 98, gain: 10, fastest: "01:43.946", fol: false, pit: false, player: false },
-        { pos: 6, name: "Pawel T. Okreglicki", team: "McLaren", color: "#ff8700", delta: 4, stops: 1, points: 86, gain: 8, fastest: "01:43.893", fol: false, pit: false, player: false },
+        // Largou de CHUVA (tireCompound=1) — sem paradas ainda: a torre mostra o pneu real de largada.
+        { pos: 5, name: "Rogerio Silva", team: "Audi", color: "#bb0a21", delta: 3, stops: 0, points: 98, gain: 10, fastest: "01:43.946", fol: false, pit: false, tireCompound: 1, player: false },
+        { pos: 6, name: "Pawel T. Okreglicki", team: "McLaren", color: "#ff8700", delta: 4, stops: 0, points: 86, gain: 8, fastest: "01:43.893", fol: false, pit: false, tireCompound: 0, player: false },
         { pos: 7, name: "Matthew Koontz", team: "BMW", color: "#0057b8", delta: 2, stops: 1, points: 72, gain: 6, fastest: "01:43.715", fol: false, pit: false, player: false },
-        { pos: 8, name: "Mustafa Mezraoui", team: "Aston Martin", color: "#005f48", delta: -1, stops: 2, points: 64, gain: 4, fastest: "01:43.403", fol: false, pit: false, flag: "meatball", tire: "wet", player: false },
-        // Trocou pra chuva na 3ª parada (histórico misto: 2 secos + 1 chuva).
-        { pos: 9, name: "Adaildo Vieira", team: "Chevrolet", color: "#f9c80e", delta: -6, stops: 2, points: 61, gain: 2, fastest: "01:42.278", fol: false, pit: true, tireHistory: ["dry", "dry", "wet"], player: false },
-        // Companheiro de equipe do jogador (mesmo time: Kitsune) -> realce azul.
-        { pos: 10, name: "Neil Cooper", team: "Kitsune", color: "#3a0ca3", delta: 1, stops: 1, points: 55, gain: 1, fastest: "01:44.002", fol: false, pit: false, player: false },
-        { pos: 11, name: "Rick Van Zwiet", team: "Acura", color: "#c8102e", delta: 1, stops: 2, points: 48, gain: 0, fastest: "01:44.059", fol: false, pit: true, player: false },
-        { pos: 12, name: "Istvan Fodor", team: "Kitsune", color: "#3a0ca3", delta: 1, stops: 1, points: 44, gain: 0, fastest: "01:45.035", fol: false, pit: false, player: true },
-        { pos: 13, name: "Alexandr Fescov", team: "Valkyrie", color: "#6f4e37", delta: 2, stops: 1, points: 40, gain: 0, fastest: "01:44.822", fol: false, pit: false, player: false },
-        { pos: 14, name: "Marius Rieck", team: "Obsidian", color: "#2b2d42", delta: 0, stops: 1, points: 32, gain: 0, fastest: "01:44.754", fol: false, pit: false, flag: "black", player: false },
-        { pos: 15, name: "Preston Perlmutter", team: "Audi", color: "#bb0a21", delta: -9, stops: 2, points: 28, gain: 0, fastest: "01:43.111", fol: false, pit: false, player: false },
+        // Parou: largou de seco, abasteceu (⛽), depois trocou pra chuva.
+        { pos: 8, name: "Mustafa Mezraoui", team: "Aston Martin", color: "#005f48", delta: -1, stops: 2, points: 64, gain: 4, fastest: "01:43.403", fol: false, pit: false, tire: "wet", pitIcons: ["dry", "fuel", "wet"], player: false },
+        // Largou seco, abasteceu, reparou peça (⚠), depois trocou pra chuva.
+        { pos: 9, name: "Adaildo Vieira", team: "Chevrolet", color: "#f9c80e", delta: -6, stops: 2, points: 61, gain: 2, fastest: "01:42.278", fol: false, pit: true, pitIcons: ["dry", "fuel", "part", "wet"], player: false },
+        // Companheiro de equipe do jogador (mesmo time: Kitsune) -> realce azul. Pneu + combustível.
+        { pos: 10, name: "Neil Cooper", team: "Kitsune", color: "#3a0ca3", delta: 1, stops: 1, points: 55, gain: 1, fastest: "01:44.002", fol: false, pit: false, pitIcons: ["wet", "fuel"], player: false },
+        // Peça GRAVE (triângulo VERMELHO piscando) + no box (P); parou pra REPARAR peça
+        // (⚠ no lugar do pneu), não pra trocar pneu. `flash` = acabou de quebrar (linha pisca).
+        { pos: 11, name: "Rick Van Zwiet", team: "Acura", color: "#c8102e", delta: 1, stops: 2, points: 48, gain: 0, fastest: "01:44.059", fol: false, pit: true, alert: "heavy", pitIcons: ["dry", "part"], flash: true, player: false },
+        // Jogador — só pneus (2 secos): referência do espaçamento pneu↔pneu.
+        { pos: 12, name: "Istvan Fodor", team: "Kitsune", color: "#3a0ca3", delta: 1, stops: 1, points: 44, gain: 0, fastest: "01:45.035", fol: false, pit: false, pitIcons: ["dry", "dry"], player: true },
+        // Peça LEVE (triângulo LARANJA piscando). Sequência com os 4 tipos pra comparar.
+        { pos: 13, name: "Alexandr Fescov", team: "Valkyrie", color: "#6f4e37", delta: 2, stops: 1, points: 40, gain: 0, fastest: "01:44.822", fol: false, pit: false, alert: "light", pitIcons: ["dry", "fuel", "part", "wet"], player: false },
+        // DNF (!dq): bandeira preta persistente — a IA vem direto pra cá. Parou pra reparar peça.
+        { pos: 14, name: "Marius Rieck", team: "Obsidian", color: "#2b2d42", delta: 0, stops: 1, points: 32, gain: 0, fastest: "01:44.754", fol: false, pit: false, flag: "black", pitIcons: ["dry", "part"], player: false },
+        // Só pneus (3): referência + tracker de tempo de pit (cronômetro + 23s), por 3 voltas.
+        { pos: 15, name: "Preston Perlmutter", team: "Audi", color: "#bb0a21", delta: -9, stops: 2, points: 28, gain: 0, fastest: "01:43.111", fol: false, pit: false, pitIcons: ["dry", "dry", "dry"], pitSecs: 23, player: false },
       ],
     },
     {

@@ -6,12 +6,15 @@ import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
 import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
+import useCareerStore from "../stores/useCareerStore";
+import { useTranslation } from "react-i18next";
 
 // Fundo da tela: "particles" (campo de partículas, igual ao menu) ou "glass"
 // (gradiente azul original). Para voltar ao fundo anterior, troque para "glass".
 const SETTINGS_BG = "particles";
 
 function Settings() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const [config, setConfig] = useState(null);
@@ -45,6 +48,83 @@ function Settings() {
       setChatMsg(String(err));
     } finally {
       setChatBusy(false);
+    }
+  }
+
+  // Teste do DISPARO AO VIVO da quebra: arma uma falha garantida no carro do jogador
+  // (motor na parede) pra próxima volta cruzada. Ao passar pela linha, o monitor manda o
+  // !black/!dq sozinho — valida o pipeline ponta a ponta (detecção de volta + disparo).
+  const [armBusy, setArmBusy] = useState(false);
+  const [armMsg, setArmMsg] = useState("");
+
+  // Demo do overlay de RÁDIO: liga um card de exemplo ciclando na tela (pra achar/posicionar
+  // o overlay sem esperar uma quebra real). Estado mora no backend (vale pra janela do rádio).
+  const [radioDemo, setRadioDemo] = useState(false);
+  async function toggleRadioDemo() {
+    const next = !radioDemo;
+    setRadioDemo(next);
+    try {
+      await invoke("overlay_set_demo", { on: next });
+    } catch {
+      /* ignora */
+    }
+  }
+
+  // Gravador de corrida (DEBUG): salva a telemetria crua + YAML + histórico num arquivo, pra
+  // calibrar o app com dados reais de pista. Só pra dev — não vai pro fluxo comercial.
+  const [capture, setCapture] = useState({ active: false, frames: 0, dir: "" });
+  const [captureMsg, setCaptureMsg] = useState("");
+  async function refreshCapture() {
+    try {
+      setCapture(await invoke("race_capture_status"));
+    } catch {
+      /* ignora */
+    }
+  }
+  async function toggleCapture() {
+    try {
+      if (capture.active) {
+        const path = await invoke("race_capture_stop");
+        setCaptureMsg(path ? `Salvo: ${path}` : "Gravação parada.");
+      } else {
+        const path = await invoke("race_capture_start");
+        setCaptureMsg(`Gravando… entre numa sessão do iRacing. Arquivo: ${path}`);
+      }
+      await refreshCapture();
+    } catch (err) {
+      setCaptureMsg(String(err));
+    }
+  }
+  async function armBreakdown() {
+    if (armBusy) return;
+    setArmBusy(true);
+    setArmMsg("");
+    try {
+      const ok = await invoke("iracing_arm_test_breakdown");
+      setArmMsg(
+        ok
+          ? "Armado! Cruze a linha de chegada — a quebra dispara sozinha na próxima volta."
+          : "Não deu pra armar: entre numa sessão do iRacing (o número do seu carro precisa estar visível).",
+      );
+    } catch (err) {
+      setArmMsg(String(err));
+    } finally {
+      setArmBusy(false);
+    }
+  }
+  async function armBreakdownGrid() {
+    if (armBusy) return;
+    setArmBusy(true);
+    setArmMsg("");
+    try {
+      await invoke("iracing_arm_test_breakdown_grid");
+      setArmMsg(
+        "Grade armada! Com a corrida rolando, os carros vão largar peças ao longo das próximas voltas (1 a cada ~1,5s pra não spammar).",
+      );
+    } catch (err) {
+      setArmMsg(String(err));
+    } finally {
+      setArmBusy(false);
     }
   }
 
@@ -83,6 +163,14 @@ function Settings() {
       }
     })();
     invoke("iracing_auto_yellow_enabled").then((v) => setAutoYellow(Boolean(v))).catch(() => {});
+    invoke("overlay_demo_enabled").then((v) => setRadioDemo(Boolean(v))).catch(() => {});
+  }, []);
+
+  // Poll do status da gravação de debug (contagem de frames enquanto grava).
+  useEffect(() => {
+    refreshCapture();
+    const t = setInterval(refreshCapture, 2000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -135,6 +223,11 @@ function Settings() {
     const newCfg = { ...config, [field]: value };
     setConfig(newCfg);
     saveConfig(newCfg);
+    // Reflete a troca de idioma no store na hora (decide fallback PT vs "erro"
+    // localizado nas telas de narrativa), sem exigir reload da carreira.
+    if (field === "language") {
+      useCareerStore.getState().setLanguage(value);
+    }
   };
 
   if (loading || !config) {
@@ -181,7 +274,7 @@ function Settings() {
             >
               <path d="m15 18-6-6 6-6" />
             </svg>
-            <span className="text-[11px] font-bold uppercase tracking-[0.22em]">Voltar</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.22em]">{t("settings.back")}</span>
           </button>
 
           <div className="flex items-center gap-3">
@@ -242,14 +335,14 @@ function Settings() {
         <div className="glass-strong overflow-hidden rounded-2xl">
           {/* ── Grupo: Geral ── */}
           <div id="geral" style={{ scrollMarginTop: "1rem" }} className="px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-            Geral
+            {t("settings.general")}
           </div>
 
           {/* Idioma */}
           <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-medium text-text-primary">Idioma</p>
-              <p className="text-[11px] text-text-secondary">Menus e ferramentas do jogo.</p>
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.language.label")}</p>
+              <p className="text-[11px] text-text-secondary">{t("settings.language.desc")}</p>
             </div>
             <div className="w-[160px] shrink-0">
               <GlassSelect
@@ -269,8 +362,8 @@ function Settings() {
             onClick={() => handleToggle("autosave_enabled")}
           >
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-text-primary">Salvamento automático</p>
-              <p className="text-[11px] text-text-secondary">Salva o progresso ao final de cada semana/corrida.</p>
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.autosave.label")}</p>
+              <p className="text-[11px] text-text-secondary">{t("settings.autosave.desc")}</p>
             </div>
             <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.autosave_enabled ? "bg-accent-primary" : "bg-white/10"}`}>
               <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.autosave_enabled ? "translate-x-5" : "translate-x-0"}`} />
@@ -279,7 +372,7 @@ function Settings() {
 
           {/* ── Grupo: Corrida ── */}
           <div id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="border-t border-white/10 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-            Corrida
+            {t("settings.raceSection")}
           </div>
 
           {/* Bandeira amarela automática — liga/desliga o disparo (a macro já foi instalada ao abrir a tela) */}
@@ -290,13 +383,13 @@ function Settings() {
             onClick={yellowStatus?.installed && !yellowBusy ? toggleRaceControl : undefined}
           >
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-text-primary">Bandeira amarela automática</p>
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.autoYellow.label")}</p>
               <p className="text-[11px] text-text-secondary">
                 {!yellowStatus?.app_ini_found
-                  ? "iRacing não encontrado neste PC."
+                  ? t("settings.autoYellow.notFound")
                   : raceControlOn
-                    ? "Ligada — joga amarela sozinho em acidentes contra a IA."
-                    : "Joga bandeira amarela sozinho em acidentes contra a IA."}
+                    ? t("settings.autoYellow.on")
+                    : t("settings.autoYellow.off")}
               </p>
             </div>
             <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${raceControlOn ? "bg-status-green" : "bg-white/10"}`}>
@@ -375,6 +468,97 @@ function Settings() {
             )}
           </div>
 
+          {/* Teste do disparo AO VIVO da quebra (arma o carro do jogador pra próxima volta) */}
+          <div className="border-t border-white/10 px-5 py-3.5">
+            <p className="text-[13px] font-medium text-text-primary">Quebra ao vivo (teste)</p>
+            <p className="pb-2.5 text-[11px] text-text-secondary">
+              Arma uma falha garantida no SEU carro. Com o sim aberto numa sessão correndo, clique e cruze a linha — o monitor dispara o <span className="font-mono">!black</span>/<span className="font-mono">!dq</span> sozinho na próxima volta.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={armBreakdown}
+                disabled={armBusy}
+                className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
+                  armBusy
+                    ? "cursor-default bg-white/5 text-text-muted"
+                    : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
+                }`}
+              >
+                {armBusy ? "Armando…" : "Armar (meu carro)"}
+              </button>
+              <button
+                type="button"
+                onClick={armBreakdownGrid}
+                disabled={armBusy}
+                className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
+                  armBusy
+                    ? "cursor-default bg-white/5 text-text-muted"
+                    : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
+                }`}
+              >
+                {armBusy ? "Armando…" : "Armar (grade toda)"}
+              </button>
+            </div>
+            {armMsg && (
+              <p className="mt-2.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{armMsg}</p>
+            )}
+          </div>
+
+          {/* Demo do overlay de rádio: card de exemplo ciclando, pra achar/posicionar o overlay */}
+          <div className="flex items-center justify-between border-t border-white/10 px-5 py-3.5">
+            <div className="min-w-0 pr-4">
+              <p className="text-[13px] font-medium text-text-primary">Testar overlay de rádio</p>
+              <p className="text-[11px] text-text-secondary">
+                Mostra um card de exemplo ciclando no centro da tela (sobre o jogo), pra você achar e posicionar o overlay do rádio sem esperar uma quebra real. Lembre de desligar depois.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={radioDemo}
+              onClick={toggleRadioDemo}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-glass ${
+                radioDemo ? "bg-status-green/70" : "bg-white/15"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                  radioDemo ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Gravador de corrida (DEBUG): salva a telemetria real pra calibração */}
+          <div className="border-t border-white/10 px-5 py-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-text-primary">Gravar corrida (debug)</p>
+                <p className="text-[11px] text-text-secondary">
+                  Salva TODA a telemetria da corrida ao vivo (+ YAML da sessão + histórico) num arquivo, pra calibrar o app com dados reais de pista. Só pra dev — não entra no jogo comercial.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleCapture}
+                className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
+                  capture.active
+                    ? "cursor-pointer bg-status-red/25 text-text-primary hover:bg-status-red/35"
+                    : "cursor-pointer bg-white/10 text-text-primary hover:bg-white/15"
+                }`}
+              >
+                {capture.active ? `Parar (${capture.frames} frames)` : "Iniciar gravação"}
+              </button>
+            </div>
+            {captureMsg && (
+              <p className="mt-2.5 break-all rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{captureMsg}</p>
+            )}
+            {capture.dir && (
+              <p className="mt-1 break-all text-[10px] text-text-muted">Pasta: {capture.dir}</p>
+            )}
+          </div>
+
           {/* Explicador de rivalidades percebidas (debug/calibração) */}
           <RivalryPerceptionPanel />
         </div>
@@ -389,7 +573,7 @@ function Settings() {
                 setTimeout(() => navigate("/menu"), 700);
               } else {
                 const confirmed = window.confirm(
-                  "Deseja criar sua primeira carreira agora?",
+                  t("settings.firstCareerConfirm"),
                 );
                 if (confirmed) {
                   setNavigating(true);
@@ -398,14 +582,14 @@ function Settings() {
               }
             }}
           >
-            Salvar
+            {t("settings.save")}
           </GlassButton>
           <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-text-muted">
             Loop — v{(config.version ?? "1.0.0").split(".").slice(0, 2).join(".")}
           </p>
         </div>
       </div>
-      <LoadingOverlay open={navigating} title="Salvando" message="Aplicando configurações..." />
+      <LoadingOverlay open={navigating} title={t("settings.saving")} message={t("settings.applying")} />
     </div>
   );
 }

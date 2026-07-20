@@ -19,6 +19,7 @@ function buildFinanceReport(overrides = {}) {
       season_number: 1,
       round: 6,
       sponsorship_income: 200_000,
+      gate_income: 45_000,
       result_bonus: 90_000,
       partial_prize_income: 60_000,
       aid_income: 0,
@@ -326,6 +327,8 @@ describe("MyTeamTab", () => {
     expect(screen.getByText(/Saídas da rodada/i)).toBeInTheDocument();
     expect(screen.getByText(/Caixa ao fim de cada rodada/i)).toBeInTheDocument();
     expect(screen.getByText(/Patrocínios/i)).toBeInTheDocument();
+    // Fase 3 do Estrelato: bilheteria aparece como linha de receita própria.
+    expect(screen.getByText(/Bilheteria/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Salários/i).length).toBeGreaterThan(0);
 
     expect(screen.getByText(/Salário N1/i)).toBeInTheDocument();

@@ -16,14 +16,18 @@ use crate::promotion::effects::{
 use crate::promotion::pilots::{apply_pilot_effect, resolve_pilot_situations};
 use crate::promotion::{MovementType, PromotionResult, TeamMovement};
 
-/// Soft-landing da promoção (Ideia 1), atrás de flag pra permitir A/B no Monte
-/// Carlo sem tocar no jogo real. `IRACER_PROMO_SOFT_LANDING=1` liga; retorna a
-/// margem (pontos de carro acima do pior incumbente) — `IRACER_PROMO_LANDING_MARGIN`
-/// ajusta (default 1.0). `None` = comportamento default (mantém o carro atual).
+/// Soft-landing da promoção (Ideia 1): LIGADO por padrão no jogo. O campeão
+/// promovido aterrissa logo acima do pior incumbente da categoria de destino, em
+/// vez de manter o carro exato da categoria de baixo (que o deixava isolado em
+/// último). Retorna a margem (pontos de carro acima do pior incumbente).
+///
+/// Pode ser DESLIGADO via `IRACER_PROMO_SOFT_LANDING=0` (para A/B no Monte Carlo,
+/// comparando com o comportamento antigo de manter o carro atual). A margem é
+/// calibrável por `IRACER_PROMO_LANDING_MARGIN` (default 1.0). `None` = desligado.
 fn promotion_soft_landing_margin() -> Option<f64> {
     let enabled = std::env::var("IRACER_PROMO_SOFT_LANDING")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+        .unwrap_or(true);
     if !enabled {
         return None;
     }

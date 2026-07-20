@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
+import StartingCompoundsPanel from "./StartingCompoundsPanel";
 import LapTimeLineChart from "../race/LapTimeLineChart";
 import PaceDeltaChart from "../race/PaceDeltaChart";
 import RaceTraceChart from "../race/RaceTraceChart";
@@ -431,6 +432,9 @@ function IracingConnectedOverlay() {
 
         {/* Corpo: gráficos ao vivo */}
         <div className="grid gap-3 overflow-y-auto px-6 py-5">
+          {/* Composto de largada por carro (só aparece quando a IA já escolheu). */}
+          <StartingCompoundsPanel careerId={careerId} />
+
           <div className="grid gap-3 md:grid-cols-3">
             {/* Variação de voltas (Pace Consistency) — escolhe o piloto */}
             <ChartCard

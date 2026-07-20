@@ -45,9 +45,9 @@
 .newsmag .mag-cover{position:relative;z-index:1;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:clamp(32px,5vw,72px);min-height:392px}
 .newsmag .mag-cover-frame{position:relative;display:inline-block}
 .newsmag .mag-cover-book{display:block;height:clamp(380px,58vh,560px);width:auto;object-fit:contain;filter:drop-shadow(0 30px 66px rgba(0,0,0,0.6))}
-.newsmag .mag-cover-title{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) skewX(-6deg);width:63%;text-align:center;
+.newsmag .mag-cover-title{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) skewX(-6deg);width:84%;text-align:center;
   margin:0;font-family:'Anton';font-weight:400;text-transform:uppercase;line-height:.95;letter-spacing:.01em;
-  font-size:64px;color:#f3f7fc;text-shadow:4px 4px 0 rgba(0,0,0,0.87),0 12px 68px rgba(0,0,0,0.51)}
+  font-size:57px;color:#f3f7fc;text-shadow:4px 4px 0 rgba(0,0,0,0.87),0 12px 68px rgba(0,0,0,0.51)}
 .newsmag .mag-cover-word{display:block}
 .newsmag .mag-cover-side{display:flex;flex-direction:column;align-items:flex-start;gap:14px;text-align:left}
 .newsmag .mag-cover-cap{margin:2px 0 0;font-family:'OswaldNM';font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:14px;color:#9fb6d4}
@@ -163,7 +163,8 @@
 .newsmag .mbtn.ghost:hover{color:#fff;border-color:rgba(255,255,255,0.32)}
 
 /* ── RODAPÉ: NOTÍCIAS DO MUNDO (ex-equipes / ex-companheiros do jogador) ── */
-.newsmag .world-notes{position:relative;z-index:1;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
+.newsmag .world-notes{position:relative;z-index:1;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10);transition:opacity .2s ease}
+.newsmag .mag.flipping .world-notes{opacity:0}
 .newsmag .wn-head{font-family:'OswaldNM';font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--nm-accent2);margin-bottom:10px}
 .newsmag .wn-list{display:flex;flex-direction:column;gap:8px}
 .newsmag .wn-item{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:baseline;padding:9px 12px;border-radius:9px;

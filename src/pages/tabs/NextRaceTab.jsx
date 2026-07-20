@@ -14,11 +14,9 @@ import { renderTextWithDriverMentions } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
-import {
-  buildEditorialCopy,
-  classifyChampionshipState,
-  classifyWeekendState,
-} from "./nextRaceEditorial";
+import { buildEditorialCopy, classifyChampionshipState } from "./nextRaceEditorial";
+import { selectThesis } from "./nextRaceThesis";
+import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
 // Chave de "já vi o tutorial do iRacing" (mostrado só na 1ª ida ao iRacing).
 const IRACING_TUTORIAL_KEY = "loop.iracingTutorialSeen";
@@ -73,6 +71,8 @@ function NextRaceTab() {
   const [teamStandings, setTeamStandings] = useState([]);
   const [briefingPhraseHistory, setBriefingPhraseHistory] = useState({ season_number: 0, entries: [] });
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(true);
+  // Previsão de risco de quebra do carro (aviso pré-corrida — Peça 3 / Feature 1).
+  const [breakdownForecast, setBreakdownForecast] = useState(null);
   const [briefingError, setBriefingError] = useState("");
   // Tabela do campeonato: alterna entre pilotos e construtores; hover destaca a dupla da equipe.
   const [standingsView, setStandingsView] = useState("pilotos");
@@ -99,6 +99,7 @@ function NextRaceTab() {
   const temporalSummary = useCareerStore((state) => state.temporalSummary);
   const season = useCareerStore((state) => state.season);
   const playerInterests = useCareerStore((state) => state.playerInterests);
+  const language = useCareerStore((state) => state.language);
   const isSimulating = useCareerStore((state) => state.isSimulating);
   const isAdvancing = useCareerStore((state) => state.isAdvancing);
   const careerId = useCareerStore((state) => state.careerId);
@@ -205,6 +206,20 @@ function NextRaceTab() {
     };
   }, [careerId, nextRace, playerTeam?.categoria]);
 
+  // Previsão de risco de quebra da próxima corrida (Monte Carlo sobre o desgaste real do carro).
+  useEffect(() => {
+    let active = true;
+    if (!careerId) return undefined;
+    invoke("get_breakdown_forecast", { careerId })
+      .then((f) => {
+        if (active) setBreakdownForecast(f && f.available ? f : null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [careerId, nextRace?.id]);
+
   const briefing = useMemo(
     () =>
       buildBriefingContext({
@@ -217,6 +232,7 @@ function NextRaceTab() {
         teamStandings,
         briefingPhraseHistory,
         playerInterests,
+        breakdownForecast,
       }),
     [
       player,
@@ -228,6 +244,7 @@ function NextRaceTab() {
       driverStandings,
       teamStandings,
       briefingPhraseHistory,
+      breakdownForecast,
     ],
   );
 
@@ -739,6 +756,10 @@ function NextRaceTab() {
   // Buscando a IA e ainda sem nada pra mostrar → skeleton (não o template), pra não
   // piscar o template por 1s antes da IA. `showTemplate` (debug) sempre vence.
   const showAiSkeleton = aiPending && !usingAi && !showTemplate;
+  // Sem IA e fora do skeleton: em português mostramos o template determinístico; em
+  // outro idioma, "erro na geração de texto" (não despejamos PT para quem não é PT).
+  const aiFallbackError =
+    !usingAi && !showAiSkeleton && !isPortuguese(language) ? localizedAiError(language) : null;
   // Controles de debug da IA (Rerolar / Ver template / badge): só em dev, ou se
   // VITE_AI_DEBUG=true. No build de produção ficam ocultos para o jogador.
   const showAiDebug = import.meta.env.DEV || import.meta.env.VITE_AI_DEBUG === "true";
@@ -975,6 +996,45 @@ function NextRaceTab() {
               </div>
             </WeatherButton>
 
+            {/* Risco de quebra (aviso pré-corrida) — só aparece quando dá pra prever. */}
+            {breakdownForecast?.available && (
+              <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">
+                    🔧 Risco de quebra
+                  </p>
+                  <span
+                    className="text-xs font-bold uppercase"
+                    style={{ color: riskColor(breakdownForecast.overall_level) }}
+                  >
+                    {riskLabel(breakdownForecast.overall_level)}
+                  </span>
+                </div>
+                {breakdownForecast.parts?.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {breakdownForecast.parts.map((p) => (
+                      <span
+                        key={p.part}
+                        className="rounded-lg px-2 py-1 text-[11px] font-medium"
+                        style={{
+                          background: `${riskColor(p.level)}1a`,
+                          border: `1px solid ${riskColor(p.level)}55`,
+                          color: riskColor(p.level),
+                        }}
+                        title={`${Math.round(p.any_prob * 100)}% de chance de dar problema nesta corrida`}
+                      >
+                        {p.part_name} · {Math.round(p.any_prob * 100)}%
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-500">
+                    Carro confiável — sem peças em risco relevante.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Narrativa Expandida */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">
               <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(240,195,107,0.1),transparent_65%)] pointer-events-none"></div>
@@ -1024,6 +1084,8 @@ function NextRaceTab() {
                         </p>
                       ))}
                   </>
+                ) : aiFallbackError ? (
+                  <p className="text-[15px] text-gray-500 italic leading-relaxed">{aiFallbackError}</p>
                 ) : (
                   <>
                     <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
@@ -1049,6 +1111,8 @@ function NextRaceTab() {
                       <div className="h-3.5 w-full rounded bg-white/[0.05] animate-pulse" />
                       <div className="h-3.5 w-[72%] rounded bg-white/[0.05] animate-pulse" />
                     </div>
+                  ) : aiFallbackError ? (
+                    <p className="text-sm italic text-gray-500 leading-relaxed">{aiFallbackError}</p>
                   ) : (
                     <p className="text-sm italic text-gray-200 leading-relaxed">"{renderNarrative(usingAi ? effectiveAi.teamVoice : briefing.quote)}"</p>
                   )}
@@ -1353,6 +1417,18 @@ function getFavoriteMedalTone(index) {
 }
 
 
+// Cor/rótulo do nível de risco de quebra (card da Sala de Estratégia).
+function riskColor(level) {
+  if (level === "alto") return "#f87171";
+  if (level === "médio") return "#f0b37a";
+  return "#34d399";
+}
+function riskLabel(level) {
+  if (level === "alto") return "Alto";
+  if (level === "médio") return "Médio";
+  return "Baixo";
+}
+
 export function buildBriefingContext({
   player,
   playerTeam,
@@ -1363,6 +1439,7 @@ export function buildBriefingContext({
   teamStandings,
   briefingPhraseHistory,
   playerInterests = null,
+  breakdownForecast = null,
 }) {
   const orderedDrivers = [...driverStandings].sort(
     (left, right) => (left.posicao_campeonato ?? 999) - (right.posicao_campeonato ?? 999),
@@ -1379,7 +1456,6 @@ export function buildBriefingContext({
   const trackHistory = nextRaceBriefing?.track_history ?? null;
   const briefingRival = nextRaceBriefing?.primary_rival ?? null;
   const weekendStories = normalizeWeekendStories(nextRaceBriefing?.weekend_stories);
-  const rival = resolvePrimaryRival(orderedDrivers, playerStanding, briefingRival);
   const teammate =
     playerStanding && playerStanding.equipe_id
       ? orderedDrivers.find(
@@ -1436,10 +1512,19 @@ export function buildBriefingContext({
     playerRating: playerCompetitive?.rating ?? 0,
     leaderRating: leaderCompetitive?.rating ?? 0,
   });
+  // Estrelato (Fase 3): fração do público/bilheteria que a equipe do jogador puxa
+  // (piso + prêmio de fama do lineup). Só entra na narrativa quando há valor real.
+  const publicFameShare = nextRace?.public_fame_share ?? null;
+  const fameSharePct =
+    publicFameShare != null && publicFameShare > 0 ? Math.round(publicFameShare * 100) : null;
+  const fameClause =
+    fameSharePct != null && fameSharePct >= 1
+      ? ` Sua equipe responde por cerca de ${fameSharePct}% do público esperado.`
+      : "";
   const attendanceNarrative =
-    audienceEstimate > 0
+    (audienceEstimate > 0
       ? `A expectativa do paddock aponta para ${formatAudience(audienceEstimate)} de público estimado ao longo do fim de semana.`
-      : "O paddock espera bom movimento de público nesta etapa.";
+      : "O paddock espera bom movimento de público nesta etapa.") + fameClause;
   // Abertura de temporada: enquanto ninguém pontuou, a "tabela" é só ordem de largada
   // (todos com 0 pontos). Tratar gaps/líder/posição como reais produz texto absurdo
   // ("12º, 0 pontos atrás da liderança"). Detectamos isso e usamos o estado "opener".
@@ -1451,29 +1536,6 @@ export function buildBriefingContext({
     outlook,
     gapBehind,
     championshipUnderway,
-  });
-  const weekendState = classifyWeekendState({
-    trackHistory,
-    briefingRival,
-    nextRace,
-    weekendStories,
-  });
-  const editorialCopy = buildEditorialCopy({
-    championshipState,
-    weekendState,
-    playerStanding,
-    leader,
-    rival,
-    briefingRival,
-    playerTeam,
-    nextRace,
-    trackHistory,
-    weekendStories,
-    gapToLeader,
-    gapBehind,
-    remainingRounds,
-    audienceEstimate,
-    favoriteName: favorites?.[0]?.nome ?? null,
   });
 
   // Fatos curados (PT) da PRÉVIA pré-corrida → enviados ao servidor de IA. Curtos e
@@ -1526,90 +1588,220 @@ export function buildBriefingContext({
         ? `ETAPA DE GRANDE IMPORTÂNCIA: ${eventOccasion} com casa cheia, cerca de ${formatAudience(audienceEstimate)} pessoas esperadas — vitrine e pressão extra pesam aqui.`
         : `Público estimado: cerca de ${formatAudience(audienceEstimate)} pessoas ao longo do fim de semana.`
       : null;
-  const aiFacts = [
-    // --- Cenário da etapa ---
-    `Corrida: ${nextRace?.track_name ?? "a etapa"} — temporada ${season?.ano ?? "atual"}, etapa ${currentRound} de ${totalRounds}.`,
-    player?.nome
-      ? `Piloto acompanhado pelo leitor: ${player.nome} (equipe ${playerTeam?.nome ?? "sem equipe"}).`
-      : null,
-    // --- Quadro do campeonato ---
-    // Na abertura (championshipUnderway=false) ninguém pontuou: nada de líder, gap ou
-    // "posição atrás na tabela" — só a moldura de estreia. Fora isso, quadro normal.
-    !championshipUnderway
+  // Risco de quebra (aviso pré-corrida): só entra no briefing quando é NOTÁVEL — carro
+  // confiável não vira assunto. É RISCO, não certeza (o engenheiro pode sugerir poupar).
+  const forecastParts = breakdownForecast?.parts ?? [];
+  const forecastNotable =
+    breakdownForecast?.available &&
+    (breakdownForecast.overall_level !== "baixo" || forecastParts.some((p) => p.level !== "baixo"));
+  const breakdownRiskFact = forecastNotable
+    ? (() => {
+        const risky = forecastParts
+          .filter((p) => p.level !== "baixo")
+          .slice(0, 3)
+          .map((p) => `${p.part_name} (risco ${p.level})`)
+          .join(", ");
+        const geral = breakdownForecast.overall_level === "alto" ? "ALTO" : breakdownForecast.overall_level;
+        return `RISCO DE QUEBRA DE PEÇA: risco geral de falha ${geral} nesta corrida${risky ? ` — atenção a ${risky}` : ""}. É risco, não certeza; se fizer sentido, sugira poupar o carro.`;
+      })()
+    : null;
+  // --- TESE DOMINANTE ---------------------------------------------------------
+  // Antes: ~23 fatos numa lista plana; a IA se agarrava no único bloco com carga
+  // (o DNF) e ignorava o resto. Agora elegemos UM eixo por corrida e organizamos
+  // tudo em camadas (EIXO → APOIO → PANO DE FUNDO), dando hierarquia real.
+  const lastResult = recentResults(playerStanding)[0] ?? null;
+  const climaLabel = climaWet && nextRace?.clima ? buildWeatherSummary(nextRace.clima).toLowerCase() : null;
+  const breakdownLevelLabel =
+    breakdownForecast?.overall_level === "alto" ? "ALTO" : breakdownForecast?.overall_level ?? null;
+  const breakdownPartsLabel = forecastNotable
+    ? forecastParts
+        .filter((p) => p.level !== "baixo")
+        .slice(0, 3)
+        .map((p) => `${p.part_name} (risco ${p.level})`)
+        .join(", ")
+    : null;
+  const nemesisRaw = playerInterests?.nemesis ?? null;
+  const nemesisSignal = nemesisRaw
+    ? { ...nemesisRaw, in_grid: orderedDrivers.some((d) => d.id === nemesisRaw.driver_id) }
+    : null;
+
+  const thesis = selectThesis({
+    trackName: nextRace?.track_name,
+    championshipUnderway,
+    playerIsLeader,
+    championshipState,
+    gapToLeader,
+    gapBehind,
+    remainingRounds,
+    leaderName: !playerIsLeader ? leader?.nome ?? null : null,
+    lastResult,
+    averageFinish: outlook?.averageFinish ?? null,
+    nemesis: nemesisSignal,
+    trackHistory,
+    climaWet,
+    climaLabel,
+    breakdownNotable: forecastNotable,
+    breakdownLevel: breakdownLevelLabel,
+    breakdownParts: breakdownPartsLabel,
+    grandStage: isFinaleRound || bigEvent,
+    eventOccasion: eventOccasion.charAt(0).toUpperCase() + eventOccasion.slice(1),
+    audienceLabel: audienceEstimate > 0 ? formatAudience(audienceEstimate) : null,
+  });
+
+  // Template determinístico (fallback quando a IA não responde) dirigido pela MESMA
+  // tese. Uma fonte só de verdade para o eixo do fim de semana.
+  const editorialCopy = buildEditorialCopy({
+    thesis,
+    playerStanding,
+    leader,
+    briefingRival,
+    playerTeam,
+    nextRace,
+    trackHistory,
+    gapToLeader,
+    remainingRounds,
+    nemesisName: nemesisSignal?.in_grid ? nemesisSignal.driver_name : null,
+    climaLabel,
+    eventOccasion: eventOccasion.charAt(0).toUpperCase() + eventOccasion.slice(1),
+  });
+
+  // Cada fato é gerado uma vez, indexado por id. A tese decide quem sobe pro APOIO;
+  // o resto vira PANO DE FUNDO. `null` = fato não se aplica a esta corrida.
+  const factText = {
+    championship_situation: !championshipUnderway
       ? "Abertura da temporada: ninguém pontuou ainda, todo o grid larga do zero e a tabela só começa a se formar nesta etapa."
       : playerStanding
         ? `Situação no campeonato: ${playerStanding.posicao_campeonato}º lugar, ${stateLabel}${gapToLeader > 0 ? `, a ${gapToLeader} pontos da liderança` : ""}.`
         : `Leitura do momento: ${stateLabel}.`,
-    championshipUnderway && !playerIsLeader && leader?.nome
-      ? `Líder do campeonato: ${leader.nome}, ${leader.pontos ?? 0} pontos.`
-      : null,
-    championshipUnderway && gapBehind != null
-      ? `Perseguidor direto na tabela a ${gapBehind} pontos atrás.`
-      : null,
-    `Faltam ${remainingRounds} etapa(s) após esta.`,
-    championshipUnderway
+    objective: championshipUnderway
       ? `Objetivo realista pela forma atual: ${targetLabel}.`
       : "Objetivo da estreia: começar a temporada construindo, sem correr atrás de prejuízo logo de cara.",
-    // --- Equipe e companheiro de box ---
-    championshipUnderway && teamStanding
-      ? `Equipe ${playerTeam?.nome ?? ""} está em ${teamStanding.posicao}º entre os construtores${teamStanding.pontos != null ? ` (${teamStanding.pontos} pts)` : ""}.`.replace("  ", " ")
-      : null,
-    teammate?.nome
-      ? championshipUnderway
-        ? `Companheiro de equipe: ${teammate.nome} (${teammate.posicao_campeonato}º no campeonato) — referência interna do box.`
-        : `Companheiro de equipe: ${teammate.nome} — referência interna do box já na estreia.`
-      : null,
-    // --- Rivalidade ---
-    // Na abertura o gap/posição do rival é ruído (0 pontos, ordem alfabética); só
-    // mantém uma rivalidade NOMEADA, que carrega de temporadas anteriores.
-    championshipUnderway && briefingRival?.driver_name
-      ? `Rival direto: ${briefingRival.driver_name} (${briefingRival.championship_position}º), ${briefingRival.is_ahead ? "à frente" : "atrás"} por ${briefingRival.gap_points} ponto(s).`
-      : null,
-    briefingRival?.rivalry_label
+    recent_form: recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
+    avg_finish:
+      outlook?.averageFinish != null
+        ? `Média de chegada recente: ${outlook.averageFinish.toFixed(1)}º${outlook.winCount > 0 ? `, ${outlook.winCount} vitória(s)` : ""}${outlook.podiumCount > 0 ? `, ${outlook.podiumCount} pódio(s)` : ""} nas últimas corridas.`
+        : null,
+    leader:
+      championshipUnderway && !playerIsLeader && leader?.nome
+        ? `Líder do campeonato: ${leader.nome}, ${leader.pontos ?? 0} pontos.`
+        : null,
+    chaser:
+      championshipUnderway && gapBehind != null
+        ? `Perseguidor direto na tabela a ${gapBehind} pontos atrás.`
+        : null,
+    rival_direct:
+      championshipUnderway && briefingRival?.driver_name
+        ? `Rival direto: ${briefingRival.driver_name} (${briefingRival.championship_position}º), ${briefingRival.is_ahead ? "à frente" : "atrás"} por ${briefingRival.gap_points} ponto(s).`
+        : null,
+    rivalry_label: briefingRival?.rivalry_label
       ? championshipUnderway
         ? `Essa rivalidade é conhecida como "${briefingRival.rivalry_label}".`
         : `Rivalidade que vem de temporadas anteriores: "${briefingRival.rivalry_label}" (${briefingRival.driver_name}).`
       : null,
-    // Nemesis / rivais de pista (motor de rivalidade) — o duelo pessoal vivido, só
-    // quando o rival está NESTE grid. Traz o nome da rivalidade e o retrospecto direto.
-    playerInterests?.nemesis &&
-    orderedDrivers.some((d) => d.id === playerInterests.nemesis.driver_id)
-      ? `Seu nemesis está no grid: ${playerInterests.nemesis.driver_name}${playerInterests.nemesis.label ? ` ("${playerInterests.nemesis.label}")` : ""}${playerInterests.nemesis.chapters > 0 ? ` — confronto direto ${playerInterests.nemesis.h2h_player_wins}-${playerInterests.nemesis.h2h_rival_wins}` : ""}.`
-      : null,
-    ...(playerInterests?.rivais ?? [])
-      .filter((r) => orderedDrivers.some((d) => d.id === r.driver_id))
-      .map(
-        (r) =>
-          `Rival de pista no grid: ${r.driver_name}${r.label ? ` ("${r.label}")` : ""}${r.chapters > 0 ? ` — ${r.h2h_player_wins}-${r.h2h_rival_wins}` : ""}.`,
-      ),
-    // --- Forma e histórico na pista ---
-    recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
-    outlook?.averageFinish != null
-      ? `Média de chegada recente: ${outlook.averageFinish.toFixed(1)}º${outlook.winCount > 0 ? `, ${outlook.winCount} vitória(s)` : ""}${outlook.podiumCount > 0 ? `, ${outlook.podiumCount} pódio(s)` : ""} nas últimas corridas.`
-      : null,
-    trackHistory?.has_data
+    // O nemesis só vira fato solto quando NÃO é o próprio eixo (senão duplica).
+    nemesis:
+      nemesisSignal?.in_grid && thesis.key !== "nemesis"
+        ? `Seu nemesis está no grid: ${nemesisSignal.driver_name}${nemesisSignal.label ? ` ("${nemesisSignal.label}")` : ""}${nemesisSignal.chapters > 0 ? ` — confronto direto ${nemesisSignal.h2h_player_wins}-${nemesisSignal.h2h_rival_wins}` : ""}.`
+        : null,
+    track_rivals:
+      (playerInterests?.rivais ?? [])
+        .filter((r) => orderedDrivers.some((d) => d.id === r.driver_id))
+        .map(
+          (r) =>
+            `Rival de pista no grid: ${r.driver_name}${r.label ? ` ("${r.label}")` : ""}${r.chapters > 0 ? ` — ${r.h2h_player_wins}-${r.h2h_rival_wins}` : ""}.`,
+        )
+        .join(" ") || null,
+    track_history: trackHistory?.has_data
       ? `Histórico nesta pista: ${trackHistory.starts} largada(s)${trackHistory.best_finish != null ? `, melhor resultado ${trackHistory.best_finish}º` : ""}${trackHistory.dnfs > 0 ? `, ${trackHistory.dnfs} abandono(s)` : ""}.`
-      : "Pouco ou nenhum histórico nesta pista.",
-    trackHistory?.has_data && trackHistory.last_finish != null
-      ? `Última passagem por aqui terminou em ${trackHistory.last_finish}º${trackHistory.last_visit_season != null ? ` (temporada ${trackHistory.last_visit_season})` : ""}.`
       : null,
-    // --- Favoritismo, clima e peso da etapa ---
-    topFavorite?.nome
+    track_last:
+      trackHistory?.has_data && trackHistory.last_finish != null
+        ? `Última passagem por aqui terminou em ${trackHistory.last_finish}º${trackHistory.last_visit_season != null ? ` (temporada ${trackHistory.last_visit_season})` : ""}.`
+        : null,
+    constructors:
+      championshipUnderway && teamStanding
+        ? `Equipe ${playerTeam?.nome ?? ""} está em ${teamStanding.posicao}º entre os construtores${teamStanding.pontos != null ? ` (${teamStanding.pontos} pts)` : ""}.`.replace("  ", " ")
+        : null,
+    teammate: teammate?.nome
+      ? championshipUnderway
+        ? `Companheiro de equipe: ${teammate.nome} (${teammate.posicao_campeonato}º no campeonato) — referência interna do box.`
+        : `Companheiro de equipe: ${teammate.nome} — referência interna do box já na estreia.`
+      : null,
+    favorite: topFavorite?.nome
       ? topFavoriteIsPlayer
         ? `A imprensa coloca o próprio ${topFavorite.nome} como favorito da etapa.`
         : `Favorito da etapa pela imprensa: ${topFavorite.nome}.`
       : null,
-    weatherFact,
-    importanceFact,
-    // --- Pautas do fim de semana (a primeira com resumo) ---
-    leadStory ? `Pauta do fim de semana: ${leadStory.title}${leadStory.summary ? ` — ${leadStory.summary}` : ""}.` : null,
-    ...weekendStories.slice(1, 3).map((s) => `Outra pauta: ${s.title}.`),
+    weather: weatherFact,
+    importance: importanceFact,
+    breakdown: breakdownRiskFact,
+    story_lead: leadStory
+      ? `Pauta do fim de semana: ${leadStory.title}${leadStory.summary ? ` — ${leadStory.summary}` : ""}.`
+      : null,
+    story_others: weekendStories.slice(1, 3).map((s) => `Outra pauta: ${s.title}.`).join(" ") || null,
+  };
+
+  // Ordem estável em que os fatos aparecem dentro de cada camada.
+  const FACT_ORDER = [
+    "championship_situation",
+    "objective",
+    "recent_form",
+    "avg_finish",
+    "leader",
+    "chaser",
+    "rival_direct",
+    "rivalry_label",
+    "nemesis",
+    "track_rivals",
+    "track_history",
+    "track_last",
+    "constructors",
+    "teammate",
+    "favorite",
+    "weather",
+    "importance",
+    "breakdown",
+    "story_lead",
+    "story_others",
+  ];
+
+  const cenario = [
+    `Corrida: ${nextRace?.track_name ?? "a etapa"} — temporada ${season?.ano ?? "atual"}, etapa ${currentRound} de ${totalRounds}.`,
+    player?.nome ? `Piloto acompanhado pelo leitor: ${player.nome} (equipe ${playerTeam?.nome ?? "sem equipe"}).` : null,
   ]
     .filter(Boolean)
-    .join("\n");
+    .join(" ");
+
+  const apoio = [];
+  const fundo = [];
+  for (const id of FACT_ORDER) {
+    const text = factText[id];
+    if (!text) continue;
+    if (thesis.support.has(id)) apoio.push(text);
+    else fundo.push(text);
+  }
+
+  const aiFacts = [
+    `CENÁRIO: ${cenario}`,
+    "",
+    "EIXO DA CORRIDA — o gancho que esta prévia deve desenvolver (é o coração do texto, não uma linha solta; construa a narrativa a partir dele):",
+    thesis.statement,
+    ...(apoio.length
+      ? ["", "APOIO — fatos que sustentam o eixo (use os que reforçarem a história):", ...apoio.map((t) => `- ${t}`)]
+      : []),
+    ...(fundo.length
+      ? [
+          "",
+          "PANO DE FUNDO — contexto secundário (use com parcimônia, só se couber; NÃO liste como estatística nem force todos):",
+          ...fundo.map((t) => `- ${t}`),
+        ]
+      : []),
+  ].join("\n");
 
   return {
     aiFacts,
+    thesisKey: thesis.key,
+    thesisTitle: thesis.title,
     audienceEstimate,
     audienceRankLabel: buildAudienceRankLabel(nextRace, season),
     eventDateShort: formatEventSummaryDate(nextRace?.display_date),
@@ -1619,8 +1811,6 @@ export function buildBriefingContext({
       ? "Ao vivo"
       : buildTeamExpectationValue({ playerStanding, teamStanding, gapToLeader, outlook }),
     headline: editorialCopy.headline,
-    historyValue: editorialCopy.historyValue,
-    historyMeta: editorialCopy.historyMeta,
     paragraphs: editorialCopy.paragraphs,
     goals: buildGoals({
       playerStanding,
@@ -1640,13 +1830,11 @@ export function buildBriefingContext({
     standingsTopFive,
     gapToLeaderLabel: gapToLeader === 0 ? "Liderança" : `${gapToLeader} pts`,
     gapBehindLabel: gapBehind == null ? "Sem perseguidor direto" : `${gapBehind} pts`,
-    scenario: editorialCopy.scenario,
     progressPercent: Math.max(5, Math.min(100, Math.round((currentRound / totalRounds) * 100))),
     progressLabel: `${currentRound}/${totalRounds}`,
     quote: editorialCopy.quote,
     teamVoiceLabel: playerTeam?.nome ?? "Equipe do jogador",
     teamColor: playerTeam?.cor_primaria ?? null,
-    paddockSupport: editorialCopy.paddockSupport ?? attendanceNarrative,
     attendanceNarrative,
     weatherIcon: buildWeatherIcon(nextRace?.clima),
     weatherSummary: buildWeatherSummary(nextRace?.clima),
@@ -1659,11 +1847,7 @@ export function buildBriefingContext({
     timePeriodPrefix: buildTimePeriodPrefix(nextRace?.horario),
     timePeriodHighlight: buildTimePeriodHighlight(nextRace?.horario),
     actionHint: editorialCopy.actionHint,
-    rivalSummary: editorialCopy.rivalSummary,
-    rivalSupport: editorialCopy.rivalSupport,
     weekendStories,
-    weekendStoriesMeta: editorialCopy.weekendStoriesMeta,
-    weekendStoriesEmpty: editorialCopy.weekendStoriesEmpty,
   };
 }
 
@@ -1679,27 +1863,6 @@ function normalizeWeekendStories(stories) {
     summary: story.summary,
     importanceLabel: story.importance ?? "Contexto",
   }));
-}
-
-function resolvePrimaryRival(orderedDrivers, playerStanding, briefingRival) {
-  if (briefingRival?.driver_id) {
-    const matchingDriver = orderedDrivers.find((driver) => driver.id === briefingRival.driver_id);
-    if (matchingDriver) {
-      return matchingDriver;
-    }
-
-    return {
-      id: briefingRival.driver_id,
-      nome: briefingRival.driver_name,
-      posicao_campeonato: briefingRival.championship_position,
-      pontos:
-        briefingRival.is_ahead || !playerStanding
-          ? (playerStanding?.pontos ?? 0) + (briefingRival.gap_points ?? 0)
-          : Math.max(0, (playerStanding?.pontos ?? 0) - (briefingRival.gap_points ?? 0)),
-    };
-  }
-
-  return resolveDirectRival(orderedDrivers, playerStanding);
 }
 
 function buildCompetitiveOutlook({ playerStanding, leader, remainingRounds, playerRating, leaderRating }) {
@@ -1756,18 +1919,6 @@ function buildCompetitiveOutlook({ playerStanding, leader, remainingRounds, play
     racesLeftIncludingCurrent,
     gapToLeader,
   };
-}
-
-function resolveDirectRival(driverStandings, playerStanding) {
-  if (!playerStanding || playerStanding.posicao_campeonato <= 0) {
-    return null;
-  }
-
-  if (playerStanding.posicao_campeonato === 1) {
-    return driverStandings[1] ?? null;
-  }
-
-  return driverStandings[playerStanding.posicao_campeonato - 2] ?? null;
 }
 
 function buildFavoriteRating(driver) {

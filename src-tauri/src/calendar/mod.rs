@@ -64,6 +64,58 @@ const SPECIAL_WINDOW_END_MONTH: u32 = 12;
 
 const SCHEDULE_HOURS: [&str; 5] = ["10:00", "12:00", "14:00", "16:00", "18:00"];
 
+/// Horário exibido na etapa NOTURNA garantida (a hora real de largada exportada
+/// pro iRacing vem de `weather::night_start_hour`, atrelada à estação).
+const NIGHT_SCHEDULE_HOUR: &str = "21:00";
+
+/// Pista com iluminação (Charlotte Roval) — preferida para a corrida noturna.
+const LIT_TRACK_ID: u32 = 556;
+
+/// Uma etapa é noturna quando começa às 20h ou depois (distingue do 18h diurno).
+pub fn is_night_horario(horario: &str) -> bool {
+    horario
+        .split(':')
+        .next()
+        .and_then(|hh| hh.trim().parse::<i32>().ok())
+        .is_some_and(|h| h >= 20)
+}
+
+/// Garante ao menos UMA corrida noturna na temporada, NUNCA a primeira nem a
+/// última rodada (decisão do user). Preserva a regra "rookie (tier 0) nunca de
+/// noite" — pula categorias rookie. Precisa de ≥3 rodadas (para sobrar um miolo).
+/// Prefere a pista iluminada (Charlotte) se ela cair no miolo; senão, escolhe uma
+/// rodada do miolo de forma determinística pelo `rng`.
+fn ensure_night_race<R: Rng>(entries: &mut [CalendarEntry], tier: u8, rng: &mut R) {
+    if tier == 0 || entries.len() < 3 {
+        return;
+    }
+    let max_rodada = entries.iter().map(|e| e.rodada).max().unwrap_or(0);
+    // Já existe uma noturna no miolo? Então não força outra.
+    let has_night = entries
+        .iter()
+        .any(|e| e.rodada != 1 && e.rodada != max_rodada && is_night_horario(&e.horario));
+    if has_night {
+        return;
+    }
+    // Índices elegíveis (miolo): nem a 1ª nem a última rodada.
+    let eligible: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.rodada != 1 && e.rodada != max_rodada)
+        .map(|(i, _)| i)
+        .collect();
+    if eligible.is_empty() {
+        return;
+    }
+    // Preferir Charlotte (iluminada) se estiver no miolo; senão, uma rodada aleatória.
+    let chosen = eligible
+        .iter()
+        .copied()
+        .find(|&i| entries[i].track_id == LIT_TRACK_ID)
+        .unwrap_or_else(|| eligible[rng.gen_range(0..eligible.len())]);
+    entries[chosen].horario = NIGHT_SCHEDULE_HOUR.to_string();
+}
+
 // ── Funções de produção (season_year obrigatório) ─────────────────────────────
 
 /// Gera o calendário de uma categoria para uso em produção.
@@ -366,6 +418,9 @@ where
             )
         })
         .collect();
+
+    let mut entries: Vec<CalendarEntry> = entries;
+    ensure_night_race(&mut entries, config.tier, rng);
 
     Ok(entries)
 }
@@ -680,6 +735,9 @@ where
             )
         })
         .collect();
+
+    let mut entries: Vec<CalendarEntry> = entries;
+    ensure_night_race(&mut entries, config.tier, rng);
 
     Ok(entries)
 }
@@ -998,12 +1056,16 @@ fn random_weather(rain_track_id: u32, rng: &mut impl Rng) -> WeatherCondition {
     }
 }
 
+/// Placeholder de temperatura na criação do calendário — a temperatura DEFINITIVA
+/// é derivada da história de chuva no export (`weather::story_temperature`) e
+/// persistida por cima. Mantida na faixa observada no iRacing [18, 32] pra não
+/// destoar antes do 1º export.
 fn random_temperature(clima: WeatherCondition, rng: &mut impl Rng) -> f64 {
     let (min, max) = match clima {
-        WeatherCondition::Dry => (20.0, 35.0),
-        WeatherCondition::Damp => (15.0, 25.0),
-        WeatherCondition::Wet => (12.0, 22.0),
-        WeatherCondition::HeavyRain => (10.0, 20.0),
+        WeatherCondition::Dry => (24.0, 32.0),
+        WeatherCondition::Damp => (20.0, 26.0),
+        WeatherCondition::Wet => (18.0, 23.0),
+        WeatherCondition::HeavyRain => (18.0, 21.0),
     };
     (rng.gen_range(min..=max) * 10.0_f64).round() / 10.0_f64
 }
@@ -1931,6 +1993,55 @@ mod tests {
                 strong.contains(&last.track_id),
                 "seed {seed}: endurance final {} não é strong",
                 last.track_id
+            );
+        }
+    }
+
+    // ── Corrida noturna garantida (≥1/temporada, nunca a 1ª/última) ──────────────
+
+    #[test]
+    fn is_night_horario_threshold() {
+        assert!(is_night_horario("21:00"));
+        assert!(is_night_horario("20:00"));
+        assert!(!is_night_horario("18:00"));
+        assert!(!is_night_horario("14:00"));
+        assert!(!is_night_horario("10:00"));
+    }
+
+    #[test]
+    fn tier1_sempre_uma_noturna_no_miolo() {
+        // Toda temporada tier 1+ tem EXATAMENTE uma noturna, nunca a 1ª nem a última.
+        for seed in 0..40u64 {
+            let mut rng = StdRng::seed_from_u64(seed + 5000);
+            let cal =
+                generate_calendar_for_category("S001", "gt3", &mut rng).expect("gt3 calendar");
+            let max_rodada = cal.iter().map(|e| e.rodada).max().unwrap();
+            let night: Vec<&CalendarEntry> =
+                cal.iter().filter(|e| is_night_horario(&e.horario)).collect();
+            assert_eq!(
+                night.len(),
+                1,
+                "seed {seed}: esperava exatamente 1 noturna, achou {}",
+                night.len()
+            );
+            let r = night[0].rodada;
+            assert!(
+                r != 1 && r != max_rodada,
+                "seed {seed}: noturna na rodada {r} (proibido 1ª/{max_rodada}ª)"
+            );
+        }
+    }
+
+    #[test]
+    fn rookie_nunca_tem_noturna() {
+        // Preserva a regra "rookie (tier 0) nunca de noite".
+        for seed in 0..40u64 {
+            let mut rng = StdRng::seed_from_u64(seed + 6000);
+            let cal = generate_calendar_for_category("S001", "mazda_rookie", &mut rng)
+                .expect("rookie calendar");
+            assert!(
+                cal.iter().all(|e| !is_night_horario(&e.horario)),
+                "seed {seed}: rookie não deveria ter corrida noturna"
             );
         }
     }

@@ -9,4 +9,5 @@ pub mod license;
 pub mod rivalry;
 pub mod season;
 pub mod team;
+pub mod team_rivalry;
 pub mod temporal;

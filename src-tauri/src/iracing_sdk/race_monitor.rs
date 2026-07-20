@@ -252,6 +252,44 @@ fn g_force(t: &IracingTelemetry) -> f64 {
         / GRAVITY
 }
 
+/// Clima EFETIVO do Sistema de Quebra: blend do baseline FIXO da corrida (do calendário, Peça 1)
+/// com os canais VIVOS do SDK (Peça 2). Cada canal usa o vivo quando plausível/presente, senão
+/// cai no baseline — captura o arco de chuva e a deriva de temperatura sem "sumir" o clima nos
+/// primeiros segundos (antes da sessão popular os canais) nem em conteúdo que não reporte algum.
+/// Progresso da corrida por TEMPO (0..1), do tempo de sessão do SDK. `(total − restante)/total`.
+/// Fora de uma corrida com relógio (total ≤ 0) → 0. Só o enduro usa (rampa de desgaste do fim).
+fn session_progress(t: &IracingTelemetry) -> f64 {
+    if t.session_time_total > 0.0 {
+        ((t.session_time_total - t.session_time_remain) / t.session_time_total).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+fn effective_weather(
+    t: &IracingTelemetry,
+    baseline: crate::car::breakdown::Weather,
+) -> crate::car::breakdown::Weather {
+    let mut w = baseline;
+    // Temperatura do ar: usa o vivo se plausível (> 0 °C).
+    if t.air_temp > 0.0 {
+        w.temperature = t.air_temp;
+    }
+    // Molhado: `TrackWetness` 0=Unknown; 1=Dry .. 7=ExtremelyWet → 0..1. Só sobrepõe se conhecido.
+    if t.track_wetness >= 1 {
+        w.wetness = (((t.track_wetness - 1) as f64) / 6.0).clamp(0.0, 1.0);
+    }
+    // Umidade relativa (fração 0..1) → %. Só se lida (> 0).
+    if t.relative_humidity > 0.0 {
+        w.humidity = (t.relative_humidity * 100.0).clamp(0.0, 100.0);
+    }
+    // Vento m/s → km/h. Só se lido (> 0).
+    if t.wind_ms > 0.0 {
+        w.wind_kmh = t.wind_ms * 3.6;
+    }
+    w
+}
+
 // ─── Modelo exposto à UI ─────────────────────────────────────────────────────
 /// Uma batida registrada numa tentativa.
 #[derive(Clone, Serialize)]
@@ -307,6 +345,11 @@ pub struct Attempt {
     /// dominante do G-force. Base do dano por peça na batida (`car::crash`).
     #[serde(default)]
     pub peak_impact_dir: Option<String>,
+    /// Estilo de pilotagem do JOGADOR acumulado ao longo da tentativa (inputs do SDK tick a
+    /// tick). Vira fator de desgaste por peça (economizar → desconto; abusar → espiral). Só o
+    /// jogador acumula; a IA fica no default neutro.
+    #[serde(default)]
+    pub style: crate::car::driving_style::StyleAccumulator,
 }
 
 /// Um evento discreto da corrida (saída do RaceEventEngine).
@@ -633,6 +676,37 @@ struct Snapshot {
     lap_completed: i32,
 }
 
+/// Desfecho de UMA quebra disparada ao vivo (registro estruturado, além do comando `!black`/
+/// `!dq`). Acumula no `breakdown_log` a corrida toda e é drenado no import → tabela
+/// `race_breakdowns` + debrief/notícia. `part`/`severity` como chave estável; `label` = a frase
+/// do problema concreto (peça + modo + severidade).
+#[derive(Clone, Debug, Serialize)]
+pub struct BreakdownOutcome {
+    pub car_number: u32,
+    pub part: String,
+    pub problem: u8,
+    pub lap: u32,
+    pub severity: String,
+    pub penalty_secs: Option<u32>,
+    pub forced: bool,
+    pub label: String,
+}
+
+impl BreakdownOutcome {
+    fn from_event(car_number: u32, ev: &crate::car::breakdown::BreakdownEvent) -> Self {
+        Self {
+            car_number,
+            part: ev.part.as_str().to_string(),
+            problem: ev.problem,
+            lap: ev.lap,
+            severity: ev.severity.key().to_string(),
+            penalty_secs: ev.penalty_secs,
+            forced: ev.forced,
+            label: ev.problem_label().to_string(),
+        }
+    }
+}
+
 struct RaceMonitor {
     // Tentativas
     prev: Option<Snapshot>,
@@ -705,6 +779,9 @@ struct RaceMonitor {
     player_incidents: Vec<PlayerIncidentMark>,
     /// Número do carro (`CarNumberRaw`) por carro — ponte p/ driver_id (Fase 3).
     car_number: [i32; 64],
+    /// Redline do carro (`DriverInfo:DriverCarRedLine`) — referência do estilo de pilotagem
+    /// (colado no limitador / short-shift). `None` até o YAML ser lido.
+    car_redline: Option<f64>,
     /// Pista da sessão (`WeekendInfo:TrackID`) — copiada para o histórico.
     session_track_id: i64,
     /// Identidade única do evento (`WeekendInfo:SubSessionID`).
@@ -773,6 +850,83 @@ struct RaceMonitor {
     sec_enter_time: f64,
     /// Entrou NESTE setor no começo dele (não no meio) → o parcial é válido.
     sec_clean: bool,
+
+    // ── Disparo de quebra AO VIVO (Sistema de Quebra) ───────────────────────
+    /// Diretor da quebra da grade toda (por número de carro) — montado no verde/armado no
+    /// debug. `None` = nada a disparar. A avaliação por volta produz comandos aqui.
+    breakdown: Option<crate::car::breakdown::BreakdownDirector>,
+    /// Comandos de admin (`!black`/`!dq`) a enviar — drenados FORA do lock e mandados via
+    /// `send_chat_text` (que foca a janela + SendInput, não pode rodar segurando o lock).
+    pending_breakdown_cmds: Vec<String>,
+    /// DEBUG: pediu-se armar a GRADE TODA — montada no próximo tick (com `t.cars` em mãos,
+    /// pra prender cada carro na volta atual). Uma peça perto de quebrar por carro.
+    arm_grid_pending: bool,
+    /// Clima FIXO da corrida (do export) que alimenta o `on_lap` do disparo REAL. `NEUTRAL`
+    /// até um diretor de produção ser instalado. O clima vivo do SDK é o próximo refino (Peça 2).
+    breakdown_weather: crate::car::breakdown::Weather,
+    /// Estado de quebra do JOGADOR pendente de VÍNCULO: o número do jogador só é conhecido AO
+    /// VIVO (`CarNumberRaw`), então o export guarda o `LiveBreakdown` dele aqui e o monitor o
+    /// liga ao diretor no verde. `None` = jogador fora do disparo (ou já vinculado).
+    pending_player_live: Option<crate::car::breakdown::LiveBreakdown>,
+    /// Diretor de produção recém-instalado ainda NÃO preso à volta atual — o monitor faz o
+    /// `prime_lap` de todos os carros no primeiro tick verde pra não retroagir voltas passadas.
+    breakdown_needs_prime: bool,
+    /// Estado de ALERTA de quebra por car_idx, pro overlay: quando uma peça larga o carro entra
+    /// em alerta (leve/grave) até SAIR do box reparado; DNF fica persistente. Alimenta o
+    /// triângulo laranja/vermelho e a bandeira preta da torre. Separado da fila de comandos
+    /// (que é consumida e some) — este estado dura enquanto o problema existe.
+    breakdown_alert: [Option<BreakdownAlert>; 64],
+    /// `on_pit_road` do tick anterior por car_idx — detecta a SAÍDA do box (reparou → apaga o
+    /// alerta de penalidade). Usado só pela máquina de estados do alerta.
+    breakdown_prev_on_pit: [bool; 64],
+    /// Log ESTRUTURADO dos desfechos de quebra da corrida (Peça 3) — acumula a corrida toda e é
+    /// drenado no import → tabela `race_breakdowns` + debrief/notícia. Separado da fila de
+    /// comandos (consumida e some) e do alerta do overlay (estado vivo).
+    breakdown_log: Vec<BreakdownOutcome>,
+    /// Paradas de REPARO: `(car_idx, volta de entrada)` — o carro entrou no box com peça
+    /// quebrada (penalidade ativa). Alimenta o ícone de "peça" (triângulo) NO LUGAR do pneu na
+    /// coluna de paradas do overlay. Zerado ao instalar um diretor novo.
+    breakdown_repair_laps: Vec<(i32, u32)>,
+    /// `session_time` da ÚLTIMA quebra de cada carro (car_idx). Alimenta o FLASH de 5 s na
+    /// torre (a linha do piloto pisca quando o rádio anuncia o problema). 0 = nunca quebrou.
+    breakdown_flash_at: [f64; 64],
+    /// Progresso da corrida por TEMPO (0..1), atualizado a cada tick da grade a partir do
+    /// tempo de sessão. Só o enduro usa (rampa de desgaste do fim); o tick do jogador reusa.
+    breakdown_progress: f64,
+    /// AVISO pessoal: peças do JOGADOR que já cruzaram o limiar de risco (`RISK_OPEN`) nesta
+    /// corrida, por índice em `PartType::ALL`. Rearma quando a peça sai da zona (troca/reparo).
+    player_risk_warned: [bool; 11],
+    /// Log dos avisos pessoais (peça do jogador entrou na zona de risco) — o overlay mostra num
+    /// card DISTINTO (voz em 2ª pessoa). Zerado ao instalar um diretor novo.
+    player_warning_log: Vec<PlayerWarning>,
+}
+
+/// Aviso pessoal ao jogador: uma peça DELE entrou na janela de risco (já pode falhar).
+#[derive(Clone)]
+pub struct PlayerWarning {
+    /// Chave da peça (`PartType::as_str`, ex.: "engine").
+    pub part: &'static str,
+    /// Desgaste no momento do aviso, em % (≥ 95).
+    pub wear_pct: u8,
+}
+
+/// Alerta de quebra de UM carro pro overlay: a severidade (vira triângulo laranja/vermelho no
+/// leve/grave, ou bandeira preta no DNF) + se o carro já ENTROU no box desde a quebra (pra
+/// apagar o alerta de penalidade quando ele SAIR reparado).
+#[derive(Clone, Copy)]
+struct BreakdownAlert {
+    severity: crate::car::breakdown::Severity,
+    entered_pit_since: bool,
+}
+
+/// Passo puro da máquina de apagar o alerta de PENALIDADE: dado o "já entrou no box desde a
+/// quebra", o "está no box agora" e o "estava no box no tick anterior", devolve
+/// `(novo_entered_since, apagar)`. Apaga quando o carro SAI do box (true→false) já tendo
+/// entrado desde a quebra = serviu a penalidade / reparou. (DNF não passa por aqui — é fixo.)
+fn pit_clear_step(entered_since: bool, on_pit: bool, prev_on_pit: bool) -> (bool, bool) {
+    let entered = entered_since || on_pit;
+    let clear = prev_on_pit && !on_pit && entered;
+    (entered, clear)
 }
 
 impl RaceMonitor {
@@ -826,6 +980,7 @@ impl RaceMonitor {
             player_pit_seen: false,
             player_incidents: Vec::new(),
             car_number: [0; 64],
+            car_redline: None,
             session_track_id: 0,
             session_subsession_id: 0,
             qualy_session_num: -1,
@@ -854,7 +1009,46 @@ impl RaceMonitor {
             sec_prev: -1,
             sec_enter_time: 0.0,
             sec_clean: false,
+            breakdown: None,
+            pending_breakdown_cmds: Vec::new(),
+            arm_grid_pending: false,
+            breakdown_weather: crate::car::breakdown::Weather::NEUTRAL,
+            pending_player_live: None,
+            breakdown_needs_prime: false,
+            breakdown_alert: [None; 64],
+            player_risk_warned: [false; 11],
+            player_warning_log: Vec::new(),
+            breakdown_prev_on_pit: [false; 64],
+            breakdown_log: Vec::new(),
+            breakdown_repair_laps: Vec::new(),
+            breakdown_flash_at: [0.0; 64],
+            breakdown_progress: 0.0,
         }
+    }
+
+    /// PRODUÇÃO: instala o diretor de quebra montado com o DESGASTE REAL de cada time (vem do
+    /// export, que tem DB + o grid + os números). O `player_live` guarda o estado do JOGADOR
+    /// (número dele só é conhecido ao vivo → vinculado no verde). O clima da corrida (fixo, do
+    /// calendário) alimenta o `on_lap`. Substitui qualquer diretor/arme debug anterior.
+    fn install_breakdown_director(
+        &mut self,
+        dir: crate::car::breakdown::BreakdownDirector,
+        player_live: Option<crate::car::breakdown::LiveBreakdown>,
+        weather: crate::car::breakdown::Weather,
+    ) {
+        self.breakdown = Some(dir);
+        self.pending_player_live = player_live;
+        self.breakdown_weather = weather;
+        self.breakdown_needs_prime = true;
+        self.arm_grid_pending = false; // produção sobrepõe o arme debug da grade
+        self.breakdown_alert = [None; 64]; // corrida nova → zera os alertas do overlay
+        self.breakdown_prev_on_pit = [false; 64];
+        self.breakdown_repair_laps.clear();
+        self.breakdown_flash_at = [0.0; 64];
+        self.breakdown_progress = 0.0;
+        self.breakdown_log.clear(); // corrida nova → zera o log de desfechos (Peça 3)
+        self.player_risk_warned = [false; 11]; // corrida nova → rearma os avisos pessoais
+        self.player_warning_log.clear();
     }
 
     /// Monta o diagnóstico por carro (o que o RaceControl enxerga de cada um).
@@ -943,6 +1137,231 @@ impl RaceMonitor {
     fn set_session_track_id(&mut self, track_id: i64) {
         if track_id > 0 {
             self.session_track_id = track_id;
+        }
+    }
+
+    /// Guarda o redline do carro (do `DriverInfo:DriverCarRedLine`) pro estilo de pilotagem.
+    fn set_car_redline(&mut self, redline: Option<f64>) {
+        if let Some(rpm) = redline {
+            if rpm > 0.0 {
+                self.car_redline = Some(rpm);
+            }
+        }
+    }
+
+    /// Número do carro do JOGADOR nesta sessão (do `CarNumberRaw`), se conhecido.
+    fn player_car_number(&self) -> Option<u32> {
+        let idx = self.history.player_car_idx;
+        if idx < 0 || idx as usize >= self.car_number.len() {
+            return None;
+        }
+        let n = self.car_number[idx as usize];
+        if n > 0 {
+            Some(n as u32)
+        } else {
+            None
+        }
+    }
+
+    /// DEBUG: arma uma quebra GARANTIDA no carro do jogador pra próxima volta cruzada (motor
+    /// na parede → falha forçada). Serve pra testar o disparo ao vivo ponta a ponta na pista.
+    /// Devolve `true` se conseguiu armar (jogador em sessão + número conhecido).
+    fn arm_test_breakdown(&mut self) -> bool {
+        let Some(car_num) = self.player_car_number() else {
+            return false;
+        };
+        let mut car = crate::car::Car::uniform(3);
+        car.set_wear(crate::car::PartType::Engine, 1.10); // além da parede (105%)
+        let live = crate::car::breakdown::LiveBreakdown::new(&car, 1, 50.0, (1.0, 1.0, 1.0));
+        let mut dir = crate::car::breakdown::BreakdownDirector::new();
+        dir.add_car(car_num, live, Vec::new());
+        // Começa da volta atual → dispara na PRÓXIMA cruzada, não retroage.
+        dir.prime_lap(car_num, self.live_lap.max(0) as u32);
+        self.breakdown = Some(dir);
+        true
+    }
+
+    /// Avalia a quebra do carro do jogador nesta volta e enfileira os comandos. Chamado por
+    /// tick no `process_player`; o diretor deduplica por volta (só avança pra frente).
+    fn tick_breakdown_player(&mut self, lap_completed: i32) {
+        if self.breakdown.is_none() {
+            return;
+        }
+        let Some(car_num) = self.player_car_number() else {
+            return;
+        };
+        let idx = self.history.player_car_idx;
+        let lap = lap_completed.max(0) as u32;
+        // Clima FIXO da corrida (do export); NEUTRAL no arme debug. Clima vivo do SDK = Peça 2.
+        let weather = self.breakdown_weather;
+        let progress = self.breakdown_progress; // enduro: rampa de fim (a grade atualiza)
+        let evs = self.breakdown.as_mut().unwrap().on_lap_at(car_num, lap, weather, progress);
+        for ev in evs {
+            self.pending_breakdown_cmds.push(ev.command(car_num));
+            self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));
+            if idx >= 0 && (idx as usize) < 64 {
+                self.breakdown_alert[idx as usize] =
+                    Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+            }
+        }
+
+        // AVISO pessoal: peças do jogador que ENTRARAM na zona de risco (≥ 95%). Avisa cada
+        // peça UMA vez; rearma quando ela sai da zona (troca/reparo/quebra). `danger` é dono
+        // (Vec), então o borrow do diretor fecha antes de mexer no estado de aviso.
+        let danger = self.breakdown.as_ref().unwrap().car_parts_in_danger(car_num);
+        let mut in_danger = [false; 11];
+        for (i, pt, wear) in &danger {
+            in_danger[*i] = true;
+            if !self.player_risk_warned[*i] {
+                self.player_risk_warned[*i] = true;
+                self.player_warning_log.push(PlayerWarning {
+                    part: pt.as_str(),
+                    wear_pct: (wear * 100.0).round().clamp(0.0, 255.0) as u8,
+                });
+            }
+        }
+        for i in 0..11 {
+            if !in_danger[i] {
+                self.player_risk_warned[i] = false;
+            }
+        }
+    }
+
+    /// DEBUG: pede armar a GRADE TODA (montada no próximo tick com `t.cars`).
+    fn request_arm_grid(&mut self) {
+        self.arm_grid_pending = true;
+    }
+
+    /// Avalia a quebra de TODOS os carros da sessão nesta volta (usa a volta de cada carro do
+    /// `t.cars`). Se foi pedido armar a grade, monta agora: uma peça perto de quebrar (~0.97)
+    /// por carro, presa na volta atual. Só correndo. O diretor deduplica por volta.
+    fn tick_breakdown_grid(&mut self, t: &IracingTelemetry) {
+        let racing = t.session_state == STATE_RACING;
+        if self.arm_grid_pending && racing {
+            let mut dir = crate::car::breakdown::BreakdownDirector::new();
+            for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+                let num = self.car_number[c.idx as usize];
+                if num <= 0 {
+                    continue;
+                }
+                // Uma peça (variando por carro) perto de quebrar; o resto sadio.
+                let seed = (num as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x00B4_EA12;
+                let part = crate::car::PartType::ALL[(num as usize) % crate::car::PartType::ALL.len()];
+                let mut car = crate::car::Car::uniform(3);
+                car.set_wear(part, 0.97);
+                let live = crate::car::breakdown::LiveBreakdown::new(&car, seed, 50.0, (1.0, 1.0, 1.0));
+                dir.add_car(num as u32, live, Vec::new());
+                dir.prime_lap(num as u32, c.lap_completed.max(0) as u32);
+            }
+            self.breakdown = Some(dir);
+            self.arm_grid_pending = false;
+        }
+        if self.breakdown.is_none() || !racing {
+            return;
+        }
+        // PRODUÇÃO: no primeiro tick verde após instalar o diretor real, prende cada carro na
+        // volta atual (não retroage) e VINCULA o jogador (número só conhecido agora, ao vivo).
+        if self.breakdown_needs_prime {
+            if let Some(live) = self.pending_player_live.take() {
+                if let Some(pnum) = self.player_car_number() {
+                    self.breakdown.as_mut().unwrap().add_car(pnum, live, Vec::new());
+                }
+            }
+            let dir = self.breakdown.as_mut().unwrap();
+            for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+                let num = self.car_number[c.idx as usize];
+                if num > 0 {
+                    dir.prime_lap(num as u32, c.lap_completed.max(0) as u32);
+                }
+            }
+            self.breakdown_needs_prime = false;
+        }
+        // Clima VIVO do SDK (Peça 2): blend do baseline fixo com os canais ao vivo — captura o
+        // arco de chuva e a deriva de temperatura na volta em que cada carro cruza.
+        let weather = effective_weather(t, self.breakdown_weather);
+        // Progresso por tempo (enduro): guarda pro tick do jogador reusar.
+        let progress = session_progress(t);
+        self.breakdown_progress = progress;
+        for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+            let idx = c.idx as usize;
+            let num = self.car_number[idx];
+            if num <= 0 {
+                continue;
+            }
+            let car_num = num as u32;
+            let lap = c.lap_completed.max(0) as u32;
+            let evs = self.breakdown.as_mut().unwrap().on_lap_at(car_num, lap, weather, progress);
+            for ev in evs {
+                self.pending_breakdown_cmds.push(ev.command(car_num));
+                self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));
+                // Estado de alerta pro overlay: última peça a largar manda (leve/grave/DNF).
+                self.breakdown_alert[idx] =
+                    Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+                // Carimba o instante → flash de 5 s na torre (junto do rádio do engenheiro).
+                self.breakdown_flash_at[idx] = t.session_time;
+            }
+            // Apaga o alerta de PENALIDADE quando o carro sai do box reparado. DNF é fixo.
+            let on_pit = c.on_pit_road;
+            let prev = self.breakdown_prev_on_pit[idx];
+            self.breakdown_prev_on_pit[idx] = on_pit;
+            let mut clear = false;
+            let mut record_repair = false;
+            if let Some(al) = self.breakdown_alert[idx].as_mut() {
+                if al.severity != crate::car::breakdown::Severity::Dnf {
+                    // Entrou no box (false→true) com peça quebrada = parada de REPARO.
+                    record_repair = on_pit && !prev;
+                    let (entered, do_clear) = pit_clear_step(al.entered_pit_since, on_pit, prev);
+                    al.entered_pit_since = entered;
+                    clear = do_clear;
+                }
+            }
+            if record_repair {
+                self.breakdown_repair_laps.push((c.idx, c.lap_completed.max(0) as u32));
+            }
+            if clear {
+                self.breakdown_alert[idx] = None;
+            }
+        }
+    }
+
+    /// Snapshot dos alertas de quebra ativos, por car_idx, pro overlay:
+    /// `(car_idx, kind)` com kind ∈ "light" | "heavy" | "dnf". Vazio = sem alerta.
+    fn breakdown_alerts_snapshot(&self) -> Vec<(i32, &'static str)> {
+        use crate::car::breakdown::Severity;
+        let mut out = Vec::new();
+        for (idx, slot) in self.breakdown_alert.iter().enumerate() {
+            if let Some(al) = slot {
+                let kind = match al.severity {
+                    Severity::Light => "light",
+                    Severity::Heavy => "heavy",
+                    Severity::Dnf => "dnf",
+                };
+                out.push((idx as i32, kind));
+            }
+        }
+        out
+    }
+
+    /// car_idx cujo FLASH ainda está ativo (quebrou nos últimos [`FLASH_SECS`] s). A torre pisca
+    /// a linha desses pilotos, em sincronia com o rádio do engenheiro.
+    fn breakdown_flash_idxs(&self) -> Vec<i32> {
+        const FLASH_SECS: f64 = 5.0;
+        let now = self.live_session_time;
+        (0..64)
+            .filter(|&i| {
+                let at = self.breakdown_flash_at[i];
+                at > 0.0 && (now - at) < FLASH_SECS
+            })
+            .map(|i| i as i32)
+            .collect()
+    }
+
+    /// Tira UM comando da fila (drena estrangulado no sampler, pra não spammar o chat/foco).
+    fn take_one_breakdown_cmd(&mut self) -> Option<String> {
+        if self.pending_breakdown_cmds.is_empty() {
+            None
+        } else {
+            Some(self.pending_breakdown_cmds.remove(0))
         }
     }
 
@@ -1061,6 +1480,10 @@ impl RaceMonitor {
         self.car_monitors = [CarMonitor::DEFAULT; 64];
         // Grid recapturado na próxima largada (verde).
         self.grid_class_pos = [0; 64];
+        // Restart = corrida fresca → descarta o log de quebras da tentativa anterior (Peça 3).
+        self.breakdown_log.clear();
+        self.player_risk_warned = [false; 11];
+        self.player_warning_log.clear();
         self.attempts.push(Attempt {
             number: self.current_attempt,
             status: "active".to_string(),
@@ -1074,6 +1497,7 @@ impl RaceMonitor {
             peak_crash_score: 0.0,
             collided_with_car_number: None,
             peak_impact_dir: None,
+            style: crate::car::driving_style::StyleAccumulator::new(),
         });
     }
 
@@ -1802,6 +2226,8 @@ impl RaceMonitor {
         // Monitoramento das IAs + decisão de bandeira + diagnóstico: SEMPRE (ao
         // vivo e no replay), pois os carros são reais em ambos os casos.
         self.process_ai_cars(t);
+        // Disparo de quebra da GRADE TODA (usa a volta de cada carro do `t.cars`).
+        self.tick_breakdown_grid(t);
         self.evaluate_race_control(t);
         self.build_cars_debug(t);
         self.capture_qualy(t);
@@ -1843,6 +2269,27 @@ impl RaceMonitor {
         }
         self.ensure_active(now);
         self.prev = Some(cur);
+
+        // 1.5) Estilo de pilotagem: acumula os inputs do jogador SÓ na pista e correndo
+        // (pit/garagem/quali não contam). Vira fator de desgaste por peça no import — só o
+        // jogador; a IA nunca. Redline desconhecido → o acumulador ignora a rotação.
+        if t.track_surface == 3 && t.session_state == 4 {
+            let redline = self.car_redline.unwrap_or(0.0);
+            if let Some(attempt) = self.attempts.last_mut() {
+                attempt.style.ingest(crate::car::driving_style::StyleSample {
+                    throttle: t.throttle,
+                    brake: t.brake,
+                    rpm: t.rpm,
+                    redline,
+                    gear: t.gear,
+                    steering_rad: t.steering_angle_rad,
+                    vert_accel: t.vert_accel,
+                });
+            }
+            // 1.6) Disparo de quebra AO VIVO: avalia o carro do jogador nesta volta e enfileira
+            // os comandos (só correndo na pista). O diretor deduplica por volta.
+            self.tick_breakdown_player(t.lap_completed);
+        }
 
         // 2) Evidências da tentativa.
         self.accumulate_evidence(t);
@@ -2758,6 +3205,7 @@ fn start_sampler() {
                                 let subsession_id = parse_subsession_id(&session.session_yaml);
                                 let qualy_num = parse_qualy_session_num(&session.session_yaml);
                                 let numbers = parse_car_numbers(&session.session_yaml);
+                                let redline = super::parse_car_redline(&session.session_yaml);
                                 {
                                     let mut m = lock();
                                     m.set_car_classes(&classes);
@@ -2767,12 +3215,25 @@ fn start_sampler() {
                                     m.set_session_subsession_id(subsession_id);
                                     m.set_qualy_session_num(qualy_num);
                                     m.set_car_numbers(&numbers);
+                                    m.set_car_redline(redline);
                                 }
                                 // Captura o custid do jogador automaticamente (uma vez).
                                 super::note_session_custid(&session.session_yaml);
+                                // DEBUG: se a gravação de corrida está ligada, salva o YAML.
+                                super::race_capture::record_session(&session.session_yaml);
                             }
                         }
                         lock().observe(&t);
+                        // DEBUG: grava o frame de telemetria (subamostrado) pra calibração.
+                        super::race_capture::record_frame(&t);
+                        // Disparo de quebra ESTRANGULADO: 1 comando a cada ~1,5s (a ~60 Hz),
+                        // FORA do lock (o send_chat_text foca a janela + SendInput; não pode
+                        // segurar o lock). Espaça o roubo de foco pra o jogador seguir dirigindo.
+                        if tick % 90 == 0 {
+                            if let Some(cmd) = lock().take_one_breakdown_cmd() {
+                                let _ = super::send_chat_text(&cmd);
+                            }
+                        }
                         // Sim conectado de novo: cancela qualquer janela de foco pendente.
                         clear_focus_self();
                         true
@@ -2829,6 +3290,72 @@ pub fn start_watching() {
 pub fn is_connected() -> bool {
     start_sampler();
     lock().connected
+}
+
+/// DEBUG: arma uma quebra garantida no carro do jogador pra próxima volta cruzada (testa o
+/// disparo ao vivo na pista). `true` = armado (jogador em sessão + número conhecido).
+pub fn arm_test_breakdown() -> bool {
+    start_sampler();
+    lock().arm_test_breakdown()
+}
+
+/// DEBUG: pede armar a GRADE TODA com uma peça perto de quebrar por carro (montada no próximo
+/// tick, correndo). As quebras pingam ao longo das voltas, estranguladas pra não spammar.
+pub fn arm_test_breakdown_grid() {
+    start_sampler();
+    lock().request_arm_grid();
+}
+
+/// PRODUÇÃO: instala o diretor de quebra da corrida montado com o DESGASTE REAL de cada time
+/// (chamado pelo export, que tem DB). `player_live` = estado do jogador (vinculado ao número
+/// dele no verde). `weather` = clima fixo da corrida. Prende os carros na volta atual no
+/// primeiro tick verde e passa a disparar `!black`/`!dq` conforme cada carro cruza.
+pub fn install_breakdown_director(
+    dir: crate::car::breakdown::BreakdownDirector,
+    player_live: Option<crate::car::breakdown::LiveBreakdown>,
+    weather: crate::car::breakdown::Weather,
+) {
+    start_sampler();
+    lock().install_breakdown_director(dir, player_live, weather);
+}
+
+/// Alertas de quebra ativos por car_idx, pro overlay: `(car_idx, kind)` com
+/// kind ∈ "light" | "heavy" | "dnf". Vazio quando não há quebra em andamento.
+pub fn get_breakdown_alerts() -> Vec<(i32, &'static str)> {
+    lock().breakdown_alerts_snapshot()
+}
+
+/// Paradas de REPARO de peça: `(car_idx, volta de entrada no box)`. O overlay marca o ícone
+/// de "peça" no lugar do pneu na parada daquela volta.
+pub fn get_breakdown_repair_laps() -> Vec<(i32, u32)> {
+    lock().breakdown_repair_laps.clone()
+}
+
+/// Espia (sem drenar) o log de quebras da corrida em andamento — pro overlay do RÁDIO DA
+/// EQUIPE mostrar cada quebra ao vivo. O drain de verdade (→ tabela/debrief) só acontece no
+/// import; aqui é leitura pura, acumulativa durante a corrida.
+pub fn peek_breakdown_log() -> Vec<BreakdownOutcome> {
+    lock().breakdown_log.clone()
+}
+
+/// Espia (sem drenar) os AVISOS pessoais do jogador (peça entrou na zona de risco) — pro
+/// overlay do rádio mostrar num card DISTINTO. Leitura pura, acumulativa durante a corrida.
+pub fn peek_player_warnings() -> Vec<PlayerWarning> {
+    lock().player_warning_log.clone()
+}
+
+/// car_idx que devem PISCAR na torre agora (quebraram nos últimos 5 s) — sincroniza o flash
+/// da linha do piloto com o anúncio do rádio do engenheiro.
+pub fn get_breakdown_flashes() -> Vec<i32> {
+    lock().breakdown_flash_idxs()
+}
+
+/// PEÇA 3: DRENA o log estruturado de desfechos de quebra da corrida (esvazia). Chamado UMA vez
+/// no import (`build_session_race_result`) → resolve car_number→driver_id e persiste na
+/// `race_breakdowns`. `std::mem::take` garante que cada desfecho seja importado uma só vez.
+pub fn drain_breakdown_log() -> Vec<BreakdownOutcome> {
+    start_sampler();
+    std::mem::take(&mut lock().breakdown_log)
 }
 
 /// Lê o snapshot atual do monitor (alimentado a ~60 Hz pelo sampler).
@@ -2957,6 +3484,30 @@ mod tests {
     use super::*;
     use crate::iracing_sdk::{CarSnapshot, IracingTelemetry};
 
+    // ── Máquina de apagar o alerta de penalidade (pit-out reparado) ──────────
+    #[test]
+    fn alerta_apaga_ao_sair_do_box_depois_de_entrar() {
+        // Quebrou fora do box (não entrou ainda) → não apaga.
+        let (entered, clear) = pit_clear_step(false, false, false);
+        assert!(!entered && !clear);
+        // Entra no box (false→true) → marca "entrou", ainda não apaga.
+        let (entered, clear) = pit_clear_step(entered, true, false);
+        assert!(entered && !clear);
+        // Continua no box → segue marcado, sem apagar.
+        let (entered, clear) = pit_clear_step(entered, true, true);
+        assert!(entered && !clear);
+        // Sai do box (true→false) já tendo entrado → APAGA (serviu/reparou).
+        let (_entered, clear) = pit_clear_step(entered, false, true);
+        assert!(clear, "sair do box após entrar deveria apagar o alerta");
+    }
+
+    #[test]
+    fn passar_reto_pelo_pit_lane_sem_entrar_nao_apaga() {
+        // Nunca entrou no box: uma leitura solta de "saiu" (prev=true) não pode apagar.
+        let (entered, clear) = pit_clear_step(false, false, false);
+        assert!(!entered && !clear, "sem entrar no box, nada apaga");
+    }
+
     fn active_attempt() -> Attempt {
         Attempt {
             number: 1,
@@ -2971,6 +3522,7 @@ mod tests {
             peak_crash_score: 0.0,
             collided_with_car_number: None,
             peak_impact_dir: None,
+            style: crate::car::driving_style::StyleAccumulator::new(),
         }
     }
 
@@ -3005,6 +3557,53 @@ mod tests {
         let yaml = "WeekendInfo:\n  TrackID: 123\n  SubSessionID: 987654\n";
 
         assert_eq!(parse_subsession_id(yaml), 987654);
+    }
+
+    #[test]
+    fn clima_vivo_sem_canais_cai_no_baseline() {
+        // Telemetria zerada (canais ainda não populados) → mantém o clima fixo da corrida.
+        let baseline = crate::car::breakdown::Weather {
+            wetness: 0.0,
+            temperature: 27.0,
+            humidity: 55.0,
+            wind_kmh: 30.0,
+        };
+        let w = effective_weather(&IracingTelemetry::default(), baseline);
+        assert_eq!(w, baseline);
+    }
+
+    #[test]
+    fn clima_vivo_sobrepoe_canais_presentes() {
+        let baseline = crate::car::breakdown::Weather::NEUTRAL;
+        let t = IracingTelemetry {
+            air_temp: 31.0,
+            track_wetness: 7, // ExtremelyWet → 1.0
+            relative_humidity: 0.8, // 80%
+            wind_ms: 10.0,          // 36 km/h
+            ..Default::default()
+        };
+        let w = effective_weather(&t, baseline);
+        assert_eq!(w.temperature, 31.0);
+        assert!((w.wetness - 1.0).abs() < 1e-9);
+        assert!((w.humidity - 80.0).abs() < 1e-9);
+        assert!((w.wind_kmh - 36.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn clima_vivo_pista_seca_zera_o_molhado() {
+        // Baseline "molhado" (previsão de chuva) mas a pista secou ao vivo (TrackWetness=1=Dry).
+        let baseline = crate::car::breakdown::Weather {
+            wetness: 0.7,
+            temperature: 22.0,
+            humidity: 60.0,
+            wind_kmh: 20.0,
+        };
+        let t = IracingTelemetry { track_wetness: 1, ..Default::default() };
+        let w = effective_weather(&t, baseline);
+        assert!((w.wetness - 0.0).abs() < 1e-9);
+        // Canais não lidos seguem no baseline.
+        assert_eq!(w.temperature, 22.0);
+        assert_eq!(w.humidity, 60.0);
     }
 
     #[test]

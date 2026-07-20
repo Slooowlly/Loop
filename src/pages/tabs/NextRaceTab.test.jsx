@@ -593,9 +593,11 @@ describe("NextRaceTab", () => {
       expect(screen.getByText(/os 6 favoritos ao p.dio/i)).toBeInTheDocument();
     });
 
+    // Com previsão de chuva (clima "Wet") a tese dominante é "weather" — realista e
+    // longe de qualquer linguagem de caça ao título. Frases exclusivas do eixo.
     expect(
       screen.getByText(
-        /dignidade competitiva|salvar lastro esportivo|reagir com maturidade|pe firme|resposta honesta/i,
+        /corrida de leitura|reescrever o grid|deixa de ser previsível|meteorologia|distorção da etapa/i,
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(/tabela geral do campeonato/i)).toBeInTheDocument();

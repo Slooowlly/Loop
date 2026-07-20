@@ -6,9 +6,14 @@
 //       - na classe do JOGADOR: top 3 + separação + a vizinhança dele (±4)
 //       - nas outras classes:   só o top 3 (interessa quem lidera)
 //
+// A vizinhança tem TAMANHO FIXO (2·NEIGHBORS+1). Perto de uma ponta ela DESLIZA
+// pro outro lado em vez de encolher: liderando (nada acima) ela estica pra baixo,
+// na lanterna estica pra cima. Sem isso, o líder via só 5 carros. O total visível
+// da classe do jogador fica constante (topo + vizinhança ≈ 12), esteja ele onde estiver.
+//
 // A separação só aparece quando ela realmente esconde alguém: se a vizinhança
-// encosta no top (ou pula uma linha só), a gente emenda — separar pra ocultar
-// um único piloto seria pior que mostrá-lo.
+// encosta no top, a gente emenda num bloco contínuo do 1º — separar pra ocultar
+// um punhado de pilotos seria pior que mostrá-los.
 
 export const MAX_ROWS_WITHOUT_WINDOW = 15;
 export const TOP_N = 3;
@@ -46,12 +51,28 @@ function compressPlayerClass(cars, topN, neighbors) {
     return cars.slice(0, topN).map(carRow);
   }
 
-  const start = Math.max(0, playerIdx - neighbors);
-  const end = Math.min(cars.length - 1, playerIdx + neighbors);
+  const n = cars.length;
+  // Total "de sempre" da classe do jogador: topo + vizinhança (ex.: 3 + 9 = 12).
+  const target = Math.min(n, topN + 2 * neighbors + 1);
 
-  // Emenda quando não há buraco real (0 ou 1 piloto escondido entre os blocos).
+  // Janela de TAMANHO FIXO em torno do jogador. Perto de uma ponta, DESLIZA pro outro
+  // lado em vez de encolher — senão liderar (nada acima) mostraria só ~5 carros.
+  let start = playerIdx - neighbors;
+  let end = playerIdx + neighbors;
+  if (start < 0) {
+    end -= start; // empurra a janela pra baixo (líder)
+    start = 0;
+  }
+  if (end > n - 1) {
+    start -= end - (n - 1); // empurra pra cima (lanterna)
+    end = n - 1;
+  }
+  start = Math.max(0, start);
+
+  // Janela encosta no topo → bloco contínuo do 1º, com pelo menos o total de sempre e
+  // sem cortar a vizinhança do jogador (o `end` deslizado).
   if (start <= topN + 1) {
-    return cars.slice(0, end + 1).map(carRow);
+    return cars.slice(0, Math.max(target, end + 1)).map(carRow);
   }
 
   return [

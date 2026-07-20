@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../../i18n/index.js";
 import DriverDetailModal from "../../components/driver/DriverDetailModal";
 import RivalMarker from "../../components/driver/RivalMarker";
 import ResultBadge from "../../components/standings/ResultBadge";
@@ -162,10 +164,10 @@ function injuryStatusMarker(injuryType) {
   }
 
   if (SEVERE_INJURY_TYPES.has(injuryType)) {
-    return { emoji: "🚑", title: "Lesão grave" };
+    return { emoji: "🚑", title: i18n.t("standings.badge.injurySevere") };
   }
 
-  return { emoji: "🩸", title: "Lesão ativa" };
+  return { emoji: "🩸", title: i18n.t("standings.badge.injuryActive") };
 }
 
 function DriverStatusMarkers({ driver }) {
@@ -175,12 +177,12 @@ function DriverStatusMarkers({ driver }) {
     <>
       <RivalMarker driverId={driver.id} />
       {driver.is_estreante_da_vida ? (
-        <span className="shrink-0 text-xs" title="Estreante da vida" aria-label="Estreante da vida">
+        <span className="shrink-0 text-xs" title={i18n.t("standings.badge.lifeRookie")} aria-label={i18n.t("standings.badge.lifeRookie")}>
           {"\u{1F331}"}
         </span>
       ) : null}
       {driver.is_estreante && !driver.is_estreante_da_vida ? (
-        <span className="shrink-0 text-xs" title="Estreante" aria-label="Estreante">
+        <span className="shrink-0 text-xs" title={i18n.t("standings.badge.rookie")} aria-label={i18n.t("standings.badge.rookie")}>
           {"\u2B50"}
         </span>
       ) : null}
@@ -192,10 +194,10 @@ function DriverStatusMarkers({ driver }) {
       {driver.is_aposentado ? (
         <span
           className="shrink-0 rounded bg-white/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/55"
-          title="Aposentado — encerrou a carreira (pontos congelados)"
-          aria-label="Aposentado"
+          title={i18n.t("standings.badge.retiredTitle")}
+          aria-label={i18n.t("standings.badge.retired")}
         >
-          Aposentado
+          {i18n.t("standings.badge.retired")}
         </span>
       ) : null}
     </>
@@ -232,6 +234,7 @@ function getForcedSpecialStandingCategory(phase, playerTeamCategory, acceptedSpe
 }
 
 function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
@@ -463,7 +466,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
         setError(
           typeof invokeError === "string"
             ? invokeError
-            : "Não foi possível carregar a classificação.",
+            : i18n.t("standings.loadError"),
         );
       } finally {
         if (mounted) {
@@ -522,7 +525,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     return (
       <GlassCard hover={false} className="rounded-[28px] p-10">
         <p className="text-sm uppercase tracking-[0.22em] text-accent-primary">Dashboard</p>
-        <h2 className="mt-3 text-3xl font-semibold text-text-primary">Carregando classificação</h2>
+        <h2 className="mt-3 text-3xl font-semibold text-text-primary">{t("standings.loading")}</h2>
         <p className="mt-3 text-sm text-text-secondary">
           Buscando pilotos, construtores e resultados da categoria atual.
         </p>
@@ -555,7 +558,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                 aria-haspopup="listbox"
                 aria-expanded={seriesMenuOpen}
                 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary transition-colors hover:enabled:text-text-primary disabled:cursor-default disabled:opacity-70"
-                title="Trocar de linha"
+                title={t("standings.series.changeLine")}
               >
                 <span className="whitespace-nowrap">{currentSeries.label}</span>
                 {!navLocked ? (
@@ -574,7 +577,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     <div
                       ref={seriesMenuRef}
                       role="listbox"
-                      aria-label="Linha de carro"
+                      aria-label={t("standings.series.carLine")}
                       className="fixed z-[120] rounded-2xl border border-white/10 bg-[#161b22]/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.55)] backdrop-blur-md"
                       style={{
                         top: seriesMenuPos.top,
@@ -656,7 +659,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     onClick={goUpTier}
                     disabled={!hasTierAbove}
                     className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-                    title="Tier superior"
+                    title={t("standings.series.tierUp")}
                   >
                     ▲
                   </button>
@@ -665,7 +668,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     onClick={goDownTier}
                     disabled={!hasTierBelow}
                     className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-                    title="Tier inferior"
+                    title={t("standings.series.tierDown")}
                   >
                     ▼
                   </button>
@@ -696,11 +699,11 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
               </colgroup>
               <thead>
                 <tr className="border-b border-white/10 text-left text-[11px] uppercase tracking-[0.18em] text-text-muted">
-                  <th className="py-3 pr-0.5">Pos</th>
+                  <th className="py-3 pr-0.5">{t("standings.col.pos")}</th>
                   <th className="py-3 pr-0.5 text-center" />
                   <th className="py-3 pr-1 text-center">Id</th>
-                  <th className="py-3 pr-1">Piloto</th>
-                  <th className="py-3 pr-1">Equipe</th>
+                  <th className="py-3 pr-1">{t("standings.col.driver")}</th>
+                  <th className="py-3 pr-1">{t("standings.col.team")}</th>
                   {Array.from({ length: totalRodadas }, (_, index) => {
                     const rodada = index + 1;
                     const isCompleted = rodada <= completedRounds;
@@ -713,7 +716,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                           rodada === season?.rodada_atual ? "text-accent-primary" : "",
                           isCompleted ? "cursor-pointer hover:text-accent-primary transition-colors" : "",
                         ].join(" ")}
-                        title={isCompleted ? "Duplo clique: rever a classificação desta corrida" : undefined}
+                        title={isCompleted ? t("standings.badge.reviewRace") : undefined}
                         onDoubleClick={
                           isCompleted ? () => openSavedRaceScreen?.(viewCategory, rodada) : undefined
                         }
@@ -805,7 +808,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                           </span>
                           <DriverStatusMarkers driver={driver} />
                           {driver.id === previousChampionId ? (
-                            <span className="shrink-0 text-sm" title="Campeão da temporada anterior">
+                            <span className="shrink-0 text-sm" title={t("standings.badge.prevChampion")}>
                               🏆
                             </span>
                           ) : null}
@@ -850,13 +853,13 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">
-                Construtores
+                {t("standings.constructors")}
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-text-primary">
-                Classificação de equipes
+                {t("standings.teamsTitle")}
               </h2>
             </div>
-            <p className="text-sm text-text-secondary">{teamStandings.length} equipes</p>
+            <p className="text-sm text-text-secondary">{t("standings.teamsCount", { count: teamStandings.length })}</p>
           </div>
 
           <div className="mt-6 space-y-2">
@@ -895,10 +898,10 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
               const items = [];
               teamStandings.forEach((team, index) => {
                 if (index === promotionCount && promotionCount > 0) {
-                  items.push(<ZoneDivider key="divider-promo" label="PROMOÇÃO ↑" variant="green" />);
+                  items.push(<ZoneDivider key="divider-promo" label={i18n.t("standings.zone.promotion")} variant="green" />);
                 }
                 if (relegationCount > 0 && index === total - relegationCount) {
-                  items.push(<ZoneDivider key="divider-relego" label="REBAIXAMENTO ↓" variant="red" />);
+                  items.push(<ZoneDivider key="divider-relego" label={i18n.t("standings.zone.relegation")} variant="red" />);
                 }
                 items.push(
                   <div
@@ -934,7 +937,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     </div>
                     <div className="shrink-0 pl-4 text-right">
                       <p className="font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
-                      <p className="text-xs text-text-secondary">{team.vitorias} vit.</p>
+                      <p className="text-xs text-text-secondary">{team.vitorias} {i18n.t("standings.winsShort")}</p>
                     </div>
                   </div>
                 );
@@ -1032,12 +1035,12 @@ function hasSpecialStandingResults(driverStandings, teamStandings) {
 
 function specialPendingMessage(phase) {
   if (phase === "JanelaConvocacao") {
-    return "A competição começa quando a janela de convocação for finalizada. Os resultados aparecem aqui quando a primeira corrida for simulada.";
+    return i18n.t("standings.special.callupWindow");
   }
   if (phase === "BlocoEspecial") {
-    return "O bloco especial já foi aberto, mas ainda não existe resultado registrado. A classificação aparece quando a primeira corrida for simulada.";
+    return i18n.t("standings.special.specialOpen");
   }
-  return "Esta competição acontece depois da temporada regular e da janela de convocação. Os resultados aparecem aqui quando o bloco especial for simulado.";
+  return i18n.t("standings.special.afterRegular");
 }
 
 function SpecialPendingNotice({ category, phase }) {
@@ -1047,7 +1050,7 @@ function SpecialPendingNotice({ category, phase }) {
         {categoryLabel(category)}
       </p>
       <h3 className="mt-3 text-xl font-semibold text-text-primary">
-        Competição especial ainda não aconteceu
+        {i18n.t("standings.special.notYetTitle")}
       </h3>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-secondary">
         {specialPendingMessage(phase)}
@@ -1059,7 +1062,7 @@ function SpecialPendingNotice({ category, phase }) {
 function SpecialPendingTeamsNotice() {
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-5 text-sm leading-6 text-text-secondary">
-      A classificação de equipes será liberada junto com os resultados do bloco especial.
+      {i18n.t("standings.special.teamsPending")}
     </div>
   );
 }
@@ -1152,7 +1155,7 @@ function TeamStandingCard({
       </div>
       <div className="shrink-0 pl-4 text-right">
         <p className="font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
-        <p className="text-xs text-text-secondary">{team.vitorias} vit.</p>
+        <p className="text-xs text-text-secondary">{team.vitorias} {i18n.t("standings.winsShort")}</p>
       </div>
     </div>
   );
@@ -1175,7 +1178,7 @@ function buildSpecialStandingSections(items, classGroups) {
   if (unknownItems.length > 0) {
     sections.push({
       id: "outros",
-      label: "Outros",
+      label: i18n.t("standings.others"),
       color: "#7d8590",
       items: unknownItems,
     });

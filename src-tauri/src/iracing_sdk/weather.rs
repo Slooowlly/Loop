@@ -133,10 +133,6 @@ pub struct WeatherStory {
     pub tendency: f64,
 }
 
-/// Abaixo deste limiar de tendência, a chuva só vira "susto" — nunca molha de
-/// verdade (bias forte pra seco; chuva no iRacing é punitiva).
-const WET_THRESHOLD: f64 = 0.45;
-
 /// Estação a partir do mês (1–12) e do hemisfério.
 pub fn season_for(month: u32, hemi: Hemisphere) -> Season {
     // Estação no hemisfério NORTE pelo mês; no SUL é o oposto.
@@ -157,26 +153,54 @@ pub fn season_for(month: u32, hemi: Hemisphere) -> Season {
     }
 }
 
+/// Multiplicador sazonal da chance de chuva (inverno molhado, verão seco).
 fn season_wetness(season: Season) -> f64 {
     match season {
-        Season::Winter => 1.35,
+        Season::Winter => 1.5,
         Season::Autumn => 1.15,
         Season::Spring => 1.0,
-        Season::Summer => 0.65,
+        Season::Summer => 0.5,
     }
 }
 
+/// Chance-base de corrida molhada por grupo de pista (referência primavera/neutra).
+/// Diferente do modelo antigo (tendência × limiar): agora é probabilidade DIRETA, e
+/// pistas Normal/Dry TAMBÉM podem molhar (raro), não só as Rainy.
 fn group_base(group: ClimateTendency) -> f64 {
     match group {
-        ClimateTendency::Dry => 0.12,
-        ClimateTendency::Normal => 0.30,
-        ClimateTendency::Rainy => 0.55,
+        ClimateTendency::Dry => 0.04,
+        ClimateTendency::Normal => 0.20,
+        ClimateTendency::Rainy => 0.40,
     }
 }
 
-/// Tendência de chuva (0–1) = base da pista × modificador da estação.
+/// Probabilidade (0–1) de a CORRIDA ser molhada = base do grupo × multiplicador da
+/// estação. (Mantém o nome histórico; hoje é a chance direta, sem limiar.)
 pub fn rain_tendency(group: ClimateTendency, season: Season) -> f64 {
     (group_base(group) * season_wetness(season)).clamp(0.0, 1.0)
+}
+
+/// Tier de severidade da chuva de uma condição (grupo + estação): governa a
+/// distribuição de intensidade quando molha. Só o tier ALTO permite temporal
+/// (VeryHeavy); tiers menores ficam em Decent/Heavy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WetTier {
+    High,
+    Mid,
+    Low,
+}
+
+fn wet_severity_tier(group: ClimateTendency, season: Season) -> WetTier {
+    use ClimateTendency::*;
+    use Season::*;
+    match (group, season) {
+        // Mais úmido: Rainy no inverno/outono → pode dar temporal.
+        (Rainy, Winter) | (Rainy, Autumn) => WetTier::High,
+        // Médio: Rainy quente, ou Normal frio.
+        (Rainy, _) | (Normal, Winter) | (Normal, Autumn) => WetTier::Mid,
+        // Marginal: Normal quente, ou qualquer Dry.
+        _ => WetTier::Low,
+    }
 }
 
 // PRNG determinístico (splitmix64) — mesmo seed → mesmo clima (estável entre
@@ -218,38 +242,47 @@ pub fn generate_weather(
 
     let mut state = seed ^ 0xA5A5_5A5A_DEAD_BEEF;
 
-    // Só molha de verdade acima do limiar; a chance cresce com a tendência.
-    let p_wet = if tendency < WET_THRESHOLD {
-        0.0
-    } else {
-        (tendency - WET_THRESHOLD) / (1.0 - WET_THRESHOLD)
-    };
+    // Chance DIRETA de molhar (base do grupo × estação). Sem limiar: Normal/Dry também
+    // podem molhar (raro), garantindo variação e ~2+ chuvas por temporada de 10.
+    let p_wet = tendency;
     let is_wet_race = roll01(&mut state) < p_wet;
 
     if is_wet_race {
-        // Intensidade cresce com a tendência. PISO = Decente: uma corrida "molhada"
-        // NUNCA é só garoa (`Light`). Garoa deixa a pista no limiar seco/molhado e o
-        // iRacing larga metade do grid de SLICK — o que quebra a punição de chuva, que
-        // é aplicada ao pelotão INTEIRO (todo mundo tem que largar de wet). A garoa
-        // segue existindo só na QUALI e como TRECHO tardio de um arco (ver
-        // `story_to_profile`), nunca como caráter de uma corrida molhada.
+        // Intensidade pela SEVERIDADE da condição (grupo+estação). PISO = Decente: uma
+        // corrida "molhada" NUNCA é só garoa (`Light`) — garoa deixa a pista no limiar
+        // seco/molhado e o iRacing larga metade do grid de SLICK, quebrando a punição
+        // (aplicada ao pelotão INTEIRO). Só o tier ALTO (Rainy inverno/outono) libera
+        // temporal (VeryHeavy). Garoa segue só na QUALI e como trecho tardio de arco.
         let r = roll01(&mut state);
-        let race_intensity = if tendency > 0.8 {
-            if r < 0.5 {
-                RainIntensity::VeryHeavy
-            } else {
-                RainIntensity::Heavy
+        let race_intensity = match wet_severity_tier(group, season) {
+            // Alto: 40% Decent · 40% Heavy · 20% VeryHeavy (temporal raro).
+            WetTier::High => {
+                if r < 0.40 {
+                    RainIntensity::Decent
+                } else if r < 0.80 {
+                    RainIntensity::Heavy
+                } else {
+                    RainIntensity::VeryHeavy
+                }
             }
-        } else if tendency > 0.6 {
-            if r < 0.5 {
-                RainIntensity::Heavy
-            } else {
-                RainIntensity::Decent
+            // Médio: 50% Decent · 45% Heavy · 5% VeryHeavy.
+            WetTier::Mid => {
+                if r < 0.50 {
+                    RainIntensity::Decent
+                } else if r < 0.95 {
+                    RainIntensity::Heavy
+                } else {
+                    RainIntensity::VeryHeavy
+                }
             }
-        } else if r < 0.5 {
-            RainIntensity::Decent
-        } else {
-            RainIntensity::Heavy
+            // Baixo: 70% Decent · 30% Heavy · sem temporal.
+            WetTier::Low => {
+                if r < 0.70 {
+                    RainIntensity::Decent
+                } else {
+                    RainIntensity::Heavy
+                }
+            }
         };
         let s = roll01(&mut state);
         let scenario = if s < 0.35 {
@@ -276,9 +309,10 @@ pub fn generate_weather(
             tendency,
         }
     } else {
-        // SECA — sustos/pingos mais comuns quando há "motivo" pra nuvens.
+        // SECA — sustos/pingos mais comuns quando há "motivo" pra nuvens (chance de
+        // molhar razoável). p_wet ≥ 0.15 = Normal+ ou Rainy.
         let s = roll01(&mut state);
-        let scenario = if tendency > 0.30 {
+        let scenario = if tendency > 0.15 {
             if s < 0.30 {
                 WeatherScenario::Scare
             } else if s < 0.55 {
@@ -626,6 +660,115 @@ pub fn generate_race_start_hour(season: Season, tier: u8, is_lit_track: bool, se
     }
 }
 
+/// Hora de largada NOTURNA garantida (após o escuro), determinística pelo `seed`.
+/// Usada quando o calendário DESIGNA uma etapa como noturna (regra: ao menos 1
+/// corrida de noite por temporada, nunca a 1ª/última). Reusa exatamente a mesma
+/// janela do ramo `night` de [`generate_race_start_hour`].
+pub fn night_start_hour(season: Season, seed: u64) -> f64 {
+    let (_, ss) = sun_times(season);
+    let mut state = seed ^ 0x7A6F_4B1D_2E3C_9F08;
+    let a = ss + 1.0; // pôr do sol + 1h (depois do escuro)
+    let b = 22.5_f64.max(a + 0.5); // até ~22h30
+    a + roll01(&mut state) * (b - a)
+}
+
+// ─── Temperatura da etapa (ALINHADA à história de chuva) ────────────────────
+
+/// Temperatura do ar da corrida (°C), DERIVADA da MESMA história de clima — assim
+/// ela SEMPRE bate com a chuva real (nunca uma temperatura "de chuva" numa corrida
+/// que roda seca). Base pela estação, resfria com a intensidade da chuva, com um
+/// jitter determinístico pelo `seed`. Presa em **[18, 32]** (faixa observada no
+/// iRacing: máx 32, mín 18).
+pub fn story_temperature(story: &WeatherStory, seed: u64) -> i64 {
+    let base = match story.season {
+        Season::Summer => 30.0,
+        Season::Spring | Season::Autumn => 24.0,
+        Season::Winter => 20.0,
+    };
+    // Chuva esfria o ar (quanto mais forte, mais frio).
+    let rain_cool = match story.race_intensity {
+        RainIntensity::None => 0.0,
+        RainIntensity::Light => 2.0,
+        RainIntensity::Decent => 4.0,
+        RainIntensity::Heavy => 6.0,
+        RainIntensity::VeryHeavy => 8.0,
+    };
+    let mut state = seed ^ 0x7EE0_17A1_9C0F_1234;
+    let jitter = (roll01(&mut state) - 0.5) * 6.0; // ±3 °C
+    (base - rain_cool + jitter).round().clamp(18.0, 32.0) as i64
+}
+
+// ─── Vento da etapa (VARIA entre corridas) ──────────────────────────────────
+
+/// Escada de vento MEDIDA no iRacing: cada `wind_speed_option` (preset) rende uma
+/// velocidade fixa — e o mapa NÃO é monotônico na ordem do preset. Aqui em ordem
+/// CRESCENTE de km/h: `(km/h aproximado, wind_speed_option)`. O sim IGNORA o
+/// `wind_value` contínuo; só o preset vale. Medido in-sim (todos os 7 presets):
+/// 1≈2 · 2≈2 · 3≈10 · 0≈13 · 5≈21 · 6≈30 · 4≈48 km/h. Preset 1 descartado (duplica
+/// o 2). 6 degraus úteis cobrindo 2–48.
+pub const WIND_LADDER: [(i64, i64); 6] =
+    [(2, 2), (10, 3), (13, 0), (21, 5), (30, 6), (48, 4)];
+
+/// Vento sorteado para a corrida: velocidade em km/h (um dos degraus da `WIND_LADDER`,
+/// 2–48) + direção em graus **[0, 359]**. Um valor por corrida (não muda no meio).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindState {
+    pub speed_kmh: i64,
+    pub dir_deg: i64,
+}
+
+/// Sorteia o vento da etapa (determinístico pelo `seed`). Como o iRacing só honra o
+/// PRESET (5 degraus reais), escolhe um degrau da `WIND_LADDER` — tempestade puxa
+/// pros degraus altos, seco/leve espalha do calmo ao forte com viés baixo. Testado
+/// na pista: o vento **não** influencia a chegada da frente de chuva.
+pub fn generate_wind(story: &WeatherStory, seed: u64) -> WindState {
+    let mut state = seed ^ 0x011D_C0FF_EE15_600D;
+    let r = roll01(&mut state);
+    // Índice na escada crescente [calmo(0) 2 · 10 · 13 · 21 · 30 · forte(5) 48].
+    let idx = match story.race_intensity {
+        // Temporal: só forte/muito forte (degraus 30 e 48).
+        RainIntensity::VeryHeavy => {
+            if r < 0.5 {
+                5
+            } else {
+                4
+            }
+        }
+        // Chuva forte: médio a forte (21/30/48).
+        RainIntensity::Heavy => {
+            if r < 0.45 {
+                3
+            } else if r < 0.8 {
+                4
+            } else {
+                5
+            }
+        }
+        // Seco/leve: espalha do calmo ao forte, viés pro leve.
+        _ => {
+            if r < 0.28 {
+                0
+            } else if r < 0.50 {
+                1
+            } else if r < 0.68 {
+                2
+            } else if r < 0.83 {
+                3
+            } else if r < 0.94 {
+                4
+            } else {
+                5
+            }
+        }
+    };
+    let speed = WIND_LADDER[idx].0;
+    let dir = roll01(&mut state) * 360.0;
+    WindState {
+        speed_kmh: speed,
+        dir_deg: (dir.floor() as i64).clamp(0, 359),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,11 +837,14 @@ mod tests {
 
     #[test]
     fn tendencia_pista_e_estacao() {
-        // Pista chuvosa no inverno >> pista seca no verão.
+        // Chance de molhar: Rainy no inverno alta (~0.60) >> Dry no verão mínima (~0.02).
         let molhada = rain_tendency(ClimateTendency::Rainy, Season::Winter);
         let seca = rain_tendency(ClimateTendency::Dry, Season::Summer);
-        assert!(molhada > 0.6, "{molhada}");
-        assert!(seca < 0.15, "{seca}");
+        assert!(molhada >= 0.55, "{molhada}");
+        assert!(seca < 0.05, "{seca}");
+        // Normal agora TAMBÉM molha (não é mais zero): ~0.20 na primavera.
+        let normal = rain_tendency(ClimateTendency::Normal, Season::Spring);
+        assert!((0.15..0.30).contains(&normal), "{normal}");
     }
 
     #[test]
@@ -710,34 +856,52 @@ mod tests {
     }
 
     #[test]
-    fn tendencia_baixa_nunca_molha_de_verdade() {
-        // Pista Normal no outono = ~0.345 < limiar → só sustos, nunca molha.
-        for seed in 0..500u64 {
-            let w = generate_weather(10, Hemisphere::North, ClimateTendency::Normal, seed, false);
-            assert!(!w.is_wet_race, "molhou com tendência baixa (seed {seed})");
-        }
-    }
-
-    #[test]
-    fn tendencia_alta_molha_as_vezes() {
-        // Pista chuvosa no inverno = tendência alta → algumas molham, mas NÃO a maioria.
+    fn dry_no_verao_quase_nunca_molha() {
+        // Pista Dry no verão = chance mínima (~2%): rara, mas NÃO mais zero.
         let mut wet = 0;
-        for seed in 0..500u64 {
-            let w = generate_weather(1, Hemisphere::North, ClimateTendency::Rainy, seed, false);
+        for seed in 0..1000u64 {
+            let w = generate_weather(7, Hemisphere::North, ClimateTendency::Dry, seed, false);
             if w.is_wet_race {
                 wet += 1;
             }
         }
-        assert!(wet > 0, "nunca molhou mesmo com tendência alta");
-        assert!(
-            wet < 400,
-            "molhou demais ({wet}/500) — bias pra seco quebrou"
-        );
+        assert!(wet > 0, "Dry no verão deveria molhar RARAMENTE, não nunca");
+        assert!(wet < 80, "Dry no verão molhou demais ({wet}/1000)");
     }
 
     #[test]
-    fn bias_geral_pra_seco() {
-        // Numa pista Normal ao longo do ano, a grande maioria deve ser seca.
+    fn normal_agora_molha_as_vezes() {
+        // MUDANÇA de design: pista Normal (a maioria do catálogo) agora molha às vezes.
+        let mut wet = 0;
+        for seed in 0..500u64 {
+            let w = generate_weather(1, Hemisphere::North, ClimateTendency::Normal, seed, false);
+            if w.is_wet_race {
+                wet += 1;
+            }
+        }
+        // Normal no inverno ~30% → nem nunca nem maioria.
+        assert!((60..220).contains(&wet), "Normal inverno molhou {wet}/500 (esperado ~30%)");
+    }
+
+    #[test]
+    fn temporal_so_no_tier_alto() {
+        // VeryHeavy só aparece em Rainy inverno/outono; nunca em Normal/Dry.
+        let mut vh_rainy = 0;
+        for seed in 0..2000u64 {
+            let w = generate_weather(1, Hemisphere::North, ClimateTendency::Rainy, seed, false);
+            if w.race_intensity == RainIntensity::VeryHeavy {
+                vh_rainy += 1;
+            }
+            let n = generate_weather(1, Hemisphere::North, ClimateTendency::Normal, seed, false);
+            assert_ne!(n.race_intensity, RainIntensity::VeryHeavy, "Normal deu temporal (seed {seed})");
+        }
+        assert!(vh_rainy > 0, "Rainy inverno nunca deu temporal");
+    }
+
+    #[test]
+    fn bias_geral_ainda_seco_na_maioria() {
+        // Mesmo com a chuva mais frequente, a MAIORIA das corridas segue seca (Normal
+        // ao longo do ano < 30% molhado).
         let mut wet = 0;
         let total = 12 * 200;
         for month in 1..=12u32 {
@@ -755,7 +919,7 @@ mod tests {
             }
         }
         assert!(
-            (wet as f64) / (total as f64) < 0.15,
+            (wet as f64) / (total as f64) < 0.30,
             "molhou demais: {wet}/{total}"
         );
     }
@@ -946,6 +1110,89 @@ mod tests {
         assert!(wet.iter().any(|p| p.event_type >= 6), "corrida molhada sem chuva");
         let dry = story_to_timeline(&story(WeatherScenario::ClearDry, false, RainIntensity::None));
         assert!(dry.iter().all(|p| p.event_type < 6), "corrida seca com chuva");
+    }
+
+    #[test]
+    fn temperatura_fica_na_faixa_do_iracing() {
+        // Toda combinação estação × intensidade × seed cai em [18, 32].
+        for season in SEASONS {
+            for intensity in [
+                RainIntensity::None,
+                RainIntensity::Light,
+                RainIntensity::Decent,
+                RainIntensity::Heavy,
+                RainIntensity::VeryHeavy,
+            ] {
+                for seed in 0..300u64 {
+                    let mut s = story(WeatherScenario::SteadyRain, intensity != RainIntensity::None, intensity);
+                    s.season = season;
+                    let t = story_temperature(&s, seed);
+                    assert!((18..=32).contains(&t), "temp fora da faixa: {t} ({season:?}/{intensity:?})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn temperatura_chuva_esfria_e_verao_esquenta() {
+        // Média: verão seco > inverno com temporal (a chuva alinha e esfria).
+        let media = |season, intensity, wet| {
+            let mut acc = 0i64;
+            for seed in 0..500u64 {
+                let mut s = story(WeatherScenario::SteadyRain, wet, intensity);
+                s.season = season;
+                acc += story_temperature(&s, seed);
+            }
+            acc as f64 / 500.0
+        };
+        let verao_seco = media(Season::Summer, RainIntensity::None, false);
+        let inverno_temporal = media(Season::Winter, RainIntensity::VeryHeavy, true);
+        assert!(verao_seco > inverno_temporal, "{verao_seco} vs {inverno_temporal}");
+    }
+
+    #[test]
+    fn temperatura_deterministica() {
+        let s = story(WeatherScenario::ClearDry, false, RainIntensity::None);
+        assert_eq!(story_temperature(&s, 77), story_temperature(&s, 77));
+    }
+
+    #[test]
+    fn vento_usa_a_escada_e_varia() {
+        // Todo vento é um degrau da WIND_LADDER (2–48) e a direção fica em [0,359].
+        // Seco deve exercitar vários degraus (varia entre corridas).
+        let ladder: std::collections::HashSet<i64> = WIND_LADDER.iter().map(|(k, _)| *k).collect();
+        let mut speeds = std::collections::HashSet::new();
+        for seed in 0..500u64 {
+            let s = story(WeatherScenario::ClearDry, false, RainIntensity::None);
+            let w = generate_wind(&s, seed);
+            assert!(ladder.contains(&w.speed_kmh), "vento fora da escada: {}", w.speed_kmh);
+            assert!((0..=359).contains(&w.dir_deg), "direção fora da faixa: {}", w.dir_deg);
+            speeds.insert(w.speed_kmh);
+        }
+        assert!(speeds.len() >= 4, "vento seco não varia o suficiente ({} degraus)", speeds.len());
+    }
+
+    #[test]
+    fn temporal_venta_mais() {
+        // Média de vento no temporal > média no seco.
+        let media = |intensity, wet| {
+            let mut acc = 0i64;
+            for seed in 0..500u64 {
+                let s = story(WeatherScenario::SteadyRain, wet, intensity);
+                acc += generate_wind(&s, seed).speed_kmh;
+            }
+            acc as f64 / 500.0
+        };
+        assert!(
+            media(RainIntensity::VeryHeavy, true) > media(RainIntensity::None, false),
+            "temporal deveria ventar mais"
+        );
+    }
+
+    #[test]
+    fn vento_deterministico() {
+        let s = story(WeatherScenario::ClearDry, false, RainIntensity::None);
+        assert_eq!(generate_wind(&s, 42), generate_wind(&s, 42));
     }
 
     #[test]

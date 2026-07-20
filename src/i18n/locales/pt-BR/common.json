@@ -1,0 +1,263 @@
+{
+  "settings": {
+    "general": "Geral",
+    "language": {
+      "label": "Idioma",
+      "desc": "Menus e ferramentas do jogo."
+    },
+    "back": "Voltar",
+    "autosave": {
+      "label": "Salvamento automático",
+      "desc": "Salva o progresso ao final de cada semana/corrida."
+    },
+    "raceSection": "Corrida",
+    "autoYellow": {
+      "label": "Bandeira amarela automática",
+      "notFound": "iRacing não encontrado neste PC.",
+      "on": "Ligada — joga amarela sozinho em acidentes contra a IA.",
+      "off": "Joga bandeira amarela sozinho em acidentes contra a IA."
+    },
+    "save": "Salvar",
+    "saving": "Salvando",
+    "applying": "Aplicando configurações...",
+    "firstCareerConfirm": "Deseja criar sua primeira carreira agora?"
+  },
+  "difficulty": {
+    "facil": "Fácil",
+    "medio": "Médio",
+    "dificil": "Difícil",
+    "lendario": "Lendário"
+  },
+  "license": {
+    "none": "Sem licença",
+    "0": "Amadora",
+    "1": "Pro",
+    "2": "Super Pro",
+    "3": "Elite",
+    "4": "Super Elite"
+  },
+  "preseasonPhase": {
+    "ContractExpiry": "Contratos",
+    "Transfers": "Transferências",
+    "PlayerProposals": "Suas Propostas",
+    "RookiePlacement": "Rookies",
+    "Finalization": "Finalização",
+    "Complete": "Completa"
+  },
+  "seasonPhase": {
+    "PreTemporada": "Pré-Temporada",
+    "Temporada": "Temporada",
+    "Encerramento": "Encerramento",
+    "BlocoRegular": "Bloco Regular",
+    "JanelaConvocacao": "Convocação",
+    "BlocoEspecial": "Bloco Especial",
+    "PosEspecial": "Pós-Especial"
+  },
+  "attribute": {
+    "skill": "Skill",
+    "consistencia": "Consistência",
+    "racecraft": "Racecraft",
+    "defesa": "Defesa",
+    "ritmo_classificacao": "Quali",
+    "gestao_pneus": "Pneus",
+    "adaptabilidade": "Adaptabilidade",
+    "mentalidade": "Mentalidade",
+    "confianca": "Confiança",
+    "smoothness": "Smoothness",
+    "experiencia": "Experiência",
+    "fitness": "Fitness",
+    "fator_chuva": "Chuva",
+    "habilidade_largada": "Largada",
+    "agressividade": "Agressividade",
+    "aggression": "Agressividade",
+    "midia": "Mídia",
+    "desenvolvimento": "Desenvolvimento"
+  },
+  "countdown": {
+    "none": "Sem corrida pendente",
+    "today": "Próxima corrida hoje",
+    "tomorrow": "Próxima corrida amanhã",
+    "days_one": "Próxima corrida em {{count}} dia",
+    "days_other": "Próxima corrida em {{count}} dias",
+    "weeks_one": "Próxima corrida em 1 semana",
+    "weeks_other": "Próxima corrida em {{count}} semanas",
+    "month": "Próxima corrida em 1 mês",
+    "months_one": "Próxima corrida em {{count}} mês",
+    "months_other": "Próxima corrida em {{count}} meses"
+  },
+  "seasonYear": "Ano {{year}}",
+  "salary": {
+    "perMonthSuffix": "/mês"
+  },
+  "nav": {
+    "tab": {
+      "standings": "Home",
+      "news": "Notícias",
+      "myTeam": "Minha Equipe",
+      "calendar": "Calendário"
+    },
+    "date": "Data",
+    "back": "Voltar",
+    "loading": "Carregando...",
+    "exitToMenu": "Sair para o menu principal",
+    "advance": {
+      "advancing": "Avançando...",
+      "calendar": "Avançar calendário",
+      "skipSeason": "Pular temporada",
+      "toCallup": "Avançar para convocação",
+      "skipSpecial": "Pular bloco especial",
+      "endSeason": "Encerrar temporada",
+      "toPreseason": "Avançar para pré-temporada",
+      "openMarket": "Abrir mercado",
+      "advanceSeason": "Avançar temporada"
+    }
+  },
+  "pause": {
+    "title": "Pausa",
+    "continue": "Continuar",
+    "save": "Salvar",
+    "saved": "Salvo ✓",
+    "settings": "Configurações",
+    "exit": "Sair para o menu principal"
+  },
+  "leaveModal": {
+    "title": "Sair para o menu principal?",
+    "desc": "Você pode salvar o progresso antes de voltar ao menu.",
+    "saving": "Salvando...",
+    "saveAndExit": "Salvar e sair",
+    "exitNoSave": "Sair sem salvar",
+    "cancel": "Cancelar"
+  },
+  "seasonBanner": {
+    "finished": "Temporada Encerrada",
+    "championTbd": "Campeão definido",
+    "seasonEnd": "Fim de temporada",
+    "summary": "{{season}} terminou com {{champion}} no topo da {{championship}}.",
+    "noTeam": "- Sem equipe nesta temporada",
+    "noPendingRace": "- Sem corrida pendente"
+  },
+  "raceBanner": {
+    "raceN": "Corrida {{round}}",
+    "raceNofTotal": "Corrida {{round}} de {{total}}",
+    "local": "LOCAL",
+    "weather": "Clima",
+    "countdown": {
+      "today": "HOJE",
+      "tomorrow": "AMANHÃ",
+      "days": "EM {{count}} DIAS",
+      "weeks_one": "EM 1 SEMANA",
+      "weeks_other": "EM {{count}} SEMANAS",
+      "months": "EM {{count}} MESES"
+    }
+  },
+  "weather": {
+    "heavyRain": "Chuva Forte",
+    "wet": "Chuva",
+    "damp": "Úmido",
+    "partlyCloudy": "Parcialmente Nublado",
+    "dry": "Seco"
+  },
+  "calendar": {
+    "title": "Calendário",
+    "stepsDone": "{{completed}}/{{total}} etapas concluídas",
+    "loading": "Carregando calendário da temporada...",
+    "loadError": "Não foi possível carregar o calendário.",
+    "tbd": "A definir",
+    "phase": {
+      "mercado": "Mercado",
+      "regularLegacy": "Temporada Regular",
+      "especial": "Bloco Especial",
+      "pretemporada": "Pré-temporada",
+      "temporada": "Temporada",
+      "encerramento": "Encerramento"
+    },
+    "phaseEmpty": {
+      "mercado": "Período de transferências e contratos para a temporada.",
+      "especial": "Etapas do bloco especial e janela de convocação.",
+      "pretemporada": "Janela de mercado da pré-temporada.",
+      "encerramento": "Fim de ano sem corridas oficiais."
+    },
+    "legend": {
+      "mercado": "Mercado",
+      "convocacao": "Convocação",
+      "especial": "Bloco Especial",
+      "pretemporada": "Pré-temporada",
+      "temporada": "Temporada",
+      "encerramento": "Encerramento"
+    },
+    "detail": {
+      "round": "Rodada",
+      "duration": "Duração",
+      "weather": "Clima",
+      "status": "Status",
+      "done": "Concluída",
+      "pending": "Pendente"
+    }
+  },
+  "menu": {
+    "eyebrow": "Carreira",
+    "season": "Temporada {{year}}",
+    "continueCareer": "Continuar carreira",
+    "newCareer": "Nova carreira",
+    "loadSave": "Carregar save",
+    "settings": "Configurações",
+    "noCareers": "Nenhuma carreira ainda.",
+    "delete": "Excluir",
+    "cancel": "Cancelar",
+    "deleteSaveAria": "Deletar save",
+    "relative": {
+      "today": "Hoje",
+      "yesterday": "Ontem",
+      "days": "Há {{count}} dias",
+      "weekAgo": "Há 1 semana",
+      "weeks": "Há {{count}} semanas",
+      "monthAgo": "Há 1 mês",
+      "months": "Há {{count}} meses",
+      "yearAgo": "Há 1 ano",
+      "years": "Há {{count}} anos"
+    }
+  },
+  "standings": {
+    "loading": "Carregando classificação",
+    "loadError": "Não foi possível carregar a classificação.",
+    "teamsTitle": "Classificação de equipes",
+    "constructors": "Construtores",
+    "teamsCount": "{{count}} equipes",
+    "col": { "pos": "Pos", "driver": "Piloto", "team": "Equipe" },
+    "series": {
+      "changeLine": "Trocar de linha",
+      "carLine": "Linha de carro",
+      "tierUp": "Tier superior",
+      "tierDown": "Tier inferior"
+    },
+    "badge": {
+      "injurySevere": "Lesão grave",
+      "injuryActive": "Lesão ativa",
+      "lifeRookie": "Estreante da vida",
+      "rookie": "Estreante",
+      "retired": "Aposentado",
+      "retiredTitle": "Aposentado — encerrou a carreira (pontos congelados)",
+      "prevChampion": "Campeão da temporada anterior",
+      "reviewRace": "Duplo clique: rever a classificação desta corrida"
+    },
+    "zone": { "promotion": "PROMOÇÃO ↑", "relegation": "REBAIXAMENTO ↓" },
+    "others": "Outros",
+    "winsShort": "vit.",
+    "special": {
+      "notYetTitle": "Competição especial ainda não aconteceu",
+      "teamsPending": "A classificação de equipes será liberada junto com os resultados do bloco especial.",
+      "callupWindow": "A competição começa quando a janela de convocação for finalizada. Os resultados aparecem aqui quando a primeira corrida for simulada.",
+      "specialOpen": "O bloco especial já foi aberto, mas ainda não existe resultado registrado. A classificação aparece quando a primeira corrida for simulada.",
+      "afterRegular": "Esta competição acontece depois da temporada regular e da janela de convocação. Os resultados aparecem aqui quando o bloco especial for simulado."
+    }
+  },
+  "closeApp": {
+    "title": "Fechar o Loop?",
+    "desc": "Você pode salvar o progresso antes de fechar o jogo."
+  },
+  "windowControls": {
+    "drag": "Arrastar janela",
+    "dragHint": "Arrastar janela (segure e mova)",
+    "close": "Fechar app"
+  }
+}

@@ -10,6 +10,7 @@
 pub mod breakdown;
 pub mod cost;
 pub mod crash;
+pub mod driving_style;
 pub mod parts;
 pub mod seed;
 pub mod sim_bridge;

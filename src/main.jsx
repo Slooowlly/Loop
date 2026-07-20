@@ -4,8 +4,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import OverlayApp from "./overlay/OverlayApp";
 import OverlayVersions from "./overlay/OverlayVersions";
+import { EngineerRadioLive, EngineerRadioPreview } from "./overlay/EngineerRadio";
 import "@fontsource-variable/space-grotesk";
 import "./index.css";
+import "./i18n"; // inicializa o i18next (UI estática, Fase 0 da tradução).
+import useCareerStore from "./stores/useCareerStore";
 
 // A MESMA build serve a janela principal E a de overlay. Qual é qual:
 //   • No app (Tauri): pela LABEL da janela. A janela criada pelo Rust chama-se
@@ -26,7 +29,8 @@ if (IN_TAURI) {
   }
 }
 const isOverlayWindow = tauriLabel === "overlay";
-const isRealOverlay = isOverlayWindow || hash === "#overlay";
+const isEngineerWindow = tauriLabel === "engineer";
+const isRealOverlay = isOverlayWindow || isEngineerWindow || hash === "#overlay" || hash === "#engineer";
 
 // A janela real precisa ser TRANSPARENTE de verdade: o body tem fundo sólido
 // (var(--app-bg)); zera aqui pra o clique-atravessa mostrar só a torre.
@@ -37,9 +41,18 @@ if (isRealOverlay) {
 
 function Root() {
   if (hash === "#overlay-versions") return <OverlayVersions />;
+  if (hash === "#engineer-preview") return <EngineerRadioPreview />;
+  if (isEngineerWindow || hash === "#engineer") return <EngineerRadioLive />;
   if (isOverlayWindow) return <OverlayApp preview={false} />;
   if (hash.startsWith("#overlay")) return <OverlayApp preview={hash !== "#overlay"} />;
   return <App />;
+}
+
+// Aplica o idioma persistido (config.json) logo no boot da janela principal, pra
+// menu/Settings já abrirem no idioma certo antes de qualquer carreira carregar.
+// As janelas de overlay não têm UI de menu — não precisam.
+if (!isRealOverlay) {
+  void useCareerStore.getState().loadLanguage();
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(

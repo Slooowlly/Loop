@@ -40,12 +40,22 @@ describe("buildTowerSections", () => {
     expect(positionsOf(sections[1])).toEqual([1, 2, 3]);
   });
 
-  it("jogador no pódio: emenda sem separação", () => {
+  it("jogador no pódio: emenda sem separação, mantendo o total de sempre", () => {
     const cars = Array.from({ length: 20 }, (_, i) => car(i + 1, { player: i === 1 })); // P2
     const sections = buildTowerSections(data(cls("gt3", cars)));
 
-    // janela seria P1..P6; encosta no top -> lista contínua, sem "|"
-    expect(positionsOf(sections[0])).toEqual([1, 2, 3, 4, 5, 6]);
+    // encosta no top -> lista contínua, sem "|"; a janela desliza pra baixo até o total
+    expect(positionsOf(sections[0])).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(positionsOf(sections[0])).not.toContain("|");
+  });
+
+  it("líder (P1): janela desliza pra baixo, NÃO encolhe pra 5", () => {
+    const cars = Array.from({ length: 20 }, (_, i) => car(i + 1, { player: i === 0 })); // P1
+    const sections = buildTowerSections(data(cls("gt3", cars)));
+
+    // nada acima do líder -> estica pra baixo e mostra o total de sempre (12), sem "|"
+    expect(positionsOf(sections[0])).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(positionsOf(sections[0])).not.toContain("|");
   });
 
   it("nao separa pra esconder um piloto so", () => {
@@ -56,11 +66,12 @@ describe("buildTowerSections", () => {
     expect(positionsOf(sections[0])).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
-  it("jogador no fim da grade: a janela encolhe sem estourar", () => {
+  it("jogador na lanterna (P20): janela desliza pra cima, mantém o total, não estoura", () => {
     const cars = Array.from({ length: 20 }, (_, i) => car(i + 1, { player: i === 19 })); // P20 (ultimo)
     const sections = buildTowerSections(data(cls("gt3", cars)));
 
-    expect(positionsOf(sections[0])).toEqual([1, 2, 3, "|", 16, 17, 18, 19, 20]);
+    // sem ninguém abaixo -> a janela (9) sobe: top 3 + separação + P12..P20
+    expect(positionsOf(sections[0])).toEqual([1, 2, 3, "|", 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   });
 
   it("totalCars soma todas as classes", () => {

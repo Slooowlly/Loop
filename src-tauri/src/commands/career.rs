@@ -335,6 +335,31 @@ pub(crate) fn load_career_in_base_dir(
         })
         .transpose()?;
     let accepted_special_offer = build_accepted_special_offer_summary(&db.conn, &player)?;
+    // Cota de público do jogador (Fase 3 do Estrelato): fama do lineup da equipe do
+    // jogador vs o grid da próxima corrida → fração do portão que a equipe captura
+    // (piso + prêmio de estrela, mesma conta da bilheteria). `None` sem equipe.
+    let public_fame_share: Option<f64> = next_race.as_ref().and_then(|race| {
+        let team = player_team.as_ref()?;
+        let category_teams = team_queries::get_teams_by_category(&db.conn, &race.categoria).ok()?;
+        let grid_total: f64 = category_teams
+            .iter()
+            .map(|t| {
+                let medias =
+                    team_queries::get_team_lineup_medias(&db.conn, &t.id).unwrap_or_default();
+                crate::public_presence::team::derive_team_public_presence(&medias).raw_score
+            })
+            .sum();
+        let team_medias =
+            team_queries::get_team_lineup_medias(&db.conn, &team.id).unwrap_or_default();
+        let team_presence =
+            crate::public_presence::team::derive_team_public_presence(&team_medias).raw_score;
+        let n = category_teams.len().max(1) as f64;
+        Some(crate::finance::cashflow::team_gate_share(
+            team_presence,
+            grid_total,
+            n,
+        ))
+    });
     let next_race_summary = next_race.as_ref().map(|race| RaceSummary {
         id: race.id.clone(),
         rodada: race.rodada,
@@ -349,6 +374,7 @@ pub(crate) fn load_career_in_base_dir(
         display_date: race.display_date.clone(),
         thematic_slot: race.thematic_slot.as_str().to_string(),
         event_interest: event_interest_summary.clone(),
+        public_fame_share,
     });
     let next_race_briefing_summary = next_race.as_ref().map(|race| {
         build_next_race_briefing_summary(&db.conn, &player.id, active_season.numero, race)
@@ -1765,7 +1791,9 @@ pub(crate) fn persist_resume_context_in_base_dir(
     active_view: CareerResumeView,
     end_of_season_result: Option<EndOfSeasonResult>,
 ) -> Result<(), String> {
-    let (_db, career_dir, _) = open_career_resources(base_dir, career_id)?;
+    // Persiste só estado de UI em JSON (nada de banco). Antes abria com reparo, o que
+    // rodava a transação de escrita de contratos a cada troca de tela. Read-only.
+    let (_db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
 
     match active_view {
         CareerResumeView::Dashboard => delete_resume_context(&career_dir),
@@ -1798,7 +1826,11 @@ pub(crate) fn get_briefing_phrase_history_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<BriefingPhraseHistory, String> {
-    let (_db, career_dir, _meta) = open_career_resources(base_dir, career_id)?;
+    // Só precisamos do career_dir para ler o JSON de frases — nada de banco. Abrir
+    // com reparo aqui rodava uma transação de ESCRITA (BEGIN IMMEDIATE + varredura de
+    // contratos/equipes) e pegava o lock global a cada carregamento do briefing,
+    // brigando com os SELECTs paralelos e travando a Sala de Estratégia. Read-only.
+    let (_db, career_dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
     read_briefing_phrase_history(&briefing_phrase_history_path(&career_dir))
 }
 
@@ -1808,7 +1840,9 @@ pub(crate) fn save_briefing_phrase_history_in_base_dir(
     season_number: i32,
     entries: Vec<BriefingPhraseEntryInput>,
 ) -> Result<BriefingPhraseHistory, String> {
-    let (_db, career_dir, _meta) = open_career_resources(base_dir, career_id)?;
+    // Grava só o JSON de frases — não usa o banco. Read-only evita a transação de
+    // reparo de contratos (e o lock global) a cada persistência de briefing.
+    let (_db, career_dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
     let history_path = briefing_phrase_history_path(&career_dir);
     let current = read_briefing_phrase_history(&history_path)?;
     let updated = merge_briefing_phrase_history(current, season_number, entries);
@@ -3805,6 +3839,7 @@ pub(crate) fn get_team_finance_report_in_base_dir(
     let mut season_rounds = 0;
     for entry in entries.iter().filter(|e| e.season_number == current_season) {
         season.sponsorship_income += entry.sponsorship_income;
+        season.gate_income += entry.gate_income;
         season.result_bonus += entry.result_bonus;
         season.partial_prize_income += entry.partial_prize_income;
         season.aid_income += entry.aid_income;
@@ -3825,6 +3860,7 @@ pub(crate) fn get_team_finance_report_in_base_dir(
         season_number: latest_entry.season_number,
         round: latest_entry.round,
         sponsorship_income: latest_entry.sponsorship_income,
+        gate_income: latest_entry.gate_income,
         result_bonus: latest_entry.result_bonus,
         partial_prize_income: latest_entry.partial_prize_income,
         aid_income: latest_entry.aid_income,
@@ -5416,6 +5452,7 @@ pub(crate) fn get_calendar_for_category_in_base_dir(
             display_date: race.display_date.clone(),
             thematic_slot: race.thematic_slot.as_str().to_string(),
             event_interest: None,
+            public_fame_share: None,
         })
         .collect())
 }

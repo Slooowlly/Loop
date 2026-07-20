@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 import GlassCard from "../../components/ui/GlassCard";
 import useDeferredLoading from "../../hooks/useLoading";
@@ -8,65 +9,62 @@ import useCareerStore from "../../stores/useCareerStore";
 import { getCategoryColor } from "../../utils/categoryColors";
 import { categoryLabel } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
+import i18n from "../../i18n/index.js";
+import { monthLongLabels, weekdayNarrowLabels } from "../../i18n/format.js";
 
 // Imagens por track_id (ids reais do iRacing)
 const TRACK_IMAGES = {
-  9: "/utilities/tracks/summitpoint.png",
+  9: "/utilities/tracks/summitpoint.webp",
   353: "/utilities/tracks/limerock.jpeg",
-  586: "/utilities/tracks/lagunaseca.png",
-  166: "/utilities/tracks/okayama.png",
+  586: "/utilities/tracks/lagunaseca.webp",
+  166: "/utilities/tracks/okayama.webp",
   180: "/utilities/tracks/oultonpark.jpeg",
   181: "/utilities/tracks/oultonpark.jpeg",
   182: "/utilities/tracks/oultonpark.jpeg",
-  324: "/utilities/tracks/Tsukuba.png",
-  449: "/utilities/tracks/motorsport arena.png",
+  324: "/utilities/tracks/Tsukuba.webp",
+  449: "/utilities/tracks/motorsport arena.webp",
   451: "/utilities/tracks/rudskogen.jpeg",
-  489: "/utilities/tracks/ledenon.png",
-  202: "/utilities/tracks/oranpark.png",
+  489: "/utilities/tracks/ledenon.webp",
+  202: "/utilities/tracks/oranpark.webp",
   440: "/utilities/tracks/winton.jpeg",
-  515: "/utilities/tracks/Navarra.png",
-  554: "/utilities/tracks/charlotte.png",
+  515: "/utilities/tracks/Navarra.webp",
+  554: "/utilities/tracks/charlotte.webp",
   465: "/utilities/tracks/virginia.jpeg",
 };
 
 const TRACK_IMAGE_FILES = [
-  { match: ["charlotte"], file: "charlotte.png" },
-  { match: ["laguna seca"], file: "lagunaseca.png" },
+  { match: ["charlotte"], file: "charlotte.webp" },
+  { match: ["laguna seca"], file: "lagunaseca.webp" },
   { match: ["lime rock"], file: "limerock.jpeg" },
-  { match: ["okayama"], file: "okayama.png" },
+  { match: ["okayama"], file: "okayama.webp" },
   { match: ["oulton"], file: "oultonpark.jpeg" },
   { match: ["snetterton"], file: "snetterton.jpeg" },
-  { match: ["summit point", "jefferson"], file: "summitpoint.png" },
-  { match: ["tsukuba"], file: "Tsukuba.png" },
+  { match: ["summit point", "jefferson"], file: "summitpoint.webp" },
+  { match: ["tsukuba"], file: "Tsukuba.webp" },
   { match: ["virginia international raceway", "vir full", "vir patriot"], file: "virginia.jpeg" },
-  { match: ["ledenon"], file: "ledenon.png" },
-  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.png" },
-  { match: ["navarra"], file: "Navarra.png" },
-  { match: ["oran park"], file: "oranpark.png" },
+  { match: ["ledenon"], file: "ledenon.webp" },
+  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.webp" },
+  { match: ["navarra"], file: "Navarra.webp" },
+  { match: ["oran park"], file: "oranpark.webp" },
   { match: ["rudskogen"], file: "rudskogen.jpeg" },
   { match: ["winton"], file: "winton.jpeg" },
 ];
 
 const CATEGORY_LOGOS = {
-  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.png",
-  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.png",
-  mazda_amador: "/utilities/categorias/MX5%20CUP.png",
-  toyota_amador: "/utilities/categorias/GR%20CUP.png",
-  bmw_m2: "/utilities/categorias/M2%20CUP.png",
-  production_challenger: "/utilities/categorias/PRODUCTION.png",
-  gt4: "/utilities/categorias/GT4.png",
-  gt3: "/utilities/categorias/GT3.png",
-  lmp2: "/utilities/categorias/LMP2.png",
-  endurance: "/utilities/categorias/ENDURANCE.png",
+  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.webp",
+  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.webp",
+  mazda_amador: "/utilities/categorias/MX5%20CUP.webp",
+  toyota_amador: "/utilities/categorias/GR%20CUP.webp",
+  bmw_m2: "/utilities/categorias/M2%20CUP.webp",
+  production_challenger: "/utilities/categorias/PRODUCTION.webp",
+  gt4: "/utilities/categorias/GT4.webp",
+  gt3: "/utilities/categorias/GT3.webp",
+  lmp2: "/utilities/categorias/LMP2.webp",
+  endurance: "/utilities/categorias/ENDURANCE.webp",
 };
 
 // Constantes visuais
-const MONTH_NAMES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-];
-
-const WEEKDAY_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
+// Nomes de mês e iniciais de dia da semana vêm de Intl (i18n/format.js), por locale.
 
 // Barra de cabeçalho de cada mês (cor por fase). "active" = mês atual (preenchido).
 const MONTH_BAR_TINTS = {
@@ -94,16 +92,16 @@ function getMonthPhase(monthIndex, isLegacyCalendar = false) {
     if (monthIndex === 0) {
       return {
         type: "mercado",
-        label: "Mercado",
+        label: i18n.t("calendar.phase.mercado"),
         badgeClass: "bg-status-yellow/15 text-status-yellow",
         cardClass: "border-status-yellow/25",
-        emptyText: "Período de transferências e contratos para a temporada.",
+        emptyText: i18n.t("calendar.phaseEmpty.mercado"),
       };
     }
     if (monthIndex <= 7) {
       return {
         type: "regular",
-        label: "Temporada Regular",
+        label: i18n.t("calendar.phase.regularLegacy"),
         badgeClass: "bg-accent-primary/15 text-accent-primary",
         cardClass: "",
         emptyText: null,
@@ -111,10 +109,10 @@ function getMonthPhase(monthIndex, isLegacyCalendar = false) {
     }
     return {
       type: "especial",
-      label: "Bloco Especial",
+      label: i18n.t("calendar.phase.especial"),
       badgeClass: "bg-status-purple/15 text-status-purple",
       cardClass: "border-status-purple/25",
-      emptyText: "Etapas do bloco especial e janela de convocação.",
+      emptyText: i18n.t("calendar.phaseEmpty.especial"),
     };
   }
 
@@ -122,16 +120,16 @@ function getMonthPhase(monthIndex, isLegacyCalendar = false) {
     if (monthIndex === 0) {
       return {
         type: "mercado",
-        label: "Pré-temporada",
+        label: i18n.t("calendar.phase.pretemporada"),
         badgeClass: "bg-status-yellow/15 text-status-yellow",
         cardClass: "border-status-yellow/25",
-        emptyText: "Janela de mercado da pré-temporada.",
+        emptyText: i18n.t("calendar.phaseEmpty.pretemporada"),
       };
     }
     if (monthIndex >= 1 && monthIndex <= 10) {
       return {
         type: "regular",
-        label: "Temporada",
+        label: i18n.t("calendar.phase.temporada"),
         badgeClass: "bg-accent-primary/15 text-accent-primary",
         cardClass: "",
         emptyText: null,
@@ -139,26 +137,26 @@ function getMonthPhase(monthIndex, isLegacyCalendar = false) {
     }
     return {
       type: "encerramento",
-      label: "Encerramento",
+      label: i18n.t("calendar.phase.encerramento"),
       badgeClass: "bg-white/10 text-text-secondary",
       cardClass: "border-white/10",
-      emptyText: "Fim de ano sem corridas oficiais.",
+      emptyText: i18n.t("calendar.phaseEmpty.encerramento"),
     };
   }
 
   if (monthIndex === 0) {
     return {
       type: "mercado",
-      label: "Mercado",
+      label: i18n.t("calendar.phase.mercado"),
       badgeClass: "bg-status-yellow/15 text-status-yellow",
       cardClass: "border-status-yellow/25",
-      emptyText: "Período de transferências e contratos para a temporada.",
+      emptyText: i18n.t("calendar.phaseEmpty.mercado"),
     };
   }
   if (monthIndex <= 7) {
     return {
       type: "regular",
-      label: "Temporada Regular",
+      label: i18n.t("calendar.phase.regularLegacy"),
       badgeClass: "bg-accent-primary/15 text-accent-primary",
       cardClass: "",
       emptyText: null,
@@ -166,10 +164,10 @@ function getMonthPhase(monthIndex, isLegacyCalendar = false) {
   }
   return {
     type: "especial",
-    label: "Bloco Especial",
+    label: i18n.t("calendar.phase.especial"),
       badgeClass: "bg-status-purple/15 text-status-purple",
       cardClass: "border-status-purple/25",
-      emptyText: "Etapas do bloco especial e janela de convocação.",
+      emptyText: i18n.t("calendar.phaseEmpty.especial"),
   };
 }
 
@@ -261,10 +259,10 @@ function compareCalendarMonth(year, month, currentDateParts) {
 }
 
 function weatherLabel(value) {
-  if (value === "HeavyRain") return "Chuva forte";
-  if (value === "Wet") return "Chuva";
-  if (value === "Damp") return "Úmido";
-  return "Seco";
+  if (value === "HeavyRain") return i18n.t("weather.heavyRain");
+  if (value === "Wet") return i18n.t("weather.wet");
+  if (value === "Damp") return i18n.t("weather.damp");
+  return i18n.t("weather.dry");
 }
 
 function getTrackAssetPath(file) {
@@ -344,6 +342,7 @@ export function getRaceTooltipStyle(cellRect, viewport = {}, tooltipSize = {}, o
 }
 
 function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const nextRace = useCareerStore((state) => state.nextRace);
@@ -423,7 +422,7 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
           });
       } catch (err) {
         if (mounted) {
-          setError(typeof err === "string" ? err : "Não foi possível carregar o calendário.");
+          setError(typeof err === "string" ? err : i18n.t("calendar.loadError"));
         }
       } finally {
         if (mounted) {
@@ -534,35 +533,35 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
     <GlassCard hover={false} className="rounded-[28px]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">Calendário</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">{t("calendar.title")}</p>
           <h2 className="mt-2 text-3xl font-semibold text-text-primary">
             {categoryLabel(playerTeam?.categoria)}
           </h2>
         </div>
         <p className="text-sm text-text-secondary">
-          {completed}/{displayedCalendar.length} etapas concluídas
+          {t("calendar.stepsDone", { completed, total: displayedCalendar.length })}
         </p>
       </div>
 
       <div data-testid="calendar-legend" className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
         {isLegacyCalendar ? (
           <>
-            <LegendItem color="bg-status-yellow" label="Mercado" />
-            <LegendItem color="bg-orange-400" label="Convocação" />
-            <LegendItem color="bg-status-purple" label="Bloco Especial" />
+            <LegendItem color="bg-status-yellow" label={t("calendar.legend.mercado")} />
+            <LegendItem color="bg-orange-400" label={t("calendar.legend.convocacao")} />
+            <LegendItem color="bg-status-purple" label={t("calendar.legend.especial")} />
           </>
         ) : (
           <>
-            <LegendItem color="bg-status-yellow" label="Pré-temporada" />
-            <LegendItem color="bg-accent-primary" label="Temporada" />
-            <LegendItem color="bg-white/60" label="Encerramento" />
+            <LegendItem color="bg-status-yellow" label={t("calendar.legend.pretemporada")} />
+            <LegendItem color="bg-accent-primary" label={t("calendar.legend.temporada")} />
+            <LegendItem color="bg-white/60" label={t("calendar.legend.encerramento")} />
           </>
         )}
       </div>
 
       {loading ? (
         showLoadingUI ? (
-          <p className="mt-8 text-sm text-text-secondary">Carregando calendário da temporada...</p>
+          <p className="mt-8 text-sm text-text-secondary">{t("calendar.loading")}</p>
         ) : null
       ) : error ? (
         <div className="mt-6 rounded-2xl border border-status-red/30 bg-status-red/10 px-4 py-3 text-sm text-status-red">
@@ -703,11 +702,11 @@ function MonthCard({
           isCurrentMonth ? tint.active : tint.idle
         }`}
       >
-        {MONTH_NAMES[month]}
+        {monthLongLabels()[month]}
       </div>
 
       <div className="grid grid-cols-7 gap-[2px]">
-        {WEEKDAY_LABELS.map((weekday, index) => (
+        {weekdayNarrowLabels().map((weekday, index) => (
           <div
             key={index}
             className="pb-1 text-center text-[9px] font-medium text-text-muted/50"
@@ -1023,7 +1022,7 @@ function OtherCategoryRaceTicket({
   const categoryLogo = CATEGORY_LOGOS[race.categoria] ?? null;
   const categoryColor = getCategoryColor(race.categoria, "#E73F47");
   const isConcluida = race.status === "Concluida";
-  const weatherValue = isConcluida ? weatherLabel(race.clima) : "A definir";
+  const weatherValue = isConcluida ? weatherLabel(race.clima) : i18n.t("calendar.tbd");
 
   return (
     <div
@@ -1073,9 +1072,9 @@ function OtherCategoryRaceTicket({
         </p>
 
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <TicketDetail label="Duração" value={`${race.duracao_corrida_min} min`} testId="calendar-tooltip-ticket-detail-duration" />
-          <TicketDetail label="Clima" value={weatherValue} />
-          <TicketDetail label="Status" value={isConcluida ? "Concluída" : "Pendente"} />
+          <TicketDetail label={i18n.t("calendar.detail.duration")} value={`${race.duracao_corrida_min} min`} testId="calendar-tooltip-ticket-detail-duration" />
+          <TicketDetail label={i18n.t("calendar.detail.weather")} value={weatherValue} />
+          <TicketDetail label={i18n.t("calendar.detail.status")} value={isConcluida ? i18n.t("calendar.detail.done") : i18n.t("calendar.detail.pending")} />
         </div>
       </div>
 
@@ -1114,7 +1113,7 @@ function TicketDetail({ label, value, testId }) {
 function RaceTooltip({ race, cellRect }) {
   const image = getTrackImageSrc(race);
   const isConcluida = race.status === "Concluida";
-  const weatherValue = isConcluida ? weatherLabel(race.clima) : "A definir";
+  const weatherValue = isConcluida ? weatherLabel(race.clima) : i18n.t("calendar.tbd");
   const tooltipRef = useRef(null);
   const [tooltipSize, setTooltipSize] = useState({ width: 208, height: 176 });
 
@@ -1159,12 +1158,12 @@ function RaceTooltip({ race, cellRect }) {
         )}
 
         <div className="space-y-[5px] p-3">
-          <DetailRow label="Rodada" value={`R${race.rodada}`} accent />
-          <DetailRow label="Duração" value={`${race.duracao_corrida_min} min`} />
-          <DetailRow label="Clima" value={weatherValue} />
+          <DetailRow label={i18n.t("calendar.detail.round")} value={`R${race.rodada}`} accent />
+          <DetailRow label={i18n.t("calendar.detail.duration")} value={`${race.duracao_corrida_min} min`} />
+          <DetailRow label={i18n.t("calendar.detail.weather")} value={weatherValue} />
           <DetailRow
-            label="Status"
-            value={isConcluida ? "Concluída" : "Pendente"}
+            label={i18n.t("calendar.detail.status")}
+            value={isConcluida ? i18n.t("calendar.detail.done") : i18n.t("calendar.detail.pending")}
             valueClass={isConcluida ? "text-status-green" : "text-text-secondary"}
           />
         </div>

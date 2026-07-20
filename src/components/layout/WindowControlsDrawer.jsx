@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import useCareerStore from "../../stores/useCareerStore";
 
@@ -8,13 +9,14 @@ const buttonClass =
   "flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary transition-glass hover:bg-white/8 hover:text-text-primary";
 
 function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
       <div className="glass-strong relative w-[340px] rounded-2xl border border-white/12 p-6 shadow-2xl">
-        <h3 className="mb-1 text-[15px] font-semibold text-text-primary">Fechar o Loop?</h3>
+        <h3 className="mb-1 text-[15px] font-semibold text-text-primary">{t("closeApp.title")}</h3>
         <p className="mb-5 text-[13px] text-text-secondary">
-          Você pode salvar o progresso antes de fechar o jogo.
+          {t("closeApp.desc")}
         </p>
         <div className="flex flex-col gap-2">
           <button
@@ -23,7 +25,7 @@ function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
             onClick={onSave}
             className="flex h-9 w-full items-center justify-center rounded-xl bg-accent-primary text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {isSaving ? "Salvando..." : "Salvar e sair"}
+            {isSaving ? t("leaveModal.saving") : t("leaveModal.saveAndExit")}
           </button>
           <button
             type="button"
@@ -31,7 +33,7 @@ function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
             onClick={onDiscard}
             className="flex h-9 w-full items-center justify-center rounded-xl border border-white/10 bg-white/6 text-[13px] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary disabled:opacity-50"
           >
-            Sair sem salvar
+            {t("leaveModal.exitNoSave")}
           </button>
           <button
             type="button"
@@ -39,7 +41,7 @@ function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
             onClick={onCancel}
             className="flex h-9 w-full items-center justify-center rounded-xl text-[13px] text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
           >
-            Cancelar
+            {t("leaveModal.cancel")}
           </button>
         </div>
       </div>
@@ -48,6 +50,7 @@ function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
 }
 
 function WindowControlsDrawer() {
+  const { t } = useTranslation();
   const location = useLocation();
   // Mostrar em todas as telas (inclusive o menu inicial "/") — é o controle de janela
   // (sair do fullscreen, minimizar, fechar). Só fica oculto numa splash dedicada.
@@ -189,8 +192,8 @@ function WindowControlsDrawer() {
               <div className="glass-strong flex items-center gap-0.5 rounded-2xl border border-white/12 px-1.5 py-1.5">
                 <div
                   role="button"
-                  aria-label="Arrastar janela"
-                  title="Arrastar janela (segure e mova)"
+                  aria-label={t("windowControls.drag")}
+                  title={t("windowControls.dragHint")}
                   onMouseDown={handleStartDrag}
                   className={`${buttonClass} cursor-grab active:cursor-grabbing`}
                 >
@@ -204,7 +207,7 @@ function WindowControlsDrawer() {
                 </button>
                 <button
                   type="button"
-                  aria-label="Fechar app"
+                  aria-label={t("windowControls.close")}
                   className={`${buttonClass} hover:bg-status-red/20 hover:text-status-red`}
                   onClick={handleClose}
                 >

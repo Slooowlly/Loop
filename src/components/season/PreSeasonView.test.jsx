@@ -284,7 +284,7 @@ describe("PreSeasonView", () => {
 
     expect(teamName).toHaveClass("text-[19px]", "font-bold");
     expect(categoryHeader).toHaveClass("flex-col", "items-center");
-    expect(categoryLogo).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.png");
+    expect(categoryLogo).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.webp");
     expect(primaryDriver).toHaveClass("text-[15px]", "font-bold");
     expect(primaryDriver).toHaveClass("text-[color:var(--text-primary)]");
     expect(screen.getByText("3 anos")).toBeInTheDocument();
@@ -351,7 +351,7 @@ describe("PreSeasonView", () => {
     const title = within(header).getByAltText("GT4 Championship");
     const count = await screen.findByText("3 vagas");
 
-    expect(title).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.png");
+    expect(title).toHaveAttribute("src", "/utilities/categorias/recortadas/GT4.webp");
     expect(count).toHaveAttribute("data-testid", "preseason-category-count");
     expect(count).toHaveStyle({ color: "#3080FF", borderColor: "#3080FF55" });
   });
@@ -419,8 +419,8 @@ describe("PreSeasonView", () => {
     const mazdaCupHeader = await screen.findByTestId("preseason-category-header-mazda_amador");
     const mazdaRookieHeader = await screen.findByTestId("preseason-category-header-mazda_rookie");
 
-    expect(within(mazdaCupHeader).getByAltText("Mazda Cup")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20CUP.png");
-    expect(within(mazdaRookieHeader).getByAltText("Mazda Rookie")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20ROOKIE.png");
+    expect(within(mazdaCupHeader).getByAltText("Mazda Cup")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20CUP.webp");
+    expect(within(mazdaRookieHeader).getByAltText("Mazda Rookie")).toHaveAttribute("src", "/utilities/categorias/recortadas/MX5%20ROOKIE.webp");
     expect(within(mazdaCupHeader).getByTestId("preseason-category-count")).toHaveTextContent("1 vaga");
     expect(within(mazdaRookieHeader).getByTestId("preseason-category-count")).toHaveTextContent("1 vaga");
   });
@@ -563,11 +563,11 @@ describe("PreSeasonView", () => {
     ]);
     expect(within(screen.getByTestId("preseason-category-header-endurance")).getByAltText("Endurance Championship")).toHaveAttribute(
       "src",
-      "/utilities/categorias/recortadas/ENDURANCE.png",
+      "/utilities/categorias/recortadas/ENDURANCE.webp",
     );
     expect(within(screen.getByTestId("preseason-category-header-production_challenger")).getByAltText("Production")).toHaveAttribute(
       "src",
-      "/utilities/categorias/recortadas/PRODUCTION.png",
+      "/utilities/categorias/recortadas/PRODUCTION.webp",
     );
     expect(toyotaRookieSection).toHaveClass("mt-14");
   });
@@ -623,8 +623,8 @@ describe("PreSeasonView", () => {
       .getByTestId("preseason-category-logo");
 
     expect(await getLogo("toyota_amador")).toHaveStyle({ transform: "translateX(0.75%)" });
-    expect(await getLogo("endurance")).toHaveAttribute("src", "/utilities/categorias/recortadas/ENDURANCE.png");
-    expect(await getLogo("production_challenger")).toHaveAttribute("src", "/utilities/categorias/recortadas/PRODUCTION.png");
+    expect(await getLogo("endurance")).toHaveAttribute("src", "/utilities/categorias/recortadas/ENDURANCE.webp");
+    expect(await getLogo("production_challenger")).toHaveAttribute("src", "/utilities/categorias/recortadas/PRODUCTION.webp");
     const mazdaCupLogo = await getLogo("mazda_amador");
     const bmwLogo = await getLogo("bmw_m2");
 

@@ -16,6 +16,9 @@ const PRE_RACE_URL: &str =
 /// Endpoint do debrief pós-corrida (voz única do engenheiro → piloto, com calor).
 const POST_RACE_URL: &str =
     "https://iracer-news-124606451488.southamerica-east1.run.app/post-race";
+/// Endpoint do rodapé "Do mundo do Grid" (reescrita jornalística das notinhas).
+const WORLD_NOTES_URL: &str =
+    "https://iracer-news-124606451488.southamerica-east1.run.app/world-notes";
 const APP_SECRET: &str = "827119cc235cdea25c04545cd283749e673917d2d424340fb1059925738efcef";
 // 45s e não 20s: o servidor (Cloud Run) faz scale-to-zero quando ocioso, e a 1ª
 // chamada após um período parado paga um cold start (subir o container + init do
@@ -216,4 +219,61 @@ pub fn fetch_post_race_debrief(
         return Err(StoryError::Empty);
     }
     Ok(PostRaceDebrief { headline, body })
+}
+
+#[derive(Deserialize)]
+struct WorldNotesResponse {
+    notes: Vec<String>,
+}
+
+/// Reescreve as notinhas do rodapé "Do mundo do Grid" em voz de revista (3ª pessoa,
+/// jornalística). Recebe os fatos crus (`[kind] assunto — texto`, um por linha) e
+/// devolve UMA string reescrita por fato, na MESMA ordem. Mesmo contrato dos demais
+/// (segredo no header, cooldown/teto no servidor). Em QUALQUER erro — inclusive o
+/// endpoint ainda não existir no servidor — o chamador mantém o texto determinístico.
+pub fn fetch_world_notes(
+    facts: &str,
+    lang: &str,
+    install_id: &str,
+) -> Result<Vec<String>, StoryError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(TIMEOUT_SECS))
+        .build()
+        .map_err(|e| StoryError::Network(e.to_string()))?;
+
+    let body = serde_json::json!({
+        "facts": facts,
+        "lang": lang,
+        "install_id": install_id,
+    });
+
+    let resp = client
+        .post(WORLD_NOTES_URL)
+        .header("x-app-secret", APP_SECRET)
+        .json(&body)
+        .send()
+        .map_err(|e| StoryError::Network(e.to_string()))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 => StoryError::Unauthorized,
+            429 => StoryError::RateLimited,
+            other => StoryError::Server(format!("HTTP {other}")),
+        });
+    }
+
+    let parsed: WorldNotesResponse = resp
+        .json()
+        .map_err(|e| StoryError::Server(e.to_string()))?;
+
+    let notes: Vec<String> = parsed
+        .notes
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .collect();
+    if notes.is_empty() || notes.iter().any(|s| s.is_empty()) {
+        return Err(StoryError::Empty);
+    }
+    Ok(notes)
 }

@@ -12,7 +12,7 @@
 //! Estado lido de campos REAIS de `teams`. Fonte determinística (fallback); os mesmos
 //! fatos podem virar IA via `/world-notes` (contrato em `docs/world-notes-endpoint.md`).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tauri::Manager;
 
@@ -21,7 +21,7 @@ use crate::db::connection::Database;
 use crate::models::enums::{ContractStatus, DriverStatus};
 
 /// Uma notinha do rodapé. `tone` guia o acento visual; `tag` é o rótulo temático.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldNote {
     /// Chave estável (key de lista / dedup no front).
     pub id: String,
@@ -459,7 +459,61 @@ fn noun_gap(noun: &str, gap: i32) -> &'static str {
     }
 }
 
-/// Reúne as notas do rodapé para o save aberto (cascata jogador → líderes → recordes).
+/// Fama mínima (escala de EXIBIÇÃO da ficha) para um piloto ser "astro" digno de nota:
+/// tier Estrela+ — a régua vai Nome forte ≤70 / Estrela ≤87 / Ídolo >87. Abaixo disso
+/// não há estrela de verdade e a categoria não rende manchete de público.
+const STAR_MIN_FAMA: f64 = 71.0;
+const IDOL_MIN_FAMA: f64 = 88.0;
+
+/// Nota de ASTRO (Fase 3 do Estrelato): o maior nome de PÚBLICO da categoria vira
+/// manchete de bastidores — a fama arrasta arquibancada e patrocínio. VOZ de revista
+/// (3ª pessoa). `None` quando ninguém tem fama de Estrela+ (categoria sem astro não é
+/// notícia) ou quando o maior nome já virou nota em outro passo (dedup por `used_drivers`).
+fn star_of_category_note(
+    conn: &rusqlite::Connection,
+    categoria: &str,
+    used_drivers: &mut HashSet<String>,
+) -> Option<WorldNote> {
+    use crate::db::queries::drivers;
+
+    let field = drivers::get_drivers_by_category(conn, categoria).ok()?;
+    let star = field
+        .into_iter()
+        .filter(|d| d.status == DriverStatus::Ativo && !used_drivers.contains(&d.id))
+        .max_by(|a, b| {
+            a.atributos
+                .midia
+                .partial_cmp(&b.atributos.midia)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+    if star.atributos.midia < STAR_MIN_FAMA {
+        return None;
+    }
+
+    let text = if star.atributos.midia >= IDOL_MIN_FAMA {
+        format!(
+            "{} é o maior fenômeno de público da categoria: onde corre, as arquibancadas lotam e os patrocinadores fazem fila.",
+            star.nome
+        )
+    } else {
+        format!(
+            "{} virou um dos grandes nomes da categoria e arrasta torcida para os autódromos — presença de público garantida onde disputa.",
+            star.nome
+        )
+    };
+
+    used_drivers.insert(star.id.clone());
+    Some(WorldNote {
+        id: format!("star:{}", star.id),
+        tag: "BASTIDORES".to_string(),
+        subject: star.nome.clone(),
+        kind: "astro_da_categoria".to_string(),
+        tone: "neutro".to_string(),
+        text,
+    })
+}
+
+/// Reúne as notas do rodapé para o save aberto (cascata jogador → líderes → astro → recordes).
 fn collect_world_notes(conn: &rusqlite::Connection) -> Vec<WorldNote> {
     use crate::db::queries::{contracts, drivers, race_history, seasons};
 
@@ -544,7 +598,16 @@ fn collect_world_notes(conn: &rusqlite::Connection) -> Vec<WorldNote> {
         }
     }
 
-    // Passo 3 — recordes. Primeiro os RECÉM-QUEBRADOS (com data, mais fortes),
+    // Passo 3 — ASTRO da categoria (Fase 3 do Estrelato): o maior nome de público, se
+    // houver um de verdade (fama Estrela+). Vem antes dos recordes — a fama que enche
+    // arquibancada é notícia por si só.
+    if notes.len() < TARGET_NOTES {
+        if let Some(note) = star_of_category_note(conn, &categoria, &mut used_drivers) {
+            notes.push(note);
+        }
+    }
+
+    // Passo 4 — recordes. Primeiro os RECÉM-QUEBRADOS (com data, mais fortes),
     // depois os que estão A CAMINHO preenchem o que faltar.
     if notes.len() < TARGET_NOTES {
         let budget = TARGET_NOTES - notes.len();
@@ -593,4 +656,166 @@ pub fn get_world_footer(
         source: "template".to_string(),
         facts,
     })
+}
+
+/// Resultado da reescrita por IA do rodapé. `notes` só vem preenchido quando a IA
+/// respondeu e casou 1-para-1 com o template; caso contrário o front mantém o texto
+/// determinístico que já recebeu de `get_world_footer`.
+#[derive(Debug, Serialize)]
+pub struct WorldFooterAiResult {
+    pub notes: Option<Vec<WorldNote>>,
+    /// "ai" | "template".
+    pub source: String,
+    /// ok | cached | unavailable | rate_limited | error | mismatch
+    pub status: String,
+}
+
+/// Aplica as reescritas da IA sobre as notas determinísticas, casando 1-para-1 por
+/// índice (o servidor devolve uma string por fato, na mesma ordem). Só substitui se a
+/// contagem bate EXATAMENTE e nenhuma vem vazia — senão o alinhamento estaria quebrado
+/// e é mais seguro manter o template. Pura e testável.
+fn apply_ai_texts(mut notes: Vec<WorldNote>, ai: &[String]) -> Option<Vec<WorldNote>> {
+    if notes.is_empty() || ai.len() != notes.len() {
+        return None;
+    }
+    for (n, text) in notes.iter_mut().zip(ai.iter()) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        n.text = trimmed.to_string();
+    }
+    Some(notes)
+}
+
+/// Comando: reescrita por IA do rodapé "Do mundo do Grid". O front chama DEPOIS de já
+/// ter mostrado o template (`get_world_footer`) e troca as notas quando a IA chega —
+/// sem bloquear a abertura da revista. Cacheado por `temporada:rodada`. Em QUALQUER
+/// falha (inclusive o endpoint `/world-notes` ainda não existir no servidor) devolve
+/// `notes: None` e o front simplesmente mantém o texto determinístico.
+#[tauri::command]
+pub fn enrich_world_footer_ai(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<WorldFooterAiResult, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let mut config = AppConfig::load_or_default(&base_dir);
+    let install_id = config.get_or_create_install_id();
+    let lang = config.language.clone();
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    // Chave de cache: temporada:rodada (as notas mudam de estado a cada rodada).
+    let (season_num, rodada) = crate::db::queries::seasons::get_active_season(&db.conn)
+        .ok()
+        .flatten()
+        .map(|s| (s.numero, s.rodada_atual))
+        .unwrap_or((0, 0));
+    let cache_key = format!("{season_num}:{rodada}");
+
+    // Cache → reabrir a revista não regenera.
+    if let Ok(Some(json)) = crate::db::queries::ai_world_notes::get_cached(&db.conn, &cache_key) {
+        if let Ok(notes) = serde_json::from_str::<Vec<WorldNote>>(&json) {
+            return Ok(WorldFooterAiResult {
+                notes: Some(notes),
+                source: "ai".to_string(),
+                status: "cached".to_string(),
+            });
+        }
+    }
+
+    // Reconstrói as notas determinísticas + os fatos (MESMA ordem do get_world_footer).
+    let notes = collect_world_notes(&db.conn);
+    if notes.is_empty() {
+        return Ok(WorldFooterAiResult {
+            notes: None,
+            source: "template".to_string(),
+            status: "unavailable".to_string(),
+        });
+    }
+    let facts = notes
+        .iter()
+        .map(|n| format!("[{}] {} — {}", n.kind, n.subject, n.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    match crate::narrative::client::fetch_world_notes(&facts, &lang, &install_id) {
+        Ok(ai) => match apply_ai_texts(notes, &ai) {
+            Some(enriched) => {
+                if let Ok(json) = serde_json::to_string(&enriched) {
+                    let _ =
+                        crate::db::queries::ai_world_notes::set_cached(&db.conn, &cache_key, &json);
+                }
+                Ok(WorldFooterAiResult {
+                    notes: Some(enriched),
+                    source: "ai".to_string(),
+                    status: "ok".to_string(),
+                })
+            }
+            None => Ok(WorldFooterAiResult {
+                notes: None,
+                source: "template".to_string(),
+                status: "mismatch".to_string(),
+            }),
+        },
+        Err(crate::narrative::client::StoryError::RateLimited) => Ok(WorldFooterAiResult {
+            notes: None,
+            source: "template".to_string(),
+            status: "rate_limited".to_string(),
+        }),
+        Err(_) => Ok(WorldFooterAiResult {
+            notes: None,
+            source: "template".to_string(),
+            status: "error".to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod ai_tests {
+    use super::*;
+
+    fn note(text: &str) -> WorldNote {
+        WorldNote {
+            id: "x".into(),
+            tag: "RECORDE".into(),
+            subject: "Fulano".into(),
+            kind: "recorde_quebrado".into(),
+            tone: "recorde".into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn substitui_quando_conta_bate() {
+        let notes = vec![note("template 1"), note("template 2")];
+        let ai = vec!["reescrita 1".to_string(), "reescrita 2".to_string()];
+        let out = apply_ai_texts(notes, &ai).expect("deveria casar");
+        assert_eq!(out[0].text, "reescrita 1");
+        assert_eq!(out[1].text, "reescrita 2");
+        // Preserva os metadados (só o texto muda).
+        assert_eq!(out[0].kind, "recorde_quebrado");
+    }
+
+    #[test]
+    fn mantem_template_quando_conta_diverge() {
+        let notes = vec![note("a"), note("b")];
+        let ai = vec!["só uma".to_string()];
+        assert!(apply_ai_texts(notes, &ai).is_none());
+    }
+
+    #[test]
+    fn mantem_template_quando_ha_reescrita_vazia() {
+        let notes = vec![note("a"), note("b")];
+        let ai = vec!["ok".to_string(), "   ".to_string()];
+        assert!(apply_ai_texts(notes, &ai).is_none());
+    }
+
+    #[test]
+    fn vazio_nao_casa() {
+        assert!(apply_ai_texts(vec![], &[]).is_none());
+    }
 }

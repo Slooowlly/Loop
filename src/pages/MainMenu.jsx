@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../i18n/index.js";
 import useCareerStore from "../stores/useCareerStore";
 import { hover, resume as resumeAudio, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 
@@ -52,15 +54,15 @@ function relativeTime(iso) {
   const a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const b = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((a - b) / DAY);
-  if (days <= 0) return "Hoje";
-  if (days === 1) return "Ontem";
-  if (days < 7) return `Há ${days} dias`;
-  if (days < 14) return "Há 1 semana";
-  if (days < 30) return `Há ${Math.floor(days / 7)} semanas`;
-  if (days < 60) return "Há 1 mês";
-  if (days < 365) return `Há ${Math.floor(days / 30)} meses`;
+  if (days <= 0) return i18n.t("menu.relative.today");
+  if (days === 1) return i18n.t("menu.relative.yesterday");
+  if (days < 7) return i18n.t("menu.relative.days", { count: days });
+  if (days < 14) return i18n.t("menu.relative.weekAgo");
+  if (days < 30) return i18n.t("menu.relative.weeks", { count: Math.floor(days / 7) });
+  if (days < 60) return i18n.t("menu.relative.monthAgo");
+  if (days < 365) return i18n.t("menu.relative.months", { count: Math.floor(days / 30) });
   const y = Math.floor(days / 365);
-  return y === 1 ? "Há 1 ano" : `Há ${y} anos`;
+  return y === 1 ? i18n.t("menu.relative.yearAgo") : i18n.t("menu.relative.years", { count: y });
 }
 
 // Categoria enxuta: tira sufixos longos (Cup/Series/etc) para virar uma tag curta.
@@ -151,6 +153,7 @@ function TrashIcon() {
 }
 
 function MainMenu({ intro = false }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
 
@@ -565,9 +568,9 @@ function MainMenu({ intro = false }) {
       <div className="mm-bar mm-bar-bottom" />
 
       <div className="mm-menu" ref={menuRef}>
-        <p className="mm-eyebrow">Carreira</p>
+        <p className="mm-eyebrow">{t("menu.eyebrow")}</p>
         <h1 className="mm-title">LOOP</h1>
-        <p className="mm-season">Temporada {new Date().getFullYear()}</p>
+        <p className="mm-season">{t("menu.season", { year: new Date().getFullYear() })}</p>
 
         <div className="mm-list">
           {recentSave ? (
@@ -577,7 +580,7 @@ function MainMenu({ intro = false }) {
                   <img className="mm-hero-logo" src="/utilities/LOGO%20NOVA.png" alt="" />
                 </span>
                 <div className="mm-hero-body">
-                  <div className="mm-hero-eyebrow">Continuar carreira</div>
+                  <div className="mm-hero-eyebrow">{t("menu.continueCareer")}</div>
                   <div className="mm-hero-name">{recentSave.player_name}</div>
                   <div className="mm-hero-sub">{continueSub}</div>
                 </div>
@@ -592,7 +595,7 @@ function MainMenu({ intro = false }) {
             <span className="mm-row-icon">
               <PlusIcon />
             </span>
-            <span>Nova carreira</span>
+            <span>{t("menu.newCareer")}</span>
           </button>
 
           <button
@@ -604,7 +607,7 @@ function MainMenu({ intro = false }) {
             <span className="mm-row-icon">
               <FolderIcon />
             </span>
-            <span>Carregar save</span>
+            <span>{t("menu.loadSave")}</span>
           </button>
 
           <button
@@ -616,7 +619,7 @@ function MainMenu({ intro = false }) {
             <span className="mm-row-icon">
               <GearIcon />
             </span>
-            <span>Configurações</span>
+            <span>{t("menu.settings")}</span>
           </button>
         </div>
       </div>
@@ -629,17 +632,17 @@ function MainMenu({ intro = false }) {
           style={{ top: `${panelAnchor}px`, left: `${POS.panelX}px`, width: `${POS.panelWidth}px` }}
         >
           <div className="mm-panel-head">
-            <span className="mm-panel-title">Carregar save</span>
+            <span className="mm-panel-title">{t("menu.loadSave")}</span>
           </div>
 
           {saves.length === 0 ? (
             <div className="mm-panel-empty">
-              <p>Nenhuma carreira ainda.</p>
+              <p>{t("menu.noCareers")}</p>
               <button type="button" className="mm-card mm-row" onMouseEnter={hover} onClick={() => leaveTo("/new-career")}>
                 <span className="mm-row-icon">
                   <PlusIcon />
                 </span>
-                <span>Nova carreira</span>
+                <span>{t("menu.newCareer")}</span>
               </button>
             </div>
           ) : (
@@ -656,10 +659,10 @@ function MainMenu({ intro = false }) {
                   {confirmDel === s.career_id ? (
                     <div className="mm-save-confirm">
                       <button type="button" className="mm-mini danger" onClick={() => deleteSave(s.career_id)}>
-                        Excluir
+                        {t("menu.delete")}
                       </button>
                       <button type="button" className="mm-mini" onClick={() => setConfirmDel(null)}>
-                        Cancelar
+                        {t("menu.cancel")}
                       </button>
                     </div>
                   ) : (
@@ -667,7 +670,7 @@ function MainMenu({ intro = false }) {
                       type="button"
                       className="mm-save-del"
                       onClick={() => setConfirmDel(s.career_id)}
-                      aria-label="Deletar save"
+                      aria-label={t("menu.deleteSaveAria")}
                     >
                       <TrashIcon />
                     </button>

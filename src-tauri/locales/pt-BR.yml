@@ -1,0 +1,5 @@
+# Locale-base (PT). Arquivo por locale (nome = código do locale). A Fase 3+ vai
+# enchendo isto com o texto determinístico e os "fatos" da IA hoje hardcoded em
+# .rs. Ver docs/i18n-translation-spec.md.
+diagnostics:
+  ping: "pong-pt"

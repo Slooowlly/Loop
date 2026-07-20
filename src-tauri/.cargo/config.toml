@@ -1,0 +1,6 @@
+# Manda os artefatos de build do Rust pra FORA do OneDrive.
+# Sem isso, o target/ (dezenas/centenas de GB de cache descartável) fica dentro
+# da pasta sincronizada e o OneDrive tenta subir tudo pra nuvem.
+# O caminho abaixo é específico desta máquina — ajuste se mudar de PC.
+[build]
+target-dir = "C:/cargo-target/iracer"

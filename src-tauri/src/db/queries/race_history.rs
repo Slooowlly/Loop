@@ -792,6 +792,43 @@ pub fn get_dnf_incident_facts_for_round(
     Ok(results)
 }
 
+/// Contagem de DNFs MECÂNICOS (fonte Mechanical/Operational) por EQUIPE numa janela de rodadas
+/// da temporada/categoria. Base da "desconfiança mecânica" que faz o time POUPAR as peças (o
+/// loop emergente da quebra). Só conta corridas já persistidas (janela = rodadas ANTERIORES à
+/// atual). Vazio fora da janela.
+pub fn mechanical_dnf_counts_by_team(
+    conn: &Connection,
+    temporada_id: &str,
+    categoria: &str,
+    min_round: i32,
+    max_round: i32,
+) -> Result<std::collections::HashMap<String, u32>, DbError> {
+    let mut out = std::collections::HashMap::new();
+    if min_round > max_round {
+        return Ok(out);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT r.equipe_id, COUNT(*)
+         FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         JOIN incident_catalog ic ON r.dnf_catalog_id = ic.id
+         WHERE c.temporada_id = ?1 AND c.categoria = ?2
+           AND c.rodada BETWEEN ?3 AND ?4
+           AND r.dnf = 1
+           AND ic.incident_source IN ('Mechanical', 'Operational')
+         GROUP BY r.equipe_id",
+    )?;
+    let mut rows = stmt.query(rusqlite::params![temporada_id, categoria, min_round, max_round])?;
+    while let Some(row) = rows.next()? {
+        let team: String = row.get(0)?;
+        let count: i64 = row.get(1)?;
+        if !team.is_empty() && count > 0 {
+            out.insert(team, count as u32);
+        }
+    }
+    Ok(out)
+}
+
 /// Pilotos que já BATERAM (DNF por DriverError/PostCollision) NESTA pista — trauma.
 pub fn get_track_crash_pilots(
     conn: &Connection,
@@ -1369,6 +1406,33 @@ mod tests {
         let conn = setup_db();
         let result = get_last_career_win(&conn, "P001").unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn mechanical_dnf_counts_conta_so_mecanicos_na_janela() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE calendar (id TEXT PRIMARY KEY, temporada_id TEXT, rodada INTEGER, categoria TEXT);
+             CREATE TABLE incident_catalog (id TEXT PRIMARY KEY, incident_source TEXT);
+             CREATE TABLE race_results (id INTEGER PRIMARY KEY AUTOINCREMENT, race_id TEXT, equipe_id TEXT, dnf INTEGER, dnf_catalog_id TEXT);
+             INSERT INTO calendar VALUES ('R1','S1',1,'gt4'),('R2','S1',2,'gt4'),('R3','S1',3,'gt4');
+             INSERT INTO incident_catalog VALUES ('MEC','Mechanical'),('OPS','Operational'),('DRV','DriverError');
+             INSERT INTO race_results (race_id, equipe_id, dnf, dnf_catalog_id) VALUES
+                ('R1','TeamA',1,'MEC'),
+                ('R1','TeamB',1,'DRV'),
+                ('R2','TeamA',1,'OPS'),
+                ('R3','TeamA',1,'MEC');",
+        )
+        .unwrap();
+        // Janela = rodadas 1..2 (antes da 3). TeamA: MEC(r1)+OPS(r2)=2; erro do TeamB não conta;
+        // o MEC da r3 (fora da janela) não entra.
+        let counts = mechanical_dnf_counts_by_team(&conn, "S1", "gt4", 1, 2).unwrap();
+        assert_eq!(counts.get("TeamA"), Some(&2));
+        assert_eq!(counts.get("TeamB"), None);
+        // Janela inválida (min > max) → vazio.
+        assert!(mechanical_dnf_counts_by_team(&conn, "S1", "gt4", 2, 1)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

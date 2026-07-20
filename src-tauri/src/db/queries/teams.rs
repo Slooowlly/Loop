@@ -765,6 +765,8 @@ pub struct TeamFinanceHistoryEntry {
     pub round: i32,
     pub category: String,
     pub sponsorship_income: f64,
+    /// Bilheteria/portão da rodada (Fase 3 do Estrelato). 0 nas linhas legadas.
+    pub gate_income: f64,
     pub result_bonus: f64,
     pub partial_prize_income: f64,
     pub aid_income: f64,
@@ -798,13 +800,13 @@ pub fn insert_team_finance_history(
     conn.execute(
         "INSERT OR REPLACE INTO team_finance_history (
             team_id, season_number, round, category,
-            sponsorship_income, result_bonus, partial_prize_income, aid_income,
+            sponsorship_income, gate_income, result_bonus, partial_prize_income, aid_income,
             salary_expense, event_operations_cost, structural_maintenance_cost,
             technical_investment_cost, debt_service_cost,
             income_total, expenses_total, net, cash_balance, debt_balance
         ) VALUES (
             :team_id, :season_number, :round, :category,
-            :sponsorship_income, :result_bonus, :partial_prize_income, :aid_income,
+            :sponsorship_income, :gate_income, :result_bonus, :partial_prize_income, :aid_income,
             :salary_expense, :event_operations_cost, :structural_maintenance_cost,
             :technical_investment_cost, :debt_service_cost,
             :income_total, :expenses_total, :net, :cash_balance, :debt_balance
@@ -815,6 +817,7 @@ pub fn insert_team_finance_history(
             ":round": round,
             ":category": &team.categoria,
             ":sponsorship_income": context.sponsorship_income,
+            ":gate_income": context.gate_income,
             ":result_bonus": context.result_bonus,
             ":partial_prize_income": context.partial_prize_income,
             ":aid_income": context.aid_income,
@@ -846,7 +849,7 @@ pub fn get_team_finance_history_recent(
                 salary_expense, event_operations_cost, structural_maintenance_cost,
                 technical_investment_cost, debt_service_cost,
                 income_total, expenses_total, net, cash_balance, debt_balance,
-                constructor_prize_income
+                constructor_prize_income, gate_income
          FROM team_finance_history
          WHERE team_id = ?1
          ORDER BY season_number DESC, round DESC
@@ -872,6 +875,7 @@ pub fn get_team_finance_history_recent(
             cash_balance: row.get(15)?,
             debt_balance: row.get(16)?,
             constructor_prize_income: row.get(17)?,
+            gate_income: row.get(18)?,
         })
     })?;
     let mut entries = Vec::new();
@@ -1182,6 +1186,7 @@ mod tests {
                 round INTEGER NOT NULL,
                 category TEXT NOT NULL DEFAULT '',
                 sponsorship_income REAL NOT NULL DEFAULT 0.0,
+                gate_income REAL NOT NULL DEFAULT 0.0,
                 result_bonus REAL NOT NULL DEFAULT 0.0,
                 partial_prize_income REAL NOT NULL DEFAULT 0.0,
                 aid_income REAL NOT NULL DEFAULT 0.0,
@@ -1206,6 +1211,7 @@ mod tests {
     fn sample_finance_context() -> TeamRoundFinanceContext {
         TeamRoundFinanceContext {
             sponsorship_income: 100_000.0,
+            gate_income: 15_000.0,
             result_bonus: 20_000.0,
             partial_prize_income: 5_000.0,
             aid_income: 0.0,

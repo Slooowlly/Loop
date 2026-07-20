@@ -1,3 +1,5 @@
+import i18n from "../i18n/index.js";
+
 export function formatDate(isoString) {
   if (!isoString) return "-";
   const date = new Date(isoString);
@@ -18,32 +20,30 @@ export function formatCompactDate(isoString) {
 }
 
 export function formatNextRaceCountdown(daysUntilNextEvent) {
-  if (daysUntilNextEvent == null) return "Sem corrida pendente";
-  if (daysUntilNextEvent <= 0) return "Próxima corrida hoje";
-  if (daysUntilNextEvent === 1) return "Próxima corrida amanhã";
+  if (daysUntilNextEvent == null) return i18n.t("countdown.none");
+  if (daysUntilNextEvent <= 0) return i18n.t("countdown.today");
+  if (daysUntilNextEvent === 1) return i18n.t("countdown.tomorrow");
   if (daysUntilNextEvent <= 7) {
-    return `Próxima corrida em ${daysUntilNextEvent} dias`;
+    return i18n.t("countdown.days", { count: daysUntilNextEvent });
   }
 
   if (daysUntilNextEvent < 28) {
     const weeks = Math.max(1, Math.floor(daysUntilNextEvent / 7));
-    return weeks === 1
-      ? "Próxima corrida em 1 semana"
-      : `Próxima corrida em ${weeks} semanas`;
+    return i18n.t("countdown.weeks", { count: weeks });
   }
 
   if (daysUntilNextEvent < 56) {
-    return "Próxima corrida em 1 mês";
+    return i18n.t("countdown.month");
   }
 
   const months = Math.max(2, Math.floor(daysUntilNextEvent / 28));
-  return `Próxima corrida em ${months} meses`;
+  return i18n.t("countdown.months", { count: months });
 }
 
 export function formatSurfaceSeasonLabel(seasonLike) {
   const year = seasonLike?.ano ?? seasonLike?.year ?? null;
   if (year == null) return "-";
-  return `Ano ${year}`;
+  return i18n.t("seasonYear", { year });
 }
 
 export function formatDateTime(isoString) {
@@ -61,13 +61,7 @@ export function formatDateTime(isoString) {
 }
 
 export function difficultyLabel(id) {
-  const labels = {
-    facil: "Fácil",
-    medio: "Médio",
-    dificil: "Difícil",
-    lendario: "Lendário",
-  };
-  return labels[id] || id;
+  return i18n.t(`difficulty.${id}`, { defaultValue: id });
 }
 
 export function categoryLabel(id) {
@@ -107,17 +101,9 @@ export function getCategoryTier(id) {
 }
 
 export function formatLicenseLevel(level) {
-  if (level === null || level === undefined || level < 0) return "Sem licença";
-  
-  const levels = {
-    0: "Amadora",
-    1: "Pro",
-    2: "Super Pro",
-    3: "Elite",
-    4: "Super Elite"
-  };
-  
-  return levels[level] || "Sem licença";
+  if (level === null || level === undefined || level < 0) return i18n.t("license.none");
+  // Nível fora de 0-4 cai no "sem licença" (comportamento original preservado).
+  return i18n.t(`license.${level}`, { defaultValue: i18n.t("license.none") });
 }
 
 export function formatLapTime(ms) {
@@ -185,7 +171,7 @@ export function monthlySalary(annualValue) {
 // Drop-in de `formatSalary` nos pontos que exibem salário (não usar para valor de mercado).
 export function formatSalaryMonthly(annualValue) {
   if (annualValue == null || annualValue === "") return "-";
-  return `${formatSalary(monthlySalary(annualValue))}/mês`;
+  return `${formatSalary(monthlySalary(annualValue))}${i18n.t("salary.perMonthSuffix")}`;
 }
 
 export function formatRoleLabel(value) {
@@ -195,54 +181,15 @@ export function formatRoleLabel(value) {
 }
 
 export function formatPreseasonPhase(value) {
-  const labels = {
-    ContractExpiry: "Contratos",
-    Transfers: "Transferências",
-    PlayerProposals: "Suas Propostas",
-    RookiePlacement: "Rookies",
-    Finalization: "Finalização",
-    Complete: "Completa",
-  };
-
-  return labels[value] || value || "-";
+  return i18n.t(`preseasonPhase.${value}`, { defaultValue: value || "-" });
 }
 
 export function formatSeasonPhase(value) {
-  const labels = {
-    PreTemporada: "Pré-Temporada",
-    Temporada: "Temporada",
-    Encerramento: "Encerramento",
-    BlocoRegular: "Bloco Regular",
-    JanelaConvocacao: "Convocação",
-    BlocoEspecial: "Bloco Especial",
-    PosEspecial: "Pós-Especial",
-  };
-  return labels[value] || value || "—";
+  return i18n.t(`seasonPhase.${value}`, { defaultValue: value || "—" });
 }
 
 export function formatAttributeName(value) {
-  const labels = {
-    skill: "Skill",
-    consistencia: "Consistência",
-    racecraft: "Racecraft",
-    defesa: "Defesa",
-    ritmo_classificacao: "Quali",
-    gestao_pneus: "Pneus",
-    adaptabilidade: "Adaptabilidade",
-    mentalidade: "Mentalidade",
-    confianca: "Confiança",
-    smoothness: "Smoothness",
-    experiencia: "Experiência",
-    fitness: "Fitness",
-    fator_chuva: "Chuva",
-    habilidade_largada: "Largada",
-    agressividade: "Agressividade",
-    aggression: "Agressividade",
-    midia: "Mídia",
-    desenvolvimento: "Desenvolvimento",
-  };
-
-  const formatted = labels[value] || value;
+  const formatted = i18n.t(`attribute.${value}`, { defaultValue: value });
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
