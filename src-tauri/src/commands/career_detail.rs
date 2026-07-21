@@ -27,7 +27,7 @@ use crate::models::driver::{AttributeTag, Driver, TagLevel};
 use crate::models::enums::{DriverStatus, InjuryType, PrimaryPersonality, SecondaryPersonality};
 use crate::models::season::Season;
 use crate::models::team::Team;
-use crate::simulation::injuries::injury_name_pool;
+use crate::simulation::injuries::{injury_display_name, injury_name_pool};
 
 #[derive(Debug, Clone)]
 struct HistoricalRaceResult {
@@ -249,13 +249,13 @@ fn build_driver_health_block(
     }))
 }
 
-fn fallback_injury_display_name(injury_type: &InjuryType, key: &str) -> &'static str {
+fn fallback_injury_display_name(injury_type: &InjuryType, key: &str) -> String {
     let pool = injury_name_pool(injury_type.clone());
     let index = key
         .bytes()
         .fold(0usize, |acc, byte| acc.wrapping_add(byte as usize))
         % pool.len();
-    pool[index]
+    injury_display_name(pool[index])
 }
 
 fn convert_tags(tags: &[AttributeTag]) -> Vec<TagInfo> {
@@ -1996,7 +1996,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn fallback_injury_display_name_uses_the_severity_pool() {
+        rust_i18n::set_locale("pt-BR"); // nome de lesão resolve no locale ativo.
         assert_eq!(
             fallback_injury_display_name(&InjuryType::Moderada, "A"),
             "Ombro machucado"

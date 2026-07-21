@@ -312,8 +312,11 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
     de vitória (3 variantes) + campeão + "resumo de outras categorias", motivo de aposentadoria
     (persistido → Opção A). ⚠️ os `titulo`/`texto` em ~6809 de career.rs eram TESTE (não confundir).
     28 testes race + parity verdes. Sweep de prosa limpo.
-  - [ ] DEFER acoplado: `simulation/injuries.rs` `injury_name_pool` (pools de nome de lesão,
-    array por severidade — precisa de chaves indexadas + testes com `#[serial]`).
+  - [x] `simulation/injuries.rs` `injury_name_pool` ✅ — pools viraram arrays de CHAVES
+    estáveis (ordem preservada p/ o hash de fallback); display via `injury_display_name`
+    (namespace `injury`, 19 nomes); nome persiste no save (Opção A). 2 testes → `#[serial]`+
+    pt-BR, 1 teste virou key-based (locale-indep). `fallback_injury_display_name` (career_detail)
+    resolve a chave. 23 testes verdes.
 
 ### Fase 4 — Fatos da IA + servidor — *médio, dependência externa*
 - [ ] Traduzir os builders de "fatos" (usar o mesmo `rust-i18n` → saem no idioma ativo):

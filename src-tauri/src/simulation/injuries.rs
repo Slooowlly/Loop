@@ -5,40 +5,44 @@ use crate::models::enums::InjuryType;
 use crate::models::injury::Injury;
 use crate::simulation::incidents::{injury_base_chance, IncidentResult};
 
+/// Pool de CHAVES de lesão por severidade. A ordem é estável (o fallback por hash
+/// em `career_detail` depende do índice). O display resolve em `injury_display_name`.
 pub(crate) fn injury_name_pool(injury_type: InjuryType) -> &'static [&'static str] {
     match injury_type {
-        InjuryType::Leve => &[
-            "Dor no braço",
-            "Dor no ombro",
-            "Dor no pescoço",
-            "Dor nas costas",
-        ],
+        InjuryType::Leve => &["arm_pain", "shoulder_pain", "neck_pain", "back_pain"],
         InjuryType::Moderada => &[
-            "Braço machucado",
-            "Ombro machucado",
-            "Pescoço travado",
-            "Costas travadas",
-            "Joelho machucado",
-            "Pulso machucado",
-            "Tornozelo machucado",
-            "Dor forte nas costas",
+            "arm_hurt",
+            "shoulder_hurt",
+            "neck_stiff",
+            "back_stiff",
+            "knee_hurt",
+            "wrist_hurt",
+            "ankle_hurt",
+            "back_severe_pain",
         ],
         InjuryType::Grave | InjuryType::Critica => &[
-            "Braço fraturado",
-            "Costela fraturada",
-            "Ombro lesionado",
-            "Joelho lesionado",
-            "Tornozelo lesionado",
-            "Lesão nas costas",
-            "Lesão no pescoço",
+            "arm_fractured",
+            "rib_fractured",
+            "shoulder_injured",
+            "knee_injured",
+            "ankle_injured",
+            "back_injury",
+            "neck_injury",
         ],
     }
+}
+
+/// Nome de display (i18n, locale ativo) de uma chave de lesão. O nome é persistido
+/// no save no momento da geração (Opção A — congela no idioma de origem).
+pub(crate) fn injury_display_name(key: &str) -> String {
+    let full = format!("injury.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 fn select_injury_name(injury_type: InjuryType, rng: &mut impl Rng) -> String {
     let pool = injury_name_pool(injury_type);
     let index = rng.gen_range(0..pool.len());
-    pool[index].to_string()
+    injury_display_name(pool[index])
 }
 
 /// Generates a persistent Injury from a simulated incident.
@@ -237,19 +241,22 @@ mod tests {
 
     #[test]
     fn test_injury_name_pools_are_separated_by_severity() {
+        // Pools agora guardam CHAVES estáveis (locale-independentes).
         let light_pool = injury_name_pool(InjuryType::Leve);
         let moderate_pool = injury_name_pool(InjuryType::Moderada);
         let grave_pool = injury_name_pool(InjuryType::Grave);
 
-        assert!(light_pool.contains(&"Dor no braço"));
-        assert!(moderate_pool.contains(&"Braço machucado"));
-        assert!(grave_pool.contains(&"Braço fraturado"));
-        assert!(!light_pool.contains(&"Braço fraturado"));
-        assert!(!grave_pool.contains(&"Dor no braço"));
+        assert!(light_pool.contains(&"arm_pain"));
+        assert!(moderate_pool.contains(&"arm_hurt"));
+        assert!(grave_pool.contains(&"arm_fractured"));
+        assert!(!light_pool.contains(&"arm_fractured"));
+        assert!(!grave_pool.contains(&"arm_pain"));
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_generated_injury_receives_specific_name_from_its_pool() {
+        rust_i18n::set_locale("pt-BR"); // nome persistido resolve no locale ativo.
         let incident = make_incident(IncidentType::Collision, IncidentSeverity::Critical);
         let mut rng = StdRng::seed_from_u64(20260502);
 
@@ -258,6 +265,9 @@ mod tests {
             .expect("expected deterministic seed to produce an injury");
 
         assert!(!injury.injury_name.is_empty());
-        assert!(injury_name_pool(injury.injury_type).contains(&injury.injury_name.as_str()));
+        // O nome de display gerado tem de vir da resolução de alguma chave do pool.
+        assert!(injury_name_pool(injury.injury_type)
+            .iter()
+            .any(|key| injury_display_name(key) == injury.injury_name));
     }
 }

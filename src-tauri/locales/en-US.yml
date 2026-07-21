@@ -448,3 +448,27 @@ race:
     other_categories_summary: "Other categories summary: %{headline}."
   retirement:
     injury: "Retired at %{age} after a serious injury"
+
+# Injury names (simulation/injuries.rs). The per-severity pool selects a KEY; the
+# name is persisted in the save (Option A). Key order in the pool must not change
+# (the fallback hash depends on the index).
+injury:
+  arm_pain: "Arm pain"
+  shoulder_pain: "Shoulder pain"
+  neck_pain: "Neck pain"
+  back_pain: "Back pain"
+  arm_hurt: "Injured arm"
+  shoulder_hurt: "Injured shoulder"
+  neck_stiff: "Stiff neck"
+  back_stiff: "Stiff back"
+  knee_hurt: "Injured knee"
+  wrist_hurt: "Injured wrist"
+  ankle_hurt: "Injured ankle"
+  back_severe_pain: "Severe back pain"
+  arm_fractured: "Fractured arm"
+  rib_fractured: "Fractured rib"
+  shoulder_injured: "Shoulder injury"
+  knee_injured: "Knee injury"
+  ankle_injured: "Ankle injury"
+  back_injury: "Back injury"
+  neck_injury: "Neck injury"

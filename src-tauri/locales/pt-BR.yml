@@ -449,3 +449,27 @@ race:
     other_categories_summary: "Resumo das outras categorias: %{headline}."
   retirement:
     injury: "Aposentou-se aos %{age} anos após lesão grave"
+
+# Nomes de lesão (simulation/injuries.rs). Pool por severidade seleciona uma CHAVE;
+# o nome persiste no save (Opção A). A ordem das chaves no pool não pode mudar (o
+# hash de fallback depende do índice).
+injury:
+  arm_pain: "Dor no braço"
+  shoulder_pain: "Dor no ombro"
+  neck_pain: "Dor no pescoço"
+  back_pain: "Dor nas costas"
+  arm_hurt: "Braço machucado"
+  shoulder_hurt: "Ombro machucado"
+  neck_stiff: "Pescoço travado"
+  back_stiff: "Costas travadas"
+  knee_hurt: "Joelho machucado"
+  wrist_hurt: "Pulso machucado"
+  ankle_hurt: "Tornozelo machucado"
+  back_severe_pain: "Dor forte nas costas"
+  arm_fractured: "Braço fraturado"
+  rib_fractured: "Costela fraturada"
+  shoulder_injured: "Ombro lesionado"
+  knee_injured: "Joelho lesionado"
+  ankle_injured: "Tornozelo lesionado"
+  back_injury: "Lesão nas costas"
+  neck_injury: "Lesão no pescoço"
