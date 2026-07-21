@@ -731,3 +731,35 @@ breakdown:
   RS_E_PIT_01:
     dnf: "{driver} spun and couldn't restart"
     part: "Spin with stall"
+
+# AI bulletin context engine (narrative/mod.rs). The FACTS + instructions sent to the
+# server in the active locale (the AI used to translate from PT; now they go out ready).
+narrative:
+  beat:
+    winner: "Winner: %{name} (%{team}), started P%{grid}%{extra}"
+    winner_fastest_extra: "; also set the fastest lap"
+    podium: "P%{pos}: %{name} (%{team})"
+    recovery: "Biggest comeback: %{name}, from P%{grid} to P%{finish} (%{gained} positions gained)"
+    fastest_lap: "Fastest lap: %{name} (%{team})"
+    disappointment: "Disappointment: %{name} started from pole and finished only P%{finish}"
+    dnf: "DNF: %{name} (%{team}) — %{reason}"
+    player_dnf_status: "retired (%{reason})"
+    player_status: "started P%{grid} and finished P%{finish} (%{pts} pts)"
+    player: "%{name} (%{team}) %{status}"
+    dnf_fallback: "retirement"
+    winner_fallback: "the winner"
+  thesis:
+    caos: "Central angle — WAR OF ATTRITION: %{dnfs} retirements reshaped the grid. It was a day of survival and of whoever capitalized on the chaos, not a clean fight from start to finish."
+    improbable_win: "Central angle — UNLIKELY WIN: %{name} (%{team}) won starting from the back, in P%{grid}. The story is that charge from the midfield to the front."
+    pole_flop: "Central angle — POLE TURNED TO DUST: %{pole} started at the front and sank to P%{finish}, while %{winner} inherited the race. The story is the favorite's fall."
+    comeback: "Central angle — COMEBACK OF THE DAY: %{name} started from P%{grid} and reached P%{finish} (%{gained} positions gained). The story is that recovery, more striking than the fight up front."
+    dominance: "Central angle — DOMINANCE AT THE FRONT: %{name} (%{team}) started P%{grid} and controlled the race. The story is the control and authority, not the surprise."
+    clean_race: "Central angle — A DAY OF MANAGEMENT: %{name} (%{team}) won a controlled race, with no major twists. The story is the consistency of someone who delivered the expected."
+  context:
+    header: "Race: %{category} — %{year} season, round %{round}\nTrack: %{track}, %{laps} laps, weather: %{weather}"
+    header_dnfs: ". The race had %{dnfs} retirements"
+    reader_pilot: "\nDriver followed by the reader: %{name}"
+    axis_label: "\n\nSTORY AXIS — the angle this bulletin should develop (magazine voice, 3rd person; build the narrative from it, not as a loose line):\n"
+    highlights_label: "\nHIGHLIGHTS THAT SUPPORT THE ANGLE (real facts — do not invent anything beyond these):\n"
+    background_label: "\nBACKGROUND — other real facts from the race (add color with them, without making them the main subject):\n"
+    extra_context_label: "\nCONTEXT (backstage/career — extra color when it fits):\n"

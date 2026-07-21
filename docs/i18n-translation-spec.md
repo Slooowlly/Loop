@@ -319,9 +319,13 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
     resolve a chave. 23 testes verdes.
 
 ### Fase 4 — Fatos da IA + servidor — *médio, dependência externa*
-- [ ] Traduzir os builders de "fatos" (usar o mesmo `rust-i18n` → saem no idioma ativo):
-  - `narrative/mod.rs` — `build_race_context` (393-471), `build_beats` (104-258),
-    `select_race_thesis` (339-390).
+- [~] Traduzir os builders de "fatos" (usar o mesmo `rust-i18n` → saem no idioma ativo):
+  - [x] `narrative/mod.rs` ✅ — namespace `narrative`: `build_beats` (10 templates de fato +
+    dnf_fallback/winner_fallback), `select_race_thesis` (6 teses/ângulos), `build_race_context`
+    (header + labels de seção que INSTRUEM a IA: EIXO/DESTAQUES/PANO DE FUNDO/CONTEXTO — tudo
+    sai no idioma ativo). Antes a IA traduzia do PT (linha 48 "e traduz pro idioma"); agora os
+    fatos+instruções vão prontos. Guard de 2 locales + 13 testes narrative + parity verdes.
+    (`\n` embutido nos labels via YAML double-quote.)
   - `commands/ai_news.rs` — `select_post_race_thesis` (697-783),
     `build_post_race_facts` (790-1241), `telemetry_facts` (480-664),
     `weather_pt` (348-355), `build_recent_arc_facts` (141-198).

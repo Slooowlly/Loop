@@ -732,3 +732,35 @@ breakdown:
   RS_E_PIT_01:
     dnf: "{driver} rodou e não conseguiu religar"
     part: "Rodada com stall"
+
+# Motor de contexto do boletim de IA (narrative/mod.rs). São os FATOS + instruções
+# enviados ao servidor no idioma ativo (antes a IA traduzia do PT; agora saem prontos).
+narrative:
+  beat:
+    winner: "Vencedor: %{name} (%{team}), largou em P%{grid}%{extra}"
+    winner_fastest_extra: "; também cravou a volta mais rápida"
+    podium: "P%{pos}: %{name} (%{team})"
+    recovery: "Maior recuperação: %{name}, de P%{grid} a P%{finish} (%{gained} posições ganhas)"
+    fastest_lap: "Volta mais rápida: %{name} (%{team})"
+    disappointment: "Decepção: %{name} saiu da pole e terminou apenas em P%{finish}"
+    dnf: "Abandono: %{name} (%{team}) — %{reason}"
+    player_dnf_status: "abandonou (%{reason})"
+    player_status: "largou em P%{grid} e terminou em P%{finish} (%{pts} pts)"
+    player: "%{name} (%{team}) %{status}"
+    dnf_fallback: "abandono"
+    winner_fallback: "o vencedor"
+  thesis:
+    caos: "Ângulo central — CORRIDA DE ATRITO: %{dnfs} abandonos redesenharam o grid. O dia foi de sobrevivência e de quem capitalizou o caos, não de uma disputa limpa de ponta a ponta."
+    improbable_win: "Ângulo central — VITÓRIA IMPROVÁVEL: %{name} (%{team}) venceu largando lá atrás, em P%{grid}. A matéria é essa cavalgada do meio do grid até a ponta."
+    pole_flop: "Ângulo central — A POLE VIROU PÓ: %{pole} largou na frente e afundou até P%{finish}, enquanto %{winner} herdou a corrida. A matéria é a queda do favorito."
+    comeback: "Ângulo central — REMONTADA DO DIA: %{name} saiu de P%{grid} e chegou a P%{finish} (%{gained} posições ganhas). A matéria é essa recuperação, mais marcante que a disputa na ponta."
+    dominance: "Ângulo central — DOMÍNIO NA PONTA: %{name} (%{team}) largou em P%{grid} e controlou a corrida. A matéria é o controle e a autoridade, não a surpresa."
+    clean_race: "Ângulo central — DIA DE ADMINISTRAÇÃO: %{name} (%{team}) venceu numa corrida controlada, sem grandes reviravoltas. A matéria é a consistência de quem executou o esperado."
+  context:
+    header: "Corrida: %{category} — temporada de %{year}, etapa %{round}\nPista: %{track}, %{laps} voltas, clima: %{weather}"
+    header_dnfs: ". A corrida teve %{dnfs} abandonos"
+    reader_pilot: "\nPiloto acompanhado pelo leitor: %{name}"
+    axis_label: "\n\nEIXO DA MATÉRIA — o ângulo que este boletim deve desenvolver (voz de revista, 3ª pessoa; construa a narrativa a partir dele, não como uma linha solta):\n"
+    highlights_label: "\nDESTAQUES QUE SUSTENTAM O ÂNGULO (fatos reais — não invente nada além destes):\n"
+    background_label: "\nPANO DE FUNDO — outros fatos reais da corrida (dê cor com eles, sem virar o assunto principal):\n"
+    extra_context_label: "\nCONTEXTO (bastidores/carreira — cor extra quando fizer sentido):\n"

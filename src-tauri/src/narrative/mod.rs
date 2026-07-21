@@ -97,7 +97,7 @@ fn dnf_reason_of(d: &RaceDriverResult) -> String {
     d.notable_incident
         .clone()
         .or_else(|| d.dnf_reason.clone())
-        .unwrap_or_else(|| "abandono".to_string())
+        .unwrap_or_else(|| rust_i18n::t!("narrative.beat.dnf_fallback").to_string())
 }
 
 /// Gera todos os beats candidatos a partir do resultado da corrida.
@@ -113,17 +113,21 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
             weight += ((w.grid_position - 5) as f64).min(15.0);
         }
         let extra = if w.has_fastest_lap {
-            "; também cravou a volta mais rápida"
+            rust_i18n::t!("narrative.beat.winner_fastest_extra").to_string()
         } else {
-            ""
+            String::new()
         };
         beats.push(Beat {
             kind: BeatKind::Vitoria,
             weight,
-            text: format!(
-                "Vencedor: {} ({}), largou em P{}{}",
-                w.pilot_name, w.team_name, w.grid_position, extra
-            ),
+            text: rust_i18n::t!(
+                "narrative.beat.winner",
+                name = w.pilot_name.as_str(),
+                team = w.team_name.as_str(),
+                grid = w.grid_position,
+                extra = extra.as_str()
+            )
+            .to_string(),
             driver_id: Some(w.pilot_id.clone()),
             team_name: Some(w.team_name.clone()),
         });
@@ -135,7 +139,13 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
             beats.push(Beat {
                 kind: BeatKind::Podio,
                 weight: 30.0,
-                text: format!("P{}: {} ({})", pos, d.pilot_name, d.team_name),
+                text: rust_i18n::t!(
+                    "narrative.beat.podium",
+                    pos = pos,
+                    name = d.pilot_name.as_str(),
+                    team = d.team_name.as_str()
+                )
+                .to_string(),
                 driver_id: Some(d.pilot_id.clone()),
                 team_name: Some(d.team_name.clone()),
             });
@@ -150,10 +160,14 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
                 beats.push(Beat {
                     kind: BeatKind::Recuperacao,
                     weight,
-                    text: format!(
-                        "Maior recuperação: {}, de P{} a P{} ({} posições ganhas)",
-                        d.pilot_name, d.grid_position, d.finish_position, d.positions_gained
-                    ),
+                    text: rust_i18n::t!(
+                        "narrative.beat.recovery",
+                        name = d.pilot_name.as_str(),
+                        grid = d.grid_position,
+                        finish = d.finish_position,
+                        gained = d.positions_gained
+                    )
+                    .to_string(),
                     driver_id: Some(d.pilot_id.clone()),
                     team_name: Some(d.team_name.clone()),
                 });
@@ -171,7 +185,12 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
             beats.push(Beat {
                 kind: BeatKind::VoltaRapida,
                 weight,
-                text: format!("Volta mais rápida: {} ({})", d.pilot_name, d.team_name),
+                text: rust_i18n::t!(
+                    "narrative.beat.fastest_lap",
+                    name = d.pilot_name.as_str(),
+                    team = d.team_name.as_str()
+                )
+                .to_string(),
                 driver_id: Some(d.pilot_id.clone()),
                 team_name: Some(d.team_name.clone()),
             });
@@ -185,10 +204,12 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
             beats.push(Beat {
                 kind: BeatKind::Decepcao,
                 weight,
-                text: format!(
-                    "Decepção: {} saiu da pole e terminou apenas em P{}",
-                    p.pilot_name, p.finish_position
-                ),
+                text: rust_i18n::t!(
+                    "narrative.beat.disappointment",
+                    name = p.pilot_name.as_str(),
+                    finish = p.finish_position
+                )
+                .to_string(),
                 driver_id: Some(p.pilot_id.clone()),
                 team_name: Some(p.team_name.clone()),
             });
@@ -209,12 +230,13 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
         beats.push(Beat {
             kind: BeatKind::Abandono,
             weight,
-            text: format!(
-                "Abandono: {} ({}) — {}",
-                d.pilot_name,
-                d.team_name,
-                dnf_reason_of(d)
-            ),
+            text: rust_i18n::t!(
+                "narrative.beat.dnf",
+                name = d.pilot_name.as_str(),
+                team = d.team_name.as_str(),
+                reason = dnf_reason_of(d)
+            )
+            .to_string(),
             driver_id: Some(d.pilot_id.clone()),
             team_name: Some(d.team_name.clone()),
         });
@@ -236,19 +258,28 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
             weight += 8.0;
         }
         let status = if p.is_dnf {
-            format!("abandonou ({})", dnf_reason_of(p))
+            rust_i18n::t!("narrative.beat.player_dnf_status", reason = dnf_reason_of(p)).to_string()
         } else {
-            format!(
-                "largou em P{} e terminou em P{} ({} pts)",
-                p.grid_position, p.finish_position, p.points_earned
+            rust_i18n::t!(
+                "narrative.beat.player_status",
+                grid = p.grid_position,
+                finish = p.finish_position,
+                pts = p.points_earned
             )
+            .to_string()
         };
         beats.push(Beat {
             kind: BeatKind::NossoPiloto,
             weight,
             // Sem tag inline: o piloto do leitor é marcado numa linha rotulada
             // separada em build_race_context (à prova de modelo — nada para copiar).
-            text: format!("{} ({}) {}", p.pilot_name, p.team_name, status),
+            text: rust_i18n::t!(
+                "narrative.beat.player",
+                name = p.pilot_name.as_str(),
+                team = p.team_name.as_str(),
+                status = status.as_str()
+            )
+            .to_string(),
             driver_id: Some(p.pilot_id.clone()),
             team_name: Some(p.team_name.clone()),
         });
@@ -326,7 +357,7 @@ pub fn race_thesis_signals(result: &RaceResult) -> RaceThesisSignals {
         field_size: rows.len() as i32,
         winner_name: winner
             .map(|w| w.pilot_name.clone())
-            .unwrap_or_else(|| "o vencedor".to_string()),
+            .unwrap_or_else(|| rust_i18n::t!("narrative.beat.winner_fallback").to_string()),
         winner_team: winner.map(|w| w.team_name.clone()).unwrap_or_default(),
         winner_grid: winner.map(|w| w.grid_position).unwrap_or(0),
         pole_flopped,
@@ -343,7 +374,7 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
     if s.total_dnfs >= caos_gate {
         return (
             RaceThesis::Caos,
-            format!("Ângulo central — CORRIDA DE ATRITO: {} abandonos redesenharam o grid. O dia foi de sobrevivência e de quem capitalizou o caos, não de uma disputa limpa de ponta a ponta.", s.total_dnfs),
+            rust_i18n::t!("narrative.thesis.caos", dnfs = s.total_dnfs).to_string(),
             vec![Abandono, Vitoria],
         );
     }
@@ -351,7 +382,13 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
     if s.winner_grid >= 6 {
         return (
             RaceThesis::VitoriaImprovavel,
-            format!("Ângulo central — VITÓRIA IMPROVÁVEL: {} ({}) venceu largando lá atrás, em P{}. A matéria é essa cavalgada do meio do grid até a ponta.", s.winner_name, s.winner_team, s.winner_grid),
+            rust_i18n::t!(
+                "narrative.thesis.improbable_win",
+                name = s.winner_name.as_str(),
+                team = s.winner_team.as_str(),
+                grid = s.winner_grid
+            )
+            .to_string(),
             vec![Vitoria, Recuperacao],
         );
     }
@@ -359,7 +396,13 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
     if let Some((pole_name, finish)) = &s.pole_flopped {
         return (
             RaceThesis::PoleFrustrada,
-            format!("Ângulo central — A POLE VIROU PÓ: {} largou na frente e afundou até P{}, enquanto {} herdou a corrida. A matéria é a queda do favorito.", pole_name, finish, s.winner_name),
+            rust_i18n::t!(
+                "narrative.thesis.pole_flop",
+                pole = pole_name.as_str(),
+                finish = finish,
+                winner = s.winner_name.as_str()
+            )
+            .to_string(),
             vec![Decepcao, Vitoria],
         );
     }
@@ -368,7 +411,14 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
         if *gained >= 8 && *finish <= 6 {
             return (
                 RaceThesis::Remontada,
-                format!("Ângulo central — REMONTADA DO DIA: {} saiu de P{} e chegou a P{} ({} posições ganhas). A matéria é essa recuperação, mais marcante que a disputa na ponta.", name, grid, finish, gained),
+                rust_i18n::t!(
+                    "narrative.thesis.comeback",
+                    name = name.as_str(),
+                    grid = grid,
+                    finish = finish,
+                    gained = gained
+                )
+                .to_string(),
                 vec![Recuperacao, Vitoria],
             );
         }
@@ -377,14 +427,25 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
     if s.winner_grid >= 1 && s.winner_grid <= 2 {
         return (
             RaceThesis::Dominio,
-            format!("Ângulo central — DOMÍNIO NA PONTA: {} ({}) largou em P{} e controlou a corrida. A matéria é o controle e a autoridade, não a surpresa.", s.winner_name, s.winner_team, s.winner_grid),
+            rust_i18n::t!(
+                "narrative.thesis.dominance",
+                name = s.winner_name.as_str(),
+                team = s.winner_team.as_str(),
+                grid = s.winner_grid
+            )
+            .to_string(),
             vec![Vitoria, VoltaRapida],
         );
     }
     // Baseline: dia de administração.
     (
         RaceThesis::CorridaLimpa,
-        format!("Ângulo central — DIA DE ADMINISTRAÇÃO: {} ({}) venceu numa corrida controlada, sem grandes reviravoltas. A matéria é a consistência de quem executou o esperado.", s.winner_name, s.winner_team),
+        rust_i18n::t!(
+            "narrative.thesis.clean_race",
+            name = s.winner_name.as_str(),
+            team = s.winner_team.as_str()
+        )
+        .to_string(),
         vec![Vitoria, Podio],
     )
 }
@@ -405,13 +466,18 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     let selected = select(beats);
     let has_player = selected.iter().any(|b| b.kind == BeatKind::NossoPiloto);
 
-    let mut header = format!(
-        "Corrida: {} — temporada de {}, etapa {}\nPista: {}, {} voltas, clima: {}",
-        input.category_name, input.year, input.round, result.track_name, result.total_laps,
-        result.weather
-    );
+    let mut header = rust_i18n::t!(
+        "narrative.context.header",
+        category = input.category_name,
+        year = input.year,
+        round = input.round,
+        track = result.track_name.as_str(),
+        laps = result.total_laps,
+        weather = result.weather.as_str()
+    )
+    .to_string();
     if result.total_dnfs >= 2 {
-        header.push_str(&format!(". A corrida teve {} abandonos", result.total_dnfs));
+        header.push_str(&rust_i18n::t!("narrative.context.header_dnfs", dnfs = result.total_dnfs));
     }
 
     let mut facts = header;
@@ -425,7 +491,9 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
             .find(|d| d.is_jogador)
             .map(|d| d.pilot_name.clone())
         {
-            facts.push_str(&format!("\nPiloto acompanhado pelo leitor: {name}"));
+            facts.push_str(
+                &rust_i18n::t!("narrative.context.reader_pilot", name = name.as_str()).to_string(),
+            );
         }
     }
     // Tese jornalística: elege o ÂNGULO da matéria e hierarquiza os beats em
@@ -434,9 +502,7 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     let sig = race_thesis_signals(result);
     let (_thesis, statement, support) = select_race_thesis(&sig);
 
-    facts.push_str(
-        "\n\nEIXO DA MATÉRIA — o ângulo que este boletim deve desenvolver (voz de revista, 3ª pessoa; construa a narrativa a partir dele, não como uma linha solta):\n",
-    );
+    facts.push_str(&rust_i18n::t!("narrative.context.axis_label").to_string());
     facts.push_str(&statement);
     facts.push('\n');
 
@@ -444,20 +510,20 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
         selected.iter().partition(|b| support.contains(&b.kind));
 
     if !apoio.is_empty() {
-        facts.push_str("\nDESTAQUES QUE SUSTENTAM O ÂNGULO (fatos reais — não invente nada além destes):\n");
+        facts.push_str(&rust_i18n::t!("narrative.context.highlights_label").to_string());
         for beat in &apoio {
             facts.push_str(&format!("- {}\n", beat.text));
         }
     }
     if !fundo.is_empty() {
-        facts.push_str("\nPANO DE FUNDO — outros fatos reais da corrida (dê cor com eles, sem virar o assunto principal):\n");
+        facts.push_str(&rust_i18n::t!("narrative.context.background_label").to_string());
         for beat in &fundo {
             facts.push_str(&format!("- {}\n", beat.text));
         }
     }
 
     if !input.context_facts.is_empty() {
-        facts.push_str("\nCONTEXTO (bastidores/carreira — cor extra quando fizer sentido):\n");
+        facts.push_str(&rust_i18n::t!("narrative.context.extra_context_label").to_string());
         for fact in input.context_facts {
             facts.push_str(&format!("- {fact}\n"));
         }
@@ -473,6 +539,26 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fatos + tese resolvem nos dois locales, com interpolação (sem `%{...}` cru).
+    /// `#[serial]` porque troca o locale global. Parity garante as chaves; isto garante
+    /// que os NOMES dos placeholders casam.
+    #[test]
+    #[serial_test::serial]
+    fn fatos_e_tese_resolvem_nos_dois_locales() {
+        rust_i18n::set_locale("pt-BR");
+        let pt = rust_i18n::t!("narrative.beat.winner", name = "Ana", team = "Alfa", grid = 4, extra = "").to_string();
+        assert!(pt.contains("Ana") && pt.contains("Vencedor") && !pt.contains("%{"), "{pt}");
+        let pt_t = rust_i18n::t!("narrative.thesis.improbable_win", name = "Ana", team = "Alfa", grid = 8).to_string();
+        assert!(pt_t.contains("Ana") && pt_t.contains("P8") && !pt_t.contains("%{"), "{pt_t}");
+
+        rust_i18n::set_locale("en-US");
+        let en = rust_i18n::t!("narrative.beat.winner", name = "Ana", team = "Alfa", grid = 4, extra = "").to_string();
+        assert!(en.contains("Ana") && en.contains("Winner") && !en.contains("%{"), "{en}");
+        assert_ne!(pt, en);
+
+        rust_i18n::set_locale("pt-BR");
+    }
 
     fn beat(kind: BeatKind, weight: f64) -> Beat {
         Beat {
