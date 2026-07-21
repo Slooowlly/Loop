@@ -2,19 +2,20 @@
 
 **Data:** 2026-07-21  
 **Status:** aprovado pelo usuário  
-**Escopo:** clima, proteção do jogador e manutenção parcial em enduros
+**Escopo:** clima, proteção do jogador, manutenção parcial em enduros e escala de DNF no sprint
 
 ## 1. Contexto
 
 O primeiro pacote de balanceamento já transformou a antiga curva de falha em uma rampa e reduziu o esvaziamento do grid. O estado atual abre a janela de risco em `0.87`, coloca a parede em `1.13`, limita o multiplicador combinado de pista e clima a `1.5`, impede que a parede promova automaticamente uma falha grave a DNF e reduz a parcela-base de DNF das peças estruturais.
 
-Três decisões de produto permaneceram abertas:
+Três decisões de produto permaneceram abertas, e a validação posterior revelou um quarto ajuste necessário:
 
 1. quão relevante deve ser o clima para um carro saudável;
 2. quanta proteção indireta o jogador deve receber em uma equipe fraca;
 3. como uma parada real deve aliviar o risco mecânico de um enduro.
+4. como reduzir o DNF do perfil pobre neutro sem apagar as quebras graves.
 
-Este documento fecha as três decisões. Ele não redesenha a separação entre desgaste econômico e risco ao vivo.
+Este documento fecha as quatro decisões. Ele não redesenha a separação entre desgaste econômico e risco ao vivo.
 
 ## 2. Decisões aprovadas
 
@@ -65,6 +66,14 @@ Exemplos:
 
 Paradas posteriores reaplicam a mesma fórmula sobre o desgaste atual, sempre respeitando o desgaste de largada como piso absoluto.
 
+### 2.4 Sprint: DNF retido em escala global
+
+O perfil `pobre_esticando` produz atualmente 38,2% de DNF no sprint neutro. O alvo aprovado é 20–25%, sem reduzir a frequência de quebras graves.
+
+Um novo `SPRINT_DNF_SCALE` atua como filtro final de severidade somente em sprint. Quando o sorteio-base produz `Dnf`, uma rolagem determinística e decorrelacionada mantém o DNF com essa probabilidade; caso contrário, o resultado vira `Heavy`. O filtro vale para todas as peças e igualmente para jogador e IA. Ele não altera `Light`, `Heavy`, hazard, parede ou pesos por peça.
+
+O primeiro candidato é `0.60`. A matriz da seção 7 define a busca e o critério de parada.
+
 ## 3. Abordagem escolhida
 
 Foi escolhida a abordagem de dials calibrados e manutenção parcial. Ela preserva o modelo atual e mantém cada decisão observável em uma constante ou fórmula curta.
@@ -86,6 +95,10 @@ Mantém o teto climático em uma fonte única. A calibração altera somente `CO
 
 Mantém a fórmula atual e passa a usar `PLAYER_MAX_RELIEF = 0.06`.
 
+### `sample_severity()`
+
+Aplica `SPRINT_DNF_SCALE` como filtro final quando `is_enduro = false`. A rolagem de retenção deve ser determinística e decorrelacionada da rolagem que escolheu a severidade-base. O caminho de enduro continua usando `ENDURO_DNF_SCALE` e não recebe o filtro de sprint.
+
 ### `LiveBreakdown`
 
 Continua sendo o dono do desgaste vivo por peça. O estado já guarda o desgaste de entrada em `entered`; a manutenção parcial deve usar esse valor como piso.
@@ -100,7 +113,7 @@ A lista pré-programada `service_laps` pode continuar atendendo simulações e p
 
 ### Monitor do iRacing
 
-O detector existente de permanência na caixa é a autoridade sobre paradas. A transição `InPitStall → fora da caixa` fecha exatamente um evento e fornece seu `stationary_secs`. O histórico continua aceitando eventos a partir de 2,5 segundos para a estratégia de pneus. Quando o mesmo evento tem pelo menos 4 segundos e a sessão é enduro, o monitor chama `service_car` exatamente uma vez, antes de processar a próxima volta. O evento fechado — e não uma leitura posterior do histórico — é a fronteira de deduplicação.
+O detector existente de permanência na caixa é a autoridade sobre paradas. A transição `InPitStall → fora da caixa` fecha exatamente um evento e fornece seu `stationary_secs`. O histórico continua aceitando eventos a partir de 2,5 segundos para a estratégia de pneus. Quando o mesmo evento tem pelo menos 4 segundos, o monitor chama `service_car` exatamente uma vez, antes de processar a próxima volta. O monitor não precisa conhecer o gate de enduro: `LiveBreakdown::service_pit()` recebe a chamada e garante o no-op em sprint. O evento fechado — e não uma leitura posterior do histórico — é a fronteira de deduplicação.
 
 Uma constante de domínio para os 4 segundos deve ser compartilhada pelo serviço mecânico ao vivo e pelo cálculo econômico pós-corrida. `MIN_PIT_STALL_DWELL_SECS = 2.5` permanece próprio do detector e da estratégia de pneus.
 
@@ -109,8 +122,8 @@ Uma constante de domínio para os 4 segundos deve ser compartilhada pelo serviç
 1. O carro larga com desgaste persistente carregado do banco.
 2. Somente o carro do jogador recebe o alívio de entrada de até 6%.
 3. A cada volta, `LiveBreakdown` acumula desgaste usando o multiplicador combinado de pista e clima, já limitado pela constante calibrada.
-4. Em enduro, o detector de pit cronometra a permanência na caixa de cada carro.
-5. Na saída da caixa, o monitor registra a parada para pneus se ela durou pelo menos 2,5 segundos e solicita manutenção parcial se ela durou pelo menos 4 segundos.
+4. O detector de pit cronometra a permanência na caixa de cada carro em qualquer corrida.
+5. Na saída da caixa, o monitor registra a parada para pneus se ela durou pelo menos 2,5 segundos e solicita manutenção parcial se ela durou pelo menos 4 segundos; em sprint, o estado vivo ignora a solicitação.
 6. O diretor atualiza o estado vivo, sem alterar o carro persistido.
 7. A volta seguinte parte do desgaste parcialmente aliviado.
 8. Após a corrida, a economia calcula e persiste o desgaste pela regra econômica existente; o pit continua reduzindo somente o sobrecusto de enduro nessa camada.
@@ -147,6 +160,15 @@ Os perfis são fórmulas, não dados externos. Para cada peça, `limiar(pt) = 1 
 
 “Quebra relevante” significa pelo menos um evento `Heavy` ou `Dnf` na corrida. “Próxima de 0%” significa menor ou igual a 0,5%.
 
+### Ordem de calibração
+
+1. Fixar `CONDITIONS_MAX_MULT = 1.5` e escolher `SPRINT_DNF_SCALE`.
+2. Fixar a escala de DNF escolhida e selecionar `CONDITIONS_MAX_MULT`.
+3. Fixar ambos e validar `PLAYER_MAX_RELIEF = 0.06`.
+4. Calibrar `PIT_SERVICE_RELIEF` somente na matriz de enduro.
+
+Para `SPRINT_DNF_SCALE`, testar `0.50`, `0.55`, `0.60`, `0.65` e `0.70`. São válidos os candidatos que coloquem o DNF de `pobre_esticando` neutro entre 20% e 25% e mantenham sua quebra relevante a no máximo 0,5 ponto percentual do baseline sem filtro. Escolher o candidato válido mais próximo de `0.60`; em empate, escolher o menor. Se nenhum passar, interromper a calibração e solicitar nova decisão de produto — não ampliar o intervalo nem alterar hazard ou pesos por peça automaticamente.
+
 ### Clima e grid
 
 | Cenário | Alvo |
@@ -154,7 +176,7 @@ Os perfis são fórmulas, não dados externos. Para cada peça, `limiar(pt) = 1 
 | `rico_saudavel`, clima neutro | quebra relevante ≤ 0,5% |
 | `rico_saudavel`, clima brutal | quebra relevante entre 5% e 10% |
 | `rico_saudavel`, clima brutal | DNF ≤ 2% |
-| `pobre_esticando`, clima neutro | DNF entre 10% e 15% |
+| `pobre_esticando`, clima neutro | DNF entre 20% e 25% |
 | Grid em clima brutal | DNF total abaixo de 30% |
 
 O candidato também precisa preservar a economia: em clima neutro, os 11 multiplicadores de `conditions_wear_mults` devem permanecer iguais aos do teto `1.5` dentro de `1e-9`; no cenário brutal, a média aritmética dos 11 multiplicadores não pode crescer mais de 8% em relação ao teto `1.5`; e nenhum multiplicador individual pode exceder o candidato.
@@ -175,7 +197,9 @@ O candidato também precisa preservar a economia: em clima neutro, os 11 multipl
 | Sprint | parada não produz manutenção preventiva |
 | Drive-through ou parada menor que 4 s | nenhum benefício |
 
-O benchmark de enduro usa 40 voltas, `is_enduro = true`, pit crew 50, cenário neutro e os perfis `rico_saudavel` e `pobre_esticando`. Compara `service_laps = []` a `service_laps = [20]`, com as mesmas 20.000 sementes em ambos os lados. Os 60% de alívio constituem o primeiro candidato; se qualquer perfil ficar fora da faixa de redução de 20–60%, o valor deve ser ajustado em passos de 0,05 e a matriz repetida.
+O benchmark de enduro usa 40 voltas, `is_enduro = true`, pit crew 50, cenário neutro e os perfis `rico_saudavel` e `pobre_esticando`. Compara `service_laps = []` a `service_laps = [20]`, com as mesmas 20.000 sementes em ambos os lados.
+
+Para `PIT_SERVICE_RELIEF`, testar de `0.00` a `1.00` em passos de `0.05`. São válidos os candidatos que coloquem os dois perfis na faixa de redução de 20–60%. Escolher o válido mais próximo de `0.60`; em empate, escolher o menor. Se nenhum candidato for válido para ambos os perfis, interromper a calibração e solicitar nova decisão de produto. A implementação não amplia o intervalo nem muda outros dials para forçar o resultado.
 
 ## 8. Tratamento de bordas
 
@@ -201,11 +225,14 @@ O benchmark de enduro usa 40 voltas, `is_enduro = true`, pit crew 50, cenário n
 - parada entre 2,5 e 4 segundos ainda disponível para a estratégia de pneus;
 - uma aplicação por transição genuína de saída da caixa;
 - `PLAYER_MAX_RELIEF = 0.06` escalando de equipe fraca a forte;
+- `SPRINT_DNF_SCALE` preservando e rebaixando DNF de forma determinística;
+- filtro de sprint sem efeito sobre `Light`, `Heavy` ou o caminho de enduro;
 - mesma fonte de teto climático no risco e na economia.
 
 ### Harness Monte Carlo
 
-- varrer candidatos de teto climático e registrar quebra qualquer, quebra relevante e DNF;
+- varrer primeiro os candidatos de `SPRINT_DNF_SCALE` e depois os de teto climático;
+- registrar quebra qualquer, quebra relevante e DNF;
 - comparar perfis saudável, limítrofe, pobre esticando e pobre degradado;
 - comparar clima neutro e brutal;
 - comparar enduro sem parada e com uma parada preventiva;
@@ -223,4 +250,4 @@ Toda a suíte do módulo de quebra deve permanecer verde. As demais suítes dire
 - recalibrar toda a economia de peças;
 - criar estratégia automática nova de pit para a IA;
 - persistir manutenção preventiva como rejuvenescimento da peça;
-- mudar `RISK_OPEN`, `HARD_WALL`, pesos de severidade ou `ENDURO_DNF_SCALE`, salvo se uma regressão demonstrar que os critérios aprovados são matematicamente incompatíveis.
+- mudar `RISK_OPEN`, `HARD_WALL`, pesos de severidade, hazard ou `ENDURO_DNF_SCALE`.
