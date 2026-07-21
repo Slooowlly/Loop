@@ -36,14 +36,15 @@ pub enum RivalryIntensityLevel {
 }
 
 impl RivalryIntensityLevel {
-    pub fn label(&self) -> &'static str {
-        match self {
-            RivalryIntensityLevel::AtritoLeve => "atrito leve",
-            RivalryIntensityLevel::Inicial => "rivalidade inicial",
-            RivalryIntensityLevel::Clara => "rivalidade clara",
-            RivalryIntensityLevel::Forte => "rivalidade forte",
-            RivalryIntensityLevel::Intensa => "rivalidade intensa",
-        }
+    pub fn label(&self) -> String {
+        let key = match self {
+            RivalryIntensityLevel::AtritoLeve => "rivalry.intensity.atrito_leve",
+            RivalryIntensityLevel::Inicial => "rivalry.intensity.inicial",
+            RivalryIntensityLevel::Clara => "rivalry.intensity.clara",
+            RivalryIntensityLevel::Forte => "rivalry.intensity.forte",
+            RivalryIntensityLevel::Intensa => "rivalry.intensity.intensa",
+        };
+        rust_i18n::t!(key).to_string()
     }
 }
 
@@ -273,16 +274,27 @@ fn build_rivalry_news_item(
         RivalryIntensityLevel::AtritoLeve => NewsImportance::Media,
     };
     let origem = match tipo {
-        RivalryType::Companheiros => "companheiros de equipe",
-        RivalryType::Campeonato => "disputa de campeonato",
-        RivalryType::Colisao => "incidente em pista",
-        RivalryType::Pista => "duelos em pista",
+        RivalryType::Companheiros => rust_i18n::t!("rivalry.news.escalation.origin_teammates"),
+        RivalryType::Campeonato => rust_i18n::t!("rivalry.news.escalation.origin_championship"),
+        RivalryType::Colisao => rust_i18n::t!("rivalry.news.escalation.origin_collision"),
+        RivalryType::Pista => rust_i18n::t!("rivalry.news.escalation.origin_track"),
     };
     let nivel_label = crossed.label();
-    let titulo = format!("{nome_a} x {nome_b}: {nivel_label}");
-    let texto = format!(
-        "{nome_a} e {nome_b} elevaram a tensao da rivalidade após {origem} na rodada {rodada}."
-    );
+    let titulo = rust_i18n::t!(
+        "rivalry.news.escalation.title",
+        a = nome_a,
+        b = nome_b,
+        level = nivel_label
+    )
+    .to_string();
+    let texto = rust_i18n::t!(
+        "rivalry.news.escalation.text",
+        a = nome_a,
+        b = nome_b,
+        origin = origem,
+        round = rodada
+    )
+    .to_string();
 
     Some(NewsItem {
         id,

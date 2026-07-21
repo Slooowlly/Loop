@@ -223,6 +223,20 @@ rivalry:
     title_fight: "The Title Fight"
     classic_track: "The %{track} Classic"
     track_rivalry: "Track Rivalry"
+  intensity:
+    atrito_leve: "mild friction"
+    inicial: "an early rivalry"
+    clara: "a clear rivalry"
+    forte: "a strong rivalry"
+    intensa: "an intense rivalry"
+  news:
+    escalation:
+      origin_teammates: "as teammates"
+      origin_championship: "a championship fight"
+      origin_collision: "an on-track incident"
+      origin_track: "on-track duels"
+      title: "%{a} x %{b}: %{level}"
+      text: "%{a} and %{b} raised the tension of their rivalry after %{origin} in round %{round}."
 
 # Driver profile (commands/career_detail.rs): personality + career milestones
 # (DriverDetailModal display). Personality `tipo` here is DISPLAY (decoupled from the
@@ -877,3 +891,55 @@ ai_news:
     scenario_line: "SCENARIO: %{scenario}"
     support_head: "\nSUPPORT — facts that back the story (use the ones that reinforce it):"
     background_head: "\nBACKGROUND — secondary context (use sparingly; do NOT list it as statistics):"
+
+# Pre-race / magazine bulletin: context facts (commands/race.rs). Previously PT + the
+# AI translated; now they go out ready in the active language. Backdrop for the highlights.
+briefing:
+  rivalry:
+    origin_collision: "born from an on-track incident"
+    origin_teammates: "between old teammates"
+    origin_championship: "forged in the fight for the title"
+    origin_track: "from duels on track"
+    opener: "%{a} and %{b} crossed paths again — %{level} %{origin}"
+    chapters: ", which already spans %{chapters} chapters since %{year}"
+    today: ". Today's chapter: %{summary}."
+    h2h_tied: " In the head-to-head, they are tied %{a} to %{b}."
+    h2h_leader: " In the head-to-head, %{leader} leads %{hi} to %{lo}."
+    revenge: " For %{name}, it tasted like revenge."
+  perf:
+    much_above: "%{name} delivered far beyond what the package allowed: started P%{grid} and finished P%{finish}, well above what car and talent projected."
+    much_below: "%{name} performed well below potential: started P%{grid} and only finished P%{finish}, short of what car and talent projected."
+    end_drought: "%{name} returned to the top step of the podium after a dry spell in the category."
+    podium_streak: "%{name} landed another podium and is on a strong run of results."
+    reaction: "%{name} bounced back: coming off a dull patch, delivered a good result today."
+    track_specialist: "%{name} is a specialist at this circuit: had already won here %{wins} %{times} and added one more today."
+    track_good_history: "%{name} has a good record at this layout, having won here %{wins} %{times}."
+    time_singular: "time"
+    time_plural: "times"
+    teammate_h2h: "%{ahead} got the better of teammate %{behind} today (P%{ap} to P%{bp})"
+    teammate_tied: "; in the intra-team battle this season, they are tied %{a} to %{b}."
+    teammate_leader: "; in the intra-team battle this season, %{leader} is ahead %{hi} to %{lo}."
+  tel:
+    faster_than_grid: "On track, %{who} averaged about %{delta}s per lap faster than the grid pace."
+    slower_than_grid: "On track, %{who} averaged about %{delta}s per lap behind the grid pace."
+    consistent: "%{who} was very consistent, holding the pace on %{good} of %{total} laps."
+    inconsistent: "%{who} was quite erratic on pace: only %{good} of %{total} laps stayed near their own reference."
+    duel: "%{who} fought a %{laps}-lap duel with %{rival} (average gap of %{gap}s)."
+    best_rival_beaten: "%{who} got the better of %{rival} in the direct fight."
+    best_position_gain: "%{who} made a decisive attack, gaining %{n} positions in a single lap."
+    best_recovery: "%{who} bounced back after a slip and recovered ground."
+    best_clean_streak: "%{who} strung together %{n} clean laps in a row."
+    mistake_incident: "%{who}'s most costly moment was a contact on lap %{lap}, which cost %{n} positions."
+    mistake_position_loss: "%{who} lost %{n} positions at once in a bad moment, on lap %{lap}."
+    mistake_pace_drop: "%{who} had an expensive lap on %{lap}, losing about %{secs}s."
+  ctx:
+    injury: "%{name} suffered an injury during the race and will miss the next round"
+    rookie_debut: "%{name} is in their debut season in the category."
+    veteran: "%{name} is a category veteran, in their %{season}th season."
+    overcame_dnf_here: "%{name} had retired at this track on a previous visit — today's result tastes like redemption."
+    win_streak: "%{name} won for the %{n}th time in a row — on quite a streak in the category."
+    win_singular: "win"
+    win_plural: "wins"
+    chasing_rival: "With %{wins} wins in the category, %{name} is just %{diff} %{word} away from matching %{target} (%{value})."
+    new_win_record: "With this win, %{name} set a new category wins record — a mark that had stood for %{years} years."
+    team_top_winner: "%{name} is the driver with the most wins for %{team} in the category, with %{wins} wins."

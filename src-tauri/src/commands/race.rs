@@ -3163,7 +3163,7 @@ fn persist_race_news(
                 let name = driver_queries::get_driver(conn, &inj.pilot_id)
                     .map(|d| d.nome)
                     .unwrap_or_else(|_| inj.pilot_id.clone());
-                format!("{name} sofreu uma lesão durante a prova e ficará fora da próxima etapa")
+                rust_i18n::t!("briefing.ctx.injury", name = name.as_str()).to_string()
             })
             .collect();
 
@@ -3195,16 +3195,19 @@ fn persist_race_news(
 
             // Rookie em destaque → valoriza a estreia. Veterano → só o vencedor (evita poluir).
             if driver.temporadas_na_categoria == 0 {
-                context_facts.push(format!(
-                    "{} está em sua temporada de estreia na categoria.",
-                    driver.nome
-                ));
+                context_facts.push(
+                    rust_i18n::t!("briefing.ctx.rookie_debut", name = driver.nome.as_str())
+                        .to_string(),
+                );
             } else if is_winner && driver.temporadas_na_categoria >= 5 {
-                context_facts.push(format!(
-                    "{} é um veterano da categoria, em sua {}ª temporada.",
-                    driver.nome,
-                    driver.temporadas_na_categoria + 1
-                ));
+                context_facts.push(
+                    rust_i18n::t!(
+                        "briefing.ctx.veteran",
+                        name = driver.nome.as_str(),
+                        season = driver.temporadas_na_categoria + 1
+                    )
+                    .to_string(),
+                );
             }
 
             // Histórico de pista: já abandonou aqui antes? (gosto de superação — só
@@ -3219,10 +3222,13 @@ fn persist_race_news(
                     pilot_id,
                     &race_result.track_name,
                 ) {
-                    context_facts.push(format!(
-                        "{} já havia abandonado nesta pista numa visita anterior — o resultado de hoje tem gosto de superação.",
-                        driver.nome
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.overcame_dnf_here",
+                            name = driver.nome.as_str()
+                        )
+                        .to_string(),
+                    );
                 }
             }
         }
@@ -3257,10 +3263,14 @@ fn persist_race_news(
                 category_id,
             ) {
                 if streak >= 3 {
-                    context_facts.push(format!(
-                        "{} venceu pela {}ª vez consecutiva — está em uma sequência e tanto na categoria.",
-                        winner_name, streak
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.win_streak",
+                            name = winner_name.as_str(),
+                            n = streak
+                        )
+                        .to_string(),
+                    );
                 }
             }
 
@@ -3291,11 +3301,23 @@ fn persist_race_news(
                         .min_by_key(|a| a.value - wc.wins);
                     if let Some(t) = target {
                         let diff = t.value - wc.wins;
-                        let plural = if diff == 1 { "vitória" } else { "vitórias" };
-                        context_facts.push(format!(
-                            "Com {} vitórias na categoria, {} está a apenas {} {} de igualar {} ({}).",
-                            wc.wins, winner_name, diff, plural, t.pilot_name, t.value
-                        ));
+                        let plural = if diff == 1 {
+                            rust_i18n::t!("briefing.ctx.win_singular")
+                        } else {
+                            rust_i18n::t!("briefing.ctx.win_plural")
+                        };
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.chasing_rival",
+                                wins = wc.wins,
+                                name = winner_name.as_str(),
+                                diff = diff,
+                                word = plural,
+                                target = t.pilot_name.as_str(),
+                                value = t.value
+                            )
+                            .to_string(),
+                        );
                     }
                 }
             }
@@ -3321,10 +3343,14 @@ fn persist_race_news(
                     {
                         let dur = active_season.ano - year;
                         if dur >= 2 {
-                            context_facts.push(format!(
-                                "Com esta vitória, {} estabeleceu um novo recorde de vitórias da categoria — uma marca que resistia há {} anos.",
-                                winner_name, dur
-                            ));
+                            context_facts.push(
+                                rust_i18n::t!(
+                                    "briefing.ctx.new_win_record",
+                                    name = winner_name.as_str(),
+                                    years = dur
+                                )
+                                .to_string(),
+                            );
                         }
                     }
                 }
@@ -3344,10 +3370,15 @@ fn persist_race_news(
                     )
                 {
                     if top.pilot_id == *winner_id && top.value >= 2 {
-                        context_facts.push(format!(
-                            "{} é o piloto que mais venceu pela {} na categoria, com {} vitórias.",
-                            winner_name, cur.team_name, top.value
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.team_top_winner",
+                                name = winner_name.as_str(),
+                                team = cur.team_name.as_str(),
+                                wins = top.value
+                            )
+                            .to_string(),
+                        );
                     }
                 }
             }
@@ -4450,21 +4481,37 @@ fn rivalry_arc_facts(
                     .map_or(false, |(prev_w, today_w)| prev_w != today_w);
 
             let origem = match r.tipo {
-                RivalryType::Colisao => "que nasceu de um incidente em pista",
-                RivalryType::Companheiros => "de velhos companheiros de equipe",
-                RivalryType::Campeonato => "forjada na briga pelo título",
-                RivalryType::Pista => "de duelos em pista",
+                RivalryType::Colisao => rust_i18n::t!("briefing.rivalry.origin_collision"),
+                RivalryType::Companheiros => rust_i18n::t!("briefing.rivalry.origin_teammates"),
+                RivalryType::Campeonato => rust_i18n::t!("briefing.rivalry.origin_championship"),
+                RivalryType::Pista => rust_i18n::t!("briefing.rivalry.origin_track"),
             };
 
-            let mut s = format!("{na} e {nb} voltaram a se cruzar — uma {nivel} {origem}");
+            let mut s = rust_i18n::t!(
+                "briefing.rivalry.opener",
+                a = na.as_str(),
+                b = nb.as_str(),
+                level = nivel,
+                origin = origem
+            )
+            .to_string();
             if ano_origem > 0 && chapters > 1 {
-                s.push_str(&format!(", que já soma {chapters} capítulos desde {ano_origem}"));
+                s.push_str(&rust_i18n::t!(
+                    "briefing.rivalry.chapters",
+                    chapters = chapters,
+                    year = ano_origem
+                ));
             }
-            s.push_str(&format!(". O capítulo de hoje: {}.", today.summary));
+            s.push_str(&rust_i18n::t!(
+                "briefing.rivalry.today",
+                summary = today.summary.as_str()
+            ));
             if wins_a > 0 || wins_b > 0 {
                 if wins_a == wins_b {
-                    s.push_str(&format!(
-                        " No retrospecto direto, estão empatados em {wins_a} a {wins_b}."
+                    s.push_str(&rust_i18n::t!(
+                        "briefing.rivalry.h2h_tied",
+                        a = wins_a,
+                        b = wins_b
                     ));
                 } else {
                     let (leader, hi, lo) = if wins_a > wins_b {
@@ -4472,15 +4519,18 @@ fn rivalry_arc_facts(
                     } else {
                         (&nb, wins_b, wins_a)
                     };
-                    s.push_str(&format!(
-                        " No retrospecto direto, {leader} lidera por {hi} a {lo}."
+                    s.push_str(&rust_i18n::t!(
+                        "briefing.rivalry.h2h_leader",
+                        leader = leader.as_str(),
+                        hi = hi,
+                        lo = lo
                     ));
                 }
             }
             if revenge {
                 if let Some(tw) = today.winner_id.as_deref() {
                     let twn = if tw == a { &na } else { &nb };
-                    s.push_str(&format!(" Para {twn}, teve gosto de revanche."));
+                    s.push_str(&rust_i18n::t!("briefing.rivalry.revenge", name = twn.as_str()));
                 }
             }
             out.push(s);
@@ -4583,14 +4633,20 @@ fn performance_context_facts(
         let is_pole = *pilot_id == race_result.pole_sitter_id;
         let name = name_of(pilot_id);
         let text = match ev.assessment {
-            Assessment::MuitoAcima => format!(
-                "{} fez muito mais do que o conjunto permitia: largou em P{} e terminou em P{}, bem acima do que carro e talento projetavam.",
-                name, d.grid_position, d.finish_position
-            ),
-            Assessment::MuitoAbaixo if !is_pole => format!(
-                "{} rendeu bem abaixo do potencial: largou em P{} e só terminou em P{}, aquém do que carro e talento projetavam.",
-                name, d.grid_position, d.finish_position
-            ),
+            Assessment::MuitoAcima => rust_i18n::t!(
+                "briefing.perf.much_above",
+                name = name.as_str(),
+                grid = d.grid_position,
+                finish = d.finish_position
+            )
+            .to_string(),
+            Assessment::MuitoAbaixo if !is_pole => rust_i18n::t!(
+                "briefing.perf.much_below",
+                name = name.as_str(),
+                grid = d.grid_position,
+                finish = d.finish_position
+            )
+            .to_string(),
             _ => continue,
         };
         exp.push(ExpCand { text, is_player: d.is_jogador });
@@ -4634,15 +4690,12 @@ fn performance_context_facts(
         if d.finish_position == 1 && recent_wins == 0 && recent.len() >= 5 {
             form.push((
                 3,
-                format!(
-                    "{} voltou ao lugar mais alto do pódio após um período de jejum na categoria.",
-                    name
-                ),
+                rust_i18n::t!("briefing.perf.end_drought", name = name.as_str()).to_string(),
             ));
         } else if d.finish_position <= 3 && last_two_podiums == 2 {
             form.push((
                 2,
-                format!("{} engatou mais um pódio e vive uma sequência forte de resultados.", name),
+                rust_i18n::t!("briefing.perf.podium_streak", name = name.as_str()).to_string(),
             ));
         } else if d.finish_position <= 5 {
             let valid: Vec<i32> = recent.iter().filter(|r| !r.is_dnf).map(|r| r.finish).collect();
@@ -4651,10 +4704,7 @@ fn performance_context_facts(
                 if avg >= field_size as f64 * 0.5 {
                     form.push((
                         1,
-                        format!(
-                            "{} mostrou reação: vinha de uma fase apagada e entregou um bom resultado hoje.",
-                            name
-                        ),
+                        rust_i18n::t!("briefing.perf.reaction", name = name.as_str()).to_string(),
                     ));
                 }
             }
@@ -4683,17 +4733,27 @@ fn performance_context_facts(
                 continue;
             }
             let name = name_of(pilot_id);
-            let vez = if th.wins == 1 { "vez" } else { "vezes" };
+            let vez = if th.wins == 1 {
+                rust_i18n::t!("briefing.perf.time_singular")
+            } else {
+                rust_i18n::t!("briefing.perf.time_plural")
+            };
             let text = if d.finish_position == 1 {
-                format!(
-                    "{} é especialista neste circuito: já havia vencido aqui {} {} e somou mais uma hoje.",
-                    name, th.wins, vez
+                rust_i18n::t!(
+                    "briefing.perf.track_specialist",
+                    name = name.as_str(),
+                    wins = th.wins,
+                    times = vez
                 )
+                .to_string()
             } else if d.finish_position <= 3 {
-                format!(
-                    "{} tem boa história neste traçado, onde já venceu {} {}.",
-                    name, th.wins, vez
+                rust_i18n::t!(
+                    "briefing.perf.track_good_history",
+                    name = name.as_str(),
+                    wins = th.wins,
+                    times = vez
                 )
+                .to_string()
             } else {
                 continue;
             };
@@ -4745,25 +4805,28 @@ fn performance_context_facts(
                 (b, a)
             };
             let (an, bn) = (name_of(&ahead.pilot_id), name_of(&behind.pilot_id));
-            let mut s = format!(
-                "{} levou a melhor sobre o companheiro de equipe {} hoje (P{} contra P{})",
-                an, bn, ahead.finish_position, behind.finish_position
-            );
+            let mut s = rust_i18n::t!(
+                "briefing.perf.teammate_h2h",
+                ahead = an.as_str(),
+                behind = bn.as_str(),
+                ap = ahead.finish_position,
+                bp = behind.finish_position
+            )
+            .to_string();
             if wa + wb >= 2 {
                 if wa == wb {
-                    s.push_str(&format!(
-                        "; no confronto interno da temporada, estão empatados em {} a {}.",
-                        wa, wb
-                    ));
+                    s.push_str(&rust_i18n::t!("briefing.perf.teammate_tied", a = wa, b = wb));
                 } else {
                     let (ln, hi, lo) = if wa > wb {
                         (name_of(&a.pilot_id), wa, wb)
                     } else {
                         (name_of(&b.pilot_id), wb, wa)
                     };
-                    s.push_str(&format!(
-                        "; no confronto interno da temporada, {} está à frente por {} a {}.",
-                        ln, hi, lo
+                    s.push_str(&rust_i18n::t!(
+                        "briefing.perf.teammate_leader",
+                        leader = ln.as_str(),
+                        hi = hi,
+                        lo = lo
                     ));
                 }
             } else {
@@ -4805,28 +4868,48 @@ fn telemetry_context_facts(
         if p.vs_grid_reliable {
             let delta_s = (p.vs_grid_ms.abs() / 1000.0 * 10.0).round() / 10.0;
             if p.vs_grid_ms <= -200.0 {
-                out.push(format!(
-                    "Na pista, {who} andou em média cerca de {delta_s:.1}s por volta mais rápido que o ritmo do grid."
-                ));
+                out.push(
+                    rust_i18n::t!(
+                        "briefing.tel.faster_than_grid",
+                        who = who,
+                        delta = format!("{delta_s:.1}")
+                    )
+                    .to_string(),
+                );
             } else if p.vs_grid_ms >= 200.0 {
-                out.push(format!(
-                    "Na pista, {who} ficou em média cerca de {delta_s:.1}s por volta atrás do ritmo do grid."
-                ));
+                out.push(
+                    rust_i18n::t!(
+                        "briefing.tel.slower_than_grid",
+                        who = who,
+                        delta = format!("{delta_s:.1}")
+                    )
+                    .to_string(),
+                );
             }
         }
         // Consistência (só com voltas suficientes).
         if p.consistency_reliable && p.total_laps >= 4 {
             let ratio = p.good_laps as f64 / p.total_laps as f64;
             if ratio >= 0.85 {
-                out.push(format!(
-                    "{who} foi muito consistente, segurando o ritmo em {} das {} voltas.",
-                    p.good_laps, p.total_laps
-                ));
+                out.push(
+                    rust_i18n::t!(
+                        "briefing.tel.consistent",
+                        who = who,
+                        good = p.good_laps,
+                        total = p.total_laps
+                    )
+                    .to_string(),
+                );
             } else if ratio <= 0.5 {
-                out.push(format!(
-                    "{who} oscilou bastante no ritmo: só {} das {} voltas ficaram perto da própria referência.",
-                    p.good_laps, p.total_laps
-                ));
+                out.push(
+                    rust_i18n::t!(
+                        "briefing.tel.inconsistent",
+                        who = who,
+                        good = p.good_laps,
+                        total = p.total_laps
+                    )
+                    .to_string(),
+                );
             }
         }
     }
@@ -4835,27 +4918,45 @@ fn telemetry_context_facts(
     if let Some(r) = &telemetry.rival {
         if !r.pilot_name.trim().is_empty() {
             let gap = (r.avg_gap_s * 10.0).round() / 10.0;
-            out.push(format!(
-                "{who} travou um duelo de {} voltas com {} (diferença média de {gap:.1}s).",
-                r.laps_battled, r.pilot_name
-            ));
+            out.push(
+                rust_i18n::t!(
+                    "briefing.tel.duel",
+                    who = who,
+                    laps = r.laps_battled,
+                    rival = r.pilot_name.as_str(),
+                    gap = format!("{gap:.1}")
+                )
+                .to_string(),
+            );
         }
     }
 
     // Melhor momento da corrida do jogador.
     if let Some(b) = &telemetry.best_moment {
         let phrase = match b.kind.as_str() {
-            "rival_beaten" if !b.rival_name.trim().is_empty() => {
-                Some(format!("{who} levou a melhor sobre {} na disputa direta.", b.rival_name))
+            "rival_beaten" if !b.rival_name.trim().is_empty() => Some(
+                rust_i18n::t!(
+                    "briefing.tel.best_rival_beaten",
+                    who = who,
+                    rival = b.rival_name.as_str()
+                )
+                .to_string(),
+            ),
+            "position_gain" if b.positions_gained >= 1 => Some(
+                rust_i18n::t!(
+                    "briefing.tel.best_position_gain",
+                    who = who,
+                    n = b.positions_gained
+                )
+                .to_string(),
+            ),
+            "recovery" => {
+                Some(rust_i18n::t!("briefing.tel.best_recovery", who = who).to_string())
             }
-            "position_gain" if b.positions_gained >= 1 => Some(format!(
-                "{who} teve um ataque decisivo, ganhando {} posições numa única volta.",
-                b.positions_gained
-            )),
-            "recovery" => Some(format!("{who} reagiu depois de um tropeço e recuperou terreno.")),
-            "clean_streak" if b.streak >= 3 => {
-                Some(format!("{who} emendou {} voltas limpas seguidas.", b.streak))
-            }
+            "clean_streak" if b.streak >= 3 => Some(
+                rust_i18n::t!("briefing.tel.best_clean_streak", who = who, n = b.streak)
+                    .to_string(),
+            ),
             _ => None,
         };
         if let Some(phrase) = phrase {
@@ -4866,20 +4967,33 @@ fn telemetry_context_facts(
     // Erro mais caro (DNF não entra: o beat de Abandono já cobre).
     if let Some(m) = &telemetry.mistake {
         let phrase = match m.kind.as_str() {
-            "incident" => Some(format!(
-                "O momento mais custoso de {who} foi um contato na volta {}, que tirou {} posições.",
-                m.lap,
-                m.positions_lost.max(0)
-            )),
-            "position_loss" if m.positions_lost >= 1 => Some(format!(
-                "{who} perdeu {} posições de uma vez num momento ruim, na volta {}.",
-                m.positions_lost, m.lap
-            )),
-            "pace_drop" if m.time_lost_ms >= 1500.0 => Some(format!(
-                "{who} teve uma volta cara na {}, perdendo cerca de {:.0}s.",
-                m.lap,
-                m.time_lost_ms / 1000.0
-            )),
+            "incident" => Some(
+                rust_i18n::t!(
+                    "briefing.tel.mistake_incident",
+                    who = who,
+                    lap = m.lap,
+                    n = m.positions_lost.max(0)
+                )
+                .to_string(),
+            ),
+            "position_loss" if m.positions_lost >= 1 => Some(
+                rust_i18n::t!(
+                    "briefing.tel.mistake_position_loss",
+                    who = who,
+                    n = m.positions_lost,
+                    lap = m.lap
+                )
+                .to_string(),
+            ),
+            "pace_drop" if m.time_lost_ms >= 1500.0 => Some(
+                rust_i18n::t!(
+                    "briefing.tel.mistake_pace_drop",
+                    who = who,
+                    lap = m.lap,
+                    secs = format!("{:.0}", m.time_lost_ms / 1000.0)
+                )
+                .to_string(),
+            ),
             _ => None,
         };
         if let Some(phrase) = phrase {
