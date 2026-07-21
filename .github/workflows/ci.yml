@@ -1,0 +1,50 @@
+name: CI
+
+# Roda a suíte completa a cada push e PR. Tudo em windows-latest porque este é o
+# alvo real do app (winapi/iRacing SDK são Windows-only) e evita ter de instalar as
+# dependências de sistema do Tauri que o Linux exigiria só para compilar o crate.
+on:
+  push:
+  pull_request:
+
+# Cancela runs antigos do mesmo ref quando um novo push chega.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      # O .cargo/config.toml aponta target-dir para um caminho absoluto da máquina de
+      # dev (fora do OneDrive). No CI sobrescrevemos para um caminho dentro do
+      # workspace, para o cache de Rust (Swatinem) encontrar o target.
+      CARGO_TARGET_DIR: ${{ github.workspace }}\src-tauri\target
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências JS
+        run: npm ci
+
+      - name: Testes de frontend (vitest + estrutura)
+        run: npm run test:all
+
+      # `tauri::generate_context!` embute os assets de `dist/` em tempo de compilação,
+      # então o crate Rust NÃO compila sem o build do frontend antes. Este passo também
+      # valida que o `vite build` passa.
+      - name: Build do frontend (necessário para o contexto do Tauri)
+        run: npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Testes de Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml

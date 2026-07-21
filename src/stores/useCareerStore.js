@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isLegacySeasonPhase } from "../utils/seasonPhases";
 import { isFinaleSlot } from "../utils/postRaceLanding";
 import { applyLanguage } from "../i18n/index.js";
+import { buildBriefingContext } from "../pages/tabs/nextRaceContext";
 
 const initialState = {
   isLoaded: false,
@@ -1161,7 +1162,8 @@ const useCareerStore = create((set, get) => ({
   // animação dá tempo de sobra). Monta os mesmos fatos da Sala de Estratégia, gera
   // no servidor (cacheado por etapa) e guarda em `preRaceAi` para a tela abrir já com
   // o texto pronto — sem o flash template→IA. Fire-and-forget; qualquer falha é
-  // silenciosa (a tela cai no fluxo normal). Import dinâmico evita ciclo de módulos.
+  // silenciosa (a tela cai no fluxo normal). `buildBriefingContext` vem do módulo puro
+  // `nextRaceContext` (não do componente), então o import é estático — sem ciclo.
   prefetchPreRaceBriefing: async () => {
     const { careerId, player, playerTeam, season, nextRace, nextRaceBriefing, preRaceAi } = get();
     const raceId = nextRace?.id;
@@ -1169,8 +1171,7 @@ const useCareerStore = create((set, get) => ({
     if (preRaceAi?.raceId === raceId) return; // já temos desta etapa
 
     try {
-      const [{ buildBriefingContext }, drivers, teams, phraseHistory, forecast] = await Promise.all([
-        import("../pages/tabs/NextRaceTab"),
+      const [drivers, teams, phraseHistory, forecast] = await Promise.all([
         invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
         invoke("get_teams_standings", { careerId, category: playerTeam.categoria }),
         invoke("get_briefing_phrase_history", { careerId }).catch(() => ({

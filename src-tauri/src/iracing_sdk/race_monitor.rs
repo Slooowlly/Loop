@@ -1195,7 +1195,12 @@ impl RaceMonitor {
         // Clima FIXO da corrida (do export); NEUTRAL no arme debug. Clima vivo do SDK = Peça 2.
         let weather = self.breakdown_weather;
         let progress = self.breakdown_progress; // enduro: rampa de fim (a grade atualiza)
-        let evs = self.breakdown.as_mut().unwrap().on_lap_at(car_num, lap, weather, progress);
+        // Guardado por `is_none()` no topo; `let Some … else` em vez de `unwrap` pra
+        // nunca derrubar a thread de telemetria se o invariante mudar.
+        let Some(dir) = self.breakdown.as_mut() else {
+            return;
+        };
+        let evs = dir.on_lap_at(car_num, lap, weather, progress);
         for ev in evs {
             self.pending_breakdown_cmds.push(ev.command(car_num));
             self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));
@@ -1208,7 +1213,10 @@ impl RaceMonitor {
         // AVISO pessoal: peças do jogador que ENTRARAM na zona de risco (≥ 95%). Avisa cada
         // peça UMA vez; rearma quando ela sai da zona (troca/reparo/quebra). `danger` é dono
         // (Vec), então o borrow do diretor fecha antes de mexer no estado de aviso.
-        let danger = self.breakdown.as_ref().unwrap().car_parts_in_danger(car_num);
+        let Some(dir) = self.breakdown.as_ref() else {
+            return;
+        };
+        let danger = dir.car_parts_in_danger(car_num);
         let mut in_danger = [false; 11];
         for (i, pt, wear) in &danger {
             in_danger[*i] = true;
@@ -1264,10 +1272,14 @@ impl RaceMonitor {
         if self.breakdown_needs_prime {
             if let Some(live) = self.pending_player_live.take() {
                 if let Some(pnum) = self.player_car_number() {
-                    self.breakdown.as_mut().unwrap().add_car(pnum, live, Vec::new());
+                    if let Some(dir) = self.breakdown.as_mut() {
+                        dir.add_car(pnum, live, Vec::new());
+                    }
                 }
             }
-            let dir = self.breakdown.as_mut().unwrap();
+            let Some(dir) = self.breakdown.as_mut() else {
+                return;
+            };
             for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
                 let num = self.car_number[c.idx as usize];
                 if num > 0 {
@@ -1290,7 +1302,10 @@ impl RaceMonitor {
             }
             let car_num = num as u32;
             let lap = c.lap_completed.max(0) as u32;
-            let evs = self.breakdown.as_mut().unwrap().on_lap_at(car_num, lap, weather, progress);
+            let Some(dir) = self.breakdown.as_mut() else {
+                break;
+            };
+            let evs = dir.on_lap_at(car_num, lap, weather, progress);
             for ev in evs {
                 self.pending_breakdown_cmds.push(ev.command(car_num));
                 self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));

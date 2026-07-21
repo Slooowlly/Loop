@@ -8,274 +8,82 @@ const CURRENT_VERSION: u32 = 52;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
+/// Registro declarativo das migrações: `(versão, função)`. ÚNICA fonte de verdade
+/// da ordem e do conjunto — adicionar uma migração = UMA linha aqui (e bumpar
+/// `CURRENT_VERSION`). Antes eram duas listas paralelas mantidas à mão em `run_all`
+/// e `run_pending`, com risco de registrar numa e esquecer na outra.
+const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
+    (1, migrate_v1),
+    (2, migrate_v2),
+    (3, migrate_v3),
+    (4, migrate_v4),
+    (5, migrate_v5),
+    (6, migrate_v6),
+    (7, migrate_v7),
+    (8, migrate_v8),
+    (9, migrate_v9),
+    (10, migrate_v10),
+    (11, migrate_v11),
+    (12, migrate_v12),
+    (13, migrate_v13),
+    (14, migrate_v14),
+    (15, migrate_v15),
+    (16, migrate_v16),
+    (17, migrate_v17),
+    (18, migrate_v18),
+    (19, migrate_v19),
+    (20, migrate_v20),
+    (21, migrate_v21),
+    (22, migrate_v22),
+    (23, migrate_v23),
+    (24, migrate_v24),
+    (25, migrate_v25),
+    (26, migrate_v26),
+    (27, migrate_v27),
+    (28, migrate_v28),
+    (29, migrate_v29),
+    (30, migrate_v30),
+    (31, migrate_v31),
+    (32, migrate_v32),
+    (33, migrate_v33),
+    (34, migrate_v34),
+    (35, migrate_v35),
+    (36, migrate_v36),
+    (37, migrate_v37),
+    (38, migrate_v38),
+    (39, migrate_v39),
+    (40, migrate_v40),
+    (41, migrate_v41),
+    (42, migrate_v42),
+    (43, migrate_v43),
+    (44, migrate_v44),
+    (45, migrate_v45),
+    (46, migrate_v46),
+    (47, migrate_v47),
+    (48, migrate_v48),
+    (49, migrate_v49),
+    (50, migrate_v50),
+    (51, migrate_v51),
+    (52, migrate_v52),
+];
+
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
 pub fn run_all(conn: &Connection) -> Result<(), DbError> {
-    migrate_v1(conn)?;
-    migrate_v2(conn)?;
-    migrate_v3(conn)?;
-    migrate_v4(conn)?;
-    migrate_v5(conn)?;
-    migrate_v6(conn)?;
-    migrate_v7(conn)?;
-    migrate_v8(conn)?;
-    migrate_v9(conn)?;
-    migrate_v10(conn)?;
-    migrate_v11(conn)?;
-    migrate_v12(conn)?;
-    migrate_v13(conn)?;
-    migrate_v14(conn)?;
-    migrate_v15(conn)?;
-    migrate_v16(conn)?;
-    migrate_v17(conn)?;
-    migrate_v18(conn)?;
-    migrate_v19(conn)?;
-    migrate_v20(conn)?;
-    migrate_v21(conn)?;
-    migrate_v22(conn)?;
-    migrate_v23(conn)?;
-    migrate_v24(conn)?;
-    migrate_v25(conn)?;
-    migrate_v26(conn)?;
-    migrate_v27(conn)?;
-    migrate_v28(conn)?;
-    migrate_v29(conn)?;
-    migrate_v30(conn)?;
-    migrate_v31(conn)?;
-    migrate_v32(conn)?;
-    migrate_v33(conn)?;
-    migrate_v34(conn)?;
-    migrate_v35(conn)?;
-    migrate_v36(conn)?;
-    migrate_v37(conn)?;
-    migrate_v38(conn)?;
-    migrate_v39(conn)?;
-    migrate_v40(conn)?;
-    migrate_v41(conn)?;
-    migrate_v42(conn)?;
-    migrate_v43(conn)?;
-    migrate_v44(conn)?;
-    migrate_v45(conn)?;
-    migrate_v46(conn)?;
-    migrate_v47(conn)?;
-    migrate_v48(conn)?;
-    migrate_v49(conn)?;
-    migrate_v50(conn)?;
-    migrate_v51(conn)?;
-    migrate_v52(conn)?;
-    set_schema_version(conn, CURRENT_VERSION)?;
+    for (version, migrate) in MIGRATIONS {
+        migrate(conn)?;
+        set_schema_version(conn, *version)?;
+    }
     Ok(())
 }
 
 /// Aplica apenas as migrações pendentes num banco existente.
 pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     let version = get_schema_version(conn)?;
-    if version < 1 {
-        migrate_v1(conn)?;
-        set_schema_version(conn, 1)?;
-    }
-    if version < 2 {
-        migrate_v2(conn)?;
-        set_schema_version(conn, 2)?;
-    }
-    if version < 3 {
-        migrate_v3(conn)?;
-        set_schema_version(conn, 3)?;
-    }
-    if version < 4 {
-        migrate_v4(conn)?;
-        set_schema_version(conn, 4)?;
-    }
-    if version < 5 {
-        migrate_v5(conn)?;
-        set_schema_version(conn, 5)?;
-    }
-    if version < 6 {
-        migrate_v6(conn)?;
-        set_schema_version(conn, 6)?;
-    }
-    if version < 7 {
-        migrate_v7(conn)?;
-        set_schema_version(conn, 7)?;
-    }
-    if version < 8 {
-        migrate_v8(conn)?;
-        set_schema_version(conn, 8)?;
-    }
-    if version < 9 {
-        migrate_v9(conn)?;
-        set_schema_version(conn, 9)?;
-    }
-    if version < 10 {
-        migrate_v10(conn)?;
-        set_schema_version(conn, 10)?;
-    }
-    if version < 11 {
-        migrate_v11(conn)?;
-        set_schema_version(conn, 11)?;
-    }
-    if version < 12 {
-        migrate_v12(conn)?;
-        set_schema_version(conn, 12)?;
-    }
-    if version < 13 {
-        migrate_v13(conn)?;
-        set_schema_version(conn, 13)?;
-    }
-    if version < 14 {
-        migrate_v14(conn)?;
-        set_schema_version(conn, 14)?;
-    }
-    if version < 15 {
-        migrate_v15(conn)?;
-        set_schema_version(conn, 15)?;
-    }
-    if version < 16 {
-        migrate_v16(conn)?;
-        set_schema_version(conn, 16)?;
-    }
-    if version < 17 {
-        migrate_v17(conn)?;
-        set_schema_version(conn, 17)?;
-    }
-    if version < 18 {
-        migrate_v18(conn)?;
-        set_schema_version(conn, 18)?;
-    }
-    if version < 19 {
-        migrate_v19(conn)?;
-        set_schema_version(conn, 19)?;
-    }
-    if version < 20 {
-        migrate_v20(conn)?;
-        set_schema_version(conn, 20)?;
-    }
-    if version < 21 {
-        migrate_v21(conn)?;
-        set_schema_version(conn, 21)?;
-    }
-    if version < 22 {
-        migrate_v22(conn)?;
-        set_schema_version(conn, 22)?;
-    }
-    if version < 23 {
-        migrate_v23(conn)?;
-        set_schema_version(conn, 23)?;
-    }
-    if version < 24 {
-        migrate_v24(conn)?;
-        set_schema_version(conn, 24)?;
-    }
-    if version < 25 {
-        migrate_v25(conn)?;
-        set_schema_version(conn, 25)?;
-    }
-    if version < 26 {
-        migrate_v26(conn)?;
-        set_schema_version(conn, 26)?;
-    }
-    if version < 27 {
-        migrate_v27(conn)?;
-        set_schema_version(conn, 27)?;
-    }
-    if version < 28 {
-        migrate_v28(conn)?;
-        set_schema_version(conn, 28)?;
-    }
-    if version < 29 {
-        migrate_v29(conn)?;
-        set_schema_version(conn, 29)?;
-    }
-    if version < 30 {
-        migrate_v30(conn)?;
-        set_schema_version(conn, 30)?;
-    }
-    if version < 31 {
-        migrate_v31(conn)?;
-        set_schema_version(conn, 31)?;
-    }
-    if version < 32 {
-        migrate_v32(conn)?;
-        set_schema_version(conn, 32)?;
-    }
-    if version < 33 {
-        migrate_v33(conn)?;
-        set_schema_version(conn, 33)?;
-    }
-    if version < 34 {
-        migrate_v34(conn)?;
-        set_schema_version(conn, 34)?;
-    }
-    if version < 35 {
-        migrate_v35(conn)?;
-        set_schema_version(conn, 35)?;
-    }
-    if version < 36 {
-        migrate_v36(conn)?;
-        set_schema_version(conn, 36)?;
-    }
-    if version < 37 {
-        migrate_v37(conn)?;
-        set_schema_version(conn, 37)?;
-    }
-    if version < 38 {
-        migrate_v38(conn)?;
-        set_schema_version(conn, 38)?;
-    }
-    if version < 39 {
-        migrate_v39(conn)?;
-        set_schema_version(conn, 39)?;
-    }
-    if version < 40 {
-        migrate_v40(conn)?;
-        set_schema_version(conn, 40)?;
-    }
-    if version < 41 {
-        migrate_v41(conn)?;
-        set_schema_version(conn, 41)?;
-    }
-    if version < 42 {
-        migrate_v42(conn)?;
-        set_schema_version(conn, 42)?;
-    }
-    if version < 43 {
-        migrate_v43(conn)?;
-        set_schema_version(conn, 43)?;
-    }
-    if version < 44 {
-        migrate_v44(conn)?;
-        set_schema_version(conn, 44)?;
-    }
-    if version < 45 {
-        migrate_v45(conn)?;
-        set_schema_version(conn, 45)?;
-    }
-    if version < 46 {
-        migrate_v46(conn)?;
-        set_schema_version(conn, 46)?;
-    }
-    if version < 47 {
-        migrate_v47(conn)?;
-        set_schema_version(conn, 47)?;
-    }
-    if version < 48 {
-        migrate_v48(conn)?;
-        set_schema_version(conn, 48)?;
-    }
-    if version < 49 {
-        migrate_v49(conn)?;
-        set_schema_version(conn, 49)?;
-    }
-    if version < 50 {
-        migrate_v50(conn)?;
-        set_schema_version(conn, 50)?;
-    }
-    if version < 51 {
-        migrate_v51(conn)?;
-        set_schema_version(conn, 51)?;
-    }
-    if version < 52 {
-        migrate_v52(conn)?;
-        set_schema_version(conn, 52)?;
+    for (target, migrate) in MIGRATIONS {
+        if version < *target {
+            migrate(conn)?;
+            set_schema_version(conn, *target)?;
+        }
     }
     Ok(())
 }
@@ -3678,6 +3486,27 @@ fn seed_meta(conn: &Connection) -> Result<(), DbError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Guarda-corpo do registro declarativo: a tabela `MIGRATIONS` precisa ser a
+    /// sequência 1..=CURRENT_VERSION sem buracos nem repetição, e a última entrada
+    /// tem de bater com `CURRENT_VERSION`. Se alguém adicionar uma `migrate_vN` e
+    /// esquecer de registrar (ou bumpar a versão), este teste quebra na hora.
+    #[test]
+    fn migrations_table_is_sequential_and_matches_current_version() {
+        for (i, (version, _)) in MIGRATIONS.iter().enumerate() {
+            assert_eq!(
+                *version,
+                (i as u32) + 1,
+                "MIGRATIONS fora de ordem/sequência no índice {i}: esperado {}, achado {version}",
+                i + 1
+            );
+        }
+        assert_eq!(
+            MIGRATIONS.last().map(|(v, _)| *v),
+            Some(CURRENT_VERSION),
+            "última migração registrada deve ser CURRENT_VERSION ({CURRENT_VERSION})"
+        );
+    }
 
     #[test]
     fn test_run_pending_rejects_invalid_schema_version_without_replaying_migrations() {
