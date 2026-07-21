@@ -335,10 +335,17 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
 
 ### Fase 5 — Formatação + seeds
 - [ ] Datas / números / ordenação por locale ativo (ver "Formatação" acima).
-- [ ] Cenários de quebra/DNF: **traduzir o código que semeia** (`db/migrations.rs`
-  ~2560-2900, ~39 cenários) + `car/parts.rs` `display_name` (121-141: Motor/Câmbio/
-  Freios/Suspensão) + países com emoji (`tracks.rs pais`, `teams.rs pais_sede`) +
-  tiers PT em `categories.rs` (`Amador`, `Especial`, `Super Pro`). Só saves novos.
+- [x] Cenários de quebra/DNF ✅ — RESOLVIDO POR RUNTIME (não por seed-freeze): os 54
+  cenários do `seed_incident_catalog` viram `breakdown.<id>.{dnf,warn,part}` (148 chaves ×2
+  idiomas), resolvidos no render (`simulation/catalog.rs`) por id com FALLBACK ao texto
+  semeado (rust-i18n devolve a própria chave quando ausente). **Sem mudança de migração** —
+  o seed PT vira só rede de segurança. `{driver}` continua substituído no render (não é
+  interpolação). Toggle ao vivo (não congela). Guard de 2 locales + catalog/parity verdes.
+  (YAML gerado via script pra garantir PT byte-accurate; EN traduzido à mão, 100% coberto.)
+- [ ] Datas / números / ordenação por locale ativo (ver "Formatação" acima).
+- [ ] Resto Fase 5: `car/parts.rs` `display_name` (121-141: Motor/Câmbio/Freios/Suspensão) +
+  países com emoji (`tracks.rs pais`, `teams.rs pais_sede`) + tiers PT em `categories.rs`
+  (`Amador`, `Especial`, `Super Pro`). Só saves novos.
 
 ### Fase 6 — QA em inglês
 - [ ] Jogar uma carreira inteira em EN; caçar sobras.

@@ -266,21 +266,39 @@ impl IncidentCatalog {
             }
         })?;
 
-        let template = if is_dnf {
-            &chosen.dnf_template
+        // Texto no locale ATIVO, resolvido por id (i18n `breakdown.<id>.{dnf|warn|part}`).
+        // O texto semeado no banco (dnf_template/non_dnf_template/description_short) vira
+        // só fallback: rust-i18n devolve a própria chave quando ela não existe em nenhum
+        // locale (ex.: cenários sem .dnf/.warn). `{driver}` é substituído aqui.
+        let sub = if is_dnf { "dnf" } else { "warn" };
+        let key = format!("breakdown.{}.{}", chosen.id, sub);
+        let translated = rust_i18n::t!(&key).to_string();
+        let template = if translated == key {
+            if is_dnf {
+                chosen.dnf_template.clone()
+            } else {
+                chosen
+                    .non_dnf_template
+                    .clone()
+                    .unwrap_or_else(|| chosen.dnf_template.clone())
+            }
         } else {
-            chosen
-                .non_dnf_template
-                .as_deref()
-                .unwrap_or(&chosen.dnf_template)
+            translated
         };
-
         let rendered_text = template.replace("{driver}", driver_name);
+
+        let part_key = format!("breakdown.{}.part", chosen.id);
+        let part = rust_i18n::t!(&part_key).to_string();
+        let description_short = if part == part_key {
+            chosen.description_short.clone()
+        } else {
+            part
+        };
 
         Some(SelectedEntry {
             catalog_id: chosen.id.clone(),
             rendered_text,
-            description_short: chosen.description_short.clone(),
+            description_short,
         })
     }
 }
@@ -300,6 +318,24 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     use super::*;
+
+    /// Cenário de quebra real (`breakdown.<id>`) resolve nos dois locales, mantém o
+    /// placeholder `{driver}` (substituído no render) e não vaza `%{...}`. `#[serial]`
+    /// porque troca o locale global.
+    #[test]
+    #[serial_test::serial]
+    fn breakdown_scenario_resolve_nos_dois_locales() {
+        rust_i18n::set_locale("pt-BR");
+        let pt = rust_i18n::t!("breakdown.SB_S_MEC_01.dnf").to_string();
+        assert!(pt.contains("{driver}") && pt.contains("câmbio") && !pt.contains("%{"), "{pt}");
+
+        rust_i18n::set_locale("en-US");
+        let en = rust_i18n::t!("breakdown.SB_S_MEC_01.dnf").to_string();
+        assert!(en.contains("{driver}") && en.contains("gearbox") && !en.contains("%{"), "{en}");
+        assert_ne!(pt, en);
+
+        rust_i18n::set_locale("pt-BR"); // restaura
+    }
 
     fn make_entry(
         id: &str,

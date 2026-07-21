@@ -473,3 +473,210 @@ injury:
   ankle_injured: "Tornozelo lesionado"
   back_injury: "Lesão nas costas"
   neck_injury: "Lesão no pescoço"
+
+# Cenários de quebra/DNF (db/migrations.rs seed_incident_catalog). Resolvidos POR ID
+# no render (simulation/catalog.rs); o texto semeado no banco vira só fallback.
+# `{driver}` é substituído no render (não é interpolação do rust-i18n).
+breakdown:
+  SB_S_MEC_01:
+    dnf: "{driver} abandona com problema no câmbio – sincronizador da 3ª marcha falhou"
+    warn: "{driver} com dificuldade no câmbio – perdeu ritmo"
+    part: "Câmbio – sincronizador"
+  SB_S_MEC_02:
+    dnf: "{driver} abandona por embreagem queimada após largada"
+    warn: "{driver} sentindo a embreagem patinar – ritmo comprometido"
+    part: "Embreagem queimada"
+  SB_S_MEC_03:
+    dnf: "{driver} abandona por falha nos freios – disco rachado"
+    warn: "{driver} com freios comprometidos – perdendo posições"
+    part: "Freio – pastilha/disco"
+  SB_S_MEC_04:
+    dnf: "{driver} abandona por superaquecimento do motor"
+    warn: "{driver} com temperatura do motor elevada – reduzindo ritmo"
+    part: "Superaquecimento"
+  SB_S_MEC_05:
+    dnf: "{driver} abandona por perda de potência – falha no motor"
+    warn: "{driver} com perda de potência – ritmo comprometido"
+    part: "Motor – perda de potência"
+  SB_E_MEC_01:
+    dnf: "{driver} abandona com problemas no câmbio"
+    warn: "{driver} com câmbio engasgando – perdeu ritmo"
+    part: "Câmbio – sincronizador/garfo"
+  SB_E_MEC_02:
+    dnf: "{driver} abandona por falha no motor – dano interno"
+    warn: "{driver} com motor perdendo força"
+    part: "Motor – biela/bronzina"
+  SB_E_MEC_03:
+    dnf: "{driver} abandona por embreagem gasta – sem tração"
+    warn: "{driver} com embreagem desgastada – tração comprometida"
+    part: "Embreagem desgastada"
+  SB_E_MEC_04:
+    dnf: "{driver} abandona por superaquecimento – falha no arrefecimento"
+    warn: "{driver} monitorando temperatura elevada – ritmo reduzido"
+    part: "Superaquecimento – radiador/bomba"
+  SB_E_MEC_05:
+    dnf: "{driver} abandona por falha elétrica – bateria descarregou"
+    warn: "{driver} com problemas elétricos intermitentes"
+    part: "Alternador/bateria"
+  SB_E_MEC_06:
+    dnf: "{driver} abandona por perda de freios"
+    warn: "{driver} com freios degradados – frenando mais cedo"
+    part: "Freio – disco/fluido ferveu"
+  SB_E_MEC_07:
+    dnf: "{driver} abandona por quebra do semi-eixo"
+    warn: "{driver} sentindo vibração na transmissão"
+    part: "Semi-eixo/cubo de roda"
+  SB_E_MEC_08:
+    dnf: "{driver} abandona por falha na alimentação de combustível"
+    warn: "{driver} com motor falhando intermitentemente"
+    part: "Bomba de combustível"
+  RS_S_MEC_01:
+    dnf: "{driver} abandona por falha no câmbio – ficou preso em uma marcha"
+    warn: "{driver} com câmbio travando – perdeu posições"
+    part: "Câmbio – garfo/atuador"
+  RS_S_MEC_02:
+    dnf: "{driver} abandona por embreagem queimada"
+    warn: "{driver} com embreagem patinando"
+    part: "Embreagem queimada"
+  RS_S_MEC_03:
+    dnf: "{driver} abandona por falha nos freios – disco rachado"
+    warn: "{driver} com freios comprometidos"
+    part: "Freio – disco rachado"
+  RS_S_MEC_04:
+    dnf: "{driver} abandona por falha eletrônica – carro em modo de proteção"
+    warn: "{driver} com eletrônica instável – ritmo irregular"
+    part: "Eletrônica – sensor/ECU"
+  RS_S_MEC_05:
+    dnf: "{driver} abandona por superaquecimento do motor"
+    warn: "{driver} com temperatura elevada – gerenciando ritmo"
+    part: "Superaquecimento"
+  RS_E_MEC_01:
+    dnf: "{driver} abandona por problemas no câmbio"
+    warn: "{driver} com câmbio apresentando falhas"
+    part: "Câmbio – garfo/engrenagem/óleo"
+  RS_E_MEC_02:
+    dnf: "{driver} abandona por embreagem gasta"
+    warn: "{driver} com embreagem desgastada"
+    part: "Embreagem desgastada"
+  RS_E_MEC_03:
+    dnf: "{driver} abandona por falha no motor"
+    warn: "{driver} com motor perdendo rendimento"
+    part: "Motor – turbo/biela"
+  RS_E_MEC_04:
+    dnf: "{driver} abandona por falha elétrica – alternador parou de carregar"
+    warn: "{driver} com problemas elétricos recorrentes"
+    part: "Alternador/bateria"
+  RS_E_MEC_05:
+    dnf: "{driver} abandona por superaquecimento"
+    warn: "{driver} gerenciando temperatura elevada"
+    part: "Superaquecimento – radiador/bomba"
+  RS_E_MEC_06:
+    dnf: "{driver} abandona por perda de freios"
+    warn: "{driver} com freios degradados"
+    part: "Freio – disco/fluido"
+  RS_E_MEC_07:
+    dnf: "{driver} abandona por falha no diferencial"
+    warn: "{driver} com diferencial apresentando ruídos"
+    part: "Diferencial – vazamento/travamento"
+  RS_E_MEC_08:
+    dnf: "{driver} abandona por falha eletrônica"
+    warn: "{driver} com eletrônica intermitente"
+    part: "Eletrônica – sensor ABS/TC/ECU"
+  RS_E_MEC_09:
+    dnf: "{driver} abandona por falha na alimentação de combustível"
+    warn: "{driver} com motor falhando"
+    part: "Bomba de combustível"
+  SB_E_PIT_02:
+    dnf: "{driver} ficou sem combustível na pista"
+    part: "Erro de cálculo de combustível"
+  RS_E_PIT_02:
+    dnf: "{driver} ficou sem combustível na pista"
+    part: "Erro de cálculo de combustível"
+  SB_COL_01:
+    dnf: "{driver} abandona por pneu cortado após contato"
+    warn: "{driver} com pneu danificado após contato – perdeu posições"
+    part: "Pneu cortado"
+  SB_COL_02:
+    dnf: "{driver} abandona por dano na suspensão após contato – convergência comprometida"
+    warn: "{driver} com suspensão desalinhada após contato – perdendo ritmo"
+    part: "Suspensão desalinhada"
+  SB_COL_03:
+    dnf: "{driver} abandona por superaquecimento – radiador danificado após contato"
+    warn: "{driver} com temperatura subindo após contato – gerenciando dano"
+    part: "Radiador furado por detrito"
+  SB_COL_04:
+    dnf: "{driver} abandona por roda danificada após contato"
+    warn: "{driver} com roda entortada após contato – vibração no carro"
+    part: "Roda entortada"
+  SB_COL_05:
+    dnf: "{driver} abandona por vazamento no arrefecimento após contato"
+    warn: "{driver} com vazamento detectado após contato"
+    part: "Mangueira de arrefecimento solta"
+  RS_COL_01:
+    dnf: "{driver} abandona por pneu cortado após contato"
+    warn: "{driver} com pneu danificado após contato"
+    part: "Pneu cortado"
+  RS_COL_02:
+    dnf: "{driver} abandona por dano aerodinâmico – perda crítica de downforce"
+    warn: "{driver} com dano aerodinâmico após contato – carro instável"
+    part: "Splitter/difusor danificado"
+  RS_COL_03:
+    dnf: "{driver} abandona por dano na suspensão após contato"
+    warn: "{driver} com suspensão comprometida após contato"
+    part: "Suspensão desalinhada/entortada"
+  RS_COL_04:
+    dnf: "{driver} abandona por superaquecimento dos freios – duto bloqueado"
+    warn: "{driver} com freios superaquecendo – duto de ar bloqueado"
+    part: "Duto de freio bloqueado"
+  RS_COL_05:
+    dnf: "{driver} abandona por superaquecimento – radiador danificado após contato"
+    warn: "{driver} com temperatura subindo após contato"
+    part: "Radiador/intercooler furado"
+  RS_COL_06:
+    dnf: "{driver} abandona por roda danificada após contato"
+    warn: "{driver} com roda entortada após contato"
+    part: "Roda entortada"
+  RS_COL_07:
+    dnf: "{driver} abandona por perda de ABS/controle de tração após contato"
+    warn: "{driver} sem assistências eletrônicas após contato – cuidado redobrado"
+    part: "Sensor ABS/TC arrancado"
+  RS_COL_08:
+    dnf: "{driver} recebe penalidade por iluminação danificada"
+    warn: "{driver} com faróis danificados – penalidade aplicada"
+    part: "Farol/luz traseira quebrada"
+  SB_S_ERR_01:
+    warn: "{driver} escapou na saída da curva e perdeu posições"
+    part: "Saída de pista"
+  SB_S_ERR_02:
+    warn: "{driver} rodou na chicane e perdeu posições"
+    part: "Rodada na chicane"
+  SB_S_ERR_03:
+    dnf: "{driver} abandona após erro de pilotagem – saiu da pista"
+    part: "Erro fatal – saída de pista"
+  RS_S_ERR_01:
+    warn: "{driver} perdeu a traseira e caiu posições"
+    part: "Perda de traseira"
+  RS_S_ERR_02:
+    warn: "{driver} errou o ponto de frenagem e perdeu posições"
+    part: "Frenagem tardia"
+  RS_S_ERR_03:
+    dnf: "{driver} abandona após erro de pilotagem"
+    part: "Erro fatal – bateu na barreira"
+  SB_S_PIT_01:
+    dnf: "{driver} rodou e não conseguiu religar o motor"
+    part: "Rodada com stall"
+  SB_S_PIT_02:
+    dnf: "{driver} rodou e cravou na brita – não conseguiu sair"
+    part: "Cravou na brita"
+  SB_E_PIT_01:
+    dnf: "{driver} rodou e não conseguiu religar"
+    part: "Rodada com stall"
+  RS_S_PIT_01:
+    dnf: "{driver} rodou e não conseguiu religar"
+    part: "Rodada com stall"
+  RS_S_PIT_02:
+    dnf: "{driver} rodou e perdeu tempo de volta – não conseguiu sair da brita"
+    part: "Cravou na brita"
+  RS_E_PIT_01:
+    dnf: "{driver} rodou e não conseguiu religar"
+    part: "Rodada com stall"

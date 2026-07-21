@@ -472,3 +472,210 @@ injury:
   ankle_injured: "Ankle injury"
   back_injury: "Back injury"
   neck_injury: "Neck injury"
+
+# Breakdown/DNF scenarios (db/migrations.rs seed_incident_catalog). Resolved BY ID at
+# render time (simulation/catalog.rs); the DB-seeded text is only a fallback.
+# `{driver}` is substituted at render time (not rust-i18n interpolation).
+breakdown:
+  SB_S_MEC_01:
+    dnf: "{driver} retires with a gearbox problem – 3rd gear synchro failed"
+    warn: "{driver} struggling with the gearbox – lost pace"
+    part: "Gearbox – synchro"
+  SB_S_MEC_02:
+    dnf: "{driver} retires with a burnt clutch after the start"
+    warn: "{driver} feeling the clutch slip – pace compromised"
+    part: "Burnt clutch"
+  SB_S_MEC_03:
+    dnf: "{driver} retires with a brake failure – cracked disc"
+    warn: "{driver} with compromised brakes – losing positions"
+    part: "Brakes – pad/disc"
+  SB_S_MEC_04:
+    dnf: "{driver} retires with engine overheating"
+    warn: "{driver} with high engine temperature – backing off"
+    part: "Overheating"
+  SB_S_MEC_05:
+    dnf: "{driver} retires with power loss – engine failure"
+    warn: "{driver} down on power – pace compromised"
+    part: "Engine – power loss"
+  SB_E_MEC_01:
+    dnf: "{driver} retires with gearbox problems"
+    warn: "{driver} with the gearbox stuttering – lost pace"
+    part: "Gearbox – synchro/fork"
+  SB_E_MEC_02:
+    dnf: "{driver} retires with an engine failure – internal damage"
+    warn: "{driver} with the engine losing power"
+    part: "Engine – rod/bearing"
+  SB_E_MEC_03:
+    dnf: "{driver} retires with a worn clutch – no traction"
+    warn: "{driver} with a worn clutch – traction compromised"
+    part: "Worn clutch"
+  SB_E_MEC_04:
+    dnf: "{driver} retires with overheating – cooling failure"
+    warn: "{driver} monitoring high temperature – reduced pace"
+    part: "Overheating – radiator/pump"
+  SB_E_MEC_05:
+    dnf: "{driver} retires with an electrical failure – battery went flat"
+    warn: "{driver} with intermittent electrical problems"
+    part: "Alternator/battery"
+  SB_E_MEC_06:
+    dnf: "{driver} retires with brake loss"
+    warn: "{driver} with degraded brakes – braking earlier"
+    part: "Brakes – disc/boiled fluid"
+  SB_E_MEC_07:
+    dnf: "{driver} retires with a broken driveshaft"
+    warn: "{driver} feeling vibration in the drivetrain"
+    part: "Driveshaft/wheel hub"
+  SB_E_MEC_08:
+    dnf: "{driver} retires with a fuel delivery failure"
+    warn: "{driver} with the engine misfiring intermittently"
+    part: "Fuel pump"
+  RS_S_MEC_01:
+    dnf: "{driver} retires with a gearbox failure – stuck in one gear"
+    warn: "{driver} with the gearbox jamming – lost positions"
+    part: "Gearbox – fork/actuator"
+  RS_S_MEC_02:
+    dnf: "{driver} retires with a burnt clutch"
+    warn: "{driver} with the clutch slipping"
+    part: "Burnt clutch"
+  RS_S_MEC_03:
+    dnf: "{driver} retires with a brake failure – cracked disc"
+    warn: "{driver} with compromised brakes"
+    part: "Brakes – cracked disc"
+  RS_S_MEC_04:
+    dnf: "{driver} retires with an electronics failure – car in safe mode"
+    warn: "{driver} with unstable electronics – erratic pace"
+    part: "Electronics – sensor/ECU"
+  RS_S_MEC_05:
+    dnf: "{driver} retires with engine overheating"
+    warn: "{driver} with high temperature – managing pace"
+    part: "Overheating"
+  RS_E_MEC_01:
+    dnf: "{driver} retires with gearbox problems"
+    warn: "{driver} with the gearbox playing up"
+    part: "Gearbox – fork/gear/oil"
+  RS_E_MEC_02:
+    dnf: "{driver} retires with a worn clutch"
+    warn: "{driver} with a worn clutch"
+    part: "Worn clutch"
+  RS_E_MEC_03:
+    dnf: "{driver} retires with an engine failure"
+    warn: "{driver} with the engine losing performance"
+    part: "Engine – turbo/rod"
+  RS_E_MEC_04:
+    dnf: "{driver} retires with an electrical failure – alternator stopped charging"
+    warn: "{driver} with recurring electrical problems"
+    part: "Alternator/battery"
+  RS_E_MEC_05:
+    dnf: "{driver} retires with overheating"
+    warn: "{driver} managing high temperature"
+    part: "Overheating – radiator/pump"
+  RS_E_MEC_06:
+    dnf: "{driver} retires with brake loss"
+    warn: "{driver} with degraded brakes"
+    part: "Brakes – disc/fluid"
+  RS_E_MEC_07:
+    dnf: "{driver} retires with a differential failure"
+    warn: "{driver} with the differential making noises"
+    part: "Differential – leak/lock-up"
+  RS_E_MEC_08:
+    dnf: "{driver} retires with an electronics failure"
+    warn: "{driver} with intermittent electronics"
+    part: "Electronics – ABS/TC/ECU sensor"
+  RS_E_MEC_09:
+    dnf: "{driver} retires with a fuel delivery failure"
+    warn: "{driver} with the engine misfiring"
+    part: "Fuel pump"
+  SB_E_PIT_02:
+    dnf: "{driver} ran out of fuel on track"
+    part: "Fuel calculation error"
+  RS_E_PIT_02:
+    dnf: "{driver} ran out of fuel on track"
+    part: "Fuel calculation error"
+  SB_COL_01:
+    dnf: "{driver} retires with a cut tire after contact"
+    warn: "{driver} with a damaged tire after contact – lost positions"
+    part: "Cut tire"
+  SB_COL_02:
+    dnf: "{driver} retires with suspension damage after contact – toe out of spec"
+    warn: "{driver} with misaligned suspension after contact – losing pace"
+    part: "Misaligned suspension"
+  SB_COL_03:
+    dnf: "{driver} retires with overheating – radiator damaged after contact"
+    warn: "{driver} with temperature climbing after contact – managing the damage"
+    part: "Radiator punctured by debris"
+  SB_COL_04:
+    dnf: "{driver} retires with a damaged wheel after contact"
+    warn: "{driver} with a bent wheel after contact – car vibrating"
+    part: "Bent wheel"
+  SB_COL_05:
+    dnf: "{driver} retires with a coolant leak after contact"
+    warn: "{driver} with a leak detected after contact"
+    part: "Loose coolant hose"
+  RS_COL_01:
+    dnf: "{driver} retires with a cut tire after contact"
+    warn: "{driver} with a damaged tire after contact"
+    part: "Cut tire"
+  RS_COL_02:
+    dnf: "{driver} retires with aero damage – critical loss of downforce"
+    warn: "{driver} with aero damage after contact – unstable car"
+    part: "Damaged splitter/diffuser"
+  RS_COL_03:
+    dnf: "{driver} retires with suspension damage after contact"
+    warn: "{driver} with compromised suspension after contact"
+    part: "Misaligned/bent suspension"
+  RS_COL_04:
+    dnf: "{driver} retires with brake overheating – blocked duct"
+    warn: "{driver} with overheating brakes – air duct blocked"
+    part: "Blocked brake duct"
+  RS_COL_05:
+    dnf: "{driver} retires with overheating – radiator damaged after contact"
+    warn: "{driver} with temperature climbing after contact"
+    part: "Punctured radiator/intercooler"
+  RS_COL_06:
+    dnf: "{driver} retires with a damaged wheel after contact"
+    warn: "{driver} with a bent wheel after contact"
+    part: "Bent wheel"
+  RS_COL_07:
+    dnf: "{driver} retires with loss of ABS/traction control after contact"
+    warn: "{driver} with no electronic aids after contact – extra caution"
+    part: "ABS/TC sensor torn off"
+  RS_COL_08:
+    dnf: "{driver} is penalized for damaged lighting"
+    warn: "{driver} with damaged headlights – penalty applied"
+    part: "Broken headlight/tail light"
+  SB_S_ERR_01:
+    warn: "{driver} ran wide at corner exit and lost positions"
+    part: "Off-track excursion"
+  SB_S_ERR_02:
+    warn: "{driver} spun at the chicane and lost positions"
+    part: "Spin at the chicane"
+  SB_S_ERR_03:
+    dnf: "{driver} retires after a driving error – went off the track"
+    part: "Fatal error – off the track"
+  RS_S_ERR_01:
+    warn: "{driver} lost the rear and dropped positions"
+    part: "Snap oversteer"
+  RS_S_ERR_02:
+    warn: "{driver} missed the braking point and lost positions"
+    part: "Late braking"
+  RS_S_ERR_03:
+    dnf: "{driver} retires after a driving error"
+    part: "Fatal error – hit the barrier"
+  SB_S_PIT_01:
+    dnf: "{driver} spun and couldn't restart the engine"
+    part: "Spin with stall"
+  SB_S_PIT_02:
+    dnf: "{driver} spun and beached in the gravel – couldn't get out"
+    part: "Beached in the gravel"
+  SB_E_PIT_01:
+    dnf: "{driver} spun and couldn't restart"
+    part: "Spin with stall"
+  RS_S_PIT_01:
+    dnf: "{driver} spun and couldn't restart"
+    part: "Spin with stall"
+  RS_S_PIT_02:
+    dnf: "{driver} spun and lost lap time – couldn't get out of the gravel"
+    part: "Beached in the gravel"
+  RS_E_PIT_01:
+    dnf: "{driver} spun and couldn't restart"
+    part: "Spin with stall"
