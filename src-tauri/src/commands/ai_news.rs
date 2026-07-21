@@ -169,13 +169,10 @@ fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String 
     };
 
     let mut f = String::new();
-    let _ = writeln!(
-        f,
-        "\nMEMÓRIA RECENTE (as últimas etapas que você e a equipe viveram — use APENAS para dar continuidade de voz e retomar o fio da narrativa; é contexto, NÃO reconte cada corrida nem trate como estatística):"
-    );
+    let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.arc.header"));
     for r in &recent {
         let resultado = if r.is_dnf {
-            "DNF".to_string()
+            rust_i18n::t!("ai_news.arc.dnf").to_string()
         } else {
             format!("P{}", r.finish)
         };
@@ -184,12 +181,32 @@ fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String 
             .flatten()
             .map(|d| d.headline)
             .filter(|h| !h.is_empty());
+        let round = r.round.to_string();
         match manchete {
             Some(h) => {
-                let _ = writeln!(f, "- R{} · {}: {} — «{}»", r.round, r.track_name, resultado, h);
+                let _ = writeln!(
+                    f,
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.arc.line_headline",
+                        round = round.as_str(),
+                        track = r.track_name.as_str(),
+                        result = resultado.as_str(),
+                        headline = h.as_str()
+                    )
+                );
             }
             None => {
-                let _ = writeln!(f, "- R{} · {}: {}", r.round, r.track_name, resultado);
+                let _ = writeln!(
+                    f,
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.arc.line",
+                        round = round.as_str(),
+                        track = r.track_name.as_str(),
+                        result = resultado.as_str()
+                    )
+                );
             }
         }
     }
@@ -345,13 +362,14 @@ pub struct PostRaceAiResult {
     pub status: String,
 }
 
-fn weather_pt(w: &str) -> &'static str {
-    match w {
-        "HeavyRain" => "chuva forte",
-        "Wet" => "chuva",
-        "Damp" => "úmido",
-        _ => "seco",
-    }
+fn weather_label(w: &str) -> String {
+    let key = match w {
+        "HeavyRain" => "ai_news.weather.heavy_rain",
+        "Wet" => "ai_news.weather.wet",
+        "Damp" => "ai_news.weather.damp",
+        _ => "ai_news.weather.dry",
+    };
+    rust_i18n::t!(key).to_string()
 }
 
 /// Posição do jogador no PRIMEIRO ponto captado do race trace (≈ largada).
@@ -411,11 +429,12 @@ fn overtake_feed(tel: &serde_json::Value) -> Vec<String> {
         std::collections::HashMap::new();
     for car in cars {
         let idx = car.get("idx").and_then(|x| x.as_i64()).unwrap_or(-1);
+        let default_name = rust_i18n::t!("ai_news.overtake.default_name").to_string();
         let name = car
             .get("name")
             .and_then(|x| x.as_str())
-            .unwrap_or("Carro")
-            .to_string();
+            .map(|s| s.to_string())
+            .unwrap_or(default_name);
         name_by_idx.insert(idx, name.clone());
         if let Some(points) = car.get("points").and_then(|p| p.as_array()) {
             for p in points {
@@ -464,11 +483,29 @@ fn overtake_feed(tel: &serde_json::Value) -> Vec<String> {
             .get(&format!("{lap1:.4}"))
             .and_then(|m| m.get(&pos0))
             .cloned()
-            .unwrap_or_else(|| "rival".to_string());
+            .unwrap_or_else(|| rust_i18n::t!("ai_news.overtake.default_rival").to_string());
+        let lap = format!("{lap1:.1}");
+        let pos = pos1.to_string();
         if pos1 < pos0 {
-            out.push(format!("volta {lap1:.1}: passou {rival} (subiu para P{pos1})"));
+            out.push(
+                rust_i18n::t!(
+                    "ai_news.overtake.passed",
+                    lap = lap.as_str(),
+                    rival = rival.as_str(),
+                    pos = pos.as_str()
+                )
+                .to_string(),
+            );
         } else {
-            out.push(format!("volta {lap1:.1}: perdido para {rival} (caiu para P{pos1})"));
+            out.push(
+                rust_i18n::t!(
+                    "ai_news.overtake.lost",
+                    lap = lap.as_str(),
+                    rival = rival.as_str(),
+                    pos = pos.as_str()
+                )
+                .to_string(),
+            );
         }
     }
     out
@@ -487,7 +524,7 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
     }
 
     let mut f = String::new();
-    let _ = writeln!(f, "\nTELEMETRIA (dados reais da pista):");
+    let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.header"));
 
     if let Some(pace) = tel.get("pace") {
         let vs_grid = pace.get("vs_grid_ms").and_then(|x| x.as_f64());
@@ -497,30 +534,32 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
             .unwrap_or(false);
         if let Some(v) = vs_grid {
             if reliable && v.abs() >= 30.0 {
-                let s = v.abs() / 1000.0;
-                let dir = if v < 0.0 { "MAIS RÁPIDO" } else { "mais lento" };
-                let _ = writeln!(f, "- Ritmo: {s:.2}s/volta {dir} que a média do grid");
+                let secs = format!("{:.2}", v.abs() / 1000.0);
+                let dir = if v < 0.0 {
+                    rust_i18n::t!("ai_news.telemetry.faster")
+                } else {
+                    rust_i18n::t!("ai_news.telemetry.slower")
+                };
+                let _ = writeln!(
+                    f,
+                    "{}",
+                    rust_i18n::t!("ai_news.telemetry.pace", secs = secs, dir = dir)
+                );
             }
         }
         let good = pace.get("good_laps").and_then(|x| x.as_i64()).unwrap_or(0);
         if good > 0 {
-            let _ = writeln!(f, "- Voltas limpas (base de ritmo): {good}");
+            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.good_laps", n = good));
         }
     }
 
     if let Some(deg) = tire_deg_ms_per_lap(tel) {
         if deg >= 40.0 {
-            let _ = writeln!(
-                f,
-                "- Degradação: ritmo caiu ~{:.2}s/volta ao longo do stint",
-                deg / 1000.0
-            );
+            let secs = format!("{:.2}", deg / 1000.0);
+            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.deg_up", secs = secs));
         } else if deg <= -40.0 {
-            let _ = writeln!(
-                f,
-                "- Ritmo MELHOROU ~{:.2}s/volta ao longo do stint (pista/pneu esquentando)",
-                deg.abs() / 1000.0
-            );
+            let secs = format!("{:.2}", deg.abs() / 1000.0);
+            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.deg_down", secs = secs));
         }
     }
 
@@ -528,7 +567,11 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
         let gained = pf.get("gained_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
         let lost = pf.get("lost_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
         if gained > 0 || lost > 0 {
-            let _ = writeln!(f, "- Na pista: ganhou {gained}, perdeu {lost} (posições)");
+            let _ = writeln!(
+                f,
+                "{}",
+                rust_i18n::t!("ai_news.telemetry.on_track", gained = gained, lost = lost)
+            );
         }
     }
 
@@ -537,9 +580,16 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
         let laps_left = fuel.get("laps_left").and_then(|x| x.as_f64());
         if let (Some(pl), Some(ll)) = (per_lap, laps_left) {
             if pl > 0.0 {
+                let per_lap = format!("{pl:.2}");
+                let laps_left = format!("{ll:.1}");
                 let _ = writeln!(
                     f,
-                    "- Combustível: {pl:.2} L/volta, terminou com ~{ll:.1} voltas de autonomia"
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.telemetry.fuel",
+                        per_lap = per_lap,
+                        laps_left = laps_left
+                    )
                 );
             }
         }
@@ -553,7 +603,13 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
                 let s3 = best[2].as_f64().unwrap_or(0.0) / 1000.0;
                 let _ = writeln!(
                     f,
-                    "- Setores (seu melhor): S1 {s1:.1}s · S2 {s2:.1}s · S3 {s3:.1}s"
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.telemetry.sectors",
+                        s1 = format!("{s1:.1}"),
+                        s2 = format!("{s2:.1}"),
+                        s3 = format!("{s3:.1}")
+                    )
                 );
             }
         }
@@ -562,14 +618,23 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
         if weak >= 1 && loss >= 0.1 {
             let _ = writeln!(
                 f,
-                "- Ponto fraco: setor {weak} (perde ~{loss:.2}s vs seu melhor por volta)"
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.telemetry.weak_sector",
+                    sector = weak,
+                    loss = format!("{loss:.2}")
+                )
             );
         }
     }
 
     let passes = overtake_feed(tel);
     if !passes.is_empty() {
-        let _ = writeln!(f, "- Ultrapassagens ({} no total):", passes.len());
+        let _ = writeln!(
+            f,
+            "{}",
+            rust_i18n::t!("ai_news.telemetry.overtakes", n = passes.len())
+        );
         for p in passes.iter().take(8) {
             let _ = writeln!(f, "  · {p}");
         }
@@ -579,13 +644,19 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
         if grid_position > 0 && first as i32 != grid_position {
             let d = grid_position - first as i32;
             let verb = if d > 0 {
-                format!("ganhou {d}")
+                rust_i18n::t!("ai_news.telemetry.start_gained", n = d).to_string()
             } else {
-                format!("perdeu {}", d.abs())
+                rust_i18n::t!("ai_news.telemetry.start_lost", n = d.abs()).to_string()
             };
             let _ = writeln!(
                 f,
-                "- Largada: P{grid_position} → P{first} ({verb} na 1ª volta captada)"
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.telemetry.start",
+                    grid = grid_position,
+                    first = first,
+                    verb = verb
+                )
             );
         }
     }
@@ -602,11 +673,15 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
             .and_then(|x| x.as_i64())
             .unwrap_or(0);
         let extra = if g > 0 {
-            format!(" (+{g} posições)")
+            rust_i18n::t!("ai_news.telemetry.best_moment_extra", n = g).to_string()
         } else {
             String::new()
         };
-        let _ = writeln!(f, "- Melhor momento: volta {lap}{extra}");
+        let _ = writeln!(
+            f,
+            "{}",
+            rust_i18n::t!("ai_news.telemetry.best_moment", lap = lap, extra = extra)
+        );
     }
 
     if let Some(lap) = tel
@@ -628,17 +703,24 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
             / 1000.0;
         let mut extra = Vec::new();
         if t >= 0.3 {
-            extra.push(format!("~{t:.1}s perdidos"));
+            extra.push(
+                rust_i18n::t!("ai_news.telemetry.mistake_time", secs = format!("{t:.1}"))
+                    .to_string(),
+            );
         }
         if l > 0 {
-            extra.push(format!("{l} posição(ões)"));
+            extra.push(rust_i18n::t!("ai_news.telemetry.mistake_pos", n = l).to_string());
         }
         let tail = if extra.is_empty() {
             String::new()
         } else {
             format!(" — {}", extra.join(", "))
         };
-        let _ = writeln!(f, "- Erro mais caro: volta {lap}{tail}");
+        let _ = writeln!(
+            f,
+            "{}",
+            rust_i18n::t!("ai_news.telemetry.mistake", lap = lap, tail = tail)
+        );
     }
 
     if let Some(charts) = tel.get("charts") {
@@ -650,11 +732,20 @@ fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i32) -> Strin
                 .and_then(|last| last.get("gap_s"))
                 .and_then(|x| x.as_f64())
             {
-                let who = if gap > 0.0 { "à sua frente" } else { "atrás de você" };
+                let who = if gap > 0.0 {
+                    rust_i18n::t!("ai_news.telemetry.duel_ahead")
+                } else {
+                    rust_i18n::t!("ai_news.telemetry.duel_behind")
+                };
                 let _ = writeln!(
                     f,
-                    "- Duelo direto: {rn} terminou {who} por {:.1}s",
-                    gap.abs()
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.telemetry.duel",
+                        name = rn,
+                        who = who,
+                        secs = format!("{:.1}", gap.abs())
+                    )
                 );
             }
         }
@@ -703,81 +794,106 @@ fn select_post_race_thesis(s: &PostRaceSignals) -> (String, Vec<&'static str>) {
     // 1) DNF mecânico — o carro falhou, não foi erro seu.
     if s.is_dnf && s.dnf_mechanical {
         return (
-            format!("Gancho central — DRAMA MECÂNICO: o carro falhou e causou o abandono em {track} — não foi erro de pilotagem. A história é a frustração de um resultado roubado pela mecânica: acolher o baque, tirar o aprendizado e virar a página."),
+            rust_i18n::t!("ai_news.thesis.mechanical_dnf", track = track.as_str()).to_string(),
             vec!["breakdowns", "maintenance"],
         );
     }
     // 2) DNF por incidente/contato — fim precoce na pista.
     if s.is_dnf {
         return (
-            format!("Gancho central — FIM PRECOCE: a corrida acabou antes da hora em {track} (incidente na pista, não mecânica). A história é encarar o que deu errado de frente, sem drama excessivo, e recarregar para a próxima."),
+            rust_i18n::t!("ai_news.thesis.incident_dnf", track = track.as_str()).to_string(),
             vec![],
         );
     }
     // 3) Vitória — a manchete é a própria vitória.
     if s.finish == 1 {
         let fl = if s.has_fastest_lap {
-            ", com direito à volta mais rápida"
+            rust_i18n::t!("ai_news.thesis.win_fastest").to_string()
         } else {
-            ""
+            String::new()
         };
         return (
-            format!("Gancho central — VITÓRIA: você venceu em {track}{fl}. A história é o peso e a autoridade dessa vitória, e o que ela muda no campeonato."),
+            rust_i18n::t!("ai_news.thesis.win", track = track.as_str(), fl = fl).to_string(),
             vec!["telemetry", "lived_rivalry", "champ_rival"],
         );
     }
     // 4) Remontada — ganhou muitas posições e não ficou abaixo da meta.
     if s.positions_gained >= 5 && !underperf {
         return (
-            format!("Gancho central — RECUPERAÇÃO: largou P{} e terminou P{} (+{} posições), na faixa alta da meta. A história é a remontada — o que se construiu do grid à bandeirada.", s.grid, s.finish, s.positions_gained),
+            rust_i18n::t!(
+                "ai_news.thesis.comeback",
+                grid = s.grid,
+                finish = s.finish,
+                gained = s.positions_gained
+            )
+            .to_string(),
             vec!["telemetry", "eval", "lived_rivalry"],
         );
     }
     // 5) Colapso — perdeu muitas posições, ou ficou abaixo da meta largando bem.
     if s.positions_gained <= -4 || (underperf && s.grid <= s.target_low) {
         return (
-            format!("Gancho central — CORRIDA QUE ESCAPOU: largou P{} e terminou P{} — perdeu terreno num dia que prometia mais. A história é o que se deixou pelo caminho, sem culpar a mecânica.", s.grid, s.finish),
+            rust_i18n::t!("ai_news.thesis.collapse", grid = s.grid, finish = s.finish).to_string(),
             vec!["eval", "telemetry"],
         );
     }
     // 6) Acima do esperado (entrega além do conjunto).
     if overperf {
         return (
-            format!("Gancho central — ACIMA DO ESPERADO: P{} superou a meta (P{}–P{}). A história é ter entregue além do que o conjunto prometia.", s.finish, s.target_low, s.target_high),
+            rust_i18n::t!(
+                "ai_news.thesis.overperform",
+                finish = s.finish,
+                low = s.target_low,
+                high = s.target_high
+            )
+            .to_string(),
             vec!["eval", "telemetry"],
         );
     }
     // 7) Aquém do esperado (sem drama de abandono).
     if underperf {
         return (
-            format!("Gancho central — AQUÉM: P{} ficou abaixo da meta (P{}–P{}), sem o drama de um abandono. A história é a frustração de um dia que pedia mais, e como reagir.", s.finish, s.target_low, s.target_high),
+            rust_i18n::t!(
+                "ai_news.thesis.underperform",
+                finish = s.finish,
+                low = s.target_low,
+                high = s.target_high
+            )
+            .to_string(),
             vec!["eval", "telemetry"],
         );
     }
     // 8) Resultado morno, mas um DUELO pessoal foi decidido → ele é a história.
     if let Some(d) = &s.duel {
         let verbo = if d.player_won {
-            "ter batido"
+            rust_i18n::t!("ai_news.thesis.duel_won")
         } else {
-            "ter perdido para"
+            rust_i18n::t!("ai_news.thesis.duel_lost")
         };
         let quem = if d.is_nemesis {
-            "seu nemesis"
+            rust_i18n::t!("ai_news.thesis.duel_nemesis")
         } else {
-            "seu rival direto"
+            rust_i18n::t!("ai_news.thesis.duel_rival")
         };
         let h2h = d
             .h2h
-            .map(|(p, r)| format!(" (o confronto direto vai {p}-{r})"))
+            .map(|(p, r)| rust_i18n::t!("ai_news.thesis.duel_h2h", p = p, r = r).to_string())
             .unwrap_or_default();
         return (
-            format!("Gancho central — O DUELO: o resultado ficou dentro do esperado, mas o que marca o dia é {verbo} {quem} {}{h2h}. A história é esse confronto direto.", d.name),
+            rust_i18n::t!(
+                "ai_news.thesis.duel",
+                verb = verbo,
+                who = quem,
+                name = d.name.as_str(),
+                h2h = h2h
+            )
+            .to_string(),
             vec!["lived_rivalry", "champ_rival"],
         );
     }
     // 9) Dia de somar — dentro do esperado, sem grande drama.
     (
-        format!("Gancho central — DIA DE SOMAR: corrida dentro do esperado (P{}), sem grande drama. A história é a consistência e o que esse resultado significa para o campeonato.", s.finish),
+        rust_i18n::t!("ai_news.thesis.points_day", finish = s.finish).to_string(),
         vec!["eval", "champ_rival"],
     )
 }
@@ -840,58 +956,105 @@ fn build_post_race_facts(
     let mut cenario = String::new();
     let _ = write!(
         cenario,
-        "PISTA: {} · CLIMA: {}",
-        result.track_name,
-        weather_pt(&result.weather)
+        "{}",
+        rust_i18n::t!(
+            "ai_news.facts.scenario_head",
+            track = result.track_name.as_str(),
+            weather = weather_label(&result.weather).as_str()
+        )
     );
     if !categoria.is_empty() {
-        let _ = write!(cenario, " · CATEGORIA: {categoria}");
+        let _ = write!(
+            cenario,
+            "{}",
+            rust_i18n::t!("ai_news.facts.scenario_category", category = categoria.as_str())
+        );
     }
     if let Some(entry) = &calendar_entry {
-        let _ = write!(cenario, " · TEMPORADA {season_num} RODADA {}", entry.rodada);
+        let _ = write!(
+            cenario,
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.scenario_round",
+                season = season_num,
+                round = entry.rodada
+            )
+        );
     }
-    let _ = write!(cenario, " · VOLTAS: {}", result.total_laps);
+    let _ = write!(
+        cenario,
+        "{}",
+        rust_i18n::t!("ai_news.facts.scenario_laps", laps = result.total_laps)
+    );
 
     // ---- Bloco: META + NOTA (cérebro race_eval) ----
     let mut eval_b = String::new();
     if let Some(ev) = &evaluation {
         let _ = writeln!(
             eval_b,
-            "META DA CORRIDA: P{}–P{} (faixa esperada do conjunto)",
-            ev.target_low, ev.target_high
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.target",
+                low = ev.target_low,
+                high = ev.target_high
+            )
         );
-        let _ = write!(eval_b, "NOTA: {:.1}/10 ({})", ev.grade, ev.assessment.label());
+        let _ = write!(
+            eval_b,
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.grade",
+                grade = format!("{:.1}", ev.grade),
+                label = ev.assessment.label()
+            )
+        );
     }
 
     // ---- Bloco: SEU RESULTADO ----
     let mut res_b = String::new();
-    let _ = writeln!(res_b, "SEU RESULTADO:");
-    let _ = writeln!(res_b, "- Largou em P{}", player.grid_position);
+    let _ = writeln!(res_b, "{}", rust_i18n::t!("ai_news.facts.result_head"));
+    let _ = writeln!(
+        res_b,
+        "{}",
+        rust_i18n::t!("ai_news.facts.started", grid = player.grid_position)
+    );
     if player.is_dnf {
         match player.dnf_reason.as_deref().filter(|s| !s.is_empty()) {
             Some(m) => {
-                let _ = writeln!(res_b, "- ABANDONOU (DNF): {m}");
+                let _ = writeln!(
+                    res_b,
+                    "{}",
+                    rust_i18n::t!("ai_news.facts.dnf_reason", reason = m)
+                );
             }
             None => {
-                let _ = writeln!(res_b, "- ABANDONOU (DNF)");
+                let _ = writeln!(res_b, "{}", rust_i18n::t!("ai_news.facts.dnf"));
             }
         }
     } else {
-        let _ = writeln!(res_b, "- Chegou em P{}", player.finish_position);
+        let _ = writeln!(
+            res_b,
+            "{}",
+            rust_i18n::t!("ai_news.facts.finished", pos = player.finish_position)
+        );
     }
     let saldo = player.positions_gained;
     let saldo_txt = if saldo > 0 {
-        format!("ganhou {saldo} posições")
+        rust_i18n::t!("ai_news.facts.gained", n = saldo).to_string()
     } else if saldo < 0 {
-        format!("perdeu {} posições", saldo.abs())
+        rust_i18n::t!("ai_news.facts.lost", n = saldo.abs()).to_string()
     } else {
-        "manteve a posição de largada".to_string()
+        rust_i18n::t!("ai_news.facts.held").to_string()
     };
-    let _ = writeln!(res_b, "- Saldo: {saldo_txt}");
+    let _ = writeln!(res_b, "{}", rust_i18n::t!("ai_news.facts.balance", txt = saldo_txt));
     if !player.is_dnf && player.finish_position > 1 {
         let gap = player.gap_to_winner_ms / 1000.0;
         if gap > 0.0 {
-            let _ = writeln!(res_b, "- Gap pro vencedor: +{gap:.3}s");
+            let _ = writeln!(
+                res_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.gap_to_winner", secs = format!("{gap:.3}"))
+            );
         }
     }
     if player.best_lap_time_ms > 0.0 {
@@ -899,14 +1062,30 @@ fn build_post_race_facts(
         let m = (s / 60.0).floor();
         let rest = s - m * 60.0;
         let fastest = if player.has_fastest_lap {
-            " (VOLTA MAIS RÁPIDA DA CORRIDA)"
+            rust_i18n::t!("ai_news.facts.fastest_flag").to_string()
         } else {
-            ""
+            String::new()
         };
-        let _ = writeln!(res_b, "- Melhor volta: {}:{:06.3}{fastest}", m as i64, rest);
+        let _ = writeln!(
+            res_b,
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.best_lap",
+                time = format!("{}:{:06.3}", m as i64, rest),
+                fastest = fastest
+            )
+        );
     }
-    let _ = writeln!(res_b, "- Pontos: {}", player.points_earned);
-    let _ = write!(res_b, "- Incidentes: {}", player.incidents_count);
+    let _ = writeln!(
+        res_b,
+        "{}",
+        rust_i18n::t!("ai_news.facts.points", n = player.points_earned)
+    );
+    let _ = write!(
+        res_b,
+        "{}",
+        rust_i18n::t!("ai_news.facts.incidents", n = player.incidents_count)
+    );
 
     // ---- Bloco: companheiro de equipe ----
     let mut mate_b = String::new();
@@ -916,21 +1095,26 @@ fn build_post_race_facts(
         .find(|r| r.team_id == player.team_id && !r.is_jogador)
     {
         let mate_pos = if mate.is_dnf {
-            "DNF".to_string()
+            rust_i18n::t!("ai_news.facts.dnf_short").to_string()
         } else {
             format!("P{}", mate.finish_position)
         };
         let cmp = if player.is_dnf || mate.is_dnf {
-            ""
+            String::new()
         } else if player.finish_position < mate.finish_position {
-            " — você ficou na frente dele"
+            rust_i18n::t!("ai_news.facts.teammate_ahead").to_string()
         } else {
-            " — ele ficou na sua frente"
+            rust_i18n::t!("ai_news.facts.teammate_behind").to_string()
         };
         let _ = write!(
             mate_b,
-            "COMPANHEIRO DE EQUIPE: {} terminou em {mate_pos}{cmp}",
-            mate.pilot_name
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.teammate",
+                name = mate.pilot_name.as_str(),
+                pos = mate_pos,
+                cmp = cmp
+            )
         );
     }
 
@@ -941,9 +1125,9 @@ fn build_post_race_facts(
             crate::commands::career::build_primary_rival_summary(conn, &player.pilot_id, &categoria)
         {
             let standing = if rival.is_ahead {
-                format!("à sua frente no campeonato por {}pts", rival.gap_points)
+                rust_i18n::t!("ai_news.facts.champ_ahead", pts = rival.gap_points).to_string()
             } else {
-                format!("atrás de você no campeonato por {}pts", rival.gap_points)
+                rust_i18n::t!("ai_news.facts.champ_behind", pts = rival.gap_points).to_string()
             };
             match result
                 .race_results
@@ -952,30 +1136,40 @@ fn build_post_race_facts(
             {
                 Some(rr) => {
                     let rpos = if rr.is_dnf {
-                        "DNF".to_string()
+                        rust_i18n::t!("ai_news.facts.dnf_short").to_string()
                     } else {
                         format!("P{}", rr.finish_position)
                     };
                     let cmp = if !player.is_dnf && !rr.is_dnf {
                         if player.finish_position < rr.finish_position {
-                            " (você chegou na frente dele hoje)"
+                            rust_i18n::t!("ai_news.facts.champ_you_ahead").to_string()
                         } else {
-                            " (ele chegou na sua frente hoje)"
+                            rust_i18n::t!("ai_news.facts.champ_you_behind").to_string()
                         }
                     } else {
-                        ""
+                        String::new()
                     };
                     let _ = write!(
                         champ_b,
-                        "RIVAL DE CAMPEONATO: {} ({standing}) terminou em {rpos}{cmp}",
-                        rival.driver_name
+                        "{}",
+                        rust_i18n::t!(
+                            "ai_news.facts.champ_rival",
+                            name = rival.driver_name.as_str(),
+                            standing = standing,
+                            pos = rpos,
+                            cmp = cmp
+                        )
                     );
                 }
                 None => {
                     let _ = write!(
                         champ_b,
-                        "RIVAL DE CAMPEONATO: {} ({standing}) — não correu esta etapa",
-                        rival.driver_name
+                        "{}",
+                        rust_i18n::t!(
+                            "ai_news.facts.champ_rival_absent",
+                            name = rival.driver_name.as_str(),
+                            standing = standing
+                        )
                     );
                 }
             }
@@ -1020,30 +1214,56 @@ fn build_post_race_facts(
             let today = match result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
                 Some(rr) => {
                     let pos = if rr.is_dnf {
-                        "DNF".to_string()
+                        rust_i18n::t!("ai_news.facts.dnf_short").to_string()
                     } else {
                         format!("P{}", rr.finish_position)
                     };
                     let cmp = if !player.is_dnf && !rr.is_dnf {
                         match player.finish_position.cmp(&rr.finish_position) {
-                            Ordering::Less => " — você chegou na frente dele hoje",
-                            Ordering::Greater => " — ele chegou na sua frente hoje",
-                            Ordering::Equal => "",
+                            Ordering::Less => {
+                                rust_i18n::t!("ai_news.facts.lived_you_ahead").to_string()
+                            }
+                            Ordering::Greater => {
+                                rust_i18n::t!("ai_news.facts.lived_you_behind").to_string()
+                            }
+                            Ordering::Equal => String::new(),
                         }
                     } else {
-                        ""
+                        String::new()
                     };
-                    format!("terminou {pos}{cmp}")
+                    rust_i18n::t!("ai_news.facts.lived_finished", pos = pos, cmp = cmp).to_string()
                 }
-                None => "não correu esta etapa".to_string(),
+                None => rust_i18n::t!("ai_news.facts.lived_absent").to_string(),
+            };
+            // `role` é chave de LÓGICA (comparada acima); o rótulo exibido é resolvido à parte.
+            let role_label = if role == "NEMESIS" {
+                rust_i18n::t!("ai_news.facts.role_nemesis")
+            } else {
+                rust_i18n::t!("ai_news.facts.role_rival")
             };
             let label = ri.label.map(|l| format!(" \"{l}\"")).unwrap_or_default();
             let h2h = if ri.chapters > 0 {
-                format!("; confronto direto {}-{}", ri.h2h_player_wins, ri.h2h_rival_wins)
+                rust_i18n::t!(
+                    "ai_news.facts.lived_h2h",
+                    p = ri.h2h_player_wins,
+                    r = ri.h2h_rival_wins
+                )
+                .to_string()
             } else {
                 String::new()
             };
-            let _ = writeln!(lived_b, "{role}{label}: {} {today}{h2h}", ri.driver_name);
+            let _ = writeln!(
+                lived_b,
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.facts.lived_line",
+                    role = role_label,
+                    label = label,
+                    name = ri.driver_name.as_str(),
+                    today = today,
+                    h2h = h2h
+                )
+            );
         }
     }
 
@@ -1062,8 +1282,11 @@ fn build_post_race_facts(
     if maintenance.total > 0.0 {
         let _ = writeln!(
             mnt_b,
-            "MANUTENÇÃO DO CARRO: $ {} no total",
-            maintenance.total.round() as i64
+            "{}",
+            rust_i18n::t!(
+                "ai_news.facts.maintenance_total",
+                total = maintenance.total.round() as i64
+            )
         );
         let danos: Vec<String> = maintenance
             .items
@@ -1072,7 +1295,11 @@ fn build_post_race_facts(
             .map(|i| format!("{} $ {}", i.label, i.cost.round() as i64))
             .collect();
         if !danos.is_empty() {
-            let _ = write!(mnt_b, "- CONSERTO DA BATIDA: {}", danos.join(", "));
+            let _ = write!(
+                mnt_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.maintenance_crash", items = danos.join(", "))
+            );
         }
     }
 
@@ -1090,18 +1317,27 @@ fn build_post_race_facts(
             player_mech_break = mine
                 .iter()
                 .any(|b| matches!(b.severity.as_str(), "dnf" | "heavy"));
-            let _ = writeln!(brk_b, "SEU CARRO — PEÇAS QUE LARGARAM:");
+            let _ = writeln!(brk_b, "{}", rust_i18n::t!("ai_news.facts.parts_head"));
             for b in &mine {
                 let desfecho = match b.penalty_secs {
-                    Some(s) => format!("{s}s perdidos no box"),
-                    None => "abandono (carro fora)".to_string(),
+                    Some(s) => rust_i18n::t!("ai_news.facts.part_pit", secs = s).to_string(),
+                    None => rust_i18n::t!("ai_news.facts.part_dnf").to_string(),
                 };
                 let grav = match b.severity.as_str() {
-                    "dnf" => "grave",
-                    "heavy" => "grave",
-                    _ => "leve",
+                    "dnf" | "heavy" => rust_i18n::t!("ai_news.facts.part_severe"),
+                    _ => rust_i18n::t!("ai_news.facts.part_light"),
                 };
-                let _ = writeln!(brk_b, "- Volta {}: {} — {desfecho} ({grav})", b.lap, b.label);
+                let _ = writeln!(
+                    brk_b,
+                    "{}",
+                    rust_i18n::t!(
+                        "ai_news.facts.part_line",
+                        lap = b.lap,
+                        label = b.label.as_str(),
+                        outcome = desfecho,
+                        severity = grav
+                    )
+                );
             }
         }
         let grid_dnf = breakdowns
@@ -1115,7 +1351,8 @@ fn build_post_race_facts(
         if grid_dnf + grid_pen > 0 {
             let _ = write!(
                 brk_b,
-                "QUEBRAS NA GRADE: {grid_dnf} abandono(s) mecânico(s), {grid_pen} parada(s) por peça"
+                "{}",
+                rust_i18n::t!("ai_news.facts.grid_breaks", dnf = grid_dnf, pen = grid_pen)
             );
         }
     }
@@ -1123,12 +1360,20 @@ fn build_post_race_facts(
     // ---- Bloco: pré-corrida (FECHA o loop do que foi prometido) ----
     let mut pre_b = String::new();
     if let Ok(Some(pre)) = crate::db::queries::ai_pre_race::get_pre_race(conn, race_id) {
-        let _ = writeln!(pre_b, "O QUE A EQUIPE TE DISSE ANTES DA LARGADA:");
+        let _ = writeln!(pre_b, "{}", rust_i18n::t!("ai_news.facts.pre_head"));
         if !pre.headline.is_empty() {
-            let _ = writeln!(pre_b, "Manchete: {}", pre.headline);
+            let _ = writeln!(
+                pre_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.pre_headline", headline = pre.headline.as_str())
+            );
         }
         if !pre.narrative.is_empty() {
-            let _ = write!(pre_b, "Briefing: {}", pre.narrative);
+            let _ = write!(
+                pre_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.pre_briefing", narrative = pre.narrative.as_str())
+            );
         }
     }
 
@@ -1142,9 +1387,13 @@ fn build_post_race_facts(
                 .map(|r| {
                     let r = r.to_lowercase();
                     [
+                        // PT
                         "motor", "câmbio", "cambio", "mecân", "mecan", "suspens", "freio",
                         "transmiss", "embreagem", "turbo", "óleo", "oleo", "superaquec", "pane",
                         "elétric", "eletric", "diferencial",
+                        // EN (saves feitos no locale inglês guardam o motivo em inglês)
+                        "engine", "gearbox", "mechanic", "suspension", "brake", "clutch", "oil",
+                        "overheat", "electric", "differential", "failure",
                     ]
                     .iter()
                     .any(|k| r.contains(k))
@@ -1217,24 +1466,19 @@ fn build_post_race_facts(
     }
 
     let mut f = String::new();
-    let _ = writeln!(f, "CENÁRIO: {}", cenario.trim());
     let _ = writeln!(
         f,
-        "\nEIXO DO DEBRIEF — a história desta corrida, o coração do texto (desenvolva a narrativa a partir dele; NÃO é uma linha solta):"
+        "{}",
+        rust_i18n::t!("ai_news.facts.scenario_line", scenario = cenario.trim())
     );
+    let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.facts.axis_head"));
     let _ = writeln!(f, "{statement}");
     if !apoio.trim().is_empty() {
-        let _ = writeln!(
-            f,
-            "\nAPOIO — fatos que sustentam a história (use os que reforçarem):"
-        );
+        let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.facts.support_head"));
         let _ = write!(f, "{}", apoio.trim_start_matches('\n'));
     }
     if !fundo.trim().is_empty() {
-        let _ = writeln!(
-            f,
-            "\nPANO DE FUNDO — contexto secundário (use com parcimônia; NÃO liste como estatística):"
-        );
+        let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.facts.background_head"));
         let _ = write!(f, "{}", fundo.trim_start_matches('\n'));
     }
     f
@@ -1358,6 +1602,13 @@ mod tests {
     use super::*;
     use crate::race_eval::Assessment;
     use serde_json::json;
+    use serial_test::serial;
+
+    /// Os fatos saem no locale ativo; estes testes conferem a prosa PT, então fixam o
+    /// idioma antes de rodar. `#[serial]` porque o locale é estado global do processo.
+    fn pt() {
+        rust_i18n::set_locale("pt-BR");
+    }
 
     fn sig() -> PostRaceSignals {
         // Base neutra: terminou dentro do esperado, sem drama.
@@ -1381,7 +1632,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn dnf_mecanico_vence_tudo_e_isenta_o_piloto() {
+        pt();
         let mut s = sig();
         s.is_dnf = true;
         s.dnf_mechanical = true;
@@ -1393,7 +1646,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn dnf_por_incidente_e_fim_precoce() {
+        pt();
         let mut s = sig();
         s.is_dnf = true;
         s.dnf_mechanical = false;
@@ -1401,7 +1656,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn vitoria_e_a_manchete() {
+        pt();
         let mut s = sig();
         s.finish = 1;
         s.positions_gained = 5;
@@ -1412,7 +1669,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn remontada_quando_ganha_muitas_posicoes() {
+        pt();
         let mut s = sig();
         s.grid = 12;
         s.finish = 4;
@@ -1422,7 +1681,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn colapso_quando_perde_muitas_posicoes() {
+        pt();
         let mut s = sig();
         s.grid = 3;
         s.finish = 11;
@@ -1432,7 +1693,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn acima_e_abaixo_do_esperado_sem_drama() {
+        pt();
         let mut over = sig();
         over.finish = 3;
         over.assessment = Some(Assessment::Acima);
@@ -1445,7 +1708,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn duelo_decide_um_dia_morno() {
+        pt();
         let mut s = sig(); // assessment Dentro, nada extremo
         s.duel = Some(PostRaceDuel {
             name: "K. Novak".to_string(),
@@ -1461,12 +1726,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn dia_de_somar_quando_nada_se_destaca() {
+        pt();
         assert!(thesis_of(&sig()).contains("DIA DE SOMAR"));
     }
 
     #[test]
+    #[serial]
     fn telemetry_facts_resume_ritmo_ultrapassagens_e_erro() {
+        pt();
         let tel = json!({
             "has_telemetry": true,
             "pace": { "vs_grid_ms": -506.0, "vs_grid_reliable": true, "good_laps": 8 },
