@@ -424,6 +424,23 @@ team_dossier:
 
 # Fatura de manutenção do carro (commands/race.rs): rótulo de cada item por `key`.
 # A `key` é o token (gasolina/pneus/peça); o rótulo é display.
+# Peças do carro (car/parts.rs display_name). Nome de peça na narrativa de quebra.
+# FrontWing/RearWing têm variante aero (splitter/asa) vs sem-asa (parachoque) por carro.
+part:
+  chassis: "Chassi"
+  engine: "Motor"
+  front_wing_aero: "Splitter"
+  front_wing_bumper: "Parachoque dianteiro"
+  rear_wing_aero: "Asa traseira"
+  rear_wing_bumper: "Parachoque traseiro"
+  underbody: "Assoalho"
+  sidepods: "Laterais"
+  cooling: "Arrefecimento"
+  gearbox: "Câmbio"
+  brakes: "Freios"
+  suspension: "Suspensão"
+  electronics: "Eletrônica"
+
 maintenance:
   gasolina: "Gasolina"
   pneus: "Pneus"

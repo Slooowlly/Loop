@@ -334,7 +334,12 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
 - [ ] Deploy do servidor.
 
 ### Fase 5 — Formatação + seeds
-- [ ] Datas / números / ordenação por locale ativo (ver "Formatação" acima).
+- [x] Datas / números / ordenação por locale ativo ✅ — helpers de `i18n/format.js` (Fase 0)
+  ligados. `utils/formatters.js` (formatDate/formatCompactDate/formatDateTime → `currentLang()`,
+  data compacta agora locale-aware sem shift de fuso). 7 arquivos com `"pt-BR"` hardcoded →
+  `currentLang()`: EndOfSeasonView, PreSeasonView, NewCareer, GlobalDriversTab (×8), MyTeamTab,
+  nextRaceContext, StandingsTab (localeCompare/toLocaleString/Intl). Tempo relativo (MainMenu)
+  + countdown já eram i18n. 42 testes front verdes. Moeda USD NÃO mexida (fonte única).
 - [x] Cenários de quebra/DNF ✅ — RESOLVIDO POR RUNTIME (não por seed-freeze): os 54
   cenários do `seed_incident_catalog` viram `breakdown.<id>.{dnf,warn,part}` (148 chaves ×2
   idiomas), resolvidos no render (`simulation/catalog.rs`) por id com FALLBACK ao texto
@@ -342,10 +347,15 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
   o seed PT vira só rede de segurança. `{driver}` continua substituído no render (não é
   interpolação). Toggle ao vivo (não congela). Guard de 2 locales + catalog/parity verdes.
   (YAML gerado via script pra garantir PT byte-accurate; EN traduzido à mão, 100% coberto.)
-- [ ] Datas / números / ordenação por locale ativo (ver "Formatação" acima).
-- [ ] Resto Fase 5: `car/parts.rs` `display_name` (121-141: Motor/Câmbio/Freios/Suspensão) +
-  países com emoji (`tracks.rs pais`, `teams.rs pais_sede`) + tiers PT em `categories.rs`
-  (`Amador`, `Especial`, `Super Pro`). Só saves novos.
+- [x] `car/parts.rs` `display_name` ✅ — 13 peças (namespace `part`; FrontWing/RearWing têm
+  variante aero splitter/asa vs sem-asa parachoque por carro). Retorno `&'static str`→`String`;
+  3 callers usam `.to_string()` (ok). 1 teste → `#[serial]`+pt-BR. 7 testes de parts + parity.
+- [ ] **DEFERIDOS Fase 5** (risco/volume): (a) `categories.rs nivel` ("Amador"/"Especial"/
+  "Super Pro"/"Elite") — é provável **chave de lógica** (tiers de mercado/promoção), display
+  só na streak de career.rs; se traduzir, tratar como token→display no ponto (não na fonte).
+  (b) Países com emoji (`tracks.rs pais` ~82 + `teams.rs pais_sede`) — dataset grande de nome
+  de país PT+bandeira; precisa de mapa pais_pt→pais_en (ou `nationality.rs nome_en`), não edição
+  linha-a-linha. Ambos são polish de baixa visibilidade — deixados p/ uma passada dedicada.
 
 ### Fase 6 — QA em inglês
 - [ ] Jogar uma carreira inteira em EN; caçar sobras.

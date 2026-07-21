@@ -423,6 +423,23 @@ team_dossier:
 
 # Car maintenance invoice (commands/race.rs): label per item by `key`.
 # The `key` is the token (fuel/tires/part); the label is display.
+# Car parts (car/parts.rs display_name). Part name in the breakdown narrative.
+# FrontWing/RearWing have an aero variant (splitter/wing) vs wingless (bumper) per car.
+part:
+  chassis: "Chassis"
+  engine: "Engine"
+  front_wing_aero: "Splitter"
+  front_wing_bumper: "Front bumper"
+  rear_wing_aero: "Rear wing"
+  rear_wing_bumper: "Rear bumper"
+  underbody: "Floor"
+  sidepods: "Sidepods"
+  cooling: "Cooling"
+  gearbox: "Gearbox"
+  brakes: "Brakes"
+  suspension: "Suspension"
+  electronics: "Electronics"
+
 maintenance:
   gasolina: "Fuel"
   pneus: "Tires"

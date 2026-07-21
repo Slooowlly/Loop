@@ -114,33 +114,36 @@ impl PartType {
     /// Nome legível da peça, **adaptado ao carro da categoria** (só nomenclatura). As peças
     /// aerodinâmicas mudam de nome conforme o carro: um Mazda MX-5 não tem asa (vira
     /// "parachoque"); GT/Toyota/BMW têm asa traseira. Usado na narrativa da quebra.
-    pub fn display_name(self, category_id: &str) -> &'static str {
+    pub fn display_name(self, category_id: &str) -> String {
         let sem_asa = category_id.starts_with("mazda"); // Mazda MX-5: sem aerofólio
-        match self {
-            PartType::Chassis => "Chassi",
-            PartType::Engine => "Motor",
+        let key = match self {
+            PartType::Chassis => "chassis",
+            PartType::Engine => "engine",
+            // Mazda MX-5: sem aero → parachoque; GT/BMW/Toyota/proto: splitter/asa.
             PartType::FrontWing => {
                 if sem_asa {
-                    "Parachoque dianteiro" // Mazda MX-5: sem aero dianteiro
+                    "front_wing_bumper"
                 } else {
-                    "Splitter" // GT/BMW/Toyota/proto: splitter dianteiro, não asa
+                    "front_wing_aero"
                 }
             }
             PartType::RearWing => {
                 if sem_asa {
-                    "Parachoque traseiro"
+                    "rear_wing_bumper"
                 } else {
-                    "Asa traseira"
+                    "rear_wing_aero"
                 }
             }
-            PartType::Underbody => "Assoalho",
-            PartType::Sidepods => "Laterais",
-            PartType::Cooling => "Arrefecimento",
-            PartType::Gearbox => "Câmbio",
-            PartType::Brakes => "Freios",
-            PartType::Suspension => "Suspensão",
-            PartType::Electronics => "Eletrônica",
-        }
+            PartType::Underbody => "underbody",
+            PartType::Sidepods => "sidepods",
+            PartType::Cooling => "cooling",
+            PartType::Gearbox => "gearbox",
+            PartType::Brakes => "brakes",
+            PartType::Suspension => "suspension",
+            PartType::Electronics => "electronics",
+        };
+        let full = format!("part.{key}");
+        rust_i18n::t!(&full).to_string()
     }
 
     /// Custo-base relativo (Cooling = 1.0). Reescalado por categoria em [`super::cost`].
@@ -198,7 +201,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn nome_da_peca_adapta_ao_carro() {
+        rust_i18n::set_locale("pt-BR"); // display_name resolve no locale ativo.
         // Mazda não tem asa → parachoque.
         assert_eq!(PartType::RearWing.display_name("mazda_rookie"), "Parachoque traseiro");
         assert_eq!(PartType::FrontWing.display_name("mazda_amador"), "Parachoque dianteiro");
