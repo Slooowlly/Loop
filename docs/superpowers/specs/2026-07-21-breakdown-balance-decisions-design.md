@@ -23,7 +23,7 @@ Este documento fecha as quatro decisões. Ele não redesenha a separação entre
 
 Condições brutais devem ameaçar também um carro saudável, sem voltar a transformar a corrida em uma loteria de abandono coletivo.
 
-O valor final de `CONDITIONS_MAX_MULT` será escolhido pela matriz reproduzível da seção 7. A implementação deve testar `1.60`, `1.65` e `1.70` nessa ordem. Se nenhum candidato passar, deve testar `1.75` e `1.80`; `1.80` é o limite deste design. O valor escolhido será o primeiro que satisfaça simultaneamente todos os critérios climáticos, de DNF e de desgaste econômico.
+O valor final de `CONDITIONS_MAX_MULT` será escolhido pela matriz reproduzível da seção 7. A implementação deve testar `1.60`, `1.65` e `1.70` nessa ordem. Se nenhum candidato passar, deve testar `1.75` e `1.80`; `1.80` é o limite deste design. O valor escolhido será o primeiro que satisfaça simultaneamente todos os critérios climáticos, de DNF e de desgaste econômico. Se nenhum candidato passar, a implementação deve parar e solicitar nova decisão de produto, sem ampliar o intervalo ou alterar outros dials.
 
 `conditions_mult()` continua sendo a única fonte do teto. O mesmo multiplicador alimenta o risco ao vivo e o desgaste aplicado pela economia.
 
@@ -238,7 +238,8 @@ Para `PIT_SERVICE_RELIEF`, testar de `0.00` a `1.00` em passos de `0.05`. São v
 - comparar enduro sem parada e com uma parada preventiva;
 - medir a variação média dos 11 multiplicadores econômicos contra o teto `1.5`;
 - confirmar todos os critérios da seção 7;
-- conservar a semente fixa e a determinismo do relatório.
+- conservar a semente fixa e o determinismo do relatório;
+- salvar no documento de implementação os candidatos testados, os valores escolhidos e a saída completa da matriz como evidência.
 
 ### Regressão
 
