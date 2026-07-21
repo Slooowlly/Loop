@@ -218,7 +218,7 @@ fn build_offer_view(
         team_reliability: team.confiabilidade.round().clamp(0.0, 100.0) as u8,
         team_cash: team.cash_balance,
         team_founded_year: team.ano_fundacao,
-        team_country: team.pais_sede.clone(),
+        team_country: crate::constants::country_label(&team.pais_sede),
         team_titles_drivers: team.historico_titulos_pilotos,
         team_titles_constructors: team.historico_titulos_construtores,
         team_historic_wins: team.historico_vitorias,

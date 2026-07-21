@@ -350,12 +350,16 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
 - [x] `car/parts.rs` `display_name` ✅ — 13 peças (namespace `part`; FrontWing/RearWing têm
   variante aero splitter/asa vs sem-asa parachoque por carro). Retorno `&'static str`→`String`;
   3 callers usam `.to_string()` (ok). 1 teste → `#[serial]`+pt-BR. 7 testes de parts + parity.
-- [ ] **DEFERIDOS Fase 5** (risco/volume): (a) `categories.rs nivel` ("Amador"/"Especial"/
-  "Super Pro"/"Elite") — é provável **chave de lógica** (tiers de mercado/promoção), display
-  só na streak de career.rs; se traduzir, tratar como token→display no ponto (não na fonte).
-  (b) Países com emoji (`tracks.rs pais` ~82 + `teams.rs pais_sede`) — dataset grande de nome
-  de país PT+bandeira; precisa de mapa pais_pt→pais_en (ou `nationality.rs nome_en`), não edição
-  linha-a-linha. Ambos são polish de baixa visibilidade — deixados p/ uma passada dedicada.
+- [x] `categories.rs nivel` ✅ — auditado: NÃO é chave de lógica (os usos de `nivel` em
+  mercado/promoção são a coluna NUMÉRICA `l.nivel` da tabela `licenses`, outra coisa). Display
+  só na streak de career.rs. Fonte fica como token; `constants::category_tier_label` resolve
+  no ponto (namespace `category_tier`, 7 tiers; "Amador"→"Amateur", "Especial"→"Special").
+- [x] Países com emoji ✅ — `constants::country_label` (namespace `country`, 19 países c/
+  bandeira) mapeia o `pais` cru→key→i18n, cobrindo as variantes legadas do dado (com/sem emoji
+  e acento: "Franca"/"🇫🇷 França"→"🇫🇷 France"). Aplicado nos pontos de DISPLAY (`track_flag`
+  em iracing.rs, `team_country` em transfer_market.rs); a fonte fica como token porque
+  `track_hemisphere` casa o `pais` cru (lógica). ⚠️ o país da PISTA no front vem do mapa próprio
+  `TRACK_COUNTRY` (Header.jsx) — item SEPARADO de frontend, não deste. Guard de 2 locales verde.
 
 ### Fase 6 — QA em inglês
 - [ ] Jogar uma carreira inteira em EN; caçar sobras.

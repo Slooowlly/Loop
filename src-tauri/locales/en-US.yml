@@ -423,6 +423,41 @@ team_dossier:
 
 # Car maintenance invoice (commands/race.rs): label per item by `key`.
 # The `key` is the token (fuel/tires/part); the label is display.
+# Category tier (constants/categories.rs `nivel`). DISPLAY only (used by the team
+# dossier streak); the source stays a token (license logic uses a numeric `nivel`).
+category_tier:
+  amador: "Amateur"
+  rookie: "Rookie"
+  pro: "Pro"
+  especial: "Special"
+  super_pro: "Super Pro"
+  master: "Master"
+  elite: "Elite"
+
+# Countries (constants/tracks.rs `pais`, teams.rs `pais_sede`). DISPLAY (track_flag/
+# team_country); the source stays a token because `track_hemisphere` matches raw `pais`.
+# Flag preserved. Covers the legacy data variants (with/without emoji and accent).
+country:
+  austria: "🇦🇹 Austria"
+  australia: "🇦🇺 Australia"
+  belgium: "🇧🇪 Belgium"
+  brazil: "🇧🇷 Brazil"
+  canada: "🇨🇦 Canada"
+  germany: "🇩🇪 Germany"
+  spain: "🇪🇸 Spain"
+  france: "🇫🇷 France"
+  uk: "🇬🇧 United Kingdom"
+  hungary: "🇭🇺 Hungary"
+  italy: "🇮🇹 Italy"
+  japan: "🇯🇵 Japan"
+  mexico: "🇲🇽 Mexico"
+  netherlands: "🇳🇱 Netherlands"
+  norway: "🇳🇴 Norway"
+  portugal: "🇵🇹 Portugal"
+  usa: "🇺🇸 USA"
+  switzerland: "🇨🇭 Switzerland"
+  taiwan: "🇹🇼 Taiwan"
+
 # Car parts (car/parts.rs display_name). Part name in the breakdown narrative.
 # FrontWing/RearWing have an aero variant (splitter/wing) vs wingless (bumper) per car.
 part:

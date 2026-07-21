@@ -4607,7 +4607,7 @@ fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
                 .map(|(cat, _)| cat.clone())
                 .unwrap_or_default();
             let level = categories::get_category(&category)
-                .map(|config| config.nivel.to_string())
+                .map(|config| crate::constants::category_tier_label(config.nivel))
                 .unwrap_or_else(|| "—".to_string());
             (season, level)
         })

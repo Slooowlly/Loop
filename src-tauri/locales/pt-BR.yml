@@ -424,6 +424,41 @@ team_dossier:
 
 # Fatura de manutenção do carro (commands/race.rs): rótulo de cada item por `key`.
 # A `key` é o token (gasolina/pneus/peça); o rótulo é display.
+# Tier da categoria (constants/categories.rs `nivel`). É DISPLAY (só a streak da ficha
+# da equipe usa); a fonte fica como token (lógica de licença usa outro `nivel` numérico).
+category_tier:
+  amador: "Amador"
+  rookie: "Rookie"
+  pro: "Pro"
+  especial: "Especial"
+  super_pro: "Super Pro"
+  master: "Master"
+  elite: "Elite"
+
+# Países (constants/tracks.rs `pais`, teams.rs `pais_sede`). DISPLAY (track_flag/
+# team_country); a fonte fica como token porque `track_hemisphere` casa o `pais` cru.
+# Bandeira preservada. Cobre as variantes legadas do dado (com/sem emoji e acento).
+country:
+  austria: "🇦🇹 Áustria"
+  australia: "🇦🇺 Austrália"
+  belgium: "🇧🇪 Bélgica"
+  brazil: "🇧🇷 Brasil"
+  canada: "🇨🇦 Canadá"
+  germany: "🇩🇪 Alemanha"
+  spain: "🇪🇸 Espanha"
+  france: "🇫🇷 França"
+  uk: "🇬🇧 Reino Unido"
+  hungary: "🇭🇺 Hungria"
+  italy: "🇮🇹 Itália"
+  japan: "🇯🇵 Japão"
+  mexico: "🇲🇽 México"
+  netherlands: "🇳🇱 Holanda"
+  norway: "🇳🇴 Noruega"
+  portugal: "🇵🇹 Portugal"
+  usa: "🇺🇸 EUA"
+  switzerland: "🇨🇭 Suíça"
+  taiwan: "🇹🇼 Taiwan"
+
 # Peças do carro (car/parts.rs display_name). Nome de peça na narrativa de quebra.
 # FrontWing/RearWing têm variante aero (splitter/asa) vs sem-asa (parachoque) por carro.
 part:

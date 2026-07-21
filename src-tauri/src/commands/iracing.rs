@@ -1781,7 +1781,7 @@ pub fn iracing_generate_roster(
             current_season: season.numero as i32,
             track_id: race.track_id,
             track_length_km: track.comprimento_km,
-            track_flag: track.pais.to_string(),
+            track_flag: crate::constants::country_label(track.pais),
             title_points: title_points.clone(),
             races_left: (total - race.rodada + 1).max(1) as u32,
             event_stakes,
