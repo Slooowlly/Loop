@@ -3848,22 +3848,34 @@ fn persist_race_news(
 
                 // Recordes históricos da categoria (estado — vale sempre que aparece).
                 if is_wins_record {
-                    context_facts.push(format!(
-                        "{} é o maior vencedor da história da categoria, com {} vitórias.",
-                        name, career.wins
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.record_wins",
+                            name = name.as_str(),
+                            wins = career.wins
+                        )
+                        .to_string(),
+                    );
                 }
                 if is_podiums_record {
-                    context_facts.push(format!(
-                        "{} é quem mais subiu ao pódio na história da categoria, com {} pódios.",
-                        name, career.podiums
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.record_podiums",
+                            name = name.as_str(),
+                            podiums = career.podiums
+                        )
+                        .to_string(),
+                    );
                 }
                 if is_starts_record {
-                    context_facts.push(format!(
-                        "{} é o piloto mais experiente da categoria — ninguém largou mais vezes ({} provas).",
-                        name, career.starts
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.record_starts",
+                            name = name.as_str(),
+                            starts = career.starts
+                        )
+                        .to_string(),
+                    );
                 }
 
                 // Marcos de número redondo — só vencedor e jogador, e só se fez hoje.
@@ -3875,25 +3887,37 @@ fn persist_race_news(
                     });
                     if is_winner && !is_wins_record && [5, 10, 25, 50, 75, 100].contains(&career.wins)
                     {
-                        context_facts.push(format!(
-                            "Esta foi a {}ª vitória de {} na categoria.",
-                            career.wins, name
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.nth_win",
+                                n = career.wins,
+                                name = name.as_str()
+                            )
+                            .to_string(),
+                        );
                     }
                     if podium_today
                         && !is_podiums_record
                         && [25, 50, 100, 150].contains(&career.podiums)
                     {
-                        context_facts.push(format!(
-                            "{} chegou ao seu {}º pódio na categoria.",
-                            name, career.podiums
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.nth_podium",
+                                name = name.as_str(),
+                                n = career.podiums
+                            )
+                            .to_string(),
+                        );
                     }
                     if !is_starts_record && [50, 100, 150, 200, 250].contains(&career.starts) {
-                        context_facts.push(format!(
-                            "Esta foi a {}ª largada de {} na categoria.",
-                            career.starts, name
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.nth_start",
+                                n = career.starts,
+                                name = name.as_str()
+                            )
+                            .to_string(),
+                        );
                     }
                 }
             }
@@ -3943,9 +3967,15 @@ fn persist_race_news(
                 } else {
                     (&mate.pilot_name, &mate.team_name, &me.pilot_name)
                 };
-                context_facts.push(format!(
-                    "Na disputa interna da {team}, {ahead} levou a melhor sobre o companheiro de equipe {behind}."
-                ));
+                context_facts.push(
+                    rust_i18n::t!(
+                        "briefing.ctx.internal_duel",
+                        team = team.as_str(),
+                        ahead = ahead.as_str(),
+                        behind = behind.as_str()
+                    )
+                    .to_string(),
+                );
             }
         }
 
@@ -3970,20 +4000,14 @@ fn persist_race_news(
 
         // Reta final / próxima é a decisiva.
         match races_left {
-            0 => context_facts.push(
-                "Esta foi a última etapa da temporada — o campeonato está decidido.".to_string(),
-            ),
-            1 => context_facts.push(
-                "Resta apenas uma etapa: a próxima fecha a temporada e vale o título.".to_string(),
-            ),
-            2 => context_facts
-                .push("Faltam só duas etapas para o fim da temporada.".to_string()),
+            0 => context_facts.push(rust_i18n::t!("briefing.ctx.season_last").to_string()),
+            1 => context_facts.push(rust_i18n::t!("briefing.ctx.season_one_left").to_string()),
+            2 => context_facts.push(rust_i18n::t!("briefing.ctx.season_two_left").to_string()),
             // "Reta final" só faz sentido quando a temporada de fato já passou da
             // metade. Numa temporada curta (ex.: 5 etapas), 4 restantes significa
             // que só a 1ª rodada foi disputada — não é reta final.
-            n if n <= 4 && round * 2 > total_rodadas => context_facts.push(format!(
-                "A temporada entra na reta final, com {n} etapas restantes."
-            )),
+            n if n <= 4 && round * 2 > total_rodadas => context_facts
+                .push(rust_i18n::t!("briefing.ctx.season_final_stretch", n = n).to_string()),
             _ => {}
         }
 
@@ -3998,17 +4022,28 @@ fn persist_race_news(
                 if st.len() >= 2 {
                     let gap12 = (st[0].points - st[1].points).round();
                     if gap12 <= win_value {
-                        context_facts.push(format!(
-                            "Na briga pelo título, {} lidera com apenas {} pontos de vantagem sobre {}.",
-                            st[0].pilot_name, gap12 as i32, st[1].pilot_name
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.title_fight",
+                                leader = st[0].pilot_name.as_str(),
+                                gap = gap12 as i32,
+                                second = st[1].pilot_name.as_str()
+                            )
+                            .to_string(),
+                        );
                     } else if st.len() >= 3 {
                         let gap23 = (st[1].points - st[2].points).round();
                         if gap23 <= win_value {
-                            context_facts.push(format!(
-                                "Com a liderança de {} já encaminhada, a disputa quente é pelo vice: {} e {} estão separados por apenas {} pontos.",
-                                st[0].pilot_name, st[1].pilot_name, st[2].pilot_name, gap23 as i32
-                            ));
+                            context_facts.push(
+                                rust_i18n::t!(
+                                    "briefing.ctx.vice_fight",
+                                    leader = st[0].pilot_name.as_str(),
+                                    second = st[1].pilot_name.as_str(),
+                                    third = st[2].pilot_name.as_str(),
+                                    gap = gap23 as i32
+                                )
+                                .to_string(),
+                            );
                         }
                     }
                 }
@@ -4023,17 +4058,27 @@ fn persist_race_news(
                 if ts.len() >= 2 {
                     let gap12 = (ts[0].points - ts[1].points).round();
                     if gap12 <= win_value {
-                        context_facts.push(format!(
-                            "No campeonato de equipes, {} e {} brigam pela ponta, separadas por apenas {} pontos.",
-                            ts[0].team_name, ts[1].team_name, gap12 as i32
-                        ));
+                        context_facts.push(
+                            rust_i18n::t!(
+                                "briefing.ctx.teams_top_fight",
+                                a = ts[0].team_name.as_str(),
+                                b = ts[1].team_name.as_str(),
+                                gap = gap12 as i32
+                            )
+                            .to_string(),
+                        );
                     } else if ts.len() >= 3 {
                         let gap23 = (ts[1].points - ts[2].points).round();
                         if gap23 <= win_value {
-                            context_facts.push(format!(
-                                "Entre as equipes, {} e {} disputam o vice no campeonato de construtores, com apenas {} pontos de diferença.",
-                                ts[1].team_name, ts[2].team_name, gap23 as i32
-                            ));
+                            context_facts.push(
+                                rust_i18n::t!(
+                                    "briefing.ctx.teams_vice_fight",
+                                    a = ts[1].team_name.as_str(),
+                                    b = ts[2].team_name.as_str(),
+                                    gap = gap23 as i32
+                                )
+                                .to_string(),
+                            );
                         }
                     }
                 }
@@ -4111,10 +4156,17 @@ fn persist_race_news(
                     .find(|c| c.is_player)
                     .or_else(|| candidates.iter().max_by_key(|c| c.new_pos - c.old_pos))
                 {
-                    context_facts.push(format!(
-                        "{} deixou a {} pela {} nesta temporada, mas a aposta saiu cara: a equipe que abandonou fechou o campeonato de construtores em {}º, à frente da {}, que terminou só em {}º.",
-                        r.pilot_name, r.old_team, r.new_team, r.old_pos, r.new_team, r.new_pos
-                    ));
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.switch_regret",
+                            pilot = r.pilot_name.as_str(),
+                            old_team = r.old_team.as_str(),
+                            new_team = r.new_team.as_str(),
+                            old_pos = r.old_pos,
+                            new_pos = r.new_pos
+                        )
+                        .to_string(),
+                    );
                 }
             }
         }
@@ -4175,16 +4227,23 @@ fn persist_race_news(
                     let part_name = crate::car::PartType::from_str(&b.part)
                         .map(|pt| pt.display_name(category_id).to_string())
                         .unwrap_or_else(|| b.part.clone());
-                    let grav = if b.severity == "heavy" { "grave" } else { "leve" };
-                    context_facts.push(format!(
-                        "{} ({}) perdeu {}s nos boxes por problema em {}: {} (problema {})",
-                        dr.pilot_name,
-                        dr.team_name,
-                        b.penalty_secs.unwrap_or(0),
-                        part_name,
-                        b.label,
-                        grav
-                    ));
+                    let grav = if b.severity == "heavy" {
+                        rust_i18n::t!("briefing.ctx.severity_heavy")
+                    } else {
+                        rust_i18n::t!("briefing.ctx.severity_light")
+                    };
+                    context_facts.push(
+                        rust_i18n::t!(
+                            "briefing.ctx.breakdown_pit",
+                            name = dr.pilot_name.as_str(),
+                            team = dr.team_name.as_str(),
+                            secs = b.penalty_secs.unwrap_or(0),
+                            part = part_name.as_str(),
+                            label = b.label.as_str(),
+                            severity = grav
+                        )
+                        .to_string(),
+                    );
                     count += 1;
                 }
             }
