@@ -31,6 +31,15 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # do config.language no boot e na troca em Settings. Ver docs/i18n-translation-spec.md.
 rust-i18n = "3"
 
+# Testes que dependem do LOCALE global (prosa i18n do backend) precisam rodar
+# serializados: o locale do rust-i18n é um estado de processo. `#[serial]` garante
+# que o i18n_smoke (que troca pra en-US) não corra junto de testes que asseveram
+# prosa PT. Ver docs/i18n-translation-spec.md (Fase 3, padrão de teste).
+[dev-dependencies]
+serial_test = "3"
+# Só nos testes: lê os YAML de locale p/ o guard de paridade (chaves pt-BR == en-US).
+serde_yaml = "0.9"
+
 # Teste do SDK do iRacing (binding manual da shared memory). Só em Windows.
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
@@ -47,3 +56,15 @@ winapi = { version = "0.3", features = [
     "shlobj",
     "shtypes",
 ] }
+
+# Otimização do binário de release (o que vai pro jogador).
+# Sem este bloco, o loop.exe embarca símbolos de debug (~115 MB).
+# strip: remove símbolos (maior corte, sem custo de runtime).
+# lto + codegen-units=1: enxugam o código (build de release mais lento).
+# opt-level="s": prioriza tamanho. panic="abort": remove código de unwinding.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+panic = "abort"

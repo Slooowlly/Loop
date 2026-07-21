@@ -105,11 +105,15 @@ pub fn insert_episode(conn: &Connection, ep: &RivalryEpisode) -> Result<(), DbEr
 pub fn rivalry_label(first: &RivalryEpisode) -> String {
     let track = first.track_name.trim();
     match first.interaction.as_str() {
-        "colisao" if !track.is_empty() => format!("A Revanche de {track}"),
-        "colisao" => "A Revanche".to_string(),
-        "campeonato" => "A Disputa pelo Título".to_string(),
-        _ if !track.is_empty() => format!("O Clássico de {track}"),
-        _ => "Rivalidade de Pista".to_string(),
+        "colisao" if !track.is_empty() => {
+            rust_i18n::t!("rivalry.label.rematch_track", track = track).to_string()
+        }
+        "colisao" => rust_i18n::t!("rivalry.label.rematch").to_string(),
+        "campeonato" => rust_i18n::t!("rivalry.label.title_fight").to_string(),
+        _ if !track.is_empty() => {
+            rust_i18n::t!("rivalry.label.classic_track", track = track).to_string()
+        }
+        _ => rust_i18n::t!("rivalry.label.track_rivalry").to_string(),
     }
 }
 

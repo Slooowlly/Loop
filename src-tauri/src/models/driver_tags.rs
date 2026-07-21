@@ -12,7 +12,9 @@ pub enum TagLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttributeTag {
     pub attribute_name: &'static str,
-    pub tag_text: &'static str,
+    // Texto de EXIBIÇÃO (i18n, runtime) → String, não &'static. A LÓGICA deve usar
+    // `level` (locale-independente), nunca comparar `tag_text`.
+    pub tag_text: String,
     pub level: TagLevel,
 }
 
@@ -40,123 +42,32 @@ pub(crate) fn get_attribute_tag(attribute_name: &'static str, value: f64) -> Opt
     })
 }
 
-fn tag_text_for(attribute_name: &str, index: usize) -> Option<&'static str> {
-    let tags = match attribute_name {
-        "skill" => ["Lento", "Abaixo do Ritmo", "Veloz", "Super Veloz", "Alien"],
-        "consistencia" => [
-            "Totalmente Imprevisível",
-            "Inconsistente",
-            "Consistente",
-            "Muito Consistente",
-            "Máquina de Regularidade",
-        ],
-        "racecraft" => [
-            "Perigo nas Rodas",
-            "Roda-a-roda Fraco",
-            "Bom Disputador",
-            "Mestre em Disputas",
-            "Racecraft de Elite",
-        ],
-        "defesa" => [
-            "Porta Aberta",
-            "Defesa Fraca",
-            "Bom Defensor",
-            "Muro na Pista",
-            "Inultrapassável",
-        ],
-        "ritmo_classificacao" => [
-            "Péssimo em Quali",
-            "Lento na Classificação",
-            "Forte na Classificação",
-            "Especialista em Quali",
-            "Rei da Pole",
-        ],
-        "gestao_pneus" => [
-            "Destruidor de Pneus",
-            "Gestão de Pneus Fraca",
-            "Bom com Pneus",
-            "Excelente Gestão",
-            "Smooth Operator",
-        ],
-        "habilidade_largada" => [
-            "Péssimo nas Largadas",
-            "Ruim de Largada",
-            "Boas Largadas",
-            "Excelente nas Largadas",
-            "Foguete na Largada",
-        ],
-        "adaptabilidade" => [
-            "Inflexível",
-            "Lento para Adaptar",
-            "Adaptável",
-            "Muito Adaptável",
-            "Camaleão",
-        ],
-        "fator_chuva" => [
-            "Terrível na Chuva",
-            "Dificuldade na Chuva",
-            "Bom na Chuva",
-            "Especialista de Chuva",
-            "Mestre da Chuva",
-        ],
-        "fitness" => [
-            "Doente",
-            "Fora de Forma",
-            "Boa Forma Física",
-            "Atleta",
-            "Forma Física de Elite",
-        ],
-        "experiencia" => [
-            "Calouro",
-            "Inexperiente",
-            "Experiente",
-            "Muito Experiente",
-            "Veterano Sábio",
-        ],
-        "desenvolvimento" => [
-            "Estagnado",
-            "Desenvolvimento Lento",
-            "Em Ascensão",
-            "Evolução Rápida",
-            "Prodígio",
-        ],
-        "aggression" => [
-            "Passivo Demais",
-            "Muito Cauteloso",
-            "Agressivo",
-            "Muito Agressivo",
-            "Kamikaze",
-        ],
-        "smoothness" => [
-            "Pilotagem Bruta",
-            "Pouco Suave",
-            "Pilotagem Suave",
-            "Muito Suave",
-            "Pilotagem de Seda",
-        ],
-        "midia" => [
-            "Invisível",
-            "Discreto",
-            "Carismático",
-            "Queridinho da Mídia",
-            "Estrela",
-        ],
-        "mentalidade" => [
-            "Frágil sob Pressão",
-            "Mentalidade Fraca",
-            "Boa Mentalidade",
-            "Mentalidade de Campeão",
-            "Gelo nas Veias",
-        ],
-        "confianca" => [
-            "Sem Confiança",
-            "Inseguro",
-            "Confiante",
-            "Muito Confiante",
-            "Inabalável",
-        ],
-        _ => return None,
-    };
+// Atributos que geram tag. O texto vem do i18n (`driver_tags.<attr>.<index>`),
+// resolvido em runtime no idioma ativo.
+const TAGGED_ATTRS: &[&str] = &[
+    "skill",
+    "consistencia",
+    "racecraft",
+    "defesa",
+    "ritmo_classificacao",
+    "gestao_pneus",
+    "habilidade_largada",
+    "adaptabilidade",
+    "fator_chuva",
+    "fitness",
+    "experiencia",
+    "desenvolvimento",
+    "aggression",
+    "smoothness",
+    "midia",
+    "mentalidade",
+    "confianca",
+];
 
-    Some(tags[index])
+fn tag_text_for(attribute_name: &str, index: usize) -> Option<String> {
+    if !TAGGED_ATTRS.contains(&attribute_name) {
+        return None;
+    }
+    let key = format!("driver_tags.{attribute_name}.{index}");
+    Some(rust_i18n::t!(&key).to_string())
 }

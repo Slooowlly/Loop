@@ -3012,6 +3012,15 @@ pub struct PoachBid {
     pub label: String,
 }
 
+/// Rótulo de um lance do leilão (display): 1º = "abertura", seguintes = "lance N".
+fn bid_label(i: usize) -> String {
+    if i == 0 {
+        rust_i18n::t!("market.bid.opening").to_string()
+    } else {
+        rust_i18n::t!("market.bid.nth", n = i).to_string()
+    }
+}
+
 /// Uma proposta de quebra de contrato dirigida ao JOGADOR — carrega os ids p/ a
 /// resolução E os campos de exibição p/ a tela do leilão. Persistida no plano da
 /// pré-temporada (uma por janela, no máx), consumida ao decidir.
@@ -3106,11 +3115,7 @@ fn build_player_display_bids(
             team_name: if is_poacher { suitor_name } else { holder_name }.to_string(),
             is_poacher,
             salary: salary.round(),
-            label: if i == 0 {
-                "abertura".to_string()
-            } else {
-                format!("lance {i}")
-            },
+            label: bid_label(i),
         })
         .collect()
 }
@@ -3304,11 +3309,7 @@ fn compute_player_poach_offer_inner(
             },
             is_poacher: b.team_id == suitor.id,
             salary: b.salary,
-            label: if i == 0 {
-                "abertura".to_string()
-            } else {
-                format!("lance {i}")
-            },
+            label: bid_label(i),
         })
         .collect();
     // Garante uma disputa com fôlego pra tela do jogador: quando os DOIS lados
@@ -3372,7 +3373,7 @@ pub(crate) fn resolve_player_poach(
             left: false,
             salary: offer.current_salary,
             team_name: offer.current_team_name.clone(),
-            note: "A oferta expirou.".to_string(),
+            note: rust_i18n::t!("market.poach_outcome.expired").to_string(),
         });
     }
     let current = current.unwrap();
@@ -3388,7 +3389,8 @@ pub(crate) fn resolve_player_poach(
             left: false,
             salary: offer.holder_best.max(current.salario_anual),
             team_name: offer.current_team_name.clone(),
-            note: format!("Você ficou na {}.", offer.current_team_name),
+            note: rust_i18n::t!("market.poach_outcome.stayed", team = offer.current_team_name.as_str())
+                .to_string(),
         });
     }
 
@@ -3401,7 +3403,7 @@ pub(crate) fn resolve_player_poach(
             left: false,
             salary: current.salario_anual,
             team_name: offer.current_team_name.clone(),
-            note: "O pretendente não está mais disponível.".to_string(),
+            note: rust_i18n::t!("market.poach_outcome.unavailable").to_string(),
         });
     };
 
@@ -3488,7 +3490,7 @@ pub(crate) fn resolve_player_poach(
         left: true,
         salary: offer.poacher_best,
         team_name: suitor.nome.clone(),
-        note: format!("Você assinou com a {}.", suitor.nome),
+        note: rust_i18n::t!("market.poach_outcome.signed", team = suitor.nome.as_str()).to_string(),
     })
 }
 
@@ -4467,6 +4469,30 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
+
+    /// Guarda a i18n do mercado nos dois locales: rótulos de lance + interpolação das
+    /// notas/eventos (sem `%{...}` cru). `#[serial]` (troca o locale global).
+    #[test]
+    #[serial_test::serial]
+    fn i18n_do_mercado_resolve_nos_dois_locales() {
+        rust_i18n::set_locale("pt-BR");
+        assert_eq!(bid_label(0), "abertura");
+        assert_eq!(bid_label(3), "lance 3");
+        let stayed = rust_i18n::t!("market.poach_outcome.stayed", team = "Alfa").to_string();
+        assert!(stayed.contains("Alfa") && !stayed.contains("%{"), "{stayed}");
+        let dep = rust_i18n::t!(
+            "market.event.departure_headline", driver = "Ana", team = "Beta"
+        )
+        .to_string();
+        assert!(dep.contains("Ana") && dep.contains("Beta") && !dep.contains("%{"), "{dep}");
+
+        rust_i18n::set_locale("en-US");
+        assert_eq!(bid_label(0), "opening");
+        assert_eq!(bid_label(3), "bid 3");
+        let deal = rust_i18n::t!("market.event.deal", category = "GT3").to_string();
+        assert!(deal.contains("GT3") && !deal.contains("%{"), "{deal}");
+        rust_i18n::set_locale("pt-BR"); // restaura
+    }
 
     #[test]
     fn feeder_promotion_prefers_talent_over_mediocre_champion() {

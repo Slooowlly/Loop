@@ -2,3 +2,346 @@
 # (deterministic text + AI "facts"). See docs/i18n-translation-spec.md.
 diagnostics:
   ping: "pong-en"
+
+# Driver attribute tags (models/driver_tags.rs). 17 attributes × 5 levels.
+# Index: 0=SevereFlaw, 1=Flaw, 2=Quality, 3=HighQuality, 4=Elite.
+driver_tags:
+  skill:
+    "0": "Slow"
+    "1": "Off the Pace"
+    "2": "Fast"
+    "3": "Very Fast"
+    "4": "Alien"
+  consistencia:
+    "0": "Totally Unpredictable"
+    "1": "Inconsistent"
+    "2": "Consistent"
+    "3": "Very Consistent"
+    "4": "Metronome"
+  racecraft:
+    "0": "Danger on Wheels"
+    "1": "Weak Wheel-to-Wheel"
+    "2": "Good Racer"
+    "3": "Duel Master"
+    "4": "Elite Racecraft"
+  defesa:
+    "0": "Open Door"
+    "1": "Weak Defense"
+    "2": "Good Defender"
+    "3": "Wall on Track"
+    "4": "Unpassable"
+  ritmo_classificacao:
+    "0": "Awful in Quali"
+    "1": "Slow in Qualifying"
+    "2": "Strong in Qualifying"
+    "3": "Quali Specialist"
+    "4": "Pole King"
+  gestao_pneus:
+    "0": "Tire Destroyer"
+    "1": "Weak Tire Management"
+    "2": "Good with Tires"
+    "3": "Excellent Management"
+    "4": "Smooth Operator"
+  habilidade_largada:
+    "0": "Awful at Starts"
+    "1": "Poor Starter"
+    "2": "Good Starts"
+    "3": "Excellent at Starts"
+    "4": "Rocket at the Start"
+  adaptabilidade:
+    "0": "Inflexible"
+    "1": "Slow to Adapt"
+    "2": "Adaptable"
+    "3": "Very Adaptable"
+    "4": "Chameleon"
+  fator_chuva:
+    "0": "Terrible in the Rain"
+    "1": "Struggles in the Rain"
+    "2": "Good in the Rain"
+    "3": "Rain Specialist"
+    "4": "Rain Master"
+  fitness:
+    "0": "Sickly"
+    "1": "Out of Shape"
+    "2": "Good Fitness"
+    "3": "Athlete"
+    "4": "Elite Fitness"
+  experiencia:
+    "0": "Rookie"
+    "1": "Inexperienced"
+    "2": "Experienced"
+    "3": "Very Experienced"
+    "4": "Wise Veteran"
+  desenvolvimento:
+    "0": "Stagnant"
+    "1": "Slow Development"
+    "2": "On the Rise"
+    "3": "Fast Progress"
+    "4": "Prodigy"
+  aggression:
+    "0": "Too Passive"
+    "1": "Very Cautious"
+    "2": "Aggressive"
+    "3": "Very Aggressive"
+    "4": "Kamikaze"
+  smoothness:
+    "0": "Rough Driving"
+    "1": "Not Smooth"
+    "2": "Smooth Driving"
+    "3": "Very Smooth"
+    "4": "Silky Smooth"
+  midia:
+    "0": "Invisible"
+    "1": "Low-key"
+    "2": "Charismatic"
+    "3": "Media Darling"
+    "4": "Star"
+  mentalidade:
+    "0": "Fragile Under Pressure"
+    "1": "Weak Mentality"
+    "2": "Good Mentality"
+    "3": "Champion Mentality"
+    "4": "Ice in the Veins"
+  confianca:
+    "0": "No Confidence"
+    "1": "Insecure"
+    "2": "Confident"
+    "3": "Very Confident"
+    "4": "Unshakable"
+
+# Post-race brain (race_eval.rs): assessment, headline and package read.
+# %{...} = rust-i18n interpolation. `assessment` is the already-translated label
+# embedded in the headline. Ordinals arrive as "P8" (the `ord` helper).
+race_eval:
+  assessment:
+    muito_acima: "well above expectations"
+    acima: "above expectations"
+    dentro: "in line with expectations"
+    abaixo: "below expectations"
+    muito_abaixo: "well below expectations"
+  headline:
+    dnf: "DNF at %{pos}. A weekend to forget — the priority is to bring the car home in one piece next time."
+    recovery: "Strong recovery drive: started %{grid} and finished %{finish}, gaining %{gained} positions — %{assessment}."
+    solid: "Solid result, %{assessment}: %{grid} → %{finish}, better than the race target called for."
+    dentro: "A race in line with expectations: %{grid} → %{finish}, delivering the realistic target for the day."
+    below_lost: "Result %{assessment}: started %{grid} and lost positions down to %{finish}. There was more on the table."
+    below: "Result %{assessment}: %{grid} → %{finish} fell short of the race target."
+  team_read:
+    dnf: "The DNF masked what the package had to offer this weekend."
+    above: "You delivered ABOVE what the car promised — the driving made the difference."
+    limit: "You delivered near the package's ceiling — you extracted what the car had."
+    below: "The package had more to give; there was pace left in the garage that never turned into positions."
+
+# "From the World of the Grid" footer (commands/world_footer.rs). MAGAZINE VOICE (3rd person).
+# `tag` = themed label shown; `tone`/`kind` stay out (CSS/state tokens).
+# `metric_noun` singular/plural per record metric (%{ord} = pre-formatted ordinal).
+world_footer:
+  tag:
+    market: "MARKET"
+    finance: "FINANCES"
+    backstage: "BACKSTAGE"
+    record: "RECORD"
+  metric_noun:
+    wins:
+      one: "win"
+      other: "wins"
+    podiums:
+      one: "podium"
+      other: "podiums"
+    poles:
+      one: "pole"
+      other: "poles"
+    titles:
+      one: "title"
+      other: "titles"
+    starts:
+      one: "start"
+      other: "starts"
+  team_state:
+    new_board: "A shake-up behind the scenes: %{team} has gone through a change of command after several tough years."
+    debt: "Word in the paddock is that %{team} is piling up debt and struggling to close out the season's books."
+    tight_budget: "%{team} is going through a delicate financial stretch and running right at the edge of its budget this year."
+    bad_mood: "The mood inside %{team} is heavy: results below expectations have rattled the garage."
+  teammate:
+    team_crisis: "%{mate} is having a rough year: %{team}, their current squad, is facing financial trouble."
+  record_broken:
+    lap_record: "%{name} set the fastest lap in history at %{context}: %{lap} (previous record: %{prev})."
+    comeback: "%{name} pulled off the greatest comeback in category history: up %{value} positions in a single race."
+    season_wins_prev: "%{name} reached %{value} wins in a single season — a new category record, beating the previous mark of %{prev}."
+    season_wins: "%{name} reached %{value} wins in a single season — a category record."
+    track_wins: "%{name} is the all-time winningest driver at %{context}, now with %{value} wins at the circuit."
+    win_streak: "%{name} won %{value} races in a row — the category's streak record."
+    constructor_titles: "%{name} clinched its %{ord} constructors' title — a category record."
+    team_wins: "%{name} became the winningest team in category history, with %{value} wins."
+    one_two: "%{name} scored its %{ord} one-two finish — a category record."
+    youngest_winner: "%{name}, at %{value}, became the youngest winner in category history."
+    oldest_winner: "%{name}, at %{value}, became the oldest winner in category history."
+    youngest_champion: "%{name} was crowned champion at %{value} — the youngest in category history."
+    most_chaotic_race: "%{name} lived through the most chaotic race in category history: %{value} retirements."
+    drought_broken: "%{name} won again after %{value} seasons of drought — the longest ever broken in the category."
+    closest_championship_tie: "%{name} took the title in the closest finish in category history — level on points, decided on the tiebreaker."
+    closest_championship: "%{name} took the title in the closest finish in category history: %{value} points apart."
+    biggest_blowout: "%{name} dominated the most lopsided season in category history: %{value} points clear of the runner-up."
+    longest_pairing: "%{name} — %{value} seasons together, the longest-running partnership in category history."
+    most_starts_no_win: "%{name} passed %{context} as the driver with the most starts without a win in the category: %{value}."
+    most_career_dnfs: "%{name} passed %{context} and now has the most retirements in category history: %{value} DNFs."
+    most_poles_no_title: "%{name} passed %{context}: %{value} poles without ever being champion — a category record."
+    most_career_points: "%{name} passed %{context} to become the all-time points leader in category history."
+    generic_prev: "%{name} made history: broke the category's %{noun} record, now at %{value} (the previous mark was %{prev})."
+    generic: "%{name} made history by setting the category's new %{noun} record: %{value}."
+  record_watch:
+    tied: "%{name} matched the category's all-time %{noun} record: %{value}, %{holder}'s mark."
+    approaching: "%{name} is %{gap} %{noun} away from matching the category's all-time record (%{value}, held by %{holder})."
+  star:
+    idol: "%{name} is the category's biggest crowd-puller: wherever they race, the grandstands fill up and sponsors line up."
+    star: "%{name} has become one of the category's big names and draws crowds to the circuits — guaranteed attendance wherever they compete."
+
+# Market: player poaching auction (pipeline.rs) + transfer-window events (preseason.rs).
+# `movement_kind`/`event_type` stay out (machine tokens).
+market:
+  bid:
+    opening: "opening"
+    nth: "bid %{n}"
+  poach_outcome:
+    expired: "The offer expired."
+    stayed: "You stayed at %{team}."
+    unavailable: "The suitor is no longer available."
+    signed: "You signed with %{team}."
+  event:
+    deal: "Deal in %{category}."
+    window_closed_headline: "Transfer window closed"
+    window_closed_desc: "The market is closed."
+    departure_headline: "%{driver} leaves %{team}"
+    contract_ended: "Contract ended without renewal."
+
+# Rivalries (db/queries/rivalry_episodes.rs). Deterministic rivalry name (display + AI
+# fact), derived from the first chapter. `interaction` is a token, stays out.
+rivalry:
+  label:
+    rematch_track: "The %{track} Rematch"
+    rematch: "The Rematch"
+    title_fight: "The Title Fight"
+    classic_track: "The %{track} Classic"
+    track_rivalry: "Track Rivalry"
+
+# Driver profile (commands/career_detail.rs): personality + career milestones
+# (DriverDetailModal display). Personality `tipo` here is DISPLAY (decoupled from the
+# serialization token in enums.rs); status/milestone-type stay as tokens.
+career:
+  personality:
+    ambicioso:
+      name: "Ambitious"
+      desc: "Always wants to move up a category"
+    consolidador:
+      name: "Consolidator"
+      desc: "Prefers to be the best where they are"
+    mercenario:
+      name: "Mercenary"
+      desc: "Goes where the money is"
+    leal:
+      name: "Loyal"
+      desc: "Prefers to stay with the current team"
+    cabeca_quente:
+      name: "Hothead"
+      desc: "Boils over when losing positions"
+    sangue_frio:
+      name: "Cool-Headed"
+      desc: "Stays calm under pressure"
+    apostador:
+      name: "Gambler"
+      desc: "Pulls off risky moves"
+    calculista:
+      name: "Calculating"
+      desc: "Prefers consistency over brilliance"
+    showman:
+      name: "Showman"
+      desc: "Lives for the spectacle"
+    team_player:
+      name: "Team Player"
+      desc: "Team first"
+    solitario:
+      name: "Loner"
+      desc: "Races for themselves"
+    estudioso:
+      name: "Studious"
+      desc: "Always wants to improve"
+  milestone:
+    debut_title: "Debut"
+    debut_desc: "Started their career in %{year}"
+    titles_title: "Titles"
+    titles_desc_one: "Already won 1 title"
+    titles_desc_other: "Already won %{count} titles"
+    current_title: "Right Now"
+    current_desc: "Currently competing in %{category}"
+
+# Driver read (career_detail.rs): levels (fame/charisma/technical), stardom read,
+# delivery vs package, and season verdict. `tom`/`tendencia` are tokens.
+driver_read:
+  fama:
+    anonimo: "Unknown"
+    discreto: "Low-Key"
+    conhecido: "Known"
+    nome_forte: "Big Name"
+    estrela: "Star"
+    idolo: "Idol"
+  carisma:
+    apagado: "Dull"
+    reservado: "Reserved"
+    cativante: "Engaging"
+    magnetico: "Magnetic"
+    carismatico: "Charismatic"
+    idolo_natural: "Natural Idol"
+  technical:
+    muito_fraco: "Very Weak"
+    fraco: "Weak"
+    abaixo: "Below Par"
+    instavel: "Unstable"
+    competente: "Competent"
+    forte: "Strong"
+    muito_forte: "Very Strong"
+    elite: "Elite"
+  stardom:
+    idol_consolidated: "An established idol — the crowd responds to every appearance and the fame holds through the dips."
+    powder_keg: "Easy to like, just needs a stage: one good run and the fame takes off — and it's slow to fade."
+    volatile_spotlight: "Fame built on results, not charisma — a volatile spotlight that bleeds fast in a drought."
+    off_radar: "Off the public's radar, and without the charisma to turn it around quickly."
+  delivery:
+    above: "Delivering above the current package."
+    below: "Delivering below what the package should allow."
+    within: "Delivering in line with the package."
+    no_context: "Not enough context to compare against the package."
+  verdict:
+    rookie: "Rookie"
+    excellent: "Excellent"
+    good: "Good"
+    fair: "Fair"
+    critical: "Critical"
+    bad: "Poor"
+    evaluating: "Under Review"
+
+# Team history dossier (commands/career.rs): ownership events + financial management.
+# `event_type`/`financial_state` (key) are tokens; the labels are display.
+team_dossier:
+  ownership:
+    sale_title: "New ownership"
+    change_title: "Management change"
+    financial_note: "%{cleared} of debt cleared · %{injected} injected"
+  state:
+    healthy: "Healthy"
+    stable: "Stable"
+    pressured: "Under pressure"
+    critical: "Critical"
+    monitored: "Monitored"
+  management:
+    worst_crisis_debt: "%{debt} in debt"
+    worst_crisis_none: "No real debt on record"
+    healthy_years: "%{count} seasons"
+    efficiency: "%{value} pts/season"
+    biggest_investment: "Level %{level} - current technical package"
+    summary: "%{state}: operating with %{cash} in cash, %{debt} in debt and %{points} real points in the sample."
+    peak_cash_detail: "The most financial breathing room on record in the team's current snapshot."
+    worst_crisis_detail_debt: "Real liabilities still weigh on operations in the current cycle."
+    worst_crisis_detail_none: "No debt crisis recorded in the available real sample."
+    healthy_years_detail: "Real seasons in which the team operated without relevant debt."
+    efficiency_detail: "%{points} real points in the sample; sporting average of %{avg} per season."
+    investment_detail: "A read on the current technical package from the car's performance."

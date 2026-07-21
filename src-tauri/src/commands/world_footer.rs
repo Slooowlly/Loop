@@ -88,38 +88,27 @@ fn team_state_note(conn: &rusqlite::Connection, team_id: &str, categoria: &str) 
     let in_crisis = matches!(team.financial_state.as_str(), "crisis" | "collapse") || in_debt;
     let bad_mood = team.morale < 0.85 || team.hierarquia_tensao > 55.0;
 
-    let (kind, tag, tone, text) = if ownership_sale {
+    let nome = team.nome.as_str();
+    let (kind, tag_id, tone, text) = if ownership_sale {
         (
             "nova_diretoria",
-            "MERCADO",
+            "market",
             "reforma",
-            format!(
-                "Reviravolta nos bastidores: a {} passou por uma troca de comando depois de anos difíceis.",
-                team.nome
-            ),
+            rust_i18n::t!("world_footer.team_state.new_board", team = nome).to_string(),
         )
     } else if in_crisis {
         let text = if team.financial_state == "collapse" || in_debt {
-            format!(
-                "Rumores no paddock dão conta de que a {} acumula dívidas e luta para fechar as contas da temporada.",
-                team.nome
-            )
+            rust_i18n::t!("world_footer.team_state.debt", team = nome).to_string()
         } else {
-            format!(
-                "A {} atravessa um momento financeiro delicado e opera no limite do orçamento neste ano.",
-                team.nome
-            )
+            rust_i18n::t!("world_footer.team_state.tight_budget", team = nome).to_string()
         };
-        ("crise_financeira", "FINANÇAS", "crise", text)
+        ("crise_financeira", "finance", "crise", text)
     } else if bad_mood {
         (
             "clima_pesado",
-            "BASTIDORES",
+            "backstage",
             "alerta",
-            format!(
-                "O ambiente interno da {} pesa: o rendimento abaixo do esperado abalou o vestiário.",
-                team.nome
-            ),
+            rust_i18n::t!("world_footer.team_state.bad_mood", team = nome).to_string(),
         )
     } else {
         return None;
@@ -127,7 +116,7 @@ fn team_state_note(conn: &rusqlite::Connection, team_id: &str, categoria: &str) 
 
     Some(WorldNote {
         id: format!("team:{}:{}", team.id, kind),
-        tag: tag.to_string(),
+        tag: tag_label(tag_id),
         subject: team.nome,
         kind: kind.to_string(),
         tone: tone.to_string(),
@@ -165,25 +154,59 @@ fn teammate_news_note(
 
     Some(WorldNote {
         id: format!("mate:{mate_id}"),
-        tag: "BASTIDORES".to_string(),
+        tag: tag_label("backstage"),
         subject: mate.nome.clone(),
         kind: "piloto_time_crise".to_string(),
         tone: "alerta".to_string(),
-        text: format!(
-            "{} vive um ano conturbado: a {}, sua equipe atual, enfrenta dificuldades financeiras.",
-            mate.nome, contract.equipe_nome
-        ),
+        text: rust_i18n::t!(
+            "world_footer.teammate.team_crisis",
+            mate = mate.nome.as_str(),
+            team = contract.equipe_nome.as_str()
+        )
+        .to_string(),
     })
 }
 
-/// Substantivo de uma métrica de recorde no plural (para os textos).
-fn metric_noun_plural(metric: &str) -> &'static str {
+/// Substantivo de uma métrica de recorde, no singular/plural conforme `count`
+/// (i18n `world_footer.metric_noun.<id>.{one|other}`).
+fn metric_noun(id: &str, count: i32) -> String {
+    let form = if count == 1 { "one" } else { "other" };
+    let key = format!("world_footer.metric_noun.{id}.{form}");
+    rust_i18n::t!(&key).to_string()
+}
+
+/// Mapeia a métrica persistida para o id de substantivo do recorde.
+fn metric_noun_id(metric: &str) -> &'static str {
     match metric {
-        "wins" => "vitórias",
-        "podiums" => "pódios",
+        "wins" => "wins",
+        "podiums" => "podiums",
         "poles" => "poles",
-        "titles" => "títulos",
-        _ => "largadas",
+        "titles" => "titles",
+        _ => "starts",
+    }
+}
+
+/// Rótulo temático da revista (i18n `world_footer.tag.<id>`).
+fn tag_label(id: &str) -> String {
+    let key = format!("world_footer.tag.{id}");
+    rust_i18n::t!(&key).to_string()
+}
+
+/// Ordinal formatado no locale ativo. PT é gendered ("2º"/"2ª"); EN é "2nd".
+/// Só cobre pt/en por ora (record news); estender ao adicionar locales.
+fn ord_label(n: i32, feminine: bool) -> String {
+    let loc = rust_i18n::locale();
+    if loc.starts_with("en") {
+        let suffix = match (n % 100, n % 10) {
+            (11..=13, _) => "th",
+            (_, 1) => "st",
+            (_, 2) => "nd",
+            (_, 3) => "rd",
+            _ => "th",
+        };
+        format!("{n}{suffix}")
+    } else {
+        format!("{n}{}", if feminine { "ª" } else { "º" })
     }
 }
 
@@ -230,122 +253,144 @@ fn record_broken_notes(
         if !used_drivers.insert(m.pilot_id.clone()) {
             continue;
         }
+        let name = m.pilot_name.as_str();
+        let ctx = m.context.as_str();
         let text = match m.metric.as_str() {
-            "lap_record" => format!(
-                "{} fez a volta mais rápida da história em {}: {} (recorde anterior: {}).",
-                m.pilot_name,
-                m.context,
-                format_lap_ms(m.value),
-                m.previous_value.map(format_lap_ms).unwrap_or_default()
-            ),
-            "comeback" => format!(
-                "{} protagonizou a maior recuperação da história da categoria: subiu {} posições numa única corrida.",
-                m.pilot_name, m.value
-            ),
+            "lap_record" => rust_i18n::t!(
+                "world_footer.record_broken.lap_record",
+                name = name, context = ctx,
+                lap = format_lap_ms(m.value),
+                prev = m.previous_value.map(format_lap_ms).unwrap_or_default()
+            )
+            .to_string(),
+            "comeback" => {
+                rust_i18n::t!("world_footer.record_broken.comeback", name = name, value = m.value)
+                    .to_string()
+            }
             "season_wins" => match m.previous_value {
-                Some(prev) => format!(
-                    "{} chegou a {} vitórias numa única temporada — novo recorde da categoria, superando a marca de {}.",
-                    m.pilot_name, m.value, prev
-                ),
-                None => format!(
-                    "{} chegou a {} vitórias numa única temporada — recorde da categoria.",
-                    m.pilot_name, m.value
-                ),
+                Some(prev) => rust_i18n::t!(
+                    "world_footer.record_broken.season_wins_prev",
+                    name = name, value = m.value, prev = prev
+                )
+                .to_string(),
+                None => rust_i18n::t!(
+                    "world_footer.record_broken.season_wins",
+                    name = name, value = m.value
+                )
+                .to_string(),
             },
-            "track_wins" => format!(
-                "{} é o maior vencedor da história em {}, agora com {} vitórias no circuito.",
-                m.pilot_name, m.context, m.value
-            ),
-            "win_streak" => format!(
-                "{} venceu {} corridas seguidas — recorde de sequência da categoria.",
-                m.pilot_name, m.value
-            ),
-            "constructor_titles" => format!(
-                "A {} conquistou seu {}º título de construtores — recorde da categoria.",
-                m.pilot_name, m.value
-            ),
-            "team_wins" => format!(
-                "A {} tornou-se a maior vencedora da história da categoria, com {} vitórias.",
-                m.pilot_name, m.value
-            ),
-            "one_two" => format!(
-                "A {} chegou à sua {}ª dobradinha (1-2) — recorde da categoria.",
-                m.pilot_name, m.value
-            ),
-            "youngest_winner" => format!(
-                "{}, aos {} anos, tornou-se o mais jovem a vencer na história da categoria.",
-                m.pilot_name, m.value
-            ),
-            "oldest_winner" => format!(
-                "{}, aos {} anos, tornou-se o mais velho a vencer na história da categoria.",
-                m.pilot_name, m.value
-            ),
-            "youngest_champion" => format!(
-                "{} sagrou-se campeão aos {} anos — o mais jovem da história da categoria.",
-                m.pilot_name, m.value
-            ),
-            "most_chaotic_race" => format!(
-                "{} viveu a corrida mais caótica da história da categoria: {} abandonos.",
-                m.pilot_name, m.value
-            ),
-            "drought_broken" => format!(
-                "{} voltou a vencer após {} temporadas de jejum — o maior já quebrado na categoria.",
-                m.pilot_name, m.value
-            ),
+            "track_wins" => rust_i18n::t!(
+                "world_footer.record_broken.track_wins",
+                name = name, context = ctx, value = m.value
+            )
+            .to_string(),
+            "win_streak" => {
+                rust_i18n::t!("world_footer.record_broken.win_streak", name = name, value = m.value)
+                    .to_string()
+            }
+            "constructor_titles" => rust_i18n::t!(
+                "world_footer.record_broken.constructor_titles",
+                name = name, ord = ord_label(m.value, false)
+            )
+            .to_string(),
+            "team_wins" => {
+                rust_i18n::t!("world_footer.record_broken.team_wins", name = name, value = m.value)
+                    .to_string()
+            }
+            "one_two" => rust_i18n::t!(
+                "world_footer.record_broken.one_two",
+                name = name, ord = ord_label(m.value, true)
+            )
+            .to_string(),
+            "youngest_winner" => rust_i18n::t!(
+                "world_footer.record_broken.youngest_winner",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "oldest_winner" => rust_i18n::t!(
+                "world_footer.record_broken.oldest_winner",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "youngest_champion" => rust_i18n::t!(
+                "world_footer.record_broken.youngest_champion",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "most_chaotic_race" => rust_i18n::t!(
+                "world_footer.record_broken.most_chaotic_race",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "drought_broken" => rust_i18n::t!(
+                "world_footer.record_broken.drought_broken",
+                name = name, value = m.value
+            )
+            .to_string(),
             "closest_championship" => {
                 if m.value == 0 {
-                    format!(
-                        "{} levou o título na decisão mais apertada da história da categoria — empatado em pontos, no critério de desempate.",
-                        m.pilot_name
+                    rust_i18n::t!(
+                        "world_footer.record_broken.closest_championship_tie",
+                        name = name
                     )
+                    .to_string()
                 } else {
-                    format!(
-                        "{} levou o título na decisão mais apertada da história da categoria: {} pontos de diferença.",
-                        m.pilot_name, m.value
+                    rust_i18n::t!(
+                        "world_footer.record_broken.closest_championship",
+                        name = name, value = m.value
                     )
+                    .to_string()
                 }
             }
-            "biggest_blowout" => format!(
-                "{} dominou a temporada mais desequilibrada da história da categoria: {} pontos à frente do vice.",
-                m.pilot_name, m.value
-            ),
-            "longest_pairing" => format!(
-                "{} — {} temporadas juntos, a parceria mais longeva da história da categoria.",
-                m.pilot_name, m.value
-            ),
-            "most_starts_no_win" => format!(
-                "{} superou {} como o piloto com mais largadas sem vencer na categoria: {}.",
-                m.pilot_name, m.context, m.value
-            ),
-            "most_career_dnfs" => format!(
-                "{} passou {} e é agora quem mais abandonou na história da categoria: {} DNFs.",
-                m.pilot_name, m.context, m.value
-            ),
-            "most_poles_no_title" => format!(
-                "{} superou {}: {} poles sem nunca ter sido campeão — recorde da categoria.",
-                m.pilot_name, m.context, m.value
-            ),
-            "most_career_points" => format!(
-                "{} superou {} e tornou-se o maior pontuador da história da categoria.",
-                m.pilot_name, m.context
-            ),
+            "biggest_blowout" => rust_i18n::t!(
+                "world_footer.record_broken.biggest_blowout",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "longest_pairing" => rust_i18n::t!(
+                "world_footer.record_broken.longest_pairing",
+                name = name, value = m.value
+            )
+            .to_string(),
+            "most_starts_no_win" => rust_i18n::t!(
+                "world_footer.record_broken.most_starts_no_win",
+                name = name, context = ctx, value = m.value
+            )
+            .to_string(),
+            "most_career_dnfs" => rust_i18n::t!(
+                "world_footer.record_broken.most_career_dnfs",
+                name = name, context = ctx, value = m.value
+            )
+            .to_string(),
+            "most_poles_no_title" => rust_i18n::t!(
+                "world_footer.record_broken.most_poles_no_title",
+                name = name, context = ctx, value = m.value
+            )
+            .to_string(),
+            "most_career_points" => rust_i18n::t!(
+                "world_footer.record_broken.most_career_points",
+                name = name, context = ctx
+            )
+            .to_string(),
             _ => {
-                let noun = metric_noun_plural(&m.metric);
+                let noun = metric_noun(metric_noun_id(&m.metric), 2);
                 match m.previous_value {
-                    Some(prev) => format!(
-                        "{} entrou para a história: quebrou o recorde de {} da categoria, agora em {} (a marca anterior era {}).",
-                        m.pilot_name, noun, m.value, prev
-                    ),
-                    None => format!(
-                        "{} entrou para a história ao estabelecer o novo recorde de {} da categoria: {}.",
-                        m.pilot_name, noun, m.value
-                    ),
+                    Some(prev) => rust_i18n::t!(
+                        "world_footer.record_broken.generic_prev",
+                        name = name, noun = noun, value = m.value, prev = prev
+                    )
+                    .to_string(),
+                    None => rust_i18n::t!(
+                        "world_footer.record_broken.generic",
+                        name = name, noun = noun, value = m.value
+                    )
+                    .to_string(),
                 }
             }
         };
         out.push(WorldNote {
             id: format!("broken:{}:{}:{}", categoria, m.metric, m.value),
-            tag: "RECORDE".to_string(),
+            tag: tag_label("record"),
             subject: m.pilot_name,
             kind: "recorde_quebrado".to_string(),
             tone: "recorde".to_string(),
@@ -388,13 +433,13 @@ fn record_watch_notes(
         };
         // (recorde, valor do piloto, substantivo)
         let metrics: [(&Option<race_history::CategoryRecord>, i32, &str); 3] = [
-            (&records.most_wins, career.wins, "vitórias"),
-            (&records.most_podiums, career.podiums, "pódios"),
-            (&records.most_starts, career.starts, "largadas"),
+            (&records.most_wins, career.wins, "wins"),
+            (&records.most_podiums, career.podiums, "podiums"),
+            (&records.most_starts, career.starts, "starts"),
         ];
         // Uma métrica por piloto: a mais próxima do recorde.
         let mut best: Option<(i32, String)> = None;
-        for (rec, val, noun) in metrics {
+        for (rec, val, noun_id) in metrics {
             let Some(r) = rec else { continue };
             if r.pilot_id == d.id {
                 continue; // já é o recordista.
@@ -404,19 +449,24 @@ fn record_watch_notes(
                 continue;
             }
             let text = if gap == 0 {
-                format!(
-                    "{} igualou o recorde histórico de {} da categoria: {}, marca de {}.",
-                    d.nome, noun, r.value, r.pilot_name
+                rust_i18n::t!(
+                    "world_footer.record_watch.tied",
+                    name = d.nome.as_str(),
+                    noun = metric_noun(noun_id, 2),
+                    value = r.value,
+                    holder = r.pilot_name.as_str()
                 )
+                .to_string()
             } else {
-                format!(
-                    "{} está a {} {} de igualar o recorde histórico da categoria ({}, de {}).",
-                    d.nome,
-                    gap,
-                    noun_gap(noun, gap),
-                    r.value,
-                    r.pilot_name
+                rust_i18n::t!(
+                    "world_footer.record_watch.approaching",
+                    name = d.nome.as_str(),
+                    gap = gap,
+                    noun = metric_noun(noun_id, gap),
+                    value = r.value,
+                    holder = r.pilot_name.as_str()
                 )
+                .to_string()
             };
             if best.as_ref().map_or(true, |(bg, _)| gap < *bg) {
                 best = Some((gap, text));
@@ -437,7 +487,7 @@ fn record_watch_notes(
         }
         out.push(WorldNote {
             id: format!("record:{driver_id}"),
-            tag: "RECORDE".to_string(),
+            tag: tag_label("record"),
             subject: text.clone(),
             kind: "recorde_a_caminho".to_string(),
             tone: "recorde".to_string(),
@@ -445,18 +495,6 @@ fn record_watch_notes(
         });
     }
     out
-}
-
-/// Singulariza o substantivo do recorde quando falta só 1 (1 vitória, não "vitórias").
-fn noun_gap(noun: &str, gap: i32) -> &'static str {
-    match (noun, gap) {
-        ("vitórias", 1) => "vitória",
-        ("pódios", 1) => "pódio",
-        ("largadas", 1) => "largada",
-        ("vitórias", _) => "vitórias",
-        ("pódios", _) => "pódios",
-        _ => "largadas",
-    }
 }
 
 /// Fama mínima (escala de EXIBIÇÃO da ficha) para um piloto ser "astro" digno de nota:
@@ -491,21 +529,15 @@ fn star_of_category_note(
     }
 
     let text = if star.atributos.midia >= IDOL_MIN_FAMA {
-        format!(
-            "{} é o maior fenômeno de público da categoria: onde corre, as arquibancadas lotam e os patrocinadores fazem fila.",
-            star.nome
-        )
+        rust_i18n::t!("world_footer.star.idol", name = star.nome.as_str()).to_string()
     } else {
-        format!(
-            "{} virou um dos grandes nomes da categoria e arrasta torcida para os autódromos — presença de público garantida onde disputa.",
-            star.nome
-        )
+        rust_i18n::t!("world_footer.star.star", name = star.nome.as_str()).to_string()
     };
 
     used_drivers.insert(star.id.clone());
     Some(WorldNote {
         id: format!("star:{}", star.id),
-        tag: "BASTIDORES".to_string(),
+        tag: tag_label("backstage"),
         subject: star.nome.clone(),
         kind: "astro_da_categoria".to_string(),
         tone: "neutro".to_string(),
@@ -817,5 +849,41 @@ mod ai_tests {
     #[test]
     fn vazio_nao_casa() {
         assert!(apply_ai_texts(vec![], &[]).is_none());
+    }
+
+    /// Guarda a i18n do rodapé nos DOIS locales: tags, nouns singular/plural, ordinais
+    /// gendered (PT) vs sufixo (EN) e interpolação (sem `%{...}` cru). `#[serial]` porque
+    /// troca o locale global (não corre junto do i18n_smoke).
+    #[test]
+    #[serial_test::serial]
+    fn i18n_do_rodape_resolve_nos_dois_locales() {
+        rust_i18n::set_locale("pt-BR");
+        assert_eq!(tag_label("record"), "RECORDE");
+        assert_eq!(metric_noun("wins", 1), "vitória");
+        assert_eq!(metric_noun("wins", 3), "vitórias");
+        assert_eq!(ord_label(2, false), "2º");
+        assert_eq!(ord_label(2, true), "2ª");
+        let pt = rust_i18n::t!(
+            "world_footer.record_broken.season_wins_prev",
+            name = "Fulano", value = 9, prev = 7
+        )
+        .to_string();
+        assert!(pt.contains('9') && pt.contains('7') && !pt.contains("%{"), "{pt}");
+
+        rust_i18n::set_locale("en-US");
+        assert_eq!(tag_label("record"), "RECORD");
+        assert_eq!(metric_noun("wins", 1), "win");
+        assert_eq!(metric_noun("wins", 3), "wins");
+        assert_eq!(ord_label(2, false), "2nd");
+        assert_eq!(ord_label(3, true), "3rd");
+        assert_eq!(ord_label(11, false), "11th"); // regra do 11–13
+        let en = rust_i18n::t!(
+            "world_footer.record_watch.approaching",
+            name = "X", gap = 2, noun = metric_noun("wins", 2), value = 50, holder = "Y"
+        )
+        .to_string();
+        assert!(en.contains("2 wins") && !en.contains("%{"), "{en}");
+
+        rust_i18n::set_locale("pt-BR"); // restaura o default pros demais testes.
     }
 }

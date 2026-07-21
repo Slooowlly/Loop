@@ -376,10 +376,10 @@ mod tests {
         assert_eq!(tags.len(), 2);
         assert!(tags
             .iter()
-            .any(|tag| tag.attribute_name == "skill" && tag.tag_text == "Alien"));
+            .any(|tag| tag.attribute_name == "skill" && tag.level == TagLevel::Elite));
         assert!(tags
             .iter()
-            .any(|tag| tag.attribute_name == "consistencia" && tag.tag_text == "Inconsistente"));
+            .any(|tag| tag.attribute_name == "consistencia" && tag.level == TagLevel::Defeito));
     }
 
     #[test]

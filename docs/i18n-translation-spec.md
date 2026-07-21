@@ -195,35 +195,123 @@ Ordem: mapas centrais → chrome → aba por aba.
     tabela, badges de piloto, séries/tiers de navegação, dividers de zona, standings de
     equipes, empty-states do bloco especial). SERIES/tiers (Mazda/Rookie/Championship…)
     ficam como nome próprio. Teste existente verde (19, PT).
-  - [ ] Faltam: `GlobalDriversTab.jsx`, `GlobalTeamsTab.jsx`, `Dashboard.jsx`, e os
-    gigantes com prosa/IA (deixar por último, entram na Fase 2/4): `NextRaceTab.jsx` (207),
-    `MyTeamTab.jsx` (152), `NewsMagazineTab.jsx` (59), `PreSeasonView.jsx` (162),
-    `RaceResultView(V2).jsx`. Store `useCareerStore.js`.
+  - [x] `GlobalDriversTab.jsx` ✅ — namespace `globalDrivers` (headers ordenáveis,
+    filtros+opções, badges, modais de títulos/campeões, prosa de pódio/fama/rank com
+    plural+direção, loading/empty). ⚠️ PT preservado **verbatim** (fonte tem acentuação
+    inconsistente: "Titulos"/"Índice", "Campeoes"/"Campeões") p/ não quebrar testes.
+    Valores-sentinela de filtro (Todos/Todas/Ativo…) ficam como dado. Teste verde (23, PT).
+  - [x] `GlobalTeamsTab.jsx` ✅ — namespace `globalTeams` (timeline/gráfico: erros,
+    zoom, scrubber inicio/fim/janela visível, familyWindow, campeão vigente). Aba com
+    pouco texto (é chart). PT verbatim. Teste verde (30, PT).
+  - [x] `Dashboard.jsx` ✅ — namespace `dashboard` (só o modal de conserto do carro;
+    o resto é roteamento de abas). `repair_message` vem do backend → Fase 3. Suíte verde.
+  - **Todas as abas "limpas" FEITAS.** Faltam só os **gigantes com prosa/IA** (deixar
+    p/ Fase 2/4, misturam texto gerado): `NextRaceTab.jsx` (207), `MyTeamTab.jsx` (152),
+    `NewsMagazineTab.jsx` (59), `PreSeasonView.jsx` (162), `RaceResultView(V2).jsx`,
+    `EndOfSeasonView.jsx`, `ConvocationView.jsx`. Store `useCareerStore.js` (mensagens).
+    Modais restantes: `DriverDetailModal`, `PoachAuctionModal`, `IracingTutorialModal`.
+    Overlay (canvas): `towerCanvas.js` etc.
 - [ ] **Overlay** (texto desenhado em canvas — não-DOM, cuidado): `overlay/towerCanvas.js`
   (107), `towerRows.js`, `EngineerRadio.jsx`, `OverlayPositionPanel.jsx`,
   `overlayMockData.js`.
 
 ### Fase 2 — Prosa gerada (frontend) — *alto, risco médio*
-Geradores de sentença com gramática PT (plural/ordinal/gênero). Reescrever puxando de
-chaves com interpolação + plural por idioma.
-- [ ] `pages/tabs/nextRaceBriefing.js` (458 ln)
-- [ ] `pages/tabs/nextRaceEditorial.js` (320 ln)
-- [ ] `pages/tabs/nextRaceThesis.js` (254 ln)
-- [ ] `pages/tabs/inboxMessages.js` (156 ln, com `<b>`/`<p>` embutido)
-- [ ] `utils/driverMentions.jsx` (106 ln)
-- [ ] `pages/tabs/newsHelpers.js`, `NewsMagazineTab.jsx`, `utils/postRaceLanding.js`
+Geradores de sentença com gramática PT. **Padrão CRAVADO** (via inboxMessages): frase
+inteira→chave i18next; código mantém a lógica de ramificação; plural via `_one/_other`+
+`{{count}}` (nativo, genérico por locale); ordinal via `ordinal()` de format.js; gênero
+via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-de-IA
+(Fase 4) ANTES de traduzir cada arquivo.**
+- [x] `pages/tabs/inboxMessages.js` ✅ — 100% display (comentário confirma "nada de IA").
+  Namespace `inbox` (attr/fama/h2h/fav/interest). Concordância `dessa/dessas` dissolvida
+  em plural. Teste `inboxMessages.i18n.test.js` (5, PT+EN, plural/ordinal/HTML) verde.
+- [x] `utils/postRaceLanding.js` ✅ AUDITADO — **lógica pura, ZERO prosa** (só decide aba
+  pós-corrida + localStorage). Nada a traduzir.
+- [x] `utils/driverMentions.jsx` ✅ AUDITADO — **lógica pura** (realça nomes via regex).
+  Nada a traduzir.
+- [x] `pages/tabs/nextRaceThesis.js` ✅ — AUDITADO: o `statement` é o EIXO que serve
+  **display fallback E fatos-de-IA** (comentário confirma "fonte só") → traduzir cobre
+  Fase 2+4. Namespace `thesis` (12 teses + fragmentos + títulos + stageAppendix). Atalho
+  "(s)" mantido literal (a IA reescreve). `THESIS_TITLES` const removida → título via
+  `i18n.t` em selectThesis. Testes de estrutura preservados + `nextRaceThesis.i18n.test.js`
+  (PT+EN). ⚠️ armadilha de teste: sem `championshipUnderway` cai em `debut`, não `baseline`.
+- [x] `pages/tabs/nextRaceEditorial.js` ✅ — AUDITADO: **100% display** (fallback ao
+  leitor, não alimenta IA). Namespace `editorial`: 12 teses × 4 campos × 2 variantes =
+  96 chaves `_0/_1` + ctx (fallbacks) + form (forma recente). Estrutura preservada via
+  helper `V(key)`→[fn0,fn1] (o teste exige array de 2). Seed determinístico intacto.
+  Testes existentes (12) + `nextRaceEditorial.i18n.test.js` verdes.
+- [x] `pages/tabs/nextRaceBriefing.js` ✅ — AUDITADO: banco de 50 frases de expectativa
+  (5 pos × 5 perfis × 2), **sem interpolação**; lógica de seleção opera só no `id`.
+  Namespace `briefing.expectation.<id>` (50 chaves flat). `phrase(id)` vira **getter**
+  (`get text(){ return i18n.t(...) }`) → não congela. Banco GERADO em ~5 linhas (ids
+  seguem `bucket-profile-variant`), 266 ln de literais viraram geração. PT verbatim
+  (fonte com acentos inconsistentes). Testes existentes (5) + i18n verdes. **Trio fechado.**
+- [ ] `pages/tabs/newsHelpers.js`, `NewsMagazineTab.jsx` — fecha a Fase 2.
 
 ### Fase 3 — Texto determinístico (Rust) — *médio, risco médio*
-- [ ] `race_eval.rs` — `Assessment::label()` (73-79), `build_headline` (216-255),
-  `build_team_read` (260-274).
-- [ ] `models/driver_tags.rs` — banco de frases `[&str;5]` por atributo×nível (43-162).
-- [ ] `commands/world_footer.rs` — ~30 templates (`record_broken_notes:233-345`,
-  `team_state_note:91-126`, `star_of_category_note:493-503`) + plurais de substantivo.
-- [ ] `market/pipeline.rs` (notas `note:` ~3375-3491), `market/preseason.rs`
-  (`headline:` ~687,933).
-- [ ] Notícias `titulo`/`texto`: `commands/race.rs` (~3030), `commands/career.rs`
-  (~6809-6864, ~4868), `commands/career_detail.rs` (289-349, 1947-1963),
-  `db/queries/rivalry_episodes.rs` (103-112).
+> **Padrão Rust CRAVADO** (via driver_tags): chave dinâmica `rust_i18n::t!(&format!("ns.{}.{}", a, b))`
+> **funciona**; campos `&'static str` de texto viram `String` (i18n é runtime); YAMLs em
+> `src-tauri/locales/{pt-BR,en-US}.yml` (chaves numéricas entre aspas). ⚠️ **Display-como-chave
+> de lógica** aparece — comparações tipo `tag_text == "Alien"` viram `tag.level == TagLevel::X`.
+> ⚠️ **Verificar = compilar** (~2min, `CARGO_TARGET_DIR` fora do OneDrive). ⚠️ **17 testes
+> pré-existentes FALHAM no HEAD** (rivalry/team, team_rivalries, migrations, calendar, weather —
+> feature de rivalidade WIP; provado por stash) — ignorar nas rodadas de Fase 3.
+> **✅ Locale default de teste RESOLVIDO** (no race_eval): rust-i18n tem locale GLOBAL de
+> processo (não thread-local). O default do processo é `"en"` (não carregado) → cai no
+> `fallback = "pt-BR"`, então prosa = PT sem setup. O ÚNICO disruptor é o `i18n_smoke`
+> (troca pra en-US). **Padrão cravado:** todo teste que assevera prosa i18n → `#[serial]`
+> (crate `serial_test`, dev-dep) + helper `baseline_pt()` no topo; o `i18n_smoke` também é
+> `#[serial]`. Assim nunca correm juntos. **Interpolação rust-i18n:** placeholder `%{nome}`
+> no YAML; no `t!` é `nome = valor` (com `=`, não `=>`); chave dinâmica precisa `let` (temp).
+- [x] `models/driver_tags.rs` ✅ — 17 atributos × 5 níveis = 85 tags. `phrase` gerado por
+  chave `driver_tags.<attr>.<idx>`; struct `tag_text: String`; `TAGGED_ATTRS` valida atributo.
+  2 testes de display-como-chave corrigidos p/ `.level`. Compilou (1759 ok).
+- [x] `race_eval.rs` ✅ — `Assessment::label()` (5 labels), `build_headline` (6 templates:
+  dnf/recovery/solid/dentro/below_lost/below), `build_team_read` (4: dnf/above/limit/below).
+  Bloco `race_eval:` nos 2 YAMLs. `label()` virou `String`. Testes marcados `#[serial]`+
+  `baseline_pt()`; guard de interpolação (P14/P8, sem `%{`). 5 testes ok. **Padrão de teste
+  serial cravado aqui** (ver bloco acima).
+- [x] `commands/world_footer.rs` ✅ — ~30 templates (record_broken/watch, team_state,
+  teammate, star) + tags (MERCADO→`tag_label`) traduzidos. Helpers novos: `metric_noun`
+  (singular/plural via `.one`/`.other`), `metric_noun_id`, `tag_label`, `ord_label` (ordinal
+  locale-aware: PT gendered `º`/`ª`, EN sufixo `st/nd/rd/th`, regra 11–13). `tone`/`kind`
+  ficam como tokens (CSS/máquina). **Mata o hack `localizedAiError`** no front: NewsMagazineTab
+  agora renderiza as notas direto (removido o gate `!isPortuguese`, e o state morto
+  `worldNotesAi`). Guard de 2 locales (nouns/ord/interp) + 4 ai_tests + front i18n 6 verdes.
+- [x] `market/pipeline.rs` ✅ — leilão de assédio: `bid_label` (abertura/lance N) +
+  4 notas de `PlayerPoachOutcome` (expired/stayed/unavailable/signed). `market/preseason.rs`
+  ✅ — 6 spots de `MarketEvent` (deal/window_closed/departure/contract_ended). Namespace
+  `market:` nos 2 YAMLs. `event_type`/`movement_kind`/`category_label` ficam como tokens.
+  Guard de 2 locales + 59 testes de mercado verdes. Sem `#[serial]` nos testes de mercado
+  (não asseveram prosa); só o guard novo é `#[serial]`.
+- [x] **Guard de paridade dos YAML Rust** ✅ — `i18n_parity` em lib.rs (dev-dep `serde_yaml`):
+  achata pt-BR/en-US e exige mesmo conjunto de chaves + nenhum valor vazio. Protege todo
+  bloco futuro (chave só num idioma quebra o teste na hora).
+- [~] Notícias `titulo`/`texto` — PARCIAL:
+  - [x] `db/queries/rivalry_episodes.rs` ✅ — `rivalry_label` (5 variantes). Namespace `rivalry:`.
+  - [x] `commands/career_detail.rs` ✅ — DISPLAY da ficha do piloto (bem mais denso que os
+    trechos que a spec apontava): personalidade (12×name+desc, namespace `career.personality`),
+    marcos (`career.milestone`, com plural título one/other), níveis fama/carisma/técnico +
+    stardom + entrega + veredito da temporada (namespace `driver_read`). `tom`/`tendencia`/
+    status/tipo-de-marco = tokens. ⚠️ personality `tipo` é DISPLAY, desacoplado do token de
+    serialização em `enums.rs` (NÃO tocar enums.rs). 2 testes de veredito viraram `#[serial]`+
+    pt-BR. 15 testes verdes. **DEFER:** `injury_name_pool` (fica em `simulation/injuries.rs`,
+    é sub-sistema de lesão à parte — não é career_detail).
+  - [~] `commands/career.rs` — GRANDE (10.550 linhas), prosa em ~5 clusters. ⚠️ a spec
+    apontava ~6809 mas AQUILO É TESTE (`test_next_race_briefing_filters_weekend_stories`).
+    Clusters reais de DISPLAY:
+    - [x] Dossiê da equipe (`team_dossier`: ownership + financial_state + management,
+      ~15 strings interpoladas). 1 teste → `#[serial]`+pt-BR. ✅
+    - [ ] Rótulos de stats/marcos (~3979-4234: "Vitórias"/"Taxa de pódio"/"Primeiro pódio"/
+      "Melhor temporada"/"Maior dinastia"…).
+    - [ ] Sequências (~4539-4641: "Sem sequência registrada"…).
+    - [ ] ⚠️ Perfil de competitividade da equipe (~4776-4821: "Dominante"/"Vencedora"/
+      "Competitiva"/"Meio de Grid"/"Coadjuvante" + tradição "Em ascensão"…). **É
+      display-como-chave-de-lógica**: o valor é RE-MATCHADO em 4809 e um teste (8127)
+      assevera `profile=="Dominante"`. Refatorar pra key/enum ANTES de traduzir.
+    - [ ] Diversos (criação "Carreira criada com sucesso", "Sem piloto"…).
+  - [ ] `commands/race.rs` (~3030). **Auditoria display-vs-fato-de-IA por trecho.**
+  - [ ] DEFER acoplado: `simulation/injuries.rs` `injury_name_pool` (pools de nome de lesão,
+    array por severidade — precisa de chaves indexadas + testes com `#[serial]`).
 
 ### Fase 4 — Fatos da IA + servidor — *médio, dependência externa*
 - [ ] Traduzir os builders de "fatos" (usar o mesmo `rust-i18n` → saem no idioma ativo):

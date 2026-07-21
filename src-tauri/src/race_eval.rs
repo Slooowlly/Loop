@@ -68,14 +68,16 @@ pub enum Assessment {
 }
 
 impl Assessment {
-    pub fn label(self) -> &'static str {
-        match self {
-            Assessment::MuitoAcima => "muito acima do esperado",
-            Assessment::Acima => "acima do esperado",
-            Assessment::Dentro => "dentro do esperado",
-            Assessment::Abaixo => "abaixo do esperado",
-            Assessment::MuitoAbaixo => "muito abaixo do esperado",
-        }
+    pub fn label(self) -> String {
+        let key = match self {
+            Assessment::MuitoAcima => "muito_acima",
+            Assessment::Acima => "acima",
+            Assessment::Dentro => "dentro",
+            Assessment::Abaixo => "abaixo",
+            Assessment::MuitoAbaixo => "muito_abaixo",
+        };
+        let full_key = format!("race_eval.assessment.{key}");
+        rust_i18n::t!(&full_key).to_string()
     }
     /// Componente da nota (0–10) que esta avaliação vale. Extremos suavizados
     /// (decisão de calibração): "muito acima" não é 10 perfeito, "abaixo"/"muito
@@ -214,43 +216,37 @@ pub fn evaluate(input: &RaceEvalInput) -> RaceEvaluation {
 }
 
 fn build_headline(input: &RaceEvalInput, a: Assessment, gained: i32) -> String {
+    let grid = ord(input.grid_position);
+    let finish = ord(input.finish_position);
     if input.is_dnf {
-        return format!(
-            "Abandono em {}. Fim de semana para esquecer — o importante é trazer o carro inteiro na próxima.",
-            ord(input.finish_position)
-        );
+        return rust_i18n::t!("race_eval.headline.dnf", pos = finish).to_string();
     }
     let recovery = gained >= 4;
+    let assessment = a.label();
     match a {
-        Assessment::MuitoAcima | Assessment::Acima if recovery => format!(
-            "Corrida forte de recuperação: largou {} e terminou {}, ganhando {gained} posições — {}.",
-            ord(input.grid_position),
-            ord(input.finish_position),
-            a.label()
-        ),
-        Assessment::MuitoAcima | Assessment::Acima => format!(
-            "Resultado sólido {}: {} → {}, melhor do que a meta da corrida pedia.",
-            a.label(),
-            ord(input.grid_position),
-            ord(input.finish_position)
-        ),
-        Assessment::Dentro => format!(
-            "Corrida dentro do esperado: {} → {}, entregando a meta realista do dia.",
-            ord(input.grid_position),
-            ord(input.finish_position)
-        ),
-        Assessment::Abaixo | Assessment::MuitoAbaixo if gained < 0 => format!(
-            "Resultado {}: largou {} e perdeu posições até {}. Havia mais ali.",
-            a.label(),
-            ord(input.grid_position),
-            ord(input.finish_position)
-        ),
-        Assessment::Abaixo | Assessment::MuitoAbaixo => format!(
-            "Resultado {}: {} → {} ficou aquém da meta da corrida.",
-            a.label(),
-            ord(input.grid_position),
-            ord(input.finish_position)
-        ),
+        Assessment::MuitoAcima | Assessment::Acima if recovery => rust_i18n::t!(
+            "race_eval.headline.recovery",
+            grid = grid, finish = finish, gained = gained, assessment = assessment
+        )
+        .to_string(),
+        Assessment::MuitoAcima | Assessment::Acima => rust_i18n::t!(
+            "race_eval.headline.solid",
+            assessment = assessment, grid = grid, finish = finish
+        )
+        .to_string(),
+        Assessment::Dentro => {
+            rust_i18n::t!("race_eval.headline.dentro", grid = grid, finish = finish).to_string()
+        }
+        Assessment::Abaixo | Assessment::MuitoAbaixo if gained < 0 => rust_i18n::t!(
+            "race_eval.headline.below_lost",
+            assessment = assessment, grid = grid, finish = finish
+        )
+        .to_string(),
+        Assessment::Abaixo | Assessment::MuitoAbaixo => rust_i18n::t!(
+            "race_eval.headline.below",
+            assessment = assessment, grid = grid, finish = finish
+        )
+        .to_string(),
     }
 }
 
@@ -259,17 +255,15 @@ fn build_headline(input: &RaceEvalInput, a: Assessment, gained: i32) -> String {
 /// do que o carro prometia, sem citar a posição-potencial.
 fn build_team_read(input: &RaceEvalInput, potential: i32) -> String {
     if input.is_dnf {
-        return "O abandono mascarou o que o conjunto tinha a oferecer neste fim de semana."
-            .to_string();
+        return rust_i18n::t!("race_eval.team_read.dnf").to_string();
     }
     let f = input.finish_position;
     if f <= potential - 2 {
-        "Você entregou ACIMA do que o carro prometia — a pilotagem fez a diferença.".to_string()
+        rust_i18n::t!("race_eval.team_read.above").to_string()
     } else if f <= potential + 1 {
-        "Você entregou perto do limite do conjunto — extraiu o que o carro tinha.".to_string()
+        rust_i18n::t!("race_eval.team_read.limit").to_string()
     } else {
-        "O conjunto tinha mais a oferecer; sobrou ritmo na garagem que não virou posição."
-            .to_string()
+        rust_i18n::t!("race_eval.team_read.below").to_string()
     }
 }
 
@@ -281,6 +275,14 @@ fn ord(p: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+
+    /// As frases (`headline`/`team_read`/`label`) resolvem no locale GLOBAL do
+    /// rust-i18n. Estes testes asseveram prosa PT, então fixam pt-BR — e rodam
+    /// `#[serial]` para não correr junto do `i18n_smoke` (que troca pra en-US).
+    fn baseline_pt() {
+        rust_i18n::set_locale("pt-BR");
+    }
 
     /// Monta um grid de `n` carros e dá ao jogador o mérito que o coloca no rank
     /// `player_potential` (1-based). Méritos decrescentes 100, 99, …
@@ -298,7 +300,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn recuperacao_acima_do_esperado() {
+        baseline_pt();
         // Largou P14, potencial P8 → meta ~P10-P13, terminou P8 = acima.
         let input = RaceEvalInput {
             player_id: "P".into(),
@@ -313,10 +317,15 @@ mod tests {
         assert_eq!(e.assessment, Assessment::Acima);
         assert!(e.grade >= 7.5, "recuperação forte = nota alta, foi {}", e.grade);
         assert!(e.headline.contains("recuperação"));
+        // Interpolação de fato resolveu (não sobrou %{...} cru; ordinais entraram).
+        assert!(e.headline.contains("P14") && e.headline.contains("P8"), "{}", e.headline);
+        assert!(!e.headline.contains("%{"), "placeholder cru: {}", e.headline);
     }
 
     #[test]
+    #[serial]
     fn largou_bem_carro_fraco_termina_acima_do_potencial() {
+        baseline_pt();
         // Largou P3, potencial P10 (carro fraco), terminou P5.
         let input = RaceEvalInput {
             player_id: "P".into(),
@@ -334,7 +343,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn carro_bom_largou_bem_termina_abaixo() {
+        baseline_pt();
         // Potencial P3, largou P5, terminou P11 → abaixo.
         let input = RaceEvalInput {
             player_id: "P".into(),
@@ -356,7 +367,9 @@ mod tests {
 
     #[test]
     #[ignore = "só para inspecionar a calibração manualmente"]
+    #[serial]
     fn imprime_exemplos() {
+        baseline_pt();
         let casos = [
             ("Recuperação", 14, 8, false, 0, 14, 8),
             ("Subdesempenho", 5, 11, false, 1, 14, 3),
@@ -380,7 +393,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn dnf_e_sempre_muito_abaixo() {
+        baseline_pt();
         let input = RaceEvalInput {
             player_id: "P".into(),
             grid_position: 2,

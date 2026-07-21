@@ -685,7 +685,8 @@ pub fn advance_week(
         MarketEvent {
             event_type: MarketEventType::TransferCompleted,
             headline: format!("{dname} -> {tname}"),
-            description: format!("Acerto na {}.", signing.categoria),
+            description: rust_i18n::t!("market.event.deal", category = signing.categoria.as_str())
+                .to_string(),
             driver_id: Some(signing.driver_id.clone()),
             driver_name: Some(dname.to_string()),
             team_id: Some(signing.team_id.clone()),
@@ -748,8 +749,8 @@ pub fn advance_week(
         plan.state.is_complete = true;
         events.push(MarketEvent {
             event_type: MarketEventType::PreSeasonComplete,
-            headline: "Janela de transferencias encerrada".to_string(),
-            description: "O mercado foi fechado.".to_string(),
+            headline: rust_i18n::t!("market.event.window_closed_headline").to_string(),
+            description: rust_i18n::t!("market.event.window_closed_desc").to_string(),
             driver_id: None,
             driver_name: None,
             team_id: None,
@@ -884,7 +885,8 @@ fn merit_move_events(
             Some(MarketEvent {
                 event_type: MarketEventType::TransferCompleted,
                 headline: format!("{} -> {}", s.driver_name, s.team_name),
-                description: format!("Acerto na {}.", s.categoria),
+                description: rust_i18n::t!("market.event.deal", category = s.categoria.as_str())
+                    .to_string(),
                 driver_id: Some(s.driver_id.clone()),
                 driver_name: Some(s.driver_name.clone()),
                 team_id: Some(s.team_id.clone()),
@@ -930,8 +932,13 @@ fn build_departure_events(
         }
         events.push(MarketEvent {
             event_type: MarketEventType::ContractExpired,
-            headline: format!("{} deixa {}", c.piloto_nome, c.equipe_nome),
-            description: "Fim de contrato sem renovação.".to_string(),
+            headline: rust_i18n::t!(
+                "market.event.departure_headline",
+                driver = c.piloto_nome.as_str(),
+                team = c.equipe_nome.as_str()
+            )
+            .to_string(),
+            description: rust_i18n::t!("market.event.contract_ended").to_string(),
             driver_id: Some(c.piloto_id.clone()),
             driver_name: Some(c.piloto_nome.clone()),
             team_id: Some(c.equipe_id.clone()),

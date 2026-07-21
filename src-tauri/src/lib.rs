@@ -190,11 +190,81 @@ mod tests_9d;
 #[cfg(test)]
 mod sim_stats;
 
+// Guard de paridade dos locales do backend (análogo ao localeParity.test.js do front):
+// pt-BR e en-US precisam ter EXATAMENTE o mesmo conjunto de chaves, e nenhum valor vazio.
+// Assim, adicionar prosa nova sem espelhar no outro idioma quebra o teste na hora.
+#[cfg(test)]
+mod i18n_parity {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Achata um YAML aninhado em pares "a.b.c" -> valor (só folhas escalares).
+    fn leaves(prefix: &str, value: &serde_yaml::Value, out: &mut BTreeMap<String, String>) {
+        match value {
+            serde_yaml::Value::Mapping(map) => {
+                for (k, v) in map {
+                    let key = k
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("{k:?}"));
+                    let path = if prefix.is_empty() {
+                        key
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    leaves(&path, v, out);
+                }
+            }
+            serde_yaml::Value::String(s) => {
+                out.insert(prefix.to_string(), s.clone());
+            }
+            other => {
+                out.insert(prefix.to_string(), format!("{other:?}"));
+            }
+        }
+    }
+
+    fn load(path: &str) -> BTreeMap<String, String> {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("ler {path}: {e}"));
+        let val: serde_yaml::Value =
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+        let mut out = BTreeMap::new();
+        leaves("", &val, &mut out);
+        out
+    }
+
+    #[test]
+    fn locales_tem_as_mesmas_chaves_e_nada_vazio() {
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let pt = load(&format!("{dir}/locales/pt-BR.yml"));
+        let en = load(&format!("{dir}/locales/en-US.yml"));
+
+        let pt_keys: BTreeSet<_> = pt.keys().cloned().collect();
+        let en_keys: BTreeSet<_> = en.keys().cloned().collect();
+        let so_pt: Vec<_> = pt_keys.difference(&en_keys).collect();
+        let so_en: Vec<_> = en_keys.difference(&pt_keys).collect();
+        assert!(
+            so_pt.is_empty() && so_en.is_empty(),
+            "chaves divergentes entre locales:\n  só em pt-BR: {so_pt:?}\n  só em en-US: {so_en:?}"
+        );
+
+        for (locale, map) in [("pt-BR", &pt), ("en-US", &en)] {
+            let vazias: Vec<_> = map
+                .iter()
+                .filter(|(_, v)| v.trim().is_empty())
+                .map(|(k, _)| k.clone())
+                .collect();
+            assert!(vazias.is_empty(), "valores vazios em {locale}: {vazias:?}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod i18n_smoke {
-    // Prova o encanamento do backend: set_locale troca a saída de t!(). Serial pra
-    // não brigar com o locale global de outros testes.
+    // Prova o encanamento do backend: set_locale troca a saída de t!(). `#[serial]`
+    // (serial_test) garante que a troca pra en-US não corra junto de testes que
+    // asseveram prosa PT (ex.: race_eval). Restaura pt-BR no fim.
     #[test]
+    #[serial_test::serial]
     fn backend_locale_switches_text() {
         rust_i18n::set_locale("pt-BR");
         assert_eq!(rust_i18n::t!("diagnostics.ping").to_string(), "pong-pt");

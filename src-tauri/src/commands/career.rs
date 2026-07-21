@@ -4273,14 +4273,15 @@ fn load_team_ownership_events(
         let (ano, event_type, debt_cleared, cash_injected, detail) =
             row.map_err(|e| format!("Falha ao mapear evento de propriedade: {e}"))?;
         let title = match event_type.as_str() {
-            "sale" => "Nova diretoria".to_string(),
-            _ => "Mudança de gestão".to_string(),
+            "sale" => rust_i18n::t!("team_dossier.ownership.sale_title").to_string(),
+            _ => rust_i18n::t!("team_dossier.ownership.change_title").to_string(),
         };
-        let financial_note = format!(
-            "Dívida de {} zerada · aporte de {}",
-            format_brl(debt_cleared),
-            format_brl(cash_injected)
-        );
+        let financial_note = rust_i18n::t!(
+            "team_dossier.ownership.financial_note",
+            cleared = format_brl(debt_cleared),
+            injected = format_brl(cash_injected)
+        )
+        .to_string();
         events.push(TeamHistoryOwnershipEvent {
             year: ano.to_string(),
             event_type,
@@ -4314,50 +4315,65 @@ fn build_real_team_management(
     let state_label = financial_state_label_for_dossier(&team.financial_state);
     let technical_level = team.car_performance.round().clamp(0.0, 16.0) as i32;
 
+    let efficiency_value = format_decimal_pt(points_per_season, 1);
+    let points_int = points.round() as i32;
     Ok(TeamHistoryManagement {
-        operation_health: state_label.to_string(),
+        operation_health: state_label.clone(),
         peak_cash: format_brl(cash),
         worst_crisis: if debt > 0.0 {
-            format!("{} de dívida", format_brl(debt))
+            rust_i18n::t!("team_dossier.management.worst_crisis_debt", debt = format_brl(debt))
+                .to_string()
         } else {
-            "Sem dívida real registrada".to_string()
+            rust_i18n::t!("team_dossier.management.worst_crisis_none").to_string()
         },
-        healthy_years: format!("{healthy_years} Temporadas"),
-        efficiency: format!("{} pts/temporada", format_decimal_pt(points_per_season, 1)),
-        biggest_investment: format!("Nível {technical_level} - pacote técnico atual"),
-        summary: format!(
-            "{state_label}: operação com {} em caixa, {} em dívida e {} pontos reais no recorte.",
-            format_brl(cash),
-            format_brl(debt),
-            points.round() as i32
-        ),
-        peak_cash_detail: "Maior folga financeira registrada no retrato atual da equipe."
+        healthy_years: rust_i18n::t!("team_dossier.management.healthy_years", count = healthy_years)
             .to_string(),
+        efficiency: rust_i18n::t!(
+            "team_dossier.management.efficiency",
+            value = efficiency_value.as_str()
+        )
+        .to_string(),
+        biggest_investment: rust_i18n::t!(
+            "team_dossier.management.biggest_investment",
+            level = technical_level
+        )
+        .to_string(),
+        summary: rust_i18n::t!(
+            "team_dossier.management.summary",
+            state = state_label.as_str(),
+            cash = format_brl(cash),
+            debt = format_brl(debt),
+            points = points_int
+        )
+        .to_string(),
+        peak_cash_detail: rust_i18n::t!("team_dossier.management.peak_cash_detail").to_string(),
         worst_crisis_detail: if debt > 0.0 {
-            "Passivo real ainda pesa sobre a operação no ciclo atual.".to_string()
+            rust_i18n::t!("team_dossier.management.worst_crisis_detail_debt").to_string()
         } else {
-            "Sem crise de dívida registrada no recorte real disponível.".to_string()
+            rust_i18n::t!("team_dossier.management.worst_crisis_detail_none").to_string()
         },
-        healthy_years_detail: "Temporadas reais em que a equipe operou sem dívida relevante."
+        healthy_years_detail: rust_i18n::t!("team_dossier.management.healthy_years_detail")
             .to_string(),
-        efficiency_detail: format!(
-            "{} pontos reais no recorte; média esportiva de {} por temporada.",
-            points.round() as i32,
-            format_decimal_pt(points_per_season, 1)
-        ),
-        investment_detail: "Leitura do pacote técnico atual a partir da performance do carro."
-            .to_string(),
+        efficiency_detail: rust_i18n::t!(
+            "team_dossier.management.efficiency_detail",
+            points = points_int,
+            avg = efficiency_value.as_str()
+        )
+        .to_string(),
+        investment_detail: rust_i18n::t!("team_dossier.management.investment_detail").to_string(),
     })
 }
 
-fn financial_state_label_for_dossier(state: &str) -> &'static str {
-    match state {
-        "dominant" | "healthy" => "Saudável",
-        "stable" => "Estável",
-        "pressured" => "Pressionada",
-        "critical" => "Crítica",
-        _ => "Monitorada",
-    }
+fn financial_state_label_for_dossier(state: &str) -> String {
+    let key = match state {
+        "dominant" | "healthy" => "healthy",
+        "stable" => "stable",
+        "pressured" => "pressured",
+        "critical" => "critical",
+        _ => "monitored",
+    };
+    let full = format!("team_dossier.state.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 fn format_brl(value: f64) -> String {
@@ -7992,7 +8008,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_team_history_dossier_uses_real_race_results_for_any_team() {
+        rust_i18n::set_locale("pt-BR"); // dossiê assevera prosa PT (ver race_eval).
         let base_dir = create_test_career_dir("team_history_dossier_real_results");
         let config = AppConfig::load_or_default(&base_dir);
         let db_path = config.saves_dir().join("career_001").join("career.db");

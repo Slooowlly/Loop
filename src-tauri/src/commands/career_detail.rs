@@ -281,74 +281,40 @@ fn convert_tags(tags: &[AttributeTag]) -> Vec<TagInfo> {
         .collect()
 }
 
-fn convert_primary_personality(personality: &PrimaryPersonality) -> PersonalityInfo {
-    match personality {
-        PrimaryPersonality::Ambicioso => PersonalityInfo {
-            tipo: "Ambicioso".to_string(),
-            emoji: "\u{1F3C6}".to_string(),
-            descricao: "Quer subir de categoria sempre".to_string(),
-        },
-        PrimaryPersonality::Consolidador => PersonalityInfo {
-            tipo: "Consolidador".to_string(),
-            emoji: "\u{1F3E0}".to_string(),
-            descricao: "Prefere ser o melhor onde esta".to_string(),
-        },
-        PrimaryPersonality::Mercenario => PersonalityInfo {
-            tipo: "Mercenario".to_string(),
-            emoji: "\u{1F4B0}".to_string(),
-            descricao: "Vai onde pagam mais".to_string(),
-        },
-        PrimaryPersonality::Leal => PersonalityInfo {
-            tipo: "Leal".to_string(),
-            emoji: "\u{2764}\u{FE0F}".to_string(),
-            descricao: "Prefere ficar na equipe atual".to_string(),
-        },
+/// Monta o card de personalidade (display) resolvendo nome+descrição do locale ativo
+/// por `key`. `tipo` é DISPLAY, desacoplado do token de serialização em enums.rs.
+fn personality_info(key: &str, emoji: &str) -> PersonalityInfo {
+    let name_key = format!("career.personality.{key}.name");
+    let desc_key = format!("career.personality.{key}.desc");
+    PersonalityInfo {
+        tipo: rust_i18n::t!(&name_key).to_string(),
+        emoji: emoji.to_string(),
+        descricao: rust_i18n::t!(&desc_key).to_string(),
     }
 }
 
+fn convert_primary_personality(personality: &PrimaryPersonality) -> PersonalityInfo {
+    let (key, emoji) = match personality {
+        PrimaryPersonality::Ambicioso => ("ambicioso", "\u{1F3C6}"),
+        PrimaryPersonality::Consolidador => ("consolidador", "\u{1F3E0}"),
+        PrimaryPersonality::Mercenario => ("mercenario", "\u{1F4B0}"),
+        PrimaryPersonality::Leal => ("leal", "\u{2764}\u{FE0F}"),
+    };
+    personality_info(key, emoji)
+}
+
 fn convert_secondary_personality(personality: &SecondaryPersonality) -> PersonalityInfo {
-    match personality {
-        SecondaryPersonality::CabecaQuente => PersonalityInfo {
-            tipo: "Cabeca Quente".to_string(),
-            emoji: "\u{1F525}".to_string(),
-            descricao: "Esquenta quando perde posicoes".to_string(),
-        },
-        SecondaryPersonality::SangueFrio => PersonalityInfo {
-            tipo: "Sangue Frio".to_string(),
-            emoji: "\u{1F9CA}".to_string(),
-            descricao: "Mantem calma sob pressao".to_string(),
-        },
-        SecondaryPersonality::Apostador => PersonalityInfo {
-            tipo: "Apostador".to_string(),
-            emoji: "\u{1F3B0}".to_string(),
-            descricao: "Faz manobras arriscadas".to_string(),
-        },
-        SecondaryPersonality::Calculista => PersonalityInfo {
-            tipo: "Calculista".to_string(),
-            emoji: "\u{1F6E1}\u{FE0F}".to_string(),
-            descricao: "Prefere consistencia a brilhantismo".to_string(),
-        },
-        SecondaryPersonality::Showman => PersonalityInfo {
-            tipo: "Showman".to_string(),
-            emoji: "\u{1F451}".to_string(),
-            descricao: "Vive para o espetaculo".to_string(),
-        },
-        SecondaryPersonality::TeamPlayer => PersonalityInfo {
-            tipo: "Team Player".to_string(),
-            emoji: "\u{1F91D}".to_string(),
-            descricao: "Time em primeiro".to_string(),
-        },
-        SecondaryPersonality::Solitario => PersonalityInfo {
-            tipo: "Solitario".to_string(),
-            emoji: "\u{1F624}".to_string(),
-            descricao: "Corre por si mesmo".to_string(),
-        },
-        SecondaryPersonality::Estudioso => PersonalityInfo {
-            tipo: "Estudioso".to_string(),
-            emoji: "\u{1F4DA}".to_string(),
-            descricao: "Sempre quer melhorar".to_string(),
-        },
-    }
+    let (key, emoji) = match personality {
+        SecondaryPersonality::CabecaQuente => ("cabeca_quente", "\u{1F525}"),
+        SecondaryPersonality::SangueFrio => ("sangue_frio", "\u{1F9CA}"),
+        SecondaryPersonality::Apostador => ("apostador", "\u{1F3B0}"),
+        SecondaryPersonality::Calculista => ("calculista", "\u{1F6E1}\u{FE0F}"),
+        SecondaryPersonality::Showman => ("showman", "\u{1F451}"),
+        SecondaryPersonality::TeamPlayer => ("team_player", "\u{1F91D}"),
+        SecondaryPersonality::Solitario => ("solitario", "\u{1F624}"),
+        SecondaryPersonality::Estudioso => ("estudioso", "\u{1F4DA}"),
+    };
+    personality_info(key, emoji)
 }
 
 fn driver_detail_status(driver: &Driver, has_active_contract: bool) -> String {
@@ -516,38 +482,42 @@ fn build_driver_stardom_block(driver: &Driver) -> DriverStardomBlock {
 /// Escala de FAMA para exibição — 6 níveis, mais rica que os 4 tiers de mercado
 /// internos (o display pode ser mais granular que a lógica comercial de
 /// salário/patrocínio). Vai de Anônimo a Ídolo; o topo é aspiracional e raro.
-fn fama_level_for_value(value: f64) -> (&'static str, &'static str) {
+fn fama_level_for_value(value: f64) -> (String, &'static str) {
     let value = value.clamp(0.0, 100.0);
-    if value <= 15.0 {
-        ("Anônimo", "neutral")
+    let (key, tom) = if value <= 15.0 {
+        ("anonimo", "neutral")
     } else if value <= 30.0 {
-        ("Discreto", "neutral")
+        ("discreto", "neutral")
     } else if value <= 50.0 {
-        ("Conhecido", "info")
+        ("conhecido", "info")
     } else if value <= 70.0 {
-        ("Nome forte", "info")
+        ("nome_forte", "info")
     } else if value <= 87.0 {
-        ("Estrela", "success")
+        ("estrela", "success")
     } else {
-        ("Ídolo", "elite")
-    }
+        ("idolo", "elite")
+    };
+    let full = format!("driver_read.fama.{key}");
+    (rust_i18n::t!(&full).to_string(), tom)
 }
 
-fn carisma_level_for_value(value: f64) -> (&'static str, &'static str) {
+fn carisma_level_for_value(value: f64) -> (String, &'static str) {
     let value = value.clamp(0.0, 100.0);
-    if value < 30.0 {
-        ("Apagado", "danger")
+    let (key, tom) = if value < 30.0 {
+        ("apagado", "danger")
     } else if value < 45.0 {
-        ("Reservado", "warning")
+        ("reservado", "warning")
     } else if value < 60.0 {
-        ("Cativante", "neutral")
+        ("cativante", "neutral")
     } else if value < 75.0 {
-        ("Magnético", "info")
+        ("magnetico", "info")
     } else if value < 88.0 {
-        ("Carismático", "success")
+        ("carismatico", "success")
     } else {
-        ("Ídolo natural", "elite")
-    }
+        ("idolo_natural", "elite")
+    };
+    let full = format!("driver_read.carisma.{key}");
+    (rust_i18n::t!(&full).to_string(), tom)
 }
 
 /// Leitura de uma linha: como o carisma (retenção/conversão) conversa com a fama
@@ -557,19 +527,14 @@ fn stardom_reading(fama: f64, carisma: f64) -> String {
     let fama_alta = fama >= 60.0;
     let carisma_alto = carisma >= 60.0;
 
-    match (fama_alta, carisma_alto) {
-        (true, true) => {
-            "Ídolo consolidado — o público responde a cada aparição e a fama resiste às quedas."
-        }
-        (false, true) => {
-            "Cativa fácil, só falta palco: um bom momento e a fama dispara — e custa a cair."
-        }
-        (true, false) => {
-            "Fama erguida pelo resultado, não pelo carisma — é holofote volátil, sangra rápido no jejum."
-        }
-        (false, false) => "Fora do radar do público, e sem o carisma para virar o jogo depressa.",
-    }
-    .to_string()
+    let key = match (fama_alta, carisma_alto) {
+        (true, true) => "idol_consolidated",
+        (false, true) => "powder_keg",
+        (true, false) => "volatile_spotlight",
+        (false, false) => "off_radar",
+    };
+    let full = format!("driver_read.stardom.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 fn build_technical_read_item(chave: &str, label: &str, value: f64) -> DriverTechnicalReadItem {
@@ -583,25 +548,27 @@ fn build_technical_read_item(chave: &str, label: &str, value: f64) -> DriverTech
     }
 }
 
-fn technical_level_for_value(value: f64) -> (&'static str, &'static str) {
+fn technical_level_for_value(value: f64) -> (String, &'static str) {
     let value = value.clamp(0.0, 100.0);
-    if value < 12.5 {
-        ("Muito fraco", "danger")
+    let (key, tom) = if value < 12.5 {
+        ("muito_fraco", "danger")
     } else if value < 25.0 {
-        ("Fraco", "danger")
+        ("fraco", "danger")
     } else if value < 37.5 {
-        ("Abaixo do esperado", "warning")
+        ("abaixo", "warning")
     } else if value < 50.0 {
-        ("Instavel", "warning")
+        ("instavel", "warning")
     } else if value < 62.5 {
-        ("Competente", "neutral")
+        ("competente", "neutral")
     } else if value < 75.0 {
-        ("Forte", "info")
+        ("forte", "info")
     } else if value < 87.5 {
-        ("Muito forte", "success")
+        ("muito_forte", "success")
     } else {
-        ("Elite", "elite")
-    }
+        ("elite", "elite")
+    };
+    let full = format!("driver_read.technical.{key}");
+    (rust_i18n::t!(&full).to_string(), tom)
 }
 
 fn build_driver_market_block(
@@ -1004,7 +971,7 @@ fn build_current_summary_block(
 ) -> DriverCurrentSummaryBlock {
     if driver.stats_carreira.corridas == 0 && results.is_empty() {
         return DriverCurrentSummaryBlock {
-            veredito: "Estreante".to_string(),
+            veredito: rust_i18n::t!("driver_read.verdict.rookie").to_string(),
             tom: "info".to_string(),
             posicao_campeonato: championship_position,
             pontos: driver.stats_temporada.pontos.round() as i32,
@@ -1040,26 +1007,27 @@ fn build_current_summary_block(
     let is_critical_average = average_recent.is_some_and(|average| average >= 16.0);
     let is_low_in_championship = championship_position.is_some_and(|position| position >= 15);
     let is_very_low_in_championship = championship_position.is_some_and(|position| position >= 20);
-    let (veredito, tom) = if verdict_score >= 45 {
-        ("Excelente", "success")
+    let (verdict_key, tom) = if verdict_score >= 45 {
+        ("excellent", "success")
     } else if verdict_score >= 24 {
-        ("Bom", "success")
+        ("good", "success")
     } else if verdict_score >= 10 {
-        ("Regular", "warning")
+        ("fair", "warning")
     } else if has_enough_evidence
         && (is_critical_average
             || dnf_rate >= 0.4
             || (is_very_low_in_championship && is_bad_average))
     {
-        ("Crítico", "danger")
+        ("critical", "danger")
     } else if has_enough_evidence && (is_bad_average || is_low_in_championship) {
-        ("Ruim", "danger")
+        ("bad", "danger")
     } else {
-        ("Avaliação", "info")
+        ("evaluating", "info")
     };
 
+    let verdict_full = format!("driver_read.verdict.{verdict_key}");
     DriverCurrentSummaryBlock {
-        veredito: veredito.to_string(),
+        veredito: rust_i18n::t!(&verdict_full).to_string(),
         tom: tom.to_string(),
         posicao_campeonato: championship_position,
         pontos: driver.stats_temporada.pontos.round() as i32,
@@ -1084,10 +1052,10 @@ fn build_performance_read_block(
     };
     let teammate_points = teammate.map(|value| value.stats_temporada.pontos.round() as i32);
     let reading = match delta {
-        Some(value) if value >= 3 => "Entrega acima do pacote atual.",
-        Some(value) if value <= -3 => "Entrega abaixo do esperado para o pacote.",
-        Some(_) => "Entrega dentro do esperado para o pacote.",
-        None => "Sem contexto suficiente para comparar com o pacote.",
+        Some(value) if value >= 3 => rust_i18n::t!("driver_read.delivery.above"),
+        Some(value) if value <= -3 => rust_i18n::t!("driver_read.delivery.below"),
+        Some(_) => rust_i18n::t!("driver_read.delivery.within"),
+        None => rust_i18n::t!("driver_read.delivery.no_context"),
     };
 
     DriverPerformanceReadBlock {
@@ -1944,23 +1912,30 @@ fn build_driver_career_path_block(
     };
     let mut marcos = vec![CareerMilestone {
         tipo: "estreia".to_string(),
-        titulo: "Estreia".to_string(),
-        descricao: format!("Iniciou a carreira em {debut_year}"),
+        titulo: rust_i18n::t!("career.milestone.debut_title").to_string(),
+        descricao: rust_i18n::t!("career.milestone.debut_desc", year = debut_year).to_string(),
     }];
 
     if driver.stats_carreira.titulos > 0 {
+        let titulos = driver.stats_carreira.titulos;
+        let descricao = if titulos == 1 {
+            rust_i18n::t!("career.milestone.titles_desc_one").to_string()
+        } else {
+            rust_i18n::t!("career.milestone.titles_desc_other", count = titulos).to_string()
+        };
         marcos.push(CareerMilestone {
             tipo: "titulo".to_string(),
-            titulo: "Titulos".to_string(),
-            descricao: format!("Ja conquistou {} titulo(s)", driver.stats_carreira.titulos),
+            titulo: rust_i18n::t!("career.milestone.titles_title").to_string(),
+            descricao,
         });
     }
 
     if let Some(category_label) = category_id.and_then(competitive_division_label_from_key) {
         marcos.push(CareerMilestone {
             tipo: "categoria".to_string(),
-            titulo: "Momento atual".to_string(),
-            descricao: format!("Compete hoje em {category_label}"),
+            titulo: rust_i18n::t!("career.milestone.current_title").to_string(),
+            descricao: rust_i18n::t!("career.milestone.current_desc", category = category_label)
+                .to_string(),
         });
     }
 
@@ -2033,7 +2008,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn current_summary_uses_avaliacao_instead_of_em_avaliacao() {
+        rust_i18n::set_locale("pt-BR"); // veredito assevera prosa PT (ver race_eval).
         let driver = sample_driver();
         let results = vec![finish(1, 12), finish(2, 13)];
 
@@ -2044,7 +2021,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn current_summary_names_bad_and_critical_seasons() {
+        rust_i18n::set_locale("pt-BR");
         let driver = sample_driver();
         let bad_results = vec![finish(1, 11), finish(2, 12), finish(3, 13)];
         let critical_results = vec![finish(1, 18), finish(2, 19), finish(3, 20)];

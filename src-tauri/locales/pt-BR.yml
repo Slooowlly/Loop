@@ -3,3 +3,346 @@
 # .rs. Ver docs/i18n-translation-spec.md.
 diagnostics:
   ping: "pong-pt"
+
+# Tags de atributo dos pilotos (models/driver_tags.rs). 17 atributos × 5 níveis.
+# Índice: 0=DefeitoGrave, 1=Defeito, 2=Qualidade, 3=QualidadeAlta, 4=Elite.
+driver_tags:
+  skill:
+    "0": "Lento"
+    "1": "Abaixo do Ritmo"
+    "2": "Veloz"
+    "3": "Super Veloz"
+    "4": "Alien"
+  consistencia:
+    "0": "Totalmente Imprevisível"
+    "1": "Inconsistente"
+    "2": "Consistente"
+    "3": "Muito Consistente"
+    "4": "Máquina de Regularidade"
+  racecraft:
+    "0": "Perigo nas Rodas"
+    "1": "Roda-a-roda Fraco"
+    "2": "Bom Disputador"
+    "3": "Mestre em Disputas"
+    "4": "Racecraft de Elite"
+  defesa:
+    "0": "Porta Aberta"
+    "1": "Defesa Fraca"
+    "2": "Bom Defensor"
+    "3": "Muro na Pista"
+    "4": "Inultrapassável"
+  ritmo_classificacao:
+    "0": "Péssimo em Quali"
+    "1": "Lento na Classificação"
+    "2": "Forte na Classificação"
+    "3": "Especialista em Quali"
+    "4": "Rei da Pole"
+  gestao_pneus:
+    "0": "Destruidor de Pneus"
+    "1": "Gestão de Pneus Fraca"
+    "2": "Bom com Pneus"
+    "3": "Excelente Gestão"
+    "4": "Smooth Operator"
+  habilidade_largada:
+    "0": "Péssimo nas Largadas"
+    "1": "Ruim de Largada"
+    "2": "Boas Largadas"
+    "3": "Excelente nas Largadas"
+    "4": "Foguete na Largada"
+  adaptabilidade:
+    "0": "Inflexível"
+    "1": "Lento para Adaptar"
+    "2": "Adaptável"
+    "3": "Muito Adaptável"
+    "4": "Camaleão"
+  fator_chuva:
+    "0": "Terrível na Chuva"
+    "1": "Dificuldade na Chuva"
+    "2": "Bom na Chuva"
+    "3": "Especialista de Chuva"
+    "4": "Mestre da Chuva"
+  fitness:
+    "0": "Doente"
+    "1": "Fora de Forma"
+    "2": "Boa Forma Física"
+    "3": "Atleta"
+    "4": "Forma Física de Elite"
+  experiencia:
+    "0": "Calouro"
+    "1": "Inexperiente"
+    "2": "Experiente"
+    "3": "Muito Experiente"
+    "4": "Veterano Sábio"
+  desenvolvimento:
+    "0": "Estagnado"
+    "1": "Desenvolvimento Lento"
+    "2": "Em Ascensão"
+    "3": "Evolução Rápida"
+    "4": "Prodígio"
+  aggression:
+    "0": "Passivo Demais"
+    "1": "Muito Cauteloso"
+    "2": "Agressivo"
+    "3": "Muito Agressivo"
+    "4": "Kamikaze"
+  smoothness:
+    "0": "Pilotagem Bruta"
+    "1": "Pouco Suave"
+    "2": "Pilotagem Suave"
+    "3": "Muito Suave"
+    "4": "Pilotagem de Seda"
+  midia:
+    "0": "Invisível"
+    "1": "Discreto"
+    "2": "Carismático"
+    "3": "Queridinho da Mídia"
+    "4": "Estrela"
+  mentalidade:
+    "0": "Frágil sob Pressão"
+    "1": "Mentalidade Fraca"
+    "2": "Boa Mentalidade"
+    "3": "Mentalidade de Campeão"
+    "4": "Gelo nas Veias"
+  confianca:
+    "0": "Sem Confiança"
+    "1": "Inseguro"
+    "2": "Confiante"
+    "3": "Muito Confiante"
+    "4": "Inabalável"
+
+# Cérebro pós-corrida (race_eval.rs): avaliação, manchete e leitura do conjunto.
+# %{...} = interpolação do rust-i18n. `assessment` é o rótulo já traduzido,
+# embutido na manchete. Ordinais chegam como "P8" (helper `ord`).
+race_eval:
+  assessment:
+    muito_acima: "muito acima do esperado"
+    acima: "acima do esperado"
+    dentro: "dentro do esperado"
+    abaixo: "abaixo do esperado"
+    muito_abaixo: "muito abaixo do esperado"
+  headline:
+    dnf: "Abandono em %{pos}. Fim de semana para esquecer — o importante é trazer o carro inteiro na próxima."
+    recovery: "Corrida forte de recuperação: largou %{grid} e terminou %{finish}, ganhando %{gained} posições — %{assessment}."
+    solid: "Resultado sólido %{assessment}: %{grid} → %{finish}, melhor do que a meta da corrida pedia."
+    dentro: "Corrida dentro do esperado: %{grid} → %{finish}, entregando a meta realista do dia."
+    below_lost: "Resultado %{assessment}: largou %{grid} e perdeu posições até %{finish}. Havia mais ali."
+    below: "Resultado %{assessment}: %{grid} → %{finish} ficou aquém da meta da corrida."
+  team_read:
+    dnf: "O abandono mascarou o que o conjunto tinha a oferecer neste fim de semana."
+    above: "Você entregou ACIMA do que o carro prometia — a pilotagem fez a diferença."
+    limit: "Você entregou perto do limite do conjunto — extraiu o que o carro tinha."
+    below: "O conjunto tinha mais a oferecer; sobrou ritmo na garagem que não virou posição."
+
+# Rodapé "Do mundo do Grid" (commands/world_footer.rs). VOZ DE REVISTA (3ª pessoa).
+# `tag` = rótulo temático exibido; `tone`/`kind` NÃO ficam aqui (tokens de CSS/máquina).
+# `metric_noun` singular/plural por métrica de recorde (%{ord} = ordinal já formatado).
+world_footer:
+  tag:
+    market: "MERCADO"
+    finance: "FINANÇAS"
+    backstage: "BASTIDORES"
+    record: "RECORDE"
+  metric_noun:
+    wins:
+      one: "vitória"
+      other: "vitórias"
+    podiums:
+      one: "pódio"
+      other: "pódios"
+    poles:
+      one: "pole"
+      other: "poles"
+    titles:
+      one: "título"
+      other: "títulos"
+    starts:
+      one: "largada"
+      other: "largadas"
+  team_state:
+    new_board: "Reviravolta nos bastidores: a %{team} passou por uma troca de comando depois de anos difíceis."
+    debt: "Rumores no paddock dão conta de que a %{team} acumula dívidas e luta para fechar as contas da temporada."
+    tight_budget: "A %{team} atravessa um momento financeiro delicado e opera no limite do orçamento neste ano."
+    bad_mood: "O ambiente interno da %{team} pesa: o rendimento abaixo do esperado abalou o vestiário."
+  teammate:
+    team_crisis: "%{mate} vive um ano conturbado: a %{team}, sua equipe atual, enfrenta dificuldades financeiras."
+  record_broken:
+    lap_record: "%{name} fez a volta mais rápida da história em %{context}: %{lap} (recorde anterior: %{prev})."
+    comeback: "%{name} protagonizou a maior recuperação da história da categoria: subiu %{value} posições numa única corrida."
+    season_wins_prev: "%{name} chegou a %{value} vitórias numa única temporada — novo recorde da categoria, superando a marca de %{prev}."
+    season_wins: "%{name} chegou a %{value} vitórias numa única temporada — recorde da categoria."
+    track_wins: "%{name} é o maior vencedor da história em %{context}, agora com %{value} vitórias no circuito."
+    win_streak: "%{name} venceu %{value} corridas seguidas — recorde de sequência da categoria."
+    constructor_titles: "A %{name} conquistou seu %{ord} título de construtores — recorde da categoria."
+    team_wins: "A %{name} tornou-se a maior vencedora da história da categoria, com %{value} vitórias."
+    one_two: "A %{name} chegou à sua %{ord} dobradinha (1-2) — recorde da categoria."
+    youngest_winner: "%{name}, aos %{value} anos, tornou-se o mais jovem a vencer na história da categoria."
+    oldest_winner: "%{name}, aos %{value} anos, tornou-se o mais velho a vencer na história da categoria."
+    youngest_champion: "%{name} sagrou-se campeão aos %{value} anos — o mais jovem da história da categoria."
+    most_chaotic_race: "%{name} viveu a corrida mais caótica da história da categoria: %{value} abandonos."
+    drought_broken: "%{name} voltou a vencer após %{value} temporadas de jejum — o maior já quebrado na categoria."
+    closest_championship_tie: "%{name} levou o título na decisão mais apertada da história da categoria — empatado em pontos, no critério de desempate."
+    closest_championship: "%{name} levou o título na decisão mais apertada da história da categoria: %{value} pontos de diferença."
+    biggest_blowout: "%{name} dominou a temporada mais desequilibrada da história da categoria: %{value} pontos à frente do vice."
+    longest_pairing: "%{name} — %{value} temporadas juntos, a parceria mais longeva da história da categoria."
+    most_starts_no_win: "%{name} superou %{context} como o piloto com mais largadas sem vencer na categoria: %{value}."
+    most_career_dnfs: "%{name} passou %{context} e é agora quem mais abandonou na história da categoria: %{value} DNFs."
+    most_poles_no_title: "%{name} superou %{context}: %{value} poles sem nunca ter sido campeão — recorde da categoria."
+    most_career_points: "%{name} superou %{context} e tornou-se o maior pontuador da história da categoria."
+    generic_prev: "%{name} entrou para a história: quebrou o recorde de %{noun} da categoria, agora em %{value} (a marca anterior era %{prev})."
+    generic: "%{name} entrou para a história ao estabelecer o novo recorde de %{noun} da categoria: %{value}."
+  record_watch:
+    tied: "%{name} igualou o recorde histórico de %{noun} da categoria: %{value}, marca de %{holder}."
+    approaching: "%{name} está a %{gap} %{noun} de igualar o recorde histórico da categoria (%{value}, de %{holder})."
+  star:
+    idol: "%{name} é o maior fenômeno de público da categoria: onde corre, as arquibancadas lotam e os patrocinadores fazem fila."
+    star: "%{name} virou um dos grandes nomes da categoria e arrasta torcida para os autódromos — presença de público garantida onde disputa."
+
+# Mercado: leilão de assédio ao jogador (pipeline.rs) + eventos da janela (preseason.rs).
+# `movement_kind`/`event_type` NÃO ficam aqui (tokens de máquina).
+market:
+  bid:
+    opening: "abertura"
+    nth: "lance %{n}"
+  poach_outcome:
+    expired: "A oferta expirou."
+    stayed: "Você ficou na %{team}."
+    unavailable: "O pretendente não está mais disponível."
+    signed: "Você assinou com a %{team}."
+  event:
+    deal: "Acerto na %{category}."
+    window_closed_headline: "Janela de transferências encerrada"
+    window_closed_desc: "O mercado foi fechado."
+    departure_headline: "%{driver} deixa %{team}"
+    contract_ended: "Fim de contrato sem renovação."
+
+# Rivalidades (db/queries/rivalry_episodes.rs). Nome determinístico da rivalidade
+# (display + fato pra IA), derivado do 1º capítulo. `interaction` é token, fica fora.
+rivalry:
+  label:
+    rematch_track: "A Revanche de %{track}"
+    rematch: "A Revanche"
+    title_fight: "A Disputa pelo Título"
+    classic_track: "O Clássico de %{track}"
+    track_rivalry: "Rivalidade de Pista"
+
+# Ficha do piloto (commands/career_detail.rs): personalidade + marcos de carreira
+# (display do DriverDetailModal). `tipo` de personalidade aqui é DISPLAY (desacoplado
+# do token de serialização em enums.rs); status/tipo-de-marco ficam como tokens.
+career:
+  personality:
+    ambicioso:
+      name: "Ambicioso"
+      desc: "Quer subir de categoria sempre"
+    consolidador:
+      name: "Consolidador"
+      desc: "Prefere ser o melhor onde está"
+    mercenario:
+      name: "Mercenário"
+      desc: "Vai onde pagam mais"
+    leal:
+      name: "Leal"
+      desc: "Prefere ficar na equipe atual"
+    cabeca_quente:
+      name: "Cabeça Quente"
+      desc: "Esquenta quando perde posições"
+    sangue_frio:
+      name: "Sangue Frio"
+      desc: "Mantém a calma sob pressão"
+    apostador:
+      name: "Apostador"
+      desc: "Faz manobras arriscadas"
+    calculista:
+      name: "Calculista"
+      desc: "Prefere consistência a brilhantismo"
+    showman:
+      name: "Showman"
+      desc: "Vive para o espetáculo"
+    team_player:
+      name: "Team Player"
+      desc: "Time em primeiro"
+    solitario:
+      name: "Solitário"
+      desc: "Corre por si mesmo"
+    estudioso:
+      name: "Estudioso"
+      desc: "Sempre quer melhorar"
+  milestone:
+    debut_title: "Estreia"
+    debut_desc: "Iniciou a carreira em %{year}"
+    titles_title: "Títulos"
+    titles_desc_one: "Já conquistou 1 título"
+    titles_desc_other: "Já conquistou %{count} títulos"
+    current_title: "Momento atual"
+    current_desc: "Compete hoje em %{category}"
+
+# Leitura do piloto (career_detail.rs): níveis (fama/carisma/técnico), leitura de
+# estrelato, entrega vs pacote e veredito da temporada. `tom`/`tendencia` = tokens.
+driver_read:
+  fama:
+    anonimo: "Anônimo"
+    discreto: "Discreto"
+    conhecido: "Conhecido"
+    nome_forte: "Nome forte"
+    estrela: "Estrela"
+    idolo: "Ídolo"
+  carisma:
+    apagado: "Apagado"
+    reservado: "Reservado"
+    cativante: "Cativante"
+    magnetico: "Magnético"
+    carismatico: "Carismático"
+    idolo_natural: "Ídolo natural"
+  technical:
+    muito_fraco: "Muito fraco"
+    fraco: "Fraco"
+    abaixo: "Abaixo do esperado"
+    instavel: "Instável"
+    competente: "Competente"
+    forte: "Forte"
+    muito_forte: "Muito forte"
+    elite: "Elite"
+  stardom:
+    idol_consolidated: "Ídolo consolidado — o público responde a cada aparição e a fama resiste às quedas."
+    powder_keg: "Cativa fácil, só falta palco: um bom momento e a fama dispara — e custa a cair."
+    volatile_spotlight: "Fama erguida pelo resultado, não pelo carisma — é holofote volátil, sangra rápido no jejum."
+    off_radar: "Fora do radar do público, e sem o carisma para virar o jogo depressa."
+  delivery:
+    above: "Entrega acima do pacote atual."
+    below: "Entrega abaixo do esperado para o pacote."
+    within: "Entrega dentro do esperado para o pacote."
+    no_context: "Sem contexto suficiente para comparar com o pacote."
+  verdict:
+    rookie: "Estreante"
+    excellent: "Excelente"
+    good: "Bom"
+    fair: "Regular"
+    critical: "Crítico"
+    bad: "Ruim"
+    evaluating: "Avaliação"
+
+# Dossiê histórico da equipe (commands/career.rs): eventos de propriedade + gestão
+# financeira. `event_type`/`financial_state` (chave) são tokens; os rótulos, display.
+team_dossier:
+  ownership:
+    sale_title: "Nova diretoria"
+    change_title: "Mudança de gestão"
+    financial_note: "Dívida de %{cleared} zerada · aporte de %{injected}"
+  state:
+    healthy: "Saudável"
+    stable: "Estável"
+    pressured: "Pressionada"
+    critical: "Crítica"
+    monitored: "Monitorada"
+  management:
+    worst_crisis_debt: "%{debt} de dívida"
+    worst_crisis_none: "Sem dívida real registrada"
+    healthy_years: "%{count} Temporadas"
+    efficiency: "%{value} pts/temporada"
+    biggest_investment: "Nível %{level} - pacote técnico atual"
+    summary: "%{state}: operação com %{cash} em caixa, %{debt} em dívida e %{points} pontos reais no recorte."
+    peak_cash_detail: "Maior folga financeira registrada no retrato atual da equipe."
+    worst_crisis_detail_debt: "Passivo real ainda pesa sobre a operação no ciclo atual."
+    worst_crisis_detail_none: "Sem crise de dívida registrada no recorte real disponível."
+    healthy_years_detail: "Temporadas reais em que a equipe operou sem dívida relevante."
+    efficiency_detail: "%{points} pontos reais no recorte; média esportiva de %{avg} por temporada."
+    investment_detail: "Leitura do pacote técnico atual a partir da performance do carro."
