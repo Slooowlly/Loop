@@ -273,6 +273,24 @@ career:
     titles_desc_other: "Already won %{count} titles"
     current_title: "Right Now"
     current_desc: "Currently competing in %{category}"
+  message:
+    created: "Career created successfully"
+    deleted: "Career %{id} deleted successfully."
+    proposal_signed: "You signed with %{team} as %{role}!"
+    proposal_declined: "You declined %{team}'s offer."
+    proposal_declined_emergency: "You declined %{team}'s offer. New emergency options have been generated."
+    proposal_declined_reallocated: "You declined %{team}'s offer. The market placed you at %{new_team} to keep you from being left without a team."
+    no_driver: "No driver"
+  group:
+    mazda: "Mazda Group"
+    toyota: "Toyota Group"
+    bmw: "BMW Group"
+    production: "Production Group"
+    gt4: "GT4 Group"
+    gt3: "GT3 Group"
+    lmp2: "LMP2 Group"
+    endurance: "Endurance Group"
+    generic: "Category group"
 
 # Driver read (career_detail.rs): levels (fame/charisma/technical), stardom read,
 # delivery vs package, and season verdict. `tom`/`tendencia` are tokens.
@@ -332,6 +350,37 @@ team_dossier:
     pressured: "Under pressure"
     critical: "Critical"
     monitored: "Monitored"
+  records:
+    titles: "Titles"
+    wins: "Wins"
+    podiums: "Podiums"
+    podium_rate: "Podium rate"
+    win_rate: "Win rate"
+  first_milestone:
+    podium: "First podium"
+    win: "First win"
+    title: "First title"
+  heritage:
+    debutant: "Debutant"
+    new: "Newcomer"
+    rising: "Rising"
+    established: "Established"
+    traditional: "Traditional"
+  profile:
+    forming: "Taking shape"
+    dominant: "Dominant"
+    winning: "Race-winning"
+    competitive: "Competitive"
+    midfield: "Midfield"
+    support: "Backmarker"
+  identity_summary:
+    dominant: "%{team} is a benchmark on the grid: titles and wins sustain a winning identity."
+    winning: "%{team} wins regularly, fighting at the front without dominating the whole season."
+    competitive: "%{team} is a constant podium force, almost always in the leading pack even without winning much."
+    midfield: "%{team} lives the midfield fight: scores often and looks for the jump into podium contention."
+    support: "%{team} battles at the back of the grid, banking experience and rare points while trying to grow."
+    forming: "%{team} is still taking shape (%{races} races in the sample) — too short a history for a defined profile."
+  team_fallback: "The team"
   management:
     worst_crisis_debt: "%{debt} in debt"
     worst_crisis_none: "No real debt on record"
@@ -345,3 +394,57 @@ team_dossier:
     healthy_years_detail: "Real seasons in which the team operated without relevant debt."
     efficiency_detail: "%{points} real points in the sample; sporting average of %{avg} per season."
     investment_detail: "A read on the current technical package from the car's performance."
+  highlight:
+    best_season: "Best season"
+    best_season_value: "%{count} wins"
+    most_podiums: "Most podiums in a season"
+    most_podiums_value: "%{count} podiums"
+    biggest_dynasty: "Biggest dynasty"
+    biggest_dynasty_value: "%{count} titles in a row"
+    best_campaign: "Best campaign"
+    champion_value: "Champion"
+    detail_year_category: "In %{year}, in %{category}."
+    detail_until: "Through %{year}."
+    detail_year: "In %{year}."
+  season_count:
+    none: "No seasons on record"
+    one: "1 season"
+    other: "%{count} seasons"
+  streak:
+    none: "No streak on record"
+    level_one: "1 season at the %{level} level"
+    level_other: "%{count} seasons in a row at the %{level} level"
+    podium_one: "1 podium on record"
+    podium_other: "%{count} podiums in a row"
+    points_one: "1 race in the points"
+    points_other: "%{count} races in the points"
+  rival_none: "No established rival"
+  symbol_none: "No symbol driver"
+
+# Car maintenance invoice (commands/race.rs): label per item by `key`.
+# The `key` is the token (fuel/tires/part); the label is display.
+maintenance:
+  gasolina: "Fuel"
+  pneus: "Tires"
+  carroceria: "Bodywork"
+  suspensao: "Suspension"
+  freio: "Brakes"
+  embreagem: "Clutch"
+  motor: "Engine"
+  cambio: "Gearbox"
+
+# Race (commands/race.rs): news headlines (win/champion) + retirement reason.
+# Does NOT include the AI "facts" (phase 4). `tipo`/`icone` are tokens.
+race:
+  news:
+    win_final_title: "%{name} wins the season finale at %{track}"
+    win_final_text: "%{name} crossed the line first in the final round of the %{season} season."
+    win_crucial_title: "%{name} takes a crucial win down the stretch at %{track}"
+    win_crucial_text: "With the season nearing its end, %{name} secured first place in round %{round}."
+    win_title: "%{name} wins at %{track}"
+    win_text: "%{name} crossed the line first in round %{round} of the %{season} season."
+    champion_title: "%{name} is the champion of the %{season} season!"
+    champion_text: "After %{rounds} intense rounds, %{name} clinches the category title. An unforgettable season has come to an end."
+    other_categories_summary: "Other categories summary: %{headline}."
+  retirement:
+    injury: "Retired at %{age} after a serious injury"

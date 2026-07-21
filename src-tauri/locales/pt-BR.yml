@@ -274,6 +274,24 @@ career:
     titles_desc_other: "Já conquistou %{count} títulos"
     current_title: "Momento atual"
     current_desc: "Compete hoje em %{category}"
+  message:
+    created: "Carreira criada com sucesso"
+    deleted: "Carreira %{id} deletada com sucesso."
+    proposal_signed: "Você assinou com %{team} como %{role}!"
+    proposal_declined: "Você recusou a proposta de %{team}."
+    proposal_declined_emergency: "Você recusou a proposta de %{team}. Novas opções emergenciais foram geradas."
+    proposal_declined_reallocated: "Você recusou a proposta de %{team}. O mercado o alocou em %{new_team} para evitar que fique sem equipe."
+    no_driver: "Sem piloto"
+  group:
+    mazda: "Grupo Mazda"
+    toyota: "Grupo Toyota"
+    bmw: "Grupo BMW"
+    production: "Grupo Production"
+    gt4: "Grupo GT4"
+    gt3: "Grupo GT3"
+    lmp2: "Grupo LMP2"
+    endurance: "Grupo Endurance"
+    generic: "Grupo da categoria"
 
 # Leitura do piloto (career_detail.rs): níveis (fama/carisma/técnico), leitura de
 # estrelato, entrega vs pacote e veredito da temporada. `tom`/`tendencia` = tokens.
@@ -333,6 +351,37 @@ team_dossier:
     pressured: "Pressionada"
     critical: "Crítica"
     monitored: "Monitorada"
+  records:
+    titles: "Títulos"
+    wins: "Vitórias"
+    podiums: "Pódios"
+    podium_rate: "Taxa de pódio"
+    win_rate: "Taxa de vitória"
+  first_milestone:
+    podium: "Primeiro pódio"
+    win: "Primeira vitória"
+    title: "Primeiro título"
+  heritage:
+    debutant: "Estreante"
+    new: "Novata"
+    rising: "Em ascensão"
+    established: "Estabelecida"
+    traditional: "Tradicional"
+  profile:
+    forming: "Em formação"
+    dominant: "Dominante"
+    winning: "Vencedora"
+    competitive: "Competitiva"
+    midfield: "Meio de Grid"
+    support: "Coadjuvante"
+  identity_summary:
+    dominant: "%{team} é referência do grid: títulos e vitórias sustentam uma identidade vencedora."
+    winning: "%{team} é dona de vitórias com regularidade, brigando lá na frente sem dominar a temporada inteira."
+    competitive: "%{team} é força constante de pódio, quase sempre no pelotão da frente mesmo sem ganhar tanto."
+    midfield: "%{team} vive a disputa do meio do grid: pontua com frequência e busca o salto para a zona de pódio."
+    support: "%{team} luta no fundo do grid, somando experiência e raros pontos enquanto tenta evoluir."
+    forming: "%{team} ainda está em formação (%{races} corridas no recorte) — história curta demais para um perfil definido."
+  team_fallback: "A equipe"
   management:
     worst_crisis_debt: "%{debt} de dívida"
     worst_crisis_none: "Sem dívida real registrada"
@@ -346,3 +395,57 @@ team_dossier:
     healthy_years_detail: "Temporadas reais em que a equipe operou sem dívida relevante."
     efficiency_detail: "%{points} pontos reais no recorte; média esportiva de %{avg} por temporada."
     investment_detail: "Leitura do pacote técnico atual a partir da performance do carro."
+  highlight:
+    best_season: "Melhor temporada"
+    best_season_value: "%{count} vitórias"
+    most_podiums: "Mais pódios numa temporada"
+    most_podiums_value: "%{count} pódios"
+    biggest_dynasty: "Maior dinastia"
+    biggest_dynasty_value: "%{count} títulos seguidos"
+    best_campaign: "Melhor campanha"
+    champion_value: "Campeão"
+    detail_year_category: "Em %{year}, na %{category}."
+    detail_until: "Até %{year}."
+    detail_year: "Em %{year}."
+  season_count:
+    none: "Sem Temporadas registradas"
+    one: "1 Temporada"
+    other: "%{count} Temporadas"
+  streak:
+    none: "Sem sequência registrada"
+    level_one: "1 temporada no nível %{level}"
+    level_other: "%{count} temporadas seguidas no nível %{level}"
+    podium_one: "1 Pódio registrado"
+    podium_other: "%{count} Pódios consecutivos"
+    points_one: "1 Corrida pontuando"
+    points_other: "%{count} Corridas pontuando"
+  rival_none: "Sem rival consolidado"
+  symbol_none: "Sem piloto símbolo"
+
+# Fatura de manutenção do carro (commands/race.rs): rótulo de cada item por `key`.
+# A `key` é o token (gasolina/pneus/peça); o rótulo é display.
+maintenance:
+  gasolina: "Gasolina"
+  pneus: "Pneus"
+  carroceria: "Carroceria"
+  suspensao: "Suspensão"
+  freio: "Freio"
+  embreagem: "Embreagem"
+  motor: "Motor"
+  cambio: "Câmbio"
+
+# Corrida (commands/race.rs): manchetes de notícia (vitória/campeão) + motivo de
+# aposentadoria. NÃO inclui os "fatos" da IA (Fase 4). `tipo`/`icone` = tokens.
+race:
+  news:
+    win_final_title: "%{name} vence a corrida final da temporada em %{track}"
+    win_final_text: "%{name} cruzou a linha de chegada em primeiro lugar na última rodada da temporada %{season}."
+    win_crucial_title: "%{name} conquista vitória crucial na reta final em %{track}"
+    win_crucial_text: "Com a temporada se aproximando do fim, %{name} garantiu o primeiro lugar na rodada %{round}."
+    win_title: "%{name} vence em %{track}"
+    win_text: "%{name} cruzou a linha de chegada em primeiro lugar na rodada %{round} da temporada %{season}."
+    champion_title: "%{name} é o grande campeão da temporada %{season}!"
+    champion_text: "Após %{rounds} rodadas intensas, %{name} conquista o título da categoria. Uma temporada inesquecível chegou ao fim."
+    other_categories_summary: "Resumo das outras categorias: %{headline}."
+  retirement:
+    injury: "Aposentou-se aos %{age} anos após lesão grave"

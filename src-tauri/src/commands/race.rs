@@ -1325,7 +1325,7 @@ fn process_severe_injury_retirements(
             .categoria_atual
             .clone()
             .unwrap_or_else(|| "SemCategoria".to_string());
-        let reason = format!("Aposentou-se aos {} anos apos lesao grave", driver.idade);
+        let reason = rust_i18n::t!("race.retirement.injury", age = driver.idade).to_string();
 
         // 1. Hall dos aposentados (snapshot de carreira).
         crate::evolution::pipeline::persist_retired_driver(
@@ -1421,33 +1421,41 @@ pub struct MaintenanceBreakdown {
 /// Como o custo do conserto se divide entre os itens mecânicos, por severidade. NÃO
 /// simula o dano real — só fatia o valor total entre componentes plausíveis. Frações
 /// somam ~1.0.
-fn damage_split(severity: &str) -> Vec<(&'static str, &'static str, f64)> {
+/// Divisão do custo de conserto por peça, como (key, proporção). A `key` é o token
+/// da peça; o rótulo de display resolve em `maintenance_label`.
+fn damage_split(severity: &str) -> Vec<(&'static str, f64)> {
     match severity {
-        "moderado" => vec![("carroceria", "Carroceria", 0.70), ("suspensao", "Suspensão", 0.30)],
+        "moderado" => vec![("carroceria", 0.70), ("suspensao", 0.30)],
         "grave" => vec![
-            ("carroceria", "Carroceria", 0.50),
-            ("suspensao", "Suspensão", 0.25),
-            ("freio", "Freio", 0.15),
-            ("embreagem", "Embreagem", 0.10),
+            ("carroceria", 0.50),
+            ("suspensao", 0.25),
+            ("freio", 0.15),
+            ("embreagem", 0.10),
         ],
         "destruído" => vec![
-            ("carroceria", "Carroceria", 0.40),
-            ("suspensao", "Suspensão", 0.20),
-            ("motor", "Motor", 0.15),
-            ("freio", "Freio", 0.12),
-            ("cambio", "Câmbio", 0.08),
-            ("embreagem", "Embreagem", 0.05),
+            ("carroceria", 0.40),
+            ("suspensao", 0.20),
+            ("motor", 0.15),
+            ("freio", 0.12),
+            ("cambio", 0.08),
+            ("embreagem", 0.05),
         ],
         "catastrófico" => vec![
-            ("carroceria", "Carroceria", 0.32),
-            ("motor", "Motor", 0.22),
-            ("suspensao", "Suspensão", 0.18),
-            ("cambio", "Câmbio", 0.12),
-            ("freio", "Freio", 0.08),
-            ("embreagem", "Embreagem", 0.08),
+            ("carroceria", 0.32),
+            ("motor", 0.22),
+            ("suspensao", 0.18),
+            ("cambio", 0.12),
+            ("freio", 0.08),
+            ("embreagem", 0.08),
         ],
         _ => vec![],
     }
+}
+
+/// Rótulo de display de um item de manutenção (i18n) a partir da `key`.
+fn maintenance_label(key: &str) -> String {
+    let full = format!("maintenance.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 /// Fração do custo de OPERAÇÃO da categoria que vira "manutenção do carro" (gasolina,
@@ -1482,16 +1490,16 @@ pub(crate) fn compute_maintenance_breakdown(
 
     let mut items = Vec::new();
     if gasolina > 0.0 {
-        items.push(MaintenanceItem { key: "gasolina".into(), label: "Gasolina".into(), cost: gasolina });
+        items.push(MaintenanceItem { key: "gasolina".into(), label: maintenance_label("gasolina"), cost: gasolina });
     }
     if pneus > 0.0 {
-        items.push(MaintenanceItem { key: "pneus".into(), label: "Pneus".into(), cost: pneus });
+        items.push(MaintenanceItem { key: "pneus".into(), label: maintenance_label("pneus"), cost: pneus });
     }
     if repair_cost > 0.0 {
-        for (key, label, prop) in damage_split(repair_severity) {
+        for (key, prop) in damage_split(repair_severity) {
             let cost = (repair_cost * prop).round();
             if cost > 0.0 {
-                items.push(MaintenanceItem { key: key.into(), label: label.into(), cost });
+                items.push(MaintenanceItem { key: key.into(), label: maintenance_label(key), cost });
             }
         }
     }
@@ -2969,23 +2977,27 @@ fn persist_race_news(
             .unwrap_or(round);
         let fallback_races = total_rodadas - round;
 
+        let track = race_result.track_name.as_str();
         let (titulo, texto) = if fallback_races == 0 {
             (
-                format!("{} vence a corrida final da temporada em {}", winner_name, race_result.track_name),
-                format!("{} cruzou a linha de chegada em primeiro lugar na última rodada da temporada {}.", winner_name, active_season.numero),
+                rust_i18n::t!("race.news.win_final_title", name = winner_name, track = track).to_string(),
+                rust_i18n::t!("race.news.win_final_text", name = winner_name, season = active_season.numero).to_string(),
             )
         } else if fallback_races <= 2 {
             (
-                format!("{} conquista vitória crucial na reta final em {}", winner_name, race_result.track_name),
-                format!("Com a temporada se aproximando do fim, {} garantiu o primeiro lugar na rodada {}.", winner_name, round),
+                rust_i18n::t!("race.news.win_crucial_title", name = winner_name, track = track).to_string(),
+                rust_i18n::t!("race.news.win_crucial_text", name = winner_name, round = round).to_string(),
             )
         } else {
             (
-                format!("{} vence em {}", winner_name, race_result.track_name),
-                format!(
-                    "{} cruzou a linha de chegada em primeiro lugar na rodada {} da temporada {}.",
-                    winner_name, round, active_season.numero
-                ),
+                rust_i18n::t!("race.news.win_title", name = winner_name, track = track).to_string(),
+                rust_i18n::t!(
+                    "race.news.win_text",
+                    name = winner_name,
+                    round = round,
+                    season = active_season.numero
+                )
+                .to_string(),
             )
         };
 
@@ -3027,8 +3039,8 @@ fn persist_race_news(
                         id: champ_id,
                         tipo: NewsType::FramingSazonal,
                         icone: NewsType::FramingSazonal.icone().to_string(),
-                        titulo: format!("{} é o grande campeão da temporada {}!", champion.pilot_name, active_season.numero),
-                        texto: format!("Após {} rodadas intensas, {} conquista o título da categoria. Uma temporada inesquecível chegou ao fim.", total_rodadas, champion.pilot_name),
+                        titulo: rust_i18n::t!("race.news.champion_title", name = champion.pilot_name.as_str(), season = active_season.numero).to_string(),
+                        texto: rust_i18n::t!("race.news.champion_text", rounds = total_rodadas, name = champion.pilot_name.as_str()).to_string(),
                         rodada: Some(round),
                         semana_pretemporada: None,
                         temporada: active_season.numero,
@@ -4902,7 +4914,11 @@ fn persist_other_category_news(
             tipo: NewsType::Corrida,
             icone: NewsType::Corrida.icone().to_string(),
             titulo: highlight.headline.clone(),
-            texto: format!("Resumo das outras categorias: {}.", highlight.headline),
+            texto: rust_i18n::t!(
+                "race.news.other_categories_summary",
+                headline = highlight.headline.as_str()
+            )
+            .to_string(),
             rodada: None,
             semana_pretemporada: None,
             temporada: season_number,

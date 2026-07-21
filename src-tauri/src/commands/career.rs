@@ -226,7 +226,7 @@ pub(crate) fn create_career_in_base_dir(
             total_drivers: world.drivers.len(),
             total_teams: world.teams.len(),
             total_races,
-            message: "Carreira criada com sucesso".to_string(),
+            message: rust_i18n::t!("career.message.created").to_string(),
         })
     })();
 
@@ -453,7 +453,7 @@ pub(crate) fn delete_career_in_base_dir(
             .map_err(|e| format!("Falha ao atualizar config do app: {e}"))?;
     }
 
-    Ok(format!("Carreira {career_id} deletada com sucesso."))
+    Ok(rust_i18n::t!("career.message.deleted", id = career_id).to_string())
 }
 
 pub(crate) fn list_saves_in_base_dir(base_dir: &Path) -> Result<Vec<SaveInfo>, String> {
@@ -1494,27 +1494,36 @@ pub(crate) fn respond_to_proposal_in_base_dir(
         .collect::<Vec<_>>();
 
     let message = if accept {
-        format!(
-            "Voce assinou com {} como {}!",
-            proposal.equipe_nome,
-            if proposal.papel == TeamRole::Numero1 {
-                "N1"
-            } else {
-                "N2"
-            }
+        let role = if proposal.papel == TeamRole::Numero1 {
+            "N1"
+        } else {
+            "N2"
+        };
+        rust_i18n::t!(
+            "career.message.proposal_signed",
+            team = proposal.equipe_nome.as_str(),
+            role = role
         )
+        .to_string()
     } else if let Some(team_name) = &new_team_name {
-        format!(
-            "Voce recusou a proposta de {}. O mercado o alocou em {} para evitar que fique sem equipe.",
-            proposal.equipe_nome, team_name
+        rust_i18n::t!(
+            "career.message.proposal_declined_reallocated",
+            team = proposal.equipe_nome.as_str(),
+            new_team = team_name.as_str()
         )
+        .to_string()
     } else if remaining > 0 {
-        format!(
-            "Voce recusou a proposta de {}. Novas opcoes emergenciais foram geradas.",
-            proposal.equipe_nome
+        rust_i18n::t!(
+            "career.message.proposal_declined_emergency",
+            team = proposal.equipe_nome.as_str()
         )
+        .to_string()
     } else {
-        format!("Voce recusou a proposta de {}.", proposal.equipe_nome)
+        rust_i18n::t!(
+            "career.message.proposal_declined",
+            team = proposal.equipe_nome.as_str()
+        )
+        .to_string()
     };
 
     Ok(ProposalResponse {
@@ -2733,12 +2742,12 @@ fn refresh_planned_hierarchy_for_team(
             n1_name: n1
                 .as_ref()
                 .map(|candidate| candidate.1.clone())
-                .unwrap_or_else(|| "Sem piloto".to_string()),
+                .unwrap_or_else(|| rust_i18n::t!("career.message.no_driver").to_string()),
             n2_id: n2.as_ref().map(|candidate| candidate.0.clone()),
             n2_name: n2
                 .as_ref()
                 .map(|candidate| candidate.1.clone())
-                .unwrap_or_else(|| "Sem piloto".to_string()),
+                .unwrap_or_else(|| rust_i18n::t!("career.message.no_driver").to_string()),
             prev_n1_id: team.hierarquia_n1_id.clone(),
             prev_n2_id: team.hierarquia_n2_id.clone(),
             prev_tensao: team.hierarquia_tensao,
@@ -3971,22 +3980,22 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
         has_history,
         records: vec![
             TeamHistoryRecord {
-                label: "Títulos".to_string(),
+                label: rust_i18n::t!("team_dossier.records.titles").to_string(),
                 rank: rank_for_i32(&titles_by_team, team_id),
                 value: title_count.to_string(),
             },
             TeamHistoryRecord {
-                label: "Vitórias".to_string(),
+                label: rust_i18n::t!("team_dossier.records.wins").to_string(),
                 rank: rank_for_aggregate(&aggregates, team_id, |entry| entry.wins as f64),
                 value: wins.to_string(),
             },
             TeamHistoryRecord {
-                label: "Pódios".to_string(),
+                label: rust_i18n::t!("team_dossier.records.podiums").to_string(),
                 rank: rank_for_aggregate(&aggregates, team_id, |entry| entry.podiums as f64),
                 value: podiums.to_string(),
             },
             TeamHistoryRecord {
-                label: "Taxa de pódio".to_string(),
+                label: rust_i18n::t!("team_dossier.records.podium_rate").to_string(),
                 rank: rank_for_aggregate(&aggregates, team_id, |entry| {
                     if entry.races > 0 {
                         entry.podiums as f64 / entry.races as f64
@@ -3997,7 +4006,7 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
                 value: format!("{podium_rate}%"),
             },
             TeamHistoryRecord {
-                label: "Taxa de vitória".to_string(),
+                label: rust_i18n::t!("team_dossier.records.win_rate").to_string(),
                 rank: rank_for_aggregate(&aggregates, team_id, |entry| {
                     if entry.races > 0 {
                         entry.wins as f64 / entry.races as f64
@@ -4051,19 +4060,19 @@ fn build_team_milestones(
         .min()
     {
         milestones.push(TeamHistoryMilestone {
-            label: "Primeiro pódio".to_string(),
+            label: rust_i18n::t!("team_dossier.first_milestone.podium").to_string(),
             year: year.to_string(),
         });
     }
     if let Some(year) = facts.iter().filter(|f| f.win).map(|f| f.season_year).min() {
         milestones.push(TeamHistoryMilestone {
-            label: "Primeira vitória".to_string(),
+            label: rust_i18n::t!("team_dossier.first_milestone.win").to_string(),
             year: year.to_string(),
         });
     }
     if let Some(year) = titles.iter().map(|t| t.season_year).min() {
         milestones.push(TeamHistoryMilestone {
-            label: "Primeiro título".to_string(),
+            label: rust_i18n::t!("team_dossier.first_milestone.title").to_string(),
             year: year.to_string(),
         });
     }
@@ -4180,9 +4189,15 @@ fn build_team_highlights(
     if let Some((_, (year, wins, _, cats))) = by_season.iter().max_by_key(|(_, v)| v.1) {
         if *wins > 0 {
             highlights.push(TeamHistoryHighlight {
-                label: "Melhor temporada".to_string(),
-                value: format!("{wins} vitórias"),
-                detail: format!("Em {year}, na {}.", dominant_category(cats)),
+                label: rust_i18n::t!("team_dossier.highlight.best_season").to_string(),
+                value: rust_i18n::t!("team_dossier.highlight.best_season_value", count = wins)
+                    .to_string(),
+                detail: rust_i18n::t!(
+                    "team_dossier.highlight.detail_year_category",
+                    year = year,
+                    category = dominant_category(cats)
+                )
+                .to_string(),
             });
         }
     }
@@ -4191,9 +4206,15 @@ fn build_team_highlights(
     if let Some((_, (year, _, podiums, cats))) = by_season.iter().max_by_key(|(_, v)| v.2) {
         if *podiums > 0 {
             highlights.push(TeamHistoryHighlight {
-                label: "Mais pódios numa temporada".to_string(),
-                value: format!("{podiums} pódios"),
-                detail: format!("Em {year}, na {}.", dominant_category(cats)),
+                label: rust_i18n::t!("team_dossier.highlight.most_podiums").to_string(),
+                value: rust_i18n::t!("team_dossier.highlight.most_podiums_value", count = podiums)
+                    .to_string(),
+                detail: rust_i18n::t!(
+                    "team_dossier.highlight.detail_year_category",
+                    year = year,
+                    category = dominant_category(cats)
+                )
+                .to_string(),
             });
         }
     }
@@ -4216,9 +4237,11 @@ fn build_team_highlights(
     }
     if best_run >= 2 {
         highlights.push(TeamHistoryHighlight {
-            label: "Maior dinastia".to_string(),
-            value: format!("{best_run} títulos seguidos"),
-            detail: format!("Até {best_run_end}."),
+            label: rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string(),
+            value: rust_i18n::t!("team_dossier.highlight.biggest_dynasty_value", count = best_run)
+                .to_string(),
+            detail: rust_i18n::t!("team_dossier.highlight.detail_until", year = best_run_end)
+                .to_string(),
         });
     }
 
@@ -4226,14 +4249,14 @@ fn build_team_highlights(
     if let Some((season, position)) = positions.iter().min_by_key(|(_, pos)| **pos) {
         let year = by_season.get(season).map(|entry| entry.0).unwrap_or(0);
         let value = if *position == 1 {
-            "Campeão".to_string()
+            rust_i18n::t!("team_dossier.highlight.champion_value").to_string()
         } else {
             format!("P{position}")
         };
         highlights.push(TeamHistoryHighlight {
-            label: "Melhor campanha".to_string(),
+            label: rust_i18n::t!("team_dossier.highlight.best_campaign").to_string(),
             value,
-            detail: format!("Em {year}."),
+            detail: rust_i18n::t!("team_dossier.highlight.detail_year", year = year).to_string(),
         });
     }
 
@@ -4552,9 +4575,9 @@ fn distinct_seasons(facts: &[TeamRaceFact]) -> Vec<i32> {
 
 fn season_count_label(total: i32) -> String {
     match total {
-        0 => "Sem Temporadas registradas".to_string(),
-        1 => "1 Temporada".to_string(),
-        value => format!("{value} Temporadas"),
+        0 => rust_i18n::t!("team_dossier.season_count.none").to_string(),
+        1 => rust_i18n::t!("team_dossier.season_count.one").to_string(),
+        value => rust_i18n::t!("team_dossier.season_count.other", count = value).to_string(),
     }
 }
 
@@ -4563,7 +4586,7 @@ fn season_count_label(total: i32) -> String {
 /// nunca troca), o nível muda com promoções/rebaixamentos, então o streak importa.
 fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
     if facts.is_empty() {
-        return "Sem sequência registrada".to_string();
+        return rust_i18n::t!("team_dossier.streak.none").to_string();
     }
 
     // season → categoria dominante → nível.
@@ -4593,7 +4616,7 @@ fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
 
     let current_level = match season_levels.last() {
         Some((_, level)) => level.clone(),
-        None => return "Sem sequência registrada".to_string(),
+        None => return rust_i18n::t!("team_dossier.streak.none").to_string(),
     };
 
     // Conta temporadas consecutivas (e contíguas) no nível atual, do fim para trás.
@@ -4613,15 +4636,20 @@ fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
     }
 
     if streak <= 1 {
-        format!("1 temporada no nível {current_level}")
+        rust_i18n::t!("team_dossier.streak.level_one", level = current_level.as_str()).to_string()
     } else {
-        format!("{streak} temporadas seguidas no nível {current_level}")
+        rust_i18n::t!(
+            "team_dossier.streak.level_other",
+            count = streak,
+            level = current_level.as_str()
+        )
+        .to_string()
     }
 }
 
 fn best_real_streak_label(facts: &[TeamRaceFact]) -> String {
     if facts.is_empty() {
-        return "Sem sequência registrada".to_string();
+        return rust_i18n::t!("team_dossier.streak.none").to_string();
     }
     let mut best_podium = 0;
     let mut current_podium = 0;
@@ -4643,18 +4671,18 @@ fn best_real_streak_label(facts: &[TeamRaceFact]) -> String {
     }
     if best_podium > 0 {
         if best_podium == 1 {
-            "1 Pódio registrado".to_string()
+            rust_i18n::t!("team_dossier.streak.podium_one").to_string()
         } else {
-            format!("{best_podium} Pódios consecutivos")
+            rust_i18n::t!("team_dossier.streak.podium_other", count = best_podium).to_string()
         }
     } else if best_points > 0 {
         if best_points == 1 {
-            "1 Corrida pontuando".to_string()
+            rust_i18n::t!("team_dossier.streak.points_one").to_string()
         } else {
-            format!("{best_points} Corridas pontuando")
+            rust_i18n::t!("team_dossier.streak.points_other", count = best_points).to_string()
         }
     } else {
-        "Sem sequência registrada".to_string()
+        rust_i18n::t!("team_dossier.streak.none").to_string()
     }
 }
 
@@ -4738,18 +4766,18 @@ fn build_real_team_identity(
         )
         .optional()
         .map_err(|e| format!("Falha ao buscar equipe para identidade real: {e}"))?
-        .unwrap_or_else(|| "A equipe".to_string());
+        .unwrap_or_else(|| rust_i18n::t!("team_dossier.team_fallback").to_string());
     let rival = real_team_rival(conn, team_id, selected_facts, aggregates, record_scope)?;
     let (symbol_driver, symbol_driver_detail) = real_symbol_driver(conn, team_id, selected_facts)?;
 
-    let heritage = team_heritage_label(distinct_seasons(selected_facts).len() as i32).to_string();
+    let heritage = team_heritage_label(distinct_seasons(selected_facts).len() as i32);
 
     Ok(TeamHistoryIdentity {
         origin: team_history_category_label(origin_category),
         current,
         heritage,
-        profile: profile.clone(),
-        summary: real_identity_summary(&team_name, &profile, selected_facts.len() as i32, titles),
+        profile: team_profile_label(profile),
+        summary: real_identity_summary(&team_name, profile, selected_facts.len() as i32, titles),
         rival,
         symbol_driver,
         symbol_driver_detail,
@@ -4771,59 +4799,73 @@ fn current_team_category_label(conn: &rusqlite::Connection, team_id: &str) -> Op
 
 /// Herança da equipe por EXPERIÊNCIA real (temporadas competidas), substituindo
 /// o antigo corte de ano de fundação (1970) que rotulava quase todo time igual.
-fn team_heritage_label(seasons: i32) -> &'static str {
-    match seasons {
-        0 => "Estreante",
-        1..=2 => "Novata",
-        3..=6 => "Em ascensão",
-        7..=14 => "Estabelecida",
-        _ => "Tradicional",
-    }
+fn team_heritage_label(seasons: i32) -> String {
+    let key = match seasons {
+        0 => "debutant",
+        1..=2 => "new",
+        3..=6 => "rising",
+        7..=14 => "established",
+        _ => "traditional",
+    };
+    let full = format!("team_dossier.heritage.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 /// Perfil de DESEMPENHO por histórico real, numa escada coerente do topo ao
 /// fundo do grid. Fonte única de verdade (o fallback do frontend só vale durante
 /// o carregamento). Taxas calculadas no nível de corrida.
-fn real_team_profile(races: i32, wins: i32, podiums: i32, titles: i32) -> String {
+/// Perfil de DESEMPENHO por histórico real. Retorna uma CHAVE estável (não o texto)
+/// — o display resolve por `team_profile_label` e a lógica de resumo casa a chave,
+/// evitando o antipattern de comparar prosa traduzível.
+fn real_team_profile(races: i32, wins: i32, podiums: i32, titles: i32) -> &'static str {
     if races < 4 {
-        return "Em formação".to_string();
+        return "forming";
     }
     let win_rate = wins as f64 / races as f64;
     let podium_rate = podiums as f64 / races as f64;
 
     if titles > 0 || win_rate >= 0.30 || podium_rate >= 0.60 {
-        "Dominante".to_string()
+        "dominant"
     } else if win_rate >= 0.10 {
-        "Vencedora".to_string()
+        "winning"
     } else if podium_rate >= 0.30 {
-        "Competitiva".to_string()
+        "competitive"
     } else if podium_rate >= 0.10 {
-        "Meio de Grid".to_string()
+        "midfield"
     } else {
-        "Coadjuvante".to_string()
+        "support"
     }
 }
 
-fn real_identity_summary(team_name: &str, profile: &str, races: i32, _titles: i32) -> String {
-    match profile {
-        "Dominante" => format!(
-            "{team_name} é referência do grid: títulos e vitórias sustentam uma identidade vencedora."
-        ),
-        "Vencedora" => format!(
-            "{team_name} é dona de vitórias com regularidade, brigando lá na frente sem dominar a temporada inteira."
-        ),
-        "Competitiva" => format!(
-            "{team_name} é força constante de pódio, quase sempre no pelotão da frente mesmo sem ganhar tanto."
-        ),
-        "Meio de Grid" => format!(
-            "{team_name} vive a disputa do meio do grid: pontua com frequência e busca o salto para a zona de pódio."
-        ),
-        "Coadjuvante" => format!(
-            "{team_name} luta no fundo do grid, somando experiência e raros pontos enquanto tenta evoluir."
-        ),
-        _ => format!(
-            "{team_name} ainda está em formação ({races} corridas no recorte) — história curta demais para um perfil definido."
-        ),
+/// Rótulo de display do perfil (i18n) a partir da chave estável.
+fn team_profile_label(key: &str) -> String {
+    let full = format!("team_dossier.profile.{key}");
+    rust_i18n::t!(&full).to_string()
+}
+
+fn real_identity_summary(team_name: &str, profile_key: &str, races: i32, _titles: i32) -> String {
+    match profile_key {
+        "dominant" => {
+            rust_i18n::t!("team_dossier.identity_summary.dominant", team = team_name).to_string()
+        }
+        "winning" => {
+            rust_i18n::t!("team_dossier.identity_summary.winning", team = team_name).to_string()
+        }
+        "competitive" => {
+            rust_i18n::t!("team_dossier.identity_summary.competitive", team = team_name).to_string()
+        }
+        "midfield" => {
+            rust_i18n::t!("team_dossier.identity_summary.midfield", team = team_name).to_string()
+        }
+        "support" => {
+            rust_i18n::t!("team_dossier.identity_summary.support", team = team_name).to_string()
+        }
+        _ => rust_i18n::t!(
+            "team_dossier.identity_summary.forming",
+            team = team_name,
+            races = races
+        )
+        .to_string(),
     }
 }
 
@@ -4879,7 +4921,7 @@ fn real_team_rival(
 
     let Some(rival_id) = rival_id else {
         return Ok(TeamHistoryRival {
-            name: "Sem rival consolidado".to_string(),
+            name: rust_i18n::t!("team_dossier.rival_none").to_string(),
             current_category: record_scope.to_string(),
             note: "Histórico real ainda sem confronto repetido o bastante para formar rivalidade."
                 .to_string(),
@@ -4908,7 +4950,7 @@ fn real_symbol_driver(
 ) -> Result<(String, String), String> {
     if selected_facts.is_empty() {
         return Ok((
-            "Sem piloto símbolo".to_string(),
+            rust_i18n::t!("team_dossier.symbol_none").to_string(),
             "A equipe ainda não tem corridas registradas suficientes nesse recorte.".to_string(),
         ));
     }
@@ -4953,7 +4995,7 @@ fn real_symbol_driver(
 
     let Some(symbol) = symbol else {
         return Ok((
-            "Sem piloto símbolo".to_string(),
+            rust_i18n::t!("team_dossier.symbol_none").to_string(),
             "A equipe ainda não tem piloto com resultados registrados nesse recorte.".to_string(),
         ));
     };
@@ -5231,18 +5273,19 @@ fn team_history_group_categories(category: &str) -> Vec<String> {
 }
 
 fn team_history_group_label(category: &str) -> String {
-    match category {
-        "mazda_rookie" | "mazda_amador" => "Grupo Mazda",
-        "toyota_rookie" | "toyota_amador" => "Grupo Toyota",
-        "bmw_m2" => "Grupo BMW",
-        "production_challenger" => "Grupo Production",
-        "gt4" => "Grupo GT4",
-        "gt3" => "Grupo GT3",
-        "lmp2" => "Grupo LMP2",
-        "endurance" => "Grupo Endurance",
-        _ => "Grupo da categoria",
-    }
-    .to_string()
+    let key = match category {
+        "mazda_rookie" | "mazda_amador" => "mazda",
+        "toyota_rookie" | "toyota_amador" => "toyota",
+        "bmw_m2" => "bmw",
+        "production_challenger" => "production",
+        "gt4" => "gt4",
+        "gt3" => "gt3",
+        "lmp2" => "lmp2",
+        "endurance" => "endurance",
+        _ => "generic",
+    };
+    let full = format!("career.group.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 fn team_history_category_label(category: &str) -> String {

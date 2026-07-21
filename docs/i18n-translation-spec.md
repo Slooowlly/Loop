@@ -296,20 +296,22 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
     serialização em `enums.rs` (NÃO tocar enums.rs). 2 testes de veredito viraram `#[serial]`+
     pt-BR. 15 testes verdes. **DEFER:** `injury_name_pool` (fica em `simulation/injuries.rs`,
     é sub-sistema de lesão à parte — não é career_detail).
-  - [~] `commands/career.rs` — GRANDE (10.550 linhas), prosa em ~5 clusters. ⚠️ a spec
-    apontava ~6809 mas AQUILO É TESTE (`test_next_race_briefing_filters_weekend_stories`).
-    Clusters reais de DISPLAY:
-    - [x] Dossiê da equipe (`team_dossier`: ownership + financial_state + management,
-      ~15 strings interpoladas). 1 teste → `#[serial]`+pt-BR. ✅
-    - [ ] Rótulos de stats/marcos (~3979-4234: "Vitórias"/"Taxa de pódio"/"Primeiro pódio"/
-      "Melhor temporada"/"Maior dinastia"…).
-    - [ ] Sequências (~4539-4641: "Sem sequência registrada"…).
-    - [ ] ⚠️ Perfil de competitividade da equipe (~4776-4821: "Dominante"/"Vencedora"/
-      "Competitiva"/"Meio de Grid"/"Coadjuvante" + tradição "Em ascensão"…). **É
-      display-como-chave-de-lógica**: o valor é RE-MATCHADO em 4809 e um teste (8127)
-      assevera `profile=="Dominante"`. Refatorar pra key/enum ANTES de traduzir.
-    - [ ] Diversos (criação "Carreira criada com sucesso", "Sem piloto"…).
-  - [ ] `commands/race.rs` (~3030). **Auditoria display-vs-fato-de-IA por trecho.**
+  - [x] `commands/career.rs` ✅ COMPLETO — GRANDE (10.550 linhas), 5 clusters de DISPLAY
+    todos traduzidos (namespace `team_dossier` + `career.{message,group}`). ⚠️ a spec
+    apontava ~6809 mas AQUILO É TESTE. Clusters: (1) dossiê da equipe management/ownership/
+    state; (2) records + first_milestone; (3) heritage + **perfil de competitividade**
+    (era display-como-chave-de-lógica: `real_team_profile` re-matchado em `real_identity_summary`
+    → refatorado p/ CHAVE estável + `team_profile_label` p/ display; front só renderiza,
+    não compara); (4) highlights + streaks + fallbacks (rival/símbolo); (5) misc (criação/
+    deleção/proposta 4 variantes/no_driver/group labels). 1 teste dossiê `#[serial]`+pt-BR.
+    92 testes career + parity verdes. Sweep de prosa limpo.
+  - [x] `commands/race.rs` ✅ COMPLETO — auditoria feita: SÓ o display (namespaces `race`
+    + `maintenance`), os builders de fato-de-IA (`rivalry_arc_facts`, `performance_context_facts`,
+    `telemetry_context_facts`) ficam pra Fase 4. Traduzido: fatura de manutenção (8 labels;
+    `damage_split` refatorado p/ retornar só `(key, prop)` + `maintenance_label`), notícias
+    de vitória (3 variantes) + campeão + "resumo de outras categorias", motivo de aposentadoria
+    (persistido → Opção A). ⚠️ os `titulo`/`texto` em ~6809 de career.rs eram TESTE (não confundir).
+    28 testes race + parity verdes. Sweep de prosa limpo.
   - [ ] DEFER acoplado: `simulation/injuries.rs` `injury_name_pool` (pools de nome de lesão,
     array por severidade — precisa de chaves indexadas + testes com `#[serial]`).
 
