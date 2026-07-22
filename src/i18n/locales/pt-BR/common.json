@@ -2887,5 +2887,43 @@
     "leading": "liderando",
     "tooltipBehind": "atrás: {{gap}}s (Carro {{car}})",
     "noOneBehind": "sem ninguém atrás"
+  },
+  "overlay": {
+    "radio": {
+      "tagDnf": "Abandono",
+      "tagTeam": "Rádio da equipe",
+      "warningTag": "Seu carro · Atenção",
+      "dragTooltip": "Arraste pra reposicionar o rádio"
+    },
+    "positionPanel": {
+      "targetTower": "Torre",
+      "targetRadio": "Rádio",
+      "gearTooltip": "Posição do overlay VR",
+      "title": "OVERLAY VR — POSIÇÃO",
+      "radioHintPre": "O rádio só aparece com uma quebra — ligue",
+      "radioHintTerm": "\"demo do rádio\"",
+      "radioHintPost": "nas Configurações pra vê-lo e posicionar agora.",
+      "lockCockpit": "Cockpit",
+      "lockHead": "Cabeça",
+      "sliderHorizontal": "Horizontal",
+      "sliderHeight": "Altura",
+      "sliderDistance": "Distância",
+      "sliderRotation": "Giro",
+      "sliderTilt": "Inclinação",
+      "sliderSize": "Tamanho",
+      "visible": "Visível",
+      "resetDefault": "Padrão",
+      "savedDefault": "✓ Padrão salvo",
+      "setAsDefault": "Definir posição atual como padrão",
+      "recenterTooltip": "Coloca o overlay à sua frente, na posição configurada, a partir de onde você olha agora",
+      "recenterBtn": "⟳ Recentralizar {{target}}",
+      "vrKey": "Tecla no VR:",
+      "pressKey": "aperte uma tecla…",
+      "none": "nenhuma",
+      "capture": "definir",
+      "cancel": "cancelar",
+      "clearKeyTooltip": "Remover tecla de recentro",
+      "recenterKeyHint": "Dica: use a MESMA tecla do \"Center VR\" do iRacing (Options → Controls) e um aperte só recentra os dois. No VR também dá com"
+    }
   }
 }

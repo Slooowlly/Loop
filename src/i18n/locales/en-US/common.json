@@ -2887,5 +2887,43 @@
     "leading": "leading",
     "tooltipBehind": "behind: {{gap}}s (Car {{car}})",
     "noOneBehind": "no one behind"
+  },
+  "overlay": {
+    "radio": {
+      "tagDnf": "Retired",
+      "tagTeam": "Team radio",
+      "warningTag": "Your car · Warning",
+      "dragTooltip": "Drag to reposition the radio"
+    },
+    "positionPanel": {
+      "targetTower": "Tower",
+      "targetRadio": "Radio",
+      "gearTooltip": "VR overlay position",
+      "title": "VR OVERLAY — POSITION",
+      "radioHintPre": "The radio only appears with a breakdown — turn on",
+      "radioHintTerm": "\"radio demo\"",
+      "radioHintPost": "in Settings to see and position it now.",
+      "lockCockpit": "Cockpit",
+      "lockHead": "Head",
+      "sliderHorizontal": "Horizontal",
+      "sliderHeight": "Height",
+      "sliderDistance": "Distance",
+      "sliderRotation": "Rotation",
+      "sliderTilt": "Tilt",
+      "sliderSize": "Size",
+      "visible": "Visible",
+      "resetDefault": "Default",
+      "savedDefault": "✓ Default saved",
+      "setAsDefault": "Set current position as default",
+      "recenterTooltip": "Places the overlay in front of you, at the configured position, from where you're looking now",
+      "recenterBtn": "⟳ Recenter {{target}}",
+      "vrKey": "VR key:",
+      "pressKey": "press a key…",
+      "none": "none",
+      "capture": "set",
+      "cancel": "cancel",
+      "clearKeyTooltip": "Remove recenter key",
+      "recenterKeyHint": "Tip: use the SAME key as iRacing's \"Center VR\" (Options → Controls) and one press recenters both. In VR you can also use"
+    }
   }
 }
