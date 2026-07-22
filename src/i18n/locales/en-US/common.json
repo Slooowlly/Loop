@@ -1872,5 +1872,91 @@
       "inbox": "Inbox",
       "selectPrompt": "Select a message to read"
     }
+  },
+  "driverDetail": {
+    "tabs": {
+      "resumo": "Summary",
+      "historico": "History",
+      "rivais": "Rivals",
+      "mercado": "Market",
+      "habilidade": "Skill"
+    },
+    "profile": {
+      "sectionTitle": "Profile",
+      "loading": "Loading driver data...",
+      "loadError": "Failed to load driver.",
+      "closeButton": "Close",
+      "closeSheet": "Close driver sheet",
+      "closeModal": "Close driver modal",
+      "noTeam": "No team",
+      "age_one": "{{count}} year old",
+      "age_other": "{{count}} years old"
+    },
+    "favorite": {
+      "add": "Favorite driver",
+      "remove": "Remove from favorites"
+    },
+    "personality": {
+      "empty": "No visible public traits."
+    },
+    "prosCons": {
+      "strengths": "Strengths",
+      "attention": "Watch out",
+      "noStrengths": "No visible strengths.",
+      "balanced": "Balanced driver, no glaring weaknesses.",
+      "noWeaknesses": "No visible weaknesses."
+    },
+    "injury": {
+      "title": "Active injury",
+      "ariaLabel": "Active injury notice",
+      "occurred": "Occurred",
+      "recoveryLabel": "Expected recovery",
+      "severity": "Severity",
+      "recoveryReady": "Reassessment available",
+      "recovery_one": "In {{count}} race",
+      "recovery_other": "In {{count}} races"
+    },
+    "motivation": {
+      "label": "Motivation"
+    },
+    "navigator": {
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "moment": {
+      "title": "Current Moment",
+      "recentForm": "Recent form",
+      "recentAverage": "Recent average",
+      "formStatus": "Form status",
+      "trend": "Trend",
+      "contractStatus": "Contract situation",
+      "team": "Team",
+      "role": "Role",
+      "salary": "Salary",
+      "expiresIn": "Expires in",
+      "expiresValue_one": "{{count}} year",
+      "expiresValue_other": "{{count}} years",
+      "term": "Term",
+      "noContract": "No active contract at the moment."
+    },
+    "attributes": {
+      "skill": "Speed",
+      "consistencia": "Consistency",
+      "racecraft": "Racecraft",
+      "defesa": "Defense",
+      "ritmo_classificacao": "Qualifying",
+      "gestao_pneus": "Tires",
+      "habilidade_largada": "Starts",
+      "adaptabilidade": "Adaptability",
+      "fator_chuva": "Rain",
+      "fitness": "Fitness",
+      "experiencia": "Experience",
+      "desenvolvimento": "Development",
+      "aggression": "Aggression",
+      "smoothness": "Smoothness",
+      "midia": "Media",
+      "mentalidade": "Mentality",
+      "confianca": "Confidence"
+    }
   }
 }

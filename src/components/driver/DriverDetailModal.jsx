@@ -1,7 +1,9 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../../i18n/index.js";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
 import useCareerStore from "../../stores/useCareerStore";
@@ -16,12 +18,12 @@ import {
 } from "./DriverDetailModalSections";
 
 const DOSSIER_TABS = [
-  { id: "resumo", label: "Resumo" },
-  { id: "historico", label: "Histórico" },
-  { id: "rivais", label: "Rivais" },
-  { id: "mercado", label: "Mercado" },
+  { id: "resumo" },
+  { id: "historico" },
+  { id: "rivais" },
+  { id: "mercado" },
 ];
-const RETIRED_DOSSIER_TABS = [{ id: "historico", label: "Histórico" }];
+const RETIRED_DOSSIER_TABS = [{ id: "historico" }];
 
 function Section({ title, headerLeft = null, headerRight = null, children, className = "" }) {
   return (
@@ -78,14 +80,16 @@ function BadgePill({ badge }) {
 }
 
 function FavoriteStarButton({ active, disabled, onClick }) {
+  const { t } = useTranslation();
+  const favoriteLabel = active ? t("driverDetail.favorite.remove") : t("driverDetail.favorite.add");
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-pressed={active}
-      title={active ? "Remover dos favoritos" : "Favoritar piloto"}
-      aria-label={active ? "Remover dos favoritos" : "Favoritar piloto"}
+      title={favoriteLabel}
+      aria-label={favoriteLabel}
       className={[
         "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-all",
         active
@@ -100,6 +104,7 @@ function FavoriteStarButton({ active, disabled, onClick }) {
 }
 
 function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
+  const { t } = useTranslation();
   return (
     <div className={["mb-5 grid gap-2", tabs.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"].join(" ")}>
       {tabs.map((tab) => (
@@ -114,7 +119,7 @@ function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
               : "border-white/10 bg-white/[0.055] text-[#b6c2cf] hover:border-white/20 hover:bg-white/10 hover:text-[#e6edf3]",
           ].join(" ")}
         >
-          {tab.label}
+          {t(`driverDetail.tabs.${tab.id}`)}
         </button>
       ))}
     </div>
@@ -122,10 +127,11 @@ function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
 }
 
 function PersonalityCard({ personality }) {
+  const { t } = useTranslation();
   if (!personality) {
     return (
       <div className="glass-light rounded-xl p-3">
-        <p className="text-xs text-[#7d8590]">Sem traços públicos visíveis.</p>
+        <p className="text-xs text-[#7d8590]">{t("driverDetail.personality.empty")}</p>
       </div>
     );
   }
@@ -184,6 +190,7 @@ function TagRow({ tag }) {
 }
 
 function ProsConsPanel({ competitivo, className = "" }) {
+  const { t } = useTranslation();
   return (
     <div
       className={[
@@ -193,20 +200,20 @@ function ProsConsPanel({ competitivo, className = "" }) {
     >
       <div className="min-h-0 overflow-y-auto rounded-xl border border-white/8 bg-white/[0.045] p-3">
         <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#3fb950]">
-          Pontos fortes
+          {t("driverDetail.prosCons.strengths")}
         </div>
         {competitivo?.qualidades?.length ? (
           competitivo.qualidades.map((tag) => (
             <TagRow key={`${tag.attribute_name}-${tag.level}`} tag={tag} />
           ))
         ) : (
-          <p className="text-xs text-[#7d8590]">Sem qualidades visíveis.</p>
+          <p className="text-xs text-[#7d8590]">{t("driverDetail.prosCons.noStrengths")}</p>
         )}
       </div>
 
       <div className="min-h-0 overflow-y-auto rounded-xl border border-white/8 bg-white/[0.045] p-3">
         <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f85149]">
-          Atenção
+          {t("driverDetail.prosCons.attention")}
         </div>
         {competitivo?.defeitos?.length ? (
           competitivo.defeitos.map((tag) => (
@@ -214,10 +221,10 @@ function ProsConsPanel({ competitivo, className = "" }) {
           ))
         ) : competitivo?.neutro ? (
           <p className="text-xs italic text-[#7d8590]">
-            Piloto equilibrado, sem fraquezas gritantes.
+            {t("driverDetail.prosCons.balanced")}
           </p>
         ) : (
-          <p className="text-xs text-[#7d8590]">Sem defeitos visíveis.</p>
+          <p className="text-xs text-[#7d8590]">{t("driverDetail.prosCons.noWeaknesses")}</p>
         )}
       </div>
     </div>
@@ -231,8 +238,8 @@ function formatInjuryOccurrence(injury) {
 function formatInjuryRecovery(injury) {
   const remaining = injury?.corridas_restantes;
   if (!Number.isFinite(remaining)) return "-";
-  if (remaining <= 0) return "Reavaliação liberada";
-  return `Em ${remaining} corrida${remaining === 1 ? "" : "s"}`;
+  if (remaining <= 0) return i18n.t("driverDetail.injury.recoveryReady");
+  return i18n.t("driverDetail.injury.recovery", { count: remaining });
 }
 
 function injuryDisplayName(injury) {
@@ -240,6 +247,7 @@ function injuryDisplayName(injury) {
 }
 
 function InjuryPopup({ injury, onConfirm, drawerWidth }) {
+  const { t } = useTranslation();
   if (!injury) return null;
 
   return (
@@ -248,17 +256,17 @@ function InjuryPopup({ injury, onConfirm, drawerWidth }) {
       style={{ width: `${drawerWidth}px` }}
       role="dialog"
       aria-modal="true"
-      aria-label="Aviso de lesão ativa"
+      aria-label={t("driverDetail.injury.ariaLabel")}
     >
       <div className="w-full max-w-[390px] rounded-2xl border border-[#f85149]/30 bg-[#0b1018] p-5 shadow-[0_30px_90px_rgba(0,0,0,0.62)]">
         <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[#f85149]">
-          Lesão ativa
+          {t("driverDetail.injury.title")}
         </div>
         <div className="text-2xl font-bold text-[#e6edf3]">{injuryDisplayName(injury)}</div>
         <div className="mt-4 grid gap-1.5 text-sm">
-          <DetailRow label="Ocorreu" value={formatInjuryOccurrence(injury)} />
-          <DetailRow label="Melhora prevista" value={formatInjuryRecovery(injury)} />
-          <DetailRow label="Gravidade" value={injury.tipo} valueClassName="text-[#f85149]" />
+          <DetailRow label={t("driverDetail.injury.occurred")} value={formatInjuryOccurrence(injury)} />
+          <DetailRow label={t("driverDetail.injury.recoveryLabel")} value={formatInjuryRecovery(injury)} />
+          <DetailRow label={t("driverDetail.injury.severity")} value={injury.tipo} valueClassName="text-[#f85149]" />
         </div>
         <button
           type="button"
@@ -273,6 +281,7 @@ function InjuryPopup({ injury, onConfirm, drawerWidth }) {
 }
 
 function MotivationBar({ value, compact = false, className = "" }) {
+  const { t } = useTranslation();
   const normalized = Number.isFinite(value) ? value : 0;
   const color = normalized >= 70 ? "#3fb950" : normalized >= 40 ? "#d29922" : "#f85149";
 
@@ -285,7 +294,7 @@ function MotivationBar({ value, compact = false, className = "" }) {
         ].join(" ")}
       >
         <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-          <span>Motivação</span>
+          <span>{t("driverDetail.motivation.label")}</span>
           <span className="font-mono" style={{ color }}>
             {normalized}%
           </span>
@@ -302,7 +311,7 @@ function MotivationBar({ value, compact = false, className = "" }) {
 
   return (
     <div className={["glass-light flex items-center gap-3 rounded-xl border border-white/6 px-4 py-3", className].join(" ")}>
-      <span className="w-20 text-xs text-[#7d8590]">Motivação</span>
+      <span className="w-20 text-xs text-[#7d8590]">{t("driverDetail.motivation.label")}</span>
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#21262d]">
         <div
           className="h-full rounded-full transition-all duration-700"
@@ -363,6 +372,7 @@ function DriverEdgeNavigator({
   visible,
   isClosing,
 }) {
+  const { t } = useTranslation();
   if (!onSelectDriver || viewportWidth < 768 || !visible) return null;
 
   const railRight = drawerWidth + 14;
@@ -373,13 +383,13 @@ function DriverEdgeNavigator({
       style={{ right: `${railRight}px` }}
     >
       <DriverNavigatorButton
-        label="Anterior"
+        label={t("driverDetail.navigator.previous")}
         direction="up"
         disabled={!previousDriverId || isClosing}
         onClick={() => onSelectDriver(previousDriverId)}
       />
       <DriverNavigatorButton
-        label="Próximo"
+        label={t("driverDetail.navigator.next")}
         direction="down"
         disabled={!nextDriverId || isClosing}
         onClick={() => onSelectDriver(nextDriverId)}
@@ -412,17 +422,18 @@ function DetailRow({ label, value, valueClassName = "text-[#e6edf3]" }) {
 }
 
 function CurrentMomentSection({ forma, moment, contract }) {
+  const { t } = useTranslation();
   return (
-    <Section title="Momento Atual">
+    <Section title={t("driverDetail.moment.title")}>
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="glass-light rounded-xl p-4">
           <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Forma recente
+            {t("driverDetail.moment.recentForm")}
           </div>
           <div className="grid gap-3">
             <div>
               <div className="text-[10px] uppercase tracking-[0.16em] text-[#7d8590]">
-                Media recente
+                {t("driverDetail.moment.recentAverage")}
               </div>
               <div className="mt-1 flex items-center gap-2 text-2xl font-bold text-[#e6edf3]">
                 <span>{formatAverage(forma?.media_chegada)}</span>
@@ -430,35 +441,35 @@ function CurrentMomentSection({ forma, moment, contract }) {
               </div>
             </div>
             <div className="rounded-xl border border-white/6 bg-black/10 p-3">
-              <DetailRow label="Status de forma" value={moment.label} valueClassName={moment.color} />
-              <DetailRow label="Tendência" value={forma?.tendencia || "->"} />
+              <DetailRow label={t("driverDetail.moment.formStatus")} value={moment.label} valueClassName={moment.color} />
+              <DetailRow label={t("driverDetail.moment.trend")} value={forma?.tendencia || "->"} />
             </div>
           </div>
         </div>
 
         <div className="glass-light rounded-xl p-4">
           <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Situacao contratual
+            {t("driverDetail.moment.contractStatus")}
           </div>
           {contract ? (
             <div className="grid gap-1">
-              <DetailRow label="Equipe" value={contract.equipe_nome || "-"} />
+              <DetailRow label={t("driverDetail.moment.team")} value={contract.equipe_nome || "-"} />
               <DetailRow
-                label="Funcao"
+                label={t("driverDetail.moment.role")}
                 value={formatContractRole(contract.papel)}
               />
-              <DetailRow label="Salário" value={formatSalaryMonthly(contract.salario_anual)} />
+              <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryMonthly(contract.salario_anual)} />
               <DetailRow
-                label="Expira em"
-                value={`${contract.anos_restantes} ano${contract.anos_restantes !== 1 ? "s" : ""}`}
+                label={t("driverDetail.moment.expiresIn")}
+                value={t("driverDetail.moment.expiresValue", { count: contract.anos_restantes })}
               />
               <DetailRow
-                label="Vigencia"
+                label={t("driverDetail.moment.term")}
                 value={formatContractPeriod(contract)}
               />
             </div>
           ) : (
-            <p className="text-sm text-[#7d8590]">Sem contrato ativo no momento.</p>
+            <p className="text-sm text-[#7d8590]">{t("driverDetail.moment.noContract")}</p>
           )}
         </div>
       </div>
@@ -488,23 +499,23 @@ function PlayerSkillSection({ careerId }) {
 
 function formatAttributeName(name) {
   const map = {
-    skill: "Velocidade",
-    consistencia: "Consistência",
-    racecraft: "Racecraft",
-    defesa: "Defesa",
-    ritmo_classificacao: "Classificação",
-    gestao_pneus: "Pneus",
-    habilidade_largada: "Largada",
-    adaptabilidade: "Adaptabilidade",
-    fator_chuva: "Chuva",
-    fitness: "Forma Fisica",
-    experiencia: "Experiencia",
-    desenvolvimento: "Desenvolvimento",
-    aggression: "Agressividade",
-    smoothness: "Suavidade",
-    midia: "Midia",
-    mentalidade: "Mentalidade",
-    confianca: "Confianca",
+    skill: i18n.t("driverDetail.attributes.skill"),
+    consistencia: i18n.t("driverDetail.attributes.consistencia"),
+    racecraft: i18n.t("driverDetail.attributes.racecraft"),
+    defesa: i18n.t("driverDetail.attributes.defesa"),
+    ritmo_classificacao: i18n.t("driverDetail.attributes.ritmo_classificacao"),
+    gestao_pneus: i18n.t("driverDetail.attributes.gestao_pneus"),
+    habilidade_largada: i18n.t("driverDetail.attributes.habilidade_largada"),
+    adaptabilidade: i18n.t("driverDetail.attributes.adaptabilidade"),
+    fator_chuva: i18n.t("driverDetail.attributes.fator_chuva"),
+    fitness: i18n.t("driverDetail.attributes.fitness"),
+    experiencia: i18n.t("driverDetail.attributes.experiencia"),
+    desenvolvimento: i18n.t("driverDetail.attributes.desenvolvimento"),
+    aggression: i18n.t("driverDetail.attributes.aggression"),
+    smoothness: i18n.t("driverDetail.attributes.smoothness"),
+    midia: i18n.t("driverDetail.attributes.midia"),
+    mentalidade: i18n.t("driverDetail.attributes.mentalidade"),
+    confianca: i18n.t("driverDetail.attributes.confianca"),
   };
 
   return map[name] || name;
@@ -526,6 +537,7 @@ export default function DriverDetailModal({
   onFavoriteChange = null,
   onClose,
 }) {
+  const { t } = useTranslation();
   const CLOSE_ANIMATION_MS = 280;
   const careerId = useCareerStore((state) => state.careerId);
   const [detail, setDetail] = useState(null);
@@ -576,7 +588,7 @@ export default function DriverDetailModal({
           setError(
             typeof fetchError === "string"
               ? fetchError
-              : fetchError?.toString?.() ?? "Erro ao carregar piloto.",
+              : fetchError?.toString?.() ?? t("driverDetail.profile.loadError"),
           );
         }
       } finally {
@@ -696,7 +708,7 @@ export default function DriverDetailModal({
   const dossierTabs = isRetiredDriver
     ? RETIRED_DOSSIER_TABS
     : detail?.is_jogador
-      ? [...DOSSIER_TABS, { id: "habilidade", label: "Habilidade" }]
+      ? [...DOSSIER_TABS, { id: "habilidade" }]
       : DOSSIER_TABS;
   const effectiveActiveTab = isRetiredDriver ? "historico" : activeTab;
   const titleCount = trajetoria?.titulos ?? 0;
@@ -730,7 +742,7 @@ export default function DriverDetailModal({
           isClosing ? "animate-fade-out" : "animate-fade-in",
         ].join(" ")}
         onClick={requestClose}
-        aria-label="Fechar ficha do piloto"
+        aria-label={t("driverDetail.profile.closeSheet")}
       />
 
       <DriverEdgeNavigator
@@ -764,7 +776,7 @@ export default function DriverDetailModal({
         {loading ? (
           <div className="p-12 text-center">
             <div className="mb-4 text-4xl animate-pulse">🏎️</div>
-            <p className="text-[#7d8590]">Carregando dados do piloto...</p>
+            <p className="text-[#7d8590]">{t("driverDetail.profile.loading")}</p>
           </div>
         ) : null}
 
@@ -772,7 +784,7 @@ export default function DriverDetailModal({
           <div className="p-8 text-center">
             <p className="mb-4 text-[#f85149]">❌ {error}</p>
             <GlassButton variant="secondary" onClick={requestClose}>
-              Fechar
+              {t("driverDetail.profile.closeButton")}
             </GlassButton>
           </div>
         ) : null}
@@ -789,13 +801,13 @@ export default function DriverDetailModal({
               type="button"
               onClick={requestClose}
               className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-lg text-[#7d8590] transition-colors hover:bg-[#21262d] hover:text-[#e6edf3]"
-              aria-label="Fechar modal do piloto"
+              aria-label={t("driverDetail.profile.closeModal")}
             >
               ✕
             </button>
 
             <Section
-              title="Perfil"
+              title={t("driverDetail.profile.sectionTitle")}
               headerRight={
                 <div className="flex items-center gap-2">
                   {detail?.is_jogador ? null : (
@@ -822,7 +834,7 @@ export default function DriverDetailModal({
                           {detail.nome}
                         </h2>
                         <span className="relative top-[3px] flex-shrink-0 self-center text-sm leading-none text-[#7d8590]">
-                          {perfil?.idade ?? detail.idade} anos
+                          {t("driverDetail.profile.age", { count: perfil?.idade ?? detail.idade })}
                         </span>
                       </div>
                     </div>
@@ -833,7 +845,7 @@ export default function DriverDetailModal({
                         : detail.papel === "Numero2"
                           ? "N2"
                           : detail.papel || "-"}
-                      {perfil?.equipe_nome ? ` - ${perfil.equipe_nome}` : " - Sem equipe"}
+                      {perfil?.equipe_nome ? ` - ${perfil.equipe_nome}` : ` - ${t("driverDetail.profile.noTeam")}`}
                     </div>
 
                     {visibleBadges.length ? (

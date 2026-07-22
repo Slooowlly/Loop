@@ -1872,5 +1872,91 @@
       "inbox": "Caixa de entrada",
       "selectPrompt": "Selecione uma mensagem para ler"
     }
+  },
+  "driverDetail": {
+    "tabs": {
+      "resumo": "Resumo",
+      "historico": "Histórico",
+      "rivais": "Rivais",
+      "mercado": "Mercado",
+      "habilidade": "Habilidade"
+    },
+    "profile": {
+      "sectionTitle": "Perfil",
+      "loading": "Carregando dados do piloto...",
+      "loadError": "Erro ao carregar piloto.",
+      "closeButton": "Fechar",
+      "closeSheet": "Fechar ficha do piloto",
+      "closeModal": "Fechar modal do piloto",
+      "noTeam": "Sem equipe",
+      "age_one": "{{count}} ano",
+      "age_other": "{{count}} anos"
+    },
+    "favorite": {
+      "add": "Favoritar piloto",
+      "remove": "Remover dos favoritos"
+    },
+    "personality": {
+      "empty": "Sem traços públicos visíveis."
+    },
+    "prosCons": {
+      "strengths": "Pontos fortes",
+      "attention": "Atenção",
+      "noStrengths": "Sem qualidades visíveis.",
+      "balanced": "Piloto equilibrado, sem fraquezas gritantes.",
+      "noWeaknesses": "Sem defeitos visíveis."
+    },
+    "injury": {
+      "title": "Lesão ativa",
+      "ariaLabel": "Aviso de lesão ativa",
+      "occurred": "Ocorreu",
+      "recoveryLabel": "Melhora prevista",
+      "severity": "Gravidade",
+      "recoveryReady": "Reavaliação liberada",
+      "recovery_one": "Em {{count}} corrida",
+      "recovery_other": "Em {{count}} corridas"
+    },
+    "motivation": {
+      "label": "Motivação"
+    },
+    "navigator": {
+      "previous": "Anterior",
+      "next": "Próximo"
+    },
+    "moment": {
+      "title": "Momento Atual",
+      "recentForm": "Forma recente",
+      "recentAverage": "Media recente",
+      "formStatus": "Status de forma",
+      "trend": "Tendência",
+      "contractStatus": "Situacao contratual",
+      "team": "Equipe",
+      "role": "Funcao",
+      "salary": "Salário",
+      "expiresIn": "Expira em",
+      "expiresValue_one": "{{count}} ano",
+      "expiresValue_other": "{{count}} anos",
+      "term": "Vigencia",
+      "noContract": "Sem contrato ativo no momento."
+    },
+    "attributes": {
+      "skill": "Velocidade",
+      "consistencia": "Consistência",
+      "racecraft": "Racecraft",
+      "defesa": "Defesa",
+      "ritmo_classificacao": "Classificação",
+      "gestao_pneus": "Pneus",
+      "habilidade_largada": "Largada",
+      "adaptabilidade": "Adaptabilidade",
+      "fator_chuva": "Chuva",
+      "fitness": "Forma Fisica",
+      "experiencia": "Experiencia",
+      "desenvolvimento": "Desenvolvimento",
+      "aggression": "Agressividade",
+      "smoothness": "Suavidade",
+      "midia": "Midia",
+      "mentalidade": "Mentalidade",
+      "confianca": "Confianca"
+    }
   }
 }
