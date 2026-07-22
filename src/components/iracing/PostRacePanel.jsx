@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import RaceTraceChart from "../race/RaceTraceChart";
 import PaceDeltaChart from "../race/PaceDeltaChart";
 import {
@@ -44,6 +45,7 @@ function formatClock(seconds) {
 const BATTLE_CAP = 30; // teto (s) do gráfico de batalha — briga é coisa de perto.
 
 function PostRacePanel() {
+  const { t } = useTranslation();
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -73,7 +75,7 @@ function PostRacePanel() {
     async (silent) => {
       try {
         const name = await invoke("iracing_save_race_history");
-        if (!silent) setSaveMsg(`Salva: ${name}`);
+        if (!silent) setSaveMsg(t("postRacePanel.saved", { name }));
         refreshSavedList();
         return name;
       } catch (e) {
@@ -105,7 +107,7 @@ function PostRacePanel() {
         ) {
           autoSavedRef.current = data.attempt_number;
           const name = await saveRace(true);
-          if (name) setSaveMsg(`Corrida salva automaticamente: ${name}`);
+          if (name) setSaveMsg(t("postRacePanel.autoSaved", { name }));
         }
         // Dificuldade adaptativa: processa em SILÊNCIO quando a corrida encerra
         // (uma vez por tentativa). O jogador NÃO deve perceber o ajuste — senão
@@ -304,10 +306,10 @@ function PostRacePanel() {
           <span className="text-2xl">🏁</span>
           <div>
             <h2 className="text-lg font-semibold text-text-primary">
-              Pós-Corrida — Análise
+              {t("postRacePanel.title")}
             </h2>
             <p className="text-xs text-text-secondary">
-              Race trace, gap ao líder e consistência de ritmo volta a volta.
+              {t("postRacePanel.subtitle")}
             </p>
           </div>
         </div>
@@ -318,7 +320,7 @@ function PostRacePanel() {
               onClick={backToLive}
               className="!min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
             >
-              ← Ao vivo
+              {t("postRacePanel.backToLive")}
             </GlassButton>
           ) : (
             <>
@@ -331,7 +333,7 @@ function PostRacePanel() {
                     ? "bg-status-green/15 text-status-green"
                     : "bg-white/5 text-text-secondary hover:text-text-primary",
                 ].join(" ")}
-                title={auto ? "Atualizando sozinho a cada 3s" : "Atualização automática pausada"}
+                title={auto ? t("postRacePanel.autoOnTitle") : t("postRacePanel.autoOffTitle")}
               >
                 <span
                   className={[
@@ -339,7 +341,7 @@ function PostRacePanel() {
                     auto ? "animate-pulse bg-status-green" : "bg-text-muted",
                   ].join(" ")}
                 />
-                {auto ? "Ao vivo" : "Pausado"}
+                {auto ? t("postRacePanel.live") : t("postRacePanel.paused")}
               </button>
               {hasData && (
                 <GlassButton
@@ -347,7 +349,7 @@ function PostRacePanel() {
                   onClick={() => saveRace(false)}
                   className="!min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
                 >
-                  💾 Salvar
+                  {t("postRacePanel.save")}
                 </GlassButton>
               )}
               <GlassButton
@@ -355,7 +357,7 @@ function PostRacePanel() {
                 onClick={load}
                 className="!min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
               >
-                {loading ? "…" : hasData ? "Atualizar" : "Carregar"}
+                {loading ? "…" : hasData ? t("postRacePanel.refresh") : t("postRacePanel.loadBtn")}
               </GlassButton>
             </>
           )}
@@ -365,22 +367,22 @@ function PostRacePanel() {
       {/* Barra de corridas salvas */}
       {(savedList.length > 0 || viewingSaved) && (
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="text-text-muted">Salvas:</span>
+          <span className="text-text-muted">{t("postRacePanel.savedLabel")}</span>
           <select
             value={viewingSaved || ""}
             onChange={(e) => openSaved(e.target.value)}
             className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-text-primary outline-none"
           >
-            <option value="">— escolher corrida —</option>
+            <option value="">{t("postRacePanel.chooseRace")}</option>
             {savedList.map((r) => (
               <option key={r.name} value={r.name}>
-                {r.modified} · {r.laps}v{r.outcome ? ` · ${r.outcome}` : ""}
+                {r.modified} · {r.laps}{t("postRacePanel.lapsSuffix")}{r.outcome ? ` · ${r.outcome}` : ""}
               </option>
             ))}
           </select>
           {viewingSaved && (
             <span className="rounded-md bg-accent-primary/15 px-2 py-1 font-semibold text-accent-primary">
-              revendo salva
+              {t("postRacePanel.reviewingSaved")}
             </span>
           )}
         </div>
@@ -401,8 +403,8 @@ function PostRacePanel() {
       {!hasData && !error && (
         <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-text-secondary">
           {history
-            ? "Sem voltas registradas ainda. O histórico é montado ao vivo durante a corrida — ele aparece aqui sozinho conforme as voltas passam."
-            : "Conectando ao histórico da corrida…"}
+            ? t("postRacePanel.noLapsYet")
+            : t("postRacePanel.connecting")}
         </p>
       )}
 
@@ -411,7 +413,7 @@ function PostRacePanel() {
           {/* Cartões de resumo */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard
-              label="Largada → chegada"
+              label={t("postRacePanel.cardStartFinish")}
               value={
                 playerPositions.length
                   ? `P${playerPositions[0]} → P${playerPositions[playerPositions.length - 1]}`
@@ -419,15 +421,15 @@ function PostRacePanel() {
               }
             />
             <SummaryCard
-              label="Melhor volta"
+              label={t("postRacePanel.cardBestLap")}
               value={pace ? formatLap(pace.best) : "--"}
             />
             <SummaryCard
-              label="Voltas (você)"
+              label={t("postRacePanel.cardYourLaps")}
               value={history.player_laps.length || "--"}
             />
             <SummaryCard
-              label="Voltas de amarela"
+              label={t("postRacePanel.cardYellowLaps")}
               value={history.yellow_laps.length}
             />
           </div>
@@ -435,13 +437,13 @@ function PostRacePanel() {
           {/* Abas */}
           <div className="flex gap-2">
             <TabButton active={tab === "trace"} onClick={() => setTab("trace")}>
-              Race Trace
+              {t("postRacePanel.tabTrace")}
             </TabButton>
             <TabButton active={tab === "pace"} onClick={() => setTab("pace")}>
-              Consistência
+              {t("postRacePanel.tabConsistency")}
             </TabButton>
             <TabButton active={tab === "battle"} onClick={() => setTab("battle")}>
-              Batalha
+              {t("postRacePanel.tabBattle")}
             </TabButton>
           </div>
 
@@ -453,13 +455,13 @@ function PostRacePanel() {
                     active={traceMode === "gap"}
                     onClick={() => setTraceMode("gap")}
                   >
-                    Gap ao líder
+                    {t("postRacePanel.modeGap")}
                   </ModeChip>
                   <ModeChip
                     active={traceMode === "position"}
                     onClick={() => setTraceMode("position")}
                   >
-                    Posição
+                    {t("postRacePanel.modePosition")}
                   </ModeChip>
                 </div>
                 <span className="flex items-center gap-1.5 text-[11px] text-text-secondary">
@@ -467,14 +469,14 @@ function PostRacePanel() {
                     className="inline-block h-[3px] w-4 rounded-full"
                     style={{ background: PLAYER_COLOR }}
                   />
-                  você
+                  {t("postRacePanel.you")}
                   {history.yellow_laps.length > 0 && (
                     <>
                       <span
                         className="ml-2 inline-block h-3 w-3 rounded-sm"
                         style={{ background: `${YELLOW}55` }}
                       />
-                      amarela
+                      {t("postRacePanel.yellow")}
                     </>
                   )}
                 </span>
@@ -482,8 +484,7 @@ function PostRacePanel() {
 
               {traceRows.length < 2 ? (
                 <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-text-secondary">
-                  Poucas voltas registradas para traçar. Volta a volta aparece
-                  conforme o líder completa cada volta.
+                  {t("postRacePanel.fewLaps")}
                 </p>
               ) : (
                 <div className="h-[320px] w-full">
@@ -491,7 +492,7 @@ function PostRacePanel() {
                     rows={displayRows}
                     cars={carIdxs.map((idx) => ({ idx, isPlayer: idx === history.player_car_idx }))}
                     colorForCar={colorFor}
-                    nameByIdx={{ [history.player_car_idx]: "Você" }}
+                    nameByIdx={{ [history.player_car_idx]: t("postRacePanel.youName") }}
                     mode={traceMode}
                     lapDomain={lapDomain}
                     gapCap={gapCap}
@@ -501,9 +502,7 @@ function PostRacePanel() {
               )}
               {clipped && (
                 <p className="text-[10px] italic text-text-muted">
-                  Gaps acima de {gapCap}s foram aparados no topo (carros muito
-                  atrás, parados no pit ou desqualificados) para manter o pelotão
-                  legível.
+                  {t("postRacePanel.clippedNote", { cap: gapCap })}
                 </p>
               )}
             </div>
@@ -513,19 +512,19 @@ function PostRacePanel() {
             <div className="space-y-3">
               {!pace ? (
                 <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-text-secondary">
-                  Nenhuma volta sua registrada ainda.
+                  {t("postRacePanel.noYourLaps")}
                 </p>
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-text-secondary">
                     <span>
-                      Média:{" "}
+                      {t("postRacePanel.average")}{" "}
                       <span className="font-semibold text-text-primary">
                         {formatLap(pace.avg)}
                       </span>
                     </span>
                     <span>
-                      Melhor:{" "}
+                      {t("postRacePanel.best")}{" "}
                       <span className="font-semibold text-status-green">
                         {formatLap(pace.best)}
                       </span>
@@ -533,11 +532,11 @@ function PostRacePanel() {
                     <span className="flex items-center gap-3">
                       <span className="flex items-center gap-1">
                         <span className="inline-block h-2.5 w-2.5 rounded-sm bg-status-green" />
-                        mais rápida
+                        {t("postRacePanel.faster")}
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="inline-block h-2.5 w-2.5 rounded-sm bg-status-red" />
-                        mais lenta
+                        {t("postRacePanel.slower")}
                       </span>
                     </span>
                   </div>
@@ -553,21 +552,20 @@ function PostRacePanel() {
             <div className="space-y-3">
               {!battle ? (
                 <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-text-secondary">
-                  Sem dados de batalha ainda. Eles são amostrados ~1×/segundo
-                  enquanto você corre.
+                  {t("postRacePanel.noBattleData")}
                 </p>
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-text-secondary">
                     <span className="flex items-center gap-1.5">
                       <span className="inline-block h-[3px] w-4 rounded-full bg-[#f59e0b]" />
-                      carro à frente
+                      {t("postRacePanel.carAhead")}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="inline-block h-[3px] w-4 rounded-full bg-[#22d3ee]" />
-                      carro atrás
+                      {t("postRacePanel.carBehind")}
                     </span>
-                    <span>linha 0 = você · perto de 0 = briga colada</span>
+                    <span>{t("postRacePanel.battleLegend")}</span>
                   </div>
                   <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -583,7 +581,7 @@ function PostRacePanel() {
                           stroke={GRID}
                           tickFormatter={formatClock}
                           label={{
-                            value: "Tempo de corrida",
+                            value: t("postRacePanel.raceTime"),
                             position: "insideBottom",
                             offset: -8,
                             fill: AXIS_TICK,
@@ -621,9 +619,7 @@ function PostRacePanel() {
                     </ResponsiveContainer>
                   </div>
                   <p className="text-[10px] italic text-text-muted">
-                    Gaps acima de {BATTLE_CAP}s ficam achatados no topo/fundo.
-                    Trechos sem linha = você liderando (sem ninguém à frente) ou
-                    em último.
+                    {t("postRacePanel.battleNote", { cap: BATTLE_CAP })}
                   </p>
                 </>
               )}
@@ -683,20 +679,33 @@ function ModeChip({ active, onClick, children }) {
 }
 
 function BattleTooltip({ active, payload }) {
+  const { t } = useTranslation();
   if (!active || !payload || payload.length === 0) return null;
   const r = payload[0].payload;
   return (
     <div className="rounded-lg border border-white/15 bg-app-card/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
       <div className="font-semibold text-text-primary">
-        {formatClock(r.t)} · volta {r.lap} · P{r.pos}
+        {t("postRacePanel.tooltipLine", {
+          clock: formatClock(r.t),
+          lap: r.lap,
+          pos: r.pos,
+        })}
       </div>
       <div className="text-[#f59e0b]">
-        {r.aheadIdx >= 0 ? `à frente: +${r.ahead.toFixed(2)}s (Carro ${r.aheadIdx})` : "liderando"}
+        {r.aheadIdx >= 0
+          ? t("postRacePanel.tooltipAhead", {
+              gap: r.ahead.toFixed(2),
+              car: r.aheadIdx,
+            })
+          : t("postRacePanel.leading")}
       </div>
       <div className="text-[#22d3ee]">
         {r.behindIdx >= 0
-          ? `atrás: ${Math.abs(r.behind).toFixed(2)}s (Carro ${r.behindIdx})`
-          : "sem ninguém atrás"}
+          ? t("postRacePanel.tooltipBehind", {
+              gap: Math.abs(r.behind).toFixed(2),
+              car: r.behindIdx,
+            })
+          : t("postRacePanel.noOneBehind")}
       </div>
     </div>
   );

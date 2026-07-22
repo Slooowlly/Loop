@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import GlassCard from "../ui/GlassCard";
 import GlassButton from "../ui/GlassButton";
 
@@ -25,6 +26,7 @@ function fmtGap(ms) {
 }
 
 function RosterGenPanel() {
+  const { t } = useTranslation();
   const [saves, setSaves] = useState([]);
   const [careerId, setCareerId] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -52,12 +54,12 @@ function RosterGenPanel() {
 
   // Dumpa o YAML da sessão do iRacing num arquivo (para inspeção do ResultsPositions).
   async function dumpSessionYaml() {
-    setDumpMsg("Lendo a sessão…");
+    setDumpMsg(t("rosterGen.readingSession"));
     try {
       const path = await invoke("iracing_dump_session_yaml");
-      setDumpMsg(`✅ YAML gravado em: ${path}`);
+      setDumpMsg(t("rosterGen.yamlWritten", { path }));
     } catch (e) {
-      setDumpMsg(`❌ ${String(e)}`);
+      setDumpMsg(t("rosterGen.genericError", { error: String(e) }));
     }
   }
 
@@ -111,7 +113,7 @@ function RosterGenPanel() {
   }
 
   async function detectCustid() {
-    setCustidMsg("Lendo a sessão do iRacing…");
+    setCustidMsg(t("rosterGen.readingIracingSession"));
     try {
       const id = await invoke("iracing_player_custid");
       setCustid(id);
@@ -164,7 +166,11 @@ function RosterGenPanel() {
   useEffect(() => {
     if (!selected) return;
     setCategoria(selected.category || "");
-    setRosterName((prev) => prev || `Carreira ${selected.player_name || ""}`.trim());
+    setRosterName(
+      (prev) =>
+        prev ||
+        t("rosterGen.defaultRosterName", { name: selected.player_name || "" }).trim(),
+    );
   }, [selected]);
 
   // Busca a pintura (cor do time) do jogador ao trocar de save.
@@ -252,11 +258,10 @@ function RosterGenPanel() {
           <span className="text-2xl">🧩</span>
           <div>
             <h2 className="text-lg font-semibold text-text-primary">
-              Gerar AI Roster (carreira → iRacing)
+              {t("rosterGen.title")}
             </h2>
             <p className="text-xs text-text-secondary">
-              Escreve o grid da carreira como roster de IA do iRacing — os pilotos
-              entram com nossos nomes, atributos e cor do time.
+              {t("rosterGen.subtitle")}
             </p>
           </div>
         </div>
@@ -267,7 +272,7 @@ function RosterGenPanel() {
               ? "bg-status-green/15 text-status-green"
               : "bg-white/5 text-text-muted",
           ].join(" ")}
-          title="Detecção automática — liga sozinho quando o iRacing abre"
+          title={t("rosterGen.connectionTitle")}
         >
           <span
             className={[
@@ -275,17 +280,17 @@ function RosterGenPanel() {
               connected ? "animate-pulse bg-status-green" : "bg-text-muted",
             ].join(" ")}
           />
-          {connected ? "iRacing conectado" : "iRacing fechado"}
+          {connected ? t("rosterGen.connected") : t("rosterGen.disconnected")}
         </span>
       </div>
 
       {saves.length === 0 ? (
         <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-center text-xs text-text-secondary">
-          Nenhum save encontrado. Crie uma carreira primeiro.
+          {t("rosterGen.noSaves")}
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Carreira">
+          <Field label={t("rosterGen.fieldCareer")}>
             <select
               value={careerId}
               onChange={(e) => setCareerId(e.target.value)}
@@ -299,16 +304,16 @@ function RosterGenPanel() {
             </select>
           </Field>
 
-          <Field label="Categoria (id)">
+          <Field label={t("rosterGen.fieldCategory")}>
             <input
               value={categoria}
               onChange={(e) => setCategoria(e.target.value)}
-              placeholder="ex.: mazda_rookie, gt3…"
+              placeholder={t("rosterGen.categoryPlaceholder")}
               className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
             />
           </Field>
 
-          <Field label="Carro">
+          <Field label={t("rosterGen.fieldCar")}>
             <select
               value={carKey}
               onChange={(e) => setCarKey(e.target.value)}
@@ -322,11 +327,11 @@ function RosterGenPanel() {
             </select>
           </Field>
 
-          <Field label="Nome do roster (pasta)">
+          <Field label={t("rosterGen.fieldRosterName")}>
             <input
               value={rosterName}
               onChange={(e) => setRosterName(e.target.value)}
-              placeholder="ex.: Carreira João"
+              placeholder={t("rosterGen.rosterNamePlaceholder")}
               className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
             />
           </Field>
@@ -340,7 +345,7 @@ function RosterGenPanel() {
           disabled={!canGenerate}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          {busy ? "Gerando…" : "Gerar roster.json"}
+          {busy ? t("rosterGen.generating") : t("rosterGen.generateRoster")}
         </GlassButton>
         <GlassButton
           variant="secondary"
@@ -348,53 +353,53 @@ function RosterGenPanel() {
           disabled={!canGenerate || seasonBusy}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          {seasonBusy ? "Gerando…" : "Gerar AI Season"}
+          {seasonBusy ? t("rosterGen.generating") : t("rosterGen.generateSeason")}
         </GlassButton>
         <GlassButton
           variant="secondary"
           onClick={generateTestSeason}
           disabled={!canGenerate || seasonBusy}
-          title="Season ZERADA (sem resultados) com a corrida 1 usando o clima roteirizado da 1ª corrida — pra ver o roteiro no menu do iRacing."
+          title={t("rosterGen.testSeasonTitle")}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          🌦️ Season Teste (clima 1ª corrida)
+          {t("rosterGen.testSeasonBtn")}
         </GlassButton>
         <GlassButton
           variant="secondary"
           onClick={exportRainTest}
           disabled={rainBusy}
-          title="Gera 3 seasons (Seco/Molhado/Tempestade) com 16 pilotos controlados (4 skills × 4 fatores de chuva) — o driver_skill já entra re-rankeado pela chuva por piloto. Roda as 3 com a IA e compara os resultados."
+          title={t("rosterGen.rainTestTitle")}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          {rainBusy ? "Gerando…" : "🌧️ Teste de Chuva (3 seasons)"}
+          {rainBusy ? t("rosterGen.generating") : t("rosterGen.rainTestBtn")}
         </GlassButton>
         <GlassButton
           variant="secondary"
           onClick={previewResult}
           disabled={!careerId || previewBusy}
-          title="Reconstrói o resultado da ÚLTIMA corrida disputada no iRacing como a carreira o veria (posições, grid, volta rápida, DNFs) — SEM gravar nada. Valide contra a tela do iRacing antes de ligar a persistência."
+          title={t("rosterGen.previewTitleAttr")}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          {previewBusy ? "Lendo…" : "👁️ Preview Resultado (sessão)"}
+          {previewBusy ? t("rosterGen.reading") : t("rosterGen.previewBtn")}
         </GlassButton>
         <GlassButton
           variant="secondary"
           onClick={dumpSessionYaml}
-          title="Grava o YAML da sessão do iRacing num arquivo (%TEMP%/loop_session_dump.yaml) para inspecionar os resultados oficiais (ResultsPositions) e a quali."
+          title={t("rosterGen.dumpYamlTitle")}
           className="!min-h-0 !rounded-lg !px-4 !py-2 text-xs"
         >
-          📄 Dump YAML da sessão
+          {t("rosterGen.dumpYamlBtn")}
         </GlassButton>
         <input
           value={targetTrackId}
           onChange={(e) => setTargetTrackId(e.target.value.replace(/[^0-9]/g, ""))}
-          placeholder="override pista (auto se vazio)"
-          title="Opcional: ID da pista p/ forçar a margem de skill (testes). Vazio = mira automática na PRÓXIMA corrida do calendário."
+          placeholder={t("rosterGen.trackOverridePlaceholder")}
+          title={t("rosterGen.trackOverrideTitle")}
           className="w-40 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
         />
         {selected && (
           <span className="text-[10px] text-text-muted">
-            Categoria padrão do save: <span className="font-mono">{selected.category}</span>
+            {t("rosterGen.defaultCategory")} <span className="font-mono">{selected.category}</span>
           </span>
         )}
       </div>
@@ -412,7 +417,7 @@ function RosterGenPanel() {
       {result && (
         <div className="rounded-xl border border-status-green/30 bg-status-green/10 px-3 py-2 text-[11px] text-status-green">
           <p className="font-semibold">
-            Roster gerado com {result.drivers} piloto(s) de IA.
+            {t("rosterGen.rosterGenerated", { drivers: result.drivers })}
           </p>
           <p className="mt-0.5 break-all font-mono text-[10px] text-text-secondary">
             {result.path}
@@ -422,11 +427,14 @@ function RosterGenPanel() {
       {seasonResult && (
         <div className="rounded-xl border border-status-green/30 bg-status-green/10 px-3 py-2 text-[11px] text-status-green">
           <p className="font-semibold">
-            AI Season "{seasonResult.name}" gerada com {seasonResult.events} etapa(s).
+            {t("rosterGen.seasonGenerated", {
+              name: seasonResult.name,
+              events: seasonResult.events,
+            })}
           </p>
           {seasonResult.targeted_track && (
             <p className="mt-0.5">
-              {seasonResult.auto_targeted ? "🎯 Próxima corrida" : "🔧 Override"}:{" "}
+              {seasonResult.auto_targeted ? t("rosterGen.nextRace") : t("rosterGen.override")}:{" "}
               <span className="font-semibold">{seasonResult.targeted_track}</span>
             </p>
           )}
@@ -438,22 +446,21 @@ function RosterGenPanel() {
       {rainResult && (
         <div className="space-y-2 rounded-xl border border-status-green/30 bg-status-green/10 p-3 text-[11px]">
           <p className="font-semibold text-status-green">
-            ✅ 3 seasons de teste criadas:{" "}
+            {t("rosterGen.rainTestCreated")}{" "}
             {rainResult.seasons.map((s) => `"${s}"`).join(" · ")}
           </p>
           <p className="text-text-secondary">
-            Carregue cada uma no iRacing, deixe a IA correr e compare os resultados.
-            Skill efetivo (já com a chuva) de cada piloto:
+            {t("rosterGen.rainTestIntro")}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[10px]">
               <thead className="text-text-muted">
                 <tr>
-                  <th className="py-1 pr-3">Piloto</th>
-                  <th className="px-2">fator</th>
-                  <th className="px-2">☀️ Seco</th>
-                  <th className="px-2">🌧️ Molhado</th>
-                  <th className="px-2">⛈️ Tempestade</th>
+                  <th className="py-1 pr-3">{t("rosterGen.colDriver")}</th>
+                  <th className="px-2">{t("rosterGen.colFactor")}</th>
+                  <th className="px-2">{t("rosterGen.colDry")}</th>
+                  <th className="px-2">{t("rosterGen.colWet")}</th>
+                  <th className="px-2">{t("rosterGen.colStorm")}</th>
                 </tr>
               </thead>
               <tbody className="font-mono text-text-secondary">
@@ -476,10 +483,14 @@ function RosterGenPanel() {
             </table>
           </div>
           <p className="text-[10px] leading-snug text-text-muted">
-            🔑 Validação: no <b>Seco</b> a ordem é por skill (Alien-* ganha). Na{" "}
-            <b>Tempestade</b>, o <span className="text-status-green">Bom-Mestre</span>{" "}
-            deve passar o <span className="text-status-green">Alien-Pessimo</span> (skill
-            efetivo maior). Se isso acontecer na pista, o sistema de chuva funciona.
+            {t("rosterGen.rainValidationLead")} <b>{t("rosterGen.dry")}</b>{" "}
+            {t("rosterGen.rainValidationMid")}{" "}
+            <b>{t("rosterGen.storm")}</b>
+            {t("rosterGen.rainValidationComma")}{" "}
+            <span className="text-status-green">Bom-Mestre</span>{" "}
+            {t("rosterGen.rainValidationPass")}{" "}
+            <span className="text-status-green">Alien-Pessimo</span>{" "}
+            {t("rosterGen.rainValidationTail")}
           </p>
         </div>
       )}
@@ -488,28 +499,31 @@ function RosterGenPanel() {
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3 text-[11px]">
           <div className="flex flex-wrap items-baseline gap-2">
             <span className="text-sm font-semibold text-text-primary">
-              👁️ Preview — {preview.track_name}
+              {t("rosterGen.previewTitle")} {preview.track_name}
             </span>
             <span className="text-text-secondary">
-              {preview.total_laps} voltas · {preview.total_dnfs} DNF(s)
+              {t("rosterGen.previewLapsDnfs", {
+                laps: preview.total_laps,
+                dnfs: preview.total_dnfs,
+              })}
             </span>
             <span className="text-[10px] text-text-muted">
-              (read-only — nada foi gravado)
+              {t("rosterGen.previewReadOnly")}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[10px]">
               <thead className="text-text-muted">
                 <tr>
-                  <th className="py-1 pr-2">Pos</th>
-                  <th className="px-2">Piloto</th>
-                  <th className="px-2">Equipe</th>
-                  <th className="px-2 text-center">Grid</th>
-                  <th className="px-2 text-center">+/-</th>
-                  <th className="px-2 text-right">Melhor volta</th>
-                  <th className="px-2 text-right">Gap</th>
-                  <th className="px-2 text-center">VR</th>
-                  <th className="px-2">Status</th>
+                  <th className="py-1 pr-2">{t("rosterGen.colPos")}</th>
+                  <th className="px-2">{t("rosterGen.colDriver")}</th>
+                  <th className="px-2">{t("rosterGen.colTeam")}</th>
+                  <th className="px-2 text-center">{t("rosterGen.colGrid")}</th>
+                  <th className="px-2 text-center">{t("rosterGen.colDelta")}</th>
+                  <th className="px-2 text-right">{t("rosterGen.colBestLap")}</th>
+                  <th className="px-2 text-right">{t("rosterGen.colGap")}</th>
+                  <th className="px-2 text-center">{t("rosterGen.colFastest")}</th>
+                  <th className="px-2">{t("rosterGen.colStatus")}</th>
                 </tr>
               </thead>
               <tbody className="text-text-secondary">
@@ -576,9 +590,7 @@ function RosterGenPanel() {
             </table>
           </div>
           <p className="text-[10px] leading-snug text-text-muted">
-            🔑 Compare com a tela de resultado do iRacing: posições, grid, volta
-            rápida (🟣) e abandonos. Se bater, a ponte está correta e podemos ligar a
-            persistência na carreira.
+            {t("rosterGen.previewValidation")}
           </p>
         </div>
       )}
@@ -588,10 +600,10 @@ function RosterGenPanel() {
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-text-primary">
-              🎨 Cor do seu carro
+              {t("rosterGen.paintTitle")}
             </span>
             <span className="text-[11px] text-text-secondary">
-              — time {paint.team_name}
+              {t("rosterGen.paintTeam")} {paint.team_name}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -600,8 +612,11 @@ function RosterGenPanel() {
               style={{ background: paint.color1 }}
             />
             <p className="text-[11px] leading-snug text-text-secondary">
-              No iRacing → <span className="text-text-primary">Garagem → Pintura</span>:
-              padrão <b className="text-text-primary">{paint.pattern}</b>, cores{" "}
+              {t("rosterGen.paintInstrLead")}{" "}
+              <span className="text-text-primary">{t("rosterGen.paintGarageMenu")}</span>
+              {t("rosterGen.paintPatternLabel")}{" "}
+              <b className="text-text-primary">{paint.pattern}</b>
+              {t("rosterGen.paintColorsLabel")}{" "}
               <span className="font-mono text-text-primary">{paint.color1}</span> /{" "}
               <span className="font-mono">{paint.color2}</span> /{" "}
               <span className="font-mono">{paint.color3}</span>.
@@ -616,16 +631,16 @@ function RosterGenPanel() {
               onClick={() => navigator.clipboard?.writeText(paint.spec)}
               className="rounded-md bg-white/10 px-2 py-1 text-[11px] text-text-secondary transition-glass hover:text-text-primary"
             >
-              copiar
+              {t("rosterGen.copy")}
             </button>
           </div>
           <p className="text-[10px] text-text-muted">
-            Aplique uma vez — seu carro fica igual ao do seu companheiro de equipe.
+            {t("rosterGen.paintApplyOnce")}
           </p>
         </div>
       )}
       {paintError && (
-        <p className="text-[10px] text-text-muted">Cor do seu carro: {paintError}</p>
+        <p className="text-[10px] text-text-muted">{t("rosterGen.paintError", { error: paintError })}</p>
       )}
 
       {/* Captura do custid (base da pintura automática — Opção B) */}
@@ -636,11 +651,11 @@ function RosterGenPanel() {
             onClick={detectCustid}
             className="!min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
           >
-            Detectar meu custid (iRacing)
+            {t("rosterGen.detectCustid")}
           </GlassButton>
           {custid != null && (
             <span className="text-[11px] text-status-green">
-              ✓ custid: <span className="font-mono">{custid}</span>
+              {t("rosterGen.custidLabel")} <span className="font-mono">{custid}</span>
             </span>
           )}
         </div>
@@ -648,9 +663,9 @@ function RosterGenPanel() {
           <p className="text-[10px] text-text-muted">{custidMsg}</p>
         )}
         <p className="text-[10px] leading-snug text-text-muted">
-          Capturado <b className="text-text-secondary">automaticamente</b> enquanto
-          você corre (o monitor lê a sessão e guarda). Este botão só confirma o que
-          já foi pego. É a base da pintura automática do seu carro.
+          {t("rosterGen.custidCapturedLead")}{" "}
+          <b className="text-text-secondary">{t("rosterGen.custidCapturedBold")}</b>{" "}
+          {t("rosterGen.custidCapturedTail")}
         </p>
 
         {/* Pintura automática do carro do jogador (Opção B) */}
@@ -662,10 +677,10 @@ function RosterGenPanel() {
               disabled={applyBusy || custid == null || !careerId}
               className="!min-h-0 !rounded-lg !px-3 !py-1.5 text-[11px]"
             >
-              {applyBusy ? "Pintando…" : "🎨 Pintar meu carro na cor do time"}
+              {applyBusy ? t("rosterGen.painting") : t("rosterGen.paintCarBtn")}
             </GlassButton>
             <span className="text-[10px] text-text-muted">
-              gera <span className="font-mono">car_{custid ?? "?"}.tga</span> na cor do time
+              {t("rosterGen.paintGenLead")} <span className="font-mono">car_{custid ?? "?"}.tga</span> {t("rosterGen.paintGenTail")}
             </span>
           </div>
           {applyError && (
@@ -674,7 +689,7 @@ function RosterGenPanel() {
           {applyResult && (
             <div className="mt-1 text-[10px] text-status-green">
               <p>
-                ✓ Pintado na cor{" "}
+                {t("rosterGen.paintedColor")}{" "}
                 <span className="font-mono">{applyResult.color}</span>.
               </p>
               <p className="break-all font-mono text-text-secondary">
@@ -683,15 +698,13 @@ function RosterGenPanel() {
             </div>
           )}
           <p className="mt-1 text-[10px] italic leading-snug text-text-muted">
-            ⚠️ Feche o iRacing antes (ele lê as pinturas ao abrir / ao entrar na
-            garagem). Precisa de "Mostrar pinturas personalizadas" ligado.
+            {t("rosterGen.paintCloseWarning")}
           </p>
         </div>
       </div>
 
       <p className="text-[10px] italic leading-snug text-text-muted">
-        ⚠️ Abra o iRacing depois de gerar (ele lê os rosters ao iniciar). O jogador
-        é excluído do roster — ele dirige, não vira IA.
+        {t("rosterGen.finalWarning")}
       </p>
       </GlassCard>
     </>
