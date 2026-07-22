@@ -2612,5 +2612,59 @@
     "loadingOverlay": {
       "title": "Gerenciando saves"
     }
+  },
+  "rivalryPerception": {
+    "title": "Rivalidades percebidas (debug)",
+    "descPre": "Roda a percepção de rivalidade de uma corrida (ao vivo ou salva) para um carro-sonda. Só mostra o que o sistema ",
+    "descEm": "percebeu",
+    "descPost": " — não aplica nada.",
+    "raceLabel": "Corrida",
+    "liveOption": "Ao vivo (última corrida)",
+    "savedLaps": "({{laps}}v)",
+    "probeLabel": "Carro-sonda",
+    "you": "você",
+    "ai": "IA",
+    "analyzing": "Analisando…",
+    "analyze": "Analisar",
+    "emptyLive": "Sem corrida ao vivo no monitor. Corra (ou espectate) uma sessão no iRacing, ou escolha uma corrida salva.",
+    "emptySaved": "Essa corrida salva não tem trace de campo.",
+    "probeIdx": "sonda idx {{idx}}",
+    "lapsCount": "{{laps}} voltas",
+    "rivalsCount": "{{n}} rival(is)",
+    "noRivalries": "Nenhuma rivalidade percebida nesta corrida para este carro.",
+    "intensity": "intensidade",
+    "duel": "duelo",
+    "lapsShort": "{{laps}}v",
+    "smallestGap": "menor gap",
+    "swaps": "trocas",
+    "passed": "passou",
+    "late": "tardias",
+    "fight": "briga",
+    "relev": "relev",
+    "kinds": {
+      "contato": "Contato",
+      "duelo": "Duelo",
+      "pendulo": "Pêndulo",
+      "ultrapassagem": "Ultrapassagem"
+    }
+  },
+  "iracingConnected": {
+    "waiting": "Aguardando as primeiras voltas…",
+    "title": "iRacing Conectado",
+    "subtitle": "Tudo pronto — é só correr.",
+    "close": "Fechar (Esc)",
+    "you": "você",
+    "youName": "Você",
+    "lapVariationTitle": "Variação de voltas",
+    "avgHint": "méd {{time}}",
+    "gapFrontTitle": "Gap pro carro da frente",
+    "gapFrontHint": "ao vivo · teto 20s",
+    "gapAheadSeries": "gap à frente",
+    "paceTitle": "Ritmo do usuário",
+    "paceHint": "tempo de volta",
+    "traceTitle": "Distância entre os carros",
+    "traceHint": "gap ao líder · 🟡 bandeira",
+    "classFallback": "Classe {{id}}",
+    "general": "Geral"
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import useCareerStore from "../../stores/useCareerStore";
 import StartingCompoundsPanel from "./StartingCompoundsPanel";
 import LapTimeLineChart from "../race/LapTimeLineChart";
@@ -41,6 +42,7 @@ function formatLap(seconds) {
 }
 
 function ChartCard({ title, hint, hasData, children }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col rounded-2xl border border-white/10 bg-[#0d131c]/80 p-3">
       <div className="mb-1 flex items-baseline justify-between">
@@ -51,7 +53,7 @@ function ChartCard({ title, hint, hasData, children }) {
         children
       ) : (
         <div className="flex flex-1 items-center justify-center py-8">
-          <p className="text-center text-[11px] text-text-muted">Aguardando as primeiras voltas…</p>
+          <p className="text-center text-[11px] text-text-muted">{t("iracingConnected.waiting")}</p>
         </div>
       )}
     </div>
@@ -59,6 +61,7 @@ function ChartCard({ title, hint, hasData, children }) {
 }
 
 function IracingConnectedOverlay() {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [history, setHistory] = useState(null);
   const [selectedClass, setSelectedClass] = useState(null);
@@ -182,7 +185,7 @@ function IracingConnectedOverlay() {
   // Seletor do "Variação de voltas": lista de pilotos (jogador no topo).
   const carLaps = useMemo(() => history?.car_laps ?? [], [history]);
   const paceDrivers = useMemo(() => {
-    const out = [{ idx: playerIdx, name: driverNames[playerIdx] || "Você", isPlayer: true }];
+    const out = [{ idx: playerIdx, name: driverNames[playerIdx] || t("iracingConnected.youName"), isPlayer: true }];
     const others = [];
     for (const meta of carsMeta) {
       if (meta.is_pace || meta.idx === playerIdx) continue;
@@ -190,12 +193,12 @@ function IracingConnectedOverlay() {
     }
     others.sort((a, b) => a.name.localeCompare(b.name));
     return [...out, ...others];
-  }, [carsMeta, driverNames, playerIdx]);
+  }, [carsMeta, driverNames, playerIdx, t]);
 
   const activePaceIdx = paceDriver ?? playerIdx;
   const isPlayerPace = activePaceIdx === playerIdx;
   const activePaceName =
-    paceDrivers.find((d) => d.idx === activePaceIdx)?.name || driverNames[activePaceIdx] || "Você";
+    paceDrivers.find((d) => d.idx === activePaceIdx)?.name || driverNames[activePaceIdx] || t("iracingConnected.youName");
 
   // Variação de voltas do piloto selecionado (delta à média; ignora volta 1 e,
   // para o jogador, voltas de pit). Para a IA só dá pra ignorar a volta 1.
@@ -240,9 +243,9 @@ function IracingConnectedOverlay() {
     }
     return [...counts.keys()].map((id) => ({
       id,
-      label: classNames[id] || (id ? `Classe ${id}` : "Geral"),
+      label: classNames[id] || (id ? t("iracingConnected.classFallback", { id }) : t("iracingConnected.general")),
     }));
-  }, [carsMeta, classNames]);
+  }, [carsMeta, classNames, t]);
   const multiClass = classes.length > 1;
 
   // Default/saneamento da classe selecionada = a do jogador (ou a primeira).
@@ -417,8 +420,8 @@ function IracingConnectedOverlay() {
               <span className="relative inline-flex h-3 w-3 rounded-full bg-status-green" />
             </span>
             <div>
-              <h3 className="text-lg font-bold tracking-tight text-text-primary">iRacing Conectado</h3>
-              <p className="text-[11px] text-text-secondary">Tudo pronto — é só correr.</p>
+              <h3 className="text-lg font-bold tracking-tight text-text-primary">{t("iracingConnected.title")}</h3>
+              <p className="text-[11px] text-text-secondary">{t("iracingConnected.subtitle")}</p>
             </div>
           </div>
           <button
@@ -426,7 +429,7 @@ function IracingConnectedOverlay() {
             onClick={() => setVisible(false)}
             className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-glass hover:bg-white/10 hover:text-text-primary"
           >
-            Fechar (Esc)
+            {t("iracingConnected.close")}
           </button>
         </div>
 
@@ -438,8 +441,8 @@ function IracingConnectedOverlay() {
           <div className="grid gap-3 md:grid-cols-3">
             {/* Variação de voltas (Pace Consistency) — escolhe o piloto */}
             <ChartCard
-              title="Variação de voltas"
-              hint={avgLap ? `méd ${formatLap(avgLap)}` : null}
+              title={t("iracingConnected.lapVariationTitle")}
+              hint={avgLap ? t("iracingConnected.avgHint", { time: formatLap(avgLap) }) : null}
               hasData={deltaRows.length >= 1}
             >
               <div className="relative mb-2">
@@ -449,7 +452,7 @@ function IracingConnectedOverlay() {
                   className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-text-primary hover:bg-white/10"
                 >
                   {activePaceName}
-                  {isPlayerPace ? " (você)" : ""}
+                  {isPlayerPace ? ` (${t("iracingConnected.you")})` : ""}
                   <span className="text-text-muted">▾</span>
                 </button>
                 {paceMenuOpen && (
@@ -466,7 +469,7 @@ function IracingConnectedOverlay() {
                       >
                         <span>
                           {d.name}
-                          {d.isPlayer ? " (você)" : ""}
+                          {d.isPlayer ? ` (${t("iracingConnected.you")})` : ""}
                         </span>
                         {d.idx === activePaceIdx && <span className="text-[#58a6ff]">✓</span>}
                       </button>
@@ -480,7 +483,7 @@ function IracingConnectedOverlay() {
             </ChartCard>
 
             {/* Gap pro carro da frente */}
-            <ChartCard title="Gap pro carro da frente" hint="ao vivo · teto 20s" hasData={gapRows.length >= 2}>
+            <ChartCard title={t("iracingConnected.gapFrontTitle")} hint={t("iracingConnected.gapFrontHint")} hasData={gapRows.length >= 2}>
               <div className="h-[180px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={gapRows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
@@ -495,7 +498,7 @@ function IracingConnectedOverlay() {
                     />
                     <Tooltip
                       contentStyle={{ background: "#0a0f16", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v) => [`${v.toFixed(2)}s`, "gap à frente"]}
+                      formatter={(v) => [`${v.toFixed(2)}s`, t("iracingConnected.gapAheadSeries")]}
                       labelFormatter={() => ""}
                     />
                     <Line type="monotone" dataKey="gap" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -505,7 +508,7 @@ function IracingConnectedOverlay() {
             </ChartCard>
 
             {/* Ritmo do usuário */}
-            <ChartCard title="Ritmo do usuário" hint="tempo de volta" hasData={paceRows.length >= 1}>
+            <ChartCard title={t("iracingConnected.paceTitle")} hint={t("iracingConnected.paceHint")} hasData={paceRows.length >= 1}>
               <div className="h-[180px] w-full">
                 <LapTimeLineChart rows={paceRows} />
               </div>
@@ -515,8 +518,8 @@ function IracingConnectedOverlay() {
           {/* Race trace — grid inteiro: distância entre os carros (gap ao líder),
               com as voltas de bandeira amarela desenhadas. */}
           <ChartCard
-            title="Distância entre os carros"
-            hint="gap ao líder · 🟡 bandeira"
+            title={t("iracingConnected.traceTitle")}
+            hint={t("iracingConnected.traceHint")}
             hasData={displayRows.length >= 2}
           >
             {multiClass && (
@@ -561,7 +564,7 @@ function IracingConnectedOverlay() {
                   <span key={c.idx} className="flex items-center gap-1 text-[10px] text-text-secondary">
                     <span className="inline-block h-[3px] w-3.5 rounded" style={{ background: colorFor[c.idx] }} />
                     {nameByIdx[c.idx]}
-                    {c.isPlayer ? " (você)" : ""}
+                    {c.isPlayer ? ` (${t("iracingConnected.you")})` : ""}
                   </span>
                 ))}
               </div>

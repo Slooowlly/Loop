@@ -2612,5 +2612,59 @@
     "loadingOverlay": {
       "title": "Managing saves"
     }
+  },
+  "rivalryPerception": {
+    "title": "Perceived rivalries (debug)",
+    "descPre": "Runs rivalry perception on a race (live or saved) for a probe car. Only shows what the system ",
+    "descEm": "perceived",
+    "descPost": " — it applies nothing.",
+    "raceLabel": "Race",
+    "liveOption": "Live (last race)",
+    "savedLaps": "({{laps}}L)",
+    "probeLabel": "Probe car",
+    "you": "you",
+    "ai": "AI",
+    "analyzing": "Analyzing…",
+    "analyze": "Analyze",
+    "emptyLive": "No live race on the monitor. Race (or spectate) a session in iRacing, or pick a saved race.",
+    "emptySaved": "This saved race has no field trace.",
+    "probeIdx": "probe idx {{idx}}",
+    "lapsCount": "{{laps}} laps",
+    "rivalsCount": "{{n}} rival(s)",
+    "noRivalries": "No rivalry perceived in this race for this car.",
+    "intensity": "intensity",
+    "duel": "duel",
+    "lapsShort": "{{laps}}L",
+    "smallestGap": "closest gap",
+    "swaps": "swaps",
+    "passed": "passed",
+    "late": "late",
+    "fight": "fight",
+    "relev": "rel",
+    "kinds": {
+      "contato": "Contact",
+      "duelo": "Duel",
+      "pendulo": "Pendulum",
+      "ultrapassagem": "Overtake"
+    }
+  },
+  "iracingConnected": {
+    "waiting": "Waiting for the first laps…",
+    "title": "iRacing Connected",
+    "subtitle": "All set — just go race.",
+    "close": "Close (Esc)",
+    "you": "you",
+    "youName": "You",
+    "lapVariationTitle": "Lap variation",
+    "avgHint": "avg {{time}}",
+    "gapFrontTitle": "Gap to car ahead",
+    "gapFrontHint": "live · 20s cap",
+    "gapAheadSeries": "gap ahead",
+    "paceTitle": "Your pace",
+    "paceHint": "lap time",
+    "traceTitle": "Distance between cars",
+    "traceHint": "gap to leader · 🟡 flag",
+    "classFallback": "Class {{id}}",
+    "general": "General"
   }
 }

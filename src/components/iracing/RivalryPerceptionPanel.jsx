@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
 // Explicador de debug: "por que essa rivalidade?". Roda a percepção de rivalidade
 // (iracing_perceive_rivalries) sobre uma corrida — ao vivo ou salva — para um
@@ -9,10 +10,10 @@ import { invoke } from "@tauri-apps/api/core";
 // corrida "como você sentiu". Nenhum delta é aplicado no motor de rivalidade.
 
 const KIND_META = {
-  contato: { label: "Contato", tone: "text-status-red border-status-red/30 bg-status-red/10" },
-  duelo: { label: "Duelo", tone: "text-accent-primary border-accent-primary/30 bg-accent-primary/10" },
-  pendulo: { label: "Pêndulo", tone: "text-status-yellow border-status-yellow/30 bg-status-yellow/10" },
-  ultrapassagem: { label: "Ultrapassagem", tone: "text-status-green border-status-green/30 bg-status-green/10" },
+  contato: { tone: "text-status-red border-status-red/30 bg-status-red/10" },
+  duelo: { tone: "text-accent-primary border-accent-primary/30 bg-accent-primary/10" },
+  pendulo: { tone: "text-status-yellow border-status-yellow/30 bg-status-yellow/10" },
+  ultrapassagem: { tone: "text-status-green border-status-green/30 bg-status-green/10" },
 };
 
 function fmtGap(v) {
@@ -20,6 +21,7 @@ function fmtGap(v) {
 }
 
 function RivalryPerceptionPanel() {
+  const { t } = useTranslation();
   const [savedList, setSavedList] = useState([]);
   const [source, setSource] = useState("live"); // "live" | nome do arquivo
   const [history, setHistory] = useState(null); // RaceHistory carregado (p/ lista de carros)
@@ -102,33 +104,32 @@ function RivalryPerceptionPanel() {
 
   return (
     <div className="border-t border-white/10 px-5 py-3.5">
-      <p className="text-[13px] font-medium text-text-primary">Rivalidades percebidas (debug)</p>
+      <p className="text-[13px] font-medium text-text-primary">{t("rivalryPerception.title")}</p>
       <p className="pb-3 text-[11px] text-text-secondary">
-        Roda a percepção de rivalidade de uma corrida (ao vivo ou salva) para um carro-sonda.
-        Só mostra o que o sistema <em>percebeu</em> — não aplica nada.
+        {t("rivalryPerception.descPre")}<em>{t("rivalryPerception.descEm")}</em>{t("rivalryPerception.descPost")}
       </p>
 
       {/* Fonte + sonda + botão */}
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">Corrida</span>
+          <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">{t("rivalryPerception.raceLabel")}</span>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value)}
             className="min-w-[180px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-text-primary outline-none transition-glass focus:border-white/25"
           >
-            <option value="live">Ao vivo (última corrida)</option>
+            <option value="live">{t("rivalryPerception.liveOption")}</option>
             {savedList.map((s) => (
               <option key={s.name} value={s.name}>
                 {s.modified ? `${s.modified} · ` : ""}
-                {s.outcome || s.name} ({s.laps}v)
+                {s.outcome || s.name} {t("rivalryPerception.savedLaps", { laps: s.laps })}
               </option>
             ))}
           </select>
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">Carro-sonda</span>
+          <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">{t("rivalryPerception.probeLabel")}</span>
           <select
             value={probe ?? ""}
             onChange={(e) => setProbe(Number(e.target.value))}
@@ -138,7 +139,11 @@ function RivalryPerceptionPanel() {
             {cars.map((c) => (
               <option key={c.idx} value={c.idx}>
                 #{c.car_number}
-                {c.idx === history.player_car_idx ? " (você)" : c.is_ai ? " · IA" : ""}
+                {c.idx === history.player_car_idx
+                  ? ` (${t("rivalryPerception.you")})`
+                  : c.is_ai
+                  ? ` · ${t("rivalryPerception.ai")}`
+                  : ""}
               </option>
             ))}
           </select>
@@ -154,15 +159,15 @@ function RivalryPerceptionPanel() {
               : "cursor-pointer bg-accent-primary/20 text-text-primary hover:bg-accent-primary/30"
           }`}
         >
-          {loading ? "Analisando…" : "Analisar"}
+          {loading ? t("rivalryPerception.analyzing") : t("rivalryPerception.analyze")}
         </button>
       </div>
 
       {!hasHistory && !error && (
         <p className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-text-secondary">
           {source === "live"
-            ? "Sem corrida ao vivo no monitor. Corra (ou espectate) uma sessão no iRacing, ou escolha uma corrida salva."
-            : "Essa corrida salva não tem trace de campo."}
+            ? t("rivalryPerception.emptyLive")
+            : t("rivalryPerception.emptySaved")}
         </p>
       )}
 
@@ -178,21 +183,23 @@ function RivalryPerceptionPanel() {
 }
 
 function PerceptionResults({ result }) {
+  const { t } = useTranslation();
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center gap-2 text-[11px] text-text-secondary">
         <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono">
-          sonda idx {result.probe_car_idx}
+          {t("rivalryPerception.probeIdx", { idx: result.probe_car_idx })}
         </span>
         <span>
-          {result.is_player_probe ? "você" : "IA"} · {result.total_laps} voltas ·{" "}
-          {result.opponents.length} rival(is)
+          {result.is_player_probe ? t("rivalryPerception.you") : t("rivalryPerception.ai")} ·{" "}
+          {t("rivalryPerception.lapsCount", { laps: result.total_laps })} ·{" "}
+          {t("rivalryPerception.rivalsCount", { n: result.opponents.length })}
         </span>
       </div>
 
       {result.opponents.length === 0 ? (
         <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-text-secondary">
-          Nenhuma rivalidade percebida nesta corrida para este carro.
+          {t("rivalryPerception.noRivalries")}
         </p>
       ) : (
         result.opponents.map((o) => <OpponentCard key={o.car_idx} o={o} />)
@@ -202,6 +209,7 @@ function PerceptionResults({ result }) {
 }
 
 function OpponentCard({ o }) {
+  const { t } = useTranslation();
   return (
     <div className="glass rounded-xl p-3">
       <div className="flex items-center justify-between gap-2">
@@ -216,7 +224,7 @@ function OpponentCard({ o }) {
             </span>
           )}
           <span className="text-[11px] text-text-secondary">
-            intensidade{" "}
+            {t("rivalryPerception.intensity")}{" "}
             <span className="text-[13px] font-bold text-text-primary">
               {Math.round(o.projected_perceived)}
             </span>
@@ -234,26 +242,25 @@ function OpponentCard({ o }) {
 
       {/* Métricas cruas */}
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-text-secondary">
-        <span>duelo <b className="text-text-primary">{o.duel_laps}v</b></span>
-        <span>menor gap <b className="text-text-primary">{fmtGap(o.closest_gap_secs)}</b></span>
-        <span>trocas <b className="text-text-primary">{o.swaps}</b></span>
-        <span>passou <b className="text-text-primary">{o.overtakes_for}</b>/<b className="text-text-primary">{o.overtakes_against}</b></span>
-        <span>tardias <b className="text-text-primary">{o.late_overtakes}</b></span>
-        <span>briga <b className="text-text-primary">P{o.best_fight_position || "?"}</b></span>
-        <span>relev <b className="text-text-primary">×{o.relevance_mult.toFixed(1)}</b></span>
+        <span>{t("rivalryPerception.duel")} <b className="text-text-primary">{t("rivalryPerception.lapsShort", { laps: o.duel_laps })}</b></span>
+        <span>{t("rivalryPerception.smallestGap")} <b className="text-text-primary">{fmtGap(o.closest_gap_secs)}</b></span>
+        <span>{t("rivalryPerception.swaps")} <b className="text-text-primary">{o.swaps}</b></span>
+        <span>{t("rivalryPerception.passed")} <b className="text-text-primary">{o.overtakes_for}</b>/<b className="text-text-primary">{o.overtakes_against}</b></span>
+        <span>{t("rivalryPerception.late")} <b className="text-text-primary">{o.late_overtakes}</b></span>
+        <span>{t("rivalryPerception.fight")} <b className="text-text-primary">P{o.best_fight_position || "?"}</b></span>
+        <span>{t("rivalryPerception.relev")} <b className="text-text-primary">×{o.relevance_mult.toFixed(1)}</b></span>
       </div>
 
       {/* Sinais (o "por quê") */}
       <div className="mt-2 space-y-1">
         {o.hits.map((h, i) => {
-          const meta = KIND_META[h.kind] ?? {
-            label: h.kind,
-            tone: "text-text-secondary border-white/10 bg-white/5",
-          };
+          const meta = KIND_META[h.kind];
+          const tone = meta?.tone ?? "text-text-secondary border-white/10 bg-white/5";
+          const label = meta ? t(`rivalryPerception.kinds.${h.kind}`) : h.kind;
           return (
             <div key={i} className="flex items-center gap-2 text-[11px]">
-              <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${meta.tone}`}>
-                {meta.label}
+              <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${tone}`}>
+                {label}
               </span>
               <span className="min-w-0 flex-1 truncate text-text-secondary">{h.detail}</span>
               <span className="shrink-0 font-mono text-[10px] text-text-muted">
