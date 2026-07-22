@@ -1,0 +1,20 @@
+#!/bin/sh
+# Bloqueia o commit se houver strings de UI em português sem tradução (fora de t())
+# nos arquivos .jsx que estão no stage. Marque exceções com {/* i18n-ignore */} na linha
+# ou // i18n-ignore-file no topo do arquivo. Rodar manual: `npm run i18n:audit`.
+#
+# Ativação (feita 1x pelo `npm install` via script "prepare", ou manualmente):
+#   git config core.hooksPath .githooks
+#
+# Pra pular num commit específico (ex.: WIP): git commit --no-verify
+
+node scripts/i18nAudit.mjs --staged
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo ""
+  echo "✗ Commit bloqueado pela cobertura de i18n (veja as pendências acima)."
+  echo "  Traduza com t(\"chave\") ou marque como intencional com i18n-ignore, e recommite."
+  echo "  (pra pular só neste commit: git commit --no-verify)"
+  exit 1
+fi
+exit 0

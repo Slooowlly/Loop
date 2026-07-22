@@ -421,6 +421,7 @@ function NewsMagazineTab() {
                   </p>
                   <p>
                     Por enquanto, acompanhe ao lado a{" "}
+                    {/* i18n-ignore — placeholder PT-only do gate isPortuguese: só renderiza quando o idioma É português */}
                     <span className="teamname">classificação de construtores</span> atualizada e, abaixo, as
                     mensagens diretas a você na caixa de entrada.
                   </p>

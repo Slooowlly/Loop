@@ -1,7 +1,7 @@
 {
   "name": "loop",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.10.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,9 @@
     "test:ui": "vitest run",
     "test:watch": "vitest",
     "test:structure": "node --test \"scripts/tests/*.test.mjs\"",
-    "test:all": "npm run test:ui && npm run test:structure"
+    "test:all": "npm run test:ui && npm run test:structure",
+    "i18n:audit": "node scripts/i18nAudit.mjs",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "dependencies": {
     "@fontsource-variable/space-grotesk": "^5.2.10",

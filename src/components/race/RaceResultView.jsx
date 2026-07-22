@@ -1,3 +1,5 @@
+// i18n-ignore-file — tela V1 APOSENTADA (RaceResultViewV2 é a oficial); código morto,
+// não vale traduzir. Se um dia voltar a ser usada, remova esta linha e traduza.
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import TeamLogoMark from "../team/TeamLogoMark";

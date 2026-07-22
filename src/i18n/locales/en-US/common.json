@@ -3049,5 +3049,13 @@
     "liveFromGrid": "live · from the grid",
     "wet": "Rain",
     "dry": "Dry"
+  },
+  "loadingOverlay": {
+    "defaultTitle": "Creating career",
+    "defaultMessage": "Processing...",
+    "subtitle": "Getting the paddock ready"
+  },
+  "marketTab": {
+    "title": "Market"
   }
 }

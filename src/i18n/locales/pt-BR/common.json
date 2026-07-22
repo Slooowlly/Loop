@@ -3049,5 +3049,13 @@
     "liveFromGrid": "ao vivo · da grid",
     "wet": "Chuva",
     "dry": "Seco"
+  },
+  "loadingOverlay": {
+    "defaultTitle": "Criando carreira",
+    "defaultMessage": "Processando...",
+    "subtitle": "Preparando o paddock"
+  },
+  "marketTab": {
+    "title": "Mercado"
   }
 }
