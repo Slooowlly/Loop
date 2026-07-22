@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import WeatherTimelineChart from "./WeatherTimelineChart";
 
 /**
@@ -11,17 +12,24 @@ export default function WeatherButton({
   markers,
   forecast,
   className,
+  onOpen,
   children,
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (!raceId) return children || null;
+
+  const handleOpen = () => {
+    onOpen?.();
+    setOpen(true);
+  };
 
   return (
     <>
       {/* Gatilho: a própria `children` (ex.: card "Condição de Pista") ou o chip padrão. */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className={
           className ||
           (children
@@ -31,7 +39,7 @@ export default function WeatherButton({
       >
         {children || (
           <>
-            <span>☁️</span> Clima
+            <span>☁️</span> {t("weatherButton.trigger")}
           </>
         )}
       </button>
@@ -48,7 +56,7 @@ export default function WeatherButton({
             <div className="mb-4 flex items-center justify-between">
               <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">
                 <span className="mr-2">☁️</span>
-                {forecast ? "Previsão do tempo" : "Clima da corrida"}
+                {forecast ? t("weatherButton.forecastTitle") : t("weatherButton.raceTitle")}
               </p>
               <button
                 type="button"

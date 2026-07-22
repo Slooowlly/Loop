@@ -2459,5 +2459,34 @@
       "msg73": "Finalizing the save's historical draft...",
       "msg74": "Delivering a world with a past before your debut..."
     }
+  },
+  "weatherButton": {
+    "trigger": "Weather",
+    "forecastTitle": "Weather forecast",
+    "raceTitle": "Race weather"
+  },
+  "paceDelta": {
+    "lap": "Lap {{lap}}",
+    "deltaToAvg": "{{delta}}s vs average",
+    "axisLap": "Lap"
+  },
+  "weatherTimeline": {
+    "error": "Couldn't load the weather for this race.",
+    "forecastTitle": "Weather forecast",
+    "raceTitle": "Race weather",
+    "start": "Start",
+    "finish": "Finish",
+    "captionForecast": "Weather forecast for the race.",
+    "captionReview": "The weather the race followed, from start to finish.",
+    "markersNote": " ▾ markers: your pit stop and grid changes.",
+    "conditions": {
+      "sol": "Sunny",
+      "quaseLimpo": "Nearly clear",
+      "parcial": "Partly cloudy",
+      "encoberto": "Overcast",
+      "garoa": "Drizzle",
+      "chuva": "Rain",
+      "chuvaForte": "Heavy rain"
+    }
   }
 }

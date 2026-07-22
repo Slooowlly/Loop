@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useTranslation } from "react-i18next";
 
 // "Variação de voltas" / Pace Consistency COMPARTILHADO: barras do delta de cada volta
 // em relação à média. Usado pelo pós-corrida da carreira, pelo pós real do iRacing e
@@ -34,15 +35,17 @@ function formatLap(seconds) {
 }
 
 function PaceTooltip({ active, payload }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const r = payload[0].payload;
   return (
     <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
-      <div className="font-semibold text-white">Volta {r.lap}</div>
+      <div className="font-semibold text-white">{t("paceDelta.lap", { lap: r.lap })}</div>
       {Number.isFinite(r.time) && <div className="text-gray-400">{formatLap(r.time)}</div>}
       <div className={r.delta > 0 ? "text-red-400" : "text-green-400"}>
-        {r.delta > 0 ? "+" : ""}
-        {r.delta.toFixed(2)}s à média
+        {t("paceDelta.deltaToAvg", {
+          delta: `${r.delta > 0 ? "+" : ""}${r.delta.toFixed(2)}`,
+        })}
       </div>
     </div>
   );
@@ -57,6 +60,7 @@ function PaceDeltaChart({
   tickFontSize = 11,
   yAxisWidth = 44,
 }) {
+  const { t } = useTranslation();
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={rows} margin={{ top: 12, right: 12, bottom: showXLabel ? 18 : 4, left: 4 }}>
@@ -88,7 +92,7 @@ function PaceDeltaChart({
           stroke={GRID}
           label={
             showXLabel
-              ? { value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: tickFontSize }
+              ? { value: t("paceDelta.axisLap"), position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: tickFontSize }
               : undefined
           }
         />

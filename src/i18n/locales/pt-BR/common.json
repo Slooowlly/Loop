@@ -2459,5 +2459,34 @@
       "msg73": "Finalizando o rascunho histórico do save...",
       "msg74": "Entregando um mundo com passado antes da estreia..."
     }
+  },
+  "weatherButton": {
+    "trigger": "Clima",
+    "forecastTitle": "Previsão do tempo",
+    "raceTitle": "Clima da corrida"
+  },
+  "paceDelta": {
+    "lap": "Volta {{lap}}",
+    "deltaToAvg": "{{delta}}s à média",
+    "axisLap": "Volta"
+  },
+  "weatherTimeline": {
+    "error": "Não foi possível carregar o clima desta corrida.",
+    "forecastTitle": "Previsão do tempo",
+    "raceTitle": "Clima da corrida",
+    "start": "Largada",
+    "finish": "Bandeira",
+    "captionForecast": "Previsão do tempo da prova.",
+    "captionReview": "O clima que a corrida seguiu, da largada à bandeira.",
+    "markersNote": " ▾ marcações: sua parada e trocas do grid.",
+    "conditions": {
+      "sol": "Sol",
+      "quaseLimpo": "Quase limpo",
+      "parcial": "Parcial",
+      "encoberto": "Encoberto",
+      "garoa": "Garoa",
+      "chuva": "Chuva",
+      "chuvaForte": "Chuva forte"
+    }
   }
 }

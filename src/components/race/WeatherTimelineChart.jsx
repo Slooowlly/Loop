@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 
 // Tipo de tempo (event_type do backend) → cor, ícone e rótulo. Tons da esquerda
 // (encoberto/parcial) propositalmente FRIOS (azulados) p/ não "vazar" amarelo no começo.
 const COND = {
-  0: { c: "#f5b425", icon: "☀️", label: "Sol" },
-  1: { c: "#fcd34d", icon: "🌤️", label: "Quase limpo" },
-  2: { c: "#9fb1cb", icon: "⛅", label: "Parcial" },
-  3: { c: "#74859e", icon: "☁️", label: "Encoberto" },
-  6: { c: "#7dd3fc", icon: "🌦️", label: "Garoa" },
-  7: { c: "#38bdf8", icon: "🌧️", label: "Chuva" },
-  8: { c: "#0284c7", icon: "⛈️", label: "Chuva forte" },
+  0: { c: "#f5b425", icon: "☀️", labelKey: "sol" },
+  1: { c: "#fcd34d", icon: "🌤️", labelKey: "quaseLimpo" },
+  2: { c: "#9fb1cb", icon: "⛅", labelKey: "parcial" },
+  3: { c: "#74859e", icon: "☁️", labelKey: "encoberto" },
+  6: { c: "#7dd3fc", icon: "🌦️", labelKey: "garoa" },
+  7: { c: "#38bdf8", icon: "🌧️", labelKey: "chuva" },
+  8: { c: "#0284c7", icon: "⛈️", labelKey: "chuvaForte" },
 };
 const condOf = (et) => COND[et] ?? COND[0];
 const clampPct = (v) => Math.max(3, Math.min(97, v));
@@ -26,6 +27,7 @@ const clampPct = (v) => Math.max(3, Math.min(97, v));
  * @param forecast  true = previsão (sala de estratégia); false = revisão (pós-corrida)
  */
 export default function WeatherTimelineChart({ careerId, raceId, markers = [], forecast = false, mockData = null }) {
+  const { t } = useTranslation();
   const [data, setData] = useState(mockData);
   const [state, setState] = useState(mockData ? "ok" : "loading"); // loading | ok | error
 
@@ -57,7 +59,7 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
   if (state === "error") {
     return (
       <div className="text-sm text-gray-500 py-8 text-center">
-        Não foi possível carregar o clima desta corrida.
+        {t("weatherTimeline.error")}
       </div>
     );
   }
@@ -79,7 +81,7 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold uppercase tracking-[0.16em] text-gray-200">
-            {forecast ? "Previsão do tempo" : "Clima da corrida"}
+            {forecast ? t("weatherTimeline.forecastTitle") : t("weatherTimeline.raceTitle")}
           </span>
           <span
             className={`text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded border ${
@@ -105,7 +107,9 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
               style={{ left: `${clampPct(p.frac * 100)}%` }}
             >
               <span className="text-2xl leading-none drop-shadow">{cond.icon}</span>
-              <span className="mt-1 text-[10px] font-semibold text-gray-400 whitespace-nowrap">{cond.label}</span>
+              <span className="mt-1 text-[10px] font-semibold text-gray-400 whitespace-nowrap">
+                {t(`weatherTimeline.conditions.${cond.labelKey}`)}
+              </span>
             </div>
           );
         })}
@@ -154,15 +158,15 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
         ))}
       </div>
       <div className="flex items-center justify-between text-[12px] font-bold text-gray-400">
-        <span>Largada</span>
-        <span>Bandeira</span>
+        <span>{t("weatherTimeline.start")}</span>
+        <span>{t("weatherTimeline.finish")}</span>
       </div>
 
       <p className="mt-2 text-[10px] text-gray-600">
         {forecast
-          ? "Previsão do tempo da prova."
-          : "O clima que a corrida seguiu, da largada à bandeira."}
-        {markers.some((m) => m.isPlayer) ? " ▾ marcações: sua parada e trocas do grid." : ""}
+          ? t("weatherTimeline.captionForecast")
+          : t("weatherTimeline.captionReview")}
+        {markers.some((m) => m.isPlayer) ? t("weatherTimeline.markersNote") : ""}
       </p>
     </div>
   );
