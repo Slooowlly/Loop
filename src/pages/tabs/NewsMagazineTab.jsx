@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import RivalMarker from "../../components/driver/RivalMarker";
@@ -70,6 +71,7 @@ function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriverId, o
 }
 
 function NewsMagazineTab() {
+  const { t } = useTranslation();
   const careerId = useCareerStore((s) => s.careerId);
   const playerTeam = useCareerStore((s) => s.playerTeam);
   const season = useCareerStore((s) => s.season);
@@ -123,15 +125,12 @@ function NewsMagazineTab() {
   // Determinístico hoje; migra pra IA quando o endpoint /world-notes existir.
   const [worldNotes, setWorldNotes] = useState([]);
   // As notas vieram da IA (idioma certo) ou do template determinístico (PT)?
-  const [worldNotesAi, setWorldNotesAi] = useState(false);
   useEffect(() => {
     let mounted = true;
     if (!careerId) {
       setWorldNotes([]);
-      setWorldNotesAi(false);
       return undefined;
     }
-    setWorldNotesAi(false);
     // Mostra o texto determinístico na hora; a IA (se disponível no servidor) troca
     // as notas depois, sem bloquear a abertura da revista. Em qualquer falha —
     // inclusive o endpoint /world-notes ainda não existir — mantém o template.
@@ -143,7 +142,6 @@ function NewsMagazineTab() {
           .then((ai) => {
             if (mounted && ai?.source === "ai" && Array.isArray(ai?.notes)) {
               setWorldNotes(ai.notes);
-              setWorldNotesAi(true);
             }
           })
           .catch(() => {});
@@ -265,9 +263,9 @@ function NewsMagazineTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [careerId, ed?.rodada, season?.id]);
 
-  // Construtores: top 6, garantindo que a equipe do jogador apareça.
+  // Construtores: grid completo da categoria, por posição no campeonato.
   const construtores = useMemo(() => {
-    const mapped = standings.map((t) => ({
+    return standings.map((t) => ({
       id: t.id,
       pos: t.posicao,
       name: t.nome,
@@ -275,12 +273,6 @@ function NewsMagazineTab() {
       color: t.cor_primaria || "#888",
       me: playerTeam?.id != null && t.id === playerTeam.id,
     }));
-    let top = mapped.slice(0, 6);
-    if (!top.some((t) => t.me)) {
-      const meTeam = mapped.find((t) => t.me);
-      if (meTeam) top = [...mapped.slice(0, 5), meTeam];
-    }
-    return top;
   }, [standings, playerTeam]);
 
   // Pilotos: grid completo da categoria, por posição no campeonato.
@@ -370,7 +362,7 @@ function NewsMagazineTab() {
     };
   }, [ed, catLabel]);
   const footMeta = ed
-    ? `Edição ${ed.rodada}${totalRounds ? ` de ${totalRounds}` : ""}${year ? ` · Temporada ${year}` : ""}`
+    ? `${t("newsMagazine.foot.edition", { round: ed.rodada })}${totalRounds ? t("newsMagazine.foot.ofTotal", { total: totalRounds }) : ""}${year ? t("newsMagazine.foot.seasonSuffix", { year }) : ""}`
     : "";
 
   return (
@@ -385,21 +377,23 @@ function NewsMagazineTab() {
             <div className="flag" />
             <div className="kicker">{kicker}</div>
             <h1 className="display">
-              <span className="l1">{ed ? ed.track_name : "Sem corridas"}</span>
+              <span className="l1">{ed ? ed.track_name : t("newsMagazine.page.noRaces")}</span>
               <span className="l2">
-                {ed ? `Etapa ${ed.rodada} · Temporada ${year}` : "ainda nesta temporada"}
+                {ed
+                  ? t("newsMagazine.page.stageSeasonLine", { round: ed.rodada, year })
+                  : t("newsMagazine.page.stillThisSeason")}
               </span>
             </h1>
             <span className="ai-tag">
               {bulletin?.loading
-                ? "✦ Gerando boletim…"
+                ? t("newsMagazine.aiTag.generating")
                 : bulletin?.story
-                ? "✦ Boletim"
-                : "✦ Boletim por IA · em breve"}
+                ? t("newsMagazine.aiTag.bulletin")
+                : t("newsMagazine.aiTag.comingSoon")}
             </span>
 
             <div className="prose-cols">
-              <h3 className="subhead">Boletim da corrida</h3>
+              <h3 className="subhead">{t("newsMagazine.page.bulletinHead")}</h3>
               {bulletin?.story ? (
                 bulletin.story
                   .split(/\n\s*\n/)
@@ -416,7 +410,7 @@ function NewsMagazineTab() {
                     </p>
                   ))
               ) : bulletin?.loading ? (
-                <p>Gerando o boletim desta etapa…</p>
+                <p>{t("newsMagazine.page.generatingBulletin")}</p>
               ) : !isPortuguese(language) ? (
                 <p style={{ fontStyle: "italic", opacity: 0.6 }}>{localizedAiError(language)}</p>
               ) : (
@@ -438,9 +432,9 @@ function NewsMagazineTab() {
           {/* PÁGINA DIREITA */}
           <div className="page page-r">
             <div className="credits">
-              Reportagem de <b>Diretoria de Imprensa</b>
+              {t("newsMagazine.credits.reportedBy")} <b>{t("newsMagazine.credits.pressOffice")}</b>
               <br />
-              {catLabel ? <>Temporada de <b>{catLabel}</b></> : null}
+              {catLabel ? <>{t("newsMagazine.credits.seasonOf")} <b>{catLabel}</b></> : null}
             </div>
             {ed ? (
               <img
@@ -454,14 +448,17 @@ function NewsMagazineTab() {
             <p className="cap">
               {ed
                 ? `${ed.track_name}${ed.display_date ? ` — ${ed.display_date}` : ""}`
-                : "As corridas que você disputar aparecem aqui como edições."}
+                : t("newsMagazine.caption.racesAppearHere")}
             </p>
 
             <div className="r-grid r-grid-single">
               <div>
                 <div className="nm-standings-head">
                   <h3 className="subhead">
-                    {standingsView === "construtores" ? "Construtores" : "Pilotos"} · {year}
+                    {standingsView === "construtores"
+                      ? t("newsMagazine.standings.constructors")
+                      : t("newsMagazine.standings.drivers")}{" "}
+                    · {year}
                   </h3>
                   <div className="nm-toggle">
                     <button
@@ -469,42 +466,44 @@ function NewsMagazineTab() {
                       className={`nm-toggle-btn${standingsView === "pilotos" ? " active" : ""}`}
                       onClick={() => setStandingsView("pilotos")}
                     >
-                      Pilotos
+                      {t("newsMagazine.standings.drivers")}
                     </button>
                     <button
                       type="button"
                       className={`nm-toggle-btn${standingsView === "construtores" ? " active" : ""}`}
                       onClick={() => setStandingsView("construtores")}
                     >
-                      Construtores
+                      {t("newsMagazine.standings.constructors")}
                     </button>
                   </div>
                 </div>
 
                 {standingsView === "construtores" ? (
                   construtores.length > 0 ? (
-                    construtores.map((c) => {
-                      const glow = hoveredTeamId != null && c.id === hoveredTeamId;
-                      const tone = glow ? getTeamGlow(c.color) : null;
-                      return (
-                        <div
-                          key={c.id ?? c.pos}
-                          className={c.me ? "res-row me" : "res-row"}
-                          style={
-                            tone
-                              ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
-                              : undefined
-                          }
-                        >
-                          <span className="rp">{c.pos}</span>
-                          <TeamLogoMark teamName={c.name} color={c.color} size="xs" testId="news-team-logo" />
-                          <span className="rn">{c.name}</span>
-                          <span className="rpts">{c.pts}</span>
-                        </div>
-                      );
-                    })
+                    <div className={`res-list${construtores.length > 12 ? " res-list--split" : ""}`}>
+                      {construtores.map((c) => {
+                        const glow = hoveredTeamId != null && c.id === hoveredTeamId;
+                        const tone = glow ? getTeamGlow(c.color) : null;
+                        return (
+                          <div
+                            key={c.id ?? c.pos}
+                            className={c.me ? "res-row me" : "res-row"}
+                            style={
+                              tone
+                                ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
+                                : undefined
+                            }
+                          >
+                            <span className="rp">{c.pos}</span>
+                            <TeamLogoMark teamName={c.name} color={c.color} size="xs" testId="news-team-logo" />
+                            <span className="rn">{c.name}</span>
+                            <span className="rpts">{c.pts}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
-                    <p>Classificação de equipes indisponível.</p>
+                    <p>{t("newsMagazine.standings.teamsUnavailable")}</p>
                   )
                 ) : pilotos.length > 0 ? (
                   <div className={`res-list${pilotos.length > 12 ? " res-list--split" : ""}`}>
@@ -532,7 +531,7 @@ function NewsMagazineTab() {
                     })}
                   </div>
                 ) : (
-                  <p>Classificação de pilotos indisponível.</p>
+                  <p>{t("newsMagazine.standings.driversUnavailable")}</p>
                 )}
               </div>
             </div>
@@ -540,25 +539,17 @@ function NewsMagazineTab() {
         </div>
 
         {worldNotes.length > 0 && (
-          <div className="world-notes" aria-label="Notícias do mundo">
-            <div className="wn-head">DO MUNDO DO GRID</div>
+          <div className="world-notes" aria-label={t("newsMagazine.world.ariaLabel")}>
+            <div className="wn-head">{t("newsMagazine.world.heading")}</div>
             <div className="wn-list">
-              {/* Notas são PT (template determinístico). Em outro idioma, sem versão de
-                  IA, mostramos "erro na geração de texto" em vez de despejar português. */}
-              {!worldNotesAi && !isPortuguese(language) ? (
-                <div className="wn-item wn-neutro">
-                  <span className="wn-text" style={{ fontStyle: "italic", opacity: 0.6 }}>
-                    {localizedAiError(language)}
-                  </span>
+              {/* O backend já emite estas notas no idioma ativo (rust-i18n), então o
+                  template determinístico aparece direto; a IA só reescreve por cima. */}
+              {worldNotes.map((n) => (
+                <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
+                  <span className="wn-tag">{n.tag}</span>
+                  <span className="wn-text">{n.text}</span>
                 </div>
-              ) : (
-                worldNotes.map((n) => (
-                  <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
-                    <span className="wn-tag">{n.tag}</span>
-                    <span className="wn-text">{n.text}</span>
-                  </div>
-                ))
-              )}
+              ))}
             </div>
           </div>
         )}
@@ -574,8 +565,8 @@ function NewsMagazineTab() {
                 className="navbtn"
                 onClick={() => goEdition(1)}
                 disabled={safeIdx >= editions.length - 1}
-                title="Edição anterior"
-                aria-label="Edição anterior"
+                title={t("newsMagazine.foot.prevEdition")}
+                aria-label={t("newsMagazine.foot.prevEdition")}
               >
                 ‹
               </button>
@@ -584,8 +575,8 @@ function NewsMagazineTab() {
                 className="navbtn"
                 onClick={() => goEdition(-1)}
                 disabled={safeIdx <= 0}
-                title="Próxima edição"
-                aria-label="Próxima edição"
+                title={t("newsMagazine.foot.nextEdition")}
+                aria-label={t("newsMagazine.foot.nextEdition")}
               >
                 ›
               </button>
@@ -600,7 +591,7 @@ function NewsMagazineTab() {
               <img
                 className="mag-cover-book"
                 ref={coverBookRef}
-                src="/utilities/news/magazine-cover.png"
+                src="/utilities/news/magazine-cover.webp"
                 alt=""
                 draggable={false}
               />
@@ -613,10 +604,10 @@ function NewsMagazineTab() {
               </span>
             </div>
             <div className="mag-cover-side">
-              {year ? <p className="mag-cover-cap">Temporada {year}</p> : null}
-              <p className="mag-cover-sub">
-                A revista abre quando você disputar a primeira corrida da temporada.
-              </p>
+              {year ? (
+                <p className="mag-cover-cap">{t("newsMagazine.cover.seasonYear", { year })}</p>
+              ) : null}
+              <p className="mag-cover-sub">{t("newsMagazine.cover.sub")}</p>
             </div>
           </div>
         )}
@@ -626,7 +617,7 @@ function NewsMagazineTab() {
       <section className="mailbox">
         <div className="mb-head">
           <span className="mb-icon">✉</span>
-          <span className="mb-title">Caixa de entrada</span>
+          <span className="mb-title">{t("newsMagazine.mailbox.inbox")}</span>
           {unread > 0 && <span className="mb-count">{unread}</span>}
         </div>
 
@@ -686,7 +677,7 @@ function NewsMagazineTab() {
             <div className="mb-reader empty">
               <div>
                 <div className="ph-ic">✉</div>
-                Selecione uma mensagem para ler
+                {t("newsMagazine.mailbox.selectPrompt")}
               </div>
             </div>
           )}

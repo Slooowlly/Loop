@@ -1825,5 +1825,52 @@
       "invoiceTitle": "Fatura do carro",
       "total": "Total"
     }
+  },
+  "newsMagazine": {
+    "aiTag": {
+      "generating": "✦ Gerando boletim…",
+      "bulletin": "✦ Boletim",
+      "comingSoon": "✦ Boletim por IA · em breve"
+    },
+    "page": {
+      "noRaces": "Sem corridas",
+      "stageSeasonLine": "Etapa {{round}} · Temporada {{year}}",
+      "stillThisSeason": "ainda nesta temporada",
+      "bulletinHead": "Boletim da corrida",
+      "generatingBulletin": "Gerando o boletim desta etapa…"
+    },
+    "credits": {
+      "reportedBy": "Reportagem de",
+      "pressOffice": "Diretoria de Imprensa",
+      "seasonOf": "Temporada de"
+    },
+    "caption": {
+      "racesAppearHere": "As corridas que você disputar aparecem aqui como edições."
+    },
+    "standings": {
+      "constructors": "Construtores",
+      "drivers": "Pilotos",
+      "teamsUnavailable": "Classificação de equipes indisponível.",
+      "driversUnavailable": "Classificação de pilotos indisponível."
+    },
+    "foot": {
+      "edition": "Edição {{round}}",
+      "ofTotal": " de {{total}}",
+      "seasonSuffix": " · Temporada {{year}}",
+      "prevEdition": "Edição anterior",
+      "nextEdition": "Próxima edição"
+    },
+    "world": {
+      "heading": "DO MUNDO DO GRID",
+      "ariaLabel": "Notícias do mundo"
+    },
+    "cover": {
+      "seasonYear": "Temporada {{year}}",
+      "sub": "A revista abre quando você disputar a primeira corrida da temporada."
+    },
+    "mailbox": {
+      "inbox": "Caixa de entrada",
+      "selectPrompt": "Selecione uma mensagem para ler"
+    }
   }
 }

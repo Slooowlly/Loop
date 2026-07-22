@@ -1825,5 +1825,52 @@
       "invoiceTitle": "Car invoice",
       "total": "Total"
     }
+  },
+  "newsMagazine": {
+    "aiTag": {
+      "generating": "✦ Generating bulletin…",
+      "bulletin": "✦ Bulletin",
+      "comingSoon": "✦ AI bulletin · coming soon"
+    },
+    "page": {
+      "noRaces": "No races",
+      "stageSeasonLine": "Round {{round}} · Season {{year}}",
+      "stillThisSeason": "still this season",
+      "bulletinHead": "Race bulletin",
+      "generatingBulletin": "Generating this round's bulletin…"
+    },
+    "credits": {
+      "reportedBy": "Reported by",
+      "pressOffice": "Press Office",
+      "seasonOf": "Season of"
+    },
+    "caption": {
+      "racesAppearHere": "The races you run appear here as editions."
+    },
+    "standings": {
+      "constructors": "Constructors",
+      "drivers": "Drivers",
+      "teamsUnavailable": "Team standings unavailable.",
+      "driversUnavailable": "Driver standings unavailable."
+    },
+    "foot": {
+      "edition": "Edition {{round}}",
+      "ofTotal": " of {{total}}",
+      "seasonSuffix": " · Season {{year}}",
+      "prevEdition": "Previous edition",
+      "nextEdition": "Next edition"
+    },
+    "world": {
+      "heading": "FROM THE GRID WORLD",
+      "ariaLabel": "World news"
+    },
+    "cover": {
+      "seasonYear": "Season {{year}}",
+      "sub": "The magazine opens once you run the season's first race."
+    },
+    "mailbox": {
+      "inbox": "Inbox",
+      "selectPrompt": "Select a message to read"
+    }
   }
 }
