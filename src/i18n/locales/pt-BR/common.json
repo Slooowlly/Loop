@@ -2004,5 +2004,26 @@
         "body": "Na tela da temporada, confira a próxima corrida e clique em \"Continue\" para começar."
       }
     }
+  },
+  "header": {
+    "trackCountry": {
+      "Estados Unidos": "Estados Unidos",
+      "Japão": "Japão",
+      "Reino Unido": "Reino Unido",
+      "França": "França",
+      "Alemanha": "Alemanha",
+      "Espanha": "Espanha",
+      "Portugal": "Portugal",
+      "Austrália": "Austrália",
+      "Noruega": "Noruega",
+      "Bélgica": "Bélgica",
+      "Itália": "Itália",
+      "Brasil": "Brasil",
+      "México": "México",
+      "Canadá": "Canadá",
+      "Hungria": "Hungria",
+      "Áustria": "Áustria",
+      "Holanda": "Holanda"
+    }
   }
 }

@@ -2004,5 +2004,26 @@
         "body": "On the season screen, check the next race and click \"Continue\" to begin."
       }
     }
+  },
+  "header": {
+    "trackCountry": {
+      "Estados Unidos": "United States",
+      "Japão": "Japan",
+      "Reino Unido": "United Kingdom",
+      "França": "France",
+      "Alemanha": "Germany",
+      "Espanha": "Spain",
+      "Portugal": "Portugal",
+      "Austrália": "Australia",
+      "Noruega": "Norway",
+      "Bélgica": "Belgium",
+      "Itália": "Italy",
+      "Brasil": "Brazil",
+      "México": "Mexico",
+      "Canadá": "Canada",
+      "Hungria": "Hungary",
+      "Áustria": "Austria",
+      "Holanda": "Netherlands"
+    }
   }
 }
