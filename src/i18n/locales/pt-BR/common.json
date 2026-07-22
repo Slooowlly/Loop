@@ -2488,5 +2488,91 @@
       "chuva": "Chuva",
       "chuvaForte": "Chuva forte"
     }
+  },
+  "seasonChampion": {
+    "chart": {
+      "ariaLabel": "Evolução dos pontos por etapa",
+      "stageTick": "E{{n}}",
+      "title": "Pontos ao longo da temporada",
+      "hint": "acumulado · {{rounds}} etapas"
+    },
+    "dialogLabel": "Campeão da Temporada",
+    "head": {
+      "title": "Fim da Temporada {{year}}",
+      "subtitleYou": "Você conquistou o título da {{series}}! 🎉",
+      "subtitleOther": "A {{series}} tem um novo campeão."
+    },
+    "close": "Fechar (Esc)",
+    "hero": {
+      "pointsLabel": "pontos",
+      "kicker": "Campeão da Temporada",
+      "forTeam": "pela",
+      "youExclaim": "É você!",
+      "clinchPre": "Título garantido por",
+      "clinchPoints": "{{count}} pontos",
+      "clinchPoints_one": "{{count}} ponto",
+      "clinchPoints_other": "{{count}} pontos",
+      "clinchPost": "na última etapa da temporada."
+    },
+    "reward": {
+      "title": "Sua recompensa"
+    },
+    "youParen": "(você)",
+    "podium": {
+      "title": "Pódio final"
+    },
+    "awards": {
+      "title": "Prêmios da temporada",
+      "hint": "menções especiais"
+    },
+    "records": {
+      "title": "Recordes da temporada",
+      "hint": "telemetria iRacing · sua categoria"
+    },
+    "footer": {
+      "note": "Recordes calculados a partir da telemetria real do iRacing — só para a categoria em que você correu.",
+      "continue": "Continuar"
+    }
+  },
+  "loadSave": {
+    "deleteModal": {
+      "eyebrow": "Excluir carreira",
+      "title": "Tem certeza que deseja deletar este save?",
+      "bodyPre": "O save",
+      "bodyPost": "será removido em definitivo. Essa ação não pode ser desfeita.",
+      "cancel": "Cancelar",
+      "deleting": "Deletando...",
+      "confirm": "Confirmar exclusão"
+    },
+    "status": {
+      "searching": "Buscando saves...",
+      "loadingCareer": "Carregando carreira...",
+      "deleting": "Deletando save..."
+    },
+    "errors": {
+      "loadList": "Não foi possível carregar a lista de saves.",
+      "openCareer": "Não foi possível abrir a carreira selecionada.",
+      "deleteCareer": "Não foi possível deletar a carreira selecionada."
+    },
+    "header": {
+      "eyebrow": "Carregar carreira",
+      "title": "Retorne ao paddock.",
+      "subtitle": "Escolha um save existente para continuar sua jornada, revisar o grid e voltar direto para a próxima corrida."
+    },
+    "library": {
+      "eyebrow": "Biblioteca de saves",
+      "careerSingular": "carreira",
+      "careerPlural": "carreiras",
+      "note": "Cada save abre direto no dashboard atual."
+    },
+    "empty": {
+      "title": "Nenhuma carreira encontrada",
+      "subtitle": "Crie sua primeira carreira para começar a preencher o paddock.",
+      "newCareer": "Nova Carreira"
+    },
+    "backToMenu": "Voltar ao menu",
+    "loadingOverlay": {
+      "title": "Gerenciando saves"
+    }
   }
 }

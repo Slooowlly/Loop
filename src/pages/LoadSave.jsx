@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import GlassButton from "../components/ui/GlassButton";
 import GlassCard from "../components/ui/GlassCard";
@@ -9,6 +10,7 @@ import SaveCard from "../components/ui/SaveCard";
 import useCareerStore from "../stores/useCareerStore";
 
 function DeleteSaveConfirmModal({ careerId, onConfirm, onCancel, deleting = false }) {
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
@@ -19,13 +21,13 @@ function DeleteSaveConfirmModal({ careerId, onConfirm, onCancel, deleting = fals
         aria-modal="true"
         aria-labelledby="delete-save-title"
       >
-        <p className="text-[11px] uppercase tracking-[0.24em] text-status-red">Excluir carreira</p>
+        <p className="text-[11px] uppercase tracking-[0.24em] text-status-red">{t("loadSave.deleteModal.eyebrow")}</p>
         <h2 id="delete-save-title" className="mt-3 text-2xl font-semibold text-text-primary">
-          Tem certeza que deseja deletar este save?
+          {t("loadSave.deleteModal.title")}
         </h2>
         <p className="mt-3 text-sm leading-7 text-text-secondary">
-          O save <span className="font-semibold text-text-primary">{careerId}</span> será removido
-          em definitivo. Essa ação não pode ser desfeita.
+          {t("loadSave.deleteModal.bodyPre")} <span className="font-semibold text-text-primary">{careerId}</span>{" "}
+          {t("loadSave.deleteModal.bodyPost")}
         </p>
 
         <div
@@ -33,10 +35,10 @@ function DeleteSaveConfirmModal({ careerId, onConfirm, onCancel, deleting = fals
           className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row"
         >
           <GlassButton variant="secondary" disabled={deleting} onClick={onCancel}>
-            Cancelar
+            {t("loadSave.deleteModal.cancel")}
           </GlassButton>
           <GlassButton variant="danger" disabled={deleting} onClick={onConfirm}>
-            {deleting ? "Deletando..." : "Confirmar exclusão"}
+            {deleting ? t("loadSave.deleteModal.deleting") : t("loadSave.deleteModal.confirm")}
           </GlassButton>
         </div>
       </GlassCard>
@@ -45,11 +47,12 @@ function DeleteSaveConfirmModal({ careerId, onConfirm, onCancel, deleting = fals
 }
 
 function LoadSave() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
   const [saves, setSaves] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("Buscando saves...");
+  const [loadingMessage, setLoadingMessage] = useState(t("loadSave.status.searching"));
   const [error, setError] = useState("");
   const [pendingDeleteCareerId, setPendingDeleteCareerId] = useState(null);
 
@@ -59,7 +62,7 @@ function LoadSave() {
 
   async function loadSaves() {
     setLoading(true);
-    setLoadingMessage("Buscando saves...");
+    setLoadingMessage(t("loadSave.status.searching"));
     setError("");
 
     try {
@@ -69,7 +72,7 @@ function LoadSave() {
       setError(
         typeof invokeError === "string"
           ? invokeError
-          : "Não foi possível carregar a lista de saves.",
+          : t("loadSave.errors.loadList"),
       );
     } finally {
       setLoading(false);
@@ -78,7 +81,7 @@ function LoadSave() {
 
   async function handleLoad(careerId) {
     setLoading(true);
-    setLoadingMessage("Carregando carreira...");
+    setLoadingMessage(t("loadSave.status.loadingCareer"));
     setError("");
 
     try {
@@ -88,7 +91,7 @@ function LoadSave() {
       setError(
         typeof invokeError === "string"
           ? invokeError
-          : "Não foi possível abrir a carreira selecionada.",
+          : t("loadSave.errors.openCareer"),
       );
     } finally {
       setLoading(false);
@@ -105,7 +108,7 @@ function LoadSave() {
     const careerId = pendingDeleteCareerId;
     setPendingDeleteCareerId(null);
     setLoading(true);
-    setLoadingMessage("Deletando save...");
+    setLoadingMessage(t("loadSave.status.deleting"));
     setError("");
 
     try {
@@ -115,7 +118,7 @@ function LoadSave() {
       setError(
         typeof invokeError === "string"
           ? invokeError
-          : "Não foi possível deletar a carreira selecionada.",
+          : t("loadSave.errors.deleteCareer"),
       );
       setLoading(false);
     }
@@ -144,14 +147,13 @@ function LoadSave() {
             <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">
-                  Carregar carreira
+                  {t("loadSave.header.eyebrow")}
                 </p>
                 <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-text-primary sm:text-5xl">
-                  Retorne ao paddock.
+                  {t("loadSave.header.title")}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-7 text-text-secondary sm:text-base">
-                  Escolha um save existente para continuar sua jornada, revisar o grid e voltar
-                  direto para a próxima corrida.
+                  {t("loadSave.header.subtitle")}
                 </p>
               </div>
 
@@ -160,12 +162,15 @@ function LoadSave() {
                 className="glass-light w-full max-w-xs rounded-3xl px-5 py-4 text-sm text-text-secondary"
               >
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Biblioteca de saves
+                  {t("loadSave.library.eyebrow")}
                 </p>
                 <p className="mt-2 text-base font-semibold text-text-primary">
-                  {saves.length} carreira{saves.length === 1 ? "" : "s"}
+                  {saves.length}{" "}
+                  {saves.length === 1
+                    ? t("loadSave.library.careerSingular")
+                    : t("loadSave.library.careerPlural")}
                 </p>
-                <p className="mt-1">Cada save abre direto no dashboard atual.</p>
+                <p className="mt-1">{t("loadSave.library.note")}</p>
               </GlassCard>
             </div>
 
@@ -180,14 +185,14 @@ function LoadSave() {
                 <GlassCard hover={false} className="glass-light rounded-[28px] p-12 text-center">
                   <div className="mb-4 text-6xl">🏎️</div>
                   <h3 className="text-2xl font-semibold text-text-primary">
-                    Nenhuma carreira encontrada
+                    {t("loadSave.empty.title")}
                   </h3>
                   <p className="mt-3 text-sm text-text-secondary">
-                    Crie sua primeira carreira para começar a preencher o paddock.
+                    {t("loadSave.empty.subtitle")}
                   </p>
                   <div className="mt-8">
                     <GlassButton variant="primary" onClick={() => navigate("/new-career")}>
-                      Nova Carreira
+                      {t("loadSave.empty.newCareer")}
                     </GlassButton>
                   </div>
                 </GlassCard>
@@ -206,14 +211,14 @@ function LoadSave() {
 
             <div className="mt-8 flex justify-start border-t border-white/10 pt-6">
               <GlassButton variant="secondary" onClick={() => navigate("/menu")}>
-                Voltar ao menu
+                {t("loadSave.backToMenu")}
               </GlassButton>
             </div>
           </div>
         </div>
       </div>
 
-      <LoadingOverlay open={loading} title="Gerenciando saves" message={loadingMessage} />
+      <LoadingOverlay open={loading} title={t("loadSave.loadingOverlay.title")} message={loadingMessage} />
     </div>
   );
 }

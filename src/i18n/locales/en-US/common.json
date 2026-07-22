@@ -2488,5 +2488,91 @@
       "chuva": "Rain",
       "chuvaForte": "Heavy rain"
     }
+  },
+  "seasonChampion": {
+    "chart": {
+      "ariaLabel": "Points progression by round",
+      "stageTick": "R{{n}}",
+      "title": "Points across the season",
+      "hint": "cumulative · {{rounds}} rounds"
+    },
+    "dialogLabel": "Season Champion",
+    "head": {
+      "title": "End of Season {{year}}",
+      "subtitleYou": "You won the {{series}} title! 🎉",
+      "subtitleOther": "The {{series}} has a new champion."
+    },
+    "close": "Close (Esc)",
+    "hero": {
+      "pointsLabel": "points",
+      "kicker": "Season Champion",
+      "forTeam": "for",
+      "youExclaim": "That's you!",
+      "clinchPre": "Title secured by",
+      "clinchPoints": "{{count}} points",
+      "clinchPoints_one": "{{count}} point",
+      "clinchPoints_other": "{{count}} points",
+      "clinchPost": "in the season's final round."
+    },
+    "reward": {
+      "title": "Your reward"
+    },
+    "youParen": "(you)",
+    "podium": {
+      "title": "Final podium"
+    },
+    "awards": {
+      "title": "Season awards",
+      "hint": "special mentions"
+    },
+    "records": {
+      "title": "Season records",
+      "hint": "iRacing telemetry · your category"
+    },
+    "footer": {
+      "note": "Records computed from real iRacing telemetry — only for the category you raced in.",
+      "continue": "Continue"
+    }
+  },
+  "loadSave": {
+    "deleteModal": {
+      "eyebrow": "Delete career",
+      "title": "Are you sure you want to delete this save?",
+      "bodyPre": "The save",
+      "bodyPost": "will be permanently removed. This action can't be undone.",
+      "cancel": "Cancel",
+      "deleting": "Deleting...",
+      "confirm": "Confirm deletion"
+    },
+    "status": {
+      "searching": "Searching saves...",
+      "loadingCareer": "Loading career...",
+      "deleting": "Deleting save..."
+    },
+    "errors": {
+      "loadList": "Couldn't load the list of saves.",
+      "openCareer": "Couldn't open the selected career.",
+      "deleteCareer": "Couldn't delete the selected career."
+    },
+    "header": {
+      "eyebrow": "Load career",
+      "title": "Return to the paddock.",
+      "subtitle": "Pick an existing save to continue your journey, review the grid, and head straight to the next race."
+    },
+    "library": {
+      "eyebrow": "Save library",
+      "careerSingular": "career",
+      "careerPlural": "careers",
+      "note": "Each save opens straight into the current dashboard."
+    },
+    "empty": {
+      "title": "No career found",
+      "subtitle": "Create your first career to start filling the paddock.",
+      "newCareer": "New Career"
+    },
+    "backToMenu": "Back to menu",
+    "loadingOverlay": {
+      "title": "Managing saves"
+    }
   }
 }
