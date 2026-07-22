@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 
+import i18n from "../../i18n/index.js";
+import { ordinal } from "../../i18n/format.js";
 import { formatSalary, formatSalaryMonthly } from "../../utils/formatters";
 import TeamLogoMark from "../team/TeamLogoMark";
 
@@ -16,7 +19,7 @@ function formatAverage(value) {
 
 function formatRank(value) {
   if (value === null || value === undefined) return "";
-  return ` (${value}\u00ba)`;
+  return ` (${ordinal(value)})`;
 }
 
 function formatRankedValue(value, rank) {
@@ -43,10 +46,10 @@ function formatContractRole(role) {
 
 export function formatMoment(momento) {
   const map = {
-    forte: { label: "Em alta", color: "text-[#3fb950]" },
-    estavel: { label: "Estável", color: "text-[#d29922]" },
-    em_baixa: { label: "Em baixa", color: "text-[#f85149]" },
-    sem_dados: { label: "Sem dados", color: "text-[#7d8590]" },
+    forte: { label: i18n.t("driverDetail.momentBuilder.forte"), color: "text-[#3fb950]" },
+    estavel: { label: i18n.t("driverDetail.momentBuilder.estavel"), color: "text-[#d29922]" },
+    em_baixa: { label: i18n.t("driverDetail.momentBuilder.em_baixa"), color: "text-[#f85149]" },
+    sem_dados: { label: i18n.t("driverDetail.momentBuilder.sem_dados"), color: "text-[#7d8590]" },
   };
 
   return map[momento] || map.sem_dados;
@@ -141,6 +144,7 @@ function CareerRankStat({ label, value, rank, tone = "text-[#e6edf3]" }) {
 }
 
 function RookieFormState() {
+  const { t } = useTranslation();
   return (
     <div className="relative overflow-hidden rounded-xl border border-[#58a6ff]/22 bg-[#071120] p-4">
       <div className="absolute inset-x-4 top-4 h-px bg-[#58a6ff]/35" />
@@ -152,14 +156,14 @@ function RookieFormState() {
       <div className="relative grid gap-4 sm:grid-cols-[130px_minmax(0,1fr)] sm:items-center">
         <div className="rounded-lg border border-[#58a6ff]/25 bg-[#58a6ff]/12 px-4 py-3 text-center shadow-[0_0_30px_rgba(88,166,255,0.12)]">
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#58a6ff]">
-            ESTREANTE
+            {t("driverDetail.summary.rookieBadge")}
           </div>
           <div className="mt-2 text-3xl font-bold text-[#e6edf3]">0</div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-[#8b949e]">corridas</div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-[#8b949e]">{t("driverDetail.summary.races")}</div>
         </div>
         <div>
-          <div className="text-lg font-semibold text-[#e6edf3]">Sem histórico de forma</div>
-          <div className="mt-1 text-sm text-[#8b949e]">A leitura começa depois da primeira largada.</div>
+          <div className="text-lg font-semibold text-[#e6edf3]">{t("driverDetail.summary.noFormHistory")}</div>
+          <div className="mt-1 text-sm text-[#8b949e]">{t("driverDetail.summary.formStartsAfter")}</div>
         </div>
       </div>
     </div>
@@ -167,27 +171,31 @@ function RookieFormState() {
 }
 
 function InsufficientFormState() {
+  const { t } = useTranslation();
   return (
     <div className="rounded-xl border border-white/6 bg-black/10 p-4">
-      <div className="text-sm font-semibold text-[#c9d1d9]">Dados insuficientes</div>
-      <div className="mt-1 text-xs text-[#7d8590]">Ainda falta volume recente para desenhar a tendência.</div>
+      <div className="text-sm font-semibold text-[#c9d1d9]">{t("driverDetail.summary.insufficientTitle")}</div>
+      <div className="mt-1 text-xs text-[#7d8590]">{t("driverDetail.summary.insufficientBody")}</div>
     </div>
   );
 }
 
 function InactivePreviousSeasonState({ context }) {
+  const { t } = useTranslation();
   const isWithoutTeam = context === "sem_time_temporada_passada";
-  const title = isWithoutTeam ? "Sem time na temporada passada" : "Sem corridas na temporada passada";
+  const title = isWithoutTeam
+    ? t("driverDetail.summary.noTeamLastSeason")
+    : t("driverDetail.summary.noRacesLastSeason");
   const body = isWithoutTeam
-    ? "O piloto ficou fora do grid no último ano, então não há forma recente para comparar."
-    : "O piloto não disputou provas no último ano, então a forma recente ficou suspensa.";
+    ? t("driverDetail.summary.noTeamLastSeasonBody")
+    : t("driverDetail.summary.noRacesLastSeasonBody");
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-[#d29922]/24 bg-[#d29922]/9 p-4">
       <div className="absolute inset-x-4 top-4 h-px bg-[#d29922]/30" />
       <div className="relative flex min-h-[156px] flex-col items-center justify-center text-center">
         <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#d29922]">
-          Fora do grid
+          {t("driverDetail.summary.offGrid")}
         </div>
         <div className="mt-3 text-2xl font-bold text-[#e6edf3]">{title}</div>
         <div className="mt-2 max-w-md text-sm text-[#8b949e]">{body}</div>
@@ -196,33 +204,35 @@ function InactivePreviousSeasonState({ context }) {
   );
 }
 
-function RookieDossierState({ SectionComponent, title = "Resumo Atual" }) {
+function RookieDossierState({ SectionComponent, title }) {
+  const { t } = useTranslation();
   return (
-    <SectionComponent title={title}>
+    <SectionComponent title={title ?? t("driverDetail.summary.title")}>
       <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
         <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#58a6ff]">
-          Novo no grid
+          {t("driverDetail.summary.newOnGrid")}
         </div>
-        <div className="mt-3 text-4xl font-bold text-[#e6edf3]">Estreante</div>
+        <div className="mt-3 text-4xl font-bold text-[#e6edf3]">{t("driverDetail.summary.rookie")}</div>
         <div className="mt-3 max-w-sm text-sm font-semibold text-[#c9d1d9]">
-          Expectativa desconhecida
+          {t("driverDetail.summary.unknownExpectation")}
         </div>
-        <div className="mt-1 max-w-sm text-sm text-[#8b949e]">Sem passado competitivo para comparar.</div>
+        <div className="mt-1 max-w-sm text-sm text-[#8b949e]">{t("driverDetail.summary.noCompetitivePast")}</div>
       </div>
     </SectionComponent>
   );
 }
 
 function RookieUnavailableSection({ SectionComponent, title }) {
+  const { t } = useTranslation();
   return (
     <SectionComponent title={title}>
       <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
         <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">
-          Indisponível para estreante
+          {t("driverDetail.summary.unavailableForRookie")}
         </div>
-        <div className="mt-3 text-3xl font-bold text-[#e6edf3]">Estreante</div>
+        <div className="mt-3 text-3xl font-bold text-[#e6edf3]">{t("driverDetail.summary.rookie")}</div>
         <div className="mt-2 max-w-sm text-sm text-[#8b949e]">
-          Sem passado competitivo para sustentar esta leitura.
+          {t("driverDetail.summary.noCompetitivePastRead")}
         </div>
       </div>
     </SectionComponent>
@@ -262,6 +272,7 @@ function resultLabel(entry) {
 }
 
 function RecentFormChart({ entries, rookie, context }) {
+  const { t } = useTranslation();
   if (rookie) return <RookieFormState />;
   if (!entries?.length && context) return <InactivePreviousSeasonState context={context} />;
   if (!entries?.length) return <InsufficientFormState />;
@@ -301,11 +312,11 @@ function RecentFormChart({ entries, rookie, context }) {
     <div className="-m-3.5 overflow-hidden bg-[#070b12]">
       <div className="flex items-center justify-between gap-3 border-b border-white/6 px-4 py-3">
         <div>
-          <div className="text-sm font-semibold text-[#e6edf3]">Tendência recente</div>
-          <div className="mt-0.5 text-[11px] text-[#7d8590]">Últimas {entries.length} corridas</div>
+          <div className="text-sm font-semibold text-[#e6edf3]">{t("driverDetail.summary.recentTrend")}</div>
+          <div className="mt-0.5 text-[11px] text-[#7d8590]">{t("driverDetail.summary.recentLast", { count: entries.length })}</div>
         </div>
         <div className="rounded-full border border-[#58a6ff]/20 bg-[#58a6ff]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#58a6ff]">
-          Posição
+          {t("driverDetail.summary.position")}
         </div>
       </div>
 
@@ -313,7 +324,7 @@ function RecentFormChart({ entries, rookie, context }) {
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="img"
-          aria-label="Gráfico de forma recente"
+          aria-label={t("driverDetail.summary.chartAria")}
           className="block h-auto w-full"
         >
           <defs>
@@ -365,14 +376,14 @@ function RecentFormChart({ entries, rookie, context }) {
               </text>
             </g>
           ))}
-          <text x={chartLeft} y="17" className="fill-[#3fb950] text-[10px] font-bold">melhor</text>
-          <text x={chartLeft} y="174" className="fill-[#7d8590] text-[10px] font-bold">pior</text>
+          <text x={chartLeft} y="17" className="fill-[#3fb950] text-[10px] font-bold">{t("driverDetail.summary.best")}</text>
+          <text x={chartLeft} y="174" className="fill-[#7d8590] text-[10px] font-bold">{t("driverDetail.summary.worst")}</text>
         </svg>
 
         <div className="grid grid-cols-3 gap-2 px-4">
-          <FormMetric label="Melhor" value={bestFinish ? `P${bestFinish}` : "-"} tone="text-[#3fb950]" />
-          <FormMetric label="Média" value={averageFinish ? `P${averageFinish.toFixed(1)}` : "-"} />
-          <FormMetric label="DNFs" value={dnfCount} tone={dnfCount ? "text-[#f85149]" : "text-[#8b949e]"} />
+          <FormMetric label={t("driverDetail.summary.metricBest")} value={bestFinish ? `P${bestFinish}` : "-"} tone="text-[#3fb950]" />
+          <FormMetric label={t("driverDetail.summary.metricAverage")} value={averageFinish ? `P${averageFinish.toFixed(1)}` : "-"} />
+          <FormMetric label={t("driverDetail.summary.metricDnfs")} value={dnfCount} tone={dnfCount ? "text-[#f85149]" : "text-[#8b949e]"} />
         </div>
       </div>
     </div>
@@ -393,10 +404,11 @@ function TimelineItem({ item }) {
 }
 
 function CategoryTimeline({ items }) {
+  const { t } = useTranslation();
   const timeline = Array.isArray(items) ? items.filter((item) => item?.categoria) : [];
 
   if (!timeline.length) {
-    return <p className="text-xs text-[#7d8590]">Sem categorias visíveis por enquanto.</p>;
+    return <p className="text-xs text-[#7d8590]">{t("driverDetail.history.noCategories")}</p>;
   }
 
   return (
@@ -416,10 +428,11 @@ function CategoryTimeline({ items }) {
 }
 
 function DebutTeamLine({ teamName }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/6 py-2 last:border-b-0 last:pb-0">
       <span className="text-[11px] uppercase tracking-[0.16em] text-[#7d8590]">
-        Equipe de estreia
+        {t("driverDetail.history.debutTeam")}
       </span>
       {teamName ? (
         <span className="flex min-w-0 items-center justify-end gap-2 text-right text-sm font-medium text-[#e6edf3]">
@@ -427,7 +440,7 @@ function DebutTeamLine({ teamName }) {
           <span className="truncate">{teamName}</span>
         </span>
       ) : (
-        <span className="text-right text-sm font-medium text-[#e6edf3]">Não identificada</span>
+        <span className="text-right text-sm font-medium text-[#e6edf3]">{t("driverDetail.history.notIdentified")}</span>
       )}
     </div>
   );
@@ -458,8 +471,8 @@ function formatCategoryLabel(categoryId) {
 }
 
 function formatRaceMilestone(value) {
-  if (value === null || value === undefined) return "Nunca";
-  return `${value}ª corrida`;
+  if (value === null || value === undefined) return i18n.t("driverDetail.history.milestoneNever");
+  return i18n.t("driverDetail.history.milestoneRace", { value });
 }
 
 function formatSpecialClassLabel(className) {
@@ -497,7 +510,7 @@ function formatUnemploymentYears(presence) {
   const periods = Array.isArray(presence?.periodos_desempregado)
     ? presence.periodos_desempregado.filter(Boolean)
     : [];
-  const label = `${years} ano${years === 1 ? "" : "s"}`;
+  const label = i18n.t("driverDetail.moment.expiresValue", { count: years });
 
   if (periods.length === 0) return label;
   return `${label} (${periods.join(" | ")})`;
@@ -505,13 +518,16 @@ function formatUnemploymentYears(presence) {
 
 function formatCareerYears(value) {
   const years = value ?? 0;
-  return `${years} ano${years === 1 ? "" : "s"}`;
+  return i18n.t("driverDetail.moment.expiresValue", { count: years });
 }
 
 function formatYearsAverage(value) {
   if (value === null || value === undefined) return "-";
   const formatted = Number(value).toFixed(1);
-  return `${formatted} ano${formatted === "1.0" ? "" : "s"}`;
+  return i18n.t(
+    formatted === "1.0" ? "driverDetail.history.yearsAverage_one" : "driverDetail.history.yearsAverage_other",
+    { value: formatted },
+  );
 }
 
 function formatBestSeason(season) {
@@ -544,10 +560,11 @@ function CareerHistoryGroup({ title, rows, first = false }) {
 }
 
 function SpecialEventsTimeline({ items }) {
+  const { t } = useTranslation();
   const timeline = Array.isArray(items) ? items : [];
 
   if (!timeline.length) {
-    return <p className="mt-2 text-xs text-[#7d8590]">Sem eventos especiais registrados.</p>;
+    return <p className="mt-2 text-xs text-[#7d8590]">{t("driverDetail.history.noSpecialEvents")}</p>;
   }
 
   return (
@@ -565,6 +582,7 @@ function SpecialEventsTimeline({ items }) {
 }
 
 function CareerHistoryDossier({ history }) {
+  const { t } = useTranslation();
   if (!history) return null;
 
   const presence = history.presenca ?? {};
@@ -580,66 +598,66 @@ function CareerHistoryDossier({ history }) {
     <div className="glass-light rounded-xl p-4" data-testid="career-history-dossier">
       <div className="grid gap-3 md:grid-cols-2">
         <CareerHistoryGroup
-          title="PRESENÇA"
+          title={t("driverDetail.history.groupPresence")}
           first
           rows={[
-            { label: "Tempo de carreira", value: formatCareerYears(presence.tempo_carreira) },
-            { label: "Temporadas disputadas", value: presence.temporadas_disputadas ?? 0 },
-            { label: "Anos desempregado", value: formatUnemploymentYears(presence) },
-            { label: "Categorias disputadas", value: presence.categorias_disputadas ?? 0 },
+            { label: t("driverDetail.history.careerTime"), value: formatCareerYears(presence.tempo_carreira) },
+            { label: t("driverDetail.history.seasonsPlayed"), value: presence.temporadas_disputadas ?? 0 },
+            { label: t("driverDetail.history.yearsUnemployed"), value: formatUnemploymentYears(presence) },
+            { label: t("driverDetail.history.categoriesContested"), value: presence.categorias_disputadas ?? 0 },
           ]}
         />
         <CareerHistoryGroup
-          title="PRIMEIROS MARCOS"
+          title={t("driverDetail.history.groupFirstMarks")}
           first
           rows={[
-            { label: "Primeiro pódio", value: formatRaceMilestone(firstMarks.primeiro_podio_corrida) },
-            { label: "Primeira vitória", value: formatRaceMilestone(firstMarks.primeira_vitoria_corrida) },
-            { label: "Primeiro DNF", value: formatRaceMilestone(firstMarks.primeiro_dnf_corrida) },
+            { label: t("driverDetail.history.firstPodium"), value: formatRaceMilestone(firstMarks.primeiro_podio_corrida) },
+            { label: t("driverDetail.history.firstWin"), value: formatRaceMilestone(firstMarks.primeira_vitoria_corrida) },
+            { label: t("driverDetail.history.firstDnf"), value: formatRaceMilestone(firstMarks.primeiro_dnf_corrida) },
           ]}
         />
         <CareerHistoryGroup
-          title="AUGE"
+          title={t("driverDetail.history.groupPeak")}
           rows={[
-            { label: "Melhor temporada", value: formatBestSeason(bestSeason) },
-            { label: "Melhor campeonato", value: bestSeason?.posicao_campeonato ? `P${bestSeason.posicao_campeonato}` : "-" },
-            { label: "Maior sequência de vitórias", value: peak.maior_sequencia_vitorias ?? 0 },
+            { label: t("driverDetail.history.bestSeason"), value: formatBestSeason(bestSeason) },
+            { label: t("driverDetail.history.bestChampionship"), value: bestSeason?.posicao_campeonato ? `P${bestSeason.posicao_campeonato}` : "-" },
+            { label: t("driverDetail.history.longestWinStreak"), value: peak.maior_sequencia_vitorias ?? 0 },
           ]}
         />
         <CareerHistoryGroup
-          title="MOBILIDADE"
+          title={t("driverDetail.history.groupMobility")}
           rows={[
-            { label: "Promoções", value: mobility.promocoes ?? 0 },
-            { label: "Rebaixamentos", value: mobility.rebaixamentos ?? 0 },
-            { label: "Equipes defendidas", value: mobility.equipes_defendidas ?? 0 },
-            { label: "Tempo médio por equipe", value: formatYearsAverage(mobility.tempo_medio_por_equipe) },
+            { label: t("driverDetail.history.promotions"), value: mobility.promocoes ?? 0 },
+            { label: t("driverDetail.history.relegations"), value: mobility.rebaixamentos ?? 0 },
+            { label: t("driverDetail.history.teamsDefended"), value: mobility.equipes_defendidas ?? 0 },
+            { label: t("driverDetail.history.avgTimePerTeam"), value: formatYearsAverage(mobility.tempo_medio_por_equipe) },
           ]}
         />
         <CareerHistoryGroup
-          title="LESÕES"
+          title={t("driverDetail.history.groupInjuries")}
           rows={[
-            { label: "Leves", value: injuries.leves ?? 0 },
-            { label: "Moderadas", value: injuries.moderadas ?? 0 },
-            { label: "Graves", value: injuries.graves ?? 0 },
+            { label: t("driverDetail.history.injuriesLight"), value: injuries.leves ?? 0 },
+            { label: t("driverDetail.history.injuriesModerate"), value: injuries.moderadas ?? 0 },
+            { label: t("driverDetail.history.injuriesSevere"), value: injuries.graves ?? 0 },
           ]}
         />
         <div className="border-t border-white/8 pt-3 md:col-span-2">
           <CareerHistoryGroup
-            title="EVENTOS ESPECIAIS"
+            title={t("driverDetail.history.groupSpecialEvents")}
             first
             rows={[
               {
-                label: "Participações",
+                label: t("driverDetail.history.participations"),
                 value: formatRankedValue(specialEvents.participacoes, specialRanks.participacoes),
               },
               {
-                label: "Convocações",
+                label: t("driverDetail.history.callUps"),
                 value: formatRankedValue(specialEvents.convocacoes, specialRanks.convocacoes),
               },
-              { label: "Vitórias", value: formatRankedValue(specialEvents.vitorias, specialRanks.vitorias) },
-              { label: "Pódios", value: formatRankedValue(specialEvents.podios, specialRanks.podios) },
-              { label: "Melhor campanha", value: formatSpecialCampaign(specialEvents.melhor_campanha) },
-              { label: "Último evento", value: formatSpecialEventEntry(specialEvents.ultimo_evento) },
+              { label: t("driverDetail.history.wins"), value: formatRankedValue(specialEvents.vitorias, specialRanks.vitorias) },
+              { label: t("driverDetail.history.podiums"), value: formatRankedValue(specialEvents.podios, specialRanks.podios) },
+              { label: t("driverDetail.history.bestCampaign"), value: formatSpecialCampaign(specialEvents.melhor_campanha) },
+              { label: t("driverDetail.history.lastEvent"), value: formatSpecialEventEntry(specialEvents.ultimo_evento) },
             ]}
           />
           <SpecialEventsTimeline items={specialEvents.timeline} />
@@ -660,6 +678,7 @@ function TagLine({ tag }) {
 }
 
 export function SummarySection({ SectionComponent, detail, moment }) {
+  const { t } = useTranslation();
   const resumo = detail.resumo_atual ?? {};
   const stats = detail.performance?.temporada ?? {};
   const form = detail.forma ?? {};
@@ -670,7 +689,7 @@ export function SummarySection({ SectionComponent, detail, moment }) {
 
   return (
     <>
-      <SectionComponent title="Resumo Atual">
+      <SectionComponent title={t("driverDetail.summary.title")}>
         <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
           <div
             className={[
@@ -681,37 +700,37 @@ export function SummarySection({ SectionComponent, detail, moment }) {
             data-testid="current-summary-verdict-card"
           >
             <div className={["text-[10px] font-bold uppercase tracking-[0.18em]", summaryTone.label].join(" ")}>
-              Agora
+              {t("driverDetail.summary.now")}
             </div>
             <div className="mt-4 text-3xl font-bold text-[#e6edf3]">
               {resumo.veredito || moment.label}
             </div>
             <div className="mt-3 text-xs text-[#7d8590]">
-              leitura da temporada atual
+              {t("driverDetail.summary.seasonRead")}
             </div>
           </div>
 
           <div className="grid gap-3">
             <div className="rounded-xl border border-white/6 bg-black/10 p-3">
               <DetailRow
-                label="Campeonato"
+                label={t("driverDetail.summary.championship")}
                 value={resumo.posicao_campeonato ? `P${resumo.posicao_campeonato}` : "-"}
               />
-              <DetailRow label="Status de forma" value={moment.label} valueClassName={moment.color} />
-              <DetailRow label="Média recente" value={formatAverage(resumo.media_recente)} />
-              <DetailRow label="Tendência" value={resumo.tendencia || form.tendencia || "->"} />
+              <DetailRow label={t("driverDetail.moment.formStatus")} value={moment.label} valueClassName={moment.color} />
+              <DetailRow label={t("driverDetail.summary.recentAverage")} value={formatAverage(resumo.media_recente)} />
+              <DetailRow label={t("driverDetail.moment.trend")} value={resumo.tendencia || form.tendencia || "->"} />
             </div>
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <StatCard label="Vitórias" value={resumo.vitorias ?? stats.vitorias} />
-              <StatCard label="Pódios" value={resumo.podios ?? stats.podios} />
-              <StatCard label="Top 10" value={resumo.top_10 ?? stats.top_10} />
-              <StatCard label="Pontos" value={resumo.pontos ?? detail.stats_temporada?.pontos} />
+              <StatCard label={t("driverDetail.summary.wins")} value={resumo.vitorias ?? stats.vitorias} />
+              <StatCard label={t("driverDetail.summary.podiums")} value={resumo.podios ?? stats.podios} />
+              <StatCard label={t("driverDetail.summary.top10")} value={resumo.top_10 ?? stats.top_10} />
+              <StatCard label={t("driverDetail.summary.points")} value={resumo.pontos ?? detail.stats_temporada?.pontos} />
             </div>
           </div>
         </div>
       </SectionComponent>
 
-      <SectionComponent title="Forma Recente">
+      <SectionComponent title={t("driverDetail.summary.recentFormTitle")}>
         <RecentFormChart entries={form.ultimas_10 ?? form.ultimas_5 ?? []} rookie={rookie} context={form.contexto} />
       </SectionComponent>
     </>
@@ -719,14 +738,15 @@ export function SummarySection({ SectionComponent, detail, moment }) {
 }
 
 export function QualitySection({ SectionComponent, detail }) {
+  const { t } = useTranslation();
   const technicalReadings = detail.leitura_tecnica?.itens ?? [];
 
   return (
-    <SectionComponent title="Mapa de Qualidade">
+    <SectionComponent title={t("driverDetail.quality.title")}>
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="glass-light rounded-xl p-4">
           <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Leitura técnica
+            {t("driverDetail.quality.technicalRead")}
           </div>
           <div className="grid gap-3">
             {technicalReadings.length ? (
@@ -734,19 +754,19 @@ export function QualitySection({ SectionComponent, detail }) {
                 <QualityLevelRow key={item.chave || item.label} item={item} />
               ))
             ) : (
-              <p className="text-xs text-[#7d8590]">Sem leitura técnica disponível.</p>
+              <p className="text-xs text-[#7d8590]">{t("driverDetail.quality.noTechnicalRead")}</p>
             )}
           </div>
         </div>
         <div className="glass-light rounded-xl p-4">
           <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Base do piloto
+            {t("driverDetail.quality.driverBase")}
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <StatCard label="Corridas carreira" value={detail.stats_carreira?.corridas} />
-            <StatCard label="Vitórias carreira" value={detail.stats_carreira?.vitorias} />
-            <StatCard label="Pódios carreira" value={detail.stats_carreira?.podios} />
-            <StatCard label="Títulos" value={detail.trajetoria?.titulos ?? 0} />
+            <StatCard label={t("driverDetail.quality.careerRaces")} value={detail.stats_carreira?.corridas} />
+            <StatCard label={t("driverDetail.quality.careerWins")} value={detail.stats_carreira?.vitorias} />
+            <StatCard label={t("driverDetail.quality.careerPodiums")} value={detail.stats_carreira?.podios} />
+            <StatCard label={t("driverDetail.quality.titles")} value={detail.trajetoria?.titulos ?? 0} />
           </div>
         </div>
       </div>
@@ -755,36 +775,37 @@ export function QualitySection({ SectionComponent, detail }) {
 }
 
 export function PerformanceReadSection({ SectionComponent, detail }) {
-  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title="Leitura de Desempenho" />;
+  const { t } = useTranslation();
+  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title={t("driverDetail.performance.title")} />;
 
   const read = detail.leitura_desempenho ?? {};
   const delta = read.delta_posicao;
   const deltaLabel = delta === null || delta === undefined ? "-" : delta > 0 ? `+${delta}` : `${delta}`;
 
   return (
-    <SectionComponent title="Leitura de Desempenho">
+    <SectionComponent title={t("driverDetail.performance.title")}>
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="glass-light rounded-xl p-4">
           <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Contra o esperado
+            {t("driverDetail.performance.vsExpected")}
           </div>
           <div className="grid gap-2">
-            <DetailRow label="Entregue" value={read.entregue_posicao ? `P${read.entregue_posicao}` : "-"} />
-            <DetailRow label="Esperado pelo pacote" value={read.esperado_posicao ? `P${read.esperado_posicao}` : "-"} />
-            <DetailRow label="Diferença" value={deltaLabel} valueClassName={delta >= 0 ? "text-[#3fb950]" : "text-[#f85149]"} />
-            <DetailRow label="Carro/equipe" value={formatAverage(read.car_performance)} />
+            <DetailRow label={t("driverDetail.performance.delivered")} value={read.entregue_posicao ? `P${read.entregue_posicao}` : "-"} />
+            <DetailRow label={t("driverDetail.performance.expectedByPackage")} value={read.esperado_posicao ? `P${read.esperado_posicao}` : "-"} />
+            <DetailRow label={t("driverDetail.performance.difference")} value={deltaLabel} valueClassName={delta >= 0 ? "text-[#3fb950]" : "text-[#f85149]"} />
+            <DetailRow label={t("driverDetail.performance.carTeam")} value={formatAverage(read.car_performance)} />
           </div>
         </div>
 
         <div className="glass-light rounded-xl p-4">
           <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Comparativo interno
+            {t("driverDetail.performance.internalCompare")}
           </div>
           <div className="grid gap-3">
             <ProgressRow label={detail.nome} value={read.piloto_pontos ?? 0} max={Math.max(read.piloto_pontos ?? 0, read.companheiro_pontos ?? 0, 1)} right={read.piloto_pontos ?? 0} color="#58a6ff" />
-            <ProgressRow label={read.companheiro_nome || "Companheiro"} value={read.companheiro_pontos ?? 0} max={Math.max(read.piloto_pontos ?? 0, read.companheiro_pontos ?? 0, 1)} right={read.companheiro_pontos ?? "-"} color="#d29922" />
+            <ProgressRow label={read.companheiro_nome || t("driverDetail.performance.teammate")} value={read.companheiro_pontos ?? 0} max={Math.max(read.piloto_pontos ?? 0, read.companheiro_pontos ?? 0, 1)} right={read.companheiro_pontos ?? "-"} color="#d29922" />
             <div className="rounded-xl border border-white/6 bg-black/10 p-3 text-sm text-[#c9d1d9]">
-              {read.leitura || "Sem contexto suficiente para comparar o desempenho."}
+              {read.leitura || t("driverDetail.performance.noComparisonContext")}
             </div>
           </div>
         </div>
@@ -794,36 +815,37 @@ export function PerformanceReadSection({ SectionComponent, detail }) {
 }
 
 export function HistorySection({ SectionComponent, detail, trajetoria }) {
-  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title="Histórico de Carreira" />;
+  const { t } = useTranslation();
+  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title={t("driverDetail.history.title")} />;
 
   const ranks = detail.rankings_carreira ?? {};
 
   return (
     <>
-      <SectionComponent title="Histórico de Carreira">
+      <SectionComponent title={t("driverDetail.history.title")}>
         <div className="grid gap-4">
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <CareerRankStat label="Corridas" value={detail.stats_carreira?.corridas ?? 0} rank={ranks.corridas} />
-          <CareerRankStat label="Vitórias" value={detail.stats_carreira?.vitorias ?? 0} rank={ranks.vitorias} />
-          <CareerRankStat label="Pódios" value={detail.stats_carreira?.podios ?? 0} rank={ranks.podios} />
-          <CareerRankStat label="Títulos" value={trajetoria?.titulos ?? 0} rank={ranks.titulos} tone="text-[#d29922]" />
+          <CareerRankStat label={t("driverDetail.history.races")} value={detail.stats_carreira?.corridas ?? 0} rank={ranks.corridas} />
+          <CareerRankStat label={t("driverDetail.history.wins")} value={detail.stats_carreira?.vitorias ?? 0} rank={ranks.vitorias} />
+          <CareerRankStat label={t("driverDetail.history.podiums")} value={detail.stats_carreira?.podios ?? 0} rank={ranks.podios} />
+          <CareerRankStat label={t("driverDetail.history.titles")} value={trajetoria?.titulos ?? 0} rank={ranks.titulos} tone="text-[#d29922]" />
           </div>
           <CareerHistoryDossier history={trajetoria?.historico} />
         </div>
       </SectionComponent>
 
-      <SectionComponent title="Trajetória">
+      <SectionComponent title={t("driverDetail.history.trajectory")}>
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="glass-light rounded-xl p-4">
             <div className="grid gap-2">
-              <DetailRow label="Ano de estreia" value={trajetoria?.ano_estreia ?? "-"} />
+              <DetailRow label={t("driverDetail.history.debutYear")} value={trajetoria?.ano_estreia ?? "-"} />
               <DebutTeamLine teamName={trajetoria?.equipe_estreia} />
-              <DetailRow label="Status" value={trajetoria?.foi_campeao ? "Campeão" : "Sem título"} />
+              <DetailRow label={t("driverDetail.history.status")} value={trajetoria?.foi_campeao ? t("driverDetail.history.champion") : t("driverDetail.history.noTitle")} />
             </div>
           </div>
           <div className="glass-light rounded-xl p-4">
             <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-              Linha do tempo
+              {t("driverDetail.history.timeline")}
             </div>
             <CategoryTimeline items={trajetoria?.categorias_timeline} />
           </div>
@@ -834,13 +856,14 @@ export function HistorySection({ SectionComponent, detail, trajetoria }) {
 }
 
 export function RivalsSection({ SectionComponent, detail }) {
-  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title="Rivais" />;
+  const { t } = useTranslation();
+  if (isCareerDebutantDetail(detail)) return <RookieUnavailableSection SectionComponent={SectionComponent} title={t("driverDetail.rivals.title")} />;
 
   const rivals = detail.rivais?.itens ?? [];
   const primary = rivals[0] ?? null;
 
   return (
-    <SectionComponent title="Rivais">
+    <SectionComponent title={t("driverDetail.rivals.title")}>
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="grid gap-2">
           {rivals.length ? (
@@ -859,24 +882,24 @@ export function RivalsSection({ SectionComponent, detail }) {
             ))
           ) : (
             <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
-              Sem rivalidades consolidadas para este piloto.
+              {t("driverDetail.rivals.noRivals")}
             </div>
           )}
         </div>
 
         <div className="glass-light rounded-xl p-4">
           <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-            Rival principal
+            {t("driverDetail.rivals.mainRival")}
           </div>
           {primary ? (
             <div className="grid gap-3">
-              <DetailRow label="Nome" value={primary.nome} />
-              <DetailRow label="Tipo" value={primary.tipo} />
-              <ProgressRow label="Histórico" value={primary.intensidade_historica} />
-              <ProgressRow label="Recente" value={primary.atividade_recente} color="#f85149" />
+              <DetailRow label={t("driverDetail.rivals.name")} value={primary.nome} />
+              <DetailRow label={t("driverDetail.rivals.type")} value={primary.tipo} />
+              <ProgressRow label={t("driverDetail.rivals.historyLabel")} value={primary.intensidade_historica} />
+              <ProgressRow label={t("driverDetail.rivals.recent")} value={primary.atividade_recente} color="#f85149" />
             </div>
           ) : (
-            <p className="text-sm text-[#7d8590]">Ainda não há rival principal para comparar.</p>
+            <p className="text-sm text-[#7d8590]">{t("driverDetail.rivals.noMainRival")}</p>
           )}
         </div>
       </div>
@@ -916,16 +939,17 @@ function StardomMeter({ label, value, nivel, tone }) {
 }
 
 export function StardomSection({ SectionComponent, detail }) {
+  const { t } = useTranslation();
   const stardom = detail.estrelato;
   if (!stardom) return null;
 
   return (
-    <SectionComponent title="Estrelato">
+    <SectionComponent title={t("driverDetail.stardom.title")}>
       <div className="glass-light rounded-xl p-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <StardomMeter label="Fama" value={stardom.fama} nivel={stardom.nivel_fama} tone={stardom.tom_fama} />
+          <StardomMeter label={t("driverDetail.stardom.fame")} value={stardom.fama} nivel={stardom.nivel_fama} tone={stardom.tom_fama} />
           <StardomMeter
-            label="Carisma"
+            label={t("driverDetail.stardom.charisma")}
             value={stardom.carisma}
             nivel={stardom.nivel_carisma}
             tone={stardom.tom_carisma}
@@ -937,9 +961,8 @@ export function StardomSection({ SectionComponent, detail }) {
           </div>
         ) : null}
         <div className="mt-2 text-[11px] leading-relaxed text-[#7d8590]">
-          A <span className="text-[#e6edf3]">fama</span> é a moeda pública que atrai patrocínio à equipe; o{" "}
-          <span className="text-[#e6edf3]">carisma</span> decide o quanto ela sobe num bom resultado e o quanto
-          resiste num jejum.
+          {t("driverDetail.stardom.blurbPre")}<span className="text-[#e6edf3]">{t("driverDetail.stardom.blurbFame")}</span>{t("driverDetail.stardom.blurbMid")}{" "}
+          <span className="text-[#e6edf3]">{t("driverDetail.stardom.blurbCharisma")}</span>{t("driverDetail.stardom.blurbPost")}
         </div>
       </div>
     </SectionComponent>
@@ -949,16 +972,16 @@ export function StardomSection({ SectionComponent, detail }) {
 // ── Dossiê de Habilidade do JOGADOR (atributos inferidos do desempenho real) ──
 
 const PLAYER_SKILL_LABELS = {
-  skill: "Velocidade",
-  ritmo_classificacao: "Classificação",
-  racecraft: "Racecraft",
-  consistencia: "Consistência",
-  habilidade_largada: "Largada",
-  aggression: "Agressividade",
-  fator_chuva: "Pilotagem na Chuva",
-  adaptabilidade: "Adaptabilidade",
-  experiencia: "Experiência",
-  midia: "Fama / Mídia",
+  skill: "driverDetail.attributes.skill",
+  ritmo_classificacao: "driverDetail.attributes.ritmo_classificacao",
+  racecraft: "driverDetail.attributes.racecraft",
+  consistencia: "driverDetail.attributes.consistencia",
+  habilidade_largada: "driverDetail.attributes.habilidade_largada",
+  aggression: "driverDetail.attributes.aggression",
+  fator_chuva: "driverDetail.playerSkill.labels.fator_chuva",
+  adaptabilidade: "driverDetail.attributes.adaptabilidade",
+  experiencia: "driverDetail.playerSkill.labels.experiencia",
+  midia: "driverDetail.playerSkill.labels.midia",
 };
 
 function playerSkillToneHex(value) {
@@ -973,19 +996,20 @@ function playerSkillToneHex(value) {
 function playerSkillUnlockMessage(attr) {
   const n = attr.remaining;
   if (attr.unlock_kind === "wet_races") {
-    return `Corra mais ${n} corrida${n === 1 ? "" : "s"} na chuva para revelar`;
+    return i18n.t("driverDetail.playerSkill.unlock.wetRaces", { count: n });
   }
   if (attr.unlock_kind === "seasons") {
-    return `Complete mais ${n} temporada${n === 1 ? "" : "s"} para revelar`;
+    return i18n.t("driverDetail.playerSkill.unlock.seasons", { count: n });
   }
   if (attr.unlock_kind === "telemetry_races") {
-    return `Corra mais ${n} corrida${n === 1 ? "" : "s"} no iRacing para revelar`;
+    return i18n.t("driverDetail.playerSkill.unlock.telemetryRaces", { count: n });
   }
-  return `Corra mais ${n} corrida${n === 1 ? "" : "s"} para revelar`;
+  return i18n.t("driverDetail.playerSkill.unlock.races", { count: n });
 }
 
 function PlayerSkillLockedRow({ attr }) {
-  const label = PLAYER_SKILL_LABELS[attr.key] || attr.key;
+  const { t } = useTranslation();
+  const label = t(PLAYER_SKILL_LABELS[attr.key] || attr.key);
   const progress = attr.unlock_threshold > 0
     ? Math.min(100, (attr.sample_count / attr.unlock_threshold) * 100)
     : 0;
@@ -1010,9 +1034,10 @@ function PlayerSkillLockedRow({ attr }) {
 }
 
 function PlayerSkillRow({ attr }) {
+  const { t } = useTranslation();
   if (!attr.unlocked) return <PlayerSkillLockedRow attr={attr} />;
 
-  const label = PLAYER_SKILL_LABELS[attr.key] || attr.key;
+  const label = t(PLAYER_SKILL_LABELS[attr.key] || attr.key);
   const value = Number(attr.value) || 0;
   const color = playerSkillToneHex(value);
   const firming = attr.confidence < 0.5;
@@ -1040,7 +1065,7 @@ function PlayerSkillRow({ attr }) {
       </div>
       {firming ? (
         <span className="text-[10px] italic text-[#6e7681]">
-          Estimativa firmando — corra mais para consolidar
+          {t("driverDetail.playerSkill.firming")}
         </span>
       ) : null}
     </div>
@@ -1048,6 +1073,7 @@ function PlayerSkillRow({ attr }) {
 }
 
 export function PlayerSkillSection({ SectionComponent, careerId }) {
+  const { t } = useTranslation();
   const [dossier, setDossier] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1073,7 +1099,7 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
           setError(
             typeof fetchError === "string"
               ? fetchError
-              : fetchError?.toString?.() ?? "Erro ao carregar dossiê.",
+              : fetchError?.toString?.() ?? t("driverDetail.playerSkill.loadError"),
           );
         }
       } finally {
@@ -1088,17 +1114,16 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
   }, [careerId]);
 
   return (
-    <SectionComponent title="Dossiê de Habilidade">
+    <SectionComponent title={t("driverDetail.playerSkill.title")}>
       <div className="grid gap-4">
         <div className="rounded-xl border border-[#58a6ff]/18 bg-[#58a6ff]/[0.06] p-3 text-[11px] leading-relaxed text-[#8b949e]">
-          Estas notas saem do seu <span className="text-[#e6edf3]">desempenho real na pista</span> e vão se
-          firmando corrida a corrida. É só o seu retrato de piloto — o mercado{" "}
-          <span className="text-[#e6edf3]">não</span> usa estes números para contratar.
+          {t("driverDetail.playerSkill.introPre")}<span className="text-[#e6edf3]">{t("driverDetail.playerSkill.introPerf")}</span>{t("driverDetail.playerSkill.introMid")}{" "}
+          <span className="text-[#e6edf3]">{t("driverDetail.playerSkill.introNot")}</span>{t("driverDetail.playerSkill.introEnd")}
         </div>
 
         {loading ? (
           <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
-            Lendo seu histórico de corridas…
+            {t("driverDetail.playerSkill.loading")}
           </div>
         ) : error ? (
           <div className="rounded-xl border border-[#f85149]/25 bg-[#f85149]/10 p-4 text-sm text-[#f85149]">
@@ -1114,13 +1139,13 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
               </div>
             </div>
             <div className="text-[11px] text-[#6e7681]">
-              {dossier.total_races} corrida{dossier.total_races === 1 ? "" : "s"} ·{" "}
-              {dossier.total_seasons} temporada{dossier.total_seasons === 1 ? "" : "s"} de base
+              {t("driverDetail.playerSkill.racesCount", { count: dossier.total_races })} ·{" "}
+              {t("driverDetail.playerSkill.seasonsBase", { count: dossier.total_seasons })}
             </div>
           </>
         ) : (
           <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
-            Sem histórico suficiente para montar o dossiê ainda.
+            {t("driverDetail.playerSkill.noHistory")}
           </div>
         )}
       </div>
@@ -1129,13 +1154,14 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
 }
 
 export function MarketSection({ SectionComponent, detail, market }) {
+  const { t } = useTranslation();
   const contract = detail.contrato_mercado?.contrato;
   const teamColor = detail.equipe_cor_primaria || detail.perfil?.equipe_cor_primaria || "#58a6ff";
 
   return (
     <>
       <StardomSection SectionComponent={SectionComponent} detail={detail} />
-      <SectionComponent title="Contrato e Mercado">
+      <SectionComponent title={t("driverDetail.market.title")}>
         <div className="grid gap-4">
           {contract ? (
             <div className="glass-light rounded-xl p-4">
@@ -1143,35 +1169,35 @@ export function MarketSection({ SectionComponent, detail, market }) {
                 {contract.equipe_nome}
               </div>
               <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-                <DetailRow label="Papel" value={formatContractRole(contract.papel)} />
-                <DetailRow label="Salário" value={formatSalaryMonthly(contract.salario_anual)} />
-                <DetailRow label="Vigencia" value={formatContractPeriod(contract)} />
+                <DetailRow label={t("driverDetail.market.role")} value={formatContractRole(contract.papel)} />
+                <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryMonthly(contract.salario_anual)} />
+                <DetailRow label={t("driverDetail.moment.term")} value={formatContractPeriod(contract)} />
                 <DetailRow
-                  label="Restante"
-                  value={`${contract.anos_restantes} ano${contract.anos_restantes !== 1 ? "s" : ""}`}
+                  label={t("driverDetail.market.remaining")}
+                  value={t("driverDetail.moment.expiresValue", { count: contract.anos_restantes })}
                 />
               </div>
             </div>
           ) : (
             <div className="glass-light rounded-xl p-4 text-sm text-[#7d8590]">
-              Sem contrato ativo no momento.
+              {t("driverDetail.moment.noContract")}
             </div>
           )}
 
           {market ? (
             <div className="glass-light rounded-xl p-4">
               <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#7d8590]">
-                Mercado
+                {t("driverDetail.market.market")}
               </div>
               <div className="grid gap-2 text-sm text-[#e6edf3] sm:grid-cols-3">
-                <div>Valor: {formatSalary(market.valor_mercado)}</div>
-                <div>Faixa salarial: {formatSalaryMonthly(market.salario_estimado)}</div>
-                <div>Chance de troca: {market.chance_transferencia ?? "-"}%</div>
+                <div>{t("driverDetail.market.marketValue", { value: formatSalary(market.valor_mercado) })}</div>
+                <div>{t("driverDetail.market.salaryRange", { value: formatSalaryMonthly(market.salario_estimado) })}</div>
+                <div>{t("driverDetail.market.transferChance", { value: market.chance_transferencia ?? "-" })}</div>
               </div>
             </div>
           ) : (
             <div className="glass-light rounded-xl p-4 text-sm text-[#7d8590]">
-              Sem sinais fortes de mercado no momento.
+              {t("driverDetail.market.noMarketSignals")}
             </div>
           )}
         </div>
