@@ -1980,5 +1980,29 @@
       "perYear": "/ano",
       "continue": "Continuar"
     }
+  },
+  "iracingTutorial": {
+    "title": "Como correr no iRacing",
+    "close": "Fechar",
+    "stepCounter": "Passo {{current}} de {{total}}",
+    "imageNotFound": "Imagem do tutorial não encontrada.",
+    "back": "Voltar",
+    "next": "Next",
+    "done": "Done",
+    "opening": "Abrindo…",
+    "steps": {
+      "step1": {
+        "title": "Entre em \"AI Single Player\"",
+        "body": "No menu lateral do iRacing, dentro de Single Player, clique em \"AI Single Player\"."
+      },
+      "step2": {
+        "title": "Abra a sua AI Season",
+        "body": "Em \"My Seasons\", abra a temporada que acabamos de exportar (a sua \"Carreira ...\")."
+      },
+      "step3": {
+        "title": "Inicie a simulação",
+        "body": "Na tela da temporada, confira a próxima corrida e clique em \"Continue\" para começar."
+      }
+    }
   }
 }
