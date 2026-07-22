@@ -2199,5 +2199,265 @@
       "Áustria": "Áustria",
       "Holanda": "Holanda"
     }
+  },
+  "newCareer": {
+    "heading": "Monte a sua estreia.",
+    "stepIndicator": {
+      "title": "Nova carreira",
+      "progress": "Step {{current}} de {{total}}"
+    },
+    "wizardSteps": {
+      "difficulty": "Dificuldade",
+      "driver": "Piloto",
+      "history": "Histórico",
+      "category": "Categoria",
+      "team": "Equipe",
+      "confirm": "Confirmação"
+    },
+    "stepTitles": {
+      "1": "Escolha a dificuldade",
+      "2": "Dados do piloto",
+      "3": "Gerar passado histórico",
+      "4": "Escolha sua categoria",
+      "5": "Escolha sua equipe",
+      "6": "Confirmar dados"
+    },
+    "stepDescriptions": {
+      "1": "Defina o teto da IA antes de entrar no paddock.",
+      "2": "Monte a identidade do seu piloto para o save inicial.",
+      "3": "Deixe o mundo correr sozinho de 2000 a 2025 e escolha onde estrear no grid de 2026.",
+      "4": "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
+      "5": "Selecione a equipe onde você vai estrear como segundo piloto.",
+      "6": "Confira tudo antes de transformar o rascunho histórico em save jogável."
+    },
+    "labels": {
+      "difficulty": "Dificuldade",
+      "nationality": "Nacionalidade",
+      "team": "Equipe"
+    },
+    "stats": {
+      "teams": "Equipes",
+      "races": "Corridas",
+      "drivers": "Pilotos",
+      "champions": "Campeões",
+      "tripleChampions": "Tricampeões"
+    },
+    "driverPlaceholder": "Seu piloto",
+    "ageYears_one": "{{count}} ano",
+    "ageYears_other": "{{count}} anos",
+    "savePreview": {
+      "label": "Save preview",
+      "newDriver": "Piloto novo",
+      "pendingHistory": "Histórico pendente"
+    },
+    "buttons": {
+      "backToMenu": "Voltar ao menu",
+      "back": "Voltar",
+      "reset": "Reiniciar",
+      "chooseCategory": "Escolher categoria",
+      "generateHistory": "Gerar histórico",
+      "next": "Próximo",
+      "finalize": "Finalizar carreira"
+    },
+    "loading": {
+      "generatingTitle": "Gerando histórico",
+      "finalizingTitle": "Finalizando carreira",
+      "simulatingSeason": "Simulando temporada {{year}}"
+    },
+    "errors": {
+      "nameLength": "O nome do piloto precisa ter entre 2 e 50 caracteres.",
+      "ageRange": "A idade inicial precisa ficar entre 16 e 30 anos.",
+      "generateBeforeChoose": "Gere o histórico antes de escolher categoria e equipe.",
+      "selectCategory": "Selecione uma categoria inicial.",
+      "selectTeam": "Selecione uma equipe válida.",
+      "generateFailed": "Não foi possível gerar o histórico. Tente novamente.",
+      "generateBeforeFinalize": "Gere o histórico antes de finalizar a carreira.",
+      "finalizeFailed": "Não foi possível finalizar a carreira. Tente novamente."
+    },
+    "step2": {
+      "nameLabel": "Nome do piloto",
+      "namePlaceholder": "João Silva",
+      "ageLabel": "Idade",
+      "previewLabel": "Preview do piloto",
+      "attributesNote": "Todos os atributos iniciais começam equilibrados em 50."
+    },
+    "step3": {
+      "draftLabel": "Rascunho histórico",
+      "title": "26 temporadas antes da sua estreia",
+      "description": "Um grid com 26 temporadas de estrada: títulos decididos, rivalidades formadas, equipes que brilharam e outras que sumiram. É nele que você entra.",
+      "startLabel": "Início",
+      "playableLabel": "Jogável",
+      "statusLabel": "Status",
+      "generated": "Gerado",
+      "pending": "Pendente",
+      "pendingDriverLabel": "Piloto pendente",
+      "progressLabel": "Progresso",
+      "yearValue": "Ano {{year}}",
+      "notStarted": "Não iniciado"
+    },
+    "step4": {
+      "categoryCardLabel": "Categoria inicial"
+    },
+    "step6": {
+      "driverLabel": "Piloto",
+      "carLabel": "Carro",
+      "worldTitle": "O mundo que você herda",
+      "worldSubtitle_one": "{{count}} temporada já foi disputada antes da sua estreia.",
+      "worldSubtitle_other": "{{count}} temporadas já foram disputadas antes da sua estreia."
+    },
+    "teamCard": {
+      "performance": "Performance"
+    },
+    "difficulty": {
+      "facil": {
+        "name": "Facil",
+        "desc": "IA skill 20-60"
+      },
+      "medio": {
+        "name": "Medio",
+        "desc": "IA skill 30-80"
+      },
+      "dificil": {
+        "name": "Dificil",
+        "desc": "IA skill 50-90"
+      },
+      "lendario": {
+        "name": "Lendario",
+        "desc": "IA skill 70-100"
+      }
+    },
+    "nationality": {
+      "br": "🇧🇷 Brasileiro",
+      "br_fem": "🇧🇷 Brasileira",
+      "gb": "🇬🇧 Britanico",
+      "gb_fem": "🇬🇧 Britanica",
+      "de": "🇩🇪 Alemao",
+      "de_fem": "🇩🇪 Alema",
+      "fr": "🇫🇷 Frances",
+      "fr_fem": "🇫🇷 Francesa",
+      "it": "🇮🇹 Italiano",
+      "it_fem": "🇮🇹 Italiana",
+      "es": "🇪🇸 Espanhol",
+      "es_fem": "🇪🇸 Espanhola",
+      "nl": "🇳🇱 Holandes",
+      "nl_fem": "🇳🇱 Holandesa",
+      "au": "🇦🇺 Australiano",
+      "au_fem": "🇦🇺 Australiana",
+      "jp": "🇯🇵 Japones",
+      "jp_fem": "🇯🇵 Japonesa",
+      "us": "🇺🇸 Americano",
+      "us_fem": "🇺🇸 Americana",
+      "mx": "🇲🇽 Mexicano",
+      "mx_fem": "🇲🇽 Mexicana",
+      "ar": "🇦🇷 Argentino",
+      "ar_fem": "🇦🇷 Argentina",
+      "fi": "🇫🇮 Finlandes",
+      "fi_fem": "🇫🇮 Finlandesa",
+      "be": "🇧🇪 Belga",
+      "be_fem": "🇧🇪 Belga",
+      "pt": "🇵🇹 Portugues",
+      "pt_fem": "🇵🇹 Portuguesa",
+      "ca": "🇨🇦 Canadense",
+      "ca_fem": "🇨🇦 Canadense",
+      "at": "🇦🇹 Austriaco",
+      "at_fem": "🇦🇹 Austriaca",
+      "ch": "🇨🇭 Suico",
+      "ch_fem": "🇨🇭 Suica",
+      "dk": "🇩🇰 Dinamarques",
+      "dk_fem": "🇩🇰 Dinamarquesa",
+      "se": "🇸🇪 Sueco",
+      "se_fem": "🇸🇪 Sueca",
+      "no": "🇳🇴 Noruegues",
+      "no_fem": "🇳🇴 Norueguesa",
+      "pl": "🇵🇱 Polones",
+      "pl_fem": "🇵🇱 Polonesa",
+      "cn": "🇨🇳 Chines",
+      "cn_fem": "🇨🇳 Chinesa"
+    },
+    "category": {
+      "mazda_rookie": {
+        "description": "A escola clássica do Mazda MX-5: roadster leve e de tração traseira, onde só a pilotagem limpa faz diferença. O ponto de partida da escada Mazda."
+      },
+      "toyota_rookie": {
+        "description": "A vitrine da Toyota Gazoo Racing: um grid irmão com a mesma proposta, sob a bandeira de uma marca que forma campeões pelo mundo. O início da escada Toyota."
+      }
+    },
+    "loadingMessages": {
+      "msg0": "Abrindo a base do paddock em 2000...",
+      "msg1": "Separando garagens, boxes e calendários iniciais...",
+      "msg2": "Distribuindo equipes pelas primeiras categorias...",
+      "msg3": "Montando a base de pilotos do ano 2000...",
+      "msg4": "Criando contratos iniciais para o grid histórico...",
+      "msg5": "Conferindo licenças antes da primeira temporada...",
+      "msg6": "Organizando calendários por categoria...",
+      "msg7": "Preparando as primeiras temporadas para largada...",
+      "msg8": "Simulando o início do arquivo corrida a corrida...",
+      "msg9": "Registrando os primeiros vencedores do arquivo histórico...",
+      "msg10": "Atualizando pontos e tabelas da temporada inicial...",
+      "msg11": "Fechando os campeonatos inaugurais do save...",
+      "msg12": "Abrindo a janela de evolução dos pilotos...",
+      "msg13": "Aplicando ganhos de experiência da primeira era...",
+      "msg14": "Movimentando contratos entre equipes rivais...",
+      "msg15": "Avaliando renovações e vagas abertas no mercado...",
+      "msg16": "Chamando rookies para completar o paddock...",
+      "msg17": "Registrando aposentadorias do ciclo histórico...",
+      "msg18": "Calculando promoções e rebaixamentos iniciais...",
+      "msg19": "Reorganizando categorias após o primeiro corte...",
+      "msg20": "Preparando o calendário da temporada seguinte...",
+      "msg21": "Simulando a era de consolidação do grid...",
+      "msg22": "Registrando duelos que viram memória de paddock...",
+      "msg23": "Atualizando rivalidades sem apressar a história...",
+      "msg24": "Processando lesões e retornos de pilotos...",
+      "msg25": "Conferindo equipes que subiram de patamar...",
+      "msg26": "Rebaixando estruturas que perderam fôlego esportivo...",
+      "msg27": "Recalculando reputações após cada campeonato...",
+      "msg28": "Arquivando resultados por temporada...",
+      "msg29": "Guardando poles, pódios e vitórias no histórico...",
+      "msg30": "Avançando pelo miolo da simulação histórica...",
+      "msg31": "Simulando calendários completos por categoria...",
+      "msg32": "Persistindo resultados corrida a corrida...",
+      "msg33": "Atualizando estatísticas de carreira dos pilotos...",
+      "msg34": "Somando pontos históricos das equipes...",
+      "msg35": "Construindo campeões de pilotos e construtores...",
+      "msg36": "Renovando lineups para a próxima rodada de anos...",
+      "msg37": "Abrindo novas vagas para jovens promessas...",
+      "msg38": "Retirando veteranos do grid ativo...",
+      "msg39": "Mantendo o mercado coerente entre temporadas...",
+      "msg40": "Aplicando promoções e rebaixamentos de meio ciclo...",
+      "msg41": "Reequilibrando grids depois das mudanças de categoria...",
+      "msg42": "Criando calendários para a reta final do passado...",
+      "msg43": "Simulando temporadas recentes do arquivo...",
+      "msg44": "Gravando corridas decisivas do ciclo histórico...",
+      "msg45": "Atualizando rivalidades que seguem vivas...",
+      "msg46": "Processando lesões históricas com efeito no grid...",
+      "msg47": "Conferindo contratos ativos após cada virada de ano...",
+      "msg48": "Repondo vagas antes da próxima temporada...",
+      "msg49": "Arquivando campanhas de pilotos aposentados...",
+      "msg50": "Consolidando memória esportiva das equipes...",
+      "msg51": "Fechando títulos e estatísticas acumuladas...",
+      "msg52": "Validando categorias disponíveis para o jogador...",
+      "msg53": "Separando equipes elegíveis para a estreia...",
+      "msg54": "Limpando notícias antigas do rascunho histórico...",
+      "msg55": "Removendo artefatos temporários da simulação...",
+      "msg56": "Normalizando o retrato financeiro para o início jogável...",
+      "msg57": "Preservando resultados sem carregar dívidas antigas...",
+      "msg58": "Recalculando o estado atual das equipes...",
+      "msg59": "Conferindo se o jogador ainda não entrou no mundo...",
+      "msg60": "Preparando o ano jogável de 2025...",
+      "msg61": "Abrindo o grid de 2025 com o passado completo...",
+      "msg62": "Organizando categorias rookies para escolha inicial...",
+      "msg63": "Listando equipes disponíveis para a primeira assinatura...",
+      "msg64": "Separando pilotos N1 e N2 das equipes de entrada...",
+      "msg65": "Conferindo nomes e cores das equipes de 2025...",
+      "msg66": "Atualizando o progresso do rascunho histórico...",
+      "msg67": "Validando o save antes de liberar a escolha...",
+      "msg68": "Fechando a última auditoria do calendário...",
+      "msg69": "Sincronizando contadores internos do banco...",
+      "msg70": "Preparando a tela de categorias iniciais...",
+      "msg71": "Carregando as opções de equipe para 2025...",
+      "msg72": "Deixando o paddock pronto para sua chegada...",
+      "msg73": "Finalizando o rascunho histórico do save...",
+      "msg74": "Entregando um mundo com passado antes da estreia..."
+    }
   }
 }

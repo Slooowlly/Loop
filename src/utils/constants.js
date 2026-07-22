@@ -1,45 +1,44 @@
 ﻿import { colors } from "./colors";
 
-export const WIZARD_STEPS = [
-  "Dificuldade",
-  "Piloto",
-  "Histórico",
-  "Categoria",
-  "Equipe",
-  "Confirmação",
-];
+// Passos do wizard como slugs estáveis; o rótulo exibido vem de
+// `newCareer.wizardSteps.<slug>` resolvido no NewCareer (que tem o hook `t`).
+export const WIZARD_STEPS = ["difficulty", "driver", "history", "category", "team", "confirm"];
 
+// `name`/`desc` de exibição migraram para i18n (`newCareer.difficulty.<id>`),
+// resolvidos no render. Aqui ficam só id/emoji/accent (lógica e visual).
 export const DIFFICULTIES = [
-  { id: "facil", name: "Facil", emoji: "😊", desc: "IA skill 20-60", accent: colors.VERDE },
-  { id: "medio", name: "Medio", emoji: "😐", desc: "IA skill 30-80", accent: colors.AMARELO },
-  { id: "dificil", name: "Dificil", emoji: "😤", desc: "IA skill 50-90", accent: colors.LARANJA },
-  { id: "lendario", name: "Lendario", emoji: "💀", desc: "IA skill 70-100", accent: colors.VERMELHO },
+  { id: "facil", emoji: "😊", accent: colors.VERDE },
+  { id: "medio", emoji: "😐", accent: colors.AMARELO },
+  { id: "dificil", emoji: "😤", accent: colors.LARANJA },
+  { id: "lendario", emoji: "💀", accent: colors.VERMELHO },
 ];
 
+// O rótulo (bandeira + gentílico) vem de `newCareer.nationality.<id>` /
+// `<id>_fem`, resolvido no render. O emoji da bandeira mora no valor traduzido.
 export const NATIONALITIES = [
-  { id: "br", label: "🇧🇷 Brasileiro", labelFem: "🇧🇷 Brasileira" },
-  { id: "gb", label: "🇬🇧 Britanico", labelFem: "🇬🇧 Britanica" },
-  { id: "de", label: "🇩🇪 Alemao", labelFem: "🇩🇪 Alema" },
-  { id: "fr", label: "🇫🇷 Frances", labelFem: "🇫🇷 Francesa" },
-  { id: "it", label: "🇮🇹 Italiano", labelFem: "🇮🇹 Italiana" },
-  { id: "es", label: "🇪🇸 Espanhol", labelFem: "🇪🇸 Espanhola" },
-  { id: "nl", label: "🇳🇱 Holandes", labelFem: "🇳🇱 Holandesa" },
-  { id: "au", label: "🇦🇺 Australiano", labelFem: "🇦🇺 Australiana" },
-  { id: "jp", label: "🇯🇵 Japones", labelFem: "🇯🇵 Japonesa" },
-  { id: "us", label: "🇺🇸 Americano", labelFem: "🇺🇸 Americana" },
-  { id: "mx", label: "🇲🇽 Mexicano", labelFem: "🇲🇽 Mexicana" },
-  { id: "ar", label: "🇦🇷 Argentino", labelFem: "🇦🇷 Argentina" },
-  { id: "fi", label: "🇫🇮 Finlandes", labelFem: "🇫🇮 Finlandesa" },
-  { id: "be", label: "🇧🇪 Belga", labelFem: "🇧🇪 Belga" },
-  { id: "pt", label: "🇵🇹 Portugues", labelFem: "🇵🇹 Portuguesa" },
-  { id: "ca", label: "🇨🇦 Canadense", labelFem: "🇨🇦 Canadense" },
-  { id: "at", label: "🇦🇹 Austriaco", labelFem: "🇦🇹 Austriaca" },
-  { id: "ch", label: "🇨🇭 Suico", labelFem: "🇨🇭 Suica" },
-  { id: "dk", label: "🇩🇰 Dinamarques", labelFem: "🇩🇰 Dinamarquesa" },
-  { id: "se", label: "🇸🇪 Sueco", labelFem: "🇸🇪 Sueca" },
-  { id: "no", label: "🇳🇴 Noruegues", labelFem: "🇳🇴 Norueguesa" },
-  { id: "pl", label: "🇵🇱 Polones", labelFem: "🇵🇱 Polonesa" },
-  { id: "cn", label: "🇨🇳 Chines", labelFem: "🇨🇳 Chinesa" },
+  { id: "br" },
+  { id: "gb" },
+  { id: "de" },
+  { id: "fr" },
+  { id: "it" },
+  { id: "es" },
+  { id: "nl" },
+  { id: "au" },
+  { id: "jp" },
+  { id: "us" },
+  { id: "mx" },
+  { id: "ar" },
+  { id: "fi" },
+  { id: "be" },
+  { id: "pt" },
+  { id: "ca" },
+  { id: "at" },
+  { id: "ch" },
+  { id: "dk" },
+  { id: "se" },
+  { id: "no" },
+  { id: "pl" },
+  { id: "cn" },
 ];
 
 export const STARTING_CATEGORIES = [
@@ -51,8 +50,7 @@ export const STARTING_CATEGORIES = [
     teams: 6,
     races: 5,
     drivers: 12,
-    description:
-      "A escola clássica do Mazda MX-5: roadster leve e de tração traseira, onde só a pilotagem limpa faz diferença. O ponto de partida da escada Mazda.",
+    // `description` migrou para `newCareer.category.<id>.description` (i18n).
   },
   {
     id: "toyota_rookie",
@@ -62,8 +60,7 @@ export const STARTING_CATEGORIES = [
     teams: 6,
     races: 5,
     drivers: 12,
-    description:
-      "A vitrine da Toyota Gazoo Racing: um grid irmão com a mesma proposta, sob a bandeira de uma marca que forma campeões pelo mundo. O início da escada Toyota.",
+    // `description` migrou para `newCareer.category.<id>.description` (i18n).
   },
 ];
 

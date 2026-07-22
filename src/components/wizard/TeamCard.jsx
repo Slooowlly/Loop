@@ -1,8 +1,11 @@
+import { useTranslation } from "react-i18next";
+
 import GlassCard from "../ui/GlassCard";
 import TeamLogoMark from "../team/TeamLogoMark";
 import { getTeamGlow } from "../../utils/teamColors";
 
 function TeamCard({ team, selected, onSelect }) {
+  const { t } = useTranslation();
   const selectionValue = team.id ?? team.index;
   const name = team.name ?? team.nome;
   const primaryColor = team.primaryColor ?? team.cor_primaria ?? "#ffffff";
@@ -42,7 +45,7 @@ function TeamCard({ team, selected, onSelect }) {
           mesmo com nomes de 1 ou 2 linhas. */}
       <div className="mt-auto space-y-3 pt-8">
         <div className="flex items-center justify-between text-xs uppercase tracking-[0.16em] text-text-secondary">
-          <span>Performance</span>
+          <span>{t("newCareer.teamCard.performance")}</span>
           <span className="font-semibold tracking-normal text-text-primary">???</span>
         </div>
         {/* Barra "desconhecida": hachura em vez de preenchimento — o desempenho do

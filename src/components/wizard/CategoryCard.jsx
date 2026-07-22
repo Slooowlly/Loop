@@ -1,6 +1,9 @@
+import { useTranslation } from "react-i18next";
+
 import GlassCard from "../ui/GlassCard";
 
 function CategoryCard({ category, selected, onSelect }) {
+  const { t } = useTranslation();
   return (
     <GlassCard
       selected={selected}
@@ -11,14 +14,14 @@ function CategoryCard({ category, selected, onSelect }) {
       <div className="flex items-center justify-between gap-6">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-            Categoria inicial
+            {t("newCareer.step4.categoryCardLabel")}
           </p>
           <h3 className="mt-3 text-2xl font-semibold text-text-primary">
             {category.name}
           </h3>
           <p className="mt-1.5 text-sm text-text-secondary">{category.car}</p>
           <p className="mt-4 text-sm leading-6 text-text-secondary">
-            {category.description}
+            {t(`newCareer.category.${category.id}.description`)}
           </p>
         </div>
         {category.logo ? (

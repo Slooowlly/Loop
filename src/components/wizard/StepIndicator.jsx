@@ -1,10 +1,13 @@
+import { useTranslation } from "react-i18next";
+
 function StepIndicator({ currentStep, steps }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.24em] text-text-secondary">
-        <span>Nova carreira</span>
+        <span>{t("newCareer.stepIndicator.title")}</span>
         <span>
-          Step {currentStep} de {steps.length}
+          {t("newCareer.stepIndicator.progress", { current: currentStep, total: steps.length })}
         </span>
       </div>
 

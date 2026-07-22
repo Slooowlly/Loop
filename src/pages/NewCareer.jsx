@@ -1,12 +1,14 @@
 ﻿import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { currentLang } from "../i18n/format.js";
 import { useNavigate } from "react-router-dom";
 
 import FlagIcon from "../components/ui/FlagIcon";
 import GlassButton from "../components/ui/GlassButton";
 import GlassCard from "../components/ui/GlassCard";
 import GlassInput from "../components/ui/GlassInput";
-import GlassSelect from "../components/ui/GlassSelect";
+import NationalitySelect from "../components/ui/NationalitySelect";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import TeamLogoMark from "../components/team/TeamLogoMark";
 import CategoryCard from "../components/wizard/CategoryCard";
@@ -24,24 +26,6 @@ import {
   WIZARD_STEPS,
 } from "../utils/constants";
 
-const STEP_TITLES = {
-  1: "Escolha a dificuldade",
-  2: "Dados do piloto",
-  3: "Gerar passado histórico",
-  4: "Escolha sua categoria",
-  5: "Escolha sua equipe",
-  6: "Confirmar dados",
-};
-
-const STEP_DESCRIPTIONS = {
-  1: "Defina o teto da IA antes de entrar no paddock.",
-  2: "Monte a identidade do seu piloto para o save inicial.",
-  3: "Deixe o mundo correr sozinho de 2000 a 2025 e escolha onde estrear no grid de 2026.",
-  4: "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
-  5: "Selecione a equipe onde você vai estrear como segundo piloto.",
-  6: "Confira tudo antes de transformar o rascunho histórico em save jogável.",
-};
-
 const INITIAL_FORM = {
   difficulty: "medio",
   playerName: "",
@@ -56,7 +40,16 @@ const IDENTITY_FIELDS = new Set(["difficulty", "playerName", "nationality", "age
 
 function NewCareer() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const loadCareer = useCareerStore((state) => state.loadCareer);
+  const driverPlaceholder = t("newCareer.driverPlaceholder");
+  // Nacionalidades localizadas (bandeira + gentílico) resolvidas do i18n; o
+  // NationalitySelect/FlagIcon leem o emoji direto desse `label`.
+  const localizedNationalities = NATIONALITIES.map((nationality) => ({
+    id: nationality.id,
+    label: t(`newCareer.nationality.${nationality.id}`),
+  }));
+  const wizardStepLabels = WIZARD_STEPS.map((slug) => t(`newCareer.wizardSteps.${slug}`));
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [loading, setLoading] = useState(false);
@@ -142,8 +135,8 @@ function NewCareer() {
   const selectedDifficulty =
     DIFFICULTIES.find((difficulty) => difficulty.id === formData.difficulty) ?? DIFFICULTIES[1];
   const selectedNationality =
-    NATIONALITIES.find((nationality) => nationality.id === formData.nationality) ??
-    NATIONALITIES[0];
+    localizedNationalities.find((nationality) => nationality.id === formData.nationality) ??
+    localizedNationalities[0];
   const hasGeneratedDraft =
     draftState?.exists &&
     draftState.lifecycle_status === "draft" &&
@@ -194,23 +187,23 @@ function NewCareer() {
     if (step === 2) {
       const trimmedName = formData.playerName.trim();
       if (trimmedName.length < 2 || trimmedName.length > 50) {
-        return "O nome do piloto precisa ter entre 2 e 50 caracteres.";
+        return t("newCareer.errors.nameLength");
       }
       if (formData.age < 16 || formData.age > 30) {
-        return "A idade inicial precisa ficar entre 16 e 30 anos.";
+        return t("newCareer.errors.ageRange");
       }
     }
 
     if (step === 3 && !hasGeneratedDraft) {
-      return "Gere o histórico antes de escolher categoria e equipe.";
+      return t("newCareer.errors.generateBeforeChoose");
     }
 
     if (step === 4 && !formData.category) {
-      return "Selecione uma categoria inicial.";
+      return t("newCareer.errors.selectCategory");
     }
 
     if (step === 5 && !availableTeams.some((team) => team.id === formData.teamId)) {
-      return "Selecione uma equipe válida.";
+      return t("newCareer.errors.selectTeam");
     }
 
     return "";
@@ -254,9 +247,7 @@ function NewCareer() {
       setStep(4);
     } catch (invokeError) {
       setError(
-        typeof invokeError === "string"
-          ? invokeError
-          : "Não foi possível gerar o histórico. Tente novamente.",
+        typeof invokeError === "string" ? invokeError : t("newCareer.errors.generateFailed"),
       );
     } finally {
       setLoading(false);
@@ -266,7 +257,7 @@ function NewCareer() {
   async function handleCreateCareer() {
     setError("");
     if (!draftState?.career_id) {
-      setError("Gere o histórico antes de finalizar a carreira.");
+      setError(t("newCareer.errors.generateBeforeFinalize"));
       return;
     }
 
@@ -285,9 +276,7 @@ function NewCareer() {
       navigate("/dashboard");
     } catch (invokeError) {
       setError(
-        typeof invokeError === "string"
-          ? invokeError
-          : "Não foi possível finalizar a carreira. Tente novamente.",
+        typeof invokeError === "string" ? invokeError : t("newCareer.errors.finalizeFailed"),
       );
     } finally {
       setLoading(false);
@@ -330,35 +319,30 @@ function NewCareer() {
           <GlassCard hover={false} className="glass-light space-y-5">
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                Nome do piloto
+                {t("newCareer.step2.nameLabel")}
               </p>
               <GlassInput
                 value={formData.playerName}
                 onChange={(event) => updateForm({ playerName: event.target.value })}
                 maxLength={50}
-                placeholder="João Silva"
+                placeholder={t("newCareer.step2.namePlaceholder")}
               />
             </div>
 
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                Nacionalidade
+                {t("newCareer.labels.nationality")}
               </p>
-              <GlassSelect
+              <NationalitySelect
                 value={formData.nationality}
                 onChange={(event) => updateForm({ nationality: event.target.value })}
-              >
-                {NATIONALITIES.map((nationality) => (
-                  <option key={nationality.id} value={nationality.id}>
-                    {nationality.label}
-                  </option>
-                ))}
-              </GlassSelect>
+                options={localizedNationalities}
+              />
             </div>
 
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                Idade
+                {t("newCareer.step2.ageLabel")}
               </p>
               <GlassInput
                 type="number"
@@ -375,17 +359,18 @@ function NewCareer() {
 
           <GlassCard hover={false} className="glass-light">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              Preview do piloto
+              {t("newCareer.step2.previewLabel")}
             </p>
             <h3 className="mt-4 text-3xl font-semibold text-text-primary">
-              {formData.playerName.trim() || "Seu piloto"}
+              {formData.playerName.trim() || driverPlaceholder}
             </h3>
-            <p className="mt-3 text-sm text-text-secondary">
-              {selectedNationality.label} - {formData.age} anos
+            <p className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
+              <FlagIcon nacionalidade={selectedNationality.label} />
+              {extractNationalityLabel(selectedNationality.label) || selectedNationality.label} -{" "}
+              {t("newCareer.ageYears", { count: formData.age })}
             </p>
             <div className="mt-8 space-y-4 text-sm text-text-secondary">
-              <p>Todos os atributos iniciais começam equilibrados em 50.</p>
-              <p>Voc? entra como N2 e cresce a partir dos resultados da carreira.</p>
+              <p>{t("newCareer.step2.attributesNote")}</p>
             </div>
           </GlassCard>
         </div>
@@ -397,35 +382,34 @@ function NewCareer() {
         <div className="grid gap-6 xl:grid-cols-[1fr_0.45fr]">
           <GlassCard hover={false} className="glass-light rounded-[28px]">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              Rascunho histórico
+              {t("newCareer.step3.draftLabel")}
             </p>
             <h3 className="mt-4 text-3xl font-semibold text-text-primary">
-              26 temporadas antes da sua estreia
+              {t("newCareer.step3.title")}
             </h3>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-text-secondary">
-              Um grid com 26 temporadas de estrada: títulos decididos, rivalidades formadas,
-              equipes que brilharam e outras que sumiram. É nele que você entra.
+              {t("newCareer.step3.description")}
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Início
+                  {t("newCareer.step3.startLabel")}
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-text-primary">2000</p>
               </div>
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Jogável
+                  {t("newCareer.step3.playableLabel")}
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-text-primary">2026</p>
               </div>
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Status
+                  {t("newCareer.step3.statusLabel")}
                 </p>
                 <p className="mt-2 text-lg font-semibold text-text-primary">
-                  {hasGeneratedDraft ? "Gerado" : "Pendente"}
+                  {hasGeneratedDraft ? t("newCareer.step3.generated") : t("newCareer.step3.pending")}
                 </p>
               </div>
             </div>
@@ -433,24 +417,31 @@ function NewCareer() {
 
           <GlassCard hover={false} className="glass-light rounded-[28px]">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              Piloto pendente
+              {t("newCareer.step3.pendingDriverLabel")}
             </p>
             <h3 className="mt-4 text-2xl font-semibold text-text-primary">
-              {formData.playerName.trim() || "Seu piloto"}
+              {formData.playerName.trim() || driverPlaceholder}
             </h3>
             <div className="mt-5 space-y-4 text-sm text-text-secondary">
               <div>
-                <p className="text-text-muted">Nacionalidade</p>
-                <p className="mt-1 text-text-primary">{selectedNationality.label}</p>
+                <p className="text-text-muted">{t("newCareer.labels.nationality")}</p>
+                <p className="mt-1 flex items-center gap-2 text-text-primary">
+                  <FlagIcon nacionalidade={selectedNationality.label} />
+                  {extractNationalityLabel(selectedNationality.label) || selectedNationality.label}
+                </p>
               </div>
               <div>
-                <p className="text-text-muted">Dificuldade</p>
-                <p className="mt-1 text-text-primary">{selectedDifficulty.name}</p>
-              </div>
-              <div>
-                <p className="text-text-muted">Progresso</p>
+                <p className="text-text-muted">{t("newCareer.labels.difficulty")}</p>
                 <p className="mt-1 text-text-primary">
-                  {draftState?.progress_year ? `Ano ${draftState.progress_year}` : "Não iniciado"}
+                  {t(`newCareer.difficulty.${selectedDifficulty.id}.name`)}
+                </p>
+              </div>
+              <div>
+                <p className="text-text-muted">{t("newCareer.step3.progressLabel")}</p>
+                <p className="mt-1 text-text-primary">
+                  {draftState?.progress_year
+                    ? t("newCareer.step3.yearValue", { year: draftState.progress_year })
+                    : t("newCareer.step3.notStarted")}
                 </p>
               </div>
             </div>
@@ -466,9 +457,9 @@ function NewCareer() {
           {sharedStats ? (
             <div className="glass-light mx-auto flex w-fit items-stretch divide-x divide-white/10 rounded-2xl">
               {[
-                ["Equipes", sharedStats.teams],
-                ["Corridas", sharedStats.races],
-                ["Pilotos", sharedStats.drivers],
+                [t("newCareer.stats.teams"), sharedStats.teams],
+                [t("newCareer.stats.races"), sharedStats.races],
+                [t("newCareer.stats.drivers"), sharedStats.drivers],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-baseline gap-2 px-8 py-4">
                   <span className="text-2xl font-semibold text-text-primary">{value}</span>
@@ -519,27 +510,32 @@ function NewCareer() {
         {/* Piloto — herói centralizado */}
         <div className="text-center">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-            Piloto
+            {t("newCareer.step6.driverLabel")}
           </p>
           <h3 className="mt-2 text-3xl font-semibold text-text-primary">
-            {formData.playerName.trim() || "Seu piloto"}
+            {formData.playerName.trim() || driverPlaceholder}
           </h3>
           <p className="mt-3 flex items-center justify-center gap-2 text-sm text-text-secondary">
             <FlagIcon nacionalidade={selectedNationality.label} />
-            {extractNationalityLabel(selectedNationality.label)} · {formData.age} anos
+            {extractNationalityLabel(selectedNationality.label)} ·{" "}
+            {t("newCareer.ageYears", { count: formData.age })}
           </p>
         </div>
 
         {/* Escolhas — tiles centralizados, largura total */}
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Carro</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+              {t("newCareer.step6.carLabel")}
+            </p>
             <p className="mt-2 text-2xl font-semibold text-text-primary">
               {selectedCategory.car?.split(" ")[0] ?? selectedCategory.car}
             </p>
           </div>
           <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Equipe</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+              {t("newCareer.labels.team")}
+            </p>
             <TeamLogoMark
               teamName={selectedTeam?.nome}
               color={selectedTeam?.cor_primaria}
@@ -551,9 +547,11 @@ function NewCareer() {
             </p>
           </div>
           <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Dificuldade</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+              {t("newCareer.labels.difficulty")}
+            </p>
             <p className="mt-2 text-2xl font-semibold text-text-primary">
-              {selectedDifficulty.name}
+              {t(`newCareer.difficulty.${selectedDifficulty.id}.name`)}
             </p>
           </div>
         </div>
@@ -563,23 +561,24 @@ function NewCareer() {
           <div className="border-t border-white/10 pt-8">
             <div className="text-center">
               <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                O mundo que você herda
+                {t("newCareer.step6.worldTitle")}
               </p>
               <p className="mt-1 text-sm text-text-secondary">
-                {draftState.world_summary.temporadas} temporadas já foram disputadas antes da sua
-                estreia.
+                {t("newCareer.step6.worldSubtitle", {
+                  count: draftState.world_summary.temporadas,
+                })}
               </p>
             </div>
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
-                ["Pilotos", draftState.world_summary.pilotos],
-                ["Corridas", draftState.world_summary.corridas],
-                ["Campeões", draftState.world_summary.campeoes],
-                ["Tricampeões", draftState.world_summary.tricampeoes],
+                [t("newCareer.stats.drivers"), draftState.world_summary.pilotos],
+                [t("newCareer.stats.races"), draftState.world_summary.corridas],
+                [t("newCareer.stats.champions"), draftState.world_summary.campeoes],
+                [t("newCareer.stats.tripleChampions"), draftState.world_summary.tricampeoes],
               ].map(([label, value]) => (
                 <div key={label} className="glass-light rounded-2xl p-5 text-center">
                   <p className="text-3xl font-semibold text-text-primary">
-                    {Number(value).toLocaleString("pt-BR")}
+                    {Number(value).toLocaleString(currentLang())}
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">
                     {label}
@@ -601,19 +600,19 @@ function NewCareer() {
         <div className="wizard-panel glass flex max-h-[calc(100vh-4rem)] w-full flex-col overflow-hidden rounded-[32px] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.42)] sm:p-8 lg:p-10">
           <div className="relative z-10 flex min-h-0 flex-1 flex-col">
             <div className="flex-shrink-0">
-              <StepIndicator currentStep={step} steps={WIZARD_STEPS} />
+              <StepIndicator currentStep={step} steps={wizardStepLabels} />
             </div>
 
             <div className="mt-8 flex flex-shrink-0 flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">
-                  {STEP_TITLES[step]}
+                  {t(`newCareer.stepTitles.${step}`)}
                 </p>
                 <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-text-primary sm:text-5xl">
-                  Monte a sua estreia.
+                  {t("newCareer.heading")}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-7 text-text-secondary sm:text-base">
-                  {STEP_DESCRIPTIONS[step]}
+                  {t(`newCareer.stepDescriptions.${step}`)}
                 </p>
               </div>
 
@@ -622,13 +621,15 @@ function NewCareer() {
                 className="glass-light w-full max-w-xs rounded-3xl px-5 py-4 text-sm text-text-secondary"
               >
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  Save preview
+                  {t("newCareer.savePreview.label")}
                 </p>
                 <p className="mt-2 text-base font-semibold text-text-primary">
-                  {formData.playerName.trim() || "Piloto novo"}
+                  {formData.playerName.trim() || t("newCareer.savePreview.newDriver")}
                 </p>
                 <p className="mt-1">
-                  {hasGeneratedDraft ? selectedCategory.name : "Histórico pendente"}
+                  {hasGeneratedDraft
+                    ? selectedCategory.name
+                    : t("newCareer.savePreview.pendingHistory")}
                 </p>
               </GlassCard>
             </div>
@@ -648,7 +649,7 @@ function NewCareer() {
 
             <div className="mt-8 flex flex-shrink-0 flex-col gap-3 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <GlassButton variant="secondary" onClick={handleBack}>
-                {step === 1 ? "Voltar ao menu" : "Voltar"}
+                {step === 1 ? t("newCareer.buttons.backToMenu") : t("newCareer.buttons.back")}
               </GlassButton>
 
               <div className="flex flex-col items-stretch gap-3 sm:flex-row">
@@ -656,7 +657,7 @@ function NewCareer() {
                   variant="secondary"
                   onClick={handleResetWizard}
                 >
-                  Reiniciar
+                  {t("newCareer.buttons.reset")}
                 </GlassButton>
 
                 {step === 3 ? (
@@ -664,15 +665,17 @@ function NewCareer() {
                     variant="primary"
                     onClick={hasGeneratedDraft ? handleNext : handleGenerateDraft}
                   >
-                    {hasGeneratedDraft ? "Escolher categoria" : "Gerar histórico"}
+                    {hasGeneratedDraft
+                      ? t("newCareer.buttons.chooseCategory")
+                      : t("newCareer.buttons.generateHistory")}
                   </GlassButton>
                 ) : step < 6 ? (
                   <GlassButton variant="primary" onClick={handleNext}>
-                    Próximo
+                    {t("newCareer.buttons.next")}
                   </GlassButton>
                 ) : (
                   <GlassButton variant="success" onClick={handleCreateCareer}>
-                    Finalizar carreira
+                    {t("newCareer.buttons.finalize")}
                   </GlassButton>
                 )}
               </div>
@@ -683,13 +686,17 @@ function NewCareer() {
 
       <LoadingOverlay
         open={loading}
-        title={step === 6 ? "Finalizando carreira" : "Gerando histórico"}
+        title={
+          step === 6
+            ? t("newCareer.loading.finalizingTitle")
+            : t("newCareer.loading.generatingTitle")
+        }
         message={
           step === 6
-            ? LOADING_MESSAGES[loadingMessageIndex]
+            ? t(`newCareer.loadingMessages.msg${loadingMessageIndex}`)
             : draftState?.progress_year
-              ? `Simulando temporada ${draftState.progress_year}`
-              : LOADING_MESSAGES[loadingMessageIndex]
+              ? t("newCareer.loading.simulatingSeason", { year: draftState.progress_year })
+              : t(`newCareer.loadingMessages.msg${loadingMessageIndex}`)
         }
       />
     </div>

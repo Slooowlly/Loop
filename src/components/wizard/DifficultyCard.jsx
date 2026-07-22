@@ -1,6 +1,9 @@
+import { useTranslation } from "react-i18next";
+
 import GlassCard from "../ui/GlassCard";
 
 function DifficultyCard({ difficulty, selected, onSelect }) {
+  const { t } = useTranslation();
   return (
     <GlassCard
       selected={selected}
@@ -11,10 +14,10 @@ function DifficultyCard({ difficulty, selected, onSelect }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.2em] text-text-secondary">
-            Dificuldade
+            {t("newCareer.labels.difficulty")}
           </p>
           <h3 className="mt-3 text-2xl font-semibold text-text-primary">
-            {difficulty.name}
+            {t(`newCareer.difficulty.${difficulty.id}.name`)}
           </h3>
         </div>
         <div className="text-4xl">{difficulty.emoji}</div>
@@ -37,7 +40,9 @@ function DifficultyCard({ difficulty, selected, onSelect }) {
             }}
           />
         </div>
-        <p className="text-sm text-text-secondary">{difficulty.desc}</p>
+        <p className="text-sm text-text-secondary">
+          {t(`newCareer.difficulty.${difficulty.id}.desc`)}
+        </p>
       </div>
     </GlassCard>
   );
