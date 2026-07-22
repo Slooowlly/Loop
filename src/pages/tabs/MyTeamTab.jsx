@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
 import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
+import i18n from "../../i18n/index.js";
+import { ordinal } from "../../i18n/format.js";
 import {
   categoryLabel,
   extractNationalityLabel,
@@ -15,38 +18,40 @@ import {
 } from "../../utils/formatters";
 
 const TECH_AXES = [
-  { id: "development", label: "Desenvolvimento" },
-  { id: "reliability", label: "Confiabilidade" },
-  { id: "pit", label: "Pit e corrida" },
+  { id: "development" },
+  { id: "reliability" },
+  { id: "pit" },
 ];
 
 // Linhas REAIS de receita/despesa vindas de `get_team_finance_report` (backend
 // `team_finance_history`). A chave casa com o campo do payload; o rótulo/cor são do
 // front. Fonte única do dossiê financeiro — nada aqui é fabricado.
 const INCOME_LINES = [
-  { key: "sponsorship_income", label: "Patrocínios" },
-  { key: "gate_income", label: "Bilheteria" },
-  { key: "result_bonus", label: "Bônus de resultado" },
-  { key: "partial_prize_income", label: "Prêmio parcial" },
-  { key: "aid_income", label: "Auxílios" },
-  { key: "constructor_prize_income", label: "Prêmio de construtores" },
+  { key: "sponsorship_income" },
+  { key: "gate_income" },
+  { key: "result_bonus" },
+  { key: "partial_prize_income" },
+  { key: "aid_income" },
+  { key: "constructor_prize_income" },
 ];
 
 const EXPENSE_LINES = [
-  { key: "salary_expense", label: "Salários", color: "#ff6b6b" },
-  { key: "event_operations_cost", label: "Operação", color: "#58a6ff" },
-  { key: "structural_maintenance_cost", label: "Manutenção", color: "#f59e0b" },
-  { key: "technical_investment_cost", label: "Investimento", color: "#22c55e" },
-  { key: "debt_service_cost", label: "Serviço da dívida", color: "#a371f7" },
+  { key: "salary_expense", color: "#ff6b6b" },
+  { key: "event_operations_cost", color: "#58a6ff" },
+  { key: "structural_maintenance_cost", color: "#f59e0b" },
+  { key: "technical_investment_cost", color: "#22c55e" },
+  { key: "debt_service_cost", color: "#a371f7" },
 ];
 
 const TEAM_HISTORY_TABS = [
-  { id: "records", label: "Records" },
-  { id: "sport", label: "Esportivo" },
-  { id: "identity", label: "Identidade" },
-  { id: "management", label: "Gestão" },
-  { id: "categories", label: "Categorias" },
+  { id: "records" },
+  { id: "sport" },
+  { id: "identity" },
+  { id: "management" },
+  { id: "categories" },
 ];
+
+const RANKING_TIER_COLORS = ["#f85149", "#f0a45a", "#e3c15a", "#7ee787", "#3fb950"];
 
 function MyTeamTab() {
   const careerId = useCareerStore((state) => state.careerId);
@@ -83,7 +88,7 @@ function MyTeamTab() {
         }
       } catch (invokeError) {
         if (mounted) {
-          setError(typeof invokeError === "string" ? invokeError : "Não foi possível carregar os dados da equipe.");
+          setError(typeof invokeError === "string" ? invokeError : i18n.t("myTeamTab.errors.load"));
         }
       }
     }
@@ -149,6 +154,7 @@ function MyTeamTab() {
 }
 
 function CommandHeader({ team, standing }) {
+  const { t } = useTranslation();
   return (
     <GlassCard hover={false} className="rounded-[30px]" data-testid="my-team-command-header">
       <div className="grid gap-5 lg:grid-cols-[1.18fr_0.82fr] lg:items-center">
@@ -160,8 +166,8 @@ function CommandHeader({ team, standing }) {
             testId="my-team-command-logo"
           />
           <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Central de gestão</p>
-            <h2 className="mt-2 text-3xl font-semibold text-text-primary">{team?.nome ?? "Equipe"}</h2>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">{t("myTeamTab.command.eyebrow")}</p>
+            <h2 className="mt-2 text-3xl font-semibold text-text-primary">{team?.nome ?? t("myTeamTab.team.fallbackName")}</h2>
           </div>
         </div>
         <HeaderFinanceStat team={team} standing={standing} />
@@ -171,6 +177,7 @@ function CommandHeader({ team, standing }) {
 }
 
 function HeaderFinanceStat({ team, standing }) {
+  const { t } = useTranslation();
   const stateTone = financialStateTone(team?.financial_state);
   return (
     <div
@@ -188,7 +195,7 @@ function HeaderFinanceStat({ team, standing }) {
             {financialState(team?.financial_state)}
           </span>
           <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
-            Posição <span className="font-mono text-sm font-bold text-status-yellow">{formatOrdinal(standing?.posicao)}</span>
+            {t("myTeamTab.command.position")} <span className="font-mono text-sm font-bold text-status-yellow">{formatOrdinal(standing?.posicao)}</span>
           </span>
         </div>
       </div>
@@ -197,10 +204,11 @@ function HeaderFinanceStat({ team, standing }) {
 }
 
 function DriverPanel({ drivers, salaryCeiling }) {
+  const { t } = useTranslation();
   return (
     <GlassCard hover={false} className="rounded-[28px]">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">Dupla de pilotos</p>
-      <h3 className="mt-2 text-xl font-semibold text-text-primary">Contratos e peso na folha</h3>
+      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{t("myTeamTab.drivers.eyebrow")}</p>
+      <h3 className="mt-2 text-xl font-semibold text-text-primary">{t("myTeamTab.drivers.title")}</h3>
       <div className="mt-5 space-y-3">
         {drivers.map((driver) => (
           <DriverRow key={driver.role} driver={driver} salaryCeiling={salaryCeiling} />
@@ -211,6 +219,7 @@ function DriverPanel({ drivers, salaryCeiling }) {
 }
 
 function DriverRow({ driver, salaryCeiling }) {
+  const { t } = useTranslation();
   const weight = salaryCeiling > 0 ? (driver.salary / salaryCeiling) * 100 : 0;
   return (
     <div className={`rounded-[22px] border p-4 ${driver.highlight ? "border-accent-primary/35 bg-accent-primary/10" : "border-white/8 bg-white/[0.03]"}`}>
@@ -224,16 +233,16 @@ function DriverRow({ driver, salaryCeiling }) {
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Salário {driver.role}</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{t("myTeamTab.drivers.salaryRole", { role: driver.role })}</p>
           <p className="mt-1 font-mono text-sm text-status-green">
             {formatMoney(monthlySalary(driver.salary))}
-            <span className="ml-1 font-sans text-[10px] font-normal text-text-muted">/mês</span>
+            <span className="ml-1 font-sans text-[10px] font-normal text-text-muted">{t("myTeamTab.drivers.perMonth")}</span>
           </p>
         </div>
       </div>
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.16em] text-text-muted">
-          <span>Peso na folha</span>
+          <span>{t("myTeamTab.drivers.payrollWeight")}</span>
           <span>{formatPercent(weight)}</span>
         </div>
         <div className="h-2 rounded-full bg-white/10">
@@ -245,11 +254,12 @@ function DriverRow({ driver, salaryCeiling }) {
 }
 
 function TechPanel({ team, activeAxis, setActiveAxis }) {
+  const { t } = useTranslation();
   const metrics = technicalMetrics(team, activeAxis);
   return (
     <GlassCard hover={false} className="rounded-[28px]">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">Operação técnica</p>
-      <h3 className="mt-2 text-xl font-semibold text-text-primary">Eixos técnicos</h3>
+      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{t("myTeamTab.tech.eyebrow")}</p>
+      <h3 className="mt-2 text-xl font-semibold text-text-primary">{t("myTeamTab.tech.title")}</h3>
       <div className="mt-5 grid grid-cols-3 gap-2">
         {TECH_AXES.map((axis) => (
           <button
@@ -262,7 +272,7 @@ function TechPanel({ team, activeAxis, setActiveAxis }) {
                 : "border-white/8 bg-black/10 text-text-muted hover:text-text-primary"
             }`}
           >
-            {axis.label}
+            {t(`myTeamTab.tech.axes.${axis.id}`)}
           </button>
         ))}
       </div>
@@ -278,6 +288,7 @@ function TechPanel({ team, activeAxis, setActiveAxis }) {
 }
 
 function FinanceDossier({ team, drivers, report }) {
+  const { t } = useTranslation();
   const [showSecondaryCashIndicators, setShowSecondaryCashIndicators] = useState(false);
   const net = team?.last_round_net ?? 0;
   const timeline = cashTimelineFromReport(report);
@@ -293,7 +304,9 @@ function FinanceDossier({ team, drivers, report }) {
   // A linha "Salários" da rodada é anual ÷ nº de corridas; ancoramos com a folha mensal
   // para que o valor por rodada não pareça furado ao lado do salário mensal dos pilotos.
   const expenseLedger = ledgerRows(report?.latest, EXPENSE_LINES).map((row) =>
-    row.label === "Salários" && payroll > 0 ? { ...row, hint: `${formatMoney(monthlySalary(payroll))}/mês` } : row,
+    row.key === "salary_expense" && payroll > 0
+      ? { ...row, hint: t("myTeamTab.finance.salaryHint", { value: formatMoney(monthlySalary(payroll)) }) }
+      : row,
   );
   // Média REAL por rodada: acumulado líquido da temporada ÷ rodadas registradas
   // (report.season.round guarda a CONTAGEM de rodadas somadas). Sem histórico → cai no
@@ -314,47 +327,47 @@ function FinanceDossier({ team, drivers, report }) {
   const hasProjection = currentPosition > 0 && expectedPrize > 0;
   return (
     <GlassCard hover={false} className="rounded-[28px]">
-      <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">Rodada atual + acumulado</p>
-      <h3 className="mt-2 text-2xl font-semibold text-text-primary">Dossiê financeiro</h3>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">{t("myTeamTab.finance.eyebrow")}</p>
+      <h3 className="mt-2 text-2xl font-semibold text-text-primary">{t("myTeamTab.finance.title")}</h3>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Caixa" value={formatMoney(team?.cash_balance ?? 0)} caption="Saldo da operação" period="atual" />
-        <Kpi label="Resultado rodada" value={formatSignedMoney(net)} caption="Última rodada" period="/rodada" tone={net >= 0 ? "text-status-green" : "text-status-red"} />
-        <Kpi label="Dívida" value={formatMoney(debt)} caption="Passivo atual" period="atual" tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
-        <Kpi label="Teto salarial" value={formatMoney(monthlySalary(team?.salary_ceiling ?? 0))} caption="Máx. por piloto" period="/mês" />
-        <Kpi label="Poder de gasto" value={formatSignedMoney(team?.spending_power ?? 0)} caption="Margem projetada" period="temporada" tone={(team?.spending_power ?? 0) >= 0 ? "text-status-green" : "text-status-red"} />
+        <Kpi label={t("myTeamTab.finance.kpi.cash")} value={formatMoney(team?.cash_balance ?? 0)} caption={t("myTeamTab.finance.kpi.cashCaption")} period={t("myTeamTab.finance.period.current")} />
+        <Kpi label={t("myTeamTab.finance.kpi.roundResult")} value={formatSignedMoney(net)} caption={t("myTeamTab.finance.kpi.roundResultCaption")} period={t("myTeamTab.finance.period.perRound")} tone={net >= 0 ? "text-status-green" : "text-status-red"} />
+        <Kpi label={t("myTeamTab.finance.kpi.debt")} value={formatMoney(debt)} caption={t("myTeamTab.finance.kpi.debtCaption")} period={t("myTeamTab.finance.period.current")} tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
+        <Kpi label={t("myTeamTab.finance.kpi.salaryCeiling")} value={formatMoney(monthlySalary(team?.salary_ceiling ?? 0))} caption={t("myTeamTab.finance.kpi.salaryCeilingCaption")} period={t("myTeamTab.finance.period.perMonth")} />
+        <Kpi label={t("myTeamTab.finance.kpi.spendingPower")} value={formatSignedMoney(team?.spending_power ?? 0)} caption={t("myTeamTab.finance.kpi.spendingPowerCaption")} period={t("myTeamTab.finance.period.season")} tone={(team?.spending_power ?? 0) >= 0 ? "text-status-green" : "text-status-red"} />
       </div>
 
       <p className="mt-3 text-[11px] leading-5 text-text-muted">
-        As etiquetas indicam o horizonte de cada número: <span className="text-text-secondary">/rodada</span> é o fluxo de uma corrida,{" "}
-        <span className="text-text-secondary">/mês</span> é o salário por piloto e <span className="text-text-secondary">temporada</span> é a projeção do ano inteiro.
+        {t("myTeamTab.finance.legend.intro")}<span className="text-text-secondary">{t("myTeamTab.finance.legend.perRound")}</span>{t("myTeamTab.finance.legend.perRoundDesc")}{" "}
+        <span className="text-text-secondary">{t("myTeamTab.finance.legend.perMonth")}</span>{t("myTeamTab.finance.legend.perMonthDesc")}<span className="text-text-secondary">{t("myTeamTab.finance.legend.season")}</span>{t("myTeamTab.finance.legend.seasonDesc")}
       </p>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <Ledger title="Entradas da rodada" rows={incomeLedger} positive />
-        <Ledger title="Saídas da rodada" rows={expenseLedger} />
+        <Ledger title={t("myTeamTab.finance.incomeTitle")} rows={incomeLedger} positive />
+        <Ledger title={t("myTeamTab.finance.expenseTitle")} rows={expenseLedger} />
       </div>
 
       {hasProjection ? (
         <div className="mt-5 rounded-[24px] border border-white/8 bg-white/[0.03] p-5" data-testid="season-projection">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">Se a temporada terminasse agora</p>
-              <h4 className="mt-2 text-lg font-semibold text-text-primary">Projeção de fim de temporada</h4>
+              <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">{t("myTeamTab.projection.eyebrow")}</p>
+              <h4 className="mt-2 text-lg font-semibold text-text-primary">{t("myTeamTab.projection.title")}</h4>
             </div>
             <span className="rounded-full border border-status-yellow/25 bg-status-yellow/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-status-yellow">
-              {formatOrdinal(currentPosition)}{gridSize > 0 ? ` de ${gridSize}` : ""}
+              {formatOrdinal(currentPosition)}{gridSize > 0 ? t("myTeamTab.projection.ofGrid", { count: gridSize }) : ""}
             </span>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <Kpi compact label="Temporada até aqui" value={formatSignedMoney(seasonNetToDate)} tone={moneyTone(seasonNetToDate)} />
-            <Kpi compact label="Prêmio estimado" value={`+${formatMoney(expectedPrize)}`} caption="Pela posição atual" tone="text-status-green" />
-            <Kpi compact label="Projeção anual" value={formatSignedMoney(projectedAnnual)} tone={projectedAnnual >= 0 ? "text-status-green" : "text-status-red"} />
+            <Kpi compact label={t("myTeamTab.projection.seasonToDate")} value={formatSignedMoney(seasonNetToDate)} tone={moneyTone(seasonNetToDate)} />
+            <Kpi compact label={t("myTeamTab.projection.estimatedPrize")} value={`+${formatMoney(expectedPrize)}`} caption={t("myTeamTab.projection.estimatedPrizeCaption")} tone="text-status-green" />
+            <Kpi compact label={t("myTeamTab.projection.annualProjection")} value={formatSignedMoney(projectedAnnual)} tone={projectedAnnual >= 0 ? "text-status-green" : "text-status-red"} />
           </div>
           <p className={`mt-4 text-sm font-semibold ${projectedAnnual >= 0 ? "text-status-green" : "text-status-red"}`}>
             {projectedAnnual >= 0
-              ? `No ritmo atual você fecha a temporada no verde — ${formatSignedMoney(projectedAnnual)} contando o prêmio de construtores.`
-              : `No ritmo atual você fecha a temporada no vermelho — ${formatSignedMoney(projectedAnnual)} mesmo com o prêmio de construtores.`}
+              ? t("myTeamTab.projection.verdictGreen", { value: formatSignedMoney(projectedAnnual) })
+              : t("myTeamTab.projection.verdictRed", { value: formatSignedMoney(projectedAnnual) })}
           </p>
         </div>
       ) : null}
@@ -362,23 +375,23 @@ function FinanceDossier({ team, drivers, report }) {
       <div className="mt-5 rounded-[24px] border border-white/8 bg-black/10 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">Caixa ao fim de cada rodada</p>
-            <h4 className="mt-2 text-lg font-semibold text-text-primary">Histórico de caixa</h4>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">{t("myTeamTab.cash.eyebrow")}</p>
+            <h4 className="mt-2 text-lg font-semibold text-text-primary">{t("myTeamTab.cash.title")}</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-accent-primary">Real</span>
+            <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-accent-primary">{t("myTeamTab.cash.realBadge")}</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-text-secondary">
-              Estratégia da temporada: <span className="text-text-primary">{strategyLabel}</span>
+              {t("myTeamTab.cash.strategy")} <span className="text-text-primary">{strategyLabel}</span>
             </span>
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Kpi compact label="Caixa antes da rodada" value={formatMoney(openingCash)} tone={moneyTone(openingCash)} />
-          <Kpi compact label="Entradas" value={`+${formatMoney(team?.last_round_income ?? 0)}`} tone="text-status-green" period="/rodada" />
-          <Kpi compact label="Saídas" value={`-${formatMoney(team?.last_round_expenses ?? 0)}`} tone="text-status-red" period="/rodada" />
-          <Kpi compact label="Dívida" value={formatMoney(debt)} tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
-          <Kpi compact label="Caixa atual" value={formatMoney(projectedCash)} tone={moneyTone(projectedCash)} />
+          <Kpi compact label={t("myTeamTab.cash.openingCash")} value={formatMoney(openingCash)} tone={moneyTone(openingCash)} />
+          <Kpi compact label={t("myTeamTab.cash.income")} value={`+${formatMoney(team?.last_round_income ?? 0)}`} tone="text-status-green" period={t("myTeamTab.finance.period.perRound")} />
+          <Kpi compact label={t("myTeamTab.cash.expenses")} value={`-${formatMoney(team?.last_round_expenses ?? 0)}`} tone="text-status-red" period={t("myTeamTab.finance.period.perRound")} />
+          <Kpi compact label={t("myTeamTab.cash.debt")} value={formatMoney(debt)} tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
+          <Kpi compact label={t("myTeamTab.cash.currentCash")} value={formatMoney(projectedCash)} tone={moneyTone(projectedCash)} />
         </div>
 
         {hasTimeline ? (
@@ -403,8 +416,8 @@ function FinanceDossier({ team, drivers, report }) {
                   style={{ height: `${point.height}%` }}
                   title={
                     point.isSeasonClose
-                      ? `Encerramento — prêmio de construtores (caixa ${formatMoney(point.value)})`
-                      : `${point.label}: ${formatMoney(point.value)}`
+                      ? t("myTeamTab.cash.seasonCloseTitle", { value: formatMoney(point.value) })
+                      : t("myTeamTab.cash.barTitle", { label: point.label, value: formatMoney(point.value) })
                   }
                 />
                 <span className="text-center font-mono text-[10px] text-text-muted">{point.label}</span>
@@ -413,7 +426,7 @@ function FinanceDossier({ team, drivers, report }) {
           </div>
         ) : (
           <p className="mt-6 rounded-[22px] border border-white/6 bg-white/[0.02] px-4 py-8 text-center text-xs leading-5 text-text-secondary">
-            Sem histórico de caixa ainda. Cada corrida disputada acrescenta uma rodada aqui.
+            {t("myTeamTab.cash.empty")}
           </p>
         )}
         <div className="mt-4 rounded-[22px] border border-white/8 bg-white/[0.025] p-3">
@@ -424,8 +437,8 @@ function FinanceDossier({ team, drivers, report }) {
           >
             <span>
               {showSecondaryCashIndicators
-                ? "Ocultar indicadores secundários"
-                : "Ver indicadores secundários"}
+                ? t("myTeamTab.cash.hideSecondary")
+                : t("myTeamTab.cash.showSecondary")}
             </span>
             <span className="text-accent-primary">{showSecondaryCashIndicators ? "−" : "+"}</span>
           </button>
@@ -439,17 +452,17 @@ function FinanceDossier({ team, drivers, report }) {
                 net={net}
               />
               <div className="mt-3 grid gap-3 sm:grid-cols-4">
-                <Kpi compact label="Pico de caixa" value={formatMoney(peakCash)} tone={moneyTone(peakCash)} />
-                <Kpi compact label="Pior trecho" value={formatMoney(lowCash)} tone={moneyTone(lowCash)} />
-                <Kpi compact label="Média por rodada" value={formatSignedMoney(avgRoundNet)} tone={moneyTone(avgRoundNet)} />
-                <Kpi compact label="Folha mensal" value={formatMoney(monthlySalary(payroll))} />
+                <Kpi compact label={t("myTeamTab.cash.peakCash")} value={formatMoney(peakCash)} tone={moneyTone(peakCash)} />
+                <Kpi compact label={t("myTeamTab.cash.worstStretch")} value={formatMoney(lowCash)} tone={moneyTone(lowCash)} />
+                <Kpi compact label={t("myTeamTab.cash.avgPerRound")} value={formatSignedMoney(avgRoundNet)} tone={moneyTone(avgRoundNet)} />
+                <Kpi compact label={t("myTeamTab.cash.monthlyPayroll")} value={formatMoney(monthlySalary(payroll))} />
               </div>
             </>
           ) : null}
         </div>
         {team?.parachute_payment_remaining > 0 ? (
           <p className="mt-4 rounded-2xl border border-accent-primary/20 bg-accent-primary/10 px-4 py-3 text-sm text-accent-primary">
-            Auxílio de rebaixamento restante: {formatMoney(team.parachute_payment_remaining)}
+            {t("myTeamTab.cash.parachute", { value: formatMoney(team.parachute_payment_remaining) })}
           </p>
         ) : null}
       </div>
@@ -479,6 +492,7 @@ function Kpi({ label, value, caption, tone = "text-text-primary", compact = fals
 }
 
 function FinancialRiskPanel({ cash, debt, income, net }) {
+  const { t } = useTranslation();
   const liquidBalance = cash - debt;
   const margin = income > 0 ? (net / income) * 100 : 0;
   const runway = operationalRunway(cash, net);
@@ -487,27 +501,27 @@ function FinancialRiskPanel({ cash, debt, income, net }) {
     <div className="mt-5 rounded-[22px] border border-white/8 bg-white/[0.025] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
-          Painel de risco financeiro
+          {t("myTeamTab.risk.title")}
         </p>
         <span className="rounded-full border border-white/10 bg-black/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-text-secondary">
-          Leitura rapida
+          {t("myTeamTab.risk.quickRead")}
         </span>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <RiskCard
-          label="Saldo líquido"
+          label={t("myTeamTab.risk.liquidBalance")}
           value={formatMoney(liquidBalance)}
-          caption="Caixa descontando a dívida"
+          caption={t("myTeamTab.risk.liquidBalanceCaption")}
           tone={moneyTone(liquidBalance)}
         />
         <RiskCard
-          label="Margem da rodada"
+          label={t("myTeamTab.risk.roundMargin")}
           value={formatPercent(margin)}
-          caption="Resultado dividido pelas entradas"
+          caption={t("myTeamTab.risk.roundMarginCaption")}
           tone={margin >= 0 ? "text-status-green" : "text-status-red"}
         />
         <RiskCard
-          label="Fôlego operacional"
+          label={t("myTeamTab.risk.runway")}
           value={runway.value}
           caption={runway.caption}
           tone={runway.tone}
@@ -528,17 +542,18 @@ function RiskCard({ label, value, caption, tone }) {
 }
 
 function Ledger({ title, rows, positive = false }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{title}</p>
       {rows.length === 0 ? (
-        <p className="mt-4 text-xs leading-5 text-text-secondary">Sem rodada registrada ainda.</p>
+        <p className="mt-4 text-xs leading-5 text-text-secondary">{t("myTeamTab.finance.ledgerEmpty")}</p>
       ) : (
       <div className="mt-4 space-y-3">
         {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between gap-3 border-b border-white/6 pb-2 last:border-0 last:pb-0">
+          <div key={row.key} className="flex items-center justify-between gap-3 border-b border-white/6 pb-2 last:border-0 last:pb-0">
             <span className="text-sm text-text-primary">
-              {row.label}
+              {t(`myTeamTab.finance.lines.${row.key}`)}
               {row.hint ? <span className="ml-2 text-[10px] font-normal text-text-muted">{row.hint}</span> : null}
             </span>
             <span className={`font-mono text-sm ${positive ? "text-status-green" : "text-status-red"}`}>{positive ? "+" : "-"}{formatMoney(row.value)}</span>
@@ -551,30 +566,31 @@ function Ledger({ title, rows, positive = false }) {
 }
 
 function CostChart({ report }) {
+  const { t } = useTranslation();
   const rows = costDistribution(report?.season);
   const seasonRounds = report?.season?.round ?? 0;
   return (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Distribuição dos custos acumulados</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{t("myTeamTab.cost.title")}</p>
         {seasonRounds > 0 ? (
-          <span className="text-[9px] uppercase tracking-[0.14em] text-text-muted">{seasonRounds} {seasonRounds === 1 ? "rodada" : "rodadas"}</span>
+          <span className="text-[9px] uppercase tracking-[0.14em] text-text-muted">{t("myTeamTab.cost.rounds", { count: seasonRounds })}</span>
         ) : null}
       </div>
       {rows.length === 0 ? (
         <p className="mt-5 rounded-2xl border border-white/8 bg-black/10 px-4 py-6 text-center text-xs leading-5 text-text-secondary">
-          Sem custos registrados nesta temporada ainda. O gráfico é preenchido a cada corrida disputada.
+          {t("myTeamTab.cost.empty")}
         </p>
       ) : (
         <div className="mt-5 grid gap-5 sm:grid-cols-[140px_1fr] xl:grid-cols-1 2xl:grid-cols-[150px_1fr]">
           <div className="mx-auto grid h-36 w-36 place-items-center rounded-full 2xl:h-40 2xl:w-40" style={{ background: `conic-gradient(${costGradient(rows)})` }}>
-            <div className="grid h-20 w-20 place-items-center rounded-full bg-bg-primary text-[10px] font-semibold uppercase tracking-[0.14em] text-text-primary 2xl:h-24 2xl:w-24">Custos</div>
+            <div className="grid h-20 w-20 place-items-center rounded-full bg-bg-primary text-[10px] font-semibold uppercase tracking-[0.14em] text-text-primary 2xl:h-24 2xl:w-24">{t("myTeamTab.cost.center")}</div>
           </div>
           <div className="space-y-3 self-center">
             {rows.map((row) => (
-              <div key={row.label} className="rounded-2xl border border-white/6 bg-black/10 px-3 py-2 text-xs">
+              <div key={row.key} className="rounded-2xl border border-white/6 bg-black/10 px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 text-text-secondary"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />{row.label}</span>
+                  <span className="flex items-center gap-2 text-text-secondary"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />{t(`myTeamTab.finance.lines.${row.key}`)}</span>
                   <span className="font-mono text-text-primary">{formatPercent(row.percent)}</span>
                 </div>
                 <div className="mt-2 h-1.5 rounded-full bg-white/10">
@@ -594,7 +610,7 @@ function CostChart({ report }) {
 function costDistribution(season) {
   if (!season) return [];
   const rows = EXPENSE_LINES.map((line) => ({
-    label: line.label,
+    key: line.key,
     color: line.color,
     value: Math.max(0, season[line.key] ?? 0),
   })).filter((row) => row.value > 0);
@@ -615,10 +631,11 @@ function costGradient(rows) {
 }
 
 function ExecutiveReading({ team, net, payroll }) {
+  const { t } = useTranslation();
   const signals = buildExecutiveSignals(team, net, payroll);
   return (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
-      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Leitura executiva</p>
+      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{t("myTeamTab.executive.title")}</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {signals.map((signal) => (
           <div key={signal.label} className="rounded-2xl border border-white/8 bg-black/10 p-3">
@@ -641,29 +658,32 @@ function buildExecutiveSignals(team, net, payroll) {
 
   return [
     {
-      label: net >= 0 ? "Rodada positiva" : "Rodada negativa",
-      detail: `${net >= 0 ? "Ganho" : "Perda"} de ${formatMoney(Math.abs(net))} na última rodada`,
+      label: net >= 0 ? i18n.t("myTeamTab.executive.roundPositive") : i18n.t("myTeamTab.executive.roundNegative"),
+      detail: net >= 0
+        ? i18n.t("myTeamTab.executive.gainDetail", { value: formatMoney(Math.abs(net)) })
+        : i18n.t("myTeamTab.executive.lossDetail", { value: formatMoney(Math.abs(net)) }),
       tone: net >= 0 ? "text-status-green" : "text-status-red",
     },
     {
-      label: debtPressure > 0.5 ? "Dívida alta" : "Dívida controlada",
-      detail: `${formatMoney(debt)} em passivo`,
+      label: debtPressure > 0.5 ? i18n.t("myTeamTab.executive.debtHigh") : i18n.t("myTeamTab.executive.debtControlled"),
+      detail: i18n.t("myTeamTab.executive.debtDetail", { value: formatMoney(debt) }),
       tone: debtPressure > 0.5 ? "text-status-red" : "text-text-primary",
     },
     {
-      label: spending < 0 ? "Gasto restrito" : "Margem de gasto",
+      label: spending < 0 ? i18n.t("myTeamTab.executive.spendRestricted") : i18n.t("myTeamTab.executive.spendMargin"),
       detail: formatSignedMoney(spending),
       tone: spending < 0 ? "text-status-red" : "text-status-green",
     },
     {
-      label: "Folha salarial",
-      detail: `${formatPercent(payrollPressure)} do teto`,
+      label: i18n.t("myTeamTab.executive.payroll"),
+      detail: i18n.t("myTeamTab.executive.payrollDetail", { value: formatPercent(payrollPressure) }),
       tone: payrollPressure > 90 ? "text-status-red" : "text-text-primary",
     },
   ];
 }
 
 function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
+  const { t } = useTranslation();
   const rows = Array.isArray(teams) ? teams : [];
   const [sort, setSort] = useState({ key: "default", direction: "asc" });
   const sortedRows = sortRankingRows(rows, sort);
@@ -679,17 +699,19 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
 
   return (
     <GlassCard hover={false} className="rounded-[28px]">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">Comparativo de gestão e performance</p>
-      <h3 className="mt-2 text-xl font-semibold text-text-primary">Ranking da categoria</h3>
+      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{t("myTeamTab.ranking.eyebrow")}</p>
+      <h3 className="mt-2 text-xl font-semibold text-text-primary">{t("myTeamTab.ranking.title")}</h3>
       <div className="mt-5 overflow-x-auto">
-        <table className="min-w-full text-left text-sm" aria-label="Ranking da categoria">
+        <table className="min-w-full text-left text-sm" aria-label={t("myTeamTab.ranking.title")}>
           <thead>
             <tr className="border-b border-white/8 text-[10px] uppercase tracking-[0.18em] text-text-muted">
               <SortableHeader label="#" sortKey="posicao" sort={sort} onSort={handleSort} className="py-3 pr-4" />
-              <SortableHeader label="Equipe" sortKey="nome" sort={sort} onSort={handleSort} />
-              <SortableHeader label="Dinheiro" sortKey="cash_balance" sort={sort} onSort={handleSort} />
-              <SortableHeader label="Nível do carro" sortKey="car_performance" sort={sort} onSort={handleSort} />
-              <SortableHeader label="Pontos" sortKey="pontos" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.team")} sortKey="nome" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.money")} sortKey="cash_balance" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.carLevel")} sortKey="car_level" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.reliability")} sortKey="confiabilidade" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.pitCrew")} sortKey="pit_crew_quality" sort={sort} onSort={handleSort} />
+              <SortableHeader label={t("myTeamTab.ranking.columns.points")} sortKey="pontos" sort={sort} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
@@ -721,14 +743,34 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
                       onDoubleClick={() => onTeamHistoryOpen?.(team)}
                       className="rounded-lg text-left transition-glass hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-accent-primary/45"
                       style={{ color: team.cor_primaria ?? "#f0f6fc" }}
-                      title="Duplo clique para abrir o histórico da equipe"
+                      title={t("myTeamTab.ranking.doubleClickHint")}
                     >
                       {team.nome}
                     </button>
                   </div>
                 </td>
                 <td className="px-4 py-3 font-mono">{formatMoney(team.cash_balance ?? 0)}</td>
-                <td className="px-4 py-3 font-mono">{team.car_level ?? carLevel(team.car_performance)}</td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <RankingTier
+                    testId={`ranking-car-tier-${team.id}`}
+                    tier={carTierIndex(team.car_level ?? carLevel(team.car_performance))}
+                    label={t(`myTeamTab.ranking.tiers.car.${carTierIndex(team.car_level ?? carLevel(team.car_performance))}`)}
+                  />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <RankingTier
+                    testId={`ranking-reliability-tier-${team.id}`}
+                    tier={qualityTierIndex(team.confiabilidade)}
+                    label={t(`myTeamTab.ranking.tiers.reliability.${qualityTierIndex(team.confiabilidade)}`)}
+                  />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <RankingTier
+                    testId={`ranking-pit-crew-tier-${team.id}`}
+                    tier={qualityTierIndex(team.pit_crew_quality)}
+                    label={t(`myTeamTab.ranking.tiers.pitCrew.${qualityTierIndex(team.pit_crew_quality)}`)}
+                  />
+                </td>
                 <td className="px-4 py-3 font-mono text-text-primary">{team.pontos ?? 0}</td>
               </tr>
             ))}
@@ -736,6 +778,20 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
         </table>
       </div>
     </GlassCard>
+  );
+}
+
+function RankingTier({ testId, tier, label }) {
+  const color = RANKING_TIER_COLORS[tier] ?? RANKING_TIER_COLORS[0];
+  return (
+    <span data-testid={testId} className="inline-flex items-center gap-2 text-xs font-semibold" style={{ color }}>
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}80` }}
+      />
+      {label}
+    </span>
   );
 }
 
@@ -795,6 +851,7 @@ function TeamNavigatorButton({ label, direction, disabled, onClick }) {
 }
 
 function TeamHistoryEdgeNavigator({ previousTeam, nextTeam, onSelectTeam, placement = "right" }) {
+  const { t } = useTranslation();
   return (
     <div
       className={[
@@ -810,13 +867,13 @@ function TeamHistoryEdgeNavigator({ previousTeam, nextTeam, onSelectTeam, placem
       }
     >
       <TeamNavigatorButton
-        label="Equipe anterior"
+        label={t("myTeamTab.history.nav.previous")}
         direction="up"
         disabled={!previousTeam}
         onClick={() => previousTeam && onSelectTeam(previousTeam)}
       />
       <TeamNavigatorButton
-        label="Próxima equipe"
+        label={t("myTeamTab.history.nav.next")}
         direction="down"
         disabled={!nextTeam}
         onClick={() => nextTeam && onSelectTeam(nextTeam)}
@@ -837,6 +894,7 @@ export function TeamHistoryDrawer({
   onClose,
   placement = "right",
 }) {
+  const { t } = useTranslation();
   const [historyDossier, setHistoryDossier] = useState(null);
   const [historyStatus, setHistoryStatus] = useState("loading");
   const [historyError, setHistoryError] = useState("");
@@ -860,7 +918,7 @@ export function TeamHistoryDrawer({
     let mounted = true;
     if (!careerId || !team?.id) {
       setHistoryStatus("error");
-      setHistoryError("Histórico real indisponível.");
+      setHistoryError(i18n.t("myTeamTab.history.unavailable"));
       return undefined;
     }
 
@@ -879,7 +937,7 @@ export function TeamHistoryDrawer({
       })
       .catch((invokeError) => {
         if (!mounted) return;
-        setHistoryError(typeof invokeError === "string" ? invokeError : "Não foi possível carregar o histórico real da equipe.");
+        setHistoryError(typeof invokeError === "string" ? invokeError : i18n.t("myTeamTab.history.loadError"));
         setHistoryStatus("error");
       });
 
@@ -892,7 +950,7 @@ export function TeamHistoryDrawer({
     <div className="fixed inset-0 z-[90] flex items-center justify-center" data-testid="team-history-layer" aria-hidden={false}>
       <button
         type="button"
-        aria-label="Fechar histórico da equipe"
+        aria-label={t("myTeamTab.history.closeAria")}
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-[3px]"
       />
@@ -926,7 +984,7 @@ export function TeamHistoryDrawer({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fechar"
+          aria-label={t("myTeamTab.history.close")}
           className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-white/15 bg-[#0d1727] text-text-secondary transition-glass hover:bg-[#14233a] hover:text-text-primary"
         >
           x
@@ -951,7 +1009,7 @@ export function TeamHistoryDrawer({
                   </span>
                   {dossier.founded ? (
                     <span className="rounded-full border border-white/15 bg-[#08111f] px-3 py-1 text-xs text-text-primary">
-                      Fundada em {dossier.founded}
+                      {t("myTeamTab.history.foundedIn", { year: dossier.founded })}
                     </span>
                   ) : null}
                 </div>
@@ -959,7 +1017,7 @@ export function TeamHistoryDrawer({
             </div>
           </section>
 
-          <div role="tablist" aria-label="Abas do arquivo compacto" className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div role="tablist" aria-label={t("myTeamTab.history.tablistAria")} className="mt-4 flex gap-2 overflow-x-auto pb-1">
             {TEAM_HISTORY_TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -973,7 +1031,7 @@ export function TeamHistoryDrawer({
                     : "border-white/12 bg-[#0b1524] text-text-secondary hover:border-white/20 hover:bg-[#111d31] hover:text-text-primary"
                 }`}
               >
-                {tab.label}
+                {t(`myTeamTab.history.tabs.${tab.id}`)}
               </button>
             ))}
           </div>
@@ -994,11 +1052,12 @@ export function TeamHistoryDrawer({
 }
 
 function TeamHistoryRecords({ dossier }) {
+  const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Records históricos</h3>
+      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">{t("myTeamTab.history.records.title")}</h3>
       <p className="mt-2 rounded-2xl border border-white/12 bg-[#08111f]/95 px-4 py-3 text-xs leading-5 text-text-secondary">
-        Comparativo em <strong className="text-text-primary">{dossier.recordScope}</strong>. Grupos equivalentes entram juntos para evitar comparar carros de mundos diferentes.
+        {t("myTeamTab.history.records.compareIntro")}<strong className="text-text-primary">{dossier.recordScope}</strong>{t("myTeamTab.history.records.compareOutro")}
       </p>
       {dossier.historyStatus !== "ready" ? (
         <HistoryStateMessage dossier={dossier} />
@@ -1026,7 +1085,7 @@ function TeamHistoryRecords({ dossier }) {
       )}
       {dossier.milestones?.length > 0 && (
         <div className="mt-4">
-          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">Marcos da história</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">{t("myTeamTab.history.records.milestones")}</span>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {dossier.milestones.map((milestone) => (
               <div key={milestone.label} className="rounded-[14px] border border-white/12 bg-[#0c1626]/95 px-3 py-2.5 text-center">
@@ -1039,7 +1098,7 @@ function TeamHistoryRecords({ dossier }) {
       )}
       {dossier.titleCategories?.length > 0 && (
         <div className="mt-4">
-          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">Galeria de títulos</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">{t("myTeamTab.history.records.titleGallery")}</span>
           <div className="mt-3 grid gap-2">
             {dossier.titleCategories.map((item) => (
               <div key={`${item.category}-${item.year}`} className="rounded-2xl border border-l-4 border-white/12 bg-[#0c1626]/95 px-4 py-3" style={{ borderLeftColor: item.color }}>
@@ -1057,27 +1116,28 @@ function TeamHistoryRecords({ dossier }) {
 }
 
 function TeamHistorySport({ dossier }) {
+  const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Resumo esportivo</h3>
+      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">{t("myTeamTab.history.sport.title")}</h3>
       {dossier.historyStatus !== "ready" ? (
         <HistoryStateMessage dossier={dossier} />
       ) : null}
       <div className="mt-4 grid gap-3">
-        <HistoryInfoCard label="Temporadas disputadas" value={dossier.sport.seasons} detail={`Dentro de ${dossier.recordScope}.`} />
-        <HistoryInfoCard label="Sequência atual" value={dossier.sport.currentStreak} />
-        <HistoryInfoCard label="Melhor sequência" value={dossier.sport.bestStreak} />
+        <HistoryInfoCard label={t("myTeamTab.history.sport.seasonsPlayed")} value={dossier.sport.seasons} detail={t("myTeamTab.history.sport.withinScope", { scope: dossier.recordScope })} />
+        <HistoryInfoCard label={t("myTeamTab.history.sport.currentStreak")} value={dossier.sport.currentStreak} />
+        <HistoryInfoCard label={t("myTeamTab.history.sport.bestStreak")} value={dossier.sport.bestStreak} />
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <HistoryMiniMetric label="Taxa de pódio" value={dossier.sport.podiumRate} />
-        <HistoryMiniMetric label="Taxa de vitória" value={dossier.sport.winRate} />
+        <HistoryMiniMetric label={t("myTeamTab.history.sport.podiumRate")} value={dossier.sport.podiumRate} />
+        <HistoryMiniMetric label={t("myTeamTab.history.sport.winRate")} value={dossier.sport.winRate} />
       </div>
       {dossier.seasonResults?.length > 0 && (
         <div className="mt-5">
-          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Temporada a temporada</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.sport.seasonBySeason")}</span>
           <div className="mt-3 overflow-hidden rounded-[18px] border border-white/10 bg-[#08111f]/95">
             <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-x-3 border-b border-white/10 px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-text-muted">
-              <span>Ano</span><span>Categoria</span><span className="text-right">Pos</span><span className="text-right">V</span><span className="text-right">P</span><span className="text-right">Pts</span>
+              <span>{t("myTeamTab.history.sport.cols.year")}</span><span>{t("myTeamTab.history.sport.cols.category")}</span><span className="text-right">{t("myTeamTab.history.sport.cols.pos")}</span><span className="text-right">{t("myTeamTab.history.sport.cols.wins")}</span><span className="text-right">{t("myTeamTab.history.sport.cols.podiums")}</span><span className="text-right">{t("myTeamTab.history.sport.cols.points")}</span>
             </div>
             {dossier.seasonResults.map((season) => (
               <div key={season.year} className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-x-3 border-b border-white/6 px-4 py-2 text-xs last:border-0">
@@ -1100,7 +1160,7 @@ function TeamHistorySport({ dossier }) {
 function HistoryStateMessage({ dossier }) {
   const message = dossier.historyStatus === "error"
     ? dossier.historyError
-    : "Carregando histórico real da equipe...";
+    : i18n.t("myTeamTab.history.loading");
   return (
     <div className="mt-4 rounded-2xl border border-white/10 bg-[#08111f]/95 px-4 py-3 text-xs text-text-secondary">
       {message}
@@ -1109,37 +1169,38 @@ function HistoryStateMessage({ dossier }) {
 }
 
 function TeamHistoryIdentity({ dossier }) {
+  const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Identidade da equipe</h3>
+      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">{t("myTeamTab.history.identity.title")}</h3>
       <div className="mt-4 grid gap-3">
         <div className="rounded-[22px] border border-[color-mix(in_srgb,var(--team)_38%,transparent)] bg-[#0c1626] bg-[radial-gradient(circle_at_10%_8%,color-mix(in_srgb,var(--team)_20%,transparent),transparent_12rem),linear-gradient(145deg,rgba(14,26,44,0.96),rgba(7,16,29,0.99))] p-4">
-          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Perfil histórico</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.identity.profileLabel")}</span>
           <strong className="mt-2 block text-2xl font-semibold leading-none tracking-[-0.03em] text-text-primary">{dossier.identity.profile}</strong>
           <p className="mt-3 text-xs leading-5 text-text-secondary">{dossier.identity.summary}</p>
         </div>
         <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
-          <HistoryInfoCard label="Categoria de origem" value={dossier.identity.origin} detail="Onde a equipe construiu sua primeira base esportiva." />
+          <HistoryInfoCard label={t("myTeamTab.history.identity.originLabel")} value={dossier.identity.origin} detail={t("myTeamTab.history.identity.originDetail")} />
           <div className="hidden place-items-center font-mono font-black text-[color:var(--team)] md:grid">-&gt;</div>
-          <HistoryInfoCard label="Categoria atual" value={dossier.identity.current} detail="Contexto em que tenta consolidar reputação e legado." />
+          <HistoryInfoCard label={t("myTeamTab.history.identity.currentLabel")} value={dossier.identity.current} detail={t("myTeamTab.history.identity.currentDetail")} />
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-[18px] border border-status-yellow/30 bg-[#201a0b]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Maior rival histórico</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.identity.rivalLabel")}</span>
             <strong className="mt-2 block text-base font-semibold text-status-yellow">{dossier.identity.rival.name}</strong>
             <p className="mt-2 text-xs leading-5 text-text-secondary">
-              Hoje em {dossier.identity.rival.currentCategory}. {dossier.identity.rival.note}
+              {t("myTeamTab.history.identity.rivalToday", { category: dossier.identity.rival.currentCategory })} {dossier.identity.rival.note}
             </p>
           </div>
           <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--team)_35%,transparent)] bg-[#0c1626]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Piloto símbolo</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.identity.symbolLabel")}</span>
             <strong className="mt-2 block text-base font-semibold text-text-primary">{dossier.identity.symbolDriver}</strong>
             <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.identity.symbolDriverDetail}</p>
           </div>
         </div>
         {dossier.ownershipEvents?.length > 0 && (
           <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--team)_35%,transparent)] bg-[#0c1626]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Eras da equipe</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.identity.erasLabel")}</span>
             <ul className="mt-3 grid gap-2.5">
               {dossier.ownershipEvents.map((event, index) => (
                 <li key={index} className="flex items-start gap-3">
@@ -1159,38 +1220,39 @@ function TeamHistoryIdentity({ dossier }) {
 }
 
 function TeamHistoryManagement({ dossier }) {
+  const { t } = useTranslation();
   const operationTone = operationHealthTone(dossier.management.operationHealth);
 
   return (
     <section>
-      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Gestão e dinheiro</h3>
+      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">{t("myTeamTab.history.management.title")}</h3>
       <div className="mt-4 grid gap-3">
         <div className={`rounded-[22px] border p-4 ${operationTone.card}`}>
-          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Saúde da operação</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.management.operationHealth")}</span>
           <strong className={`mt-2 block text-2xl font-semibold ${operationTone.text}`}>{dossier.management.operationHealth}</strong>
           <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.management.summary}</p>
         </div>
         <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
           <div className="rounded-[18px] border border-status-green/30 bg-[#0b1d19]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Maior saldo histórico</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.management.peakCash")}</span>
             <strong className="mt-2 block font-mono text-base text-status-green">{dossier.management.peakCash}</strong>
             <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.management.peakCashDetail}</p>
           </div>
           <div className="hidden place-items-center font-mono font-black text-text-muted md:grid">&lt;&gt;</div>
           <div className="rounded-[18px] border border-status-red/30 bg-[#241014]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Pior crise financeira</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.management.worstCrisis")}</span>
             <strong className="mt-2 block font-mono text-base text-status-red">{dossier.management.worstCrisis}</strong>
             <p className="mt-2 text-xs leading-5 text-text-secondary">{dossier.management.worstCrisisDetail}</p>
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <HistoryInfoCard label="Temporadas saudáveis" value={dossier.management.healthyYears} detail={dossier.management.healthyYearsDetail} />
-          <HistoryInfoCard label="Saldo recorde" value={dossier.management.peakCash} detail="Melhor folga já registrada pela operação." />
+          <HistoryInfoCard label={t("myTeamTab.history.management.healthyYears")} value={dossier.management.healthyYears} detail={dossier.management.healthyYearsDetail} />
+          <HistoryInfoCard label={t("myTeamTab.history.management.recordBalance")} value={dossier.management.peakCash} detail={t("myTeamTab.history.management.recordBalanceDetail")} />
         </div>
-        <HistoryInfoCard label="Maior investimento técnico" value={dossier.management.biggestInvestment} detail={dossier.management.investmentDetail} />
+        <HistoryInfoCard label={t("myTeamTab.history.management.biggestInvestment")} value={dossier.management.biggestInvestment} detail={dossier.management.investmentDetail} />
         {dossier.ownershipEvents?.length > 0 && (
           <div className="rounded-[18px] border border-status-yellow/30 bg-[#201a0b]/95 p-4">
-            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">Mudanças de diretoria</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.management.boardChanges")}</span>
             <ul className="mt-3 grid gap-2.5">
               {dossier.ownershipEvents.map((event, index) => (
                 <li key={index} className="flex items-start gap-3">
@@ -1210,19 +1272,20 @@ function TeamHistoryManagement({ dossier }) {
 }
 
 function TeamHistoryCategories({ dossier }) {
+  const { t } = useTranslation();
   return (
     <section>
-      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">Movimento por categorias</h3>
+      <h3 className="text-[11px] uppercase tracking-[0.2em] text-accent-primary">{t("myTeamTab.history.categories.title")}</h3>
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <HistoryMiniMetric label="Promoções" value={dossier.movement.promotions} />
-        <HistoryMiniMetric label="Rebaixamentos" value={dossier.movement.relegations} />
+        <HistoryMiniMetric label={t("myTeamTab.history.categories.promotions")} value={dossier.movement.promotions} />
+        <HistoryMiniMetric label={t("myTeamTab.history.categories.relegations")} value={dossier.movement.relegations} />
       </div>
       <div className="mt-4 grid gap-3">
-        <HistoryInfoCard label="Tempo por categoria" value={dossier.movement.timeByCategory} />
-        <HistoryInfoCard label="Melhor categoria" value={dossier.movement.bestCategory} />
-        <HistoryInfoCard label="Categoria mais dificil" value={dossier.movement.hardestCategory} />
+        <HistoryInfoCard label={t("myTeamTab.history.categories.timeByCategory")} value={dossier.movement.timeByCategory} />
+        <HistoryInfoCard label={t("myTeamTab.history.categories.bestCategory")} value={dossier.movement.bestCategory} />
+        <HistoryInfoCard label={t("myTeamTab.history.categories.hardestCategory")} value={dossier.movement.hardestCategory} />
       </div>
-      <span className="mt-5 block text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">A escada da equipe</span>
+      <span className="mt-5 block text-[9px] font-black uppercase tracking-[0.17em] text-text-muted">{t("myTeamTab.history.categories.ladder")}</span>
       <div className="mt-3 grid gap-2.5">
         {dossier.categoryPath.map((step, index) => {
           const move = categoryMovementBadge(step.movement);
@@ -1247,13 +1310,13 @@ function TeamHistoryCategories({ dossier }) {
 function categoryMovementBadge(movement) {
   switch (movement) {
     case "promotion":
-      return { icon: "▲", tone: "text-status-green", label: "Promoção" };
+      return { icon: "▲", tone: "text-status-green", label: i18n.t("myTeamTab.history.categories.movement.promotion") };
     case "relegation":
-      return { icon: "▼", tone: "text-status-red", label: "Rebaixamento" };
+      return { icon: "▼", tone: "text-status-red", label: i18n.t("myTeamTab.history.categories.movement.relegation") };
     case "start":
-      return { icon: "●", tone: "text-[color:var(--team)]", label: "Estreia" };
+      return { icon: "●", tone: "text-[color:var(--team)]", label: i18n.t("myTeamTab.history.categories.movement.start") };
     default:
-      return { icon: "—", tone: "text-text-muted", label: "Manteve o nível" };
+      return { icon: "—", tone: "text-text-muted", label: i18n.t("myTeamTab.history.categories.movement.same") };
   }
 }
 
@@ -1279,9 +1342,10 @@ function HistoryMiniMetric({ label, value }) {
 }
 
 function TimelineBlock({ items }) {
+  const { t } = useTranslation();
   return (
     <div className="mt-5 rounded-[22px] border border-white/12 bg-[#0c1626]/95 p-4">
-      <h4 className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Momentos-chave</h4>
+      <h4 className="text-[10px] uppercase tracking-[0.2em] text-text-muted">{t("myTeamTab.history.timeline.title")}</h4>
       <div className="mt-4 space-y-3">
         {items.map((item) => (
           <div key={item.year} className="grid grid-cols-[52px_1fr] gap-3 border-b border-white/6 pb-3 last:border-0 last:pb-0">
@@ -1307,6 +1371,7 @@ function sortRankingRows(rows, sort) {
 
 function rankingSortValue(team, key) {
   if (key === "nome") return team.nome ?? "";
+  if (key === "car_level") return team.car_level ?? carLevel(team.car_performance);
   return team?.[key] ?? 0;
 }
 
@@ -1318,7 +1383,7 @@ function compareRankingValues(a, b) {
 }
 
 function defaultSortDirection(key) {
-  return ["cash_balance", "car_performance", "pontos"].includes(key) ? "desc" : "asc";
+  return ["cash_balance", "car_level", "confiabilidade", "pit_crew_quality", "pontos"].includes(key) ? "desc" : "asc";
 }
 
 function orderTeamsForHistoryNavigation(teams) {
@@ -1353,7 +1418,7 @@ function buildTeamHistoryDossier(
   // tem dados), mostramos "—"/estado honesto — nunca um número inventado. O histórico
   // real (get_team_history_dossier) substitui tudo isto quando pronto.
   return {
-    name: mergedTeam?.nome ?? "Equipe",
+    name: mergedTeam?.nome ?? i18n.t("myTeamTab.team.fallbackName"),
     color: mergedTeam?.cor_primaria ?? "#58a6ff",
     state: realHistory?.identity?.heritage ?? teamHeritageLabel(founded),
     founded,
@@ -1366,27 +1431,27 @@ function buildTeamHistoryDossier(
     titleCategories: realHistory?.titleCategories ?? [],
     sport: realHistory?.sport ?? emptyRealSport(),
     identity: realHistory?.identity ?? {
-      origin: "—",
+      origin: i18n.t("myTeamTab.history.defaults.dash"),
       current: categoryName,
-      profile: "Perfil em formação",
-      summary: "Histórico real ainda insuficiente para formar a identidade da equipe.",
+      profile: i18n.t("myTeamTab.history.defaults.profileForming"),
+      summary: i18n.t("myTeamTab.history.defaults.identityFormingSummary"),
       rival: {
-        name: rival?.nome ?? "Sem rival consolidado",
+        name: rival?.nome ?? i18n.t("myTeamTab.history.defaults.noRival"),
         currentCategory: categoryName,
         note: rival
-          ? `Adversário mais próximo em pontos dentro do ${categoryGroup}.`
-          : "Histórico ainda sem confronto forte o bastante para formar rivalidade.",
+          ? i18n.t("myTeamTab.history.defaults.rivalClosest", { group: categoryGroup })
+          : i18n.t("myTeamTab.history.defaults.rivalNoDuel"),
       },
-      symbolDriver: mergedTeam?.piloto_1_nome ?? "Piloto principal",
-      symbolDriverDetail: "Nome mais associado ao momento competitivo recente da escuderia.",
+      symbolDriver: mergedTeam?.piloto_1_nome ?? i18n.t("myTeamTab.history.defaults.mainDriver"),
+      symbolDriverDetail: i18n.t("myTeamTab.history.defaults.symbolDriverDetail"),
     },
     management: realHistory?.management ?? emptyRealManagement(mergedTeam),
     movement: realHistory?.movement ?? {
-      promotions: "—",
-      relegations: "—",
-      timeByCategory: "Indisponível",
+      promotions: i18n.t("myTeamTab.history.defaults.dash"),
+      relegations: i18n.t("myTeamTab.history.defaults.dash"),
+      timeByCategory: i18n.t("myTeamTab.history.defaults.unavailable"),
       bestCategory: categoryName,
-      hardestCategory: "—",
+      hardestCategory: i18n.t("myTeamTab.history.defaults.dash"),
     },
     categoryPath: realHistory?.categoryPath ?? [],
     timeline: realHistory?.timeline ?? [],
@@ -1404,7 +1469,7 @@ function normalizeTeamHistoryPayload(payload) {
   const rival = identity.rival ?? {};
   const management = payload.management ?? {};
   return {
-    recordScope: payload.record_scope ?? payload.recordScope ?? "Grupo da categoria",
+    recordScope: payload.record_scope ?? payload.recordScope ?? i18n.t("myTeamTab.history.defaults.recordScope"),
     hasHistory: Boolean(payload.has_history ?? payload.hasHistory),
     records: (payload.records ?? []).map((record) => ({
       label: record.label,
@@ -1412,9 +1477,9 @@ function normalizeTeamHistoryPayload(payload) {
       value: String(record.value),
     })),
     sport: {
-      seasons: sport.seasons ?? "Sem temporadas registradas",
-      currentStreak: sport.current_streak ?? sport.currentStreak ?? "Sem sequência registrada",
-      bestStreak: sport.best_streak ?? sport.bestStreak ?? "Sem sequência registrada",
+      seasons: sport.seasons ?? i18n.t("myTeamTab.history.defaults.noSeasons"),
+      currentStreak: sport.current_streak ?? sport.currentStreak ?? i18n.t("myTeamTab.history.defaults.noStreak"),
+      bestStreak: sport.best_streak ?? sport.bestStreak ?? i18n.t("myTeamTab.history.defaults.noStreak"),
       podiumRate: sport.podium_rate ?? sport.podiumRate ?? "0%",
       winRate: sport.win_rate ?? sport.winRate ?? "0%",
       races: sport.races ?? 0,
@@ -1435,14 +1500,14 @@ function normalizeTeamHistoryPayload(payload) {
           promotions: payload.movement.promotions ?? 0,
           relegations: payload.movement.relegations ?? 0,
           timeByCategory: payload.movement.time_by_category ?? payload.movement.timeByCategory ?? "",
-          bestCategory: payload.movement.best_category ?? payload.movement.bestCategory ?? "—",
-          hardestCategory: payload.movement.hardest_category ?? payload.movement.hardestCategory ?? "—",
+          bestCategory: payload.movement.best_category ?? payload.movement.bestCategory ?? i18n.t("myTeamTab.history.defaults.dash"),
+          hardestCategory: payload.movement.hardest_category ?? payload.movement.hardestCategory ?? i18n.t("myTeamTab.history.defaults.dash"),
         }
       : null,
     ownershipEvents: (payload.ownership_events ?? payload.ownershipEvents ?? []).map((event) => ({
       year: String(event.year ?? ""),
       eventType: event.event_type ?? event.eventType ?? "sale",
-      title: event.title ?? "Nova diretoria",
+      title: event.title ?? i18n.t("myTeamTab.history.defaults.newBoard"),
       detail: event.detail ?? "",
       financialNote: event.financial_note ?? event.financialNote ?? "",
     })),
@@ -1464,32 +1529,32 @@ function normalizeTeamHistoryPayload(payload) {
       points: String(item.points ?? "0"),
     })),
     identity: {
-      origin: identity.origin ?? "Sem origem registrada",
-      current: identity.current ?? "Sem categoria atual",
+      origin: identity.origin ?? i18n.t("myTeamTab.history.defaults.noOrigin"),
+      current: identity.current ?? i18n.t("myTeamTab.history.defaults.noCurrentCategory"),
       heritage: identity.heritage ?? null,
-      profile: identity.profile ?? "Perfil em formação",
-      summary: identity.summary ?? "Histórico real insuficiente para formar identidade.",
+      profile: identity.profile ?? i18n.t("myTeamTab.history.defaults.profileForming"),
+      summary: identity.summary ?? i18n.t("myTeamTab.history.defaults.identityInsufficient"),
       rival: {
-        name: rival.name ?? "Sem rival consolidado",
-        currentCategory: rival.current_category ?? rival.currentCategory ?? "Sem categoria atual",
-        note: rival.note ?? "Histórico real ainda sem rivalidade consolidada.",
+        name: rival.name ?? i18n.t("myTeamTab.history.defaults.noRival"),
+        currentCategory: rival.current_category ?? rival.currentCategory ?? i18n.t("myTeamTab.history.defaults.noCurrentCategory"),
+        note: rival.note ?? i18n.t("myTeamTab.history.defaults.noRivalry"),
       },
-      symbolDriver: identity.symbol_driver ?? identity.symbolDriver ?? "Sem piloto símbolo",
-      symbolDriverDetail: identity.symbol_driver_detail ?? identity.symbolDriverDetail ?? "Sem resultados suficientes.",
+      symbolDriver: identity.symbol_driver ?? identity.symbolDriver ?? i18n.t("myTeamTab.history.defaults.noSymbolDriver"),
+      symbolDriverDetail: identity.symbol_driver_detail ?? identity.symbolDriverDetail ?? i18n.t("myTeamTab.history.defaults.insufficientResults"),
     },
     management: {
-      operationHealth: management.operation_health ?? management.operationHealth ?? "Monitorada",
-      peakCash: management.peak_cash ?? management.peakCash ?? "Sem saldo registrado",
-      worstCrisis: management.worst_crisis ?? management.worstCrisis ?? "Sem crise registrada",
-      healthyYears: management.healthy_years ?? management.healthyYears ?? "Sem temporadas registradas",
-      efficiency: management.efficiency ?? "0 pts/temporada",
-      biggestInvestment: management.biggest_investment ?? management.biggestInvestment ?? "Sem investimento registrado",
-      summary: management.summary ?? "Gestão real ainda sem leitura consolidada.",
-      peakCashDetail: management.peak_cash_detail ?? management.peakCashDetail ?? "Sem detalhe de saldo registrado.",
-      worstCrisisDetail: management.worst_crisis_detail ?? management.worstCrisisDetail ?? "Sem detalhe de crise registrado.",
-      healthyYearsDetail: management.healthy_years_detail ?? management.healthyYearsDetail ?? "Sem detalhe de saúde financeira registrado.",
-      efficiencyDetail: management.efficiency_detail ?? management.efficiencyDetail ?? "Sem detalhe de eficiência registrado.",
-      investmentDetail: management.investment_detail ?? management.investmentDetail ?? "Sem detalhe de investimento registrado.",
+      operationHealth: management.operation_health ?? management.operationHealth ?? i18n.t("myTeamTab.history.defaults.monitored"),
+      peakCash: management.peak_cash ?? management.peakCash ?? i18n.t("myTeamTab.history.defaults.noBalance"),
+      worstCrisis: management.worst_crisis ?? management.worstCrisis ?? i18n.t("myTeamTab.history.defaults.noCrisis"),
+      healthyYears: management.healthy_years ?? management.healthyYears ?? i18n.t("myTeamTab.history.defaults.noSeasons"),
+      efficiency: management.efficiency ?? i18n.t("myTeamTab.history.defaults.efficiencyZero"),
+      biggestInvestment: management.biggest_investment ?? management.biggestInvestment ?? i18n.t("myTeamTab.history.defaults.noInvestment"),
+      summary: management.summary ?? i18n.t("myTeamTab.history.defaults.managementUnread"),
+      peakCashDetail: management.peak_cash_detail ?? management.peakCashDetail ?? i18n.t("myTeamTab.history.defaults.noBalanceDetail"),
+      worstCrisisDetail: management.worst_crisis_detail ?? management.worstCrisisDetail ?? i18n.t("myTeamTab.history.defaults.noCrisisDetail"),
+      healthyYearsDetail: management.healthy_years_detail ?? management.healthyYearsDetail ?? i18n.t("myTeamTab.history.defaults.noHealthDetail"),
+      efficiencyDetail: management.efficiency_detail ?? management.efficiencyDetail ?? i18n.t("myTeamTab.history.defaults.noEfficiencyDetail"),
+      investmentDetail: management.investment_detail ?? management.investmentDetail ?? i18n.t("myTeamTab.history.defaults.noInvestmentDetail"),
     },
   };
 }
@@ -1505,16 +1570,16 @@ function resolveTeamFoundedYear(team) {
 }
 
 function teamHeritageLabel(founded) {
-  if (!founded) return "Equipe";
-  if (founded <= 1970) return "Equipe histórica";
-  return "Projeto consolidado";
+  if (!founded) return i18n.t("myTeamTab.history.heritage.team");
+  if (founded <= 1970) return i18n.t("myTeamTab.history.heritage.historic");
+  return i18n.t("myTeamTab.history.heritage.consolidated");
 }
 
 function emptyRealSport() {
   return {
-    seasons: "Carregando histórico real",
-    currentStreak: "Carregando histórico real",
-    bestStreak: "Carregando histórico real",
+    seasons: i18n.t("myTeamTab.history.defaults.loadingReal"),
+    currentStreak: i18n.t("myTeamTab.history.defaults.loadingReal"),
+    bestStreak: i18n.t("myTeamTab.history.defaults.loadingReal"),
     podiumRate: "0%",
     winRate: "0%",
     races: 0,
@@ -1529,17 +1594,17 @@ function emptyRealManagement(team) {
   const debt = team?.debt_balance ?? 0;
   return {
     operationHealth: financialState(team?.financial_state),
-    peakCash: "—",
-    worstCrisis: debt > 0 ? `${formatMoney(debt)} de dívida atual` : "Sem dívida relevante",
-    healthyYears: "—",
-    efficiency: "—",
-    biggestInvestment: "—",
-    summary: "Histórico de gestão real ainda não consolidado.",
-    peakCashDetail: "Sem histórico de saldo registrado.",
-    worstCrisisDetail: debt > 0 ? "Passivo atual da operação." : "Operação sem crise financeira registrada.",
-    healthyYearsDetail: "Sem histórico registrado.",
-    efficiencyDetail: "Sem histórico registrado.",
-    investmentDetail: "Sem histórico registrado.",
+    peakCash: i18n.t("myTeamTab.history.defaults.dash"),
+    worstCrisis: debt > 0 ? i18n.t("myTeamTab.history.defaults.currentDebt", { value: formatMoney(debt) }) : i18n.t("myTeamTab.history.defaults.noRelevantDebt"),
+    healthyYears: i18n.t("myTeamTab.history.defaults.dash"),
+    efficiency: i18n.t("myTeamTab.history.defaults.dash"),
+    biggestInvestment: i18n.t("myTeamTab.history.defaults.dash"),
+    summary: i18n.t("myTeamTab.history.defaults.managementUnconsolidated"),
+    peakCashDetail: i18n.t("myTeamTab.history.defaults.noBalanceHistoryDetail"),
+    worstCrisisDetail: debt > 0 ? i18n.t("myTeamTab.history.defaults.currentLiability") : i18n.t("myTeamTab.history.defaults.noCrisisRegistered"),
+    healthyYearsDetail: i18n.t("myTeamTab.history.defaults.noHistoryRegistered"),
+    efficiencyDetail: i18n.t("myTeamTab.history.defaults.noHistoryRegistered"),
+    investmentDetail: i18n.t("myTeamTab.history.defaults.noHistoryRegistered"),
   };
 }
 
@@ -1550,14 +1615,14 @@ function findHistoricRival(team, teams) {
 }
 
 function categoryGroupLabel(category) {
-  if (category?.includes("mazda")) return "Grupo Mazda";
-  if (category?.includes("toyota")) return "Grupo Toyota";
-  if (category === "bmw_m2") return "Grupo BMW";
-  if (category === "gt4") return "Grupo GT4";
-  if (category === "gt3") return "Grupo GT3";
-  if (category === "lmp2") return "Grupo LMP2";
-  if (category === "endurance") return "Grupo Endurance";
-  return "Grupo da categoria";
+  if (category?.includes("mazda")) return i18n.t("myTeamTab.history.groups.mazda");
+  if (category?.includes("toyota")) return i18n.t("myTeamTab.history.groups.toyota");
+  if (category === "bmw_m2") return i18n.t("myTeamTab.history.groups.bmw");
+  if (category === "gt4") return i18n.t("myTeamTab.history.groups.gt4");
+  if (category === "gt3") return i18n.t("myTeamTab.history.groups.gt3");
+  if (category === "lmp2") return i18n.t("myTeamTab.history.groups.lmp2");
+  if (category === "endurance") return i18n.t("myTeamTab.history.groups.endurance");
+  return i18n.t("myTeamTab.history.groups.default");
 }
 
 function MetricBar({ label, value, rawValue }) {
@@ -1586,7 +1651,7 @@ function buildDriverRow(role, driver, team, playerId) {
     role,
     name: driver?.nome ?? fallbackName ?? "-",
     nationality: driver?.nacionalidade ?? "",
-    nationalityLabel: extractNationalityLabel(driver?.nacionalidade) || driver?.nacionalidade || "Piloto ainda sem dados detalhados",
+    nationalityLabel: extractNationalityLabel(driver?.nacionalidade) || driver?.nacionalidade || i18n.t("myTeamTab.drivers.noDriverData"),
     salary,
     highlight: driver?.id === playerId || fallbackId === playerId,
   };
@@ -1595,23 +1660,23 @@ function buildDriverRow(role, driver, team, playerId) {
 function technicalMetrics(team, axis) {
   if (axis === "reliability") {
     return [
-      { label: "Confiabilidade", value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
-      { label: "Pressao financeira", value: 100 - clamp(team?.budget_index ?? team?.budget ?? 0, 0, 100), rawValue: financialState(team?.financial_state) },
-      { label: "Risco operacional", value: team?.pit_strategy_risk ?? 0, rawValue: pitRisk(team?.pit_strategy_risk ?? 0) },
+      { label: i18n.t("myTeamTab.tech.metrics.reliability"), value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
+      { label: i18n.t("myTeamTab.tech.metrics.financialPressure"), value: 100 - clamp(team?.budget_index ?? team?.budget ?? 0, 0, 100), rawValue: financialState(team?.financial_state) },
+      { label: i18n.t("myTeamTab.tech.metrics.operationalRisk"), value: team?.pit_strategy_risk ?? 0, rawValue: pitRisk(team?.pit_strategy_risk ?? 0) },
     ];
   }
   if (axis === "pit") {
     return [
-      { label: "Qualidade do pit crew", value: team?.pit_crew_quality ?? 0, rawValue: pitCrew(team?.pit_crew_quality ?? 0) },
-      { label: "Risco de pit strategy", value: team?.pit_strategy_risk ?? 0, rawValue: pitRisk(team?.pit_strategy_risk ?? 0) },
-      { label: "Consistencia geral", value: ((team?.pit_crew_quality ?? 0) + (team?.confiabilidade ?? 0)) / 2, rawValue: "Pit + confiabilidade" },
+      { label: i18n.t("myTeamTab.tech.metrics.pitCrewQuality"), value: team?.pit_crew_quality ?? 0, rawValue: pitCrew(team?.pit_crew_quality ?? 0) },
+      { label: i18n.t("myTeamTab.tech.metrics.pitStrategyRisk"), value: team?.pit_strategy_risk ?? 0, rawValue: pitRisk(team?.pit_strategy_risk ?? 0) },
+      { label: i18n.t("myTeamTab.tech.metrics.overallConsistency"), value: ((team?.pit_crew_quality ?? 0) + (team?.confiabilidade ?? 0)) / 2, rawValue: i18n.t("myTeamTab.tech.raw.pitReliability") },
     ];
   }
   const level = team?.car_level ?? carLevel(team?.car_performance);
   return [
-    { label: "Pacote do carro", value: (level / 10) * 100, rawValue: `Nível ${level}/10` },
-    { label: "Desempenho na pista", value: normalizeCar(team?.car_performance ?? 0), rawValue: `${Math.round(normalizeCar(team?.car_performance ?? 0))}/100` },
-    { label: "Confiabilidade", value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
+    { label: i18n.t("myTeamTab.tech.metrics.carPackage"), value: (level / 10) * 100, rawValue: i18n.t("myTeamTab.tech.raw.carLevel", { level }) },
+    { label: i18n.t("myTeamTab.tech.metrics.trackPerformance"), value: normalizeCar(team?.car_performance ?? 0), rawValue: `${Math.round(normalizeCar(team?.car_performance ?? 0))}/100` },
+    { label: i18n.t("myTeamTab.tech.metrics.reliability"), value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
   ];
 }
 
@@ -1620,7 +1685,7 @@ function technicalMetrics(team, axis) {
 function ledgerRows(round, lines) {
   if (!round) return [];
   return lines
-    .map((line) => ({ label: line.label, value: Math.max(0, round[line.key] ?? 0) }))
+    .map((line) => ({ key: line.key, value: Math.max(0, round[line.key] ?? 0) }))
     .filter((row) => row.value >= 1);
 }
 
@@ -1657,8 +1722,21 @@ function carLevel(value) {
   return clamp(Math.round(value ?? 0), 1, 10);
 }
 
+function carTierIndex(value) {
+  return Math.min(4, Math.floor((clamp(Math.round(value ?? 1), 1, 10) - 1) / 2));
+}
+
+function qualityTierIndex(value) {
+  const normalized = clamp(Number(value) || 0, 0, 100);
+  if (normalized <= 20) return 0;
+  if (normalized <= 40) return 1;
+  if (normalized <= 60) return 2;
+  if (normalized <= 80) return 3;
+  return 4;
+}
+
 function formatOrdinal(value) {
-  return Number.isFinite(value) ? `${value}º` : "-";
+  return Number.isFinite(value) ? ordinal(value) : "-";
 }
 
 function moneyTone(value) {
@@ -1668,29 +1746,29 @@ function moneyTone(value) {
 function operationalRunway(cash, net) {
   if (net >= 0) {
     return {
-      value: "Estável",
-      caption: "Rodada positiva preserva o caixa",
+      value: i18n.t("myTeamTab.risk.runwayStable"),
+      caption: i18n.t("myTeamTab.risk.runwayStableCaption"),
       tone: "text-status-green",
     };
   }
 
   const rounds = Math.max(0, Math.floor(cash / Math.abs(net)));
   return {
-    value: `${rounds} rodadas`,
-    caption: "Estimativa no ritmo atual",
+    value: i18n.t("myTeamTab.risk.runwayRounds", { count: rounds }),
+    caption: i18n.t("myTeamTab.risk.runwayRoundsCaption"),
     tone: rounds >= 5 ? "text-text-primary" : "text-status-red",
   };
 }
 
 function financialState(state) {
   return {
-    elite: "Elite financeira",
-    healthy: "Saudável",
-    stable: "Estável",
-    pressured: "Pressionada",
-    crisis: "Em crise",
-    collapse: "Colapso",
-  }[state] ?? "Estável";
+    elite: i18n.t("myTeamTab.finance.states.elite"),
+    healthy: i18n.t("myTeamTab.finance.states.healthy"),
+    stable: i18n.t("myTeamTab.finance.states.stable"),
+    pressured: i18n.t("myTeamTab.finance.states.pressured"),
+    crisis: i18n.t("myTeamTab.finance.states.crisis"),
+    collapse: i18n.t("myTeamTab.finance.states.collapse"),
+  }[state] ?? i18n.t("myTeamTab.finance.states.stable");
 }
 
 function operationHealthTone(label) {
@@ -1731,28 +1809,28 @@ function financialStateTone(state) {
 
 function seasonStrategy(strategy) {
   return {
-    expansion: "Expansão",
-    balanced: "Equilíbrio",
-    austerity: "Austeridade",
-    all_in: "All-in",
-    survival: "Sobrevivência",
-  }[strategy] ?? "Equilíbrio";
+    expansion: i18n.t("myTeamTab.finance.strategies.expansion"),
+    balanced: i18n.t("myTeamTab.finance.strategies.balanced"),
+    austerity: i18n.t("myTeamTab.finance.strategies.austerity"),
+    all_in: i18n.t("myTeamTab.finance.strategies.all_in"),
+    survival: i18n.t("myTeamTab.finance.strategies.survival"),
+  }[strategy] ?? i18n.t("myTeamTab.finance.strategies.balanced");
 }
 
 function pitRisk(value) {
-  if (value <= 20) return "Ultra conservador";
-  if (value <= 40) return "Conservador";
-  if (value <= 55) return "Equilibrado";
-  if (value <= 75) return "Agressivo";
-  return "Oportunista";
+  if (value <= 20) return i18n.t("myTeamTab.tech.pitRisk.ultraConservative");
+  if (value <= 40) return i18n.t("myTeamTab.tech.pitRisk.conservative");
+  if (value <= 55) return i18n.t("myTeamTab.tech.pitRisk.balanced");
+  if (value <= 75) return i18n.t("myTeamTab.tech.pitRisk.aggressive");
+  return i18n.t("myTeamTab.tech.pitRisk.opportunist");
 }
 
 function pitCrew(value) {
-  if (value <= 20) return "Muito fraco";
-  if (value <= 40) return "Fraco";
-  if (value <= 60) return "Ok";
-  if (value <= 80) return "Forte";
-  return "Elite";
+  if (value <= 20) return i18n.t("myTeamTab.tech.pitCrew.veryWeak");
+  if (value <= 40) return i18n.t("myTeamTab.tech.pitCrew.weak");
+  if (value <= 60) return i18n.t("myTeamTab.tech.pitCrew.ok");
+  if (value <= 80) return i18n.t("myTeamTab.tech.pitCrew.strong");
+  return i18n.t("myTeamTab.tech.pitCrew.elite");
 }
 
 function formatPercent(value) {

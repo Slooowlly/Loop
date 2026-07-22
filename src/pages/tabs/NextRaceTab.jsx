@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
 import GlassButton from "../../components/ui/GlassButton";
 import GlassCard from "../../components/ui/GlassCard";
@@ -8,7 +9,9 @@ import TeamLogoMark from "../../components/team/TeamLogoMark";
 import RivalMarker from "../../components/driver/RivalMarker";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
 import WeatherButton from "../../components/race/WeatherButton";
+import BreakdownRiskButton from "../../components/race/BreakdownRiskButton";
 import useCareerStore from "../../stores/useCareerStore";
+import { useAttentionStore } from "../../stores/useAttentionStore";
 import { exportSuccess } from "../../utils/sfx";
 import { renderTextWithDriverMentions } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
@@ -16,8 +19,6 @@ import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import {
   buildBriefingContext,
   getFavoriteMedalTone,
-  riskColor,
-  riskLabel,
   formatAudience,
   getReadableTeamColor,
 } from "./nextRaceContext";
@@ -53,6 +54,7 @@ const PRE_RACE_READ_MS = 10000;
 const AI_PREVIEW_MAX_WAIT_MS = 8000;
 
 function NextRaceTab() {
+  const { t } = useTranslation();
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -78,6 +80,8 @@ function NextRaceTab() {
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(true);
   // Previsão de risco de quebra do carro (aviso pré-corrida — Peça 3 / Feature 1).
   const [breakdownForecast, setBreakdownForecast] = useState(null);
+  // IDs das EQUIPES com risco real de quebra na próxima corrida → 🔧 na tabela do campeonato.
+  const [breakdownRiskTeams, setBreakdownRiskTeams] = useState(() => new Set());
   const [briefingError, setBriefingError] = useState("");
   // Tabela do campeonato: alterna entre pilotos e construtores; hover destaca a dupla da equipe.
   const [standingsView, setStandingsView] = useState("pilotos");
@@ -117,6 +121,19 @@ function NextRaceTab() {
   const startCalendarAdvance = useCareerStore((state) => state.startCalendarAdvance);
   const isConvocating = useCareerStore((state) => state.isConvocating);
   const isEnteringPreseason = useCareerStore((state) => state.isEnteringPreseason);
+  // Glow de atenção dos cards (Clima, Risco de Quebra): pulsa até o jogador abrir
+  // o card NESTA corrida; depois cala. Reaparece sozinho na corrida seguinte.
+  // Assino a fatia específica de `seen` pra o card recalcular o glow assim que abre.
+  const markAttnSeen = useAttentionStore((state) => state.markSeen);
+  const raceId = nextRace?.id;
+  const weatherSeen = useAttentionStore(
+    (state) => !!raceId && !!state.seen[`${raceId}:weather`]
+  );
+  const breakdownSeen = useAttentionStore(
+    (state) => !!raceId && !!state.seen[`${raceId}:breakdown`]
+  );
+  const weatherGlow = weatherSeen ? "" : "attn-glow-delayed";
+  const breakdownGlow = breakdownSeen ? "" : "attn-glow-delayed";
   const phase = season?.fase;
   const isLegacyPhase = isLegacySeasonPhase(phase);
   const hasPendingRegularRaces =
@@ -195,7 +212,7 @@ function NextRaceTab() {
         setBriefingError(
           typeof invokeError === "string"
             ? invokeError
-            : invokeError?.toString?.() ?? "Não foi possível montar o briefing.",
+            : invokeError?.toString?.() ?? t("nextRaceTab.errors.buildBriefing"),
         );
       } finally {
         if (active) {
@@ -209,7 +226,12 @@ function NextRaceTab() {
     return () => {
       active = false;
     };
-  }, [careerId, nextRace, playerTeam?.categoria]);
+    // Dep em `nextRace?.id` (não no objeto): o store recria o objeto `nextRace` em
+    // atualizações não relacionadas, e depender do objeto refazia este fetch + resetava
+    // `isLoadingBriefing(true)` em loop → "Montando análise" preso. Alinha com os
+    // effects irmãos abaixo, que já usam `nextRace?.id`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [careerId, nextRace?.id, playerTeam?.categoria]);
 
   // Previsão de risco de quebra da próxima corrida (Monte Carlo sobre o desgaste real do carro).
   useEffect(() => {
@@ -218,6 +240,20 @@ function NextRaceTab() {
     invoke("get_breakdown_forecast", { careerId })
       .then((f) => {
         if (active) setBreakdownForecast(f && f.available ? f : null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [careerId, nextRace?.id]);
+
+  // Equipes com risco real de quebra na próxima corrida (marcador 🔧 na tabela do campeonato).
+  useEffect(() => {
+    let active = true;
+    if (!careerId) return undefined;
+    invoke("get_grid_breakdown_risk", { careerId })
+      .then((ids) => {
+        if (active) setBreakdownRiskTeams(new Set(Array.isArray(ids) ? ids : []));
       })
       .catch(() => {});
     return () => {
@@ -368,11 +404,15 @@ function NextRaceTab() {
       const res = await invoke("iracing_link_player_paint", { careerId, carKey });
       setShowPaintPrompt(false);
       setCanPickPaint(false); // vinculado → não aparece mais na Sala de Estratégia
-      setPaintToast(`🎨 Carro pintado na cor ${res?.color ?? "do time"} na sua garagem do iRacing.`);
+      setPaintToast(
+        t("nextRaceTab.paint.toastPainted", {
+          color: res?.color ?? t("nextRaceTab.paint.teamColorFallback"),
+        }),
+      );
       const timer = setTimeout(() => setPaintToast(""), 6000);
       toastTimers.current.push(timer);
     } catch (e) {
-      setPaintError(getDisplayError(e, "Não foi possível pegar a cor do carro."));
+      setPaintError(getDisplayError(e, t("nextRaceTab.errors.grabPaint")));
     } finally {
       setPaintBusy(false);
     }
@@ -484,7 +524,7 @@ function NextRaceTab() {
     try {
       await simulateRace();
     } catch (invokeError) {
-      setError(getDisplayError(invokeError, "Não foi possível simular a corrida."));
+      setError(getDisplayError(invokeError, t("nextRaceTab.errors.simulate")));
     }
   }
 
@@ -521,7 +561,7 @@ function NextRaceTab() {
 
       await advanceSeason();
     } catch (invokeError) {
-      setError(getDisplayError(invokeError, "Não foi possível avançar para a pré-temporada."));
+      setError(getDisplayError(invokeError, t("nextRaceTab.errors.advancePreseason")));
     }
   }
 
@@ -529,7 +569,7 @@ function NextRaceTab() {
     setError("");
     const categoria = playerTeam?.categoria;
     if (!careerId || !categoria) {
-      setError("Sem carreira ou categoria para exportar.");
+      setError(t("nextRaceTab.errors.noCareerCategory"));
       return;
     }
     const rosterName = `Carreira ${player?.nome ?? "Loop"}`.trim();
@@ -557,7 +597,7 @@ function NextRaceTab() {
       toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
       toastTimers.current.push(setTimeout(() => dismissToasts(), 15000));
     } catch (invokeError) {
-      setError(getDisplayError(invokeError, "Não foi possível exportar para o iRacing."));
+      setError(getDisplayError(invokeError, t("nextRaceTab.errors.export")));
     } finally {
       setIsExporting(false);
     }
@@ -582,10 +622,10 @@ function NextRaceTab() {
       if (launched) return { ok: true };
       return {
         ok: false,
-        message: "iRacing não está aberto e não encontrei o iRacingUI para abrir. Abra o iRacing manualmente.",
+        message: t("nextRaceTab.iracing.notOpen"),
       };
     } catch {
-      return { ok: false, message: "Não consegui abrir o iRacing." };
+      return { ok: false, message: t("nextRaceTab.iracing.cantOpen") };
     }
   }
 
@@ -638,71 +678,71 @@ function NextRaceTab() {
   if (!nextRace) {
     const isFreeAgent = !playerTeam;
     const emptyHeading = isFreeAgent
-      ? "Sem equipe nesta temporada"
+      ? t("nextRaceTab.status.noTeamHeading")
       : phase === "PreTemporada"
-      ? "Pré-temporada aberta"
+      ? t("nextRaceTab.status.preseasonOpenHeading")
       : phase === "Encerramento"
-      ? "Fim de temporada"
+      ? t("nextRaceTab.status.seasonEndHeading")
       : isLegacyPhase && phase === "BlocoEspecial"
-      ? "Bloco especial em andamento"
+      ? t("nextRaceTab.status.specialBlockHeading")
       : isLegacyPhase && phase === "PosEspecial"
-      ? "Especial finalizado"
-      : "Temporada finalizada";
+      ? t("nextRaceTab.status.specialDoneHeading")
+      : t("nextRaceTab.status.seasonFinishedHeading");
     const emptyDescription = isFreeAgent
-      ? "Você não tem equipe nesta temporada. Pule para a próxima pré-temporada e tente o mercado novamente."
+      ? t("nextRaceTab.status.noTeamDesc")
       : phase === "PreTemporada"
-      ? "O mercado da pré-temporada está aberto. Continue pela janela semanal para rever propostas, renovações e pilotos disponíveis."
+      ? t("nextRaceTab.status.preseasonOpenDesc")
       : phase === "Encerramento"
-      ? "Todas as corridas do ano foram disputadas. Você já pode avançar para a pré-temporada da próxima temporada."
+      ? t("nextRaceTab.status.seasonEndDesc")
       : isLegacyPhase && phase === "BlocoEspecial"
-      ? "Você ficou fora das categorias especiais. Use este atalho para simular o restante do bloco e avançar o calendário."
+      ? t("nextRaceTab.status.specialBlockDesc")
       : isLegacyPhase && phase === "BlocoRegular"
       ? hasPendingRegularRaces
-        ? "Sua categoria já fechou o campeonato, mas ainda há corridas regulares acontecendo no calendário."
-        : "Sua temporada regular terminou. Agora você pode analisar notícias e resultados com calma, e só abrir a janela de convocação quando quiser."
+        ? t("nextRaceTab.status.regularPendingDesc")
+        : t("nextRaceTab.status.regularDoneDesc")
       : isLegacyPhase && phase === "PosEspecial"
-      ? "A temporada especial terminou. Você pode conferir notícias e standings finais antes de abrir o fechamento da temporada."
+      ? t("nextRaceTab.status.posEspecialDesc")
       : hasExistingPreseason
-      ? "A pré-temporada já foi iniciada. Você pode voltar direto para o mercado semanal."
-      : "Todas as corridas da temporada atual já foram disputadas.";
+      ? t("nextRaceTab.status.preseasonStartedDesc")
+      : t("nextRaceTab.status.allRacesDoneDesc");
     const emptyButtonLabel = isFreeAgent
-      ? "Pular temporada"
+      ? t("nextRaceTab.actions.skipSeason")
       : isLegacyPhase && phase === "BlocoEspecial"
-      ? "Pular bloco especial"
+      ? t("nextRaceTab.actions.skipSpecialBlock")
       : hasPendingRegularRaces
-      ? "Avançar calendário"
+      ? t("nextRaceTab.actions.advanceCalendar")
       : isLegacyPhase && phase === "BlocoRegular"
-      ? "Avançar para convocação"
+      ? t("nextRaceTab.actions.advanceToCallup")
       : isLegacyPhase && phase === "PosEspecial"
-      ? "Encerrar temporada"
+      ? t("nextRaceTab.actions.endSeason")
       : phase === "PreTemporada" || hasExistingPreseason
-      ? "Continuar pré-temporada"
-      : "Avançar para pré-temporada";
+      ? t("nextRaceTab.actions.continuePreseason")
+      : t("nextRaceTab.actions.advanceToPreseason");
     return (
       <div className="relative">
         <LoadingOverlay
           open={isAdvancing || isConvocating || isEnteringPreseason}
           title={
             isEnteringPreseason
-              ? "Abrindo mercado de transferências"
+              ? t("nextRaceTab.loading.openingMarketTitle")
               : isFreeAgent
-              ? "Pulando temporada"
+              ? t("nextRaceTab.loading.skippingSeasonTitle")
               : isLegacyPhase && phase === "BlocoEspecial"
-              ? "Simulando bloco especial"
+              ? t("nextRaceTab.loading.simulatingSpecialTitle")
               : isLegacyPhase && phase === "BlocoRegular"
-              ? "Abrindo convocação"
-              : "Virando a temporada"
+              ? t("nextRaceTab.loading.openingCallupTitle")
+              : t("nextRaceTab.loading.turningSeasonTitle")
           }
           message={
             isEnteringPreseason
-              ? "Carregando equipes, propostas e pilotos disponíveis."
+              ? t("nextRaceTab.loading.openingMarketMsg")
               : isFreeAgent
-              ? "Simulando todas as corridas da temporada sem sua participação."
+              ? t("nextRaceTab.loading.skippingSeasonMsg")
               : isLegacyPhase && phase === "BlocoEspecial"
-              ? "As corridas especiais restantes estão sendo resolvidas em lote para avançar o calendário."
+              ? t("nextRaceTab.loading.simulatingSpecialMsg")
               : isLegacyPhase && phase === "BlocoRegular"
-              ? "A janela especial está sendo aberta sem passar pelo mercado normal."
-              : "Evolução, aposentadorias, promoções e preparação da pré-temporada em andamento."
+              ? t("nextRaceTab.loading.openingCallupMsg")
+              : t("nextRaceTab.loading.turningSeasonMsg")
           }
         />
 
@@ -710,7 +750,7 @@ function NextRaceTab() {
           <div className="py-6 text-center">
             <div className="text-6xl">{isFreeAgent ? "🏳️" : "PQ"}</div>
             <p className="mt-4 text-sm uppercase tracking-[0.22em] text-accent-primary">
-              {isFreeAgent ? "Agente livre" : "Próxima corrida"}
+              {isFreeAgent ? t("nextRaceTab.labels.freeAgent") : t("nextRaceTab.labels.nextRace")}
             </p>
             <h2 className="mt-3 text-3xl font-semibold text-text-primary">
               {emptyHeading}
@@ -726,7 +766,7 @@ function NextRaceTab() {
                 if (isFreeAgent) {
                   setError("");
                   skipAllPendingRaces().catch((e) => {
-                    setError(getDisplayError(e, "Erro ao pular temporada."));
+                    setError(getDisplayError(e, t("nextRaceTab.errors.skipSeason")));
                   });
                 } else {
                   void handleSeasonAdvance();
@@ -734,7 +774,7 @@ function NextRaceTab() {
               }}
               >
                 {isAdvancing || isConvocating || isEnteringPreseason
-                  ? "Processando..."
+                  ? t("nextRaceTab.actions.processing")
                   : emptyButtonLabel}
               </GlassButton>
             </div>
@@ -786,14 +826,13 @@ function NextRaceTab() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">
-              <span className="mr-2">🎨</span>Cor do seu carro no iRacing
+              <span className="mr-2">🎨</span>{t("nextRaceTab.paint.eyebrow")}
             </p>
             <h2 className="mt-2 text-xl font-extrabold text-white">
-              Quer pintar seu carro na cor da sua equipe?
+              {t("nextRaceTab.paint.promptTitle")}
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-gray-400">
-              Aplicamos automaticamente a cor do time na sua garagem do iRacing. A partir
-              daqui, a cor é atualizada sozinha sempre que você trocar de equipe.
+              {t("nextRaceTab.paint.promptBody")}
             </p>
 
             {paintError && (
@@ -808,7 +847,7 @@ function NextRaceTab() {
                 disabled={paintBusy}
                 className="w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-3 text-sm font-bold text-[#58a6ff] transition hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {paintBusy ? "Pintando…" : "🎨 Pegar a cor do carro"}
+                {paintBusy ? t("nextRaceTab.paint.painting") : t("nextRaceTab.paint.grab")}
               </button>
               <button
                 onClick={() => {
@@ -818,11 +857,11 @@ function NextRaceTab() {
                 disabled={paintBusy}
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-gray-400 transition hover:bg-white/10 disabled:opacity-60"
               >
-                Agora não
+                {t("nextRaceTab.paint.notNow")}
               </button>
             </div>
             <p className="mt-3 text-center text-[10px] text-gray-500">
-              Requer o Trading Paints instalado.
+              {t("nextRaceTab.paint.requiresTradingPaints")}
             </p>
           </div>
         </div>
@@ -838,20 +877,23 @@ function NextRaceTab() {
       <div className="relative z-10 space-y-6">
         <LoadingOverlay
           open={isSimulating}
-          title="Simulando corrida"
-          message="Classificação, corrida e atualização do campeonato em andamento."
+          title={t("nextRaceTab.loading.simulatingRaceTitle")}
+          message={t("nextRaceTab.loading.simulatingRaceMsg")}
         />
 
         {/* HEADER COM BOTÕES */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-4">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-2">
-              <span className="mr-2">🏁</span>Sala de Estratégia
+              <span className="mr-2">🏁</span>{t("nextRaceTab.labels.strategyRoom")}
             </p>
             <h1 className="text-[2.5rem] font-extrabold text-white leading-none">{nextRace.track_name}</h1>
             <div className="flex flex-wrap items-center gap-3 mt-3">
               <span className="border border-white/10 bg-white/5 px-3 py-1.5 rounded-lg text-xs font-bold text-white">
-                Etapa {nextRace.rodada} de {season?.total_rodadas ?? "?"}
+                {t("nextRaceTab.labels.stageOf", {
+                  round: nextRace.rodada,
+                  total: season?.total_rodadas ?? "?",
+                })}
               </span>
               <span className="text-sm font-medium text-gray-400 capitalize">
                 {briefing.eventDateShort} • {briefing.timePeriodHighlight}
@@ -866,20 +908,20 @@ function NextRaceTab() {
                 disabled={isSimulating || !nextRace}
                 className="w-full sm:w-auto px-5 py-2 border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300 font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5 opacity-80 hover:opacity-100 disabled:opacity-50"
               >
-                {isSimulating ? "Simulando..." : "Simular Corrida"}
+                {isSimulating ? t("nextRaceTab.actions.simulating") : t("nextRaceTab.actions.simulateRace")}
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-[#58a6ff]">
                   <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 01.359.852L12.982 9.75h7.268a.75.75 0 01.548 1.262l-10.5 11.25a.75.75 0 01-1.272-.71l1.992-7.302H3.75a.75.75 0 01-.548-1.262l10.5-11.25a.75.75 0 01.913-.143z" clipRule="evenodd" />
                 </svg>
               </button>
               {confirmSim && !isSimulating && (
                 <span className="text-[11px] text-gray-400 whitespace-nowrap">
-                  Simular mesmo?{" "}
+                  {t("nextRaceTab.actions.simulateConfirm")}{" "}
                   <button onClick={handleSimulate} className="text-[#58a6ff] font-semibold hover:underline">
-                    Sim
+                    {t("nextRaceTab.actions.yes")}
                   </button>
                   {" · "}
                   <button onClick={() => setConfirmSim(false)} className="text-gray-500 hover:underline">
-                    cancelar
+                    {t("nextRaceTab.actions.cancel")}
                   </button>
                 </span>
               )}
@@ -892,7 +934,7 @@ function NextRaceTab() {
                 }}
                 className="w-full sm:w-auto px-5 py-2 border border-[#58a6ff66] bg-[#58a6ff22] hover:bg-[#58a6ff33] text-[#58a6ff] font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5"
               >
-                🎨 Pegar a cor do carro
+                {t("nextRaceTab.paint.grab")}
               </button>
             )}
             <button
@@ -909,12 +951,12 @@ function NextRaceTab() {
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                     <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
                   </svg>
-                  Exportado
+                  {t("nextRaceTab.actions.exported")}
                 </>
               ) : isExporting ? (
-                "Exportando…"
+                t("nextRaceTab.actions.exporting")
               ) : (
-                "Correr"
+                t("nextRaceTab.actions.run")
               )}
             </button>
           </div>
@@ -933,8 +975,8 @@ function NextRaceTab() {
                 </svg>
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight">Dados exportados</p>
-                <p className="text-[11px] font-medium leading-tight text-[#06090e]/70">Roster e temporada enviados ao iRacing.</p>
+                <p className="text-sm font-bold leading-tight">{t("nextRaceTab.toast.exportedTitle")}</p>
+                <p className="text-[11px] font-medium leading-tight text-[#06090e]/70">{t("nextRaceTab.toast.exportedMsg")}</p>
               </div>
             </div>
 
@@ -947,9 +989,9 @@ function NextRaceTab() {
                 >
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#58a6ff]/15 text-base">🏁</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold leading-tight text-text-primary">Entrar no iRacing</p>
+                    <p className="text-sm font-bold leading-tight text-text-primary">{t("nextRaceTab.toast.enterIracingTitle")}</p>
                     <p className={`text-[11px] font-medium leading-tight ${iracingFocusMsg ? "text-red-400" : "text-text-muted"}`}>
-                      {iracingFocusMsg || "Trazer o simulador para frente."}
+                      {iracingFocusMsg || t("nextRaceTab.toast.bringSimForward")}
                     </p>
                   </div>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-[#58a6ff] transition-transform group-hover:translate-x-0.5">
@@ -979,81 +1021,51 @@ function NextRaceTab() {
               careerId={careerId}
               raceId={nextRace?.id}
               forecast
-              className="group attn-glow-delayed w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 flex justify-between items-center bg-gradient-to-r from-black/40 to-transparent transition hover:border-[#58a6ff]/40"
+              onOpen={() => markAttnSeen(raceId, "weather")}
+              className={`group ${weatherGlow} w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 flex justify-between items-center bg-gradient-to-r from-black/40 to-transparent transition hover:border-[#58a6ff]/40`}
             >
               <div className="flex items-center gap-4">
                 <div className="text-4xl">{briefing.weatherIcon}</div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">
-                    Condição de Pista <span className="opacity-60 group-hover:opacity-100">›</span>
+                    {t("nextRaceTab.labels.trackCondition")} <span className="opacity-60 group-hover:opacity-100">›</span>
                   </p>
                   <p className="text-xl font-bold text-white">
                     {briefing.weatherSummary} <span className="text-xs text-gray-400">{briefing.trackTemperatureLabel}</span>
                   </p>
                   <p className="text-[10px] text-gray-500 group-hover:text-[#58a6ff] transition">
-                    ver previsão do tempo ›
+                    {t("nextRaceTab.labels.seeForecast")}
                   </p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">Público</p>
+                <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">{t("nextRaceTab.labels.audience")}</p>
                 <p className="text-xl font-bold text-white">{formatAudience(briefing.audienceEstimate)}</p>
               </div>
             </WeatherButton>
 
-            {/* Risco de quebra (aviso pré-corrida) — só aparece quando dá pra prever. */}
-            {breakdownForecast?.available && (
-              <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">
-                    🔧 Risco de quebra
-                  </p>
-                  <span
-                    className="text-xs font-bold uppercase"
-                    style={{ color: riskColor(breakdownForecast.overall_level) }}
-                  >
-                    {riskLabel(breakdownForecast.overall_level)}
-                  </span>
-                </div>
-                {breakdownForecast.parts?.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {breakdownForecast.parts.map((p) => (
-                      <span
-                        key={p.part}
-                        className="rounded-lg px-2 py-1 text-[11px] font-medium"
-                        style={{
-                          background: `${riskColor(p.level)}1a`,
-                          border: `1px solid ${riskColor(p.level)}55`,
-                          color: riskColor(p.level),
-                        }}
-                        title={`${Math.round(p.any_prob * 100)}% de chance de dar problema nesta corrida`}
-                      >
-                        {p.part_name} · {Math.round(p.any_prob * 100)}%
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-gray-500">
-                    Carro confiável — sem peças em risco relevante.
-                  </p>
-                )}
-              </div>
-            )}
+            {/* Risco de quebra (aviso pré-corrida) — card compacto pulsante que abre o
+                detalhamento; o glow cala depois de aberto nesta corrida. */}
+            <BreakdownRiskButton
+              forecast={breakdownForecast}
+              onOpen={() => markAttnSeen(raceId, "breakdown")}
+              className={`group ${breakdownGlow} w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 transition hover:border-[#58a6ff]/40`}
+            />
 
             {/* Narrativa Expandida */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">
               <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(240,195,107,0.1),transparent_65%)] pointer-events-none"></div>
               <div className="flex items-center justify-between mb-4 relative z-10">
                 <p className="text-[11px] uppercase tracking-[0.2em] text-[#f5c76d] font-bold flex items-center">
-                  <span className="mr-2 text-sm">🎧</span>Engenheiro de Pista
+                  <span className="mr-2 text-sm">🎧</span>{t("nextRaceTab.labels.trackEngineer")}
                   {showAiDebug && effectiveAi ? (
                     usingAi ? (
                       <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30">
-                        ✨ IA
+                        {t("nextRaceTab.debug.aiBadge")}
                       </span>
                     ) : (
                       <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-white/[0.06] text-gray-400 border border-white/10">
-                        Template
+                        {t("nextRaceTab.debug.templateBadge")}
                       </span>
                     )
                   ) : null}
@@ -1109,7 +1121,7 @@ function NextRaceTab() {
                     <span className="text-6xl font-serif leading-none h-[40px] block overflow-hidden">"</span>
                   </div>
                   <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">
-                    Voz da Equipe <span className="text-gray-500 font-semibold normal-case tracking-normal">· à imprensa</span>
+                    {t("nextRaceTab.labels.teamVoice")} <span className="text-gray-500 font-semibold normal-case tracking-normal">{t("nextRaceTab.labels.toPress")}</span>
                   </p>
                   {showAiSkeleton ? (
                     <div className="space-y-2" aria-hidden="true">
@@ -1140,9 +1152,9 @@ function NextRaceTab() {
               <div className="bg-amber-900/30 border border-amber-500/40 rounded-2xl px-4 py-3 flex items-start gap-3">
                 <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400 font-bold mb-0.5">Contrato expirando</p>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400 font-bold mb-0.5">{t("nextRaceTab.labels.contractExpiring")}</p>
                   <p className="text-xs text-amber-100 leading-relaxed">
-                    Seu contrato com <span className="font-semibold">{nextRaceBriefing.contract_warning.equipe_nome}</span> encerra ao fim desta temporada.
+                    {t("nextRaceTab.labels.contractWarningPrefix")} <span className="font-semibold">{nextRaceBriefing.contract_warning.equipe_nome}</span> {t("nextRaceTab.labels.contractWarningSuffix")}
                   </p>
                 </div>
               </div>
@@ -1152,21 +1164,21 @@ function NextRaceTab() {
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
                 <span className="text-2xl mb-1.5 block leading-none">👥</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">Meta Equipe</p>
+                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTeam")}</p>
                 <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
                   {briefing.goals[0]?.value}
                 </p>
               </div>
               <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
                 <span className="text-xl mb-1.5 block leading-none">👤</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">Meta Pessoal</p>
+                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalPersonal")}</p>
                 <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
                   {briefing.goals[1]?.value}
                 </p>
               </div>
               <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
                 <span className="text-xl mb-1.5 block leading-none">🏆</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">Meta Título</p>
+                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTitle")}</p>
                 <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
                   {briefing.goals[2]?.value}
                 </p>
@@ -1175,11 +1187,11 @@ function NextRaceTab() {
 
             {/* Favoritos ao Pódio */}
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col min-h-0">
-              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-5">Os 6 Favoritos ao Pódio</p>
+              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-5">{t("nextRaceTab.labels.podiumFavorites")}</p>
 
               <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
                 {isLoadingBriefing ? (
-                  <p className="text-sm text-gray-400">Montando analise...</p>
+                  <p className="text-sm text-gray-400">{t("nextRaceTab.labels.buildingAnalysis")}</p>
                 ) : (
                   briefing.favorites.map((driver, index) => {
                     let medalTone = getFavoriteMedalTone(index);
@@ -1256,11 +1268,11 @@ function NextRaceTab() {
           <div className="xl:col-span-4 h-[500px] xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
             <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 h-full flex flex-col relative overflow-hidden">
               <div className="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
-                <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">Tabela Geral do Campeonato</p>
+                <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">{t("nextRaceTab.labels.championshipTable")}</p>
                 <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/5 p-0.5">
                   {[
-                    { id: "pilotos", label: "Pilotos" },
-                    { id: "construtores", label: "Construtores" },
+                    { id: "pilotos", label: t("nextRaceTab.labels.tabDrivers") },
+                    { id: "construtores", label: t("nextRaceTab.labels.tabConstructors") },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -1280,15 +1292,15 @@ function NextRaceTab() {
 
               {standingsView === "pilotos" ? (
                 briefing.championshipTable.length === 0 ? (
-                  <p className="text-sm text-gray-400">Classificação indisponível no momento.</p>
+                  <p className="text-sm text-gray-400">{t("nextRaceTab.labels.standingsUnavailable")}</p>
                 ) : (
                   <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
                         <tr>
                           <th className="py-2 px-3 text-center w-8">#</th>
-                          <th className="py-2 px-1">Piloto</th>
-                          <th className="py-2 px-3 text-right">Pts</th>
+                          <th className="py-2 px-1">{t("nextRaceTab.labels.colDriver")}</th>
+                          <th className="py-2 px-3 text-right">{t("nextRaceTab.labels.colPts")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1338,6 +1350,15 @@ function NextRaceTab() {
                                     <p className={`flex items-center gap-1 leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
                                       <span className="truncate">{driver.nome_completo ?? driver.nome}</span>
                                       <RivalMarker driverId={driver.id} />
+                                      {breakdownRiskTeams.has(driver.equipe_id) ? (
+                                        <span
+                                          className="shrink-0 text-[11px] leading-none"
+                                          title={t("nextRaceTab.labels.breakdownRiskDriverTip")}
+                                          aria-label={t("nextRaceTab.labels.breakdownRiskDriverTip")}
+                                        >
+                                          🔧
+                                        </span>
+                                      ) : null}
                                     </p>
                                     <p
                                       className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
@@ -1359,15 +1380,15 @@ function NextRaceTab() {
                   </div>
                 )
               ) : briefing.constructorsTable.length === 0 ? (
-                <p className="text-sm text-gray-400">Classificação de equipes indisponível no momento.</p>
+                <p className="text-sm text-gray-400">{t("nextRaceTab.labels.teamStandingsUnavailable")}</p>
               ) : (
                 <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
                       <tr>
                         <th className="py-2 px-3 text-center w-8">#</th>
-                        <th className="py-2 px-1">Equipe</th>
-                        <th className="py-2 px-3 text-right">Pts</th>
+                        <th className="py-2 px-1">{t("nextRaceTab.labels.colTeam")}</th>
+                        <th className="py-2 px-3 text-right">{t("nextRaceTab.labels.colPts")}</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
+import i18n from "../../i18n/index.js";
+import { currentLang } from "../../i18n/format.js";
 import { useEffect, useMemo, useState } from "react";
 
 import useCareerStore from "../../stores/useCareerStore";
@@ -16,28 +19,22 @@ import TeamLogoMark from "../team/TeamLogoMark";
 
 const PILOT_STATUS_META = {
   promoted: {
-    badge: "Promovido",
     badgeClassName: "text-status-green bg-status-green/10 border border-status-green/20",
     borderClassName: "border-status-green/20 bg-status-green/5",
     accentClassName: "text-status-green",
     icon: "↑",
-    sectionTitle: "Promovidos",
   },
   relegated: {
-    badge: "Rebaixado",
     badgeClassName: "text-status-red bg-status-red/10 border border-status-red/20",
     borderClassName: "border-status-red/20 bg-status-red/5",
     accentClassName: "text-status-red",
     icon: "↓",
-    sectionTitle: "Rebaixados",
   },
   unchanged: {
-    badge: "Não alterou",
     badgeClassName: "text-text-secondary bg-white/5 border border-white/10",
     borderClassName: "border-white/10 bg-white/[0.03]",
     accentClassName: "text-text-secondary",
     icon: "•",
-    sectionTitle: "Não alterou",
   },
 };
 
@@ -67,7 +64,7 @@ function licenseLevelFromCategory(category) {
 
 function formatRetainedLicenseLabel(category, licenseLevel) {
   if (category === "mazda_rookie" || category === "toyota_rookie") {
-    return "Rookie";
+    return i18n.t("endOfSeason.rookieLicense");
   }
 
   return formatLicenseLevel(licenseLevel);
@@ -75,14 +72,19 @@ function formatRetainedLicenseLabel(category, licenseLevel) {
 
 function buildPilotSummary(entry) {
   if (entry.status === "promoted") {
-    return `Conquistou Licença ${formatLicenseLevel(entry.licenseLevel)} em ${formatCategoryName(entry.category || "Sem Categoria")}.`;
+    return i18n.t("endOfSeason.summary.promoted", {
+      license: formatLicenseLevel(entry.licenseLevel),
+      category: formatCategoryName(entry.category || i18n.t("endOfSeason.noCategory")),
+    });
   }
 
   if (entry.status === "relegated") {
-    return entry.reason || "Perdeu a licença da categoria ao fim da temporada.";
+    return entry.reason || i18n.t("endOfSeason.summary.relegatedFallback");
   }
 
-  return `Manteve a Licença ${formatRetainedLicenseLabel(entry.category, entry.licenseLevel)} para a próxima temporada.`;
+  return i18n.t("endOfSeason.summary.unchanged", {
+    license: formatRetainedLicenseLabel(entry.category, entry.licenseLevel),
+  });
 }
 
 function buildPilotEntries({ reports, licenses, promotionEffects, movements, driverCategoriesById }) {
@@ -137,10 +139,11 @@ function buildPilotEntries({ reports, licenses, promotionEffects, movements, dri
         overallDelta: report?.overall_delta || 0,
       };
     })
-    .sort((a, b) => a.driverName.localeCompare(b.driverName, "pt-BR"));
+    .sort((a, b) => a.driverName.localeCompare(b.driverName, currentLang()));
 }
 
 function AccordionPilotRow({ entry, expanded, onClick }) {
+  const { t } = useTranslation();
   const statusMeta = PILOT_STATUS_META[entry.status];
 
   return (
@@ -162,7 +165,7 @@ function AccordionPilotRow({ entry, expanded, onClick }) {
 
         <div className="flex items-center gap-3 shrink-0">
           <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${statusMeta.badgeClassName}`}>
-            {statusMeta.badge}
+            {t(`endOfSeason.status.${entry.status}.badge`)}
           </span>
           <span className={`text-white/50 text-sm transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true">
             ▼
@@ -173,7 +176,7 @@ function AccordionPilotRow({ entry, expanded, onClick }) {
       {expanded && (
         <div className="p-5 border-t border-white/5 bg-black/20">
           <p className="text-xs text-text-secondary uppercase tracking-widest mb-3 font-semibold">
-            Evolução de atributos
+            {t("endOfSeason.pilotRow.attributesEvolution")}
           </p>
 
           {entry.changes.length > 0 ? (
@@ -196,7 +199,7 @@ function AccordionPilotRow({ entry, expanded, onClick }) {
               })}
             </div>
           ) : (
-            <p className="text-sm text-text-secondary">Sem alterações de atributos registradas para este piloto.</p>
+            <p className="text-sm text-text-secondary">{t("endOfSeason.pilotRow.noAttributeChanges")}</p>
           )}
         </div>
       )}
@@ -205,6 +208,7 @@ function AccordionPilotRow({ entry, expanded, onClick }) {
 }
 
 function SectionLicenses({ careerId, reports, licenses, promotionEffects, movements }) {
+  const { t } = useTranslation();
   const [openId, setOpenId] = useState(null);
   const [openLicenseLevels, setOpenLicenseLevels] = useState([]);
   const [driverCategoriesById, setDriverCategoriesById] = useState({});
@@ -294,14 +298,14 @@ function SectionLicenses({ careerId, reports, licenses, promotionEffects, moveme
   return (
     <div className="max-w-4xl space-y-10 animate-fade-in pb-10">
       <div>
-        <h2 className="text-3xl font-bold mb-2">Licenças de Pilotos</h2>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.licenses.title")}</h2>
         <p className="text-text-secondary">
-          Panorama completo das licenças para a próxima temporada, com promoções, rebaixamentos e pilotos que mantiveram seu nível.
+          {t("endOfSeason.licenses.subtitle")}
         </p>
       </div>
 
       {pilotEntries.length === 0 ? (
-        <p className="text-sm text-text-secondary">Nenhuma alteração de licença registrada este ano.</p>
+        <p className="text-sm text-text-secondary">{t("endOfSeason.licenses.empty")}</p>
       ) : (
         <div className="space-y-10">
           {groupedByLicense.map((group) => {
@@ -321,7 +325,7 @@ function SectionLicenses({ careerId, reports, licenses, promotionEffects, moveme
                     <h3 className="text-lg font-bold text-text-primary">{formatLicenseLevel(group.licenseLevel)}</h3>
                   </div>
                   <span className="text-[11px] font-bold uppercase tracking-widest text-text-secondary shrink-0">
-                    {group.entries.length} pilotos
+                    {t("endOfSeason.licenses.pilotsCount", { count: group.entries.length })}
                   </span>
                 </button>
 
@@ -335,7 +339,7 @@ function SectionLicenses({ careerId, reports, licenses, promotionEffects, moveme
                         <div key={`${group.licenseLevel}-${status}`} className="space-y-3">
                           <div className="flex items-center gap-3">
                             <h4 className="text-xs font-bold uppercase tracking-[0.2em] text-text-secondary">
-                              {PILOT_STATUS_META[status].sectionTitle}
+                              {t(`endOfSeason.status.${status}.sectionTitle`)}
                             </h4>
                             <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white/5 border border-white/10 text-text-secondary">
                               {entries.length}
@@ -367,11 +371,13 @@ function SectionLicenses({ careerId, reports, licenses, promotionEffects, moveme
 }
 
 function SectionTeams({ movements }) {
+  const { t } = useTranslation();
+
   if (!movements || movements.length === 0) {
     return (
       <div className="max-w-4xl animate-fade-in">
-        <h2 className="text-3xl font-bold mb-2">Movimentações de Equipes</h2>
-        <p className="text-text-secondary mb-10">Tudo pacífico. Organizações mantiveram suas categorias no campeonato.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.teams.title")}</h2>
+        <p className="text-text-secondary mb-10">{t("endOfSeason.teams.empty")}</p>
       </div>
     );
   }
@@ -396,8 +402,8 @@ function SectionTeams({ movements }) {
   return (
     <div className="max-w-4xl space-y-10 animate-fade-in pb-10">
       <div>
-        <h2 className="text-3xl font-bold mb-2">Movimentações de Equipes</h2>
-        <p className="text-text-secondary">Organizações promovidas ao nível superior e aquelas rebaixadas nas divisões, separadas por categoria.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.teams.title")}</h2>
+        <p className="text-text-secondary">{t("endOfSeason.teams.subtitle")}</p>
       </div>
 
       <div className="space-y-10">
@@ -422,12 +428,12 @@ function SectionTeams({ movements }) {
                       <p className="min-w-0 truncate font-bold text-lg text-white">{movement.team_name}</p>
                     </div>
                     <span className="font-bold px-3 py-1 rounded-full text-xs text-status-green bg-status-green/10">
-                      ↑ Promovida
+                      {t("endOfSeason.teams.promotedBadge")}
                     </span>
                   </div>
                   <p className="text-xs text-text-secondary">{movement.reason}</p>
                   <p className="text-[10px] uppercase text-text-muted mt-3 font-semibold">
-                    Moveu para {formatCategoryName(movement.to_category)}
+                    {t("endOfSeason.teams.movedTo", { category: formatCategoryName(movement.to_category) })}
                   </p>
                 </div>
               ))}
@@ -446,12 +452,12 @@ function SectionTeams({ movements }) {
                       <p className="min-w-0 truncate font-bold text-lg text-white">{movement.team_name}</p>
                     </div>
                     <span className="font-bold px-3 py-1 rounded-full text-xs text-status-red bg-status-red/10">
-                      ↓ Rebaixada
+                      {t("endOfSeason.teams.relegatedBadge")}
                     </span>
                   </div>
                   <p className="text-xs text-text-secondary">{movement.reason}</p>
                   <p className="text-[10px] uppercase text-text-muted mt-3 font-semibold">
-                    Moveu para {formatCategoryName(movement.to_category)}
+                    {t("endOfSeason.teams.movedTo", { category: formatCategoryName(movement.to_category) })}
                   </p>
                 </div>
               ))}
@@ -464,11 +470,13 @@ function SectionTeams({ movements }) {
 }
 
 function SectionRookies({ rookies }) {
+  const { t } = useTranslation();
+
   if (!rookies || rookies.length === 0) {
     return (
       <div className="max-w-4xl animate-fade-in">
-        <h2 className="text-3xl font-bold mb-2">Novos Talentos</h2>
-        <p className="text-text-secondary">Nenhum talento vindo das academias confirmou idade esse ano.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.rookies.emptyTitle")}</h2>
+        <p className="text-text-secondary">{t("endOfSeason.rookies.empty")}</p>
       </div>
     );
   }
@@ -476,8 +484,8 @@ function SectionRookies({ rookies }) {
   return (
     <div className="max-w-4xl space-y-10 animate-fade-in">
       <div>
-        <h2 className="text-3xl font-bold mb-2">Novos Talentos Formados</h2>
-        <p className="text-text-secondary">Eles acabaram de conseguir idade nas categorias de base, estando soltos no mercado de transferências como agentes livres.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.rookies.title")}</h2>
+        <p className="text-text-secondary">{t("endOfSeason.rookies.subtitle")}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -486,17 +494,17 @@ function SectionRookies({ rookies }) {
           const isTalent = rookie.tipo === "Talento";
           const borderColor = isGenius ? "border-t-accent-primary" : (isTalent ? "border-t-white/30" : "border-t-white/10");
           const typeBadge = isGenius
-            ? <div className="bg-accent-primary/10 text-accent-primary text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-accent-primary/20">Gênio</div>
+            ? <div className="bg-accent-primary/10 text-accent-primary text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-accent-primary/20">{t("endOfSeason.rookies.type.genius")}</div>
             : isTalent
-              ? <div className="bg-white/10 text-white/80 text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-white/10">Talento</div>
-              : <div className="bg-white/5 text-white/50 text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-white/5">Normal</div>;
+              ? <div className="bg-white/10 text-white/80 text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-white/10">{t("endOfSeason.rookies.type.talent")}</div>
+              : <div className="bg-white/5 text-white/50 text-xs font-bold uppercase tracking-wider py-1.5 rounded-lg border border-white/5">{t("endOfSeason.rookies.type.normal")}</div>;
 
           return (
             <div key={rookie.driver_id} className={`rounded-xl bg-white/[0.03] border border-white/5 p-6 text-center border-t-4 ${borderColor}`}>
               <div className="text-4xl mb-3">{isGenius ? "🌟" : isTalent ? "⭐" : "👤"}</div>
               <h3 className="text-lg font-bold mb-1">{rookie.driver_name}</h3>
               <p className="text-[10px] uppercase tracking-widest text-text-secondary mb-4 border-b border-white/10 pb-4">
-                {extractNationalityLabel(rookie.nationality) || "Sem País"} • {rookie.age} Anos
+                {extractNationalityLabel(rookie.nationality) || t("endOfSeason.rookies.noCountry")} • {t("endOfSeason.rookies.ageYears", { age: rookie.age })}
               </p>
               {typeBadge}
             </div>
@@ -508,11 +516,13 @@ function SectionRookies({ rookies }) {
 }
 
 function SectionRetirements({ retirements }) {
+  const { t } = useTranslation();
+
   if (!retirements || retirements.length === 0) {
     return (
       <div className="max-w-4xl animate-fade-in">
-        <h2 className="text-3xl font-bold mb-2">Aposentadorias</h2>
-        <p className="text-text-secondary">Nenhum piloto se despediu das pistas ao final desse campeonato.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.retirements.emptyTitle")}</h2>
+        <p className="text-text-secondary">{t("endOfSeason.retirements.empty")}</p>
       </div>
     );
   }
@@ -520,8 +530,8 @@ function SectionRetirements({ retirements }) {
   return (
     <div className="max-w-4xl space-y-10 animate-fade-in">
       <div>
-        <h2 className="text-3xl font-bold mb-2">Aposentadorias Confirmadas</h2>
-        <p className="text-text-secondary">Lendas deixam as pistas e abrem espaço no grid. Suas histórias estarão no Hall da Fama.</p>
+        <h2 className="text-3xl font-bold mb-2">{t("endOfSeason.retirements.title")}</h2>
+        <p className="text-text-secondary">{t("endOfSeason.retirements.subtitle")}</p>
       </div>
 
       <div className="space-y-4">
@@ -533,10 +543,10 @@ function SectionRetirements({ retirements }) {
             <div>
               <h3 className="text-xl font-bold">
                 {retirement.driver_name}
-                <span className="ml-2 text-sm text-text-secondary font-normal">{retirement.age} anos</span>
+                <span className="ml-2 text-sm text-text-secondary font-normal">{t("endOfSeason.retirements.ageYears", { age: retirement.age })}</span>
               </h3>
               <p className="text-sm mt-2 text-white/80 leading-relaxed max-w-2xl">
-                {retirement.reason || "O piloto declarou que pendurará as luvas após a bateria final deste campeonato."}
+                {retirement.reason || t("endOfSeason.retirements.reasonFallback")}
               </p>
             </div>
           </div>
@@ -547,6 +557,7 @@ function SectionRetirements({ retirements }) {
 }
 
 function EndOfSeasonView() {
+  const { t } = useTranslation();
   const result = useCareerStore((state) => state.endOfSeasonResult);
   const enterPreseason = useCareerStore((state) => state.enterPreseason);
   const isEnteringPreseason = useCareerStore((state) => state.isEnteringPreseason);
@@ -565,10 +576,10 @@ function EndOfSeasonView() {
   ]).size;
 
   const tabs = [
-    { id: "licenses", icon: "📜", label: "Licenças de Pilotos", count: pilotLicenseCount },
-    { id: "teams", icon: "🏎️", label: "Movimentações de Equipes", count: result.promotion_result?.movements?.length || 0 },
-    { id: "rookies", icon: "🎓", label: "Novos Talentos", count: result.rookies_generated?.length || 0 },
-    { id: "retirements", icon: "👴", label: "Aposentadorias", count: result.retirements?.length || 0 },
+    { id: "licenses", icon: "📜", label: t("endOfSeason.tabs.licenses"), count: pilotLicenseCount },
+    { id: "teams", icon: "🏎️", label: t("endOfSeason.tabs.teams"), count: result.promotion_result?.movements?.length || 0 },
+    { id: "rookies", icon: "🎓", label: t("endOfSeason.tabs.rookies"), count: result.rookies_generated?.length || 0 },
+    { id: "retirements", icon: "👴", label: t("endOfSeason.tabs.retirements"), count: result.retirements?.length || 0 },
   ];
 
   return (
@@ -576,19 +587,19 @@ function EndOfSeasonView() {
       <div className="app-backdrop" />
       <LoadingOverlay
         open={isEnteringPreseason}
-        title="Abrindo mercado de transferências"
-        message="Carregando equipes, propostas e pilotos disponíveis."
+        title={t("endOfSeason.market.loadingTitle")}
+        message={t("endOfSeason.market.loadingMessage")}
       />
 
       <div className="flex flex-col w-full h-full max-w-[1600px] mx-auto z-10 px-8 pb-8">
         <nav className="border border-white/10 px-6 py-4 flex justify-between items-center bg-[#0E0E10]/80 backdrop-blur-md shrink-0 mb-6 rounded-2xl shadow-lg mt-4 h-24">
           <div>
-            <h1 className="text-2xl font-bold tracking-tighter text-white">O Paddock Virou a Página</h1>
-            <p className="text-xs text-accent-primary uppercase tracking-widest mt-2 font-bold">Resumo da Temporada {result.new_year - 1}</p>
+            <h1 className="text-2xl font-bold tracking-tighter text-white">{t("endOfSeason.header.title")}</h1>
+            <p className="text-xs text-accent-primary uppercase tracking-widest mt-2 font-bold">{t("endOfSeason.header.subtitle", { year: result.new_year - 1 })}</p>
           </div>
           <div className="flex items-center gap-5">
             <span className="text-xs border border-white/20 bg-white/5 px-5 py-3 rounded-full font-bold hidden sm:block">
-              Temporada {result.new_year} Preparada no Mercado
+              {t("endOfSeason.header.marketBadge", { year: result.new_year })}
             </span>
             <GlassButton
               variant="primary"
@@ -600,7 +611,7 @@ function EndOfSeasonView() {
                 }
               }}
             >
-              {isEnteringPreseason ? "Aguarde..." : "Iniciar Pré-Temporada"}
+              {isEnteringPreseason ? t("endOfSeason.button.wait") : t("endOfSeason.button.start")}
             </GlassButton>
           </div>
         </nav>

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import GlassButton from "../ui/GlassButton";
 import LoadingOverlay from "../ui/LoadingOverlay";
 import useCareerStore from "../../stores/useCareerStore";
 import SeasonSectionHeader from "./SeasonSectionHeader";
 import TeamLogoMark from "../team/TeamLogoMark";
+import i18n from "../../i18n/index.js";
+import { ordinal } from "../../i18n/format.js";
 
 const CATEGORY_LABELS = {
   production_challenger: "Production",
@@ -79,9 +82,9 @@ const LICENSE_COLORS = {
 };
 
 function roleLabel(role) {
-  if (role === "Numero1") return "Piloto principal";
-  if (role === "Numero2") return "Segundo piloto";
-  return "Convocado";
+  if (role === "Numero1") return i18n.t("convocation.roles.numero1");
+  if (role === "Numero2") return i18n.t("convocation.roles.numero2");
+  return i18n.t("convocation.roles.default");
 }
 
 function countTeamVacancies(team) {
@@ -244,14 +247,14 @@ function formatSafeChampionshipPosition(position, totalDrivers) {
   if (!position) {
     return null;
   }
-  return `${position}º`;
+  return ordinal(position);
 }
 
 function formatChampionshipPosition(position, totalDrivers) {
   if (!position) {
     return null;
   }
-  return `${position}\u00ba`;
+  return ordinal(position);
 }
 
 function TeamPilotRow({ name, fallback, isNew = false, accentColor = "rgba(88,166,255,0.9)" }) {
@@ -327,6 +330,8 @@ export default function ConvocationView() {
   const advanceSpecialWindowDay = useCareerStore((state) => state.advanceSpecialWindowDay);
   const confirmSpecialBlock = useCareerStore((state) => state.confirmSpecialBlock);
 
+  const { t } = useTranslation();
+
   const [selectedCategory, setSelectedCategory] = useState("all");
 
   useEffect(() => {
@@ -382,9 +387,9 @@ export default function ConvocationView() {
   const totalDays = specialWindowState?.total_days ?? 7;
   const primaryCtaLabel = specialWindowState?.is_finished
     ? acceptedSpecialOffer
-      ? "Entrar no bloco especial"
-      : "Seguir sem entrar no especial"
-    : "Avançar dia";
+      ? t("convocation.cta.enterSpecialBlock")
+      : t("convocation.cta.proceedWithout")
+    : t("convocation.cta.advanceDay");
 
   return (
     <div
@@ -395,8 +400,8 @@ export default function ConvocationView() {
 
       <LoadingOverlay
         open={isConvocating}
-        title="Processando convocação"
-        message="Atualizando ofertas do jogador e preparando o bloco especial."
+        title={t("convocation.loading.title")}
+        message={t("convocation.loading.message")}
       />
 
       <div className="relative z-10 mx-auto flex h-full max-w-[1680px] flex-col px-3 pb-3 pt-3 sm:px-4 lg:px-5 xl:px-6">
@@ -405,16 +410,16 @@ export default function ConvocationView() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-body-sm font-bold uppercase tracking-[0.28em] text-[color:var(--accent-primary)]">
-                  Janela especial
+                  {t("convocation.header.eyebrow")}
                 </p>
                 {acceptedSpecialOffer && specialWindowState?.is_finished && (
                   <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-bold tracking-[0.14em] text-[color:var(--accent-primary)]">
-                    Convocação aceita
+                    {t("convocation.header.acceptedBadge")}
                   </span>
                 )}
               </div>
               <h1 className="mt-1 text-[20px] font-bold leading-[1.05] tracking-[-0.02em] text-[color:var(--text-primary)] lg:text-[26px]">
-                Mercado de Convocações
+                {t("convocation.header.title")}
               </h1>
 
               <div className="mt-2 max-w-full overflow-x-auto">
@@ -435,7 +440,7 @@ export default function ConvocationView() {
                           className="mr-2 inline-block h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: category.color }}
                         />
-                        {category.label}
+                        {t(`convocation.categoryFilters.${category.id}`)}
                       </button>
                     );
                   })}
@@ -445,19 +450,19 @@ export default function ConvocationView() {
 
             <div className="flex items-center gap-3 self-center lg:justify-self-end">
               <span className="rounded-full border border-[#58a6ff66] bg-[#58a6ff1a] px-2.5 py-1 text-body-sm font-bold uppercase tracking-[0.14em] text-[color:var(--accent-primary)]">
-                Bloco especial
+                {t("convocation.header.specialBlockBadge")}
               </span>
 
               <div className="w-[220px] px-1 lg:w-[280px]">
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <p className="text-body-sm font-bold uppercase tracking-[0.2em] text-[color:var(--text-secondary)]">
-                    Dia{" "}
+                    {t("convocation.header.dayLabel")}{" "}
                     <span className="text-[color:var(--text-primary)]">
                       {currentDay}/{totalDays}
                     </span>
                   </p>
                   <p className="text-body-sm text-[color:var(--text-secondary)]">
-                    {specialWindowState?.status ?? season?.fase ?? "Janela de Convocação"}
+                    {specialWindowState?.status ?? season?.fase ?? t("convocation.header.statusFallback")}
                   </p>
                 </div>
                 <div className="h-[3px] w-full rounded-full bg-[#2a3240]">
@@ -493,13 +498,13 @@ export default function ConvocationView() {
             <div className="mb-5">
               <div className="mb-3 flex h-6 items-center justify-between">
                 <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                  Pilotos elegíveis
+                  {t("convocation.candidates.title")}
                 </p>
               </div>
 
               {candidateGroups.length === 0 ? (
                 <div className="py-8 text-center text-body text-[color:var(--text-muted)]">
-                  Nenhum piloto elegivel restante neste filtro.
+                  {t("convocation.candidates.empty")}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -573,7 +578,7 @@ export default function ConvocationView() {
             <div className="border-t border-white/8 pt-4">
               <div className="mb-4 flex h-6 items-center justify-between">
                 <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                  Suas propostas
+                  {t("convocation.offers.title")}
                 </p>
                 <span className="text-body-sm text-[color:var(--text-muted)]">
                   {playerSpecialOffers.length}
@@ -582,7 +587,7 @@ export default function ConvocationView() {
 
               {groupedOffers.length === 0 ? (
                 <div className="py-6 text-center text-body text-[color:var(--text-muted)]">
-                  Nenhuma proposta visivel neste dia.
+                  {t("convocation.offers.empty")}
                 </div>
               ) : (
                 <div className="space-y-5">
@@ -614,11 +619,11 @@ export default function ConvocationView() {
                                   {offer.team_name}
                                 </p>
                                 <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--text-muted)]">
-                                  dia {offer.available_from_day}
+                                  {t("convocation.offers.day", { day: offer.available_from_day })}
                                 </span>
                               </div>
                               <p className="mt-1 text-body-sm text-[color:var(--text-secondary)]">
-                                Classe {offer.class_name.toUpperCase()}
+                                {t("convocation.offers.className", { class: offer.class_name.toUpperCase() })}
                               </p>
                               <p className="text-body-sm text-[color:var(--text-secondary)]">
                                 {roleLabel(offer.papel)}
@@ -634,7 +639,7 @@ export default function ConvocationView() {
                                   className="min-h-9 w-full rounded-lg px-3 py-2 text-[11px] font-bold tracking-[0.08em]"
                                   onClick={() => void acceptSpecialOfferForDay(offer.id)}
                                 >
-                                  Escolher hoje
+                                  {t("convocation.offers.chooseToday")}
                                 </GlassButton>
                               </div>
                             </article>
@@ -651,16 +656,16 @@ export default function ConvocationView() {
           <main className="glass scroll-area animate-fade-in min-h-0 overflow-y-auto rounded-2xl px-5 py-4 lg:px-6 lg:py-5">
             <div className="mb-5 flex h-6 items-center justify-between">
               <p className="text-body-sm font-bold uppercase tracking-[0.2em] text-[color:var(--text-secondary)]">
-                Mapeamento das equipes
+                {t("convocation.teamMap.title")}
               </p>
               <p className="text-body text-[color:var(--text-muted)]">
-                {totalVisibleTeams} equipe{totalVisibleTeams === 1 ? "" : "s"}
+                {t("convocation.teamMap.teamsCount", { count: totalVisibleTeams })}
               </p>
             </div>
 
             {filteredSections.length === 0 ? (
               <div className="py-20 text-center text-body text-[color:var(--text-muted)]">
-                Nenhuma equipe encontrada.
+                {t("convocation.teamMap.empty")}
               </div>
             ) : (
               <div className="space-y-3">
@@ -699,7 +704,7 @@ export default function ConvocationView() {
                           backgroundColor: `${section.color}14`,
                         }}
                       >
-                        {section.teams.length} equipes
+                        {t("convocation.teamMap.teamsCount", { count: section.teams.length })}
                       </span>
                     </div>
 
@@ -709,7 +714,7 @@ export default function ConvocationView() {
                           <SeasonSectionHeader
                             title={classGroup.className.toUpperCase()}
                             color={classAccentColor(classGroup.className)}
-                            detail={`${classGroup.teams.length} equipe${classGroup.teams.length > 1 ? "s" : ""}`}
+                            detail={t("convocation.teamMap.teamsCount", { count: classGroup.teams.length })}
                             titleTestId="convocation-class-title"
                           />
 
@@ -744,7 +749,7 @@ export default function ConvocationView() {
                                       </div>
                                       {vacancies > 0 && (
                                         <span className="ml-auto shrink-0 rounded-md border border-white/12 bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--text-secondary)]">
-                                          {vacancies} vaga{vacancies > 1 ? "s" : ""}
+                                          {t("convocation.teamMap.vacancies", { count: vacancies })}
                                         </span>
                                       )}
                                     </div>
@@ -753,13 +758,13 @@ export default function ConvocationView() {
                                   <div className="relative divide-y divide-white/8">
                                     <TeamPilotRow
                                       name={team.piloto_1_nome}
-                                      fallback="Piloto 1 em aberto"
+                                      fallback={t("convocation.teamMap.pilotOpen", { slot: 1 })}
                                       isNew={team.piloto_1_new_badge_day === currentDay}
                                       accentColor={accentColor}
                                     />
                                     <TeamPilotRow
                                       name={team.piloto_2_nome}
-                                      fallback="Piloto 2 em aberto"
+                                      fallback={t("convocation.teamMap.pilotOpen", { slot: 2 })}
                                       isNew={team.piloto_2_new_badge_day === currentDay}
                                       accentColor={accentColor}
                                     />
@@ -786,14 +791,14 @@ export default function ConvocationView() {
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[color:var(--accent-primary)]" />
               </span>
               <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                Sua decisao
+                {t("convocation.decision.title")}
               </p>
             </div>
 
             {acceptedSpecialOffer ? (
               <div className="glass-light rounded-xl border px-4 py-4">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--accent-primary)]">
-                  Convocação em destaque
+                  {t("convocation.decision.highlightLabel")}
                 </p>
                 <p className="mt-2 text-[19px] font-bold text-[color:var(--text-primary)]">
                   {acceptedSpecialOffer.team_name}
@@ -809,7 +814,7 @@ export default function ConvocationView() {
               </div>
             ) : (
               <div className="glass-light rounded-xl border-dashed p-4 text-body text-[color:var(--text-secondary)]">
-                Nenhuma vaga especial aceita ate agora.
+                {t("convocation.decision.empty")}
               </div>
             )}
 
@@ -818,7 +823,7 @@ export default function ConvocationView() {
               className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4"
             >
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
-                Fechamento do dia
+                {t("convocation.dailyLog.title")}
               </p>
               {specialWindowState?.last_day_log?.length ? (
                 <div className="mt-3 space-y-3">
@@ -852,19 +857,19 @@ export default function ConvocationView() {
                 </div>
               ) : (
                 <p className="mt-2 text-body text-[color:var(--text-secondary)]">
-                  As movimentacoes do mercado vao aparecer aqui ao final de cada dia.
+                  {t("convocation.dailyLog.empty")}
                 </p>
               )}
             </div>
 
             <div className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
-                Próximo passo
+                {t("convocation.nextStep.title")}
               </p>
               <p className="mt-2 text-body text-[color:var(--text-secondary)]">
                 {specialWindowState?.is_finished
-                  ? "A janela terminou. Agora você pode confirmar sua entrada no bloco especial ou seguir sem participar."
-                  : "Escolha no máximo uma proposta para o dia e use o botão principal do topo para avançar o mercado."}
+                  ? t("convocation.nextStep.finished")
+                  : t("convocation.nextStep.inProgress")}
               </p>
             </div>
           </aside>

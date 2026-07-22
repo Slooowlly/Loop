@@ -4,6 +4,8 @@
 // — quebrando o ciclo store↔componente. Segue o padrão dos irmãos nextRaceBriefing /
 // nextRaceEditorial / nextRaceThesis.
 import { buildFavoriteExpectationSelection, recentResults } from "./nextRaceBriefing";
+import { currentLang, ordinal } from "../../i18n/format.js";
+import i18n from "../../i18n/index.js";
 import { buildEditorialCopy, classifyChampionshipState } from "./nextRaceEditorial";
 import { selectThesis } from "./nextRaceThesis";
 export function getFavoriteMedalTone(index) {
@@ -24,6 +26,14 @@ export function riskLabel(level) {
   if (level === "alto") return "Alto";
   if (level === "médio") return "Médio";
   return "Baixo";
+}
+
+// Palavra do nível de risco DENTRO dos fatos de IA (minúscula, ex.: "risco alto").
+// Separada de `riskLabel` (rótulo capitalizado do card de display).
+function riskLevelWord(level) {
+  if (level === "alto") return i18n.t("raceContext.breakdownRisk.wordHigh");
+  if (level === "médio") return i18n.t("raceContext.breakdownRisk.wordMedium");
+  return i18n.t("raceContext.breakdownRisk.wordLow");
 }
 
 export function buildBriefingContext({
@@ -139,23 +149,23 @@ export function buildBriefingContext({
   // factuais; o servidor escreve a narrativa + voz da equipe (no idioma do app) só
   // em cima disto. Reaproveita o que já computamos aqui (estado, gap, rival, forma).
   const stateLabel = {
-    opener: "na largada da temporada, com tudo ainda por definir",
-    leader: "defendendo a liderança do campeonato",
-    chase: "perseguindo o líder, com chance real de encurtar a tabela",
-    pressure: "sob pressão para proteger a posição na tabela",
-    outsider: "longe da briga pelo título, jogando por orgulho e pontos",
-    survival: "precisando reagir e recolocar a campanha nos trilhos",
-  }[championshipState] ?? "disputando a etapa";
+    opener: i18n.t("raceContext.state.opener"),
+    leader: i18n.t("raceContext.state.leader"),
+    chase: i18n.t("raceContext.state.chase"),
+    pressure: i18n.t("raceContext.state.pressure"),
+    outsider: i18n.t("raceContext.state.outsider"),
+    survival: i18n.t("raceContext.state.survival"),
+  }[championshipState] ?? i18n.t("raceContext.state.default");
   const recentForm = recentResults(playerStanding)
     .map((r) => (r ? (r.is_dnf ? "DNF" : `P${r.position ?? "?"}`) : null))
     .filter(Boolean)
     .join(", ");
   const targetLabel =
     {
-      podium: "brigar pelo pódio",
-      top5: "buscar o top 5",
-      top8: "somar pontos sólidos no top 8",
-    }[outlook?.targetResult] ?? "fazer um fim de semana limpo e sem perdas";
+      podium: i18n.t("raceContext.target.podium"),
+      top5: i18n.t("raceContext.target.top5"),
+      top8: i18n.t("raceContext.target.top8"),
+    }[outlook?.targetResult] ?? i18n.t("raceContext.target.default");
   const playerIsLeader = !!(playerStanding && leader && playerStanding.id === leader.id);
   const topFavorite = favorites?.[0] ?? null;
   const topFavoriteIsPlayer = !!(topFavorite && playerStanding && topFavorite.id === playerStanding.id);
@@ -163,8 +173,11 @@ export function buildBriefingContext({
   const climaWet = ["Damp", "Wet", "HeavyRain"].includes(nextRace?.clima);
   const weatherFact = nextRace?.clima
     ? climaWet
-      ? `FATOR CLIMA (alto peso): previsão de ${buildWeatherSummary(nextRace.clima).toLowerCase()} — ${buildWeatherNarrative(nextRace.clima)} Pode embaralhar o grid e decidir a corrida.`
-      : `Previsão de clima: ${buildWeatherSummary(nextRace.clima)}, sem grandes surpresas no horizonte.`
+      ? i18n.t("raceContext.weatherFact.wet", {
+          summary: buildWeatherSummary(nextRace.clima).toLowerCase(),
+          narrative: buildWeatherNarrative(nextRace.clima),
+        })
+      : i18n.t("raceContext.weatherFact.dry", { summary: buildWeatherSummary(nextRace.clima) })
     : null;
   const audienceRankLabel = buildAudienceRankLabel(nextRace, season);
   const bigEvent = audienceEstimate >= 60000 || /maior|maiores/i.test(audienceRankLabel);
@@ -175,15 +188,18 @@ export function buildBriefingContext({
   const isFinaleRound = totalRounds > 1 && currentRound === totalRounds;
   const isOpenerRound = currentRound === 1;
   const eventOccasion = isFinaleRound
-    ? "grande final da temporada"
+    ? i18n.t("raceContext.occasion.finale")
     : isOpenerRound
-      ? "abertura da temporada"
-      : "etapa de destaque do calendário";
+      ? i18n.t("raceContext.occasion.opener")
+      : i18n.t("raceContext.occasion.highlight");
   const importanceFact =
     audienceEstimate > 0
       ? bigEvent
-        ? `ETAPA DE GRANDE IMPORTÂNCIA: ${eventOccasion} com casa cheia, cerca de ${formatAudience(audienceEstimate)} pessoas esperadas — vitrine e pressão extra pesam aqui.`
-        : `Público estimado: cerca de ${formatAudience(audienceEstimate)} pessoas ao longo do fim de semana.`
+        ? i18n.t("raceContext.importance.big", {
+            occasion: eventOccasion,
+            audience: formatAudience(audienceEstimate),
+          })
+        : i18n.t("raceContext.importance.normal", { audience: formatAudience(audienceEstimate) })
       : null;
   // Risco de quebra (aviso pré-corrida): só entra no briefing quando é NOTÁVEL — carro
   // confiável não vira assunto. É RISCO, não certeza (o engenheiro pode sugerir poupar).
@@ -196,10 +212,16 @@ export function buildBriefingContext({
         const risky = forecastParts
           .filter((p) => p.level !== "baixo")
           .slice(0, 3)
-          .map((p) => `${p.part_name} (risco ${p.level})`)
+          .map((p) =>
+            i18n.t("raceContext.breakdownRisk.part", { name: p.part_name, level: riskLevelWord(p.level) }),
+          )
           .join(", ");
-        const geral = breakdownForecast.overall_level === "alto" ? "ALTO" : breakdownForecast.overall_level;
-        return `RISCO DE QUEBRA DE PEÇA: risco geral de falha ${geral} nesta corrida${risky ? ` — atenção a ${risky}` : ""}. É risco, não certeza; se fizer sentido, sugira poupar o carro.`;
+        const geral =
+          breakdownForecast.overall_level === "alto"
+            ? i18n.t("raceContext.breakdownRisk.levelHigh")
+            : riskLevelWord(breakdownForecast.overall_level);
+        const parts = risky ? i18n.t("raceContext.breakdownRisk.partsSuffix", { parts: risky }) : "";
+        return i18n.t("raceContext.breakdownRisk.main", { level: geral, parts });
       })()
     : null;
   // --- TESE DOMINANTE ---------------------------------------------------------
@@ -209,12 +231,18 @@ export function buildBriefingContext({
   const lastResult = recentResults(playerStanding)[0] ?? null;
   const climaLabel = climaWet && nextRace?.clima ? buildWeatherSummary(nextRace.clima).toLowerCase() : null;
   const breakdownLevelLabel =
-    breakdownForecast?.overall_level === "alto" ? "ALTO" : breakdownForecast?.overall_level ?? null;
+    breakdownForecast?.overall_level === "alto"
+      ? i18n.t("raceContext.breakdownRisk.levelHigh")
+      : breakdownForecast?.overall_level
+        ? riskLevelWord(breakdownForecast.overall_level)
+        : null;
   const breakdownPartsLabel = forecastNotable
     ? forecastParts
         .filter((p) => p.level !== "baixo")
         .slice(0, 3)
-        .map((p) => `${p.part_name} (risco ${p.level})`)
+        .map((p) =>
+          i18n.t("raceContext.breakdownRisk.part", { name: p.part_name, level: riskLevelWord(p.level) }),
+        )
         .join(", ")
     : null;
   const nemesisRaw = playerInterests?.nemesis ?? null;
@@ -266,76 +294,163 @@ export function buildBriefingContext({
   // o resto vira PANO DE FUNDO. `null` = fato não se aplica a esta corrida.
   const factText = {
     championship_situation: !championshipUnderway
-      ? "Abertura da temporada: ninguém pontuou ainda, todo o grid larga do zero e a tabela só começa a se formar nesta etapa."
+      ? i18n.t("raceContext.facts.championshipOpener")
       : playerStanding
-        ? `Situação no campeonato: ${playerStanding.posicao_campeonato}º lugar, ${stateLabel}${gapToLeader > 0 ? `, a ${gapToLeader} pontos da liderança` : ""}.`
-        : `Leitura do momento: ${stateLabel}.`,
+        ? i18n.t("raceContext.facts.championshipSituation", {
+            pos: ordinal(playerStanding.posicao_campeonato),
+            state: stateLabel,
+            gap:
+              gapToLeader > 0
+                ? i18n.t("raceContext.facts.championshipSituationGap", { gap: gapToLeader })
+                : "",
+          })
+        : i18n.t("raceContext.facts.championshipReading", { state: stateLabel }),
     objective: championshipUnderway
-      ? `Objetivo realista pela forma atual: ${targetLabel}.`
-      : "Objetivo da estreia: começar a temporada construindo, sem correr atrás de prejuízo logo de cara.",
-    recent_form: recentForm ? `Últimos resultados do piloto: ${recentForm}.` : null,
+      ? i18n.t("raceContext.facts.objectiveForm", { target: targetLabel })
+      : i18n.t("raceContext.facts.objectiveDebut"),
+    recent_form: recentForm ? i18n.t("raceContext.facts.recentForm", { form: recentForm }) : null,
     avg_finish:
       outlook?.averageFinish != null
-        ? `Média de chegada recente: ${outlook.averageFinish.toFixed(1)}º${outlook.winCount > 0 ? `, ${outlook.winCount} vitória(s)` : ""}${outlook.podiumCount > 0 ? `, ${outlook.podiumCount} pódio(s)` : ""} nas últimas corridas.`
+        ? i18n.t("raceContext.facts.avgFinish", {
+            avg: outlook.averageFinish.toFixed(1),
+            wins:
+              outlook.winCount > 0
+                ? i18n.t("raceContext.facts.avgFinishWins", { n: outlook.winCount })
+                : "",
+            podiums:
+              outlook.podiumCount > 0
+                ? i18n.t("raceContext.facts.avgFinishPodiums", { n: outlook.podiumCount })
+                : "",
+          })
         : null,
     leader:
       championshipUnderway && !playerIsLeader && leader?.nome
-        ? `Líder do campeonato: ${leader.nome}, ${leader.pontos ?? 0} pontos.`
+        ? i18n.t("raceContext.facts.leader", { name: leader.nome, points: leader.pontos ?? 0 })
         : null,
     chaser:
       championshipUnderway && gapBehind != null
-        ? `Perseguidor direto na tabela a ${gapBehind} pontos atrás.`
+        ? i18n.t("raceContext.facts.chaser", { gap: gapBehind })
         : null,
     rival_direct:
       championshipUnderway && briefingRival?.driver_name
-        ? `Rival direto: ${briefingRival.driver_name} (${briefingRival.championship_position}º), ${briefingRival.is_ahead ? "à frente" : "atrás"} por ${briefingRival.gap_points} ponto(s).`
+        ? i18n.t("raceContext.facts.rivalDirect", {
+            name: briefingRival.driver_name,
+            pos: ordinal(briefingRival.championship_position),
+            side: briefingRival.is_ahead
+              ? i18n.t("raceContext.facts.rivalDirectAhead")
+              : i18n.t("raceContext.facts.rivalDirectBehind"),
+            gap: briefingRival.gap_points,
+          })
         : null,
     rivalry_label: briefingRival?.rivalry_label
       ? championshipUnderway
-        ? `Essa rivalidade é conhecida como "${briefingRival.rivalry_label}".`
-        : `Rivalidade que vem de temporadas anteriores: "${briefingRival.rivalry_label}" (${briefingRival.driver_name}).`
+        ? i18n.t("raceContext.facts.rivalryLabel", { label: briefingRival.rivalry_label })
+        : i18n.t("raceContext.facts.rivalryLabelPast", {
+            label: briefingRival.rivalry_label,
+            name: briefingRival.driver_name,
+          })
       : null,
     // O nemesis só vira fato solto quando NÃO é o próprio eixo (senão duplica).
     nemesis:
       nemesisSignal?.in_grid && thesis.key !== "nemesis"
-        ? `Seu nemesis está no grid: ${nemesisSignal.driver_name}${nemesisSignal.label ? ` ("${nemesisSignal.label}")` : ""}${nemesisSignal.chapters > 0 ? ` — confronto direto ${nemesisSignal.h2h_player_wins}-${nemesisSignal.h2h_rival_wins}` : ""}.`
+        ? i18n.t("raceContext.facts.nemesis", {
+            name: nemesisSignal.driver_name,
+            label: nemesisSignal.label
+              ? i18n.t("raceContext.facts.nemesisLabel", { label: nemesisSignal.label })
+              : "",
+            h2h:
+              nemesisSignal.chapters > 0
+                ? i18n.t("raceContext.facts.nemesisH2h", {
+                    wins: nemesisSignal.h2h_player_wins,
+                    losses: nemesisSignal.h2h_rival_wins,
+                  })
+                : "",
+          })
         : null,
     track_rivals:
       (playerInterests?.rivais ?? [])
         .filter((r) => orderedDrivers.some((d) => d.id === r.driver_id))
-        .map(
-          (r) =>
-            `Rival de pista no grid: ${r.driver_name}${r.label ? ` ("${r.label}")` : ""}${r.chapters > 0 ? ` — ${r.h2h_player_wins}-${r.h2h_rival_wins}` : ""}.`,
+        .map((r) =>
+          i18n.t("raceContext.facts.trackRival", {
+            name: r.driver_name,
+            label: r.label ? i18n.t("raceContext.facts.nemesisLabel", { label: r.label }) : "",
+            h2h:
+              r.chapters > 0
+                ? i18n.t("raceContext.facts.trackRivalH2h", {
+                    wins: r.h2h_player_wins,
+                    losses: r.h2h_rival_wins,
+                  })
+                : "",
+          }),
         )
         .join(" ") || null,
     track_history: trackHistory?.has_data
-      ? `Histórico nesta pista: ${trackHistory.starts} largada(s)${trackHistory.best_finish != null ? `, melhor resultado ${trackHistory.best_finish}º` : ""}${trackHistory.dnfs > 0 ? `, ${trackHistory.dnfs} abandono(s)` : ""}.`
+      ? i18n.t("raceContext.facts.trackHistory", {
+          starts: trackHistory.starts,
+          best:
+            trackHistory.best_finish != null
+              ? i18n.t("raceContext.facts.trackHistoryBest", { pos: ordinal(trackHistory.best_finish) })
+              : "",
+          dnfs:
+            trackHistory.dnfs > 0
+              ? i18n.t("raceContext.facts.trackHistoryDnfs", { n: trackHistory.dnfs })
+              : "",
+        })
       : null,
     track_last:
       trackHistory?.has_data && trackHistory.last_finish != null
-        ? `Última passagem por aqui terminou em ${trackHistory.last_finish}º${trackHistory.last_visit_season != null ? ` (temporada ${trackHistory.last_visit_season})` : ""}.`
+        ? i18n.t("raceContext.facts.trackLast", {
+            pos: ordinal(trackHistory.last_finish),
+            season:
+              trackHistory.last_visit_season != null
+                ? i18n.t("raceContext.facts.trackLastSeason", {
+                    season: trackHistory.last_visit_season,
+                  })
+                : "",
+          })
         : null,
     constructors:
       championshipUnderway && teamStanding
-        ? `Equipe ${playerTeam?.nome ?? ""} está em ${teamStanding.posicao}º entre os construtores${teamStanding.pontos != null ? ` (${teamStanding.pontos} pts)` : ""}.`.replace("  ", " ")
+        ? i18n
+            .t("raceContext.facts.constructors", {
+              team: playerTeam?.nome ?? "",
+              pos: ordinal(teamStanding.posicao),
+              points:
+                teamStanding.pontos != null
+                  ? i18n.t("raceContext.facts.constructorsPoints", { points: teamStanding.pontos })
+                  : "",
+            })
+            .replace("  ", " ")
         : null,
     teammate: teammate?.nome
       ? championshipUnderway
-        ? `Companheiro de equipe: ${teammate.nome} (${teammate.posicao_campeonato}º no campeonato) — referência interna do box.`
-        : `Companheiro de equipe: ${teammate.nome} — referência interna do box já na estreia.`
+        ? i18n.t("raceContext.facts.teammate", {
+            name: teammate.nome,
+            pos: ordinal(teammate.posicao_campeonato),
+          })
+        : i18n.t("raceContext.facts.teammateDebut", { name: teammate.nome })
       : null,
     favorite: topFavorite?.nome
       ? topFavoriteIsPlayer
-        ? `A imprensa coloca o próprio ${topFavorite.nome} como favorito da etapa.`
-        : `Favorito da etapa pela imprensa: ${topFavorite.nome}.`
+        ? i18n.t("raceContext.facts.favoriteSelf", { name: topFavorite.nome })
+        : i18n.t("raceContext.facts.favoriteOther", { name: topFavorite.nome })
       : null,
     weather: weatherFact,
     importance: importanceFact,
     breakdown: breakdownRiskFact,
     story_lead: leadStory
-      ? `Pauta do fim de semana: ${leadStory.title}${leadStory.summary ? ` — ${leadStory.summary}` : ""}.`
+      ? i18n.t("raceContext.facts.storyLead", {
+          title: leadStory.title,
+          summary: leadStory.summary
+            ? i18n.t("raceContext.facts.storyLeadSummary", { summary: leadStory.summary })
+            : "",
+        })
       : null,
-    story_others: weekendStories.slice(1, 3).map((s) => `Outra pauta: ${s.title}.`).join(" ") || null,
+    story_others:
+      weekendStories
+        .slice(1, 3)
+        .map((s) => i18n.t("raceContext.facts.storyOther", { title: s.title }))
+        .join(" ") || null,
   };
 
   // Ordem estável em que os fatos aparecem dentro de cada camada.
@@ -363,8 +478,18 @@ export function buildBriefingContext({
   ];
 
   const cenario = [
-    `Corrida: ${nextRace?.track_name ?? "a etapa"} — temporada ${season?.ano ?? "atual"}, etapa ${currentRound} de ${totalRounds}.`,
-    player?.nome ? `Piloto acompanhado pelo leitor: ${player.nome} (equipe ${playerTeam?.nome ?? "sem equipe"}).` : null,
+    i18n.t("raceContext.bundle.scenario", {
+      track: nextRace?.track_name ?? i18n.t("raceContext.bundle.scenarioTrackFallback"),
+      year: season?.ano ?? i18n.t("raceContext.bundle.scenarioYearFallback"),
+      round: currentRound,
+      total: totalRounds,
+    }),
+    player?.nome
+      ? i18n.t("raceContext.bundle.reader", {
+          name: player.nome,
+          team: playerTeam?.nome ?? i18n.t("raceContext.bundle.readerTeamFallback"),
+        })
+      : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -379,19 +504,15 @@ export function buildBriefingContext({
   }
 
   const aiFacts = [
-    `CENÁRIO: ${cenario}`,
+    i18n.t("raceContext.bundle.scenarioLine", { scenario: cenario }),
     "",
-    "EIXO DA CORRIDA — o gancho que esta prévia deve desenvolver (é o coração do texto, não uma linha solta; construa a narrativa a partir dele):",
+    i18n.t("raceContext.bundle.axisHead"),
     thesis.statement,
     ...(apoio.length
-      ? ["", "APOIO — fatos que sustentam o eixo (use os que reforçarem a história):", ...apoio.map((t) => `- ${t}`)]
+      ? ["", i18n.t("raceContext.bundle.supportHead"), ...apoio.map((t) => `- ${t}`)]
       : []),
     ...(fundo.length
-      ? [
-          "",
-          "PANO DE FUNDO — contexto secundário (use com parcimônia, só se couber; NÃO liste como estatística nem force todos):",
-          ...fundo.map((t) => `- ${t}`),
-        ]
+      ? ["", i18n.t("raceContext.bundle.backgroundHead"), ...fundo.map((t) => `- ${t}`)]
       : []),
   ].join("\n");
 
@@ -645,10 +766,10 @@ function buildGoals({ playerStanding, teammate, teamStanding, gapToLeader, remai
 }
 
 function buildWeatherSummary(clima) {
-  if (clima === "HeavyRain") return "Chuva forte";
-  if (clima === "Wet") return "Chuva";
-  if (clima === "Damp") return "Úmido";
-  return "Seco";
+  if (clima === "HeavyRain") return i18n.t("raceContext.weather.summary.heavyRain");
+  if (clima === "Wet") return i18n.t("raceContext.weather.summary.wet");
+  if (clima === "Damp") return i18n.t("raceContext.weather.summary.damp");
+  return i18n.t("raceContext.weather.summary.dry");
 }
 
 function buildWeatherIcon(clima) {
@@ -659,10 +780,10 @@ function buildWeatherIcon(clima) {
 }
 
 function buildWeatherNarrative(clima) {
-  if (clima === "HeavyRain") return "Corrida reativa, spray alto e erro caro.";
-  if (clima === "Wet") return "Pista pedindo paciência na entrada e tração limpa.";
-  if (clima === "Damp") return "Linha mudando rápido volta a volta.";
-  return "Janela previsível para empurrar mais cedo.";
+  if (clima === "HeavyRain") return i18n.t("raceContext.weather.narrative.heavyRain");
+  if (clima === "Wet") return i18n.t("raceContext.weather.narrative.wet");
+  if (clima === "Damp") return i18n.t("raceContext.weather.narrative.damp");
+  return i18n.t("raceContext.weather.narrative.dry");
 }
 
 function buildTemperatureNarrative(temperatura) {
@@ -775,7 +896,7 @@ function estimateAudience(tierLabel) {
 }
 
 export function formatAudience(value) {
-  return value ? value.toLocaleString("pt-BR") : "-";
+  return value ? value.toLocaleString(currentLang()) : "-";
 }
 
 

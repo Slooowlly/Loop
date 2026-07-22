@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { currentLang, ordinal } from "../../i18n/format.js";
+import i18n from "../../i18n/index.js";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatSalaryMonthly, formatMoneyCompact, extractNationalityLabel } from "../../utils/formatters";
@@ -377,9 +380,7 @@ function subcatLogo(key) {
 }
 
 // ─── Faixas de texto (Set A) para os atributos da equipe nas ofertas ──────────
-const PRESTIGE_TIERS   = ["Anônima", "Promissora", "Respeitada", "Renomada", "Lendária"];
-const RELIABILITY_TIERS = ["Frágil", "Instável", "Consistente", "Sólida", "Impecável"];
-const CAR_TIERS        = ["Defasado", "Modesto", "Competitivo", "Forte", "Ponta"];
+// Rótulos vêm do i18n (preSeason.offers.card.stats.* / .tierScales.*); aqui fica a paleta.
 const TIER_COLORS      = ["#f85149", "#f0a45a", "#e3c15a", "#7ee787", "#3fb950"];
 
 // Cores do selo de vínculo piloto-equipe (6 níveis: Recém-chegado → Casa).
@@ -402,9 +403,6 @@ function championshipColor(pos) {
   if (pos === 3) return "#cd7f32";
   return "var(--text-primary)";
 }
-function tierLabel(value, tiers) {
-  return tiers[tierBucket(value)];
-}
 function tierColor(value) {
   return TIER_COLORS[tierBucket(value)];
 }
@@ -424,21 +422,20 @@ function brandOf(cat) {
 
 // Tempo do companheiro na equipe (temporadas consecutivas).
 function formatTeammateTenure(tenure) {
-  if (tenure == null || tenure <= 0) return "Recém-chegado";
-  if (tenure === 1) return "1ª temporada na equipe";
-  return `${tenure}ª temporada na equipe`;
+  if (tenure == null || tenure <= 0) return i18n.t("preSeason.offers.teammate.newcomer");
+  return i18n.t("preSeason.offers.teammate.tenure", { pos: ordinal(tenure) });
 }
 
 // Rótulo de fama (0–100) na mesma régua de 6 níveis da ficha do piloto
 // (fama_level_for_value no backend) — mantém a leitura de estrelato consistente.
 function famaTierLabel(fama) {
   const value = Number(fama ?? 0);
-  if (value <= 15) return "Anônimo";
-  if (value <= 30) return "Discreto";
-  if (value <= 50) return "Conhecido";
-  if (value <= 70) return "Nome forte";
-  if (value <= 87) return "Estrela";
-  return "Ídolo";
+  if (value <= 15) return i18n.t("preSeason.offers.fama.anonymous");
+  if (value <= 30) return i18n.t("preSeason.offers.fama.discreet");
+  if (value <= 50) return i18n.t("preSeason.offers.fama.known");
+  if (value <= 70) return i18n.t("preSeason.offers.fama.strong");
+  if (value <= 87) return i18n.t("preSeason.offers.fama.star");
+  return i18n.t("preSeason.offers.fama.idol");
 }
 
 // Caixa real compacto da equipe: $450 mil / $1,2 mi.
@@ -484,7 +481,9 @@ function formatTenureBadge(tenureSeasons) {
 function formatTenureCounter(tenureSeasons) {
   if (!tenureSeasons || tenureSeasons <= 0) return null;
   return {
-    label: tenureSeasons === 1 ? "New" : `${tenureSeasons} anos`,
+    label: tenureSeasons === 1
+      ? i18n.t("preSeason.roster.tenureNew")
+      : i18n.t("preSeason.roster.tenureYears", { count: tenureSeasons }),
     isNewcomer: tenureSeasons === 1,
   };
 }
@@ -494,11 +493,11 @@ function getTeamMovementBadge(categoriaAnterior, categoriaAtual) {
   if (!movement) return null;
 
   if (movement.color === "#3fb950") {
-    return { ...movement, label: "Promovido" };
+    return { ...movement, kind: "promoted" };
   }
 
   if (movement.color === "#f85149") {
-    return { ...movement, label: "Relegado" };
+    return { ...movement, kind: "relegated" };
   }
 
   return movement;
@@ -507,8 +506,8 @@ function getTeamMovementBadge(categoriaAnterior, categoriaAtual) {
 function getTeamMovementOrder(team) {
   const movement = getTeamMovementBadge(team.categoria_anterior, team._categoria || team.classe);
   if (!movement) return 0;
-  if (movement.label === "Promovido") return 1;
-  if (movement.label === "Relegado") return 2;
+  if (movement.kind === "promoted") return 1;
+  if (movement.kind === "relegated") return 2;
   return 0;
 }
 
@@ -539,12 +538,12 @@ function formatLastChampionshipResult(driver) {
   if (!driver?.last_championship_position || !driver?.last_championship_total_drivers) {
     return null;
   }
-  return `${driver.last_championship_position}\u00ba/${driver.last_championship_total_drivers}`;
+  return `${ordinal(driver.last_championship_position)}/${driver.last_championship_total_drivers}`;
 }
 
 function formatWeeklyClosingPosition(position) {
   if (!position) return "--";
-  return `${position}\u00ba`;
+  return ordinal(position);
 }
 
 function isRealCareerDebutCategory(category) {
@@ -610,9 +609,12 @@ function buildWeeklyClosingGroups(weekResult) {
 }
 
 function WeeklyClosingMovement({ event, color, onSelect }) {
+  const { t } = useTranslation();
   const movementBadge = WEEKLY_MARKET_MOVEMENT_BADGES[event.movement_kind];
+  const movementLabel = movementBadge ? t(`preSeason.movementBadge.${event.movement_kind}`) : "";
   // Vínculo com o jogador (rival / favorito / já-correu) → realce no feed.
   const emphasis = RELATION_EMPHASIS[event.relation];
+  const emphasisLabel = emphasis ? t(`preSeason.relation.${event.relation}`) : "";
   const strong = emphasis?.strong;
 
   return (
@@ -644,8 +646,8 @@ function WeeklyClosingMovement({ event, color, onSelect }) {
       <div className="flex min-w-0 items-center gap-2.5">
         {movementBadge && (
           <span
-            aria-label={movementBadge.label}
-            title={movementBadge.label}
+            aria-label={movementLabel}
+            title={movementLabel}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[13px] font-black leading-none"
             style={{
               color: movementBadge.color,
@@ -671,19 +673,19 @@ function WeeklyClosingMovement({ event, color, onSelect }) {
           (strong ? (
             // Rival/favorito: raros e significativos → mantêm o rótulo escrito.
             <span
-              title={emphasis.label}
+              title={emphasisLabel}
               className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-[0.08em]"
               style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
             >
               <span className="text-[11px] leading-none">{emphasis.symbol}</span>
-              {emphasis.label}
+              {emphasisLabel}
             </span>
           ) : (
             // "Já correu": comum → só um marcador pequeno com tooltip, pra não
             // roubar largura do nome do piloto.
             <span
-              title={emphasis.label}
-              aria-label={emphasis.label}
+              title={emphasisLabel}
+              aria-label={emphasisLabel}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black leading-none"
               style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
             >
@@ -754,6 +756,7 @@ function MarketCategoryHeader({ categoryKey, detail }) {
 }
 
 function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false, accent = "#58a6ff" }) {
+  const { t } = useTranslation();
   const isOpenSlot = !driverName;
 
   // Vaga aberta: chip tracejado na cor da categoria (lê como oportunidade, não como
@@ -766,7 +769,7 @@ function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false, accen
           style={{ borderColor: `${accent}66`, color: accent, background: `${accent}12` }}
         >
           <span className="text-[14px] font-bold leading-none opacity-80">+</span>
-          Vaga aberta
+          {t("preSeason.roster.openSlot")}
         </span>
       </div>
     );
@@ -816,21 +819,23 @@ const LICENSE_COLORS = {
   SE: { text: "#ffd700", bg: "rgba(255,215,0,0.12)"   },
 };
 
-const LICENSE_LABELS = {
-  R: "Rookie",
-  A: "Amadora",
-  P: "Pro",
-  SP: "Super Pro",
-  E: "Elite",
-  SE: "Super Elite",
+const LICENSE_LABEL_KEYS = {
+  R: "rookie",
+  A: "amateur",
+  P: "pro",
+  SP: "superPro",
+  E: "elite",
+  SE: "superElite",
 };
 
 function licenseTooltip(sigla) {
-  const label = LICENSE_LABELS[sigla] ?? "Sem licença";
-  return `Carteira ${label}`;
+  const key = LICENSE_LABEL_KEYS[sigla];
+  const label = key ? i18n.t(`preSeason.license.labels.${key}`) : i18n.t("preSeason.license.none");
+  return i18n.t("preSeason.license.tooltip", { label });
 }
 
 function FreeAgentCard({ driver, isRookie, onHoverCat }) {
+  const { t } = useTranslation();
   const destColor = subcatColor(driver.categoria);
   const destLabel = shortDestLabel(driver.categoria);
   const idle = driver.seasons_idle ?? 0;
@@ -843,7 +848,7 @@ function FreeAgentCard({ driver, isRookie, onHoverCat }) {
     >
       {isRookie ? (
         <span className="shrink-0 rounded-md bg-[#bc8cff22] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[#bc8cff]">
-          Novo
+          {t("preSeason.market.freeAgent.new")}
         </span>
       ) : (
         driver.previous_team_name ? (
@@ -868,9 +873,9 @@ function FreeAgentCard({ driver, isRookie, onHoverCat }) {
       {isParado && (
         <span
           className="shrink-0 rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-[color:var(--text-muted)]"
-          title={`Parado há ${idle} ${idle === 1 ? "temporada" : "temporadas"}`}
+          title={t("preSeason.market.freeAgent.idleTooltip", { count: idle })}
         >
-          {`parado ${idle}t`}
+          {t("preSeason.market.freeAgent.idleShort", { count: idle })}
         </span>
       )}
       {/* Etiqueta de destino provável (categoria onde as propostas chegam) — sempre
@@ -878,7 +883,7 @@ function FreeAgentCard({ driver, isRookie, onHoverCat }) {
       <span
         className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
         style={{ background: `${destColor}1f`, color: destColor }}
-        title={`Destino provável: ${destLabel}`}
+        title={t("preSeason.market.freeAgent.destinationTooltip", { label: destLabel })}
       >
         {destLabel}
       </span>
@@ -889,6 +894,7 @@ function FreeAgentCard({ driver, isRookie, onHoverCat }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function PreSeasonView() {
+  const { t } = useTranslation();
   const careerId             = useCareerStore((s) => s.careerId);
   const preseasonState       = useCareerStore((s) => s.preseasonState);
   const lastMarketWeekResult = useCareerStore((s) => s.lastMarketWeekResult);
@@ -1039,7 +1045,7 @@ export default function PreSeasonView() {
           {group.label}
         </span>
         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--text-muted)]">
-          {n} vaga{n > 1 ? "s" : ""}
+          {t("preSeason.offers.vacancies", { count: n })}
         </span>
         <span className="shrink-0 text-[color:var(--text-muted)] transition-transform group-hover:translate-x-0.5">›</span>
       </button>
@@ -1059,9 +1065,9 @@ export default function PreSeasonView() {
     const dur = offer.offer_duration ?? 1;
     // No rookie o carro não afeta o resultado → não mostrar (seria enganoso).
     const stats = [
-      !rookie && { label: "Carro", value: offer.car_performance_rating, tiers: CAR_TIERS },
-      { label: "Confiabilidade", value: offer.team_reliability, tiers: RELIABILITY_TIERS },
-      { label: "Prestígio", value: offer.team_reputation, tiers: PRESTIGE_TIERS },
+      !rookie && { key: "car", value: offer.car_performance_rating },
+      { key: "reliability", value: offer.team_reliability },
+      { key: "prestige", value: offer.team_reputation },
     ].filter(Boolean);
     return (
       <article
@@ -1077,7 +1083,7 @@ export default function PreSeasonView() {
         {offer.active_interest && (
           <div className="flex items-center gap-1.5 bg-[#f2c46d1a] px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f2c46d]">
             <span>◆</span>
-            <span>Interesse ativo — te querem pelo seu nome</span>
+            <span>{t("preSeason.offers.card.activeInterest")}</span>
           </div>
         )}
         {/* Cabeçalho: identidade da equipe */}
@@ -1092,7 +1098,7 @@ export default function PreSeasonView() {
                 className="rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
                 style={{ color: accent, background: `${accent}22` }}
               >
-                {offer.role === "N1" ? "Piloto 1" : "Piloto 2"}
+                {offer.role === "N1" ? t("preSeason.offers.card.driver1") : t("preSeason.offers.card.driver2")}
               </span>
               <span
                 className="text-[10px] font-bold uppercase tracking-[0.16em]"
@@ -1105,11 +1111,11 @@ export default function PreSeasonView() {
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
               <FlagIcon nacionalidade={offer.team_country} className="h-3.5 w-5" />
               {countryLabel && <span>{countryLabel}</span>}
-              {offer.team_founded_year ? <span>· desde {offer.team_founded_year}</span> : null}
+              {offer.team_founded_year ? <span>{t("preSeason.foundedSince", { year: offer.team_founded_year })}</span> : null}
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Salário</p>
+            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</p>
             <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalaryMonthly(offer.salary)}</p>
           </div>
         </div>
@@ -1117,11 +1123,11 @@ export default function PreSeasonView() {
         <div className="space-y-3 px-4 py-3.5">
           {/* Atributos em FAIXA de texto (sem números) */}
           <div className={`grid grid-cols-1 gap-2 ${stats.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-            {stats.map(({ label, value, tiers }) => (
-              <div key={label} className="glass-light rounded-lg p-2.5">
-                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{label}</p>
+            {stats.map(({ key, value }) => (
+              <div key={key} className="glass-light rounded-lg p-2.5">
+                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t(`preSeason.offers.card.stats.${key}`)}</p>
                 <p className="mt-0.5 text-body font-bold" style={{ color: tierColor(value) }}>
-                  {tierLabel(value, tiers)}
+                  {t(`preSeason.offers.card.tierScales.${key}.${tierBucket(value)}`)}
                 </p>
                 <div className="mt-1.5 flex gap-0.5">
                   {Array.from({ length: PIP_COUNT }).map((_, i) => (
@@ -1147,14 +1153,14 @@ export default function PreSeasonView() {
               >
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                    Última temporada
+                    {t("preSeason.offers.card.lastSeason")}
                   </p>
                   <p className="text-[10px] text-[color:var(--text-secondary)]">
-                    {pos != null ? "Posição no campeonato" : "Sem histórico ainda"}
+                    {pos != null ? t("preSeason.offers.card.championshipPosition") : t("preSeason.offers.card.noHistory")}
                   </p>
                 </div>
                 <p className="text-[34px] font-black leading-none" style={{ color: posColor }}>
-                  {pos != null ? `${pos}º` : "Estreante"}
+                  {pos != null ? ordinal(pos) : t("preSeason.offers.card.debutant")}
                 </p>
               </div>
             );
@@ -1163,7 +1169,7 @@ export default function PreSeasonView() {
           {/* Ficha textual */}
           <div className={`grid grid-cols-2 gap-2 ${rookie ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
             <div className="glass-light rounded-lg p-2.5">
-              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Caixa</p>
+              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.cash")}</p>
               <p
                 className="mt-0.5 num-medium font-bold"
                 style={{ color: offer.team_cash < 0 ? "var(--status-red)" : "var(--status-green)" }}
@@ -1173,17 +1179,17 @@ export default function PreSeasonView() {
             </div>
             {!rookie && (
               <div className="glass-light rounded-lg p-2.5">
-                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Títulos</p>
+                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.titles")}</p>
                 <p className="mt-0.5 num-medium font-bold text-[color:var(--text-primary)]">
                   {(offer.team_titles_drivers ?? 0)}
                   <span className="text-[color:var(--text-muted)]"> · </span>
                   {(offer.team_titles_constructors ?? 0)}
                 </p>
-                <p className="text-[9px] text-[color:var(--text-muted)]">pilotos · construtores</p>
+                <p className="text-[9px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.driversConstructors")}</p>
               </div>
             )}
             <div className="glass-light rounded-lg p-2.5">
-              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Vitórias · Pódios</p>
+              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.winsPodiums")}</p>
               <p className="mt-0.5 num-medium font-bold text-[color:var(--text-primary)]">
                 {offer.team_historic_wins ?? 0}
                 <span className="text-[color:var(--text-muted)]"> · </span>
@@ -1194,7 +1200,7 @@ export default function PreSeasonView() {
 
           {/* Companheiro de equipe (hover → estatísticas) */}
           <div className="glass-light rounded-lg p-2.5">
-            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">Companheiro de equipe</p>
+            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.teammate")}</p>
             {offer.teammate_name ? (
               <div className="group relative mt-0.5 cursor-help">
                 <div className="flex items-center justify-between gap-2">
@@ -1214,19 +1220,19 @@ export default function PreSeasonView() {
                 <div className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border border-white/10 bg-[#0d1117] p-3 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.5)] transition-opacity duration-150 group-hover:opacity-100">
                   <p className="mb-2 min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-secondary)]">
                     {offer.teammate_name}
-                    {offer.teammate_age != null ? ` · ${offer.teammate_age} anos` : ""}
+                    {offer.teammate_age != null ? t("preSeason.offers.card.teammateAge", { count: offer.teammate_age }) : ""}
                   </p>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                     {[
-                      ["Corridas", offer.teammate_races ?? 0],
-                      ["Vitórias", offer.teammate_wins ?? 0],
-                      ["Pódios", offer.teammate_podiums ?? 0],
-                      ["Poles", offer.teammate_poles ?? 0],
-                      ["Títulos", offer.teammate_titles ?? 0],
-                      ["Pontos", Math.round(offer.teammate_career_points ?? 0)],
-                    ].map(([label, val]) => (
-                      <div key={label} className="flex items-center justify-between">
-                        <span className="text-[11px] text-[color:var(--text-muted)]">{label}</span>
+                      ["races", offer.teammate_races ?? 0],
+                      ["wins", offer.teammate_wins ?? 0],
+                      ["podiums", offer.teammate_podiums ?? 0],
+                      ["poles", offer.teammate_poles ?? 0],
+                      ["titles", offer.teammate_titles ?? 0],
+                      ["points", Math.round(offer.teammate_career_points ?? 0)],
+                    ].map(([statKey, val]) => (
+                      <div key={statKey} className="flex items-center justify-between">
+                        <span className="text-[11px] text-[color:var(--text-muted)]">{t(`preSeason.offers.card.teammateStats.${statKey}`)}</span>
                         <span className="num-medium text-[12px] font-bold text-[color:var(--text-primary)]">{val}</span>
                       </div>
                     ))}
@@ -1253,12 +1259,12 @@ export default function PreSeasonView() {
                   )}
                   {offer.teammate_fama != null && (
                     <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
-                      <span className="text-[11px] text-[color:var(--text-muted)]">Fama</span>
+                      <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.fame")}</span>
                       <span
                         title={
                           offer.teammate_carisma != null
-                            ? `Fama ${offer.teammate_fama}/100 · Carisma ${offer.teammate_carisma}/100`
-                            : `Fama ${offer.teammate_fama}/100`
+                            ? t("preSeason.offers.card.fameCharismaTooltip", { fama: offer.teammate_fama, carisma: offer.teammate_carisma })
+                            : t("preSeason.offers.card.fameTooltip", { fama: offer.teammate_fama })
                         }
                         className="num-medium text-[12px] font-bold text-[color:var(--accent-secondary)]"
                       >
@@ -1267,7 +1273,7 @@ export default function PreSeasonView() {
                     </div>
                   )}
                   <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
-                    <span className="text-[11px] text-[color:var(--text-muted)]">Salário</span>
+                    <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</span>
                     <span className="num-medium text-[12px] font-bold text-[color:var(--status-green)]">
                       {offer.teammate_salary != null ? formatSalaryMonthly(offer.teammate_salary) : "—"}
                     </span>
@@ -1275,21 +1281,21 @@ export default function PreSeasonView() {
                 </div>
               </div>
             ) : (
-              <p className="text-body mt-0.5 text-[color:var(--text-muted)]">Vaga livre.</p>
+              <p className="text-body mt-0.5 text-[color:var(--text-muted)]">{t("preSeason.offers.card.freeSlot")}</p>
             )}
           </div>
 
           {/* Duração do contrato ofertado */}
           <div className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-              Contrato ofertado
+              {t("preSeason.offers.card.offeredContract")}
             </span>
             <span
               className="num-medium text-body font-bold"
               style={{ color: dur >= 2 ? "var(--status-green)" : "var(--text-primary)" }}
             >
-              {dur} temporada{dur > 1 ? "s" : ""}
-              {dur >= 2 && <span className="ml-1.5 text-[9px] font-semibold">· projeto</span>}
+              {t("preSeason.offers.card.contractDuration", { count: dur })}
+              {dur >= 2 && <span className="ml-1.5 text-[9px] font-semibold">{t("preSeason.offers.card.project")}</span>}
             </span>
           </div>
 
@@ -1298,10 +1304,10 @@ export default function PreSeasonView() {
             disabled={isAdvancingWeek}
             className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Ver contrato
+            {t("preSeason.offers.card.viewContract")}
           </button>
           {pedigree === 0 && (
-            <p className="text-center text-[10px] text-[color:var(--text-muted)]">Equipe sem histórico expressivo ainda.</p>
+            <p className="text-center text-[10px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.noPedigree")}</p>
           )}
         </div>
       </article>
@@ -1367,7 +1373,7 @@ export default function PreSeasonView() {
                 className="ml-auto shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
                 style={{ color: movement.color, backgroundColor: movement.bg, borderColor: movement.border }}
               >
-                {movement.label}
+                {movement.kind ? t(`preSeason.teamMovement.${movement.kind}`) : movement.label}
               </span>
             )}
           </div>
@@ -1395,7 +1401,7 @@ export default function PreSeasonView() {
       const preseasonDate = preseasonState?.current_display_date;
       if (!preseasonDate) return "-";
 
-      return new Intl.DateTimeFormat("pt-BR", {
+      return new Intl.DateTimeFormat(currentLang(), {
         day: "numeric",
         month: "long",
       }).format(new Date(`${preseasonDate}T12:00:00`));
@@ -1615,7 +1621,7 @@ export default function PreSeasonView() {
       try {
         await finalizePreseason();
       } catch (e) {
-        setStartError(typeof e === "string" ? e : e?.message ?? "Erro ao iniciar a temporada.");
+        setStartError(typeof e === "string" ? e : e?.message ?? t("preSeason.errors.startSeason"));
       }
     } else {
       // Guarda o scroll atual dos painéis pra restaurar quando o grid recarregar
@@ -1635,7 +1641,7 @@ export default function PreSeasonView() {
     setShowDisplacedModal(false);
     setStartError("");
     try { await finalizePreseason(); } catch (e) {
-      setStartError(typeof e === "string" ? e : e?.message ?? "Erro ao iniciar a temporada.");
+      setStartError(typeof e === "string" ? e : e?.message ?? t("preSeason.errors.startSeason"));
     }
   };
 
@@ -1645,7 +1651,7 @@ export default function PreSeasonView() {
     try {
       await finalizePreseason();
     } catch (e) {
-      setStartError(typeof e === "string" ? e : e?.message ?? "Erro ao iniciar a temporada.");
+      setStartError(typeof e === "string" ? e : e?.message ?? t("preSeason.errors.startSeason"));
     }
   };
 
@@ -1669,7 +1675,7 @@ export default function PreSeasonView() {
         category: offer.category ?? offer.category_label ?? "",
       });
       if (res) {
-        setPaintToast(`🎨 Cor do carro atualizada para a ${offer.team_name ?? "nova equipe"}.`);
+        setPaintToast(t("preSeason.toast.paintUpdated", { team: offer.team_name ?? t("preSeason.toast.newTeamFallback") }));
         setTimeout(() => setPaintToast(""), 6000);
       }
     } catch (e) {
@@ -1696,7 +1702,7 @@ export default function PreSeasonView() {
         category: category ?? "",
       });
       if (res) {
-        setPaintToast(`🎨 Cor do carro atualizada para a ${teamName ?? "nova equipe"}.`);
+        setPaintToast(t("preSeason.toast.paintUpdated", { team: teamName ?? t("preSeason.toast.newTeamFallback") }));
         setTimeout(() => setPaintToast(""), 6000);
       }
     } catch (e) {
@@ -1724,7 +1730,7 @@ export default function PreSeasonView() {
         </div>
         {p.semanas_restantes != null && (
           <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">
-            {p.semanas_restantes <= 0 ? "última semana" : `expira em ${p.semanas_restantes} sem`}
+            {p.semanas_restantes <= 0 ? t("preSeason.proposals.lastWeek") : t("preSeason.proposals.expiresIn", { count: p.semanas_restantes })}
           </span>
         )}
       </div>
@@ -1732,7 +1738,7 @@ export default function PreSeasonView() {
       <div className="my-3 grid grid-cols-2 gap-2">
         <div className="glass-light rounded-lg p-2.5">
           <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            Salário
+            {t("preSeason.proposals.salary")}
           </p>
           <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
             {formatSalaryMonthly(p.salario_oferecido)}
@@ -1740,16 +1746,16 @@ export default function PreSeasonView() {
         </div>
         <div className="glass-light rounded-lg p-2.5">
           <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            Duração
+            {t("preSeason.proposals.duration")}
           </p>
           <p className="num-medium mt-0.5 font-bold text-[color:var(--text-primary)]">
-            {p.duracao_anos} ano{p.duracao_anos > 1 ? "s" : ""}
+            {t("preSeason.proposals.years", { count: p.duracao_anos })}
           </p>
         </div>
         {p.companheiro_nome && (
           <div className="glass-light rounded-lg p-2.5">
             <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-              Companheiro
+              {t("preSeason.proposals.teammate")}
             </p>
             <p className="text-body mt-0.5 font-semibold text-[color:var(--text-primary)] truncate">
               {p.companheiro_nome}
@@ -1759,7 +1765,7 @@ export default function PreSeasonView() {
         )}
         <div className={`glass-light rounded-lg p-2.5 ${p.companheiro_nome ? "" : "col-span-2"}`}>
           <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            Carro
+            {t("preSeason.proposals.car")}
           </p>
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#21262d]">
@@ -1790,14 +1796,14 @@ export default function PreSeasonView() {
           disabled={isAdvancingWeek}
           className="transition-glass glow-blue flex-1 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Aceitar
+          {t("preSeason.proposals.accept")}
         </button>
         <button
           onClick={() => handleRespondProposal(p.proposal_id, false)}
           disabled={isAdvancingWeek}
           className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Recusar
+          {t("preSeason.proposals.decline")}
         </button>
       </div>
     </article>
@@ -1826,16 +1832,16 @@ export default function PreSeasonView() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-body-sm font-bold uppercase tracking-[0.28em] text-[color:var(--accent-primary)]">
-                  Pré-temporada
+                  {t("preSeason.header.eyebrow")}
                 </p>
                 {playerOffers.length > 0 && (
                   <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-bold tracking-[0.14em] text-[color:var(--accent-primary)]">
-                    {playerOffers.length} oferta{playerOffers.length > 1 ? "s" : ""}
+                    {t("preSeason.header.offerCount", { count: playerOffers.length })}
                   </span>
                 )}
               </div>
               <h1 className="mt-1 text-[20px] font-bold leading-[1.05] tracking-[-0.02em] text-[color:var(--text-primary)] lg:text-[26px]">
-                {isComplete ? "Janela Encerrada" : "Mercado de Transferências"}
+                {isComplete ? t("preSeason.header.titleClosed") : t("preSeason.header.titleOpen")}
               </h1>
 
               {/* Filtros de categoria */}
@@ -1860,7 +1866,7 @@ export default function PreSeasonView() {
                           className="mr-2 inline-block h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: cat.color }}
                         />
-                        {cat.label}
+                        {cat.id === "all" ? t("preSeason.filters.all") : cat.label}
                       </button>
                     );
                   })}
@@ -1877,13 +1883,13 @@ export default function PreSeasonView() {
                     : "border-[#d2992266] bg-[#d2992218] text-[color:var(--status-yellow)]"
                 }`}
               >
-                {isMarketOpen ? "Mercado aberto" : "Janela fechada"}
+                {isMarketOpen ? t("preSeason.header.marketOpen") : t("preSeason.header.marketClosed")}
               </span>
 
               <div className="w-[220px] px-1 lg:w-[280px]">
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <p className="text-body-sm font-bold uppercase tracking-[0.2em] text-[color:var(--text-secondary)]">
-                    Semana{" "}
+                    {t("preSeason.header.week")}{" "}
                     <span className="text-[color:var(--text-primary)]">{currentWeek}</span>
                     /{totalWeeks}
                   </p>
@@ -1907,10 +1913,10 @@ export default function PreSeasonView() {
                 }`}
               >
                 {isAdvancingWeek
-                  ? "Processando..."
+                  ? t("preSeason.actions.processing")
                   : isComplete
-                    ? "Iniciar Temporada"
-                    : "Avançar Semana"}
+                    ? t("preSeason.actions.startSeason")
+                    : t("preSeason.actions.advanceWeek")}
               </button>
             </div>
           </div>
@@ -1926,22 +1932,24 @@ export default function PreSeasonView() {
           <aside ref={freeAgentContainerRef} className="glass-strong scroll-area animate-edge-rail-in min-h-0 overflow-y-auto rounded-2xl px-3 py-4 lg:px-4 lg:py-5">
             <div className="mb-4 flex h-6 items-center justify-between">
               <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                Mercado de Pilotos
+                {t("preSeason.market.title")}
               </p>
               {(preseasonFreeAgents ?? []).length > 0 && (
                 <span className="text-body-sm text-[color:var(--text-muted)]">
-                  {visibleFreeAgentCount} {selectedCat === "all" ? "livres" : "elegíveis"}
+                  {selectedCat === "all"
+                    ? t("preSeason.market.countFree", { count: visibleFreeAgentCount })
+                    : t("preSeason.market.countEligible", { count: visibleFreeAgentCount })}
                 </span>
               )}
             </div>
 
             {(preseasonFreeAgents ?? []).length === 0 ? (
               <div className="py-10 text-center text-body text-[color:var(--text-muted)]">
-                Todos os pilotos têm equipe.
+                {t("preSeason.market.emptyAllSigned")}
               </div>
             ) : freeAgentBandOrder.length === 0 ? (
               <div className="py-10 text-center text-body text-[color:var(--text-muted)]">
-                Nenhum piloto livre elegível para esta categoria.
+                {t("preSeason.market.emptyNoneEligible")}
               </div>
             ) : (
               <div className="space-y-4">
@@ -1958,7 +1966,7 @@ export default function PreSeasonView() {
                           className="text-[10px] font-black uppercase tracking-[0.2em]"
                           style={{ color: band.color }}
                         >
-                          {band.label}
+                          {t(`preSeason.bands.${band.key}`)}
                         </span>
                         <div
                           className="h-px flex-1"
@@ -2019,18 +2027,18 @@ export default function PreSeasonView() {
           <main ref={mainGridRef} className="glass scroll-area animate-fade-in min-h-0 overflow-y-auto rounded-2xl px-5 py-4 lg:px-6 lg:py-5">
             <div className="mb-5 flex h-6 items-center justify-between">
               <p className="text-body-sm font-bold uppercase tracking-[0.2em] text-[color:var(--text-secondary)]">
-                Mapeamento das equipes
+                {t("preSeason.grid.title")}
               </p>
-              <p className="text-body text-[color:var(--text-muted)]">Classificação anterior</p>
+              <p className="text-body text-[color:var(--text-muted)]">{t("preSeason.grid.subtitle")}</p>
             </div>
 
             {loadingGrid ? (
               <div className="py-20 text-center text-body text-[color:var(--text-muted)]">
-                Carregando grid...
+                {t("preSeason.grid.loading")}
               </div>
             ) : gridData.length === 0 ? (
               <div className="py-20 text-center text-body text-[color:var(--text-muted)]">
-                Nenhuma equipe encontrada.
+                {t("preSeason.grid.empty")}
               </div>
             ) : (
               <div className="space-y-3">
@@ -2056,7 +2064,7 @@ export default function PreSeasonView() {
                     <section key={teamClass} className={sectionSpacing}>
                       <MarketCategoryHeader
                         categoryKey={teamClass}
-                        detail={`${totalVacancies} ${totalVacancies === 1 ? "vaga" : "vagas"}`}
+                        detail={t("preSeason.grid.vacancies", { count: totalVacancies })}
                       />
 
                       {MULTICLASS_ORDER[teamClass] ? (
@@ -2100,7 +2108,7 @@ export default function PreSeasonView() {
                                         {CLASS_LABELS[cls] ?? cls.toUpperCase()}
                                       </span>
                                       <span className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                                        {clsTeams.length} {clsTeams.length === 1 ? "equipe" : "equipes"}
+                                        {t("preSeason.grid.teamCount", { count: clsTeams.length })}
                                       </span>
                                     </div>
                                     <div
@@ -2145,12 +2153,12 @@ export default function PreSeasonView() {
                     <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
                   </span>
                   <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-amber-300">
-                    Propostas recebidas
+                    {t("preSeason.proposals.title")}
                   </p>
                 </div>
                 <div className="space-y-3">
                   <p className="text-body-sm text-[color:var(--text-secondary)]">
-                    Equipes que querem VOCÊ. Aceitar assina o contrato; recusar dispensa. Cada uma expira em algumas semanas.
+                    {t("preSeason.proposals.subtitle")}
                   </p>
                   {playerProposals.map(renderProposalCard)}
                 </div>
@@ -2165,22 +2173,22 @@ export default function PreSeasonView() {
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[color:var(--accent-primary)]" />
               </span>
               <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                Suas ofertas
+                {t("preSeason.offers.title")}
               </p>
             </div>
 
             {playerOffers.length === 0 ? (
               <div className="glass-light rounded-xl border-dashed p-6 text-center text-body text-[color:var(--text-secondary)]">
                 {playerSignedThisWindow
-                  ? "Você já tem contrato. Avance as semanas até a janela fechar."
+                  ? t("preSeason.offers.emptySigned")
                   : isComplete
-                    ? "Janela de transferências fechada."
-                    : "Nenhuma oferta nova esta semana. Avance a semana para esperar — um time ainda pode aparecer."}
+                    ? t("preSeason.offers.emptyClosed")
+                    : t("preSeason.offers.emptyNone")}
               </div>
             ) : (
               <div className="space-y-4">
                 <p className="text-body-sm text-[color:var(--text-secondary)]">
-                  {totalOffers} vaga{totalOffers > 1 ? "s" : ""} te querendo esta semana. Toque numa categoria para ver as fichas das equipes.
+                  {t("preSeason.offers.summary", { count: totalOffers })}
                 </p>
 
                 {/* ANDAR 1 — Promoção: destaque. Card grande, verde, no topo. */}
@@ -2199,13 +2207,13 @@ export default function PreSeasonView() {
                           <span className="text-[20px] leading-none">⭐</span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--status-green)]">
-                              Promoção
+                              {t("preSeason.offers.promotion")}
                             </span>
                             <span className="mt-0.5 block truncate text-title-md font-black">
                               {group.label}
                             </span>
                             <span className="block text-[10px] uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                              {n} vaga{n > 1 ? "s" : ""} · subir de categoria
+                              {t("preSeason.offers.promotionVacancies", { count: n })}
                             </span>
                           </span>
                           <span className="text-title-md text-[color:var(--status-green)] transition-transform group-hover:translate-x-0.5">›</span>
@@ -2219,7 +2227,7 @@ export default function PreSeasonView() {
                 {brandOfferGroups.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                      Continuar na {CLASS_LABELS[playerBrand] ?? playerBrand}
+                      {t("preSeason.offers.continueIn", { brand: CLASS_LABELS[playerBrand] ?? playerBrand })}
                     </p>
                     {brandOfferGroups.map(renderOfferRowDense)}
                   </div>
@@ -2229,7 +2237,7 @@ export default function PreSeasonView() {
                 {otherOfferGroups.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                      Outras oportunidades
+                      {t("preSeason.offers.otherOpportunities")}
                     </p>
                     {otherOfferGroups.map(renderOfferRowDense)}
                   </div>
@@ -2240,7 +2248,7 @@ export default function PreSeasonView() {
                   onClick={() => { setOffersModalCat(null); setShowOffersModal(true); }}
                   className="transition-glass glow-blue mt-1 w-full rounded-xl border border-[#58a6ff66] bg-[#58a6ff22] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff44]"
                 >
-                  Ver ofertas ({totalOffers})
+                  {t("preSeason.offers.viewAll", { count: totalOffers })}
                 </button>
               </div>
             )}
@@ -2250,7 +2258,7 @@ export default function PreSeasonView() {
               className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4"
             >
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
-                Fechamento da semana
+                {t("preSeason.weeklyClosing.title")}
               </p>
               {weeklyClosingGroups.length ? (
                 <div className="mt-3 space-y-3">
@@ -2285,7 +2293,7 @@ export default function PreSeasonView() {
                 </div>
               ) : (
                 <p className="mt-2 text-body text-[color:var(--text-secondary)]">
-                  As movimentações do mercado vão aparecer aqui após avançar a semana.
+                  {t("preSeason.weeklyClosing.empty")}
                 </p>
               )}
             </div>
@@ -2311,13 +2319,13 @@ export default function PreSeasonView() {
             <div className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
               <div>
                 <div className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                  {modalCatLabel ? `Ofertas · ${modalCatLabel}` : "Suas ofertas"}
+                  {modalCatLabel ? t("preSeason.offersModal.eyebrowCat", { label: modalCatLabel }) : t("preSeason.offersModal.eyebrow")}
                 </div>
                 <h2 className="mt-1 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-                  {modalCount} vaga{modalCount > 1 ? "s" : ""} te querendo
+                  {t("preSeason.offersModal.countTitle", { count: modalCount })}
                 </h2>
                 <p className="mt-1 text-body-sm text-[color:var(--text-secondary)]">
-                  Aceitar fecha sua semana e assina o contrato. Avançar sem aceitar = esperar por algo melhor (risco: a vaga pode sumir).
+                  {t("preSeason.offersModal.subtitle")}
                 </p>
                 {offersModalCat && offersByCategory.length > 1 && (
                   <button
@@ -2325,7 +2333,7 @@ export default function PreSeasonView() {
                     onClick={() => setOffersModalCat(null)}
                     className="mt-2 text-body-sm font-semibold text-[color:var(--accent-primary)] hover:underline"
                   >
-                    Ver todas as ofertas ({totalOffers})
+                    {t("preSeason.offersModal.viewAll", { count: totalOffers })}
                   </button>
                 )}
               </div>
@@ -2333,7 +2341,7 @@ export default function PreSeasonView() {
                 type="button"
                 onClick={() => setShowOffersModal(false)}
                 className="transition-glass glass-light shrink-0 rounded-lg px-3 py-2 text-body font-bold text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)]"
-                aria-label="Fechar"
+                aria-label={t("preSeason.actions.close")}
               >
                 ✕
               </button>
@@ -2355,19 +2363,19 @@ export default function PreSeasonView() {
                       </span>
                       {isPromotion && (
                         <span className="rounded-md bg-[rgba(63,185,80,0.14)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--status-green)]">
-                          ↑ Promoção
+                          ↑ {t("preSeason.offersModal.promotion")}
                         </span>
                       )}
                       <div className="h-px flex-1" style={{ background: `linear-gradient(to right, ${accent}55, transparent)` }} />
                       <span className="text-body-sm text-[color:var(--text-muted)]">
-                        {n} vaga{n > 1 ? "s" : ""}
+                        {t("preSeason.offers.vacancies", { count: n })}
                       </span>
                     </div>
-                    {[["Piloto Nº 1", group.n1], ["Piloto Nº 2", group.n2]].map(([roleLabel, list]) =>
+                    {[["n1", group.n1], ["n2", group.n2]].map(([roleKey, list]) =>
                       list.length === 0 ? null : (
-                        <div key={roleLabel} className="space-y-3">
+                        <div key={roleKey} className="space-y-3">
                           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                            {roleLabel}
+                            {t(`preSeason.offersModal.role.${roleKey}`)}
                           </p>
                           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                             {list.map(renderOfferCardRich)}
@@ -2396,7 +2404,7 @@ export default function PreSeasonView() {
         const dur = offer.offer_duration ?? 1;
         const isProject = dur >= 2;
         const docRef = String(offer.seat_id ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase() || "000000";
-        const signName = playerName || "Piloto";
+        const signName = playerName || t("preSeason.contract.driverFallback");
         // Paleta do documento (folha escura, tinta clara — combina com o resto do app).
         const paper = "#0e1319";
         const ink = "var(--text-primary)";
@@ -2423,7 +2431,7 @@ export default function PreSeasonView() {
                 disabled={isSigning}
                 className="absolute right-3 top-4 z-10 rounded-lg bg-white/5 px-3 py-2 text-body font-bold transition-colors hover:bg-white/10 disabled:opacity-40"
                 style={{ color: inkSoft }}
-                aria-label="Fechar"
+                aria-label={t("preSeason.actions.close")}
               >
                 ✕
               </button>
@@ -2450,7 +2458,7 @@ export default function PreSeasonView() {
                     <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: inkMute }}>
                       <FlagIcon nacionalidade={offer.team_country} className="h-3.5 w-5" />
                       {countryLabel && <span>{countryLabel}</span>}
-                      {offer.team_founded_year ? <span>· desde {offer.team_founded_year}</span> : null}
+                      {offer.team_founded_year ? <span>{t("preSeason.foundedSince", { year: offer.team_founded_year })}</span> : null}
                     </div>
                   </header>
 
@@ -2459,10 +2467,10 @@ export default function PreSeasonView() {
                     <div className="h-px flex-1" style={{ background: `linear-gradient(to right, transparent, ${accent}88)` }} />
                     <div className="text-center">
                       <p className="text-[15px] font-black uppercase tracking-[0.3em]" style={{ color: ink }}>
-                        Contrato de Piloto
+                        {t("preSeason.contract.title")}
                       </p>
                       <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.24em]" style={{ color: accent }}>
-                        {offer.category_label || offer.category} · Ref. {docRef}
+                        {t("preSeason.contract.categoryRef", { category: offer.category_label || offer.category, ref: docRef })}
                       </p>
                     </div>
                     <div className="h-px flex-1" style={{ background: `linear-gradient(to left, transparent, ${accent}88)` }} />
@@ -2471,8 +2479,8 @@ export default function PreSeasonView() {
                   {/* ── Preâmbulo ── */}
                   <p className="mt-5 text-[12px] leading-relaxed" style={{ color: inkSoft }}>
                     <span className="font-bold" style={{ color: ink }}>{offer.team_name}</span>
-                    {" "}(a Equipe) e <span className="font-bold" style={{ color: ink }}>{signName}</span>{" "}
-                    (o Piloto) firmam o presente contrato de pilotagem, nos termos das cláusulas a seguir:
+                    {" "}{t("preSeason.contract.preamblePart1")} <span className="font-bold" style={{ color: ink }}>{signName}</span>{" "}
+                    {t("preSeason.contract.preamblePart2")}
                   </p>
 
                   {/* ── Cláusulas ── */}
@@ -2481,10 +2489,10 @@ export default function PreSeasonView() {
                     <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          Cláusula I · Função
+                          {t("preSeason.contract.clause1")}
                         </p>
                         <p className="text-right text-body font-bold" style={{ color: accent }}>
-                          {offer.role === "N1" ? "Piloto Titular (N1)" : "Segundo Piloto (N2)"}
+                          {offer.role === "N1" ? t("preSeason.contract.roleN1") : t("preSeason.contract.roleN2")}
                         </p>
                       </div>
                     </div>
@@ -2493,7 +2501,7 @@ export default function PreSeasonView() {
                     <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          Cláusula II · Remuneração
+                          {t("preSeason.contract.clause2")}
                         </p>
                         <p className="num-medium text-title-md font-black" style={{ color: money }}>
                           {formatSalaryMonthly(offer.salary)}
@@ -2505,10 +2513,10 @@ export default function PreSeasonView() {
                     <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          Cláusula III · Vigência
+                          {t("preSeason.contract.clause3")}
                         </p>
                         <p className="num-medium text-body font-bold" style={{ color: isProject ? money : ink }}>
-                          {dur} temporada{dur > 1 ? "s" : ""}
+                          {t("preSeason.offers.card.contractDuration", { count: dur })}
                         </p>
                       </div>
                     </div>
@@ -2517,10 +2525,10 @@ export default function PreSeasonView() {
                     <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          Cláusula IV · Projeto Esportivo
+                          {t("preSeason.contract.clause4")}
                         </p>
                         <p className="text-right text-body font-bold" style={{ color: accent }}>
-                          {offer.team_focus || "Meio de grid"}
+                          {offer.team_focus || t("preSeason.contract.focusFallback")}
                         </p>
                       </div>
                     </div>
@@ -2529,7 +2537,7 @@ export default function PreSeasonView() {
                     <div className="py-3.5" style={{ borderTop: `1px solid ${hair}`, borderBottom: `1px solid ${hair}` }}>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          Cláusula V · Relação com a Equipe
+                          {t("preSeason.contract.clause5")}
                         </p>
                         <div className="flex items-center gap-2">
                           <div className="flex gap-0.5">
@@ -2542,7 +2550,7 @@ export default function PreSeasonView() {
                             ))}
                           </div>
                           <span className="text-body-sm font-bold" style={{ color: hasHistory ? bondColor : inkMute }}>
-                            {offer.bond_label || "Recém-chegado"}
+                            {offer.bond_label || t("preSeason.contract.bondFallback")}
                           </span>
                         </div>
                       </div>
@@ -2566,12 +2574,12 @@ export default function PreSeasonView() {
                           </span>
                         ) : (
                           <span className="pb-1.5 text-[11px] italic" style={{ color: inkMute }}>
-                            assine ao aceitar ↓
+                            {t("preSeason.contract.signHint")}
                           </span>
                         )}
                       </div>
                       <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
-                        Piloto
+                        {t("preSeason.contract.driverRole")}
                       </p>
                       <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{signName}</p>
                     </div>
@@ -2586,7 +2594,7 @@ export default function PreSeasonView() {
                         </span>
                       </div>
                       <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
-                        Equipe
+                        {t("preSeason.contract.teamRole")}
                       </p>
                       <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{offer.team_name}</p>
                     </div>
@@ -2602,7 +2610,7 @@ export default function PreSeasonView() {
                   disabled={isSigning}
                   className="transition-glass glass-light rounded-lg px-4 py-2.5 text-body font-bold text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Voltar
+                  {t("preSeason.actions.back")}
                 </button>
                 <button
                   type="button"
@@ -2620,7 +2628,7 @@ export default function PreSeasonView() {
                   className="transition-glass glow-blue flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="text-[15px] leading-none">✒️</span>
-                  {isSigning ? "Assinando…" : "Assinar contrato"}
+                  {isSigning ? t("preSeason.contract.signing") : t("preSeason.contract.sign")}
                 </button>
               </div>
             </div>
@@ -2659,15 +2667,13 @@ export default function PreSeasonView() {
         >
           <div className="glass-strong animate-fade-in mx-4 w-full max-w-4xl rounded-2xl p-6 md:p-7">
             <div className="mb-1 text-body-sm font-bold uppercase tracking-[0.22em] text-[#f85149]">
-              Fim da pré-temporada
+              {t("preSeason.displaced.eyebrow")}
             </div>
             <h2 className="mb-1 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-              Pilotos sem vaga
+              {t("preSeason.displaced.title")}
             </h2>
             <p className="mb-5 text-body text-[color:var(--text-secondary)]">
-              {displacedVeterans.length === 1
-                ? "Este piloto encerrou a pré-temporada sem equipe."
-                : `Estes ${displacedVeterans.length} pilotos encerraram a pré-temporada sem equipe.`}
+              {t("preSeason.displaced.subtitle", { count: displacedVeterans.length })}
             </p>
 
             <div className="mb-6 max-h-[70vh] space-y-4 overflow-y-auto pr-1">
@@ -2722,7 +2728,7 @@ export default function PreSeasonView() {
                               {d.previous_team_name && d.seasons_at_last_team > 0 && (
                                 <div className="min-w-0">
                                   <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--text-muted)]">
-                                    Ex-equipe
+                                    {t("preSeason.displaced.formerTeam")}
                                   </div>
                                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                                     <TeamLogoMark
@@ -2743,7 +2749,7 @@ export default function PreSeasonView() {
                                       </span>
                                     )}
                                   </div>
-                                  <span className="text-[12px]">{`${d.seasons_at_last_team} ${d.seasons_at_last_team === 1 ? "temporada" : "temporadas"}`}</span>
+                                  <span className="text-[12px]">{t("preSeason.displaced.seasons", { count: d.seasons_at_last_team })}</span>
                                 </div>
                               )}
                             </div>
@@ -2769,13 +2775,13 @@ export default function PreSeasonView() {
                 onClick={() => setShowDisplacedModal(false)}
                 className="transition-glass flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10"
               >
-                Voltar
+                {t("preSeason.actions.back")}
               </button>
               <button
                 onClick={handleConfirmStartSeason}
                 className="transition-glass glow-blue flex-1 rounded-xl border border-[#3fb95099] bg-[#3fb950] px-4 py-2.5 text-body font-bold text-[#06101f] hover:bg-[#52d16a]"
               >
-                Iniciar Temporada
+                {t("preSeason.actions.startSeason")}
               </button>
             </div>
           </div>
@@ -2805,7 +2811,7 @@ export default function PreSeasonView() {
             <div className="glass-strong animate-fade-in relative mx-4 w-full max-w-lg rounded-2xl p-6 md:p-7">
               <button
                 onClick={() => setTransferDetail(null)}
-                aria-label="Fechar"
+                aria-label={t("preSeason.actions.close")}
                 className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-white/12 bg-white/5 text-[color:var(--text-muted)] transition-glass hover:bg-white/10 hover:text-[color:var(--text-primary)]"
               >
                 ✕
@@ -2818,7 +2824,7 @@ export default function PreSeasonView() {
                     style={{ color: badge.color, background: badge.bg, borderColor: badge.border }}
                   >
                     <span className="text-[13px] leading-none">{badge.symbol}</span>
-                    {badge.label}
+                    {t(`preSeason.movementBadge.${ev.movement_kind}`)}
                   </div>
                 )}
                 {emphasis && (
@@ -2827,7 +2833,7 @@ export default function PreSeasonView() {
                     style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
                   >
                     <span className="text-[13px] leading-none">{emphasis.symbol}</span>
-                    {emphasis.label}
+                    {t(`preSeason.relation.${ev.relation}`)}
                   </div>
                 )}
               </div>
@@ -2839,7 +2845,7 @@ export default function PreSeasonView() {
               {isRenewal ? (
                 <div className="mb-5 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-5 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    Permaneceu
+                    {t("preSeason.transferDetail.stayed")}
                   </div>
                   <TeamLogoMark teamName={toTeam} color={accent} size="md" />
                   <span className="block truncate text-[15px] font-bold text-[color:var(--text-primary)]">
@@ -2851,11 +2857,11 @@ export default function PreSeasonView() {
               <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-4">
                 <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    De
+                    {t("preSeason.transferDetail.from")}
                   </div>
                   {isDebut ? (
                     <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
-                      Estreia na carreira
+                      {t("preSeason.transferDetail.careerDebut")}
                     </span>
                   ) : (
                     <>
@@ -2873,7 +2879,7 @@ export default function PreSeasonView() {
 
                 <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    Para
+                    {t("preSeason.transferDetail.to")}
                   </div>
                   {toTeam ? (
                     <>
@@ -2884,7 +2890,7 @@ export default function PreSeasonView() {
                     </>
                   ) : (
                     <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
-                      Sem equipe
+                      {t("preSeason.transferDetail.noTeam")}
                     </span>
                   )}
                 </div>
@@ -2909,12 +2915,14 @@ export default function PreSeasonView() {
               {/* Tempo de casa */}
               <p className="text-center text-body-sm text-[color:var(--text-muted)]">
                 {isDebut
-                  ? "Estreia na carreira"
+                  ? t("preSeason.transferDetail.careerDebut")
                   : tenure != null && tenure > 0
-                    ? `${tenure} ${tenure === 1 ? "temporada" : "temporadas"} ${isRenewal ? "na equipe" : "na equipe anterior"}`
+                    ? isRenewal
+                      ? t("preSeason.transferDetail.tenureCurrent", { count: tenure })
+                      : t("preSeason.transferDetail.tenurePrevious", { count: tenure })
                     : isRenewal
-                      ? "Renovou contrato"
-                      : "Equipe anterior"}
+                      ? t("preSeason.transferDetail.renewed")
+                      : t("preSeason.transferDetail.previousTeam")}
               </p>
             </div>
           </div>
@@ -2929,31 +2937,31 @@ export default function PreSeasonView() {
         >
           <div className="glass-strong animate-fade-in mx-4 w-full max-w-md rounded-2xl p-6 md:p-7">
             <div className="mb-1 text-body-sm font-bold uppercase tracking-[0.22em] text-[#f85149]">
-              Atenção
+              {t("preSeason.freeAgentWarning.eyebrow")}
             </div>
             <h2 className="mb-3 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-              Você está sem equipe
+              {t("preSeason.freeAgentWarning.title")}
             </h2>
             <p className="mb-2 text-body text-[color:var(--text-secondary)]">
-              A pré-temporada encerrou sem que você fechasse um contrato. Se confirmar, iniciará
-              a temporada como <span className="font-semibold text-[color:var(--text-primary)]">agente livre</span> — sem correr nenhuma etapa.
+              {t("preSeason.freeAgentWarning.body1Prefix")}{" "}
+              <span className="font-semibold text-[color:var(--text-primary)]">{t("preSeason.freeAgentWarning.freeAgentTerm")}</span>{" "}
+              {t("preSeason.freeAgentWarning.body1Suffix")}
             </p>
             <p className="mb-6 text-body text-[color:var(--text-secondary)]">
-              Ao final da temporada, você poderá tentar o mercado novamente. Após uma temporada
-              inteira sem equipe, uma proposta de reserva será garantida na pré-temporada seguinte.
+              {t("preSeason.freeAgentWarning.body2")}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowFreeAgentWarning(false)}
                 className="transition-glass flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10"
               >
-                Voltar
+                {t("preSeason.actions.back")}
               </button>
               <button
                 onClick={handleConfirmFreeAgentStart}
                 className="transition-glass flex-1 rounded-xl border border-[#f8514999] bg-[#f85149]/20 px-4 py-2.5 text-body font-bold text-[#f85149] hover:bg-[#f85149]/30"
               >
-                Confirmar mesmo assim
+                {t("preSeason.freeAgentWarning.confirmAnyway")}
               </button>
             </div>
           </div>

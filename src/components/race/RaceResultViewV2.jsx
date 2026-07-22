@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "../../i18n/index.js";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
@@ -20,11 +22,11 @@ import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 // (cockpit). Recebe os MESMOS props da tela atual: result, evaluation, telemetry.
 
 const ASSESSMENT = {
-  MuitoAcima: { label: "Muito acima do esperado", color: "#4ade80", emoji: "🔥" },
-  Acima: { label: "Acima do esperado", color: "#4ade80", emoji: "✅" },
-  Dentro: { label: "Dentro do esperado", color: "#58a6ff", emoji: "🎯" },
-  Abaixo: { label: "Abaixo do esperado", color: "#f59e0b", emoji: "⚠️" },
-  MuitoAbaixo: { label: "Muito abaixo do esperado", color: "#ef4444", emoji: "🔻" },
+  MuitoAcima: { key: "muitoAcima", color: "#4ade80", emoji: "🔥" },
+  Acima: { key: "acima", color: "#4ade80", emoji: "✅" },
+  Dentro: { key: "dentro", color: "#58a6ff", emoji: "🎯" },
+  Abaixo: { key: "abaixo", color: "#f59e0b", emoji: "⚠️" },
+  MuitoAbaixo: { key: "muitoAbaixo", color: "#ef4444", emoji: "🔻" },
 };
 
 const PODIUM = { 1: "#f5c76d", 2: "#c9d1d9", 3: "#cd8a55" };
@@ -35,10 +37,10 @@ const MONO =
   '"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, "Roboto Mono", ui-monospace, monospace';
 
 function weatherLabel(w) {
-  if (w === "HeavyRain") return "Chuva forte";
-  if (w === "Wet") return "Chuva";
-  if (w === "Damp") return "Úmido";
-  return "Seco";
+  if (w === "HeavyRain") return i18n.t("raceResult.weather.heavyRain");
+  if (w === "Wet") return i18n.t("raceResult.weather.rain");
+  if (w === "Damp") return i18n.t("raceResult.weather.damp");
+  return i18n.t("raceResult.weather.dry");
 }
 
 function weatherIcon(w) {
@@ -71,6 +73,7 @@ function formatGap(entry) {
 }
 
 function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismiss }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
@@ -258,18 +261,18 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
             </div>
             {/* Pista + condição */}
             <div className="flex flex-col justify-center px-6 min-w-0" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-              <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.18em] leading-none mb-1.5">classificação final</div>
-              <div className="text-[25px] font-semibold text-white leading-none truncate">{result?.track_name || "Corrida"}</div>
+              <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.18em] leading-none mb-1.5">{t("raceResult.header.finalClassification")}</div>
+              <div className="text-[25px] font-semibold text-white leading-none truncate">{result?.track_name || t("raceResult.header.raceFallback")}</div>
               <div style={{ color: "#8b949e" }} className="text-[13px] mt-2 leading-none">{weatherLabel(result?.weather)}</div>
             </div>
             {/* Segmentos de stat */}
             <div className="flex flex-col justify-center px-7 text-center" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-              <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-2.5">voltas</div>
+              <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-2.5">{t("raceResult.header.laps")}</div>
               <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[24px] font-medium leading-none">{result?.total_laps ?? 0}</div>
             </div>
             {season?.ano && (
               <div className="flex flex-col justify-center px-7 text-center">
-                <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-2.5">temporada</div>
+                <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-2.5">{t("raceResult.header.season")}</div>
                 <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[24px] font-medium leading-none">{season.ano}</div>
               </div>
             )}
@@ -281,9 +284,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 onClick={() => setMockTelem((v) => !v)}
                 style={mockTelem ? { background: "#a855f733", color: "#d6bcfa", border: "0.5px solid #a855f755" } : { border: "0.5px solid rgba(255,255,255,0.12)", color: "#8b949e" }}
                 className="text-[11px] px-3 py-[7px] rounded-lg"
-                title="DEV: injeta telemetria fake para conferir o cockpit"
+                title={t("raceResult.dev.mockTitle")}
               >
-                {mockTelem ? "🧪 fake ON" : "🧪 dados fake"}
+                {mockTelem ? `🧪 ${t("raceResult.dev.fakeOn")}` : `🧪 ${t("raceResult.dev.fakeData")}`}
               </button>
             )}
             <span
@@ -296,7 +299,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 style={tab === "debrief" ? { background: "#58a6ff22", color: "#58a6ff" } : { color: "#8b949e" }}
                 className="text-[12px] px-[15px] py-[6px] rounded-lg uppercase tracking-wide"
               >
-                Debrief
+                {t("raceResult.tabs.debrief")}
               </button>
               <button
                 type="button"
@@ -304,7 +307,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 style={tab === "telemetry" ? { background: "#58a6ff22", color: "#58a6ff" } : { color: "#8b949e" }}
                 className="text-[12px] px-[15px] py-[6px] rounded-lg uppercase tracking-wide"
               >
-                Telemetria
+                {t("raceResult.tabs.telemetry")}
               </button>
             </span>
             {onDismiss && (
@@ -314,7 +317,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 style={{ border: "0.5px solid rgba(255,255,255,0.12)", color: "#c9d1d9" }}
                 className="text-[12px] px-3 py-[7px] rounded-lg hover:bg-white/5"
               >
-                Continuar
+                {t("raceResult.tabs.continue")}
               </button>
             )}
           </div>
@@ -340,23 +343,23 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                   </colgroup>
                   <thead>
                     <tr style={{ background: "rgba(255,255,255,0.025)" }}>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">pos</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.pos")}</th>
                       <th className="py-2.5"></th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">nac</th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-2 text-left uppercase tracking-wider">piloto</th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-2 text-left uppercase tracking-wider">equipe</th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">voltas</th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">pits</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.nac")}</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-2 text-left uppercase tracking-wider">{t("raceResult.table.driver")}</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-2 text-left uppercase tracking-wider">{t("raceResult.table.team")}</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.laps")}</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.pits")}</th>
                       <th
                         onClick={handleSortByLap}
-                        title="Clique para ordenar pela volta mais rápida (volta ao normal em 5s)"
+                        title={t("raceResult.table.bestLapSortTitle")}
                         style={{ color: sortByLap ? "#d6bcfa" : "#8b949e" }}
                         className="text-[11px] font-normal py-2.5 px-1.5 text-right uppercase tracking-wider cursor-pointer select-none hover:text-white"
                       >
-                        melhor volta {sortByLap ? "↓" : ""}
+                        {t("raceResult.table.bestLap")} {sortByLap ? "↓" : ""}
                       </th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-right uppercase tracking-wider">gap</th>
-                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 pr-5 text-right uppercase tracking-wider">pts</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-right uppercase tracking-wider">{t("raceResult.table.gap")}</th>
+                      <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 pr-5 text-right uppercase tracking-wider">{t("raceResult.table.points")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -426,10 +429,10 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                           <td className="text-left px-2 py-2 text-[13px] truncate" style={{ color: txt, borderTop: "0.5px solid rgba(255,255,255,0.05)" }}>
                             {e.pilot_name}
                             {e.has_fastest_lap && (
-                              <span title="Volta mais rápida" style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
+                              <span title={t("raceResult.table.fastestLapTitle")} style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
                             )}
                             <RivalMarker driverId={e.pilot_id} className="ml-1 inline-block" />
-                            {isPlayer && <span style={{ color: "#8b949e" }} className="text-[11px]"> você</span>}
+                            {isPlayer && <span style={{ color: "#8b949e" }} className="text-[11px]">{" "}{t("raceResult.table.you")}</span>}
                           </td>
                           <td className="text-left px-2 py-2" style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)" }}>
                             <span className="flex items-center gap-1.5">
@@ -471,7 +474,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                   className="rounded-2xl px-5 py-3"
                 >
                   <div className="text-[11px] uppercase tracking-[0.14em] mb-2" style={{ color: "#8b949e" }}>
-                    🔧 Problemas de peça
+                    🔧 {t("raceResult.breakdowns.title")}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {Object.entries(breakdownsByDriver).map(([id, list]) => {
@@ -482,7 +485,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                       const parts = list
                         .map((b) => `${b.part_name} (${b.penalty_secs != null ? `${b.penalty_secs}s` : "DNF"})`)
                         .join(", ");
-                      const tip = list.map((b) => `V${b.lap}: ${b.label}`).join(" · ");
+                      const tip = list.map((b) => `${t("raceResult.breakdowns.lapTip", { lap: b.lap })}: ${b.label}`).join(" · ");
                       return (
                         <div
                           key={id}
@@ -518,16 +521,16 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                   {/* Cabeçalho: engenheiro · assessment · nota */}
                   <div className="flex items-center justify-between px-6 pt-4">
                     <div style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-[0.14em] flex items-center gap-2">
-                      🎧 Debrief do engenheiro
+                      🎧 {t("raceResult.debrief.engineerTitle")}
                     </div>
                     {assess && (
                       <div className="flex items-center gap-3 whitespace-nowrap">
                         <span style={{ background: `${accent}1f`, color: accent }} className="inline-flex items-center gap-1.5 text-[12.5px] rounded-full px-3 py-[5px]">
-                          {assess.emoji} {assess.label}
+                          {assess.emoji} {t(`raceResult.assessment.${assess.key}`)}
                         </span>
                         {Number.isFinite(evaluation.grade) && (
                           <span className="flex items-baseline gap-1.5">
-                            <span style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-wider">nota</span>
+                            <span style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-wider">{t("raceResult.debrief.grade")}</span>
                             <span style={{ color: accent, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[27px] font-bold leading-none">
                               {evaluation.grade.toFixed(1)}
                             </span>
@@ -554,7 +557,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
 
                   {/* Régua de métricas */}
                   <div className="flex" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                    <DebriefMetric label="largou → chegou" divider>
+                    <DebriefMetric label={t("raceResult.metrics.startToFinish")} divider>
                       P{playerEntry?.grid_position ?? "—"}{" → "}
                       {playerEntry?.is_dnf ? "DNF" : `P${playerEntry?.finish_position ?? "—"}`}
                       {gained !== 0 && (
@@ -563,13 +566,13 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                         </span>
                       )}
                     </DebriefMetric>
-                    <DebriefMetric label="meta da corrida" divider>
+                    <DebriefMetric label={t("raceResult.metrics.raceTarget")} divider>
                       P{evaluation.target_low}{evaluation.target_high !== evaluation.target_low ? `–P${evaluation.target_high}` : ""}
                     </DebriefMetric>
-                    <DebriefMetric label="melhor volta" divider>
+                    <DebriefMetric label={t("raceResult.metrics.bestLap")} divider>
                       {formatLapMs(playerEntry?.best_lap_time_ms)}
                     </DebriefMetric>
-                    <DebriefMetric label="incidentes" divider>
+                    <DebriefMetric label={t("raceResult.metrics.incidents")} divider>
                       {playerEntry?.incidents_count ?? 0}
                     </DebriefMetric>
                     <MaintenanceMetric maintenance={maintenance} />
@@ -658,13 +661,14 @@ function EngineerSpeech({
   hoveredDriverId,
   onMentionHover,
 }) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className="flex items-center gap-3.5 py-2.5">
         <span className="eq" style={{ "--eq-color": accent }} aria-hidden="true">
           <i /><i /><i /><i /><i />
         </span>
-        <span style={{ color: "#9aa5b1" }} className="text-[14.5px] italic">O engenheiro está no rádio…</span>
+        <span style={{ color: "#9aa5b1" }} className="text-[14.5px] italic">{t("raceResult.debrief.onRadio")}</span>
       </div>
     );
   }
@@ -724,11 +728,12 @@ function DebriefMetric({ label, divider, children }) {
 // Célula "Manutenção" da régua: total sempre visível (âmbar, pra puxar atenção ao
 // cuidado com o carro) + tooltip de breakdown por item ao passar o mouse.
 function MaintenanceMetric({ maintenance }) {
+  const { t } = useTranslation();
   const total = maintenance?.total ?? 0;
   const items = Array.isArray(maintenance?.items) ? maintenance.items : [];
   return (
     <div className="flex-1 px-5 py-3.5 relative group">
-      <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">manutenção</div>
+      <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{t("raceResult.metrics.maintenance")}</div>
       <div
         style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
         className="text-[19px] mt-2 leading-none inline-flex items-center gap-1.5 cursor-help"
@@ -746,7 +751,7 @@ function MaintenanceMetric({ maintenance }) {
           }}
           className="absolute bottom-full right-4 mb-2 z-30 rounded-xl px-4 py-3 min-w-[200px] opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150"
         >
-          <div style={{ color: "#8b949e" }} className="text-[10px] uppercase tracking-[0.14em] mb-2.5">Fatura do carro</div>
+          <div style={{ color: "#8b949e" }} className="text-[10px] uppercase tracking-[0.14em] mb-2.5">{t("raceResult.maintenance.invoiceTitle")}</div>
           <div className="flex flex-col gap-1.5">
             {items.map((it) => (
               <div key={it.key} className="flex items-center justify-between gap-6">
@@ -756,7 +761,7 @@ function MaintenanceMetric({ maintenance }) {
             ))}
           </div>
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-2.5 pt-2.5">
-            <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">Total</span>
+            <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.maintenance.total")}</span>
             <span style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
           </div>
         </div>

@@ -29,12 +29,12 @@
     "lendario": "Legendary"
   },
   "license": {
-    "none": "No license",
     "0": "Amateur",
     "1": "Pro",
     "2": "Super Pro",
     "3": "Elite",
-    "4": "Super Elite"
+    "4": "Super Elite",
+    "none": "No license"
   },
   "preseasonPhase": {
     "ContractExpiry": "Contracts",
@@ -223,7 +223,11 @@
     "teamsTitle": "Team standings",
     "constructors": "Constructors",
     "teamsCount": "{{count}} teams",
-    "col": { "pos": "Pos", "driver": "Driver", "team": "Team" },
+    "col": {
+      "pos": "Pos",
+      "driver": "Driver",
+      "team": "Team"
+    },
     "series": {
       "changeLine": "Change line",
       "carLine": "Car line",
@@ -240,7 +244,10 @@
       "prevChampion": "Previous season champion",
       "reviewRace": "Double-click: review this race's standings"
     },
-    "zone": { "promotion": "PROMOTION ↑", "relegation": "RELEGATION ↓" },
+    "zone": {
+      "promotion": "PROMOTION ↑",
+      "relegation": "RELEGATION ↓"
+    },
     "others": "Others",
     "winsShort": "wins",
     "special": {
@@ -251,6 +258,487 @@
       "afterRegular": "This competition happens after the regular season and the call-up window. Results appear here when the special block is simulated."
     }
   },
+  "globalDrivers": {
+    "notLoaded": "Career not loaded.",
+    "loadError": "Couldn't load the drivers overview.",
+    "summaryAria": "World ranking summary",
+    "rankingAria": "World drivers ranking",
+    "yourDriverAria": "Your driver in the world ranking",
+    "allContracts": "All contracts and history",
+    "col": {
+      "driver": "Driver",
+      "status": "Status",
+      "teamCategory": "Team/Category",
+      "age": "Age",
+      "career": "Career",
+      "salaryMonth": "Salary/mo",
+      "fame": "Fame",
+      "index": "Index",
+      "titles": "Titles",
+      "wins": "Wins",
+      "podiums": "Pod.",
+      "poles": "Poles",
+      "points": "Pts",
+      "races": "Races",
+      "dnfs": "DNFs",
+      "injuries": "Injuries"
+    },
+    "stat": {
+      "index": "Index",
+      "races": "Races",
+      "wins": "Wins",
+      "podiums": "Podiums",
+      "career": "Career",
+      "titles": "Titles"
+    },
+    "tab": {
+      "history": "History",
+      "contracts": "Contracts",
+      "retirements": "Retirements",
+      "index": "Index"
+    },
+    "filter": {
+      "status": "Status",
+      "category": "Category",
+      "nationality": "Nationality",
+      "champions": "Champions",
+      "injured": "Injured",
+      "favorites": "Favorites",
+      "minAge": "Min age",
+      "maxAge": "Max age",
+      "all": "All",
+      "allF": "All",
+      "statusActive": "Active",
+      "statusFree": "Free agents",
+      "statusRetired": "Retired",
+      "onlyChampions": "Champions only",
+      "onlyInjured": "Injured only",
+      "onlyFavorites": "Favorites only"
+    },
+    "row": {
+      "injured": "Injured",
+      "injuredType": "Injured: {{type}}",
+      "removeFavorite": "Remove from favorites",
+      "addFavorite": "Favorite driver",
+      "noNames": "No names",
+      "yearsUnavailable": "Years unavailable"
+    },
+    "podium": {
+      "none": "No podiums",
+      "total": "{{count}} podiums total",
+      "wins_one": "{{count}} win (1st)",
+      "wins_other": "{{count}} wins (1st)",
+      "seconds": "{{count}} × 2nd",
+      "thirds": "{{count}} × 3rd",
+      "noDetail": "{{count}} without detail (races before tracking)"
+    },
+    "fame": {
+      "charisma": " Charisma {{carisma}}/100.",
+      "title": "Fame {{fama}}/100.{{charisma}}",
+      "up": "Gained",
+      "down": "Lost",
+      "deltaTitle": "{{direction}} {{amount}} fame since last season.{{charisma}}"
+    },
+    "rank": {
+      "globalTitle": "Global position #{{rank}} (among all drivers)",
+      "up": "Moved up",
+      "down": "Moved down",
+      "scopeFiltered": " in this filtered ranking",
+      "deltaTitle_one": "{{direction}} {{count}} position{{scope}} since the last race",
+      "deltaTitle_other": "{{direction}} {{count}} positions{{scope}} since the last race"
+    },
+    "champions": {
+      "eyebrow": "Champions",
+      "title": "Champions by championship",
+      "ofGroup": "Champions of {{group}}",
+      "close": "Close champions",
+      "titlesCount_one": "{{count}} title",
+      "titlesCount_other": "{{count}} titles",
+      "championsCount_one": "{{count}} champion",
+      "championsCount_other": "{{count}} champions"
+    },
+    "titles": {
+      "eyebrow": "Titles",
+      "ofDriver": "{{name}}'s titles",
+      "total": "Total: {{count}}",
+      "close": "Close titles"
+    },
+    "retiredYears": "{{count}} years ago",
+    "retired": "Retired",
+    "specialEvents": "Special events",
+    "backToStandings": "Back to Standings",
+    "loadingEyebrow": "Global drivers overview",
+    "loadingTitle": "Building world ranking",
+    "loadingDesc": "Gathering active, free and retired drivers."
+  },
+  "globalTeams": {
+    "notLoaded": "Career not loaded.",
+    "loadError": "Couldn't load the world teams history.",
+    "backToStandings": "Back to Standings",
+    "familyWindow": "{{family}}: window {{start}}-{{end}}",
+    "zoomFullTitle": "See the whole timeline",
+    "zoomRecentTitle": "See only the last {{years}} years",
+    "zoomRecentLabel": "Last {{years}} years",
+    "zoomAll": "All",
+    "moveWindow": "Move history window",
+    "start": "start",
+    "end": "end",
+    "visibleWindow": "Visible window: {{start}}-{{end}}",
+    "currentChampion": "Current champion"
+  },
+  "dashboard": {
+    "repair": {
+      "title": "Car repair",
+      "crash": "Crash {{severity}}",
+      "cost": "Repair cost",
+      "ok": "OK, got it"
+    }
+  },
+  "inbox": {
+    "attr": {
+      "ritmo_classificacao": {
+        "f": "sharp in qualifying",
+        "w": "shaky in qualifying"
+      },
+      "gestao_pneus": {
+        "f": "manages tires very well",
+        "w": "struggles with tire management"
+      },
+      "racecraft": {
+        "f": "flawless wheel-to-wheel",
+        "w": "fragile wheel-to-wheel"
+      },
+      "defesa": {
+        "f": "hard to overtake",
+        "w": "vulnerable when attacked"
+      },
+      "habilidade_largada": {
+        "f": "flies off the line",
+        "w": "loses positions at the start"
+      },
+      "consistencia": {
+        "f": "very consistent",
+        "w": "swings too much race to race"
+      }
+    },
+    "fama": {
+      "anonymous": "Unknown",
+      "discreet": "Low-key",
+      "known": "Known",
+      "strong": "Big name",
+      "star": "Star",
+      "idol": "Idol"
+    },
+    "h2h": {
+      "intro_one": "<p>You and {{who}} have lined up together {{count}} time in this category.",
+      "intro_other": "<p>You and {{who}} have lined up together {{count}} times in this category.",
+      "lostAll": " He's come out on top every time so far — it's high time to turn this around.</p>",
+      "wonAll": " You finished ahead in <b>all</b> of them — a psychological edge that weighs on the grid.</p>",
+      "wonSome": " You finished ahead in <b>{{n}}</b>",
+      "wonSomeBest": ", including your {{ordinal}} at {{track}}.</p>",
+      "wonSomeGeneric": " of those duels.</p>",
+      "from": "Grid bulletin",
+      "kind": "Rival · faced before",
+      "time": "next race",
+      "subject": "You and {{rival}} cross paths again."
+    },
+    "fav": {
+      "profileVetTitles_one": "a veteran with {{count}} career title",
+      "profileVetTitles_other": "a veteran with {{count}} career titles",
+      "profileVet": "a seasoned hand who knows the category like few others",
+      "profileYoung": "a rising young talent",
+      "standingFavorite": "is tipped as this season's title favorite",
+      "standingLead_one": "leads the championship by {{count}} point",
+      "standingLead_other": "leads the championship by {{count}} points",
+      "standingTop": "sits atop the championship",
+      "standingAhead": "sits just ahead of you, in {{ordinal}}",
+      "standingBehind": "sits just behind you, in {{ordinal}} — your main chaser",
+      "traits": " {{strong}}, but {{weak}}.",
+      "body": "<p>{{who}} is the one to beat: {{profile}}, {{standing}}.{{traits}}</p>",
+      "from": "Championship preview",
+      "kindFavorite": "Title favorite",
+      "kindExpectation": "Season outlook",
+      "time": "season",
+      "subjectFavorite": "{{name}}: the title favorite.",
+      "subjectContender": "{{name}} is the one to beat."
+    },
+    "interest": {
+      "and": " and ",
+      "p1_one": "<p>Your name is making the rounds behind the scenes. {{list}} has shown interest in signing you — driven less by the stopwatch and more by your <b>{{level}}</b> appeal with fans and sponsors.</p>",
+      "p1_other": "<p>Your name is making the rounds behind the scenes. {{list}} have shown interest in signing you — driven less by the stopwatch and more by your <b>{{level}}</b> appeal with fans and sponsors.</p>",
+      "p2_one": "<p>In the next window, expect offers from that team as a <b>starting driver</b> and with an <b>above-market salary</b>. That's your bargaining power talking.</p>",
+      "p2_other": "<p>In the next window, expect offers from those teams as a <b>starting driver</b> and with an <b>above-market salary</b>. That's your bargaining power talking.</p>",
+      "from": "Your agent",
+      "kindOne": "Team interest",
+      "kindMany": "Interest from {{count}} teams",
+      "time": "market",
+      "subjectOne": "{{team}} has its eye on you.",
+      "subjectMany": "{{count}} teams eyeing your name."
+    }
+  },
+  "thesis": {
+    "trackFallback": "this round",
+    "weatherWetFallback": "wet",
+    "titles": {
+      "redemption": "Redemption",
+      "title_defense": "Lead defense",
+      "title_chase": "Title chase",
+      "nemesis": "Personal duel",
+      "pressure": "Ground under threat",
+      "track_trauma": "Unfinished business",
+      "track_fortress": "Your kind of track",
+      "weather": "Weather lottery",
+      "breakdown": "Mechanical fragility",
+      "grand_stage": "The stage",
+      "debut": "Fresh start",
+      "baseline": "Bank and build"
+    },
+    "redemption": {
+      "detailDnf": "a DNF in the last race{{track}}",
+      "detailDismal": "a result well below your usual (P{{pos}})",
+      "statement": "Central hook — REACTION. The driver comes off {{detail}} and this round is about responding, flipping the switch and getting the campaign back on track. The whole weekend reads from that recent stumble."
+    },
+    "title_defense": {
+      "chaser": " The direct chaser is {{gap}} point(s) behind.",
+      "setback": " — and you arrive right after a DNF, which makes the defense even more delicate",
+      "statement": "Central hook — LEAD DEFENSE. You reach {{track}} atop the championship{{setback}}.{{chaser}} The round is about managing the pressure and leaving here still setting the pace, giving no opening."
+    },
+    "title_chase": {
+      "leaderName": " ({{name}})",
+      "statement": "Central hook — TITLE CHASE. You're {{gap}} point(s) off the leader{{leader}}, with {{rounds}} round(s) to go. This is a real chance to close the gap — the round is worth a direct fight at the top."
+    },
+    "nemesis": {
+      "h2h": " Head-to-head {{wins}}-{{losses}}.",
+      "label": " (\"{{label}}\")",
+      "statement": "Central hook — PERSONAL DUEL. Your nemesis {{name}}{{label}} is on this grid.{{h2h}} The weekend revolves around this clash: he's the yardstick for your round."
+    },
+    "pressure": {
+      "gap": " ({{gap}} point(s))",
+      "statement": "Central hook — GROUND UNDER THREAT. The table has tightened behind you{{gap}}. This round is about protecting your championship band: you can't afford a passive weekend."
+    },
+    "track_trauma": {
+      "countDnf": "{{n}} retirement(s) here",
+      "countBest": "best result only P{{best}}",
+      "statement": "Central hook — UNFINISHED BUSINESS. {{track}} has open history with you ({{detail}}). The axis is respect and clean execution: here, erring little is worth more than attacking too much."
+    },
+    "track_fortress": {
+      "statement": "Central hook — YOUR KIND OF TRACK. {{track}} holds good memories (best result P{{best}}). The weekend starts with the track in your favor — the read can be bolder."
+    },
+    "weather": {
+      "statement": "Central hook — WEATHER LOTTERY. The forecast is for a {{clima}} track, and that scrambles the grid and decides the race. The axis is cool reading: the track will reward whoever errs least, not whoever attacks most."
+    },
+    "breakdown": {
+      "parts": " — watch {{parts}}",
+      "statement": "Central hook — MECHANICAL FRAGILITY. The car arrives with {{level}} breakdown risk{{parts}}. It's risk, not certainty: the weekend's axis is weighing attack against reliability, and maybe sparing the car."
+    },
+    "grand_stage": {
+      "audience": " — around {{audience}} people",
+      "statement": "Central hook — THE STAGE. {{occasion}}{{audience}}. The showcase and pressure weigh beyond the table: the axis is the occasion, and what it demands of whoever's at its center."
+    },
+    "debut": {
+      "statement": "Central hook — FRESH START. Season opener at {{track}}: table reset, the whole grid starts from zero. The round is about building the campaign's foundation and turning preseason expectation into real points."
+    },
+    "baseline": {
+      "statement": "Central hook — BANK AND BUILD. With no dominant storyline, {{track}} is a round to score big, gain table position and avoid silly losses. The axis is competitive consistency."
+    },
+    "stageAppendix": {
+      "audience": ", with around {{audience}} people",
+      "text": " And it's no ordinary stage: {{occasion}}{{audience}} — the occasion amplifies everything at stake."
+    }
+  },
+  "editorial": {
+    "ctx": {
+      "track": "this round",
+      "team": "the team",
+      "leader": "the front",
+      "rival": "the direct rival",
+      "nemesis": "your rival",
+      "clima": "wet track",
+      "occasion": "A standout round"
+    },
+    "form": {
+      "noStanding": "The team wants to turn practice pace into a clean result.",
+      "resultUndefined": "undefined result",
+      "dnf": "DNF",
+      "place": "{{pos}} place",
+      "recent": "In the three most recent reads you're coming off {{list}}.",
+      "noTrend": "The recent run hasn't set a clear trend yet."
+    },
+    "redemption": {
+      "headline_0": "{{trackName}}: time to flip the switch.",
+      "headline_1": "The reaction starts at {{trackName}}.",
+      "lead_0": "The last race left a mark, and {{trackName}} arrives as the round for the response. The whole weekend organizes around a simple idea: getting the campaign back on track.",
+      "lead_1": "After the recent stumble, the team treats {{trackName}} as a turning point. It's not about forgetting what happened — it's about turning frustration into clean execution.",
+      "outlook_0": "The plan isn't heroics: it's a solid race, no new mistakes, that gives the garage its confidence back. {{formSentence}}",
+      "outlook_1": "The priority is to stop the bleeding and leave here with real points. {{formSentence}}",
+      "quote_0": "We know what happened. Now it's a cool head, a clean race and starting to score again.",
+      "quote_1": "Page turned. {{trackName}} is where our response begins."
+    },
+    "title_defense": {
+      "headline_0": "{{trackName}}: defend the lead.",
+      "headline_1": "Lead on the line at {{trackName}}.",
+      "lead_0": "You reach {{trackName}} atop the championship, and that changes the weight of every detail. The round is less about attacking and more about not giving up what's already yours.",
+      "lead_1": "Being on top turns {{trackName}} into a test of cool blood. The weekend's job is to leave here still setting the pace.",
+      "outlook_0": "Control the pressure, manage risk and protect the margin — you don't have to win to win. {{formSentence}}",
+      "outlook_1": "A high, clean result keeps the season's architecture intact. {{formSentence}}",
+      "quote_0": "We came in to defend what's ours. Head in place and the lead stays with us.",
+      "quote_1": "Leading demands composure. That's what we'll deliver here."
+    },
+    "title_chase": {
+      "headline_0": "{{trackName}}: close the gap.",
+      "headline_1": "The title chase runs through {{trackName}}.",
+      "lead_0": "{{gapToLeader}} point(s) from {{leaderName}} and with {{remainingRounds}} round(s) to go, {{trackName}} becomes a real chance to move the table. The title math is still alive.",
+      "lead_1": "The championship is still within reach, and {{trackName}} is the kind of round that decides title chases. Every point on {{leaderName}} matters from here on.",
+      "outlook_0": "The message is controlled aggression: go for the front without wrecking the race. {{formSentence}}",
+      "outlook_1": "Closing for good demands a strong, clean Sunday. {{formSentence}}",
+      "quote_0": "We're close. This isn't the time for anxiety — it's the time to close in.",
+      "quote_1": "The gap exists, but we can cut it here. Let's go for it with sense."
+    },
+    "nemesis": {
+      "headline_0": "{{trackName}}: settling scores.",
+      "headline_1": "The duel with {{nemesisName}} heats up.",
+      "lead_0": "{{nemesisName}} is on this grid, and it's impossible to separate your round from that clash. {{trackName}} becomes the stage for a duel that already has history.",
+      "lead_1": "Every season has a rivalry that defines races, and yours is here at {{trackName}}. {{nemesisName}} is the yardstick for your weekend.",
+      "outlook_0": "Beating the direct rival is worth more than the position on paper — but without letting the duel cost the race. {{formSentence}}",
+      "outlook_1": "The focus is winning the direct comparison and coming out on top. {{formSentence}}",
+      "quote_0": "We know exactly who we're fighting. This one's personal, and we want to win.",
+      "quote_1": "There's a showdown set here. That's what a good race is made of."
+    },
+    "pressure": {
+      "headline_0": "{{trackName}}: hold your ground.",
+      "headline_1": "Under pressure at {{trackName}}.",
+      "lead_0": "The table has tightened behind you, and {{trackName}} leaves no room for a passive weekend. The round is about defending your championship band.",
+      "lead_1": "With the gap ever shorter, {{trackName}} demands an immediate response. You can't passively manage what the table is demanding.",
+      "outlook_0": "Race with clarity, no waste, and keep the standings from tightening further. {{formSentence}}",
+      "outlook_1": "Scoring big here became a must, not a luxury. {{formSentence}}",
+      "quote_0": "The margin got thin. The answer needs to show up now, in this race.",
+      "quote_1": "We can't deliver a routine weekend at this point."
+    },
+    "weather": {
+      "headline_0": "A wet {{trackName}} scrambles everything.",
+      "headline_1": "Weather lottery at {{trackName}}.",
+      "lead_0": "The {{climaLabel}} forecast turns {{trackName}} into a race of reading, not bravado. The weather can rewrite the grid from start to finish.",
+      "lead_1": "When the track goes wet, {{trackName}} stops being predictable. The weather comes in as a real distortion factor for the round.",
+      "outlook_0": "The track will reward whoever errs least, not whoever attacks most. Surviving the chaos well already changes the race. {{formSentence}}",
+      "outlook_1": "Composure above all: a clean result here can be worth more than it seems. {{formSentence}}",
+      "quote_0": "With this weather, the race is in your head. Fewer mistakes, more patience.",
+      "quote_1": "Rain levels the grid. We read the race and take the opening."
+    },
+    "track_trauma": {
+      "headline_0": "{{trackName}} has scores to settle.",
+      "headline_1": "Respect for {{trackName}}.",
+      "lead_0": "{{trackName}} is no ordinary track for you — the history here calls for caution before any bold promise. Clean execution is worth more than bravado.",
+      "lead_1": "The recent memory of {{trackName}} advises prudence. The round arrives with a clear warning: here, erring little is the way.",
+      "outlook_0": "Discipline from start to finish, without forcing what the track usually charges dearly for. {{formSentence}}",
+      "outlook_1": "The goal is to break the record with a mature race. {{formSentence}}",
+      "quote_0": "This track has cost us dearly before. This time, it's focus and discipline.",
+      "quote_1": "We know the history here. No taking it easy."
+    },
+    "track_fortress": {
+      "headline_0": "{{trackName}}: friendly ground.",
+      "headline_1": "Good memories at {{trackName}}.",
+      "lead_0": "{{trackName}} holds good memories of yours, and that allows a bolder read of the round. The track plays in your favor from the first practice.",
+      "lead_1": "Few tracks suit you as well as {{trackName}}. The record here gives grounds to attack with legitimate ambition.",
+      "outlook_0": "The question is turning past reference into present result. {{formSentence}}",
+      "outlook_1": "With the track in your favor, you can think big without illusion. {{formSentence}}",
+      "quote_0": "We like it here. Time to turn that good memory into points.",
+      "quote_1": "This track suits us. Let's make the most of it."
+    },
+    "breakdown": {
+      "headline_0": "{{trackName}}: manage the car.",
+      "headline_1": "Reliability in question at {{trackName}}.",
+      "lead_0": "The car reaches {{trackName}} with real breakdown risk, and that changes the weekend's math. It's risk, not certainty — but it weighs on every decision.",
+      "lead_1": "Mechanical fragility is the topic at {{trackName}}. The round becomes a balance between attack and preserving the car to the flag.",
+      "outlook_0": "It may be worth easing off at times to guarantee the finish. {{formSentence}}",
+      "outlook_1": "Reaching the end intact may be worth more than risking it all. {{formSentence}}",
+      "quote_0": "The car needs attention. We'll weigh every attack against the risk of not finishing.",
+      "quote_1": "Better a guaranteed point than a heroic zero. Cool heads here."
+    },
+    "grand_stage": {
+      "headline_0": "{{trackName}}: the big stage.",
+      "headline_1": "Spotlights on {{trackName}}.",
+      "lead_0": "{{eventOccasion}} puts {{trackName}} under the spotlights. The showcase and pressure weigh beyond the points at stake.",
+      "lead_1": "Not every race carries the weight of {{trackName}} on this occasion. It's the kind of round that separates those who rise from those who shrink.",
+      "outlook_0": "The stage demands presence: delivering under pressure is half the story here. {{formSentence}}",
+      "outlook_1": "Big occasions remember whoever showed up. {{formSentence}}",
+      "quote_0": "A round like this we mark in memory. We came to show up.",
+      "quote_1": "The stage is big. It's exactly where we want to be."
+    },
+    "debut": {
+      "headline_0": "{{trackName}} opens the season.",
+      "headline_1": "Fresh start at {{trackName}}.",
+      "lead_0": "The season begins at {{trackName}} with the whole grid starting from zero. There's no table to defend — there's an entire campaign to build.",
+      "lead_1": "{{trackName}} restarts everything: table reset and the first read of the year's forces. The round is about planting the season's foundation.",
+      "outlook_0": "A solid start avoids having to play catch-up right off the bat. {{formSentence}}",
+      "outlook_1": "Starting well at the opener gives a confidence base for the rest of the calendar. {{formSentence}}",
+      "quote_0": "New season, clean slate. We want to start on the right foot.",
+      "quote_1": "It's time to turn the preseason into real points."
+    },
+    "baseline": {
+      "headline_0": "{{trackName}}: bank and build.",
+      "headline_1": "Building at {{trackName}}.",
+      "lead_0": "With no dominant storyline, {{trackName}} is a building round: score big, gain position and avoid silly losses. Consistency is the name of the game.",
+      "lead_1": "{{trackName}} brings no big table drama, and that's fine. The round is about doing the simple things well and growing in the championship.",
+      "outlook_0": "A clean, efficient race here eases the season's breathing. {{formSentence}}",
+      "outlook_1": "Every point banked without scares reorganizes the campaign around you. {{formSentence}}",
+      "quote_0": "No inventing. Clean race, points in the bag and we keep growing.",
+      "quote_1": "Focus on the basics done well. That's how a season is built."
+    }
+  },
+  "briefing": {
+    "expectation": {
+      "p1-controlled-1": "Arrives as the round's main reference, riding the most solid run among the front names.",
+      "p1-controlled-2": "Opens the weekend as the grid's benchmark, backed by a spell that keeps delivering control and big points.",
+      "p1-charging-1": "Leads the favorites' line with high morale, bringing the recent pace of someone who knows how to control the front of the weekend.",
+      "p1-charging-2": "Takes on the role of the man to beat this round, supported by a strong upward trend over the last races.",
+      "p1-volatile-1": "Remains the natural reference of the round, but the paddock wants to see that speed turn into a clean race from start to finish.",
+      "p1-volatile-2": "Still arrives as a central name up front, though he carries a clear message: turn pace into error-free execution.",
+      "p1-stable-1": "Enters the round as the axis of the fight, with a campaign steady enough to set the tone for the front runners.",
+      "p1-stable-2": "Remains the grid's most reliable reference, even without opening an absolute margin over his immediate chasers.",
+      "p1-baseline-1": "Arrives as the round's heaviest sporting name, with enough championship reading to command the front.",
+      "p1-baseline-2": "Starts as the natural reference of the weekend, backed by the strongest mix of points, pace and front-running presence.",
+      "p2-controlled-1": "Enters the weekend with a clear front-row read, sustained by strong results and little margin for error.",
+      "p2-controlled-2": "Arrives as the round's most consistent direct chaser, with a real package to push the favorite from the start.",
+      "p2-charging-1": "Appears as the name most ready to attack the front, riding a clearly visible recent growth curve.",
+      "p2-charging-2": "Brings a real case to press for the front, with form on the rise and the pace to shake up the round's hierarchy.",
+      "p2-volatile-1": "Has the speed to run on the front row, but still needs to convert that performance ceiling into a clean Sunday.",
+      "p2-volatile-2": "Arrives with a real read to attack the front, provided he can stabilize a campaign that still alternates peaks and slips.",
+      "p2-stable-1": "Holds a strong front-row candidacy, backed by recent regularity and constant presence in the front block.",
+      "p2-stable-2": "Enters as a credentialed chaser of the round, with enough consistency to press the top if qualifying falls into place.",
+      "p2-baseline-1": "Begins the weekend as a firm front-row name, carrying the material to bother the front runners.",
+      "p2-baseline-2": "Opens the round with a real attacking credential, backed by a package that keeps him near the championship leaders.",
+      "p3-controlled-1": "Reaches the podium block with a strong technical base, backed by recent results that keep him near the front.",
+      "p3-controlled-2": "Enters as a serious name for the podium, sustained by a clean, competitive recent campaign.",
+      "p3-charging-1": "Has been growing in the fight up front and appears as a real candidate to reach this round's podium.",
+      "p3-charging-2": "The recent trend places him inside the hottest podium block, with clear room to grow over the weekend.",
+      "p3-volatile-1": "Has the ceiling to get into the podium, but the paddock's read still runs through turning speed into consistency.",
+      "p3-volatile-2": "Emerges with top-3 potential, though he still carries a dose of instability that demands a well-executed race.",
+      "p3-stable-1": "Recent consistency keeps him on the podium radar, even without the same raw ceiling of the two strongest names.",
+      "p3-stable-2": "Arrives as a firm presence in the front block, with enough repertoire to sustain a podium race.",
+      "p3-baseline-1": "Starts as a legitimate podium candidate, with a campaign strong enough to run in the same conversation as the favorites.",
+      "p3-baseline-2": "Opens the round within the podium bracket, backed by a solid mix of points, pace and front-running presence.",
+      "p4-controlled-1": "Appears as a real threat to the top 5, with a recent base clean enough to punish any mistake up front.",
+      "p4-controlled-2": "Arrives a step below the podium block, but with the consistency to steal heavy points if the race opens up.",
+      "p4-charging-1": "Is on the rise and enters as a dangerous name to cut through the top 5 if the race goes off script.",
+      "p4-charging-2": "The recent growth curve makes him a concrete threat to the more established names up front.",
+      "p4-volatile-1": "Has the speed to infiltrate the round's high block, but still carries a riskier read than his direct rivals.",
+      "p4-volatile-2": "Emerges as the grid's aggressive card: interesting ceiling, though execution still swings too much to trust blindly.",
+      "p4-stable-1": "Occupies the second front pack with consistency, ready to capitalize on any race that breaks among the favorites.",
+      "p4-stable-2": "Keeps a strong secondary-threat profile, sustained by enough regularity to score big if the round scrambles.",
+      "p4-baseline-1": "Enters as a dangerous name to stretch the top-5 fight, especially if the weekend opens up space at the front.",
+      "p4-baseline-2": "Opens the round as a well-positioned secondary threat, with a package to turn chaos into big points.",
+      "p5-controlled-1": "Runs on the outside, but arrives with a base clean enough to enter the big-points radar early.",
+      "p5-controlled-2": "Appears as a well-organized outsider of the round, with recent consistency to bother the top 5.",
+      "p5-charging-1": "Is climbing at the right moment and emerges as the liveliest outsider to surprise in the race's main block.",
+      "p5-charging-2": "The recent trend keeps him outside only on paper, because his pace already puts him on the round's radar.",
+      "p5-volatile-1": "Arrives as a surprise name, still trying to trade swings for a race that truly puts him in the front conversation.",
+      "p5-volatile-2": "Has room to show up well above expectations, but his recent campaign still mixes bright flashes with avoidable losses.",
+      "p5-stable-1": "Remains outside the main hierarchy, but with enough regularity to seize any top-5 opportunity.",
+      "p5-stable-2": "Enters the radar as a competitive outsider, backed by a run that keeps him near the round's strong block.",
+      "p5-baseline-1": "Runs on the outside, but can turn into a real surprise if he repeats his recent level when the race tightens.",
+      "p5-baseline-2": "Opens the round in the paddock's watch group, with room to grow if the favorites leave a gap."
+    }
+  },
   "closeApp": {
     "title": "Close Loop?",
     "desc": "You can save your progress before closing the game."
@@ -259,5 +747,1083 @@
     "drag": "Drag window",
     "dragHint": "Drag window (hold and move)",
     "close": "Close app"
+  },
+  "raceContext": {
+    "weather": {
+      "summary": {
+        "heavyRain": "Heavy rain",
+        "wet": "Rain",
+        "damp": "Damp",
+        "dry": "Dry"
+      },
+      "narrative": {
+        "heavyRain": "A reactive race, heavy spray and costly mistakes.",
+        "wet": "The track demands patience on entry and clean traction.",
+        "damp": "The line shifts fast lap after lap.",
+        "dry": "A predictable window to push earlier."
+      }
+    },
+    "state": {
+      "opener": "at the season's start, with everything still to play for",
+      "leader": "defending the championship lead",
+      "chase": "chasing the leader, with a real chance to close the gap",
+      "pressure": "under pressure to protect their standings position",
+      "outsider": "far from the title fight, racing for pride and points",
+      "survival": "needing to react and get the campaign back on track",
+      "default": "contesting the round"
+    },
+    "target": {
+      "podium": "fight for the podium",
+      "top5": "go for the top 5",
+      "top8": "bank solid points in the top 8",
+      "default": "put together a clean weekend with no losses"
+    },
+    "occasion": {
+      "finale": "the season finale",
+      "opener": "the season opener",
+      "highlight": "a marquee round on the calendar"
+    },
+    "weatherFact": {
+      "wet": "WEATHER FACTOR (high weight): {{summary}} forecast — {{narrative}} It could scramble the grid and decide the race.",
+      "dry": "Weather forecast: {{summary}}, no big surprises on the horizon."
+    },
+    "importance": {
+      "big": "A HIGH-STAKES ROUND: {{occasion}} with a full house, around {{audience}} people expected — extra spotlight and pressure weigh here.",
+      "normal": "Estimated attendance: around {{audience}} people over the weekend."
+    },
+    "breakdownRisk": {
+      "main": "PART FAILURE RISK: overall failure risk is {{level}} this race{{parts}}. It's a risk, not a certainty; if it makes sense, suggest sparing the car.",
+      "partsSuffix": " — watch out for {{parts}}",
+      "part": "{{name}} ({{level}} risk)",
+      "levelHigh": "HIGH",
+      "wordLow": "low",
+      "wordMedium": "medium",
+      "wordHigh": "high"
+    },
+    "facts": {
+      "championshipOpener": "Season opener: no one has scored yet, the whole grid starts from zero and the table only begins to take shape this round.",
+      "championshipSituation": "Championship situation: {{pos}} place, {{state}}{{gap}}.",
+      "championshipSituationGap": ", {{gap}} points off the lead",
+      "championshipReading": "Read of the moment: {{state}}.",
+      "objectiveForm": "Realistic objective given current form: {{target}}.",
+      "objectiveDebut": "Debut objective: start the season building, without chasing losses right out of the gate.",
+      "recentForm": "Driver's latest results: {{form}}.",
+      "avgFinish": "Recent average finish: {{avg}}{{wins}}{{podiums}} in the last races.",
+      "avgFinishWins": ", {{n}} win(s)",
+      "avgFinishPodiums": ", {{n}} podium(s)",
+      "leader": "Championship leader: {{name}}, {{points}} points.",
+      "chaser": "Direct chaser in the table {{gap}} points behind.",
+      "rivalDirect": "Direct rival: {{name}} ({{pos}}), {{side}} by {{gap}} point(s).",
+      "rivalDirectAhead": "ahead",
+      "rivalDirectBehind": "behind",
+      "rivalryLabel": "This rivalry is known as \"{{label}}\".",
+      "rivalryLabelPast": "A rivalry carried over from previous seasons: \"{{label}}\" ({{name}}).",
+      "nemesis": "Your nemesis is on the grid: {{name}}{{label}}{{h2h}}.",
+      "nemesisLabel": " (\"{{label}}\")",
+      "nemesisH2h": " — head-to-head {{wins}}-{{losses}}",
+      "trackRival": "Track rival on the grid: {{name}}{{label}}{{h2h}}.",
+      "trackRivalH2h": " — {{wins}}-{{losses}}",
+      "trackHistory": "Record at this track: {{starts}} start(s){{best}}{{dnfs}}.",
+      "trackHistoryBest": ", best finish {{pos}}",
+      "trackHistoryDnfs": ", {{n}} retirement(s)",
+      "trackLast": "Last visit here ended {{pos}}{{season}}.",
+      "trackLastSeason": " (season {{season}})",
+      "constructors": "Team {{team}} sits {{pos}} among the constructors{{points}}.",
+      "constructorsPoints": " ({{points}} pts)",
+      "teammate": "Teammate: {{name}} ({{pos}} in the championship) — the internal benchmark in the box.",
+      "teammateDebut": "Teammate: {{name}} — the internal benchmark in the box, right from the debut.",
+      "favoriteSelf": "The press casts {{name}} themselves as the round's favorite.",
+      "favoriteOther": "The press's favorite for the round: {{name}}.",
+      "storyLead": "Weekend storyline: {{title}}{{summary}}.",
+      "storyLeadSummary": " — {{summary}}",
+      "storyOther": "Another storyline: {{title}}."
+    },
+    "bundle": {
+      "scenario": "Race: {{track}} — {{year}} season, round {{round}} of {{total}}.",
+      "scenarioTrackFallback": "the round",
+      "scenarioYearFallback": "current",
+      "reader": "Driver followed by the reader: {{name}} (team {{team}}).",
+      "readerTeamFallback": "no team",
+      "scenarioLine": "SCENARIO: {{scenario}}",
+      "axisHead": "RACE AXIS — the hook this preview should develop (it is the heart of the text, not a loose line; build the narrative from it):",
+      "supportHead": "SUPPORT — facts that back the axis (use the ones that reinforce the story):",
+      "backgroundHead": "BACKGROUND — secondary context (use sparingly, only where it fits; do NOT list it as statistics or force them all):"
+    }
+  },
+  "nextRaceTab": {
+    "status": {
+      "noTeamHeading": "No team this season",
+      "preseasonOpenHeading": "Preseason open",
+      "seasonEndHeading": "End of season",
+      "specialBlockHeading": "Special block in progress",
+      "specialDoneHeading": "Special finished",
+      "seasonFinishedHeading": "Season finished",
+      "noTeamDesc": "You have no team this season. Skip to the next preseason and try the market again.",
+      "preseasonOpenDesc": "The preseason market is open. Continue through the weekly window to review offers, renewals and available drivers.",
+      "seasonEndDesc": "Every race of the year has been run. You can now advance to next season's preseason.",
+      "specialBlockDesc": "You stayed out of the special categories. Use this shortcut to simulate the rest of the block and advance the calendar.",
+      "regularPendingDesc": "Your category has already wrapped up the championship, but there are still regular races happening on the calendar.",
+      "regularDoneDesc": "Your regular season is over. Now you can review news and results at your own pace, and open the call-up window whenever you want.",
+      "posEspecialDesc": "The special season is over. You can check the news and final standings before opening the season closing.",
+      "preseasonStartedDesc": "The preseason has already started. You can go straight back to the weekly market.",
+      "allRacesDoneDesc": "Every race of the current season has already been run."
+    },
+    "actions": {
+      "skipSeason": "Skip season",
+      "skipSpecialBlock": "Skip special block",
+      "advanceCalendar": "Advance calendar",
+      "advanceToCallup": "Advance to call-up",
+      "endSeason": "End season",
+      "continuePreseason": "Continue preseason",
+      "advanceToPreseason": "Advance to preseason",
+      "processing": "Processing...",
+      "simulating": "Simulating...",
+      "simulateRace": "Simulate Race",
+      "simulateConfirm": "Simulate anyway?",
+      "yes": "Yes",
+      "cancel": "cancel",
+      "exported": "Exported",
+      "exporting": "Exporting…",
+      "run": "Race"
+    },
+    "loading": {
+      "openingMarketTitle": "Opening the transfer market",
+      "skippingSeasonTitle": "Skipping season",
+      "simulatingSpecialTitle": "Simulating special block",
+      "openingCallupTitle": "Opening call-up",
+      "turningSeasonTitle": "Turning the season over",
+      "openingMarketMsg": "Loading teams, offers and available drivers.",
+      "skippingSeasonMsg": "Simulating every race of the season without your participation.",
+      "simulatingSpecialMsg": "The remaining special races are being resolved in bulk to advance the calendar.",
+      "openingCallupMsg": "The special window is being opened without going through the normal market.",
+      "turningSeasonMsg": "Progression, retirements, promotions and preseason prep under way.",
+      "simulatingRaceTitle": "Simulating race",
+      "simulatingRaceMsg": "Qualifying, race and championship update under way."
+    },
+    "labels": {
+      "freeAgent": "Free agent",
+      "nextRace": "Next race",
+      "strategyRoom": "Strategy Room",
+      "stageOf": "Round {{round}} of {{total}}",
+      "trackCondition": "Track Condition",
+      "seeForecast": "see weather forecast ›",
+      "audience": "Attendance",
+      "breakdownRisk": "🔧 Breakdown risk",
+      "breakdownChance": "{{pct}}% chance of trouble in this race",
+      "reliableCar": "Reliable car — no parts at relevant risk.",
+      "breakdownMeterReliable": "Reliable",
+      "breakdownMeterCostsTime": "Costs time",
+      "breakdownMeterDnf": "Retirement risk",
+      "breakdownWeakPoint": "Weak point",
+      "breakdownConsequenceReliable": "Reliable",
+      "breakdownConsequenceCostsTime": "Costs time",
+      "breakdownConsequenceDnf": "May retire",
+      "breakdownLevelHigh": "High",
+      "breakdownLevelMedium": "Medium",
+      "breakdownLevelLow": "Low",
+      "breakdownSpareHint": "Sparing the car pulls {{part}} out of the retirement zone — costs a little pace.",
+      "breakdownRiskDriverTip": "Car at risk of breakdown this race",
+      "trackEngineer": "Track Engineer",
+      "teamVoice": "Team Voice",
+      "toPress": "· to the press",
+      "goalTeam": "Team Goal",
+      "goalPersonal": "Personal Goal",
+      "goalTitle": "Title Goal",
+      "contractExpiring": "Contract expiring",
+      "contractWarningPrefix": "Your contract with",
+      "contractWarningSuffix": "ends at the end of this season.",
+      "podiumFavorites": "The 6 Podium Favorites",
+      "buildingAnalysis": "Building analysis...",
+      "championshipTable": "Overall Championship Table",
+      "tabDrivers": "Drivers",
+      "tabConstructors": "Constructors",
+      "standingsUnavailable": "Standings unavailable at the moment.",
+      "teamStandingsUnavailable": "Team standings unavailable at the moment.",
+      "colDriver": "Driver",
+      "colTeam": "Team",
+      "colPts": "Pts"
+    },
+    "paint": {
+      "eyebrow": "Your car color in iRacing",
+      "promptTitle": "Want to paint your car in your team's color?",
+      "promptBody": "We automatically apply the team color in your iRacing garage. From here on, the color updates itself whenever you change teams.",
+      "painting": "Painting…",
+      "grab": "🎨 Grab the car color",
+      "notNow": "Not now",
+      "requiresTradingPaints": "Requires Trading Paints installed.",
+      "toastPainted": "🎨 Car painted in {{color}} in your iRacing garage.",
+      "teamColorFallback": "the team's color"
+    },
+    "toast": {
+      "exportedTitle": "Data exported",
+      "exportedMsg": "Roster and season sent to iRacing.",
+      "enterIracingTitle": "Enter iRacing",
+      "bringSimForward": "Bring the simulator to the front."
+    },
+    "iracing": {
+      "notOpen": "iRacing isn't open and I couldn't find iRacingUI to launch. Please open iRacing manually.",
+      "cantOpen": "I couldn't open iRacing."
+    },
+    "debug": {
+      "aiBadge": "✨ AI",
+      "templateBadge": "Template"
+    },
+    "errors": {
+      "buildBriefing": "Couldn't build the briefing.",
+      "grabPaint": "Couldn't grab the car color.",
+      "simulate": "Couldn't simulate the race.",
+      "advancePreseason": "Couldn't advance to the preseason.",
+      "noCareerCategory": "No career or category to export.",
+      "export": "Couldn't export to iRacing.",
+      "skipSeason": "Error skipping the season."
+    }
+  },
+  "preSeason": {
+    "header": {
+      "eyebrow": "Preseason",
+      "offerCount_one": "{{count}} offer",
+      "offerCount_other": "{{count}} offers",
+      "titleOpen": "Transfer Market",
+      "titleClosed": "Window Closed",
+      "marketOpen": "Market open",
+      "marketClosed": "Window closed",
+      "week": "Week"
+    },
+    "filters": {
+      "all": "All"
+    },
+    "actions": {
+      "processing": "Processing...",
+      "startSeason": "Start Season",
+      "advanceWeek": "Advance Week",
+      "close": "Close",
+      "back": "Back"
+    },
+    "errors": {
+      "startSeason": "Failed to start the season."
+    },
+    "bands": {
+      "elite": "Elite",
+      "master": "Master",
+      "superpro": "Super Pro",
+      "pro": "Pro",
+      "amador": "Amateur",
+      "rookie": "Rookie"
+    },
+    "teamMovement": {
+      "promoted": "Promoted",
+      "relegated": "Relegated"
+    },
+    "movementBadge": {
+      "rookie": "Debut",
+      "lateral": "Lateral move",
+      "renewal": "Renewal",
+      "signing": "Signing",
+      "proposal": "Offer received",
+      "departure": "Left the team",
+      "promotion": "Promotion",
+      "relegation": "Relegation"
+    },
+    "relation": {
+      "favorite": "Favorite",
+      "rival": "Rival",
+      "raced": "Raced with you"
+    },
+    "license": {
+      "tooltip": "{{label}} license",
+      "none": "No license",
+      "labels": {
+        "rookie": "Rookie",
+        "amateur": "Amateur",
+        "pro": "Pro",
+        "superPro": "Super Pro",
+        "elite": "Elite",
+        "superElite": "Super Elite"
+      }
+    },
+    "market": {
+      "title": "Driver Market",
+      "countFree": "{{count}} free",
+      "countEligible": "{{count}} eligible",
+      "emptyAllSigned": "Every driver has a team.",
+      "emptyNoneEligible": "No free driver eligible for this category.",
+      "freeAgent": {
+        "new": "New",
+        "idleTooltip_one": "Idle for {{count}} season",
+        "idleTooltip_other": "Idle for {{count}} seasons",
+        "idleShort": "idle {{count}}s",
+        "destinationTooltip": "Likely destination: {{label}}"
+      }
+    },
+    "roster": {
+      "openSlot": "Open seat",
+      "tenureNew": "New",
+      "tenureYears": "{{count}} yrs"
+    },
+    "grid": {
+      "title": "Team mapping",
+      "subtitle": "Previous standings",
+      "loading": "Loading grid...",
+      "empty": "No teams found.",
+      "vacancies_one": "{{count}} seat",
+      "vacancies_other": "{{count}} seats",
+      "teamCount_one": "{{count}} team",
+      "teamCount_other": "{{count}} teams"
+    },
+    "proposals": {
+      "title": "Offers received",
+      "subtitle": "Teams that want YOU. Accepting signs the contract; declining passes. Each one expires in a few weeks.",
+      "lastWeek": "last week",
+      "expiresIn": "expires in {{count}} wk",
+      "salary": "Salary",
+      "duration": "Duration",
+      "years_one": "{{count}} year",
+      "years_other": "{{count}} years",
+      "teammate": "Teammate",
+      "car": "Car",
+      "accept": "Accept",
+      "decline": "Decline"
+    },
+    "offers": {
+      "title": "Your offers",
+      "emptySigned": "You already have a contract. Advance the weeks until the window closes.",
+      "emptyClosed": "Transfer window closed.",
+      "emptyNone": "No new offer this week. Advance the week to wait — a team may still appear.",
+      "summary_one": "{{count}} seat wants you this week. Tap a category to see the team profiles.",
+      "summary_other": "{{count}} seats want you this week. Tap a category to see the team profiles.",
+      "promotion": "Promotion",
+      "promotionVacancies_one": "{{count}} seat · move up a category",
+      "promotionVacancies_other": "{{count}} seats · move up a category",
+      "continueIn": "Stay in {{brand}}",
+      "otherOpportunities": "Other opportunities",
+      "viewAll": "View offers ({{count}})",
+      "vacancies_one": "{{count}} seat",
+      "vacancies_other": "{{count}} seats",
+      "card": {
+        "activeInterest": "Active interest — they want you by name",
+        "driver1": "Driver 1",
+        "driver2": "Driver 2",
+        "salary": "Salary",
+        "stats": {
+          "car": "Car",
+          "reliability": "Reliability",
+          "prestige": "Prestige"
+        },
+        "tierScales": {
+          "car": {
+            "0": "Outdated",
+            "1": "Modest",
+            "2": "Competitive",
+            "3": "Strong",
+            "4": "Front-running"
+          },
+          "reliability": {
+            "0": "Fragile",
+            "1": "Unstable",
+            "2": "Consistent",
+            "3": "Solid",
+            "4": "Flawless"
+          },
+          "prestige": {
+            "0": "Unknown",
+            "1": "Promising",
+            "2": "Respected",
+            "3": "Renowned",
+            "4": "Legendary"
+          }
+        },
+        "lastSeason": "Last season",
+        "championshipPosition": "Championship position",
+        "noHistory": "No history yet",
+        "debutant": "Debutant",
+        "cash": "Cash",
+        "titles": "Titles",
+        "driversConstructors": "drivers · constructors",
+        "winsPodiums": "Wins · Podiums",
+        "teammate": "Teammate",
+        "teammateAge": " · {{count}} yrs",
+        "teammateStats": {
+          "races": "Races",
+          "wins": "Wins",
+          "podiums": "Podiums",
+          "poles": "Poles",
+          "titles": "Titles",
+          "points": "Points"
+        },
+        "fame": "Fame",
+        "fameTooltip": "Fame {{fama}}/100",
+        "fameCharismaTooltip": "Fame {{fama}}/100 · Charisma {{carisma}}/100",
+        "freeSlot": "Open seat.",
+        "offeredContract": "Offered contract",
+        "contractDuration_one": "{{count}} season",
+        "contractDuration_other": "{{count}} seasons",
+        "project": "· project",
+        "viewContract": "View contract",
+        "noPedigree": "Team without notable history yet."
+      },
+      "teammate": {
+        "newcomer": "Newcomer",
+        "tenure": "{{pos}} season with the team"
+      },
+      "fama": {
+        "anonymous": "Anonymous",
+        "discreet": "Low-profile",
+        "known": "Known",
+        "strong": "Big name",
+        "star": "Star",
+        "idol": "Idol"
+      }
+    },
+    "offersModal": {
+      "eyebrow": "Your offers",
+      "eyebrowCat": "Offers · {{label}}",
+      "countTitle_one": "{{count}} seat wants you",
+      "countTitle_other": "{{count}} seats want you",
+      "subtitle": "Accepting closes your week and signs the contract. Advancing without accepting = waiting for something better (risk: the seat may vanish).",
+      "viewAll": "View all offers ({{count}})",
+      "promotion": "Promotion",
+      "role": {
+        "n1": "Driver No. 1",
+        "n2": "Driver No. 2"
+      }
+    },
+    "weeklyClosing": {
+      "title": "Week close",
+      "empty": "Market movements will appear here after you advance the week."
+    },
+    "foundedSince": "· since {{year}}",
+    "contract": {
+      "title": "Driver Contract",
+      "categoryRef": "{{category}} · Ref. {{ref}}",
+      "driverFallback": "Driver",
+      "preamblePart1": "(the Team) and",
+      "preamblePart2": "(the Driver) hereby enter into this driving contract, under the following clauses:",
+      "clause1": "Clause I · Role",
+      "roleN1": "Lead Driver (N1)",
+      "roleN2": "Second Driver (N2)",
+      "clause2": "Clause II · Compensation",
+      "clause3": "Clause III · Term",
+      "clause4": "Clause IV · Sporting Project",
+      "focusFallback": "Midfield",
+      "clause5": "Clause V · Relationship with the Team",
+      "bondFallback": "Newcomer",
+      "signHint": "sign upon accepting ↓",
+      "driverRole": "Driver",
+      "teamRole": "Team",
+      "sign": "Sign contract",
+      "signing": "Signing…"
+    },
+    "displaced": {
+      "eyebrow": "End of preseason",
+      "title": "Drivers without a seat",
+      "subtitle_one": "This driver ended the preseason without a team.",
+      "subtitle_other": "These {{count}} drivers ended the preseason without a team.",
+      "formerTeam": "Former team",
+      "seasons_one": "{{count}} season",
+      "seasons_other": "{{count}} seasons"
+    },
+    "transferDetail": {
+      "stayed": "Stayed",
+      "from": "From",
+      "to": "To",
+      "careerDebut": "Career debut",
+      "noTeam": "No team",
+      "renewed": "Renewed contract",
+      "previousTeam": "Previous team",
+      "tenureCurrent_one": "{{count}} season with the team",
+      "tenureCurrent_other": "{{count}} seasons with the team",
+      "tenurePrevious_one": "{{count}} season with the previous team",
+      "tenurePrevious_other": "{{count}} seasons with the previous team"
+    },
+    "freeAgentWarning": {
+      "eyebrow": "Warning",
+      "title": "You have no team",
+      "body1Prefix": "The preseason ended without you closing a contract. If you confirm, you will start the season as a",
+      "freeAgentTerm": "free agent",
+      "body1Suffix": "— without racing any round.",
+      "body2": "At the end of the season you can try the market again. After a full season without a team, a reserve offer will be guaranteed in the following preseason.",
+      "confirmAnyway": "Confirm anyway"
+    },
+    "toast": {
+      "paintUpdated": "🎨 Car color updated to {{team}}.",
+      "newTeamFallback": "new team"
+    }
+  },
+  "myTeamTab": {
+    "errors": {
+      "load": "Could not load the team data."
+    },
+    "command": {
+      "eyebrow": "Management hub",
+      "position": "Position"
+    },
+    "team": {
+      "fallbackName": "Team"
+    },
+    "drivers": {
+      "eyebrow": "Driver lineup",
+      "title": "Contracts and payroll weight",
+      "salaryRole": "{{role}} salary",
+      "perMonth": "/mo",
+      "payrollWeight": "Payroll weight",
+      "noDriverData": "Driver without detailed data yet"
+    },
+    "tech": {
+      "eyebrow": "Technical operation",
+      "title": "Technical axes",
+      "axes": {
+        "development": "Development",
+        "reliability": "Reliability",
+        "pit": "Pit and race"
+      },
+      "metrics": {
+        "reliability": "Reliability",
+        "financialPressure": "Financial pressure",
+        "operationalRisk": "Operational risk",
+        "pitCrewQuality": "Pit crew quality",
+        "pitStrategyRisk": "Pit strategy risk",
+        "overallConsistency": "Overall consistency",
+        "carPackage": "Car package",
+        "trackPerformance": "Track performance"
+      },
+      "raw": {
+        "pitReliability": "Pit + reliability",
+        "carLevel": "Level {{level}}/10"
+      },
+      "pitRisk": {
+        "ultraConservative": "Ultra conservative",
+        "conservative": "Conservative",
+        "balanced": "Balanced",
+        "aggressive": "Aggressive",
+        "opportunist": "Opportunist"
+      },
+      "pitCrew": {
+        "veryWeak": "Very weak",
+        "weak": "Weak",
+        "ok": "Ok",
+        "strong": "Strong",
+        "elite": "Elite"
+      }
+    },
+    "finance": {
+      "eyebrow": "Current round + season to date",
+      "title": "Financial dossier",
+      "kpi": {
+        "cash": "Cash",
+        "cashCaption": "Operating balance",
+        "roundResult": "Round result",
+        "roundResultCaption": "Last round",
+        "debt": "Debt",
+        "debtCaption": "Current liabilities",
+        "salaryCeiling": "Salary cap",
+        "salaryCeilingCaption": "Max per driver",
+        "spendingPower": "Spending power",
+        "spendingPowerCaption": "Projected margin"
+      },
+      "period": {
+        "current": "current",
+        "perRound": "/round",
+        "perMonth": "/mo",
+        "season": "season"
+      },
+      "legend": {
+        "intro": "The tags show each figure's horizon: ",
+        "perRound": "/round",
+        "perRoundDesc": " is the flow of a single race, ",
+        "perMonth": "/mo",
+        "perMonthDesc": " is the salary per driver and ",
+        "season": "season",
+        "seasonDesc": " is the projection for the whole year."
+      },
+      "incomeTitle": "Round income",
+      "expenseTitle": "Round expenses",
+      "salaryHint": "{{value}}/mo",
+      "ledgerEmpty": "No round recorded yet.",
+      "lines": {
+        "sponsorship_income": "Sponsorships",
+        "gate_income": "Gate receipts",
+        "result_bonus": "Result bonus",
+        "partial_prize_income": "Partial prize",
+        "aid_income": "Aid payments",
+        "constructor_prize_income": "Constructor prize",
+        "salary_expense": "Salaries",
+        "event_operations_cost": "Operations",
+        "structural_maintenance_cost": "Maintenance",
+        "technical_investment_cost": "Investment",
+        "debt_service_cost": "Debt service"
+      },
+      "states": {
+        "elite": "Financial elite",
+        "healthy": "Healthy",
+        "stable": "Stable",
+        "pressured": "Under pressure",
+        "crisis": "In crisis",
+        "collapse": "Collapse"
+      },
+      "strategies": {
+        "expansion": "Expansion",
+        "balanced": "Balanced",
+        "austerity": "Austerity",
+        "all_in": "All-in",
+        "survival": "Survival"
+      }
+    },
+    "projection": {
+      "eyebrow": "If the season ended now",
+      "title": "End-of-season projection",
+      "ofGrid": " of {{count}}",
+      "seasonToDate": "Season to date",
+      "estimatedPrize": "Estimated prize",
+      "estimatedPrizeCaption": "Based on current position",
+      "annualProjection": "Annual projection",
+      "verdictGreen": "At the current pace you close the season in the black — {{value}} counting the constructor prize.",
+      "verdictRed": "At the current pace you close the season in the red — {{value}} even with the constructor prize."
+    },
+    "cash": {
+      "eyebrow": "Cash at the end of each round",
+      "title": "Cash history",
+      "realBadge": "Real",
+      "strategy": "Season strategy:",
+      "openingCash": "Cash before the round",
+      "income": "Income",
+      "expenses": "Expenses",
+      "debt": "Debt",
+      "currentCash": "Current cash",
+      "seasonCloseTitle": "Season close — constructor prize (cash {{value}})",
+      "barTitle": "{{label}}: {{value}}",
+      "empty": "No cash history yet. Each race contested adds a round here.",
+      "hideSecondary": "Hide secondary indicators",
+      "showSecondary": "Show secondary indicators",
+      "peakCash": "Peak cash",
+      "worstStretch": "Worst stretch",
+      "avgPerRound": "Average per round",
+      "monthlyPayroll": "Monthly payroll",
+      "parachute": "Parachute payment remaining: {{value}}"
+    },
+    "risk": {
+      "title": "Financial risk panel",
+      "quickRead": "Quick read",
+      "liquidBalance": "Net balance",
+      "liquidBalanceCaption": "Cash minus debt",
+      "roundMargin": "Round margin",
+      "roundMarginCaption": "Result divided by income",
+      "runway": "Operating runway",
+      "runwayStable": "Stable",
+      "runwayStableCaption": "A positive round preserves the cash",
+      "runwayRounds": "{{count}} rounds",
+      "runwayRounds_one": "{{count}} round",
+      "runwayRounds_other": "{{count}} rounds",
+      "runwayRoundsCaption": "Estimate at the current pace"
+    },
+    "cost": {
+      "title": "Distribution of accumulated costs",
+      "rounds": "{{count}} rounds",
+      "rounds_one": "{{count}} round",
+      "rounds_other": "{{count}} rounds",
+      "empty": "No costs recorded this season yet. The chart fills in with each race contested.",
+      "center": "Costs"
+    },
+    "executive": {
+      "title": "Executive read",
+      "roundPositive": "Positive round",
+      "roundNegative": "Negative round",
+      "gainDetail": "Gain of {{value}} in the last round",
+      "lossDetail": "Loss of {{value}} in the last round",
+      "debtHigh": "High debt",
+      "debtControlled": "Debt under control",
+      "debtDetail": "{{value}} in liabilities",
+      "spendRestricted": "Restricted spending",
+      "spendMargin": "Spending margin",
+      "payroll": "Payroll",
+      "payrollDetail": "{{value}} of the cap"
+    },
+    "ranking": {
+      "eyebrow": "Management and performance comparison",
+      "title": "Category ranking",
+      "columns": {
+        "team": "Team",
+        "money": "Money",
+        "carLevel": "Car level",
+        "reliability": "Reliability",
+        "pitCrew": "Pit crew",
+        "points": "Points"
+      },
+      "tiers": {
+        "car": {
+          "0": "Outdated",
+          "1": "Modest",
+          "2": "Competitive",
+          "3": "Benchmark",
+          "4": "Dominant"
+        },
+        "reliability": {
+          "0": "Fragile",
+          "1": "Unstable",
+          "2": "Consistent",
+          "3": "Robust",
+          "4": "Unbreakable"
+        },
+        "pitCrew": {
+          "0": "Very weak",
+          "1": "Weak",
+          "2": "Ok",
+          "3": "Strong",
+          "4": "Elite"
+        }
+      },
+      "doubleClickHint": "Double-click to open the team's history"
+    },
+    "history": {
+      "nav": {
+        "previous": "Previous team",
+        "next": "Next team"
+      },
+      "unavailable": "Real history unavailable.",
+      "loadError": "Could not load the team's real history.",
+      "closeAria": "Close team history",
+      "close": "Close",
+      "foundedIn": "Founded in {{year}}",
+      "tablistAria": "Compact archive tabs",
+      "tabs": {
+        "records": "Records",
+        "sport": "Sporting",
+        "identity": "Identity",
+        "management": "Management",
+        "categories": "Categories"
+      },
+      "records": {
+        "title": "Historical records",
+        "compareIntro": "Compared within ",
+        "compareOutro": ". Equivalent groups are counted together to avoid comparing cars from different worlds.",
+        "milestones": "History milestones",
+        "titleGallery": "Title gallery"
+      },
+      "sport": {
+        "title": "Sporting summary",
+        "seasonsPlayed": "Seasons contested",
+        "withinScope": "Within {{scope}}.",
+        "currentStreak": "Current streak",
+        "bestStreak": "Best streak",
+        "podiumRate": "Podium rate",
+        "winRate": "Win rate",
+        "seasonBySeason": "Season by season",
+        "cols": {
+          "year": "Year",
+          "category": "Category",
+          "pos": "Pos",
+          "wins": "W",
+          "podiums": "P",
+          "points": "Pts"
+        }
+      },
+      "loading": "Loading the team's real history...",
+      "identity": {
+        "title": "Team identity",
+        "profileLabel": "Historical profile",
+        "originLabel": "Category of origin",
+        "originDetail": "Where the team built its first sporting base.",
+        "currentLabel": "Current category",
+        "currentDetail": "The setting where it tries to consolidate reputation and legacy.",
+        "rivalLabel": "Biggest historical rival",
+        "rivalToday": "Now in {{category}}.",
+        "symbolLabel": "Symbol driver",
+        "erasLabel": "Team eras"
+      },
+      "management": {
+        "title": "Management and money",
+        "operationHealth": "Operation health",
+        "peakCash": "All-time high balance",
+        "worstCrisis": "Worst financial crisis",
+        "healthyYears": "Healthy seasons",
+        "recordBalance": "Record balance",
+        "recordBalanceDetail": "The biggest cushion the operation has ever recorded.",
+        "biggestInvestment": "Biggest technical investment",
+        "boardChanges": "Board changes"
+      },
+      "categories": {
+        "title": "Category movement",
+        "promotions": "Promotions",
+        "relegations": "Relegations",
+        "timeByCategory": "Time by category",
+        "bestCategory": "Best category",
+        "hardestCategory": "Hardest category",
+        "ladder": "The team's ladder",
+        "movement": {
+          "promotion": "Promotion",
+          "relegation": "Relegation",
+          "start": "Debut",
+          "same": "Held the level"
+        }
+      },
+      "timeline": {
+        "title": "Key moments"
+      },
+      "defaults": {
+        "dash": "—",
+        "profileForming": "Profile forming",
+        "identityFormingSummary": "Real history still insufficient to form the team's identity.",
+        "noRival": "No established rival",
+        "rivalClosest": "Closest opponent on points within the {{group}}.",
+        "rivalNoDuel": "History without a strong enough clash to form a rivalry yet.",
+        "mainDriver": "Lead driver",
+        "symbolDriverDetail": "The name most associated with the team's recent competitive run.",
+        "unavailable": "Unavailable",
+        "recordScope": "Category group",
+        "noSeasons": "No seasons recorded",
+        "noStreak": "No streak recorded",
+        "newBoard": "New board",
+        "noOrigin": "No origin recorded",
+        "noCurrentCategory": "No current category",
+        "identityInsufficient": "Real history insufficient to form an identity.",
+        "noRivalry": "Real history without a consolidated rivalry yet.",
+        "noSymbolDriver": "No symbol driver",
+        "insufficientResults": "Not enough results.",
+        "monitored": "Monitored",
+        "noBalance": "No balance recorded",
+        "noCrisis": "No crisis recorded",
+        "efficiencyZero": "0 pts/season",
+        "noInvestment": "No investment recorded",
+        "managementUnread": "Real management without a consolidated read yet.",
+        "noBalanceDetail": "No balance detail recorded.",
+        "noCrisisDetail": "No crisis detail recorded.",
+        "noHealthDetail": "No financial health detail recorded.",
+        "noEfficiencyDetail": "No efficiency detail recorded.",
+        "noInvestmentDetail": "No investment detail recorded.",
+        "loadingReal": "Loading real history",
+        "currentDebt": "{{value}} in current debt",
+        "noRelevantDebt": "No relevant debt",
+        "managementUnconsolidated": "Real management history not consolidated yet.",
+        "noBalanceHistoryDetail": "No balance history recorded.",
+        "currentLiability": "Current liabilities of the operation.",
+        "noCrisisRegistered": "Operation with no financial crisis on record.",
+        "noHistoryRegistered": "No history recorded."
+      },
+      "heritage": {
+        "team": "Team",
+        "historic": "Historic team",
+        "consolidated": "Consolidated project"
+      },
+      "groups": {
+        "mazda": "Mazda group",
+        "toyota": "Toyota group",
+        "bmw": "BMW group",
+        "gt4": "GT4 group",
+        "gt3": "GT3 group",
+        "lmp2": "LMP2 group",
+        "endurance": "Endurance group",
+        "default": "Category group"
+      }
+    }
+  },
+  "endOfSeason": {
+    "header": {
+      "title": "The Paddock Turns the Page",
+      "subtitle": "Season {{year}} Recap",
+      "marketBadge": "Season {{year}} Ready in the Market"
+    },
+    "button": {
+      "wait": "Please wait...",
+      "start": "Start Pre-Season"
+    },
+    "market": {
+      "loadingTitle": "Opening the transfer market",
+      "loadingMessage": "Loading teams, offers and available drivers."
+    },
+    "tabs": {
+      "licenses": "Driver Licenses",
+      "teams": "Team Movements",
+      "rookies": "New Talents",
+      "retirements": "Retirements"
+    },
+    "status": {
+      "promoted": {
+        "badge": "Promoted",
+        "sectionTitle": "Promoted"
+      },
+      "relegated": {
+        "badge": "Relegated",
+        "sectionTitle": "Relegated"
+      },
+      "unchanged": {
+        "badge": "Unchanged",
+        "sectionTitle": "Unchanged"
+      }
+    },
+    "rookieLicense": "Rookie",
+    "noCategory": "No Category",
+    "summary": {
+      "promoted": "Earned the {{license}} License in {{category}}.",
+      "relegatedFallback": "Lost the category license at the end of the season.",
+      "unchanged": "Kept the {{license}} License for the next season."
+    },
+    "pilotRow": {
+      "attributesEvolution": "Attribute evolution",
+      "noAttributeChanges": "No attribute changes recorded for this driver."
+    },
+    "licenses": {
+      "title": "Driver Licenses",
+      "subtitle": "Full overview of the licenses for the next season, with promotions, relegations and drivers who kept their level.",
+      "empty": "No license changes recorded this year.",
+      "pilotsCount": "{{count}} drivers",
+      "pilotsCount_one": "{{count}} driver",
+      "pilotsCount_other": "{{count}} drivers"
+    },
+    "teams": {
+      "title": "Team Movements",
+      "empty": "All quiet. Organizations kept their categories in the championship.",
+      "subtitle": "Organizations promoted to the higher level and those relegated across the divisions, separated by category.",
+      "promotedBadge": "↑ Promoted",
+      "relegatedBadge": "↓ Relegated",
+      "movedTo": "Moved to {{category}}"
+    },
+    "rookies": {
+      "emptyTitle": "New Talents",
+      "empty": "No talent from the academies came of age this year.",
+      "title": "New Talents Graduated",
+      "subtitle": "They have just come of age in the feeder categories, entering the transfer market as free agents.",
+      "type": {
+        "genius": "Genius",
+        "talent": "Talent",
+        "normal": "Normal"
+      },
+      "noCountry": "No Country",
+      "ageYears": "{{age}} yrs"
+    },
+    "retirements": {
+      "emptyTitle": "Retirements",
+      "empty": "No driver said farewell to the track at the end of this championship.",
+      "title": "Confirmed Retirements",
+      "subtitle": "Legends leave the track and open up room on the grid. Their stories will live in the Hall of Fame.",
+      "ageYears": "{{age}} yrs",
+      "reasonFallback": "The driver announced they will hang up the gloves after the final round of this championship."
+    }
+  },
+  "convocation": {
+    "loading": {
+      "title": "Processing call-up",
+      "message": "Updating the player's offers and preparing the special block."
+    },
+    "header": {
+      "eyebrow": "Special window",
+      "acceptedBadge": "Call-up accepted",
+      "title": "Call-up Market",
+      "specialBlockBadge": "Special block",
+      "dayLabel": "Day",
+      "statusFallback": "Call-up Window"
+    },
+    "categoryFilters": {
+      "all": "All",
+      "production_challenger": "Production",
+      "endurance": "Endurance"
+    },
+    "cta": {
+      "enterSpecialBlock": "Enter the special block",
+      "proceedWithout": "Continue without the special block",
+      "advanceDay": "Advance day"
+    },
+    "candidates": {
+      "title": "Eligible drivers",
+      "empty": "No eligible drivers left in this filter."
+    },
+    "offers": {
+      "title": "Your offers",
+      "empty": "No offers visible on this day.",
+      "day": "day {{day}}",
+      "className": "Class {{class}}",
+      "chooseToday": "Choose today"
+    },
+    "roles": {
+      "numero1": "Lead driver",
+      "numero2": "Second driver",
+      "default": "Called up"
+    },
+    "teamMap": {
+      "title": "Team mapping",
+      "empty": "No teams found.",
+      "teamsCount_one": "{{count}} team",
+      "teamsCount_other": "{{count}} teams",
+      "vacancies_one": "{{count}} vacancy",
+      "vacancies_other": "{{count}} vacancies",
+      "pilotOpen": "Driver {{slot}} open"
+    },
+    "decision": {
+      "title": "Your decision",
+      "highlightLabel": "Featured call-up",
+      "empty": "No special seat accepted yet."
+    },
+    "dailyLog": {
+      "title": "End of day",
+      "empty": "Market moves will appear here at the end of each day."
+    },
+    "nextStep": {
+      "title": "Next step",
+      "finished": "The window is over. You can now confirm your entry into the special block or continue without taking part.",
+      "inProgress": "Choose at most one offer for the day and use the main button at the top to advance the market."
+    }
+  },
+  "raceResult": {
+    "header": {
+      "finalClassification": "final classification",
+      "raceFallback": "Race",
+      "laps": "laps",
+      "season": "season"
+    },
+    "weather": {
+      "heavyRain": "Heavy rain",
+      "rain": "Rain",
+      "damp": "Damp",
+      "dry": "Dry"
+    },
+    "tabs": {
+      "debrief": "Debrief",
+      "telemetry": "Telemetry",
+      "continue": "Continue"
+    },
+    "dev": {
+      "mockTitle": "DEV: inject fake telemetry to check the cockpit",
+      "fakeOn": "fake ON",
+      "fakeData": "fake data"
+    },
+    "table": {
+      "pos": "pos",
+      "nac": "nat",
+      "driver": "driver",
+      "team": "team",
+      "laps": "laps",
+      "pits": "pits",
+      "bestLap": "best lap",
+      "bestLapSortTitle": "Click to sort by fastest lap (returns to normal in 5s)",
+      "gap": "gap",
+      "points": "pts",
+      "fastestLapTitle": "Fastest lap",
+      "you": "you"
+    },
+    "breakdowns": {
+      "title": "Part failures",
+      "lapTip": "L{{lap}}"
+    },
+    "debrief": {
+      "engineerTitle": "Engineer debrief",
+      "grade": "grade",
+      "onRadio": "The engineer is on the radio…"
+    },
+    "assessment": {
+      "muitoAcima": "Well above expectations",
+      "acima": "Above expectations",
+      "dentro": "Within expectations",
+      "abaixo": "Below expectations",
+      "muitoAbaixo": "Well below expectations"
+    },
+    "metrics": {
+      "startToFinish": "started → finished",
+      "raceTarget": "race target",
+      "bestLap": "best lap",
+      "incidents": "incidents",
+      "maintenance": "maintenance"
+    },
+    "maintenance": {
+      "invoiceTitle": "Car invoice",
+      "total": "Total"
+    }
   }
 }
