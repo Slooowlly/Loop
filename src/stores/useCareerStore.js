@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isLegacySeasonPhase } from "../utils/seasonPhases";
 import { isFinaleSlot } from "../utils/postRaceLanding";
-import { applyLanguage } from "../i18n/index.js";
+import i18n, { applyLanguage } from "../i18n/index.js";
 import { buildBriefingContext } from "../pages/tabs/nextRaceContext";
 
 const initialState = {
@@ -79,6 +79,9 @@ const initialState = {
   specialWindowState: null,
   playerSpecialOffers: [],
   acceptedSpecialOffer: null,
+  // Estado preservado para o futuro overlay de campeão. O componente não é
+  // montado nesta versão enquanto os dados reais do backend não existirem.
+  championOverlay: null,
 };
 
 function getErrorMessage(error, fallback) {
@@ -334,6 +337,7 @@ const useCareerStore = create((set, get) => ({
   ...initialState,
 
   loadCareer: async (careerId) => {
+    const isSwitchingCareer = Boolean(get().careerId && get().careerId !== careerId);
     set({
       isLoading: true,
       isSimulating: false,
@@ -356,6 +360,9 @@ const useCareerStore = create((set, get) => ({
       specialWindowState: null,
       playerSpecialOffers: [],
       acceptedSpecialOffer: null,
+      ...(isSwitchingCareer
+        ? { championOverlay: null }
+        : {}),
     });
 
     try {
@@ -422,7 +429,7 @@ const useCareerStore = create((set, get) => ({
       void get().loadLanguage();
       return data;
     } catch (error) {
-      const message = getErrorMessage(error, "Erro ao carregar carreira.");
+      const message = getErrorMessage(error, i18n.t("storeErrors.loadCareer"));
       set({ isLoading: false, error: message });
       throw error;
     }
@@ -475,7 +482,7 @@ const useCareerStore = create((set, get) => ({
       return null;
     }
     if (!careerId || !nextRace?.id) {
-      throw new Error("Não existe corrida pendente para simular.");
+      throw new Error(i18n.t("storeErrors.noPendingRace"));
     }
 
     set({ isSimulating: true, error: null });
@@ -503,7 +510,7 @@ const useCareerStore = create((set, get) => ({
 
       return result;
     } catch (error) {
-      const message = getErrorMessage(error, "Erro ao simular corrida.");
+      const message = getErrorMessage(error, i18n.t("storeErrors.simulateRace"));
       set({ isSimulating: false, error: message });
       throw error;
     }
@@ -610,17 +617,21 @@ const useCareerStore = create((set, get) => ({
   advanceSeason: async () => {
     const { careerId } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     set({ isAdvancing: true, error: null });
 
     try {
       const result = await invoke("advance_season", { careerId });
+      // A tela de "Resumo da Temporada" (EndOfSeasonView) está ocultada do
+      // fluxo: guardamos o resultado (endOfSeasonResult) caso volte a ser
+      // usada no futuro, mas seguimos direto para o mercado (enterPreseason),
+      // que também sobrescreve o resume_context para "preseason".
       set({
         isAdvancing: false,
         endOfSeasonResult: result,
-        showEndOfSeason: true,
+        showEndOfSeason: false,
         showRaceBriefing: false,
         showPreseason: false,
         preseasonState: null,
@@ -637,11 +648,12 @@ const useCareerStore = create((set, get) => ({
         otherCategoriesResult: null,
         isDirty: true,
       });
+      await get().enterPreseason();
       return result;
     } catch (error) {
       set({
         isAdvancing: false,
-        error: getErrorMessage(error, "Erro ao avancar temporada."),
+        error: getErrorMessage(error, i18n.t("storeErrors.advanceSeason")),
       });
       throw error;
     }
@@ -649,28 +661,32 @@ const useCareerStore = create((set, get) => ({
 
   skipAllPendingRaces: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     set({ isAdvancing: true, error: null });
     try {
       await invoke("skip_all_pending_races", { careerId });
     } catch (error) {
-      set({ isAdvancing: false, error: getErrorMessage(error, "Erro ao pular corridas.") });
+      set({ isAdvancing: false, error: getErrorMessage(error, i18n.t("storeErrors.skipRaces")) });
       throw error;
     }
     // Após simular todas as corridas, avança a temporada normalmente.
     return get().advanceSeason();
   },
 
+  // API mínima preservada para reativar o overlay quando houver dados reais.
+  showChampionOverlay: (data = null) => set({ championOverlay: data ?? { demo: true } }),
+  hideChampionOverlay: () => set({ championOverlay: null }),
+
   // DEBUG: vai direto ao mercado num cenário (agente livre + posição forçada), pra testar
   // as propostas por mérito. scenario ∈ "no_team" | "first" | "fifth".
   debugGoToMarket: async (scenario) => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     set({ isAdvancing: true, error: null });
     try {
       await invoke("debug_prepare_market_scenario", { careerId, scenario });
     } catch (error) {
-      set({ isAdvancing: false, error: getErrorMessage(error, "Erro ao preparar mercado (debug).") });
+      set({ isAdvancing: false, error: getErrorMessage(error, i18n.t("storeErrors.prepMarket")) });
       throw error;
     }
     const result = await get().advanceSeason();
@@ -689,7 +705,7 @@ const useCareerStore = create((set, get) => ({
   // raio-x de cada assédio. NÃO altera o save — o backend desfaz tudo (rollback).
   debugPoachingAuctions: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     return invoke("debug_poaching_auctions", { careerId });
   },
 
@@ -702,7 +718,7 @@ const useCareerStore = create((set, get) => ({
    */
   runConvocationWindow: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     set({ isConvocating: true, error: null });
 
@@ -725,7 +741,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao processar convocação."),
+        error: getErrorMessage(error, i18n.t("storeErrors.processCallup")),
       });
       throw error;
     }
@@ -737,7 +753,7 @@ const useCareerStore = create((set, get) => ({
    */
   confirmSpecialBlock: async () => {
     const { careerId, loadCareer } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     set({ isConvocating: true, error: null });
 
@@ -755,7 +771,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao iniciar bloco especial."),
+        error: getErrorMessage(error, i18n.t("storeErrors.startSpecialBlock")),
       });
       throw error;
     }
@@ -763,7 +779,7 @@ const useCareerStore = create((set, get) => ({
 
   loadSpecialWindowState: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     const windowState = await invoke("get_special_window_state", { careerId });
     set({
@@ -778,7 +794,7 @@ const useCareerStore = create((set, get) => ({
 
   acceptSpecialOfferForDay: async (offerId) => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     set({ isConvocating: true, error: null });
 
@@ -800,7 +816,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao definir oferta ativa do dia."),
+        error: getErrorMessage(error, i18n.t("storeErrors.setDailyOffer")),
       });
       throw error;
     }
@@ -808,7 +824,7 @@ const useCareerStore = create((set, get) => ({
 
   advanceSpecialWindowDay: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     set({ isConvocating: true, error: null });
 
@@ -829,7 +845,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao avancar dia da janela especial."),
+        error: getErrorMessage(error, i18n.t("storeErrors.advanceSpecialDay")),
       });
       throw error;
     }
@@ -843,7 +859,7 @@ const useCareerStore = create((set, get) => ({
   finishSpecialBlock: async () => {
     const { careerId, loadCareer, isConvocating } = get();
     if (isConvocating) return null;
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
 
     set({ isConvocating: true, error: null });
 
@@ -857,7 +873,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao encerrar bloco especial."),
+        error: getErrorMessage(error, i18n.t("storeErrors.endSpecialBlock")),
       });
       throw error;
     }
@@ -866,7 +882,7 @@ const useCareerStore = create((set, get) => ({
   respondToSpecialOffer: async (offerId, accept) => {
     const { careerId, playerSpecialOffers, acceptedSpecialOffer } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     const selectedOffer =
@@ -903,7 +919,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isConvocating: false,
-        error: getErrorMessage(error, "Erro ao responder convocação especial."),
+        error: getErrorMessage(error, i18n.t("storeErrors.respondSpecialCallup")),
       });
       throw error;
     }
@@ -912,7 +928,7 @@ const useCareerStore = create((set, get) => ({
   enterPreseason: async () => {
     const { careerId } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     set({ isEnteringPreseason: true, error: null });
@@ -959,7 +975,7 @@ const useCareerStore = create((set, get) => ({
 
       return state;
     } catch (error) {
-      const message = getErrorMessage(error, "Erro ao entrar na pré-temporada.");
+      const message = getErrorMessage(error, i18n.t("storeErrors.enterPreseason"));
       set({ isEnteringPreseason: false, error: message });
       throw error;
     }
@@ -969,7 +985,7 @@ const useCareerStore = create((set, get) => ({
   advanceMarketWeek: async (acceptedSeatId = null) => {
     const { careerId } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     set({ isAdvancingWeek: true, error: null });
@@ -1013,7 +1029,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isAdvancingWeek: false,
-        error: getErrorMessage(error, "Erro ao avançar semana da pré-temporada."),
+        error: getErrorMessage(error, i18n.t("storeErrors.advancePreseasonWeek")),
       });
       throw error;
     }
@@ -1024,8 +1040,8 @@ const useCareerStore = create((set, get) => ({
   // da pré-temporada (o time do jogador mudou).
   resolvePlayerPoachOffer: async (accept) => {
     const { careerId, poachOffer } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
-    if (!poachOffer) throw new Error("Nenhuma proposta de quebra ativa.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
+    if (!poachOffer) throw new Error(i18n.t("storeErrors.noActivePoach"));
     set({ isResolvingPoach: true, error: null });
     try {
       const outcome = await invoke("resolve_player_poach_offer", {
@@ -1048,7 +1064,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isResolvingPoach: false,
-        error: getErrorMessage(error, "Erro ao resolver a quebra de contrato."),
+        error: getErrorMessage(error, i18n.t("storeErrors.resolvePoach")),
       });
       throw error;
     }
@@ -1058,7 +1074,7 @@ const useCareerStore = create((set, get) => ({
   // pra testar a tela do leilão. Não é usado no fluxo normal.
   debugForcePlayerPoach: async () => {
     const { careerId } = get();
-    if (!careerId) throw new Error("Carreira não carregada.");
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     const offer = await invoke("debug_force_player_poach_offer", { careerId });
     set({ poachOffer: offer });
     return offer;
@@ -1067,7 +1083,7 @@ const useCareerStore = create((set, get) => ({
   respondToProposal: async (proposalId, accept) => {
     const { careerId } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     set({ isRespondingProposal: true, error: null });
@@ -1097,7 +1113,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isRespondingProposal: false,
-        error: getErrorMessage(error, "Erro ao responder proposta."),
+        error: getErrorMessage(error, i18n.t("storeErrors.respondProposal")),
       });
       throw error;
     }
@@ -1106,7 +1122,7 @@ const useCareerStore = create((set, get) => ({
   finalizePreseason: async () => {
     const { careerId } = get();
     if (!careerId) {
-      throw new Error("Carreira não carregada.");
+      throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
 
     try {
@@ -1140,7 +1156,7 @@ const useCareerStore = create((set, get) => ({
 
       return data;
     } catch (error) {
-      const message = getErrorMessage(error, "Erro ao iniciar a nova temporada.");
+      const message = getErrorMessage(error, i18n.t("storeErrors.startNewSeason"));
       set({ error: message });
       throw error;
     }
@@ -1320,7 +1336,7 @@ const useCareerStore = create((set, get) => ({
     } catch (error) {
       set({
         isCalendarAdvancing: false,
-        error: getErrorMessage(error, "Erro ao avançar calendário."),
+        error: getErrorMessage(error, i18n.t("storeErrors.advanceCalendar")),
       });
       throw error;
     }

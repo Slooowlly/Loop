@@ -2925,5 +2925,27 @@
       "clearKeyTooltip": "Remove recenter key",
       "recenterKeyHint": "Tip: use the SAME key as iRacing's \"Center VR\" (Options → Controls) and one press recenters both. In VR you can also use"
     }
+  },
+  "storeErrors": {
+    "careerNotLoaded": "Career not loaded.",
+    "noPendingRace": "There is no pending race to simulate.",
+    "noActivePoach": "No active buyout offer.",
+    "loadCareer": "Error loading the career.",
+    "simulateRace": "Error simulating the race.",
+    "advanceSeason": "Error advancing the season.",
+    "skipRaces": "Error skipping races.",
+    "prepMarket": "Error preparing the market (debug).",
+    "processCallup": "Error processing the call-up.",
+    "startSpecialBlock": "Error starting the special block.",
+    "setDailyOffer": "Error setting the day's active offer.",
+    "advanceSpecialDay": "Error advancing the special window day.",
+    "endSpecialBlock": "Error ending the special block.",
+    "respondSpecialCallup": "Error responding to the special call-up.",
+    "enterPreseason": "Error entering pre-season.",
+    "advancePreseasonWeek": "Error advancing the pre-season week.",
+    "resolvePoach": "Error resolving the contract buyout.",
+    "respondProposal": "Error responding to the offer.",
+    "startNewSeason": "Error starting the new season.",
+    "advanceCalendar": "Error advancing the calendar."
   }
 }

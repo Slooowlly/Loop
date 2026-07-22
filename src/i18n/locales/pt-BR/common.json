@@ -2925,5 +2925,27 @@
       "clearKeyTooltip": "Remover tecla de recentro",
       "recenterKeyHint": "Dica: use a MESMA tecla do \"Center VR\" do iRacing (Options → Controls) e um aperte só recentra os dois. No VR também dá com"
     }
+  },
+  "storeErrors": {
+    "careerNotLoaded": "Carreira não carregada.",
+    "noPendingRace": "Não existe corrida pendente para simular.",
+    "noActivePoach": "Nenhuma proposta de quebra ativa.",
+    "loadCareer": "Erro ao carregar carreira.",
+    "simulateRace": "Erro ao simular corrida.",
+    "advanceSeason": "Erro ao avancar temporada.",
+    "skipRaces": "Erro ao pular corridas.",
+    "prepMarket": "Erro ao preparar mercado (debug).",
+    "processCallup": "Erro ao processar convocação.",
+    "startSpecialBlock": "Erro ao iniciar bloco especial.",
+    "setDailyOffer": "Erro ao definir oferta ativa do dia.",
+    "advanceSpecialDay": "Erro ao avancar dia da janela especial.",
+    "endSpecialBlock": "Erro ao encerrar bloco especial.",
+    "respondSpecialCallup": "Erro ao responder convocação especial.",
+    "enterPreseason": "Erro ao entrar na pré-temporada.",
+    "advancePreseasonWeek": "Erro ao avançar semana da pré-temporada.",
+    "resolvePoach": "Erro ao resolver a quebra de contrato.",
+    "respondProposal": "Erro ao responder proposta.",
+    "startNewSeason": "Erro ao iniciar a nova temporada.",
+    "advanceCalendar": "Erro ao avançar calendário."
   }
 }
