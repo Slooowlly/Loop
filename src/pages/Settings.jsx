@@ -26,6 +26,7 @@ function Settings() {
   // Race Control: macro de bandeira amarela (edita o app.ini do iRacing).
   const [yellowStatus, setYellowStatus] = useState(null);
   const [yellowMsg, setYellowMsg] = useState("");
+  const [debugMenuOpen, setDebugMenuOpen] = useState(false);
 
   // Estado do "automático" (flag do RaceControl) e trava anti-duplo-clique.
   const [autoYellow, setAutoYellow] = useState(false);
@@ -43,7 +44,7 @@ function Settings() {
     setChatMsg("");
     try {
       await invoke("iracing_send_chat_text", { text });
-      setChatMsg(`Enviado: "${text}"`);
+      setChatMsg(t("settings.debug.chatSent", { text }));
     } catch (err) {
       setChatMsg(String(err));
     } finally {
@@ -85,10 +86,10 @@ function Settings() {
     try {
       if (capture.active) {
         const path = await invoke("race_capture_stop");
-        setCaptureMsg(path ? `Salvo: ${path}` : "Gravação parada.");
+        setCaptureMsg(path ? t("settings.debug.captureSaved", { path }) : t("settings.debug.captureStopped"));
       } else {
         const path = await invoke("race_capture_start");
-        setCaptureMsg(`Gravando… entre numa sessão do iRacing. Arquivo: ${path}`);
+        setCaptureMsg(t("settings.debug.capturing", { path }));
       }
       await refreshCapture();
     } catch (err) {
@@ -103,8 +104,8 @@ function Settings() {
       const ok = await invoke("iracing_arm_test_breakdown");
       setArmMsg(
         ok
-          ? "Armado! Cruze a linha de chegada — a quebra dispara sozinha na próxima volta."
-          : "Não deu pra armar: entre numa sessão do iRacing (o número do seu carro precisa estar visível).",
+          ? t("settings.debug.armedMyCar")
+          : t("settings.debug.armFailed"),
       );
     } catch (err) {
       setArmMsg(String(err));
@@ -118,9 +119,7 @@ function Settings() {
     setArmMsg("");
     try {
       await invoke("iracing_arm_test_breakdown_grid");
-      setArmMsg(
-        "Grade armada! Com a corrida rolando, os carros vão largar peças ao longo das próximas voltas (1 a cada ~1,5s pra não spammar).",
-      );
+      setArmMsg(t("settings.debug.armedGrid"));
     } catch (err) {
       setArmMsg(String(err));
     } finally {
@@ -279,11 +278,11 @@ function Settings() {
 
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight text-text-primary">
-              Configurações
+              {t("settings.title")}
             </h1>
             {saving && (
               <span className="animate-pulse rounded-full border border-accent-primary/30 bg-accent-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-accent-primary">
-                Salvando...
+                {t("settings.savingBadge")}
               </span>
             )}
           </div>
@@ -403,17 +402,44 @@ function Settings() {
             </div>
           )}
 
+          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
+            <div className="min-w-0 pr-4">
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.menuLabel")}</p>
+              <p className="text-[11px] text-text-secondary">
+                {t("settings.debug.menuDesc")}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-label={t("settings.debug.menuLabel")}
+              aria-checked={debugMenuOpen}
+              onClick={() => setDebugMenuOpen((open) => !open)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-glass ${
+                debugMenuOpen ? "bg-status-green/70" : "bg-white/15"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                  debugMenuOpen ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+
+          {debugMenuOpen && (
+            <>
           {/* Detalhes técnicos — escondidos por padrão */}
           <details className="group border-t border-white/10">
             <summary className="flex cursor-pointer list-none items-center gap-1 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-secondary transition-glass hover:text-text-primary [&::-webkit-details-marker]:hidden">
-              Detalhes técnicos
+              {t("settings.debug.techDetails")}
               <span className="transition-transform group-open:rotate-90">›</span>
             </summary>
             <div className="space-y-1 px-5 pb-4">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="uppercase tracking-[0.1em] text-text-muted">app.ini</span>
                 <span className={`font-semibold ${yellowStatus?.app_ini_found ? "text-status-green" : "text-status-red"}`}>
-                  {yellowStatus?.app_ini_found ? "Encontrado" : "Não encontrado"}
+                  {yellowStatus?.app_ini_found ? t("settings.debug.appIniFound") : t("settings.debug.appIniNotFound")}
                 </span>
               </div>
               {yellowStatus?.app_ini_path && (
@@ -421,24 +447,23 @@ function Settings() {
               )}
               {yellowStatus?.slot != null && (
                 <div className="flex items-center justify-between text-[10px] text-text-muted">
-                  <span>Slot AutoChatStr{yellowStatus.slot}</span>
+                  <span>{t("settings.debug.slot", { slot: yellowStatus.slot })}</span>
                   <span className="font-mono">
-                    original: "{yellowStatus.original}" · atual: "{yellowStatus.current_value}"
+                    {t("settings.debug.slotValues", { original: yellowStatus.original, current: yellowStatus.current_value })}
                   </span>
                 </div>
               )}
               <p className="pt-1 text-[9px] leading-snug text-text-muted">
-                Substitui a macro "You're welcome" por <span className="font-mono">!y$</span>. O iRacing reescreve o app.ini ao
-                fechar — por isso, edite com ele fechado. Backup em <span className="font-mono">app.ini.iracerapp.bak</span>.
+                {t("settings.debug.macroNote1")}<span className="font-mono">!y$</span>{t("settings.debug.macroNote2")}<span className="font-mono">app.ini.iracerapp.bak</span>{t("settings.debug.macroNote3")}
               </p>
             </div>
           </details>
 
           {/* Teste de comando de chat livre (ex.: !black #1 20) — caminho parametrizado, sem macro */}
           <div className="border-t border-white/10 px-5 py-3.5">
-            <p className="text-[13px] font-medium text-text-primary">Comando de chat (teste)</p>
+            <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.chatTitle")}</p>
             <p className="pb-2.5 text-[11px] text-text-secondary">
-              Envia texto livre ao chat do iRacing (foca a janela, abre o chat e digita). Com o sim aberto numa sessão com IA.
+              {t("settings.debug.chatDesc")}
             </p>
             <div className="flex items-center gap-2">
               <input
@@ -460,7 +485,7 @@ function Settings() {
                     : "cursor-pointer bg-status-yellow/20 text-text-primary hover:bg-status-yellow/30"
                 }`}
               >
-                {chatBusy ? "Enviando…" : "Enviar"}
+                {chatBusy ? t("settings.debug.sending") : t("settings.debug.send")}
               </button>
             </div>
             {chatMsg && (
@@ -470,9 +495,9 @@ function Settings() {
 
           {/* Teste do disparo AO VIVO da quebra (arma o carro do jogador pra próxima volta) */}
           <div className="border-t border-white/10 px-5 py-3.5">
-            <p className="text-[13px] font-medium text-text-primary">Quebra ao vivo (teste)</p>
+            <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.breakdownTitle")}</p>
             <p className="pb-2.5 text-[11px] text-text-secondary">
-              Arma uma falha garantida no SEU carro. Com o sim aberto numa sessão correndo, clique e cruze a linha — o monitor dispara o <span className="font-mono">!black</span>/<span className="font-mono">!dq</span> sozinho na próxima volta.
+              {t("settings.debug.breakdownDesc1")}<span className="font-mono">!black</span>/<span className="font-mono">!dq</span>{t("settings.debug.breakdownDesc2")}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -485,7 +510,7 @@ function Settings() {
                     : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
                 }`}
               >
-                {armBusy ? "Armando…" : "Armar (meu carro)"}
+                {armBusy ? t("settings.debug.arming") : t("settings.debug.armMyCar")}
               </button>
               <button
                 type="button"
@@ -497,7 +522,7 @@ function Settings() {
                     : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
                 }`}
               >
-                {armBusy ? "Armando…" : "Armar (grade toda)"}
+                {armBusy ? t("settings.debug.arming") : t("settings.debug.armGrid")}
               </button>
             </div>
             {armMsg && (
@@ -508,14 +533,15 @@ function Settings() {
           {/* Demo do overlay de rádio: card de exemplo ciclando, pra achar/posicionar o overlay */}
           <div className="flex items-center justify-between border-t border-white/10 px-5 py-3.5">
             <div className="min-w-0 pr-4">
-              <p className="text-[13px] font-medium text-text-primary">Testar overlay de rádio</p>
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.radioTitle")}</p>
               <p className="text-[11px] text-text-secondary">
-                Mostra um card de exemplo ciclando no centro da tela (sobre o jogo), pra você achar e posicionar o overlay do rádio sem esperar uma quebra real. Lembre de desligar depois.
+                {t("settings.debug.radioDesc")}
               </p>
             </div>
             <button
               type="button"
               role="switch"
+              aria-label={t("settings.debug.radioTitle")}
               aria-checked={radioDemo}
               onClick={toggleRadioDemo}
               className={`relative h-6 w-11 shrink-0 rounded-full transition-glass ${
@@ -534,9 +560,9 @@ function Settings() {
           <div className="border-t border-white/10 px-5 py-3.5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[13px] font-medium text-text-primary">Gravar corrida (debug)</p>
+                <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.captureTitle")}</p>
                 <p className="text-[11px] text-text-secondary">
-                  Salva TODA a telemetria da corrida ao vivo (+ YAML da sessão + histórico) num arquivo, pra calibrar o app com dados reais de pista. Só pra dev — não entra no jogo comercial.
+                  {t("settings.debug.captureDesc")}
                 </p>
               </div>
               <button
@@ -548,19 +574,21 @@ function Settings() {
                     : "cursor-pointer bg-white/10 text-text-primary hover:bg-white/15"
                 }`}
               >
-                {capture.active ? `Parar (${capture.frames} frames)` : "Iniciar gravação"}
+                {capture.active ? t("settings.debug.captureStop", { frames: capture.frames }) : t("settings.debug.captureStart")}
               </button>
             </div>
             {captureMsg && (
               <p className="mt-2.5 break-all rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{captureMsg}</p>
             )}
             {capture.dir && (
-              <p className="mt-1 break-all text-[10px] text-text-muted">Pasta: {capture.dir}</p>
+              <p className="mt-1 break-all text-[10px] text-text-muted">{t("settings.debug.captureFolder", { dir: capture.dir })}</p>
             )}
           </div>
 
           {/* Explicador de rivalidades percebidas (debug/calibração) */}
           <RivalryPerceptionPanel />
+            </>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-4 pt-8">
