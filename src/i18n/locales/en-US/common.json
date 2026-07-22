@@ -294,7 +294,8 @@
       "callupWindow": "The competition starts once the call-up window is finalized. Results appear here when the first race is simulated.",
       "specialOpen": "The special block has opened, but there's no recorded result yet. Standings appear when the first race is simulated.",
       "afterRegular": "This competition happens after the regular season and the call-up window. Results appear here when the special block is simulated."
-    }
+    },
+    "fastestLap": "Fastest lap"
   },
   "globalDrivers": {
     "notLoaded": "Career not loaded.",
@@ -407,7 +408,12 @@
     "backToStandings": "Back to Standings",
     "loadingEyebrow": "Global drivers overview",
     "loadingTitle": "Building world ranking",
-    "loadingDesc": "Gathering active, free and retired drivers."
+    "loadingDesc": "Gathering active, free and retired drivers.",
+    "focusEyebrow": "Driver in focus",
+    "worldRanking": "World ranking",
+    "globalPanorama": "Global driver overview",
+    "worldRankingDrivers": "World driver ranking",
+    "yourDriver": "Your driver"
   },
   "globalTeams": {
     "notLoaded": "Career not loaded.",
@@ -422,7 +428,11 @@
     "start": "start",
     "end": "end",
     "visibleWindow": "Visible window: {{start}}-{{end}}",
-    "currentChampion": "Current champion"
+    "currentChampion": "Current champion",
+    "eyebrow": "World teams",
+    "worldTeamHistory": "World team history",
+    "historicAtlas": "Historical atlas",
+    "buildingWorldTeamHistory": "Building the world team history"
   },
   "dashboard": {
     "repair": {
@@ -1371,7 +1381,8 @@
     "toast": {
       "paintUpdated": "🎨 Car color updated to {{team}}.",
       "newTeamFallback": "new team"
-    }
+    },
+    "teamHistoryDblClick": "Double-click: world team history"
   },
   "myTeamTab": {
     "errors": {
@@ -2924,6 +2935,10 @@
       "cancel": "cancel",
       "clearKeyTooltip": "Remove recenter key",
       "recenterKeyHint": "Tip: use the SAME key as iRacing's \"Center VR\" (Options → Controls) and one press recenters both. In VR you can also use"
+    },
+    "liveView": {
+      "hideTower": "Hide the tower",
+      "showTower": "Show the timing tower"
     }
   },
   "storeErrors": {
@@ -2947,5 +2962,92 @@
     "respondProposal": "Error responding to the offer.",
     "startNewSeason": "Error starting the new season.",
     "advanceCalendar": "Error advancing the calendar."
+  },
+  "telemetryCockpit": {
+    "emptyState": "No telemetry for this race — available only when you race in iRacing and are monitored.",
+    "metricBestLap": "best lap",
+    "metricLapsSeen": "laps seen",
+    "metricConsistency": "consistency",
+    "metricStops": "stops",
+    "tracePosition": "Position",
+    "traceGapToLeader": "Gap to leader",
+    "raceTrace": "Race Trace",
+    "you": " (you)",
+    "avg": "avg",
+    "best": "best",
+    "lapVariation": "Lap variation",
+    "pace": "Pace",
+    "noPlayerLaps": "No laps of yours recorded.",
+    "gap": "Gap",
+    "lap": "Lap",
+    "noGapData": "No gap data for this driver.",
+    "legendDry": "Dry",
+    "legendWet": "Wet",
+    "legendFuelOnly": "fuel only",
+    "pitStrategy": "Pit strategy",
+    "noPits": "No stops in this race.",
+    "pitTimesHint": "box time · est. tires/fuel",
+    "pitTimes": "Pit times",
+    "breakdownsHint": "part · problem · lap · outcome",
+    "breakdowns": "Part failures",
+    "colDriver": "driver",
+    "colPart": "part",
+    "colProblem": "problem",
+    "colLap": "lap",
+    "colOutcome": "outcome",
+    "dnf": "DNF",
+    "stopMarkerLabel": "Lap {{lap}} · {{secs}}s",
+    "compound": {
+      "Dry": "Dry",
+      "Wet": "Wet",
+      "Unknown": "Unknown"
+    },
+    "carN": "Car {{n}}",
+    "refuel": "Refuel · lap {{lap}} · {{secs}}s",
+    "tireChange": "Change to {{compound}} · lap {{lap}} · {{secs}}s",
+    "segment": "Stint {{n}} · {{compound}} · lap {{range}}",
+    "pits_one": "{{count}} pit",
+    "pits_other": "{{count}} pits",
+    "pitSeparatorTireChange": "Pit · lap {{lap}} · tire change · {{secs}}s",
+    "pitSeparatorFuelOnly": "Pit · lap {{lap}} · fuel only · {{secs}}s",
+    "colTeam": "Team",
+    "colPilot": "Driver",
+    "colPitTime": "Pit time",
+    "colLapCap": "Lap",
+    "colTires": "Tires",
+    "colFuel": "Fuel",
+    "trackWet": "Wet track",
+    "rival": "Rival",
+    "ahead": "ahead",
+    "behind": "behind"
+  },
+  "raceCharts": {
+    "raceTrace": "Race Trace",
+    "paceConsistency": "Pace Consistency",
+    "pace": "Pace",
+    "rivalGap": "Gap to rival",
+    "you": "you",
+    "bestLegend": "best",
+    "mistakeLegend": "mistake",
+    "position": "Position",
+    "gapToLeader": "Gap to leader",
+    "youParen": " (you)",
+    "youLabel": "You",
+    "avgLabel": "Avg:",
+    "bestLabel": "Best:",
+    "noLaps": "No laps recorded for this driver.",
+    "rivalIntroPre": "Battle with ",
+    "rivalIntroPost": " — above 0 = rival ahead (you chasing), below = you ahead.",
+    "rivalFallback": "rival",
+    "lap": "Lap",
+    "rival": "Rival",
+    "ahead": "ahead",
+    "behind": "behind"
+  },
+  "startingCompounds": {
+    "header": "Starting compound",
+    "liveFromGrid": "live · from the grid",
+    "wet": "Rain",
+    "dry": "Dry"
   }
 }

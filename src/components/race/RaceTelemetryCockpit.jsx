@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import LapTimeLineChart from "./LapTimeLineChart";
@@ -35,9 +36,9 @@ const MONO =
 
 // Ícones (PNG) em public/utilities/textures — espaços viram %20 na URL.
 const TX = "/utilities/textures/";
-const FUEL_ICON = `${TX}Fuel.png`;
-const TIRE_DRY_ICON = `${TX}Pneu%20Seco.png`;
-const TIRE_WET_ICON = `${TX}Pneu%20Molhado.png`;
+const FUEL_ICON = `${TX}Fuel.webp`;
+const TIRE_DRY_ICON = `${TX}Pneu%20Seco.webp`;
+const TIRE_WET_ICON = `${TX}Pneu%20Molhado.webp`;
 
 // Cores de composto: seco = âmbar, molhado = azul, indefinido = cinza.
 const COMPOUND = {
@@ -93,6 +94,7 @@ function Chip({ active, onClick, children }) {
 const TIRE_EST_SECS = 21;
 
 function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((s) => s.careerId);
   const lastRaceId = useCareerStore((s) => s.lastRaceId);
   const [traceMode, setTraceMode] = useState("gap");
@@ -236,7 +238,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
     return stops.map((p) => ({
       frac: Math.max(0, Math.min(1, (p.lap - 1) / Math.max(1, raceLaps - 1))),
       icon: p.tire_change ? (p.track_wet ? TIRE_WET_ICON : TIRE_DRY_ICON) : FUEL_ICON,
-      label: `Volta ${p.lap} · ${p.box_secs.toFixed(1)}s`,
+      label: t("telemetryCockpit.stopMarkerLabel", { lap: p.lap, secs: p.box_secs.toFixed(1) }),
       isPlayer: true,
     }));
   }, [telemetry, raceLaps]);
@@ -252,7 +254,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
         style={{ background: "rgba(0,0,0,0.18)", border: "0.5px solid rgba(255,255,255,0.07)", color: "#8b949e" }}
         className="rounded-2xl p-10 text-center text-[13px]"
       >
-        Sem telemetria desta corrida — disponível só quando você corre no iRacing e é monitorado.
+        {t("telemetryCockpit.emptyState")}
       </div>
     );
   }
@@ -261,10 +263,10 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
     <div className="flex flex-col gap-3">
       {/* Régua de métricas */}
       <div className="flex gap-3">
-        <MetricTile label="melhor volta" value={pace ? formatLap(pace.best) : "--"} />
-        <MetricTile label="voltas vistas" value={telemetry?.laps_seen ?? lapTimes.length} />
-        <MetricTile label="consistência" value={pace ? `±${pace.std.toFixed(3)}s` : "--"} />
-        <MetricTile label="paradas" value={totalStops} />
+        <MetricTile label={t("telemetryCockpit.metricBestLap")} value={pace ? formatLap(pace.best) : "--"} />
+        <MetricTile label={t("telemetryCockpit.metricLapsSeen")} value={telemetry?.laps_seen ?? lapTimes.length} />
+        <MetricTile label={t("telemetryCockpit.metricConsistency")} value={pace ? `±${pace.std.toFixed(3)}s` : "--"} />
+        <MetricTile label={t("telemetryCockpit.metricStops")} value={totalStops} />
       </div>
 
       {/* RACE TRACE — largura total */}
@@ -273,12 +275,12 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
           <SectionTitle
             right={
               <div className="flex gap-1.5">
-                <Chip active={traceMode === "position"} onClick={() => setTraceMode("position")}>Posição</Chip>
-                <Chip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>Gap ao líder</Chip>
+                <Chip active={traceMode === "position"} onClick={() => setTraceMode("position")}>{t("telemetryCockpit.tracePosition")}</Chip>
+                <Chip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>{t("telemetryCockpit.traceGapToLeader")}</Chip>
               </div>
             }
           >
-            Race Trace
+            {t("telemetryCockpit.raceTrace")}
           </SectionTitle>
           <div className="h-[320px] w-full">
             <RaceTraceChart
@@ -298,7 +300,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
             {orderedCars.map((car) => (
               <span key={car.idx} style={{ color: "#8b949e" }} className="flex items-center gap-1 text-[10px]">
                 <span className="inline-block h-[3px] w-3.5 rounded" style={{ background: colorFor[car.idx] }} />
-                {car.name}{car.is_player ? " (você)" : ""}
+                {car.name}{car.is_player ? t("telemetryCockpit.you") : ""}
               </span>
             ))}
           </div>
@@ -311,13 +313,13 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
           <SectionTitle
             right={
               <span style={{ color: "#8b949e" }} className="text-[11px]">
-                média <span style={{ color: "#fff", fontFamily: MONO }}>{formatLap(pace.avg)}</span>
+                {t("telemetryCockpit.avg")} <span style={{ color: "#fff", fontFamily: MONO }}>{formatLap(pace.avg)}</span>
                 <span className="mx-2">·</span>
-                melhor <span style={{ color: "#4ade80", fontFamily: MONO }}>{formatLap(pace.best)}</span>
+                {t("telemetryCockpit.best")} <span style={{ color: "#4ade80", fontFamily: MONO }}>{formatLap(pace.best)}</span>
               </span>
             }
           >
-            Variação de voltas
+            {t("telemetryCockpit.lapVariation")}
           </SectionTitle>
           <div className="h-[260px] w-full">
             <PaceDeltaChart rows={pace.rows} yellowLaps={yellowLaps} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
@@ -328,13 +330,13 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
       {/* RITMO + GAP PRO RIVAL — menores, lado a lado */}
       <div className="grid grid-cols-2 gap-3">
         <Panel>
-          <SectionTitle>Ritmo</SectionTitle>
+          <SectionTitle>{t("telemetryCockpit.pace")}</SectionTitle>
           {pace ? (
             <div className="h-[220px] w-full">
               <LapTimeLineChart rows={pace.rows} color={playerColor} />
             </div>
           ) : (
-            <EmptyMini>Sem voltas suas registradas.</EmptyMini>
+            <EmptyMini>{t("telemetryCockpit.noPlayerLaps")}</EmptyMini>
           )}
         </Panel>
         <Panel>
@@ -377,7 +379,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
               )
             }
           >
-            Gap
+            {t("telemetryCockpit.gap")}
           </SectionTitle>
           {gapRows.length >= 2 ? (
             <div className="h-[220px] w-full">
@@ -386,7 +388,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                   <CartesianGrid stroke={GRID} />
                   <XAxis type="number" dataKey="lap" allowDecimals={false}
                     tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID}
-                    label={{ value: "Volta", position: "insideBottom", offset: -6, fill: AXIS_TICK, fontSize: 10 }} />
+                    label={{ value: t("telemetryCockpit.lap"), position: "insideBottom", offset: -6, fill: AXIS_TICK, fontSize: 10 }} />
                   <YAxis tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID} width={40}
                     tickFormatter={(v) => `${Math.abs(v).toFixed(1)}s`} />
                   <Tooltip content={<RivalTooltip rivalName={activeGapName} />} />
@@ -397,7 +399,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyMini>Sem dados de gap para este piloto.</EmptyMini>
+            <EmptyMini>{t("telemetryCockpit.noGapData")}</EmptyMini>
           )}
         </Panel>
       </div>
@@ -407,18 +409,18 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
         <SectionTitle
           right={
             <span className="flex items-center gap-3 text-[10px]" style={{ color: "#8b949e" }}>
-              <span className="flex items-center gap-1"><img src={TIRE_DRY_ICON} alt="" className="h-3.5 w-3.5 object-contain" />Seco</span>
-              <span className="flex items-center gap-1"><img src={TIRE_WET_ICON} alt="" className="h-3.5 w-3.5 object-contain" />Molhado</span>
-              <span className="flex items-center gap-1"><img src={FUEL_ICON} alt="" className="h-3.5 w-3.5 object-contain" />só combustível</span>
+              <span className="flex items-center gap-1"><img src={TIRE_DRY_ICON} alt="" className="h-3.5 w-3.5 object-contain" />{t("telemetryCockpit.legendDry")}</span>
+              <span className="flex items-center gap-1"><img src={TIRE_WET_ICON} alt="" className="h-3.5 w-3.5 object-contain" />{t("telemetryCockpit.legendWet")}</span>
+              <span className="flex items-center gap-1"><img src={FUEL_ICON} alt="" className="h-3.5 w-3.5 object-contain" />{t("telemetryCockpit.legendFuelOnly")}</span>
             </span>
           }
         >
-          Estratégia de pit
+          {t("telemetryCockpit.pitStrategy")}
         </SectionTitle>
         {anyPits ? (
           <PitStrategy strategies={tireStrategies} raceLaps={raceLaps} colorFor={colorFor} nameByIdx={nameByIdx} />
         ) : (
-          <EmptyMini>Nenhuma parada nesta corrida.</EmptyMini>
+          <EmptyMini>{t("telemetryCockpit.noPits")}</EmptyMini>
         )}
       </Panel>
 
@@ -426,9 +428,9 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
       {anyPits && (
         <Panel>
           <SectionTitle
-            right={<span style={{ color: "#6e7681" }} className="text-[10px]">tempo na caixa · pneu/comb. estimado</span>}
+            right={<span style={{ color: "#6e7681" }} className="text-[10px]">{t("telemetryCockpit.pitTimesHint")}</span>}
           >
-            Tempos de pit
+            {t("telemetryCockpit.pitTimes")}
           </SectionTitle>
           <PitTimesTable
             strategies={tireStrategies}
@@ -443,19 +445,19 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
       {breakdowns && breakdowns.length > 0 && (
         <Panel>
           <SectionTitle
-            right={<span style={{ color: "#6e7681" }} className="text-[10px]">peça · problema · volta · desfecho</span>}
+            right={<span style={{ color: "#6e7681" }} className="text-[10px]">{t("telemetryCockpit.breakdownsHint")}</span>}
           >
-            Quebras de peça
+            {t("telemetryCockpit.breakdowns")}
           </SectionTitle>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[12px]">
               <thead>
                 <tr style={{ background: "rgba(255,255,255,0.025)" }}>
-                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>piloto</th>
-                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>peça</th>
-                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>problema</th>
-                  <th className="text-center font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>volta</th>
-                  <th className="text-right font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>desfecho</th>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>{t("telemetryCockpit.colDriver")}</th>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>{t("telemetryCockpit.colPart")}</th>
+                  <th className="text-left font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>{t("telemetryCockpit.colProblem")}</th>
+                  <th className="text-center font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>{t("telemetryCockpit.colLap")}</th>
+                  <th className="text-right font-normal py-2 px-2 uppercase tracking-wider" style={{ color: "#8b949e" }}>{t("telemetryCockpit.colOutcome")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -475,7 +477,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                       <td className="py-1.5 px-2" style={{ color: "#9da7b0" }}>{b.label}</td>
                       <td className="py-1.5 px-2 text-center" style={{ color: "#8b949e" }}>{b.lap}</td>
                       <td className="py-1.5 px-2 text-right font-medium" style={{ color }}>
-                        {isDnf ? "ABANDONO" : `+${b.penalty_secs}s`}
+                        {isDnf ? t("telemetryCockpit.dnf") : `+${b.penalty_secs}s`}
                       </td>
                     </tr>
                   );
@@ -526,6 +528,8 @@ function EmptyMini({ children }) {
 // colorida por composto. Troca de pneu = mudança de cor (fronteira do stint). Parada
 // SÓ de combustível = ícone ⛽ no ponto da volta (sem trocar a cor).
 function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
+  const { t } = useTranslation();
+  const compLabel = (c) => t(`telemetryCockpit.compound.${COMPOUND[c] ? c : "Unknown"}`);
   // Mostra carros com paradas primeiro (jogador no topo), depois os sem parada.
   const rows = useMemo(() => {
     const withPits = strategies.filter((s) => (s.stops?.length ?? 0) > 0);
@@ -585,7 +589,7 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
               <div className="h-[28px]" />
               <div className="h-7 flex items-center gap-2 min-w-0">
                 <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: colorFor[s.car_idx] || "#5f5e5a" }} />
-                <span style={{ color: "#c9d1d9" }} className="text-[12px] truncate">{s.pilot_name || nameByIdx[s.car_idx] || `Carro ${s.car_idx}`}</span>
+                <span style={{ color: "#c9d1d9" }} className="text-[12px] truncate">{s.pilot_name || nameByIdx[s.car_idx] || t("telemetryCockpit.carN", { n: s.car_idx })}</span>
               </div>
             </div>
             {/* Timeline: faixa de marcadores (⛽) acima + barra de trechos */}
@@ -596,8 +600,8 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                   const comp = compoundOf(compoundAt(p.lap));
                   const icon = isFuel ? FUEL_ICON : comp.icon || TIRE_DRY_ICON;
                   const label = isFuel
-                    ? `Abastecimento · volta ${p.lap} · ${p.box_secs.toFixed(1)}s`
-                    : `Troca p/ ${comp.label} · volta ${p.lap} · ${p.box_secs.toFixed(1)}s`;
+                    ? t("telemetryCockpit.refuel", { lap: p.lap, secs: p.box_secs.toFixed(1) })
+                    : t("telemetryCockpit.tireChange", { compound: compLabel(compoundAt(p.lap)), lap: p.lap, secs: p.box_secs.toFixed(1) });
                   return (
                     <span
                       key={`m${i}`}
@@ -628,7 +632,7 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                       key={i}
                       className="absolute top-0 bottom-0 flex items-center justify-center"
                       style={{ left: `${left}%`, width: `${width}%`, background: comp.color, opacity: 0.85 }}
-                      title={`Trecho ${i + 1} · ${comp.label} · volta ${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}`}
+                      title={t("telemetryCockpit.segment", { n: i + 1, compound: compLabel(seg.compound), range: `${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}` })}
                     >
                       {width > 4 && (
                         <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[12px] font-bold">{i + 1}</span>
@@ -648,7 +652,9 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                       background: "#000",
                       boxShadow: "inset 1px 0 0 rgba(255,255,255,0.3), inset -1px 0 0 rgba(255,255,255,0.3)",
                     }}
-                    title={`Pit · volta ${p.lap}${p.tire_change ? " · troca de pneu" : " · só combustível"} · ${p.box_secs.toFixed(1)}s`}
+                    title={p.tire_change
+                      ? t("telemetryCockpit.pitSeparatorTireChange", { lap: p.lap, secs: p.box_secs.toFixed(1) })
+                      : t("telemetryCockpit.pitSeparatorFuelOnly", { lap: p.lap, secs: p.box_secs.toFixed(1) })}
                   />
                 ))}
               </div>
@@ -657,7 +663,7 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
             <div className="w-16 shrink-0 flex flex-col">
               <div className="h-[28px]" />
               <div className="h-7 flex items-center justify-end">
-                <span style={{ color: "#8b949e", fontFamily: MONO }} className="text-[11px]">{s.stops?.length ?? 0} {(s.stops?.length ?? 0) === 1 ? "pit" : "pits"}</span>
+                <span style={{ color: "#8b949e", fontFamily: MONO }} className="text-[11px]">{t("telemetryCockpit.pits", { count: s.stops?.length ?? 0 })}</span>
               </div>
             </div>
           </div>
@@ -670,6 +676,7 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
 // Tabela dedicada de tempos de pit: uma linha por carro = a parada MAIS RÁPIDA dele
 // (menor tempo na caixa = estafe dos boxes). Pneu/combustível estimado (troca ~21s).
 function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
+  const { t } = useTranslation();
   const rows = useMemo(() => {
     const best = {};
     (strategies || []).forEach((s) => {
@@ -678,7 +685,7 @@ function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
         if (!cur || d.box_secs < cur.box_secs) {
           best[s.car_idx] = {
             ...d,
-            pilot_name: s.pilot_name || nameByIdx[s.car_idx] || `Carro ${s.car_idx}`,
+            pilot_name: s.pilot_name || nameByIdx[s.car_idx] || t("telemetryCockpit.carN", { n: s.car_idx }),
             team: s.team_name || "—",
             car_idx: s.car_idx,
             isPlayer: s.car_idx === playerCarIdx,
@@ -705,18 +712,18 @@ function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
       <thead>
         <tr style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-wider">
           <th className="py-2 text-center">#</th>
-          <th className="py-2 px-2 text-left">Equipe</th>
-          <th className="py-2 px-2 text-left">Piloto</th>
-          <th className="py-2 px-2 text-right">Tempo de pit</th>
-          <th className="py-2 text-center">Volta</th>
+          <th className="py-2 px-2 text-left">{t("telemetryCockpit.colTeam")}</th>
+          <th className="py-2 px-2 text-left">{t("telemetryCockpit.colPilot")}</th>
+          <th className="py-2 px-2 text-right">{t("telemetryCockpit.colPitTime")}</th>
+          <th className="py-2 text-center">{t("telemetryCockpit.colLapCap")}</th>
           <th className="py-2 text-center">
             <span className="inline-flex items-center justify-center gap-1">
-              <img src={TIRE_DRY_ICON} alt="" className="h-3.5 w-3.5 object-contain" />Pneus
+              <img src={TIRE_DRY_ICON} alt="" className="h-3.5 w-3.5 object-contain" />{t("telemetryCockpit.colTires")}
             </span>
           </th>
           <th className="py-2 text-center">
             <span className="inline-flex items-center justify-center gap-1">
-              <img src={FUEL_ICON} alt="" className="h-3.5 w-3.5 object-contain" />Comb.
+              <img src={FUEL_ICON} alt="" className="h-3.5 w-3.5 object-contain" />{t("telemetryCockpit.colFuel")}
             </span>
           </th>
         </tr>
@@ -740,7 +747,7 @@ function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
               <td className="py-2.5 px-2 text-[12.5px] truncate" style={{ color: r.isPlayer ? "#58a6ff" : "#9aa5b1" }}>
                 <span className="flex items-center gap-1.5">
                   {r.pilot_name}
-                  {r.track_wet && <img src={TIRE_WET_ICON} alt="" title="Pista molhada" className="h-3.5 w-3.5 object-contain" />}
+                  {r.track_wet && <img src={TIRE_WET_ICON} alt="" title={t("telemetryCockpit.trackWet")} className="h-3.5 w-3.5 object-contain" />}
                 </span>
               </td>
               <td className="py-2.5 px-2 text-right text-[13px] font-semibold" style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>
@@ -762,14 +769,15 @@ function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
 }
 
 function RivalTooltip({ active, payload, rivalName }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const r = payload[0].payload;
   const ahead = r.gap_s >= 0;
   return (
     <div className="rounded-lg border border-white/15 px-3 py-2 text-[11px] shadow-lg" style={{ background: "rgba(10,15,22,0.96)" }}>
-      <div style={{ color: "#fff" }} className="font-semibold">Volta {r.lap}</div>
+      <div style={{ color: "#fff" }} className="font-semibold">{t("telemetryCockpit.lap")} {r.lap}</div>
       <div style={{ color: "#f59e0b" }}>
-        {rivalName || "Rival"} {ahead ? "à frente" : "atrás"}: {Math.abs(r.gap_s).toFixed(2)}s
+        {rivalName || t("telemetryCockpit.rival")} {ahead ? t("telemetryCockpit.ahead") : t("telemetryCockpit.behind")}: {Math.abs(r.gap_s).toFixed(2)}s
       </div>
     </div>
   );

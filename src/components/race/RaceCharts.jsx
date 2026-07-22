@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import LapTimeLineChart from "./LapTimeLineChart";
@@ -90,6 +91,7 @@ function LapMarkers({ yellowLaps, bestLap, mistakeLap }) {
 }
 
 function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState("trace");
   const [traceMode, setTraceMode] = useState("position");
   const [carColors, setCarColors] = useState({ by_name: {}, player_color: null });
@@ -181,7 +183,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
   }, [cars]);
   const activePaceIdx = paceIdx ?? playerIdx;
   const activePaceName =
-    paceDrivers.find((d) => d.idx === activePaceIdx)?.name || "Você";
+    paceDrivers.find((d) => d.idx === activePaceIdx)?.name || t("raceCharts.youLabel");
   const hasPace = lapTimes.length > 0 || carLapTimes.length > 0;
 
   // Tempos de volta do piloto selecionado: delta à média, melhor volta destacada.
@@ -214,17 +216,17 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {hasTrace && (
-          <TabButton active={tab === "trace"} onClick={() => setTab("trace")}>Race Trace</TabButton>
+          <TabButton active={tab === "trace"} onClick={() => setTab("trace")}>{t("raceCharts.raceTrace")}</TabButton>
         )}
-        {hasPace && <TabButton active={tab === "pace"} onClick={() => setTab("pace")}>Pace Consistency</TabButton>}
-        {hasPace && <TabButton active={tab === "ritmo"} onClick={() => setTab("ritmo")}>Ritmo</TabButton>}
+        {hasPace && <TabButton active={tab === "pace"} onClick={() => setTab("pace")}>{t("raceCharts.paceConsistency")}</TabButton>}
+        {hasPace && <TabButton active={tab === "ritmo"} onClick={() => setTab("ritmo")}>{t("raceCharts.pace")}</TabButton>}
         {rivalGap.length >= 2 && (
-          <TabButton active={tab === "rival"} onClick={() => setTab("rival")}>Gap pro rival</TabButton>
+          <TabButton active={tab === "rival"} onClick={() => setTab("rival")}>{t("raceCharts.rivalGap")}</TabButton>
         )}
         <span className="ml-auto flex items-center gap-3 text-[11px] text-gray-400">
-          <span className="flex items-center gap-1"><span className="inline-block h-[3px] w-4 rounded bg-[#58a6ff]" />você</span>
-          {bestMomentLap > 0 && <span className="flex items-center gap-1 text-green-400">★ melhor</span>}
-          {mistakeLap > 0 && <span className="flex items-center gap-1 text-red-400">✕ erro</span>}
+          <span className="flex items-center gap-1"><span className="inline-block h-[3px] w-4 rounded bg-[#58a6ff]" />{t("raceCharts.you")}</span>
+          {bestMomentLap > 0 && <span className="flex items-center gap-1 text-green-400">★ {t("raceCharts.bestLegend")}</span>}
+          {mistakeLap > 0 && <span className="flex items-center gap-1 text-red-400">✕ {t("raceCharts.mistakeLegend")}</span>}
         </span>
       </div>
 
@@ -232,8 +234,8 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
       {tab === "trace" && hasTrace && (
         <div className="space-y-2">
           <div className="flex gap-1.5">
-            <ModeChip active={traceMode === "position"} onClick={() => setTraceMode("position")}>Posição</ModeChip>
-            <ModeChip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>Gap ao líder</ModeChip>
+            <ModeChip active={traceMode === "position"} onClick={() => setTraceMode("position")}>{t("raceCharts.position")}</ModeChip>
+            <ModeChip active={traceMode === "gap"} onClick={() => setTraceMode("gap")}>{t("raceCharts.gapToLeader")}</ModeChip>
           </div>
           <div className="h-[340px] w-full">
             <RaceTraceChart
@@ -256,7 +258,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
               <span key={car.idx} className="flex items-center gap-1 text-[10px] text-gray-400">
                 <span className="inline-block h-[3px] w-3.5 rounded" style={{ background: colorFor[car.idx] }} />
                 {car.name}
-                {car.is_player ? " (você)" : ""}
+                {car.is_player ? t("raceCharts.youParen") : ""}
               </span>
             ))}
           </div>
@@ -274,7 +276,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
                 className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
               >
                 {activePaceName}
-                {activePaceIdx === playerIdx ? " (você)" : ""}
+                {activePaceIdx === playerIdx ? t("raceCharts.youParen") : ""}
                 <span className="text-gray-400">▾</span>
               </button>
               {paceMenuOpen && (
@@ -291,7 +293,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
                     >
                       <span>
                         {d.name}
-                        {d.isPlayer ? " (você)" : ""}
+                        {d.isPlayer ? t("raceCharts.youParen") : ""}
                       </span>
                       {d.idx === activePaceIdx && <span className="text-[#58a6ff]">✓</span>}
                     </button>
@@ -301,14 +303,14 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
             </div>
             {pace && (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-400">
-                <span>Média: <span className="font-semibold text-white">{formatLap(pace.avg)}</span></span>
-                <span>Melhor: <span className="font-semibold text-green-400">{formatLap(pace.best)}</span></span>
+                <span>{t("raceCharts.avgLabel")} <span className="font-semibold text-white">{formatLap(pace.avg)}</span></span>
+                <span>{t("raceCharts.bestLabel")} <span className="font-semibold text-green-400">{formatLap(pace.best)}</span></span>
               </div>
             )}
           </div>
           {!pace ? (
             <div className="flex h-[300px] items-center justify-center text-xs text-gray-500">
-              Sem voltas registradas para este piloto.
+              {t("raceCharts.noLaps")}
             </div>
           ) : tab === "ritmo" ? (
             // Linha de tempo de volta — MESMO gráfico do iRacing Conectado (componente
@@ -328,8 +330,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
       {tab === "rival" && rivalGap.length >= 2 && (
         <div className="space-y-2">
           <p className="text-[11px] text-gray-400">
-            Disputa com <span className="font-semibold text-white">{charts.rival_name || "rival"}</span> —
-            acima de 0 = rival à frente (você caçando), abaixo = você na frente.
+            {t("raceCharts.rivalIntroPre")}<span className="font-semibold text-white">{charts.rival_name || t("raceCharts.rivalFallback")}</span>{t("raceCharts.rivalIntroPost")}
           </p>
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -338,7 +339,7 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
                 <LapMarkers yellowLaps={yellowLaps} bestLap={bestMomentLap} mistakeLap={mistakeLap} />
                 <XAxis type="number" dataKey="lap" allowDecimals={false}
                   tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID}
-                  label={{ value: "Volta", position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
+                  label={{ value: t("raceCharts.lap"), position: "insideBottom", offset: -8, fill: AXIS_TICK, fontSize: 11 }} />
                 <YAxis tick={{ fill: AXIS_TICK, fontSize: 11 }} stroke={GRID} width={44}
                   tickFormatter={(v) => `${Math.abs(v).toFixed(1)}s`} />
                 <Tooltip content={<RivalTooltip rivalName={charts.rival_name} />} />
@@ -355,14 +356,15 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
 }
 
 function RivalTooltip({ active, payload, rivalName }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const r = payload[0].payload;
   const ahead = r.gap_s >= 0;
   return (
     <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
-      <div className="font-semibold text-white">Volta {r.lap}</div>
+      <div className="font-semibold text-white">{t("raceCharts.lap")} {r.lap}</div>
       <div className="text-[#f59e0b]">
-        {rivalName || "Rival"} {ahead ? "à frente" : "atrás"}: {Math.abs(r.gap_s).toFixed(2)}s
+        {rivalName || t("raceCharts.rival")} {ahead ? t("raceCharts.ahead") : t("raceCharts.behind")}: {Math.abs(r.gap_s).toFixed(2)}s
       </div>
     </div>
   );

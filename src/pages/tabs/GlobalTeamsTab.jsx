@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../../i18n/index.js";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
@@ -66,6 +68,7 @@ function GlobalTeamsTab({
   drawerPlacement = "right",
   onBack,
 }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   // Zoom da linha do tempo: null = janela cheia; N = mostra só os últimos N anos.
@@ -95,7 +98,7 @@ function GlobalTeamsTab({
     async function load() {
       if (!careerId) {
         setPayload(null);
-        setError("Carreira nao carregada.");
+        setError(i18n.t("globalTeams.notLoaded"));
         setLoading(false);
         return;
       }
@@ -113,7 +116,7 @@ function GlobalTeamsTab({
         setPayload(normalizePayload(data));
       } catch (invokeError) {
         if (!mounted) return;
-        setError(typeof invokeError === "string" ? invokeError : "Nao foi possivel carregar o historico mundial de equipes.");
+        setError(typeof invokeError === "string" ? invokeError : i18n.t("globalTeams.loadError"));
       } finally {
         if (mounted) {
           setLoading(false);
@@ -203,15 +206,15 @@ function GlobalTeamsTab({
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4 px-1">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Equipes mundiais</p>
-          <h2 className="mt-2 text-3xl font-semibold text-text-primary">Histórico mundial de equipes</h2>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">{t("globalTeams.eyebrow")}</p>
+          <h2 className="mt-2 text-3xl font-semibold text-text-primary">{t("globalTeams.worldTeamHistory")}</h2>
         </div>
         <button
           type="button"
           onClick={onBack}
           className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10 hover:text-text-primary"
         >
-          Voltar para Classificacao
+          {i18n.t("globalTeams.backToStandings")}
         </button>
       </header>
 
@@ -224,9 +227,9 @@ function GlobalTeamsTab({
       <GlassCard hover={false} className="overflow-hidden rounded-[30px] p-0">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 bg-black/10 px-5 py-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">Atlas histórico</p>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-accent-primary">{t("globalTeams.historicAtlas")}</p>
             <h3 className="mt-2 text-2xl font-semibold text-text-primary">
-              {activeFamily?.label ?? "Mazda"}: janela {visibleStartYear ?? "-"}-{visibleEndYear ?? "-"}
+              {i18n.t("globalTeams.familyWindow", { family: activeFamily?.label ?? "Mazda", start: visibleStartYear ?? "-", end: visibleEndYear ?? "-" })}
             </h3>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
@@ -234,14 +237,14 @@ function GlobalTeamsTab({
               type="button"
               aria-pressed={zoomYears != null}
               onClick={() => setZoomYears((current) => (current == null ? ZOOM_RECENT_YEARS : null))}
-              title={zoomYears != null ? "Ver a linha do tempo inteira" : `Ver só os últimos ${ZOOM_RECENT_YEARS} anos`}
+              title={zoomYears != null ? i18n.t("globalTeams.zoomFullTitle") : i18n.t("globalTeams.zoomRecentTitle", { years: ZOOM_RECENT_YEARS })}
               className={`mr-1 rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.13em] transition-glass ${
                 zoomYears != null
                   ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
                   : "border-white/10 bg-white/[0.04] text-text-muted hover:text-text-primary"
               }`}
             >
-              {zoomYears != null ? `Últimos ${ZOOM_RECENT_YEARS} anos` : "Tudo"}
+              {zoomYears != null ? i18n.t("globalTeams.zoomRecentLabel", { years: ZOOM_RECENT_YEARS }) : i18n.t("globalTeams.zoomAll")}
             </button>
             {(payload?.families ?? []).map((item) => (
               <button
@@ -322,7 +325,7 @@ function YearWindowScrubber({
   windowSize = DEFAULT_WINDOW_SIZE,
   onPreviewChange,
   onChange,
-  ariaLabel = "Mover janela historica",
+  ariaLabel = i18n.t("globalTeams.moveWindow"),
   railTestId = "world-team-window-scrubber",
   compact = false,
 }) {
@@ -422,12 +425,12 @@ function YearWindowScrubber({
             style={fillStyle}
           />
           <div className="pointer-events-none absolute inset-x-0 top-[1px] flex justify-between px-1 font-mono text-[8px] font-black uppercase tracking-[0.12em] text-text-muted">
-            <span>inicio</span>
-            <span>fim</span>
+            <span>{i18n.t("globalTeams.start")}</span>
+            <span>{i18n.t("globalTeams.end")}</span>
           </div>
         </div>
         <p className="mt-1 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-status-green">
-          Janela visivel: {Math.round(displayStart)}-{displayEnd}
+          {i18n.t("globalTeams.visibleWindow", { start: Math.round(displayStart), end: displayEnd })}
         </p>
       </div>
       <div className="text-right font-mono text-[12px] font-black text-text-secondary">{axisEndYear(payload)}</div>
@@ -436,19 +439,20 @@ function YearWindowScrubber({
 }
 
 function GlobalTeamsLoading({ onBack }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4 px-1">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Equipes mundiais</p>
-          <h2 className="mt-2 text-3xl font-semibold text-text-primary">Montando histórico mundial de equipes</h2>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">{t("globalTeams.eyebrow")}</p>
+          <h2 className="mt-2 text-3xl font-semibold text-text-primary">{t("globalTeams.buildingWorldTeamHistory")}</h2>
         </div>
         <button
           type="button"
           onClick={onBack}
           className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary"
         >
-          Voltar para Classificacao
+          {i18n.t("globalTeams.backToStandings")}
         </button>
       </header>
       <GlassCard hover={false} className="rounded-[30px]">
@@ -1518,7 +1522,7 @@ function TeamTrophies({ titles, isReigning }) {
       {isReigning && (
         <span
           className="text-[9px] font-black leading-none text-yellow-400"
-          title="Campeão vigente"
+          title={i18n.t("globalTeams.currentChampion")}
         >
           ★
         </span>

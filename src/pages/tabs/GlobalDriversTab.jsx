@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { currentLang } from "../../i18n/format.js";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
+import i18n from "../../i18n/index.js";
 import DriverDetailModal from "../../components/driver/DriverDetailModal";
 import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
@@ -41,6 +44,7 @@ const SORTERS = {
 };
 
 function GlobalDriversTab({ selectedDriverId, onBack }) {
+  const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const [payload, setPayload] = useState({ rows: [], leaders: {} });
   const [loading, setLoading] = useState(true);
@@ -62,7 +66,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
     async function load() {
       if (!careerId) {
         setPayload({ rows: [], leaders: {} });
-        setError("Carreira não carregada.");
+        setError(i18n.t("globalDrivers.notLoaded"));
         setLoading(false);
         return;
       }
@@ -83,7 +87,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
         }
       } catch (invokeError) {
         if (mounted) {
-          setError(typeof invokeError === "string" ? invokeError : "Nao foi possivel carregar o panorama de pilotos.");
+          setError(typeof invokeError === "string" ? invokeError : i18n.t("globalDrivers.loadError"));
         }
       } finally {
         if (mounted) {
@@ -189,8 +193,8 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4 px-1">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Ranking mundial</p>
-          <h2 className="mt-2 text-3xl font-semibold text-text-primary">Panorama global de pilotos</h2>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">{t("globalDrivers.worldRanking")}</p>
+          <h2 className="mt-2 text-3xl font-semibold text-text-primary">{t("globalDrivers.globalPanorama")}</h2>
         </div>
         <button
           type="button"
@@ -202,7 +206,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
       </header>
 
       {focusedDriver ? (
-        <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.22fr)_minmax(330px,0.78fr)]" aria-label="Resumo do ranking mundial">
+        <section className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1.22fr)_minmax(330px,0.78fr)]" aria-label={i18n.t("globalDrivers.summaryAria")}>
           <FocusedDriverCard
             row={focusedDriver}
             ranks={focusedDriverRanks}
@@ -225,8 +229,8 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
       <GlassCard hover={false} className="rounded-[28px]">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">Todos os contratos e historicos</p>
-            <h3 className="mt-2 text-xl font-semibold text-text-primary">Ranking mundial de pilotos</h3>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{i18n.t("globalDrivers.allContracts")}</p>
+            <h3 className="mt-2 text-xl font-semibold text-text-primary">{t("globalDrivers.worldRankingDrivers")}</h3>
           </div>
           <div className="text-right">
             <p className="text-sm text-text-secondary">{`${filteredRows.length} de ${rows.length} pilotos`}</p>
@@ -248,26 +252,26 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
         </div>
 
         <div className="mt-5 overflow-x-auto">
-          <table className="min-w-full text-left text-sm" aria-label="Ranking mundial de pilotos">
+          <table className="min-w-full text-left text-sm" aria-label={i18n.t("globalDrivers.rankingAria")}>
             <thead>
               <tr className="border-b border-white/8 text-[10px] uppercase tracking-[0.16em] text-text-muted">
                 <SortableHeader label="#" sortKey="historical_rank" sort={sort} onSort={handleSort} className="py-3 pr-4" />
-                <SortableHeader label="Piloto" sortKey="nome" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Status" sortKey="status" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Equipe/Categoria" sortKey="team_category" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Idade" sortKey="idade" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Carreira" sortKey="anos_carreira" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Salário/mês" sortKey="salario_anual" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Fama" sortKey="fama" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Indice" sortKey="historical_index" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Titulos" sortKey="titulos" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Vit." sortKey="vitorias" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Pod." sortKey="podios" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Poles" sortKey="poles" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Pts" sortKey="pontos" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Corr." sortKey="corridas" sort={sort} onSort={handleSort} />
-                <SortableHeader label="DNFs" sortKey="dnfs" sort={sort} onSort={handleSort} />
-                <SortableHeader label="Lesoes" sortKey="lesoes" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.driver")} sortKey="nome" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.status")} sortKey="status" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.teamCategory")} sortKey="team_category" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.age")} sortKey="idade" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.career")} sortKey="anos_carreira" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.salaryMonth")} sortKey="salario_anual" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.fame")} sortKey="fama" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.index")} sortKey="historical_index" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.titles")} sortKey="titulos" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.wins")} sortKey="vitorias" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.podiums")} sortKey="podios" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.poles")} sortKey="poles" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.points")} sortKey="pontos" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.races")} sortKey="corridas" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.dnfs")} sortKey="dnfs" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.injuries")} sortKey="lesoes" sort={sort} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
@@ -319,29 +323,30 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
 }
 
 function GlobalDriversLoading({ onBack }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-5">
       <GlassCard hover={false} className="rounded-[30px]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">Ranking mundial</p>
-            <h2 className="mt-2 text-3xl font-semibold text-text-primary">Ranking mundial de pilotos</h2>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-accent-primary">{t("globalDrivers.worldRanking")}</p>
+            <h2 className="mt-2 text-3xl font-semibold text-text-primary">{t("globalDrivers.worldRankingDrivers")}</h2>
           </div>
           <button
             type="button"
             onClick={onBack}
             className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary transition-glass hover:text-text-primary"
           >
-            Voltar para Classificacao
+            {i18n.t("globalDrivers.backToStandings")}
           </button>
         </div>
         <div className="mt-8 rounded-[24px] border border-accent-primary/25 bg-accent-primary/10 p-6 text-center">
           <div className="mx-auto mb-5 h-14 w-14 animate-spin rounded-full border-4 border-white/10 border-t-accent-primary" />
-          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Panorama global de pilotos</p>
-          <h3 className="mt-3 text-2xl font-semibold text-text-primary">Montando ranking mundial</h3>
-          <p className="mt-3 text-sm text-text-secondary">Reunindo pilotos ativos, livres e aposentados.</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">{i18n.t("globalDrivers.loadingEyebrow")}</p>
+          <h3 className="mt-3 text-2xl font-semibold text-text-primary">{i18n.t("globalDrivers.loadingTitle")}</h3>
+          <p className="mt-3 text-sm text-text-secondary">{i18n.t("globalDrivers.loadingDesc")}</p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {["Histórico", "Contratos", "Aposentadorias", "Índice"].map((label) => (
+            {[i18n.t("globalDrivers.tab.history"), i18n.t("globalDrivers.tab.contracts"), i18n.t("globalDrivers.tab.retirements"), i18n.t("globalDrivers.tab.index")].map((label) => (
               <span
                 key={label}
                 className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary"
@@ -357,12 +362,13 @@ function GlobalDriversLoading({ onBack }) {
 }
 
 function FocusedDriverCard({ row, ranks, userRow, userRanks }) {
+  const { t } = useTranslation();
   const metrics = [
-    { label: "Indice", value: formatIndex(row.historical_index), rank: row.historical_rank },
-    { label: "Corridas", value: row.corridas, rank: ranks.races },
-    { label: "Vitorias", value: row.vitorias, rank: ranks.wins },
-    { label: "Podios", value: row.podios, rank: ranks.podiums, title: podiumBreakdownTitle(row) },
-    { label: "Carreira", value: formatYears(row.anos_carreira), rank: ranks.careerYears },
+    { label: i18n.t("globalDrivers.stat.index"), value: formatIndex(row.historical_index), rank: row.historical_rank },
+    { label: i18n.t("globalDrivers.stat.races"), value: row.corridas, rank: ranks.races },
+    { label: i18n.t("globalDrivers.stat.wins"), value: row.vitorias, rank: ranks.wins },
+    { label: i18n.t("globalDrivers.stat.podiums"), value: row.podios, rank: ranks.podiums, title: podiumBreakdownTitle(row) },
+    { label: i18n.t("globalDrivers.stat.career"), value: formatYears(row.anos_carreira), rank: ranks.careerYears },
   ];
 
   return (
@@ -370,7 +376,7 @@ function FocusedDriverCard({ row, ranks, userRow, userRanks }) {
       <div className="flex flex-1 flex-col p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Piloto em foco</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">{t("globalDrivers.focusEyebrow")}</p>
             <h3 className="mt-2 text-2xl font-semibold text-text-primary">{row.nome}</h3>
           </div>
           <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-3 py-1 font-mono text-xs text-accent-primary">
@@ -395,18 +401,19 @@ function FocusedDriverCard({ row, ranks, userRow, userRanks }) {
 }
 
 function UserDriverFocusCard({ row, ranks }) {
+  const { t } = useTranslation();
   const stats = [
-    { label: "Indice", value: formatIndex(row.historical_index) },
-    { label: "Vitorias", value: row.vitorias ?? 0 },
-    { label: "Titulos", value: row.titulos ?? 0 },
-    { label: "Carreira", value: formatYears(row.anos_carreira) },
+    { label: i18n.t("globalDrivers.stat.index"), value: formatIndex(row.historical_index) },
+    { label: i18n.t("globalDrivers.stat.wins"), value: row.vitorias ?? 0 },
+    { label: i18n.t("globalDrivers.stat.titles"), value: row.titulos ?? 0 },
+    { label: i18n.t("globalDrivers.stat.career"), value: formatYears(row.anos_carreira) },
   ];
 
   return (
-    <section className="border-t border-white/10 bg-black/15 px-5 py-4 sm:px-6" aria-label="Seu piloto no ranking mundial">
+    <section className="border-t border-white/10 bg-black/15 px-5 py-4 sm:px-6" aria-label={t("globalDrivers.yourDriverAria")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">Seu piloto</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{t("globalDrivers.yourDriver")}</p>
           <h4 className="mt-2 text-lg font-semibold text-text-primary">{row.nome}</h4>
           <p className="mt-1 text-sm text-text-secondary">{teamCategoryLabel(row)}</p>
         </div>
@@ -450,8 +457,8 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
     <GlassCard hover={false} as="aside" className="flex max-h-[430px] flex-col overflow-hidden rounded-[28px] p-5 sm:p-6">
       <div className="flex shrink-0 items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">Campeoes</p>
-          <h3 className="mt-2 text-xl font-semibold text-text-primary">Campeoes por campeonato</h3>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-accent-primary">{i18n.t("globalDrivers.champions.eyebrow")}</p>
+          <h3 className="mt-2 text-xl font-semibold text-text-primary">{i18n.t("globalDrivers.champions.title")}</h3>
           <p className="mt-2 text-sm text-text-secondary">Categorias com historico de campeoes no ranking.</p>
         </div>
         <span className="rounded-full border border-white/10 px-3 py-1 font-mono text-xs text-text-muted">
@@ -484,7 +491,7 @@ function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
                     <span>
                       <span className="block text-sm font-semibold text-text-primary">{group.label}</span>
                       <span className="mt-1 block text-xs text-text-muted">
-                        {group.champions.slice(0, 2).map((champion) => champion.name).join(", ") || "Sem nomes"}
+                        {group.champions.slice(0, 2).map((champion) => champion.name).join(", ") || i18n.t("globalDrivers.row.noNames")}
                       </span>
                     </span>
                     <span className="rounded-full border border-accent-secondary/25 bg-accent-secondary/10 px-3 py-1 font-mono text-xs text-accent-secondary">
@@ -509,67 +516,67 @@ function FilterBar({ filters, options, onChange, onReset }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
       <FilterSelect
-        label="Status"
+        label={i18n.t("globalDrivers.filter.status")}
         value={filters.status}
         onChange={(value) => onChange("status", value)}
         options={[
-          ["Todos", "Todos"],
-          ["Ativo", "Ativos"],
-          ["Livre", "Livres"],
-          ["Aposentado", "Aposentados"],
+          ["Todos", i18n.t("globalDrivers.filter.all")],
+          ["Ativo", i18n.t("globalDrivers.filter.statusActive")],
+          ["Livre", i18n.t("globalDrivers.filter.statusFree")],
+          ["Aposentado", i18n.t("globalDrivers.filter.statusRetired")],
         ]}
       />
       <FilterSelect
-        label="Categoria"
+        label={i18n.t("globalDrivers.filter.category")}
         value={filters.category}
         onChange={(value) => onChange("category", value)}
-        options={[["Todas", "Todas"]]}
+        options={[["Todas", i18n.t("globalDrivers.filter.allF")]]}
         groups={options.categoryGroups}
       />
       <FilterSelect
-        label="Nacionalidade"
+        label={i18n.t("globalDrivers.filter.nationality")}
         value={filters.nationality}
         onChange={(value) => onChange("nationality", value)}
         options={[
-          ["Todas", "Todas"],
+          ["Todas", i18n.t("globalDrivers.filter.allF")],
           ...options.nationalities.map(({ code, label }) => [code, label]),
         ]}
       />
       <FilterSelect
-        label="Campeões"
+        label={i18n.t("globalDrivers.filter.champions")}
         value={filters.champions}
         onChange={(value) => onChange("champions", value)}
         options={[
-          ["all", "Todos"],
-          ["champions", "Apenas campeões"],
+          ["all", i18n.t("globalDrivers.filter.all")],
+          ["champions", i18n.t("globalDrivers.filter.onlyChampions")],
         ]}
       />
       <FilterSelect
-        label="Lesionados"
+        label={i18n.t("globalDrivers.filter.injured")}
         value={filters.injured}
         onChange={(value) => onChange("injured", value)}
         options={[
-          ["all", "Todos"],
-          ["injured", "Apenas lesionados"],
+          ["all", i18n.t("globalDrivers.filter.all")],
+          ["injured", i18n.t("globalDrivers.filter.onlyInjured")],
         ]}
       />
       <FilterSelect
-        label="Favoritos"
+        label={i18n.t("globalDrivers.filter.favorites")}
         value={filters.favorites}
         onChange={(value) => onChange("favorites", value)}
         options={[
-          ["all", "Todos"],
-          ["only", "Apenas favoritos"],
+          ["all", i18n.t("globalDrivers.filter.all")],
+          ["only", i18n.t("globalDrivers.filter.onlyFavorites")],
         ]}
       />
       <div className="grid grid-cols-2 gap-2 xl:col-span-2">
         <FilterInput
-          label="Idade mínima"
+          label={i18n.t("globalDrivers.filter.minAge")}
           value={filters.minAge}
           onChange={(value) => onChange("minAge", value)}
         />
         <FilterInput
-          label="Idade máxima"
+          label={i18n.t("globalDrivers.filter.maxAge")}
           value={filters.maxAge}
           onChange={(value) => onChange("maxAge", value)}
         />
@@ -686,7 +693,7 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
           ) : null}
           {row.is_lesionado ? (
             <span
-              title={row.lesao_ativa_tipo ? `Lesionado: ${row.lesao_ativa_tipo}` : "Lesionado"}
+              title={row.lesao_ativa_tipo ? i18n.t("globalDrivers.row.injuredType", { type: row.lesao_ativa_tipo }) : i18n.t("globalDrivers.row.injured")}
               className="rounded-full border border-status-red/25 bg-status-red/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-status-red"
             >
               Lesionado
@@ -701,8 +708,8 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
               }}
               onDoubleClick={(event) => event.stopPropagation()}
               aria-pressed={Boolean(row.is_favorito)}
-              title={row.is_favorito ? "Remover dos favoritos" : "Favoritar piloto"}
-              aria-label={row.is_favorito ? "Remover dos favoritos" : "Favoritar piloto"}
+              title={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
+              aria-label={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
               className={[
                 "ml-auto text-[15px] leading-none transition-colors",
                 row.is_favorito
@@ -789,15 +796,15 @@ function TitleBreakdownDialog({ row, onClose }) {
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-accent-primary">Titulos</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-accent-primary">{i18n.t("globalDrivers.titles.eyebrow")}</p>
             <h3 id={titleId} className="mt-1 text-xl font-semibold text-text-primary">
-              Titulos de {row.nome}
+              {i18n.t("globalDrivers.titles.ofDriver", { name: row.nome })}
             </h3>
-            <p className="mt-1 text-sm text-text-secondary">Total: {row.titulos}</p>
+            <p className="mt-1 text-sm text-text-secondary">{i18n.t("globalDrivers.titles.total", { count: row.titulos })}</p>
           </div>
           <button
             type="button"
-            aria-label="Fechar titulos"
+            aria-label={i18n.t("globalDrivers.titles.close")}
             onClick={onClose}
             className="rounded-lg border border-white/10 px-3 py-1 text-sm text-text-secondary transition-glass hover:border-accent-primary/40 hover:text-text-primary"
           >
@@ -811,7 +818,7 @@ function TitleBreakdownDialog({ row, onClose }) {
               <div key={`${entry.categoria}-${entry.classe ?? "geral"}`} className="flex items-center justify-between py-3">
                 <span className="font-semibold text-text-primary">{titleCategoryLabel(entry)}</span>
                 <span className="font-mono text-sm text-accent-secondary">
-                  {entry.titulos} {entry.titulos === 1 ? "titulo" : "titulos"}
+                  {i18n.t("globalDrivers.champions.titlesCount", { count: entry.titulos })}
                 </span>
               </div>
             ))
@@ -844,15 +851,15 @@ function ChampionshipChampionsDialog({ group, onClose }) {
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-accent-primary">Campeonato</p>
             <h3 id={titleId} className="mt-1 text-xl font-semibold text-text-primary">
-              Campeoes de {group.label}
+              {i18n.t("globalDrivers.champions.ofGroup", { group: group.label })}
             </h3>
             <p className="mt-1 text-sm text-text-secondary">
-              {group.championCount} {group.championCount === 1 ? "campeao" : "campeoes"}
+              {i18n.t("globalDrivers.champions.championsCount", { count: group.championCount })}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Fechar campeoes"
+            aria-label={i18n.t("globalDrivers.champions.close")}
             onClick={onClose}
             className="rounded-lg border border-white/10 px-3 py-1 text-sm text-text-secondary transition-glass hover:border-accent-primary/40 hover:text-text-primary"
           >
@@ -869,7 +876,7 @@ function ChampionshipChampionsDialog({ group, onClose }) {
                 <ChampionTitleYears champion={champion} />
               </div>
               <span className="shrink-0 font-mono text-sm text-accent-secondary">
-                {champion.titles} {champion.titles === 1 ? "titulo" : "titulos"}
+                {i18n.t("globalDrivers.champions.titlesCount", { count: champion.titles })}
               </span>
             </div>
           ))}
@@ -902,7 +909,7 @@ function ChampionTitleYears({ champion }) {
 
   return (
     <p className="mt-1 font-mono text-xs text-text-muted">
-      {champion.years.length > 0 ? champion.years.join(", ") : "Anos indisponiveis"}
+      {champion.years.length > 0 ? champion.years.join(", ") : i18n.t("globalDrivers.row.yearsUnavailable")}
     </p>
   );
 }
@@ -934,7 +941,7 @@ function MetricCell({ value }) {
 // nunca tiveram race_results — aparece como "sem detalhe", em vez de sumir.
 function podiumBreakdownTitle(row) {
   const podios = row.podios ?? 0;
-  if (podios <= 0) return "Nenhum pódio";
+  if (podios <= 0) return i18n.t("globalDrivers.podium.none");
   const vitorias = Math.min(Math.max(0, row.vitorias ?? 0), podios);
   const naoVitorias = Math.max(0, podios - vitorias);
   const segundos = Math.max(0, row.segundos ?? 0);
@@ -942,12 +949,12 @@ function podiumBreakdownTitle(row) {
   const detalhados = Math.min(segundos + terceiros, naoVitorias);
   const semDetalhe = Math.max(0, naoVitorias - detalhados);
 
-  const linhas = [`${podios} pódios no total`];
-  if (vitorias > 0) linhas.push(`${vitorias} ${vitorias === 1 ? "vitória" : "vitórias"} (1º)`);
-  if (segundos > 0) linhas.push(`${segundos} × 2º`);
-  if (terceiros > 0) linhas.push(`${terceiros} × 3º`);
+  const linhas = [i18n.t("globalDrivers.podium.total", { count: podios })];
+  if (vitorias > 0) linhas.push(i18n.t("globalDrivers.podium.wins", { count: vitorias }));
+  if (segundos > 0) linhas.push(i18n.t("globalDrivers.podium.seconds", { count: segundos }));
+  if (terceiros > 0) linhas.push(i18n.t("globalDrivers.podium.thirds", { count: terceiros }));
   if (semDetalhe > 0) {
-    linhas.push(`${semDetalhe} sem detalhe (corridas anteriores ao registro)`);
+    linhas.push(i18n.t("globalDrivers.podium.noDetail", { count: semDetalhe }));
   }
   return linhas.join("\n");
 }
@@ -973,7 +980,7 @@ function PodiumMetricCell({ row }) {
 function FamaCell({ row }) {
   const fama = Number(row.fama ?? 0);
   const delta = Number(row.fama_delta ?? 0);
-  const carismaTitle = row.carisma != null ? ` Carisma ${row.carisma}/100.` : "";
+  const carismaTitle = row.carisma != null ? i18n.t("globalDrivers.fame.charisma", { carisma: row.carisma }) : "";
 
   if (fama <= 0) {
     return <td className="px-4 py-3 font-mono text-text-muted">-</td>;
@@ -981,7 +988,7 @@ function FamaCell({ row }) {
 
   if (!delta) {
     return (
-      <td className="px-4 py-3 font-mono text-text-primary" title={`Fama ${fama}/100.${carismaTitle}`}>
+      <td className="px-4 py-3 font-mono text-text-primary" title={i18n.t("globalDrivers.fame.title", { fama, charisma: carismaTitle })}>
         {fama}
       </td>
     );
@@ -989,7 +996,11 @@ function FamaCell({ row }) {
 
   const gained = delta > 0;
   const amount = Math.abs(delta);
-  const deltaTitle = `${gained ? "Ganhou" : "Perdeu"} ${amount} de fama desde a temporada passada.${carismaTitle}`;
+  const deltaTitle = i18n.t("globalDrivers.fame.deltaTitle", {
+    direction: gained ? i18n.t("globalDrivers.fame.up") : i18n.t("globalDrivers.fame.down"),
+    amount,
+    charisma: carismaTitle,
+  });
 
   return (
     <td className="px-4 py-3 font-mono text-text-primary">
@@ -1012,7 +1023,7 @@ function FamaCell({ row }) {
 
 function RankCell({ rank, delta, globalRank = null, scoped = false }) {
   const numericDelta = Number(delta ?? 0);
-  const globalTitle = globalRank != null ? `Posição global #${formatRank(globalRank)} (entre todos os pilotos)` : undefined;
+  const globalTitle = globalRank != null ? i18n.t("globalDrivers.rank.globalTitle", { rank: formatRank(globalRank) }) : undefined;
 
   if (!numericDelta) {
     return <span title={globalTitle}>{formatRank(rank)}</span>;
@@ -1021,9 +1032,12 @@ function RankCell({ rank, delta, globalRank = null, scoped = false }) {
   const gained = numericDelta > 0;
   const amount = Math.abs(numericDelta);
   const label = `${gained ? "↑" : "↓"}${amount}`;
-  const positions = amount === 1 ? "posição" : "posições";
-  const scope = scoped ? " neste ranking filtrado" : "";
-  const deltaTitle = `${gained ? "Subiu" : "Desceu"} ${amount} ${positions}${scope} desde a última corrida`;
+  const scope = scoped ? i18n.t("globalDrivers.rank.scopeFiltered") : "";
+  const deltaTitle = i18n.t("globalDrivers.rank.deltaTitle", {
+    count: amount,
+    direction: gained ? i18n.t("globalDrivers.rank.up") : i18n.t("globalDrivers.rank.down"),
+    scope,
+  });
   const title = globalTitle ? `${deltaTitle}. ${globalTitle}` : deltaTitle;
 
   return (
@@ -1051,9 +1065,9 @@ function sortRows(rows, sort) {
     const bValue = getter(b);
     const direction = sort.direction === "asc" ? 1 : -1;
     if (typeof aValue === "string" || typeof bValue === "string") {
-      return String(aValue).localeCompare(String(bValue), "pt-BR") * direction;
+      return String(aValue).localeCompare(String(bValue), currentLang()) * direction;
     }
-    return ((aValue > bValue ? 1 : 0) - (aValue < bValue ? 1 : 0)) * direction || a.nome.localeCompare(b.nome, "pt-BR");
+    return ((aValue > bValue ? 1 : 0) - (aValue < bValue ? 1 : 0)) * direction || a.nome.localeCompare(b.nome, currentLang());
   });
 }
 
@@ -1176,7 +1190,7 @@ function buildNationalityOptions(rows) {
   });
   return [...byCountry.entries()]
     .map(([code, label]) => ({ code, label }))
-    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+    .sort((a, b) => a.label.localeCompare(b.label, currentLang()));
 }
 
 function nationalityKey(nacionalidade) {
@@ -1202,7 +1216,7 @@ function metricRank(rows, key, targetId) {
     .filter((row) => Number(row?.[key] ?? 0) > 0)
     .sort((left, right) =>
       Number(right?.[key] ?? 0) - Number(left?.[key] ?? 0)
-      || String(left.nome ?? "").localeCompare(String(right.nome ?? ""), "pt-BR"),
+      || String(left.nome ?? "").localeCompare(String(right.nome ?? ""), currentLang()),
     );
   let rank = 0;
   let previousValue = null;
@@ -1228,7 +1242,7 @@ function buildChampionshipChampionSections(rows) {
 
   return [
     { key: "normal", label: null, groups: normal },
-    { key: "special", label: "Eventos especiais", groups: special },
+    { key: "special", label: i18n.t("globalDrivers.specialEvents"), groups: special },
   ].filter((section) => section.groups.length > 0);
 }
 
@@ -1275,7 +1289,7 @@ function buildChampionshipChampionGroups(rows) {
         right.titles - left.titles
         || right.latestYear - left.latestYear
         || (left.rank ?? 9999) - (right.rank ?? 9999)
-        || left.name.localeCompare(right.name, "pt-BR"),
+        || left.name.localeCompare(right.name, currentLang()),
       ),
     }))
     .sort(compareChampionshipGroups);
@@ -1311,7 +1325,7 @@ function compareChampionshipGroups(left, right) {
   return championshipGroupOrder(left) - championshipGroupOrder(right)
     || right.championCount - left.championCount
     || right.totalTitles - left.totalTitles
-    || String(left.label).localeCompare(String(right.label), "pt-BR");
+    || String(left.label).localeCompare(String(right.label), currentLang());
 }
 
 function championshipGroupOrder(group) {
@@ -1352,7 +1366,7 @@ function uniqueSortedCategories(values) {
 function compareCategoriesByProgression(a, b) {
   const aTier = categoryTierOrder(a);
   const bTier = categoryTierOrder(b);
-  return aTier - bTier || categoryLabel(a).localeCompare(categoryLabel(b), "pt-BR");
+  return aTier - bTier || categoryLabel(a).localeCompare(categoryLabel(b), currentLang());
 }
 
 function categoryTierOrder(category) {
@@ -1396,7 +1410,7 @@ function teamCategoryLabel(row) {
   const category = categoryLabel(row.categoria_atual);
   if (row.equipe_nome) return `${row.equipe_nome} / ${category}`;
   if (row.status === "Aposentado") {
-    const retiredLabel = row.anos_aposentado != null ? `Há ${row.anos_aposentado} anos` : "Aposentado";
+    const retiredLabel = row.anos_aposentado != null ? i18n.t("globalDrivers.retiredYears", { count: row.anos_aposentado }) : i18n.t("globalDrivers.retired");
     return `${retiredLabel} / ${category}`;
   }
   if (row.status === "Livre" && category !== "-") return `Livre / ${category}`;
@@ -1460,7 +1474,7 @@ function formatRank(rank) {
 }
 
 function formatIndex(value) {
-  return Number(value ?? 0).toLocaleString("pt-BR", {
+  return Number(value ?? 0).toLocaleString(currentLang(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });

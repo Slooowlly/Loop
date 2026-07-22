@@ -1329,7 +1329,7 @@ export default function PreSeasonView() {
       <article
         key={team.id}
         onDoubleClick={() => setHistoryTeam(team)}
-        title="Duplo clique: histórico mundial de equipes"
+        title={t("preSeason.teamHistoryDblClick")}
         className="glass transition-glass relative cursor-pointer select-none overflow-hidden rounded-xl border p-3 hover:-translate-y-0.5 hover:scale-[1.01]"
         style={{
           borderColor: matchesHover

@@ -1,4 +1,7 @@
+import { useTranslation } from "react-i18next";
+
 function ResultBadge({ result }) {
+  const { t } = useTranslation();
   if (!result) {
     return (
       <span className="inline-flex h-7 w-10 items-center justify-center rounded-lg border border-dashed border-white/10 text-[11px] text-text-muted opacity-30">
@@ -42,8 +45,8 @@ function ResultBadge({ result }) {
       {content}
       <span
         className="h-3 w-1.5 rounded-full border border-[#bc8cff]/35 bg-[#bc8cff] shadow-[0_0_12px_rgba(188,140,255,0.55)]"
-        title="Volta mais rápida"
-        aria-label="Volta mais rápida"
+        title={t("standings.fastestLap")}
+        aria-label={t("standings.fastestLap")}
       />
     </span>
   );

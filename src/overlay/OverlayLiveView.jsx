@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { listen, emitTo } from "@tauri-apps/api/event";
@@ -38,6 +39,7 @@ const NUB_W = 78;
 const NUB_H = 34;
 
 export default function OverlayLiveView() {
+  const { t } = useTranslation();
   const [careerId, setCareerId] = useState(null);
   const [enabled, setEnabled] = useState(true); // torre visível (olho)?
   const [hover, setHover] = useState(false); // mouse sobre a torre/nub
@@ -206,7 +208,7 @@ export default function OverlayLiveView() {
           <button
             onMouseDown={stop}
             onClick={toggleEnabled}
-            title="Ocultar a torre"
+            title={t("overlay.liveView.hideTower")}
             style={{
               position: "fixed",
               top: (SESSION_H + towerH) / 2, // meio do corpo (rows), sem contar o header
@@ -239,7 +241,7 @@ export default function OverlayLiveView() {
         <button
           onMouseDown={stop}
           onClick={toggleEnabled}
-          title="Mostrar a torre de tempos"
+          title={t("overlay.liveView.showTower")}
           style={{
             position: "fixed",
             top: 5,

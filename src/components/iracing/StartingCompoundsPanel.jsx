@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 
 // Painel PRÉ-CORRIDA de "Composto de largada": lista, por classe, qual pneu cada carro
@@ -17,6 +18,7 @@ function compoundOf(tireCompound) {
 }
 
 function CompoundChip({ kind }) {
+  const { t } = useTranslation();
   if (!kind) {
     return <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-text-muted">—</span>;
   }
@@ -30,12 +32,13 @@ function CompoundChip({ kind }) {
       }}
     >
       <span aria-hidden>{wet ? "🌧" : "☀"}</span>
-      {wet ? "Chuva" : "Seco"}
+      {wet ? t("startingCompounds.wet") : t("startingCompounds.dry")}
     </span>
   );
 }
 
 export default function StartingCompoundsPanel({ careerId }) {
+  const { t } = useTranslation();
   const [classes, setClasses] = useState(null);
 
   useEffect(() => {
@@ -67,9 +70,9 @@ export default function StartingCompoundsPanel({ careerId }) {
     <div className="flex flex-col rounded-2xl border border-white/10 bg-[#0d131c]/80 p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-text-secondary">
-          Composto de largada
+          {t("startingCompounds.header")}
         </p>
-        <span className="text-[10px] text-text-muted">ao vivo · da grid</span>
+        <span className="text-[10px] text-text-muted">{t("startingCompounds.liveFromGrid")}</span>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

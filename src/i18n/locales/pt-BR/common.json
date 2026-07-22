@@ -294,7 +294,8 @@
       "callupWindow": "A competição começa quando a janela de convocação for finalizada. Os resultados aparecem aqui quando a primeira corrida for simulada.",
       "specialOpen": "O bloco especial já foi aberto, mas ainda não existe resultado registrado. A classificação aparece quando a primeira corrida for simulada.",
       "afterRegular": "Esta competição acontece depois da temporada regular e da janela de convocação. Os resultados aparecem aqui quando o bloco especial for simulado."
-    }
+    },
+    "fastestLap": "Volta mais rápida"
   },
   "globalDrivers": {
     "notLoaded": "Carreira não carregada.",
@@ -407,7 +408,12 @@
     "backToStandings": "Voltar para Classificacao",
     "loadingEyebrow": "Panorama global de pilotos",
     "loadingTitle": "Montando ranking mundial",
-    "loadingDesc": "Reunindo pilotos ativos, livres e aposentados."
+    "loadingDesc": "Reunindo pilotos ativos, livres e aposentados.",
+    "focusEyebrow": "Piloto em foco",
+    "worldRanking": "Ranking mundial",
+    "globalPanorama": "Panorama global de pilotos",
+    "worldRankingDrivers": "Ranking mundial de pilotos",
+    "yourDriver": "Seu piloto"
   },
   "globalTeams": {
     "notLoaded": "Carreira nao carregada.",
@@ -422,7 +428,11 @@
     "start": "inicio",
     "end": "fim",
     "visibleWindow": "Janela visivel: {{start}}-{{end}}",
-    "currentChampion": "Campeão vigente"
+    "currentChampion": "Campeão vigente",
+    "eyebrow": "Equipes mundiais",
+    "worldTeamHistory": "Histórico mundial de equipes",
+    "historicAtlas": "Atlas histórico",
+    "buildingWorldTeamHistory": "Montando histórico mundial de equipes"
   },
   "dashboard": {
     "repair": {
@@ -1371,7 +1381,8 @@
     "toast": {
       "paintUpdated": "🎨 Cor do carro atualizada para a {{team}}.",
       "newTeamFallback": "nova equipe"
-    }
+    },
+    "teamHistoryDblClick": "Duplo clique: histórico mundial de equipes"
   },
   "myTeamTab": {
     "errors": {
@@ -2924,6 +2935,10 @@
       "cancel": "cancelar",
       "clearKeyTooltip": "Remover tecla de recentro",
       "recenterKeyHint": "Dica: use a MESMA tecla do \"Center VR\" do iRacing (Options → Controls) e um aperte só recentra os dois. No VR também dá com"
+    },
+    "liveView": {
+      "hideTower": "Ocultar a torre",
+      "showTower": "Mostrar a torre de tempos"
     }
   },
   "storeErrors": {
@@ -2947,5 +2962,92 @@
     "respondProposal": "Erro ao responder proposta.",
     "startNewSeason": "Erro ao iniciar a nova temporada.",
     "advanceCalendar": "Erro ao avançar calendário."
+  },
+  "telemetryCockpit": {
+    "emptyState": "Sem telemetria desta corrida — disponível só quando você corre no iRacing e é monitorado.",
+    "metricBestLap": "melhor volta",
+    "metricLapsSeen": "voltas vistas",
+    "metricConsistency": "consistência",
+    "metricStops": "paradas",
+    "tracePosition": "Posição",
+    "traceGapToLeader": "Gap ao líder",
+    "raceTrace": "Race Trace",
+    "you": " (você)",
+    "avg": "média",
+    "best": "melhor",
+    "lapVariation": "Variação de voltas",
+    "pace": "Ritmo",
+    "noPlayerLaps": "Sem voltas suas registradas.",
+    "gap": "Gap",
+    "lap": "Volta",
+    "noGapData": "Sem dados de gap para este piloto.",
+    "legendDry": "Seco",
+    "legendWet": "Molhado",
+    "legendFuelOnly": "só combustível",
+    "pitStrategy": "Estratégia de pit",
+    "noPits": "Nenhuma parada nesta corrida.",
+    "pitTimesHint": "tempo na caixa · pneu/comb. estimado",
+    "pitTimes": "Tempos de pit",
+    "breakdownsHint": "peça · problema · volta · desfecho",
+    "breakdowns": "Quebras de peça",
+    "colDriver": "piloto",
+    "colPart": "peça",
+    "colProblem": "problema",
+    "colLap": "volta",
+    "colOutcome": "desfecho",
+    "dnf": "ABANDONO",
+    "stopMarkerLabel": "Volta {{lap}} · {{secs}}s",
+    "compound": {
+      "Dry": "Seco",
+      "Wet": "Molhado",
+      "Unknown": "Indefinido"
+    },
+    "carN": "Carro {{n}}",
+    "refuel": "Abastecimento · volta {{lap}} · {{secs}}s",
+    "tireChange": "Troca p/ {{compound}} · volta {{lap}} · {{secs}}s",
+    "segment": "Trecho {{n}} · {{compound}} · volta {{range}}",
+    "pits_one": "{{count}} pit",
+    "pits_other": "{{count}} pits",
+    "pitSeparatorTireChange": "Pit · volta {{lap}} · troca de pneu · {{secs}}s",
+    "pitSeparatorFuelOnly": "Pit · volta {{lap}} · só combustível · {{secs}}s",
+    "colTeam": "Equipe",
+    "colPilot": "Piloto",
+    "colPitTime": "Tempo de pit",
+    "colLapCap": "Volta",
+    "colTires": "Pneus",
+    "colFuel": "Comb.",
+    "trackWet": "Pista molhada",
+    "rival": "Rival",
+    "ahead": "à frente",
+    "behind": "atrás"
+  },
+  "raceCharts": {
+    "raceTrace": "Race Trace",
+    "paceConsistency": "Pace Consistency",
+    "pace": "Ritmo",
+    "rivalGap": "Gap pro rival",
+    "you": "você",
+    "bestLegend": "melhor",
+    "mistakeLegend": "erro",
+    "position": "Posição",
+    "gapToLeader": "Gap ao líder",
+    "youParen": " (você)",
+    "youLabel": "Você",
+    "avgLabel": "Média:",
+    "bestLabel": "Melhor:",
+    "noLaps": "Sem voltas registradas para este piloto.",
+    "rivalIntroPre": "Disputa com ",
+    "rivalIntroPost": " — acima de 0 = rival à frente (você caçando), abaixo = você na frente.",
+    "rivalFallback": "rival",
+    "lap": "Volta",
+    "rival": "Rival",
+    "ahead": "à frente",
+    "behind": "atrás"
+  },
+  "startingCompounds": {
+    "header": "Composto de largada",
+    "liveFromGrid": "ao vivo · da grid",
+    "wet": "Chuva",
+    "dry": "Seco"
   }
 }
