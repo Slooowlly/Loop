@@ -23,9 +23,9 @@ export function riskColor(level) {
   return "#34d399";
 }
 export function riskLabel(level) {
-  if (level === "alto") return "Alto";
-  if (level === "médio") return "Médio";
-  return "Baixo";
+  if (level === "alto") return i18n.t("raceContext.display.risk.high");
+  if (level === "médio") return i18n.t("raceContext.display.risk.medium");
+  return i18n.t("raceContext.display.risk.low");
 }
 
 // Palavra do nível de risco DENTRO dos fatos de IA (minúscula, ex.: "risco alto").
@@ -126,12 +126,14 @@ export function buildBriefingContext({
     publicFameShare != null && publicFameShare > 0 ? Math.round(publicFameShare * 100) : null;
   const fameClause =
     fameSharePct != null && fameSharePct >= 1
-      ? ` Sua equipe responde por cerca de ${fameSharePct}% do público esperado.`
+      ? i18n.t("raceContext.display.fameClause", { pct: fameSharePct })
       : "";
   const attendanceNarrative =
     (audienceEstimate > 0
-      ? `A expectativa do paddock aponta para ${formatAudience(audienceEstimate)} de público estimado ao longo do fim de semana.`
-      : "O paddock espera bom movimento de público nesta etapa.") + fameClause;
+      ? i18n.t("raceContext.display.attendance.withEstimate", {
+          audience: formatAudience(audienceEstimate),
+        })
+      : i18n.t("raceContext.display.attendance.generic")) + fameClause;
   // Abertura de temporada: enquanto ninguém pontuou, a "tabela" é só ordem de largada
   // (todos com 0 pontos). Tratar gaps/líder/posição como reais produz texto absurdo
   // ("12º, 0 pontos atrás da liderança"). Detectamos isso e usamos o estado "opener".
@@ -523,10 +525,13 @@ export function buildBriefingContext({
     audienceEstimate,
     audienceRankLabel: buildAudienceRankLabel(nextRace, season),
     eventDateShort: formatEventSummaryDate(nextRace?.display_date),
-    interestLabel: nextRace?.event_interest?.tier_label ?? "Padrão da temporada",
-    broadcastLabel: isLiveCoverageEvent(nextRace, season) ? "Cobertura" : "Expectativa",
+    interestLabel:
+      nextRace?.event_interest?.tier_label ?? i18n.t("raceContext.display.interestLabelFallback"),
+    broadcastLabel: isLiveCoverageEvent(nextRace, season)
+      ? i18n.t("raceContext.display.broadcast.coverage")
+      : i18n.t("raceContext.display.broadcast.expectation"),
     broadcastValue: isLiveCoverageEvent(nextRace, season)
-      ? "Ao vivo"
+      ? i18n.t("raceContext.display.broadcast.live")
       : buildTeamExpectationValue({ playerStanding, teamStanding, gapToLeader, outlook }),
     headline: editorialCopy.headline,
     paragraphs: editorialCopy.paragraphs,
@@ -546,12 +551,18 @@ export function buildBriefingContext({
     constructorsTable: orderedTeams,
     playerTeamId: playerStanding?.equipe_id ?? playerTeam?.id ?? null,
     standingsTopFive,
-    gapToLeaderLabel: gapToLeader === 0 ? "Liderança" : `${gapToLeader} pts`,
-    gapBehindLabel: gapBehind == null ? "Sem perseguidor direto" : `${gapBehind} pts`,
+    gapToLeaderLabel:
+      gapToLeader === 0
+        ? i18n.t("raceContext.display.gapToLeaderLead")
+        : i18n.t("raceContext.display.gapPts", { pts: gapToLeader }),
+    gapBehindLabel:
+      gapBehind == null
+        ? i18n.t("raceContext.display.gapBehindNone")
+        : i18n.t("raceContext.display.gapPts", { pts: gapBehind }),
     progressPercent: Math.max(5, Math.min(100, Math.round((currentRound / totalRounds) * 100))),
     progressLabel: `${currentRound}/${totalRounds}`,
     quote: editorialCopy.quote,
-    teamVoiceLabel: playerTeam?.nome ?? "Equipe do jogador",
+    teamVoiceLabel: playerTeam?.nome ?? i18n.t("raceContext.display.teamVoiceFallback"),
     teamColor: playerTeam?.cor_primaria ?? null,
     attendanceNarrative,
     weatherIcon: buildWeatherIcon(nextRace?.clima),
@@ -579,7 +590,7 @@ function normalizeWeekendStories(stories) {
     icon: story.icon,
     title: story.title,
     summary: story.summary,
-    importanceLabel: story.importance ?? "Contexto",
+    importanceLabel: story.importance ?? i18n.t("raceContext.display.storyImportanceFallback"),
   }));
 }
 
@@ -665,14 +676,16 @@ function buildFormLabel(driver) {
     })
     .join(" - ");
 
-  return snapshot ? `Forma recente: ${snapshot}` : "Sem histórico recente.";
+  return snapshot
+    ? i18n.t("raceContext.display.formLabel", { snapshot })
+    : i18n.t("raceContext.display.formLabelEmpty");
 }
 
 function buildFormChips(driver) {
   const chips = recentResults(driver).map((result) => {
     if (!result) {
       return {
-        label: "Sem dado",
+        label: i18n.t("raceContext.display.formChip.noData"),
         tone: "border-white/10 bg-white/[0.04] text-text-secondary",
       };
     }
@@ -719,7 +732,12 @@ function buildFormChips(driver) {
 
   return chips.length > 0
     ? chips
-    : [{ label: "Sem histórico", tone: "border-white/10 bg-white/[0.04] text-text-secondary" }];
+    : [
+        {
+          label: i18n.t("raceContext.display.formChip.noHistory"),
+          tone: "border-white/10 bg-white/[0.04] text-text-secondary",
+        },
+      ];
 }
 
 function getFavoritePositionTone(index) {
@@ -732,36 +750,39 @@ function getFavoritePositionTone(index) {
 function buildGoals({ playerStanding, teammate, teamStanding, gapToLeader, remainingRounds, outlook, driverAbove }) {
   const teamGoal =
     teamStanding?.posicao === 1
-      ? "Manter a liderança do campeonato de equipes."
+      ? i18n.t("raceContext.display.goals.teamLead")
       : teamStanding
-        ? `Levar a equipe ao top ${Math.min(3, teamStanding.posicao)} entre os construtores.`
-        : "Sair da etapa com pontos fortes para a equipe.";
+        ? i18n.t("raceContext.display.goals.teamTop", { n: Math.min(3, teamStanding.posicao) })
+        : i18n.t("raceContext.display.goals.teamDefault");
 
   const playerPos = playerStanding?.posicao_campeonato ?? 0;
   const teammatePos = teammate?.posicao_campeonato ?? 0;
   const teammateIsClose = teammate && Math.abs(playerPos - teammatePos) <= 2;
 
   const personalGoal = teammateIsClose
-    ? `Terminar a frente de ${teammate.nome} na leitura interna do box.`
+    ? i18n.t("raceContext.display.goals.personalBeatTeammate", { name: teammate.nome })
     : driverAbove
-      ? `Superar ${driverAbove.nome} e subir para o ${playerPos - 1}º no campeonato.`
-      : "Executar um fim de semana limpo, sem perdas na largada.";
+      ? i18n.t("raceContext.display.goals.personalBeatDriver", {
+          name: driverAbove.nome,
+          pos: ordinal(playerPos - 1),
+        })
+      : i18n.t("raceContext.display.goals.personalDefault");
 
-  let championshipGoal = "Pontuar forte para manter o campeonato vivo.";
+  let championshipGoal = i18n.t("raceContext.display.goals.championshipDefault");
   if (playerStanding?.posicao_campeonato === 1) {
-    championshipGoal = "Controlar os danos e sair da etapa ainda no topo.";
+    championshipGoal = i18n.t("raceContext.display.goals.championshipLeader");
   } else if (outlook?.titleFight === "longshot") {
-    championshipGoal = "Somar o máximo de pontos possível e manter o campeonato respeitável até o fim.";
+    championshipGoal = i18n.t("raceContext.display.goals.championshipLongshot");
   } else if (gapToLeader <= 7) {
-    championshipGoal = "Atacar a liderança agora que a distância é curta.";
+    championshipGoal = i18n.t("raceContext.display.goals.championshipClose");
   } else if (remainingRounds <= 3) {
-    championshipGoal = "Maximizar pontos agora para não deixar a temporada escapar.";
+    championshipGoal = i18n.t("raceContext.display.goals.championshipFinal");
   }
 
   return [
-    { label: "Meta da equipe", value: teamGoal },
-    { label: "Meta pessoal", value: personalGoal },
-    { label: "Meta do campeonato", value: championshipGoal },
+    { label: i18n.t("raceContext.display.goals.teamLabel"), value: teamGoal },
+    { label: i18n.t("raceContext.display.goals.personalLabel"), value: personalGoal },
+    { label: i18n.t("raceContext.display.goals.championshipLabel"), value: championshipGoal },
   ];
 }
 
@@ -787,24 +808,24 @@ function buildWeatherNarrative(clima) {
 }
 
 function buildTemperatureNarrative(temperatura) {
-  if (temperatura == null) return "Leitura térmica ainda indefinida para o fim de semana.";
-  if (temperatura <= 16) return "Ar frio ajudando a segurar desgaste.";
-  if (temperatura <= 28) return "Temperatura equilibrada para stints consistentes.";
-  return "Calor cobrando mais do conjunto de pneus.";
+  if (temperatura == null) return i18n.t("raceContext.display.temperature.unknown");
+  if (temperatura <= 16) return i18n.t("raceContext.display.temperature.cold");
+  if (temperatura <= 28) return i18n.t("raceContext.display.temperature.balanced");
+  return i18n.t("raceContext.display.temperature.hot");
 }
 
 function buildTrackConditionLabel(clima) {
-  if (clima === "HeavyRain") return "Visibilidade apertada";
-  if (clima === "Wet") return "Trajetória molhada";
-  if (clima === "Damp") return "Janela instável";
-  return "Alta aderência";
+  if (clima === "HeavyRain") return i18n.t("raceContext.display.trackCondition.heavyRain");
+  if (clima === "Wet") return i18n.t("raceContext.display.trackCondition.wet");
+  if (clima === "Damp") return i18n.t("raceContext.display.trackCondition.damp");
+  return i18n.t("raceContext.display.trackCondition.dry");
 }
 
 function buildBoxNarrative(clima) {
-  if (clima === "HeavyRain") return "Linha ideal curta e comunicação constante.";
-  if (clima === "Wet") return "Trajetória molhada e janela sensível.";
-  if (clima === "Damp") return "Aderencia oscilando fora do trilho seco.";
-  return "Alta aderência para atacar mais cedo.";
+  if (clima === "HeavyRain") return i18n.t("raceContext.display.box.heavyRain");
+  if (clima === "Wet") return i18n.t("raceContext.display.box.wet");
+  if (clima === "Damp") return i18n.t("raceContext.display.box.damp");
+  return i18n.t("raceContext.display.box.dry");
 }
 
 function formatEventSummaryDate(displayDate) {
@@ -817,20 +838,20 @@ function formatEventSummaryDate(displayDate) {
 
 function buildTimePeriodPrefix(horario) {
   const hour = parseHour(horario);
-  if (hour == null) return "Horário ";
-  if (hour < 6) return "Madrugada de ";
-  if (hour < 12) return "Início da ";
-  if (hour < 18) return "Início da ";
-  return "Início da ";
+  if (hour == null) return i18n.t("raceContext.display.timePeriod.prefixDefault");
+  if (hour < 6) return i18n.t("raceContext.display.timePeriod.prefixNight");
+  if (hour < 12) return i18n.t("raceContext.display.timePeriod.prefixStart");
+  if (hour < 18) return i18n.t("raceContext.display.timePeriod.prefixStart");
+  return i18n.t("raceContext.display.timePeriod.prefixStart");
 }
 
 function buildTimePeriodHighlight(horario) {
   const hour = parseHour(horario);
-  if (hour == null) return "pista";
-  if (hour < 6) return "madrugada";
-  if (hour < 12) return "manhã";
-  if (hour < 18) return "tarde";
-  return "noite";
+  if (hour == null) return i18n.t("raceContext.display.timePeriod.highlightTrack");
+  if (hour < 6) return i18n.t("raceContext.display.timePeriod.highlightDawn");
+  if (hour < 12) return i18n.t("raceContext.display.timePeriod.highlightMorning");
+  if (hour < 18) return i18n.t("raceContext.display.timePeriod.highlightAfternoon");
+  return i18n.t("raceContext.display.timePeriod.highlightEvening");
 }
 
 function parseHour(horario) {
@@ -846,18 +867,18 @@ function buildAudienceRankLabel(nextRace, season) {
   const interestTier = nextRace?.event_interest?.tier_label?.toLowerCase() ?? "";
 
   if (round === 1 || round === totalRounds) {
-    return "Maior público da temporada";
+    return i18n.t("raceContext.display.audienceRank.biggest");
   }
 
   if (interestTier.includes("principal")) {
-    return "3º Maior público da temporada";
+    return i18n.t("raceContext.display.audienceRank.third");
   }
 
   if (interestTier.includes("alto")) {
-    return "Entre os maiores públicos da temporada";
+    return i18n.t("raceContext.display.audienceRank.amongBiggest");
   }
 
-  return "Movimento forte dentro da temporada";
+  return i18n.t("raceContext.display.audienceRank.strong");
 }
 
 function isLiveCoverageEvent(nextRace, season) {
@@ -870,22 +891,22 @@ function isLiveCoverageEvent(nextRace, season) {
 
 function buildTeamExpectationValue({ playerStanding, teamStanding, gapToLeader, outlook }) {
   if (playerStanding?.posicao_campeonato === 1) {
-    return "Controlar a ponta";
+    return i18n.t("raceContext.display.teamExpectation.controlLead");
   }
 
   if (outlook?.titleFight === "longshot") {
-    return "Pontuar forte";
+    return i18n.t("raceContext.display.teamExpectation.scoreStrong");
   }
 
   if (gapToLeader <= 10) {
-    return "Pressionar a frente";
+    return i18n.t("raceContext.display.teamExpectation.pressureFront");
   }
 
   if ((teamStanding?.posicao ?? 99) <= 3) {
-    return "Top 5 no radar";
+    return i18n.t("raceContext.display.teamExpectation.top5");
   }
 
-  return "Fim de semana limpo";
+  return i18n.t("raceContext.display.teamExpectation.cleanWeekend");
 }
 
 function estimateAudience(tierLabel) {

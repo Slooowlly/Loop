@@ -787,6 +787,92 @@
     "close": "Close app"
   },
   "raceContext": {
+    "display": {
+      "risk": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "fameClause": " Your team accounts for roughly {{pct}}% of the expected crowd.",
+      "attendance": {
+        "withEstimate": "The paddock expects around {{audience}} in estimated attendance across the weekend.",
+        "generic": "The paddock expects a strong turnout at this round."
+      },
+      "interestLabelFallback": "Season standard",
+      "broadcast": {
+        "coverage": "Coverage",
+        "expectation": "Expectation",
+        "live": "Live"
+      },
+      "gapToLeaderLead": "Leading",
+      "gapPts": "{{pts}} pts",
+      "gapBehindNone": "No direct chaser",
+      "teamVoiceFallback": "Player team",
+      "storyImportanceFallback": "Context",
+      "formLabel": "Recent form: {{snapshot}}",
+      "formLabelEmpty": "No recent history.",
+      "formChip": {
+        "noData": "No data",
+        "noHistory": "No history"
+      },
+      "goals": {
+        "teamLabel": "Team goal",
+        "personalLabel": "Personal goal",
+        "championshipLabel": "Championship goal",
+        "teamLead": "Hold on to the teams' championship lead.",
+        "teamTop": "Take the team into the top {{n}} among the constructors.",
+        "teamDefault": "Leave the round with strong points for the team.",
+        "personalBeatTeammate": "Finish ahead of {{name}} in the internal team battle.",
+        "personalBeatDriver": "Beat {{name}} and move up to {{pos}} in the championship.",
+        "personalDefault": "Execute a clean weekend with no losses at the start.",
+        "championshipDefault": "Score big to keep the championship alive.",
+        "championshipLeader": "Limit the damage and leave the round still on top.",
+        "championshipLongshot": "Bank as many points as possible and keep the championship respectable to the end.",
+        "championshipClose": "Attack the lead now that the gap is short.",
+        "championshipFinal": "Maximize points now so the season doesn't slip away."
+      },
+      "temperature": {
+        "unknown": "Thermal reading still undefined for the weekend.",
+        "cold": "Cool air helping to keep wear in check.",
+        "balanced": "Balanced temperature for consistent stints.",
+        "hot": "Heat demanding more from the tire set."
+      },
+      "trackCondition": {
+        "heavyRain": "Tight visibility",
+        "wet": "Wet line",
+        "damp": "Unstable window",
+        "dry": "High grip"
+      },
+      "box": {
+        "heavyRain": "Short ideal line and constant communication.",
+        "wet": "Wet line and sensitive window.",
+        "damp": "Grip fluctuating off the dry line.",
+        "dry": "High grip to push earlier."
+      },
+      "timePeriod": {
+        "prefixDefault": "Track ",
+        "prefixNight": "Early ",
+        "prefixStart": "Start of the ",
+        "highlightTrack": "time",
+        "highlightDawn": "morning",
+        "highlightMorning": "morning",
+        "highlightAfternoon": "afternoon",
+        "highlightEvening": "evening"
+      },
+      "audienceRank": {
+        "biggest": "Biggest crowd of the season",
+        "third": "3rd biggest crowd of the season",
+        "amongBiggest": "Among the biggest crowds of the season",
+        "strong": "Strong turnout within the season"
+      },
+      "teamExpectation": {
+        "controlLead": "Control the lead",
+        "scoreStrong": "Score big",
+        "pressureFront": "Press the front",
+        "top5": "Top 5 in sight",
+        "cleanWeekend": "Clean weekend"
+      }
+    },
     "weather": {
       "summary": {
         "heavyRain": "Heavy rain",

@@ -787,6 +787,92 @@
     "close": "Fechar app"
   },
   "raceContext": {
+    "display": {
+      "risk": {
+        "high": "Alto",
+        "medium": "Médio",
+        "low": "Baixo"
+      },
+      "fameClause": " Sua equipe responde por cerca de {{pct}}% do público esperado.",
+      "attendance": {
+        "withEstimate": "A expectativa do paddock aponta para {{audience}} de público estimado ao longo do fim de semana.",
+        "generic": "O paddock espera bom movimento de público nesta etapa."
+      },
+      "interestLabelFallback": "Padrão da temporada",
+      "broadcast": {
+        "coverage": "Cobertura",
+        "expectation": "Expectativa",
+        "live": "Ao vivo"
+      },
+      "gapToLeaderLead": "Liderança",
+      "gapPts": "{{pts}} pts",
+      "gapBehindNone": "Sem perseguidor direto",
+      "teamVoiceFallback": "Equipe do jogador",
+      "storyImportanceFallback": "Contexto",
+      "formLabel": "Forma recente: {{snapshot}}",
+      "formLabelEmpty": "Sem histórico recente.",
+      "formChip": {
+        "noData": "Sem dado",
+        "noHistory": "Sem histórico"
+      },
+      "goals": {
+        "teamLabel": "Meta da equipe",
+        "personalLabel": "Meta pessoal",
+        "championshipLabel": "Meta do campeonato",
+        "teamLead": "Manter a liderança do campeonato de equipes.",
+        "teamTop": "Levar a equipe ao top {{n}} entre os construtores.",
+        "teamDefault": "Sair da etapa com pontos fortes para a equipe.",
+        "personalBeatTeammate": "Terminar a frente de {{name}} na leitura interna do box.",
+        "personalBeatDriver": "Superar {{name}} e subir para o {{pos}} no campeonato.",
+        "personalDefault": "Executar um fim de semana limpo, sem perdas na largada.",
+        "championshipDefault": "Pontuar forte para manter o campeonato vivo.",
+        "championshipLeader": "Controlar os danos e sair da etapa ainda no topo.",
+        "championshipLongshot": "Somar o máximo de pontos possível e manter o campeonato respeitável até o fim.",
+        "championshipClose": "Atacar a liderança agora que a distância é curta.",
+        "championshipFinal": "Maximizar pontos agora para não deixar a temporada escapar."
+      },
+      "temperature": {
+        "unknown": "Leitura térmica ainda indefinida para o fim de semana.",
+        "cold": "Ar frio ajudando a segurar desgaste.",
+        "balanced": "Temperatura equilibrada para stints consistentes.",
+        "hot": "Calor cobrando mais do conjunto de pneus."
+      },
+      "trackCondition": {
+        "heavyRain": "Visibilidade apertada",
+        "wet": "Trajetória molhada",
+        "damp": "Janela instável",
+        "dry": "Alta aderência"
+      },
+      "box": {
+        "heavyRain": "Linha ideal curta e comunicação constante.",
+        "wet": "Trajetória molhada e janela sensível.",
+        "damp": "Aderencia oscilando fora do trilho seco.",
+        "dry": "Alta aderência para atacar mais cedo."
+      },
+      "timePeriod": {
+        "prefixDefault": "Horário ",
+        "prefixNight": "Madrugada de ",
+        "prefixStart": "Início da ",
+        "highlightTrack": "pista",
+        "highlightDawn": "madrugada",
+        "highlightMorning": "manhã",
+        "highlightAfternoon": "tarde",
+        "highlightEvening": "noite"
+      },
+      "audienceRank": {
+        "biggest": "Maior público da temporada",
+        "third": "3º Maior público da temporada",
+        "amongBiggest": "Entre os maiores públicos da temporada",
+        "strong": "Movimento forte dentro da temporada"
+      },
+      "teamExpectation": {
+        "controlLead": "Controlar a ponta",
+        "scoreStrong": "Pontuar forte",
+        "pressureFront": "Pressionar a frente",
+        "top5": "Top 5 no radar",
+        "cleanWeekend": "Fim de semana limpo"
+      }
+    },
     "weather": {
       "summary": {
         "heavyRain": "Chuva forte",
