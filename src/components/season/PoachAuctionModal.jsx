@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { formatMoneyCompact } from "../../utils/formatters";
 import { resume as resumeAudio, bidRise, auctionHammer } from "../../utils/sfx";
 import TeamLogoMark from "../team/TeamLogoMark";
@@ -69,6 +70,7 @@ function Tower({ teamName, color, target, max, leading, dim }) {
 }
 
 export default function PoachAuctionModal({ offer, onDecide, onClose, isResolving }) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState("intro");
   const [step, setStep] = useState(0);
   const [outcome, setOutcome] = useState(null);
@@ -135,16 +137,16 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
         {/* Cabeçalho enxuto */}
         <div className="border-b border-white/10 bg-gradient-to-r from-amber-400/[0.07] to-transparent px-6 py-4 text-center">
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-300/80">
-            ◆ Quebra de contrato
+            ◆ {t("poachAuction.header.eyebrow")}
           </div>
           <div className="mt-1 text-xl font-bold text-white">
-            A <span style={{ color: suitorColor }}>{offer.suitor_name}</span> quer você
+            {t("poachAuction.header.wantsYouPrefix")}<span style={{ color: suitorColor }}>{offer.suitor_name}</span>{t("poachAuction.header.wantsYouSuffix")}
           </div>
           {phase === "bidding" && (
-            <div className="mt-0.5 text-[12px] text-gray-400">os times estão brigando por você…</div>
+            <div className="mt-0.5 text-[12px] text-gray-400">{t("poachAuction.header.biddingSubtitle")}</div>
           )}
           {phase === "decision" && (
-            <div className="mt-0.5 text-[12px] text-gray-400">quem leva você?</div>
+            <div className="mt-0.5 text-[12px] text-gray-400">{t("poachAuction.header.decisionSubtitle")}</div>
           )}
         </div>
 
@@ -154,17 +156,17 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
             <div className="flex flex-col items-center gap-4 py-2 text-center">
               <TeamLogoMark teamName={offer.suitor_name} color={suitorColor} size="lg" />
               <div className="text-[15px] text-gray-200">
-                Quer te tirar da <span className="font-semibold text-white">{offer.current_team_name}</span>
+                {t("poachAuction.intro.pullOut")}<span className="font-semibold text-white">{offer.current_team_name}</span>
               </div>
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/5 px-3 py-1 text-[11px] text-gray-300">
-                multa de rescisão
+                {t("poachAuction.intro.buyoutLabel")}
                 <span className="font-bold tabular-nums text-white">{formatMoneyCompact(offer.buyout)}</span>
               </div>
               <button
                 onClick={start}
                 className="mt-1 rounded-lg border border-amber-400/40 bg-amber-400/15 px-6 py-2 font-semibold text-amber-300 transition hover:bg-amber-400/25"
               >
-                Começar o leilão →
+                {t("poachAuction.intro.startButton")} →
               </button>
             </div>
           )}
@@ -199,7 +201,7 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
                 className="rounded-xl border p-3 text-center transition hover:brightness-125 disabled:opacity-50"
                 style={{ borderColor: suitorColor + "66", background: suitorColor + "16" }}
               >
-                <div className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Sair</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-gray-400">{t("poachAuction.decision.leave")}</div>
                 <div className="mt-1 font-black tabular-nums text-lg" style={{ color: suitorColor }}>
                   {formatMoneyCompact(offer.poacher_best)}
                 </div>
@@ -210,7 +212,7 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
                 className="rounded-xl border p-3 text-center transition hover:brightness-125 disabled:opacity-50"
                 style={{ borderColor: holderColor + "66", background: holderColor + "16" }}
               >
-                <div className="text-[10px] uppercase tracking-[0.18em] text-gray-400">Ficar</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-gray-400">{t("poachAuction.decision.stay")}</div>
                 <div className="mt-1 font-black tabular-nums text-lg" style={{ color: holderColor }}>
                   {formatMoneyCompact(Math.max(offer.holder_best, offer.current_salary))}
                 </div>
@@ -230,13 +232,13 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
                 {outcome.left ? offer.suitor_name : offer.current_team_name}
               </div>
               <div className="font-black tabular-nums text-2xl" style={{ color: outcome.left ? suitorColor : holderColor }}>
-                {formatMoneyCompact(outcome.salary)}<span className="text-sm font-semibold text-gray-400">/ano</span>
+                {formatMoneyCompact(outcome.salary)}<span className="text-sm font-semibold text-gray-400">{t("poachAuction.resolved.perYear")}</span>
               </div>
               <button
                 onClick={onClose}
                 className="mt-1 rounded-lg border border-white/20 bg-white/10 px-6 py-2 font-semibold text-white transition hover:bg-white/15"
               >
-                Continuar
+                {t("poachAuction.resolved.continue")}
               </button>
             </div>
           )}

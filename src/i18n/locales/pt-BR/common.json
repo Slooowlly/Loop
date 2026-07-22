@@ -1958,5 +1958,27 @@
       "mentalidade": "Mentalidade",
       "confianca": "Confianca"
     }
+  },
+  "poachAuction": {
+    "header": {
+      "eyebrow": "Quebra de contrato",
+      "wantsYouPrefix": "A ",
+      "wantsYouSuffix": " quer você",
+      "biddingSubtitle": "os times estão brigando por você…",
+      "decisionSubtitle": "quem leva você?"
+    },
+    "intro": {
+      "pullOut": "Quer te tirar da ",
+      "buyoutLabel": "multa de rescisão",
+      "startButton": "Começar o leilão"
+    },
+    "decision": {
+      "leave": "Sair",
+      "stay": "Ficar"
+    },
+    "resolved": {
+      "perYear": "/ano",
+      "continue": "Continuar"
+    }
   }
 }

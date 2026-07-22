@@ -1958,5 +1958,27 @@
       "mentalidade": "Mentality",
       "confianca": "Confidence"
     }
+  },
+  "poachAuction": {
+    "header": {
+      "eyebrow": "Contract buyout",
+      "wantsYouPrefix": "It's ",
+      "wantsYouSuffix": " that wants you",
+      "biddingSubtitle": "the teams are fighting over you…",
+      "decisionSubtitle": "who takes you?"
+    },
+    "intro": {
+      "pullOut": "Wants to pull you out of ",
+      "buyoutLabel": "buyout fee",
+      "startButton": "Start the auction"
+    },
+    "decision": {
+      "leave": "Leave",
+      "stay": "Stay"
+    },
+    "resolved": {
+      "perYear": "/yr",
+      "continue": "Continue"
+    }
   }
 }
