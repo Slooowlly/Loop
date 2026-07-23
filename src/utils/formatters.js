@@ -166,20 +166,14 @@ export function formatMoneyCompact(value) {
   return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
 }
 
-// Salário no backend é SEMPRE anual (`salario_anual`). Na UI exibimos SEMPRE mensal.
-// Este é o único lugar que fixa o divisor — não espalhar "/12" pelas telas.
-export const SALARY_MONTHS_PER_YEAR = 12;
-
-// Converte um salário ANUAL para o valor MENSAL exibido. A fonte de verdade continua anual.
-export function monthlySalary(annualValue) {
-  return (Number(annualValue) || 0) / SALARY_MONTHS_PER_YEAR;
-}
-
-// Salário mensal já formatado (mesma moeda de `formatSalary`) com sufixo "/mês".
+// Salário no backend é SEMPRE anual (`salario_anual`) e na UI exibimos SEMPRE anual —
+// nenhuma conversão no caminho. Os GASTOS da equipe continuam por rodada/mês; só o
+// salário do piloto é lido no horizonte do ano (é como o contrato é negociado).
+// Salário anual já formatado (mesma moeda de `formatSalary`) com sufixo "/ano".
 // Drop-in de `formatSalary` nos pontos que exibem salário (não usar para valor de mercado).
-export function formatSalaryMonthly(annualValue) {
+export function formatSalaryAnnual(annualValue) {
   if (annualValue == null || annualValue === "") return "-";
-  return `${formatSalary(monthlySalary(annualValue))}${i18n.t("salary.perMonthSuffix")}`;
+  return `${formatSalary(annualValue)}${i18n.t("salary.perYearSuffix")}`;
 }
 
 export function formatRoleLabel(value) {

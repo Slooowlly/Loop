@@ -14,7 +14,6 @@ import {
   extractNationalityLabel,
   formatMoney,
   formatSignedMoney,
-  monthlySalary,
 } from "../../utils/formatters";
 
 const TECH_AXES = [
@@ -235,8 +234,8 @@ function DriverRow({ driver, salaryCeiling }) {
         <div className="text-right">
           <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">{t("myTeamTab.drivers.salaryRole", { role: driver.role })}</p>
           <p className="mt-1 font-mono text-sm text-status-green">
-            {formatMoney(monthlySalary(driver.salary))}
-            <span className="ml-1 font-sans text-[10px] font-normal text-text-muted">{t("myTeamTab.drivers.perMonth")}</span>
+            {formatMoney(driver.salary)}
+            <span className="ml-1 font-sans text-[10px] font-normal text-text-muted">{t("myTeamTab.drivers.perYear")}</span>
           </p>
         </div>
       </div>
@@ -301,11 +300,11 @@ function FinanceDossier({ team, drivers, report }) {
   const strategyLabel = seasonStrategy(team?.season_strategy);
   const debt = team?.debt_balance ?? 0;
   const incomeLedger = ledgerRows(report?.latest, INCOME_LINES);
-  // A linha "Salários" da rodada é anual ÷ nº de corridas; ancoramos com a folha mensal
-  // para que o valor por rodada não pareça furado ao lado do salário mensal dos pilotos.
+  // A linha "Salários" da rodada é anual ÷ nº de corridas; ancoramos com a folha ANUAL
+  // para que o valor por rodada não pareça furado ao lado do salário anual dos pilotos.
   const expenseLedger = ledgerRows(report?.latest, EXPENSE_LINES).map((row) =>
     row.key === "salary_expense" && payroll > 0
-      ? { ...row, hint: t("myTeamTab.finance.salaryHint", { value: formatMoney(monthlySalary(payroll)) }) }
+      ? { ...row, hint: t("myTeamTab.finance.salaryHint", { value: formatMoney(payroll) }) }
       : row,
   );
   // Média REAL por rodada: acumulado líquido da temporada ÷ rodadas registradas
@@ -334,13 +333,13 @@ function FinanceDossier({ team, drivers, report }) {
         <Kpi label={t("myTeamTab.finance.kpi.cash")} value={formatMoney(team?.cash_balance ?? 0)} caption={t("myTeamTab.finance.kpi.cashCaption")} period={t("myTeamTab.finance.period.current")} />
         <Kpi label={t("myTeamTab.finance.kpi.roundResult")} value={formatSignedMoney(net)} caption={t("myTeamTab.finance.kpi.roundResultCaption")} period={t("myTeamTab.finance.period.perRound")} tone={net >= 0 ? "text-status-green" : "text-status-red"} />
         <Kpi label={t("myTeamTab.finance.kpi.debt")} value={formatMoney(debt)} caption={t("myTeamTab.finance.kpi.debtCaption")} period={t("myTeamTab.finance.period.current")} tone={debt > 0 ? "text-status-red" : "text-text-primary"} />
-        <Kpi label={t("myTeamTab.finance.kpi.salaryCeiling")} value={formatMoney(monthlySalary(team?.salary_ceiling ?? 0))} caption={t("myTeamTab.finance.kpi.salaryCeilingCaption")} period={t("myTeamTab.finance.period.perMonth")} />
+        <Kpi label={t("myTeamTab.finance.kpi.salaryCeiling")} value={formatMoney(team?.salary_ceiling ?? 0)} caption={t("myTeamTab.finance.kpi.salaryCeilingCaption")} period={t("myTeamTab.finance.period.perYear")} />
         <Kpi label={t("myTeamTab.finance.kpi.spendingPower")} value={formatSignedMoney(team?.spending_power ?? 0)} caption={t("myTeamTab.finance.kpi.spendingPowerCaption")} period={t("myTeamTab.finance.period.season")} tone={(team?.spending_power ?? 0) >= 0 ? "text-status-green" : "text-status-red"} />
       </div>
 
       <p className="mt-3 text-[11px] leading-5 text-text-muted">
         {t("myTeamTab.finance.legend.intro")}<span className="text-text-secondary">{t("myTeamTab.finance.legend.perRound")}</span>{t("myTeamTab.finance.legend.perRoundDesc")}{" "}
-        <span className="text-text-secondary">{t("myTeamTab.finance.legend.perMonth")}</span>{t("myTeamTab.finance.legend.perMonthDesc")}<span className="text-text-secondary">{t("myTeamTab.finance.legend.season")}</span>{t("myTeamTab.finance.legend.seasonDesc")}
+        <span className="text-text-secondary">{t("myTeamTab.finance.legend.perYear")}</span>{t("myTeamTab.finance.legend.perYearDesc")}<span className="text-text-secondary">{t("myTeamTab.finance.legend.season")}</span>{t("myTeamTab.finance.legend.seasonDesc")}
       </p>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -455,7 +454,7 @@ function FinanceDossier({ team, drivers, report }) {
                 <Kpi compact label={t("myTeamTab.cash.peakCash")} value={formatMoney(peakCash)} tone={moneyTone(peakCash)} />
                 <Kpi compact label={t("myTeamTab.cash.worstStretch")} value={formatMoney(lowCash)} tone={moneyTone(lowCash)} />
                 <Kpi compact label={t("myTeamTab.cash.avgPerRound")} value={formatSignedMoney(avgRoundNet)} tone={moneyTone(avgRoundNet)} />
-                <Kpi compact label={t("myTeamTab.cash.monthlyPayroll")} value={formatMoney(monthlySalary(payroll))} />
+                <Kpi compact label={t("myTeamTab.cash.annualPayroll")} value={formatMoney(payroll)} />
               </div>
             </>
           ) : null}

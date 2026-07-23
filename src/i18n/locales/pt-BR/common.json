@@ -130,7 +130,7 @@
   },
   "seasonYear": "Ano {{year}}",
   "salary": {
-    "perMonthSuffix": "/mês"
+    "perYearSuffix": "/ano"
   },
   "nav": {
     "tab": {
@@ -345,7 +345,7 @@
       "teamCategory": "Equipe/Categoria",
       "age": "Idade",
       "career": "Carreira",
-      "salaryMonth": "Salário/mês",
+      "salaryYear": "Salário/ano",
       "fame": "Fama",
       "index": "Indice",
       "titles": "Titulos",
@@ -1448,7 +1448,7 @@
       "eyebrow": "Dupla de pilotos",
       "title": "Contratos e peso na folha",
       "salaryRole": "Salário {{role}}",
-      "perMonth": "/mês",
+      "perYear": "/ano",
       "payrollWeight": "Peso na folha",
       "noDriverData": "Piloto ainda sem dados detalhados"
     },
@@ -1507,21 +1507,21 @@
       "period": {
         "current": "atual",
         "perRound": "/rodada",
-        "perMonth": "/mês",
+        "perYear": "/ano",
         "season": "temporada"
       },
       "legend": {
         "intro": "As etiquetas indicam o horizonte de cada número: ",
         "perRound": "/rodada",
         "perRoundDesc": " é o fluxo de uma corrida, ",
-        "perMonth": "/mês",
-        "perMonthDesc": " é o salário por piloto e ",
+        "perYear": "/ano",
+        "perYearDesc": " é o salário por piloto e ",
         "season": "temporada",
         "seasonDesc": " é a projeção do ano inteiro."
       },
       "incomeTitle": "Entradas da rodada",
       "expenseTitle": "Saídas da rodada",
-      "salaryHint": "{{value}}/mês",
+      "salaryHint": "{{value}}/ano",
       "ledgerEmpty": "Sem rodada registrada ainda.",
       "lines": {
         "sponsorship_income": "Patrocínios",
@@ -1581,7 +1581,7 @@
       "peakCash": "Pico de caixa",
       "worstStretch": "Pior trecho",
       "avgPerRound": "Média por rodada",
-      "monthlyPayroll": "Folha mensal",
+      "annualPayroll": "Folha anual",
       "parachute": "Auxílio de rebaixamento restante: {{value}}"
     },
     "risk": {

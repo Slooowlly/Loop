@@ -7,7 +7,7 @@ import i18n from "../../i18n/index.js";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
 import useCareerStore from "../../stores/useCareerStore";
-import { formatSalaryMonthly } from "../../utils/formatters";
+import { formatSalaryAnnual } from "../../utils/formatters";
 import {
   HistorySection as HistorySectionContent,
   MarketSection as MarketSectionContent,
@@ -458,7 +458,7 @@ function CurrentMomentSection({ forma, moment, contract }) {
                 label={t("driverDetail.moment.role")}
                 value={formatContractRole(contract.papel)}
               />
-              <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryMonthly(contract.salario_anual)} />
+              <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryAnnual(contract.salario_anual)} />
               <DetailRow
                 label={t("driverDetail.moment.expiresIn")}
                 value={t("driverDetail.moment.expiresValue", { count: contract.anos_restantes })}

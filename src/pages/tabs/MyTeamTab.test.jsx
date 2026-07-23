@@ -597,14 +597,14 @@ describe("MyTeamTab", () => {
     expect(screen.queryByText(/Pico de caixa/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pior trecho/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Média por rodada/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Folha mensal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Folha anual/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Ver indicadores secundários/i }));
 
     expect(screen.getByText(/Pico de caixa/i)).toBeInTheDocument();
     expect(screen.getByText(/Pior trecho/i)).toBeInTheDocument();
     expect(screen.getByText(/Média por rodada/i)).toBeInTheDocument();
-    expect(screen.getByText(/Folha mensal/i)).toBeInTheDocument();
+    expect(screen.getByText(/Folha anual/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Ocultar indicadores secundários/i }));
 

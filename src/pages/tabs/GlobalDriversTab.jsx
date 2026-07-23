@@ -9,7 +9,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import FlagIcon from "../../components/ui/FlagIcon";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
-import { extractNationalityCode, formatMoneyCompact, getCategoryTier, monthlySalary } from "../../utils/formatters";
+import { extractNationalityCode, formatMoneyCompact, getCategoryTier } from "../../utils/formatters";
 
 const DEFAULT_SORT = { key: "historical_index", direction: "desc" };
 const DEFAULT_FILTERS = {
@@ -261,7 +261,7 @@ function GlobalDriversTab({ selectedDriverId, onBack }) {
                 <SortableHeader label={t("globalDrivers.col.teamCategory")} sortKey="team_category" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.age")} sortKey="idade" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.career")} sortKey="anos_carreira" sort={sort} onSort={handleSort} />
-                <SortableHeader label={t("globalDrivers.col.salaryMonth")} sortKey="salario_anual" sort={sort} onSort={handleSort} />
+                <SortableHeader label={t("globalDrivers.col.salaryYear")} sortKey="salario_anual" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.fame")} sortKey="fama" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.index")} sortKey="historical_index" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.titles")} sortKey="titulos" sort={sort} onSort={handleSort} />
@@ -739,7 +739,7 @@ function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId,
       </td>
       <MetricCell value={row.idade || "-"} />
       <td className="px-4 py-3 font-mono text-text-primary">{formatYears(row.anos_carreira)}</td>
-      <td className="px-4 py-3 font-mono text-text-primary">{row.salario_anual ? formatMoneyCompact(monthlySalary(row.salario_anual)) : "-"}</td>
+      <td className="px-4 py-3 font-mono text-text-primary">{row.salario_anual ? formatMoneyCompact(row.salario_anual) : "-"}</td>
       <FamaCell row={row} />
       <td className="px-4 py-3 font-mono text-text-primary">{formatIndex(row.historical_index)}</td>
       <TitleMetricCell row={row} onOpenTitles={onOpenTitles} />

@@ -8,7 +8,7 @@ import {
   formatAttributeName,
   formatNextRaceCountdown,
   formatSurfaceSeasonLabel,
-  formatSalaryMonthly,
+  formatSalaryAnnual,
 } from "./formatters.js";
 
 function withLang(lang, fn) {
@@ -59,10 +59,10 @@ describe("formatters i18n (Fase 1 — mapas de label)", () => {
     });
   });
 
-  it("sufixo de salário mensal por locale", () => {
-    expect(formatSalaryMonthly(120000)).toContain("/mês");
+  it("sufixo de salário anual por locale", () => {
+    expect(formatSalaryAnnual(120000)).toContain("/ano");
     withLang("en-US", () => {
-      expect(formatSalaryMonthly(120000)).toContain("/mo");
+      expect(formatSalaryAnnual(120000)).toContain("/yr");
     });
   });
 

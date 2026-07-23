@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import i18n from "../../i18n/index.js";
 import { ordinal } from "../../i18n/format.js";
-import { formatSalary, formatSalaryMonthly } from "../../utils/formatters";
+import { formatSalary, formatSalaryAnnual } from "../../utils/formatters";
 import TeamLogoMark from "../team/TeamLogoMark";
 
 function formatStatValue(value) {
@@ -1170,7 +1170,7 @@ export function MarketSection({ SectionComponent, detail, market }) {
               </div>
               <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                 <DetailRow label={t("driverDetail.market.role")} value={formatContractRole(contract.papel)} />
-                <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryMonthly(contract.salario_anual)} />
+                <DetailRow label={t("driverDetail.moment.salary")} value={formatSalaryAnnual(contract.salario_anual)} />
                 <DetailRow label={t("driverDetail.moment.term")} value={formatContractPeriod(contract)} />
                 <DetailRow
                   label={t("driverDetail.market.remaining")}
@@ -1191,7 +1191,7 @@ export function MarketSection({ SectionComponent, detail, market }) {
               </div>
               <div className="grid gap-2 text-sm text-[#e6edf3] sm:grid-cols-3">
                 <div>{t("driverDetail.market.marketValue", { value: formatSalary(market.valor_mercado) })}</div>
-                <div>{t("driverDetail.market.salaryRange", { value: formatSalaryMonthly(market.salario_estimado) })}</div>
+                <div>{t("driverDetail.market.salaryRange", { value: formatSalaryAnnual(market.salario_estimado) })}</div>
                 <div>{t("driverDetail.market.transferChance", { value: market.chance_transferencia ?? "-" })}</div>
               </div>
             </div>

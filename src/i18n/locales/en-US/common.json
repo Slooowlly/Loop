@@ -130,7 +130,7 @@
   },
   "seasonYear": "Year {{year}}",
   "salary": {
-    "perMonthSuffix": "/mo"
+    "perYearSuffix": "/yr"
   },
   "nav": {
     "tab": {
@@ -345,7 +345,7 @@
       "teamCategory": "Team/Category",
       "age": "Age",
       "career": "Career",
-      "salaryMonth": "Salary/mo",
+      "salaryYear": "Salary/yr",
       "fame": "Fame",
       "index": "Index",
       "titles": "Titles",
@@ -1448,7 +1448,7 @@
       "eyebrow": "Driver lineup",
       "title": "Contracts and payroll weight",
       "salaryRole": "{{role}} salary",
-      "perMonth": "/mo",
+      "perYear": "/yr",
       "payrollWeight": "Payroll weight",
       "noDriverData": "Driver without detailed data yet"
     },
@@ -1507,21 +1507,21 @@
       "period": {
         "current": "current",
         "perRound": "/round",
-        "perMonth": "/mo",
+        "perYear": "/yr",
         "season": "season"
       },
       "legend": {
         "intro": "The tags show each figure's horizon: ",
         "perRound": "/round",
         "perRoundDesc": " is the flow of a single race, ",
-        "perMonth": "/mo",
-        "perMonthDesc": " is the salary per driver and ",
+        "perYear": "/yr",
+        "perYearDesc": " is the salary per driver and ",
         "season": "season",
         "seasonDesc": " is the projection for the whole year."
       },
       "incomeTitle": "Round income",
       "expenseTitle": "Round expenses",
-      "salaryHint": "{{value}}/mo",
+      "salaryHint": "{{value}}/yr",
       "ledgerEmpty": "No round recorded yet.",
       "lines": {
         "sponsorship_income": "Sponsorships",
@@ -1581,7 +1581,7 @@
       "peakCash": "Peak cash",
       "worstStretch": "Worst stretch",
       "avgPerRound": "Average per round",
-      "monthlyPayroll": "Monthly payroll",
+      "annualPayroll": "Annual payroll",
       "parachute": "Parachute payment remaining: {{value}}"
     },
     "risk": {

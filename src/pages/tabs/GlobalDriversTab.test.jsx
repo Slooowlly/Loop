@@ -655,7 +655,7 @@ describe("GlobalDriversTab", () => {
     expect(within(table).getByText(/Equipe Azul \/ GT4/i)).toBeInTheDocument();
     expect(within(table).getByText("28")).toBeInTheDocument();
     expect(within(table).getAllByText(/7 anos/i).length).toBeGreaterThan(0);
-    expect(within(table).getByText(/\$21k/i)).toBeInTheDocument();
+    expect(within(table).getByText(/\$250k/i)).toBeInTheDocument();
     const retiredTeamCategory = within(table).getByText(/Há 2 anos \/ GT3/i);
     expect(retiredTeamCategory).toBeInTheDocument();
     expect(retiredTeamCategory).toHaveAttribute("title", "Aposentado em 2024");

@@ -4,7 +4,7 @@ import { currentLang, ordinal } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
-import { formatSalaryMonthly, formatMoneyCompact, extractNationalityLabel } from "../../utils/formatters";
+import { formatSalaryAnnual, formatMoneyCompact, extractNationalityLabel } from "../../utils/formatters";
 import TeamLogoMark from "../team/TeamLogoMark";
 import FlagIcon from "../ui/FlagIcon";
 import GlobalTeamsTab from "../../pages/tabs/GlobalTeamsTab";
@@ -1116,7 +1116,7 @@ export default function PreSeasonView() {
           </div>
           <div className="text-right">
             <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</p>
-            <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalaryMonthly(offer.salary)}</p>
+            <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalaryAnnual(offer.salary)}</p>
           </div>
         </div>
 
@@ -1275,7 +1275,7 @@ export default function PreSeasonView() {
                   <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
                     <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</span>
                     <span className="num-medium text-[12px] font-bold text-[color:var(--status-green)]">
-                      {offer.teammate_salary != null ? formatSalaryMonthly(offer.teammate_salary) : "—"}
+                      {offer.teammate_salary != null ? formatSalaryAnnual(offer.teammate_salary) : "—"}
                     </span>
                   </div>
                 </div>
@@ -1741,7 +1741,7 @@ export default function PreSeasonView() {
             {t("preSeason.proposals.salary")}
           </p>
           <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
-            {formatSalaryMonthly(p.salario_oferecido)}
+            {formatSalaryAnnual(p.salario_oferecido)}
           </p>
         </div>
         <div className="glass-light rounded-lg p-2.5">
@@ -2504,7 +2504,7 @@ export default function PreSeasonView() {
                           {t("preSeason.contract.clause2")}
                         </p>
                         <p className="num-medium text-title-md font-black" style={{ color: money }}>
-                          {formatSalaryMonthly(offer.salary)}
+                          {formatSalaryAnnual(offer.salary)}
                         </p>
                       </div>
                     </div>
