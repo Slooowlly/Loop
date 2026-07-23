@@ -775,6 +775,7 @@ narrative:
     incident_scale_critical: "MUITO FORTE (acidente grave, um dos momentos marcantes do dia)"
     incident_sdk_contact: "contato com outro carro na volta %{lap}"
     incident_sdk_spin: "rodada na volta %{lap}"
+    incident_sdk_impact: "batida durante a prova"
     incident_link: ", em contato com %{other}"
     incident_cost: " — perdeu %{n} posições"
     player_dnf_status: "abandonou (%{reason})"

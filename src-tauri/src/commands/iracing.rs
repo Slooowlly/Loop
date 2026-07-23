@@ -881,6 +881,7 @@ fn build_session_race_result(
         "", // clima resolvido na persistência
         &track_name,
         &race_monitor::get_player_incidents(),
+        &player_crash,
     );
 
     // TELEMETRIA (Fase 2): ritmo/consistência/rival do histórico ao vivo. Só vem

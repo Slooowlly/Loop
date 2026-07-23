@@ -499,6 +499,10 @@ pub fn build_race_result_from_aiseason(
     // PRÓPRIO iRacing: 1 = saída, 2 = rodada, 4 = contato). É o único sinal de
     // batida de quem TERMINOU a corrida — o JSON oficial zera os incidentes.
     player_incident_marks: &[crate::iracing_sdk::race_monitor::PlayerIncidentMark],
+    // Pior severidade de batida do jogador (`player_worst_severity`): "nenhum" |
+    // "leve" | "moderado" | "grave" | "destruído" | "catastrófico". É o MESMO sinal
+    // que calcula o conserto do carro — usá-lo aqui mantém revista e debrief de acordo.
+    player_crash_severity: &str,
 ) -> RaceResult {
     // Volta mais rápida = menor best_lap_time válido (cust_id é único por carro).
     let fastest_cust = event
@@ -743,21 +747,48 @@ pub fn build_race_result_from_aiseason(
     if let Some(pi) = race_results.iter().position(|r| r.is_jogador && !r.is_dnf) {
         if race_results[pi].incidents.is_empty() {
             let worst = player_incident_marks.iter().max_by_key(|m| m.points);
-            // <= 1 ponto é só uma saída de pista: ruído, não vira nota na revista.
-            if let Some(mark) = worst.filter(|m| m.points >= 2) {
-                let lap = mark.lap_f.max(0.0).floor() as i64;
-                let (kind, severity, desc_key) = if mark.points >= 4 {
-                    (
-                        IncidentType::Collision,
-                        IncidentSeverity::Major,
-                        "narrative.beat.incident_sdk_contact",
-                    )
+
+            // MAGNITUDE do impacto: vem do mesmo sinal que calcula o conserto do carro
+            // (`peak_crash_score` → `severity_label`). É bem mais fino que os pontos do
+            // iRacing, onde "contato" é 4 pts tanto para o encostão quanto para a
+            // pancada que destrói o carro. Usar a MESMA escala do conserto impede a
+            // revista de chamar de toque leve uma batida que o debrief cobrou como grave.
+            let by_impact = match player_crash_severity {
+                "catastrófico" | "destruído" | "grave" => Some(IncidentSeverity::Critical),
+                "moderado" => Some(IncidentSeverity::Major),
+                "leve" => Some(IncidentSeverity::Minor),
+                _ => None,
+            };
+            // Sem impacto medido, os pontos do iRacing ainda pegam a rodada/contato
+            // (o detector de batida pode não ter fechado, mas o sim contou o incidente).
+            let by_points = worst.and_then(|m| match m.points {
+                p if p >= 4 => Some(IncidentSeverity::Major),
+                2 => Some(IncidentSeverity::Minor),
+                // <= 1 ponto é só uma saída de pista: ruído, não vira nota.
+                _ => None,
+            });
+
+            if let Some(severity) = by_impact.or(by_points) {
+                // O TIPO vem dos pontos (4 = contato com OUTRO carro); a magnitude vem do
+                // impacto. Sem pontos de contato, tratamos como erro de pilotagem.
+                let contact = worst.map(|m| m.points >= 4).unwrap_or(false);
+                let kind = if contact {
+                    IncidentType::Collision
                 } else {
-                    (
-                        IncidentType::DriverError,
-                        IncidentSeverity::Minor,
-                        "narrative.beat.incident_sdk_spin",
-                    )
+                    IncidentType::DriverError
+                };
+                // A volta só existe se houve marcador; com impacto puro fica sem volta.
+                let desc = match worst {
+                    Some(m) => {
+                        let lap = m.lap_f.max(0.0).floor() as i64;
+                        let key = if contact {
+                            "narrative.beat.incident_sdk_contact"
+                        } else {
+                            "narrative.beat.incident_sdk_spin"
+                        };
+                        rust_i18n::t!(key, lap = lap).to_string()
+                    }
+                    None => rust_i18n::t!("narrative.beat.incident_sdk_impact").to_string(),
                 };
                 let inc = make_incident(
                     race_results[pi].pilot_id.clone(),
@@ -766,7 +797,7 @@ pub fn build_race_result_from_aiseason(
                     "corrida",
                     0,
                     false,
-                    rust_i18n::t!(desc_key, lap = lap).to_string(),
+                    desc,
                     None,
                     false,
                     None,
@@ -1011,6 +1042,7 @@ mod tests {
             "Seco",
             "T",
             &[],
+            "nenhum",
         );
         let leader = r.race_results.iter().find(|x| x.laps_completed == 11).unwrap();
         let lapped = r.race_results.iter().find(|x| x.laps_completed == 10).unwrap();
@@ -1061,7 +1093,7 @@ mod tests {
             points,
             off_track: false,
         };
-        let build = |marks: &[PlayerIncidentMark]| {
+        let build = |marks: &[PlayerIncidentMark], crash: &str| {
             let conn = Connection::open_in_memory().unwrap();
             build_race_result_from_aiseason(
                 &event,
@@ -1075,40 +1107,49 @@ mod tests {
                 "Seco",
                 "T",
                 marks,
+                crash,
             )
         };
+        let player_inc = |r: &RaceResult| {
+            r.race_results
+                .iter()
+                .find(|x| x.is_jogador)
+                .unwrap()
+                .incidents
+                .first()
+                .cloned()
+        };
 
-        // Contato (4 pts) → batida de verdade, com o outro carro.
-        let r = build(&[mark(1, 2.0), mark(4, 7.5)]);
-        let player = r.race_results.iter().find(|x| x.is_jogador).unwrap();
-        assert!(!player.is_dnf, "ele terminou a corrida");
-        let inc = player.incidents.first().expect("batida registrada");
+        // Contato (4 pts) sem impacto medido → batida de verdade, com o outro carro.
+        let r = build(&[mark(1, 2.0), mark(4, 7.5)], "nenhum");
+        assert!(!r.race_results.iter().find(|x| x.is_jogador).unwrap().is_dnf);
+        let inc = player_inc(&r).expect("batida registrada");
         assert_eq!(inc.incident_type, IncidentType::Collision);
         assert_eq!(inc.severity, IncidentSeverity::Major);
         assert!(inc.description.contains('7'), "cita a volta: {}", inc.description);
 
-        // Rodada (2 pts) → o "algo pequeno" que deve ser citado como pequeno.
-        let r = build(&[mark(2, 4.2)]);
-        let inc = r
-            .race_results
-            .iter()
-            .find(|x| x.is_jogador)
-            .unwrap()
-            .incidents
-            .first()
-            .expect("rodada registrada")
-            .clone();
-        assert_eq!(inc.severity, IncidentSeverity::Minor);
+        // Rodada (2 pts) → o "algo pequeno", citado como pequeno.
+        let r = build(&[mark(2, 4.2)], "nenhum");
+        assert_eq!(player_inc(&r).unwrap().severity, IncidentSeverity::Minor);
 
-        // Só saída de pista (<= 1 pt) é ruído: não vira nota na revista.
-        let r = build(&[mark(1, 3.0)]);
-        assert!(r
-            .race_results
-            .iter()
-            .find(|x| x.is_jogador)
-            .unwrap()
-            .incidents
-            .is_empty());
+        // Só saída de pista (<= 1 pt) e nenhum impacto → ruído, não vira nota.
+        let r = build(&[mark(1, 3.0)], "nenhum");
+        assert!(player_inc(&r).is_none());
+
+        // O PONTO-CHAVE: para o iRacing "contato" é 4 pts tanto pro encostão quanto pra
+        // pancada que destrói o carro. O score de impacto do monitor (o mesmo que cobra o
+        // conserto) desempata — batida grave NÃO pode ser narrada como toque leve.
+        let r = build(&[mark(4, 5.0)], "grave");
+        assert_eq!(player_inc(&r).unwrap().severity, IncidentSeverity::Critical);
+        let r = build(&[mark(4, 5.0)], "leve");
+        assert_eq!(player_inc(&r).unwrap().severity, IncidentSeverity::Minor);
+
+        // Impacto medido SEM marcador de incidente (bateu na parede sozinho): ainda
+        // vira fato, só que sem volta.
+        let r = build(&[], "moderado");
+        let inc = player_inc(&r).expect("impacto sem marcador");
+        assert_eq!(inc.severity, IncidentSeverity::Major);
+        assert_eq!(inc.incident_type, IncidentType::DriverError);
     }
 
     #[test]
@@ -1148,6 +1189,7 @@ mod tests {
             "Seco",
             "T",
             &[],
+            "nenhum",
         );
         let player = r.race_results.iter().find(|x| x.is_jogador).unwrap();
         assert!(player.is_dnf);
