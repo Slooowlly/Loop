@@ -5216,6 +5216,30 @@ fn telemetry_context_facts(
         }
     }
 
+    // ── Bandeira amarela REAL (SessionFlags do SDK) ──────────────────────────
+    // `yellow_laps` são as voltas do LÍDER em que a corrida esteve sob amarela.
+    // Voltas consecutivas viram UM acionamento: é assim que a corrida é vivida e
+    // narrada, não como uma lista solta de voltas. Só corrida importada tem isto —
+    // no sim offline a amarela não é modelada, então este bloco fica vazio.
+    if let Some(charts) = &telemetry.charts {
+        let mut yellow = charts.yellow_laps.clone();
+        yellow.retain(|l| *l > 0);
+        yellow.sort_unstable();
+        yellow.dedup();
+        if let Some(&first) = yellow.first() {
+            let periods = 1 + yellow.windows(2).filter(|w| w[1] - w[0] > 1).count();
+            let key = if periods > 1 {
+                "briefing.tel.yellow_multi"
+            } else {
+                "briefing.tel.yellow_single"
+            };
+            out.push(
+                rust_i18n::t!(key, periods = periods, laps = yellow.len(), first = first)
+                    .to_string(),
+            );
+        }
+    }
+
     out
 }
 

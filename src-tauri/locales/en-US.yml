@@ -956,6 +956,8 @@ briefing:
     slower_than_grid: "On track, %{who} averaged about %{delta}s per lap behind the grid pace."
     consistent: "%{who} was very consistent, holding the pace on %{good} of %{total} laps."
     inconsistent: "%{who} was quite erratic on pace: only %{good} of %{total} laps stayed near their own reference."
+    yellow_single: "The race was neutralized: yellow flag from lap %{first}, totaling %{laps} laps under caution."
+    yellow_multi: "A race broken up by cautions: %{periods} yellow-flag periods totaling %{laps} laps neutralized (the first on lap %{first})."
     duel: "%{who} fought a %{laps}-lap duel with %{rival} (average gap of %{gap}s)."
     best_rival_beaten: "%{who} got the better of %{rival} in the direct fight."
     best_position_gain: "%{who} made a decisive attack, gaining %{n} positions in a single lap."

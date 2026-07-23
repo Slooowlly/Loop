@@ -957,6 +957,8 @@ briefing:
     slower_than_grid: "Na pista, %{who} ficou em média cerca de %{delta}s por volta atrás do ritmo do grid."
     consistent: "%{who} foi muito consistente, segurando o ritmo em %{good} das %{total} voltas."
     inconsistent: "%{who} oscilou bastante no ritmo: só %{good} das %{total} voltas ficaram perto da própria referência."
+    yellow_single: "A corrida foi neutralizada: bandeira amarela a partir da volta %{first}, somando %{laps} voltas sob amarela."
+    yellow_multi: "Corrida picotada por bandeira amarela: %{periods} acionamentos, somando %{laps} voltas neutralizadas (o primeiro na volta %{first})."
     duel: "%{who} travou um duelo de %{laps} voltas com %{rival} (diferença média de %{gap}s)."
     best_rival_beaten: "%{who} levou a melhor sobre %{rival} na disputa direta."
     best_position_gain: "%{who} teve um ataque decisivo, ganhando %{n} posições numa única volta."
