@@ -2052,6 +2052,24 @@
       "seasonYear": "Season {{year}}",
       "sub": "The magazine opens once you run the season's first race."
     },
+    "preseason": {
+      "kicker": "Pre-season",
+      "titleLine": "What to expect",
+      "seasonLine": "Season {{year}} · the year ahead",
+      "articleHead": "Season expectations",
+      "favoritesHead": "The grid by potential",
+      "caption": "{{track}} — season opener",
+      "captionGeneric": "The season opens here.",
+      "foot": "Pre-season edition",
+      "footSeason": "Pre-season edition · Season {{year}}",
+      "aiTag": {
+        "generating": "✦ Writing the preview…",
+        "ready": "✦ Season preview",
+        "comingSoon": "✦ AI preview · coming soon"
+      },
+      "generating": "Writing the season preview…",
+      "placeholder": "The season preview is not available yet. Alongside, the category grid ordered by potential."
+    },
     "mailbox": {
       "inbox": "Inbox",
       "selectPrompt": "Select a message to read"

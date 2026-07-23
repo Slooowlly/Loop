@@ -85,7 +85,9 @@ fn percentile(value: f64, all: &[f64]) -> f64 {
 }
 
 fn tk(key: &str) -> String {
-    rust_i18n::t!(&format!("season_preview.{key}")).to_string()
+    // A chave precisa viver enquanto o macro a empresta (não pode ser temporário).
+    let full = format!("season_preview.{key}");
+    rust_i18n::t!(&full).to_string()
 }
 
 // ── Dossiê por piloto (já em linguagem qualitativa) ──────────────────────────────
@@ -693,7 +695,7 @@ fn deterministic_article(p: &PreviewData) -> SeasonPreview {
         let traco = if d.tracos.is_empty() {
             String::new()
         } else {
-            rust_i18n::t!("season_preview.fb.trait_suffix", trait = d.tracos[0].as_str())
+            rust_i18n::t!("season_preview.fb.trait_suffix", style = d.tracos[0].as_str())
                 .to_string()
         };
         let _ = write!(

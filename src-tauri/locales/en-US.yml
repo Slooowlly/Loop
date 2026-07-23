@@ -135,6 +135,84 @@ race_eval:
 # "From the World of the Grid" footer (commands/world_footer.rs). MAGAZINE VOICE (3rd person).
 # `tag` = themed label shown; `tone`/`kind` stay out (CSS/state tokens).
 # `metric_noun` singular/plural per record metric (%{ord} = pre-formatted ordinal).
+# "What to Expect" (commands/season_preview.rs). MAGAZINE VOICE (3rd person) — NEVER
+# addresses the player. Design in docs/season-preview-design.md.
+# `token.*` = QUALITATIVE labels (never a number); `block.*` = fact-bundle blocks;
+# `fb.*` = deterministic fallback prose (used when the AI does not answer).
+season_preview:
+  token:
+    no_team: "no team"
+    # Style traits — the attributes iRacing consumes (aggression/smoothness/optimism).
+    trait_aggressive: "aggressive, fights for every position"
+    trait_cautious: "cautious, plays it positional"
+    trait_smooth: "smooth and precise, easy on the car"
+    trait_ragged: "ragged, rides the knife edge"
+    trait_bold: "bold, tries the improbable"
+    trait_measured: "measured, calculating"
+    # Track record (what is PUBLIC and backs the expectation).
+    cv_titles: "already collects trophies"
+    cv_wins: "already knows how to win"
+    cv_podium: "has tasted the podium"
+    cv_none: "still chasing a first big result"
+    # Experience.
+    exp_debut: "outright rookie"
+    exp_rising: "on the rise"
+    exp_established: "established driver"
+    exp_veteran: "seasoned veteran"
+    # Public perception (orders the favourites — NOT raw pace).
+    perc_press_favorite: "the press favourite"
+    perc_contender: "a contender"
+    perc_rising: "on the up"
+    perc_expensive_bet: "an expensive bet, yet to deliver"
+    perc_unknown: "an unknown quantity"
+    perc_midfield: "midfield"
+    market_top: "the most valued name on the grid"
+    fame_star: "a crowd draw"
+  relation:
+    rivalry: "%{a} and %{b} bring a long-standing rivalry."
+    former_mates: "%{a} and %{b} once shared a garage; today they race for different teams."
+    current_duo: "%{a} and %{b} form the %{team} line-up."
+  thesis:
+    rookies: "a rookie season, everything wide open"
+    vacant_throne: "a vacant throne, a season to prove a point"
+    unequal: "unequal machinery may decide the year"
+    open_talent: "an open season, settled by talent"
+  block:
+    season: "SEASON: %{category}, season %{season} (%{year})."
+    opening: "OPENER: %{track}, first of %{rounds} rounds."
+    throne_vacant: "TITLE: %{name}, the last champion, is no longer in the category — the throne is vacant."
+    champion_stays: "TITLE: %{name} returns to defend the crown."
+    no_champion: "TITLE: no previous champion (founding year)."
+    material_uniform: "MACHINERY: level grid — no team starts with a superior package."
+    material_unequal: "MACHINERY: unequal — %{best} has the best package, %{worst} the most modest."
+    material_unknown: "MACHINERY: no reliable read on the equipment."
+    thesis: "SUGGESTED ANGLE: %{thesis}."
+    favorites_head: "FAVOURITES (order = public perception, NOT true pace):"
+    promises_head: "PROSPECTS / UNKNOWNS:"
+    relations_head: "TIES (histories the grid carries):"
+    hunch: "HUNCH (paddock whisper — hedge it, do NOT assert): internal numbers put %{name} as the quickest on paper; the track has yet to confirm it."
+    grid: "GRID: %{n} drivers."
+  fb:
+    headline:
+      rookies: "%{category} %{year} — THE SEASON OF PROSPECTS"
+      vacant_throne: "%{category} %{year} — THE THRONE IS VACANT"
+      unequal: "%{category} %{year} — NOT EVERYONE STARTS EQUAL"
+      open_talent: "%{category} %{year} — WIDE OPEN"
+    standfirst:
+      rookies: "A grid without a track record turns every round into a discovery"
+      vacant_throne: "Without last year's champion, the category looks for a new owner"
+      unequal: "Equipment enters the equation before the first start"
+      open_talent: "On a level grid, the difference should come from the cockpit"
+    material_uniform: "With machinery level from end to end, there is no equipment excuse: whoever stands out will have done it at the wheel."
+    material_unequal: "The equipment is not the same for everyone: %{best} starts with the best package, while %{worst} will have to make up for it with driving."
+    p1: "The %{year} %{category} season begins without a clear owner. %{material}"
+    driver_line: "%{name} (%{team}) arrives as %{perc}: %{cv}.%{trait_suffix}"
+    trait_suffix: " On track, they are %{style}."
+    promises: "Just behind, %{names} make up the pack that should start causing trouble once the dust settles."
+    throne_vacant: "The category opens the year without %{name}, who is no longer in the fight."
+    champion_stays: "%{name} returns to defend the crown."
+    closing: "The first verdict comes at %{track}, opening a calendar of %{rounds} rounds."
+
 world_footer:
   tag:
     market: "MARKET"

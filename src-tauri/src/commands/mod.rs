@@ -15,6 +15,7 @@ pub mod iracing;
 pub mod overlay;
 pub mod overlay_window;
 pub mod race;
+pub mod season_preview;
 pub mod world_footer;
 pub mod race_history;
 pub mod save;
