@@ -177,6 +177,62 @@ struct TeamSnap {
     foco: String,
 }
 
+/// Pares (car_performance do assento, skill do piloto que o ocupa) de cada equipe ativa
+/// da IA, com a categoria — para medir a correlação carro↔skill por tier (KPI de deflação).
+/// Junta cada assento (piloto_1_id / piloto_2_id) ao skill do piloto.
+fn snapshot_grid_pairs(db_path: &Path) -> Vec<(f64, f64, String)> {
+    let db = Database::open_existing(db_path).expect("db");
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT t.car_performance, d.skill, t.categoria \
+             FROM teams t \
+             JOIN drivers d ON d.id IN (t.piloto_1_id, t.piloto_2_id) \
+             WHERE t.ativa = 1 AND t.is_player_team = 0 \
+               AND d.is_jogador = 0 AND d.status != 'Aposentado'",
+        )
+        .expect("prepare grid pairs");
+    let rows = stmt
+        .query_map([], |row| {
+            let car: f64 = row.get(0)?;
+            let skill: f64 = row.get(1)?;
+            let categoria: String = row.get(2)?;
+            Ok((car, skill, categoria))
+        })
+        .expect("query grid pairs");
+    rows.filter_map(Result::ok).collect()
+}
+
+/// Fim de run: rivalidades de EQUIPE vivas (percebida ≥ 20) — contagem, soma/máx da
+/// percebida e distribuição por fonte. Confirma "poucas e quentes", não ruído.
+fn team_rivalry_snapshot(db_path: &Path) -> (u64, f64, f64, Vec<(String, u64)>) {
+    let db = Database::open_existing(db_path).expect("db");
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT tipo, historical_intensity * 0.4 + recent_activity * 0.6 AS perceived \
+             FROM team_rivalries",
+        )
+        .expect("prepare team_rivalries");
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))
+        .expect("query team_rivalries");
+    let mut count = 0u64;
+    let mut sum = 0.0;
+    let mut max = 0.0f64;
+    let mut by_source: BTreeMap<String, u64> = BTreeMap::new();
+    for (tipo, perceived) in rows.filter_map(Result::ok) {
+        if perceived < 20.0 {
+            continue; // só as vivas/relevantes
+        }
+        count += 1;
+        sum += perceived;
+        max = max.max(perceived);
+        *by_source.entry(tipo).or_insert(0) += 1;
+    }
+    (count, sum, max, by_source.into_iter().collect())
+}
+
 fn snapshot_teams(db_path: &Path) -> Vec<TeamSnap> {
     let db = Database::open_existing(db_path).expect("db");
     let mut snaps: Vec<TeamSnap> = {
@@ -549,6 +605,11 @@ struct Totals {
     cash_sum: f64,
     debt_sum: f64,
     car_perf_by_tier: BTreeMap<u8, [f64; 2]>, // [soma, n]
+    // KPI anti-deflação: correlação carro↔skill por tier. Para cada assento ocupado
+    // (car_performance do time, skill do piloto), acumula os 6 momentos de Pearson
+    // [n, Σcar, Σskill, Σcar², Σskill², Σ(car·skill)]. r alto = o melhor carro fica com o
+    // melhor piloto (o que o Item 1/2 deve reforçar); r baixo/zero = grade deflacionada.
+    grid_corr_by_tier: BTreeMap<u8, [f64; 6]>,
     // Nível do Carro (1–10) por CATEGORIA: [soma, n, min, max] — mede se o spread emerge
     // e converge perto dos tetos (calibração do Sistema de Nível do Carro).
     car_level_by_category: BTreeMap<String, [f64; 4]>,
@@ -566,6 +627,13 @@ struct Totals {
     // Moral viva: dispersão global [soma, soma², min, max, n] — mede se a moral
     // deixou de ficar travada em 1.0 e passou a variar por forma/treta interna.
     morale_dist: [f64; 5],
+    // Rivalidade entre EQUIPES (Fase 2): confirma que existem e são POUCAS (clássicos,
+    // não ruído) e que as 4 fontes contribuem. Medido ao fim de cada run (percebida ≥ 20).
+    tr_runs: u64,
+    tr_count_sum: u64, // rivalidades vivas somadas entre runs
+    tr_perceived_sum: f64,
+    tr_perceived_max: f64,
+    tr_by_source: BTreeMap<String, u64>,
     team_attr_sum: [f64; 5], // facilities, engineering, reputacao, morale, confiabilidade
     team_promoted: u64,
     team_relegated: u64,
@@ -865,6 +933,20 @@ fn monte_carlo() {
             // Fecha a temporada (aplica growth/decline/lesão/aposentadoria/promoção)
             let result =
                 advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+
+            // ── KPI anti-deflação: correlação carro↔skill por tier ──
+            for (car, skill, categoria) in snapshot_grid_pairs(&db_path) {
+                let m = t
+                    .grid_corr_by_tier
+                    .entry(tier_of(&categoria))
+                    .or_insert([0.0; 6]);
+                m[0] += 1.0;
+                m[1] += car;
+                m[2] += skill;
+                m[3] += car * car;
+                m[4] += skill * skill;
+                m[5] += car * skill;
+            }
 
             // ── Equipes: snapshot pós-temporada ──
             let team_snaps = snapshot_teams(&db_path);
@@ -1339,6 +1421,18 @@ fn monte_carlo() {
                 t.bond_max_tenure = t.bond_max_tenure.max(max_t);
                 t.bond_ge3 += ge3 as u64;
                 t.bond_ge4 += ge4 as u64;
+            }
+        }
+
+        // Rivalidade entre EQUIPES ao fim da run (Fase 2): magnitude e fontes.
+        {
+            let (count, sum, max, by_source) = team_rivalry_snapshot(&db_path);
+            t.tr_runs += 1;
+            t.tr_count_sum += count;
+            t.tr_perceived_sum += sum;
+            t.tr_perceived_max = t.tr_perceived_max.max(max);
+            for (src, n) in by_source {
+                *t.tr_by_source.entry(src).or_insert(0) += n;
             }
         }
 
@@ -1989,6 +2083,30 @@ fn monte_carlo() {
         );
     }
 
+    // ── RIVALIDADE ENTRE EQUIPES (Fase 2: poucas e quentes, 4 fontes) ───────
+    if t.tr_runs > 0 {
+        println!("\n■ RIVALIDADE ENTRE EQUIPES (vivas ≥20; deve existir, ser POUCA e quente)");
+        let avg_count = t.tr_count_sum as f64 / t.tr_runs as f64;
+        let avg_perceived = if t.tr_count_sum > 0 {
+            t.tr_perceived_sum / t.tr_count_sum as f64
+        } else {
+            0.0
+        };
+        println!(
+            "    vivas/run {:.1} | percebida média {:.1} | máx {:.1}",
+            avg_count, avg_perceived, t.tr_perceived_max
+        );
+        if t.tr_by_source.is_empty() {
+            println!("    (nenhuma rivalidade viva — nenhuma fonte disparou)");
+        } else {
+            print!("    por fonte:");
+            for (src, n) in &t.tr_by_source {
+                print!("  {src}={n}");
+            }
+            println!();
+        }
+    }
+
     println!("\n■ SALÁRIOS por tier (anual, contratos ativos da IA)");
     println!("    tier | média        | mínimo      | máximo      | nº");
     println!("    -----+--------------+-------------+-------------+-----");
@@ -2090,6 +2208,34 @@ fn monte_carlo() {
     println!(
         "\n  (Nota: corridas longas dão mais tempo de carreira — rode com IRACER_MC_SEASONS alto)"
     );
+
+    // ── KPI ANTI-DEFLAÇÃO — o melhor carro fica com o melhor piloto? ──────────
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  DEFLAÇÃO DA GRADE — correlação carro↔skill por tier          ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!("  (r→+1 = melhor carro com melhor piloto; r→0 = grade deflacionada/mal alocada)");
+    println!("\n  tier                  |    n   | skill médio | corr r(carro,skill)");
+    println!("  ----------------------+--------+-------------+--------------------");
+    for (tier, m) in &t.grid_corr_by_tier {
+        let n = m[0];
+        if n < 2.0 {
+            continue;
+        }
+        let mean_skill = m[2] / n;
+        let cov = m[5] - m[1] * m[2] / n;
+        let var_car = m[3] - m[1] * m[1] / n;
+        let var_skill = m[4] - m[2] * m[2] / n;
+        let denom = (var_car * var_skill).max(0.0).sqrt();
+        let r = if denom > 1e-9 { cov / denom } else { 0.0 };
+        println!(
+            "  {:<2} {:<18} | {:>6} | {:>11.2} | {:>+.3}",
+            tier,
+            tier_label(*tier),
+            n as u64,
+            mean_skill,
+            r
+        );
+    }
 
     let em_promo =
         crate::market::pipeline::EMERGENCY_PROMOTIONS.load(std::sync::atomic::Ordering::Relaxed);

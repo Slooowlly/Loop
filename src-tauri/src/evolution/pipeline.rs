@@ -162,6 +162,14 @@ fn run_end_of_season_with_mode(
     crate::market::bond::update_bonds_from_season(&tx, season)
         .map_err(|e| format!("Falha ao atualizar vínculos piloto-equipe: {e}"))?;
 
+    // Rivalidade entre EQUIPES — Fonte 1 (briga de construtores): lê o `team_season_archive`
+    // recém-gravado e reforça rivalidades entre construtores que brigaram apertado nesta
+    // temporada. É a espinha dorsal do sistema; o decay logo abaixo esfria o recente (igual
+    // ao piloto). Best-effort semântico — não desfaz o resto do offseason em caso de dado
+    // parcial (usa os mesmos guards do motor de piloto).
+    crate::rivalry::team::process_constructor_battle_rivalry(&tx, season.numero)
+        .map_err(|e| format!("Falha na rivalidade de construtores: {e}"))?;
+
     // Prêmio de fim de temporada por posição no campeonato de construtores.
     // Creditado após o arquivamento (que define posicao_campeonato) e antes da
     // promoção/rebaixamento, para que a equipe receba referente à categoria em
@@ -186,6 +194,11 @@ fn run_end_of_season_with_mode(
 
     apply_season_end_rivalry_decay(&tx, season.numero)
         .map_err(|e| format!("Erro no decaimento de rivalidades: {e}"))?;
+
+    // Decaimento anual das rivalidades entre EQUIPES (mesma regra do piloto): clássicos
+    // ativos persistem e crescem no histórico; brigas pontuais esfriam e somem sozinhas.
+    crate::rivalry::team::apply_season_end_team_rivalry_decay(&tx, season.numero)
+        .map_err(|e| format!("Erro no decaimento de rivalidades de equipe: {e}"))?;
 
     let new_season = create_next_season_phase(&tx, season, &mut rng, mode)?;
 

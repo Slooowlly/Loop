@@ -24,7 +24,18 @@ vi.mock("../components/layout/MainLayout", () => ({
 }));
 
 vi.mock("../components/race/RaceResultViewV2", () => ({
-  default: () => <div>Classificação final</div>,
+  default: ({ onDismiss }) => (
+    <div>
+      <div>Classificação final</div>
+      <button type="button" onClick={onDismiss}>
+        Continuar debriefing
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("./tabs/NewsMagazineTab", () => ({
+  default: () => <div>Notícias do paddock</div>,
 }));
 
 vi.mock("./tabs/NextRaceTab", () => ({
@@ -32,6 +43,18 @@ vi.mock("./tabs/NextRaceTab", () => ({
 }));
 
 vi.mock("./tabs/CalendarTab", () => ({
+  default: ({ activeTab, raceArrivalFeedbackActive = false }) => (
+    <div
+      data-testid="calendar-tab-prop"
+      data-race-arrival-feedback-active={raceArrivalFeedbackActive ? "true" : "false"}
+    >
+      {activeTab ?? "sem-prop"}
+    </div>
+  ),
+}));
+
+// O calendário redesenhado é o padrão (chave em Settings); recebe as mesmas props.
+vi.mock("./tabs/CalendarTabRedesign", () => ({
   default: ({ activeTab, raceArrivalFeedbackActive = false }) => (
     <div
       data-testid="calendar-tab-prop"
@@ -99,6 +122,10 @@ describe("Dashboard", () => {
       endOfSeasonResult: null,
       showPreseason: false,
       showConvocation: false,
+      lastRaceWasFinale: false,
+      resultIsFresh: false,
+      season: { numero: 1, ano: 2026 },
+      careerId: "career-1",
     };
   });
 
@@ -205,5 +232,63 @@ describe("Dashboard", () => {
 
     expect(screen.getByText("Briefing pre-corrida")).toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  it("opens News after dismissing a fresh season finale", () => {
+    mockState.showRaceBriefing = false;
+
+    const { rerender } = render(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ir para calendario/i }));
+
+    mockState.showResult = true;
+    mockState.lastRaceResult = { track_name: "Interlagos", race_results: [] };
+    mockState.resultIsFresh = true;
+    mockState.lastRaceWasFinale = true;
+    rerender(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Continuar debriefing/i }));
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "news");
+    expect(mockState.dismissResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the current tab when dismissing a reopened season-finale result", () => {
+    mockState.showRaceBriefing = false;
+
+    const { rerender } = render(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ir para calendario/i }));
+
+    mockState.showResult = true;
+    mockState.lastRaceResult = { track_name: "Interlagos", race_results: [] };
+    mockState.resultIsFresh = false;
+    mockState.lastRaceWasFinale = true;
+    rerender(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Continuar debriefing/i }));
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "calendar");
+    expect(mockState.dismissResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the news landing policy after dismissing a fresh regular-race result", () => {
+    localStorage.clear();
+    mockState.showRaceBriefing = false;
+
+    const { rerender } = render(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Ir para calendario/i }));
+
+    mockState.showResult = true;
+    mockState.lastRaceResult = { track_name: "Interlagos", race_results: [] };
+    mockState.resultIsFresh = true;
+    mockState.lastRaceWasFinale = false;
+    rerender(<Dashboard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Continuar debriefing/i }));
+
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "news");
+    expect(mockState.dismissResult).toHaveBeenCalledTimes(1);
   });
 });

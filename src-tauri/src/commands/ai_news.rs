@@ -1267,6 +1267,131 @@ fn build_post_race_facts(
         }
     }
 
+    // Registro do piloto (fama + atributos de pressão): uma leitura só, reusada abaixo.
+    let player_driver = crate::db::queries::drivers::get_driver(conn, &player.pilot_id).ok();
+
+    // ---- Bloco: LESÃO (sofrida nesta corrida ou carregada) ----
+    // Fecha o loop físico: se o jogador se machucou HOJE (a lesão ativa aponta para esta
+    // corrida em `race_occurred`) o debrief referencia isso; senão, nota que já corria
+    // machucado. A geração da lesão é de outro sistema — aqui só LEMOS o que existe.
+    let mut inj_b = String::new();
+    if let Ok(Some(inj)) =
+        crate::db::queries::injuries::get_active_injury_for_pilot(conn, &player.pilot_id)
+    {
+        use crate::models::enums::InjuryType;
+        let severity = match inj.injury_type {
+            InjuryType::Grave | InjuryType::Critica => rust_i18n::t!("ai_news.facts.injury_severe"),
+            InjuryType::Moderada => rust_i18n::t!("ai_news.facts.injury_moderate"),
+            InjuryType::Leve => rust_i18n::t!("ai_news.facts.injury_light"),
+        };
+        let name = if inj.injury_name.trim().is_empty() {
+            inj.injury_type.as_str().to_string()
+        } else {
+            inj.injury_name.clone()
+        };
+        let _ = if inj.race_occurred == race_id {
+            write!(
+                inj_b,
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.facts.injury_new",
+                    name = name,
+                    severity = severity,
+                    races = inj.races_remaining
+                )
+            )
+        } else {
+            write!(
+                inj_b,
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.facts.injury_ongoing",
+                    name = name,
+                    severity = severity,
+                    races = inj.races_remaining
+                )
+            )
+        };
+    }
+
+    // ---- Bloco: ESTRELATO (fama) — só quando é estrela de verdade (>70) ----
+    let mut fame_b = String::new();
+    if let Some(pd) = &player_driver {
+        let midia = pd.atributos.midia;
+        if midia > 70.0 {
+            let level = if midia > 87.0 {
+                rust_i18n::t!("ai_news.facts.fame_idol")
+            } else {
+                rust_i18n::t!("ai_news.facts.fame_star")
+            };
+            let _ = write!(
+                fame_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.fame", level = level, value = midia.round() as i64)
+            );
+        }
+    }
+
+    // ---- Bloco: PRESSÃO DE TÍTULO (clutch/choke) — espelha `pressure.rs` ----
+    // O sim não persiste o efeito de pressão; aqui recomputamos o MESMO estado com as
+    // MESMAS funções (título + intensidade + resiliência) que a corrida aplicou, e o
+    // viramos fato narrativo (segurou/afundou sob pressão). Só existe sob pressão real
+    // de campeonato (intensidade > 0) — fora disso não vira ruído.
+    let mut prs_b = String::new();
+    if let (Some(pd), Some(cat), Some(entry)) = (
+        player_driver.as_ref(),
+        crate::constants::categories::get_category(&categoria),
+        calendar_entry.as_ref(),
+    ) {
+        let races_left = (cat.corridas_por_temporada as i32 - entry.rodada + 1).max(1) as u32;
+        let cat_drivers =
+            crate::db::queries::drivers::get_drivers_by_active_category(conn, &categoria)
+                .unwrap_or_default();
+        let all_points: Vec<f64> = cat_drivers.iter().map(|d| d.stats_temporada.pontos).collect();
+        let max_race_points = (crate::constants::scoring::get_points_for_position(
+            1,
+            categoria == "endurance",
+        ) + crate::constants::scoring::BONUS_FASTEST_LAP) as f64;
+        let ctx = crate::simulation::pressure::title_context(
+            pd.stats_temporada.pontos,
+            &all_points,
+            races_left,
+            max_race_points,
+        );
+        let intensity = crate::simulation::pressure::pressure_intensity(&ctx, races_left);
+        // Precisa de uma tabela REAL (≥2 pilotos) — categorias especiais/vazias não têm
+        // matemática de título e não devem disparar pressão fantasma.
+        if all_points.len() >= 2 && intensity > 0.0 {
+            let is_chaser = ctx.in_contention && !ctx.is_leader;
+            let resilience = crate::simulation::pressure::pressure_resilience(
+                pd.atributos.mentalidade,
+                pd.atributos.experiencia,
+            );
+            let eff =
+                crate::simulation::pressure::pressure_effect(intensity, resilience, is_chaser);
+            let band = if races_left <= 1 {
+                rust_i18n::t!("ai_news.facts.pressure_max")
+            } else if intensity >= 2.0 {
+                rust_i18n::t!("ai_news.facts.pressure_high")
+            } else {
+                rust_i18n::t!("ai_news.facts.pressure_mid")
+            };
+            // Direção pelo SINAL do pace_delta (deadzone pequena p/ o caso ~neutro).
+            let dir = if eff.pace_delta > 0.4 {
+                rust_i18n::t!("ai_news.facts.pressure_clutch")
+            } else if eff.pace_delta < -0.4 {
+                rust_i18n::t!("ai_news.facts.pressure_choke")
+            } else {
+                rust_i18n::t!("ai_news.facts.pressure_neutral")
+            };
+            let _ = write!(
+                prs_b,
+                "{}",
+                rust_i18n::t!("ai_news.facts.pressure_line", band = band, dir = dir)
+            );
+        }
+    }
+
     // ---- Bloco: telemetria real (só se terminou) ----
     let tel_b = if !player.is_dnf {
         telemetry_facts(v.get("telemetry"), player.grid_position)
@@ -1416,7 +1541,9 @@ fn build_post_race_facts(
     };
     let (statement, mut support) = select_post_race_thesis(&signals);
     // Núcleo sempre promovido: o resultado (o que aconteceu) e o pré-corrida (fecha o loop).
-    for id in ["resultado", "pre_race"] {
+    // Lesão e pressão de título entram no APOIO quando existem — são beats raros e de peso
+    // (físico e mental) que a narrativa não pode tratar como rodapé.
+    for id in ["resultado", "pre_race", "injury", "pressure"] {
         if !support.contains(&id) {
             support.push(id);
         }
@@ -1427,12 +1554,15 @@ fn build_post_race_facts(
         match id {
             "eval" => eval_b.as_str(),
             "resultado" => res_b.as_str(),
+            "injury" => inj_b.as_str(),
+            "pressure" => prs_b.as_str(),
             "telemetry" => tel_b.as_str(),
             "teammate" => mate_b.as_str(),
             "champ_rival" => champ_b.as_str(),
             "lived_rivalry" => lived_b.as_str(),
             "breakdowns" => brk_b.as_str(),
             "maintenance" => mnt_b.as_str(),
+            "fame" => fame_b.as_str(),
             "pre_race" => pre_b.as_str(),
             "arc" => arc_b.as_str(),
             _ => "",
@@ -1441,12 +1571,15 @@ fn build_post_race_facts(
     let order = [
         "eval",
         "resultado",
+        "injury",
+        "pressure",
         "telemetry",
         "teammate",
         "champ_rival",
         "lived_rivalry",
         "breakdowns",
         "maintenance",
+        "fame",
         "pre_race",
         "arc",
     ];

@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Kardust — tipografia de destaque (racing). DEFINITIVO.
+
+   A fonte fica declarada aqui (uma vez) e a classe `.kfx` aplica a Kardust
+   itálica nos alvos aprovados da HOME (nome da série, título da categoria,
+   rótulo "Construtores"/título de equipes e os números de pontos).
+
+   Alvos por marcador: `kfx` (home — Header.jsx, StandingsTab.jsx) e `kcal`
+   (calendário — CalendarTab.jsx). Notícias usa seletores diretos (.newsmag ...).
+   Tudo DEFINITIVO — o antigo toggle de debug (Ctrl+K) foi aposentado.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: "Kardust";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/utilities/fonts/kardust-bold-italic.otf") format("opentype");
+}
+
+.kfx {
+  font-family: "Kardust", "Space Grotesk Variable", "Segoe UI", system-ui, sans-serif !important;
+  font-style: italic !important;
+  font-variant-numeric: tabular-nums;
+  /* Sem letter-spacing próprio: preserva o tracking do alvo (rótulos pequenos
+     "CONSTRUTORES"/"LMP2" mantêm o espaçamento largo original). */
+}
+
+/* ── Aba NOTÍCIAS (revista): destaques na Kardust — DEFINITIVO ──
+   Masthead, kicker, subheads, meta do rodapé, título da caixa de entrada,
+   cabeçalho "Do mundo pro Grid", legenda "Temporada" e título da capa.
+   (Números de posição/pontos e assunto do e-mail ficam na fonte original.) */
+.newsmag .brand,
+.newsmag .kicker,
+.newsmag .subhead,
+.newsmag .foot-meta,
+.newsmag .mb-title,
+.newsmag .wn-head,
+.newsmag .mag-cover-cap,
+.newsmag .mag-cover-title {
+  font-family: "Kardust", "Space Grotesk Variable", "Segoe UI", system-ui, sans-serif !important;
+  font-style: italic !important;
+}
+
+/* Título da capa: a Kardust já é inclinada → remove o skewX(-6deg) original
+   pra não empilhar duas inclinações. */
+.newsmag .mag-cover-title {
+  transform: translate(-50%, -50%) !important;
+}
+
+/* ── Aba CALENDÁRIO: destaques na Kardust — DEFINITIVO ──
+   Marcador `kcal` em CalendarTab.jsx: eyebrow "Calendário", título da categoria,
+   nomes dos meses, nome da pista no tooltip e o badge "Etapa N". */
+.kcal {
+  font-family: "Kardust", "Space Grotesk Variable", "Segoe UI", system-ui, sans-serif !important;
+  font-style: italic !important;
+}

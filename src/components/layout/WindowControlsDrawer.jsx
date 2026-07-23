@@ -220,7 +220,7 @@ function WindowControlsDrawer() {
                   Loop
                 </p>
                 <p className="mt-0 text-[8px] font-medium tracking-[0.12em] text-text-secondary/75">
-                  v0.10
+                  v{__APP_VERSION__.replace(/\.0$/, "")}
                 </p>
               </div>
             </div>

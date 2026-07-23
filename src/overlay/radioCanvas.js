@@ -1,5 +1,8 @@
 // Renderizador em CANVAS do card do RÁDIO DA EQUIPE — a versão que vai pro VR (o
-// layer OpenXR só entende pixels, não DOM). Espelha o visual do EngineerRadio.css.
+// layer OpenXR só entende pixels, não DOM). Espelha o visual do EngineerRadio.css:
+// conteúdo CENTRALIZADO, tag com marcador, acento por severidade. DIFERENÇA proposital
+// vs desktop: o fundo aqui é OPACO (cobre a linha de texto do iRacing atrás do quad,
+// ex. "Press and hold Escape to tow"), enquanto no desktop é translúcido.
 //
 // Buffer supersampled 2× (1024×256) pra texto nítido; casa com IRACER_ENGINEER_W/H
 // no shared_frame.h e com a resolução do `vr_engineer_write_frame`.
@@ -11,6 +14,10 @@ export const RADIO_VR_W = LOGICAL_W * RADIO_SUPERSAMPLE; // 1024
 export const RADIO_VR_H = LOGICAL_H * RADIO_SUPERSAMPLE; // 256
 
 const FONT = "'Space Grotesk Variable', 'Space Grotesk', 'Segoe UI', sans-serif";
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -45,64 +52,102 @@ function wrapText(ctx, text, maxW, maxLines) {
   return kept;
 }
 
+// "câmbio quebrou" -> "Câmbio quebrou" (só a 1ª maiúscula, sem ponto). Igual ao desktop.
+function capDetail(s) {
+  if (!s) return "";
+  const t = String(s).trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+}
+
 // Desenha o card. `message = { severity, text, detail, alpha? }` ou null (transparente).
+// severity: "light" | "heavy" | "dnf" (rádio) ou "warn" (aviso pessoal do jogador).
 export function drawRadioCard(ctx, message) {
   ctx.setTransform(RADIO_SUPERSAMPLE, 0, 0, RADIO_SUPERSAMPLE, 0, 0);
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
   if (!message) return; // sem mensagem → frame transparente (o quad não mostra nada)
 
-  const sev =
-    message.severity === "dnf" ? "dnf" : message.severity === "heavy" ? "heavy" : "light";
-  const accent = sev === "light" ? "#ff8c1a" : "#f85149";
-  const alpha = message.alpha == null ? 1 : Math.max(0, Math.min(1, message.alpha));
-  ctx.globalAlpha = alpha;
+  const sev = message.severity;
+  const isWarn = sev === "warn";
+  const isRed = sev === "dnf" || sev === "heavy";
+  const accent = isWarn ? "#ffab2e" : isRed ? "#f85149" : "#ff8c1a";
+  ctx.globalAlpha = clamp01(message.alpha == null ? 1 : message.alpha);
 
-  const x = 6;
-  const y = 14;
-  const w = 500;
-  const h = 100;
-  const r = 12;
-
-  // Fundo do card.
+  // Fundo com FAIXA SUPERIOR opaca que desce pra translúcido: o topo tapa a linha de
+  // texto do iRacing atrás (ex. "Press and hold Escape to tow"), o corpo fica leve como
+  // no desktop. (No desktop o card inteiro é translúcido — renderizadores independentes.)
+  const x = 2;
+  const y = 2;
+  const w = LOGICAL_W - 4;
+  const h = LOGICAL_H - 4;
+  const r = 14;
+  const base = sev === "dnf" ? "24,7,7" : isWarn ? "26,17,4" : "11,13,16";
   roundRect(ctx, x, y, w, h, r);
-  ctx.fillStyle = sev === "dnf" ? "rgba(24,7,7,0.90)" : "rgba(11,13,16,0.88)";
+  const grad = ctx.createLinearGradient(0, y, 0, y + h);
+  grad.addColorStop(0, `rgba(${base},1)`); // topo: opaco (cobre o texto)
+  grad.addColorStop(0.5, `rgba(${base},1)`);
+  grad.addColorStop(0.78, `rgba(${base},0.82)`); // desce pra translúcido
+  grad.addColorStop(1, `rgba(${base},0.82)`);
+  ctx.fillStyle = grad;
   ctx.fill();
 
-  // Acento na esquerda (recortado no cantinho arredondado).
-  ctx.save();
-  roundRect(ctx, x, y, w, h, r);
-  ctx.clip();
-  ctx.fillStyle = accent;
-  ctx.fillRect(x, y, 5, h);
-  ctx.restore();
-
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
-
-  // Tag + ponto do rádio.
-  ctx.fillStyle = accent;
-  ctx.beginPath();
-  ctx.arc(x + 24, y + 20, 3.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#9aa4ad";
-  ctx.font = `700 11px ${FONT}`;
-  ctx.fillText(sev === "dnf" ? "ABANDONO" : "RÁDIO DA EQUIPE", x + 34, y + 20);
-
-  // Texto principal (até 2 linhas).
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `700 17px ${FONT}`;
-  const lines = wrapText(ctx, message.text, w - 36, 2);
-  let ty = y + 46;
-  for (const line of lines) {
-    ctx.fillText(line, x + 18, ty);
-    ty += 21;
+  // Acento: aviso = moldura âmbar inteira (alerta acionável); rádio = barra à esquerda.
+  if (isWarn) {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = accent;
+    roundRect(ctx, x + 1, y + 1, w - 2, h - 2, r - 1);
+    ctx.stroke();
+  } else {
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, 5, h);
+    ctx.restore();
   }
 
-  // Detalhe (1 linha).
-  if (message.detail) {
-    ctx.fillStyle = "#c9d1d9";
-    ctx.font = `500 12px ${FONT}`;
-    ctx.fillText(truncate(ctx, message.detail, w - 36), x + 18, y + h - 15);
+  const cx = LOGICAL_W / 2;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+
+  // ── Tag centralizada + marcador (ponto pro rádio, ⚠ pro aviso) à esquerda dela ──
+  const tag = isWarn ? "SEU CARRO · ATENÇÃO" : sev === "dnf" ? "ABANDONO" : "RÁDIO DA EQUIPE";
+  ctx.font = `700 11px ${FONT}`;
+  const tagY = y + 22;
+  const tagW = ctx.measureText(tag).width;
+  ctx.fillStyle = isWarn ? "#ffce7a" : "#9aa4ad";
+  ctx.fillText(tag, cx, tagY);
+  const markX = cx - tagW / 2 - 9;
+  if (isWarn) {
+    ctx.fillStyle = accent;
+    ctx.fillText("⚠", markX, tagY);
+  } else {
+    ctx.beginPath();
+    ctx.arc(markX, tagY, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = accent;
+    ctx.fill();
+  }
+
+  // ── Texto principal centralizado (até 2 linhas) + detalhe centralizado abaixo ──
+  ctx.font = `700 17px ${FONT}`;
+  const textLines = wrapText(ctx, message.text, w - 44, 2);
+  const detail = capDetail(message.detail);
+
+  const areaTop = tagY + 12;
+  const areaBottom = y + h - 10;
+  const lineH = 22;
+  const detailH = detail ? 18 : 0;
+  const blockH = textLines.length * lineH + detailH;
+  let ty = areaTop + (areaBottom - areaTop - blockH) / 2 + lineH / 2;
+
+  ctx.fillStyle = isWarn ? "#ffd89a" : "#ffffff";
+  for (const line of textLines) {
+    ctx.fillText(line, cx, ty);
+    ty += lineH;
+  }
+  if (detail) {
+    ctx.font = `500 13px ${FONT}`;
+    ctx.fillStyle = isWarn ? "#e9caa1" : "#b6c2cf";
+    ctx.fillText(truncate(ctx, `— ${detail}`, w - 44), cx, ty + 1);
   }
 
   ctx.globalAlpha = 1;

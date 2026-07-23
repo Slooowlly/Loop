@@ -15,7 +15,7 @@
 .newsmag .mag{
   position:relative;border-radius:14px;overflow:hidden;padding:36px 48px 24px;
   background:
-    url("/utilities/textures/paper-spread.png"),
+    url("/utilities/textures/paper-spread.webp"),
     linear-gradient(90deg, transparent 44%, rgba(0,0,0,0.36) 49.2%, rgba(155,188,230,0.045) 50%, rgba(0,0,0,0.36) 50.8%, transparent 56%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
     radial-gradient(ellipse 70% 45% at 50% -6%, rgba(96,150,225,0.06), transparent 60%),
@@ -166,7 +166,10 @@
 .newsmag .world-notes{position:relative;z-index:1;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10);transition:opacity .2s ease}
 .newsmag .mag.flipping .world-notes{opacity:0}
 .newsmag .wn-head{font-family:'OswaldNM';font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--nm-accent2);margin-bottom:10px}
-.newsmag .wn-list{display:flex;flex-direction:column;gap:8px}
+/* Duas colunas — notinhas divididas entre as duas páginas, com o vão da dobra
+   (62px, igual ao do .spread) separando os lados. `align-items:start` evita que
+   um item de 2 linhas estique o vizinho de 1 linha. */
+.newsmag .wn-list{display:grid;grid-template-columns:1fr 1fr;column-gap:62px;row-gap:8px;align-items:start}
 .newsmag .wn-item{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:baseline;padding:9px 12px;border-radius:9px;
   background:rgba(255,255,255,0.022);border:1px solid rgba(255,255,255,0.07);border-left:3px solid var(--nm-muted)}
 .newsmag .wn-tag{font-family:'OswaldNM';font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--nm-muted);white-space:nowrap;padding-top:1px}
@@ -184,6 +187,7 @@
 
 @media(max-width:1100px){
   .newsmag .spread{grid-template-columns:1fr;column-gap:0}
+  .newsmag .wn-list{grid-template-columns:1fr;column-gap:0}
   .newsmag .prose-cols{columns:1}
   .newsmag .r-grid{grid-template-columns:1fr}
   .newsmag .res-list--split{columns:1}

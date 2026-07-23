@@ -54,6 +54,13 @@ fn dbg_state(state: &str) {
 pub struct OverlayWeather {
     condition: String,       // "clear" | "clouds" | "rain"
     air_temp: Option<i32>,   // °C do ar (None = desconhecido ao vivo)
+    /// Arco de chuva da corrida atual (frações 0..1 + tipo de tempo), o mesmo clima
+    /// determinístico que o export gravou. Vazio quando a prova é seca / sem dado — o
+    /// front só mostra a faixa quando há chuva a antecipar.
+    rain_arc: Vec<crate::iracing_sdk::weather::WeatherTimelinePoint>,
+    /// Progresso da corrida AGORA (0..1) para o front marcar o "você está aqui" no arco.
+    /// None fora de corrida ou sem total de voltas conhecido.
+    now_frac: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -92,7 +99,7 @@ pub struct OverlayCar {
     /// (vermelho) | None. Some quando o carro sai do box reparado. Preenchido pelo
     /// motor de quebra ao vivo (wiring da grade toda — fase 2).
     alert: Option<String>,
-    /// Tempo PARADO no box (s) da última parada, exposto só nas ~3 voltas seguintes
+    /// Tempo PARADO no box (s) da última parada, exposto só nas ~2 voltas seguintes
     /// (badge sobre os pneus). None fora dessa janela. Fonte: tire_strategy.
     pit_secs: Option<i32>,
     /// Ícones da coluna de paradas: 1º = pneu de largada, depois um por PARADA — "dry"/"wet"
@@ -582,10 +589,10 @@ pub fn get_overlay_data(
             .unwrap_or_default();
         let stops = strat.map(|s| s.tire_changes).unwrap_or(0);
 
-        // Tracker de tempo de pit: última parada do carro, só nas ~3 voltas seguintes.
+        // Tracker de tempo de pit: última parada do carro, só nas ~2 voltas seguintes.
         let pit_secs = strat.and_then(|s| s.stops.last()).and_then(|last| {
             let since = lead_lap_now - last.lap;
-            (0..=3).contains(&since).then(|| last.box_secs.round() as i32)
+            (0..=2).contains(&since).then(|| last.box_secs.round() as i32)
         });
 
         // Alerta de quebra: "light"/"heavy" → triângulo; "dnf" → bandeira preta.
@@ -740,6 +747,31 @@ pub fn get_overlay_data(
         None
     };
 
+    // Arco de chuva da corrida ATUAL (a próxima pendente da categoria do jogador): trazemos
+    // o MESMO clima determinístico do export pra torre ao vivo, e só quando de fato chove (há
+    // arco a antecipar). `now_frac` = progresso por voltas, só em corrida, p/ o front marcar
+    // o AGORA. Falha silenciosa → sem arco (a torre segue com condição + temperatura).
+    let (rain_arc, weather_now_frac) = {
+        let next = crate::db::queries::seasons::get_active_season(&db.conn)
+            .ok()
+            .flatten()
+            .and_then(|s| {
+                crate::db::queries::calendar::get_next_race(&db.conn, &s.id, &category)
+                    .ok()
+                    .flatten()
+            });
+        match next.and_then(|entry| {
+            super::iracing::build_race_weather_timeline(&db.conn, &career_id, &entry.id).ok()
+        }) {
+            Some(tl) if tl.is_wet_race => {
+                let now = (kind == "R" && total_laps > 0)
+                    .then(|| (f64::from(lead_lap) / f64::from(total_laps)).clamp(0.0, 1.0));
+                (tl.points, now)
+            }
+            _ => (Vec::new(), None),
+        }
+    };
+
     let session = OverlaySession {
         kind: kind.to_string(),
         lap: lead_lap,
@@ -749,6 +781,8 @@ pub fn get_overlay_data(
         weather: OverlayWeather {
             condition: wetness_to_condition(tele.track_wetness).to_string(),
             air_temp,
+            rain_arc,
+            now_frac: weather_now_frac,
         },
     };
 
@@ -1156,6 +1190,15 @@ pub fn get_player_warnings() -> Result<Vec<BreakdownMessage>, String> {
         .enumerate()
         .map(|(i, w)| player_warning_msg(w.part, i))
         .collect())
+}
+
+/// `true` se algum comando de quebra (`!black`/`!dq`) falhou em chegar ao iRacing nesta
+/// corrida (janela não encontrada / foreground recusado). É estado LATCH por corrida — não
+/// um stream de eventos —, então o overlay o consome como banner booleano persistente
+/// (canal separado dos avisos de peça, que são stream por id) para não mascará-los.
+#[tauri::command]
+pub fn iracing_chat_blocked() -> bool {
+    race_monitor::chat_send_blocked()
 }
 
 /// Lista completa dos avisos de exemplo (a janela do rádio busca uma vez e cicla localmente).

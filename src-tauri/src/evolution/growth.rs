@@ -16,6 +16,31 @@ const DNF_GROWTH_PENALTY: f64 = 0.3;
 /// atual) for ≥ este valor.
 const POTENTIAL_APPROACH_WINDOW: f64 = 22.0;
 
+/// Skill é o ÚNICO atributo que exporta direto pra força da IA no iRacing
+/// (skill→driverSkill). Por isso ele cresce como uma CARREIRA, não num pulo: um
+/// prodígio ainda chega ao teto, mas ao longo de várias temporadas. Duas travas
+/// combinadas, aplicadas só ao skill e só ao ganho positivo:
+///  1. teto rígido absoluto por temporada;
+///  2. consumo máximo de uma fração da folga (teto − skill) por temporada — faz a
+///     subida virar rampa que desacelera perto do teto, sem depender só do (1).
+/// As demais competências (consistência, racecraft, etc.) seguem o loop normal;
+/// os atributos de ESTILO (agressividade/suavidade/confiança) saem do crescimento
+/// monotônico no Trilho B (perfis de piloto) — ver [[project_driver_growth_redesign]].
+const MAX_SKILL_GAIN_PER_SEASON: i8 = 3;
+const SKILL_HEADROOM_FRACTION_PER_SEASON: f64 = 0.25;
+
+/// Aplica as travas de skill sobre um delta já calculado. Só morde o ganho positivo
+/// do skill; devolve o delta intacto pra qualquer outro atributo ou queda.
+fn cap_skill_growth(attribute: DriverAttributeKey, delta: i8, current_skill: f64, potencial: f64) -> i8 {
+    if attribute != DriverAttributeKey::Skill || delta <= 0 {
+        return delta;
+    }
+    let headroom = (potencial - current_skill).max(0.0);
+    // ceil pra que, enquanto houver qualquer folga, a rampa ainda ande +1 no fim.
+    let fraction_cap = (headroom * SKILL_HEADROOM_FRACTION_PER_SEASON).ceil() as i8;
+    delta.min(MAX_SKILL_GAIN_PER_SEASON).min(fraction_cap.max(0))
+}
+
 /// Quanto cada pódio "de azarão" (piloto abaixo da média da categoria) empurra o
 /// teto pessoal para cima. O efeito se autolimita: ao crescer e deixar de ser
 /// azarão, o piloto para de receber o boost.
@@ -130,6 +155,8 @@ pub fn calculate_growth(
             potencial,
             rng,
         );
+        // Skill exporta pro iRacing → cresce em rampa de carreira, nunca num pulo.
+        let delta = cap_skill_growth(attribute, delta, driver.atributos.skill, potencial);
         if let Some(change) = apply_growth(driver, attribute, delta, "Evolucao por resultados") {
             changes.push(change);
         }
@@ -425,6 +452,64 @@ mod tests {
         assert!(report.overall_delta > 0.0);
         assert!(driver.atributos.skill > 45.0);
         assert!(!report.changes.is_empty());
+    }
+
+    #[test]
+    fn skill_never_jumps_more_than_cap_in_one_season() {
+        // O caso Leroy: rookie campeão jovem, folga enorme até o teto. Antes pulava
+        // ~+18 de skill numa temporada; agora o ganho é travado no teto por temporada.
+        let mut leroy = sample_driver(20, 72.0);
+        leroy.atributos.potencial = 92.0;
+        let stats = SeasonStats {
+            posicao_campeonato: 1,
+            total_pilotos: 12,
+            pontos: 195,
+            vitorias: 3,
+            podios: 5,
+            corridas: 5,
+            dnfs: 0,
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        let before = leroy.atributos.skill;
+        calculate_growth(&mut leroy, &stats, 2.0, 0, 0.6, &mut rng);
+        let gain = leroy.atributos.skill - before;
+        assert!(gain > 0.0, "prodígio campeão tem que crescer: {gain}");
+        assert!(
+            gain <= MAX_SKILL_GAIN_PER_SEASON as f64,
+            "skill não pode pular mais que o teto por temporada: {gain}"
+        );
+    }
+
+    #[test]
+    fn cap_skill_growth_only_touches_positive_skill() {
+        // Só o ganho positivo de skill é travado; queda e outros atributos passam.
+        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 18, 72.0, 92.0), 3);
+        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, -2, 72.0, 92.0), -2);
+        assert_eq!(cap_skill_growth(DriverAttributeKey::Racecraft, 18, 72.0, 92.0), 18);
+        // Fração da folga morde antes do teto quando já está perto do potencial.
+        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 3, 90.0, 92.0), 1); // ceil(0.5)=1
+        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 3, 84.0, 92.0), 2); // ceil(2.0)=2
+    }
+
+    #[test]
+    fn skill_reaches_ceiling_over_a_career_not_at_once() {
+        // Mesmo dominando todo ano, o skill leva várias temporadas pra fechar a folga.
+        let mut prodigy = sample_driver(19, 72.0);
+        prodigy.atributos.potencial = 92.0;
+        let stats = champion_stats();
+        let mut seasons = 0;
+        while prodigy.atributos.skill < 92.0 && seasons < 30 {
+            let mut rng = StdRng::seed_from_u64(seasons as u64 + 1);
+            let before = prodigy.atributos.skill;
+            calculate_growth(&mut prodigy, &stats, 4.0, 0, 0.5, &mut rng);
+            prodigy.idade = 19 + seasons; // envelhece junto
+            assert!(
+                prodigy.atributos.skill - before <= MAX_SKILL_GAIN_PER_SEASON as f64,
+                "nenhuma temporada isolada pode estourar o teto"
+            );
+            seasons += 1;
+        }
+        assert!(seasons >= 5, "72→92 tem que ser uma carreira (>=5 temporadas), levou {seasons}");
     }
 
     #[test]

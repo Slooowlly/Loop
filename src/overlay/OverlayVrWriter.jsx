@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../stores/useCareerStore";
 import { VR_W, VR_H, drawTower, preloadAssets } from "./towerCanvas";
+import { VR_THEME } from "./towerThemes";
 import { useOverlayData } from "./useOverlayData";
 
 // Escritor do overlay de VR: desenha a torre com dados AO VIVO da corrida e manda
@@ -51,7 +52,7 @@ export default function OverlayVrWriter() {
       const { data: d, assets } = sourceRef.current;
       if (!d || !assets) return; // nada a mostrar
       try {
-        drawTower(ctx, d, assets);
+        drawTower(ctx, d, assets, VR_THEME);
         const img = ctx.getImageData(0, 0, VR_W, VR_H);
         await invoke("vr_overlay_write_frame", new Uint8Array(img.data.buffer));
       } catch {

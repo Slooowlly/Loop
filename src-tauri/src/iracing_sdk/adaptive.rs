@@ -78,6 +78,20 @@ pub const FAST_SHIELD_PCT: f64 = 0.004;
 /// escudo e isto → difícil (desce brando).
 pub const FAST_BEHIND_PCT: f64 = 0.014;
 
+// ─── Braço POR-PISTA (mesma régua, aprendizado MAIS LENTO) ───────────────────
+// O `global` capta "quão forte é a IA no geral"; o `track` é uma correção FINA por pista
+// (o jogador vai bem/mal ESPECIFICAMENTE aqui). Mesmos 5 patamares do global, mas com passo
+// ~40% do dele e faixa mais estreita — assim uma pista só desvia do global aos poucos, ao
+// longo de várias visitas, sem oscilar. Antes o `track` era lido/persistido mas NUNCA mudava
+// (`d_track` fixo em 0); este braço o coloca pra trabalhar preservando a estabilidade.
+pub const TRACK_UP_DOMINATE: i64 = 2;
+pub const TRACK_UP_CLEAR: i64 = 1;
+pub const TRACK_DOWN: i64 = 1;
+pub const TRACK_DOWN_HARD: i64 = 2;
+/// Faixa do delta por pista (bem mais estreita que a do global — é só um ajuste fino).
+const TRACK_MIN: i64 = -4;
+const TRACK_MAX: i64 = 16;
+
 // ─── Entrada (o que a Fase A vai preencher) ─────────────────────────────────
 
 /// Uma volta com seu número (pra filtrar volta 1 e amarelas).
@@ -235,27 +249,30 @@ pub fn compute_fast_update(r: &FastResult, current: &Deltas) -> AdaptiveUpdate {
     // limpo, um erro pontual (que só afundou a posição) não conta.
     let pc = g * 100.0;
     let p = r.finish_pos; // só pro texto (debug); a decisão é 100% por ritmo.
-    let (d, verdict) = if g <= -FAST_DOMINATE_PCT {
-        (FAST_UP_DOMINATE, format!("Dominou a frente (P{p}, {pc:+.1}%/volta) → sobe forte"))
+    // Cada patamar move o global (passo cheio) E o track (passo ~40%, mesma direção).
+    let (d, dt, verdict) = if g <= -FAST_DOMINATE_PCT {
+        (FAST_UP_DOMINATE, TRACK_UP_DOMINATE, format!("Dominou a frente (P{p}, {pc:+.1}%/volta) → sobe forte"))
     } else if g <= -FAST_CLEAR_PCT {
-        (FAST_UP_CLEAR, format!("Mais rápido que a frente (P{p}, {pc:+.1}%/volta) → sobe"))
+        (FAST_UP_CLEAR, TRACK_UP_CLEAR, format!("Mais rápido que a frente (P{p}, {pc:+.1}%/volta) → sobe"))
     } else if g <= FAST_SHIELD_PCT {
-        (0, format!("Brigando com a frente (P{p}, {pc:+.1}%/volta) → mantém"))
+        (0, 0, format!("Brigando com a frente (P{p}, {pc:+.1}%/volta) → mantém"))
     } else if g <= FAST_BEHIND_PCT {
-        (-FAST_DOWN, format!("Fora do ritmo da frente (P{p}, {pc:+.1}%/volta) → desce"))
+        (-FAST_DOWN, -TRACK_DOWN, format!("Fora do ritmo da frente (P{p}, {pc:+.1}%/volta) → desce"))
     } else {
-        (-FAST_DOWN_HARD, format!("Sem ritmo pra frente (P{p}, {pc:+.1}%/volta) → desce forte"))
+        (-FAST_DOWN_HARD, -TRACK_DOWN_HARD, format!("Sem ritmo pra frente (P{p}, {pc:+.1}%/volta) → desce forte"))
     };
     let new_global = (current.global + d).clamp(GLOBAL_MIN, GLOBAL_MAX);
+    let new_track = (current.track + dt).clamp(TRACK_MIN, TRACK_MAX);
     let d_global = new_global - current.global;
+    let d_track = new_track - current.track;
     AdaptiveUpdate {
         new: Deltas {
             global: new_global,
-            track: current.track,
+            track: new_track,
         },
         d_global,
-        d_track: 0,
-        applied: d_global != 0,
+        d_track,
+        applied: d_global != 0 || d_track != 0,
         verdict,
     }
 }
@@ -333,6 +350,32 @@ mod tests {
         assert_eq!(d(0.003), 0); //                  0,3% mais lento (brigando) → mantém
         assert_eq!(d(0.008), -FAST_DOWN); //         0,8% mais lento → difícil → −3
         assert_eq!(d(0.02), -FAST_DOWN_HARD); //     2% mais lento → difícil demais → −5
+    }
+
+    #[test]
+    fn braco_por_pista_aprende_mais_devagar_que_o_global() {
+        let cur = Deltas { global: 0, track: 0 };
+        // Mesma direção do global, mas passo menor (aprendizado lento por pista).
+        let dom = compute_fast_update(&fast(-0.015), &cur);
+        assert_eq!(dom.d_global, FAST_UP_DOMINATE);
+        assert_eq!(dom.d_track, TRACK_UP_DOMINATE);
+        assert!(dom.d_track < dom.d_global, "track sobe mais devagar que o global");
+        let down = compute_fast_update(&fast(0.02), &cur);
+        assert_eq!(down.d_track, -TRACK_DOWN_HARD);
+        // Escudo → nem global nem track mexem.
+        let hold = compute_fast_update(&fast(0.0), &cur);
+        assert_eq!((hold.d_global, hold.d_track), (0, 0));
+        assert!(!hold.applied);
+        // O track tem faixa PRÓPRIA: no topo dele, para de subir mesmo com o global livre.
+        let track_topo = Deltas { global: 0, track: TRACK_MAX };
+        let u = compute_fast_update(&fast(-0.02), &track_topo);
+        assert_eq!(u.new.track, TRACK_MAX);
+        assert_eq!(u.d_track, 0);
+        assert!(u.d_global > 0, "global ainda sobe (faixa própria)");
+        // Só o track mexendo (global no teto) já conta como aplicado → persiste a pista.
+        let so_track = compute_fast_update(&fast(-0.02), &Deltas { global: GLOBAL_MAX, track: 0 });
+        assert_eq!(so_track.d_global, 0);
+        assert!(so_track.d_track > 0 && so_track.applied);
     }
 
     #[test]

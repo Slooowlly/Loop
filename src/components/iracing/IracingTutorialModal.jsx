@@ -1,34 +1,36 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 // Passos do tutorial (mostrado só na 1ª vez que o jogador vai pro iRacing).
 // As imagens ficam em public/utilities/tutorial/ — se faltarem, cai num
 // placeholder e o fluxo continua funcionando.
 const STEPS = [
   {
-    img: "/utilities/tutorial/step1.png",
-    title: 'Entre em "AI Single Player"',
-    body: 'No menu lateral do iRacing, dentro de Single Player, clique em "AI Single Player".',
+    img: "/utilities/tutorial/step1.webp",
+    title: "iracingTutorial.steps.step1.title",
+    body: "iracingTutorial.steps.step1.body",
   },
   {
-    img: "/utilities/tutorial/step2.png",
-    title: "Abra a sua AI Season",
-    body: 'Em "My Seasons", abra a temporada que acabamos de exportar (a sua "Carreira ...").',
+    img: "/utilities/tutorial/step2.webp",
+    title: "iracingTutorial.steps.step2.title",
+    body: "iracingTutorial.steps.step2.body",
   },
   {
-    img: "/utilities/tutorial/step3.png",
-    title: "Inicie a simulação",
-    body: 'Na tela da temporada, confira a próxima corrida e clique em "Continue" para começar.',
+    img: "/utilities/tutorial/step3.webp",
+    title: "iracingTutorial.steps.step3.title",
+    body: "iracingTutorial.steps.step3.body",
   },
 ];
 
 function StepImage({ src, alt }) {
+  const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
 
   if (failed) {
     return (
       <div className="flex h-[360px] w-full items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/5">
         <p className="px-6 text-center text-xs text-text-muted">
-          Imagem do tutorial não encontrada.
+          {t("iracingTutorial.imageNotFound")}
           <br />
           <span className="font-mono text-[11px] text-text-secondary">{src}</span>
         </p>
@@ -47,6 +49,7 @@ function StepImage({ src, alt }) {
 }
 
 function IracingTutorialModal({ onFinish, onClose, message }) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const isLast = step === STEPS.length - 1;
@@ -79,14 +82,14 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
           <div className="flex items-center gap-2">
             <span className="text-base">🤖</span>
             <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-accent-primary">
-              Como correr no iRacing
+              {t("iracingTutorial.title")}
             </h3>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-text-muted transition-glass hover:text-text-primary"
-            aria-label="Fechar"
+            aria-label={t("iracingTutorial.close")}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18" />
@@ -99,16 +102,16 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
         <div className="flex flex-col items-center gap-4 px-6 py-6">
           <div className="text-center">
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-text-muted">
-              Passo {step + 1} de {STEPS.length}
+              {t("iracingTutorial.stepCounter", { current: step + 1, total: STEPS.length })}
             </p>
             <h4 className="mt-1 text-xl font-bold tracking-tight text-text-primary">
-              {current.title}
+              {t(current.title)}
             </h4>
-            <p className="mx-auto mt-1.5 max-w-lg text-sm text-text-secondary">{current.body}</p>
+            <p className="mx-auto mt-1.5 max-w-lg text-sm text-text-secondary">{t(current.body)}</p>
           </div>
 
           <div className="flex min-h-[360px] w-full items-center justify-center">
-            <StepImage src={current.img} alt={current.title} />
+            <StepImage src={current.img} alt={t(current.title)} />
           </div>
 
           {message && (
@@ -140,7 +143,7 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
                 disabled={busy}
                 className="rounded-xl px-4 py-2 text-sm font-semibold text-text-secondary transition-glass hover:text-text-primary disabled:opacity-50"
               >
-                Voltar
+                {t("iracingTutorial.back")}
               </button>
             )}
             <button
@@ -149,7 +152,11 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
               disabled={busy}
               className="rounded-xl bg-[#58a6ff] px-6 py-2 text-sm font-black uppercase tracking-wide text-[#06090e] shadow-[0_0_20px_rgba(88,166,255,0.4)] transition hover:bg-blue-400 disabled:opacity-70"
             >
-              {isLast ? (busy ? "Abrindo…" : "Done") : "Next"}
+              {isLast
+                ? busy
+                  ? t("iracingTutorial.opening")
+                  : t("iracingTutorial.done")
+                : t("iracingTutorial.next")}
             </button>
           </div>
         </div>

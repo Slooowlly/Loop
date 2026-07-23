@@ -144,6 +144,9 @@ pub struct SimDriver {
     pub smoothness: u8,
     pub mentalidade: u8,
     pub confianca: u8,
+    /// Motivação atual (0–100, recalculada no fim de temporada). Um desmotivado corre
+    /// abaixo do próprio skill (ver `simulation::pressure::motivation_pace_delta`).
+    pub motivacao: f64,
     pub car_performance: f64,
     pub car_reliability: f64,
     pub team_id: String,
@@ -175,6 +178,7 @@ impl SimDriver {
             smoothness: as_u8(driver.atributos.smoothness),
             mentalidade: as_u8(driver.atributos.mentalidade),
             confianca: as_u8(driver.atributos.confianca),
+            motivacao: driver.motivacao,
             // Moral viva (ideia 3): efeito sutil e SIMÉTRICO — um time em alta corre
             // um tico melhor e mais confiável; em crise, pior e mais frágil. Vale
             // para todo carro do grid (jogador simulado + IA).

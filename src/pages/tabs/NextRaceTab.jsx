@@ -53,6 +53,17 @@ const PRE_RACE_READ_MS = 10000;
 // tempo, caímos no template em vez de segurar o skeleton indefinidamente.
 const AI_PREVIEW_MAX_WAIT_MS = 8000;
 
+// Lê o cache de standings pré-buscado na store (preenchido pelo prefetch durante a
+// animação de avanço), mas SÓ se for da corrida atual. A pré-corrida é estática até a
+// corrida rodar, então quando o cache bate a Sala abre os Favoritos na hora — sem
+// re-disparar get_drivers_by_category/get_teams_standings (os comandos que faziam o
+// "Montando análise" demorar toda vez que se volta à Sala). Cache miss → busca normal.
+function readCachedPreRaceStandings() {
+  const state = useCareerStore.getState();
+  const cache = state.preRaceStandings;
+  return cache && cache.raceId && cache.raceId === state.nextRace?.id ? cache : null;
+}
+
 function NextRaceTab() {
   const { t } = useTranslation();
   const [error, setError] = useState("");
@@ -74,10 +85,17 @@ function NextRaceTab() {
   const [paintError, setPaintError] = useState("");
   const [paintToast, setPaintToast] = useState("");
   const [hasExistingPreseason, setHasExistingPreseason] = useState(false);
-  const [driverStandings, setDriverStandings] = useState([]);
-  const [teamStandings, setTeamStandings] = useState([]);
-  const [briefingPhraseHistory, setBriefingPhraseHistory] = useState({ season_number: 0, entries: [] });
-  const [isLoadingBriefing, setIsLoadingBriefing] = useState(true);
+  const [driverStandings, setDriverStandings] = useState(
+    () => readCachedPreRaceStandings()?.driverStandings ?? [],
+  );
+  const [teamStandings, setTeamStandings] = useState(
+    () => readCachedPreRaceStandings()?.teamStandings ?? [],
+  );
+  const [briefingPhraseHistory, setBriefingPhraseHistory] = useState(
+    () => readCachedPreRaceStandings()?.phraseHistory ?? { season_number: 0, entries: [] },
+  );
+  // Já temos standings em cache desta etapa → abre sem o "Montando análise".
+  const [isLoadingBriefing, setIsLoadingBriefing] = useState(() => !readCachedPreRaceStandings());
   // Previsão de risco de quebra do carro (aviso pré-corrida — Peça 3 / Feature 1).
   const [breakdownForecast, setBreakdownForecast] = useState(null);
   // IDs das EQUIPES com risco real de quebra na próxima corrida → 🔧 na tabela do campeonato.
@@ -174,6 +192,21 @@ function NextRaceTab() {
           setDriverStandings([]);
           setTeamStandings([]);
           setBriefingPhraseHistory({ season_number: 0, entries: [] });
+          setIsLoadingBriefing(false);
+        }
+        return;
+      }
+
+      // O prefetch (animação de avanço) já buscou os standings desta etapa e guardou na
+      // store. A pré-corrida é estática até a corrida rodar, então usamos o cache direto
+      // e evitamos re-disparar os comandos pesados — a Sala abre os Favoritos na hora.
+      const cached = readCachedPreRaceStandings();
+      if (cached) {
+        if (active) {
+          setDriverStandings(cached.driverStandings);
+          setTeamStandings(cached.teamStandings);
+          setBriefingPhraseHistory(cached.phraseHistory);
+          setBriefingError("");
           setIsLoadingBriefing(false);
         }
         return;

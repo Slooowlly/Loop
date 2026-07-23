@@ -70,6 +70,18 @@ fn hover_cfg() -> &'static Mutex<HoverCfg> {
     })
 }
 
+// Config de hover da janela do RÁDIO (mesma mecânica da torre, janela independente).
+fn engineer_hover_cfg() -> &'static Mutex<HoverCfg> {
+    static C: OnceLock<Mutex<HoverCfg>> = OnceLock::new();
+    C.get_or_init(|| {
+        Mutex::new(HoverCfg {
+            watch: false,
+            w_css: 600.0,
+            h_css: 150.0,
+        })
+    })
+}
+
 #[cfg(windows)]
 fn cursor_pos() -> Option<(i32, i32)> {
     use winapi::shared::windef::POINT;
@@ -89,20 +101,33 @@ fn cursor_pos() -> Option<(i32, i32)> {
     None
 }
 
-/// Sobe o vigia de cursor (uma thread). Chamado uma vez no setup. Ocioso (30 ms)
-/// enquanto `watch` está desligado — custo desprezível.
+/// Sobe os vigias de cursor (uma thread por janela de overlay). Chamado uma vez no
+/// setup. Ocioso (30 ms) enquanto `watch` está desligado — custo desprezível.
 pub fn start_hover_watcher(app: AppHandle) {
+    watch_window(app.clone(), LABEL, "overlay-hover", hover_cfg);
+    watch_window(app, ENGINEER_LABEL, "engineer-hover", engineer_hover_cfg);
+}
+
+/// Vigia genérico: enquanto `watch` está ligado e a janela visível, torna-a interativa
+/// quando o cursor entra na sua caixa (torre/rádio) e volta a clique-atravessa ao sair,
+/// avisando o overlay pelo evento `hover_event`. Fora da caixa, o mouse vai pro jogo.
+fn watch_window(
+    app: AppHandle,
+    label: &'static str,
+    hover_event: &'static str,
+    cfg: fn() -> &'static Mutex<HoverCfg>,
+) {
     thread::spawn(move || {
         let mut prev_inside = false;
         loop {
             thread::sleep(Duration::from_millis(30));
 
-            let (watch, w_css, h_css) = match hover_cfg().lock() {
+            let (watch, w_css, h_css) = match cfg().lock() {
                 Ok(c) => (c.watch, c.w_css, c.h_css),
                 Err(_) => (false, 512.0, 200.0),
             };
 
-            let win = match app.get_webview_window(LABEL) {
+            let win = match app.get_webview_window(label) {
                 Some(w) => w,
                 None => continue,
             };
@@ -129,7 +154,7 @@ pub fn start_hover_watcher(app: AppHandle) {
                 if watch {
                     let _ = win.set_ignore_cursor_events(!inside);
                 }
-                let _ = app.emit_to(LABEL, "overlay-hover", inside);
+                let _ = app.emit_to(label, hover_event, inside);
                 prev_inside = inside;
             }
         }
@@ -149,6 +174,23 @@ pub fn overlay_set_hover_watch(active: bool) {
 #[tauri::command]
 pub fn overlay_set_hover_rect(width: f64, height: f64) {
     if let Ok(mut c) = hover_cfg().lock() {
+        c.w_css = width.max(1.0);
+        c.h_css = height.max(1.0);
+    }
+}
+
+/// Liga/desliga o vigia de hover da janela do RÁDIO (o app chama quando ela aparece).
+#[tauri::command]
+pub fn engineer_set_hover_watch(active: bool) {
+    if let Ok(mut c) = engineer_hover_cfg().lock() {
+        c.watch = active;
+    }
+}
+
+/// Reporta a caixa (px lógicos) do card do rádio que conta como "em cima" (arrastável).
+#[tauri::command]
+pub fn engineer_set_hover_rect(width: f64, height: f64) {
+    if let Ok(mut c) = engineer_hover_cfg().lock() {
         c.w_css = width.max(1.0);
         c.h_css = height.max(1.0);
     }
@@ -192,19 +234,14 @@ pub fn overlay_window_hide(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Mostra o overlay do RÁDIO DA EQUIPE (card central de quebra) no monitor. O card
-/// se posiciona em % da própria janela (top 30% / centro), então a janela é
-/// esticada pra cobrir o monitor primário — assim o card cai no centro-alto do jogo.
-/// Sempre clique-atravessa (display-only): o mouse vai pro iRacing. Reusa o
+/// Mostra o overlay do RÁDIO DA EQUIPE (card de quebra) no monitor. Agora é uma janela
+/// PEQUENA e ARRASTÁVEL (igual a torre): a posição é restaurada pelo front e o vigia de
+/// cursor a torna interativa no hover. NÃO estica mais pra tela toda nem re-trava o
+/// clique-atravessa no show (o padrão vem do boot; o hover é quem alterna). Reusa o
 /// `active_career` já setado pelo overlay da torre (a janela lê via `overlay_active_career`).
 #[tauri::command]
 pub fn engineer_window_show(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window(ENGINEER_LABEL) {
-        if let Ok(Some(mon)) = win.primary_monitor() {
-            let _ = win.set_position(*mon.position());
-            let _ = win.set_size(*mon.size());
-        }
-        let _ = win.set_ignore_cursor_events(true);
         win.show().map_err(|e| e.to_string())?;
     }
     Ok(())

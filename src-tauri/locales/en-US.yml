@@ -238,6 +238,16 @@ rivalry:
       title: "%{a} x %{b}: %{level}"
       text: "%{a} and %{b} raised the tension of their rivalry after %{origin} in round %{round}."
 
+# Team rivalries (rivalry/team.rs). "Derby" headline in the magazine, 3rd-person voice.
+team_rivalry:
+  news:
+    origin_championship: "their constructor battle"
+    origin_market: "a poached driver"
+    origin_track: "repeated on-track clashes"
+    origin_inherited: "the feud between their drivers"
+    title: "%{a} x %{b}: %{level}"
+    text: "%{a} and %{b} turned up the heat of their rivalry after %{origin}."
+
 # Driver profile (commands/career_detail.rs): personality + career milestones
 # (DriverDetailModal display). Personality `tipo` here is DISPLAY (decoupled from the
 # serialization token in enums.rs); status/milestone-type stay as tokens.
@@ -857,6 +867,21 @@ ai_news:
     best_lap: "- Best lap: %{time}%{fastest}"
     points: "- Points: %{n}"
     incidents: "- Incidents: %{n}"
+    injury_severe: "severe"
+    injury_moderate: "moderate"
+    injury_light: "minor"
+    injury_new: "YOUR BODY: you were injured in this race — %{name} (%{severity} injury); sidelined for ~%{races} round(s)."
+    injury_ongoing: "YOUR BODY: raced injured — %{name} (%{severity} injury); still ~%{races} round(s) to recover."
+    fame_star: "a star"
+    fame_idol: "an idol"
+    fame: "STARDOM: %{level} (fame %{value}/100) — the driver has become a box-office draw; press and public revolve around them."
+    pressure_max: "maximum"
+    pressure_high: "high"
+    pressure_mid: "rising"
+    pressure_clutch: "the driver tends to RISE to it — holds the nerve and pushes under pressure (clutch)"
+    pressure_choke: "the driver tends to BUCKLE — folds under the pressure (choke)"
+    pressure_neutral: "the driver stays composed under the pressure"
+    pressure_line: "TITLE PRESSURE: %{band} pressure from the championship fight; under it, %{dir}."
     teammate: "TEAMMATE: %{name} finished P%{pos}%{cmp}"
     teammate_ahead: " — you finished ahead of him"
     teammate_behind: " — he finished ahead of you"

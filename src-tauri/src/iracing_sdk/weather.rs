@@ -265,14 +265,13 @@ pub fn generate_weather(
                     RainIntensity::VeryHeavy
                 }
             }
-            // Médio: 50% Decent · 45% Heavy · 5% VeryHeavy.
+            // Médio: 50% Decent · 50% Heavy · sem temporal (só o tier ALTO libera VeryHeavy,
+            // como diz a doc de `wet_severity_tier` e o invariante `temporal_so_no_tier_alto`).
             WetTier::Mid => {
                 if r < 0.50 {
                     RainIntensity::Decent
-                } else if r < 0.95 {
-                    RainIntensity::Heavy
                 } else {
-                    RainIntensity::VeryHeavy
+                    RainIntensity::Heavy
                 }
             }
             // Baixo: 70% Decent · 30% Heavy · sem temporal.

@@ -57,7 +57,12 @@
       "captureFolder": "Folder: {{dir}}",
       "captureSaved": "Saved: {{path}}",
       "captureStopped": "Recording stopped.",
-      "capturing": "Recording… join an iRacing session. File: {{path}}"
+      "capturing": "Recording… join an iRacing session. File: {{path}}",
+      "calendarTitle": "Calendar version",
+      "calendarDesc": "Pick which calendar to use. V3 is the newest; V2 and Legacy stay as fallback.",
+      "calendarLegacy": "Legacy",
+      "calendarV2": "V2",
+      "calendarV3": "V3"
     }
   },
   "difficulty": {
@@ -201,6 +206,36 @@
     "loading": "Loading season calendar...",
     "loadError": "Couldn't load the calendar.",
     "tbd": "TBD",
+    "v2": {
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month",
+      "today": "Today",
+      "upcoming": "Upcoming events",
+      "nextMonths": "Upcoming months",
+      "seeAll": "See all",
+      "seeFull": "See full calendar",
+      "seeMore": "See more events",
+      "seeLess": "See less",
+      "empty": "No races this month.",
+      "noUpcoming": "No races ahead.",
+      "summary": "Season summary",
+      "statEvents": "Events",
+      "statRounds": "Rounds",
+      "statDone": "Completed",
+      "statTracks": "Tracks",
+      "statSeries": "Series",
+      "statCountries": "Countries",
+      "statNextDays": "To next race",
+      "statTrackTime": "Track time",
+      "statWet": "Wet races",
+      "statSpecial": "Special events",
+      "raceNumber": "Race {{n}}",
+      "next": "Next",
+      "race": "Race",
+      "nextRaceLabel": "Next race",
+      "inDays": "in {{n}} days",
+      "inOneDay": "tomorrow"
+    },
     "phase": {
       "mercado": "Market",
       "regularLegacy": "Regular Season",
@@ -237,7 +272,7 @@
     "season": "Season {{year}}",
     "continueCareer": "Continue career",
     "newCareer": "New career",
-    "loadSave": "Load save",
+    "loadSave": "Load career",
     "settings": "Settings",
     "noCareers": "No careers yet.",
     "delete": "Delete",
@@ -942,6 +977,20 @@
       "objectiveForm": "Realistic objective given current form: {{target}}.",
       "objectiveDebut": "Debut objective: start the season building, without chasing losses right out of the gate.",
       "recentForm": "Driver's latest results: {{form}}.",
+      "injury": "Racing injured ({{severity}} injury) — pain and physical limits factor into the weekend.",
+      "injurySeverity": {
+        "light": "minor",
+        "moderate": "moderate",
+        "severe": "severe",
+        "critical": "critical"
+      },
+      "pressure": "Under title pressure: {{name}} is right behind, {{gap}} points back, with only {{rounds}} rounds left — holding the nerve matters as much as pace.",
+      "fame": "Stardom: you are {{level}} (fame {{value}}/100){{crowd}} — press and public revolve around the driver.",
+      "fameLevel": {
+        "star": "a star",
+        "idol": "an idol"
+      },
+      "fameCrowd": ", drawing about {{pct}}% of the expected crowd",
       "avgFinish": "Recent average finish: {{avg}}{{wins}}{{podiums}} in the last races.",
       "avgFinishWins": ", {{n}} win(s)",
       "avgFinishPodiums": ", {{n}} podium(s)",
@@ -2900,10 +2949,18 @@
     "noOneBehind": "no one behind"
   },
   "overlay": {
+    "weatherArc": {
+      "raining": "Rain on track",
+      "incoming": "Rain incoming",
+      "clearing": "Track drying",
+      "now": "You are here"
+    },
     "radio": {
       "tagDnf": "Retired",
       "tagTeam": "Team radio",
       "warningTag": "Your car · Warning",
+      "chatBlockedTag": "iRacing · Commands blocked",
+      "chatBlockedText": "I can't send commands to iRacing. Run the sim in WINDOWED or BORDERLESS mode (exclusive fullscreen blocks it).",
       "dragTooltip": "Drag to reposition the radio"
     },
     "positionPanel": {
@@ -3048,7 +3105,10 @@
     "header": "Starting compound",
     "liveFromGrid": "live · from the grid",
     "wet": "Rain",
-    "dry": "Dry"
+    "dry": "Dry",
+    "soft": "Soft",
+    "medium": "Medium",
+    "hard": "Hard"
   },
   "loadingOverlay": {
     "defaultTitle": "Creating career",
@@ -3057,5 +3117,24 @@
   },
   "marketTab": {
     "title": "Market"
+  },
+  "updater": {
+    "available": "Update available",
+    "availableBody": "Version {{version}} is ready. Update now?",
+    "later": "Later",
+    "install": "Update and restart",
+    "downloading": "Downloading…",
+    "installing": "Installing…",
+    "failed": "Update failed. Try again later.",
+    "check": "Check for updates",
+    "upToDateTitle": "You're up to date",
+    "upToDate": "You're already on the latest version.",
+    "whatsNew": "What's new",
+    "changelogTitle": "What changed",
+    "versionLabel": "Version {{version}}",
+    "noNotes": "No notes for this version.",
+    "betaLabel": "beta",
+    "betaHint": "Tap 5× to check for beta builds",
+    "close": "Close"
   }
 }

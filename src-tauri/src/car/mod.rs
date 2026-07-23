@@ -27,12 +27,21 @@ use serde::{Deserialize, Serialize};
 /// Uma peça instalada no carro: tipo, nível (1..=10) e desgaste (`0.0` = nova,
 /// `1.0` = 100% desgastada; acima de `1.0` = em sobreuso). `spent` marca a peça que
 /// esgotou seu bônus de "esticar" — precisa ser trocada obrigatoriamente.
+///
+/// `unit_seed` é a IDENTIDADE da unidade instalada (redesign 2026-07-22 §4.1): dela sai a
+/// escala de vida individual (`wear::life_scale`) — duas peças do mesmo tipo instaladas em
+/// momentos diferentes têm vidas diferentes (uma "boa", outra "limão"). Re-rolada a cada
+/// instalação (`Replace`). `0` = save antigo/não semeado → o carregador deriva um fallback
+/// determinístico por tipo, e a próxima instalação re-rola. `#[serde(default)]` cobre blobs
+/// antigos onde o campo não existe.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct CarPart {
     pub part_type: PartType,
     pub level: u8,
     pub wear: f64,
     pub spent: bool,
+    #[serde(default)]
+    pub unit_seed: u32,
 }
 
 /// O carro completo: as 11 peças.
@@ -42,7 +51,10 @@ pub struct Car {
 }
 
 impl Car {
-    /// Carro com todas as peças no mesmo nível, sem desgaste. Helper de seed/teste.
+    /// Carro com todas as peças no mesmo nível, sem desgaste. Helper de seed/teste. Cada peça
+    /// nasce com um `unit_seed` DISTINTO por tipo (`wear::initial_unit_seed`) — as 11 peças já
+    /// largam com vidas individuais diferentes, então peças de mesma durabilidade NÃO marcham
+    /// em lockstep (redesign 2026-07-22 §4.1).
     pub fn uniform(level: u8) -> Car {
         Car {
             parts: PartType::ALL
@@ -52,6 +64,7 @@ impl Car {
                     level,
                     wear: 0.0,
                     spent: false,
+                    unit_seed: crate::car::wear::initial_unit_seed(part_type),
                 })
                 .collect(),
         }

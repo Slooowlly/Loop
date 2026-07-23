@@ -10,6 +10,7 @@
 import { getTeamLogoSrc } from "../components/team/TeamLogoMark";
 import { buildTowerSections, isTeammate, playerTeam } from "./towerRows";
 import { DEFAULT_THEME } from "./towerThemes";
+import { tireCompoundDryWet } from "./tireCompounds";
 
 // Categoria do EVENTO -> nome exibido + arquivo do logo (public/utilities/categorias/recortadas).
 const CATEGORY_META = {
@@ -133,9 +134,9 @@ function fgShadow(ctx, on) {
 
 // ─── Assets (logos + pneus) ───────────────────────────────────────────────────
 const TX = "/utilities/textures/";
-const TIRE_DRY_SRC = `${TX}Pneu%20Seco.png`;
-const TIRE_WET_SRC = `${TX}Pneu%20Molhado.png`;
-const FUEL_SRC = `${TX}Fuel.png`;
+const TIRE_DRY_SRC = `${TX}Pneu%20Seco.webp`;
+const TIRE_WET_SRC = `${TX}Pneu%20Molhado.webp`;
+const FUEL_SRC = `${TX}Fuel.webp`;
 
 function loadImage(src) {
   return new Promise((resolve) => {
@@ -375,13 +376,14 @@ function drawPins(ctx, car, cy, theme) {
 }
 
 // Composto de LARGADA escolhido pelo carro, do `CarIdxTireCompound` (a mesma info que o
-// RaceLab mostra). Nesta série só há seco/chuva: índice ≥1 = chuva, 0 = seco, -1 = ainda
-// não escolhido/desconhecido → cai no que já se sabia (car.tire) ou seco. É isso que deixa
-// a torre revelar o pneu da IA ANTES da largada, e não só o padrão seco pra todos.
+// RaceLab mostra), resolvido pelo mapa índice→composto (`tireCompounds.js`). A coluna de
+// paradas só tem ícone seco/chuva, então achatamos os slicks (macio/médio/duro) em "dry"
+// aqui; o nome fino aparece no painel de compostos de largada. -1/desconhecido → cai no que
+// já se sabia (car.tire) ou seco. É isso que deixa a torre revelar o pneu da IA ANTES da
+// largada, e não só o padrão seco pra todos.
 function startCompound(car) {
-  if (typeof car.tireCompound === "number" && car.tireCompound >= 0) {
-    return car.tireCompound >= 1 ? "wet" : "dry";
-  }
+  const dryWet = tireCompoundDryWet(undefined, car.tireCompound);
+  if (dryWet) return dryWet;
   return car.tire === "wet" ? "wet" : "dry";
 }
 

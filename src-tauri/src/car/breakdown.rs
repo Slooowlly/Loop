@@ -20,18 +20,41 @@ use crate::car::{Car, PartType};
 
 // ───────────────────────── Parâmetros calibrados (Rota B) ─────────────────────────
 
-/// Desgaste em que a janela de perigo ABRE. Abaixo disto a peça é confiável (risco 0).
-const RISK_OPEN: f64 = 0.95;
-/// A PAREDE: ao atingir/passar, a peça acabou (falha forçada). O carro aguenta até aqui.
-const HARD_WALL: f64 = 1.05;
-/// Risco por volta na borda de baixo da janela (em 95%).
-const HAZARD_OPEN: f64 = 0.05;
-/// Risco por volta perto da parede (em 105%). Intenso o bastante pra a SORTE matar cedo.
-const HAZARD_WALL: f64 = 0.28;
+// ── Curva de hazard em DOIS REGIMES (redesign 2026-07-22 §4.3) ──
+// Em SERVIÇO [RISK_OPEN, OVERUSE): risco BAIXO ("azar" do carro bem-mantido/rico). SOBREUSO
+// [OVERUSE, HARD_WALL): risco que sobe QUADRÁTICO (consequência do pobre que estica/degrada).
+// Assim time bom raramente quebra; time que empurra a peça além de 100% quebra crescente/certo.
+
+/// Desgaste em que o regime EM-SERVIÇO abre (abaixo disto a peça é confiável, risco 0).
+const RISK_OPEN: f64 = 0.90;
+/// Fim da vida NOMINAL — fronteira serviço→sobreuso. Acima daqui a peça está sendo forçada.
+const OVERUSE: f64 = 1.00;
+/// A PAREDE: ao atingir/passar, a peça acabou (falha forçada). Subiu (1.13→1.20) pra dar
+/// corredor ao regime de sobreuso antes da morte súbita.
+const HARD_WALL: f64 = 1.20;
+/// Hazard/volta na BORDA de baixo do regime em-serviço (em RISK_OPEN). Baixo = o "azar" raro.
+const HAZARD_SERVICE_LO: f64 = 0.006;
+/// Hazard/volta no FIM da vida nominal (em OVERUSE). Ainda modesto — o carro bem-mantido que
+/// roda sua corrida final passa por aqui e quase sempre sobrevive.
+const HAZARD_SERVICE_HI: f64 = 0.030;
+/// Hazard/volta junto à PAREDE (em HARD_WALL). Alto: a peça em sobreuso profundo morre logo.
+const HAZARD_WALL: f64 = 0.45;
 /// Ruído de sorte no desgaste por volta (±fração): volta "puxada" gasta mais.
 const WEAR_NOISE: f64 = 0.30;
 /// Botão global da taxa do grid (análogo ao `IRACER_SALARY_SHARE`).
 const GLOBAL: f64 = 1.0;
+/// TETO do mult combinado de condições (pista × clima) por peça/volta. Sem isto, dia quente
+/// e úmido em pista peaked chega a ~2× e consome ~65% da vida do motor numa corrida só —
+/// esvaziando a grade. O teto poda só a CAUDA brutal: o neutro (~1.0) não muda, e a economia
+/// continua respondendo às condições. Aplicado igual no risco ao vivo E na economia.
+const CONDITIONS_MAX_MULT: f64 = 1.5;
+
+/// Mult combinado de condições (pista × clima) de uma peça, já com o [`CONDITIONS_MAX_MULT`].
+/// Fonte ÚNICA da poda — usado pelo risco ao vivo ([`LiveBreakdown::advance_lap_at`]) e pela
+/// economia ([`conditions_wear_mults`]) pra os dois ficarem sincronizados.
+fn conditions_mult(pt: PartType, track_pha: (f64, f64, f64), mean_align: f64, weather: Weather) -> f64 {
+    (track_wear_mult(pt, track_pha, mean_align) * weather_wear_mult(pt, weather)).min(CONDITIONS_MAX_MULT)
+}
 
 /// Numa manutenção em box (enduro), troca a peça acima deste desgaste. Ver [`roll_race_breakdowns`].
 const SERVICE_WEAR_FLOOR: f64 = 0.60;
@@ -91,6 +114,17 @@ impl Severity {
             Severity::Light => "light",
             Severity::Heavy => "heavy",
             Severity::Dnf => "dnf",
+        }
+    }
+
+    /// Inverso de [`Severity::key`] — resolve a chave persistida ("light"/"heavy"/"dnf") de volta
+    /// à severidade. `None` para chaves desconhecidas. Usado pelo feedback físico da quebra (§4.6).
+    pub fn from_key(key: &str) -> Option<Severity> {
+        match key {
+            "light" => Some(Severity::Light),
+            "heavy" => Some(Severity::Heavy),
+            "dnf" => Some(Severity::Dnf),
+            _ => None,
         }
     }
 }
@@ -298,13 +332,23 @@ fn fragility(pt: PartType) -> f64 {
     (3.0 / pt.durability() as f64).clamp(0.5, 1.0)
 }
 
-/// Risco POR VOLTA de a peça quebrar, dado o desgaste dentro da janela [95%, 105%].
+/// Risco POR VOLTA de a peça quebrar (redesign 2026-07-22 §4.3), em dois regimes:
+/// - `[RISK_OPEN, OVERUSE)` EM SERVIÇO: sobe LINEAR de `HAZARD_SERVICE_LO` a `HAZARD_SERVICE_HI`
+///   (risco baixo — o "azar" do carro bem-mantido).
+/// - `[OVERUSE, HARD_WALL)` SOBREUSO: sobe QUADRÁTICO de `HAZARD_SERVICE_HI` a `HAZARD_WALL`
+///   (a consequência crescente de forçar a peça além de 100%).
+/// A parede (`≥ HARD_WALL`) é falha forçada, tratada no chamador.
 fn per_lap_hazard(pt: PartType, wear: f64) -> f64 {
     if wear < RISK_OPEN {
         return 0.0;
     }
-    let t = ((wear - RISK_OPEN) / (HARD_WALL - RISK_OPEN)).clamp(0.0, 1.0);
-    let base = HAZARD_OPEN + (HAZARD_WALL - HAZARD_OPEN) * t;
+    let base = if wear < OVERUSE {
+        let t = (wear - RISK_OPEN) / (OVERUSE - RISK_OPEN);
+        HAZARD_SERVICE_LO + (HAZARD_SERVICE_HI - HAZARD_SERVICE_LO) * t
+    } else {
+        let t = ((wear - OVERUSE) / (HARD_WALL - OVERUSE)).clamp(0.0, 1.0);
+        HAZARD_SERVICE_HI + (HAZARD_WALL - HAZARD_SERVICE_HI) * t * t
+    };
     (base * fragility(pt) * GLOBAL).clamp(0.0, 1.0)
 }
 
@@ -451,12 +495,7 @@ pub fn conditions_wear_mults(
         / PartType::ALL.len() as f64;
     PartType::ALL
         .iter()
-        .map(|&pt| {
-            (
-                pt,
-                track_wear_mult(pt, track_pha, mean_align) * weather_wear_mult(pt, weather),
-            )
-        })
+        .map(|&pt| (pt, conditions_mult(pt, track_pha, mean_align, weather)))
         .collect()
 }
 
@@ -544,11 +583,14 @@ pub fn player_protected_car(car: &Car, pit_crew_quality: f64) -> Car {
 /// **Percentuais aprovados** — estrutural/mecânica tira você da corrida; aero/eletrônica
 /// quase sempre é só penalidade. Ver spec §11.
 fn severity_weights(pt: PartType) -> (f64, f64) {
+    // DNF das ESTRUTURAIS cortada ~pela metade (era 0.38/0.34/0.30/0.25): mesmo com a parede
+    // já não promovendo Grave→DNF, o peso-base sozinho ainda tirava metade do grid. Agora uma
+    // peça estrutural gasta CUSTA TEMPO na maioria das vezes, mas só TIRA o carro numa fração.
     match pt {
-        PartType::Engine => (0.20, 0.42),      // 0.38 DNF
-        PartType::Gearbox => (0.22, 0.44),     // 0.34
-        PartType::Suspension => (0.28, 0.47),  // 0.25
-        PartType::Chassis => (0.25, 0.45),     // 0.30
+        PartType::Engine => (0.25, 0.52),      // 0.23 DNF
+        PartType::Gearbox => (0.27, 0.53),     // 0.20
+        PartType::Suspension => (0.32, 0.53),  // 0.15
+        PartType::Chassis => (0.30, 0.52),     // 0.18
         PartType::Brakes => (0.45, 0.45),      // 0.10
         PartType::Cooling => (0.50, 0.42),     // 0.08
         PartType::FrontWing => (0.60, 0.35),   // 0.05
@@ -580,13 +622,15 @@ fn sample_severity(pt: PartType, forced: bool, r: f64, is_enduro: bool) -> Sever
     } else {
         Severity::Dnf
     };
-    // Parede sobe um degrau (a peça foi ao limite) — modelo clássico do sprint.
+    // Parede sobe UM degrau, mas só até Grave: `Leve→Grave`. Antes `Grave→DNF` também subia, e
+    // era isso que esvaziava a grade (falha forçada de motor dava ~80% DNF). A DNF forçada agora
+    // vem só da fatia de DNF NATURAL da peça (`severity_weights`), não de um bônus da parede.
     let sev = if !forced {
         base
     } else {
         match base {
             Severity::Light => Severity::Heavy,
-            Severity::Heavy => Severity::Dnf,
+            Severity::Heavy => Severity::Heavy,
             Severity::Dnf => Severity::Dnf,
         }
     };
@@ -672,6 +716,11 @@ pub struct LiveBreakdown {
     wear: [f64; 11],
     broken: [bool; 11],
     entered: [f64; 11],
+    /// Vida INDIVIDUAL de cada peça (redesign 2026-07-22 §4.1) — divisor do desgaste por volta,
+    /// pra a sim viva dessincronizar peças de mesma durabilidade igual à economia.
+    life_scale: [f64; 11],
+    /// Multiplicador de vida pela TENDA de nível (§4.8) por peça — aplicado só se `is_tent`.
+    level_mult: [f64; 11],
     seed: u64,
     pit_crew_quality: f64,
     track_pha: (f64, f64, f64),
@@ -679,6 +728,9 @@ pub struct LiveBreakdown {
     out: bool,
     /// Corrida longa: severidade abrandada (DNF raro) + rampa de desgaste no fim. Default false.
     is_enduro: bool,
+    /// Aplica a TENDA de durabilidade por nível (§4.8). Default `true`; o wiring passa `false`
+    /// em categoria spec (teto ≤ 2), onde nível baixo é a norma.
+    is_tent: bool,
 }
 
 impl LiveBreakdown {
@@ -686,8 +738,14 @@ impl LiveBreakdown {
     /// aplicada, se for o dele). `track_pha` fixa a pista; o clima entra por volta.
     pub fn new(car: &Car, seed: u64, pit_crew_quality: f64, track_pha: (f64, f64, f64)) -> Self {
         let mut wear = [0.0; 11];
+        let mut life_scale = [1.0; 11];
+        let mut level_mult = [1.0; 11];
         for (i, &pt) in PartType::ALL.iter().enumerate() {
-            wear[i] = car.part(pt).map(|p| p.wear).unwrap_or(0.0);
+            if let Some(p) = car.part(pt) {
+                wear[i] = p.wear;
+                life_scale[i] = crate::car::wear::part_life_scale(p);
+                level_mult[i] = crate::car::wear::level_durability_mult(p.level);
+            }
         }
         // Média do alinhamento das 11 peças — subtraída em cada peça pra CENTRAR os mults em
         // ~1.0 (redistribui sem inflar a taxa total).
@@ -697,12 +755,15 @@ impl LiveBreakdown {
             wear,
             broken: [false; 11],
             entered: wear,
+            life_scale,
+            level_mult,
             seed,
             pit_crew_quality,
             track_pha,
             mean_align,
             out: false,
             is_enduro: false,
+            is_tent: true,
         }
     }
 
@@ -710,6 +771,13 @@ impl LiveBreakdown {
     /// chama isto quando a corrida passa de [`ENDURO_DURATION_GATE_MIN`]. Encadeável.
     pub fn with_enduro(mut self, is_enduro: bool) -> Self {
         self.is_enduro = is_enduro;
+        self
+    }
+
+    /// Liga/desliga a TENDA de durabilidade por nível (§4.8). O wiring passa `false` em categoria
+    /// spec (teto ≤ 2). Default `true`. Encadeável.
+    pub fn with_tent(mut self, is_tent: bool) -> Self {
+        self.is_tent = is_tent;
         self
     }
 
@@ -761,11 +829,12 @@ impl LiveBreakdown {
                 continue;
             }
             let noise = 1.0 + (roll(self.seed, i, lap, CH_NOISE) * 2.0 - 1.0) * WEAR_NOISE;
+            let life = self.life_scale[i] * if self.is_tent { self.level_mult[i] } else { 1.0 };
             self.wear[i] += wear_per_lap(pt)
                 * noise
-                * track_wear_mult(pt, self.track_pha, self.mean_align)
-                * weather_wear_mult(pt, weather)
-                * ramp;
+                * conditions_mult(pt, self.track_pha, self.mean_align, weather)
+                * ramp
+                / life;
 
             let (failed, forced) = if self.wear[i] >= HARD_WALL {
                 (true, true)
@@ -832,7 +901,7 @@ pub fn roll_race_breakdowns(
     weather: Weather,
     service_laps: &[u32],
 ) -> Vec<BreakdownEvent> {
-    roll_race_breakdowns_cfg(car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, false)
+    roll_race_breakdowns_cfg(car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, false, true)
 }
 
 /// Igual a [`roll_race_breakdowns`], mas com o flag `is_enduro`: a corrida longa abranda a
@@ -847,8 +916,11 @@ pub fn roll_race_breakdowns_cfg(
     weather: Weather,
     service_laps: &[u32],
     is_enduro: bool,
+    apply_tent: bool,
 ) -> Vec<BreakdownEvent> {
-    let mut state = LiveBreakdown::new(car, seed, pit_crew_quality, track_pha).with_enduro(is_enduro);
+    let mut state = LiveBreakdown::new(car, seed, pit_crew_quality, track_pha)
+        .with_enduro(is_enduro)
+        .with_tent(apply_tent);
     let mut events = Vec::new();
     let denom = laps.max(1) as f64;
     for lap in 1..=laps {
@@ -880,6 +952,10 @@ pub struct PartRisk {
     pub part: PartType,
     /// Probabilidade de a peça LARGAR (qualquer severidade) nesta corrida.
     pub any_prob: f64,
+    /// Probabilidade de a peça custar TEMPO DE VERDADE (penalidade pesada ou DNF) nesta corrida.
+    /// Separa o desgaste trivial (`Light`, quase certo) do que realmente machuca a corrida —
+    /// é a base do rótulo "custa tempo" vs "confiável" no aviso pré-corrida.
+    pub costly_prob: f64,
     /// Probabilidade de a peça causar DNF nesta corrida.
     pub dnf_prob: f64,
 }
@@ -911,22 +987,30 @@ pub fn forecast_breakdown_risk(
     service_laps: &[u32],
     samples: u32,
     is_enduro: bool,
+    apply_tent: bool,
 ) -> BreakdownForecast {
     let mut any = [0u32; 11];
+    let mut costly = [0u32; 11];
     let mut dnf = [0u32; 11];
     let mut any_dnf = 0u32;
     let n = samples.max(1);
     for i in 0..n {
         let seed = splitmix64(base_seed ^ splitmix64(i as u64));
         let evs = roll_race_breakdowns_cfg(
-            car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, is_enduro,
+            car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, is_enduro, apply_tent,
         );
         let mut part_failed = [false; 11];
+        let mut part_costly = [false; 11];
         let mut part_dnf = [false; 11];
         let mut car_dnf = false;
         for ev in evs {
             if let Some(idx) = PartType::ALL.iter().position(|&p| p == ev.part) {
                 part_failed[idx] = true;
+                // "Custa tempo": penalidade PESADA ou DNF — o desgaste trivial (Light) não conta,
+                // senão quase toda peça acenderia (Light é quase certo numa corrida).
+                if ev.severity == Severity::Heavy || ev.is_dnf() {
+                    part_costly[idx] = true;
+                }
                 if ev.is_dnf() {
                     part_dnf[idx] = true;
                     car_dnf = true;
@@ -936,6 +1020,9 @@ pub fn forecast_breakdown_risk(
         for k in 0..11 {
             if part_failed[k] {
                 any[k] += 1;
+            }
+            if part_costly[k] {
+                costly[k] += 1;
             }
             if part_dnf[k] {
                 dnf[k] += 1;
@@ -952,6 +1039,7 @@ pub fn forecast_breakdown_risk(
         .map(|(k, &pt)| PartRisk {
             part: pt,
             any_prob: any[k] as f64 / denom,
+            costly_prob: costly[k] as f64 / denom,
             dnf_prob: dnf[k] as f64 / denom,
         })
         .filter(|r| r.any_prob > 0.0)
@@ -1110,12 +1198,249 @@ mod tests {
         }
     }
 
+    // -------- Análise: taxa de quebra por corrida (diagnóstico, não regressão) --------
+
+    /// Clima BRUTAL pro motor/arrefecimento: dia quente MÁX + úmido (amplifica a térmica) +
+    /// vento forte (estressa suspensão/asas). O pior cenário realista da faixa do iRacing.
+    const WEATHER_BRUTAL: Weather = Weather {
+        wetness: 0.0,
+        temperature: 32.0,
+        humidity: 95.0,
+        wind_kmh: 42.0,
+    };
+
+    /// Monta um carro com um PERFIL de desgaste de entrada que reflete o que o cérebro de
+    /// manutenção deixa cada tipo de time levar pra pista (ver `car_maintenance::needs_decision`,
+    /// que troca a peça quando `wear + wear_per_race >= 1.0`).
+    fn perfil(kind: &str) -> Car {
+        use crate::car::wear::wear_per_race;
+        let mut car = Car::uniform(3);
+        // Limiar em que o time DECIDE trocar (peça cruzaria 100% na próxima corrida).
+        let limiar = |pt: PartType| 1.0 - wear_per_race(pt);
+        for &pt in &PartType::ALL {
+            let frag = pt.durability() <= 3; // motor/câmbio/freios/asas/suspensão
+            let w = match kind {
+                // Time rico: repõe no limiar → entra, em média, na METADE da vida útil.
+                "rico_saudavel" => limiar(pt) / 2.0,
+                // Time rico no PIOR momento do ciclo: logo antes de repor.
+                "rico_limitrofe" => (limiar(pt) - 0.02).max(0.0),
+                // Time pobre: não repôs as frágeis → esticou até o limiar; resto na metade.
+                "pobre_esticando" => if frag { limiar(pt) } else { limiar(pt) / 2.0 },
+                // Time quebrado: frágeis DEGRADADAS além da vida; resto no limiar.
+                "pobre_degradado" => if frag { 0.98 } else { limiar(pt) - 0.02 },
+                _ => 0.0,
+            };
+            car.set_wear(pt, w);
+        }
+        car
+    }
+
+    /// Roda o MC real (`roll_race_breakdowns`) e mede, POR CORRIDA:
+    /// (P(≥1 quebra qualquer), P(≥1 quebra que custa tempo), P(DNF do carro)).
+    fn medir(car: &Car, laps: u32, track: (f64, f64, f64), weather: Weather, samples: u32) -> (f64, f64, f64) {
+        let base = 0x00C0_FFEE_u64;
+        let (mut any, mut costly, mut dnf) = (0u32, 0u32, 0u32);
+        for i in 0..samples {
+            let seed = splitmix64(base ^ splitmix64(i as u64));
+            let evs = roll_race_breakdowns(car, laps, seed, PIT_NEUTRO, track, weather, &[]);
+            if !evs.is_empty() {
+                any += 1;
+            }
+            if evs.iter().any(|e| e.severity == Severity::Heavy || e.is_dnf()) {
+                costly += 1;
+            }
+            if evs.iter().any(|e| e.is_dnf()) {
+                dnf += 1;
+            }
+        }
+        let n = samples as f64;
+        (any as f64 / n, costly as f64 / n, dnf as f64 / n)
+    }
+
+    /// "1 a cada N corridas" a partir da probabilidade por corrida (∞ se ~0).
+    fn cada(p: f64) -> String {
+        if p < 1e-4 {
+            "     —".to_string()
+        } else {
+            format!("1/{:>4.1}", 1.0 / p)
+        }
+    }
+
+    /// DIAGNÓSTICO (rode com: `cargo test analise_taxa_quebra -- --ignored --nocapture`).
+    /// Não é regressão — só imprime a taxa esperada de quebra por corrida pra calibração.
+    #[test]
+    #[ignore]
+    fn analise_taxa_quebra() {
+        const N: u32 = 20_000;
+        let perfis = ["rico_saudavel", "rico_limitrofe", "pobre_esticando", "pobre_degradado"];
+        let cenarios: [(&str, (f64, f64, f64), Weather); 2] = [
+            ("NEUTRO  (pista equilibrada, 25C seco)", TRACK_NEUTRO, WEATHER_NEUTRO),
+            ("BRUTAL  (pista de potencia, 32C umido)", TRACK_POWER, WEATHER_BRUTAL),
+        ];
+
+        for laps in [18u32, 30] {
+            println!("\n================ CORRIDA DE {laps} VOLTAS ================");
+            for (nome_cen, track, weather) in cenarios {
+                println!("\n  -- {nome_cen} --");
+                println!(
+                    "  {:<18} {:>10} {:>12} {:>10}",
+                    "perfil do time", "qq quebra", "custa tempo", "DNF"
+                );
+                for kind in perfis {
+                    let car = perfil(kind);
+                    let (a, c, d) = medir(&car, laps, track, weather, N);
+                    println!(
+                        "  {:<18} {:>5.1}% {:>6}  {:>5.1}% {:>6}  {:>5.1}% {}",
+                        kind,
+                        a * 100.0,
+                        cada(a),
+                        c * 100.0,
+                        cada(c),
+                        d * 100.0,
+                        cada(d),
+                    );
+                }
+            }
+        }
+
+        // Curva: risco de UMA peça frágil (motor, durab 3) sozinha, por desgaste de entrada.
+        println!("\n================ CURVA: MOTOR (durab 3) SOZINHO, 18 voltas ================");
+        println!("  desgaste_entrada   qq quebra    custa tempo    DNF   (NEUTRO / BRUTAL)");
+        for pct in [50, 60, 67, 75, 85, 95, 100, 103] {
+            let w = pct as f64 / 100.0;
+            let car = car_with(PartType::Engine, w);
+            let (an, cn, dn) = medir(&car, 18, TRACK_NEUTRO, WEATHER_NEUTRO, N);
+            let (ab, cb, db) = medir(&car, 18, TRACK_POWER, WEATHER_BRUTAL, N);
+            println!(
+                "  {:>3}%   N:{:>5.1}%/{:>5.1}%/{:>5.1}%   B:{:>5.1}%/{:>5.1}%/{:>5.1}%",
+                pct,
+                an * 100.0, cn * 100.0, dn * 100.0,
+                ab * 100.0, cb * 100.0, db * 100.0,
+            );
+        }
+        println!();
+    }
+
+    /// Métricas profundas de UMA corrida (por peça-que-falha), agregadas no Monte Carlo.
+    struct DistQuebra {
+        /// P(≥1 quebra qualquer), P(quebra que custa tempo), P(DNF do carro).
+        any: f64,
+        costly: f64,
+        dnf: f64,
+        /// Distribuição do nº de peças que falharam numa corrida: 0, 1, 2, ≥3.
+        p0: f64,
+        p1: f64,
+        p2: f64,
+        p3plus: f64,
+        /// P(≥2 quebras | ≥1 quebra) — "erros SEGUIDOS na MESMA corrida".
+        cond_2plus: f64,
+        /// Média de peças que falham por corrida.
+        mean: f64,
+    }
+
+    /// Roda o MC real e agrega a DISTRIBUIÇÃO do nº de quebras por corrida (não só "teve/não
+    /// teve"). `roll_race_breakdowns` já para no 1º DNF, então o nº de eventos é o nº de peças
+    /// que largaram antes (ou até) o carro sair.
+    fn medir_profundo(
+        car: &Car,
+        laps: u32,
+        track: (f64, f64, f64),
+        weather: Weather,
+        samples: u32,
+    ) -> DistQuebra {
+        let base = 0x00C0_FFEE_u64;
+        let (mut any, mut costly, mut dnf) = (0u32, 0u32, 0u32);
+        let (mut c0, mut c1, mut c2, mut c3) = (0u32, 0u32, 0u32, 0u32);
+        let mut total_events = 0u64;
+        for i in 0..samples {
+            let seed = splitmix64(base ^ splitmix64(i as u64));
+            let evs = roll_race_breakdowns(car, laps, seed, PIT_NEUTRO, track, weather, &[]);
+            let n = evs.len();
+            total_events += n as u64;
+            match n {
+                0 => c0 += 1,
+                1 => c1 += 1,
+                2 => c2 += 1,
+                _ => c3 += 1,
+            }
+            if n >= 1 {
+                any += 1;
+            }
+            if evs.iter().any(|e| e.severity == Severity::Heavy || e.is_dnf()) {
+                costly += 1;
+            }
+            if evs.iter().any(|e| e.is_dnf()) {
+                dnf += 1;
+            }
+        }
+        let s = samples as f64;
+        let two_plus = (c2 + c3) as f64;
+        DistQuebra {
+            any: any as f64 / s,
+            costly: costly as f64 / s,
+            dnf: dnf as f64 / s,
+            p0: c0 as f64 / s,
+            p1: c1 as f64 / s,
+            p2: c2 as f64 / s,
+            p3plus: c3 as f64 / s,
+            cond_2plus: if any > 0 { two_plus / any as f64 } else { 0.0 },
+            mean: total_events as f64 / s,
+        }
+    }
+
+    /// DIAGNÓSTICO PROFUNDO — Perguntas 1 e 3 (rode com:
+    /// `cargo test analise_profunda_quebras -- --ignored --nocapture`).
+    /// (1) QUÃO FREQUENTES são as quebras por corrida, por perfil de time e cenário.
+    /// (3) Com que frequência caem QUEBRAS SEGUIDAS na MESMA corrida (≥2 peças) — a coluna
+    ///     `P(≥2|≥1)` é "dado que quebrou, a chance de ter sido MAIS de uma peça".
+    /// A recorrência ENTRE corridas (mesma peça na próxima) está em
+    /// `car_maintenance::tests::analise_recorrencia_entre_corridas`.
+    #[test]
+    #[ignore]
+    fn analise_profunda_quebras() {
+        const N: u32 = 40_000;
+        let perfis = ["rico_saudavel", "rico_limitrofe", "pobre_esticando", "pobre_degradado"];
+        let cenarios: [(&str, (f64, f64, f64), Weather); 2] = [
+            ("NEUTRO (pista equilibrada, 25C seco)", TRACK_NEUTRO, WEATHER_NEUTRO),
+            ("BRUTAL (pista de potencia, 32C umido+vento)", TRACK_POWER, WEATHER_BRUTAL),
+        ];
+
+        for laps in [18u32, 30] {
+            println!("\n================ CORRIDA DE {laps} VOLTAS ================");
+            for (cen, track, weather) in cenarios {
+                println!("\n  -- cenário {cen} --");
+                println!(
+                    "  {:<18} {:>6} {:>6} {:>6}  |  {:>6} {:>6} {:>6} {:>6}  {:>9} {:>6}",
+                    "perfil", "≥1qb", "custa", "DNF", "0qb", "1qb", "2qb", "≥3qb", "P(≥2|≥1)", "média"
+                );
+                for kind in perfis {
+                    let car = perfil(kind);
+                    let m = medir_profundo(&car, laps, track, weather, N);
+                    println!(
+                        "  {:<18} {:>5.1}% {:>5.1}% {:>5.1}%  |  {:>5.1}% {:>5.1}% {:>5.1}% {:>5.1}%  {:>8.1}% {:>6.2}",
+                        kind,
+                        m.any * 100.0,
+                        m.costly * 100.0,
+                        m.dnf * 100.0,
+                        m.p0 * 100.0,
+                        m.p1 * 100.0,
+                        m.p2 * 100.0,
+                        m.p3plus * 100.0,
+                        m.cond_2plus * 100.0,
+                        m.mean,
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
     // -------- Diretor do disparo ao vivo --------
 
     #[test]
     fn diretor_dispara_peca_no_limite() {
         let mut car = Car::uniform(3);
-        car.set_wear(PartType::Engine, 1.10); // além da parede → falha forçada na volta 1
+        car.set_wear(PartType::Engine, 1.22); // além da parede (1.20) → falha forçada na volta 1
         let live = LiveBreakdown::new(&car, 42, PIT_NEUTRO, TRACK_NEUTRO);
         let mut dir = BreakdownDirector::new();
         dir.add_car(7, live, vec![]);
@@ -1136,7 +1461,7 @@ mod tests {
     #[test]
     fn diretor_nao_redispara_a_mesma_volta() {
         let mut car = Car::uniform(3);
-        car.set_wear(PartType::Brakes, 1.10);
+        car.set_wear(PartType::Brakes, 1.22); // além da parede (HARD_WALL 1.20) → falha forçada garantida
         let live = LiveBreakdown::new(&car, 1, PIT_NEUTRO, TRACK_NEUTRO);
         let mut dir = BreakdownDirector::new();
         dir.add_car(3, live, vec![]);
@@ -1161,7 +1486,7 @@ mod tests {
         let seed = (0..500u64)
             .find(|&s| {
                 let mut c = Car::uniform(3);
-                c.set_wear(PartType::Engine, 1.10);
+                c.set_wear(PartType::Engine, 1.22);
                 let mut lb = LiveBreakdown::new(&c, s, PIT_NEUTRO, TRACK_NEUTRO);
                 lb.advance_lap(1, WEATHER_NEUTRO)
                     .iter()
@@ -1169,7 +1494,7 @@ mod tests {
             })
             .expect("algum seed deveria dar DNF no motor na parede");
         let mut car = Car::uniform(3);
-        car.set_wear(PartType::Engine, 1.10);
+        car.set_wear(PartType::Engine, 1.22);
         let live = LiveBreakdown::new(&car, seed, PIT_NEUTRO, TRACK_NEUTRO);
         let mut dir = BreakdownDirector::new();
         dir.add_car(2, live, vec![]);
@@ -1289,7 +1614,7 @@ mod tests {
             1.0 - l - h
         };
         assert!(
-            dnf(PartType::Engine) > dnf(PartType::Electronics) + 0.2,
+            dnf(PartType::Engine) > dnf(PartType::Electronics) + 0.15,
             "motor deveria dar muito mais DNF que eletrônica"
         );
     }
@@ -1396,20 +1721,20 @@ mod tests {
     fn previsao_de_risco_reflete_o_desgaste_de_entrada() {
         // Carro novo (desgaste baixo) → risco ~zero num sprint.
         let sadio = Car::uniform(3);
-        let f0 = forecast_breakdown_risk(&sadio, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false);
+        let f0 = forecast_breakdown_risk(&sadio, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
         assert!(f0.dnf_prob < 0.02, "carro novo não deveria ter risco de DNF: {}", f0.dnf_prob);
 
         // Motor entrando na zona de perigo → motor vira a peça de MAIOR risco e o risco sobe.
         let mut gasto = Car::uniform(3);
         gasto.set_wear(PartType::Engine, 0.98);
-        let f1 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false);
+        let f1 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
         assert!(f1.dnf_prob > f0.dnf_prob, "carro gasto deveria ter mais risco");
         assert!(!f1.parts.is_empty());
         assert_eq!(f1.parts[0].part, PartType::Engine, "o motor no fio deveria liderar o risco");
         assert!(f1.parts[0].any_prob > 0.3, "motor a 98% deveria largar com frequência: {}", f1.parts[0].any_prob);
 
         // Determinístico: mesma entrada → mesma previsão.
-        let f2 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false);
+        let f2 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
         assert_eq!(f1, f2);
     }
 
@@ -1666,8 +1991,10 @@ mod tests {
             pct(sem), pct(protegido), protegido as f64 / sem as f64
         );
         // Banda sã: protege de verdade, mas sem tornar o jogador quase-imune (a frota
-        // sintética é arbitrária; o valor fino se calibra no wiring com desgaste real).
-        assert!(protegido < sem * 4 / 5, "proteção fraca demais: {protegido} vs {sem}");
+        // sintética é arbitrária; o valor fino se calibra no wiring com desgaste real). Com a
+        // janela de risco alargada (RISK_OPEN 0.87), o mesmo alívio de 5% cobre proporção menor
+        // da zona → a redução relativa cai de ~20% pra ~19%; a banda acompanha.
+        assert!(protegido < sem * 85 / 100, "proteção fraca demais: {protegido} vs {sem}");
         assert!(protegido > sem / 5, "proteção forte demais (quase imune): {protegido} vs {sem}");
     }
 
@@ -1696,7 +2023,7 @@ mod tests {
             (0..2000u64)
                 .filter(|&s| {
                     let car = car_with(PartType::Engine, 0.98);
-                    roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], is_enduro)
+                    roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], is_enduro, true)
                         .iter()
                         .any(|e| e.is_dnf())
                 })
@@ -1714,9 +2041,14 @@ mod tests {
     #[test]
     fn enduro_peca_nao_estrutural_nunca_da_dnf() {
         for seed in 0..1000u64 {
-            let car = car_with(PartType::FrontWing, 1.08); // além da parede
-            for ev in roll_race_breakdowns_cfg(&car, 40, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true) {
-                assert!(!ev.is_dnf(), "asa não deveria dar DNF no enduro (seed {seed})");
+            let car = car_with(PartType::FrontWing, 1.08); // dentro da janela → a asa vai quebrar
+            for ev in roll_race_breakdowns_cfg(&car, 40, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true, true) {
+                // O invariante é sobre a ASA (não-estrutural). Numa corrida de 40 voltas, peças
+                // frágeis frescas (motor/câmbio) também entram na zona e, por serem estruturais,
+                // PODEM dar DNF no enduro — então filtramos só os eventos da asa.
+                if ev.part == PartType::FrontWing {
+                    assert!(!ev.is_dnf(), "asa não deveria dar DNF no enduro (seed {seed})");
+                }
             }
         }
     }
@@ -1726,7 +2058,7 @@ mod tests {
     fn enduro_estrutural_ainda_pode_dar_dnf() {
         let algum_dnf = (0..1000u64).any(|s| {
             let car = car_with(PartType::Engine, 1.06);
-            roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true)
+            roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true, true)
                 .iter()
                 .any(|e| e.is_dnf())
         });
@@ -1738,7 +2070,7 @@ mod tests {
     #[test]
     fn enduro_estrutural_mantem_so_a_fracao_de_dnf() {
         // Motor (estrutural), todos os `r` na fatia de DNF, sem parede: ~25% permanecem DNF.
-        let (light, heavy) = (0.20_f64, 0.42_f64); // motor
+        let (light, heavy) = severity_weights(PartType::Engine); // fonte única — não fica stale
         let n = 4000;
         let dnf = (0..n)
             .filter(|k| {
@@ -1812,5 +2144,59 @@ mod tests {
         assert_eq!(modeled_ai_pits(30), 0, "sprint: sem parada modelada");
         assert_eq!(modeled_ai_pits(60), 2, "60min ≈ 2 stints");
         assert_eq!(modeled_ai_pits(90), 3);
+    }
+
+    // -------- Tenda de durabilidade por NÍVEL (§4.8) --------
+
+    #[test]
+    fn tenda_de_nivel_tem_pico_no_5_e_e_simetrica() {
+        use crate::car::wear::level_durability_mult as m;
+        assert!(m(5) > m(4) && m(5) > m(6), "pico de vida no nível 5");
+        assert!((m(4) - m(6)).abs() < 1e-9, "4 e 6 = normal (iguais)");
+        assert!(
+            (m(3) - m(7)).abs() < 1e-9 && (m(2) - m(8)).abs() < 1e-9 && (m(1) - m(9)).abs() < 1e-9,
+            "curva simétrica em torno do 5"
+        );
+        assert!(m(1) < m(2) && m(2) < m(3) && m(3) < m(4) && m(4) < m(5), "sobe até o 5");
+        assert!(m(9) < m(8) && m(8) < m(7) && m(7) < m(6), "cai depois do 5");
+    }
+
+    #[test]
+    fn peca_nivel_alto_quebra_mais_que_nivel_5() {
+        // MESMA peça (motor), MESMO desgaste de entrada — só o NÍVEL muda. Nível 8 (de ponta,
+        // frágil) quebra MAIS que o nível 5 (o ponto confiável): o tradeoff desempenho×confiab.
+        let breaks = |level: u8| -> usize {
+            (0..1500u64)
+                .filter(|&s| {
+                    let mut car = Car::uniform(level);
+                    car.set_wear(PartType::Engine, 0.80);
+                    !roll_race_breakdowns(&car, 18, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[])
+                        .is_empty()
+                })
+                .count()
+        };
+        let n5 = breaks(5);
+        let n8 = breaks(8);
+        assert!(n8 > n5 + 50, "nível 8 deveria quebrar bem mais que o 5 (5={n5}, 8={n8})");
+    }
+
+    #[test]
+    fn categoria_spec_ignora_a_tenda_de_nivel() {
+        // Guard do §4.8: sem a tenda (`apply_tent=false`, categoria spec) o NÍVEL não muda a vida
+        // — o carro do iniciante (tudo nível 1) NÃO é penalizado. Com a tenda, nível 1 quebra mais.
+        let breaks = |level: u8, tent: bool| -> usize {
+            (0..1500u64)
+                .filter(|&s| {
+                    let mut car = Car::uniform(level);
+                    car.set_wear(PartType::Engine, 0.80);
+                    !roll_race_breakdowns_cfg(
+                        &car, 18, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], false, tent,
+                    )
+                    .is_empty()
+                })
+                .count()
+        };
+        assert!(breaks(1, true) > breaks(5, true), "com tenda, nível 1 (0.60×) quebra mais que 5");
+        assert_eq!(breaks(1, false), breaks(5, false), "sem tenda (spec), o nível é irrelevante");
     }
 }

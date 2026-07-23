@@ -71,9 +71,13 @@ export default function OverlayMonitorAuto() {
   }, [live, careerId, enabled]);
 
   // RÁDIO: ao vivo OU em demo (assim dá pra ver/posicionar o card sem esperar quebra).
+  // O vigia de hover (que captura o mouse pra ARRASTAR) só liga no DEMO — assim o card
+  // é reposicionável enquanto você ajusta, mas em CORRIDA REAL fica 100% clique-atravessa
+  // (o mouse vai pro iRacing, não trava a interface do jogo por baixo do card).
   useEffect(() => {
     if (!IN_TAURI) return;
     const showRadio = live || demo;
+    invoke("engineer_set_hover_watch", { active: demo }).catch(() => {});
     if (showRadio) {
       engShownRef.current = true;
       invoke("engineer_window_show").catch(() => {});

@@ -80,3 +80,14 @@ export const THEMES = {
 
 export const DEFAULT_THEME = THEMES.stripe;
 export const THEME_LIST = [THEMES.broadcast, THEMES.glass, THEMES.stripe];
+
+// Tema do VR: mesma pele (stripe) porém bem MAIS OPACA — dentro do óculos a torre fica
+// mais legível sem o cockpit "vazando" por baixo. O DESKTOP segue com DEFAULT_THEME
+// (translúcido); só o writer do VR usa este.
+export const VR_THEME = {
+  ...THEMES.stripe,
+  key: "stripe-vr",
+  panelBg: "rgba(8,10,12,0.95)",
+  sessionBg: "rgba(8,10,12,0.99)",
+  sessionTop: "rgba(20,26,34,0.99)",
+};

@@ -1,6 +1,6 @@
 {
   "productName": "Loop",
-  "version": "1.0.0",
+  "version": "0.11.0",
   "identifier": "com.loop.app",
   "build": {
     "frontendDist": "../dist",
@@ -40,10 +40,10 @@
         "label": "engineer",
         "title": "Loop Engineer",
         "url": "index.html",
-        "width": 900,
-        "height": 260,
-        "x": 0,
-        "y": 0,
+        "width": 620,
+        "height": 200,
+        "x": 653,
+        "y": 195,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -58,9 +58,18 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://storage.googleapis.com/loop-updates/updates/{{target}}/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY4NThGMDYwNTg1OUIwMzgKUldRNHNGbFlZUEJZK08zaGhGWmJWZi9NZUoyREVkZW1NR3lZanJ3bmxpQjV5endwQ0tZajlxeHAK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -70,7 +79,7 @@
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/icon.ico",
+        "installerIcon": "icons/icon-installer.ico",
         "headerImage": "installer/header.bmp",
         "sidebarImage": "installer/sidebar.bmp"
       }

@@ -899,6 +899,11 @@ struct RaceMonitor {
     /// Log dos avisos pessoais (peça do jogador entrou na zona de risco) — o overlay mostra num
     /// card DISTINTO (voz em 2ª pessoa). Zerado ao instalar um diretor novo.
     player_warning_log: Vec<PlayerWarning>,
+    /// Latch: um comando de quebra (`!black`/`!dq`) NÃO chegou ao iRacing nesta corrida
+    /// (janela não encontrada / foreground recusado). Vira um aviso âmbar único no rádio
+    /// ("os comandos não estão chegando; rode o sim em janela/borderless") em vez de a
+    /// penalidade sumir em silêncio. Zerado ao instalar um diretor novo.
+    chat_send_warned: bool,
 }
 
 /// Aviso pessoal ao jogador: uma peça DELE entrou na janela de risco (já pode falhar).
@@ -1023,6 +1028,7 @@ impl RaceMonitor {
             breakdown_repair_laps: Vec::new(),
             breakdown_flash_at: [0.0; 64],
             breakdown_progress: 0.0,
+            chat_send_warned: false,
         }
     }
 
@@ -1049,6 +1055,19 @@ impl RaceMonitor {
         self.breakdown_log.clear(); // corrida nova → zera o log de desfechos (Peça 3)
         self.player_risk_warned = [false; 11]; // corrida nova → rearma os avisos pessoais
         self.player_warning_log.clear();
+        self.chat_send_warned = false; // corrida nova → rearma o aviso de comando não-entregue
+    }
+
+    /// Registra que um comando de quebra NÃO chegou ao iRacing (latch por corrida). O disparo
+    /// é estrangulado (~1 a cada 1,5 s), então sem o latch um sim em fullscreen exclusivo
+    /// geraria um aviso por tick; aqui vira UM aviso âmbar no rádio. Devolve `true` só na
+    /// PRIMEIRA falha da corrida (pra quem quiser logar uma vez).
+    fn note_chat_send_failure(&mut self) -> bool {
+        if self.chat_send_warned {
+            return false;
+        }
+        self.chat_send_warned = true;
+        true
     }
 
     /// Monta o diagnóstico por carro (o que o RaceControl enxerga de cada um).
@@ -1995,6 +2014,25 @@ impl RaceMonitor {
                 .find(|c| c.position == 1)
                 .map(|c| c.lap_dist_pct.clamp(0.0, 1.0))
                 .unwrap_or(0.0);
+            // Tempo de volta de referência do líder — usado pra "empilhar" as voltas
+            // atrás no gap de quem está lapado/parado. Sem isso, um carro parado no box
+            // (F2Time ~0, ver CarSnapshot::f2_time) fica colado no líder no gráfico.
+            // Preferência: volta do líder → melhor volta do líder → volta mais rápida
+            // do campo → fallback 90s (só relevante nos primeiros instantes).
+            let leader_lap_ref = t
+                .cars
+                .iter()
+                .find(|c| c.position == 1)
+                .map(|c| if c.last_lap_time > 0.0 { c.last_lap_time } else { c.best_lap_time })
+                .filter(|&v| v > 0.0)
+                .or_else(|| {
+                    t.cars
+                        .iter()
+                        .map(|c| c.last_lap_time)
+                        .filter(|&v| v > 0.0)
+                        .fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a| a.min(v))))
+                })
+                .unwrap_or(90.0);
             let cars: Vec<CarGapPoint> = t
                 .cars
                 .iter()
@@ -2013,14 +2051,22 @@ impl RaceMonitor {
                     if position < 1 {
                         return None;
                     }
+                    // Gap ao líder: F2Time do SDK, mas com um PISO por voltas atrás.
+                    // Um carro lapado (ou parado no box, sem volta completa) vem com
+                    // F2Time ~0 e ficaria colado no líder; o piso `voltas_atrás × tempo
+                    // de volta do líder` o empurra pro fim. O `max` preserva um F2Time
+                    // já válido (que em corrida real JÁ inclui o tempo lapado) sem
+                    // duplicar a contagem.
+                    let base_gap = if c.f2_time.is_finite() {
+                        c.f2_time.max(0.0)
+                    } else {
+                        0.0
+                    };
+                    let laps_behind = (leader_lap - c.lap_completed).max(0);
                     Some(CarGapPoint {
                         idx: c.idx,
                         position,
-                        gap: if c.f2_time.is_finite() {
-                            c.f2_time.max(0.0)
-                        } else {
-                            0.0
-                        },
+                        gap: base_gap.max(laps_behind as f64 * leader_lap_ref),
                         lap_dist_pct: if c.lap_dist_pct.is_finite() {
                             c.lap_dist_pct.clamp(0.0, 1.0) as f32
                         } else {
@@ -3246,7 +3292,18 @@ fn start_sampler() {
                         // segurar o lock). Espaça o roubo de foco pra o jogador seguir dirigindo.
                         if tick % 90 == 0 {
                             if let Some(cmd) = lock().take_one_breakdown_cmd() {
-                                let _ = super::send_chat_text(&cmd);
+                                // NÃO engole o erro: se o comando não chegou ao sim (janela
+                                // não encontrada / foreground recusado / SendInput bloqueado),
+                                // a penalidade sumiria em silêncio. Loga e arma UM aviso âmbar
+                                // no rádio (latch por corrida) pra o jogador saber que precisa
+                                // rodar o sim em janela/borderless.
+                                if let Err(err) = super::send_chat_text(&cmd) {
+                                    if lock().note_chat_send_failure() {
+                                        eprintln!(
+                                            "[breakdown] comando '{cmd}' não chegou ao iRacing: {err}"
+                                        );
+                                    }
+                                }
                             }
                         }
                         // Sim conectado de novo: cancela qualquer janela de foco pendente.
@@ -3357,6 +3414,13 @@ pub fn peek_breakdown_log() -> Vec<BreakdownOutcome> {
 /// overlay do rádio mostrar num card DISTINTO. Leitura pura, acumulativa durante a corrida.
 pub fn peek_player_warnings() -> Vec<PlayerWarning> {
     lock().player_warning_log.clone()
+}
+
+/// `true` se algum comando de quebra falhou em chegar ao iRacing nesta corrida (janela não
+/// encontrada / foreground recusado / `SendInput` bloqueado). O overlay do rádio transforma
+/// isso num aviso âmbar único orientando o jogador a rodar o sim em janela/borderless.
+pub fn chat_send_blocked() -> bool {
+    lock().chat_send_warned
 }
 
 /// car_idx que devem PISCAR na torre agora (quebraram nos últimos 5 s) — sincroniza o flash

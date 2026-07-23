@@ -99,3 +99,35 @@ export function usePlayerWarnings(active, { intervalMs = 800 } = {}) {
 
   return message;
 }
+
+// Estado LATCH (não stream): algum comando de quebra (`!black`/`!dq`) não chegou ao iRacing
+// nesta corrida — fullscreen exclusivo ou trava de foco bloquearam o envio. Canal SEPARADO
+// dos avisos de peça (que são stream por id) justamente pra não mascará-los. Devolve um
+// booleano persistente enquanto durar a corrida; o overlay mostra um banner acionável.
+export function useChatSendBlocked(active, { intervalMs = 1500 } = {}) {
+  const [blocked, setBlocked] = useState(false);
+
+  useEffect(() => {
+    if (!IN_TAURI || !active) {
+      setBlocked(false);
+      return undefined;
+    }
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const on = await invoke("iracing_chat_blocked");
+        if (!stopped) setBlocked(Boolean(on));
+      } catch {
+        /* sem sessão — silencioso */
+      }
+    };
+    tick();
+    const timer = setInterval(tick, intervalMs);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [active, intervalMs]);
+
+  return blocked;
+}

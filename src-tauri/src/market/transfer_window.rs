@@ -95,6 +95,12 @@ pub struct WindowConfig {
     pub slam_bonus: f64, // 18 — categoria-alvo
 }
 
+// Pesos do casamento assento↔piloto (carro vs. prestígio). FONTE ÚNICA: o desempate de vagas
+// da escada viva (`market::pipeline::seat_desirability`) reusa exatamente estes pesos, então
+// ajustar o leilão ajusta o desempate junto — sem duas cópias divergindo em silêncio.
+pub const SEAT_W_CAR: f64 = 18.0;
+pub const SEAT_W_PRESTIGE: f64 = 22.0;
+
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
@@ -110,8 +116,8 @@ impl Default for WindowConfig {
             hard_week_cap: 10,
             tier_base: 12.0,
             tier_step: 7.0,
-            w_prestige: 22.0,
-            w_car: 18.0,
+            w_prestige: SEAT_W_PRESTIGE,
+            w_car: SEAT_W_CAR,
             w_salary: 15.0,
             w_role_n1: 15.0,
             w_role_n2: 10.0,

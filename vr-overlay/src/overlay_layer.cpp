@@ -139,6 +139,7 @@ struct Panel {
     void*  shmPtr      = nullptr;
     bool   shmWritable = false;
     bool   shmLogged   = false;
+    bool   shmVersionLogged = false;  // já logou um mismatch de versão? (evita spam a ~10 Hz)
     bool   rendered    = false;
     XrTime lastRender  = 0;
     uint32_t lastRecenterSeq = 0;
@@ -171,12 +172,30 @@ struct Panel {
         return true;
     }
 
+    // Valida o prefixo FIXO do cabeçalho (magic + version). Um mismatch de versão =
+    // DLL e app compilados contra layouts diferentes; rejeita (em vez de ler offsets de
+    // pose errados em silêncio) e loga UMA vez o motivo, orientando o rebuild conjunto.
+    bool HeaderValid(const IracerFrameHeader* hdr) {
+        if (hdr->magic != IRACER_SHM_MAGIC) {
+            return false;
+        }
+        if (hdr->version != IRACER_SHM_VERSION) {
+            if (!shmVersionLogged) {
+                LogLine("SHM [%ls] REJEITADA: versão %u != esperada %u — recompile a DLL e o app JUNTOS",
+                        shmName, hdr->version, IRACER_SHM_VERSION);
+                shmVersionLogged = true;
+            }
+            return false;
+        }
+        return true;
+    }
+
     const uint8_t* TryGetFramePixels() {
         if (!EnsureShmOpen()) {
             return nullptr;
         }
         const IracerFrameHeader* hdr = static_cast<const IracerFrameHeader*>(shmPtr);
-        if (hdr->magic != IRACER_SHM_MAGIC || hdr->width != width || hdr->height != height) {
+        if (!HeaderValid(hdr) || hdr->width != width || hdr->height != height) {
             return nullptr;
         }
         if (!shmLogged) {
@@ -191,7 +210,7 @@ struct Panel {
             return defaultCfg;
         }
         const IracerFrameHeader* hdr = static_cast<const IracerFrameHeader*>(shmPtr);
-        if (hdr->magic != IRACER_SHM_MAGIC) {
+        if (!HeaderValid(hdr)) {
             return defaultCfg;
         }
         OverlayConfig c;
@@ -212,7 +231,7 @@ struct Panel {
             return nullptr;
         }
         IracerFrameHeader* hdr = static_cast<IracerFrameHeader*>(shmPtr);
-        return (hdr->magic == IRACER_SHM_MAGIC) ? hdr : nullptr;
+        return HeaderValid(hdr) ? hdr : nullptr;
     }
 
     // Monta swapchain + RTVs deste painel (device do iRacing). Formato vem escolhido.
@@ -370,7 +389,7 @@ struct Panel {
             return;
         }
         const IracerFrameHeader* hdr = static_cast<const IracerFrameHeader*>(shmPtr);
-        if (hdr->magic != IRACER_SHM_MAGIC) {
+        if (!HeaderValid(hdr)) {
             return;
         }
         bool trigger = false;
@@ -410,6 +429,7 @@ struct Panel {
             shm = nullptr;
         }
         shmLogged   = false;
+        shmVersionLogged = false;
         shmWritable = false;
         for (auto* rtv : rtvs) {
             if (rtv) rtv->Release();
@@ -617,7 +637,7 @@ static void ProcessKeyboard(XrTime now) {
     hdr->posZ     = ClampF(hdr->posZ, -2.5f, -0.3f);
     hdr->yawDeg   = ClampF(hdr->yawDeg, -45.0f, 45.0f);
     hdr->pitchDeg = ClampF(hdr->pitchDeg, -45.0f, 45.0f);
-    hdr->scale    = ClampF(hdr->scale, 0.5f, 2.0f);
+    hdr->scale    = ClampF(hdr->scale, 0.2f, 2.0f);
     hdr->configEpoch++;
 }
 

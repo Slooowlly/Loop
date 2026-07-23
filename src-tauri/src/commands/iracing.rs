@@ -1184,6 +1184,66 @@ fn apply_track_rivalries(
             },
         );
     }
+
+    // Rivalidade IA-vs-IA: o motor de percepção aceita QUALQUER carro-sonda, não só o jogador.
+    // Alimenta o ledger de rivalidade também entre as IAs, pra a "novela" emergir do grid
+    // inteiro (piloto larga → vira rival → dá título → ex-time em crise), e não só ao redor do
+    // jogador. Sem contato atribuído (só o jogador tem a semente do monitor) e SEM episódio (o
+    // arco recapitulado é player-facing). Dedupe por par normalizado — o ledger é simétrico
+    // (`normalize_pair`), então cada par de IA é aplicado UMA vez (o outro lado repetiria e
+    // dobraria os deltas). Pares que envolvem o jogador já vieram do probe-jogador acima. O
+    // custo é O(n²) sobre os snapshots, mas roda uma única vez no import.
+    let mut seen_ai_pairs: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let ai_idxs: Vec<i32> = driver_by_idx
+        .keys()
+        .copied()
+        .filter(|&idx| idx != history.player_car_idx)
+        .collect();
+    for probe_idx in ai_idxs {
+        let Some(probe_id) = driver_by_idx.get(&probe_idx) else {
+            continue;
+        };
+        if *probe_id == player_id {
+            continue;
+        }
+        let probe_perception =
+            perceive_rivalries(history, probe_idx, None, &PerceptionParams::default());
+        for opp in &probe_perception.opponents {
+            let Some(opp_id) = driver_by_idx.get(&opp.car_idx) else {
+                continue;
+            };
+            if opp_id == probe_id || *opp_id == player_id {
+                continue; // par com o jogador já tratado pelo probe-jogador
+            }
+            // Chave canônica (ordem estável) → aplica o par só uma vez.
+            let key = if probe_id <= opp_id {
+                (probe_id.clone(), opp_id.clone())
+            } else {
+                (opp_id.clone(), probe_id.clone())
+            };
+            if !seen_ai_pairs.insert(key) {
+                continue;
+            }
+            let is_contact = opp.hits.iter().any(|h| h.kind == "contato");
+            let tipo = if is_contact {
+                RivalryType::Colisao
+            } else {
+                RivalryType::Pista
+            };
+            let _ = apply_rivalry_event(
+                conn,
+                &RivalryEvent {
+                    piloto_a: probe_id.clone(),
+                    piloto_b: opp_id.clone(),
+                    tipo,
+                    historical_delta: opp.historical_delta,
+                    recent_delta: opp.recent_delta,
+                    temporada,
+                },
+            );
+        }
+    }
 }
 
 /// Resultado de um import automático: o `RaceResult` (para a TELA de resultado) +
@@ -1490,6 +1550,17 @@ pub fn iracing_generate_roster(
                     .unwrap_or(false),
                 category_move,
                 team_morale: team.as_ref().map(|t| t.morale).unwrap_or(1.0),
+                // Vínculo com a equipe atual (selo de 6 níveis). Sem contrato → recém-chegado (1).
+                bond_level: contract
+                    .as_ref()
+                    .map(|c| {
+                        crate::market::bond::bond_level(
+                            crate::market::bond::get_bond(&db.conn, &driver.id, &c.equipe_id)
+                                .unwrap_or(0.0),
+                        )
+                    })
+                    .unwrap_or(1),
+                injury_active_penalty: 0.0, // preenchido após resolver a próxima corrida
             },
         );
         let team_info = team.map(|team| roster_gen::TeamInfo {
@@ -1568,7 +1639,20 @@ pub fn iracing_generate_roster(
             let Ok(Some(inj)) = injq::get_last_injury_for_pilot(&db.conn, &pilot_id) else {
                 continue;
             };
-            if inj.active || inj.season != season.numero as i32 {
+            // Lesão ATIVA (ainda em recuperação): o piloto CORRE, mas com o pace reduzido pela
+            // MESMA rampa da sim (skill × penalidade × corridas_restantes/total, que decai a cada
+            // etapa). Antes só o bool `injury_return` (já sarado) cruzava — a penalidade em si
+            // não tinha equivalente no roster. Exporta a fração perdida (0–1).
+            if inj.active {
+                let recovery =
+                    (inj.races_remaining as f64 / inj.races_total.max(1) as f64).clamp(0.0, 1.0);
+                let frac = (inj.skill_penalty * recovery).clamp(0.0, 1.0);
+                if let Some(ctx) = driver_ctx.get_mut(&pilot_id) {
+                    ctx.injury_active_penalty = frac;
+                }
+                continue;
+            }
+            if inj.season != season.numero as i32 {
                 continue;
             }
             if let Ok(Some(entry)) = calq::get_calendar_entry_by_id(&db.conn, &inj.race_occurred) {
@@ -1877,6 +1961,8 @@ pub fn iracing_generate_roster(
         let is_enduro = get_category_config(&categoria)
             .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
             .unwrap_or(false);
+        // Tenda de durabilidade por nível (§4.8) só em categoria GERIDA (teto ≥ 3); spec fica de fora.
+        let apply_tent = crate::car::cost::category_ceiling(&categoria) > 2;
 
         let mut dir = BreakdownDirector::new();
         for (driver, team_info) in &entries {
@@ -1889,7 +1975,8 @@ pub fn iracing_generate_roster(
                 continue;
             };
             let live = LiveBreakdown::new(&car, seed_for(&driver.id), ti.pit_crew, track_pha)
-                .with_enduro(is_enduro);
+                .with_enduro(is_enduro)
+                .with_tent(apply_tent);
             dir.add_car(num as u32, live, Vec::new());
         }
 
@@ -1903,7 +1990,11 @@ pub fn iracing_generate_roster(
                 .flatten()
                 .map(|t| t.pit_crew_quality)
                 .unwrap_or(50.0);
-            Some(LiveBreakdown::new(&car, seed_for(&player.id), pit, track_pha).with_enduro(is_enduro))
+            Some(
+                LiveBreakdown::new(&car, seed_for(&player.id), pit, track_pha)
+                    .with_enduro(is_enduro)
+                    .with_tent(apply_tent),
+            )
         });
 
         race_monitor::install_breakdown_director(dir, player_live, weather);
@@ -2729,6 +2820,9 @@ pub struct ForecastPartView {
     pub dnf_prob: f64,
     /// "baixo" | "médio" | "alto".
     pub level: String,
+    /// CONSEQUÊNCIA pro jogador (o que a UI mostra em palavra + cor), derivada do que a peça
+    /// custa e não da probabilidade crua: "confiavel" | "custa_tempo" | "pode_abandonar".
+    pub consequencia: String,
 }
 
 /// Previsão de risco de quebra do carro do jogador pra próxima corrida (aviso pré-corrida).
@@ -2743,71 +2837,44 @@ pub struct BreakdownForecastView {
     pub parts: Vec<ForecastPartView>,
 }
 
-/// AVISO PRÉ-CORRIDA: prevê o risco de quebra do carro do JOGADOR na PRÓXIMA corrida via Monte
-/// Carlo sobre o desgaste REAL do `team_car` + a pista + o clima da etapa — os MESMOS inputs do
-/// disparo ao vivo. É RISCO (probabilidade), não o desfecho: não revela qual peça/volta vai
-/// quebrar. Alimenta o card da Sala de Estratégia e um fato do briefing do engenheiro.
-#[tauri::command]
-pub fn get_breakdown_forecast(
-    app: tauri::AppHandle,
-    career_id: String,
-) -> Result<BreakdownForecastView, String> {
-    use crate::config::app_config::AppConfig;
+/// Contexto compartilhado da previsão de quebra da PRÓXIMA corrida do jogador — categoria,
+/// clima, pista, seed determinística e enduro. Base tanto do card do jogador
+/// ([`get_breakdown_forecast`]) quanto do aviso na tabela do campeonato
+/// ([`get_grid_breakdown_risk`]). `None` quando não dá pra prever (sem time/corrida).
+struct RaceBreakdownCtx {
+    player_team_id: String,
+    categoria: String,
+    weather: crate::car::breakdown::Weather,
+    track_pha: (f64, f64, f64),
+    ev_seed: u64,
+    is_enduro: bool,
+}
+
+fn resolve_race_breakdown_ctx(
+    db: &crate::db::connection::Database,
+    career_id: &str,
+) -> Option<RaceBreakdownCtx> {
     use crate::constants::tracks::get_track;
-    use crate::db::connection::Database;
     use crate::db::queries::{
-        calendar as calq, contracts as cq, drivers as dq, seasons as sq, team_car as tcq,
-        teams as tq,
+        calendar as calq, contracts as cq, drivers as dq, seasons as sq, teams as tq,
     };
     use crate::iracing_sdk::weather;
     use crate::market::car_maintenance::maintenance_demand;
-    use tauri::Manager;
 
-    let none = BreakdownForecastView {
-        available: false,
-        dnf_prob: 0.0,
-        overall_level: "baixo".to_string(),
-        parts: Vec::new(),
-    };
-
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    if !db_path.exists() {
-        return Ok(none);
-    }
-    let db = Database::open_existing(&db_path)
-        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    // Time + categoria do jogador.
-    let Some(team_id) = dq::get_player_driver(&db.conn)
+    // Time + categoria do jogador (a tabela do campeonato mostrada é a da categoria dele).
+    let team_id = dq::get_player_driver(&db.conn)
         .ok()
         .and_then(|p| cq::get_active_contract_for_pilot(&db.conn, &p.id).ok().flatten())
-        .map(|c| c.equipe_id)
-    else {
-        return Ok(none);
-    };
-    let Some(team) = tq::get_team_by_id(&db.conn, &team_id).ok().flatten() else {
-        return Ok(none);
-    };
+        .map(|c| c.equipe_id)?;
+    let team = tq::get_team_by_id(&db.conn, &team_id).ok().flatten()?;
     let categoria = team.categoria.clone();
 
-    // Próxima corrida pendente + carro real do time.
-    let Some(season) = sq::get_active_season(&db.conn).ok().flatten() else {
-        return Ok(none);
-    };
-    let Some(race) = calq::get_next_race(&db.conn, &season.id, &categoria).ok().flatten() else {
-        return Ok(none);
-    };
-    let Some(car) = tcq::get_team_car(&db.conn, &team_id).ok().flatten() else {
-        return Ok(none);
-    };
+    // Próxima corrida pendente da categoria.
+    let season = sq::get_active_season(&db.conn).ok().flatten()?;
+    let race = calq::get_next_race(&db.conn, &season.id, &categoria).ok().flatten()?;
 
     // Clima da etapa — MESMA história determinística do export/disparo vivo.
-    let ev_seed = event_seed(&career_id, &race.id);
+    let ev_seed = event_seed(career_id, &race.id);
     let weather = if let Some(track) = get_track(race.track_id) {
         let story = weather::generate_weather(
             month_from_week(race.week_of_year),
@@ -2832,17 +2899,72 @@ pub fn get_breakdown_forecast(
         .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
         .unwrap_or(false);
 
+    Some(RaceBreakdownCtx {
+        player_team_id: team_id,
+        categoria,
+        weather,
+        track_pha,
+        ev_seed,
+        is_enduro,
+    })
+}
+
+/// AVISO PRÉ-CORRIDA: prevê o risco de quebra do carro do JOGADOR na PRÓXIMA corrida via Monte
+/// Carlo sobre o desgaste REAL do `team_car` + a pista + o clima da etapa — os MESMOS inputs do
+/// disparo ao vivo. É RISCO (probabilidade), não o desfecho: não revela qual peça/volta vai
+/// quebrar. Alimenta o card da Sala de Estratégia e um fato do briefing do engenheiro.
+#[tauri::command]
+pub fn get_breakdown_forecast(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<BreakdownForecastView, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use crate::db::queries::{team_car as tcq, teams as tq};
+    use tauri::Manager;
+
+    let none = BreakdownForecastView {
+        available: false,
+        dnf_prob: 0.0,
+        overall_level: "baixo".to_string(),
+        parts: Vec::new(),
+    };
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Ok(none);
+    }
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let Some(ctx) = resolve_race_breakdown_ctx(&db, &career_id) else {
+        return Ok(none);
+    };
+    let categoria = ctx.categoria.clone();
+    let Some(team) = tq::get_team_by_id(&db.conn, &ctx.player_team_id).ok().flatten() else {
+        return Ok(none);
+    };
+    let Some(car) = tcq::get_team_car(&db.conn, &ctx.player_team_id).ok().flatten() else {
+        return Ok(none);
+    };
+
     // 18 voltas = referência de sprint (a escala calibrada). 400 amostras dão um % estável.
     let f = crate::car::breakdown::forecast_breakdown_risk(
         &car,
         18,
-        ev_seed,
+        ctx.ev_seed,
         team.pit_crew_quality,
-        track_pha,
-        weather,
+        ctx.track_pha,
+        ctx.weather,
         &[],
         400,
-        is_enduro,
+        ctx.is_enduro,
+        crate::car::cost::category_ceiling(&categoria) > 2,
     );
 
     let part_level = |p: f64| {
@@ -2854,6 +2976,22 @@ pub fn get_breakdown_forecast(
             "alto"
         }
     };
+    // CONSEQUÊNCIA (o que a UI mostra). Limiares de calibração — ainda por afinar na pista:
+    //  · "pode_abandonar" (vermelho): há risco REAL de a peça encerrar a corrida.
+    //  · "custa_tempo" (laranja): penalidade pesada provável, OU tantas idas ao box que doem.
+    //  · "confiavel" (verde): no máximo desgaste trivial.
+    const DNF_VERMELHO: f64 = 0.03;
+    const CUSTO_LARANJA: f64 = 0.08;
+    const IDAS_LARANJA: f64 = 0.50;
+    let consequencia = |r: &crate::car::breakdown::PartRisk| {
+        if r.dnf_prob >= DNF_VERMELHO {
+            "pode_abandonar"
+        } else if r.costly_prob >= CUSTO_LARANJA || r.any_prob >= IDAS_LARANJA {
+            "custa_tempo"
+        } else {
+            "confiavel"
+        }
+    };
     let overall_level = if f.dnf_prob < 0.05 {
         "baixo"
     } else if f.dnf_prob < 0.12 {
@@ -2861,10 +2999,16 @@ pub fn get_breakdown_forecast(
     } else {
         "alto"
     };
-    let parts = f
-        .parts
-        .iter()
-        .filter(|r| r.any_prob >= 0.03)
+    // A mais perigosa primeiro (DNF > custo > idas): o topo vira o "ponto fraco" na UI.
+    let mut ranked: Vec<&crate::car::breakdown::PartRisk> =
+        f.parts.iter().filter(|r| r.any_prob >= 0.03).collect();
+    ranked.sort_by(|a, b| {
+        (b.dnf_prob, b.costly_prob, b.any_prob)
+            .partial_cmp(&(a.dnf_prob, a.costly_prob, a.any_prob))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let parts = ranked
+        .into_iter()
         .take(5)
         .map(|r| ForecastPartView {
             part: r.part.as_str().to_string(),
@@ -2872,6 +3016,7 @@ pub fn get_breakdown_forecast(
             any_prob: r.any_prob,
             dnf_prob: r.dnf_prob,
             level: part_level(r.any_prob).to_string(),
+            consequencia: consequencia(r).to_string(),
         })
         .collect();
 
@@ -2881,6 +3026,77 @@ pub fn get_breakdown_forecast(
         overall_level: overall_level.to_string(),
         parts,
     })
+}
+
+/// AVISO NA TABELA DO CAMPEONATO: devolve os IDs das EQUIPES cujo carro tem risco REAL de
+/// quebra na próxima corrida (penalidade pesada ou DNF — o desgaste trivial NÃO conta, senão
+/// quase toda equipe acenderia). A UI marca com 🔧 os pilotos dessas equipes (ambos partilham o
+/// carro). Mesmos inputs deterministas do card do jogador; menos amostras (é só sim/não).
+#[tauri::command]
+pub fn get_grid_breakdown_risk(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Vec<String>, String> {
+    use crate::config::app_config::AppConfig;
+    use crate::db::connection::Database;
+    use crate::db::queries::{team_car as tcq, teams as tq};
+    use tauri::Manager;
+
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(&career_id).join("career.db");
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let Some(ctx) = resolve_race_breakdown_ctx(&db, &career_id) else {
+        return Ok(Vec::new());
+    };
+    let teams = tq::get_teams_by_category(&db.conn, &ctx.categoria).unwrap_or_default();
+
+    let mut risky: Vec<String> = Vec::new();
+    for team in teams {
+        let Some(car) = tcq::get_team_car(&db.conn, &team.id).ok().flatten() else {
+            continue;
+        };
+        // Semente decorrelacionada por equipe (FNV-1a do id) pra os times não partilharem o
+        // mesmo padrão de sorteio — a probabilidade em si já é estável com 150 amostras.
+        let team_hash = team
+            .id
+            .bytes()
+            .fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+                (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+            });
+        let f = crate::car::breakdown::forecast_breakdown_risk(
+            &car,
+            18,
+            ctx.ev_seed ^ team_hash,
+            team.pit_crew_quality,
+            ctx.track_pha,
+            ctx.weather,
+            &[],
+            150,
+            ctx.is_enduro,
+            crate::car::cost::category_ceiling(&ctx.categoria) > 2,
+        );
+        // "Risco real" = mesma régua do card (peça que custa tempo de verdade ou pode abandonar);
+        // o desgaste trivial (any_prob) fica de fora pra o marcador não virar ruído.
+        let notable = f.dnf_prob >= 0.05
+            || f
+                .parts
+                .iter()
+                .any(|p| p.dnf_prob >= 0.03 || p.costly_prob >= 0.08);
+        if notable {
+            risky.push(team.id);
+        }
+    }
+
+    Ok(risky)
 }
 
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
@@ -3132,15 +3348,25 @@ pub fn get_race_weather_timeline(
     let db_path = config.saves_dir().join(&career_id).join("career.db");
     let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
-    let entry = crate::db::queries::calendar::get_calendar_entry_by_id(&db.conn, &race_id)
+    build_race_weather_timeline(&db.conn, &career_id, &race_id)
+}
+
+/// Núcleo de [`get_race_weather_timeline`] sem depender do `AppHandle` — recebe a conexão
+/// direto, para ser reusado pelo overlay ao vivo (torre) além da tela de clima. Reconstrói o
+/// MESMO clima determinístico (pista + estação + seed) que a prova seguiu.
+pub(crate) fn build_race_weather_timeline(
+    conn: &rusqlite::Connection,
+    career_id: &str,
+    race_id: &str,
+) -> Result<RaceWeatherTimeline, String> {
+    let entry = crate::db::queries::calendar::get_calendar_entry_by_id(conn, race_id)
         .map_err(|e| format!("Falha ao buscar corrida: {e}"))?
         .ok_or_else(|| "Corrida não encontrada".to_string())?;
     let track = crate::constants::tracks::get_track(entry.track_id)
         .ok_or_else(|| "Pista não encontrada".to_string())?;
 
     // É a corrida de ESTREIA do save? (única que usa o roteiro fixo do 1º clima.)
-    let first_id: Option<String> = db
-        .conn
+    let first_id: Option<String> = conn
         .query_row(
             "SELECT c.id FROM calendar c JOIN seasons s ON c.season_id = s.id \
              ORDER BY s.numero ASC, c.week_of_year ASC LIMIT 1",
@@ -3148,13 +3374,13 @@ pub fn get_race_weather_timeline(
             |r| r.get(0),
         )
         .ok();
-    let is_first = first_id.as_deref() == Some(race_id.as_str());
+    let is_first = first_id.as_deref() == Some(race_id);
 
     let story = crate::iracing_sdk::weather::generate_weather(
         month_from_week(entry.week_of_year),
         track_hemisphere(track.pais),
         climate_tendency(track.rain_group),
-        event_seed(&career_id, &race_id),
+        event_seed(career_id, race_id),
         is_first,
     );
     Ok(RaceWeatherTimeline {

@@ -11,7 +11,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-const DIRS = [
+const DEFAULT_DIRS = [
   'src/assets/utilities/source-images/TimesNormalized',
   'public/utilities/categorias',
   'src/assets/utilities/source-images/Categorias',
@@ -19,9 +19,14 @@ const DIRS = [
 const write = process.argv.includes('--write');
 const thArg = process.argv.indexOf('--th');
 const TH = thArg >= 0 ? parseFloat(process.argv[thArg + 1]) : 0.985;
+// roots vindos da linha de comando (arquivos .png ou pastas); senão usa o padrão
+const cliRoots = process.argv.slice(2).filter((a) => !a.startsWith('--') && a !== String(TH));
+const DIRS = cliRoots.length ? cliRoots : DEFAULT_DIRS;
 
 function walk(d, o = []) {
   if (!fs.existsSync(d)) return o;
+  const st = fs.statSync(d);
+  if (st.isFile()) { if (/\.png$/i.test(d)) o.push(d); return o; }
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     const p = path.join(d, e.name);
     if (e.isDirectory()) walk(p, o);

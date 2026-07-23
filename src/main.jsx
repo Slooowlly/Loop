@@ -5,8 +5,10 @@ import App from "./App";
 import OverlayApp from "./overlay/OverlayApp";
 import OverlayVersions from "./overlay/OverlayVersions";
 import { EngineerRadioLive, EngineerRadioPreview } from "./overlay/EngineerRadio";
+import RadioCanvasPreview from "./overlay/RadioCanvasPreview";
 import "@fontsource-variable/space-grotesk";
 import "./index.css";
+import "./styles/kardust.css"; // Kardust: destaques (home, notícias, calendário)
 import "./i18n"; // inicializa o i18next (UI estática, Fase 0 da tradução).
 import useCareerStore from "./stores/useCareerStore";
 
@@ -42,20 +44,27 @@ if (isRealOverlay) {
 function Root() {
   if (hash === "#overlay-versions") return <OverlayVersions />;
   if (hash === "#engineer-preview") return <EngineerRadioPreview />;
+  if (hash === "#radio-canvas") return <RadioCanvasPreview />;
   if (isEngineerWindow || hash === "#engineer") return <EngineerRadioLive />;
   if (isOverlayWindow) return <OverlayApp preview={false} />;
   if (hash.startsWith("#overlay")) return <OverlayApp preview={hash !== "#overlay"} />;
   return <App />;
 }
 
-// Aplica o idioma persistido (config.json) logo no boot da janela principal, pra
-// menu/Settings já abrirem no idioma certo antes de qualquer carreira carregar.
-// As janelas de overlay não têm UI de menu — não precisam.
-if (!isRealOverlay) {
-  void useCareerStore.getState().loadLanguage();
-}
+// Aplica o idioma persistido (config.json) logo no boot, pra a UI já abrir no
+// idioma certo antes de qualquer carreira carregar. Vale para TODAS as janelas —
+// inclusive as de overlay, que também têm textos traduzíveis (rótulo do rádio,
+// painel de posição VR).
+void useCareerStore.getState().loadLanguage();
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+// O entry vive no grafo de HMR do Vite. Sem guarda, cada hot-reload re-executa
+// esta linha e chama createRoot() DE NOVO no mesmo #root — dois roots brigam
+// pelo mesmo DOM e o react-refresh estoura "removeChild ... not a child of this
+// node". Cacheamos o root no próprio container: no primeiro boot cria; nos
+// reloads seguintes só re-renderiza no root existente.
+const container = document.getElementById("root");
+const root = (container.__reactRoot ??= ReactDOM.createRoot(container));
+root.render(
   <React.StrictMode>
     <Root />
   </React.StrictMode>,

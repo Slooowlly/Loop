@@ -1,11 +1,12 @@
 import i18n from "../i18n/index.js";
+import { currentLang } from "../i18n/format.js";
 
 export function formatDate(isoString) {
   if (!isoString) return "-";
   const date = new Date(isoString);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return date.toLocaleDateString("pt-BR", {
+  return date.toLocaleDateString(currentLang(), {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -16,7 +17,14 @@ export function formatCompactDate(isoString) {
   if (!isoString) return "-";
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoString);
   if (!match) return "-";
-  return `${match[3]}/${match[2]}/${match[1]}`;
+  // Data local a partir das partes (evita shift de fuso); o Intl escolhe a ordem
+  // por locale (30/12/2025 pt-BR, 12/30/2025 en-US).
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString(currentLang(), {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 export function formatNextRaceCountdown(daysUntilNextEvent) {
@@ -51,7 +59,7 @@ export function formatDateTime(isoString) {
   const date = new Date(isoString);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return date.toLocaleDateString("pt-BR", {
+  return date.toLocaleDateString(currentLang(), {
     day: "2-digit",
     month: "short",
     year: "numeric",

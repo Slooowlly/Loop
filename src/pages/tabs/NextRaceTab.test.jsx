@@ -15,9 +15,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("../../stores/useCareerStore", () => ({
-  default: (selector) => selector(mockState),
-}));
+vi.mock("../../stores/useCareerStore", () => {
+  const useCareerStore = (selector) => selector(mockState);
+  // O store real (zustand) expõe getState — a Sala lê o cache de standings pré-buscado
+  // por ele fora do ciclo de render, então o mock precisa espelhar essa API.
+  useCareerStore.getState = () => mockState;
+  return { default: useCareerStore };
+});
 
 describe("NextRaceTab", () => {
   beforeEach(() => {

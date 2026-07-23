@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "../i18n/index.js";
 import useCareerStore from "../stores/useCareerStore";
+import { useUpdater } from "../components/system/UpdaterProvider";
 import { hover, resume as resumeAudio, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
+import menuFlag from "../assets/utilities/menu/flag.webp";
 
 // Parametros visuais do menu (ajustados em debug e fixados).
 const CFG = {
@@ -28,21 +30,24 @@ const CFG = {
 };
 
 // Parametros da intro (icone com zoom sobre o fundo borrado).
+// Timings alongados pra virar um "splash" cinematografico, com zoom bem visivel.
 const INTRO = {
   haloRgb: "42,115,231", // #2a73e7
-  haloOpacity: 0.04,
-  haloSize: 75, // vmin
-  blur: 25, // px
-  logoSize: 212, // px
-  zoomStart: 0.7,
-  zoomEnd: 1.7,
-  inDur: 0.7, // s (zoom-in)
-  hold: 0.3, // s (espera)
-  outDur: 0.6, // s (zoom-out)
+  haloOpacity: 0.05,
+  haloSize: 82, // vmin
+  blur: 34, // px
+  logoSize: 220, // px
+  zoomStart: 0.5, // comeca pequeno (camera longe)
+  zoomEnd: 2.0, // termina grande (passa pela tela)
+  inDur: 1.3, // s (zoom-in, aproximacao)
+  hold: 0.7, // s (espera no ponto de foco)
+  outDur: 1.0, // s (zoom-out revelando o menu)
 };
 
 // Posicao do submenu lateral (ajustada em debug e fixada).
 const POS = { panelX: 565, panelWidth: 390, yMode: "anchor", yOffset: -85, panelY: 200 };
+
+// Foto de fundo do menu: a bandeira quadriculada (importada pelo bundler).
 
 // Tempo relativo curto (hoje / ontem / ha N dias...).
 function relativeTime(iso) {
@@ -82,10 +87,41 @@ function torch(t, amt) {
   return 1 + amt * (flicker + 0.9 * surge);
 }
 
-function PlayIcon() {
+function ChevronRightIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M8 5v14l11-7z" />
+    <svg
+      width="30"
+      height="30"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+// Grid de pontos que desbota do topo-esquerda pro canto (placeholder do save).
+function DotGridIcon() {
+  return (
+    <svg width="46" height="46" viewBox="0 0 46 46" fill="none" aria-hidden="true">
+      <defs>
+        <pattern id="mm-dotgrid" width="7.6" height="7.6" patternUnits="userSpaceOnUse">
+          <circle cx="1.5" cy="1.5" r="1.5" fill="currentColor" />
+        </pattern>
+        <linearGradient id="mm-dotfade" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.95" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0.12" />
+        </linearGradient>
+        <mask id="mm-dotmask">
+          <rect width="46" height="46" fill="url(#mm-dotfade)" />
+        </mask>
+      </defs>
+      <rect width="46" height="46" fill="url(#mm-dotgrid)" mask="url(#mm-dotmask)" />
     </svg>
   );
 }
@@ -155,6 +191,27 @@ function TrashIcon() {
 function MainMenu({ intro = false }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+
+  // Auto-update: botão "verificar" ao lado da versão + easter egg do canal beta
+  // (5 cliques na versão sem estável nova → checa o manifesto beta).
+  const { checkStable, checkBeta, status: updateStatus } = useUpdater();
+  const betaClicks = useRef(0);
+  const betaTimer = useRef(null);
+  const checking = updateStatus === "checking";
+
+  function handleVersionClick() {
+    betaClicks.current += 1;
+    clearTimeout(betaTimer.current);
+    // Janela de 1,5s entre cliques; passou disso, zera a contagem.
+    betaTimer.current = setTimeout(() => {
+      betaClicks.current = 0;
+    }, 1500);
+    if (betaClicks.current >= 5) {
+      betaClicks.current = 0;
+      clearTimeout(betaTimer.current);
+      checkBeta();
+    }
+  }
   const loadCareer = useCareerStore((state) => state.loadCareer);
 
   const stageRef = useRef(null);
@@ -168,6 +225,7 @@ function MainMenu({ intro = false }) {
   const [exiting, setExiting] = useState(false);
   const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
   const [introDone, setIntroDone] = useState(!intro);
+  const [photoReady, setPhotoReady] = useState(false); // liga a foto so apos o 1o paint (dispara o zoom)
   const [panel, setPanel] = useState(null); // null | "load" | "settings"
   const [panelAnchor, setPanelAnchor] = useState(0);
   const [panelClosing, setPanelClosing] = useState(false);
@@ -251,6 +309,12 @@ function MainMenu({ intro = false }) {
   useEffect(() => {
     refreshSaves();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Liga a foto so depois do 1o paint pra a transicao (fade + zoom lento) disparar.
+  useEffect(() => {
+    const id = window.setTimeout(() => setPhotoReady(true), 60);
+    return () => window.clearTimeout(id);
   }, []);
 
   // Pad ambiente suave no menu (retoma o audio no 1o gesto por causa do autoplay).
@@ -559,8 +623,11 @@ function MainMenu({ intro = false }) {
   return (
     <div className={shellClass} ref={stageRef} style={shellStyle}>
       <div className="mm-bg">
+        <div className={`mm-photobg${photoReady ? " is-on" : ""}`}>
+          <div className="mm-photo" style={{ backgroundImage: `url("${menuFlag}")` }} />
+          <div className="mm-photo mm-photo-b" style={{ backgroundImage: `url("${menuFlag}")` }} />
+        </div>
         <div className="mm-glow" ref={glowRef} />
-        <canvas className="mm-canvas" ref={canvasRef} />
       </div>
       <div className="mm-shade" style={shadeStyle} />
 
@@ -569,7 +636,15 @@ function MainMenu({ intro = false }) {
 
       <div className="mm-menu" ref={menuRef}>
         <p className="mm-eyebrow">{t("menu.eyebrow")}</p>
-        <h1 className="mm-title">LOOP</h1>
+        <div className="mm-brand">
+          <img
+            className="mm-brand-logo"
+            src="/utilities/Logo%20sem%20fundo.webp"
+            alt=""
+            aria-hidden="true"
+          />
+          <h1 className="mm-title kfx">LOOP</h1>
+        </div>
         <p className="mm-season">{t("menu.season", { year: new Date().getFullYear() })}</p>
 
         <div className="mm-list">
@@ -577,7 +652,7 @@ function MainMenu({ intro = false }) {
             <button type="button" className="mm-card mm-hero" onMouseEnter={hover} onClick={handleContinue}>
               <div className="mm-hero-inner">
                 <span className="mm-hero-icon">
-                  <img className="mm-hero-logo" src="/utilities/LOGO%20NOVA.png" alt="" />
+                  <DotGridIcon />
                 </span>
                 <div className="mm-hero-body">
                   <div className="mm-hero-eyebrow">{t("menu.continueCareer")}</div>
@@ -585,7 +660,7 @@ function MainMenu({ intro = false }) {
                   <div className="mm-hero-sub">{continueSub}</div>
                 </div>
                 <span className="mm-hero-play">
-                  <PlayIcon />
+                  <ChevronRightIcon />
                 </span>
               </div>
             </button>
@@ -681,10 +756,48 @@ function MainMenu({ intro = false }) {
         </div>
       ) : null}
 
+      <div
+        className="mm-version"
+        style={{ display: "flex", alignItems: "center", gap: 8 }}
+      >
+        <button
+          type="button"
+          onClick={handleVersionClick}
+          title={t("updater.betaHint")}
+          className="pointer-events-auto cursor-pointer border-0 bg-transparent p-0 uppercase tracking-[0.22em] text-inherit"
+          style={{ font: "inherit", color: "inherit", letterSpacing: "inherit" }}
+        >
+          v{__APP_VERSION__.replace(/\.0$/, "")} • build {__APP_BUILD__}
+        </button>
+        <button
+          type="button"
+          onClick={checkStable}
+          disabled={checking}
+          aria-label={t("updater.check")}
+          title={t("updater.check")}
+          className="pointer-events-auto flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-inherit opacity-70 transition-opacity hover:opacity-100 disabled:opacity-40"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={checking ? "animate-spin" : undefined}
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+      </div>
+
       {intro && !introDone ? (
         <div className={introCls}>
           <div className="mm-intro-glow" style={introGlowStyle} />
-          <img className="mm-intro-logo" style={introLogoStyle} src="/utilities/LOGO%20NOVA.png" alt="Loop" />
+          <img className="mm-intro-logo" style={introLogoStyle} src="/utilities/Logo%20sem%20fundo.webp" alt="Loop" />
         </div>
       ) : null}
     </div>

@@ -32,6 +32,11 @@ const initialState = {
   nextRaceBriefing: null,
   // Prévia por IA pré-buscada durante a animação de avanço (evita o flash template→IA).
   preRaceAi: null,
+  // Standings pré-buscados junto com a IA (get_drivers_by_category + get_teams_standings
+  // + histórico de frases). A pré-corrida é ESTÁTICA até a corrida rodar, então a Sala de
+  // Estratégia lê deste cache e abre os Favoritos na hora, sem re-buscar os comandos
+  // pesados ao montar. Chaveado por `raceId`; muda de etapa → cache miss → busca de novo.
+  preRaceStandings: null,
   temporalSummary: null,
   calendarDisplayDate: null,
   displayDaysUntilNextEvent: null,
@@ -1181,10 +1186,12 @@ const useCareerStore = create((set, get) => ({
   // silenciosa (a tela cai no fluxo normal). `buildBriefingContext` vem do módulo puro
   // `nextRaceContext` (não do componente), então o import é estático — sem ciclo.
   prefetchPreRaceBriefing: async () => {
-    const { careerId, player, playerTeam, season, nextRace, nextRaceBriefing, preRaceAi } = get();
+    const { careerId, player, playerTeam, season, nextRace, nextRaceBriefing, preRaceAi, preRaceStandings } =
+      get();
     const raceId = nextRace?.id;
     if (!careerId || !raceId || !playerTeam?.categoria) return;
-    if (preRaceAi?.raceId === raceId) return; // já temos desta etapa
+    // Já temos IA E os standings desta etapa em cache → nada a buscar.
+    if (preRaceAi?.raceId === raceId && preRaceStandings?.raceId === raceId) return;
 
     try {
       const [drivers, teams, phraseHistory, forecast] = await Promise.all([
@@ -1200,20 +1207,40 @@ const useCareerStore = create((set, get) => ({
       // Outra etapa pode ter virado a corrente enquanto buscávamos — aborta se mudou.
       if (get().nextRace?.id !== raceId) return;
 
+      const driverStandings = Array.isArray(drivers) ? drivers : [];
+      const teamStandings = Array.isArray(teams) ? teams : [];
+      const normalizedPhraseHistory =
+        phraseHistory && Array.isArray(phraseHistory.entries)
+          ? phraseHistory
+          : { season_number: 0, entries: [] };
+      const normalizedForecast = forecast && forecast.available ? forecast : null;
+
+      // Guarda os standings já buscados para a Sala de Estratégia abrir os Favoritos na
+      // hora, sem re-disparar get_drivers_by_category/get_teams_standings ao montar.
+      set({
+        preRaceStandings: {
+          raceId,
+          driverStandings,
+          teamStandings,
+          phraseHistory: normalizedPhraseHistory,
+          breakdownForecast: normalizedForecast,
+        },
+      });
+
+      // A IA já pode estar em cache desta etapa (só faltavam os standings): não regenera.
+      if (preRaceAi?.raceId === raceId) return;
+
       const { aiFacts } = buildBriefingContext({
         player,
         playerTeam,
         season,
         nextRace,
         nextRaceBriefing,
-        driverStandings: Array.isArray(drivers) ? drivers : [],
-        teamStandings: Array.isArray(teams) ? teams : [],
-        briefingPhraseHistory:
-          phraseHistory && Array.isArray(phraseHistory.entries)
-            ? phraseHistory
-            : { season_number: 0, entries: [] },
+        driverStandings,
+        teamStandings,
+        briefingPhraseHistory: normalizedPhraseHistory,
         playerInterests: get().playerInterests,
-        breakdownForecast: forecast && forecast.available ? forecast : null,
+        breakdownForecast: normalizedForecast,
       });
       if (!aiFacts || !aiFacts.trim()) return;
 

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import "./EngineerRadio.css";
-import { useBreakdownFeed, usePlayerWarnings } from "./useBreakdownFeed";
+import { useBreakdownFeed, usePlayerWarnings, useChatSendBlocked } from "./useBreakdownFeed";
 import TowerCanvasView from "./TowerCanvasView";
 import { OVERLAY_MOCK } from "./overlayMockData";
 
@@ -10,6 +13,12 @@ import { OVERLAY_MOCK } from "./overlayMockData";
 // mensagem por vez, com fade; a próxima substitui a atual.
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const POS_KEY = "engineerMonitorPos"; // { x, y } físicos da janela do rádio
+// Posição PADRÃO de fábrica (px físicos) — vale pra quem baixou o app e ainda não moveu.
+// Espelha o `x`/`y` da janela `engineer` no tauri.conf.json (abaixo do espelho, centro-alto).
+const FACTORY_POS = { x: 653, y: 195 };
+const HOVER_W = 600; // caixa arrastável (px lógicos) reportada ao vigia de cursor
+const HOVER_H = 150;
 
 // Deixa o detalhe (causa, que vem em minúsculo) apresentável na MESMA linha: só a 1ª
 // maiúscula, sem ponto final — direto. Ex.: "câmbio quebrou" -> "Câmbio quebrou".
@@ -20,7 +29,9 @@ function capDetail(s) {
 }
 
 // Card de UMA mensagem. `message = { id, severity, text, detail }` ou null.
-export function EngineerRadioCard({ message, holdMs = 6000 }) {
+// `windowed` = ancora no topo-esquerda (janela pequena arrastável) em vez de fixo-centro.
+export function EngineerRadioCard({ message, holdMs = 6000, windowed = false }) {
+  const { t } = useTranslation();
   const [shown, setShown] = useState(null);
   const [visible, setVisible] = useState(false);
   const timer = useRef(null);
@@ -37,11 +48,11 @@ export function EngineerRadioCard({ message, holdMs = 6000 }) {
 
   if (!shown) return null;
   const sev = shown.severity === "dnf" ? "dnf" : shown.severity === "heavy" ? "heavy" : "light";
-  const tag = sev === "dnf" ? "Abandono" : "Rádio da equipe";
+  const tag = sev === "dnf" ? t("overlay.radio.tagDnf") : t("overlay.radio.tagTeam");
 
   return (
     <div
-      className={`engineer-radio ${visible ? "in" : "out"} sev-${sev}`}
+      className={`engineer-radio ${visible ? "in" : "out"} sev-${sev}${windowed ? " windowed" : ""}`}
       onTransitionEnd={() => {
         if (!visible) setShown(null); // some do DOM só depois do fade
       }}
@@ -89,7 +100,8 @@ function RevealWords({ text, delayStep = 42, startDelay = 0 }) {
 // Card do AVISO PESSOAL (peça do jogador na zona de risco): interface DISTINTA do rádio —
 // moldura âmbar pulsante, ícone de atenção, voz em 2ª pessoa, no alto da tela. Mesmo
 // mecanismo de fade/hold do card de rádio. Fica mais tempo (é um alerta acionável).
-export function PlayerWarningCard({ message, holdMs = 8000 }) {
+export function PlayerWarningCard({ message, holdMs = 8000, windowed = false }) {
+  const { t } = useTranslation();
   const [shown, setShown] = useState(null);
   const [visible, setVisible] = useState(false);
   const timer = useRef(null);
@@ -107,18 +119,36 @@ export function PlayerWarningCard({ message, holdMs = 8000 }) {
   if (!shown) return null;
   return (
     <div
-      className={`player-warning ${visible ? "in" : "out"}`}
+      className={`player-warning ${visible ? "in" : "out"}${windowed ? " windowed" : ""}`}
       onTransitionEnd={() => {
         if (!visible) setShown(null);
       }}
     >
       <div className="pw-tag">
         <span className="pw-icon">⚠</span>
-        Seu carro · Atenção
+        {t("overlay.radio.warningTag")}
       </div>
       <div className="pw-text" key={`t${shown.id}`}>
         <RevealWords text={shown.text} delayStep={44} startDelay={140} />
       </div>
+    </div>
+  );
+}
+
+// Banner PERSISTENTE de sistema (canal BOOLEANO, não stream): os comandos de quebra
+// (`!black`/`!dq`) não estão chegando ao iRacing — fullscreen exclusivo ou trava de foco.
+// Fica visível enquanto o backend reportar bloqueio; vermelho (erro acionável) pra
+// distinguir do aviso ÂMBAR de peça, e num canal separado pra não mascará-lo. Click-through.
+export function ChatBlockedBanner({ blocked, windowed = false }) {
+  const { t } = useTranslation();
+  if (!blocked) return null;
+  return (
+    <div className={`player-warning chat-blocked in${windowed ? " windowed" : ""}`}>
+      <div className="pw-tag">
+        <span className="pw-icon">⛔</span>
+        {t("overlay.radio.chatBlockedTag")}
+      </div>
+      <div className="pw-text">{t("overlay.radio.chatBlockedText")}</div>
     </div>
   );
 }
@@ -128,6 +158,7 @@ export function PlayerWarningCard({ message, holdMs = 8000 }) {
 // LOCALMENTE — sem depender de carreira, sessão ou volta — pra você achar/posicionar o
 // overlay na hora. Fora do demo, mostra as quebras reais da corrida.
 export function EngineerRadioLive() {
+  const { t } = useTranslation();
   const [careerId, setCareerId] = useState(null);
   const [demo, setDemo] = useState(false);
   const [demoTick, setDemoTick] = useState(0);
@@ -212,17 +243,84 @@ export function EngineerRadioLive() {
 
   const liveMessage = useBreakdownFeed(demo ? null : careerId); // no demo, pausa o feed real
   const warning = usePlayerWarnings(!demo && Boolean(careerId)); // aviso pessoal real
+  const chatBlocked = useChatSendBlocked(!demo && Boolean(careerId)); // comandos não chegam ao sim
   const pool = demoMsgs.length ? demoMsgs : MOCK_MESSAGES;
   const demoMessage = demo ? { ...pool[demoTick % pool.length], id: demoTick } : null;
   const demoWarning =
     demo && demoWarns.length ? { ...demoWarns[demoWarnTick % demoWarns.length], id: demoWarnTick } : null;
 
+  // ── Moldura ARRASTÁVEL (igual a torre): restaura/salva posição, ouve o hover e
+  // reporta a caixa arrastável. O mouse só alcança a janela quando está sobre o card
+  // (o vigia de cursor no backend alterna o clique-atravessa); fora, vai pro iRacing.
+  const [hover, setHover] = useState(false);
+  useEffect(() => {
+    if (!IN_TAURI) return undefined;
+    const w = getCurrentWindow();
+    const cleanups = [];
+    (async () => {
+      try {
+        const raw = localStorage.getItem(POS_KEY);
+        let pos = FACTORY_POS; // sem posição salva → padrão de fábrica (quem baixou o app)
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (Number.isFinite(p.x) && Number.isFinite(p.y)) pos = p;
+        }
+        await w.setPosition(new PhysicalPosition(pos.x, pos.y));
+      } catch {
+        /* posição indisponível */
+      }
+      try {
+        cleanups.push(
+          await w.onMoved(({ payload }) => {
+            try {
+              localStorage.setItem(POS_KEY, JSON.stringify({ x: payload.x, y: payload.y }));
+            } catch {
+              /* storage indisponível */
+            }
+          }),
+        );
+      } catch {
+        /* onMoved indisponível */
+      }
+      try {
+        cleanups.push(await listen("engineer-hover", (e) => setHover(Boolean(e.payload))));
+      } catch {
+        /* listen indisponível */
+      }
+    })();
+    invoke("engineer_set_hover_rect", { width: HOVER_W, height: HOVER_H }).catch(() => {});
+    return () => cleanups.forEach((fn) => fn && fn());
+  }, []);
+
+  const startDrag = () =>
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {});
+
   // No demo o hold é um pouco maior que o intervalo (6 s) pra não piscar entre trocas.
   return (
-    <>
-      <EngineerRadioCard message={demo ? demoMessage : liveMessage} holdMs={demo ? 6600 : 6000} />
-      <PlayerWarningCard message={demo ? demoWarning : warning} />
-    </>
+    <div style={{ position: "fixed", top: 0, left: 0, width: HOVER_W, padding: 8 }}>
+      {/* Camada de arraste: invisível, cobre a caixa. Só o cursor de "mover" indica que
+          dá pra arrastar; o mouse só chega aqui quando o vigia libera (hover). */}
+      <div
+        onMouseDown={startDrag}
+        title={t("overlay.radio.dragTooltip")}
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: HOVER_W,
+          height: HOVER_H,
+          cursor: "move",
+          background: hover ? "rgba(88,166,255,0.05)" : "transparent",
+          transition: "background 0.14s ease",
+          zIndex: 9,
+        }}
+      />
+      <EngineerRadioCard message={demo ? demoMessage : liveMessage} holdMs={demo ? 6600 : 6000} windowed />
+      <PlayerWarningCard message={demo ? demoWarning : warning} windowed />
+      <ChatBlockedBanner blocked={chatBlocked} windowed />
+    </div>
   );
 }
 

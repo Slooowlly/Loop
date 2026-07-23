@@ -533,8 +533,8 @@ function CalendarTab({ activeTab, raceArrivalFeedbackActive = false }) {
     <GlassCard hover={false} className="rounded-[28px]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">{t("calendar.title")}</p>
-          <h2 className="mt-2 text-3xl font-semibold text-text-primary">
+          <p className="kcal text-[11px] uppercase tracking-[0.22em] text-accent-primary">{t("calendar.title")}</p>
+          <h2 className="kcal mt-2 text-3xl font-semibold text-text-primary">
             {categoryLabel(playerTeam?.categoria)}
           </h2>
         </div>
@@ -698,7 +698,7 @@ function MonthCard({
       )}
 
       <div
-        className={`mb-2 rounded-lg px-3 py-1.5 text-center text-[15px] font-bold uppercase tracking-[0.16em] ${
+        className={`kcal mb-2 rounded-lg px-3 py-1.5 text-center text-[15px] font-bold uppercase tracking-[0.16em] ${
           isCurrentMonth ? tint.active : tint.idle
         }`}
       >
@@ -1054,7 +1054,7 @@ function OtherCategoryRaceTicket({
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-3 text-[10px] font-extrabold text-text-muted">
           <span
-            className="shrink-0 rounded-full border px-2.5 py-1 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+            className="kcal shrink-0 rounded-full border px-2.5 py-1 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
             style={{ borderColor: `${categoryColor}75`, backgroundColor: `${categoryColor}2e` }}
           >
             Etapa {race.rodada}
@@ -1064,7 +1064,7 @@ function OtherCategoryRaceTicket({
 
         <p
           className={[
-            "mt-2 truncate font-black leading-none tracking-[-0.055em] text-white",
+            "kcal mt-2 truncate font-black leading-none tracking-[-0.055em] text-white",
             compact ? "text-lg" : "text-[34px]",
           ].join(" ")}
         >

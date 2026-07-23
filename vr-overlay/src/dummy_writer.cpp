@@ -30,10 +30,11 @@ int main() {
     }
 
     auto* hdr = reinterpret_cast<IracerFrameHeader*>(base);
-    hdr->magic  = IRACER_SHM_MAGIC;
-    hdr->width  = IRACER_OVERLAY_W;
-    hdr->height = IRACER_OVERLAY_H;
-    hdr->frame  = 0;
+    hdr->magic   = IRACER_SHM_MAGIC;
+    hdr->version = IRACER_SHM_VERSION;  // senão a layer rejeita o mapeamento (guarda de layout)
+    hdr->width   = IRACER_OVERLAY_W;
+    hdr->height  = IRACER_OVERLAY_H;
+    hdr->frame   = 0;
 
     uint8_t* px = base + sizeof(IracerFrameHeader);
 

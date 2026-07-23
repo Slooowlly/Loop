@@ -904,26 +904,44 @@ fn simulate_category_race_with_mode(
         calculate_expected_event_interest(&venue_ctx).score as f64,
     );
 
-    // Bônus de rivalidade (Pressão de Duelo): os pilotos de interesse do jogador
-    // correm MAIS FORTE contra ele — Nemesis +2 skill, Rivais +1. Só vale quando o
-    // jogador está NESTA corrida (senão o rival não está duelando com ele).
-    let rival_skill_bonus: std::collections::HashMap<String, f64> =
-        if driver_pool.iter().any(|d| d.is_jogador) {
+    // Pressão de Duelo (Nemesis): a rivalidade pessoal do jogador é a 3ª fonte de pressão
+    // (clutch/choke via pressure.rs), SIMÉTRICA entre jogador e rival e só acesa quando os
+    // dois vão brigar de verdade (gate de pace). Substitui o antigo bônus fixo de skill
+    // (+2/+1), que não passava pela máquina de resiliência. Só vale com o jogador nesta
+    // corrida. Mapa driver_id -> (percebida do par com o jogador, pace do oponente p/ o gate).
+    let duel_by_driver: std::collections::HashMap<String, (f64, f64)> = {
+        let mut m = std::collections::HashMap::new();
+        if let Some(player) = driver_pool.iter().find(|d| d.is_jogador) {
+            let player_id = player.id.clone();
+            let player_skill = player.atributos.skill;
+            let base_skill: std::collections::HashMap<String, f64> = driver_pool
+                .iter()
+                .map(|d| (d.id.clone(), d.atributos.skill))
+                .collect();
             let current =
                 crate::db::queries::player_nemesis::get_current_nemesis(&db.conn).unwrap_or(None);
             let interests =
                 crate::commands::career::select_player_interests(&db.conn, current.as_deref());
-            let mut m = std::collections::HashMap::new();
-            if let Some(n) = interests.nemesis {
-                m.insert(n.driver_id, 2.0);
+            // Lado do jogador: sente o duelo contra o rival presente mais quente (o Nemesis
+            // se estiver na corrida). Guardamos a percebida e o pace desse rival.
+            let mut player_strongest: Option<(f64, f64)> = None;
+            for r in interests.nemesis.into_iter().chain(interests.rivais) {
+                // Só rivais realmente presentes nesta corrida.
+                let Some(&rival_skill) = base_skill.get(&r.driver_id) else {
+                    continue;
+                };
+                // Lado do rival: sente o duelo contra o jogador.
+                m.insert(r.driver_id.clone(), (r.perceived, player_skill));
+                if player_strongest.map_or(true, |(p, _)| r.perceived > p) {
+                    player_strongest = Some((r.perceived, rival_skill));
+                }
             }
-            for r in interests.rivais {
-                m.insert(r.driver_id, 1.0);
+            if let Some(info) = player_strongest {
+                m.insert(player_id, info);
             }
-            m
-        } else {
-            std::collections::HashMap::new()
-        };
+        }
+        m
+    };
 
     let mut orphaned_drivers = Vec::new();
     let sim_drivers: Vec<SimDriver> = driver_pool
@@ -954,6 +972,13 @@ fn simulate_category_race_with_mode(
                 }
                 // (Chuva NÃO entra aqui: a sim já aplica rain_skill_penalty no score
                 // em simulation/race.rs + qualifying.rs — aplicar de novo dobraria.)
+                // Motivação: um piloto desmotivado corre ABAIXO do próprio skill (efeito
+                // modesto e calibrável). Aplicado ao skill efetivo antes da pressão, para
+                // o headroom já enxergar o rendimento real do piloto.
+                let mot = crate::simulation::pressure::motivation_pace_delta(sd.motivacao);
+                sd.skill = (sd.skill as f64 + mot).clamp(5.0, 100.0).round() as u8;
+                sd.ritmo_classificacao =
+                    (sd.ritmo_classificacao as f64 + mot).clamp(5.0, 100.0).round() as u8;
                 // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
                 let pctx = crate::simulation::pressure::title_context(
                     driver.stats_temporada.pontos,
@@ -974,7 +999,26 @@ fn simulate_category_race_with_mode(
                     driver.atributos.mentalidade,
                     driver.atributos.experiencia,
                 );
-                let peff = crate::simulation::pressure::combine(title_eff, event_eff);
+                // Pressão de Duelo (Nemesis): 3ª fonte, acesa só quando jogador e rival
+                // brigam de verdade (gate de pace). Herda mentalidade/experiência — não é
+                // mais um bônus fixo. Percebida + pace do oponente vêm de `duel_by_driver`.
+                let duel_eff = match duel_by_driver.get(&driver.id) {
+                    Some(&(perceived, opponent_skill)) => {
+                        crate::simulation::pressure::rivalry_pressure_for(
+                            perceived,
+                            sd.skill as f64,
+                            opponent_skill,
+                            driver.atributos.mentalidade,
+                            driver.atributos.experiencia,
+                            1.0,
+                        )
+                    }
+                    None => crate::simulation::pressure::PressureEffect::NONE,
+                };
+                let peff = crate::simulation::pressure::combine(
+                    crate::simulation::pressure::combine(title_eff, event_eff),
+                    duel_eff,
+                );
                 // Headroom: converte o Δpace da pressão em pontos de skill conforme onde
                 // o piloto está na curva (subir tem teto, cair tem chão). Usa o skill
                 // efetivo do fim de semana (já com a penalidade de conhecimento de pista).
@@ -988,12 +1032,6 @@ fn simulate_category_race_with_mode(
                     .clamp(5.0, 100.0)
                     .round() as u8;
                 sd.pressure_error_mult = peff.error_mult;
-                // Pressão de Duelo: o rival do jogador rende mais contra ele.
-                if let Some(bonus) = rival_skill_bonus.get(&driver.id) {
-                    sd.skill = (sd.skill as f64 + bonus).clamp(5.0, 100.0).round() as u8;
-                    sd.ritmo_classificacao =
-                        (sd.ritmo_classificacao as f64 + bonus).clamp(5.0, 100.0).round() as u8;
-                }
                 Some(sd)
             }
             None if persistence_mode == RacePersistenceMode::HistoricalDraft => None,
@@ -1054,6 +1092,7 @@ fn simulate_category_race_with_mode(
         persistence_mode,
         None, // sim offline: sem inputs do jogador → sem estilo
         0,    // sim offline: sem paradas reais (a IA modela pela duração)
+        &std::collections::HashMap::new(), // sim offline: sem quebra ao vivo → sem feedback
         &mut rng,
     )?;
 
@@ -1081,6 +1120,12 @@ pub(crate) fn persist_race_result_tx(
     // Nº de paradas REAIS do jogador (do SDK) — alívio de gasto de peça do enduro (só no carro
     // dele; 10%/parada, teto 30%). 0 na sim offline (a IA modela as paradas pela duração).
     player_pits: u32,
+    // Feedback físico da quebra (§4.6): peças que largaram nesta corrida, por time. Vazio na sim
+    // offline (sem quebra) e nas corridas fora da categoria do jogador.
+    team_breakdowns: &std::collections::HashMap<
+        String,
+        Vec<(crate::car::PartType, crate::car::breakdown::Severity)>,
+    >,
     rng: &mut impl rand::Rng,
 ) -> Result<Vec<Injury>, String> {
     let mut new_injuries_out: Vec<Injury> = Vec::new();
@@ -1207,6 +1252,7 @@ pub(crate) fn persist_race_result_tx(
             player_style,
             player_pits,
             &team_cautions,
+            team_breakdowns,
         )?;
 
         // 3. Verifica os incidentes recém-gerados e processa possíveis lesões
@@ -1270,6 +1316,45 @@ pub(crate) fn persist_race_result_tx(
             race_entry.rodada,
             active_season.numero,
         )?;
+
+        // 8. Rivalidade entre EQUIPES (Fontes 3+4 + moral de derby): reusa os mesmos fatos
+        // da corrida. Mapa driver→time e melhor chegada por time, do próprio resultado.
+        let team_by_driver: std::collections::HashMap<String, String> = result
+            .race_results
+            .iter()
+            .map(|r| (r.pilot_id.clone(), r.team_id.clone()))
+            .collect();
+        // Fonte 3 — guerra na pista: agrega as colisões por par de times diferentes.
+        crate::rivalry::team::process_team_collisions_rivalry(
+            tx,
+            &flat_incidents,
+            &team_by_driver,
+            &race_entry.categoria,
+            race_entry.rodada,
+            active_season.numero,
+        )?;
+        // Fonte 4 — transbordamento: rivalidades intensas de piloto cross-time pingam nos times.
+        crate::rivalry::team::process_driver_rivalry_bleed(
+            tx,
+            &team_by_driver,
+            &race_entry.categoria,
+            race_entry.rodada,
+            active_season.numero,
+        )?;
+        // Tier 2 — pulso de moral de derby: bater o rival empurra a moral (sutil, simétrico).
+        let mut team_best_finish: std::collections::HashMap<String, i32> =
+            std::collections::HashMap::new();
+        for r in &result.race_results {
+            team_best_finish
+                .entry(r.team_id.clone())
+                .and_modify(|p| {
+                    if r.finish_position < *p {
+                        *p = r.finish_position;
+                    }
+                })
+                .or_insert(r.finish_position);
+        }
+        crate::rivalry::team::apply_derby_morale(tx, &team_best_finish)?;
 
         Ok(())
     })
@@ -1907,6 +1992,37 @@ pub(crate) fn import_iracing_race_result(
         result.most_positions_gained_id = None;
     }
 
+    // Peça 3 · Camada B (ponte do DNF perdido): se um comando de quebra do JOGADOR não chegou
+    // ao sim (fullscreen exclusivo → `chat_send_blocked`), o `!dq` não abandonou o carro dele e
+    // o resultado importado o mostra na pista — mas a carreira JÁ comprometeu a quebra (está no
+    // breakdown_log com desfecho "dnf"). Fecha a inconsistência carimbando o DNF a partir do LOG
+    // (não do `!dq`). Gate no latch: só quando há evidência de que o comando foi bloqueado, pra
+    // não fabricar um abandono que de fato não deveria acontecer. Roda ANTES do rescore, então
+    // `apply_special_class_scoring` reconcilia posição/pontos (DNF vai pro fim da classe, 0 ponto)
+    // e o bloco de quebra abaixo carimba o `dnf_catalog_id`/motivo (o carro agora é `is_dnf`).
+    if crate::iracing_sdk::race_monitor::chat_send_blocked() {
+        let player_break_label: Option<String> = result
+            .race_results
+            .iter()
+            .find(|d| d.is_jogador && !d.is_dnf)
+            .and_then(|player| {
+                breakdowns
+                    .iter()
+                    .find(|b| b.severity == "dnf" && b.driver_id == player.pilot_id)
+                    .map(|b| b.label.clone())
+            });
+        if let Some(label) = player_break_label {
+            if let Some(player) = result.race_results.iter_mut().find(|d| d.is_jogador) {
+                player.is_dnf = true;
+                player.classification_status =
+                    crate::simulation::race::ClassificationStatus::Dnf;
+                player.dnf_reason = Some(label);
+            }
+            // Mantém a contagem de abandonos coerente (narrativa "corrida mais caótica" etc.).
+            result.total_dnfs = result.race_results.iter().filter(|r| r.is_dnf).count() as i32;
+        }
+    }
+
     // Recalcula classe + pontos a partir de grid/chegada (single e multiclasse).
     apply_special_class_scoring(&mut result, &teams, category.id == "endurance");
     // Grid desconhecido (0) → evita posições-ganhas negativas absurdas.
@@ -1955,6 +2071,34 @@ pub(crate) fn import_iracing_race_result(
         .filter(|s| s.car_idx == history.player_car_idx && s.stationary_secs >= GENUINE_PIT_MIN_SECS)
         .count() as u32;
 
+    // Feedback físico da quebra (§4.6): agrupa as peças que largaram por TIME (resolve driver→time
+    // pelo resultado). No persist, Leve → segue; Grave → fim de vida; DNF → destruída (troca
+    // forçada a débito). É o que recopla a quebra ao vivo com o estado persistido do carro.
+    let team_breakdowns: std::collections::HashMap<
+        String,
+        Vec<(crate::car::PartType, crate::car::breakdown::Severity)>,
+    > = {
+        use std::collections::HashMap;
+        let driver_team: HashMap<&str, &str> = result
+            .race_results
+            .iter()
+            .map(|r| (r.pilot_id.as_str(), r.team_id.as_str()))
+            .collect();
+        let mut map: HashMap<String, Vec<(crate::car::PartType, crate::car::breakdown::Severity)>> =
+            HashMap::new();
+        for row in &breakdowns {
+            let (Some(pt), Some(sev), Some(team)) = (
+                crate::car::PartType::from_str(&row.part),
+                crate::car::breakdown::Severity::from_key(&row.severity),
+                driver_team.get(row.driver_id.as_str()),
+            ) else {
+                continue;
+            };
+            map.entry(team.to_string()).or_default().push((pt, sev));
+        }
+        map
+    };
+
     let next_round =
         Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32));
     let mut rng = rand::thread_rng();
@@ -1969,6 +2113,7 @@ pub(crate) fn import_iracing_race_result(
         RacePersistenceMode::Playable,
         player_style,
         player_pits,
+        &team_breakdowns,
         &mut rng,
     )?;
 
@@ -2364,6 +2509,12 @@ fn apply_race_result_to_database(
     player_pits: u32,
     // Desconfiança mecânica por time (DNF mecânico recente) → poupa as peças. Vazio = ninguém.
     team_cautions: &std::collections::HashMap<String, crate::car::driving_style::StyleFactors>,
+    // Feedback físico da quebra (§4.6): peças que largaram nesta corrida, por time. Leve → segue;
+    // Grave → fim de vida; DNF → destruída (troca forçada a débito). Vazio na sim offline.
+    team_breakdowns: &std::collections::HashMap<
+        String,
+        Vec<(crate::car::PartType, crate::car::breakdown::Severity)>,
+    >,
 ) -> Result<(), DbError> {
     for race_driver in &result.race_results {
         let mut driver = driver_queries::get_driver(tx, &race_driver.pilot_id)?;
@@ -2517,6 +2668,9 @@ fn apply_race_result_to_database(
             team_cautions.get(&team.id).copied()
         };
         // Carro do JOGADOR usa o pit REAL do SDK pro alívio de enduro; a IA modela pela duração.
+        // Feedback físico da quebra (§4.6): peças DESTE time que largaram nesta corrida.
+        let this_team_breakdowns: &[(crate::car::PartType, crate::car::breakdown::Severity)] =
+            team_breakdowns.get(team.id.as_str()).map(|v| v.as_slice()).unwrap_or(&[]);
         let car_maintenance_cost = crate::market::car_maintenance::maintain_team_car_pits(
             tx,
             team,
@@ -2527,6 +2681,7 @@ fn apply_race_result_to_database(
             team_style,
             is_player_car,
             player_pits,
+            this_team_breakdowns,
         )?;
 
         let finance_context = calculate_team_round_finance_context(

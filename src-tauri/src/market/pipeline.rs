@@ -35,6 +35,27 @@ fn rookie_merit_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// (Anti-deflação da grade) Liga o "mercado realista" na escada viva de contratações,
+/// em duas frentes complementares:
+///  1. ORDEM DE ESCOLHA dos assentos passa a ponderar prestígio (reputação da equipe,
+///     já carregada na vaga) além do carro — port do score de assento do motor de janela
+///     (`transfer_window::driver_offer_score`, pesos `w_car`/`w_prestige`) — para o melhor
+///     carro numa equipe prestigiada escolher do pool ANTES de um carro igual sem tradição.
+///  2. SELEÇÃO do candidato passa a penalizar quem o assento NÃO PODE PAGAR: o preço de
+///     mercado do piloto acima do teto salarial derivado do poder de gasto da equipe vira
+///     penalidade, fazendo um time sem caixa DESCER para um piloto mais barato em vez de
+///     assinar sempre o melhor agente livre (Problema 1: finanças limitavam o SALÁRIO, não
+///     a SELEÇÃO). Penalidade SOFT (nunca filtra) para preservar a invariante de grid e
+///     evitar re-scans em cascata que já travaram o sim multi-temporada.
+///
+/// LIGADO por padrão; desligue com `IRACER_MARKET_AFFORDABILITY=0` (ou `false`/`off`) para
+/// o A/B no harness sim_stats (comparar a distribuição de skill do topo da grade com/sem).
+fn market_affordability_enabled() -> bool {
+    std::env::var("IRACER_MARKET_AFFORDABILITY")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+        .unwrap_or(true)
+}
+
 use crate::generators::ids::{next_id, IdType};
 use crate::market::driver_ai::evaluate_proposal;
 use crate::market::evaluation::{estimate_expected_position, evaluate_driver_performance};
@@ -887,7 +908,49 @@ pub(crate) fn sign_driver_to_team(
             )
         })?;
         Ok(())
-    })
+    })?;
+    // Rivalidade entre EQUIPES — Fonte 2 (Elo 2) na TRANSFERÊNCIA NORMAL: assinar um piloto
+    // que largou o rival na temporada passada deixa marca no par de times. Fora do savepoint
+    // (best-effort — nunca desfaz a assinatura) e DEPOIS do commit, pra o histórico já incluir
+    // o contrato novo. O poaching tem seu próprio site (rancor máximo), então não duplica.
+    seed_ordinary_transfer_rivalry(conn, driver, &vacancy.team_id, new_season_number);
+    Ok(())
+}
+
+/// Fonte 2 (Elo 2) para TRANSFERÊNCIAS NORMAIS (não-poaching): se o piloto correu na
+/// temporada imediatamente anterior por um time DIFERENTE do novo, semeia rivalidade de
+/// mercado LEVE (`is_poaching=false` — o peso final vem do calibre do piloto, dentro da
+/// própria `seed_team_rivalry_from_transfer`). No-op para rookie (sem histórico), renovação
+/// (mesmo time) ou quem voltou de um período parado (saída não-fresca, evita semear com um
+/// time de anos atrás). Best-effort: um erro aqui nunca falha a assinatura.
+fn seed_ordinary_transfer_rivalry(
+    conn: &Connection,
+    driver: &Driver,
+    new_team_id: &str,
+    new_season_number: i32,
+) {
+    let Ok(history) = contract_queries::get_contracts_for_pilot(conn, &driver.id) else {
+        return;
+    };
+    // Histórico já vem por temporada DESC → o 1º contrato num time diferente do novo é o
+    // último time real do piloto (o contrato recém-inserido é no time novo, então é ignorado).
+    let Some(prev) = history.iter().find(|c| c.equipe_id != new_team_id) else {
+        return;
+    };
+    // Só saída FRESCA: terminou na temporada imediatamente anterior à da assinatura.
+    if prev.temporada_fim != new_season_number - 1 {
+        return;
+    }
+    if let Err(e) = crate::rivalry::team::seed_team_rivalry_from_transfer(
+        conn,
+        &prev.equipe_id,
+        new_team_id,
+        driver,
+        false, // transferência normal (não é assédio mid-contrato)
+        new_season_number,
+    ) {
+        eprintln!("Aviso: falha ao semear rivalidade de equipe na transferência: {e}");
+    }
 }
 
 /// Transfere `amount` do caixa do time `from` para o `to` — a 1ª mecânica de dinheiro
@@ -1012,6 +1075,20 @@ fn execute_poach(
 
     // A multa: dinheiro do assediante → vendedor.
     transfer_between_teams(conn, &poacher.id, seller_team_id, buyout)?;
+
+    // Rivalidade entre EQUIPES — Fonte 2 (roubo de talento, o Elo 2): arrancar um astro
+    // contratado do rival deixa marca duradoura no par de times. É o assédio mid-contrato
+    // (rancor máximo). Best-effort — não desfaz o poaching se a semeadura falhar.
+    if let Err(e) = crate::rivalry::team::seed_team_rivalry_from_transfer(
+        conn,
+        seller_team_id,
+        &poacher.id,
+        target,
+        true, // is_poaching
+        new_season_number,
+    ) {
+        eprintln!("Aviso: falha ao semear rivalidade de equipe no poaching: {e}");
+    }
 
     report.new_signings.push(SigningInfo {
         driver_id: target.id.clone(),
@@ -2441,6 +2518,24 @@ fn fill_remaining_vacancies_with_rookies(
         })
         .collect();
 
+    // Teto salarial por time (Item 1): quanto a folha de UM piloto do time comporta,
+    // derivado do poder de gasto (`calculate_salary_ceiling` já pondera caixa, dívida,
+    // estado financeiro e reputação). Alimenta a penalidade de affordability na seleção.
+    // Vazio quando a flag está off → seleção volta ao comportamento antigo (sem penalidade).
+    let team_ceiling_by_id: HashMap<String, f64> = if market_affordability_enabled() {
+        teams
+            .iter()
+            .map(|team| {
+                (
+                    team.id.clone(),
+                    crate::finance::salary::calculate_salary_ceiling(team),
+                )
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
@@ -2466,9 +2561,34 @@ fn fill_remaining_vacancies_with_rookies(
         // passa o piso de quase toda vaga e é assinado pela 1ª que aparece na
         // iteração (amador/gt4) ANTES de a vaga de GT3/endurance ser processada —
         // enterrando o talento num tier baixo. Ordenando por tier desc, o topo
-        // escolhe do pool antes das categorias inferiores o capturarem. `sort_by` é
-        // estável, então dentro do mesmo tier a ordem dos times é preservada.
-        vacancies.sort_by(|a, b| b.category_tier.cmp(&a.category_tier));
+        // escolhe do pool antes das categorias inferiores o capturarem.
+        //
+        // Desempate DENTRO do tier por DESEJABILIDADE do assento decrescente: cada vaga
+        // pega o MELHOR candidato do pool (max por `compare_pool_fallback_candidates`),
+        // logo processar o assento mais desejável primeiro faz o melhor assento ficar com
+        // o melhor piloto disponível. Sem esse desempate, a ordem de times era arbitrária
+        // e um assento pior do mesmo tier abocanhava o craque antes do melhor — a raiz do
+        // "melhor carro ≠ melhor piloto" que deflaciona a grade.
+        //
+        // Com o mercado realista (flag), desejabilidade = carro + PRESTÍGIO (reputação da
+        // equipe), port do score de assento do motor de janela — o melhor carro numa
+        // equipe prestigiada escolhe antes de um carro igual sem tradição. Sem a flag,
+        // desempata só por `car_performance` (comportamento antigo). `sort_by` é estável,
+        // então assentos empatados (ex.: N1/N2 do mesmo time) preservam a ordem original.
+        let use_market_realism = market_affordability_enabled();
+        vacancies.sort_by(|a, b| {
+            b.category_tier.cmp(&a.category_tier).then_with(|| {
+                if use_market_realism {
+                    seat_desirability(b)
+                        .partial_cmp(&seat_desirability(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    b.car_performance
+                        .partial_cmp(&a.car_performance)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }
+            })
+        });
 
         let previous_season = get_season_by_number(conn, new_season_number - 1)?;
         let market_contexts = load_market_contexts(
@@ -2491,6 +2611,8 @@ fn fill_remaining_vacancies_with_rookies(
                 .get(&vacancy.team_id)
                 .copied()
                 .unwrap_or(crate::fame::TEAM_NEED_MIN);
+            // `None` (flag off / time sem teto) → sem penalidade de affordability.
+            let team_ceiling = team_ceiling_by_id.get(&vacancy.team_id).copied();
             let is_debut_vacancy = is_real_career_debut_category(&vacancy.categoria)
                 || is_entry_category_for_year(&vacancy.categoria, debut_year);
             let fallback_index = available
@@ -2498,7 +2620,7 @@ fn fill_remaining_vacancies_with_rookies(
                 .enumerate()
                 .filter(|(_, candidate)| is_pool_fallback_candidate(candidate, &vacancy))
                 .max_by(|(_, a), (_, b)| {
-                    compare_pool_fallback_candidates(a, b, &vacancy, need_factor)
+                    compare_pool_fallback_candidates(a, b, &vacancy, need_factor, team_ceiling)
                 })
                 .map(|(index, _)| index);
 
@@ -4315,23 +4437,97 @@ fn compare_pool_fallback_candidates(
     b: &AvailableDriver,
     vacancy: &Vacancy,
     need_factor: f64,
+    team_ceiling: Option<f64>,
 ) -> std::cmp::Ordering {
     // Gates duros (experiência/licença) mandam primeiro; o VALOR do time desempata:
     // mérito esportivo (skill) + apelo comercial da fama ponderado pela necessidade
-    // do time. Time carente pode preferir um nome famoso a um rápido anônimo; numa
-    // dinastia a fama pesa pouco e a velocidade decide (Fase 2a do estrelato).
+    // do time, MENOS a penalidade de affordability (Item 1). Time carente pode preferir
+    // um nome famoso a um rápido anônimo; numa dinastia a fama pesa pouco e a velocidade
+    // decide (Fase 2a do estrelato). Time SEM CAIXA desce para um piloto mais barato.
     pool_fallback_candidate_rank(a, vacancy)
         .cmp(&pool_fallback_candidate_rank(b, vacancy))
         .then_with(|| {
-            team_candidate_value(a, need_factor).total_cmp(&team_candidate_value(b, need_factor))
+            team_candidate_value(a, vacancy, need_factor, team_ceiling)
+                .total_cmp(&team_candidate_value(b, vacancy, need_factor, team_ceiling))
         })
 }
 
-/// Valor de um candidato para o time: skill + apelo comercial da fama ponderado
-/// pela necessidade do time (`fame_commercial_units × need_factor`).
-fn team_candidate_value(candidate: &AvailableDriver, need_factor: f64) -> f64 {
-    candidate.driver.atributos.skill
-        + crate::fame::fame_commercial_units(candidate.driver.atributos.midia) * need_factor
+/// Valor de um candidato para o time: skill + apelo comercial da fama ponderado pela
+/// necessidade do time (`fame_commercial_units × need_factor`), MENOS a penalidade de
+/// affordability quando o time carrega um teto (`team_ceiling = Some`). `None` (flag off)
+/// = comportamento antigo, sem penalidade.
+fn team_candidate_value(
+    candidate: &AvailableDriver,
+    vacancy: &Vacancy,
+    need_factor: f64,
+    team_ceiling: Option<f64>,
+) -> f64 {
+    let skill = candidate.driver.atributos.skill;
+    let merit_and_appeal =
+        skill + crate::fame::fame_commercial_units(candidate.driver.atributos.midia) * need_factor;
+    match team_ceiling {
+        // Item 1: penaliza o candidato que o assento NÃO PODE PAGAR. O preço de mercado do
+        // piloto (por tier+papel do assento) acima do teto salarial da equipe vira uma
+        // penalidade em "pontos de skill", empurrando um time sem caixa para um piloto mais
+        // barato (ou mantendo o craque caro no pool para um assento que o comporte).
+        Some(ceiling) => {
+            let price = candidate_market_price(
+                skill,
+                vacancy.category_tier,
+                matches!(vacancy.papel_necessario, TeamRole::Numero1),
+            );
+            merit_and_appeal - affordability_penalty(price, ceiling)
+        }
+        None => merit_and_appeal,
+    }
+}
+
+/// Preço de mercado (independente do caixa do time) que um piloto de `skill` comanda num
+/// assento deste `tier`/papel: a faixa salarial do tier posicionada pela skill, com fator
+/// de papel (N1 titular custa mais). Mesma escala das ofertas ao jogador
+/// (`player_offer_salary`) e dos contratos da IA (`salary_range_for_tier`) — não depende
+/// da pobreza da equipe, senão o teto baixo de um time quebrado tornaria todo mundo
+/// "barato" e a penalidade nunca dispararia.
+fn candidate_market_price(skill: f64, tier: u8, is_n1: bool) -> f64 {
+    let (lo, hi) = crate::models::contract::salary_range_for_tier(tier);
+    let t = (skill / 100.0).clamp(0.0, 1.0);
+    let base = lo + (hi - lo) * t;
+    let role = if is_n1 { 1.30 } else { 1.06 };
+    base * role
+}
+
+/// Peso e teto da penalidade de affordability (em "pontos de skill", mesma unidade de
+/// `team_candidate_value`, cujo base ≈ skill 0–100 + fama 0–63). A penalidade só ENTRA
+/// como desempate DEPOIS dos gates duros (via `.then_with` em
+/// `compare_pool_fallback_candidates`), então pode ser forte sem inverter licença/experiência
+/// nem desestabilizar o sim (é comparador puro, sem re-scan). O `WEIGHT` alto garante que
+/// "não posso pagar" supere uma diferença de skill relevante — um assento sobre orçamento
+/// perde para um candidato que CABE, mesmo sendo este menos habilidoso. O `CAP` satura para
+/// que, quando NINGUÉM cabe (time quebrado), todos fiquem igualmente penalizados e a skill
+/// volte a decidir (ele assina o melhor disponível em vez de afundar num skill-20).
+const AFFORDABILITY_PENALTY_WEIGHT: f64 = 200.0;
+const AFFORDABILITY_PENALTY_CAP: f64 = 120.0;
+
+/// Penalidade de affordability: 0 se o assento comporta o preço; senão cresce com o quanto
+/// o preço excede o teto, saturando em `AFFORDABILITY_PENALTY_CAP`.
+fn affordability_penalty(price: f64, ceiling: f64) -> f64 {
+    if ceiling <= 0.0 || price <= ceiling {
+        return 0.0;
+    }
+    (AFFORDABILITY_PENALTY_WEIGHT * (price / ceiling - 1.0)).min(AFFORDABILITY_PENALTY_CAP)
+}
+
+/// Desejabilidade de um assento para a ORDEM de escolha (port de
+/// `transfer_window::driver_offer_score`): carro + prestígio (reputação da equipe, já na
+/// vaga). Os pesos vêm da FONTE ÚNICA `transfer_window::{SEAT_W_CAR, SEAT_W_PRESTIGE}` — os
+/// mesmos do motor de janela —, então não divergem. Assim o melhor carro numa equipe
+/// prestigiada escolhe do pool antes de um carro igual sem tradição — o que o leilão dava de
+/// graça, reproduzido na escada gulosa.
+fn seat_desirability(vacancy: &Vacancy) -> f64 {
+    use crate::market::transfer_window::{SEAT_W_CAR, SEAT_W_PRESTIGE};
+    let car_norm = crate::simulation::math::normalize_car_performance(vacancy.car_performance);
+    (car_norm / 100.0).min(1.2) * SEAT_W_CAR
+        + (vacancy.reputacao.clamp(0.0, 100.0) / 100.0) * SEAT_W_PRESTIGE
 }
 
 /// Margem do piso de skill do pool de resgate: um órfão só preenche uma vaga
@@ -5492,6 +5688,99 @@ mod tests {
     }
 
     #[test]
+    fn affordability_penalty_is_zero_within_budget_and_saturates_over() {
+        // Dentro do teto → sem penalidade.
+        assert_eq!(affordability_penalty(90_000.0, 100_000.0), 0.0);
+        assert_eq!(affordability_penalty(100_000.0, 100_000.0), 0.0);
+        // Acima do teto → cresce com o excesso.
+        let mild = affordability_penalty(120_000.0, 100_000.0); // 20% acima
+        let steep = affordability_penalty(200_000.0, 100_000.0); // 100% acima
+        assert!(mild > 0.0 && steep > mild);
+        // Satura no teto duro (2× acima já excede o CAP).
+        assert_eq!(
+            affordability_penalty(400_000.0, 100_000.0),
+            AFFORDABILITY_PENALTY_CAP
+        );
+        // Teto inválido/zero → sem penalidade (robustez).
+        assert_eq!(affordability_penalty(100_000.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn candidate_market_price_grows_with_skill_and_role() {
+        let mut rng = StdRng::seed_from_u64(3);
+        let tier = fallback_vacancy_from_team(&sample_team("gt3", "TP", &mut rng)).category_tier;
+        // Monotônico na skill.
+        assert!(candidate_market_price(90.0, tier, true) > candidate_market_price(60.0, tier, true));
+        // N1 (titular) custa mais que N2 na mesma skill.
+        assert!(
+            candidate_market_price(75.0, tier, true) > candidate_market_price(75.0, tier, false)
+        );
+    }
+
+    #[test]
+    fn seat_desirability_rewards_better_car_and_more_prestige() {
+        let mut rng = StdRng::seed_from_u64(4);
+        let base = fallback_vacancy_from_team(&sample_team("gt3", "TSD", &mut rng));
+        let mut better_car = base.clone();
+        better_car.car_performance = base.car_performance + 4.0;
+        let mut more_prestige = base.clone();
+        more_prestige.reputacao = (base.reputacao + 30.0).min(100.0);
+        assert!(seat_desirability(&better_car) > seat_desirability(&base));
+        assert!(seat_desirability(&more_prestige) > seat_desirability(&base));
+    }
+
+    #[test]
+    fn affordability_makes_broke_seat_descend_to_cheaper_candidate() {
+        // Item 1 (seleção): um assento que NÃO comporta o craque prefere um candidato mais
+        // barato que CABE; um assento rico assina o craque; sem a flag (None), sempre o
+        // craque (comportamento antigo). Gates duros iguais → o VALOR desempata.
+        let mut rng = StdRng::seed_from_u64(5);
+        let gt3 = sample_team("gt3", "TAFF", &mut rng);
+        let vac = fallback_vacancy_from_team(&gt3);
+        let tier = vac.category_tier;
+        let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+
+        let mk = |id: &str, skill: f64| {
+            let mut d = sample_driver(id, id, None, skill, DriverStatus::Ativo);
+            d.atributos.midia = 0.0; // isola o efeito: sem fama
+            AvailableDriver {
+                driver: d,
+                visibility: 1.0,
+                posicao_campeonato: 5,
+                categoria_atual: String::new(),
+                category_tier: 0,
+                max_license_level: Some(20), // gate de licença idêntico entre os dois
+            }
+        };
+        let star = mk("STAR", 90.0);
+        let cheap = mk("CHEAP", 64.0);
+
+        let need = crate::fame::TEAM_NEED_MIN;
+        let star_price = candidate_market_price(90.0, tier, is_n1);
+        let cheap_price = candidate_market_price(64.0, tier, is_n1);
+        assert!(star_price > cheap_price);
+
+        // Teto que comporta o barato mas NÃO o craque → o assento DESCE para o barato.
+        assert_eq!(
+            compare_pool_fallback_candidates(&star, &cheap, &vac, need, Some(cheap_price)),
+            std::cmp::Ordering::Less,
+            "assento sem caixa deve preferir o candidato mais barato que cabe no teto"
+        );
+        // Teto folgado (assina o craque).
+        assert_eq!(
+            compare_pool_fallback_candidates(&star, &cheap, &vac, need, Some(star_price * 2.0)),
+            std::cmp::Ordering::Greater,
+            "assento rico deve assinar o craque"
+        );
+        // Flag off (None) → comportamento antigo: sempre o craque.
+        assert_eq!(
+            compare_pool_fallback_candidates(&star, &cheap, &vac, need, None),
+            std::cmp::Ordering::Greater,
+            "sem affordability o melhor skill sempre vence"
+        );
+    }
+
+    #[test]
     fn test_pool_fallback_for_non_rookie_vacancy_uses_experienced_lower_license_before_debutant() {
         let conn = Connection::open_in_memory().expect("in-memory db");
         migrations::run_all(&conn).expect("schema");
@@ -6423,6 +6712,65 @@ mod tests {
         assert!(
             active_contracts.is_empty(),
             "a assinatura deve ser atomica e nao deixar contrato ativo apos falha no update do piloto"
+        );
+    }
+
+    #[test]
+    fn ordinary_transfer_seeds_team_rivalry_only_on_fresh_departure() {
+        // Fonte 2 (Elo 2) na transferência NORMAL: um piloto de calibre que correu por T002 e
+        // terminou na temporada 1, ao assinar com T001 na temporada 2 (saída FRESCA), semeia
+        // rivalidade de mercado entre os dois times. Uma saída ANTIGA (não-fresca) não semeia.
+        let build = || {
+            let conn = Connection::open_in_memory().expect("db");
+            migrations::run_all(&conn).expect("schema");
+            let mut rng = StdRng::seed_from_u64(9);
+            let team_a = sample_team("gt4", "T001", &mut rng);
+            let team_b = sample_team("gt4", "T002", &mut rng);
+            team_queries::insert_team(&conn, &team_a).expect("t001");
+            team_queries::insert_team(&conn, &team_b).expect("t002");
+            let driver = sample_driver("P001", "Astro", Some("gt4"), 88.0, DriverStatus::Ativo);
+            driver_queries::insert_driver(&conn, &driver).expect("driver");
+            // Contrato antigo em T002 começando na temporada 1, duração 1 → termina na temporada 1.
+            let old = Contract::new(
+                "C001".to_string(),
+                driver.id.clone(),
+                driver.nome.clone(),
+                team_b.id.clone(),
+                team_b.nome.clone(),
+                1,
+                1,
+                120_000.0,
+                TeamRole::Numero1,
+                "gt4".to_string(),
+            );
+            contract_queries::insert_contract(&conn, &old).expect("old contract");
+            (conn, driver)
+        };
+
+        // FRESCA: assina T001 na temporada 2, saída de T002 terminou na temporada 1 (== 2-1).
+        let (conn, driver) = build();
+        assert!(
+            crate::rivalry::team::get_team_rivalries(&conn, "T001")
+                .expect("riv")
+                .is_empty(),
+            "sem rivalidade antes da transferência"
+        );
+        seed_ordinary_transfer_rivalry(&conn, &driver, "T001", 2);
+        assert!(
+            !crate::rivalry::team::get_team_rivalries(&conn, "T001")
+                .expect("riv")
+                .is_empty(),
+            "transferência fresca T002→T001 deve semear rivalidade de mercado"
+        );
+
+        // ANTIGA: mesmo contrato (termina na 1), mas assinando na temporada 5 (2-1 ≠ 1) → nada.
+        let (conn2, driver2) = build();
+        seed_ordinary_transfer_rivalry(&conn2, &driver2, "T001", 5);
+        assert!(
+            crate::rivalry::team::get_team_rivalries(&conn2, "T001")
+                .expect("riv")
+                .is_empty(),
+            "saída não-fresca (de temporadas atrás) não deve semear rivalidade"
         );
     }
 

@@ -144,7 +144,67 @@ describe("useCareerStore loadCareer", () => {
       endOfSeasonResult: null,
       showEndOfSeason: false,
       showPreseason: false,
+      championOverlay: null,
     });
+  });
+
+  it("clears the champion overlay when switching careers", async () => {
+    invoke.mockImplementation((command) => {
+      if (command === "load_career") {
+        return Promise.resolve({
+          career_id: "career-new",
+          difficulty: "medio",
+          player: { id: "drv-player", nome: "R. Silva" },
+          player_team: { id: "team-1", categoria: "mazda_amador" },
+          season: { id: "season-1", numero: 1 },
+          next_race: null,
+          next_race_briefing: null,
+          total_drivers: 16,
+          total_teams: 8,
+        });
+      }
+
+      if (command === "get_temporal_summary") return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    useCareerStore.setState({
+      careerId: "career-old",
+      championOverlay: { demo: true },
+    });
+
+    await useCareerStore.getState().loadCareer("career-new");
+
+    expect(useCareerStore.getState().championOverlay).toBe(null);
+  });
+
+  it("preserves the champion overlay when reloading the same career", async () => {
+    const championOverlay = { demo: true };
+    invoke.mockImplementation((command) => {
+      if (command === "load_career") {
+        return Promise.resolve({
+          career_id: "career-1",
+          difficulty: "medio",
+          player: { id: "drv-player", nome: "R. Silva" },
+          player_team: { id: "team-1", categoria: "mazda_amador" },
+          season: { id: "season-1", numero: 1 },
+          next_race: null,
+          next_race_briefing: null,
+          total_drivers: 16,
+          total_teams: 8,
+        });
+      }
+
+      if (command === "get_temporal_summary") return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    useCareerStore.setState({
+      careerId: "career-1",
+      championOverlay,
+    });
+
+    await useCareerStore.getState().loadCareer("career-1");
+
+    expect(useCareerStore.getState().championOverlay).toEqual(championOverlay);
   });
 
   it("stores the enriched next-race briefing from load_career", async () => {
@@ -828,6 +888,32 @@ describe("useCareerStore dismissResult", () => {
     expect(mockLoadCareer).toHaveBeenCalledWith("career-1");
     expect(mockRunConvocationWindow).not.toHaveBeenCalled();
     expect(useCareerStore.getState().showResult).toBe(false);
+  });
+});
+
+describe("useCareerStore champion overlay", () => {
+  beforeEach(() => {
+    useCareerStore.setState({ championOverlay: null });
+  });
+
+  afterEach(() => {
+    useCareerStore.setState({ championOverlay: null });
+  });
+
+  it("stores the requested payload and clears it on close", () => {
+    const overlay = { demo: true };
+
+    useCareerStore.getState().showChampionOverlay(overlay);
+    expect(useCareerStore.getState().championOverlay).toEqual(overlay);
+
+    useCareerStore.getState().hideChampionOverlay();
+    expect(useCareerStore.getState().championOverlay).toBe(null);
+  });
+
+  it("uses the demo sentinel when no payload is provided", () => {
+    useCareerStore.getState().showChampionOverlay();
+
+    expect(useCareerStore.getState().championOverlay).toEqual({ demo: true });
   });
 });
 

@@ -11,7 +11,7 @@ use crate::promotion::block3::execute_block3_for_year;
 use crate::models::team::Team;
 use crate::promotion::effects::{
     apply_attribute_deltas, calculate_promotion_effects, calculate_relegation_effects,
-    promotion_car_landing_delta,
+    promotion_car_landing_delta, promotion_diminish_config, promotion_diminish_factor,
 };
 use crate::promotion::pilots::{apply_pilot_effect, resolve_pilot_situations};
 use crate::promotion::{MovementType, PromotionResult, TeamMovement};
@@ -142,6 +142,7 @@ pub(crate) fn run_promotion_relegation_for_year(
         }
 
         let soft_landing_margin = promotion_soft_landing_margin();
+        let diminish_config = promotion_diminish_config();
         let mut attribute_deltas = Vec::new();
         for movement in &all_movements {
             let team = team_queries::get_team_by_id(conn, &movement.team_id)
@@ -160,9 +161,48 @@ pub(crate) fn run_promotion_relegation_for_year(
                             delta.car_performance_delta = car_delta;
                         }
                     }
+                    // Retorno decrescente (anti chain-promotion): encolhe o pacote econômico
+                    // (orçamento/estrutura/engenharia) a cada promoção encadeada na janela
+                    // móvel, freando o snowball caixa→carro→vitória→promoção. Não toca o carro
+                    // (soft landing) nem a moral/reputação. Persiste o histórico da equipe.
+                    if let Some(cfg) = diminish_config.as_ref() {
+                        let (last_season, recent) =
+                            team_queries::get_promotion_history(conn, &team.id).map_err(|e| {
+                                format!(
+                                    "Falha ao buscar histórico de promoção de '{}': {e}",
+                                    team.id
+                                )
+                            })?;
+                        let (factor, next_recent) =
+                            promotion_diminish_factor(last_season, recent, season_number, cfg);
+                        delta.budget_delta *= factor;
+                        delta.facilities_delta *= factor;
+                        delta.engineering_delta *= factor;
+                        team_queries::set_promotion_history(
+                            conn,
+                            &team.id,
+                            season_number,
+                            next_recent,
+                        )
+                        .map_err(|e| {
+                            format!("Falha ao gravar histórico de promoção de '{}': {e}", team.id)
+                        })?;
+                    }
                     delta
                 }
-                MovementType::Rebaixamento => calculate_relegation_effects(&team, rng),
+                MovementType::Rebaixamento => {
+                    // Rebaixamento quebra a cadeia de promoções: a próxima subida volta a
+                    // valer o pacote cheio (não pune a equipe que caiu e reconquistou o topo).
+                    if diminish_config.is_some() {
+                        team_queries::set_promotion_history(conn, &team.id, 0, 0).map_err(|e| {
+                            format!(
+                                "Falha ao resetar histórico de promoção de '{}': {e}",
+                                team.id
+                            )
+                        })?;
+                    }
+                    calculate_relegation_effects(&team, rng)
+                }
             };
             apply_attribute_deltas(conn, &movement.team_id, &delta)?;
             attribute_deltas.push(delta);

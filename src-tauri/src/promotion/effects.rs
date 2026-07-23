@@ -129,6 +129,75 @@ fn promotion_budget_delta_to_cash(team: &Team, budget_delta: f64) -> f64 {
     category_cash_window * (budget_delta / 100.0) * 0.35
 }
 
+/// Parâmetros do retorno decrescente do pacote ECONÔMICO da promoção.
+pub struct PromotionDiminishConfig {
+    /// Fator geométrico por promoção encadeada (0..1). Menor = freio mais forte.
+    pub decay: f64,
+    /// Janela móvel (em temporadas): promoções espaçadas além disso resetam a contagem.
+    pub window: i32,
+    /// Piso do fator — mesmo encadeando muitas promoções, o pacote nunca zera.
+    pub floor: f64,
+}
+
+/// Retorno decrescente do pacote ECONÔMICO da promoção (anti-snowball do chain-promotion).
+/// LIGADO por padrão; desligável via `IRACER_PROMO_DIMINISH=0` (A/B no Monte Carlo).
+///
+/// Motivo: a promoção injeta orçamento/estrutura/engenharia TODA vez que a equipe sobe, e
+/// esse caixa vira carro no offseason (`finance::cashflow`) — então uma equipe que vence a
+/// categoria uma vez tende a chegar MAIS FORTE na de cima e vencer de novo, encadeando
+/// promoções (rookie→amador→...→production) sem freio. Aqui cada promoção DENTRO da janela
+/// móvel rende um fator menor (`decay^(n-1)`, piso `floor`): a 1ª vem cheia (fator 1.0), a
+/// 2ª encadeada vale `decay`, a 3ª `decay²`, etc. Promoções espaçadas (fora da janela)
+/// resetam a contagem — punimos o FOGUETE, não a equipe que sobe, consolida e volta a subir
+/// anos depois. Calibrável por `IRACER_PROMO_DIMINISH_{DECAY,WINDOW,FLOOR}`. `None` =
+/// desligado (aplica pacote cheio, nada a persistir).
+pub fn promotion_diminish_config() -> Option<PromotionDiminishConfig> {
+    let enabled = std::env::var("IRACER_PROMO_DIMINISH")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+        .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
+    let decay = std::env::var("IRACER_PROMO_DIMINISH_DECAY")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.55)
+        .clamp(0.0, 1.0);
+    let window = std::env::var("IRACER_PROMO_DIMINISH_WINDOW")
+        .ok()
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(3)
+        .max(1);
+    let floor = std::env::var("IRACER_PROMO_DIMINISH_FLOOR")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.15)
+        .clamp(0.0, 1.0);
+    Some(PromotionDiminishConfig {
+        decay,
+        window,
+        floor,
+    })
+}
+
+/// Fator a multiplicar no pacote econômico e a nova contagem a persistir para a promoção
+/// corrente. `last_promotion_season`/`recent_promotions` vêm do histórico da equipe (0/0 se
+/// nunca subiu). Ver `promotion_diminish_config` para o design. Função PURA (testável sem DB).
+pub fn promotion_diminish_factor(
+    last_promotion_season: i32,
+    recent_promotions: i32,
+    current_season: i32,
+    config: &PromotionDiminishConfig,
+) -> (f64, i32) {
+    let chained = last_promotion_season > 0
+        && current_season > last_promotion_season
+        && current_season - last_promotion_season <= config.window;
+    let next_recent = if chained { recent_promotions + 1 } else { 1 };
+    let exp = (next_recent - 1).max(0);
+    let factor = config.decay.powi(exp).max(config.floor);
+    (factor, next_recent)
+}
+
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, SeedableRng};
@@ -302,5 +371,52 @@ mod tests {
     fn test_median_of_even_and_odd() {
         assert!((median_of(&[1.0, 3.0, 2.0]) - 2.0).abs() < 1e-9);
         assert!((median_of(&[1.0, 2.0, 3.0, 4.0]) - 2.5).abs() < 1e-9);
+    }
+
+    fn diminish_cfg() -> PromotionDiminishConfig {
+        PromotionDiminishConfig {
+            decay: 0.5,
+            window: 3,
+            floor: 0.1,
+        }
+    }
+
+    #[test]
+    fn test_diminish_first_promotion_is_full() {
+        // Nunca subiu (0,0): fator cheio (1.0), contagem começa em 1.
+        let (factor, next) = promotion_diminish_factor(0, 0, 5, &diminish_cfg());
+        assert!((factor - 1.0).abs() < 1e-9);
+        assert_eq!(next, 1);
+    }
+
+    #[test]
+    fn test_diminish_chained_promotions_decay_geometrically() {
+        let cfg = diminish_cfg();
+        // Subiu na 5 (recent=1); sobe de novo na 6 (dentro da janela): fator = decay^1.
+        let (f2, n2) = promotion_diminish_factor(5, 1, 6, &cfg);
+        assert!((f2 - 0.5).abs() < 1e-9);
+        assert_eq!(n2, 2);
+        // 3ª encadeada (recent=2), temporada 7: decay^2.
+        let (f3, n3) = promotion_diminish_factor(6, 2, 7, &cfg);
+        assert!((f3 - 0.25).abs() < 1e-9);
+        assert_eq!(n3, 3);
+    }
+
+    #[test]
+    fn test_diminish_respects_floor() {
+        let cfg = diminish_cfg(); // decay 0.5, floor 0.1
+        // recent alto → decay^5 = 0.03125, mas o piso segura em 0.1.
+        let (factor, next) = promotion_diminish_factor(10, 5, 11, &cfg);
+        assert!((factor - 0.1).abs() < 1e-9, "piso deve segurar o fator");
+        assert_eq!(next, 6);
+    }
+
+    #[test]
+    fn test_diminish_resets_when_promotion_is_outside_window() {
+        let cfg = diminish_cfg(); // janela = 3
+        // Subiu na 5 (recent=3), mas só volta a subir na 10 (gap 5 > 3): reseta a contagem.
+        let (factor, next) = promotion_diminish_factor(5, 3, 10, &cfg);
+        assert!((factor - 1.0).abs() < 1e-9, "promoção espaçada volta ao cheio");
+        assert_eq!(next, 1);
     }
 }

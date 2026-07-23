@@ -57,7 +57,12 @@
       "captureFolder": "Pasta: {{dir}}",
       "captureSaved": "Salvo: {{path}}",
       "captureStopped": "Gravação parada.",
-      "capturing": "Gravando… entre numa sessão do iRacing. Arquivo: {{path}}"
+      "capturing": "Gravando… entre numa sessão do iRacing. Arquivo: {{path}}",
+      "calendarTitle": "Versão do calendário",
+      "calendarDesc": "Escolhe qual calendário usar. V3 é o mais novo; V2 e Legado ficam como fallback.",
+      "calendarLegacy": "Legado",
+      "calendarV2": "V2",
+      "calendarV3": "V3"
     }
   },
   "difficulty": {
@@ -201,6 +206,36 @@
     "loading": "Carregando calendário da temporada...",
     "loadError": "Não foi possível carregar o calendário.",
     "tbd": "A definir",
+    "v2": {
+      "prevMonth": "Mês anterior",
+      "nextMonth": "Próximo mês",
+      "today": "Hoje",
+      "upcoming": "Próximos eventos",
+      "nextMonths": "Próximos meses",
+      "seeAll": "Ver todos",
+      "seeFull": "Ver calendário completo",
+      "seeMore": "Ver mais eventos",
+      "seeLess": "Ver menos",
+      "empty": "Sem corridas neste mês.",
+      "noUpcoming": "Nenhuma corrida à frente.",
+      "summary": "Resumo da temporada",
+      "statEvents": "Eventos",
+      "statRounds": "Etapas",
+      "statDone": "Concluídas",
+      "statTracks": "Pistas",
+      "statSeries": "Categorias",
+      "statCountries": "Países",
+      "statNextDays": "Até a próxima",
+      "statTrackTime": "Tempo de pista",
+      "statWet": "Na chuva",
+      "statSpecial": "Especiais",
+      "raceNumber": "Corrida {{n}}",
+      "next": "Próxima",
+      "race": "Corrida",
+      "nextRaceLabel": "Próxima corrida",
+      "inDays": "em {{n}} dias",
+      "inOneDay": "amanhã"
+    },
     "phase": {
       "mercado": "Mercado",
       "regularLegacy": "Temporada Regular",
@@ -237,7 +272,7 @@
     "season": "Temporada {{year}}",
     "continueCareer": "Continuar carreira",
     "newCareer": "Nova carreira",
-    "loadSave": "Carregar save",
+    "loadSave": "Carregar carreira",
     "settings": "Configurações",
     "noCareers": "Nenhuma carreira ainda.",
     "delete": "Excluir",
@@ -942,6 +977,20 @@
       "objectiveForm": "Objetivo realista pela forma atual: {{target}}.",
       "objectiveDebut": "Objetivo da estreia: começar a temporada construindo, sem correr atrás de prejuízo logo de cara.",
       "recentForm": "Últimos resultados do piloto: {{form}}.",
+      "injury": "Corre lesionado (lesão {{severity}}) — dor e limitação física entram na conta do fim de semana.",
+      "injurySeverity": {
+        "light": "leve",
+        "moderate": "moderada",
+        "severe": "grave",
+        "critical": "crítica"
+      },
+      "pressure": "Sob pressão no campeonato: {{name}} vem colado, a {{gap}} pontos atrás, com só {{rounds}} etapas restando — segurar os nervos vale tanto quanto o ritmo.",
+      "fame": "Estrelato: você é {{level}} (fama {{value}}/100){{crowd}} — imprensa e público giram em torno do piloto.",
+      "fameLevel": {
+        "star": "uma estrela",
+        "idol": "um ídolo"
+      },
+      "fameCrowd": ", puxando cerca de {{pct}}% do público esperado",
       "avgFinish": "Média de chegada recente: {{avg}}º{{wins}}{{podiums}} nas últimas corridas.",
       "avgFinishWins": ", {{n}} vitória(s)",
       "avgFinishPodiums": ", {{n}} pódio(s)",
@@ -2900,10 +2949,18 @@
     "noOneBehind": "sem ninguém atrás"
   },
   "overlay": {
+    "weatherArc": {
+      "raining": "Chovendo na pista",
+      "incoming": "Chuva a caminho",
+      "clearing": "Pista secando",
+      "now": "Você está aqui"
+    },
     "radio": {
       "tagDnf": "Abandono",
       "tagTeam": "Rádio da equipe",
       "warningTag": "Seu carro · Atenção",
+      "chatBlockedTag": "iRacing · Comandos bloqueados",
+      "chatBlockedText": "Não estou conseguindo enviar comandos ao iRacing. Rode o sim em modo JANELA ou BORDERLESS (o fullscreen exclusivo bloqueia).",
       "dragTooltip": "Arraste pra reposicionar o rádio"
     },
     "positionPanel": {
@@ -3048,7 +3105,10 @@
     "header": "Composto de largada",
     "liveFromGrid": "ao vivo · da grid",
     "wet": "Chuva",
-    "dry": "Seco"
+    "dry": "Seco",
+    "soft": "Macio",
+    "medium": "Médio",
+    "hard": "Duro"
   },
   "loadingOverlay": {
     "defaultTitle": "Criando carreira",
@@ -3057,5 +3117,24 @@
   },
   "marketTab": {
     "title": "Mercado"
+  },
+  "updater": {
+    "available": "Atualização disponível",
+    "availableBody": "A versão {{version}} está pronta. Atualizar agora?",
+    "later": "Depois",
+    "install": "Atualizar e reiniciar",
+    "downloading": "Baixando…",
+    "installing": "Instalando…",
+    "failed": "Falha ao atualizar. Tente mais tarde.",
+    "check": "Verificar atualizações",
+    "upToDateTitle": "Tudo em dia",
+    "upToDate": "Você já está na versão mais recente.",
+    "whatsNew": "Novidades",
+    "changelogTitle": "O que mudou",
+    "versionLabel": "Versão {{version}}",
+    "noNotes": "Sem notas para esta versão.",
+    "betaLabel": "beta",
+    "betaHint": "Toque 5× para procurar versões beta",
+    "close": "Fechar"
   }
 }

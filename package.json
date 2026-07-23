@@ -1,7 +1,7 @@
 {
   "name": "loop",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,9 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "i18next": "^26.3.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

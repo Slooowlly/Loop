@@ -1,24 +1,25 @@
-// Voz (PT) da caixa de entrada. Recebe os FATOS reais do backend
+// Voz da caixa de entrada. Recebe os FATOS reais do backend
 // (`get_inbox_messages`) e monta as mensagens no formato que a casca da caixa já
-// consome. Texto de template — nada de IA. Read-only.
+// consome. Texto de template (i18n) — nada de IA. Read-only.
 
-const ATTR_PHRASE = {
-  ritmo_classificacao: { f: "afiado na classificação", w: "vacila na classificação" },
-  gestao_pneus: { f: "economiza muito bem os pneus", w: "sofre com a gestão de pneus" },
-  racecraft: { f: "impecável no corpo a corpo", w: "frágil no corpo a corpo" },
-  defesa: { f: "difícil de ultrapassar", w: "vulnerável quando atacado" },
-  habilidade_largada: { f: "voa nas largadas", w: "perde posições na largada" },
-  consistencia: { f: "muito consistente", w: "oscila demais de corrida a corrida" },
-};
+import i18n from "../../i18n/index.js";
+import { ordinal } from "../../i18n/format.js";
 
-const ord = (n) => `${n}º`;
-const plural = (n, one, many) => (n === 1 ? one : many);
+// Atributos com frase de força/fraqueza; os demais não geram cláusula (null).
+const KNOWN_ATTRS = new Set([
+  "ritmo_classificacao",
+  "gestao_pneus",
+  "racecraft",
+  "defesa",
+  "habilidade_largada",
+  "consistencia",
+]);
+
 const bold = (s) => `<b>${s}</b>`;
 
 function attrClause(key, kind) {
-  const e = ATTR_PHRASE[key];
-  if (!e) return null;
-  return kind === "f" ? e.f : e.w;
+  if (!KNOWN_ATTRS.has(key)) return null;
+  return i18n.t(`inbox.attr.${key}.${kind}`);
 }
 
 // "Já cruzei com esse cara" — confronto direto com o rival mais enfrentado.
@@ -26,18 +27,18 @@ function headToHeadMessage(h) {
   if (!h || h.races_together <= 0) return null;
   const who = h.rival_team ? `${bold(h.rival_name)} (${h.rival_team})` : bold(h.rival_name);
   const n = h.races_together;
-  let body = `<p>Você e ${who} já largaram juntos ${n} ${plural(n, "vez", "vezes")} nesta categoria.`;
+  let body = i18n.t("inbox.h2h.intro", { count: n, who });
 
   if (h.player_ahead <= 0) {
-    body += ` Ele levou a melhor em todas até aqui — está mais do que na hora de virar esse jogo.</p>`;
+    body += i18n.t("inbox.h2h.lostAll");
   } else if (h.player_ahead >= n) {
-    body += ` Você terminou na frente em <b>todas</b> elas — uma vantagem psicológica que pesa no grid.</p>`;
+    body += i18n.t("inbox.h2h.wonAll");
   } else {
-    body += ` Você terminou na frente em ${bold(h.player_ahead)}`;
+    body += i18n.t("inbox.h2h.wonSome", { n: h.player_ahead });
     if (h.best_finish && h.best_track) {
-      body += `, incluindo seu ${ord(h.best_finish)} em ${h.best_track}.</p>`;
+      body += i18n.t("inbox.h2h.wonSomeBest", { ordinal: ordinal(h.best_finish), track: h.best_track });
     } else {
-      body += ` desses duelos.</p>`;
+      body += i18n.t("inbox.h2h.wonSomeGeneric");
     }
   }
 
@@ -45,10 +46,10 @@ function headToHeadMessage(h) {
     id: "h2h",
     av: "p",
     ini: "GR",
-    from: "Boletim do grid",
-    kind: "Rival · já enfrentado",
-    time: "próxima prova",
-    subject: `Você e ${h.rival_name} voltam a se cruzar.`,
+    from: i18n.t("inbox.h2h.from"),
+    kind: i18n.t("inbox.h2h.kind"),
+    time: i18n.t("inbox.h2h.time"),
+    subject: i18n.t("inbox.h2h.subject", { rival: h.rival_name }),
     body,
     actions: [],
   };
@@ -62,45 +63,51 @@ function titleFavoriteMessage(f) {
   // Perfil: veterano titulado vs. promessa.
   let profile;
   if (f.veteran && f.career_titles > 0) {
-    profile = `veterano com ${f.career_titles} ${plural(f.career_titles, "título", "títulos")} na carreira`;
+    profile = i18n.t("inbox.fav.profileVetTitles", { count: f.career_titles });
   } else if (f.veteran) {
-    profile = `um rodado que conhece a categoria como poucos`;
+    profile = i18n.t("inbox.fav.profileVet");
   } else {
-    profile = `jovem em franca ascensão`;
+    profile = i18n.t("inbox.fav.profileYoung");
   }
 
   // Situação na tabela.
   let standing;
   if (f.position === 0) {
-    standing = `é apontado como favorito ao título desta temporada`;
+    standing = i18n.t("inbox.fav.standingFavorite");
   } else if (f.position === 1) {
     standing =
       f.points_lead > 0
-        ? `lidera o campeonato por ${f.points_lead} ${plural(f.points_lead, "ponto", "pontos")}`
-        : `está na ponta do campeonato`;
+        ? i18n.t("inbox.fav.standingLead", { count: f.points_lead })
+        : i18n.t("inbox.fav.standingTop");
   } else if (f.leads_player) {
-    standing = `aparece logo à sua frente, em ${ord(f.position)}`;
+    standing = i18n.t("inbox.fav.standingAhead", { ordinal: ordinal(f.position) });
   } else {
-    standing = `vem logo atrás de você, em ${ord(f.position)} — seu principal perseguidor`;
+    standing = i18n.t("inbox.fav.standingBehind", { ordinal: ordinal(f.position) });
   }
 
   const strong = attrClause(f.strong_attr, "f");
   const weak = attrClause(f.weak_attr, "w");
-  const traits = strong && weak ? ` ${strong[0].toUpperCase()}${strong.slice(1)}, mas ${weak}.` : "";
+  const traits =
+    strong && weak
+      ? i18n.t("inbox.fav.traits", {
+          strong: `${strong[0].toUpperCase()}${strong.slice(1)}`,
+          weak,
+        })
+      : "";
 
-  const body = `<p>${who} é o nome a bater: ${profile}, ${standing}.${traits}</p>`;
+  const body = i18n.t("inbox.fav.body", { who, profile, standing, traits });
 
   return {
     id: "fav",
     av: "g",
     ini: "★",
-    from: "Prévia do campeonato",
-    kind: f.position === 0 ? "Favorito ao título" : "Expectativa da temporada",
-    time: "temporada",
+    from: i18n.t("inbox.fav.from"),
+    kind: f.position === 0 ? i18n.t("inbox.fav.kindFavorite") : i18n.t("inbox.fav.kindExpectation"),
+    time: i18n.t("inbox.fav.time"),
     subject:
       f.position === 0
-        ? `${f.driver_name}: o favorito ao título.`
-        : `${f.driver_name} é o nome a bater.`,
+        ? i18n.t("inbox.fav.subjectFavorite", { name: f.driver_name })
+        : i18n.t("inbox.fav.subjectContender", { name: f.driver_name }),
     body,
     actions: [],
   };
@@ -108,12 +115,12 @@ function titleFavoriteMessage(f) {
 
 // Nível de fama (0–100) na mesma régua de 6 da ficha do piloto.
 function famaLevel(v) {
-  if (v <= 15) return "Anônimo";
-  if (v <= 30) return "Discreto";
-  if (v <= 50) return "Conhecido";
-  if (v <= 70) return "Nome forte";
-  if (v <= 87) return "Estrela";
-  return "Ídolo";
+  if (v <= 15) return i18n.t("inbox.fama.anonymous");
+  if (v <= 30) return i18n.t("inbox.fama.discreet");
+  if (v <= 50) return i18n.t("inbox.fama.known");
+  if (v <= 70) return i18n.t("inbox.fama.strong");
+  if (v <= 87) return i18n.t("inbox.fama.star");
+  return i18n.t("inbox.fama.idol");
 }
 
 // "Times de olho em você" — interesse de equipes pela FAMA (Fase 2a do estrelato).
@@ -121,25 +128,24 @@ function teamInterestMessage(t) {
   if (!t || !Array.isArray(t.teams) || t.teams.length === 0) return null;
   const names = t.teams.map((x) => bold(x.team_name));
   const n = names.length;
-  const list = n === 1 ? names[0] : `${names.slice(0, -1).join(", ")} e ${names[n - 1]}`;
-  const nivel = famaLevel(t.player_fama);
+  const list = n === 1 ? names[0] : `${names.slice(0, -1).join(", ")}${i18n.t("inbox.interest.and")}${names[n - 1]}`;
+  const level = famaLevel(t.player_fama);
 
   const body =
-    `<p>Seu nome está circulando nos bastidores. ${list} ` +
-    `${plural(n, "demonstrou", "demonstraram")} interesse em te contratar — puxados menos pelo cronômetro e mais pelo seu apelo de ${bold(nivel)} junto ao público e aos patrocinadores.</p>` +
-    `<p>Na próxima janela, espere propostas dess${plural(n, "a equipe", "as equipes")} como ${bold("piloto titular")} e com ${bold("salário acima do mercado")}. É o seu peso de barganha falando mais alto.</p>`;
+    i18n.t("inbox.interest.p1", { count: n, list, level }) +
+    i18n.t("inbox.interest.p2", { count: n });
 
   return {
     id: "interest",
     av: "g",
     ini: "◆",
-    from: "Seu empresário",
-    kind: n === 1 ? "Interesse de equipe" : `Interesse de ${n} equipes`,
-    time: "mercado",
+    from: i18n.t("inbox.interest.from"),
+    kind: n === 1 ? i18n.t("inbox.interest.kindOne") : i18n.t("inbox.interest.kindMany", { count: n }),
+    time: i18n.t("inbox.interest.time"),
     subject:
       n === 1
-        ? `${t.teams[0].team_name} está de olho em você.`
-        : `${n} equipes de olho no seu nome.`,
+        ? i18n.t("inbox.interest.subjectOne", { team: t.teams[0].team_name })
+        : i18n.t("inbox.interest.subjectMany", { count: n }),
     body,
     actions: [],
   };

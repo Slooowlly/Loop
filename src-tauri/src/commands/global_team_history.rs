@@ -222,11 +222,21 @@ pub(crate) fn build_global_team_history(
 ) -> Result<GlobalTeamHistoryPayload, String> {
     let family_def = resolve_family(family);
     let window_size = window_size.clamp(MIN_WINDOW_SIZE, MAX_WINDOW_SIZE);
-    let (min_year, max_year, current_year) = history_year_bounds(conn)?;
+    let bounds = history_year_bounds(conn)?;
+    let min_year = bounds.min_year;
+    let max_year = bounds.max_year;
+    let current_year = bounds.current_year;
     let latest_start = (max_year - window_size + 1).max(min_year);
     let window_start = start_year.clamp(min_year, latest_start);
     let window_end = (window_start + window_size - 1).min(max_year);
-    let archive_rows = load_archive_rows(conn, window_start, window_end)?;
+    let mut archive_rows = load_archive_rows(conn, window_start, window_end)?;
+    // Inject the in-progress season so the Atlas reflects each team's CURRENT
+    // division — not just the last COMPLETED season. Without this, a team relegated
+    // for the ongoing season still shows in its old division (the archive only holds
+    // finished seasons). Only when the active season sits inside the visible window.
+    if bounds.in_progress && current_year >= window_start && current_year <= window_end {
+        archive_rows.extend(load_current_season_rows(conn, current_year)?);
+    }
     let archive_rows = dedupe_archive_rows_for_family(family_def, archive_rows);
     // Titles are loaded once across ALL years (no window filter) so the count is
     // stable and does not shift when the user scrolls the timeline.
@@ -241,6 +251,7 @@ pub(crate) fn build_global_team_history(
                 &all_time_titles,
                 window_start,
                 window_end,
+                bounds.last_completed_year,
             )
         })
         .collect::<Vec<_>>();
@@ -300,7 +311,21 @@ fn family_band_payload(band: &TeamHistoryBandDef) -> GlobalTeamHistoryFamilyBand
     }
 }
 
-fn history_year_bounds(conn: &Connection) -> Result<(i32, i32, i32), String> {
+struct HistoryYearBounds {
+    min_year: i32,
+    max_year: i32,
+    current_year: i32,
+    /// Last season already ARCHIVED (finished). Used to decide who is the reigning
+    /// champion — the in-progress season has no decided title, so the crown must
+    /// stay on the champion of this year, not vanish while the season runs.
+    last_completed_year: i32,
+    /// True when there is an active season whose year is beyond the archive — i.e.
+    /// a season that has started but not finished, whose live standings should be
+    /// injected as the timeline's current-year column.
+    in_progress: bool,
+}
+
+fn history_year_bounds(conn: &Connection) -> Result<HistoryYearBounds, String> {
     let archive_max = conn
         .query_row("SELECT MAX(ano) FROM team_season_archive", [], |row| {
             row.get::<_, Option<i32>>(0)
@@ -317,13 +342,121 @@ fn history_year_bounds(conn: &Connection) -> Result<(i32, i32, i32), String> {
         .optional()
         .unwrap_or(None);
     let max_year = archive_max
-        .or(active_year)
+        .into_iter()
+        .chain(active_year)
+        .max()
         .unwrap_or(DEFAULT_MAX_YEAR)
         .max(DEFAULT_MAX_YEAR);
     // current_year is the active season's year; falls back to max_year when no
     // active season exists (historical draft, pre-start, or career over).
     let current_year = active_year.unwrap_or(max_year);
-    Ok((DEFAULT_START_YEAR, max_year, current_year))
+    // In-progress = there is an active season that the archive does not yet cover
+    // (its year is past the last archived one, or there is no archive at all).
+    let in_progress = active_year.is_some_and(|ay| archive_max.map_or(true, |am| ay > am));
+    // Reigning-champion anchor: the real last archived year (unfloored). When there
+    // is no archive at all, use one year before the data start as a "nothing decided
+    // yet" sentinel so no team is falsely crowned.
+    let last_completed_year = archive_max.unwrap_or(DEFAULT_START_YEAR - 1);
+    Ok(HistoryYearBounds {
+        min_year: DEFAULT_START_YEAR,
+        max_year,
+        current_year,
+        last_completed_year,
+        in_progress,
+    })
+}
+
+/// Synthesizes one archive-shaped row per ACTIVE team for the in-progress season,
+/// so the Atlas can plot where each team sits RIGHT NOW (its live division), not
+/// only where it finished last completed season. Positions are provisional: teams
+/// are ranked within their division by the same order as the live standings and the
+/// relegation logic (points, wins, best result, name). Constructor titles are 0 —
+/// the season is not decided. Rows for every family are returned; the per-family
+/// dedupe/band-match downstream keeps only the ones that belong to the shown family.
+fn load_current_season_rows(
+    conn: &Connection,
+    current_year: i32,
+) -> Result<Vec<TeamArchiveRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                id,
+                COALESCE(nome, id) AS nome,
+                COALESCE(NULLIF(TRIM(nome_curto), ''), COALESCE(nome, id)) AS nome_curto,
+                COALESCE(NULLIF(TRIM(cor_primaria), ''), '#58a6ff') AS cor_primaria,
+                COALESCE(NULLIF(TRIM(cor_secundaria), ''), '#0d1727') AS cor_secundaria,
+                categoria,
+                NULLIF(TRIM(classe), '') AS classe,
+                COALESCE(stats_pontos, 0) AS pontos,
+                COALESCE(stats_vitorias, 0) AS vitorias,
+                COALESCE(stats_melhor_resultado, 99) AS melhor_resultado
+             FROM teams
+             WHERE ativa = 1",
+        )
+        .map_err(|e| format!("Falha ao preparar equipes ativas do historico: {e}"))?;
+    // (group key, best_result) kept alongside each row so we can rank within division.
+    let mut entries: Vec<(String, i32, TeamArchiveRow)> = stmt
+        .query_map([], |row| {
+            let category: String = row.get(5)?;
+            let class_name: Option<String> = row.get(6)?;
+            let best_result: i32 = row.get(9)?;
+            let group = current_ranking_group_key(&category, class_name.as_deref());
+            Ok((
+                group,
+                best_result,
+                TeamArchiveRow {
+                    team_id: row.get(0)?,
+                    nome: row.get(1)?,
+                    nome_curto: row.get(2)?,
+                    cor_primaria: row.get(3)?,
+                    cor_secundaria: row.get(4)?,
+                    year: current_year,
+                    category,
+                    class_name,
+                    position: 0,
+                    points: row.get(7)?,
+                    wins: row.get(8)?,
+                    titles: 0,
+                },
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar equipes ativas do historico: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Falha ao ler equipes ativas do historico: {e}"))?;
+
+    // Rank within each division and stamp the provisional championship position.
+    let mut by_group: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, (group, _, _)) in entries.iter().enumerate() {
+        by_group.entry(group.clone()).or_default().push(index);
+    }
+    for indices in by_group.values_mut() {
+        indices.sort_by(|&left, &right| {
+            let (_, left_best, left_row) = &entries[left];
+            let (_, right_best, right_row) = &entries[right];
+            right_row
+                .points
+                .cmp(&left_row.points)
+                .then_with(|| right_row.wins.cmp(&left_row.wins))
+                .then_with(|| left_best.cmp(right_best))
+                .then_with(|| left_row.nome.cmp(&right_row.nome))
+        });
+        for (position, &index) in indices.iter().enumerate() {
+            entries[index].2.position = position as i32 + 1;
+        }
+    }
+
+    Ok(entries.into_iter().map(|(_, _, row)| row).collect())
+}
+
+/// Division grouping for provisional standings — mirrors the archive's
+/// `constructor_ranking_group_key`: multiclass categories (production/endurance) are
+/// ranked per class, everyone else by category alone.
+fn current_ranking_group_key(category: &str, class_name: Option<&str>) -> String {
+    if matches!(category, "production_challenger" | "endurance") {
+        format!("{category}::{}", class_name.unwrap_or(""))
+    } else {
+        category.to_string()
+    }
 }
 
 fn load_archive_rows(
@@ -496,6 +629,7 @@ fn build_band_payload(
     all_time_titles: &HashMap<String, Vec<TeamTitleCount>>,
     window_start: i32,
     window_end: i32,
+    last_completed_year: i32,
 ) -> GlobalTeamHistoryBand {
     let mut by_team: HashMap<String, Vec<&TeamArchiveRow>> = HashMap::new();
     for row in archive_rows.iter().filter(|row| band_matches(band, row)) {
@@ -504,7 +638,16 @@ fn build_band_payload(
 
     let mut rows = by_team
         .into_values()
-        .filter_map(|rows| build_team_row(band, rows, all_time_titles, window_start, window_end))
+        .filter_map(|rows| {
+            build_team_row(
+                band,
+                rows,
+                all_time_titles,
+                window_start,
+                window_end,
+                last_completed_year,
+            )
+        })
         .collect::<Vec<_>>();
     rows.sort_by(|left, right| {
         left.base_position
@@ -543,6 +686,7 @@ fn build_team_row(
     all_time_titles: &HashMap<String, Vec<TeamTitleCount>>,
     _window_start: i32,
     window_end: i32,
+    last_completed_year: i32,
 ) -> Option<GlobalTeamHistoryTeamRow> {
     rows.sort_by(|left, right| {
         left.year
@@ -551,7 +695,6 @@ fn build_team_row(
     });
     rows.dedup_by(|left, right| left.year == right.year);
     let first = rows.first()?;
-    let last = rows.last().unwrap_or(first);
     let slot = if band.is_special {
         "special"
     } else {
@@ -573,7 +716,16 @@ fn build_team_row(
         .get(&first.team_id)
         .cloned()
         .unwrap_or_default();
-    let is_reigning_champion = last.titles == 1 && last.year == window_end;
+    // Reigning champion = won the latest COMPLETED season shown in the window. Clamp
+    // to `last_completed_year` so the in-progress season's provisional row (title not
+    // decided) never strips the crown from last season's champion, and so a scrolled
+    // view still crowns the champion of that view's last finished year.
+    let completed_window_end = window_end.min(last_completed_year);
+    let is_reigning_champion = rows
+        .iter()
+        .filter(|row| row.year <= completed_window_end)
+        .next_back()
+        .is_some_and(|row| row.titles == 1 && row.year == completed_window_end);
 
     Some(GlobalTeamHistoryTeamRow {
         team_id: first.team_id.clone(),
@@ -654,6 +806,130 @@ mod tests {
             ",
         )
         .expect("seed");
+    }
+
+    // Schema variant with the columns the in-progress-season injection needs: the
+    // live `teams` stats/`ativa` flag and a `seasons` table to detect an active,
+    // not-yet-archived season.
+    fn setup_conn_with_live_season() -> Connection {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE teams (
+                id TEXT PRIMARY KEY,
+                nome TEXT NOT NULL,
+                nome_curto TEXT NOT NULL DEFAULT '',
+                categoria TEXT NOT NULL,
+                classe TEXT,
+                cor_primaria TEXT NOT NULL DEFAULT '#58a6ff',
+                cor_secundaria TEXT NOT NULL DEFAULT '#0d1727',
+                ativa INTEGER NOT NULL DEFAULT 1,
+                stats_pontos INTEGER NOT NULL DEFAULT 0,
+                stats_vitorias INTEGER NOT NULL DEFAULT 0,
+                stats_melhor_resultado INTEGER NOT NULL DEFAULT 99
+            );
+            CREATE TABLE seasons (
+                id TEXT PRIMARY KEY,
+                numero INTEGER NOT NULL,
+                ano INTEGER NOT NULL,
+                status TEXT NOT NULL
+            );
+            CREATE TABLE team_season_archive (
+                team_id TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                ano INTEGER NOT NULL,
+                categoria TEXT NOT NULL,
+                classe TEXT,
+                posicao_campeonato INTEGER,
+                pontos REAL NOT NULL DEFAULT 0.0,
+                vitorias INTEGER NOT NULL DEFAULT 0,
+                podios INTEGER NOT NULL DEFAULT 0,
+                poles INTEGER NOT NULL DEFAULT 0,
+                corridas INTEGER NOT NULL DEFAULT 0,
+                titulos_construtores INTEGER NOT NULL DEFAULT 0,
+                piloto_1_id TEXT,
+                piloto_2_id TEXT,
+                snapshot_json TEXT NOT NULL DEFAULT '{}',
+                archived_at TEXT NOT NULL DEFAULT ''
+            );
+            ",
+        )
+        .expect("schema");
+        conn
+    }
+
+    #[test]
+    fn in_progress_season_injects_current_division_and_keeps_last_champion_crown() {
+        let conn = setup_conn_with_live_season();
+        conn.execute_batch(
+            "
+            -- 2024 (season 4) is FINISHED and archived: T_STAY campeã da amador,
+            -- T_DROP em último (10º).
+            INSERT INTO seasons (id, numero, ano, status) VALUES
+                ('S4', 4, 2024, 'Finalizada'),
+                ('S5', 5, 2025, 'Ativa');
+
+            -- Divisão AO VIVO (2025, em andamento): T_STAY seguiu na amador,
+            -- T_DROP foi rebaixada pro rookie.
+            INSERT INTO teams (id, nome, nome_curto, categoria, classe, ativa) VALUES
+                ('T_STAY', 'Stay Racing', 'STY', 'mazda_amador', NULL, 1),
+                ('T_DROP', 'Drop Racing', 'DRP', 'mazda_rookie', NULL, 1);
+
+            INSERT INTO team_season_archive (
+                team_id, season_number, ano, categoria, classe, posicao_campeonato,
+                pontos, vitorias, titulos_construtores
+            ) VALUES
+                ('T_STAY', 4, 2024, 'mazda_amador', NULL, 1, 200, 8, 1),
+                ('T_DROP', 4, 2024, 'mazda_amador', NULL, 10, 0, 0, 0);
+            ",
+        )
+        .expect("seed live-season world");
+
+        let payload = build_global_team_history(&conn, "mazda", 2024, 4).expect("payload");
+        assert_eq!(payload.max_year, 2025, "timeline extends into the active season");
+        assert_eq!(payload.current_year, 2025);
+
+        let rookie = payload
+            .bands
+            .iter()
+            .find(|band| band.key == "mazda_rookie")
+            .expect("rookie band");
+        let drop_rookie = rookie
+            .rows
+            .iter()
+            .find(|row| row.team_id == "T_DROP")
+            .expect("T_DROP now shows in the rookie band");
+        assert!(
+            drop_rookie.points.iter().any(|point| point.year == 2025),
+            "T_DROP has a 2025 point in its CURRENT (rookie) division"
+        );
+
+        let amador = payload
+            .bands
+            .iter()
+            .find(|band| band.key == "mazda_amador")
+            .expect("amador band");
+        // T_DROP still has its 2024 amador history, but must NOT appear in the amador
+        // 2025 standings — it left that division.
+        if let Some(drop_amador) = amador.rows.iter().find(|row| row.team_id == "T_DROP") {
+            assert!(
+                !drop_amador.points.iter().any(|point| point.year == 2025),
+                "T_DROP must not have a 2025 point in the amador division"
+            );
+        }
+        let stay = amador
+            .rows
+            .iter()
+            .find(|row| row.team_id == "T_STAY")
+            .expect("T_STAY in amador");
+        assert!(
+            stay.points.iter().any(|point| point.year == 2025),
+            "T_STAY shows its live 2025 amador standing"
+        );
+        assert!(
+            stay.is_reigning_champion,
+            "the 2024 champion keeps the crown while 2025 is still running"
+        );
     }
 
     #[test]

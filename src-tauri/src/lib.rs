@@ -276,10 +276,21 @@ mod i18n_smoke {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_fs::init());
+
+    // Auto-update só existe no desktop (o updater não compila em mobile).
+    // process fornece o relaunch() chamado após instalar a atualização.
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+
+    builder
         .setup(|app| {
             let base_dir = app
                 .path()
@@ -313,10 +324,13 @@ pub fn run() {
             // ativam sozinhos, sem toggle.
             iracing_sdk::race_monitor::start_watching();
 
-            // Overlay de monitor: click-through por PADRÃO (o mouse vai pro jogo).
-            // Definido uma vez aqui; o modo "mover" alterna via set_interactive.
+            // Overlays de monitor: click-through por PADRÃO (o mouse vai pro jogo).
+            // Definido uma vez aqui; o hover (vigia de cursor) alterna pra arrastar.
             if let Some(overlay) = app.get_webview_window("overlay") {
                 let _ = overlay.set_ignore_cursor_events(true);
+            }
+            if let Some(engineer) = app.get_webview_window("engineer") {
+                let _ = engineer.set_ignore_cursor_events(true);
             }
 
             // Vigia de cursor do "hover": revela cadeado+olho quando o mouse entra na
@@ -421,6 +435,7 @@ pub fn run() {
             commands::race::get_saved_race_screen,
             commands::race::get_race_breakdowns,
             commands::iracing::get_breakdown_forecast,
+            commands::iracing::get_grid_breakdown_risk,
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
@@ -504,12 +519,15 @@ pub fn run() {
             commands::overlay_window::overlay_active_career,
             commands::overlay_window::overlay_set_hover_watch,
             commands::overlay_window::overlay_set_hover_rect,
+            commands::overlay_window::engineer_set_hover_watch,
+            commands::overlay_window::engineer_set_hover_rect,
             commands::overlay_window::overlay_set_demo,
             commands::overlay_window::overlay_demo_enabled,
             commands::overlay::get_overlay_data,
             commands::overlay::get_breakdown_feed,
             commands::overlay::overlay_demo_messages,
             commands::overlay::get_player_warnings,
+            commands::overlay::iracing_chat_blocked,
             commands::overlay::overlay_demo_warnings,
             commands::debug_capture::race_capture_start,
             commands::debug_capture::race_capture_stop,

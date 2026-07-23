@@ -24,22 +24,43 @@ fn ensure_table(conn: &Connection) -> Result<(), DbError> {
             PRIMARY KEY (team_id, part_type)
         );",
     )?;
+    // Identidade da unidade (redesign 2026-07-22 §4.1). Coluna idempotente aqui em vez de na
+    // migração central, pra não colidir com WIP. `0` = não semeado → o carregador deriva o
+    // fallback determinístico por tipo. Bancos existentes ganham a coluna via ALTER guardado.
+    if !table_has_column(conn, "team_car", "unit_seed")? {
+        conn.execute_batch("ALTER TABLE team_car ADD COLUMN unit_seed INTEGER NOT NULL DEFAULT 0;")?;
+    }
     Ok(())
+}
+
+/// A coluna existe? (`PRAGMA table_info`).
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, DbError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Carrega o carro de um time. `None` se o time ainda não tem carro persistido.
 /// Peças ausentes no banco caem para um default seguro (nível 1, sem desgaste).
 pub fn get_team_car(conn: &Connection, team_id: &str) -> Result<Option<Car>, DbError> {
     ensure_table(conn)?;
-    let mut stmt =
-        conn.prepare("SELECT part_type, level, wear, spent FROM team_car WHERE team_id = ?1")?;
+    let mut stmt = conn.prepare(
+        "SELECT part_type, level, wear, spent, unit_seed FROM team_car WHERE team_id = ?1",
+    )?;
     let rows = stmt
         .query_map(params![team_id], |r| {
             let part: String = r.get(0)?;
             let level: i64 = r.get(1)?;
             let wear: f64 = r.get(2)?;
             let spent: i64 = r.get(3)?;
-            Ok((part, level, wear, spent))
+            let unit_seed: i64 = r.get(4)?;
+            Ok((part, level, wear, spent, unit_seed))
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -48,7 +69,7 @@ pub fn get_team_car(conn: &Connection, team_id: &str) -> Result<Option<Car>, DbE
     }
 
     let mut by_type: HashMap<PartType, CarPart> = HashMap::new();
-    for (part, level, wear, spent) in rows {
+    for (part, level, wear, spent, unit_seed) in rows {
         if let Some(part_type) = PartType::from_str(&part) {
             by_type.insert(
                 part_type,
@@ -57,6 +78,9 @@ pub fn get_team_car(conn: &Connection, team_id: &str) -> Result<Option<Car>, DbE
                     level: level.clamp(1, 10) as u8,
                     wear,
                     spent: spent != 0,
+                    // `0` = save anterior à identidade da unidade → sentinela resolvida por
+                    // `wear::part_life_scale` -> `initial_unit_seed` (fallback por tipo).
+                    unit_seed: unit_seed as u32,
                 },
             );
         }
@@ -70,6 +94,7 @@ pub fn get_team_car(conn: &Connection, team_id: &str) -> Result<Option<Car>, DbE
                 level: 1,
                 wear: 0.0,
                 spent: false,
+                unit_seed: 0,
             })
         })
         .collect();
@@ -82,18 +107,20 @@ pub fn upsert_team_car(conn: &Connection, team_id: &str, car: &Car) -> Result<()
     ensure_table(conn)?;
     for part in &car.parts {
         conn.execute(
-            "INSERT INTO team_car (team_id, part_type, level, wear, spent)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO team_car (team_id, part_type, level, wear, spent, unit_seed)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(team_id, part_type) DO UPDATE SET
                 level = excluded.level,
                 wear = excluded.wear,
-                spent = excluded.spent",
+                spent = excluded.spent,
+                unit_seed = excluded.unit_seed",
             params![
                 team_id,
                 part.part_type.as_str(),
                 part.level as i64,
                 part.wear,
                 part.spent as i64,
+                part.unit_seed as i64,
             ],
         )?;
     }

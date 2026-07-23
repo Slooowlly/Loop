@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 
 import MainLayout from "../components/layout/MainLayout";
 import RaceResultViewV2 from "../components/race/RaceResultViewV2";
@@ -14,7 +15,10 @@ import {
   recordNewsSkip,
   resolvePostRaceLanding,
 } from "../utils/postRaceLanding";
+import { useCalendarVersion } from "../utils/calendarVersion";
 import CalendarTab from "./tabs/CalendarTab";
+import CalendarTabRedesign from "./tabs/CalendarTabRedesign";
+import CalendarTabRedesignV2 from "./tabs/CalendarTabRedesignV2";
 import MyTeamTab from "./tabs/MyTeamTab";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
@@ -47,6 +51,7 @@ function Dashboard() {
   const showConvocation = useCareerStore((state) => state.showConvocation);
   const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
   const [activeTab, setActiveTab] = useState("standings");
+  const [calendarVersion] = useCalendarVersion();
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
   const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
@@ -227,13 +232,20 @@ function Dashboard() {
         return <NewsMagazineTab />;
       case "my-team":
         return <MyTeamTab />;
-      case "calendar":
+      case "calendar": {
+        const CalendarComponent =
+          calendarVersion === "legacy"
+            ? CalendarTab
+            : calendarVersion === "v2"
+              ? CalendarTabRedesignV2
+              : CalendarTabRedesign;
         return (
-          <CalendarTab
+          <CalendarComponent
             activeTab={activeTab}
             raceArrivalFeedbackActive={shouldShowRaceArrivalFeedback}
           />
         );
+      }
       case "standings":
       default:
         return (
@@ -315,6 +327,7 @@ function Dashboard() {
 }
 
 function RepairPopup({ repair, onClose }) {
+  const { t } = useTranslation();
   const valor = `$${Math.round(repair.repair_cost || 0).toLocaleString("en-US")}`;
   return (
     <div
@@ -328,9 +341,9 @@ function RepairPopup({ repair, onClose }) {
         <div className="flex items-center gap-3">
           <span className="text-3xl">🔧</span>
           <div>
-            <h3 className="text-base font-bold text-text-primary">Conserto do carro</h3>
+            <h3 className="text-base font-bold text-text-primary">{t("dashboard.repair.title")}</h3>
             <p className="text-[11px] uppercase tracking-wide text-status-red">
-              Batida {repair.repair_severity}
+              {t("dashboard.repair.crash", { severity: repair.repair_severity })}
             </p>
           </div>
         </div>
@@ -338,7 +351,7 @@ function RepairPopup({ repair, onClose }) {
           {repair.repair_message}
         </p>
         <div className="mt-4 flex items-baseline justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-          <span className="text-xs text-text-muted">Custo do reparo</span>
+          <span className="text-xs text-text-muted">{t("dashboard.repair.cost")}</span>
           <span className="font-mono text-xl font-bold text-status-red">{valor}</span>
         </div>
         <button
@@ -346,7 +359,7 @@ function RepairPopup({ repair, onClose }) {
           onClick={onClose}
           className="mt-5 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-text-primary transition-glass hover:bg-white/15"
         >
-          OK, entendi
+          {t("dashboard.repair.ok")}
         </button>
       </div>
     </div>

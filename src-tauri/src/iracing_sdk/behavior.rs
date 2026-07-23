@@ -137,6 +137,12 @@ const BOGEY_OPT: f64 = 12.0;
 const BOGEY_SMO: f64 = 8.0;
 const BOGEY_MIN_STARTS: u32 = 3; // precisa ter corrido aqui várias vezes
 const BOGEY_DEPTH: f64 = 0.45; // e o melhor resultado ainda pior que ~45% do grid
+// Fama/estrelato (a "2ª moeda") + vínculo estrutural com a equipe. Empurrões MODESTOS —
+// nudge, não dominância: são status/contexto de carreira, não drama da corrida.
+const STARDOM_OPT: f64 = 6.0;
+const STARDOM_AGG: f64 = 4.0;
+const BOND_OPT: f64 = 6.0;
+const BOND_SMO: f64 = 6.0;
 
 /// Empurrões de UM sinal (pontos crus, antes do ganho). Skill quase sempre 0.
 #[derive(Clone, Copy, Debug, Default)]
@@ -794,6 +800,37 @@ pub fn bogey_track(k: &TrackKnowledge, field_size: u32) -> Signal {
     }
 }
 
+/// Fama/estrelato (a "2ª moeda", `midia`): a estrela carrega presença — mais confiante e com
+/// um algo a mais de ousadia; o anônimo fica com um traço mais apagado. TRAÇO (não adverso):
+/// é status de carreira, não uma adversidade da corrida que a compostura blinde. `fame` 0–100.
+pub fn stardom(fame: f64) -> Signal {
+    let s = ((fame.clamp(0.0, 100.0) - 50.0) / 50.0).clamp(-1.0, 1.0); // -1 anônimo .. 1 astro
+    if s.abs() < 1e-9 {
+        return Signal::default();
+    }
+    fav(Nudge {
+        optimism: s * STARDOM_OPT,
+        aggression: s.max(0.0) * STARDOM_AGG, // só a estrela ganha swagger; o anônimo não perde agg
+        ..Default::default()
+    })
+}
+
+/// Vínculo com a equipe (selo de 6 níveis; ver [`crate::market::bond`]): a "casa" (nível
+/// alto) dá conforto → sereno e confiante; o recém-chegado (nível baixo) ainda se ajusta →
+/// leve insegurança. Nível 3 = neutro. TRAÇO (não adverso): relação estrutural de longo
+/// prazo, não um estado emocional da corrida.
+pub fn team_bond(level: u8) -> Signal {
+    let b = (level as f64 - 3.0) / 3.0; // 1→-0.67 .. 3→0 .. 6→+1.0
+    if b.abs() < 1e-9 {
+        return Signal::default();
+    }
+    fav(Nudge {
+        optimism: b * BOND_OPT,
+        smoothness: b.max(0.0) * BOND_SMO, // a casa acomoda (mais suave); vínculo baixo não fica bruto
+        ..Default::default()
+    })
+}
+
 fn splitmix(mut x: u64) -> u64 {
     x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = x;
@@ -914,6 +951,14 @@ pub struct BehaviorInputs {
     pub career_debut: bool,
     /// DNFs mecânicos (Mechanical/Operational) nas últimas corridas.
     pub mechanical_dnfs: u32,
+    /// Fama/estrelato do piloto (0–100), a "2ª moeda" (`midia`).
+    pub fame: f64,
+    /// Nível do vínculo com a equipe (1–6; ver [`crate::market::bond::bond_level`]).
+    pub bond_level: u8,
+    /// Handicap de lesão ATIVA: fração do pace perdida por uma lesão em recuperação
+    /// (`skill_penalty × corridas_restantes/total`, 0–1). 0 = sem lesão. MESMA rampa da sim
+    /// (`commands/race.rs`) — antes só o bool `injury_return` (piloto já sarado) cruzava.
+    pub injury_active_penalty: f64,
     pub seed: u64,
 }
 
@@ -958,6 +1003,8 @@ pub fn compute(i: &BehaviorInputs) -> BehaviorOutput {
         career_debut(i.career_debut),
         mechanical_distrust(i.mechanical_dnfs),
         bogey_track(&i.track, i.field_size),
+        stardom(i.fame),
+        team_bond(i.bond_level),
         wobble(i.seed),
     ];
     let nudges: Vec<Nudge> = signals
@@ -970,11 +1017,15 @@ pub fn compute(i: &BehaviorInputs) -> BehaviorOutput {
             }
         })
         .collect();
+    // Handicap de lesão ATIVA: o machucado CORRE, mas com o pace reduzido (mesma rampa da
+    // sim: skill × penalidade × recuperação, que diminui a cada etapa até sarar). É físico,
+    // não psicológico → entra direto no pace base, sem passar pela maleabilidade/compostura.
+    let injured_skill = i.base_skill * (1.0 - i.injury_active_penalty.clamp(0.0, 1.0));
     compose(
         i.base_aggression,
         i.base_optimism,
         i.base_smoothness,
-        i.base_skill,
+        injured_skill,
         i.mentality,
         &nudges,
     )
@@ -1037,6 +1088,9 @@ mod tests {
             reigning_champion: false,
             career_debut: false,
             mechanical_dnfs: 0,
+            fame: 50.0,      // neutro → stardom sem empurrão
+            bond_level: 3,   // neutro → team_bond sem empurrão
+            injury_active_penalty: 0.0,
             seed: 1,
         }
     }
@@ -1279,6 +1333,33 @@ mod tests {
         // E o experiente-mas-ruim NÃO é mais tratado como domínio pelo track_affinity.
         let aff = track_affinity(&TrackKnowledge { starts: 6, best_finish: Some(15), last_season: Some(2) });
         assert_eq!(aff.nudge.aggression, 0.0, "experiência sem resultado ≠ domínio");
+    }
+
+    #[test]
+    fn fama_vinculo_e_lesao_ativa() {
+        // Estrela (fama alta) → confiante + swagger, favorável; anônimo → menos otimismo, sem
+        // punir agressividade; fama neutra (50) → nada.
+        let astro = stardom(90.0);
+        assert!(astro.nudge.optimism > 0.0 && astro.nudge.aggression > 0.0 && !astro.adverse);
+        let anonimo = stardom(10.0);
+        assert!(anonimo.nudge.optimism < 0.0 && anonimo.nudge.aggression == 0.0);
+        assert_eq!(stardom(50.0).nudge.optimism, 0.0);
+        // Vínculo alto (casa) → sereno/confiante; nível 3 = neutro; baixo → leve insegurança.
+        let casa = team_bond(6);
+        assert!(casa.nudge.optimism > 0.0 && casa.nudge.smoothness > 0.0 && !casa.adverse);
+        assert_eq!(team_bond(3).nudge.optimism, 0.0);
+        assert!(team_bond(1).nudge.optimism < 0.0 && team_bond(1).nudge.smoothness == 0.0);
+        // Lesão ATIVA reduz o pace base pela rampa (skill × fração); 0 = sem efeito. É físico:
+        // entra direto no pace, não some com a compostura de um mental forte.
+        let mut i = neutral_inputs();
+        i.base_skill = 80.0;
+        let sadio = compute(&i).skill;
+        i.injury_active_penalty = 0.20; // 20% do pace perdido
+        let ferido = compute(&i).skill;
+        assert!(ferido < sadio - 10.0, "pace ferido {ferido} << são {sadio}");
+        // Mental forte não blinda o handicap físico (some do que a compostura protege).
+        i.mentality = 100.0;
+        assert!(compute(&i).skill < sadio - 10.0, "compostura não cura lesão");
     }
 
     #[test]

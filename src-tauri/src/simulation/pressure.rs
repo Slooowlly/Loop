@@ -245,6 +245,107 @@ pub fn headroom_pace_mult(skill: f64, is_clutch: bool) -> f64 {
     HEADROOM_MIN + room * (HEADROOM_MAX - HEADROOM_MIN)
 }
 
+// ── Pressão de Duelo (rivalidade pessoal / Nemesis) ───────────────────────────
+//
+// Design (travado com o user, spec 2026-07-18-player-rivalry-nemesis-design §3). A
+// rivalidade vivida é a **3ª fonte de pressão**, na mesma forma das outras duas e somada
+// via `combine()`. Diferente do título/casa cheia em dois pontos:
+// - **Gate de duelo:** só acende quando os dois vão brigar DE VERDADE nesta corrida —
+//   mesma categoria (garantido no offline) e pace próximo (mesma faixa do grid). Nemesis
+//   10 posições à frente → gate ~0; o arco continua vivo como meta, mas sem pressão hoje.
+// - **Neutro MAIS ALTO** que o do título: contra o inimigo a emoção puxa pro erro; só o
+//   genuinamente frio (mentalidade + experiência) converte em clutch. É o tempero que a
+//   faz sentir como ÓDIO, não como campeonato.
+//
+// Substitui o antigo bônus fixo de skill (+2 Nemesis / +1 rival) que NÃO passava pela
+// máquina de clutch/choke — agora o rival herda resiliência e o efeito é direcional.
+
+/// Ponto neutro da Pressão de Duelo — mais ALTO que `NEUTRAL` do título (0.55) e oposto
+/// filosófico do `EVENT_NEUTRAL` (0.42): contra o rival, a maioria tende ao erro.
+const RIVALRY_NEUTRAL: f64 = 0.62;
+/// Peso/escala da intensidade da rivalidade. Calibrado para um swing de ordem comparável
+/// (não dominante) ao bônus fixo que substitui. Baixe para atenuar.
+const RIVALRY_PESO: f64 = 1.5;
+/// Faixa de pace (pontos de skill efetivo) dentro da qual o duelo está "quente" (gate 1.0).
+const DUEL_PACE_BAND: f64 = 6.0;
+/// Faixa de pace a partir da qual o duelo está frio (gate 0.0). Entre band e fade, decai linear.
+const DUEL_PACE_FADE: f64 = 14.0;
+
+/// Gate de duelo (0..1): 1.0 quando os dois pilotos têm pace próximo (vão brigar lado a
+/// lado), decai a 0 conforme o pace se distancia. Traduz o "lado a lado" para a sim
+/// probabilística sem precisar de tick-a-tick.
+pub fn duel_gate(pace_self: f64, pace_rival: f64) -> f64 {
+    let d = (pace_self - pace_rival).abs();
+    if d <= DUEL_PACE_BAND {
+        1.0
+    } else if d >= DUEL_PACE_FADE {
+        0.0
+    } else {
+        1.0 - (d - DUEL_PACE_BAND) / (DUEL_PACE_FADE - DUEL_PACE_BAND)
+    }
+}
+
+/// Intensidade da Pressão de Duelo (0..~1.5): percebida do par (0..100) × gate de duelo ×
+/// postura (Fase 1 = 1.0) × peso. Fria (par sem calor) ou rival distante → ~0.
+pub fn rivalry_intensity(perceived: f64, gate: f64, stance_mult: f64) -> f64 {
+    (perceived / 100.0).clamp(0.0, 1.0) * gate.clamp(0.0, 1.0) * stance_mult * RIVALRY_PESO
+}
+
+/// Efeito da Pressão de Duelo: mesma mecânica clutch/choke, com o neutro mais alto
+/// (`RIVALRY_NEUTRAL`) — contra o rival só o frio vira clutch.
+pub fn rivalry_pressure_effect(intensity: f64, resilience: f64) -> PressureEffect {
+    if intensity <= 0.0 {
+        return PressureEffect::NONE;
+    }
+    let dir = resilience - RIVALRY_NEUTRAL; // + clutch, − choke (afobação contra o rival)
+    PressureEffect {
+        pace_delta: intensity * dir * PACE_K,
+        error_mult: (1.0 - intensity * dir * ERROR_K).clamp(0.5, 2.0),
+    }
+}
+
+/// Atalho: da percebida do par + pace dos dois + atributos direto ao efeito de duelo.
+/// `stance_mult` fica 1.0 na Fase 1 (sem postura pré-corrida do jogador ainda).
+pub fn rivalry_pressure_for(
+    perceived: f64,
+    pace_self: f64,
+    pace_rival: f64,
+    mentalidade: f64,
+    experiencia: f64,
+    stance_mult: f64,
+) -> PressureEffect {
+    let intensity = rivalry_intensity(perceived, duel_gate(pace_self, pace_rival), stance_mult);
+    rivalry_pressure_effect(intensity, pressure_resilience(mentalidade, experiencia))
+}
+
+// ── Motivação → ritmo ─────────────────────────────────────────────────────────
+//
+// Design (travado com o user): a motivação (recalculada no fim de temporada em
+// `evolution/motivation.rs`) hoje só decide aposentadoria; um craque desmotivado corre a
+// todo vapor. Aqui ela vira um modificador MODESTO e calibrável de pace: um piloto
+// desmotivado rende ABAIXO do próprio skill. Assimétrico de propósito — a desmotivação
+// arrasta bem mais do que a motivação bonifica (empolgação não te deixa mais rápido que
+// o teto do talento, mas desânimo claramente pesa).
+
+/// Motivação "neutra" (default do piloto, sem efeito). Acima dá um empurrãozinho, abaixo pesa.
+const MOTIVATION_REF: f64 = 70.0;
+/// Pace (pontos de skill) PERDIDO na motivação mínima (0).
+const MOTIVATION_DEFICIT_SPAN: f64 = 2.5;
+/// Pace (pontos de skill) GANHO na motivação máxima (100). Bem menor que o déficit.
+const MOTIVATION_SURPLUS_SPAN: f64 = 0.8;
+
+/// Δpace (pontos de skill) da motivação: 0 na referência, negativo abaixo (desânimo
+/// arrasta), levemente positivo acima. Aplicado direto ao skill efetivo (não passa pelo
+/// headroom — é um piso de rendimento, não um evento de clutch/choke).
+pub fn motivation_pace_delta(motivacao: f64) -> f64 {
+    let m = motivacao.clamp(0.0, 100.0);
+    if m >= MOTIVATION_REF {
+        (m - MOTIVATION_REF) / (100.0 - MOTIVATION_REF) * MOTIVATION_SURPLUS_SPAN
+    } else {
+        -((MOTIVATION_REF - m) / MOTIVATION_REF) * MOTIVATION_DEFICIT_SPAN
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,5 +551,86 @@ mod tests {
         let k = headroom_pace_mult(sk, false);
         // soma dos "room" = 1 → soma dos mults = 2*MIN + (MAX-MIN) = 0.8 + 2.1 = 2.9
         assert!(((c + k) - 2.9).abs() < 1e-9, "c={c} k={k}");
+    }
+
+    // ── Testes de Pressão de Duelo (Nemesis) ─────────────────────────────────
+
+    #[test]
+    fn duel_gate_quente_perto_frio_longe() {
+        // Pace igual → duelo quente (gate 1). Muito distante → gate 0. No meio, decai.
+        assert!((duel_gate(80.0, 80.0) - 1.0).abs() < 1e-9);
+        assert!((duel_gate(80.0, 84.0) - 1.0).abs() < 1e-9); // dentro da band
+        assert!((duel_gate(80.0, 60.0)).abs() < 1e-9); // além do fade
+        let meio = duel_gate(80.0, 90.0); // Δ=10, entre band(6) e fade(14)
+        assert!(meio > 0.0 && meio < 1.0, "gate meio={meio}");
+    }
+
+    #[test]
+    fn rivalry_intensity_zera_sem_calor_ou_frio() {
+        // Percebida 0 → sem intensidade. Gate 0 (rival distante) → sem intensidade.
+        assert!(rivalry_intensity(0.0, 1.0, 1.0).abs() < 1e-9);
+        assert!(rivalry_intensity(90.0, 0.0, 1.0).abs() < 1e-9);
+        // Percebida alta + gate cheio → intensidade ~= perceived/100 * PESO.
+        let i = rivalry_intensity(100.0, 1.0, 1.0);
+        assert!((i - RIVALRY_PESO).abs() < 1e-9, "i={i}");
+    }
+
+    #[test]
+    fn duelo_neutro_alto_maioria_afoba() {
+        // Resiliência 0.55 (mediana): no título (neutro 0.55) é neutro/leve; contra o
+        // rival (neutro 0.62) já é CHOKE — a emoção contra o inimigo puxa pro erro.
+        let dueleff = rivalry_pressure_effect(1.0, 0.55);
+        assert!(dueleff.pace_delta < 0.0 && dueleff.error_mult > 1.0, "{dueleff:?}");
+        // Só o genuinamente frio (0.85) converte em clutch.
+        let frio = rivalry_pressure_effect(1.0, 0.85);
+        assert!(frio.pace_delta > 0.0 && frio.error_mult < 1.0, "{frio:?}");
+    }
+
+    #[test]
+    fn duelo_herda_resiliencia_via_atributos() {
+        // Mesma percebida + mesmo pace, o duelo herda mentalidade/experiência: o de
+        // cabeça fria (mental alto) sofre menos/vira clutch; o frágil afoba.
+        let quente = 90.0;
+        let frio = rivalry_pressure_for(quente, 80.0, 80.0, 95.0, 80.0, 1.0);
+        let fragil = rivalry_pressure_for(quente, 80.0, 80.0, 20.0, 20.0, 1.0);
+        assert!(frio.pace_delta > fragil.pace_delta, "frio={frio:?} fragil={fragil:?}");
+        assert!(fragil.pace_delta < 0.0, "frágil contra o rival afoba: {fragil:?}");
+    }
+
+    #[test]
+    fn duelo_frio_por_distancia_de_pace_sem_efeito() {
+        // Rival 20 pontos de pace mais lento → gate 0 → sem pressão de duelo, por mais
+        // intensa que seja a rivalidade (o arco vive, o duelo não).
+        let eff = rivalry_pressure_for(100.0, 85.0, 60.0, 50.0, 50.0, 1.0);
+        assert_eq!(eff.pace_delta, 0.0);
+        assert_eq!(eff.error_mult, 1.0);
+    }
+
+    // ── Testes de motivação → ritmo ──────────────────────────────────────────
+
+    #[test]
+    fn motivacao_referencia_sem_efeito() {
+        assert!(motivation_pace_delta(MOTIVATION_REF).abs() < 1e-9);
+    }
+
+    #[test]
+    fn motivacao_desmotivado_corre_abaixo() {
+        // Desmotivado (0) perde pace; máximo (100) ganha um pouco. Déficit >> superávit.
+        let fundo = motivation_pace_delta(0.0);
+        let topo = motivation_pace_delta(100.0);
+        assert!((fundo + MOTIVATION_DEFICIT_SPAN).abs() < 1e-9, "fundo={fundo}");
+        assert!((topo - MOTIVATION_SURPLUS_SPAN).abs() < 1e-9, "topo={topo}");
+        assert!(fundo.abs() > topo.abs(), "déficit deve pesar mais que superávit");
+    }
+
+    #[test]
+    fn motivacao_monotonica() {
+        // Mais motivação nunca piora o pace.
+        let mut prev = motivation_pace_delta(0.0);
+        for m in [10.0, 30.0, 50.0, 70.0, 85.0, 100.0] {
+            let cur = motivation_pace_delta(m);
+            assert!(cur >= prev - 1e-9, "m={m} cur={cur} prev={prev}");
+            prev = cur;
+        }
     }
 }

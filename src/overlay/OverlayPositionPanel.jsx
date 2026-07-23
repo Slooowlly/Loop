@@ -1,26 +1,67 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 
 // Painel de POSIÇÃO do overlay de VR. Deixa você:
+//   • escolher o ALVO: TORRE (timing) ou RÁDIO (card do engenheiro) — cada um é um quad
+//     independente na layer, com pose/padrão/tecla próprios;
 //   • travar no COCKPIT (fixo no mundo) ou na CABEÇA (segue o olhar);
-//   • mover em X/Y/Z (metros), angular (yaw) e escalar o painel.
+//   • mover em X/Y/Z (metros), angular (yaw), inclinar (pitch) e escalar o painel.
 //
-// A pose é a fonte da verdade AQUI (persistida em localStorage) e empurrada pro
-// backend (`vr_overlay_set_pose`), que escreve na memória compartilhada lida pela
-// OpenXR API layer. Ajuste ao vivo: mexeu no slider, mexeu no VR.
+// A pose é a fonte da verdade AQUI (persistida em localStorage, por alvo) e empurrada
+// pro backend (`vr_overlay_*` pra torre, `vr_engineer_*` pro rádio), que escreve na
+// memória compartilhada lida pela OpenXR API layer. Ajuste ao vivo: mexeu no slider,
+// mexeu no VR.
 //
 // Dica de uso no Pico + Virtual Desktop: com o desktop visível no VD dá pra ver o
 // painel do app e o overlay ao mesmo tempo — posiciona uma vez e fica gravado.
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const STORAGE_KEY = "vrOverlayPose";
-const DEFAULT_KEY = "vrOverlayDefault"; // pose que o usuário fixou como "padrão"
-const RECENTER_KEY_STORAGE = "vrOverlayRecenterKey"; // { vk, label } da tecla de recentro
+const TARGET_KEY = "vrOverlayPanelTarget"; // último alvo escolhido (torre/rádio)
 
-// Carrega a tecla de recentro salva ({ vk, label }) ou null.
-function loadRecenterKey() {
+// Cada ALVO tem seus comandos, chaves de storage e padrões de fábrica próprios. Os
+// factory espelham os defaults da layer/Rust de cada painel (torre = cockpit; rádio =
+// head-locked, menor e mais perto).
+const TARGETS = {
+  tower: {
+    label: "overlay.positionPanel.targetTower",
+    setPose: "vr_overlay_set_pose",
+    getPose: "vr_overlay_get_pose",
+    recenter: "vr_overlay_recenter",
+    setRecenterKey: "vr_overlay_set_recenter_key",
+    poseKey: "vrOverlayPose",
+    defaultKey: "vrOverlayDefault",
+    recenterKeyStore: "vrOverlayRecenterKey",
+    factory: { lockMode: 1, x: 0, y: 0.61, z: -1.29, yaw: 0, pitch: 30, scale: 1.7, visible: true },
+  },
+  radio: {
+    label: "overlay.positionPanel.targetRadio",
+    setPose: "vr_engineer_set_pose",
+    getPose: "vr_engineer_get_pose",
+    recenter: "vr_engineer_recenter",
+    setRecenterKey: "vr_engineer_set_recenter_key",
+    poseKey: "vrEngineerPose",
+    defaultKey: "vrEngineerDefault",
+    recenterKeyStore: "vrEngineerRecenterKey",
+    // Padrão de fábrica = pose ajustada pelo usuário (cockpit-lock, pequeno e perto).
+    factory: { lockMode: 1, x: 0, y: 0.22, z: -0.73, yaw: 0, pitch: 10, scale: 0.26, visible: true },
+  },
+};
+
+function loadTargetName() {
   try {
-    const raw = localStorage.getItem(RECENTER_KEY_STORAGE);
+    const raw = localStorage.getItem(TARGET_KEY);
+    if (raw === "radio" || raw === "tower") return raw;
+  } catch {
+    /* ignora */
+  }
+  return "tower";
+}
+
+// Carrega a tecla de recentro salva ({ vk, label }) ou null, do alvo dado.
+function loadRecenterKey(cfg) {
+  try {
+    const raw = localStorage.getItem(cfg.recenterKeyStore);
     if (raw) {
       const k = JSON.parse(raw);
       if (k && typeof k.vk === "number" && k.vk > 0) return k;
@@ -31,43 +72,30 @@ function loadRecenterKey() {
   return null;
 }
 
-// Padrões de fábrica — espelham kDefaultConfig da layer / DEF_* do Rust. O usuário
-// pode sobrescrevê-los ("Definir padrão"); aí o reset volta pra pose salva dele.
-const FACTORY = {
-  lockMode: 1, // 1 = cockpit (world), 0 = cabeça (view)
-  x: 0,
-  y: 0.61,
-  z: -1.29,
-  yaw: 0,
-  pitch: 30,
-  scale: 1.7,
-  visible: true,
-};
-
-// O "padrão" efetivo: o que o usuário fixou, ou os de fábrica se nunca fixou.
-function loadDefaults() {
+// O "padrão" efetivo do alvo: o que o usuário fixou, ou os de fábrica se nunca fixou.
+function loadDefaults(cfg) {
   try {
-    const raw = localStorage.getItem(DEFAULT_KEY);
-    if (raw) return { ...FACTORY, ...JSON.parse(raw) };
+    const raw = localStorage.getItem(cfg.defaultKey);
+    if (raw) return { ...cfg.factory, ...JSON.parse(raw) };
   } catch {
     /* ignora storage corrompido */
   }
-  return { ...FACTORY };
+  return { ...cfg.factory };
 }
 
-function loadPose() {
+function loadPose(cfg) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...loadDefaults(), ...JSON.parse(raw) };
+    const raw = localStorage.getItem(cfg.poseKey);
+    if (raw) return { ...loadDefaults(cfg), ...JSON.parse(raw) };
   } catch {
     /* ignora storage corrompido */
   }
-  return loadDefaults();
+  return loadDefaults(cfg);
 }
 
-function push(pose) {
+function push(cfg, pose) {
   if (!IN_TAURI) return;
-  invoke("vr_overlay_set_pose", {
+  invoke(cfg.setPose, {
     lockMode: pose.lockMode,
     x: pose.x,
     y: pose.y,
@@ -79,9 +107,9 @@ function push(pose) {
   }).catch(() => {});
 }
 
-function save(pose) {
+function save(cfg, pose) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pose));
+    localStorage.setItem(cfg.poseKey, JSON.stringify(pose));
   } catch {
     /* storage cheio/indisponível: sem persistência, tudo bem */
   }
@@ -127,52 +155,78 @@ function Slider({ label, value, min, max, step, unit, onChange }) {
 }
 
 export default function OverlayPositionPanel() {
-  const [pose, setPose] = useState(loadPose);
+  const { t } = useTranslation();
+  const [target, setTarget] = useState(loadTargetName);
+  const cfgRef = useRef(TARGETS[target]);
+  cfgRef.current = TARGETS[target]; // sempre coerente com o render atual
+
+  const [pose, setPose] = useState(() => loadPose(TARGETS[loadTargetName()]));
   const [open, setOpen] = useState(false);
   const [savedAt, setSavedAt] = useState(0); // > 0 = "padrão salvo" (some ao mexer)
-  const [recenterKey, setRecenterKey] = useState(loadRecenterKey); // { vk, label } | null
+  const [recenterKey, setRecenterKey] = useState(() => loadRecenterKey(TARGETS[loadTargetName()]));
   const [capturing, setCapturing] = useState(false); // ouvindo a próxima tecla?
   const poseRef = useRef(pose); // espelho pra comparar sem depender do render
 
-  // Mudança do USUÁRIO (slider/toggle): estado + empurra pra layer + persiste.
+  // Troca de ALVO (Torre/Rádio): carrega a pose/tecla daquele quad e empurra pra layer.
+  const switchTarget = (t) => {
+    if (t === target) return;
+    const c = TARGETS[t];
+    cfgRef.current = c;
+    setTarget(t);
+    try {
+      localStorage.setItem(TARGET_KEY, t);
+    } catch {
+      /* ignora */
+    }
+    const p = loadPose(c);
+    poseRef.current = p;
+    setPose(p);
+    push(c, p);
+    const rk = loadRecenterKey(c);
+    setRecenterKey(rk);
+    if (IN_TAURI) invoke(c.setRecenterKey, { vk: rk?.vk ?? 0 }).catch(() => {});
+    setSavedAt(0);
+  };
+
+  // Mudança do USUÁRIO (slider/toggle): estado + empurra pro alvo + persiste.
   const set = (patch) => {
     const next = { ...poseRef.current, ...patch };
     poseRef.current = next;
     setPose(next);
-    push(next);
-    save(next);
+    push(cfgRef.current, next);
+    save(cfgRef.current, next);
     setSavedAt(0); // mexeu depois de salvar → a confirmação some
   };
-  // Reset volta pra pose PADRÃO (a que o usuário fixou, ou a de fábrica).
-  const reset = () => set(loadDefaults());
+  // Reset volta pra pose PADRÃO do alvo (a que o usuário fixou, ou a de fábrica).
+  const reset = () => set(loadDefaults(cfgRef.current));
 
-  // Fixa a pose atual como o novo padrão desta máquina (vale pra qualquer VR:
-  // é o que o overlay assume ao abrir e o destino do botão "Padrão").
+  // Fixa a pose atual como o novo padrão do alvo (vale pra qualquer VR: é o que o
+  // overlay assume ao abrir e o destino do botão "Padrão").
   const setAsDefault = () => {
     try {
-      localStorage.setItem(DEFAULT_KEY, JSON.stringify(poseRef.current));
+      localStorage.setItem(cfgRef.current.defaultKey, JSON.stringify(poseRef.current));
       setSavedAt(Date.now());
     } catch {
       /* storage indisponível: sem persistência do padrão */
     }
   };
 
-  // Recentra AGORA: reancora o world-lock na cabeça atual (mesma posição sempre).
+  // Recentra AGORA: reancora o world-lock do alvo na cabeça atual (mesma posição sempre).
   const recenter = () => {
     if (!IN_TAURI) return;
-    invoke("vr_overlay_recenter").catch(() => {});
+    invoke(cfgRef.current.recenter).catch(() => {});
   };
 
   // No mount: restaura a pose salva na layer (e cria a ponte na memória) + a tecla
   // de recentro (pra valer dentro do VR mesmo sem o app em foco).
   useEffect(() => {
-    push(poseRef.current);
+    push(cfgRef.current, poseRef.current);
     if (IN_TAURI) {
-      invoke("vr_overlay_set_recenter_key", { vk: recenterKey?.vk ?? 0 }).catch(() => {});
+      invoke(cfgRef.current.setRecenterKey, { vk: recenterKey?.vk ?? 0 }).catch(() => {});
     }
   }, []);
 
-  // Captura de tecla: enquanto "capturing", a próxima tecla vira a de recentro.
+  // Captura de tecla: enquanto "capturing", a próxima tecla vira a de recentro do alvo.
   useEffect(() => {
     if (!capturing) return undefined;
     const onKey = (e) => {
@@ -188,11 +242,11 @@ export default function OverlayPositionPanel() {
       setRecenterKey(k);
       setCapturing(false);
       try {
-        localStorage.setItem(RECENTER_KEY_STORAGE, JSON.stringify(k));
+        localStorage.setItem(cfgRef.current.recenterKeyStore, JSON.stringify(k));
       } catch {
         /* sem persistência: tudo bem */
       }
-      if (IN_TAURI) invoke("vr_overlay_set_recenter_key", { vk }).catch(() => {});
+      if (IN_TAURI) invoke(cfgRef.current.setRecenterKey, { vk }).catch(() => {});
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -202,25 +256,25 @@ export default function OverlayPositionPanel() {
     setRecenterKey(null);
     setCapturing(false);
     try {
-      localStorage.removeItem(RECENTER_KEY_STORAGE);
+      localStorage.removeItem(cfgRef.current.recenterKeyStore);
     } catch {
       /* ignora */
     }
-    if (IN_TAURI) invoke("vr_overlay_set_recenter_key", { vk: 0 }).catch(() => {});
+    if (IN_TAURI) invoke(cfgRef.current.setRecenterKey, { vk: 0 }).catch(() => {});
   };
 
-  // Poll: adota o que o AJUSTE POR TECLADO mudou na layer. NÃO reempurra (senão
-  // brigaria com o "segurar tecla" — a layer é a dona da SHM nesse momento).
+  // Poll: adota o que o AJUSTE POR TECLADO mudou na layer, no alvo corrente. NÃO
+  // reempurra (senão brigaria com o "segurar tecla" — a layer é a dona da SHM aí).
   useEffect(() => {
     if (!IN_TAURI) return undefined;
     let stopped = false;
     const timer = setInterval(async () => {
       try {
-        const p = await invoke("vr_overlay_get_pose");
+        const p = await invoke(cfgRef.current.getPose);
         if (stopped || !p || poseEq(p, poseRef.current)) return;
         poseRef.current = p;
         setPose(p);
-        save(p);
+        save(cfgRef.current, p);
         setSavedAt(0); // teclado mexeu → confirmação de "padrão salvo" some
       } catch {
         /* ponte ainda não existe / não é Tauri: ignora */
@@ -240,7 +294,7 @@ export default function OverlayPositionPanel() {
     return (
       <button
         onClick={() => setOpen(true)}
-        title="Posição do overlay VR"
+        title={t("overlay.positionPanel.gearTooltip")}
         onMouseEnter={(e) => {
           e.currentTarget.style.opacity = "1";
         }}
@@ -290,7 +344,7 @@ export default function OverlayPositionPanel() {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <strong style={{ fontSize: 12, letterSpacing: 0.3 }}>OVERLAY VR — POSIÇÃO</strong>
+        <strong style={{ fontSize: 12, letterSpacing: 0.3 }}>{t("overlay.positionPanel.title")}</strong>
         <button
           onClick={() => setOpen(false)}
           style={{ background: "none", border: "none", color: "#9aa4ad", cursor: "pointer", fontSize: 14 }}
@@ -299,11 +353,42 @@ export default function OverlayPositionPanel() {
         </button>
       </div>
 
+      {/* Alvo: TORRE vs RÁDIO — decide qual quad os controles abaixo posicionam. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {Object.entries(TARGETS).map(([key, cfg]) => (
+          <button
+            key={key}
+            onClick={() => switchTarget(key)}
+            style={{
+              flex: 1,
+              padding: "6px 0",
+              borderRadius: 6,
+              border: "1px solid " + (target === key ? "#58a6ff" : "rgba(255,255,255,0.14)"),
+              background: target === key ? "rgba(88,166,255,0.18)" : "transparent",
+              color: target === key ? "#79c0ff" : "#9aa4ad",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            {t(cfg.label)}
+          </button>
+        ))}
+      </div>
+
+      {target === "radio" && (
+        <p style={{ fontSize: 10, color: "#6e7681", margin: "0 0 10px", lineHeight: 1.4 }}>
+          {t("overlay.positionPanel.radioHintPre")}{" "}
+          <strong>{t("overlay.positionPanel.radioHintTerm")}</strong>{" "}
+          {t("overlay.positionPanel.radioHintPost")}
+        </p>
+      )}
+
       {/* Trava: cockpit (world) vs cabeça (view) */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {[
-          { m: 1, label: "Cockpit" },
-          { m: 0, label: "Cabeça" },
+          { m: 1, label: "overlay.positionPanel.lockCockpit" },
+          { m: 0, label: "overlay.positionPanel.lockHead" },
         ].map(({ m, label }) => (
           <button
             key={m}
@@ -320,30 +405,30 @@ export default function OverlayPositionPanel() {
               fontWeight: 600,
             }}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
 
-      <Slider label="Horizontal" value={pose.x} min={-1.5} max={1.5} step={0.01} unit="m" onChange={(x) => set({ x })} />
-      <Slider label="Altura" value={pose.y} min={-1.2} max={1.2} step={0.01} unit="m" onChange={(y) => set({ y })} />
-      <Slider label="Distância" value={pose.z} min={-2.5} max={-0.3} step={0.01} unit="m" onChange={(z) => set({ z })} />
-      <Slider label="Giro" value={pose.yaw} min={-45} max={45} step={1} unit="°" onChange={(yaw) => set({ yaw })} />
+      <Slider label={t("overlay.positionPanel.sliderHorizontal")} value={pose.x} min={-1.5} max={1.5} step={0.01} unit="m" onChange={(x) => set({ x })} />
+      <Slider label={t("overlay.positionPanel.sliderHeight")} value={pose.y} min={-1.2} max={1.2} step={0.01} unit="m" onChange={(y) => set({ y })} />
+      <Slider label={t("overlay.positionPanel.sliderDistance")} value={pose.z} min={-2.5} max={-0.3} step={0.01} unit="m" onChange={(z) => set({ z })} />
+      <Slider label={t("overlay.positionPanel.sliderRotation")} value={pose.yaw} min={-45} max={45} step={1} unit="°" onChange={(yaw) => set({ yaw })} />
       <Slider
-        label="Inclinação"
-        value={pose.pitch ?? FACTORY.pitch}
+        label={t("overlay.positionPanel.sliderTilt")}
+        value={pose.pitch ?? cfgRef.current.factory.pitch}
         min={-45}
         max={45}
         step={1}
         unit="°"
         onChange={(pitch) => set({ pitch })}
       />
-      <Slider label="Tamanho" value={pose.scale} min={0.5} max={2} step={0.02} unit="×" onChange={(scale) => set({ scale })} />
+      <Slider label={t("overlay.positionPanel.sliderSize")} value={pose.scale} min={0.2} max={2} step={0.02} unit="×" onChange={(scale) => set({ scale })} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9aa4ad", cursor: "pointer" }}>
           <input type="checkbox" checked={pose.visible} onChange={(e) => set({ visible: e.target.checked })} />
-          Visível
+          {t("overlay.positionPanel.visible")}
         </label>
         <button
           onClick={reset}
@@ -357,7 +442,7 @@ export default function OverlayPositionPanel() {
             fontSize: 11,
           }}
         >
-          Padrão
+          {t("overlay.positionPanel.resetDefault")}
         </button>
       </div>
 
@@ -377,14 +462,14 @@ export default function OverlayPositionPanel() {
           fontWeight: 600,
         }}
       >
-        {savedAt ? "✓ Padrão salvo" : "Definir posição atual como padrão"}
+        {savedAt ? t("overlay.positionPanel.savedDefault") : t("overlay.positionPanel.setAsDefault")}
       </button>
 
       {/* ── Recentro: reancora o overlay na cabeça atual (mesma posição sempre) ── */}
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: 12, paddingTop: 10 }}>
         <button
           onClick={recenter}
-          title="Coloca o overlay à sua frente, na posição configurada, a partir de onde você olha agora"
+          title={t("overlay.positionPanel.recenterTooltip")}
           style={{
             width: "100%",
             background: "rgba(88,166,255,0.12)",
@@ -397,14 +482,14 @@ export default function OverlayPositionPanel() {
             fontWeight: 600,
           }}
         >
-          ⟳ Recentralizar overlay
+          {t("overlay.positionPanel.recenterBtn", { target: t(cfgRef.current.label).toLowerCase() })}
         </button>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: "#9aa4ad", flex: 1 }}>
-            Tecla no VR:{" "}
+            {t("overlay.positionPanel.vrKey")}{" "}
             <strong style={{ color: capturing ? "#e3b341" : "#e6edf3" }}>
-              {capturing ? "aperte uma tecla…" : recenterKey ? recenterKey.label : "nenhuma"}
+              {capturing ? t("overlay.positionPanel.pressKey") : recenterKey ? recenterKey.label : t("overlay.positionPanel.none")}
             </strong>
           </span>
           <button
@@ -419,12 +504,12 @@ export default function OverlayPositionPanel() {
               fontSize: 11,
             }}
           >
-            {capturing ? "cancelar" : "definir"}
+            {capturing ? t("overlay.positionPanel.cancel") : t("overlay.positionPanel.capture")}
           </button>
           {recenterKey && !capturing && (
             <button
               onClick={clearRecenterKey}
-              title="Remover tecla de recentro"
+              title={t("overlay.positionPanel.clearKeyTooltip")}
               style={{
                 background: "none",
                 border: "1px solid rgba(255,255,255,0.14)",
@@ -440,8 +525,7 @@ export default function OverlayPositionPanel() {
           )}
         </div>
         <p style={{ fontSize: 10, color: "#6e7681", margin: "6px 0 0", lineHeight: 1.4 }}>
-          Dica: use a MESMA tecla do "Center VR" do iRacing (Options → Controls) e um
-          aperte só recentra os dois. No VR também dá com <strong>Ctrl direito + C</strong>.
+          {t("overlay.positionPanel.recenterKeyHint")} <strong>Ctrl direito + C</strong>.
         </p>
       </div>
     </div>

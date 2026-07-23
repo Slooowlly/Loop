@@ -80,6 +80,12 @@ pub enum IracingError {
     InvalidHeader,
     #[error("falha ao mapear a memória do iRacing (código {0})")]
     MapFailed(u32),
+    // O SO recusou trazer o iRacing ao primeiro plano (fullscreen EXCLUSIVO ou trava
+    // de foco). Sem foreground, o `SendInput` do chat cairia no vazio silenciosamente.
+    // Só é construído no caminho Windows (`send_chat_text`); no stub é dead code.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    #[error("não foi possível trazer o iRacing ao primeiro plano — rode o sim em modo JANELA ou BORDERLESS (o fullscreen exclusivo bloqueia o envio de comandos)")]
+    ForegroundBlocked,
     // Só é construído no stub não-Windows; em Windows é "dead code" esperado.
     #[cfg_attr(windows, allow(dead_code))]
     #[error("o SDK do iRacing só está disponível no Windows")]
@@ -841,8 +847,21 @@ mod imp {
         use std::thread::sleep;
         use std::time::Duration;
 
-        if !focus_iracing_window()? {
+        let Some(hwnd) = find_iracing_hwnd() else {
             return Err(IracingError::NotRunning("iRacing".to_string()));
+        };
+        // Traz o sim ao foreground E VERIFICA que o SO aceitou. Sem essa checagem, o
+        // `SendInput` seguinte seria disparado contra uma janela que nunca virou foco
+        // (fullscreen exclusivo / trava de foco) e o comando (`!black`, `!dq`) sumiria
+        // sem rastro. Reportando `ForegroundBlocked`, o chamador ao vivo consegue avisar
+        // o jogador em vez de o sistema de quebra falhar em silêncio.
+        //
+        // LIMITE conhecido: se o sim JÁ é o foreground (jogador dirigindo) mas está em
+        // fullscreen EXCLUSIVO, o `SetForegroundWindow` devolve sucesso e mesmo assim o
+        // `SendInput` pode não chegar — isso não é detectável daqui. A checagem cobre o
+        // caso comum (nosso app em segundo plano e o SO recusando o roubo de foco).
+        if !bring_iracing_to_front(hwnd) {
+            return Err(IracingError::ForegroundBlocked);
         }
         sleep(Duration::from_millis(150));
         begin_chat()?;
@@ -850,16 +869,14 @@ mod imp {
         type_unicode(text)
     }
 
-    /// Acha a janela do iRacing por título (varrendo as janelas de topo) e a traz
-    /// para frente. Prefere o simulador; cai para a UI/launcher se o sim não
-    /// estiver aberto. Como o app é a janela em foco quando o usuário clica no
-    /// toast, o Windows permite passar o foreground para a janela do iRacing.
-    pub fn focus_iracing_window() -> Result<bool, IracingError> {
+    /// Acha a janela do iRacing por título (varrendo as janelas de topo). Prefere o
+    /// simulador (score 2) sobre a UI/launcher (score 1). Devolve o `HWND` como
+    /// `isize` (bruto, `Copy`) ou `None` quando nada casa (sim fechado).
+    fn find_iracing_hwnd() -> Option<isize> {
         use winapi::shared::minwindef::{BOOL, LPARAM, TRUE};
         use winapi::shared::windef::HWND;
         use winapi::um::winuser::{
-            BringWindowToTop, EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsIconic,
-            IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+            EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
         };
 
         // Melhor candidato encontrado: o simulador (score 2) ganha da UI (score 1).
@@ -901,18 +918,40 @@ mod imp {
         unsafe {
             EnumWindows(Some(enum_proc), &mut found as *mut _ as LPARAM);
         }
+        found.map(|f| f.hwnd as isize)
+    }
 
-        let Some(target) = found else {
-            return Ok(false);
+    /// Restaura (se minimizada) e traz a janela `hwnd_raw` ao primeiro plano. Devolve
+    /// `true` se o SO aceitou a troca de foreground (`SetForegroundWindow` != 0); em
+    /// fullscreen EXCLUSIVO ou com trava de foco o Windows recusa e devolve `false`.
+    fn bring_iracing_to_front(hwnd_raw: isize) -> bool {
+        use winapi::shared::windef::HWND;
+        use winapi::um::winuser::{
+            BringWindowToTop, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
         };
+
+        let hwnd = hwnd_raw as HWND;
         unsafe {
-            if IsIconic(target.hwnd) != 0 {
-                ShowWindow(target.hwnd, SW_RESTORE);
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
             }
-            BringWindowToTop(target.hwnd);
-            SetForegroundWindow(target.hwnd);
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd) != 0
         }
-        Ok(true)
+    }
+
+    /// Acha a janela do iRacing (simulador ou launcher) e a traz para frente, para o
+    /// jogador "cair" no iRacing logo após exportar os dados. Como o app é a janela em
+    /// foco quando o usuário clica no toast, o Windows permite passar o foreground.
+    /// `Ok(false)` = iRacing fechado (janela não encontrada).
+    pub fn focus_iracing_window() -> Result<bool, IracingError> {
+        match find_iracing_hwnd() {
+            Some(hwnd) => {
+                bring_iracing_to_front(hwnd);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Força a janela `hwnd_raw` para o primeiro plano. O Windows só deixa o

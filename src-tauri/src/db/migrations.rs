@@ -4,7 +4,7 @@ use crate::db::connection::DbError;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 52;
+const CURRENT_VERSION: u32 = 53;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
     (50, migrate_v50),
     (51, migrate_v51),
     (52, migrate_v52),
+    (53, migrate_v53),
 ];
 
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
@@ -206,6 +207,25 @@ fn migrate_v52(conn: &Connection) -> Result<(), DbError> {
             PRIMARY KEY (race_id, driver_id, part, lap)
         );
         CREATE INDEX IF NOT EXISTS idx_race_breakdowns_race ON race_breakdowns(race_id);",
+    )?;
+    Ok(())
+}
+
+/// v53 — HISTÓRICO DE PROMOÇÃO por equipe (retorno decrescente anti-snowball). Guarda a
+/// última temporada em que a equipe subiu de categoria e quantas promoções ela acumulou
+/// dentro de uma janela móvel. O pacote ECONÔMICO da promoção (orçamento/estrutura/
+/// engenharia) encolhe a cada promoção recente — subir uma vez é premiado, mas encadear
+/// promoções ano após ano (o "foguete" rookie→amador→...→production) rende cada vez menos,
+/// freando o snowball caixa→carro→vitória→promoção. Por-save; zero linhas até a 1ª
+/// promoção. Sidecar (não toca a tabela `teams`), no mesmo padrão de `team_collapse_streak`.
+fn migrate_v53(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS team_promotion_history (
+            team_id               TEXT PRIMARY KEY,
+            last_promotion_season INTEGER NOT NULL DEFAULT 0,
+            recent_promotions     INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+        );",
     )?;
     Ok(())
 }

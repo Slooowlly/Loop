@@ -90,7 +90,6 @@ const debugLabels = [
   "Quebra ao vivo (teste)",
   "Testar overlay de rádio",
   "Gravar corrida (debug)",
-  "Fim de temporada → tela de campeão (debug)",
   "Rivalidades percebidas (debug)",
 ];
 
@@ -245,7 +244,7 @@ Depois de `yellowMsg`, adicionar a linha completa abaixo:
 </div>
 ```
 
-- [ ] **Step 3: Agrupar todos os sete blocos técnicos**
+- [ ] **Step 3: Agrupar todos os seis blocos técnicos atualmente presentes**
 
 Envolver, sem alterar handlers ou ordem interna, desde `<details>` de `Detalhes técnicos` até `<RivalryPerceptionPanel />` em:
 

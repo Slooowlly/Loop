@@ -20,11 +20,16 @@ mod imp {
     use winapi::um::memoryapi::{CreateFileMappingW, MapViewOfFile, FILE_MAP_WRITE};
 
     const MAGIC: u32 = 0x5241_4352; // 'RACR'
-    // Cabeçalho estendido (casa com IracerFrameHeader em shared_frame.h):
-    // [0]magic [1]w [2]h [3]frame | [4]epoch [5]lockMode [6]x [7]y [8]z [9]yaw
-    // [10]pitch [11]scale [12]visible [13]recenterSeq [14]recenterKey
-    // → 15 palavras de 4 bytes = 60 bytes.
-    const HEADER: usize = 60;
+    // Versão do LAYOUT do cabeçalho — DEVE bater com IRACER_SHM_VERSION em shared_frame.h.
+    // A layer rejeita o mapeamento se não bater (evita ler offsets errados quando DLL e app
+    // foram compilados contra layouts diferentes). BUMP ao mudar qualquer campo abaixo.
+    const VERSION: u32 = 2;
+    // Cabeçalho estendido (casa com IracerFrameHeader em shared_frame.h). `magic`+`version`
+    // são o prefixo FIXO (words 0 e 1) e nunca mudam de posição:
+    // [0]magic [1]version [2]w [3]h [4]frame | [5]epoch [6]lockMode [7]x [8]y [9]z
+    // [10]yaw [11]pitch [12]scale [13]visible [14]recenterSeq [15]recenterKey
+    // → 16 palavras de 4 bytes = 64 bytes.
+    const HEADER: usize = 64;
     const PAGE_READWRITE: u32 = 0x04;
 
     /// Descrição de um painel: nome do mapeamento, resolução e pose padrão (espelham
@@ -63,13 +68,15 @@ mod imp {
         name: "Local\\iRacerEngineerFrame",
         w: 1024,
         h: 256,
-        def_lock: 0, // head-locked: segue o olhar
+        // Padrão ajustado pelo usuário: cockpit-lock, pequeno e perto (bate com o
+        // FACTORY do rádio no OverlayPositionPanel.jsx).
+        def_lock: 1, // world/cockpit
         def_x: 0.0,
-        def_y: 0.08,
-        def_z: -1.0,
+        def_y: 0.22,
+        def_z: -0.73,
         def_yaw: 0.0,
-        def_pitch: 0.0,
-        def_scale: 1.0,
+        def_pitch: 10.0,
+        def_scale: 0.26,
     };
 
     fn panel_size(p: &Panel) -> usize {
@@ -127,20 +134,21 @@ mod imp {
             let up = base as *mut u32;
             let fp = base as *mut f32;
             *up.add(0) = MAGIC;
-            *up.add(1) = p.w;
-            *up.add(2) = p.h;
-            *up.add(3) = 0; // frame
-            *up.add(4) = 0; // epoch
-            *(up.add(5) as *mut i32) = p.def_lock;
-            *fp.add(6) = p.def_x;
-            *fp.add(7) = p.def_y;
-            *fp.add(8) = p.def_z;
-            *fp.add(9) = p.def_yaw;
-            *fp.add(10) = p.def_pitch;
-            *fp.add(11) = p.def_scale;
-            *up.add(12) = 1; // visible
-            *up.add(13) = 0; // recenterSeq
-            *up.add(14) = 0; // recenterKey
+            *up.add(1) = VERSION;
+            *up.add(2) = p.w;
+            *up.add(3) = p.h;
+            *up.add(4) = 0; // frame
+            *up.add(5) = 0; // epoch
+            *(up.add(6) as *mut i32) = p.def_lock;
+            *fp.add(7) = p.def_x;
+            *fp.add(8) = p.def_y;
+            *fp.add(9) = p.def_z;
+            *fp.add(10) = p.def_yaw;
+            *fp.add(11) = p.def_pitch;
+            *fp.add(12) = p.def_scale;
+            *up.add(13) = 1; // visible
+            *up.add(14) = 0; // recenterSeq
+            *up.add(15) = 0; // recenterKey
             *guard = Some(Bridge {
                 handle: handle as usize,
                 base: base as usize,
@@ -164,7 +172,7 @@ mod imp {
         unsafe {
             let base = b.base as *mut u8;
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), base.add(HEADER), expected);
-            let frame = (base as *mut u32).add(3);
+            let frame = (base as *mut u32).add(4);
             *frame = (*frame).wrapping_add(1);
         }
         Ok(())
@@ -178,14 +186,14 @@ mod imp {
             let up = b.base as *const u32;
             let fp = b.base as *const f32;
             Some((
-                *(up.add(5) as *const i32),
-                *fp.add(6),
+                *(up.add(6) as *const i32),
                 *fp.add(7),
                 *fp.add(8),
                 *fp.add(9),
                 *fp.add(10),
                 *fp.add(11),
-                *up.add(12) != 0,
+                *fp.add(12),
+                *up.add(13) != 0,
             ))
         }
     }
@@ -210,27 +218,27 @@ mod imp {
         unsafe {
             let up = b.base as *mut u32;
             let fp = b.base as *mut f32;
-            *(up.add(5) as *mut i32) = if lock_mode == 0 { 0 } else { 1 };
-            *fp.add(6) = x;
-            *fp.add(7) = y;
-            *fp.add(8) = z;
-            *fp.add(9) = yaw;
-            *fp.add(10) = pitch;
-            *fp.add(11) = if scale > 0.01 { scale } else { 1.0 };
-            *up.add(12) = if visible { 1 } else { 0 };
-            let epoch = up.add(4);
+            *(up.add(6) as *mut i32) = if lock_mode == 0 { 0 } else { 1 };
+            *fp.add(7) = x;
+            *fp.add(8) = y;
+            *fp.add(9) = z;
+            *fp.add(10) = yaw;
+            *fp.add(11) = pitch;
+            *fp.add(12) = if scale > 0.01 { scale } else { 1.0 };
+            *up.add(13) = if visible { 1 } else { 0 };
+            let epoch = up.add(5);
             *epoch = (*epoch).wrapping_add(1);
         }
         Ok(())
     }
 
-    /// Pede um RECENTRO no painel: incrementa `recenterSeq` (word 13).
+    /// Pede um RECENTRO no painel: incrementa `recenterSeq` (word 14).
     pub fn bump_recenter(p: &Panel) -> Result<(), String> {
         let mut guard = cell(p.idx).lock().map_err(|e| e.to_string())?;
         ensure_bridge(&mut guard, p)?;
         let b = guard.as_ref().ok_or("bridge não inicializada")?;
         unsafe {
-            let seq = (b.base as *mut u32).add(13);
+            let seq = (b.base as *mut u32).add(14);
             *seq = (*seq).wrapping_add(1);
         }
         Ok(())
@@ -242,7 +250,7 @@ mod imp {
         ensure_bridge(&mut guard, p)?;
         let b = guard.as_ref().ok_or("bridge não inicializada")?;
         unsafe {
-            *(b.base as *mut u32).add(14) = vk;
+            *(b.base as *mut u32).add(15) = vk;
         }
         Ok(())
     }

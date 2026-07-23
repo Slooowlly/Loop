@@ -102,7 +102,7 @@ pub(crate) fn discard_career_draft_in_base_dir(base_dir: &Path) -> Result<(), St
         return Err("Diretorio do draft fora da pasta de saves.".to_string());
     }
 
-    std::fs::remove_dir_all(&target_dir)
+    remove_dir_all_resilient(&target_dir)
         .map_err(|e| format!("Falha ao descartar draft historico: {e}"))
 }
 
@@ -531,6 +531,35 @@ fn build_draft_state(
     let db_path = career_dir.join("career.db");
     let db = Database::open_existing(&db_path)
         .map_err(|e| format!("Falha ao abrir banco do draft: {e}"))?;
+
+    // Um draft só é finalizável se o mundo passa na auditoria do ano jogável.
+    // Uma geração interrompida (app fechado no meio) ou inválida deixa o save num
+    // estado que reprovaria na finalização (ex.: sem calendário jogável, contadores
+    // de meta defasados). Em vez de apresentá-lo como pronto — equipes selecionáveis,
+    // botão "Finalizar" — e só quebrar no fim, detectamos aqui: devolvemos o estado
+    // com o erro real e sem equipes, o que faz o fluxo obrigar a regerar em vez de
+    // finalizar um mundo quebrado.
+    // A auditoria roda contra o ano da temporada ATIVA no banco — a mesma fonte de
+    // verdade que a finalização usa (`finalize_career_draft`). Assim garantimos que,
+    // se o mundo reprovaria em "Finalizar", ele também não é apresentado como pronto
+    // aqui. Sem temporada ativa (ou reprovando na auditoria) devolvemos o estado com
+    // o erro e sem equipes, o que força a regeração.
+    match season_queries::get_active_season(&db.conn) {
+        Ok(Some(active_season)) => {
+            if let Err(error) = audit_draft_world(&db.conn, active_season.ano) {
+                state.error = Some(error);
+                return Ok(state);
+            }
+        }
+        Ok(None) => {
+            state.error = Some("Temporada ativa do draft nao encontrada.".to_string());
+            return Ok(state);
+        }
+        Err(e) => {
+            return Err(format!("Falha ao buscar temporada ativa do draft: {e}"));
+        }
+    }
+
     let teams = team_queries::get_all_teams(&db.conn)
         .map_err(|e| format!("Falha ao listar equipes do draft: {e}"))?;
 
@@ -641,29 +670,76 @@ fn mark_historical_draft_failed(career_dir: &Path, message: &str) -> Result<(), 
             .map_err(|e| format!("Falha ao gravar meta do draft falho: {e}"))?;
     }
 
+    // A limpeza dos artefatos é BEST-EFFORT de propósito. O meta.json acima já
+    // registrou a causa REAL da falha; se a remoção de um arquivo falhar (no
+    // Windows é comum um `os error 32` transitório — antivírus/indexador segurando
+    // o handle logo após fechar a conexão SQLite), não podemos deixar essa falha
+    // secundária mascarar o erro de verdade que o chamador vai propagar. Tentamos
+    // com retry e, se ainda assim não der, apenas registramos e seguimos.
     for path in [
         career_dir.join("career.db"),
         career_dir.join("career.db-shm"),
         career_dir.join("career.db-wal"),
         career_dir.join("preseason_plan.json"),
     ] {
-        if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| {
-                format!(
-                    "Falha ao remover artefato de draft falho '{}': {e}",
-                    path.display()
-                )
-            })?;
+        if let Err(e) = remove_file_resilient(&path) {
+            eprintln!(
+                "Aviso: falha ao remover artefato de draft falho '{}': {e}",
+                path.display()
+            );
         }
     }
 
     let backups_dir = career_dir.join("backups");
-    if backups_dir.exists() {
-        std::fs::remove_dir_all(&backups_dir)
-            .map_err(|e| format!("Falha ao limpar backups do draft falho: {e}"))?;
+    if let Err(e) = remove_dir_all_resilient(&backups_dir) {
+        eprintln!("Aviso: falha ao limpar backups do draft falho: {e}");
     }
 
     Ok(())
+}
+
+/// Remove um arquivo tolerando o bloqueio transitório do Windows. Logo após fechar
+/// uma conexão SQLite, o antivírus ou o indexador pode segurar o handle por alguns
+/// milissegundos, fazendo `remove_file` retornar `os error 32` (sharing violation).
+/// Alguns retries curtos resolvem. Arquivo inexistente conta como sucesso.
+fn remove_file_resilient(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    remove_with_retry(|| std::fs::remove_file(path))
+}
+
+/// Versão para diretórios (mesma lógica de retry contra locks transitórios do Windows).
+fn remove_dir_all_resilient(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    remove_with_retry(|| std::fs::remove_dir_all(path))
+}
+
+fn remove_with_retry<F>(op: F) -> std::io::Result<()>
+where
+    F: Fn() -> std::io::Result<()>,
+{
+    const ATTEMPTS: usize = 12;
+    let mut last_err = None;
+    for attempt in 0..ATTEMPTS {
+        match op() {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                last_err = Some(e);
+                if attempt + 1 < ATTEMPTS {
+                    // Backoff curto e crescente: ~50ms, 100ms, ... até dar tempo do
+                    // scanner/indexador liberar o handle sem travar a UI por muito tempo.
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        50 * (attempt as u64 + 1),
+                    ));
+                }
+            }
+        }
+    }
+    Err(last_err.expect("retry loop sempre registra o último erro antes de sair"))
 }
 
 fn read_save_meta(meta_path: &Path) -> Result<SaveMeta, String> {

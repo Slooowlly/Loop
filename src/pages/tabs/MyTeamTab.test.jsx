@@ -189,6 +189,8 @@ describe("MyTeamTab", () => {
             cash_balance: 132_565_957,
             car_performance: 9,
             car_build_profile: "power_intermediate",
+            confiabilidade: 92,
+            pit_crew_quality: 84,
             founded_year: 2002,
             pontos: 188,
           },
@@ -201,6 +203,8 @@ describe("MyTeamTab", () => {
             cash_balance: 6_500_000,
             car_performance: 7,
             car_build_profile: "balanced",
+            confiabilidade: 72,
+            pit_crew_quality: 68,
             pontos: 96,
           },
           {
@@ -212,6 +216,8 @@ describe("MyTeamTab", () => {
             cash_balance: 1_000_000,
             car_performance: 10,
             car_build_profile: "handling_intermediate",
+            confiabilidade: 38,
+            pit_crew_quality: 18,
             pontos: 120,
           },
         ]);
@@ -339,7 +345,7 @@ describe("MyTeamTab", () => {
 
     expect(screen.getByText(/Eixos técnicos/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Desenvolvimento/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Confiabilidade/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Confiabilidade/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Pit e corrida/i })).toBeInTheDocument();
 
     expect(await screen.findByText(/Ranking da categoria/i)).toBeInTheDocument();
@@ -418,6 +424,26 @@ describe("MyTeamTab", () => {
     // Sistema de Nível do Carro: o jogador vê só o Nível do Carro; o "tipo/shape" foi aposentado.
     expect(screen.getAllByText(/Nível do carro/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Tipo do carro/i)).not.toBeInTheDocument();
+  });
+
+  it("shows car, reliability and pit crew as five qualitative color tiers", async () => {
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    expect(within(ranking).getByRole("button", { name: /Confiabilidade/i })).toBeInTheDocument();
+    expect(within(ranking).getByRole("button", { name: /Pit crew/i })).toBeInTheDocument();
+
+    expect(within(ranking).getByTestId("ranking-car-tier-T001")).toHaveTextContent("Referência");
+    expect(within(ranking).getByTestId("ranking-car-tier-T001")).toHaveStyle({ color: "#7ee787" });
+    expect(within(ranking).getByTestId("ranking-reliability-tier-T001")).toHaveTextContent("Robusto");
+    expect(within(ranking).getByTestId("ranking-reliability-tier-T001")).toHaveStyle({ color: "#7ee787" });
+    expect(within(ranking).getByTestId("ranking-pit-crew-tier-T001")).toHaveTextContent("Forte");
+    expect(within(ranking).getByTestId("ranking-pit-crew-tier-T001")).toHaveStyle({ color: "#7ee787" });
+
+    expect(within(ranking).getByTestId("ranking-car-tier-T010")).toHaveTextContent("Dominante");
+    expect(within(ranking).getByTestId("ranking-reliability-tier-T010")).toHaveTextContent("Inquebrável");
+    expect(within(ranking).getByTestId("ranking-pit-crew-tier-T020")).toHaveTextContent("Muito fraco");
+    expect(within(ranking).getByTestId("ranking-pit-crew-tier-T020")).toHaveStyle({ color: "#f85149" });
   });
 
   it("shows a cleaner development axis for the technical operation", async () => {

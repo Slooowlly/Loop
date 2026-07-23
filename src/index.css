@@ -379,7 +379,95 @@ select option {
 
 .mm-shell.is-intro .mm-bg {
   filter: blur(var(--mm-intro-blur, 16px));
-  transform: scale(1.08);
+  transform: scale(1.14);
+}
+
+/* Fundo da bandeira. Wrapper: fade-in de entrada + blur que entra depois de 15s. */
+.mm-photobg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 2.8s ease;
+  will-change: opacity, filter;
+}
+
+.mm-photobg.is-on {
+  opacity: 1;
+  animation: mm-photo-blur 10s ease-in 15s forwards;
+}
+
+/* Duas camadas da MESMA bandeira (nao troca de imagem). Cada uma faz um zoom-in
+   continuo, so pra dentro; defasadas em meia-volta, elas se cruzam por opacidade e
+   mascaram o "reset" do zoom — o resultado e uma aproximacao PERPETUA, sem nunca
+   pular de volta ao tamanho original. */
+.mm-photobg .mm-photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: right center; /* assunto a direita; esquerda escurece pro texto */
+  background-repeat: no-repeat;
+  transform-origin: 68% 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.mm-photobg.is-on .mm-photo {
+  animation:
+    mm-photo-zoom 40s linear infinite,
+    mm-photo-cycle 40s ease-in-out infinite;
+}
+
+/* Segunda camada defasada em meia-volta: sempre ha uma visivel enquanto a outra reseta. */
+.mm-photobg.is-on .mm-photo-b {
+  animation-delay: -20s, -20s;
+}
+
+/* So aproximacao (zoom pra dentro) + deriva bem leve. */
+@keyframes mm-photo-zoom {
+  from {
+    transform: scale(1.05) translateX(-1.6%);
+  }
+  to {
+    transform: scale(1.5) translateX(1.6%);
+  }
+}
+
+/* Aparece pouco ampliada e some bem ampliada, pra o reset cair na fase invisivel. */
+@keyframes mm-photo-cycle {
+  0% {
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Blur que so comeca depois de 15s (animation-delay) e segura (forwards). */
+@keyframes mm-photo-blur {
+  from {
+    filter: blur(0px);
+  }
+  to {
+    filter: blur(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-photobg.is-on .mm-photo {
+    animation: none;
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  .mm-photobg.is-on .mm-photo-b {
+    display: none;
+  }
 }
 
 .mm-glow,
@@ -494,6 +582,19 @@ select option {
   margin-bottom: 12px;
 }
 
+.mm-brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 1.4vw, 20px);
+}
+
+.mm-brand-logo {
+  width: auto;
+  height: clamp(52px, 6.6vw, 74px);
+  object-fit: contain;
+  filter: drop-shadow(0 6px 22px rgba(0, 0, 0, 0.55));
+}
+
 .mm-title {
   font-size: clamp(54px, 7vw, 76px);
   font-weight: 800;
@@ -512,6 +613,29 @@ select option {
   margin-bottom: 30px;
 }
 
+.mm-version {
+  position: absolute;
+  right: clamp(20px, 3vw, 40px);
+  bottom: clamp(16px, 2.4vh, 28px);
+  z-index: 2;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.mm-shell.is-entered .mm-version {
+  opacity: 1;
+}
+
+.mm-shell.is-exiting .mm-version {
+  opacity: 0;
+}
+
 .mm-list {
   display: flex;
   flex-direction: column;
@@ -528,9 +652,10 @@ select option {
   background: rgba(255, 255, 255, 0.05);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  border-radius: 18px;
+  border-radius: 20px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+  transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .mm-card:hover {
@@ -546,13 +671,89 @@ select option {
 }
 
 .mm-hero {
-  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  padding: 22px 26px;
+  border-radius: 24px;
+  border-color: rgba(84, 132, 210, 0.4);
+  /* Fundo escuro com leve tinta azul (as luzes que se movem ficam nas camadas). */
+  background: linear-gradient(107deg, rgba(24, 52, 116, 0.34) 0%, rgba(13, 30, 74, 0.34) 46%, rgba(6, 13, 34, 0.46) 100%);
+  /* Borda com brilho contido + halo externo discreto. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 46px rgba(56, 108, 210, 0.1),
+    0 0 26px rgba(38, 84, 190, 0.22);
+}
+
+/* Luzes internas: dois brilhos suaves que passeiam BEM devagar dentro do card. */
+.mm-hero::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 60% at 30% 36%, rgba(70, 120, 210, 0.18), transparent 62%),
+    radial-gradient(36% 55% at 72% 68%, rgba(48, 92, 180, 0.14), transparent 64%);
+  animation: mm-hero-lights 24s ease-in-out infinite alternate;
+}
+
+/* Faixa diagonal larga e macia que respira e deriva devagar (imersiva, sem linha rapida). */
+.mm-hero::after {
+  content: "";
+  position: absolute;
+  inset: -30% -12%;
+  z-index: 0;
+  pointer-events: none;
+  transform: skewX(-15deg);
+  background: linear-gradient(90deg, transparent 22%, rgba(120, 165, 240, 0.1) 50%, transparent 78%);
+  animation: mm-hero-sheen 18s ease-in-out infinite;
+}
+
+@keyframes mm-hero-lights {
+  from {
+    transform: translate(-3%, -2%) scale(1);
+  }
+  to {
+    transform: translate(4%, 3%) scale(1.16);
+  }
+}
+
+@keyframes mm-hero-sheen {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateX(-9%) skewX(-15deg);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateX(9%) skewX(-15deg);
+  }
+}
+
+.mm-hero:hover {
+  transform: translateX(4px);
+  border-color: rgba(120, 170, 240, 0.6);
+  background: linear-gradient(107deg, rgba(30, 62, 134, 0.4) 0%, rgba(16, 36, 86, 0.4) 46%, rgba(8, 16, 40, 0.5) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 50px rgba(70, 124, 220, 0.14),
+    0 0 34px rgba(48, 100, 210, 0.3);
 }
 
 .mm-hero-inner {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-hero::before,
+  .mm-hero::after {
+    animation: none;
+  }
 }
 
 .mm-hero-icon {
@@ -562,16 +763,7 @@ select option {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.mm-hero-logo {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  color: rgba(178, 202, 242, 0.9);
 }
 
 .mm-hero-body {
@@ -580,28 +772,32 @@ select option {
 }
 
 .mm-hero-eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.25em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(121, 184, 255, 0.9);
+  color: #4d8bff;
+  margin-bottom: 5px;
 }
 
 .mm-hero-name {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .mm-hero-sub {
-  font-size: 13px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.5);
+  margin-top: 6px;
 }
 
 .mm-hero-play {
   display: inline-flex;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .mm-row {
@@ -811,6 +1007,36 @@ select option {
 .mm-link:hover {
   background: rgba(112, 175, 255, 0.12);
   border-color: rgba(111, 212, 255, 0.4);
+}
+
+/* Glow respirante nas corridas do jogador (cor da categoria via --cal-glow). */
+@keyframes calendarUserGlow {
+  0%, 100% { box-shadow: 0 0 7px 0 var(--cal-glow, #58a6ff); }
+  50% { box-shadow: 0 0 17px 3px var(--cal-glow, #58a6ff); }
+}
+.calendar-user-glow {
+  animation: calendarUserGlow 2.6s ease-in-out infinite;
+}
+
+/* Glow suave por CAMADA: a sombra é estática e só a OPACIDADE anima (composital,
+   sem repintura por frame) — indicado pros mini-meses, onde dezenas de células
+   animam ao mesmo tempo e o box-shadow animado travava. */
+@keyframes calendarGlowPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.calendar-glow-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 9px 2px var(--cal-glow, #58a6ff);
+  animation: calendarGlowPulse 2.6s ease-in-out infinite;
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .calendar-user-glow { animation: none; box-shadow: 0 0 10px 1px var(--cal-glow, #58a6ff); }
+  .calendar-glow-layer { animation: none; opacity: 0.85; }
 }
 
 .mm-link-arrow {

@@ -8,6 +8,14 @@ import { currentLang, ordinal } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 import { buildEditorialCopy, classifyChampionshipState } from "./nextRaceEditorial";
 import { selectThesis } from "./nextRaceThesis";
+// Tipo/gravidade canônico da lesão (`lesao_ativa_tipo`) → chave i18n da gravidade.
+const INJURY_SEVERITY_KEY = {
+  Leve: "light",
+  Moderada: "moderate",
+  Grave: "severe",
+  Critica: "critical",
+};
+
 export function getFavoriteMedalTone(index) {
   if (index === 0) return "text-[#f5c76d]";
   if (index === 1) return "text-[#d8dfef]";
@@ -252,6 +260,36 @@ export function buildBriefingContext({
     ? { ...nemesisRaw, in_grid: orderedDrivers.some((d) => d.id === nemesisRaw.driver_id) }
     : null;
 
+  // Lesão ATIVA do jogador (carrega da classificação/summary — `lesao_ativa_tipo`, que é o
+  // TIPO/gravidade canônico: "Leve"/"Moderada"/"Grave"/"Critica"). Corre machucado → o
+  // briefing avisa (o debrief no backend fecha o loop se levar dano na corrida). Traduzimos a
+  // gravidade pro idioma ativo; tipo desconhecido cai no rótulo cru.
+  const injuryType = playerStanding?.lesao_ativa_tipo ?? player?.lesao_ativa_tipo ?? null;
+  const injurySeverityLabel = injuryType
+    ? INJURY_SEVERITY_KEY[injuryType]
+      ? i18n.t(`raceContext.facts.injurySeverity.${INJURY_SEVERITY_KEY[injuryType]}`)
+      : injuryType
+    : null;
+
+  // Pressão de TÍTULO defensiva: está no topo, com um caçador colado e poucas etapas. É o
+  // beat de "segurar sob pressão" (o gêmeo pré-corrida do clutch/choke da pressure.rs, que
+  // só existe no sim). Gate apertado pra não virar ruído em toda corrida.
+  const underTitlePressure =
+    championshipUnderway &&
+    !!playerStanding &&
+    !!behindDriver &&
+    gapBehind != null &&
+    gapBehind <= 12 &&
+    remainingRounds <= 6 &&
+    (playerStanding.posicao_campeonato ?? 99) <= 5;
+
+  // Estrelato: fama REAL do jogador (`midia`, 0–100). Vira FACT quando é estrela (>70) ou
+  // ídolo (>87). A fração de público (`fameSharePct`, do `public_fame_share`) entra como
+  // detalhe da manchete quando é um chamariz de verdade.
+  const playerFame = playerStanding?.midia ?? player?.midia ?? null;
+  const fameLevelKey =
+    playerFame == null ? null : playerFame > 87 ? "idol" : playerFame > 70 ? "star" : null;
+
   const thesis = selectThesis({
     trackName: nextRace?.track_name,
     championshipUnderway,
@@ -311,6 +349,24 @@ export function buildBriefingContext({
       ? i18n.t("raceContext.facts.objectiveForm", { target: targetLabel })
       : i18n.t("raceContext.facts.objectiveDebut"),
     recent_form: recentForm ? i18n.t("raceContext.facts.recentForm", { form: recentForm }) : null,
+    injury: injuryType ? i18n.t("raceContext.facts.injury", { severity: injurySeverityLabel }) : null,
+    pressure: underTitlePressure
+      ? i18n.t("raceContext.facts.pressure", {
+          name: behindDriver.nome,
+          gap: gapBehind,
+          rounds: remainingRounds,
+        })
+      : null,
+    fame: fameLevelKey
+      ? i18n.t("raceContext.facts.fame", {
+          level: i18n.t(`raceContext.facts.fameLevel.${fameLevelKey}`),
+          value: playerFame,
+          crowd:
+            fameSharePct != null && fameSharePct >= 10
+              ? i18n.t("raceContext.facts.fameCrowd", { pct: fameSharePct })
+              : "",
+        })
+      : null,
     avg_finish:
       outlook?.averageFinish != null
         ? i18n.t("raceContext.facts.avgFinish", {
@@ -460,9 +516,11 @@ export function buildBriefingContext({
     "championship_situation",
     "objective",
     "recent_form",
+    "injury",
     "avg_finish",
     "leader",
     "chaser",
+    "pressure",
     "rival_direct",
     "rivalry_label",
     "nemesis",
@@ -474,6 +532,7 @@ export function buildBriefingContext({
     "favorite",
     "weather",
     "importance",
+    "fame",
     "breakdown",
     "story_lead",
     "story_others",

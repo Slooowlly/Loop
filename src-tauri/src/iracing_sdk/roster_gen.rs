@@ -277,6 +277,11 @@ pub struct DriverCtx {
     pub career_debut: bool,
     /// DNFs mecânicos (Mechanical/Operational) nas últimas corridas.
     pub mechanical_dnfs: u32,
+    /// Nível do vínculo com a equipe atual (1–6; ver [`crate::market::bond::bond_level`]).
+    pub bond_level: u8,
+    /// Handicap de lesão ATIVA: fração do pace perdida por uma lesão em recuperação
+    /// (`skill_penalty × corridas_restantes/total`, 0–1). 0 = sem lesão ativa.
+    pub injury_active_penalty: f64,
 }
 
 /// Contexto compartilhado da corrida-alvo para a camada de comportamento por corrida
@@ -493,6 +498,14 @@ pub fn build_roster(
                         reigning_champion: dctx.map(|d| d.reigning_champion).unwrap_or(false),
                         career_debut: dctx.map(|d| d.career_debut).unwrap_or(false),
                         mechanical_dnfs: dctx.map(|d| d.mechanical_dnfs).unwrap_or(0),
+                        // Fama = `midia` (2ª moeda), já no piloto. Vínculo/lesão-ativa vêm do
+                        // `DriverCtx` (o comando busca no banco). São EXPORTS de valores já
+                        // calculados — não recomputamos fama/bond/lesão aqui.
+                        fame: a.midia,
+                        bond_level: dctx.map(|d| d.bond_level).unwrap_or(1),
+                        injury_active_penalty: dctx
+                            .map(|d| d.injury_active_penalty)
+                            .unwrap_or(0.0),
                         seed: bc.seed_base ^ fnv1a(&driver.id),
                     };
                     let out = crate::iracing_sdk::behavior::compute(&inputs);

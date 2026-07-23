@@ -239,6 +239,40 @@ pub fn set_collapse_streak(conn: &Connection, team_id: &str, streak: i32) -> Res
     Ok(())
 }
 
+/// Histórico de promoção de uma equipe: `(última temporada em que subiu, nº de promoções
+/// na janela móvel)`. `(0, 0)` se não houver registro — nunca subiu (ou save antigo). Base
+/// do retorno decrescente anti-snowball do chain-promotion (ver `promotion::effects`).
+pub fn get_promotion_history(conn: &Connection, team_id: &str) -> Result<(i32, i32), DbError> {
+    let row = conn
+        .query_row(
+            "SELECT last_promotion_season, recent_promotions
+             FROM team_promotion_history WHERE team_id = ?1",
+            params![team_id],
+            |row| Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?)),
+        )
+        .optional()?;
+    Ok(row.unwrap_or((0, 0)))
+}
+
+/// Grava o histórico de promoção de uma equipe (upsert). `last_promotion_season = 0` zera
+/// a contagem (ex.: rebaixamento quebra a cadeia de promoções).
+pub fn set_promotion_history(
+    conn: &Connection,
+    team_id: &str,
+    last_promotion_season: i32,
+    recent_promotions: i32,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO team_promotion_history (team_id, last_promotion_season, recent_promotions)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(team_id) DO UPDATE SET
+            last_promotion_season = excluded.last_promotion_season,
+            recent_promotions = excluded.recent_promotions",
+        params![team_id, last_promotion_season, recent_promotions],
+    )?;
+    Ok(())
+}
+
 /// Incrementa um contador agregado de eventos de resgate (ex.: "sold",
 /// "self_rescued"). Usado para estatística e telemetria.
 pub fn incr_rescue_counter(conn: &Connection, key: &str) -> Result<(), DbError> {

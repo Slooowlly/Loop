@@ -7,6 +7,7 @@ use crate::models::season::Season;
 #[derive(Debug, Clone)]
 struct TeamSeasonSnapshot {
     team_id: String,
+    team_name: String,
     season_number: i32,
     year: i32,
     category: String,
@@ -17,6 +18,11 @@ struct TeamSeasonSnapshot {
     podiums: i32,
     poles: i32,
     races: i32,
+    /// Melhor resultado do ano (menor posição de chegada), DNFs incluídos —
+    /// calculado igual a `teams.stats_melhor_resultado` (ver race.rs). Usado só
+    /// como desempate na classificação de construtores, para que o arquivo/Atlas
+    /// concorde com a decisão de rebaixamento (promotion::standings).
+    best_result: i32,
     constructor_titles: i32,
     driver_one_id: Option<String>,
     driver_two_id: Option<String>,
@@ -131,7 +137,9 @@ fn load_team_snapshots(
                 COALESCE(SUM(CASE WHEN rr.posicao_final = 1 THEN 1 ELSE 0 END), 0) AS vitorias,
                 COALESCE(SUM(CASE WHEN rr.posicao_final BETWEEN 1 AND 3 THEN 1 ELSE 0 END), 0) AS podios,
                 COALESCE(SUM(CASE WHEN rr.posicao_largada = 1 THEN 1 ELSE 0 END), 0) AS poles,
-                COUNT(DISTINCT rr.race_id) AS corridas
+                COUNT(DISTINCT rr.race_id) AS corridas,
+                COALESCE(t.nome, rr.equipe_id) AS nome,
+                COALESCE(MIN(rr.posicao_final), 99) AS melhor_resultado
              FROM race_results rr
              JOIN calendar c ON c.id = rr.race_id
              JOIN teams t ON t.id = rr.equipe_id
@@ -151,6 +159,8 @@ fn load_team_snapshots(
             let podiums: i32 = row.get(7)?;
             let poles: i32 = row.get(8)?;
             let races: i32 = row.get(9)?;
+            let team_name: String = row.get(10)?;
+            let best_result: i32 = row.get(11)?;
             Ok((
                 team_id,
                 category,
@@ -162,6 +172,8 @@ fn load_team_snapshots(
                 podiums,
                 poles,
                 races,
+                team_name,
+                best_result,
             ))
         })
         .map_err(|e| format!("Falha ao consultar arquivo de equipes: {e}"))?;
@@ -179,10 +191,13 @@ fn load_team_snapshots(
             podiums,
             poles,
             races,
+            team_name,
+            best_result,
         ) = row.map_err(|e| format!("Falha ao mapear arquivo de equipes: {e}"))?;
 
         snapshots.push(TeamSeasonSnapshot {
             team_id,
+            team_name,
             season_number: season.numero,
             year: season.ano,
             category,
@@ -193,6 +208,7 @@ fn load_team_snapshots(
             podiums,
             poles,
             races,
+            best_result,
             constructor_titles: 0,
             driver_one_id,
             driver_two_id,
@@ -219,7 +235,13 @@ fn assign_constructor_positions(snapshots: &mut [TeamSeasonSnapshot]) {
                 .partial_cmp(&snapshots[*left].points)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| snapshots[*right].wins.cmp(&snapshots[*left].wins))
-                .then_with(|| snapshots[*left].team_id.cmp(&snapshots[*right].team_id))
+                // Desempate IGUAL ao do campeonato/rebaixamento (promotion::standings):
+                // melhor resultado do ano (menor = melhor), depois nome. Antes o
+                // desempate era por team_id (alfabético, sem sentido esportivo), o que
+                // fazia o arquivo/Atlas ordenar o empate ao contrário do rebaixamento —
+                // aparecia "9º rebaixado, 10º ficou" num empate de 0 pontos/0 vitórias.
+                .then_with(|| snapshots[*left].best_result.cmp(&snapshots[*right].best_result))
+                .then_with(|| snapshots[*left].team_name.cmp(&snapshots[*right].team_name))
         });
 
         for (position, index) in indices.iter().enumerate() {
@@ -389,6 +411,50 @@ mod tests {
         assert_eq!(wins, 1);
         assert_eq!(podiums, 2);
         assert_eq!(titles, 1);
+    }
+
+    #[test]
+    fn archive_team_season_breaks_point_ties_by_best_result_like_relegation() {
+        // Regressão: dois times empatados em 0 pontos / 0 vitórias. O desempate do
+        // arquivo tem que ser o MESMO do rebaixamento (melhor resultado do ano), não
+        // team_id alfabético — senão a Atlas mostra o penúltimo acima do último e fica
+        // "9º rebaixado, 10º ficou". T_A (id menor) foi o PIOR (melhor result 12) e tem
+        // que ficar em ÚLTIMO; T_B (melhor result 11) fica na frente.
+        let conn = setup_team_archive_conn();
+        conn.execute_batch(
+            "
+            INSERT INTO seasons (id, numero, ano, status, rodada_atual, fase, created_at, updated_at)
+            VALUES ('S_TIE', 5, 2025, 'Finalizada', 1, 'BlocoRegular', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+            INSERT INTO drivers (id, nome, idade, nacionalidade, genero, categoria_atual, status, ano_inicio_carreira)
+            VALUES
+                ('P_A', 'Piloto A', 25, 'Brasil', 'M', 'mazda_amador', 'Ativo', 2020),
+                ('P_B', 'Piloto B', 24, 'Brasil', 'M', 'mazda_amador', 'Ativo', 2021);
+
+            INSERT INTO teams (id, nome, nome_curto, categoria, ativa, piloto_1_id, created_at, updated_at)
+            VALUES
+                ('T_A', 'Team A', 'TA', 'mazda_amador', 1, 'P_A', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('T_B', 'Team B', 'TB', 'mazda_amador', 1, 'P_B', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+            INSERT INTO calendar (id, temporada_id, season_id, rodada, pista, categoria, status, nome, track_name, track_config)
+            VALUES ('R_TIE', 'S_TIE', 'S_TIE', 1, 'Interlagos', 'mazda_amador', 'Concluida', 'Tie', 'Interlagos', 'default');
+
+            -- Ambos 0 pontos; T_A chegou em 12º (pior), T_B em 11º (melhor).
+            INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_largada, posicao_final, voltas_completadas, pontos)
+            VALUES
+                ('R_TIE', 'P_A', 'T_A', 12, 12, 10, 0.0),
+                ('R_TIE', 'P_B', 'T_B', 11, 11, 10, 0.0);
+            ",
+        )
+        .expect("seed tie world");
+        let season = Season::new("S_TIE".to_string(), 5, 2025);
+
+        archive_team_season(&conn, &season).expect("archive");
+
+        let pos_a = read_team_archive_position(&conn, "T_A", season.numero, "mazda_amador");
+        let pos_b = read_team_archive_position(&conn, "T_B", season.numero, "mazda_amador");
+        assert_eq!(pos_b, 1, "T_B (melhor resultado 11) fica na frente");
+        assert_eq!(pos_a, 2, "T_A (melhor resultado 12) fica em último");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { currentLang } from "../../i18n/format.js";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
@@ -560,7 +561,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary transition-colors hover:enabled:text-text-primary disabled:cursor-default disabled:opacity-70"
                 title={t("standings.series.changeLine")}
               >
-                <span className="whitespace-nowrap">{currentSeries.label}</span>
+                <span className="kfx whitespace-nowrap">{currentSeries.label}</span>
                 {!navLocked ? (
                   <span
                     className={[
@@ -673,7 +674,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                     ▼
                   </button>
                 </div>
-                <h2 className="text-2xl font-semibold text-text-primary">
+                <h2 className="kfx text-2xl font-semibold text-text-primary">
                   {CATEGORY_TIER_LABEL[viewCategory] ?? categoryLabel(viewCategory)}
                 </h2>
               </div>
@@ -835,7 +836,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                           <ResultBadge result={result} />
                         </td>
                       ))}
-                      <td className="py-3 pl-3 text-right font-mono text-sm font-semibold text-text-primary">
+                      <td className="kfx py-3 pl-3 text-right font-mono text-sm font-semibold text-text-primary">
                         {driver.pontos}
                       </td>
                     </tr>
@@ -852,10 +853,10 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
         <GlassCard hover={false} className="rounded-[28px]">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">
+              <p className="kfx text-[11px] uppercase tracking-[0.22em] text-accent-primary">
                 {t("standings.constructors")}
               </p>
-              <h2 className="mt-2 text-2xl font-semibold text-text-primary">
+              <h2 className="kfx mt-2 text-2xl font-semibold text-text-primary">
                 {t("standings.teamsTitle")}
               </h2>
             </div>
@@ -936,7 +937,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
                       </div>
                     </div>
                     <div className="shrink-0 pl-4 text-right">
-                      <p className="font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
+                      <p className="kfx font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
                       <p className="text-xs text-text-secondary">{team.vitorias} {i18n.t("standings.winsShort")}</p>
                     </div>
                   </div>
@@ -1154,7 +1155,7 @@ function TeamStandingCard({
         </div>
       </div>
       <div className="shrink-0 pl-4 text-right">
-        <p className="font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
+        <p className="kfx font-mono text-base font-semibold text-text-primary">{team.pontos}</p>
         <p className="text-xs text-text-secondary">{team.vitorias} {i18n.t("standings.winsShort")}</p>
       </div>
     </div>
@@ -1217,7 +1218,7 @@ function buildPositionDeltaMap(drivers, completedRounds) {
       if (left.currentPosition !== right.currentPosition) {
         return left.currentPosition - right.currentPosition;
       }
-      return left.nome.localeCompare(right.nome, "pt-BR");
+      return left.nome.localeCompare(right.nome, currentLang());
     });
 
   previousStandings.forEach((driver, index) => {

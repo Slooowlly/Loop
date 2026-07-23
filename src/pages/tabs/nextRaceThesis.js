@@ -10,6 +10,12 @@
 // `buildBriefingContext` e devolve `{ key, title, statement, support }`. A mesma
 // tese alimenta tanto os `facts` enviados ao servidor de IA quanto o headline/lead
 // do template determinístico — uma fonte só, sem divergência.
+//
+// i18n: os `statement` são o EIXO (display fallback E fatos p/ a IA) → saem no idioma
+// ativo. Os `{{...}}` são valores computados aqui; o "(s)" é atalho literal (o eixo é
+// reescrito pela IA, não precisa de plural gramatical).
+
+import i18n from "../../i18n/index.js";
 
 // Ordem de prioridade: a primeira tese que casar vence. A ordem reflete "carga
 // narrativa" — o beat mais quente/pessoal ganha do mais frio/estrutural. É uma
@@ -39,24 +45,11 @@ export const THESIS_PRIORITY = [
 // piloto, não um corte absoluto — um P15 só assusta quem costuma andar na frente.
 const DISMAL_MARGIN = 8;
 
-// Rótulo curto por tese — usado em debug/UI, nunca no texto final.
-export const THESIS_TITLES = {
-  redemption: "Redenção",
-  title_defense: "Defesa da liderança",
-  title_chase: "Caça ao título",
-  nemesis: "Duelo pessoal",
-  pressure: "Terreno sob ameaça",
-  track_trauma: "Contas com a pista",
-  track_fortress: "Pista das suas",
-  weather: "Loteria do clima",
-  breakdown: "Fragilidade mecânica",
-  grand_stage: "O palco",
-  debut: "Recomeço",
-  baseline: "Somar e crescer",
-};
+// Rótulo curto por tese (i18n `thesis.titles.<key>`) — usado em debug/UI, resolvido
+// em selectThesis (não congela no idioma do boot).
 
 function trackLabel(signals) {
-  return signals.trackName || "esta etapa";
+  return signals.trackName || i18n.t("thesis.trackFallback");
 }
 
 // Cada tese é uma função (signals) → { ok, statement, support } | null.
@@ -82,12 +75,12 @@ const THESIS_BUILDERS = {
     // Ainda na ponta ⇒ o tropeço não custou a liderança ⇒ a história é a DEFESA,
     // não a reação. Cede.
     if (signals.playerIsLeader) return null;
-    const detalhe = last.is_dnf
-      ? `um DNF na última corrida${last.trackName ? ` (${last.trackName})` : ""}`
-      : `um resultado muito abaixo do seu normal (P${last.position})`;
+    const detail = last.is_dnf
+      ? i18n.t("thesis.redemption.detailDnf", { track: last.trackName ? ` (${last.trackName})` : "" })
+      : i18n.t("thesis.redemption.detailDismal", { pos: last.position });
     return {
-      statement: `Gancho central — REAÇÃO. O piloto vem de ${detalhe} e esta etapa é sobre responder, virar a chave e recolocar a campanha nos trilhos. Toda a leitura do fim de semana parte desse tombo recente.`,
-      support: ["recent_form", "championship_situation", "objective", "track_history"],
+      statement: i18n.t("thesis.redemption.statement", { detail }),
+      support: ["recent_form", "injury", "championship_situation", "objective", "track_history"],
     };
   },
 
@@ -95,25 +88,25 @@ const THESIS_BUILDERS = {
   //    um DNF (mas segurou a ponta), a defesa fica ainda mais delicada.
   title_defense(signals) {
     if (!signals.championshipUnderway || !signals.playerIsLeader) return null;
-    const perseguidor =
-      signals.gapBehind != null
-        ? ` O perseguidor direto está a ${signals.gapBehind} ponto(s) atrás.`
-        : "";
-    const susto =
-      signals.lastResult?.is_dnf
-        ? " — e você chega logo depois de um DNF, o que deixa a defesa ainda mais delicada"
-        : "";
+    const chaser =
+      signals.gapBehind != null ? i18n.t("thesis.title_defense.chaser", { gap: signals.gapBehind }) : "";
+    const setback = signals.lastResult?.is_dnf ? i18n.t("thesis.title_defense.setback") : "";
     return {
-      statement: `Gancho central — DEFESA DA LIDERANÇA. Você chega a ${trackLabel(signals)} na ponta do campeonato${susto}.${perseguidor} A etapa é sobre administrar a pressão e sair daqui ainda ditando o ritmo, sem oferecer brecha.`,
-      support: ["chaser", "rival_direct", "objective", "constructors"],
+      statement: i18n.t("thesis.title_defense.statement", { track: trackLabel(signals), setback, chaser }),
+      support: ["chaser", "pressure", "rival_direct", "objective", "constructors"],
     };
   },
 
   // 3) Perto do líder, com etapas para virar. A conta do título ainda vive.
   title_chase(signals) {
     if (signals.championshipState !== "chase") return null;
+    const leader = signals.leaderName ? i18n.t("thesis.title_chase.leaderName", { name: signals.leaderName }) : "";
     return {
-      statement: `Gancho central — CAÇA AO TÍTULO. Você está a ${signals.gapToLeader} ponto(s) do líder${signals.leaderName ? ` (${signals.leaderName})` : ""}, com ${signals.remainingRounds} etapa(s) pela frente. Esta é uma chance real de encurtar a tabela — a etapa vale confronto direto na parte alta.`,
+      statement: i18n.t("thesis.title_chase.statement", {
+        gap: signals.gapToLeader,
+        leader,
+        rounds: signals.remainingRounds,
+      }),
       support: ["leader", "rival_direct", "objective", "recent_form"],
     };
   },
@@ -122,10 +115,11 @@ const THESIS_BUILDERS = {
   nemesis(signals) {
     const n = signals.nemesis;
     if (!n || !n.in_grid) return null;
-    const h2h = n.chapters > 0 ? ` Retrospecto direto ${n.h2h_player_wins}-${n.h2h_rival_wins}.` : "";
-    const label = n.label ? ` ("${n.label}")` : "";
+    const h2h =
+      n.chapters > 0 ? i18n.t("thesis.nemesis.h2h", { wins: n.h2h_player_wins, losses: n.h2h_rival_wins }) : "";
+    const label = n.label ? i18n.t("thesis.nemesis.label", { label: n.label }) : "";
     return {
-      statement: `Gancho central — DUELO PESSOAL. Seu nemesis ${n.driver_name}${label} está neste grid.${h2h} O fim de semana gira em torno desse confronto: é ele a régua que mede a sua etapa.`,
+      statement: i18n.t("thesis.nemesis.statement", { name: n.driver_name, label, h2h }),
       support: ["rival_direct", "recent_form", "track_history", "objective"],
     };
   },
@@ -133,10 +127,10 @@ const THESIS_BUILDERS = {
   // 5) A tabela aperta por trás. Jogo de contenção.
   pressure(signals) {
     if (signals.championshipState !== "pressure") return null;
-    const atras = signals.gapBehind != null ? ` (${signals.gapBehind} ponto(s))` : "";
+    const gap = signals.gapBehind != null ? i18n.t("thesis.pressure.gap", { gap: signals.gapBehind }) : "";
     return {
-      statement: `Gancho central — TERRENO SOB AMEAÇA. A tabela apertou atrás de você${atras}. Esta etapa é sobre proteger a sua faixa do campeonato: não dá para entregar um fim de semana passivo.`,
-      support: ["chaser", "rival_direct", "objective", "recent_form"],
+      statement: i18n.t("thesis.pressure.statement", { gap }),
+      support: ["chaser", "pressure", "rival_direct", "objective", "recent_form"],
     };
   },
 
@@ -147,12 +141,10 @@ const THESIS_BUILDERS = {
     const dnfs = t.dnfs ?? 0;
     const best = t.best_finish ?? 99;
     if (dnfs < 1 && best < 10) return null;
-    const conta =
-      dnfs >= 1
-        ? `${dnfs} abandono(s) aqui`
-        : `melhor resultado só P${best}`;
+    const detail =
+      dnfs >= 1 ? i18n.t("thesis.track_trauma.countDnf", { n: dnfs }) : i18n.t("thesis.track_trauma.countBest", { best });
     return {
-      statement: `Gancho central — CONTAS COM A PISTA. ${trackLabel(signals)} tem histórico em aberto com você (${conta}). O eixo é respeito e execução limpa: aqui, errar pouco vale mais do que atacar demais.`,
+      statement: i18n.t("thesis.track_trauma.statement", { track: trackLabel(signals), detail }),
       support: ["track_history", "track_last", "recent_form", "objective"],
     };
   },
@@ -165,7 +157,7 @@ const THESIS_BUILDERS = {
     const best = t.best_finish ?? 99;
     if (!(best <= 3 && dnfs === 0)) return null;
     return {
-      statement: `Gancho central — PISTA DAS SUAS. ${trackLabel(signals)} guarda boas lembranças (melhor resultado P${best}). O fim de semana começa com a pista a favor — a leitura pode ser mais ousada.`,
+      statement: i18n.t("thesis.track_fortress.statement", { track: trackLabel(signals), best }),
       support: ["track_history", "track_last", "recent_form", "objective"],
     };
   },
@@ -174,7 +166,7 @@ const THESIS_BUILDERS = {
   weather(signals) {
     if (!signals.climaWet) return null;
     return {
-      statement: `Gancho central — LOTERIA DO CLIMA. A previsão é de pista ${signals.climaLabel || "molhada"}, e isso embaralha o grid e decide a corrida. O eixo é leitura fria: a pista vai premiar quem erra menos, não quem ataca mais.`,
+      statement: i18n.t("thesis.weather.statement", { clima: signals.climaLabel || i18n.t("thesis.weatherWetFallback") }),
       support: ["weather", "recent_form", "objective", "favorite"],
     };
   },
@@ -182,9 +174,9 @@ const THESIS_BUILDERS = {
   // 9) Carro frágil. Risco mecânico é o fator a administrar.
   breakdown(signals) {
     if (!signals.breakdownNotable) return null;
-    const alvo = signals.breakdownParts ? ` — atenção a ${signals.breakdownParts}` : "";
+    const parts = signals.breakdownParts ? i18n.t("thesis.breakdown.parts", { parts: signals.breakdownParts }) : "";
     return {
-      statement: `Gancho central — FRAGILIDADE MECÂNICA. O carro chega com risco de quebra ${signals.breakdownLevel}${alvo}. É risco, não certeza: o eixo do fim de semana é pesar ataque contra confiabilidade, e talvez poupar o carro.`,
+      statement: i18n.t("thesis.breakdown.statement", { level: signals.breakdownLevel, parts }),
       support: ["breakdown", "objective", "recent_form"],
     };
   },
@@ -192,10 +184,10 @@ const THESIS_BUILDERS = {
   // 10) Grande palco (final ou casa cheia). Maior que os pontos.
   grand_stage(signals) {
     if (!signals.grandStage) return null;
-    const publico = signals.audienceLabel ? ` — cerca de ${signals.audienceLabel} pessoas` : "";
+    const audience = signals.audienceLabel ? i18n.t("thesis.grand_stage.audience", { audience: signals.audienceLabel }) : "";
     return {
-      statement: `Gancho central — O PALCO. ${signals.eventOccasion}${publico}. A vitrine e a pressão pesam além da tabela: o eixo é a ocasião, e o que ela cobra de quem está no centro dela.`,
-      support: ["importance", "championship_situation", "objective", "favorite"],
+      statement: i18n.t("thesis.grand_stage.statement", { occasion: signals.eventOccasion, audience }),
+      support: ["importance", "fame", "championship_situation", "objective", "favorite"],
     };
   },
 
@@ -203,7 +195,7 @@ const THESIS_BUILDERS = {
   debut(signals) {
     if (signals.championshipUnderway) return null;
     return {
-      statement: `Gancho central — RECOMEÇO. Abertura da temporada em ${trackLabel(signals)}: tabela zerada, todo o grid larga do zero. A etapa é sobre construir a base da campanha e transformar a expectativa da pré-temporada em pontos de verdade.`,
+      statement: i18n.t("thesis.debut.statement", { track: trackLabel(signals) }),
       support: ["objective", "teammate", "favorite"],
     };
   },
@@ -211,7 +203,7 @@ const THESIS_BUILDERS = {
   // 12) Nada se destaca. Rodada de construção.
   baseline(signals) {
     return {
-      statement: `Gancho central — SOMAR E CRESCER. Sem um enredo dominante, ${trackLabel(signals)} é uma rodada para pontuar forte, ganhar posição na tabela e evitar perdas bobas. O eixo é consistência competitiva.`,
+      statement: i18n.t("thesis.baseline.statement", { track: trackLabel(signals) }),
       support: ["championship_situation", "rival_direct", "recent_form", "objective"],
     };
   },
@@ -224,8 +216,8 @@ function stageAppendix(signals, key) {
   if (!signals.grandStage || key === "grand_stage" || key === "debut") return "";
   const occ = (signals.eventOccasion || "").toLowerCase();
   if (!occ) return "";
-  const pub = signals.audienceLabel ? `, com cerca de ${signals.audienceLabel} pessoas` : "";
-  return ` E não é um palco qualquer: ${occ}${pub} — a ocasião amplifica tudo o que está em jogo.`;
+  const audience = signals.audienceLabel ? i18n.t("thesis.stageAppendix.audience", { audience: signals.audienceLabel }) : "";
+  return i18n.t("thesis.stageAppendix.text", { occasion: occ, audience });
 }
 
 // Elege a tese dominante. Sempre devolve algo (baseline é o piso). `support` é um
@@ -247,7 +239,7 @@ export function selectThesis(signals = {}) {
   }
   return {
     key,
-    title: THESIS_TITLES[key],
+    title: i18n.t(`thesis.titles.${key}`),
     statement: built.statement + stageAppendix(signals, key),
     support: new Set(built.support ?? []),
   };

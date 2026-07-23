@@ -147,6 +147,10 @@ pub struct DriverSummary {
     pub nacionalidade: String,
     pub idade: i32,
     pub skill: u8,
+    /// Fama/estrelato (`midia`, 0–100). Só para a camada de apresentação (a prévia
+    /// pré-corrida comenta o estrelato do jogador); `#[serde(default)]` p/ saves antigos.
+    #[serde(default)]
+    pub midia: u8,
     #[serde(default)]
     pub categoria_especial_ativa: Option<String>,
     pub equipe_id: Option<String>,
@@ -1070,6 +1074,12 @@ pub struct TeamStanding {
     /// Nível do Carro (1–10) — Sistema de Nível do Carro (a leitura de carro do jogador).
     #[serde(default)]
     pub car_level: u8,
+    /// Confiabilidade (0–100) e qualidade do pit crew (0–100) da equipe — leituras reais do
+    /// modelo Team, para o comparativo de gestão/performance no ranking da categoria.
+    #[serde(default)]
+    pub confiabilidade: f64,
+    #[serde(default)]
+    pub pit_crew_quality: f64,
     #[serde(default)]
     pub founded_year: i32,
     pub pontos: i32,

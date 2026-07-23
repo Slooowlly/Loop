@@ -239,6 +239,16 @@ rivalry:
       title: "%{a} x %{b}: %{level}"
       text: "%{a} e %{b} elevaram a tensão da rivalidade após %{origin} na rodada %{round}."
 
+# Rivalidades entre EQUIPES (rivalry/team.rs). Manchete de "derby" na revista, 3ª pessoa.
+team_rivalry:
+  news:
+    origin_championship: "a briga de construtores"
+    origin_market: "o roubo de um piloto"
+    origin_track: "sucessivos toques na pista"
+    origin_inherited: "a treta entre seus pilotos"
+    title: "%{a} x %{b}: %{level}"
+    text: "%{a} e %{b} esquentaram a rivalidade após %{origin}."
+
 # Ficha do piloto (commands/career_detail.rs): personalidade + marcos de carreira
 # (display do DriverDetailModal). `tipo` de personalidade aqui é DISPLAY (desacoplado
 # do token de serialização em enums.rs); status/tipo-de-marco ficam como tokens.
@@ -858,6 +868,21 @@ ai_news:
     best_lap: "- Melhor volta: %{time}%{fastest}"
     points: "- Pontos: %{n}"
     incidents: "- Incidentes: %{n}"
+    injury_severe: "grave"
+    injury_moderate: "moderada"
+    injury_light: "leve"
+    injury_new: "SEU FÍSICO: você se machucou nesta corrida — %{name} (lesão %{severity}); fora de combate por ~%{races} etapa(s)."
+    injury_ongoing: "SEU FÍSICO: correu lesionado — %{name} (lesão %{severity}); ainda ~%{races} etapa(s) de recuperação."
+    fame_star: "estrela"
+    fame_idol: "ídolo"
+    fame: "ESTRELATO: %{level} (fama %{value}/100) — o piloto virou atração de bilheteria; imprensa e público giram em torno dele."
+    pressure_max: "máxima"
+    pressure_high: "alta"
+    pressure_mid: "crescente"
+    pressure_clutch: "o piloto tende a RENDER — segura os nervos e acelera sob pressão (clutch)"
+    pressure_choke: "o piloto tende a VACILAR — afunda sob a pressão (choke)"
+    pressure_neutral: "o piloto se mantém equilibrado sob a pressão"
+    pressure_line: "PRESSÃO DE TÍTULO: pressão %{band} da briga pelo campeonato; sob ela, %{dir}."
     teammate: "COMPANHEIRO DE EQUIPE: %{name} terminou em %{pos}%{cmp}"
     teammate_ahead: " — você ficou na frente dele"
     teammate_behind: " — ele ficou na sua frente"

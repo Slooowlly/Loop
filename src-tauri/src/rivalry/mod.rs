@@ -63,8 +63,9 @@ pub fn intensity_level(v: f64) -> RivalryIntensityLevel {
 }
 
 /// Retorna o nível mais alto cruzado *para cima* ao passar de `old` para `new` (percebida).
-/// Retorna `None` se nenhum threshold foi cruzado.
-fn crossed_threshold(old: f64, new: f64) -> Option<RivalryIntensityLevel> {
+/// Retorna `None` se nenhum threshold foi cruzado. `pub(crate)` para reuso pelo gêmeo de
+/// rivalidade entre equipes (`rivalry::team`) — os thresholds são os mesmos.
+pub(crate) fn crossed_threshold(old: f64, new: f64) -> Option<RivalryIntensityLevel> {
     if new <= old {
         return None;
     }

@@ -1,7 +1,7 @@
 // Contrato da MEMÓRIA COMPARTILHADA entre o app (escritor) e a API layer (leitor).
 //
 // Layout do bloco mapeado:
-//   [ IracerFrameHeader (60 bytes) ][ W*H*4 bytes RGBA ]
+//   [ IracerFrameHeader (64 bytes) ][ W*H*4 bytes RGBA ]
 //
 // Pixels em RGBA (R primeiro), casando com o formato R8G8B8A8_UNORM_SRGB do
 // swapchain — que também é a ordem do getImageData de um <canvas>, então o app
@@ -21,6 +21,12 @@
 #define IRACER_SHM_NAME L"Local\\iRacerOverlayFrame"
 
 static const uint32_t IRACER_SHM_MAGIC = 0x52414352;  // 'RACR'
+// Versão do LAYOUT do cabeçalho. BUMP a cada mudança de campo/ordem/tamanho de
+// `IracerFrameHeader`. O leitor rejeita um mapeamento cujo `version` não bate com o
+// seu — assim uma DLL velha contra um app novo (ou vice-versa) FALHA ALTO em vez de
+// ler offsets de pose errados em silêncio. `magic`+`version` são o prefixo FIXO do
+// cabeçalho (words 0 e 1) e NUNCA mudam de posição; campos novos entram DEPOIS deles.
+static const uint32_t IRACER_SHM_VERSION = 2;  // v2: + pitchDeg + recenterSeq/Key (60→64 bytes)
 // Resolução do painel em pixels. 1024×2048 = supersampling 2× do layout lógico
 // (512×1024) — o app desenha em 2× e manda esse buffer, deixando o texto nítido
 // no VR (menos "borrão" de ampliação, mais perto do RaceLab). O tamanho FÍSICO do
@@ -42,7 +48,8 @@ static const int32_t IRACER_LOCK_WORLD = 1;  // preso ao cockpit (LOCAL): fica f
 
 #pragma pack(push, 4)
 struct IracerFrameHeader {
-    uint32_t magic;   // IRACER_SHM_MAGIC
+    uint32_t magic;   // IRACER_SHM_MAGIC        (word 0 — prefixo fixo)
+    uint32_t version; // IRACER_SHM_VERSION      (word 1 — prefixo fixo; guarda o layout)
     uint32_t width;   // deve bater com IRACER_OVERLAY_W
     uint32_t height;  // deve bater com IRACER_OVERLAY_H
     uint32_t frame;   // contador que o escritor incrementa a cada atualização
@@ -61,6 +68,10 @@ struct IracerFrameHeader {
     uint32_t recenterKey;  // Virtual-Key da tecla de recentro dentro do VR (0 = desligada)
 };
 #pragma pack(pop)
+
+// Guarda de ABI: se um campo/padding mudar o tamanho sem bumpar a versão/atualizar o
+// escritor Rust (que usa offsets de palavra fixos), isto FALHA A COMPILAÇÃO. 16 words × 4B.
+static_assert(sizeof(IracerFrameHeader) == 64, "IracerFrameHeader deve ter 64 bytes (bump IRACER_SHM_VERSION + offsets em vr_overlay.rs)");
 
 static const uint64_t IRACER_SHM_SIZE =
     sizeof(IracerFrameHeader) +

@@ -11,6 +11,9 @@ import EngineerVrWriter from "./overlay/EngineerVrWriter";
 import OverlayPositionPanel from "./overlay/OverlayPositionPanel";
 import OverlayMonitorAuto from "./overlay/OverlayMonitorAuto";
 import PoachAuctionHost from "./components/season/PoachAuctionHost";
+import UpdaterProvider from "./components/system/UpdaterProvider";
+import UpdateGate from "./components/system/UpdateGate";
+import UpdateChangelogModal from "./components/system/UpdateChangelogModal";
 
 function App() {
   // Assina as trocas de idioma: quando o locale muda (Settings), a árvore inteira
@@ -20,20 +23,24 @@ function App() {
 
   return (
     <BrowserRouter>
-      <WindowControlsDrawer />
-      <OverlayVrWriter />
-      <EngineerVrWriter />
-      <OverlayPositionPanel />
-      <OverlayMonitorAuto />
-      <PoachAuctionHost />
-      <Routes>
-        <Route path="/" element={<MainMenu intro />} />
-        <Route path="/menu" element={<MainMenu />} />
-        <Route path="/new-career" element={<NewCareer />} />
-        <Route path="/load-save" element={<LoadSave />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-      </Routes>
+      <UpdaterProvider>
+        <WindowControlsDrawer />
+        <OverlayVrWriter />
+        <EngineerVrWriter />
+        <OverlayPositionPanel />
+        <OverlayMonitorAuto />
+        <PoachAuctionHost />
+        <UpdateGate />
+        <UpdateChangelogModal />
+        <Routes>
+          <Route path="/" element={<MainMenu intro />} />
+          <Route path="/menu" element={<MainMenu />} />
+          <Route path="/new-career" element={<NewCareer />} />
+          <Route path="/load-save" element={<LoadSave />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+        </Routes>
+      </UpdaterProvider>
     </BrowserRouter>
   );
 }

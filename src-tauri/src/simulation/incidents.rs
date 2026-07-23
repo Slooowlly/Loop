@@ -715,6 +715,7 @@ mod tests {
             smoothness: 50,
             mentalidade: 60,
             confianca: 60,
+            motivacao: 70.0,
             car_performance: 8.0,
             car_reliability: reliability,
             team_id: format!("T{id}"),

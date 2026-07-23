@@ -76,13 +76,16 @@ impl PartType {
         }
     }
 
-    /// Durabilidade em corridas: quantas corridas até atingir 100% de desgaste.
+    /// Durabilidade em corridas: quantas corridas até atingir 100% de desgaste. As asas foram
+    /// DIFERENCIADAS (redesign 2026-07-22 §4.7): a dianteira leva mais dano (zebra/contato) e é
+    /// mais frágil (3); a traseira é mais robusta (4). Isso, somado ao `unit_seed`, garante que
+    /// dianteira e traseira NUNCA quebrem em lockstep, e espalha o antigo cluster de durab-3.
     pub fn durability(self) -> u8 {
         match self {
             PartType::Chassis => 5,
             PartType::Engine => 3,
             PartType::FrontWing => 3,
-            PartType::RearWing => 3,
+            PartType::RearWing => 4,
             PartType::Underbody => 5,
             PartType::Sidepods => 4,
             PartType::Cooling => 5,

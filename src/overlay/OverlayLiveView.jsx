@@ -14,6 +14,7 @@ import {
   towerContentHeight,
 } from "./towerCanvas";
 import { useOverlayData } from "./useOverlayData";
+import OverlayWeatherArc from "./OverlayWeatherArc";
 
 // Vista AO VIVO do overlay de MONITOR (a janela transparente por cima do iRacing).
 // Roda dentro da janela `#overlay`, um webview separado (sem o store do app), então
@@ -233,6 +234,23 @@ export default function OverlayLiveView() {
           >
             👁
           </button>
+
+          {/* Arco de chuva (previsão determinística da corrida) logo abaixo da torre — só
+              renderiza quando há chuva a antecipar (rainArc não-vazio). Display-only. */}
+          {data.session?.weather?.rainArc?.length > 0 && (
+            <div
+              style={{
+                position: "fixed",
+                top: towerH + 4,
+                left: 0,
+                width: PANEL_W,
+                zIndex: 8,
+                pointerEvents: "none",
+              }}
+            >
+              <OverlayWeatherArc weather={data.session.weather} width={PANEL_W} />
+            </div>
+          )}
         </>
       )}
 

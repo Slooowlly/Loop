@@ -191,14 +191,14 @@ function Header({ activeTab, onTabChange }) {
                 className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
                 title={t("nav.exitToMenu")}
               >
-                <TeamLogoMark
-                  teamName={playerTeam?.nome}
-                  color={playerTeam?.cor_primaria ?? "#58a6ff"}
-                  size="sm"
-                  testId="header-team-logo"
+                <img
+                  src="/utilities/Logo%20sem%20fundo.webp"
+                  alt="LOOP"
+                  data-testid="header-app-logo"
+                  className="h-7 w-auto shrink-0 object-contain"
                 />
-                <span className="truncate text-xs font-bold uppercase tracking-[0.14em] text-text-primary">
-                  {playerTeam?.nome ?? "-"}
+                <span className="kfx relative -top-[1px] truncate text-base font-black uppercase tracking-[0.16em] text-text-primary">
+                  LOOP
                 </span>
               </button>
             )}
@@ -206,9 +206,11 @@ function Header({ activeTab, onTabChange }) {
 
           {showRaceBriefing ? (
             <div className="flex items-center gap-3">
-              <span
-                className="h-4 w-4 shrink-0 rounded-full"
-                style={{ backgroundColor: playerTeam?.cor_primaria ?? "#58a6ff" }}
+              <TeamLogoMark
+                teamName={playerTeam?.nome}
+                color={playerTeam?.cor_primaria ?? "#58a6ff"}
+                size="md"
+                testId="briefing-team-logo"
               />
               <span className="text-3xl font-bold tracking-[-0.035em] text-text-primary">
                 {playerTeam?.nome ?? "-"}
@@ -413,7 +415,7 @@ function NextRaceBanner({
                   <span className="flex items-center gap-2">
                     <FlagIcon nacionalidade={country} />
                     <span className="font-semibold uppercase tracking-[0.06em] text-text-primary">
-                      {country}
+                      {i18n.t(`header.trackCountry.${country}`, { defaultValue: country })}
                     </span>
                   </span>
                   <span className="text-white/25">•</span>
@@ -508,8 +510,9 @@ function BannerTrackImage({ trackName }) {
       loading="lazy"
       onLoad={() => setLoaded(true)}
       onError={() => setFailed(true)}
+      style={{ objectPosition: getBannerImageFocus(trackName) }}
       className={[
-        "absolute inset-0 h-full w-full object-cover object-[center_38%] transition-opacity duration-700",
+        "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
         "[filter:saturate(0.96)_contrast(1.05)_brightness(1.02)]",
         loaded && !failed ? "opacity-100 nrb-zoom" : "opacity-0",
       ].join(" ")}
@@ -556,69 +559,69 @@ function getTrackImageSrc(trackName) {
 // como "chartlotte"/"outonpark"/"rudsoken").
 const BANNER_IMAGE_DIR = "/utilities/tracks/Pistas%20Header";
 const BANNER_IMAGE_FILES = [
-  { match: ["algarve", "portimao"], file: "Algarve International Circuit.jpg" },
-  { match: ["hermanos rodriguez", "rodriguez", "mexico city"], file: "Autódromo Hermanos Rodriguez.jpg" },
-  { match: ["jose carlos pace", "interlagos"], file: "Autódromo José Carlos Pace.jpg" },
-  { match: ["monza"], file: "Autódromo Nazionale Monza.jpg" },
-  { match: ["brands hatch"], file: "Brands Hatch.jpg" },
-  { match: ["cadwell"], file: "Cadwell Park Circuit.jpg" },
-  { match: ["canadian tire", "mosport"], file: "Canadian Tire Motorsport Park.jpg" },
-  { match: ["zandvoort"], file: "Circuit Park Zandvoort.jpg" },
-  { match: ["barcelona", "catalunya"], file: "Circuit de Barcelona-Catalunya.jpg" },
-  { match: ["magny-cours", "magny cours"], file: "Circuit de Nevers Magny-Cours.jpg" },
-  { match: ["francorchamps", "spa-francorchamps"], file: "Circuit de Spa-Francorchamps.jpg" },
-  { match: ["le mans", "24 heures", "sarthe", "24 hours"], file: "Circuit des 24 Heures du Mans.jpg" },
-  { match: ["circuit of the americas", "cota", "of the americas"], file: "Circuit of the Americas.jpg" },
-  { match: ["melbourne", "albert park"], file: "Circuito de Melbourne.jpg" },
+  { match: ["algarve", "portimao"], file: "Algarve International Circuit.jpg", focus: "center 27%" },
+  { match: ["hermanos rodriguez", "rodriguez", "mexico city"], file: "Autódromo Hermanos Rodriguez.jpg", focus: "center 63%" },
+  { match: ["jose carlos pace", "interlagos"], file: "Autódromo José Carlos Pace.jpg", focus: "center 28%" },
+  { match: ["monza"], file: "Autódromo Nazionale Monza.jpg", focus: "center 36%" },
+  { match: ["brands hatch"], file: "Brands Hatch.jpg", focus: "center 86%" },
+  { match: ["cadwell"], file: "Cadwell Park Circuit.jpg", focus: "center 15%" },
+  { match: ["canadian tire", "mosport"], file: "Canadian Tire Motorsport Park.jpg", focus: "center 70%" },
+  { match: ["zandvoort"], file: "Circuit Park Zandvoort.jpg", focus: "center 64%" },
+  { match: ["barcelona", "catalunya"], file: "Circuit de Barcelona-Catalunya.jpg", focus: "center 56%" },
+  { match: ["magny-cours", "magny cours"], file: "Circuit de Nevers Magny-Cours.jpg", focus: "center 60%" },
+  { match: ["francorchamps", "spa-francorchamps"], file: "Circuit de Spa-Francorchamps.jpg", focus: "center 44%" },
+  { match: ["le mans", "24 heures", "sarthe", "24 hours"], file: "Circuit des 24 Heures du Mans.jpg", focus: "center 32%" },
+  { match: ["circuit of the americas", "cota", "of the americas"], file: "Circuit of the Americas.jpg", focus: "center 34%" },
+  { match: ["melbourne", "albert park"], file: "Circuito de Melbourne.jpg", focus: "center 14%" },
   { match: ["detroit", "belle isle"], file: "Detroit Grand Prix at Belle Isle.jpg" },
-  { match: ["donington"], file: "Donington Park Racing Circuit.jpg" },
-  { match: ["fuji"], file: "Fuji International Speedway.jpg" },
-  { match: ["hockenheim"], file: "HockenheimRing.jpg" },
-  { match: ["hungaroring", "hungar"], file: "Hungaroring.jpg" },
-  { match: ["long beach"], file: "Long Beach Street Circuit.jpg" },
+  { match: ["donington"], file: "Donington Park Racing Circuit.jpg", focus: "center 64%" },
+  { match: ["fuji"], file: "Fuji International Speedway.jpg", focus: "center 58%" },
+  { match: ["hockenheim"], file: "HockenheimRing.jpg", focus: "center 86%" },
+  { match: ["hungaroring", "hungar"], file: "Hungaroring.jpg", focus: "center 39%" },
+  { match: ["long beach"], file: "Long Beach Street Circuit.jpg", focus: "center 67%" },
   { match: ["road atlanta"], file: "Michelin Raceway Road Atlanta.jpg" },
-  { match: ["mid-ohio", "mid ohio"], file: "Mid-Ohio Sports Car Course.jpg" },
-  { match: ["misano"], file: "Misano World Circuit Marco Simoncelli.jpg" },
-  { match: ["mount panorama", "bathurst"], file: "Mount Panorama Circuit.jpg" },
-  { match: ["nurburgring", "nordschleife"], file: "Nürburgring Nordschleife.jpg" },
-  { match: ["red bull ring", "spielberg"], file: "Red Bull Ring – Spielberg.jpg" },
-  { match: ["sandown"], file: "Sandown International Motor Raceway.jpg" },
-  { match: ["summit point", "jefferson"], file: "Summit Point — Raceway.jpg" },
-  { match: ["thruxton"], file: "Thruxton Circuit.jpg" },
-  { match: ["virginia", "vir full", "vir patriot"], file: "Virginia Int. Raceway.jpg" },
-  { match: ["watkins"], file: "Watkins Glen International.jpg" },
-  { match: ["mugello"], file: "autodromo Internazionale del Mugello.jpg" },
-  { match: ["charlotte"], file: "chartlotte.jpg" },
-  { match: ["daytona"], file: "daytona.jpg" },
-  { match: ["laguna seca", "laguna"], file: "laguna seca.jpg" },
+  { match: ["mid-ohio", "mid ohio"], file: "Mid-Ohio Sports Car Course.jpg", focus: "center 43%" },
+  { match: ["misano"], file: "Misano World Circuit Marco Simoncelli.jpg", focus: "center 52%" },
+  { match: ["mount panorama", "bathurst"], file: "Mount Panorama Circuit.jpg", focus: "center 48%" },
+  { match: ["nurburgring", "nordschleife"], file: "Nürburgring Nordschleife.jpg", focus: "center 49%" },
+  { match: ["red bull ring", "spielberg"], file: "Red Bull Ring – Spielberg.jpg", focus: "center 49%" },
+  { match: ["sandown"], file: "Sandown International Motor Raceway.jpg", focus: "center 50%" },
+  { match: ["summit point", "jefferson"], file: "Summit Point — Raceway.jpg", focus: "center 52%" },
+  { match: ["thruxton"], file: "Thruxton Circuit.jpg", focus: "center 19%" },
+  { match: ["virginia", "vir full", "vir patriot"], file: "Virginia Int. Raceway.jpg", focus: "center 51%" },
+  { match: ["watkins"], file: "Watkins Glen International.jpg", focus: "center 45%" },
+  { match: ["mugello"], file: "autodromo Internazionale del Mugello.jpg", focus: "center 66%" },
+  { match: ["charlotte"], file: "chartlotte.jpg", focus: "center 64%" },
+  { match: ["daytona"], file: "daytona.jpg", focus: "center 51%" },
+  { match: ["laguna seca", "laguna"], file: "laguna seca.jpg", focus: "center 40%" },
   { match: ["ledenon"], file: "ledenon.jpg" },
-  { match: ["lime rock", "limerock"], file: "limerockpark.jpg" },
-  { match: ["motorsport arena", "oschersleben"], file: "motorsportarena.jpg" },
-  { match: ["navarra"], file: "navarra_panorama_1915x821.jpg" },
-  { match: ["okayama"], file: "okayama.jpg" },
-  { match: ["oran park"], file: "oran park.jpg" },
-  { match: ["oulton park", "oulton"], file: "outonpark.jpg" },
-  { match: ["road america"], file: "road america.jpg" },
-  { match: ["rudskogen"], file: "rudsoken.jpg" },
-  { match: ["sebring"], file: "sebring.jpg" },
-  { match: ["snetterton"], file: "snetterton.jpg" },
-  { match: ["sonoma", "sears point", "infineon"], file: "sonoma.jpg" },
-  { match: ["tsukuba"], file: "tsukuba.jpg" },
-  { match: ["winton"], file: "winton.jpg" },
-  { match: ["suzuka"], file: "Suzuka International Racing Course.jpg" },
-  { match: ["silverstone"], file: "Silverstone Circuit.jpg" },
-  { match: ["philip island", "phillip island"], file: "Philip Island Grand Prix Circuit.jpg" },
-  { match: ["zolder"], file: "Circuit Zolder.jpg" },
+  { match: ["lime rock", "limerock"], file: "limerockpark.jpg", focus: "center 44%" },
+  { match: ["motorsport arena", "oschersleben"], file: "motorsportarena.jpg", focus: "center 58%" },
+  { match: ["navarra"], file: "navarra_panorama_1915x821.jpg", focus: "center 66%" },
+  { match: ["okayama"], file: "okayama.jpg", focus: "center 37%" },
+  { match: ["oran park"], file: "oran park.jpg", focus: "center 47%" },
+  { match: ["oulton park", "oulton"], file: "outonpark.jpg", focus: "center 46%" },
+  { match: ["road america"], file: "road america.jpg", focus: "center 48%" },
+  { match: ["rudskogen"], file: "rudsoken.jpg", focus: "center 59%" },
+  { match: ["sebring"], file: "sebring.jpg", focus: "center 68%" },
+  { match: ["snetterton"], file: "snetterton.jpg", focus: "center 66%" },
+  { match: ["sonoma", "sears point", "infineon"], file: "sonoma.jpg", focus: "center 47%" },
+  { match: ["tsukuba"], file: "tsukuba.jpg", focus: "center 56%" },
+  { match: ["winton"], file: "winton.jpg", focus: "center 35%" },
+  { match: ["suzuka"], file: "Suzuka International Racing Course.jpg", focus: "center 48%" },
+  { match: ["silverstone"], file: "Silverstone Circuit.jpg", focus: "center 50%" },
+  { match: ["philip island", "phillip island"], file: "Philip Island Grand Prix Circuit.jpg", focus: "center 21%" },
+  { match: ["zolder"], file: "Circuit Zolder.jpg", focus: "center 33%" },
   // Arte adicionada recentemente (arquivos .png em disco).
-  { match: ["adelaide"], file: "Adelaide Street Circuit.webp" },
-  { match: ["enzo e dino", "imola"], file: "Autódromo Internazionale Enzo e Dino Ferrari.webp" },
-  { match: ["barber"], file: "Barber Motorsports Park.webp" },
-  { match: ["chicago"], file: "Chicago Street Course.webp" },
+  { match: ["adelaide"], file: "Adelaide Street Circuit.webp", focus: "67% 55%" },
+  { match: ["enzo e dino", "imola"], file: "Autódromo Internazionale Enzo e Dino Ferrari.webp", focus: "center 71%" },
+  { match: ["barber"], file: "Barber Motorsports Park.webp", focus: "center 19%" },
+  { match: ["chicago"], file: "Chicago Street Course.webp", focus: "center 17%" },
   { match: ["gilles villeneuve", "montreal"], file: "Circuit Gilles Villeneuve.webp" },
-  { match: ["jerez"], file: "Circuito de Jerez.webp" },
-  { match: ["indianapolis", "indy road"], file: "Indianapolis Motor Speedway.webp" },
+  { match: ["jerez"], file: "Circuito de Jerez.webp", focus: "center 45%" },
+  { match: ["indianapolis", "indy road"], file: "Indianapolis Motor Speedway.webp", focus: "center 63%" },
   { match: ["knockhill"], file: "Knockhill.webp" },
-  { match: ["miami"], file: "Miami.webp" },
+  { match: ["miami"], file: "Miami.webp", focus: "center 65%" },
   // Pistas AINDA sem arte na pasta: o mapa já espera estes arquivos.
   // Basta soltar um arquivo com EXATAMENTE este nome em "Pistas Header/" que o banner
   // passa a usá-lo. Enquanto não existir, cai no fundo premium (fallback).
@@ -644,6 +647,21 @@ function getBannerImageSrc(trackName) {
 
   // Sem imagem larga → usa a miniatura de sempre como fallback.
   return getTrackImageSrc(trackName);
+}
+
+// Ponto de foco (object-position) do corte do banner. Cada foto tem o "assunto"
+// numa altura diferente; sem override, ancoramos em BANNER_FOCUS_DEFAULT. Para
+// calibrar uma pista, basta adicionar `focus: "center NN%"` na entrada dela em
+// BANNER_IMAGE_FILES (NN menor sobe o corte, maior desce).
+const BANNER_FOCUS_DEFAULT = "center 38%";
+
+function getBannerImageFocus(trackName) {
+  const normalizedName = normalizeTrackName(trackName);
+  const entry = BANNER_IMAGE_FILES.find(({ match }) =>
+    match.some((candidate) => normalizedName.includes(candidate)),
+  );
+
+  return entry?.focus ?? BANNER_FOCUS_DEFAULT;
 }
 
 function normalizeTrackName(trackName) {
