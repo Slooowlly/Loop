@@ -7,7 +7,7 @@ import RivalMarker from "../../components/driver/RivalMarker";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { getTrackImageSrc } from "../../utils/trackImages";
-import { buildDriverMentionMatcher, driverMentionClass } from "../../utils/driverMentions";
+import { driverMentionClass, segmentDriverMentions } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
 import { getReadableTeamColor } from "./newsHelpers";
 import { buildInboxMessages } from "./inboxMessages";
@@ -46,27 +46,26 @@ function colorizeTeams(text, teams) {
 // spans interativos (hover acende o piloto/equipe na classificação ao lado) e o
 // restante passa por `colorizeTeams` (nomes de EQUIPE na cor do time).
 function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriverId, onHover) {
-  const matcher = buildDriverMentionMatcher(mentionDrivers);
-  if (!matcher) {
+  const segments = segmentDriverMentions(text, mentionDrivers);
+  if (!segments.length) {
     return colorizeTeams(text, teams);
   }
-  return text.split(matcher.regex).map((part, i) => {
-    const driverId = matcher.byName.get(part);
-    if (driverId) {
-      const isActive = hoveredDriverId === driverId;
+  return segments.map((seg, i) => {
+    if (seg.type === "driver") {
+      const isActive = hoveredDriverId === seg.id;
       return (
         <span
           key={i}
-          onMouseEnter={() => onHover(driverId)}
+          onMouseEnter={() => onHover(seg.id)}
           onMouseLeave={() => onHover(null)}
           className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
         >
-          {part}
-          <RivalMarker driverId={driverId} className="ml-0.5 align-middle" />
+          {seg.text}
+          <RivalMarker driverId={seg.id} className="ml-0.5 align-middle" />
         </span>
       );
     }
-    return <Fragment key={i}>{colorizeTeams(part, teams)}</Fragment>;
+    return <Fragment key={i}>{colorizeTeams(seg.text, teams)}</Fragment>;
   });
 }
 
