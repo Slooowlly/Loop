@@ -2026,6 +2026,12 @@ pub struct SeasonGenResult {
 /// pista de referência. A ponta fica competitiva mas BATÍVEL, deixando margem pro
 /// jogador (decisão do user). Sweet spot final da pista = este base + offset da pista.
 /// Acima de rookie é progressivamente mais difícil (sweet spot maior).
+/// Degrau FIXO abaixo do sweet spot no rookie (tier 0), seja qual for a pista. Rookie é a
+/// categoria de iniciante: rebaixamos SEMPRE este tanto de pontos, independente do offset da
+/// pista (Rudskogen 72→64, Oulton 78→70, VIR 105→97). Só o rookie recebe; as outras divisões
+/// ficam iguais. Aplicado sobre o sweet spot final — pode descer abaixo do baseline do tier.
+const ROOKIE_DIFFICULTY_DISCOUNT: i64 = 8;
+
 fn tier_difficulty_base(tier: u8) -> i64 {
     // ESCADA ACHATADA (frente efetiva). A diferença entre divisões é pequena de propósito:
     // no iRacing o CARRO já faz a divisão de cima ser mais rápida; o driverSkill% só precisa
@@ -2067,7 +2073,9 @@ fn ai_sweet_spot(tier: u8, track_id: Option<i64>, base_dir: &std::path::Path, cu
     let adapt_track = track_id.map(|id| profile.track_delta(id)).unwrap_or(0);
     // Boost global amortecido por tier (não infla as divisões baixas — ver tier_difficulty_damp).
     let global_eff = (profile.global as f64 * tier_difficulty_damp(tier)).round() as i64;
-    (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track).clamp(0, 125)
+    // Rookie (tier 0) rebaixa o sweet spot um degrau FIXO, seja qual for a pista.
+    let rookie_discount = if tier == 0 { ROOKIE_DIFFICULTY_DISCOUNT } else { 0 };
+    (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track - rookie_discount).clamp(0, 125)
 }
 
 /// Vantagens de carro (car-perf) do CAMPO e do JOGADOR na pista alvo, para a inversão
