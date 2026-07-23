@@ -8,8 +8,10 @@ const COMMON = {
   text: "#f0f6fc",
   textMuted: "#6e7681",
   posColor: "#e6edf3",
-  playerColor: "#3fb950", // nome do jogador
-  teammateColor: "#58a6ff", // nome do companheiro
+  // Jogador e companheiro NÃO têm cor de nome própria (o verde/azul pareciam link):
+  // os DOIS carros do seu time saem com o nome na COR DA EQUIPE, direto no drawRow.
+  // (playerColor mantido só por segurança, sem uso hoje.)
+  playerColor: "#3fb950",
   purple: "#bc8cff", // volta mais rápida
   gainGreen: "#7ee787", // ganho de pontos
   up: "#3fb950",

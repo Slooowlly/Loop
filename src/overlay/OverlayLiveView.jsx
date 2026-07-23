@@ -8,6 +8,8 @@ import {
   VR_H,
   SUPERSAMPLE,
   PANEL_W,
+  MINI_PANEL_W,
+  MINI_SECTION_OPTS,
   SESSION_H,
   drawTower,
   preloadAssets,
@@ -20,17 +22,20 @@ import OverlayWeatherArc from "./OverlayWeatherArc";
 // Roda dentro da janela `#overlay`, um webview separado (sem o store do app), então
 // descobre a carreira ativa por poll (`overlay_active_career`).
 //
+// TRÊS MODOS, ciclados pelo olho (👁): COMPLETO (todas as colunas) → MINI (painel
+// estreito, só pos·logo·nome·delta e menos carros) → ESCONDIDO (nub mínimo no canto).
+//
 // INTERAÇÃO (simples, sem travar/destravar):
 //   • A torre é SEMPRE arrastável — mas o mouse só a alcança quando está EM CIMA
 //     dela. O backend (vigia de cursor) torna a janela interativa no hover e volta
 //     a clique-atravessa ao sair, então fora da torre o mouse vai pro iRacing.
 //   • O arraste é INVISÍVEL até o hover: aí aparece um leve realce e o cursor vira
 //     "setas pra todos os lados" (o move do Windows). Segura e arrasta pra posicionar.
-//   • Olho (👁): fade in/out no hover, no topo — oculta a torre pra um "nub" mínimo
-//     no canto, clicável pra trazer de volta.
+//   • Olho (👁): fade in/out no hover, no topo — cicla completo → mini → escondido.
+//     Escondido vira um "nub" mínimo no canto, clicável pra voltar.
 //
-// A posição é salva/restaurada (localStorage). Ocultar pede ao app (dono do estado)
-// via `overlay-toggle-enabled`.
+// A posição é salva/restaurada (localStorage). O modo é dono do app (via
+// `overlay-toggle-enabled`/`overlay-enabled`), pra sobreviver a mostrar/ocultar a janela.
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const POS_KEY = "overlayMonitorPos"; // { x, y } físicos da janela
@@ -38,19 +43,36 @@ const TOWER_W = VR_W / SUPERSAMPLE; // 512 CSS px = largura da janela
 // Caixa de hover do nub (um pouco maior que o visual, pra o mouse pegar fácil).
 const NUB_W = 78;
 const NUB_H = 34;
+// Na mini, a caixa de hover é só o painel estreito + folga pros pins flutuantes à
+// direita — assim o resto da janela deixa o mouse passar direto pro iRacing.
+const MINI_HOVER_W = MINI_PANEL_W + 100;
+
+// Próximo modo no ciclo do olho.
+const NEXT_MODE = { full: "mini", mini: "hidden", hidden: "full" };
+// Compat: o app pode mandar o modo string OU o booleano antigo `on`.
+function payloadToMode(p) {
+  if (p && typeof p.mode === "string") return p.mode;
+  if (p && typeof p.on === "boolean") return p.on ? "full" : "hidden";
+  return "full";
+}
 
 export default function OverlayLiveView() {
   const { t } = useTranslation();
   const [careerId, setCareerId] = useState(null);
-  const [enabled, setEnabled] = useState(true); // torre visível (olho)?
+  const [mode, setMode] = useState("full"); // "full" | "mini" | "hidden"
   const [hover, setHover] = useState(false); // mouse sobre a torre/nub
   const canvasRef = useRef(null);
   const sourceRef = useRef({ data: null, assets: null });
-  const enabledRef = useRef(true); // o loop de desenho lê daqui (sem recriar o timer)
+  const modeRef = useRef("full"); // o loop de desenho lê daqui (sem recriar o timer)
 
   useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
+    modeRef.current = mode;
+  }, [mode]);
+
+  const compact = mode === "mini";
+  const visible = mode !== "hidden";
+  const panelW = compact ? MINI_PANEL_W : PANEL_W;
+  const sectionOpts = compact ? MINI_SECTION_OPTS : undefined;
 
   // Poll da carreira ativa (o app grava ao mostrar o overlay).
   useEffect(() => {
@@ -72,7 +94,7 @@ export default function OverlayLiveView() {
     };
   }, []);
 
-  // Setup da JANELA: restaura posição, persiste ao mover, e ouve o app (olho) e o
+  // Setup da JANELA: restaura posição, persiste ao mover, e ouve o app (modo) e o
   // vigia de cursor (hover).
   useEffect(() => {
     if (!IN_TAURI) return undefined;
@@ -104,7 +126,7 @@ export default function OverlayLiveView() {
         /* onMoved indisponível */
       }
       try {
-        cleanups.push(await listen("overlay-enabled", (e) => setEnabled(Boolean(e.payload?.on))));
+        cleanups.push(await listen("overlay-enabled", (e) => setMode(payloadToMode(e.payload))));
         cleanups.push(await listen("overlay-hover", (e) => setHover(Boolean(e.payload))));
       } catch {
         /* listen indisponível */
@@ -131,22 +153,31 @@ export default function OverlayLiveView() {
   }, [data]);
 
   // Reporta ao vigia a caixa que conta como "em cima da torre": a torre inteira
-  // quando visível, ou só o nub quando oculta.
+  // quando completa, o painel estreito (+ pins) na mini, ou só o nub quando escondida.
   useEffect(() => {
     if (!IN_TAURI) return;
-    const width = enabled && data ? TOWER_W : NUB_W;
-    const height = enabled && data ? towerContentHeight(data) : NUB_H;
+    let width = NUB_W;
+    let height = NUB_H;
+    if (visible && data) {
+      width = compact ? MINI_HOVER_W : TOWER_W;
+      height = towerContentHeight(data, sectionOpts);
+    }
     invoke("overlay_set_hover_rect", { width, height }).catch(() => {});
-  }, [enabled, data]);
+  }, [mode, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Loop de desenho ~10 Hz. Oculto (olho OFF) → limpa (mostra só o nub em HTML).
+  // Loop de desenho ~10 Hz. Escondido → limpa (mostra só o nub em HTML).
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return undefined;
     const timer = setInterval(() => {
       const { data: d, assets } = sourceRef.current;
-      if (d && assets && enabledRef.current) {
-        drawTower(ctx, d, assets);
+      const m = modeRef.current;
+      if (d && assets && m !== "hidden") {
+        const isMini = m === "mini";
+        drawTower(ctx, d, assets, undefined, {
+          compact: isMini,
+          sections: isMini ? MINI_SECTION_OPTS : undefined,
+        });
       } else {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, VR_W, VR_H);
@@ -155,11 +186,11 @@ export default function OverlayLiveView() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ações.
-  const toggleEnabled = () =>
-    setEnabled((cur) => {
-      const next = !cur;
-      emitTo("main", "overlay-toggle-enabled", { on: next }).catch(() => {});
+  // Ação do olho / nub: avança o modo no ciclo e avisa o app (dono do estado).
+  const cycleMode = () =>
+    setMode((cur) => {
+      const next = NEXT_MODE[cur] ?? "full";
+      emitTo("main", "overlay-toggle-enabled", { mode: next }).catch(() => {});
       return next;
     });
   const startDrag = () =>
@@ -168,7 +199,11 @@ export default function OverlayLiveView() {
       .catch(() => {});
   const stop = (e) => e.stopPropagation();
 
-  const towerH = enabled && data ? towerContentHeight(data) : 0;
+  const towerH = visible && data ? towerContentHeight(data, sectionOpts) : 0;
+  const dragW = compact ? MINI_HOVER_W : TOWER_W;
+  // No completo, o olho fica no PAINEL (não na janela de 512); na mini, no painel estreito.
+  const eyeLeft = panelW / 2;
+  const eyeTitle = compact ? t("overlay.liveView.hideTower") : t("overlay.liveView.miniTower");
 
   return (
     <>
@@ -185,7 +220,7 @@ export default function OverlayLiveView() {
         }}
       />
 
-      {enabled && data && (
+      {visible && data && (
         <>
           {/* Camada de arraste sobre a torre: totalmente invisível — só o cursor de
               setas indica que dá pra arrastar. Segurar e arrastar move a janela. */}
@@ -195,7 +230,7 @@ export default function OverlayLiveView() {
               position: "fixed",
               top: 0,
               left: 0,
-              width: TOWER_W,
+              width: dragW,
               height: towerH,
               cursor: "move", // "setas pra todos os lados" (SIZEALL do Windows)
               background: "transparent",
@@ -205,15 +240,15 @@ export default function OverlayLiveView() {
 
           {/* Olho: único elemento no hover — centrado no PAINEL (horizontal) e no
               CORPO abaixo do cabeçalho (vertical). Bem grande, sem fundo, translúcido,
-              com sombra leve. Fade in/out. Oculta a torre. */}
+              com sombra leve. Fade in/out. Cicla completo → mini → escondido. */}
           <button
             onMouseDown={stop}
-            onClick={toggleEnabled}
-            title={t("overlay.liveView.hideTower")}
+            onClick={cycleMode}
+            title={eyeTitle}
             style={{
               position: "fixed",
               top: (SESSION_H + towerH) / 2, // meio do corpo (rows), sem contar o header
-              left: PANEL_W / 2, // centro do painel (não da janela de 512)
+              left: eyeLeft, // centro do painel (não da janela de 512)
               transform: "translate(-50%, -50%)",
               display: "flex",
               alignItems: "center",
@@ -243,22 +278,22 @@ export default function OverlayLiveView() {
                 position: "fixed",
                 top: towerH + 4,
                 left: 0,
-                width: PANEL_W,
+                width: panelW,
                 zIndex: 8,
                 pointerEvents: "none",
               }}
             >
-              <OverlayWeatherArc weather={data.session.weather} width={PANEL_W} />
+              <OverlayWeatherArc weather={data.session.weather} width={panelW} />
             </div>
           )}
         </>
       )}
 
-      {/* OCULTA (olho OFF): nub mínimo no canto — clicável (via hover) pra voltar. */}
-      {!enabled && (
+      {/* ESCONDIDO: nub mínimo no canto — clicável (via hover) pra voltar ao completo. */}
+      {!visible && (
         <button
           onMouseDown={stop}
-          onClick={toggleEnabled}
+          onClick={cycleMode}
           title={t("overlay.liveView.showTower")}
           style={{
             position: "fixed",

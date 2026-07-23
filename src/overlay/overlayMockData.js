@@ -28,10 +28,12 @@
 //               (reparo de peça, triângulo no lugar do pneu). Sem ele, cai em tireHistory.
 //   tireCompound  composto de LARGADA escolhido (CarIdxTireCompound): 0 = seco, ≥1 = chuva,
 //               -1 = desconhecido. Sem pitIcons/tireHistory (pré-corrida), define o 1º pneu.
-//   player     é o carro do jogador (linha verde)
+//   rivalRole  rivalidade com o JOGADOR: "nemesis" (💥) | "rival" (🔥) | ausente.
+//               Emoji DEPOIS do nome — só na torre GRANDE (a mini não mostra).
+//   player     é o carro do jogador
 //
-// O COMPANHEIRO DE EQUIPE não é campo: é derivado (mesmo `team` do jogador) e
-// ganha realce azul. Ver towerRows.js.
+// O COMPANHEIRO DE EQUIPE não é campo: é derivado (mesmo `team` do jogador). Os DOIS
+// carros do seu time saem com o nome na COR DA EQUIPE (car.color). Ver towerRows.js.
 
 export const OVERLAY_MOCK = {
   session: {
@@ -55,7 +57,8 @@ export const OVERLAY_MOCK = {
         // Largou de CHUVA (tireCompound=1) — sem paradas ainda: a torre mostra o pneu real de largada.
         { pos: 5, name: "Rogerio Silva", team: "Audi", color: "#bb0a21", delta: 3, stops: 0, points: 98, gain: 10, fastest: "01:43.946", fol: false, pit: false, tireCompound: 1, player: false },
         { pos: 6, name: "Pawel T. Okreglicki", team: "McLaren", color: "#ff8700", delta: 4, stops: 0, points: 86, gain: 8, fastest: "01:43.893", fol: false, pit: false, tireCompound: 0, player: false },
-        { pos: 7, name: "Matthew Koontz", team: "BMW", color: "#0057b8", delta: 2, stops: 1, points: 72, gain: 6, fastest: "01:43.715", fol: false, pit: false, player: false },
+        // RIVAL (🔥) — emoji depois do nome, só na torre grande.
+        { pos: 7, name: "Matthew Koontz", team: "BMW", color: "#0057b8", delta: 2, stops: 1, points: 72, gain: 6, fastest: "01:43.715", fol: false, pit: false, rivalRole: "rival", player: false },
         // Parou: largou de seco, abasteceu (⛽), depois trocou pra chuva.
         { pos: 8, name: "Mustafa Mezraoui", team: "Aston Martin", color: "#005f48", delta: -1, stops: 2, points: 64, gain: 4, fastest: "01:43.403", fol: false, pit: false, tire: "wet", pitIcons: ["dry", "fuel", "wet"], player: false },
         // Largou seco, abasteceu, reparou peça (⚠), depois trocou pra chuva.
@@ -68,7 +71,9 @@ export const OVERLAY_MOCK = {
         // Jogador — só pneus (2 secos): referência do espaçamento pneu↔pneu.
         { pos: 12, name: "Istvan Fodor", team: "Kitsune", color: "#3a0ca3", delta: 1, stops: 1, points: 44, gain: 0, fastest: "01:45.035", fol: false, pit: false, pitIcons: ["dry", "dry"], player: true },
         // Peça LEVE (triângulo LARANJA piscando). Sequência com os 4 tipos pra comparar.
-        { pos: 13, name: "Alexandr Fescov", team: "Valkyrie", color: "#6f4e37", delta: 2, stops: 1, points: 40, gain: 0, fastest: "01:44.822", fol: false, pit: false, alert: "light", pitIcons: ["dry", "fuel", "part", "wet"], player: false },
+        // NEMESIS (💥) — cai TAMBÉM na janela da mini (jogador ±2): serve pra comparar,
+        // pois o emoji aparece na torre grande e some na mini.
+        { pos: 13, name: "Alexandr Fescov", team: "Valkyrie", color: "#6f4e37", delta: 2, stops: 1, points: 40, gain: 0, fastest: "01:44.822", fol: false, pit: false, alert: "light", pitIcons: ["dry", "fuel", "part", "wet"], rivalRole: "nemesis", player: false },
         // DNF (!dq): bandeira preta persistente — a IA vem direto pra cá. Parou pra reparar peça.
         { pos: 14, name: "Marius Rieck", team: "Obsidian", color: "#2b2d42", delta: 0, stops: 1, points: 32, gain: 0, fastest: "01:44.754", fol: false, pit: false, flag: "black", pitIcons: ["dry", "part"], player: false },
         // Só pneus (3): referência + tracker de tempo de pit (cronômetro + 23s), por 3 voltas.

@@ -27,8 +27,16 @@ export default function OverlayApp({ preview = false }) {
           : { background: "transparent" }
       }
     >
-      <div className="p-3">
+      <div className="p-3" style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <TowerCanvasView
+          style={{
+            borderRadius: 10,
+            boxShadow: "0 10px 40px rgba(0,0,0,0.55)",
+          }}
+        />
+        {/* Versão MINI ao lado, pra comparar o painel enxuto. */}
+        <TowerCanvasView
+          compact
           style={{
             borderRadius: 10,
             boxShadow: "0 10px 40px rgba(0,0,0,0.55)",

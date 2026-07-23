@@ -15,22 +15,34 @@ import { useOverlayData } from "./useOverlayData";
 // gateássemos por `enabled`, oculto ficaria sem como voltar (nada pra passar o mouse).
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const ENABLED_KEY = "overlayMonitorEnabled";
+const MODE_KEY = "overlayMonitorMode"; // "full" | "mini" | "hidden"
+const LEGACY_ENABLED_KEY = "overlayMonitorEnabled"; // booleano do esquema antigo
+const VALID_MODES = new Set(["full", "mini", "hidden"]);
 
-function loadEnabled() {
+function loadMode() {
   try {
-    const raw = localStorage.getItem(ENABLED_KEY);
-    if (raw != null) return raw === "true";
+    const raw = localStorage.getItem(MODE_KEY);
+    if (raw && VALID_MODES.has(raw)) return raw;
+    // Migração do esquema antigo (booleano visível/escondido).
+    const legacy = localStorage.getItem(LEGACY_ENABLED_KEY);
+    if (legacy != null) return legacy === "false" ? "hidden" : "full";
   } catch {
     /* storage indisponível */
   }
-  return true; // padrão: ligado (opt-out, não opt-in)
+  return "full"; // padrão: completo (opt-out, não opt-in)
+}
+
+// Compat: o overlay pode mandar o modo string OU o booleano antigo `on`.
+function payloadToMode(p) {
+  if (p && typeof p.mode === "string" && VALID_MODES.has(p.mode)) return p.mode;
+  if (p && typeof p.on === "boolean") return p.on ? "full" : "hidden";
+  return "full";
 }
 
 export default function OverlayMonitorAuto() {
   const careerId = useCareerStore((s) => s.careerId);
   const data = useOverlayData(careerId, { intervalMs: 1000 });
-  const [enabled, setEnabled] = useState(loadEnabled);
+  const [mode, setMode] = useState(loadMode);
   const [demo, setDemo] = useState(false); // demo do rádio ligado (Configurações)?
   const towerShownRef = useRef(false);
   const engShownRef = useRef(false);
@@ -63,12 +75,12 @@ export default function OverlayMonitorAuto() {
     if (live) {
       towerShownRef.current = true;
       invoke("overlay_window_show", { careerId: careerId || "setup" }).catch(() => {});
-      emitTo("overlay", "overlay-enabled", { on: enabled }).catch(() => {});
+      emitTo("overlay", "overlay-enabled", { mode }).catch(() => {});
     } else if (towerShownRef.current) {
       towerShownRef.current = false;
       invoke("overlay_window_hide").catch(() => {});
     }
-  }, [live, careerId, enabled]);
+  }, [live, careerId, mode]);
 
   // RÁDIO: ao vivo OU em demo (assim dá pra ver/posicionar o card sem esperar quebra).
   // O vigia de hover (que captura o mouse pra ARRASTAR) só liga no DEMO — assim o card
@@ -93,21 +105,21 @@ export default function OverlayMonitorAuto() {
     invoke("overlay_set_hover_watch", { active: shouldShow }).catch(() => {});
   }, [shouldShow]);
 
-  // Persiste `enabled` e reflete no olho do overlay sempre que muda.
+  // Persiste o MODO e reflete no overlay sempre que muda.
   useEffect(() => {
     try {
-      localStorage.setItem(ENABLED_KEY, String(enabled));
+      localStorage.setItem(MODE_KEY, mode);
     } catch {
       /* sem persistência */
     }
-    if (IN_TAURI) emitTo("overlay", "overlay-enabled", { on: enabled }).catch(() => {});
-  }, [enabled]);
+    if (IN_TAURI) emitTo("overlay", "overlay-enabled", { mode }).catch(() => {});
+  }, [mode]);
 
-  // O olho (👁) na torre pede pra ligar/desligar. Idempotente: aplica o payload.
+  // O olho (👁) na torre cicla o modo. Idempotente: aplica o payload.
   useEffect(() => {
     if (!IN_TAURI) return undefined;
     let un;
-    listen("overlay-toggle-enabled", (e) => setEnabled(Boolean(e.payload?.on)))
+    listen("overlay-toggle-enabled", (e) => setMode(payloadToMode(e.payload)))
       .then((f) => {
         un = f;
       })
