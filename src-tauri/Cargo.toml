@@ -1,6 +1,6 @@
 [package]
 name = "loop"
-version = "0.11.0"
+version = "0.12.0"
 description = "Loop"
 authors = ["you"]
 edition = "2021"
