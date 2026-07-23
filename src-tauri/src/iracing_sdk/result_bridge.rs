@@ -503,6 +503,10 @@ pub fn build_race_result_from_aiseason(
     // "leve" | "moderado" | "grave" | "destruído" | "catastrófico". É o MESMO sinal
     // que calcula o conserto do carro — usá-lo aqui mantém revista e debrief de acordo.
     player_crash_severity: &str,
+    // Direção do impacto no pico: "front" | "rear" | "side" | "vertical" (dos Gs).
+    // Diz ONDE o carro foi atingido — pancada na traseira conta uma história bem
+    // diferente de bater de frente. Vazio quando não houve impacto medido.
+    player_impact_dir: &str,
 ) -> RaceResult {
     // Volta mais rápida = menor best_lap_time válido (cust_id é único por carro).
     let fastest_cust = event
@@ -626,6 +630,16 @@ pub fn build_race_result_from_aiseason(
     // certeza —, mas é o melhor sinal que o resultado oficial deixa.
     use crate::simulation::incidents::{make_incident, IncidentSeverity, IncidentType};
 
+    // Sufixo ", com impacto na traseira" etc. Vazio quando o monitor não mediu
+    // direção — é enfeite factual, nunca deve inventar um lado que não aconteceu.
+    let impact_suffix = match player_impact_dir {
+        "front" => rust_i18n::t!("narrative.beat.incident_dir_front").to_string(),
+        "rear" => rust_i18n::t!("narrative.beat.incident_dir_rear").to_string(),
+        "side" => rust_i18n::t!("narrative.beat.incident_dir_side").to_string(),
+        "vertical" => rust_i18n::t!("narrative.beat.incident_dir_vertical").to_string(),
+        _ => String::new(),
+    };
+
     let attach = |results: &mut [RaceDriverResult], i: usize, inc: crate::simulation::incidents::IncidentResult| {
         results[i].notable_incident = Some(inc.description.clone());
         results[i].incidents_count = results[i].incidents_count.max(1);
@@ -651,7 +665,10 @@ pub fn build_race_result_from_aiseason(
                 "corrida",
                 0,
                 true,
-                format!("Batida com {cname}"),
+                format!(
+                    "{}{impact_suffix}",
+                    rust_i18n::t!("narrative.beat.incident_crash_with", other = cname.as_str())
+                ),
                 Some(cid.to_string()),
                 true,
                 None,
@@ -670,7 +687,9 @@ pub fn build_race_result_from_aiseason(
                 "corrida",
                 0,
                 culprit_dnf,
-                format!("Batida com {pname}"),
+                // Sem sufixo de direção: o impacto medido é do carro do JOGADOR.
+                rust_i18n::t!("narrative.beat.incident_crash_with", other = pname.as_str())
+                    .to_string(),
                 Some(pid),
                 true,
                 None,
@@ -778,7 +797,7 @@ pub fn build_race_result_from_aiseason(
                     IncidentType::DriverError
                 };
                 // A volta só existe se houve marcador; com impacto puro fica sem volta.
-                let desc = match worst {
+                let base = match worst {
                     Some(m) => {
                         let lap = m.lap_f.max(0.0).floor() as i64;
                         let key = if contact {
@@ -790,6 +809,7 @@ pub fn build_race_result_from_aiseason(
                     }
                     None => rust_i18n::t!("narrative.beat.incident_sdk_impact").to_string(),
                 };
+                let desc = format!("{base}{impact_suffix}");
                 let inc = make_incident(
                     race_results[pi].pilot_id.clone(),
                     kind,
@@ -1043,6 +1063,7 @@ mod tests {
             "T",
             &[],
             "nenhum",
+            "",
         );
         let leader = r.race_results.iter().find(|x| x.laps_completed == 11).unwrap();
         let lapped = r.race_results.iter().find(|x| x.laps_completed == 10).unwrap();
@@ -1068,6 +1089,7 @@ mod tests {
     /// de incidente é gated por `is_dnf`, então sem os marcadores do monitor ele ficava
     /// sem incidente nenhum — e a revista não tinha o que citar.
     #[test]
+    #[serial_test::serial] // afere prosa PT → fixa o locale, que é global do processo
     fn aiseason_registra_batida_do_jogador_que_terminou() {
         use crate::iracing_sdk::aiseason_results::{AiEventResult, AiResultRow};
         use crate::iracing_sdk::race_monitor::PlayerIncidentMark;
@@ -1093,7 +1115,7 @@ mod tests {
             points,
             off_track: false,
         };
-        let build = |marks: &[PlayerIncidentMark], crash: &str| {
+        let build_dir = |marks: &[PlayerIncidentMark], crash: &str, dir: &str| {
             let conn = Connection::open_in_memory().unwrap();
             build_race_result_from_aiseason(
                 &event,
@@ -1108,8 +1130,10 @@ mod tests {
                 "T",
                 marks,
                 crash,
+                dir,
             )
         };
+        let build = |marks: &[PlayerIncidentMark], crash: &str| build_dir(marks, crash, "");
         let player_inc = |r: &RaceResult| {
             r.race_results
                 .iter()
@@ -1150,6 +1174,19 @@ mod tests {
         let inc = player_inc(&r).expect("impacto sem marcador");
         assert_eq!(inc.severity, IncidentSeverity::Major);
         assert_eq!(inc.incident_type, IncidentType::DriverError);
+
+        // Direção do impacto entra no fato: levar pancada na TRASEIRA é outra história
+        // (foi atingido) do que bater de FRENTE (bateu em alguém).
+        rust_i18n::set_locale("pt-BR");
+        let r = build_dir(&[mark(4, 6.0)], "moderado", "rear");
+        let desc = player_inc(&r).unwrap().description;
+        assert!(desc.contains("traseira"), "direção no fato: {desc}");
+        let r = build_dir(&[mark(4, 6.0)], "moderado", "front");
+        assert!(player_inc(&r).unwrap().description.contains("dianteira"));
+        // Sem direção medida não inventa lado nenhum.
+        let r = build_dir(&[mark(4, 6.0)], "moderado", "");
+        let desc = player_inc(&r).unwrap().description;
+        assert!(!desc.contains("traseira") && !desc.contains("dianteira"), "{desc}");
     }
 
     #[test]
@@ -1190,6 +1227,7 @@ mod tests {
             "T",
             &[],
             "nenhum",
+            "",
         );
         let player = r.race_results.iter().find(|x| x.is_jogador).unwrap();
         assert!(player.is_dnf);

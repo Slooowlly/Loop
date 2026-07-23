@@ -882,6 +882,7 @@ fn build_session_race_result(
         &track_name,
         &race_monitor::get_player_incidents(),
         &player_crash,
+        &player_impact_dir,
     );
 
     // TELEMETRIA (Fase 2): ritmo/consistência/rival do histórico ao vivo. Só vem
