@@ -9,9 +9,9 @@ import RivalMarker from "../driver/RivalMarker";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
 import { MOCK_TELEMETRY } from "./__mockTelemetry";
 import {
-  buildDriverMentionMatcher,
   driverMentionClass,
   renderTextWithDriverMentions,
+  segmentDriverMentions,
 } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
@@ -605,31 +605,30 @@ function withAlpha(hex, a) {
 // for passado, nomes de piloto viram um único "word" animado + interativo (hover
 // acende o piloto na tabela de resultados).
 function SpeechWords({ text, delayStep = 30, startDelay = 0, mentions = null }) {
-  const matcher = mentions?.drivers ? buildDriverMentionMatcher(mentions.drivers) : null;
-  const segments = matcher ? String(text).split(matcher.regex) : [String(text)];
+  const segments = mentions?.drivers
+    ? segmentDriverMentions(String(text), mentions.drivers)
+    : [{ type: "text", text: String(text) }];
   const nodes = [];
   let wi = 0;
   segments.forEach((seg, si) => {
-    if (seg === "") return;
-    const driverId = matcher?.byName.get(seg);
-    if (driverId) {
+    if (seg.type === "driver") {
       const delay = startDelay + wi * delayStep;
       wi += 1;
-      const isActive = mentions.hoveredDriverId === driverId;
+      const isActive = mentions.hoveredDriverId === seg.id;
       nodes.push(
         <span key={`s${si}`} className="speech-word" style={{ animationDelay: `${delay}ms` }}>
           <span
-            onMouseEnter={() => mentions.onHover(driverId)}
+            onMouseEnter={() => mentions.onHover(seg.id)}
             onMouseLeave={() => mentions.onHover(null)}
             className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
           >
-            {seg}
+            {seg.text}
           </span>
         </span>,
       );
       return;
     }
-    seg.split(/(\s+)/).forEach((tok, ti) => {
+    seg.text.split(/(\s+)/).forEach((tok, ti) => {
       if (tok === "") return;
       if (/^\s+$/.test(tok)) {
         nodes.push(tok);

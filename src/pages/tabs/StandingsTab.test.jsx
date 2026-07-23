@@ -58,6 +58,7 @@ describe("StandingsTab", () => {
 
     mockState = {
       careerId: "career-1",
+      setHomeCategory: () => {},
       playerTeam: {
         categoria: "production_challenger",
       },

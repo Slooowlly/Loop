@@ -2052,6 +2052,24 @@
       "seasonYear": "Season {{year}}",
       "sub": "The magazine opens once you run the season's first race."
     },
+    "preseason": {
+      "kicker": "Pre-season",
+      "titleLine": "What to expect",
+      "seasonLine": "Season {{year}} · the year ahead",
+      "articleHead": "Season expectations",
+      "favoritesHead": "Title favorites",
+      "caption": "{{track}} — season opener",
+      "captionGeneric": "The season opens here.",
+      "foot": "Pre-season edition",
+      "footSeason": "Pre-season edition · Season {{year}}",
+      "aiTag": {
+        "generating": "✦ Writing the preview…",
+        "ready": "✦ Season preview",
+        "comingSoon": "✦ AI preview · coming soon"
+      },
+      "generating": "Writing the season preview…",
+      "placeholder": "The season preview will be written by AI from the real grid — the title favorites, your team's outlook and the opening round. For now, the field's potential is laid out on the right."
+    },
     "mailbox": {
       "inbox": "Inbox",
       "selectPrompt": "Select a message to read"
@@ -2995,7 +3013,8 @@
     },
     "liveView": {
       "hideTower": "Hide the tower",
-      "showTower": "Show the timing tower"
+      "showTower": "Show the timing tower",
+      "miniTower": "Compact the tower"
     }
   },
   "storeErrors": {

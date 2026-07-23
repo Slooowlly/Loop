@@ -431,6 +431,7 @@ pub fn run() {
             commands::ai_news::player_race_news_id,
             commands::world_footer::get_world_footer,
             commands::world_footer::enrich_world_footer_ai,
+            commands::season_preview::enrich_season_preview_ai,
             commands::race::simulate_race_weekend,
             commands::race::get_saved_race_screen,
             commands::race::get_race_breakdowns,

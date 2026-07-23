@@ -37,12 +37,15 @@ pub struct AiNewsResult {
 }
 
 #[tauri::command]
-pub fn enrich_race_news_ai(
+pub async fn enrich_race_news_ai(
     app: tauri::AppHandle,
     career_id: String,
     news_id: String,
     reading_seconds: Option<f64>,
 ) -> Result<AiNewsResult, String> {
+    // async + spawn_blocking: o fetch de IA é bloqueante (até 45s) e travaria a THREAD
+    // PRINCIPAL do Tauri se rodasse síncrono. Ver post_race_debrief_ai.
+    tauri::async_runtime::spawn_blocking(move || {
     let base_dir = app
         .path()
         .app_data_dir()
@@ -108,6 +111,9 @@ pub fn enrich_race_news_ai(
             teams,
         }),
     }
+    })
+    .await
+    .map_err(|e| format!("Falha ao executar boletim de IA: {e}"))?
 }
 
 /// Resultado da prévia pré-corrida por IA (Sala de Estratégia). `None` nos textos →
@@ -219,13 +225,16 @@ fn build_recent_arc_facts(conn: &rusqlite::Connection, race_id: &str) -> String 
 /// usa o template. O cooldown de 10 min entre prévias é imposto pelo servidor
 /// (escopo "pre-race", separado do boletim pós-corrida).
 #[tauri::command]
-pub fn pre_race_briefing_ai(
+pub async fn pre_race_briefing_ai(
     app: tauri::AppHandle,
     career_id: String,
     race_id: String,
     facts: String,
     force: Option<bool>,
 ) -> Result<PreRaceAiResult, String> {
+    // async + spawn_blocking: o fetch de IA é bloqueante (até 45s) e travaria a THREAD
+    // PRINCIPAL do Tauri se rodasse síncrono. Ver post_race_debrief_ai.
+    tauri::async_runtime::spawn_blocking(move || {
     let force = force.unwrap_or(false);
     let base_dir = app
         .path()
@@ -318,6 +327,9 @@ pub fn pre_race_briefing_ai(
             status: "error".to_string(),
         }),
     }
+    })
+    .await
+    .map_err(|e| format!("Falha ao executar prévia pré-corrida: {e}"))?
 }
 
 /// Reporta se o jogador LEU a prévia pré-corrida (ficou tempo suficiente na Sala de
@@ -1622,13 +1634,21 @@ fn build_post_race_facts(
 /// cacheia por `race_id` — reabrir não regenera. Sem gate de engajamento (o jogador
 /// sempre olha o resultado). Em qualquer falha devolve `None` e o front usa o
 /// texto determinístico do cérebro (nunca quebra).
+///
+/// `async` + `spawn_blocking`: a busca da IA é uma chamada HTTP BLOQUEANTE de até
+/// 45 s (`reqwest::blocking`). Um comando síncrono roda na THREAD PRINCIPAL do Tauri
+/// (o event loop da janela) e a congelaria por todo esse tempo — a janela fica "não
+/// respondendo" e cliques como Sair ou o "OK" do overlay de batida não são processados
+/// até a IA responder. Jogando o corpo pro pool de bloqueio, a UI segue fluida enquanto
+/// o engenheiro "está no rádio".
 #[tauri::command]
-pub fn post_race_debrief_ai(
+pub async fn post_race_debrief_ai(
     app: tauri::AppHandle,
     career_id: String,
     race_id: String,
     force: Option<bool>,
 ) -> Result<PostRaceAiResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let force = force.unwrap_or(false);
     let base_dir = app
         .path()
@@ -1685,6 +1705,9 @@ pub fn post_race_debrief_ai(
             status: "error".to_string(),
         }),
     }
+    })
+    .await
+    .map_err(|e| format!("Falha ao executar debrief pós-corrida: {e}"))?
 }
 
 /// Resolve o `news_id` da notícia de Corrida do JOGADOR para uma (temporada, rodada).

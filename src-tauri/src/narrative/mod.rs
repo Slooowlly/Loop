@@ -14,6 +14,7 @@
 //! Os beats de carreira/forma (lesão, rookie, rivalidade-arco, forma das últimas
 //! 5 corridas) entram na Etapa B, alimentados pela base do app.
 
+use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
 use crate::simulation::race::{RaceDriverResult, RaceResult};
 
 pub mod client;
@@ -36,6 +37,9 @@ pub enum BeatKind {
     Recuperacao,
     Decepcao,
     Abandono,
+    /// Batida/rodada que NÃO terminou em abandono — o piloto seguiu na prova. Os
+    /// abandonos continuam em `Abandono`; aqui entra o que antes sumia do boletim.
+    Acidente,
     Lesao,
     NossoPiloto,
 }
@@ -73,6 +77,9 @@ pub struct RaceContextInput<'a> {
     pub round: i32,
     /// Lesões ocorridas na corrida, já renderizadas como fato (nome resolvido).
     pub injuries: &'a [String],
+    /// Incidentes CRUS da corrida (jogador + IA). O peso e a redação por gravidade
+    /// são resolvidos aqui dentro — a curadoria mora no motor, não na IA.
+    pub incidents: &'a [IncidentResult],
     /// Pano de fundo (rookie/veterano, histórico, sequência...) já renderizado.
     /// Vai numa seção "Contexto" — cor pra IA usar quando ajudar, sem virar manchete.
     pub context_facts: &'a [String],
@@ -100,8 +107,88 @@ fn dnf_reason_of(d: &RaceDriverResult) -> String {
         .unwrap_or_else(|| rust_i18n::t!("narrative.beat.dnf_fallback").to_string())
 }
 
+/// Ordem de gravidade, para escolher o PIOR incidente de cada piloto.
+fn severity_rank(s: IncidentSeverity) -> u8 {
+    match s {
+        IncidentSeverity::Minor => 0,
+        IncidentSeverity::Major => 1,
+        IncidentSeverity::Critical => 2,
+    }
+}
+
+/// "Batida" no sentido do boletim: contato entre carros, ou erro do piloto que passou
+/// de um susto. Falha mecânica NÃO conta — o carro quebrou, ninguém bateu.
+fn is_crash(inc: &IncidentResult) -> bool {
+    match inc.incident_type {
+        IncidentType::Collision => true,
+        IncidentType::DriverError => inc.severity != IncidentSeverity::Minor,
+        IncidentType::Mechanical => false,
+    }
+}
+
+/// Rótulo de ESCALA do incidente. Carrega, no próprio texto, a instrução de
+/// proporcionalidade: um toque leve tem que ser narrado como toque leve. É isto que
+/// impede a IA de transformar um encostão em tragédia.
+fn scale_label(sev: IncidentSeverity) -> String {
+    let key = match sev {
+        IncidentSeverity::Minor => "narrative.beat.incident_scale_minor",
+        IncidentSeverity::Major => "narrative.beat.incident_scale_major",
+        IncidentSeverity::Critical => "narrative.beat.incident_scale_critical",
+    };
+    rust_i18n::t!(key).to_string()
+}
+
+/// Peso de um incidente NÃO-DNF. O piloto do leitor tem escala própria e mais alta:
+/// mesmo um toque leve (32) passa do limiar, porque o pedido é que a batida DELE seja
+/// sempre citada — na medida certa. Para a IA, só batida de verdade vira notícia;
+/// rodada leve de meio de pelotão continua fora, senão o boletim vira lista de sustos.
+fn incident_weight(inc: &IncidentResult, is_player: bool) -> f64 {
+    if is_player {
+        return match inc.severity {
+            IncidentSeverity::Critical => 58.0,
+            IncidentSeverity::Major => 44.0,
+            IncidentSeverity::Minor => 32.0,
+        };
+    }
+    match (inc.severity, inc.incident_type) {
+        (IncidentSeverity::Critical, _) => 40.0,
+        (IncidentSeverity::Major, IncidentType::Collision) => 33.0,
+        (IncidentSeverity::Major, _) => 26.0,
+        (IncidentSeverity::Minor, _) => 16.0,
+    }
+}
+
+/// Trecho ", em contato com X" quando o incidente envolveu dois carros e o outro
+/// piloto está no resultado. Vazio quando foi incidente solo.
+fn contact_link(rows: &[RaceDriverResult], inc: &IncidentResult) -> String {
+    let Some(other_id) = inc.linked_pilot_id.as_deref() else {
+        return String::new();
+    };
+    match find(rows, other_id) {
+        Some(o) => rust_i18n::t!("narrative.beat.incident_link", other = o.pilot_name.as_str())
+            .to_string(),
+        None => String::new(),
+    }
+}
+
+/// O PIOR incidente não-DNF de cada piloto (um piloto pode se meter em vários; o
+/// boletim só quer o mais marcante de cada um).
+fn worst_non_dnf_incident_per_pilot(incidents: &[IncidentResult]) -> Vec<&IncidentResult> {
+    let mut best: Vec<&IncidentResult> = Vec::new();
+    for inc in incidents.iter().filter(|i| !i.is_dnf) {
+        match best.iter().position(|b| b.pilot_id == inc.pilot_id) {
+            Some(i) if severity_rank(inc.severity) > severity_rank(best[i].severity) => {
+                best[i] = inc;
+            }
+            Some(_) => {}
+            None => best.push(inc),
+        }
+    }
+    best
+}
+
 /// Gera todos os beats candidatos a partir do resultado da corrida.
-pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
+pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Beat> {
     let mut beats: Vec<Beat> = Vec::new();
     let rows = &result.race_results;
 
@@ -219,7 +306,13 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
     // ── Abandonos ────────────────────────────────────────────────────────────
     // Base baixa de propósito: um abandono de meio de pelotão (22) fica abaixo do
     // limiar e não polui o boletim; só os de quem largou na frente (40) passam.
+    // EXCEÇÃO: se o abandono veio de BATIDA (não de peça quebrada), ele sempre sobe
+    // acima do limiar — uma batida que tira alguém da prova é notícia mesmo no meio
+    // do pelotão. Pane mecânica anônima continua sendo pano de fundo.
     for d in rows.iter().filter(|d| d.is_dnf) {
+        let dnf_inc = incidents
+            .iter()
+            .find(|i| i.pilot_id == d.pilot_id && i.is_dnf);
         let mut weight = 22.0;
         if d.grid_position <= 3 {
             weight += 18.0;
@@ -227,6 +320,10 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
         if d.notable_incident.is_some() {
             weight += 8.0;
         }
+        if dnf_inc.map(is_crash).unwrap_or(false) {
+            weight += 10.0;
+        }
+        let link = dnf_inc.map(|i| contact_link(rows, i)).unwrap_or_default();
         beats.push(Beat {
             kind: BeatKind::Abandono,
             weight,
@@ -234,9 +331,56 @@ pub fn build_beats(result: &RaceResult) -> Vec<Beat> {
                 "narrative.beat.dnf",
                 name = d.pilot_name.as_str(),
                 team = d.team_name.as_str(),
-                reason = dnf_reason_of(d)
+                reason = dnf_reason_of(d),
+                link = link.as_str()
             )
             .to_string(),
+            driver_id: Some(d.pilot_id.clone()),
+            team_name: Some(d.team_name.clone()),
+        });
+    }
+
+    // ── Batidas SEM abandono (o buraco que existia) ──────────────────────────
+    // Quem bateu e seguiu na prova não aparecia em lugar nenhum do boletim. Agora
+    // aparece, com a escala explícita para a IA dosar o tom.
+    for inc in worst_non_dnf_incident_per_pilot(incidents) {
+        let Some(d) = find(rows, &inc.pilot_id) else {
+            continue;
+        };
+        // Mecânico leve sem custo é ruído: o carro deu um soluço e nada aconteceu.
+        if !is_crash(inc) && inc.positions_lost == 0 {
+            continue;
+        }
+        let cost = if inc.positions_lost > 0 {
+            rust_i18n::t!("narrative.beat.incident_cost", n = inc.positions_lost).to_string()
+        } else {
+            String::new()
+        };
+        let text = if d.is_jogador {
+            rust_i18n::t!(
+                "narrative.beat.incident_player",
+                scale = scale_label(inc.severity).as_str(),
+                desc = inc.description.as_str(),
+                link = contact_link(rows, inc).as_str(),
+                cost = cost.as_str()
+            )
+            .to_string()
+        } else {
+            rust_i18n::t!(
+                "narrative.beat.incident_ai",
+                scale = scale_label(inc.severity).as_str(),
+                name = d.pilot_name.as_str(),
+                team = d.team_name.as_str(),
+                desc = inc.description.as_str(),
+                link = contact_link(rows, inc).as_str(),
+                cost = cost.as_str()
+            )
+            .to_string()
+        };
+        beats.push(Beat {
+            kind: BeatKind::Acidente,
+            weight: incident_weight(inc, d.is_jogador),
+            text,
             driver_id: Some(d.pilot_id.clone()),
             team_name: Some(d.team_name.clone()),
         });
@@ -375,7 +519,7 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
         return (
             RaceThesis::Caos,
             rust_i18n::t!("narrative.thesis.caos", dnfs = s.total_dnfs).to_string(),
-            vec![Abandono, Vitoria],
+            vec![Abandono, Acidente, Vitoria],
         );
     }
     // Vitória improvável: o vencedor veio lá de trás.
@@ -452,7 +596,7 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
 
 /// Renderiza o contexto curado final a partir do resultado + metadados.
 pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> RaceContext {
-    let mut beats = build_beats(result);
+    let mut beats = build_beats(result, input.incidents);
     // Lesões da corrida entram como beats de drama (já vêm renderizadas).
     for injury_text in input.injuries {
         beats.push(Beat {

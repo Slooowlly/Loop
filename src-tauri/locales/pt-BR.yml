@@ -136,6 +136,30 @@ race_eval:
 # Rodapé "Do mundo do Grid" (commands/world_footer.rs). VOZ DE REVISTA (3ª pessoa).
 # `tag` = rótulo temático exibido; `tone`/`kind` NÃO ficam aqui (tokens de CSS/máquina).
 # `metric_noun` singular/plural por métrica de recorde (%{ord} = ordinal já formatado).
+season_preview:
+  facts:
+    scenario: "PRÉ-TEMPORADA — %{category}, Temporada %{season} (%{year})."
+    opening: "Abertura em %{track}, primeira de %{rounds} etapas no calendário."
+    champion_team: "Campeão em título: %{name} (%{team})."
+    champion: "Campeão em título: %{name}."
+    car_uniform: "Carros: todos no mesmo nível (%{level}/10) — a diferença está no piloto, não no material."
+    car_unequal: "Carros: material desigual — %{best_team} tem o carro mais forte (%{best}/10), %{worst_team} o mais fraco (%{worst}/10)."
+    favorites_head: "FAVORITOS (por potencial):"
+    favorite_line: "- %{name} (%{team}) — potencial %{skill}; %{exp}%{star}"
+    favorite_line_noteam: "- %{name} (sem equipe) — potencial %{skill}; %{exp}%{star}"
+    favorite_star: " · nome de público"
+    exp_debut: "estreante, ainda sem corridas"
+    exp_titles: "%{races} corridas na carreira, %{n}× campeão"
+    exp_wins: "%{races} corridas na carreira, %{n} vitórias"
+    exp_podiums: "%{races} corridas na carreira, %{n} pódios (sem vitória)"
+    exp_nopodium: "%{races} corridas na carreira, ainda sem pódio"
+    salary: "Maior salário do grid: %{name} (%{team}), %{value}/ano."
+    player_line: "SEU CENÁRIO: você (%{name}) larga a temporada pela %{team}, %{rank}º em potencial num grid de %{field}."
+    player_line_norank: "SEU CENÁRIO: você (%{name}) larga a temporada pela %{team}."
+    player_line_noteam: "SEU CENÁRIO: você (%{name}) ainda sem equipe confirmada na categoria."
+    player_exp: "Sua bagagem: %{exp}."
+    nemesis: "Rivalidade em aberto: %{name}, o nome que marcou você na temporada passada."
+
 world_footer:
   tag:
     market: "MERCADO"

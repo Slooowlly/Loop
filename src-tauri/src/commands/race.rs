@@ -4411,6 +4411,7 @@ fn persist_race_news(
                 year: active_season.ano,
                 round,
                 injuries: &injury_facts,
+                incidents: flat_incidents,
                 context_facts: &context_facts,
             },
         );

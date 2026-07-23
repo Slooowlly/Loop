@@ -2052,6 +2052,24 @@
       "seasonYear": "Temporada {{year}}",
       "sub": "A revista abre quando você disputar a primeira corrida da temporada."
     },
+    "preseason": {
+      "kicker": "Pré-Temporada",
+      "titleLine": "O que esperar",
+      "seasonLine": "Temporada {{year}} · o ano que vem aí",
+      "articleHead": "Expectativas da temporada",
+      "favoritesHead": "Favoritos ao título",
+      "caption": "{{track}} — abertura da temporada",
+      "captionGeneric": "A temporada começa por aqui.",
+      "foot": "Edição de Pré-Temporada",
+      "footSeason": "Edição de Pré-Temporada · Temporada {{year}}",
+      "aiTag": {
+        "generating": "✦ Escrevendo a prévia…",
+        "ready": "✦ Prévia da temporada",
+        "comingSoon": "✦ Prévia por IA · em breve"
+      },
+      "generating": "Escrevendo a prévia da temporada…",
+      "placeholder": "A prévia da temporada será redigida pela IA a partir do grid real — os favoritos ao título, o cenário da sua equipe e a etapa de abertura. Por enquanto, o potencial do grid está ao lado."
+    },
     "mailbox": {
       "inbox": "Caixa de entrada",
       "selectPrompt": "Selecione uma mensagem para ler"
@@ -2995,7 +3013,8 @@
     },
     "liveView": {
       "hideTower": "Ocultar a torre",
-      "showTower": "Mostrar a torre de tempos"
+      "showTower": "Mostrar a torre de tempos",
+      "miniTower": "Compactar a torre"
     }
   },
   "storeErrors": {

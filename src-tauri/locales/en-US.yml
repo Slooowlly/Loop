@@ -135,6 +135,30 @@ race_eval:
 # "From the World of the Grid" footer (commands/world_footer.rs). MAGAZINE VOICE (3rd person).
 # `tag` = themed label shown; `tone`/`kind` stay out (CSS/state tokens).
 # `metric_noun` singular/plural per record metric (%{ord} = pre-formatted ordinal).
+season_preview:
+  facts:
+    scenario: "PRE-SEASON — %{category}, Season %{season} (%{year})."
+    opening: "Opens at %{track}, first of %{rounds} rounds on the calendar."
+    champion_team: "Defending champion: %{name} (%{team})."
+    champion: "Defending champion: %{name}."
+    car_uniform: "Cars: all at the same level (%{level}/10) — the difference is in the driver, not the machinery."
+    car_unequal: "Cars: unequal machinery — %{best_team} has the strongest car (%{best}/10), %{worst_team} the weakest (%{worst}/10)."
+    favorites_head: "FAVORITES (by potential):"
+    favorite_line: "- %{name} (%{team}) — potential %{skill}; %{exp}%{star}"
+    favorite_line_noteam: "- %{name} (no team) — potential %{skill}; %{exp}%{star}"
+    favorite_star: " · crowd draw"
+    exp_debut: "rookie, no races yet"
+    exp_titles: "%{races} career races, %{n}× champion"
+    exp_wins: "%{races} career races, %{n} wins"
+    exp_podiums: "%{races} career races, %{n} podiums (no win)"
+    exp_nopodium: "%{races} career races, still no podium"
+    salary: "Highest paid on the grid: %{name} (%{team}), %{value}/yr."
+    player_line: "YOUR OUTLOOK: you (%{name}) open the season with %{team}, %{rank}th on potential in a field of %{field}."
+    player_line_norank: "YOUR OUTLOOK: you (%{name}) open the season with %{team}."
+    player_line_noteam: "YOUR OUTLOOK: you (%{name}) still without a confirmed team in the category."
+    player_exp: "Your background: %{exp}."
+    nemesis: "Unfinished business: %{name}, the name that marked you last season."
+
 world_footer:
   tag:
     market: "MARKET"

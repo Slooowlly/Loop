@@ -904,6 +904,11 @@ struct RaceMonitor {
     /// ("os comandos não estão chegando; rode o sim em janela/borderless") em vez de a
     /// penalidade sumir em silêncio. Zerado ao instalar um diretor novo.
     chat_send_warned: bool,
+    /// VITRINE da PRIMEIRA corrida do save: enquanto `true`, o monitor GARANTE que o penúltimo
+    /// carro (nunca o jogador) sofra uma quebra de peça GRAVE e pare pra arrumar, pra mostrar o
+    /// sistema logo de cara. Ligado só quando o export detecta a 1ª corrida (temporada 1, rodada
+    /// 1) e apagado assim que dispara (uma vez por install).
+    showcase_pending: bool,
 }
 
 /// Aviso pessoal ao jogador: uma peça DELE entrou na janela de risco (já pode falhar).
@@ -1020,6 +1025,7 @@ impl RaceMonitor {
             breakdown_weather: crate::car::breakdown::Weather::NEUTRAL,
             pending_player_live: None,
             breakdown_needs_prime: false,
+            showcase_pending: false,
             breakdown_alert: [None; 64],
             player_risk_warned: [false; 11],
             player_warning_log: Vec::new(),
@@ -1041,11 +1047,13 @@ impl RaceMonitor {
         dir: crate::car::breakdown::BreakdownDirector,
         player_live: Option<crate::car::breakdown::LiveBreakdown>,
         weather: crate::car::breakdown::Weather,
+        showcase: bool,
     ) {
         self.breakdown = Some(dir);
         self.pending_player_live = player_live;
         self.breakdown_weather = weather;
         self.breakdown_needs_prime = true;
+        self.showcase_pending = showcase; // 1ª corrida do save → vitrine garantida da quebra
         self.arm_grid_pending = false; // produção sobrepõe o arme debug da grade
         self.breakdown_alert = [None; 64]; // corrida nova → zera os alertas do overlay
         self.breakdown_prev_on_pit = [false; 64];
@@ -1356,6 +1364,81 @@ impl RaceMonitor {
                 self.breakdown_alert[idx] = None;
             }
         }
+    }
+
+    /// VITRINE da 1ª corrida do save (dispara UMA vez): garante que o PENÚLTIMO carro — nunca o
+    /// jogador — sofra uma quebra GRAVE e pare pra arrumar, pra o jogador ver o sistema logo de
+    /// cara. Escolhe o alvo pela posição AO VIVO (penúltimo colocado; se esse for o jogador, o
+    /// último). Injeta o `!black` direto (não passa pela sorte do diretor) e registra
+    /// alerta/flash/log como uma quebra normal — assim overlay, debrief e notícia acendem igual.
+    fn tick_showcase_breakdown(&mut self, t: &IracingTelemetry) {
+        if !self.showcase_pending {
+            return;
+        }
+        // Só correndo, e depois de o jogador dar 2 voltas (grade espalhada + ele já engajado).
+        const SHOWCASE_TRIGGER_LAP: i32 = 2;
+        if t.session_state != STATE_RACING || t.lap_completed < SHOWCASE_TRIGGER_LAP {
+            return;
+        }
+        // Acha os DOIS últimos colocados (posição > 0), guardando se cada um é o jogador. O pace
+        // car vem com posição 0 e cai fora naturalmente.
+        let mut last: Option<(i32, usize, bool)> = None; // (posição, car_idx, is_player)
+        let mut penult: Option<(i32, usize, bool)> = None;
+        for c in t.cars.iter() {
+            if c.idx < 0 || (c.idx as usize) >= 64 || c.position <= 0 {
+                continue;
+            }
+            let idx = c.idx as usize;
+            if self.car_is_pace[idx] {
+                continue;
+            }
+            let entry = (c.position, idx, c.is_player);
+            if last.map_or(true, |(p, _, _)| c.position > p) {
+                penult = last;
+                last = Some(entry);
+            } else if penult.map_or(true, |(p, _, _)| c.position > p) {
+                penult = Some(entry);
+            }
+        }
+        // Alvo = penúltimo; se for o jogador (ou não existir), cai pro último. Os dois nunca são o
+        // mesmo carro, então o fallback garante um alvo != jogador.
+        let target = match penult {
+            Some((_, idx, false)) => Some(idx),
+            _ => last
+                .filter(|(_, _, is_player)| !*is_player)
+                .map(|(_, idx, _)| idx),
+        };
+        let Some(idx) = target else {
+            return; // grade ainda não classificada / só o jogador — tenta no próximo tick
+        };
+        let num = self.car_number[idx];
+        if num <= 0 {
+            return;
+        }
+        let car_lap = t
+            .cars
+            .iter()
+            .find(|c| c.idx == idx as i32)
+            .map(|c| c.lap_completed.max(0))
+            .unwrap_or(0) as u32;
+        // Peça notável (reparo perceptível) variando por número de carro; sempre GRAVE, nunca DNF.
+        use crate::car::PartType;
+        const SHOWCASE_PARTS: [PartType; 5] = [
+            PartType::Gearbox,
+            PartType::Engine,
+            PartType::Suspension,
+            PartType::Cooling,
+            PartType::Brakes,
+        ];
+        let part = SHOWCASE_PARTS[(num as usize) % SHOWCASE_PARTS.len()];
+        let seed = (num as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5340_57CA;
+        let ev = crate::car::breakdown::showcase_repair_event(part, car_lap, 50.0, seed);
+        self.pending_breakdown_cmds.push(ev.command(num as u32));
+        self.breakdown_log.push(BreakdownOutcome::from_event(num as u32, &ev));
+        self.breakdown_alert[idx] =
+            Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+        self.breakdown_flash_at[idx] = t.session_time;
+        self.showcase_pending = false; // uma vez só
     }
 
     /// Snapshot dos alertas de quebra ativos, por car_idx, pro overlay:
@@ -2062,11 +2145,27 @@ impl RaceMonitor {
                     } else {
                         0.0
                     };
-                    let laps_behind = (leader_lap - c.lap_completed).max(0);
+                    // Voltas atrás pela DISTÂNCIA fracionária (voltas completas +
+                    // progresso na volta), NÃO pelo inteiro de voltas completas.
+                    // Sem isso, no INSTANTE em que o líder cruza a linha (quando o
+                    // snapshot é gravado), qualquer carro que ainda não cruzou tem
+                    // `lap_completed` uma volta a menos e ganharia um piso FALSO de
+                    // ~1 volta (~90s): o carro "cai" 60s e volta na amostra seguinte.
+                    // Pela distância, um carro 0.5s atrás fica a ~0.02 volta → piso 0;
+                    // só quem está GENUINAMENTE lapeado (≥1 volta de distância real)
+                    // recebe o piso — que segue de backstop pra carro parado (F2Time~0).
+                    let car_progress = if c.lap_dist_pct.is_finite() {
+                        c.lap_dist_pct.clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    let leader_total = leader_lap as f64 + leader_progress;
+                    let car_total = c.lap_completed as f64 + car_progress;
+                    let laps_behind = (leader_total - car_total).floor().max(0.0);
                     Some(CarGapPoint {
                         idx: c.idx,
                         position,
-                        gap: base_gap.max(laps_behind as f64 * leader_lap_ref),
+                        gap: base_gap.max(laps_behind * leader_lap_ref),
                         lap_dist_pct: if c.lap_dist_pct.is_finite() {
                             c.lap_dist_pct.clamp(0.0, 1.0) as f32
                         } else {
@@ -2289,6 +2388,8 @@ impl RaceMonitor {
         self.process_ai_cars(t);
         // Disparo de quebra da GRADE TODA (usa a volta de cada carro do `t.cars`).
         self.tick_breakdown_grid(t);
+        // Vitrine da 1ª corrida do save: quebra GARANTIDA num backmarker (nunca o jogador).
+        self.tick_showcase_breakdown(t);
         self.evaluate_race_control(t);
         self.build_cars_debug(t);
         self.capture_qualy(t);
@@ -3162,11 +3263,14 @@ fn build_dnf_reason(attempt: &Attempt, ev: &AttemptEvidence, ended_by: &str) -> 
 static MONITOR: Mutex<RaceMonitor> = Mutex::new(RaceMonitor::new());
 
 /// Quando ligado, o RaceControl não só recomenda como DISPARA a bandeira (envia
-/// a macro `!y$` ao iRacing) automaticamente. Opt-in pelo usuário.
+/// a macro `!y$` ao iRacing) automaticamente. LIGADO por padrão — a integração
+/// deve funcionar sozinha; é opt-OUT (o usuário pode desligar).
 ///
 /// A preferência é PERSISTIDA em disco (um flag em `%TEMP%`), então sobrevive a
 /// fechar o app / reiniciar o backend — sem isso o toggle "desmarcava sozinho".
-static AUTO_YELLOW: AtomicBool = AtomicBool::new(false);
+/// Como o default é `true` e o disco só armazena escolha EXPLÍCITA ("1"/"0"),
+/// ausência de arquivo mantém ligado; um "0" salvo preserva o desligar do usuário.
+static AUTO_YELLOW: AtomicBool = AtomicBool::new(true);
 static AUTO_YELLOW_LOADED: std::sync::Once = std::sync::Once::new();
 
 fn auto_yellow_file() -> std::path::PathBuf {
@@ -3386,9 +3490,10 @@ pub fn install_breakdown_director(
     dir: crate::car::breakdown::BreakdownDirector,
     player_live: Option<crate::car::breakdown::LiveBreakdown>,
     weather: crate::car::breakdown::Weather,
+    showcase: bool,
 ) {
     start_sampler();
-    lock().install_breakdown_director(dir, player_live, weather);
+    lock().install_breakdown_director(dir, player_live, weather, showcase);
 }
 
 /// Alertas de quebra ativos por car_idx, pro overlay: `(car_idx, kind)` com

@@ -24,6 +24,7 @@ function Header({ activeTab, onTabChange }) {
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
   const nextRace = useCareerStore((state) => state.nextRace);
+  const homeCategory = useCareerStore((state) => state.homeCategory);
   const temporalSummary = useCareerStore((state) => state.temporalSummary);
   const calendarDisplayDate = useCareerStore((state) => state.calendarDisplayDate);
   const displayDaysUntilNextEvent = useCareerStore((state) => state.displayDaysUntilNextEvent);
@@ -38,6 +39,11 @@ function Header({ activeTab, onTabChange }) {
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
   const closeRaceBriefing = useCareerStore((state) => state.closeRaceBriefing);
   const [seasonChampion, setSeasonChampion] = useState(null);
+  // Banner da PRÓXIMA corrida de uma categoria que NÃO é a do jogador (o jogador
+  // trocou de série/tier na tabela da Home). `null` quando estamos na categoria do
+  // jogador (o banner usa `nextRace` do store). { race, totalRodadas, countdownDays,
+  // pending } quando é outra categoria.
+  const [categoryRace, setCategoryRace] = useState(null);
 
   // Clicar no chip da equipe abre direto a pergunta de sair (salvando ou não).
   const { isSaving, exit, saveAndExit } = useExitToMenu();
@@ -47,6 +53,10 @@ function Header({ activeTab, onTabChange }) {
   const visibleCountdown = displayDaysUntilNextEvent ?? temporalSummary?.days_until_next_event;
   const hasNoPendingRace = !nextRace;
   const isFreeAgent = !playerTeam;
+  // Categoria em exibição na Home: a do jogador (padrão) ou outra que ele abriu na
+  // tabela. Quando é a do jogador, o banner segue lendo `nextRace` do store.
+  const viewingOwnCategory = !homeCategory || homeCategory === playerTeam?.categoria;
+  const viewedCategory = homeCategory ?? playerTeam?.categoria ?? null;
   const phase = season?.fase;
   const isLegacyPhase = isLegacySeasonPhase(phase);
   const hasPendingLegacyRegularRaces =
@@ -59,8 +69,10 @@ function Header({ activeTab, onTabChange }) {
   // vive DENTRO do banner cinematográfico — então escondemos o duplicado da barra
   // superior (deixando só o cartão de data à direita). Nos demais casos/abas, o
   // botão da barra continua sendo o controle universal.
+  // O banner só "dona" o botão Avançar quando é a próxima corrida DO JOGADOR. Vendo
+  // outra categoria, o banner é informativo (sem botão) e o botão global volta à barra.
   const bannerOwnsAdvance =
-    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace);
+    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace) && viewingOwnCategory;
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +112,65 @@ function Header({ activeTab, onTabChange }) {
       mounted = false;
     };
   }, [careerId, playerTeam?.categoria, hasNoPendingRace, season?.ano]);
+
+  // Quando o jogador abre OUTRA categoria na tabela da Home, busca o calendário dela
+  // e deriva a próxima corrida (1ª pendente) + total de etapas + contagem regressiva
+  // (relativa à data atual do jogador). O comando `get_calendar_for_category` já
+  // devolve tudo que o banner precisa (pista, clima, temperatura, data, rodada).
+  // As outras categorias correm em LOCKSTEP com o jogador, então quase sempre há uma
+  // corrida pendente na mesma janela; sem pendente (fim de temporada) mostramos a
+  // última etapa sem contagem regressiva.
+  useEffect(() => {
+    let mounted = true;
+
+    if (
+      !careerId ||
+      viewingOwnCategory ||
+      !viewedCategory ||
+      activeTab !== "standings" ||
+      showRaceBriefing
+    ) {
+      setCategoryRace(null);
+      return undefined;
+    }
+
+    invoke("get_calendar_for_category", { careerId, category: viewedCategory })
+      .then((entries) => {
+        if (!mounted) return;
+        const list = Array.isArray(entries) ? entries : [];
+        const pending = list.find((entry) => entry.status === "Pendente") ?? null;
+        const race = pending ?? list[list.length - 1] ?? null;
+        if (!race) {
+          setCategoryRace(null);
+          return;
+        }
+        setCategoryRace({
+          race,
+          totalRodadas: list.length,
+          countdownDays: pending
+            ? daysBetweenDisplayDates(visibleDate, pending.display_date)
+            : null,
+          pending: Boolean(pending),
+        });
+      })
+      .catch(() => {
+        if (mounted) setCategoryRace(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+    // `visibleDate` + `rodada_atual` mudam a cada avanço → recalcula ao reabrir a Home.
+  }, [
+    careerId,
+    viewedCategory,
+    viewingOwnCategory,
+    activeTab,
+    showRaceBriefing,
+    visibleDate,
+    season?.ano,
+    season?.rodada_atual,
+  ]);
 
   function handleNextRace() {
     // Leva o jogador para o Calendário (com fade) para ele ver a animação dos
@@ -254,11 +325,25 @@ function Header({ activeTab, onTabChange }) {
       </div>
 
       {activeTab === "standings" && !showRaceBriefing && (
-        nextRace ? (
+        !viewingOwnCategory ? (
+          // Vendo OUTRA categoria: banner informativo (sem botão Avançar), com a
+          // próxima corrida daquela categoria. Enquanto o calendário carrega,
+          // segura a altura do banner para não "pular" o layout.
+          categoryRace?.race ? (
+            <NextRaceBanner
+              nextRace={categoryRace.race}
+              championship={categoryLabel(viewedCategory)}
+              totalRodadas={categoryRace.totalRodadas}
+              countdownDays={categoryRace.pending ? categoryRace.countdownDays : null}
+            />
+          ) : (
+            <BannerHeightPlaceholder />
+          )
+        ) : nextRace ? (
           <NextRaceBanner
             nextRace={nextRace}
-            season={season}
-            playerTeam={playerTeam}
+            championship={categoryLabel(playerTeam?.categoria)}
+            totalRodadas={season?.total_rodadas ?? null}
             countdownDays={visibleCountdown}
             onAdvance={handleNextRace}
             advanceLabel={getAdvanceButtonLabel()}
@@ -338,16 +423,14 @@ function SeasonFinishedBanner({ season, category, champion }) {
 // reaproveitando o handler existente (onAdvance = handleNextRace).
 function NextRaceBanner({
   nextRace,
-  season,
-  playerTeam,
+  championship,
+  totalRodadas = null,
   countdownDays,
-  onAdvance,
+  onAdvance = null,
   advanceLabel,
   advanceDisabled,
 }) {
   const trackName = nextRace.track_name;
-  const totalRodadas = season?.total_rodadas ?? null;
-  const championship = categoryLabel(playerTeam?.categoria);
   const country = trackCountry(trackName);
   const bannerDate = formatBannerDate(nextRace.display_date);
   const hasWeather = nextRace.clima != null || nextRace.temperatura != null;
@@ -463,7 +546,10 @@ function NextRaceBanner({
             </div>
           </div>
 
-          {/* Ações — botão principal reaproveita o handler de avanço do calendário. */}
+          {/* Ações — botão principal reaproveita o handler de avanço do calendário.
+              Só aparece na próxima corrida DO JOGADOR; vendo outra categoria o banner
+              é puramente informativo (o botão global volta à barra do topo). */}
+          {onAdvance ? (
           <div className="flex shrink-0 items-center justify-end md:pb-1">
             <button
               type="button"
@@ -488,8 +574,21 @@ function NextRaceBanner({
               </svg>
             </button>
           </div>
+          ) : null}
         </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Segura a altura do banner enquanto o calendário de outra categoria é buscado, para
+// a Home não "pular" quando o banner informativo entra logo em seguida.
+function BannerHeightPlaceholder() {
+  return (
+    <div className="px-3 pb-1 pt-0.5 sm:px-4 lg:px-5 xl:px-6">
+      <div className="mx-auto w-full max-w-[1680px]">
+        <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-[#03060f] min-h-[196px] md:h-[clamp(200px,21vh,230px)]" />
       </div>
     </div>
   );
@@ -797,6 +896,21 @@ function formatBannerDate(displayDate) {
   const [, year, month, day] = match;
   const monthLabel = BANNER_MONTHS_PT[Number(month) - 1] ?? month;
   return `${day} ${monthLabel} ${year}`;
+}
+
+// Dias entre duas datas YYYY-MM-DD (usa UTC para não sofrer com fuso). Usado para a
+// contagem regressiva do banner de OUTRA categoria, cuja próxima corrida é lida do
+// calendário — para a categoria do jogador a contagem já vem pronta do store.
+function daysBetweenDisplayDates(from, to) {
+  const parse = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+    if (!match) return null;
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  };
+  const a = parse(from);
+  const b = parse(to);
+  if (a == null || b == null) return null;
+  return Math.round((b - a) / 86400000);
 }
 
 // Contagem regressiva curtíssima ("EM 7 DIAS") a partir dos mesmos dados do header.

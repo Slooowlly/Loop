@@ -705,6 +705,37 @@ fn repair_secs(pt: PartType, sev: Severity, pit_crew_quality: f64, r: f64) -> u3
         .max(1.0) as u32
 }
 
+/// Evento de quebra GARANTIDO e NÃO-DNF — a "vitrine" da primeira corrida de um save novo: a
+/// peça larga com severidade GRAVE (parada de reparo no box via `!black`), com o tempo próprio da
+/// peça × pit crew. NÃO passa pela sorte da janela/parede; é determinístico por `(part, seed)`,
+/// que só varia a peça/tempo/frase entre saves. Serve pra MOSTRAR o sistema logo de cara (um
+/// backmarker para pra arrumar), sem tirar o carro da corrida.
+pub fn showcase_repair_event(
+    part: PartType,
+    lap: u32,
+    pit_crew_quality: f64,
+    seed: u64,
+) -> BreakdownEvent {
+    let severity = Severity::Heavy;
+    let penalty = repair_secs(
+        part,
+        severity,
+        pit_crew_quality,
+        hash_to_unit(seed ^ 0x5340_57CA_5E00_0001),
+    );
+    let problem = (hash_to_unit(seed ^ 0x0B0B_0B0B_0B0B_0B0B) * FAILURE_MODES as f64) as u8;
+    BreakdownEvent {
+        part,
+        lap,
+        severity,
+        penalty_secs: Some(penalty),
+        entered_wear: HARD_WALL,
+        wear_at_fail: HARD_WALL,
+        forced: true,
+        problem,
+    }
+}
+
 // ───────────────────────── Passo por-volta (ao vivo) ─────────────────────────
 
 /// Estado do risco de quebra de UM carro, avançado **volta a volta**. É o primitivo do
@@ -1601,6 +1632,21 @@ mod tests {
             // DNF não tem tempo de penalidade; leve/grave têm.
             for e in &ev {
                 assert_eq!(e.is_dnf(), e.penalty_secs.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn vitrine_e_sempre_reparo_grave_nunca_dnf() {
+        // A vitrine da 1ª corrida GARANTE uma parada de reparo (Grave, com tempo de box) — nunca
+        // um DNF — pra qualquer peça e qualquer semente.
+        for &pt in PartType::ALL.iter() {
+            for seed in 0..64u64 {
+                let ev = showcase_repair_event(pt, 3, PIT_NEUTRO, seed);
+                assert_eq!(ev.severity, Severity::Heavy, "vitrine deve ser Grave");
+                assert!(!ev.is_dnf(), "vitrine nunca é DNF");
+                assert!(ev.penalty_secs.map_or(false, |s| s >= 1), "tem tempo de reparo");
+                assert!(ev.command(42).starts_with("!black #42"), "vira !black, não !dq");
             }
         }
     }

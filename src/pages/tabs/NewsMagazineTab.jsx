@@ -7,7 +7,7 @@ import RivalMarker from "../../components/driver/RivalMarker";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { getTrackImageSrc } from "../../utils/trackImages";
-import { buildDriverMentionMatcher, driverMentionClass } from "../../utils/driverMentions";
+import { driverMentionClass, segmentDriverMentions } from "../../utils/driverMentions";
 import { getTeamGlow } from "../../utils/teamColors";
 import { getReadableTeamColor } from "./newsHelpers";
 import { buildInboxMessages } from "./inboxMessages";
@@ -46,27 +46,26 @@ function colorizeTeams(text, teams) {
 // spans interativos (hover acende o piloto/equipe na classificação ao lado) e o
 // restante passa por `colorizeTeams` (nomes de EQUIPE na cor do time).
 function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriverId, onHover) {
-  const matcher = buildDriverMentionMatcher(mentionDrivers);
-  if (!matcher) {
+  const segments = segmentDriverMentions(text, mentionDrivers);
+  if (!segments.length) {
     return colorizeTeams(text, teams);
   }
-  return text.split(matcher.regex).map((part, i) => {
-    const driverId = matcher.byName.get(part);
-    if (driverId) {
-      const isActive = hoveredDriverId === driverId;
+  return segments.map((seg, i) => {
+    if (seg.type === "driver") {
+      const isActive = hoveredDriverId === seg.id;
       return (
         <span
           key={i}
-          onMouseEnter={() => onHover(driverId)}
+          onMouseEnter={() => onHover(seg.id)}
           onMouseLeave={() => onHover(null)}
           className={driverMentionClass(isActive, "text-[#58a6ff]", "text-white hover:text-[#58a6ff]")}
         >
-          {part}
-          <RivalMarker driverId={driverId} className="ml-0.5 align-middle" />
+          {seg.text}
+          <RivalMarker driverId={seg.id} className="ml-0.5 align-middle" />
         </span>
       );
     }
-    return <Fragment key={i}>{colorizeTeams(part, teams)}</Fragment>;
+    return <Fragment key={i}>{colorizeTeams(seg.text, teams)}</Fragment>;
   });
 }
 
@@ -119,6 +118,9 @@ function NewsMagazineTab() {
   }, [careerId]);
 
   const [bulletin, setBulletin] = useState(null);
+  // Matéria de expectativas de PRÉ-TEMPORADA: só existe antes da 1ª corrida (nenhuma
+  // edição de corrida ainda). Substitui o "livro fechado" por um spread aberto.
+  const [preview, setPreview] = useState(null);
 
   // ── Rodapé "notícias do mundo": notinhas sobre ex-equipes e ex-companheiros do
   // jogador, só da categoria atual (crise, dívida, clima pesado, nova diretoria).
@@ -263,6 +265,59 @@ function NewsMagazineTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [careerId, ed?.rodada, season?.id]);
 
+  // Pré-temporada: só há matéria de expectativas enquanto NENHUMA corrida foi disputada.
+  // Assim que a 1ª etapa conclui, `editions` deixa de ser vazio e este bloco some.
+  const isPreseason = editions.length === 0;
+
+  useEffect(() => {
+    let active = true;
+    if (!careerId || !category || !season?.id || !isPreseason) {
+      setPreview(null);
+      return undefined;
+    }
+    setPreview({ loading: true });
+    invoke("enrich_season_preview_ai", { careerId })
+      .then((res) => {
+        if (!active) return;
+        setPreview({
+          loading: false,
+          story: res?.story ?? null,
+          teams: res?.teams ?? null,
+          status: res?.status ?? null,
+        });
+      })
+      .catch(() => {
+        if (active) setPreview({ loading: false, story: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [careerId, category, season?.id, isPreseason]);
+
+  // Pista de abertura (menor rodada do calendário) — foto + legenda do spread de prévia.
+  const openingRace = useMemo(() => {
+    if (!calendar.length) return null;
+    return [...calendar].sort((a, b) => (a.rodada ?? 0) - (b.rodada ?? 0))[0] ?? null;
+  }, [calendar]);
+
+  // Favoritos ao título: grid da categoria por POTENCIAL (skill), já que o campeonato
+  // ainda está zerado na pré-temporada. Marca "nome de público" por mídia alta.
+  const favorites = useMemo(() => {
+    return [...driverStandings]
+      .sort((a, b) => (b.skill ?? 0) - (a.skill ?? 0))
+      .slice(0, 12)
+      .map((d, i) => ({
+        id: d.id,
+        pos: i + 1,
+        name: d.nome,
+        skill: Math.round(d.skill ?? 0),
+        teamName: d.equipe_nome,
+        color: d.equipe_cor || "#888",
+        me: d.is_jogador,
+        star: (d.midia ?? 0) >= 71,
+      }));
+  }, [driverStandings]);
+
   // Construtores: grid completo da categoria, por posição no campeonato.
   const construtores = useMemo(() => {
     return standings.map((t) => ({
@@ -365,10 +420,14 @@ function NewsMagazineTab() {
     ? `${t("newsMagazine.foot.edition", { round: ed.rodada })}${totalRounds ? t("newsMagazine.foot.ofTotal", { total: totalRounds }) : ""}${year ? t("newsMagazine.foot.seasonSuffix", { year }) : ""}`
     : "";
 
+  // Antes da 1ª corrida a revista abre com a matéria de expectativas (spread aberto,
+  // não o "livro fechado"). Só recai no livro fechado se nem categoria houver (edge).
+  const showPreseason = isPreseason && !!category;
+
   return (
     <div className="newsmag">
       {/* ═══════════ A REVISTA ═══════════ */}
-      <article className={`mag${flipping ? " flipping" : ""}${ed ? "" : " mag--cover"}`}>
+      <article className={`mag${flipping ? " flipping" : ""}${ed || showPreseason ? "" : " mag--cover"}`}>
         {ed ? (
         <>
         <div className="spread">
@@ -584,6 +643,142 @@ function NewsMagazineTab() {
             </div>
           </div>
           <div className="foot-meta">{footMeta}</div>
+        </div>
+        </>
+        ) : showPreseason ? (
+        <>
+        <div className="spread">
+          {/* PÁGINA ESQUERDA — matéria de expectativas */}
+          <div className="page page-l">
+            <div className="flag" />
+            <div className="kicker">
+              {catLabel} · {t("newsMagazine.preseason.kicker")}
+            </div>
+            <h1 className="display">
+              <span className="l1">{t("newsMagazine.preseason.titleLine")}</span>
+              <span className="l2">{t("newsMagazine.preseason.seasonLine", { year })}</span>
+            </h1>
+            <span className="ai-tag">
+              {preview?.loading
+                ? t("newsMagazine.preseason.aiTag.generating")
+                : preview?.story
+                ? t("newsMagazine.preseason.aiTag.ready")
+                : t("newsMagazine.preseason.aiTag.comingSoon")}
+            </span>
+
+            <div className="prose-cols">
+              <h3 className="subhead">{t("newsMagazine.preseason.articleHead")}</h3>
+              {preview?.story ? (
+                preview.story
+                  .split(/\n\s*\n/)
+                  .filter(Boolean)
+                  .map((para, i) => (
+                    <p key={i}>
+                      {renderBulletinParagraph(
+                        para,
+                        mentionDrivers,
+                        preview.teams,
+                        hoveredDriverId,
+                        setHoveredDriverId,
+                      )}
+                    </p>
+                  ))
+              ) : preview?.loading ? (
+                <p>{t("newsMagazine.preseason.generating")}</p>
+              ) : (
+                <p>{t("newsMagazine.preseason.placeholder")}</p>
+              )}
+            </div>
+          </div>
+
+          {/* PÁGINA DIREITA — pista de abertura + favoritos por potencial */}
+          <div className="page page-r">
+            <div className="credits">
+              {t("newsMagazine.credits.reportedBy")} <b>{t("newsMagazine.credits.pressOffice")}</b>
+              <br />
+              {catLabel ? <>{t("newsMagazine.credits.seasonOf")} <b>{catLabel}</b></> : null}
+            </div>
+            {openingRace ? (
+              <img
+                className="photo"
+                src={getTrackImageSrc(openingRace.track_name, openingRace.track_id)}
+                alt={openingRace.track_name}
+              />
+            ) : (
+              <div className="photo" />
+            )}
+            <p className="cap">
+              {openingRace
+                ? t("newsMagazine.preseason.caption", { track: openingRace.track_name })
+                : t("newsMagazine.preseason.captionGeneric")}
+            </p>
+
+            <div className="r-grid r-grid-single">
+              <div>
+                <div className="nm-standings-head">
+                  <h3 className="subhead">
+                    {t("newsMagazine.preseason.favoritesHead")}
+                    {year ? <> · {year}</> : null}
+                  </h3>
+                </div>
+                {favorites.length > 0 ? (
+                  <div className={`res-list${favorites.length > 12 ? " res-list--split" : ""}`}>
+                    {favorites.map((p) => {
+                      const glow = hoveredDriverId != null && p.id === hoveredDriverId;
+                      const tone = glow ? getTeamGlow(p.color) : null;
+                      return (
+                        <div
+                          key={p.id ?? p.pos}
+                          className={p.me ? "res-row me" : "res-row"}
+                          style={
+                            tone
+                              ? { background: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` }
+                              : undefined
+                          }
+                          onMouseEnter={() => setHoveredDriverId(p.id)}
+                          onMouseLeave={() => setHoveredDriverId(null)}
+                        >
+                          <span className="rp">{p.pos}</span>
+                          <TeamLogoMark teamName={p.teamName} color={p.color} size="xs" testId="news-favorite-team-logo" />
+                          <span className="rn">{p.name}</span>
+                          <span className="rpts">{p.skill}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p>{t("newsMagazine.standings.driversUnavailable")}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {worldNotes.length > 0 && (
+          <div className="world-notes" aria-label={t("newsMagazine.world.ariaLabel")}>
+            <div className="wn-head">{t("newsMagazine.world.heading")}</div>
+            <div className="wn-list">
+              {worldNotes.map((n) => (
+                <div key={n.id} className={`wn-item wn-${n.tone || "neutro"}`}>
+                  <span className="wn-tag">{n.tag}</span>
+                  <span className="wn-text">{n.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mag-foot">
+          <div className="foot-left">
+            <div className="brand">
+              GRID<span>·</span>MAGAZINE
+            </div>
+          </div>
+          <div className="foot-meta">
+            {year
+              ? t("newsMagazine.preseason.footSeason", { year })
+              : t("newsMagazine.preseason.foot")}
+          </div>
         </div>
         </>
         ) : (

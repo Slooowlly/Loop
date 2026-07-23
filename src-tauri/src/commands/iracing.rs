@@ -1915,8 +1915,13 @@ pub fn iracing_generate_roster(
     // e o instala no monitor (auto no export). Durante a corrida ele dispara `!black`/`!dq`
     // conforme as peças largam. O número do JOGADOR só é conhecido ao vivo → guardamos o estado
     // dele e o monitor o vincula no verde. Best-effort: falha aqui não bloqueia o export.
-    if let Some((_season, race)) = next.as_ref() {
+    if let Some((season, race)) = next.as_ref() {
         use crate::car::breakdown::{BreakdownDirector, LiveBreakdown};
+
+        // Vitrine: só na PRIMEIRA corrida de um save novo (temporada 1, rodada 1). O monitor
+        // garante que o penúltimo carro (nunca o jogador) pare pra arrumar uma peça, mostrando o
+        // sistema de quebra logo de cara.
+        let is_first_race = season.numero == 1 && race.rodada == 1;
         use crate::db::queries::team_car as tcq;
         use crate::market::car_maintenance::maintenance_demand;
 
@@ -1997,7 +2002,7 @@ pub fn iracing_generate_roster(
             )
         });
 
-        race_monitor::install_breakdown_director(dir, player_live, weather);
+        race_monitor::install_breakdown_director(dir, player_live, weather, is_first_race);
     }
 
     Ok(RosterGenResult {

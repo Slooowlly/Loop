@@ -19,6 +19,9 @@ const POST_RACE_URL: &str =
 /// Endpoint do rodapé "Do mundo do Grid" (reescrita jornalística das notinhas).
 const WORLD_NOTES_URL: &str =
     "https://iracer-news-124606451488.southamerica-east1.run.app/world-notes";
+/// Endpoint da matéria de expectativas de pré-temporada (abre a revista antes da 1ª corrida).
+const SEASON_PREVIEW_URL: &str =
+    "https://iracer-news-124606451488.southamerica-east1.run.app/season-preview";
 const APP_SECRET: &str = "827119cc235cdea25c04545cd283749e673917d2d424340fb1059925738efcef";
 // 45s e não 20s: o servidor (Cloud Run) faz scale-to-zero quando ocioso, e a 1ª
 // chamada após um período parado paga um cold start (subir o container + init do
@@ -219,6 +222,55 @@ pub fn fetch_post_race_debrief(
         return Err(StoryError::Empty);
     }
     Ok(PostRaceDebrief { headline, body })
+}
+
+/// Matéria de expectativas de pré-temporada. Um único bloco de texto (vários
+/// parágrafos separados por linha em branco), igual ao boletim de corrida. Mesmo
+/// contrato dos demais (segredo no header, cooldown/teto no servidor). Em QUALQUER
+/// erro — inclusive o endpoint `/season-preview` ainda não existir no servidor — o
+/// chamador devolve `story: None` e o front cai no texto-placeholder.
+pub fn fetch_season_preview(
+    facts: &str,
+    lang: &str,
+    install_id: &str,
+) -> Result<String, StoryError> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(TIMEOUT_SECS))
+        .build()
+        .map_err(|e| StoryError::Network(e.to_string()))?;
+
+    let body = serde_json::json!({
+        "facts": facts,
+        "lang": lang,
+        "install_id": install_id,
+    });
+
+    let resp = client
+        .post(SEASON_PREVIEW_URL)
+        .header("x-app-secret", APP_SECRET)
+        .json(&body)
+        .send()
+        .map_err(|e| StoryError::Network(e.to_string()))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 => StoryError::Unauthorized,
+            429 => StoryError::RateLimited,
+            other => StoryError::Server(format!("HTTP {other}")),
+        });
+    }
+
+    // Reusa o formato `{ "story": "…" }` do boletim de corrida.
+    let parsed: StoryResponse = resp
+        .json()
+        .map_err(|e| StoryError::Server(e.to_string()))?;
+
+    let story = parsed.story.trim().to_string();
+    if story.is_empty() {
+        return Err(StoryError::Empty);
+    }
+    Ok(story)
 }
 
 #[derive(Deserialize)]

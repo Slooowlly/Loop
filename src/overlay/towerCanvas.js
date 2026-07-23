@@ -83,6 +83,52 @@ const FASTEST_RIGHT = 356;
 const POINTS_RIGHT = 414;
 const POINTS_GAIN_X = 418;
 const PIN_X = PANEL_W;
+// Folga entre o fim do nome e o emoji de rivalidade (que vem DEPOIS do nome).
+const RIVAL_GAP = 4;
+
+// ─── Modo MINI ────────────────────────────────────────────────────────────────
+// A torre tem duas larguras: a COMPLETA (todas as colunas) e a MINI — um painel
+// estreito só com pos · nome · delta (sem logo/paradas/melhor-volta/pontos), pra um
+// HUD discreto. A altura das linhas não muda; o que encolhe é a LARGURA e o nº de
+// carros (via `MINI_SECTION_OPTS`). O VR nunca usa mini — é coisa só do monitor.
+export const MINI_PANEL_W = 232;
+
+// Menos carros na mini: top 2 de cada classe + a vizinhança do jogador (2 na frente + 2 atrás).
+export const MINI_SECTION_OPTS = { topN: 2, neighbors: 2, maxRows: 6 };
+
+// Métricas de layout por modo. `drawTower` monta uma destas e passa pras funções de
+// desenho, que leem SEMPRE do layout (nunca das consts de largura direto).
+function layoutFor(compact) {
+  if (!compact) {
+    return {
+      compact: false,
+      panelW: PANEL_W,
+      posRight: POS_RIGHT,
+      logo: true,
+      logoX: LOGO_X,
+      nameX: NAME_X,
+      nameRight: NAME_RIGHT,
+      deltaRight: DELTA_RIGHT,
+      stops: true,
+      best: true,
+      points: true,
+    };
+  }
+  const panelW = MINI_PANEL_W;
+  return {
+    compact: true,
+    panelW,
+    posRight: 24,
+    logo: true, // logo do time ao lado do nome, como na completa
+    logoX: 30,
+    nameX: 66, // depois da posição + logo
+    nameRight: panelW - 46,
+    deltaRight: panelW - 8,
+    stops: false,
+    best: false,
+    points: false,
+  };
+}
 
 export function formatTowerPosition(position) {
   return position > 0 ? String(position) : "–";
@@ -108,11 +154,49 @@ function readableOn(hex) {
   return lum > 0.55 ? "#0b0d10" : "#ffffff";
 }
 
+// Clareia um hex misturando com branco (amt 0..1). Fallback cinza claro.
+function lighten(hex, amt) {
+  if (typeof hex !== "string" || !/^#([0-9a-f]{6})$/i.test(hex)) return "#c9d1d9";
+  const mix = (c) => Math.round(c + (255 - c) * amt);
+  const r = mix(parseInt(hex.slice(1, 3), 16));
+  const g = mix(parseInt(hex.slice(3, 5), 16));
+  const b = mix(parseInt(hex.slice(5, 7), 16));
+  return `rgb(${r},${g},${b})`;
+}
+
+// Cor do nome dos pilotos do SEU time = a cor DA EQUIPE (car.color, ex.: vermelho). Só
+// clareia se o time for bem escuro, pra não sumir no painel escuro (vermelho segue vermelho).
+function teamNameColor(hex) {
+  if (typeof hex !== "string" || !/^#([0-9a-f]{6})$/i.test(hex)) return "#f0f6fc";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return lum < 0.18 ? lighten(hex, 0.45) : hex;
+}
+
 function truncate(ctx, text, maxW) {
   if (ctx.measureText(text).width <= maxW) return text;
   let t = text;
   while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
   return t + "…";
+}
+
+// Nome do piloto ENCURTADO pra torre: primeiro nome + inicial do segundo, e nada do
+// terceiro em diante:
+//   "Matthew Koontz"    -> "Matthew K."
+//   "Marco I D'Acunto"  -> "Marco I."      (o 3º nome cai fora)
+//   "Pawel T. Okreglicki" -> "Pawel T."
+//   "Ayrton"            -> "Ayrton"        (nome único fica inteiro)
+// Cabe na coluna sem "…", inclusive quando o emoji de rival entra depois do nome.
+export function shortDriverName(name) {
+  const parts = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[1][0].toUpperCase()}.`;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -368,8 +452,8 @@ function drawPin(ctx, pin, left, cy, theme) {
   return PIN_SIZE;
 }
 
-function drawPins(ctx, car, cy, theme) {
-  let left = PIN_X;
+function drawPins(ctx, car, cy, theme, panelW = PIN_X) {
+  let left = panelW;
   for (const pin of pinsFor(car)) {
     left += drawPin(ctx, pin, left, cy, theme) + PIN_GAP;
   }
@@ -463,26 +547,28 @@ function drawStopStack(ctx, car, cy, assets) {
 }
 
 // ─── Linha ───────────────────────────────────────────────────────────────────
-function drawRow(ctx, car, y, assets, team, theme) {
+function drawRow(ctx, car, y, assets, team, theme, L) {
   const isPlayer = Boolean(car.player);
   const mate = isTeammate(car, team);
+  const ownTeam = isPlayer || mate; // seus dois carros: mesma marcação (cor do time)
   const cy = y + ROW_H / 2;
+  const panelW = L.panelW;
 
   // Fundo/realce da linha — depende do tema. O realce de você/companheiro NUNCA
   // é uma cor de linha diferente; é sempre a cor da PRÓPRIA equipe (+ nome).
   if (theme.rowStyle === "block") {
     ctx.fillStyle = hexToRgba(car.color, theme.rowAlpha * 0.6);
-    ctx.fillRect(0, y, PANEL_W, ROW_H);
+    ctx.fillRect(0, y, panelW, ROW_H);
   } else {
-    const grad = ctx.createLinearGradient(0, y, PANEL_W, y);
+    const grad = ctx.createLinearGradient(0, y, panelW, y);
     grad.addColorStop(0, hexToRgba(car.color, theme.rowAlpha));
     grad.addColorStop(0.35, hexToRgba(car.color, theme.rowAlpha * 0.35));
     grad.addColorStop(0.7, "rgba(0,0,0,0)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, y, PANEL_W, ROW_H);
+    ctx.fillRect(0, y, panelW, ROW_H);
     if (theme.sheen) {
       ctx.fillStyle = "rgba(255,255,255,0.05)";
-      ctx.fillRect(0, y, PANEL_W, 1);
+      ctx.fillRect(0, y, panelW, 1);
     }
   }
 
@@ -509,10 +595,10 @@ function drawRow(ctx, car, y, assets, team, theme) {
       fillA = 0.32 + 0.3 * blink;
     }
     ctx.fillStyle = `rgba(${fillRGB},${fillA.toFixed(3)})`;
-    ctx.fillRect(0, y, PANEL_W, ROW_H);
+    ctx.fillRect(0, y, panelW, ROW_H);
     ctx.strokeStyle = `rgba(${borderRGB},${(0.55 + 0.45 * blink).toFixed(3)})`;
     ctx.lineWidth = 2;
-    ctx.strokeRect(1, y + 1, PANEL_W - 2, ROW_H - 2);
+    ctx.strokeRect(1, y + 1, panelW - 2, ROW_H - 2);
   }
 
   fgShadow(ctx, true); // conteúdo da linha (texto/logo/pneus/pins) com sombra
@@ -535,94 +621,116 @@ function drawRow(ctx, car, y, assets, team, theme) {
     ctx.fillStyle = theme.posColor;
     ctx.font = `700 14px ${FONT}`;
     ctx.textAlign = "right";
-    ctx.fillText(formatTowerPosition(car.pos), POS_RIGHT, cy);
+    ctx.fillText(formatTowerPosition(car.pos), L.posRight, cy);
   }
 
-  const img = assets.logos.get(car.team);
-  if (img) ctx.drawImage(img, LOGO_X, y + (ROW_H - LOGO_H) / 2, LOGO_W, LOGO_H);
+  // Logo da equipe ao lado do nome (posição vem do layout).
+  if (L.logo) {
+    const img = assets.logos.get(car.team);
+    if (img) ctx.drawImage(img, L.logoX, y + (ROW_H - LOGO_H) / 2, LOGO_W, LOGO_H);
+  }
 
-  // Marcador de rivalidade (💥 nemesis / 🔥 rival) à esquerda do nome, empurrando-o.
+  // Marcador de rivalidade (💥 nemesis / 🔥 rival): vem DEPOIS do nome.
+  // SÓ na torre GRANDE (completa) — a mini é enxuta demais pra emoji.
   ctx.textAlign = "left";
-  let nameX = NAME_X;
+  const nameX = L.nameX;
   const rivalGlyph =
     car.rivalRole === "nemesis" ? "\u{1F4A5}" : car.rivalRole === "rival" ? "\u{1F525}" : null;
-  if (rivalGlyph) {
+  const showRival = Boolean(rivalGlyph) && !L.compact;
+
+  // Reserva a largura do emoji ANTES de cortar o nome, senão ele estouraria a coluna.
+  let rivalW = 0;
+  if (showRival) {
     ctx.font = `12px ${FONT}`;
-    ctx.fillText(rivalGlyph, nameX, cy);
-    nameX += ctx.measureText(rivalGlyph).width + 3;
+    rivalW = ctx.measureText(rivalGlyph).width + RIVAL_GAP;
   }
 
-  // Nome: verde = você, azul = companheiro, senão o texto do tema.
-  const nameColor = isPlayer ? theme.playerColor : mate ? theme.teammateColor : theme.text;
-  const nameWeight = isPlayer || mate || theme.rowStyle === "block" ? 700 : 600;
+  // Nome do SEU time (jogador + companheiro) na COR DA EQUIPE (car.color, ex.: vermelho);
+  // os demais no texto do tema. Times bem escuros são clareados só o necessário pra ler.
+  const nameColor = ownTeam ? teamNameColor(car.color) : theme.text;
+  const nameWeight = theme.rowStyle === "block" ? 700 : 600;
   ctx.fillStyle = nameColor;
   ctx.font = `${nameWeight} 14px ${FONT}`;
-  ctx.fillText(truncate(ctx, car.name, NAME_RIGHT - nameX), nameX, cy);
+  const nameText = truncate(ctx, shortDriverName(car.name), L.nameRight - nameX - rivalW);
+  ctx.fillText(nameText, nameX, cy);
+
+  // Emoji logo APÓS o nome (mede o nome ainda na fonte dele, depois troca pra do emoji).
+  if (showRival) {
+    const nameW = ctx.measureText(nameText).width;
+    ctx.font = `12px ${FONT}`;
+    ctx.fillText(rivalGlyph, nameX + nameW + RIVAL_GAP, cy);
+  }
 
   // Delta.
   ctx.textAlign = "right";
   ctx.font = `600 12px ${FONT}`;
   if (!car.delta) {
     ctx.fillStyle = theme.textMuted;
-    ctx.fillText("— 0", DELTA_RIGHT, cy);
+    ctx.fillText("— 0", L.deltaRight, cy);
   } else {
     const up = car.delta > 0;
     ctx.fillStyle = up ? theme.up : theme.down;
-    ctx.fillText(`${up ? "▲" : "▼"} ${Math.abs(car.delta)}`, DELTA_RIGHT, cy);
+    ctx.fillText(`${up ? "▲" : "▼"} ${Math.abs(car.delta)}`, L.deltaRight, cy);
   }
 
   // Coluna de paradas: pneu (seco/molhado) / combustível / reparo de peça por parada,
   // com o tempo de pit por cima, se o carro parou há ≤3 voltas.
-  drawStopStack(ctx, car, cy, assets);
-  if (car.pitSecs != null) drawPitTimeBadge(ctx, STOPS_CENTER, cy, car.pitSecs);
-
-  // Melhor volta.
-  ctx.fillStyle = car.fol ? theme.purple : theme.text;
-  ctx.font = `600 13px ${FONT}`;
-  ctx.textAlign = "right";
-  ctx.fillText(car.fastest, FASTEST_RIGHT, cy);
-
-  // Pontos + ganho.
-  ctx.fillStyle = theme.text;
-  ctx.font = `700 13px ${FONT}`;
-  ctx.textAlign = "right";
-  ctx.fillText(String(car.points ?? 0), POINTS_RIGHT, cy);
-  if (car.gain > 0) {
-    ctx.fillStyle = theme.gainGreen;
-    ctx.font = `700 10px ${FONT}`;
-    ctx.textAlign = "left";
-    ctx.fillText(`+${car.gain}`, POINTS_GAIN_X, cy);
+  if (L.stops) {
+    drawStopStack(ctx, car, cy, assets);
+    if (car.pitSecs != null) drawPitTimeBadge(ctx, STOPS_CENTER, cy, car.pitSecs);
   }
 
-  drawPins(ctx, car, cy, theme);
+  // Melhor volta.
+  if (L.best) {
+    ctx.fillStyle = car.fol ? theme.purple : theme.text;
+    ctx.font = `600 13px ${FONT}`;
+    ctx.textAlign = "right";
+    ctx.fillText(car.fastest, FASTEST_RIGHT, cy);
+  }
+
+  // Pontos + ganho.
+  if (L.points) {
+    ctx.fillStyle = theme.text;
+    ctx.font = `700 13px ${FONT}`;
+    ctx.textAlign = "right";
+    ctx.fillText(String(car.points ?? 0), POINTS_RIGHT, cy);
+    if (car.gain > 0) {
+      ctx.fillStyle = theme.gainGreen;
+      ctx.font = `700 10px ${FONT}`;
+      ctx.textAlign = "left";
+      ctx.fillText(`+${car.gain}`, POINTS_GAIN_X, cy);
+    }
+  }
+
+  drawPins(ctx, car, cy, theme, panelW);
   fgShadow(ctx, false);
 }
 
-function drawSeparator(ctx, y) {
+function drawSeparator(ctx, y, panelW = PANEL_W) {
   const cy = y + SEP_H / 2;
   // Divisor GROSSO entre o pódio e a vizinhança do jogador: uma faixa escurecida
   // de fundo (dá peso ao corte) + linha central sólida e forte, com um fio sutil
   // acima/abaixo pra realçar o degrau. Continua "vazando" pros lados (gradiente) pra
   // não virar uma barra dura.
-  const band = ctx.createLinearGradient(0, 0, PANEL_W, 0);
+  const band = ctx.createLinearGradient(0, 0, panelW, 0);
   band.addColorStop(0, "rgba(0,0,0,0.34)");
   band.addColorStop(0.5, "rgba(0,0,0,0.42)");
   band.addColorStop(1, "rgba(0,0,0,0.34)");
   ctx.fillStyle = band;
-  ctx.fillRect(0, y + 1, PANEL_W, SEP_H - 2);
+  ctx.fillRect(0, y + 1, panelW, SEP_H - 2);
 
   // Fios finos de contorno da faixa (topo e base).
   ctx.strokeStyle = "rgba(255,255,255,0.06)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, y + 1.5);
-  ctx.lineTo(PANEL_W, y + 1.5);
+  ctx.lineTo(panelW, y + 1.5);
   ctx.moveTo(0, y + SEP_H - 1.5);
-  ctx.lineTo(PANEL_W, y + SEP_H - 1.5);
+  ctx.lineTo(panelW, y + SEP_H - 1.5);
   ctx.stroke();
 
   // Linha central: forte, sólida, esvaindo pras bordas.
-  const line = ctx.createLinearGradient(0, 0, PANEL_W, 0);
+  const line = ctx.createLinearGradient(0, 0, panelW, 0);
   line.addColorStop(0, "rgba(255,255,255,0.05)");
   line.addColorStop(0.5, "rgba(255,255,255,0.42)");
   line.addColorStop(1, "rgba(255,255,255,0.05)");
@@ -630,7 +738,7 @@ function drawSeparator(ctx, y) {
   ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.moveTo(PAD, cy);
-  ctx.lineTo(PANEL_W - PAD, cy);
+  ctx.lineTo(panelW - PAD, cy);
   ctx.stroke();
 }
 
@@ -654,17 +762,17 @@ function drawCarIcon(ctx, cx, cy, color) {
   ctx.fill();
 }
 
-function drawClassHeader(ctx, cls, y, theme) {
+function drawClassHeader(ctx, cls, y, theme, panelW = PANEL_W) {
   const midY = y + CLASS_H / 2;
 
   if (theme.classStyle === "band") {
     // Banda robusta: wash da cor da classe + acento + rótulo + selo com carrinho.
-    const g = ctx.createLinearGradient(0, y, PANEL_W, y);
+    const g = ctx.createLinearGradient(0, y, panelW, y);
     g.addColorStop(0, hexToRgba(cls.color, 0.5));
     g.addColorStop(0.45, hexToRgba(cls.color, 0.16));
     g.addColorStop(1, "rgba(0,0,0,0.28)");
     ctx.fillStyle = g;
-    ctx.fillRect(0, y, PANEL_W, CLASS_H);
+    ctx.fillRect(0, y, panelW, CLASS_H);
     ctx.fillStyle = cls.color;
     ctx.fillRect(0, y, 4, CLASS_H);
 
@@ -679,7 +787,7 @@ function drawClassHeader(ctx, cls, y, theme) {
     ctx.font = `800 12px ${FONT}`;
     const cw = ctx.measureText(countStr).width;
     const pillW = cw + 34;
-    const pillX = PANEL_W - PAD - pillW;
+    const pillX = panelW - PAD - pillW;
     roundRect(ctx, pillX, midY - 9, pillW, 18, 4);
     ctx.fillStyle = cls.color;
     ctx.fill();
@@ -693,7 +801,7 @@ function drawClassHeader(ctx, cls, y, theme) {
 
   if (theme.classStyle === "tab") {
     ctx.fillStyle = theme.classBg;
-    ctx.fillRect(0, y, PANEL_W, CLASS_H);
+    ctx.fillRect(0, y, panelW, CLASS_H);
     ctx.font = `800 11px ${FONT}`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -705,14 +813,14 @@ function drawClassHeader(ctx, cls, y, theme) {
     ctx.fillText(cls.label, 6, midY);
   } else if (theme.classStyle === "underline") {
     ctx.fillStyle = theme.classBg;
-    ctx.fillRect(0, y, PANEL_W, CLASS_H);
+    ctx.fillRect(0, y, panelW, CLASS_H);
     ctx.font = `800 12px ${FONT}`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = cls.color;
     ctx.fillText(cls.label, PAD, midY);
     ctx.fillStyle = cls.color;
-    ctx.fillRect(0, y + CLASS_H - 2, PANEL_W, 2);
+    ctx.fillRect(0, y + CLASS_H - 2, panelW, 2);
   } else {
     // label: sem faixa; rótulo grande + barrinha curta embaixo.
     ctx.font = `800 13px ${FONT}`;
@@ -728,7 +836,7 @@ function drawClassHeader(ctx, cls, y, theme) {
   ctx.font = `700 11px ${FONT}`;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
-  ctx.fillText(String(cls.cars.length), PANEL_W - PAD, midY);
+  ctx.fillText(String(cls.cars.length), panelW - PAD, midY);
 }
 
 // Desenha uma imagem preservando o aspecto, centrada numa caixa. `src` (opcional)
@@ -810,8 +918,10 @@ const FLAG_WORDS = {
 };
 const SESSION_WORDS = { R: "RACE", Q: "QUALIFYING", P: "PRACTICE" };
 
-function drawSessionHeader(ctx, session, theme, assets) {
+function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
   const H = SESSION_H;
+  const panelW = L.panelW;
+  const compact = L.compact;
   const flagKey = session.flag && FLAG_COLORS[session.flag] ? session.flag : "green";
   const flag = FLAG_COLORS[flagKey];
   // Cor de ESTADO da sessão: roxo na classificação, senão a cor da bandeira
@@ -826,23 +936,24 @@ function drawSessionHeader(ctx, session, theme, assets) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, theme.sessionTop || theme.sessionBg);
   g.addColorStop(1, theme.sessionBg);
-  roundRect(ctx, 0, 0, PANEL_W, H, [theme.blockRadius, theme.blockRadius, 0, 0]);
+  roundRect(ctx, 0, 0, panelW, H, [theme.blockRadius, theme.blockRadius, 0, 0]);
   ctx.fillStyle = g;
   ctx.fill();
 
   fgShadow(ctx, true); // textos do cabeçalho (categoria/sessão/clima/voltas)
   ctx.textBaseline = "middle";
 
-  // ── ESQUERDA: logo da categoria + nome + sessão/bandeira ──
-  const logoBoxW = 60;
-  if (assets.categoryLogo) {
+  // ── ESQUERDA: logo da categoria (só na completa) + nome + sessão/bandeira ──
+  // Mini: sem logo (falta largura), nome encosta na margem e fonte menor.
+  const logoBoxW = compact ? 0 : 60;
+  if (!compact && assets.categoryLogo) {
     drawImageFit(ctx, assets.categoryLogo, PAD, 5, logoBoxW, 40, assets.categoryLogoTrim);
   }
-  const nameX = PAD + logoBoxW + 12;
+  const nameX = compact ? PAD : PAD + logoBoxW + 12;
 
   ctx.textAlign = "left";
   ctx.fillStyle = theme.text;
-  ctx.font = `800 17px ${FONT}`;
+  ctx.font = `800 ${compact ? 15 : 17}px ${FONT}`;
   ctx.fillText(cat.name, nameX, cy1);
 
   const sess = SESSION_WORDS[session.type] || "RACE";
@@ -857,19 +968,21 @@ function drawSessionHeader(ctx, session, theme, assets) {
   ctx.fill();
   ctx.fillText(FLAG_WORDS[flagKey], nameX + sw + 17, cy2);
 
-  // ── DIREITA: clima (cima) + voltas (baixo) ──
-  const rx = PANEL_W - PAD;
+  // ── DIREITA: clima (cima, só na completa) + voltas (baixo) ──
+  const rx = panelW - PAD;
   const w = session.weather || {};
 
-  // Clima: [ícone] AR° (só o ar).
-  ctx.textAlign = "right";
-  ctx.font = `800 14px ${FONT}`;
-  ctx.fillStyle = theme.text;
-  const airStr = w.airTemp != null ? `${w.airTemp}°` : "--";
-  ctx.fillText(airStr, rx, cy1);
-  const airW = ctx.measureText(airStr).width;
-
-  drawWeatherIcon(ctx, rx - airW - 14, cy1, w.condition);
+  // Clima: [ícone] AR° (só o ar). Cortado na mini pra caber — o arco de chuva embaixo
+  // da torre já cobre a previsão quando importa.
+  if (!compact) {
+    ctx.textAlign = "right";
+    ctx.font = `800 14px ${FONT}`;
+    ctx.fillStyle = theme.text;
+    const airStr = w.airTemp != null ? `${w.airTemp}°` : "--";
+    ctx.fillText(airStr, rx, cy1);
+    const airW = ctx.measureText(airStr).width;
+    drawWeatherIcon(ctx, rx - airW - 14, cy1, w.condition);
+  }
 
   // Voltas: LAPS 36/40
   ctx.textAlign = "right";
@@ -890,22 +1003,25 @@ function drawSessionHeader(ctx, session, theme, assets) {
   ctx.fillText("LAPS", rx - totalW - lapW - 8, cy2);
 
   // Dois rótulos que ajudam: "pits" sobre a coluna de pneus e "best" sobre a
-  // melhor volta — no chrome do header, acima da linha de acento.
-  ctx.font = `700 10px ${FONT}`;
-  ctx.fillStyle = theme.textMuted;
-  ctx.textAlign = "center";
-  ctx.fillText("PITS", STOPS_CENTER, H - 10);
-  ctx.fillText("BEST", 325, H - 10);
+  // melhor volta — no chrome do header, acima da linha de acento. Só na completa
+  // (a mini não tem essas colunas).
+  if (!compact) {
+    ctx.font = `700 10px ${FONT}`;
+    ctx.fillStyle = theme.textMuted;
+    ctx.textAlign = "center";
+    ctx.fillText("PITS", STOPS_CENTER, H - 10);
+    ctx.fillText("BEST", 325, H - 10);
+  }
 
   fgShadow(ctx, false);
 
   // Acento inferior na cor do ESTADO (verde/amarelo/quadriculada/roxo-quali),
   // esvaindo pra direita — é o sinal de "a bandeira mudou".
-  const line = ctx.createLinearGradient(0, 0, PANEL_W, 0);
+  const line = ctx.createLinearGradient(0, 0, panelW, 0);
   line.addColorStop(0, stateColor);
   line.addColorStop(0.65, hexToRgba(stateColor, 0));
   ctx.fillStyle = line;
-  ctx.fillRect(0, H - 2, PANEL_W, 2);
+  ctx.fillRect(0, H - 2, panelW, 2);
 }
 
 function sectionsHeight(sections) {
@@ -919,19 +1035,24 @@ function sectionsHeight(sections) {
 
 // Altura (px lógicos = CSS) que a torre ocupa pros dados atuais — usada pra dizer
 // ao vigia de cursor onde é "em cima da torre" (área de hover).
-export function towerContentHeight(data) {
+export function towerContentHeight(data, sectionOpts) {
   if (!data) return 0;
-  return sectionsHeight(buildTowerSections(data));
+  return sectionsHeight(buildTowerSections(data, sectionOpts));
 }
 
 // ─── Torre ───────────────────────────────────────────────────────────────────
-export function drawTower(ctx, data, assets, theme = DEFAULT_THEME) {
+// `opts`: { compact?: bool, sections?: opts de buildTowerSections }. O monitor passa
+// { compact:true, sections: MINI_SECTION_OPTS } no modo mini; VR e preview usam o padrão.
+export function drawTower(ctx, data, assets, theme = DEFAULT_THEME, opts = {}) {
+  const L = layoutFor(Boolean(opts.compact));
+  const panelW = L.panelW;
+
   // Desenha em coordenadas LÓGICAS; o supersample vira pixels de verdade.
   ctx.setTransform(SUPERSAMPLE, 0, 0, SUPERSAMPLE, 0, 0);
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
 
   const team = playerTeam(data);
-  const sections = buildTowerSections(data);
+  const sections = buildTowerSections(data, opts.sections);
 
   // Classe única (MX5 Cup, GR Rookie, etc.): o iRacing não manda nome de classe,
   // então o `label` vem vazio e a banda fica só com o contador, sem "GT3". Cai pro
@@ -945,7 +1066,7 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME) {
   const total = sectionsHeight(sections);
 
   // Faixa da sessão (topo do painel).
-  drawSessionHeader(ctx, data.session, theme, assets);
+  drawSessionHeader(ctx, data.session, theme, assets, L);
 
   // A TABELA começa logo abaixo do header. O cabeçalho de colunas fica ANEXADO
   // ao topo do 1º bloco (mesmo fundo), então não flutua solto no meio.
@@ -960,19 +1081,19 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME) {
 
     // Fundo do bloco (classe + corpo), cantos do tema.
     const br = theme.blockRadius;
-    roundRect(ctx, 0, y, PANEL_W, blockH, [0, 0, isLast ? br : 0, isLast ? br : 0]);
+    roundRect(ctx, 0, y, panelW, blockH, [0, 0, isLast ? br : 0, isLast ? br : 0]);
     ctx.fillStyle = theme.panelBg;
     ctx.fill();
 
-    drawClassHeader(ctx, cls, y, theme);
+    drawClassHeader(ctx, cls, y, theme, panelW);
     y += CLASS_H;
 
     rows.forEach((row) => {
       if (row.kind === "separator") {
-        drawSeparator(ctx, y);
+        drawSeparator(ctx, y, panelW);
         y += SEP_H;
       } else {
-        drawRow(ctx, row.car, y, assets, team, theme);
+        drawRow(ctx, row.car, y, assets, team, theme, L);
         y += ROW_H;
       }
     });
