@@ -1591,6 +1591,13 @@ impl RaceMonitor {
         let status = attempt.status.clone();
         let lap = attempt.laps_completed;
         let worst = attempt.worst_crash.clone();
+
+        // Telemetria de produto: fecha a corrida com o status JÁ classificado
+        // acima (finished | dnf | not_started). Restart mantém a corrida aberta
+        // — o servidor reabre pelo subsession_id na largada seguinte.
+        if ended_by != "restart" {
+            crate::telemetry::race_end(&status);
+        }
         // (o borrow de `attempt` termina aqui; a partir daqui pode emitir)
 
         let now = self.live_session_time;
@@ -2429,6 +2436,9 @@ impl RaceMonitor {
             && !self.race_started_emitted
         {
             self.race_started_emitted = true;
+            // Telemetria de produto: bandeira verde = corrida rolando. UPSERT por
+            // subsession no servidor, então restart não vira duas corridas.
+            crate::telemetry::race_start(self.session_subsession_id, self.session_track_id);
             // Snapshot do GRID: a posição na classe no instante da largada (ainda
             // não houve ultrapassagem) = a ordem de largada. Fonte do grid quando
             // não há quali voadora (AI season larga de grade fixa).
@@ -3308,6 +3318,9 @@ fn start_sampler() {
                         }
                         // Sim conectado de novo: cancela qualquer janela de foco pendente.
                         clear_focus_self();
+                        // Telemetria: ping de vida da corrida aberta (30 min). Sai
+                        // FORA do lock e é ~grátis quando não há corrida rolando.
+                        crate::telemetry::maybe_ping();
                         true
                     }
                     Err(error) => {
@@ -3326,6 +3339,11 @@ fn start_sampler() {
                             m.was_connected = false;
                             m.prev = None;
                             m.reset_qualy_state();
+                            // Telemetria: sim fechado fecha a corrida aberta. No-op
+                            // se não havia nenhuma (finalize_attempt acima já pode
+                            // ter fechado). Sem isso a corrida viraria fantasma e
+                            // só sumiria do contador na expiração de 35 min.
+                            crate::telemetry::race_end("sim_closed");
                             // Borda de descida: arma a janela de foco da nossa janela.
                             arm_focus_self();
                         }

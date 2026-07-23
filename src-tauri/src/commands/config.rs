@@ -26,6 +26,15 @@ pub fn update_config(app: AppHandle, new_config: AppConfig) -> Result<(), String
     current_config.language = new_config.language;
     current_config.autosave_enabled = new_config.autosave_enabled;
 
+    // Telemetria de produto: só sobrescreve se o front MANDOU um valor. `None`
+    // vindo do front significa "não mexi nisso", e não "o jogador recusou" — a
+    // diferença importa, porque `None` no disco é o que faz o aviso de primeira
+    // execução aparecer. Aplicado nos estáticos na hora (sem exigir restart).
+    if new_config.telemetry_enabled.is_some() {
+        current_config.telemetry_enabled = new_config.telemetry_enabled;
+        crate::telemetry::set_enabled(new_config.telemetry_enabled.unwrap_or(false));
+    }
+
     // last_career, window_state e base_dir são preservados de current_config ou atualizados via eventos específicos.
 
     // Reflete a troca de idioma no locale do backend na hora (sem exigir restart).

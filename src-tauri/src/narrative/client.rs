@@ -23,7 +23,10 @@ const WORLD_NOTES_URL: &str =
 /// `docs/season-preview-design.md` e `docs/season-preview-endpoint.md`.
 const SEASON_PREVIEW_URL: &str =
     "https://iracer-news-124606451488.southamerica-east1.run.app/season-preview";
-const APP_SECRET: &str = "827119cc235cdea25c04545cd283749e673917d2d424340fb1059925738efcef";
+/// `pub(crate)` porque a telemetria de produto (`crate::telemetry`) entra pela
+/// MESMA porta do servidor — um segredo só, um lugar só pra trocar.
+pub(crate) const APP_SECRET: &str =
+    "827119cc235cdea25c04545cd283749e673917d2d424340fb1059925738efcef";
 // 45s e não 20s: o servidor (Cloud Run) faz scale-to-zero quando ocioso, e a 1ª
 // chamada após um período parado paga um cold start (subir o container + init do
 // Firestore) ANTES de gerar. Quente, gera em ~3s; frio pode passar de 20s. 45s dá

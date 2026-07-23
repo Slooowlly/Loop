@@ -58,6 +58,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub install_id: Option<String>,
 
+    /// Consentimento da telemetria de produto (anônima, agregada). `None` = o
+    /// jogador ainda não foi perguntado — é o que o aviso de primeira execução
+    /// procura pra saber se deve aparecer. Depois disso vira `Some(true/false)`.
+    #[serde(default)]
+    pub telemetry_enabled: Option<bool>,
+
     // Window state
     pub window_width: u32,
     pub window_height: u32,
@@ -77,6 +83,7 @@ impl Default for AppConfig {
             language: "pt-BR".to_string(),
             autosave_enabled: true,
             install_id: None,
+            telemetry_enabled: None,
             window_width: 1280,
             window_height: 720,
             window_maximized: false,

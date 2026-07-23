@@ -182,6 +182,7 @@ mod public_presence;
 mod race_eval;
 mod rivalry;
 mod simulation;
+mod telemetry;
 mod world;
 
 #[cfg(test)]
@@ -296,11 +297,18 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-            let config = config::app_config::AppConfig::load_or_default(&base_dir);
+            let mut config = config::app_config::AppConfig::load_or_default(&base_dir);
 
             // Idioma ativo do backend (texto determinístico + "fatos" pra IA)
             // segue o config. Reforçado na troca em update_config.
             rust_i18n::set_locale(&config.language);
+
+            // Telemetria de produto: precisa do install_id num estático ANTES do
+            // start_watching(), porque o sampler roda numa thread sem AppHandle.
+            // `None` (nunca perguntado) = DESLIGADO: não falamos nada até o
+            // jogador consentir de forma explícita.
+            let install_id = config.get_or_create_install_id();
+            telemetry::init(install_id, config.telemetry_enabled.unwrap_or(false));
 
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = window.set_size(tauri::LogicalSize::new(
