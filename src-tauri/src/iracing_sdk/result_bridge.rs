@@ -472,6 +472,10 @@ pub fn build_race_result_from_session(
         main_incident_count: notable_incident_pilot_ids.len() as i32,
         notable_incident_pilot_ids,
         most_positions_gained_id,
+        // Vazio de propósito: em corrida IMPORTADA a amarela não é derivada, ela é o
+        // dado REAL do SessionFlags e entra pelos fatos de telemetria. Derivar aqui
+        // faria a revista contar a mesma neutralização duas vezes.
+        caution_segments: Vec::new(),
     }
 }
 
@@ -774,6 +778,8 @@ pub fn build_race_result_from_aiseason(
         main_incident_count,
         notable_incident_pilot_ids,
         most_positions_gained_id,
+        // Ver acima: a amarela da corrida importada vem do SDK, não daqui.
+        caution_segments: Vec::new(),
     }
 }
 

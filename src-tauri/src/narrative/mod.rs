@@ -624,6 +624,15 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     if result.total_dnfs >= 2 {
         header.push_str(&rust_i18n::t!("narrative.context.header_dnfs", dnfs = result.total_dnfs));
     }
+    // Bandeira amarela: quantas vezes a prova foi neutralizada. Em corrida simulada vem
+    // derivada dos incidentes; em corrida importada fica vazia aqui, porque lá a amarela
+    // REAL do SDK entra pelos fatos de telemetria (senão a revista contaria duas vezes).
+    if !result.caution_segments.is_empty() {
+        header.push_str(&rust_i18n::t!(
+            "narrative.context.header_cautions",
+            n = result.caution_segments.len()
+        ));
+    }
 
     let mut facts = header;
     // Marca, numa linha rotulada, qual piloto é o do leitor (só se ele aparece nos
@@ -791,6 +800,39 @@ mod tests {
         let a = worst.iter().find(|i| i.pilot_id == "a").unwrap();
         assert_eq!(a.severity, IncidentSeverity::Critical);
         assert!(!worst.iter().any(|i| i.pilot_id == "c"), "DNF fica de fora");
+    }
+
+    /// A amarela é consequência de batida que para carro na pista — não de pane, nem
+    /// de susto leve. Incidentes no mesmo segmento são a MESMA bandeira.
+    #[test]
+    fn amarela_so_nasce_de_batida_que_para_carro() {
+        use crate::simulation::race::derive_caution_segments;
+        use IncidentSeverity::{Critical, Major, Minor};
+        use IncidentType::{Collision, Mechanical};
+
+        let caso = |i: IncidentResult| derive_caution_segments(&vec![i]).len();
+
+        // Pane mecânica grave: o carro recolhe pro box, não neutraliza.
+        assert_eq!(caso(inc("a", Mechanical, Critical, true, 0)), 0);
+        // Susto leve: não neutraliza.
+        assert_eq!(caso(inc("a", Collision, Minor, false, 0)), 0);
+        // Batida forte: neutraliza mesmo sem abandono.
+        assert_eq!(caso(inc("a", Collision, Critical, false, 3)), 1);
+        // Batida média só neutraliza se tirou o carro da corrida.
+        assert_eq!(caso(inc("a", Collision, Major, false, 2)), 0);
+        assert_eq!(caso(inc("a", Collision, Major, true, 0)), 1);
+    }
+
+    /// Duas batidas no mesmo segmento = uma bandeira só (seria a mesma amarela).
+    #[test]
+    fn incidentes_no_mesmo_segmento_sao_uma_amarela_so() {
+        use crate::simulation::race::derive_caution_segments;
+
+        let incidents = vec![
+            inc("a", IncidentType::Collision, IncidentSeverity::Critical, true, 0),
+            inc("b", IncidentType::Collision, IncidentSeverity::Critical, true, 0),
+        ];
+        assert_eq!(derive_caution_segments(&incidents).len(), 1);
     }
 
     /// O beat de batida usa o limiar padrão (não o do jogador): quem separa jogador de

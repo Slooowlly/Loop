@@ -5545,6 +5545,7 @@ mod tests {
             main_incident_count: 0,
             notable_incident_pilot_ids: Vec::new(),
             most_positions_gained_id: None,
+            caution_segments: Vec::new(),
         };
 
         apply_special_class_scoring(&mut result, &teams, true);

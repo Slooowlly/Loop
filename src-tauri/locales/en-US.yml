@@ -789,6 +789,7 @@ narrative:
   context:
     header: "Race: %{category} — %{year} season, round %{round}\nTrack: %{track}, %{laps} laps, weather: %{weather}"
     header_dnfs: ". The race had %{dnfs} retirements"
+    header_cautions: ". The race was neutralized by yellow flags %{n}x"
     reader_pilot: "\nDriver followed by the reader: %{name}"
     axis_label: "\n\nSTORY AXIS — the angle this bulletin should develop (magazine voice, 3rd person; build the narrative from it, not as a loose line):\n"
     highlights_label: "\nHIGHLIGHTS THAT SUPPORT THE ANGLE (real facts — do not invent anything beyond these):\n"

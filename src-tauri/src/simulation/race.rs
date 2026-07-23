@@ -130,6 +130,40 @@ pub struct RaceResult {
     /// Piloto que mais ganhou posições.
     #[serde(default)]
     pub most_positions_gained_id: Option<String>,
+    /// Segmentos da corrida NEUTRALIZADOS por bandeira amarela, derivados dos
+    /// incidentes (ver `derive_caution_segments`). A amarela é REGISTRADA, não
+    /// simulada: não agrupa o pelotão nem mexe em posição nenhuma.
+    #[serde(default)]
+    pub caution_segments: Vec<String>,
+}
+
+/// Segmentos em que a corrida foi neutralizada por bandeira amarela, derivados dos
+/// incidentes que realmente aconteceram. Um carro batido e parado traz a amarela; um
+/// susto leve ou uma pane em que o carro recolhe sozinho, não. Vários incidentes no
+/// mesmo segmento contam como UMA neutralização — seria a mesma bandeira.
+///
+/// Determinístico e sem efeito no resultado. Fazer a amarela agrupar o pelotão e mudar
+/// quem ganha é outro trabalho, que exigiria recalibrar o balanceamento.
+pub fn derive_caution_segments<'a>(
+    incidents: impl IntoIterator<Item = &'a IncidentResult>,
+) -> Vec<String> {
+    let mut segs: Vec<String> = Vec::new();
+    for inc in incidents {
+        let brings_yellow = match (inc.incident_type, inc.severity) {
+            // Batida forte: carro destruído e destroços na pista.
+            (IncidentType::Collision, IncidentSeverity::Critical) => true,
+            // Batida média só neutraliza se tirou o carro da corrida.
+            (IncidentType::Collision, IncidentSeverity::Major) => inc.is_dnf,
+            // Erro grave que terminou na parede.
+            (IncidentType::DriverError, IncidentSeverity::Critical) => inc.is_dnf,
+            // Pane mecânica: o carro recolhe pro box, não neutraliza.
+            _ => false,
+        };
+        if brings_yellow && !segs.contains(&inc.segment) {
+            segs.push(inc.segment.clone());
+        }
+    }
+    segs
 }
 
 pub fn simulate_race(
@@ -276,6 +310,8 @@ pub fn simulate_race(
         .max_by_key(|r| r.positions_gained)
         .map(|r| r.pilot_id.clone());
 
+    let caution_segments = derive_caution_segments(race_results.iter().flat_map(|r| &r.incidents));
+
     RaceResult {
         qualifying_results: qualifying.to_vec(),
         race_results: std::mem::take(&mut race_results),
@@ -290,6 +326,7 @@ pub fn simulate_race(
         main_incident_count,
         notable_incident_pilot_ids,
         most_positions_gained_id,
+        caution_segments,
     }
 }
 

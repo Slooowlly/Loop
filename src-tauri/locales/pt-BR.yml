@@ -790,6 +790,7 @@ narrative:
   context:
     header: "Corrida: %{category} — temporada de %{year}, etapa %{round}\nPista: %{track}, %{laps} voltas, clima: %{weather}"
     header_dnfs: ". A corrida teve %{dnfs} abandonos"
+    header_cautions: ". A prova foi neutralizada por bandeira amarela %{n}x"
     reader_pilot: "\nPiloto acompanhado pelo leitor: %{name}"
     axis_label: "\n\nEIXO DA MATÉRIA — o ângulo que este boletim deve desenvolver (voz de revista, 3ª pessoa; construa a narrativa a partir dele, não como uma linha solta):\n"
     highlights_label: "\nDESTAQUES QUE SUSTENTAM O ÂNGULO (fatos reais — não invente nada além destes):\n"
