@@ -129,6 +129,7 @@ fn build_global_driver_rankings(
         .map_err(|e| format!("Falha ao carregar pilotos globais: {e}"))?;
     let team_title_stats_by_driver = load_all_team_champion_title_stats(conn)?;
     let team_lookup = load_team_lookup(conn)?;
+    let real_career = RealCareerIndex::load(conn)?;
     let mut entries = Vec::new();
     let mut seen_driver_ids = HashSet::new();
     let mut retired_by_id: HashMap<String, RetiredDriverSnapshot> =
@@ -144,7 +145,7 @@ fn build_global_driver_rankings(
                 // Pontuação consistente com ativos: histórico POR CATEGORIA do archive
                 // (em vez do agregado de carreira × multiplicador da categoria final, que
                 // inflava a carreira toda no peso da endurance). Vazio sem archive → o
-                // construtor cai no agregado do snapshot.
+                // construtor cai no que ele correu de verdade.
                 let archive_stats =
                     load_archive_category_stats(conn, &driver.id, &team_title_stats_by_driver)?;
                 entries.push(build_retired_driver_entry_from_driver(
@@ -153,6 +154,7 @@ fn build_global_driver_rankings(
                     current_year,
                     &team_lookup,
                     archive_stats,
+                    &real_career,
                 ));
                 continue;
             }
@@ -163,6 +165,7 @@ fn build_global_driver_rankings(
             current_year,
             &team_title_stats_by_driver,
             &team_lookup,
+            &real_career,
         )?);
     }
 
@@ -171,7 +174,7 @@ fn build_global_driver_rankings(
             continue;
         }
         // Aposentado sem registro na tabela `drivers` (purgado): histórico por
-        // categoria do archive; se não houver, cai no agregado do snapshot.
+        // categoria do archive; se não houver, cai no que ele correu de verdade.
         let archive_stats =
             load_archive_category_stats(conn, &retired.id, &team_title_stats_by_driver)?;
         entries.push(build_retired_driver_entry(
@@ -179,6 +182,7 @@ fn build_global_driver_rankings(
             current_year,
             &team_lookup,
             archive_stats,
+            &real_career,
         ));
     }
 
@@ -225,6 +229,103 @@ fn build_global_driver_rankings(
     })
 }
 
+/// O que cada piloto REALMENTE fez na pista, direto de `race_results` — a única
+/// fonte que não carrega passado carimbado. `stats_carreira` não serve como
+/// histórico: todo piloto gerado fora das categorias rookie nasce com um bloco de
+/// corridas/temporadas inventado por `seed_initial_career_history` (sem uma única
+/// corrida por trás), e o acumulado ainda arrasta a contagem dobrada de saves
+/// antigos. Usado como lastro quando o piloto não tem archive de temporada.
+///
+/// `titles` fica 0 de propósito: título é evento de campeonato, vem do archive.
+/// `driver_id = None` agrega a tabela inteira; `Some(id)` agrega só aquele piloto.
+fn real_career_by_driver_filtered(
+    conn: &Connection,
+    driver_id: Option<&str>,
+) -> Result<HashMap<String, CategoryStats>, String> {
+    if !table_exists(conn, "race_results")? {
+        return Ok(HashMap::new());
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT piloto_id,
+                COUNT(*) AS corridas,
+                COALESCE(SUM(pontos), 0) AS pontos,
+                COALESCE(SUM(CASE WHEN posicao_final = 1 AND dnf = 0 THEN 1 ELSE 0 END), 0) AS vitorias,
+                COALESCE(SUM(CASE WHEN posicao_final BETWEEN 1 AND 3 AND dnf = 0 THEN 1 ELSE 0 END), 0) AS podios,
+                COALESCE(SUM(CASE WHEN posicao_largada = 1 THEN 1 ELSE 0 END), 0) AS poles,
+                COALESCE(SUM(CASE WHEN dnf = 1 THEN 1 ELSE 0 END), 0) AS dnfs
+             FROM race_results
+             WHERE ?1 IS NULL OR piloto_id = ?1
+             GROUP BY piloto_id",
+        )
+        .map_err(|e| format!("Falha ao preparar carreira real do piloto: {e}"))?;
+    let rows = stmt
+        .query_map(params![driver_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CategoryStats {
+                    category: String::new(),
+                    class_name: None,
+                    races: row.get::<_, i32>(1)?,
+                    points: row.get::<_, f64>(2)?,
+                    wins: row.get::<_, i32>(3)?,
+                    podiums: row.get::<_, i32>(4)?,
+                    poles: row.get::<_, i32>(5)?,
+                    dnfs: row.get::<_, i32>(6)?,
+                    titles: 0,
+                    title_years: Vec::new(),
+                },
+            ))
+        })
+        .map_err(|e| format!("Falha ao consultar carreira real do piloto: {e}"))?;
+    let mut by_driver = HashMap::new();
+    for row in rows {
+        let (id, stats) = row.map_err(|e| format!("Falha ao ler carreira real do piloto: {e}"))?;
+        by_driver.insert(id, stats);
+    }
+    Ok(by_driver)
+}
+
+/// Índice do que cada piloto realmente correu. Quando o save tem resultado gravado,
+/// ele é a única fonte de histórico aceita no lugar do archive de temporada. Num save
+/// sem nenhum resultado (fixture de teste, base recém-criada) não há verdade de campo
+/// pra consultar, e o agregado de carreira volta a ser o último recurso.
+struct RealCareerIndex {
+    by_driver: HashMap<String, CategoryStats>,
+    has_results: bool,
+}
+
+impl RealCareerIndex {
+    fn load(conn: &Connection) -> Result<Self, String> {
+        let by_driver = real_career_by_driver_filtered(conn, None)?;
+        Ok(Self {
+            has_results: !by_driver.is_empty(),
+            by_driver,
+        })
+    }
+
+    fn for_driver(conn: &Connection, driver_id: &str) -> Result<Self, String> {
+        let by_driver = real_career_by_driver_filtered(conn, Some(driver_id))?;
+        Ok(Self {
+            has_results: !by_driver.is_empty(),
+            by_driver,
+        })
+    }
+
+    /// Histórico de lastro do piloto, herdando o rótulo de categoria de `from_career`.
+    /// Com resultado gravado no save, quem nunca largou fica zerado — é assim que o
+    /// bloco carimbado deixa de contar como carreira.
+    fn history_for(&self, driver_id: &str, from_career: CategoryStats) -> CategoryStats {
+        if !self.has_results {
+            return from_career;
+        }
+        let mut stats = self.by_driver.get(driver_id).cloned().unwrap_or_default();
+        stats.category = from_career.category;
+        stats.class_name = from_career.class_name;
+        stats
+    }
+}
+
 /// Conta, por piloto e pela carreira inteira, quantas vezes terminou em 2º e em 3º
 /// — o detalhe que quebra "pódios que não foram vitória". Lê os resultados reais
 /// (`race_results`, nunca podados entre temporadas), então cobre tudo o que foi
@@ -265,6 +366,7 @@ fn build_current_driver_entry(
     current_year: i32,
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
     team_lookup: &TeamLookup,
+    real_career: &RealCareerIndex,
 ) -> Result<RankingEntry, String> {
     let contract = contract_queries::get_active_regular_contract_for_pilot(conn, &driver.id)
         .map_err(|e| format!("Falha ao buscar contrato regular ativo do piloto: {e}"))?;
@@ -282,6 +384,7 @@ fn build_current_driver_entry(
         driver,
         category.as_deref(),
         team_title_stats_by_driver,
+        real_career,
     )?;
     let historical_index = compute_historical_index(&stats_by_category);
     let injuries = injury_queries::count_injuries_by_severity_for_pilot(conn, &driver.id)
@@ -381,15 +484,17 @@ fn active_driver_career_years(
     years_since(debut_year, current_year)
 }
 
-/// Largadas em toda a trajetória: o histórico já arquivado, o acumulado de
-/// carreira e a temporada em curso — que só entra no archive quando o ano fecha.
-/// Um DNF conta como largada: ele alinhou no grid.
+/// Largadas em toda a trajetória: o histórico exibido (archive ou o que ele correu
+/// de verdade) mais a temporada em curso, que só entra no archive quando o ano
+/// fecha. Um DNF conta como largada: ele alinhou no grid.
+///
+/// `stats_carreira` fica FORA de propósito — é ele que carrega o bloco carimbado no
+/// nascimento do piloto, e bastava ele pra um piloto que nunca largou ganhar anos
+/// de carreira. `stats_temporada` é limpo: zera todo ano e só cresce por corrida.
 fn career_starts(driver: &Driver, total: &CategoryStats) -> i32 {
     total
         .races
         .max(total.dnfs)
-        .max(driver.stats_carreira.corridas as i32)
-        .max(driver.stats_carreira.dnfs as i32)
         .max(driver.stats_temporada.corridas as i32)
         .max(driver.stats_temporada.dnfs as i32)
 }
@@ -399,6 +504,7 @@ fn build_retired_driver_entry(
     current_year: i32,
     team_lookup: &TeamLookup,
     archive_stats: Vec<CategoryStats>,
+    real_career: &RealCareerIndex,
 ) -> RankingEntry {
     let retirement_year = parse_year(&retired.retirement_season);
     let archived_races = archive_stats.iter().map(|entry| entry.races).sum::<i32>();
@@ -410,7 +516,12 @@ fn build_retired_driver_entry(
     // novato. O snapshot carrega `temporadas` acumuladas mesmo nos anos em que
     // ficou sem assento, então sem largada esse número não vira "anos de
     // carreira".
-    let career_years = if archived_starts <= 0 && retired.stats.races.max(retired.stats.dnfs) <= 0 {
+    // O que ele correu de verdade — lastro para quem não tem archive de temporada.
+    let real_stats = real_career.history_for(
+        &retired.id,
+        labelled_stats(retired.stats.clone(), Some(&retired.category)),
+    );
+    let career_years = if archived_starts <= 0 && real_stats.races.max(real_stats.dnfs) <= 0 {
         Some(0)
     } else {
         retired.career_years.or_else(|| {
@@ -420,16 +531,19 @@ fn build_retired_driver_entry(
         })
     };
     let years_retired = retirement_year.map(|year| (current_year - year).max(0));
-    // ÍNDICE pela MESMA régua dos ativos (por categoria) quando o archive tem
-    // participação real (corridas > 0); senão, pontua o agregado do snapshot. O
-    // DISPLAY (totais/visibilidade) continua vindo do snapshot de carreira, que é
-    // o registro autoritativo da carreira do aposentado.
+    // ÍNDICE e DISPLAY pela MESMA régua dos ativos (por categoria) quando o archive
+    // tem participação real (corridas > 0); senão, o que sobrou na pista. O snapshot
+    // de carreira do aposentado NÃO serve de histórico: ele soma o bloco carimbado
+    // no nascimento do piloto (corridas sem nenhuma corrida por trás) ao acumulado,
+    // que ainda vem dobrado em saves antigos — era ele que punha "167 corridas / 0
+    // pontos" no ranking para quem só largou 28 vezes.
     let archive_has_participation = archived_races > 0;
     let stats_by_category = if archive_has_participation {
         archive_stats
     } else {
-        vec![retired.stats.clone()]
+        vec![real_stats]
     };
+    let total = total_stats(&stats_by_category);
     let score = compute_historical_index(&stats_by_category);
     let title_categories = if retired.title_categories.is_empty() {
         title_categories(&stats_by_category, team_lookup)
@@ -470,16 +584,16 @@ fn build_retired_driver_entry(
         titles_rank: 0,
         podiums_rank: 0,
         injuries_rank: 0,
-        corridas: retired.stats.races,
-        pontos: retired.stats.points.round() as i32,
-        vitorias: retired.stats.wins,
-        podios: retired.stats.podiums,
+        corridas: total.races,
+        pontos: total.points.round() as i32,
+        vitorias: total.wins,
+        podios: total.podiums,
         segundos: 0,  // preenchido adiante pela agregação de race_results
         terceiros: 0, // preenchido adiante pela agregação de race_results
-        poles: retired.stats.poles,
-        titulos: retired.stats.titles,
+        poles: total.poles,
+        titulos: total.titles,
         titulos_por_categoria: title_categories,
-        dnfs: retired.stats.dnfs,
+        dnfs: total.dnfs,
         lesoes: 0,
         lesoes_leves: 0,
         lesoes_moderadas: 0,
@@ -498,8 +612,15 @@ fn build_retired_driver_entry_from_driver(
     current_year: i32,
     team_lookup: &TeamLookup,
     archive_stats: Vec<CategoryStats>,
+    real_career: &RealCareerIndex,
 ) -> RankingEntry {
-    let mut entry = build_retired_driver_entry(retired, current_year, team_lookup, archive_stats);
+    let mut entry = build_retired_driver_entry(
+        retired,
+        current_year,
+        team_lookup,
+        archive_stats,
+        real_career,
+    );
     entry.row.nacionalidade = driver.nacionalidade.clone();
     entry.row.idade = driver.idade as i32;
     entry.row.is_jogador = driver.is_jogador;
@@ -652,9 +773,12 @@ fn load_driver_category_stats(
     driver: &Driver,
     fallback_category: Option<&str>,
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
+    real_career: &RealCareerIndex,
 ) -> Result<Vec<CategoryStats>, String> {
+    let fallback =
+        || real_career.history_for(&driver.id, stats_from_driver(driver, fallback_category));
     if !table_exists(conn, "driver_season_archive")? {
-        return Ok(vec![stats_from_driver(driver, fallback_category)]);
+        return Ok(vec![fallback()]);
     }
 
     let (mut stats, counted_title_events) = read_archive_category_stats(conn, &driver.id)?;
@@ -664,11 +788,24 @@ fn load_driver_category_stats(
         team_title_stats_by_driver,
     );
     if stats.is_empty() {
-        stats.push(stats_from_driver(driver, fallback_category));
+        stats.push(fallback());
     }
     stats.extend(team_title_stats);
 
     Ok(stats)
+}
+
+/// Agregado de carreira do piloto. NÃO é histórico confiável por si só: soma o bloco
+/// carimbado no nascimento (`seed_initial_career_history`) ao que ele correu. Serve
+/// de rótulo de categoria e de último recurso em save sem resultado gravado.
+/// Carimba o rótulo de categoria num agregado que não tem um.
+fn labelled_stats(stats: CategoryStats, category: Option<&str>) -> CategoryStats {
+    let (category, class_name) = category_stats_parts(category.unwrap_or("unknown"));
+    CategoryStats {
+        category,
+        class_name,
+        ..stats
+    }
 }
 
 fn stats_from_driver(driver: &Driver, category: Option<&str>) -> CategoryStats {
@@ -1336,11 +1473,14 @@ pub(crate) fn historical_index_for_driver(
     driver: &Driver,
 ) -> Result<f64, String> {
     let category = regular_category(driver.categoria_atual.as_deref(), None);
+    // Um piloto só: filtra o agregado de `race_results` em vez de varrer a tabela.
+    let real_career = RealCareerIndex::for_driver(conn, &driver.id)?;
     let stats = load_driver_category_stats(
         conn,
         driver,
         category.as_deref(),
         &TeamTitleStatsByDriver::new(),
+        &real_career,
     )?;
     Ok(compute_historical_index(&stats))
 }
@@ -3311,7 +3451,19 @@ mod tests {
             career_years: Some(7),
         };
 
-        let entry = build_retired_driver_entry(snapshot, 2026, &TeamLookup::new(), Vec::new());
+        // Save COM resultado gravado (o piloto simplesmente não tem nenhum):
+        // é assim que o bloco carimbado deixa de valer como carreira.
+        let real_career = RealCareerIndex {
+            by_driver: HashMap::new(),
+            has_results: true,
+        };
+        let entry = build_retired_driver_entry(
+            snapshot,
+            2026,
+            &TeamLookup::new(),
+            Vec::new(),
+            &real_career,
+        );
 
         assert_eq!(entry.row.corridas, 0);
         assert_eq!(entry.row.anos_carreira, Some(0));
@@ -3371,6 +3523,95 @@ mod tests {
 
         assert_eq!(row.ano_inicio_carreira, Some(2026));
         assert_eq!(row.anos_carreira, Some(1));
+    }
+
+    #[test]
+    fn retired_row_shows_what_he_raced_not_the_seeded_career_block() {
+        let conn = setup_conn();
+        // Perfil do save real: a carreira acumulada diz 120 corridas / 688 pontos,
+        // mas na pista foram 40 largadas / 344 pontos. A diferença é o bloco
+        // carimbado no nascimento mais a contagem dobrada de saves antigos.
+        conn.execute(
+            "INSERT INTO retired (piloto_id, nome, temporada_aposentadoria, categoria_final, estatisticas, motivo)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "D_RET_SEEDED",
+                "Veterano Carimbado",
+                "2025",
+                "gt3",
+                r#"{"vitorias": 8, "podios": 22, "titulos": 0, "corridas": 120, "pontos": 688, "temporadas": 13}"#,
+                "Aposentadoria"
+            ],
+        )
+        .expect("insert retired");
+        conn.execute(
+            "INSERT INTO driver_season_archive (
+                piloto_id, season_number, ano, nome, categoria, posicao_campeonato, pontos, snapshot_json
+            ) VALUES (
+                'D_RET_SEEDED', 25, 2024, 'Veterano Carimbado', 'gt3', 5, 344.0,
+                '{\"categoria\":\"gt3\",\"corridas\":40,\"pontos\":344,\"vitorias\":4,\"podios\":11}'
+            )",
+            [],
+        )
+        .expect("insert archive");
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let row = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_RET_SEEDED")
+            .unwrap();
+
+        assert_eq!(row.corridas, 40);
+        assert_eq!(row.pontos, 344);
+        assert_eq!(row.vitorias, 4);
+        assert_eq!(row.podios, 11);
+    }
+
+    #[test]
+    fn seeded_career_block_without_any_race_result_is_not_history() {
+        let conn = setup_conn();
+        conn.execute("DELETE FROM seasons", [])
+            .expect("clear seeded seasons");
+        insert_season(&conn, &Season::new("S_TEST".to_string(), 27, 2026))
+            .expect("insert active season");
+
+        // Piloto gerado direto numa categoria não-rookie: nasce com 60 corridas
+        // carimbadas por `seed_initial_career_history` e nunca largou. O save TEM
+        // resultado gravado (de outro piloto), então há verdade de campo a consultar.
+        let mut carimbado = driver_with_stats("D_SEED", "Carimbado", Some("gt4"), 0, 0, 0);
+        carimbado.stats_carreira.corridas = 60;
+        carimbado.stats_carreira.temporadas = 5;
+        insert_driver(&conn, &carimbado).expect("insert driver");
+        insert_active_regular_contract(&conn, "C_SEED", "D_SEED", "Carimbado", "gt4");
+
+        let correu = driver_with_stats("D_RACED", "Correu", Some("gt4"), 1, 2, 0);
+        insert_driver(&conn, &correu).expect("insert raced driver");
+        insert_active_regular_contract(&conn, "C_RACED", "D_RACED", "Correu", "gt4");
+        conn.execute(
+            "INSERT INTO calendar (id, temporada_id, rodada, pista, categoria, clima, duracao, data)
+             VALUES ('R_SEED_1', 'S_TEST', 1, 'Interlagos', 'gt4', 'Seco', 60, '2026-05-01')",
+            [],
+        )
+        .expect("insert calendar");
+        conn.execute(
+            "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_largada, posicao_final, dnf, pontos)
+             VALUES ('R_SEED_1', 'D_RACED', 'T_C_RACED', 1, 1, 0, 25.0)",
+            [],
+        )
+        .expect("insert race result");
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let row = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_SEED")
+            .unwrap();
+
+        // Visível porque está na grade, mas sem uma linha de história.
+        assert_eq!(row.corridas, 0);
+        assert_eq!(row.anos_carreira, Some(0));
+        assert_eq!(row.historical_index, 0.0);
     }
 
     #[test]
