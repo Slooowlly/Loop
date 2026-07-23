@@ -1634,19 +1634,34 @@ fn inferred_debut_year_from_driver(driver: &Driver, current_year: i32) -> i32 {
     let career_seasons = driver.stats_carreira.temporadas as i32;
     if career_seasons > 0 {
         (current_year - career_seasons + 1).max(1)
-    } else if driver.stats_carreira.corridas > 0 {
-        (driver.ano_inicio_carreira as i32).max(1)
     } else {
+        // Sem temporada fechada, toda largada dele é da temporada em curso: a
+        // estreia é este ano. `ano_inicio_carreira` é pano de fundo (o ano do
+        // kart, aos 16), não estreia — mesma régua do ranking global.
         current_year
     }
 }
 
-fn career_years_from_debut(driver: &Driver, current_year: i32, debut_year: i32) -> i32 {
+/// Anos de carreira. Sem NENHUMA largada não existe carreira: o piloto ainda é
+/// um novato. `temporadas` sozinho não serve de prova — ele cresce todo fim de
+/// ano mesmo para quem passou a temporada inteira sem assento.
+fn career_years_from_debut(
+    driver: &Driver,
+    archived_starts: i32,
+    current_year: i32,
+    debut_year: i32,
+) -> i32 {
     if current_year <= 0 || debut_year <= 0 {
         return 0;
     }
 
-    if driver.stats_carreira.corridas == 0 && driver.stats_carreira.temporadas == 0 {
+    // Um DNF também é largada: ele alinhou no grid.
+    let starts = archived_starts
+        .max(driver.stats_carreira.corridas as i32)
+        .max(driver.stats_carreira.dnfs as i32)
+        .max(driver.stats_temporada.corridas as i32)
+        .max(driver.stats_temporada.dnfs as i32);
+    if starts <= 0 {
         return 0;
     }
 
@@ -1939,8 +1954,13 @@ fn build_driver_career_path_block(
         });
     }
 
+    let archived_starts = season_archive
+        .iter()
+        .map(|season| season.corridas)
+        .sum::<i32>();
     let mut historico = build_career_history_block(conn, &driver.id)?;
-    historico.presenca.tempo_carreira = career_years_from_debut(driver, current_year, debut_year);
+    historico.presenca.tempo_carreira =
+        career_years_from_debut(driver, archived_starts, current_year, debut_year);
 
     Ok(DriverCareerPathBlock {
         ano_estreia: debut_year,
@@ -2356,6 +2376,8 @@ mod tests {
         )
         .expect("history schema");
 
+        // `ano_inicio_carreira` é o ano do kart (aos 16), não a estreia: sem
+        // temporada fechada a estreia é o ano corrente, nunca 2020.
         let mut rookie = sample_driver();
         rookie.ano_inicio_carreira = 2020;
         rookie.stats_carreira.corridas = 0;
@@ -2364,6 +2386,24 @@ mod tests {
         let path =
             build_driver_career_path_block(&conn, &rookie, None, None, Some("mazda_rookie"), 2024)
                 .expect("career path");
+
+        // Ele já largou 5 vezes na temporada em curso (ainda não arquivada):
+        // está no primeiro ano de carreira.
+        assert_eq!(path.ano_estreia, 2024);
+        assert_eq!(path.historico.presenca.tempo_carreira, 1);
+
+        // Antes da primeira largada não há carreira nenhuma: ele ainda é um novato.
+        let mut sem_largada = rookie.clone();
+        sem_largada.stats_temporada.corridas = 0;
+        let path = build_driver_career_path_block(
+            &conn,
+            &sem_largada,
+            None,
+            None,
+            Some("mazda_rookie"),
+            2024,
+        )
+        .expect("career path");
 
         assert_eq!(path.ano_estreia, 2024);
         assert_eq!(path.historico.presenca.tempo_carreira, 0);

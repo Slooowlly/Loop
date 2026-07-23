@@ -303,7 +303,7 @@ fn build_current_driver_entry(
         &extra_historical_categories,
     );
     let debut_year = active_driver_debut_year(conn, driver, current_year)?;
-    let career_years = active_driver_career_years(driver, debut_year, current_year);
+    let career_years = active_driver_career_years(driver, &total, debut_year, current_year);
 
     let fama = driver.atributos.midia.clamp(0.0, 100.0).round() as i32;
     let carisma = driver.atributos.carisma.clamp(0.0, 100.0).round() as i32;
@@ -363,12 +363,35 @@ fn build_current_driver_entry(
     })
 }
 
-fn active_driver_career_years(driver: &Driver, debut_year: i32, current_year: i32) -> Option<i32> {
-    if driver.stats_carreira.corridas == 0 && driver.stats_carreira.temporadas == 0 {
+/// Anos de carreira de um piloto ativo. Sem NENHUMA largada não existe carreira:
+/// ele ainda é um novato, por mais temporadas que tenha atravessado. O órfão sem
+/// assento ganha `temporadas` de graça todo fim de ano (o acumulador não olha se
+/// ele correu), e era isso que enchia o ranking de "7 anos de carreira" ao lado
+/// de uma linha inteira zerada.
+fn active_driver_career_years(
+    driver: &Driver,
+    total: &CategoryStats,
+    debut_year: i32,
+    current_year: i32,
+) -> Option<i32> {
+    if career_starts(driver, total) <= 0 {
         return Some(0);
     }
 
     years_since(debut_year, current_year)
+}
+
+/// Largadas em toda a trajetória: o histórico já arquivado, o acumulado de
+/// carreira e a temporada em curso — que só entra no archive quando o ano fecha.
+/// Um DNF conta como largada: ele alinhou no grid.
+fn career_starts(driver: &Driver, total: &CategoryStats) -> i32 {
+    total
+        .races
+        .max(total.dnfs)
+        .max(driver.stats_carreira.corridas as i32)
+        .max(driver.stats_carreira.dnfs as i32)
+        .max(driver.stats_temporada.corridas as i32)
+        .max(driver.stats_temporada.dnfs as i32)
 }
 
 fn build_retired_driver_entry(
@@ -378,17 +401,30 @@ fn build_retired_driver_entry(
     archive_stats: Vec<CategoryStats>,
 ) -> RankingEntry {
     let retirement_year = parse_year(&retired.retirement_season);
-    let career_years = retired.career_years.or_else(|| {
-        retired
-            .career_start_year
-            .and_then(|start| retirement_year.and_then(|end| years_since(start, end)))
-    });
+    let archived_races = archive_stats.iter().map(|entry| entry.races).sum::<i32>();
+    let archived_starts = archive_stats
+        .iter()
+        .map(|entry| entry.races.max(entry.dnfs))
+        .sum::<i32>();
+    // Aposentado que nunca largou não teve carreira — pendurou o capacete ainda
+    // novato. O snapshot carrega `temporadas` acumuladas mesmo nos anos em que
+    // ficou sem assento, então sem largada esse número não vira "anos de
+    // carreira".
+    let career_years = if archived_starts <= 0 && retired.stats.races.max(retired.stats.dnfs) <= 0 {
+        Some(0)
+    } else {
+        retired.career_years.or_else(|| {
+            retired
+                .career_start_year
+                .and_then(|start| retirement_year.and_then(|end| years_since(start, end)))
+        })
+    };
     let years_retired = retirement_year.map(|year| (current_year - year).max(0));
     // ÍNDICE pela MESMA régua dos ativos (por categoria) quando o archive tem
     // participação real (corridas > 0); senão, pontua o agregado do snapshot. O
     // DISPLAY (totais/visibilidade) continua vindo do snapshot de carreira, que é
     // o registro autoritativo da carreira do aposentado.
-    let archive_has_participation = archive_stats.iter().map(|entry| entry.races).sum::<i32>() > 0;
+    let archive_has_participation = archived_races > 0;
     let stats_by_category = if archive_has_participation {
         archive_stats
     } else {
@@ -748,9 +784,11 @@ fn inferred_active_driver_debut_year(
         if career_seasons > 0 {
             return (current_year - career_seasons + 1).max(1);
         }
-        if driver.stats_carreira.corridas > 0 {
-            return fallback_year.max(1);
-        }
+        // Sem temporada fechada, toda largada que ele tem é da temporada em
+        // curso: a estreia é este ano. `ano_inicio_carreira` NÃO serve aqui —
+        // nasce como pano de fundo (o ano em que o piloto pegou num kart, aos
+        // 16), não como estreia na carreira, e fazia o piloto do jogador saltar
+        // de 0 pra 5 anos assim que largava pela primeira vez.
         return current_year;
     }
 
@@ -2994,6 +3032,7 @@ mod tests {
 
         let mut active = driver_with_stats("D_ACTIVE", "Piloto Ativo", Some("gt4"), 3, 5, 0);
         active.ano_inicio_carreira = 2020;
+        active.stats_carreira.temporadas = 7;
         insert_driver(&conn, &active).expect("insert active");
         insert_team(
             &conn,
@@ -3255,6 +3294,83 @@ mod tests {
             .unwrap();
 
         assert_eq!(retired.anos_carreira, Some(18));
+    }
+
+    #[test]
+    fn retired_driver_without_any_start_has_no_career_years() {
+        // Órfão que atravessou 7 temporadas sem assento e aposentou sem nunca
+        // largar: o `temporadas` do snapshot não pode virar "7 anos de carreira".
+        let snapshot = RetiredDriverSnapshot {
+            id: "D_RET_ORPHAN".to_string(),
+            name: "Aposentado Sem Largada".to_string(),
+            retirement_season: "2025".to_string(),
+            category: "SemCategoria".to_string(),
+            stats: CategoryStats::default(),
+            title_categories: Vec::new(),
+            career_start_year: Some(2018),
+            career_years: Some(7),
+        };
+
+        let entry = build_retired_driver_entry(snapshot, 2026, &TeamLookup::new(), Vec::new());
+
+        assert_eq!(entry.row.corridas, 0);
+        assert_eq!(entry.row.anos_carreira, Some(0));
+    }
+
+    #[test]
+    fn active_driver_without_any_start_has_no_career_years() {
+        let mut orphan = driver_with_stats("D_ORPHAN", "Orfao Sem Assento", None, 0, 0, 0);
+        orphan.ano_inicio_carreira = 2020;
+        orphan.stats_carreira.corridas = 0;
+        orphan.stats_carreira.dnfs = 0;
+        orphan.stats_carreira.pontos_total = 0.0;
+        // 7 fins de temporada sem assento: o acumulador soma `temporadas` mesmo
+        // sem o piloto largar uma única vez.
+        orphan.stats_carreira.temporadas = 7;
+
+        assert_eq!(
+            active_driver_career_years(&orphan, &CategoryStats::default(), 2020, 2026),
+            Some(0)
+        );
+
+        // Uma largada basta pra existir carreira — inclusive uma que terminou em DNF.
+        let started = CategoryStats {
+            dnfs: 1,
+            ..CategoryStats::default()
+        };
+        assert_eq!(
+            active_driver_career_years(&orphan, &started, 2020, 2026),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn debut_year_ignores_kart_backstory_year_after_first_start() {
+        let conn = setup_conn();
+        conn.execute("DELETE FROM seasons", [])
+            .expect("clear seeded seasons");
+        insert_season(&conn, &Season::new("S_TEST".to_string(), 27, 2026))
+            .expect("insert active season");
+
+        // Perfil do piloto do jogador: `ano_inicio_carreira` nasce como o ano do
+        // kart (2026 - (idade - 16)), sem nenhuma temporada fechada. Depois da
+        // primeira largada a estreia tem de ser o ano corrente, não 2022.
+        let mut driver = driver_with_stats("D_DEBUT", "Estreante", Some("mazda_rookie"), 0, 0, 0);
+        driver.ano_inicio_carreira = 2022;
+        driver.stats_carreira.corridas = 1;
+        driver.stats_carreira.temporadas = 0;
+        insert_driver(&conn, &driver).expect("insert driver");
+        insert_active_regular_contract(&conn, "C_DEBUT", "D_DEBUT", "Estreante", "mazda_rookie");
+
+        let payload = build_global_driver_rankings(&conn, None).expect("payload");
+        let row = payload
+            .rows
+            .iter()
+            .find(|row| row.id == "D_DEBUT")
+            .unwrap();
+
+        assert_eq!(row.ano_inicio_carreira, Some(2026));
+        assert_eq!(row.anos_carreira, Some(1));
     }
 
     #[test]
