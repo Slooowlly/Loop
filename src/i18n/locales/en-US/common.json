@@ -2995,7 +2995,8 @@
     },
     "liveView": {
       "hideTower": "Hide the tower",
-      "showTower": "Show the timing tower"
+      "showTower": "Show the timing tower",
+      "miniTower": "Compact the tower"
     }
   },
   "storeErrors": {

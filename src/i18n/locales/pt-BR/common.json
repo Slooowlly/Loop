@@ -2995,7 +2995,8 @@
     },
     "liveView": {
       "hideTower": "Ocultar a torre",
-      "showTower": "Mostrar a torre de tempos"
+      "showTower": "Mostrar a torre de tempos",
+      "miniTower": "Compactar a torre"
     }
   },
   "storeErrors": {
