@@ -217,6 +217,17 @@ fn history_matches_subsession(history_id: i64, current_id: i64) -> bool {
     history_id == current_id
 }
 
+/// Cor usada quando o time do piloto não foi resolvido (sem contrato / sem carreira).
+const NEUTRAL_TEAM_COLOR: &str = "#7d8590";
+
+/// Chave de comparação de nome para o join de RESERVA entre o `UserName` que o SDK
+/// devolve e o nosso elenco. Como somos NÓS que exportamos o roster da IA, o nome do
+/// piloto no iRacing é literalmente o `nome` do nosso piloto — só normalizamos pontas
+/// e caixa para o casamento não depender de formatação.
+fn name_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
 fn roster_with_telemetry<'a>(
     roster: &'a [race_monitor::YamlCarMeta],
     telemetry: &'a [CarSnapshot],
@@ -234,7 +245,8 @@ fn roster_with_telemetry<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        best_positive_lap, history_matches_subsession, roster_with_telemetry, tower_order_key,
+        best_positive_lap, history_matches_subsession, name_key, roster_with_telemetry,
+        tower_order_key,
     };
     use crate::iracing_sdk::{race_monitor::YamlCarMeta, CarSnapshot};
 
@@ -313,6 +325,14 @@ mod tests {
             .collect();
 
         assert_eq!(joined_indices, vec![(1, None), (2, Some(2))]);
+    }
+
+    #[test]
+    fn name_key_matches_sdk_username_against_roster_name() {
+        // O `UserName` do SDK volta com caixa/espaços próprios; o join por nome não
+        // pode depender disso.
+        assert_eq!(name_key("  Ana Ribeiro "), name_key("ana ribeiro"));
+        assert_ne!(name_key("Ana Ribeiro"), name_key("Ana Ribeira"));
     }
 
     #[test]
@@ -467,9 +487,14 @@ pub fn get_overlay_data(
             .as_ref()
             .map(|t| t.cor_primaria.clone())
             .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| "#7d8590".to_string());
+            .unwrap_or_else(|| NEUTRAL_TEAM_COLOR.to_string());
         Some((d.nome, d.stats_temporada.pontos.round() as i32, team_name, color))
     };
+
+    // Join de RESERVA nome→driver_id, montado SOB DEMANDA (só quando algum carro falha
+    // o join por número) e uma única vez por chamada — uma varredura no elenco em vez
+    // de uma consulta por carro. No caminho saudável nem chega a ser construído.
+    let mut by_name: Option<HashMap<String, String>> = None;
 
     let player_idx = tele.player_car_idx;
     let player_black = (tele.session_flags as u32 & 0x0001_0000) != 0;
@@ -548,9 +573,17 @@ pub fn get_overlay_data(
     // (carro, melhor_volta_s, chave_pra_nao_classificado)
     let mut by_class: HashMap<i64, Vec<(OverlayCar, f64, (i64, i64))>> = HashMap::new();
     let mut class_label: HashMap<i64, String> = HashMap::new();
-    // Diagnóstico: por que cada carro ficou de fora (alguma porta está zerando tudo).
+    // Diagnóstico do funil. `sem_piloto_fallback` não descarta mais nada: mede quantos
+    // carros entraram com identidade do SDK por não terem casado com a carreira — se vier
+    // alto, o mapa de números está fora de sincronia com a sessão.
     let mut sem_pos_incluido = 0usize;
-    let mut skip_sem_piloto = 0usize;
+    let mut sem_piloto_fallback = 0usize;
+    // Por qual chave cada carro se identificou, e quantos resolveram mas vieram SEM
+    // equipe (piloto no elenco, contrato ativo não) — a torre fica cinza nos dois casos,
+    // mas a correção é diferente, então os números precisam vir separados.
+    let mut join_nome = 0usize;
+    let mut join_numero = 0usize;
+    let mut sem_equipe = 0usize;
 
     for (meta, car) in roster_cars {
         // Sem posição oficial (pré-sessão/sem volta cronometrada) o carro ENTRA
@@ -567,20 +600,81 @@ pub fn get_overlay_data(
         // destaque). Dirigindo normal os dois coincidem; no replay o destaque migra.
         let is_self = meta.idx == player_idx;
         let is_focused = meta.idx == focus_idx;
-        let driver_id = if is_self {
-            player_driver.as_ref().map(|d| d.id.clone())
+        // Identidade que o PRÓPRIO SDK dá ao carro (o `UserName` do YAML).
+        let sdk_name = feedback
+            .driver_names
+            .get(&meta.idx)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty());
+        // Identidade: tenta as chaves EM ORDEM e fica na primeira que RESOLVE de fato
+        // no elenco — o teste é o piloto existir, não a chave existir.
+        //
+        // Para o jogador manda a identidade do save. Para a IA a 1ª chave é o NOME do
+        // SDK, não o número: o nome vem do YAML DESTA sessão (nós o escrevemos no export
+        // do roster), então é verdade de campo. O mapa de números é uma tabela à parte,
+        // guardada por carreira, que só cresce e nunca reconcilia — envelhecido ele não
+        // apenas falha, ele casa o carro com o piloto ERRADO (número 12 → um id de outro
+        // grid) e a torre mostra nome/equipe trocados. Por isso ele é a chave de reserva,
+        // boa justamente para sessão online, onde o `UserName` é a conta iRacing real e
+        // não bate com o elenco.
+        let mut matched = if is_self {
+            player_driver
+                .as_ref()
+                .map(|d| d.id.clone())
+                .and_then(|id| resolve(&id).map(|t| (id, t)))
         } else {
-            by_number.get(&(meta.car_number as i64)).cloned()
+            let map = by_name.get_or_insert_with(|| {
+                dq::get_all_drivers(&db.conn)
+                    .map(|ds| ds.into_iter().map(|d| (name_key(&d.nome), d.id)).collect())
+                    .unwrap_or_default()
+            });
+            let hit = sdk_name
+                .and_then(|n| map.get(&name_key(n)).cloned())
+                .and_then(|id| resolve(&id).map(|t| (id, t)));
+            if hit.is_some() {
+                join_nome += 1;
+            }
+            hit
         };
-        let (name, points, team, color) = match driver_id.as_deref().and_then(resolve) {
-            Some(t) => t,
+
+        // Reserva: o número fixo da carreira.
+        if matched.is_none() && !is_self {
+            matched = by_number
+                .get(&(meta.car_number as i64))
+                .cloned()
+                .and_then(|id| resolve(&id).map(|t| (id, t)));
+            if matched.is_some() {
+                join_numero += 1;
+            }
+        }
+
+        let (driver_id, (name, points, team, color)) = match matched {
+            Some((id, t)) => (Some(id), t),
             None => {
-                skip_sem_piloto += 1;
-                continue; // não resolveu no nosso elenco → fora
+                // O carro EXISTE na pista: não pode sumir da torre só porque não achamos
+                // dono na carreira. Entra com a identidade do SDK (nome do YAML, senão o
+                // número) e sem dados de carreira. Antes era `continue`, e um mapa de
+                // números fora de sincronia esvaziava a torre inteira — sobrava só o
+                // jogador, que resolve pela identidade do save.
+                sem_piloto_fallback += 1;
+                (
+                    None,
+                    (
+                        sdk_name
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("#{}", meta.car_number)),
+                        0,
+                        String::new(),
+                        NEUTRAL_TEAM_COLOR.to_string(),
+                    ),
+                )
             }
         };
         if class_pos <= 0 {
             sem_pos_incluido += 1;
+        }
+        if driver_id.is_some() && team.is_empty() {
+            sem_equipe += 1;
         }
 
         let strat = tire_by_idx.get(&meta.idx);
@@ -688,12 +782,12 @@ pub fn get_overlay_data(
 
     if by_class.is_empty() {
         dbg_state(&format!(
-            "by_class_vazio: tele_cars={} meta_elegivel={} roster={} player_idx={} | skips: sem_piloto={}",
+            "by_class_vazio: tele_cars={} meta_elegivel={} roster={} player_idx={} | sem_piloto_fallback={}",
             tele.cars.len(),
             eligible_meta_count,
             by_number.len(),
             player_idx,
-            skip_sem_piloto
+            sem_piloto_fallback
         ));
         return Ok(None);
     }
@@ -786,11 +880,22 @@ pub fn get_overlay_data(
         },
     };
 
+    // Reporta também o FUNIL, não só o resultado: "1 carro" tem duas causas opostas
+    // — sessão realmente com 1 carro (tele=1) ou grid cheio cujo número não casou com
+    // o elenco (tele=22). Sem isto os dois casos logam igual.
     dbg_state(&format!(
-        "ok: {} classes, {} carros ({} sem posição)",
+        "ok: {} classes, {} carros ({} sem posição) | funil: tele={} elegiveis={} roster={} \
+         | join: nome={} numero={} fallback={} sem_equipe={}",
         classes.len(),
         classes.iter().map(|c| c.cars.len()).sum::<usize>(),
-        sem_pos_incluido
+        sem_pos_incluido,
+        tele.cars.len(),
+        eligible_meta_count,
+        by_number.len(),
+        join_nome,
+        join_numero,
+        sem_piloto_fallback,
+        sem_equipe
     ));
     Ok(Some(OverlayData { session, classes }))
 }
