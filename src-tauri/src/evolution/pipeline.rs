@@ -499,7 +499,7 @@ fn process_driver_evolution(
             driver.temporadas_motivacao_baixa = 0;
         }
 
-        driver.accumulate_career_stats();
+        driver.close_career_season();
         if let Some(titles) = titles_by_driver.get(&driver.id) {
             driver.stats_carreira.titulos += *titles as u32;
         }
@@ -765,6 +765,39 @@ mod tests {
             .expect("meta current year");
         assert_eq!(meta_year, (season.ano + 1).to_string());
         assert!(save_path.join("preseason_plan.json").exists());
+        let _ = std::fs::remove_dir_all(save_path);
+    }
+
+    #[test]
+    fn end_of_season_does_not_double_count_the_season_in_career_stats() {
+        let (mut conn, season) = setup_pipeline_fixture();
+        let save_path = unique_test_dir("eos_no_double_count");
+
+        // Estado de quem acabou de correr a temporada: `commands::race` já somou
+        // cada corrida NA CARREIRA, corrida a corrida. A carreira aqui é o espelho
+        // exato da temporada — é assim que o piloto chega na virada do ano.
+        let mut driver = driver_queries::get_driver(&conn, "P001").expect("driver");
+        driver.stats_carreira.pontos_total = driver.stats_temporada.pontos;
+        driver.stats_carreira.vitorias = driver.stats_temporada.vitorias;
+        driver.stats_carreira.podios = driver.stats_temporada.podios;
+        driver.stats_carreira.poles = driver.stats_temporada.poles;
+        driver.stats_carreira.corridas = driver.stats_temporada.corridas;
+        driver.stats_carreira.dnfs = driver.stats_temporada.dnfs;
+        driver.stats_carreira.temporadas = 0;
+        driver_queries::update_driver(&conn, &driver).expect("update driver");
+        let esperado = driver.stats_carreira.clone();
+
+        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+
+        let depois = driver_queries::get_driver(&conn, "P001").expect("driver");
+        // A virada do ano fecha a temporada; não recontabiliza o que já foi contado.
+        assert_eq!(depois.stats_carreira.pontos_total, esperado.pontos_total);
+        assert_eq!(depois.stats_carreira.vitorias, esperado.vitorias);
+        assert_eq!(depois.stats_carreira.podios, esperado.podios);
+        assert_eq!(depois.stats_carreira.poles, esperado.poles);
+        assert_eq!(depois.stats_carreira.corridas, esperado.corridas);
+        assert_eq!(depois.stats_carreira.dnfs, esperado.dnfs);
+        assert_eq!(depois.stats_carreira.temporadas, 1);
         let _ = std::fs::remove_dir_all(save_path);
     }
 

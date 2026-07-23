@@ -325,16 +325,13 @@ impl Driver {
         self.ultimos_resultados = default_recent_results();
     }
 
-    pub fn accumulate_career_stats(&mut self) {
-        let season = &self.stats_temporada;
-        let career = &mut self.stats_carreira;
-        career.pontos_total += season.pontos;
-        career.vitorias += season.vitorias;
-        career.podios += season.podios;
-        career.poles += season.poles;
-        career.corridas += season.corridas;
-        career.dnfs += season.dnfs;
-        career.temporadas += 1;
+    /// Fecha a temporada na carreira. Soma APENAS o contador de temporadas: pontos,
+    /// vitórias, pódios, poles, corridas e DNFs já entram em `stats_carreira` corrida
+    /// a corrida, no momento em que o resultado é aplicado (`commands::race`). Somar o
+    /// bloco da temporada aqui contava tudo DUAS vezes — carreiras fechavam com o
+    /// dobro de pontos/vitórias/pódios do que o piloto realmente fez na pista.
+    pub fn close_career_season(&mut self) {
+        self.stats_carreira.temporadas += 1;
     }
 }
 
