@@ -348,8 +348,11 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
         let Some(d) = find(rows, &inc.pilot_id) else {
             continue;
         };
-        // Mecânico leve sem custo é ruído: o carro deu um soluço e nada aconteceu.
-        if !is_crash(inc) && inc.positions_lost == 0 {
+        // Soluço mecânico sem custo é ruído: o carro tossiu e nada aconteceu. Erro de
+        // pilotagem e contato ficam, mesmo leves e sem custo — é justamente o "algo
+        // pequeno" que a matéria deve citar como pequeno. Para a IA isso não vira spam
+        // porque o PESO de um incidente leve dela (16) não passa do limiar.
+        if inc.incident_type == IncidentType::Mechanical && inc.positions_lost == 0 {
             continue;
         }
         let cost = if inc.positions_lost > 0 {

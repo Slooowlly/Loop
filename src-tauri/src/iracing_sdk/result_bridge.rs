@@ -495,6 +495,10 @@ pub fn build_race_result_from_aiseason(
     extra_dnf_numbers: &std::collections::HashSet<i32>,
     weather: &str,
     track_name: &str,
+    // Marcadores de incidente do jogador vindos do monitor ao vivo (pontos do
+    // PRÓPRIO iRacing: 1 = saída, 2 = rodada, 4 = contato). É o único sinal de
+    // batida de quem TERMINOU a corrida — o JSON oficial zera os incidentes.
+    player_incident_marks: &[crate::iracing_sdk::race_monitor::PlayerIncidentMark],
 ) -> RaceResult {
     // Volta mais rápida = menor best_lap_time válido (cust_id é único por carro).
     let fastest_cust = event
@@ -731,6 +735,49 @@ pub fn build_race_result_from_aiseason(
         }
     }
 
+    // ── Batida do JOGADOR que NÃO abandonou ─────────────────────────────────
+    // Tudo acima só cria incidente para quem tem `is_dnf`. Quem bateu e TERMINOU
+    // ficava invisível — e é justamente o caso do "toque leve" que a matéria deve
+    // citar como leve. Aqui usamos os pontos de incidente do PRÓPRIO iRacing como
+    // escala de impacto (é dado real, não inferência), pegando o PIOR evento.
+    if let Some(pi) = race_results.iter().position(|r| r.is_jogador && !r.is_dnf) {
+        if race_results[pi].incidents.is_empty() {
+            let worst = player_incident_marks.iter().max_by_key(|m| m.points);
+            // <= 1 ponto é só uma saída de pista: ruído, não vira nota na revista.
+            if let Some(mark) = worst.filter(|m| m.points >= 2) {
+                let lap = mark.lap_f.max(0.0).floor() as i64;
+                let (kind, severity, desc_key) = if mark.points >= 4 {
+                    (
+                        IncidentType::Collision,
+                        IncidentSeverity::Major,
+                        "narrative.beat.incident_sdk_contact",
+                    )
+                } else {
+                    (
+                        IncidentType::DriverError,
+                        IncidentSeverity::Minor,
+                        "narrative.beat.incident_sdk_spin",
+                    )
+                };
+                let inc = make_incident(
+                    race_results[pi].pilot_id.clone(),
+                    kind,
+                    severity,
+                    "corrida",
+                    0,
+                    false,
+                    rust_i18n::t!(desc_key, lap = lap).to_string(),
+                    None,
+                    false,
+                    None,
+                    None,
+                );
+                race_results[pi].incidents_count = race_results[pi].incidents_count.max(1);
+                race_results[pi].incidents.push(inc);
+            }
+        }
+    }
+
     let winner_id = race_results
         .iter()
         .filter(|r| !r.is_dnf)
@@ -963,6 +1010,7 @@ mod tests {
             &empty,
             "Seco",
             "T",
+            &[],
         );
         let leader = r.race_results.iter().find(|x| x.laps_completed == 11).unwrap();
         let lapped = r.race_results.iter().find(|x| x.laps_completed == 10).unwrap();
@@ -982,6 +1030,85 @@ mod tests {
             assert!(inc.is_two_car_incident, "colisão entre os dois");
             assert!(inc.linked_pilot_id.is_some());
         }
+    }
+
+    /// O caso que faltava: o jogador BATEU mas TERMINOU a corrida. Toda a inferência
+    /// de incidente é gated por `is_dnf`, então sem os marcadores do monitor ele ficava
+    /// sem incidente nenhum — e a revista não tinha o que citar.
+    #[test]
+    fn aiseason_registra_batida_do_jogador_que_terminou() {
+        use crate::iracing_sdk::aiseason_results::{AiEventResult, AiResultRow};
+        use crate::iracing_sdk::race_monitor::PlayerIncidentMark;
+        use crate::simulation::incidents::{IncidentSeverity, IncidentType};
+
+        let row = |laps: i32, num: i32, cust: i64| AiResultRow {
+            laps_complete: laps,
+            car_number: num,
+            cust_id: cust,
+            reason_out: "Running".into(),
+            best_lap_time_ms: 80000.0,
+            ..Default::default()
+        };
+        let event = AiEventResult {
+            track_id: 1,
+            laps_complete: 11,
+            rows: vec![row(11, 1, 100), row(11, 64, 99)],
+            qualify: vec![],
+        };
+        let empty = std::collections::HashSet::new();
+        let mark = |points: i32, lap_f: f64| PlayerIncidentMark {
+            lap_f,
+            points,
+            off_track: false,
+        };
+        let build = |marks: &[PlayerIncidentMark]| {
+            let conn = Connection::open_in_memory().unwrap();
+            build_race_result_from_aiseason(
+                &event,
+                &conn,
+                &HashMap::new(),
+                99,
+                None,
+                false,
+                None,
+                &empty,
+                "Seco",
+                "T",
+                marks,
+            )
+        };
+
+        // Contato (4 pts) → batida de verdade, com o outro carro.
+        let r = build(&[mark(1, 2.0), mark(4, 7.5)]);
+        let player = r.race_results.iter().find(|x| x.is_jogador).unwrap();
+        assert!(!player.is_dnf, "ele terminou a corrida");
+        let inc = player.incidents.first().expect("batida registrada");
+        assert_eq!(inc.incident_type, IncidentType::Collision);
+        assert_eq!(inc.severity, IncidentSeverity::Major);
+        assert!(inc.description.contains('7'), "cita a volta: {}", inc.description);
+
+        // Rodada (2 pts) → o "algo pequeno" que deve ser citado como pequeno.
+        let r = build(&[mark(2, 4.2)]);
+        let inc = r
+            .race_results
+            .iter()
+            .find(|x| x.is_jogador)
+            .unwrap()
+            .incidents
+            .first()
+            .expect("rodada registrada")
+            .clone();
+        assert_eq!(inc.severity, IncidentSeverity::Minor);
+
+        // Só saída de pista (<= 1 pt) é ruído: não vira nota na revista.
+        let r = build(&[mark(1, 3.0)]);
+        assert!(r
+            .race_results
+            .iter()
+            .find(|x| x.is_jogador)
+            .unwrap()
+            .incidents
+            .is_empty());
     }
 
     #[test]
@@ -1020,6 +1147,7 @@ mod tests {
             &empty,
             "Seco",
             "T",
+            &[],
         );
         let player = r.race_results.iter().find(|x| x.is_jogador).unwrap();
         assert!(player.is_dnf);

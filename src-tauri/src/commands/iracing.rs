@@ -880,6 +880,7 @@ fn build_session_race_result(
         &extra_dnf_numbers,
         "", // clima resolvido na persistência
         &track_name,
+        &race_monitor::get_player_incidents(),
     );
 
     // TELEMETRIA (Fase 2): ritmo/consistência/rival do histórico ao vivo. Só vem

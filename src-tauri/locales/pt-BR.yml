@@ -773,6 +773,8 @@ narrative:
     incident_scale_minor: "PEQUENA (cite de passagem, como um episódio menor; NÃO transforme em drama nem em manchete)"
     incident_scale_major: "FORTE (batida de verdade, com consequência real na corrida)"
     incident_scale_critical: "MUITO FORTE (acidente grave, um dos momentos marcantes do dia)"
+    incident_sdk_contact: "contato com outro carro na volta %{lap}"
+    incident_sdk_spin: "rodada na volta %{lap}"
     incident_link: ", em contato com %{other}"
     incident_cost: " — perdeu %{n} posições"
     player_dnf_status: "abandonou (%{reason})"

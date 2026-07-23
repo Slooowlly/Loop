@@ -3481,6 +3481,14 @@ pub fn get_history() -> RaceHistory {
     lock().history.clone()
 }
 
+/// Marcadores de incidente do JOGADOR (pontos do próprio iRacing + volta). Moram no
+/// monitor, não no `RaceHistory`, daí o acessor próprio — é o ÚNICO sinal de batida de
+/// quem TERMINOU a corrida, já que o resultado oficial zera os incidentes.
+pub fn get_player_incidents() -> Vec<PlayerIncidentMark> {
+    start_sampler();
+    lock().player_incidents.clone()
+}
+
 /// Lê as voltas de qualify capturadas ao vivo, sem misturá-las ao histórico da corrida.
 pub fn get_qualy_laps() -> Vec<CarLap> {
     start_sampler();

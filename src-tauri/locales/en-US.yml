@@ -772,6 +772,8 @@ narrative:
     incident_scale_minor: "SMALL (mention it in passing, as a minor episode; do NOT turn it into drama or a headline)"
     incident_scale_major: "HEAVY (a real crash, with genuine consequences for the race)"
     incident_scale_critical: "VERY HEAVY (serious accident, one of the defining moments of the day)"
+    incident_sdk_contact: "contact with another car on lap %{lap}"
+    incident_sdk_spin: "a spin on lap %{lap}"
     incident_link: ", in contact with %{other}"
     incident_cost: " — lost %{n} positions"
     player_dnf_status: "retired (%{reason})"
