@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { currentLang, ordinal } from "../../i18n/format.js";
+import { currentLang } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
@@ -12,6 +12,10 @@ import WeeklyClosingMovement from "./preseason/WeeklyClosingMovement";
 import MarketCategoryHeader from "./preseason/MarketCategoryHeader";
 import TeamDriverRow from "./preseason/TeamDriverRow";
 import FreeAgentCard from "./preseason/FreeAgentCard";
+import OfferCategoryRow from "./preseason/OfferCategoryRow";
+import OfferCardRich from "./preseason/OfferCardRich";
+import TeamGridCard from "./preseason/TeamGridCard";
+import ProposalCard from "./preseason/ProposalCard";
 
 import {
   CATEGORIES,
@@ -26,33 +30,18 @@ import {
   CATEGORY_TIER,
   WEEKLY_MARKET_MOVEMENT_BADGES,
   RELATION_EMPHASIS,
-  getRankStyle,
   shortCatName,
   subcatLabel,
   subcatColor,
   shortDestLabel,
-  subcatLogo,
   BOND_LEVEL_COLORS,
-  PIP_COUNT,
-  tierBucket,
-  pipsFilled,
-  championshipColor,
-  tierColor,
-  isRookieCategory,
   brandOf,
-  formatTeammateTenure,
-  famaTierLabel,
-  formatCashCompact,
-  subcatLogoFit,
   is_regular_market_category,
   playerCatToFilter,
-  formatTenureCounter,
-  getTeamMovementBadge,
   getTeamMovementOrder,
   getTeamMappingSortValue,
   count_team_vacancies,
   formatLastChampionshipResult,
-  formatWeeklyClosingPosition,
   isRealCareerDebutCategory,
   buildWeeklyClosingGroups,
   LICENSE_COLORS,
@@ -192,377 +181,11 @@ export default function PreSeasonView() {
   const brandOfferGroups = offersByCategory.filter((g) => g.bucket === 1);
   const otherOfferGroups = offersByCategory.filter((g) => g.bucket === 2);
 
-  // Fileira DENSA (uma linha) para os andares 2 e 3: borda colorida + rótulo +
-  // contagem de vagas discreta. Sem o chip numérico grande (era só ruído).
-  const renderOfferRowDense = (group) => {
-    const n = group.n1.length + group.n2.length;
-    const accent = subcatColor(group.cat);
-    return (
-      <button
-        key={group.cat}
-        type="button"
-        onClick={() => { setOffersModalCat(group.cat); setShowOffersModal(true); }}
-        data-testid={`offer-category-row-${group.cat}`}
-        className="transition-glass glass-light hover:glass group flex w-full items-center gap-3 rounded-lg py-2 pl-3 pr-2.5 text-left"
-        style={{ borderLeft: `3px solid ${accent}` }}
-      >
-        <span
-          className="min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-[0.12em]"
-          style={{ color: accent }}
-        >
-          {group.label}
-        </span>
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--text-muted)]">
-          {t("preSeason.offers.vacancies", { count: n })}
-        </span>
-        <span className="shrink-0 text-[color:var(--text-muted)] transition-transform group-hover:translate-x-0.5">›</span>
-      </button>
-    );
-  };
+  // Abre o modal de ofertas já filtrado pela categoria (null = todas).
+  const openOffersFor = (cat) => { setOffersModalCat(cat); setShowOffersModal(true); };
 
-  // Card RICO (ficha da equipe) usado dentro do modal de ofertas.
-  // Mostra os dados de scouting; o foco e a relação (vínculo) ficam na tela de contrato.
-  const renderOfferCardRich = (offer) => {
-    const accent = offer.team_color || "#58a6ff";
-    const rookie = isRookieCategory(offer.category);
-    const pedigree =
-      (offer.team_titles_drivers ?? 0) +
-      (offer.team_titles_constructors ?? 0) +
-      (offer.team_historic_wins ?? 0);
-    const countryLabel = extractNationalityLabel(offer.team_country) || offer.team_country || "";
-    const dur = offer.offer_duration ?? 1;
-    // No rookie o carro não afeta o resultado → não mostrar (seria enganoso).
-    const stats = [
-      !rookie && { key: "car", value: offer.car_performance_rating },
-      { key: "reliability", value: offer.team_reliability },
-      { key: "prestige", value: offer.team_reputation },
-    ].filter(Boolean);
-    return (
-      <article
-        key={offer.seat_id}
-        className={[
-          "glass animate-scale-in overflow-hidden rounded-2xl",
-          offer.active_interest
-            ? "ring-2 ring-[#f2c46d]/70 shadow-[0_0_28px_rgba(242,196,109,0.22)]"
-            : "",
-        ].join(" ")}
-        style={{ borderLeft: `3px solid ${accent}` }}
-      >
-        {offer.active_interest && (
-          <div className="flex items-center gap-1.5 bg-[#f2c46d1a] px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#f2c46d]">
-            <span>◆</span>
-            <span>{t("preSeason.offers.card.activeInterest")}</span>
-          </div>
-        )}
-        {/* Cabeçalho: identidade da equipe */}
-        <div
-          className="flex items-center gap-3 px-4 py-3.5"
-          style={{ background: `linear-gradient(135deg, ${accent}22 0%, rgba(255,255,255,0.02) 100%)` }}
-        >
-          <TeamLogoMark teamName={offer.team_name} color={accent} size="lg" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span
-                className="rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
-                style={{ color: accent, background: `${accent}22` }}
-              >
-                {offer.role === "N1" ? t("preSeason.offers.card.driver1") : t("preSeason.offers.card.driver2")}
-              </span>
-              <span
-                className="text-[10px] font-bold uppercase tracking-[0.16em]"
-                style={{ color: accent }}
-              >
-                {offer.category_label || offer.category}
-              </span>
-            </div>
-            <p className="mt-1 truncate text-title-md font-bold">{offer.team_name}</p>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-              <FlagIcon nacionalidade={offer.team_country} className="h-3.5 w-5" />
-              {countryLabel && <span>{countryLabel}</span>}
-              {offer.team_founded_year ? <span>{t("preSeason.foundedSince", { year: offer.team_founded_year })}</span> : null}
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</p>
-            <p className="num-medium font-bold text-[color:var(--status-green)]">{formatSalaryAnnual(offer.salary)}</p>
-          </div>
-        </div>
-
-        <div className="space-y-3 px-4 py-3.5">
-          {/* Atributos em FAIXA de texto (sem números) */}
-          <div className={`grid grid-cols-1 gap-2 ${stats.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-            {stats.map(({ key, value }) => (
-              <div key={key} className="glass-light rounded-lg p-2.5">
-                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t(`preSeason.offers.card.stats.${key}`)}</p>
-                <p className="mt-0.5 text-body font-bold" style={{ color: tierColor(value) }}>
-                  {t(`preSeason.offers.card.tierScales.${key}.${tierBucket(value)}`)}
-                </p>
-                <div className="mt-1.5 flex gap-0.5">
-                  {Array.from({ length: PIP_COUNT }).map((_, i) => (
-                    <span
-                      key={i}
-                      className="h-1 flex-1 rounded-full"
-                      style={{ background: i < pipsFilled(value) ? tierColor(value) : "#21262d" }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Última temporada — em destaque */}
-          {(() => {
-            const pos = offer.team_last_position;
-            const posColor = pos != null ? championshipColor(pos) : "var(--text-muted)";
-            return (
-              <div
-                className="flex items-center justify-between rounded-xl px-3.5 py-2.5"
-                style={{ background: `${accent}12`, border: `1px solid ${accent}2e` }}
-              >
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                    {t("preSeason.offers.card.lastSeason")}
-                  </p>
-                  <p className="text-[10px] text-[color:var(--text-secondary)]">
-                    {pos != null ? t("preSeason.offers.card.championshipPosition") : t("preSeason.offers.card.noHistory")}
-                  </p>
-                </div>
-                <p className="text-[34px] font-black leading-none" style={{ color: posColor }}>
-                  {pos != null ? ordinal(pos) : t("preSeason.offers.card.debutant")}
-                </p>
-              </div>
-            );
-          })()}
-
-          {/* Ficha textual */}
-          <div className={`grid grid-cols-2 gap-2 ${rookie ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-            <div className="glass-light rounded-lg p-2.5">
-              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.cash")}</p>
-              <p
-                className="mt-0.5 num-medium font-bold"
-                style={{ color: offer.team_cash < 0 ? "var(--status-red)" : "var(--status-green)" }}
-              >
-                {formatCashCompact(offer.team_cash)}
-              </p>
-            </div>
-            {!rookie && (
-              <div className="glass-light rounded-lg p-2.5">
-                <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.titles")}</p>
-                <p className="mt-0.5 num-medium font-bold text-[color:var(--text-primary)]">
-                  {(offer.team_titles_drivers ?? 0)}
-                  <span className="text-[color:var(--text-muted)]"> · </span>
-                  {(offer.team_titles_constructors ?? 0)}
-                </p>
-                <p className="text-[9px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.driversConstructors")}</p>
-              </div>
-            )}
-            <div className="glass-light rounded-lg p-2.5">
-              <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.winsPodiums")}</p>
-              <p className="mt-0.5 num-medium font-bold text-[color:var(--text-primary)]">
-                {offer.team_historic_wins ?? 0}
-                <span className="text-[color:var(--text-muted)]"> · </span>
-                {offer.team_historic_podiums ?? 0}
-              </p>
-            </div>
-          </div>
-
-          {/* Companheiro de equipe (hover → estatísticas) */}
-          <div className="glass-light rounded-lg p-2.5">
-            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">{t("preSeason.offers.card.teammate")}</p>
-            {offer.teammate_name ? (
-              <div className="group relative mt-0.5 cursor-help">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <p className="text-body min-w-0 truncate font-semibold text-[color:var(--text-primary)]">
-                      {offer.teammate_name}
-                    </p>
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/25 text-[9px] font-bold text-[color:var(--text-muted)] transition-colors group-hover:border-[color:var(--accent-primary)] group-hover:text-[color:var(--accent-primary)]">
-                      ?
-                    </span>
-                  </div>
-                  <span className="shrink-0 text-[10px] text-[color:var(--text-muted)]">
-                    {formatTeammateTenure(offer.teammate_tenure)}
-                  </span>
-                </div>
-                {/* Tooltip de estatísticas */}
-                <div className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 w-64 rounded-xl border border-white/10 bg-[#0d1117] p-3 opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.5)] transition-opacity duration-150 group-hover:opacity-100">
-                  <p className="mb-2 min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-secondary)]">
-                    {offer.teammate_name}
-                    {offer.teammate_age != null ? t("preSeason.offers.card.teammateAge", { count: offer.teammate_age }) : ""}
-                  </p>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    {[
-                      ["races", offer.teammate_races ?? 0],
-                      ["wins", offer.teammate_wins ?? 0],
-                      ["podiums", offer.teammate_podiums ?? 0],
-                      ["poles", offer.teammate_poles ?? 0],
-                      ["titles", offer.teammate_titles ?? 0],
-                      ["points", Math.round(offer.teammate_career_points ?? 0)],
-                    ].map(([statKey, val]) => (
-                      <div key={statKey} className="flex items-center justify-between">
-                        <span className="text-[11px] text-[color:var(--text-muted)]">{t(`preSeason.offers.card.teammateStats.${statKey}`)}</span>
-                        <span className="num-medium text-[12px] font-bold text-[color:var(--text-primary)]">{val}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {(offer.teammate_strengths?.length > 0 || offer.teammate_weaknesses?.length > 0) && (
-                    <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
-                      {offer.teammate_strengths?.length > 0 && (
-                        <div className="flex items-start gap-1.5">
-                          <span className="mt-px shrink-0 text-[11px] font-bold text-[color:var(--status-green)]">▲</span>
-                          <span className="text-[11px] text-[color:var(--text-secondary)]">
-                            {offer.teammate_strengths.join(" · ")}
-                          </span>
-                        </div>
-                      )}
-                      {offer.teammate_weaknesses?.length > 0 && (
-                        <div className="flex items-start gap-1.5">
-                          <span className="mt-px shrink-0 text-[11px] font-bold text-[#f85149]">▼</span>
-                          <span className="text-[11px] text-[color:var(--text-secondary)]">
-                            {offer.teammate_weaknesses.join(" · ")}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {offer.teammate_fama != null && (
-                    <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
-                      <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.fame")}</span>
-                      <span
-                        title={
-                          offer.teammate_carisma != null
-                            ? t("preSeason.offers.card.fameCharismaTooltip", { fama: offer.teammate_fama, carisma: offer.teammate_carisma })
-                            : t("preSeason.offers.card.fameTooltip", { fama: offer.teammate_fama })
-                        }
-                        className="num-medium text-[12px] font-bold text-[color:var(--accent-secondary)]"
-                      >
-                        {famaTierLabel(offer.teammate_fama)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
-                    <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</span>
-                    <span className="num-medium text-[12px] font-bold text-[color:var(--status-green)]">
-                      {offer.teammate_salary != null ? formatSalaryAnnual(offer.teammate_salary) : "—"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-body mt-0.5 text-[color:var(--text-muted)]">{t("preSeason.offers.card.freeSlot")}</p>
-            )}
-          </div>
-
-          {/* Duração do contrato ofertado */}
-          <div className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2">
-            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-              {t("preSeason.offers.card.offeredContract")}
-            </span>
-            <span
-              className="num-medium text-body font-bold"
-              style={{ color: dur >= 2 ? "var(--status-green)" : "var(--text-primary)" }}
-            >
-              {t("preSeason.offers.card.contractDuration", { count: dur })}
-              {dur >= 2 && <span className="ml-1.5 text-[9px] font-semibold">{t("preSeason.offers.card.project")}</span>}
-            </span>
-          </div>
-
-          <button
-            onClick={() => { setIsSigning(false); setContractOffer(offer); }}
-            disabled={isAdvancingWeek}
-            className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {t("preSeason.offers.card.viewContract")}
-          </button>
-          {pedigree === 0 && (
-            <p className="text-center text-[10px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.noPedigree")}</p>
-          )}
-        </div>
-      </article>
-    );
-  };
-
-  // Card de time do grid central (reutilizado no fluxo normal e nas sub-classes
-  // de Production/Endurance).
-  const renderTeamCard = (team, accent) => {
-    const rankStyle = getRankStyle(team.temp_posicao);
-    const movement = getTeamMovementBadge(team.categoria_anterior, team._categoria || team.classe);
-    const teamLogoFallback = movement?.color ?? team.cor_primaria ?? accent;
-    // Conexão entre colunas: passar o mouse sobre um piloto livre acende as equipes
-    // da mesma categoria (por championship OU por classe) e esmaece as demais.
-    const matchesHover = hoveredFreeAgentCat != null
-      && (team._categoria === hoveredFreeAgentCat || team.classe === hoveredFreeAgentCat);
-    const isDimmed = hoveredFreeAgentCat != null && !matchesHover;
-    return (
-      <article
-        key={team.id}
-        onDoubleClick={() => setHistoryTeam(team)}
-        title={t("preSeason.teamHistoryDblClick")}
-        className="glass transition-glass relative cursor-pointer select-none overflow-hidden rounded-xl border p-3 hover:-translate-y-0.5 hover:scale-[1.01]"
-        style={{
-          borderColor: matchesHover
-            ? accent
-            : movement
-              ? movement.border
-              : rankStyle?.border
-                ? `${rankStyle.border}88`
-                : "rgba(255,255,255,0.11)",
-          opacity: isDimmed ? 0.32 : 1,
-          boxShadow: matchesHover ? `0 0 0 1px ${accent}, 0 10px 34px -14px ${accent}` : undefined,
-          transition: "opacity .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease",
-        }}
-      >
-        {rankStyle && !movement && (
-          <div
-            className="pointer-events-none absolute right-0 top-0 h-full w-28"
-            style={{ background: `radial-gradient(circle at 94% 14%, ${rankStyle.glow} 0%, transparent 68%)` }}
-          />
-        )}
-        {movement && (
-          <div
-            className="pointer-events-none absolute right-0 top-0 h-full w-32"
-            style={{ background: `radial-gradient(circle at 94% 14%, ${movement.bg.replace("0.12", "0.18")} 0%, transparent 68%)` }}
-          />
-        )}
-
-        <div className="relative mb-3 flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <TeamLogoMark
-              teamName={team.nome}
-              color={teamLogoFallback}
-              size="md"
-              testId="preseason-team-logo"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[19px] font-bold leading-[1.05]">{team.nome}</p>
-            </div>
-            {movement && (
-              <span
-                className="ml-auto shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
-                style={{ color: movement.color, backgroundColor: movement.bg, borderColor: movement.border }}
-              >
-                {movement.kind ? t(`preSeason.teamMovement.${movement.kind}`) : movement.label}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="relative divide-y divide-white/8">
-          <TeamDriverRow
-            driverName={team.piloto_1_nome}
-            tenureSeasons={team.piloto_1_tenure_seasons}
-            accent={accent}
-            isPrimarySlot
-          />
-          <TeamDriverRow
-            driverName={team.piloto_2_nome}
-            tenureSeasons={team.piloto_2_tenure_seasons}
-            accent={accent}
-          />
-        </div>
-      </article>
-    );
-  };
+  // Abre a ficha de contrato de uma oferta (assinatura sempre começa zerada).
+  const handleViewContract = (offer) => { setIsSigning(false); setContractOffer(offer); };
 
   const currentDateLabel = useMemo(
     () => {
@@ -878,105 +501,6 @@ export default function PreSeasonView() {
     }
   };
 
-  const renderProposalCard = (p) => (
-    <article key={p.proposal_id} className="glass animate-scale-in rounded-xl px-4 py-3.5">
-      <div className="flex min-w-0 items-center gap-3">
-        <TeamLogoMark
-          teamName={p.equipe_nome}
-          color={p.equipe_cor_primaria}
-          size="md"
-          testId="player-proposal-team-logo"
-        />
-        <div className="min-w-0 flex-1">
-          <p
-            className="text-body-sm font-bold uppercase tracking-[0.16em]"
-            style={{ color: p.equipe_cor_primaria }}
-          >
-            {p.papel} | {p.categoria_nome}
-          </p>
-          <p className="mt-1 truncate text-title-md">{p.equipe_nome}</p>
-        </div>
-        {p.semanas_restantes != null && (
-          <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-300">
-            {p.semanas_restantes <= 0 ? t("preSeason.proposals.lastWeek") : t("preSeason.proposals.expiresIn", { count: p.semanas_restantes })}
-          </span>
-        )}
-      </div>
-
-      <div className="my-3 grid grid-cols-2 gap-2">
-        <div className="glass-light rounded-lg p-2.5">
-          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            {t("preSeason.proposals.salary")}
-          </p>
-          <p className="num-medium mt-0.5 font-bold text-[color:var(--status-green)]">
-            {formatSalaryAnnual(p.salario_oferecido)}
-          </p>
-        </div>
-        <div className="glass-light rounded-lg p-2.5">
-          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            {t("preSeason.proposals.duration")}
-          </p>
-          <p className="num-medium mt-0.5 font-bold text-[color:var(--text-primary)]">
-            {t("preSeason.proposals.years", { count: p.duracao_anos })}
-          </p>
-        </div>
-        {p.companheiro_nome && (
-          <div className="glass-light rounded-lg p-2.5">
-            <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-              {t("preSeason.proposals.teammate")}
-            </p>
-            <p className="text-body mt-0.5 font-semibold text-[color:var(--text-primary)] truncate">
-              {p.companheiro_nome}
-              {p.companheiro_skill != null ? ` (${p.companheiro_skill})` : ""}
-            </p>
-          </div>
-        )}
-        <div className={`glass-light rounded-lg p-2.5 ${p.companheiro_nome ? "" : "col-span-2"}`}>
-          <p className="text-[8px] uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-            {t("preSeason.proposals.car")}
-          </p>
-          <div className="mt-1.5 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#21262d]">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${p.car_performance_rating ?? 0}%`,
-                  backgroundColor: p.equipe_cor_primaria,
-                }}
-              />
-            </div>
-            <span className="text-body font-bold">{p.car_performance_rating}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          onClick={() =>
-            handleRespondProposal(
-              p.proposal_id,
-              true,
-              p.equipe_cor_primaria,
-              p.categoria,
-              p.equipe_nome,
-            )
-          }
-          disabled={isAdvancingWeek}
-          className="transition-glass glow-blue flex-1 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("preSeason.proposals.accept")}
-        </button>
-        <button
-          onClick={() => handleRespondProposal(p.proposal_id, false)}
-          disabled={isAdvancingWeek}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("preSeason.proposals.decline")}
-        </button>
-      </div>
-    </article>
-  );
-
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="app-shell relative h-screen w-full overflow-hidden text-[color:var(--text-primary)]">
@@ -1288,7 +812,15 @@ export default function PreSeasonView() {
                                       pills "Vaga aberta" e o glow de hover; o logo do time
                                       segue com a cor_primaria própria. */}
                                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                                    {clsTeams.map((team) => renderTeamCard(team, dividerColor))}
+                                    {clsTeams.map((team) => (
+                                      <TeamGridCard
+                                        key={team.id}
+                                        team={team}
+                                        accent={dividerColor}
+                                        hoveredFreeAgentCat={hoveredFreeAgentCat}
+                                        onOpenHistory={setHistoryTeam}
+                                      />
+                                    ))}
                                   </div>
                                 </div>
                               );
@@ -1297,7 +829,15 @@ export default function PreSeasonView() {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                          {teams.map((team) => renderTeamCard(team, accent))}
+                          {teams.map((team) => (
+                            <TeamGridCard
+                              key={team.id}
+                              team={team}
+                              accent={accent}
+                              hoveredFreeAgentCat={hoveredFreeAgentCat}
+                              onOpenHistory={setHistoryTeam}
+                            />
+                          ))}
                         </div>
                       )}
                     </section>
@@ -1328,7 +868,14 @@ export default function PreSeasonView() {
                   <p className="text-body-sm text-[color:var(--text-secondary)]">
                     {t("preSeason.proposals.subtitle")}
                   </p>
-                  {playerProposals.map(renderProposalCard)}
+                  {playerProposals.map((p) => (
+                    <ProposalCard
+                      key={p.proposal_id}
+                      proposal={p}
+                      isAdvancingWeek={isAdvancingWeek}
+                      onRespond={handleRespondProposal}
+                    />
+                  ))}
                 </div>
               </div>
             )}
@@ -1397,7 +944,9 @@ export default function PreSeasonView() {
                     <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
                       {t("preSeason.offers.continueIn", { brand: CLASS_LABELS[playerBrand] ?? playerBrand })}
                     </p>
-                    {brandOfferGroups.map(renderOfferRowDense)}
+                    {brandOfferGroups.map((g) => (
+                      <OfferCategoryRow key={g.cat} group={g} onSelect={openOffersFor} />
+                    ))}
                   </div>
                 )}
 
@@ -1407,7 +956,9 @@ export default function PreSeasonView() {
                     <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
                       {t("preSeason.offers.otherOpportunities")}
                     </p>
-                    {otherOfferGroups.map(renderOfferRowDense)}
+                    {otherOfferGroups.map((g) => (
+                      <OfferCategoryRow key={g.cat} group={g} onSelect={openOffersFor} />
+                    ))}
                   </div>
                 )}
 
@@ -1546,7 +1097,14 @@ export default function PreSeasonView() {
                             {t(`preSeason.offersModal.role.${roleKey}`)}
                           </p>
                           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                            {list.map(renderOfferCardRich)}
+                            {list.map((o) => (
+                              <OfferCardRich
+                                key={o.seat_id}
+                                offer={o}
+                                isAdvancingWeek={isAdvancingWeek}
+                                onViewContract={handleViewContract}
+                              />
+                            ))}
                           </div>
                         </div>
                       ),
