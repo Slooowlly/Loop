@@ -1061,9 +1061,8 @@ mod tests {
         create_historical_career_draft_for_range_for_test, discard_career_draft_in_base_dir,
         get_career_draft_in_base_dir, simulate_historical_range,
     };
-    use crate::commands::career::{
-        get_driver_detail_in_base_dir, get_team_history_dossier_in_base_dir,
-    };
+    use crate::commands::career::get_driver_detail_in_base_dir;
+    use crate::commands::career_team_dossier::get_team_history_dossier_in_base_dir;
     use crate::commands::career_types::{
         CreateHistoricalDraftInput, FinalizeHistoricalDraftInput, SaveLifecycleStatus,
     };

@@ -16,12 +16,14 @@ use crate::commands::career::{
     get_preseason_free_agents_in_base_dir,
     get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
     resolve_player_poach_offer_in_base_dir,
-    get_race_results_by_category_in_base_dir, get_team_finance_report_in_base_dir,
-    get_team_history_dossier_in_base_dir,
+    get_race_results_by_category_in_base_dir,
     get_teams_standings_in_base_dir, list_saves_in_base_dir, load_career_in_base_dir,
     persist_resume_context_in_base_dir, respond_to_proposal_in_base_dir,
     save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir,
     PlayerInterests, PlayerProposalView, ProposalResponse,
+};
+use crate::commands::career_team_dossier::{
+    get_team_finance_report_in_base_dir, get_team_history_dossier_in_base_dir,
 };
 use crate::commands::career_types::{
     BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData, CareerDraftState,

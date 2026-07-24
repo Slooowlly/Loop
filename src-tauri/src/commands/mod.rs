@@ -3,6 +3,7 @@ pub mod calendar;
 pub mod career;
 pub mod career_commands;
 pub mod career_detail;
+pub mod career_team_dossier;
 pub mod career_types;
 pub mod config;
 pub mod convocation;
