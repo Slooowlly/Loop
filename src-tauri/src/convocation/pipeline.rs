@@ -24,6 +24,7 @@ use super::special_window;
 // Etapas do bloco especial. Este arquivo guarda só a orquestração de alto nível
 // (`run_convocation_window`); cada etapa mora no seu módulo e enxerga os imports
 // acima via `use super::*`.
+mod fases;
 mod grid;
 mod ofertas;
 mod persistencia;
@@ -32,6 +33,7 @@ mod validacao;
 
 // O glob é `pub` onde há caminho público a preservar: `convocation::pipeline::…`
 // (e o re-export em `convocation/mod.rs`) continua resolvendo igual.
+pub use fases::*;
 pub use pos_especial::*;
 use grid::*;
 use ofertas::*;
@@ -112,62 +114,6 @@ fn legacy_convocation_classes() -> impl Iterator<Item = &'static ClasseConfig> {
     CLASSES_CONVOCADAS
         .iter()
         .filter(|cfg| !uses_regular_special_event_grid(cfg.special_category))
-}
-
-// ── Transições de fase ────────────────────────────────────────────────────────
-
-/// BlocoRegular → JanelaConvocacao.
-/// Requer que a temporada ativa esteja em BlocoRegular.
-pub fn advance_to_convocation_window(conn: &Connection) -> Result<(), DbError> {
-    let season = season_queries::get_active_season(conn)?
-        .ok_or_else(|| DbError::NotFound("Nenhuma temporada ativa".into()))?;
-
-    if season.fase != SeasonPhase::BlocoRegular {
-        return Err(DbError::Migration(format!(
-            "Fase atual é '{}'; esperado BlocoRegular",
-            season.fase
-        )));
-    }
-
-    let pending_regular = calendar_queries::count_pending_races_in_phase(
-        conn,
-        &season.id,
-        &SeasonPhase::BlocoRegular,
-    )?;
-    if pending_regular > 0 {
-        return Err(DbError::Migration(format!(
-            "A janela de convocacao so pode abrir depois do fim do bloco regular. Ainda existem {pending_regular} corridas regulares pendentes."
-        )));
-    }
-
-    season_queries::update_season_fase(conn, &season.id, &SeasonPhase::JanelaConvocacao)?;
-    Ok(())
-}
-
-/// JanelaConvocacao → BlocoEspecial.
-/// Deve ser chamada APÓS run_convocation_window.
-/// Gera o calendário das categorias especiais na janela setembro–dezembro.
-pub fn iniciar_bloco_especial(conn: &Connection) -> Result<(), DbError> {
-    let season = season_queries::get_active_season(conn)?
-        .ok_or_else(|| DbError::NotFound("Nenhuma temporada ativa".into()))?;
-
-    if season.fase != SeasonPhase::JanelaConvocacao {
-        return Err(DbError::Migration(format!(
-            "Fase atual é '{}'; esperado JanelaConvocacao",
-            season.fase
-        )));
-    }
-
-    // Gerar calendário das categorias especiais (production_challenger e endurance)
-    let tx = conn.unchecked_transaction()?;
-    season_queries::update_season_fase(&tx, &season.id, &SeasonPhase::BlocoEspecial)?;
-
-    let mut rng = rand::thread_rng();
-    generate_and_insert_special_calendars(&tx, &season.id, season.ano, &mut rng)
-        .map_err(|e| DbError::Migration(format!("Falha ao gerar calendário especial: {e}")))?;
-
-    tx.commit()?;
-    Ok(())
 }
 
 // ── Pipeline principal ────────────────────────────────────────────────────────
@@ -251,23 +197,6 @@ pub fn run_convocation_window(conn: &Connection) -> Result<ConvocationResult, Db
         total_contratos,
         errors: all_errors,
     })
-}
-
-/// BlocoEspecial → PosEspecial (transição esportiva: as corridas especiais terminaram).
-/// Deve ser chamada antes de run_pos_especial.
-pub fn encerrar_bloco_especial(conn: &Connection) -> Result<(), DbError> {
-    let season = season_queries::get_active_season(conn)?
-        .ok_or_else(|| DbError::NotFound("Nenhuma temporada ativa".into()))?;
-
-    if season.fase != SeasonPhase::BlocoEspecial {
-        return Err(DbError::Migration(format!(
-            "Fase atual é '{}'; esperado BlocoEspecial",
-            season.fase
-        )));
-    }
-
-    season_queries::update_season_fase(conn, &season.id, &SeasonPhase::PosEspecial)?;
-    Ok(())
 }
 
 #[cfg(test)]
