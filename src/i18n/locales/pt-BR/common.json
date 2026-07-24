@@ -3164,6 +3164,7 @@
     "upToDateTitle": "Tudo em dia",
     "upToDate": "Você já está na versão mais recente.",
     "whatsNew": "Novidades",
+    "confirmInstall": "Confirmar e atualizar",
     "changelogTitle": "O que mudou",
     "versionLabel": "Versão {{version}}",
     "noNotes": "Sem notas para esta versão.",

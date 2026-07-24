@@ -1,6 +1,7 @@
 /**
  * Modal do auto-update. Lê tudo do UpdaterProvider e reage ao `status`:
- *   available  → oferece baixar (+ "novidades" se o manifesto trouxe notas)
+ *   available  → oferece atualizar; com notas, o botão leva ao changelog, que é
+ *                onde a instalação é de fato confirmada (ver UpdateChangelogModal)
  *   downloading→ barra de progresso
  *   installing → "Instalando…"
  *   error      → mensagem de falha
@@ -27,6 +28,10 @@ export default function UpdateGate() {
 
   const busy = status === "downloading" || status === "installing";
   const isBeta = channel === "beta";
+  // Com notas, "atualizar" abre o changelog em vez de instalar: o jogador lê o que
+  // muda e confirma lá. Sem notas não há o que ler — a confirmação seria uma tela
+  // vazia pedindo "confirme" duas vezes, então instala direto.
+  const hasNotes = Boolean(update?.body?.trim());
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center">
@@ -91,21 +96,11 @@ export default function UpdateGate() {
               </div>
             ) : null}
 
-            {update?.body && !busy ? (
-              <button
-                type="button"
-                onClick={openChangelog}
-                className="mb-4 text-[12px] font-medium text-accent-primary transition-opacity hover:opacity-80"
-              >
-                {t("updater.whatsNew")}
-              </button>
-            ) : null}
-
             <div className="flex flex-col gap-2">
               <button
                 type="button"
                 disabled={busy}
-                onClick={install}
+                onClick={hasNotes ? openChangelog : install}
                 className="flex h-9 w-full items-center justify-center rounded-xl bg-accent-primary text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {status === "installing"

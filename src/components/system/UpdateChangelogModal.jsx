@@ -1,15 +1,38 @@
 /**
- * Tela "o que mudou" entre versões. Abre só sob demanda (link "novidades" no
- * UpdateGate). O conteúdo vem do campo `notes` do manifesto (update.body) — é o
- * que você escreve ao publicar. Renderiza como linhas simples (1 item por linha).
+ * Tela "o que mudou" entre versões — e o passo onde a atualização é CONFIRMADA.
+ *
+ * O jogador clica em atualizar no UpdateGate, cai aqui, lê o que muda e só então
+ * confirma. É deliberado: as notas costumam trazer coisas que mudam números na
+ * tela (salário anual, correção de estatística) e, escondidas atrás de um link
+ * opcional, quase ninguém as lia — a dúvida chegava depois, como suporte.
+ *
+ * Fora do fluxo de atualização (status ≠ "available") vira só leitura, com Fechar.
+ *
+ * O conteúdo vem do campo `notes` do manifesto (update.body) — é o que você
+ * escreve ao publicar. Renderiza como linhas simples (1 item por linha).
  */
 import { useTranslation } from "react-i18next";
 import { useUpdater } from "./UpdaterProvider";
 
 export default function UpdateChangelogModal() {
   const { t } = useTranslation();
-  const { update, showChangelog, closeChangelog } = useUpdater();
+  const { update, status, showChangelog, closeChangelog, install, dismiss } =
+    useUpdater();
   if (!showChangelog) return null;
+
+  const confirming = status === "available";
+
+  function confirm() {
+    // Fecha ANTES de instalar: a barra de progresso vive no UpdateGate, atrás
+    // desta tela. Sem isso o download roda escondido.
+    closeChangelog();
+    install();
+  }
+
+  function postpone() {
+    closeChangelog();
+    dismiss();
+  }
 
   const notes = (update?.body ?? "").trim();
   // Cada linha do `notes` vira um item; tira marcadores comuns (-, *, •).
@@ -50,13 +73,32 @@ export default function UpdateChangelogModal() {
           </p>
         )}
 
-        <button
-          type="button"
-          onClick={closeChangelog}
-          className="flex h-9 w-full items-center justify-center rounded-xl bg-accent-primary text-[13px] font-medium text-white transition-opacity hover:opacity-90"
-        >
-          {t("updater.close")}
-        </button>
+        {confirming ? (
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={confirm}
+              className="flex h-9 w-full items-center justify-center rounded-xl bg-accent-primary text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+            >
+              {t("updater.confirmInstall")}
+            </button>
+            <button
+              type="button"
+              onClick={postpone}
+              className="flex h-9 w-full items-center justify-center rounded-xl text-[13px] text-text-secondary transition-colors hover:text-text-primary"
+            >
+              {t("updater.later")}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={closeChangelog}
+            className="flex h-9 w-full items-center justify-center rounded-xl bg-accent-primary text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+          >
+            {t("updater.close")}
+          </button>
+        )}
       </div>
     </div>
   );

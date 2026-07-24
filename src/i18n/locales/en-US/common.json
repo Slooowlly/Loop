@@ -3164,6 +3164,7 @@
     "upToDateTitle": "You're up to date",
     "upToDate": "You're already on the latest version.",
     "whatsNew": "What's new",
+    "confirmInstall": "Confirm and update",
     "changelogTitle": "What changed",
     "versionLabel": "Version {{version}}",
     "noNotes": "No notes for this version.",
