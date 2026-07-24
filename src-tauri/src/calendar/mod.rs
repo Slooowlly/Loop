@@ -540,33 +540,50 @@ fn select_tracks_themed<R: Rng>(
     }
 
     // ── Passo 2: Endurance — garantir âncora forte no miolo ──────────────────
+    // A regra da família é "final forte MAIS ao menos uma âncora de miolo", ou
+    // seja, no mínimo dois eventos fortes na temporada. Como `strong_last` já
+    // reserva a final, aqui se conta quantos fortes existem e completa-se até
+    // o mínimo — em vez de tratar o miolo como plano B para quando a final
+    // falha, que era o efeito da condição antiga e deixava anos com um só.
     if config.id == "endurance" {
-        let has_strong_in_narrative = slots_to_reserve.iter().any(|(r, _)| {
-            assigned[(r - 1) as usize]
-                .map(|t| pool.strong_ids.contains(&t.track_id))
-                .unwrap_or(false)
-        });
-        if !has_strong_in_narrative {
-            // Reservar âncora em round de miolo não-narrativo
-            let narrative_rounds: HashSet<i32> = slots_to_reserve.iter().map(|(r, _)| *r).collect();
+        const MIN_STRONG_EVENTS: usize = 2;
+        let narrative_rounds: HashSet<i32> = slots_to_reserve.iter().map(|(r, _)| *r).collect();
+
+        loop {
+            let strong_reserved = assigned
+                .iter()
+                .filter(|slot| {
+                    slot.map(|t| pool.strong_ids.contains(&t.track_id))
+                        .unwrap_or(false)
+                })
+                .count();
+            if strong_reserved >= MIN_STRONG_EVENTS {
+                break;
+            }
+
             let miolo_rounds: Vec<i32> = (1..=total)
                 .filter(|r| !narrative_rounds.contains(r) && assigned[(r - 1) as usize].is_none())
                 .collect();
-            if !miolo_rounds.is_empty() {
-                let anchor_round = miolo_rounds[rng.gen_range(0..miolo_rounds.len())];
-                if let Some(track) = pick_strong(
-                    &mut available,
-                    &used_ids,
-                    &pool.strong_ids,
-                    anchor_round,
-                    banned_tracks_by_round,
-                    rng,
-                ) {
-                    assigned[(anchor_round - 1) as usize] = Some(track);
-                    used_ids.insert(track.track_id);
-                    slot_by_round[(anchor_round - 1) as usize] = ThematicSlot::MidpointPrestigio;
-                }
+            if miolo_rounds.is_empty() {
+                break;
             }
+
+            let anchor_round = miolo_rounds[rng.gen_range(0..miolo_rounds.len())];
+            // Sem pista forte disponível pra este round, insistir não ajuda.
+            let Some(track) = pick_strong(
+                &mut available,
+                &used_ids,
+                &pool.strong_ids,
+                anchor_round,
+                banned_tracks_by_round,
+                rng,
+            ) else {
+                break;
+            };
+
+            assigned[(anchor_round - 1) as usize] = Some(track);
+            used_ids.insert(track.track_id);
+            slot_by_round[(anchor_round - 1) as usize] = ThematicSlot::MidpointPrestigio;
         }
     }
 
