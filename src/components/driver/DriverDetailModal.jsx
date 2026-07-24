@@ -1,13 +1,26 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
-import i18n from "../../i18n/index.js";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatSalaryAnnual } from "../../utils/formatters";
+import {
+  BadgePill,
+  FavoriteStarButton,
+  TagRow,
+  nationalityForFlag,
+} from "./detalhes/cabecalho.jsx";
+import { NavChevron } from "./detalhes/navegacao.jsx";
+import { DetailRow } from "./detalhes/primitivos.jsx";
+import {
+  formatAverage,
+  formatContractPeriod,
+  formatInjuryOccurrence,
+  formatInjuryRecovery,
+} from "./detalhes/formatadores.js";
 import {
   HistorySection as HistorySectionContent,
   MarketSection as MarketSectionContent,
@@ -47,62 +60,6 @@ function Section({ title, headerLeft = null, headerRight = null, children, class
   );
 }
 
-function nationalityForFlag(perfil, detail) {
-  if (perfil?.bandeira && perfil?.nacionalidade) {
-    return `${perfil.bandeira} ${perfil.nacionalidade}`;
-  }
-
-  if (perfil?.nacionalidade) {
-    return perfil.nacionalidade;
-  }
-
-  return detail?.nacionalidade || "";
-}
-
-function BadgePill({ badge }) {
-  const variants = {
-    player: "bg-[#58a6ff]/18 text-[#58a6ff]",
-    success: "bg-[#3fb950]/18 text-[#3fb950]",
-    warning: "bg-[#d29922]/18 text-[#d29922]",
-    info: "bg-white/10 text-[#c9d1d9]",
-  };
-
-  return (
-    <span
-      className={[
-        "rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
-        variants[badge?.variant] || variants.info,
-      ].join(" ")}
-    >
-      {badge?.label}
-    </span>
-  );
-}
-
-function FavoriteStarButton({ active, disabled, onClick }) {
-  const { t } = useTranslation();
-  const favoriteLabel = active ? t("driverDetail.favorite.remove") : t("driverDetail.favorite.add");
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      title={favoriteLabel}
-      aria-label={favoriteLabel}
-      className={[
-        "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-all",
-        active
-          ? "border-[#fbbf24]/50 bg-[#fbbf24]/15 text-[#fbbf24] shadow-[0_0_10px_-3px_#fbbf24]"
-          : "border-white/10 bg-white/[0.04] text-[#7d8590] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]",
-        disabled ? "cursor-not-allowed opacity-60" : "",
-      ].join(" ")}
-    >
-      {active ? "★" : "☆"}
-    </button>
-  );
-}
-
 function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
   const { t } = useTranslation();
   return (
@@ -122,27 +79,6 @@ function DossierTabs({ activeTab, onChange, tabs = DOSSIER_TABS }) {
           {t(`driverDetail.tabs.${tab.id}`)}
         </button>
       ))}
-    </div>
-  );
-}
-
-function PersonalityCard({ personality }) {
-  const { t } = useTranslation();
-  if (!personality) {
-    return (
-      <div className="glass-light rounded-xl p-3">
-        <p className="text-xs text-[#7d8590]">{t("driverDetail.personality.empty")}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="glass-light flex items-start gap-3 rounded-xl p-3">
-      <span className="text-lg leading-none">{personality.emoji}</span>
-      <div>
-        <div className="text-sm font-semibold text-[#e6edf3]">{personality.tipo}</div>
-        <div className="mt-1 text-[11px] text-[#7d8590]">{personality.descricao}</div>
-      </div>
     </div>
   );
 }
@@ -170,21 +106,6 @@ function HeaderPersonalityList({ competitivo }) {
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-function TagRow({ tag }) {
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <span
-        className="h-2 w-2 flex-shrink-0 rounded-full"
-        style={{ backgroundColor: tag.color }}
-      />
-      <span className="text-sm text-[#e6edf3]">{tag.tag_text}</span>
-      <span className="ml-auto text-[10px] italic text-[#6e7681]">
-        {formatAttributeName(tag.attribute_name)}
-      </span>
     </div>
   );
 }
@@ -229,17 +150,6 @@ function ProsConsPanel({ competitivo, className = "" }) {
       </div>
     </div>
   );
-}
-
-function formatInjuryOccurrence(injury) {
-  return injury?.corrida_ocorrida_rotulo || injury?.corrida_ocorrida_id || "-";
-}
-
-function formatInjuryRecovery(injury) {
-  const remaining = injury?.corridas_restantes;
-  if (!Number.isFinite(remaining)) return "-";
-  if (remaining <= 0) return i18n.t("driverDetail.injury.recoveryReady");
-  return i18n.t("driverDetail.injury.recovery", { count: remaining });
 }
 
 function injuryDisplayName(injury) {
@@ -325,25 +235,6 @@ function MotivationBar({ value, compact = false, className = "" }) {
   );
 }
 
-function NavChevron({ direction }) {
-  const path = direction === "up" ? "M3 7.5 6 4.5l3 3" : "m3 4.5 3 3 3-3";
-
-  return (
-    <svg
-      viewBox="0 0 12 12"
-      aria-hidden="true"
-      className="h-3.5 w-3.5 flex-shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={path} />
-    </svg>
-  );
-}
-
 function DriverNavigatorButton({ label, direction, disabled, onClick }) {
   return (
     <button
@@ -402,23 +293,6 @@ function formatContractRole(role) {
   if (role === "Numero1" || role === "N1" || role === "Piloto N1") return "N1";
   if (role === "Numero2" || role === "N2" || role === "Piloto N2") return "N2";
   return role || "-";
-}
-
-function formatContractPeriod(contract) {
-  if (!contract) return "-";
-
-  const start = contract.ano_inicio ?? contract.temporada_inicio;
-  const end = contract.ano_fim ?? contract.temporada_fim;
-  return `${start} - ${end}`;
-}
-
-function DetailRow({ label, value, valueClassName = "text-[#e6edf3]" }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-white/6 py-2 last:border-b-0 last:pb-0">
-      <span className="text-[11px] uppercase tracking-[0.16em] text-[#7d8590]">{label}</span>
-      <span className={["text-right text-sm font-medium", valueClassName].join(" ")}>{value}</span>
-    </div>
-  );
 }
 
 function CurrentMomentSection({ forma, moment, contract }) {
@@ -495,35 +369,6 @@ function MarketSection({ detail, market }) {
 
 function PlayerSkillSection({ careerId }) {
   return <PlayerSkillSectionContent SectionComponent={Section} careerId={careerId} />;
-}
-
-function formatAttributeName(name) {
-  const map = {
-    skill: i18n.t("driverDetail.attributes.skill"),
-    consistencia: i18n.t("driverDetail.attributes.consistencia"),
-    racecraft: i18n.t("driverDetail.attributes.racecraft"),
-    defesa: i18n.t("driverDetail.attributes.defesa"),
-    ritmo_classificacao: i18n.t("driverDetail.attributes.ritmo_classificacao"),
-    gestao_pneus: i18n.t("driverDetail.attributes.gestao_pneus"),
-    habilidade_largada: i18n.t("driverDetail.attributes.habilidade_largada"),
-    adaptabilidade: i18n.t("driverDetail.attributes.adaptabilidade"),
-    fator_chuva: i18n.t("driverDetail.attributes.fator_chuva"),
-    fitness: i18n.t("driverDetail.attributes.fitness"),
-    experiencia: i18n.t("driverDetail.attributes.experiencia"),
-    desenvolvimento: i18n.t("driverDetail.attributes.desenvolvimento"),
-    aggression: i18n.t("driverDetail.attributes.aggression"),
-    smoothness: i18n.t("driverDetail.attributes.smoothness"),
-    midia: i18n.t("driverDetail.attributes.midia"),
-    mentalidade: i18n.t("driverDetail.attributes.mentalidade"),
-    confianca: i18n.t("driverDetail.attributes.confianca"),
-  };
-
-  return map[name] || name;
-}
-
-function formatAverage(value) {
-  if (value === null || value === undefined) return "-";
-  return value.toFixed(1);
 }
 
 function isRetiredDetail(detail) {

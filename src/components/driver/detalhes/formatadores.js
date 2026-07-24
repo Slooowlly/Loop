@@ -26,6 +26,49 @@ export function formatContractRole(role) {
   return role || "-";
 }
 
+export function formatContractPeriod(contract) {
+  if (!contract) return "-";
+
+  const start = contract.ano_inicio ?? contract.temporada_inicio;
+  const end = contract.ano_fim ?? contract.temporada_fim;
+  return `${start} - ${end}`;
+}
+
+export function formatAttributeName(name) {
+  const map = {
+    skill: i18n.t("driverDetail.attributes.skill"),
+    consistencia: i18n.t("driverDetail.attributes.consistencia"),
+    racecraft: i18n.t("driverDetail.attributes.racecraft"),
+    defesa: i18n.t("driverDetail.attributes.defesa"),
+    ritmo_classificacao: i18n.t("driverDetail.attributes.ritmo_classificacao"),
+    gestao_pneus: i18n.t("driverDetail.attributes.gestao_pneus"),
+    habilidade_largada: i18n.t("driverDetail.attributes.habilidade_largada"),
+    adaptabilidade: i18n.t("driverDetail.attributes.adaptabilidade"),
+    fator_chuva: i18n.t("driverDetail.attributes.fator_chuva"),
+    fitness: i18n.t("driverDetail.attributes.fitness"),
+    experiencia: i18n.t("driverDetail.attributes.experiencia"),
+    desenvolvimento: i18n.t("driverDetail.attributes.desenvolvimento"),
+    aggression: i18n.t("driverDetail.attributes.aggression"),
+    smoothness: i18n.t("driverDetail.attributes.smoothness"),
+    midia: i18n.t("driverDetail.attributes.midia"),
+    mentalidade: i18n.t("driverDetail.attributes.mentalidade"),
+    confianca: i18n.t("driverDetail.attributes.confianca"),
+  };
+
+  return map[name] || name;
+}
+
+export function formatInjuryOccurrence(injury) {
+  return injury?.corrida_ocorrida_rotulo || injury?.corrida_ocorrida_id || "-";
+}
+
+export function formatInjuryRecovery(injury) {
+  const remaining = injury?.corridas_restantes;
+  if (!Number.isFinite(remaining)) return "-";
+  if (remaining <= 0) return i18n.t("driverDetail.injury.recoveryReady");
+  return i18n.t("driverDetail.injury.recovery", { count: remaining });
+}
+
 export function formatCategoryLabel(categoryId) {
   const normalized = String(categoryId || "").trim();
   if (normalized.includes(":")) {
