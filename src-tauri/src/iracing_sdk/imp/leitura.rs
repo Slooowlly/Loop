@@ -1,0 +1,246 @@
+//! Leitura da shared memory do iRacing: abre o mapeamento, escolhe o buffer mais
+//! recente e extrai a info de sessão (YAML) e o snapshot de telemetria.
+
+use winapi::um::handleapi::CloseHandle;
+use winapi::um::memoryapi::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ};
+
+use super::util::{
+    decode_latin1, read_i32, read_value, type_size, wide_null, IRSDK_MAX_CARS,
+};
+use crate::iracing_sdk::{
+    header, parse_track_name, CarSnapshot, IracingError, IracingSession, IracingTelemetry,
+    MEM_MAP_FILE_NAME, STATUS_CONNECTED,
+};
+
+pub fn read_session() -> Result<IracingSession, IracingError> {
+    unsafe { with_view(extract_session) }
+}
+
+pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
+    unsafe { with_view(extract_telemetry) }
+}
+
+/// Abre o mapa de memória, mapeia a view, roda `extract` e garante o
+/// desmapeamento/fechamento mesmo em erro. Compartilhado por sessão e
+/// telemetria para não duplicar o ciclo de vida dos handles.
+///
+/// # Safety
+/// `extract` só recebe um ponteiro válido para o início da view mapeada.
+unsafe fn with_view<T>(
+    extract: unsafe fn(*const u8) -> Result<T, IracingError>,
+) -> Result<T, IracingError> {
+    let name = wide_null(MEM_MAP_FILE_NAME);
+
+    let mapping = OpenFileMappingW(FILE_MAP_READ, 0, name.as_ptr());
+    if mapping.is_null() {
+        return Err(IracingError::NotRunning(MEM_MAP_FILE_NAME.to_string()));
+    }
+
+    let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    if view.is_null() {
+        let code = winapi::um::errhandlingapi::GetLastError();
+        CloseHandle(mapping);
+        return Err(IracingError::MapFailed(code));
+    }
+
+    let result = extract(view as *const u8);
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
+    result
+}
+
+/// Lê os campos do cabeçalho e copia a string de sessão.
+///
+/// # Safety
+/// `base` deve ser uma view válida do mapeamento do iRacing.
+unsafe fn extract_session(base: *const u8) -> Result<IracingSession, IracingError> {
+    let status = read_i32(base, header::STATUS);
+    if status & STATUS_CONNECTED == 0 {
+        return Err(IracingError::NotConnected(status));
+    }
+
+    let api_version = read_i32(base, header::VER);
+    let tick_rate = read_i32(base, header::TICK_RATE);
+    let session_info_update = read_i32(base, header::SESSION_INFO_UPDATE);
+    let session_info_len = read_i32(base, header::SESSION_INFO_LEN);
+    let session_info_offset = read_i32(base, header::SESSION_INFO_OFFSET);
+
+    if session_info_len <= 0 || session_info_offset < header::MIN_LEN as i32 {
+        return Err(IracingError::InvalidHeader);
+    }
+
+    // Copia os bytes do YAML, cortando no primeiro NUL (o iRacing dimensiona
+    // o buffer com folga e preenche o resto com zeros).
+    let yaml_ptr = base.add(session_info_offset as usize);
+    let raw = std::slice::from_raw_parts(yaml_ptr, session_info_len as usize);
+    let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+    let session_yaml = decode_latin1(&raw[..end]);
+    let track_name = parse_track_name(&session_yaml);
+
+    Ok(IracingSession {
+        api_version,
+        tick_rate,
+        session_info_update,
+        session_info_len,
+        track_name,
+        session_yaml,
+    })
+}
+
+/// Varre os cabeçalhos de variáveis uma vez e extrai os canais curados do
+/// buffer de telemetria mais recente.
+///
+/// # Safety
+/// `base` deve ser uma view válida do mapeamento do iRacing.
+unsafe fn extract_telemetry(base: *const u8) -> Result<IracingTelemetry, IracingError> {
+    let status = read_i32(base, header::STATUS);
+    if status & STATUS_CONNECTED == 0 {
+        return Err(IracingError::NotConnected(status));
+    }
+
+    let num_vars = read_i32(base, header::NUM_VARS);
+    let var_header_offset = read_i32(base, header::VAR_HEADER_OFFSET);
+    let num_buf = read_i32(base, header::NUM_BUF).clamp(0, 4);
+    if num_vars <= 0 || var_header_offset <= 0 {
+        return Err(IracingError::InvalidHeader);
+    }
+
+    // Escolhe o buffer com o maior tickCount (o snapshot mais recente).
+    let mut best_tick = i32::MIN;
+    let mut buf_offset = 0i32;
+    for i in 0..num_buf as usize {
+        let entry = header::VAR_BUF + i * header::VAR_BUF_STRIDE;
+        let tick = read_i32(base, entry);
+        if tick > best_tick {
+            best_tick = tick;
+            buf_offset = read_i32(base, entry + header::VAR_BUF_OFFSET_FIELD);
+        }
+    }
+    if buf_offset <= 0 {
+        return Err(IracingError::InvalidHeader);
+    }
+    let buffer = base.add(buf_offset as usize);
+
+    let mut t = IracingTelemetry::default();
+    // -1 = "não lido" (Default dá 0, que é um idx válido). Se o `CamCarIdx` não
+    // vier no frame, o overlay cai no carro do jogador em vez de destacar o carro 0.
+    t.cam_car_idx = -1;
+    // Pré-aloca todos os slots de carro (idx correto); slots não preenchidos
+    // ficam com os padrões "ausente" e são filtrados no fim.
+    let mut cars: Vec<CarSnapshot> = (0..IRSDK_MAX_CARS)
+        .map(|i| CarSnapshot {
+            idx: i as i32,
+            ..CarSnapshot::default()
+        })
+        .collect();
+
+    // Uma única passada pelos cabeçalhos; cada canal de interesse é casado
+    // pelo nome e lido do buffer mais recente.
+    for i in 0..num_vars as usize {
+        let head = base.add(var_header_offset as usize + i * header::VAR_HEADER_SIZE);
+        let var_type = read_i32(head, header::VAR_TYPE);
+        let var_offset = read_i32(head, header::VAR_OFFSET);
+        let var_count = read_i32(head, header::VAR_COUNT).max(1) as usize;
+
+        let name_bytes =
+            std::slice::from_raw_parts(head.add(header::VAR_NAME), header::VAR_NAME_MAX);
+        let end = name_bytes
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(name_bytes.len());
+        let name = match std::str::from_utf8(&name_bytes[..end]) {
+            Ok(name) => name,
+            Err(_) => continue,
+        };
+
+        // Variáveis de array por carro (`CarIdx*`): lê cada entrada e
+        // distribui para o slot correspondente.
+        if name.starts_with("CarIdx") {
+            let size = type_size(var_type);
+            let n = var_count.min(IRSDK_MAX_CARS);
+            for idx in 0..n {
+                let v = read_value(buffer.add(var_offset as usize + idx * size), var_type);
+                let car = &mut cars[idx];
+                match name {
+                    "CarIdxLapDistPct" => car.lap_dist_pct = v,
+                    "CarIdxLapCompleted" => car.lap_completed = v as i32,
+                    "CarIdxLap" => car.lap = v as i32,
+                    "CarIdxPosition" => car.position = v as i32,
+                    "CarIdxClassPosition" => car.class_position = v as i32,
+                    "CarIdxOnPitRoad" => car.on_pit_road = v != 0.0,
+                    "CarIdxTrackSurface" => car.track_surface = v as i32,
+                    "CarIdxGear" => car.gear = v as i32,
+                    "CarIdxF2Time" => car.f2_time = v,
+                    "CarIdxEstTime" => car.est_time = v,
+                    "CarIdxLastLapTime" => car.last_lap_time = v,
+                    "CarIdxBestLapTime" => car.best_lap_time = v,
+                    "CarIdxTireCompound" => car.tire_compound = v as i32,
+                    _ => {}
+                }
+            }
+            continue;
+        }
+
+        let value = read_value(buffer.add(var_offset as usize), var_type);
+        match name {
+            "PlayerCarIdx" => t.player_car_idx = value as i32,
+            "CamCarIdx" => t.cam_car_idx = value as i32,
+            "OnPitRoad" => t.player_on_pit_road = value != 0.0,
+            "Speed" => t.speed_ms = value,
+            "RPM" => t.rpm = value,
+            "Gear" => t.gear = value as i32,
+            "Throttle" => t.throttle = value,
+            "Brake" => t.brake = value,
+            "Clutch" => t.clutch = value,
+            "SteeringWheelAngle" => t.steering_angle_rad = value,
+            "Lap" => t.lap = value as i32,
+            "LapDistPct" => t.lap_dist_pct = value,
+            "FuelLevel" => t.fuel_level = value,
+            "LapCurrentLapTime" => t.lap_current_time = value,
+            "LapLastLapTime" => t.last_lap_time = value,
+            "PlayerCarPosition" => t.position = value as i32,
+            "IsOnTrack" => t.on_track = value != 0.0,
+            "SessionTime" => t.session_time = value,
+            "LapCompleted" => t.lap_completed = value as i32,
+            "SessionState" => t.session_state = value as i32,
+            "SessionNum" => t.session_num = value as i32,
+            "IsInGarage" => t.is_in_garage = value != 0.0,
+            "PlayerTrackSurface" => t.track_surface = value as i32,
+            "SessionFlags" => t.session_flags = value as i32,
+            "PlayerCarMyIncidentCount" => t.incident_count = value as i32,
+            "LatAccel" => t.lat_accel = value,
+            "LongAccel" => t.long_accel = value,
+            "VertAccel" => t.vert_accel = value,
+            "PlayerCarDriverIncidentCount" => t.driver_incident_count = value as i32,
+            "PlayerCarTeamIncidentCount" => t.team_incident_count = value as i32,
+            "YawRate" => t.yaw_rate = value,
+            "RollRate" => t.roll_rate = value,
+            "PitchRate" => t.pitch_rate = value,
+            "PlayerCarTowTime" => t.tow_time = value,
+            "IsReplayPlaying" => t.is_replay_playing = value != 0.0,
+            "PitRepairNeeded" => t.pit_repair_needed = value,
+            "PitOptRepairNeeded" => t.pit_opt_repair_needed = value,
+            "IsOnTrackCar" => t.is_on_track_car = value != 0.0,
+            "TrackWetness" => t.track_wetness = value as i32,
+            "AirTemp" => t.air_temp = value,
+            "TrackTemp" => t.track_temp = value,
+            "RelativeHumidity" => t.relative_humidity = value,
+            "WindVel" => t.wind_ms = value,
+            "SessionTimeTotal" => t.session_time_total = value,
+            "SessionTimeRemain" => t.session_time_remain = value,
+            "SessionLapsRemainEx" => t.session_laps_remain_ex = value as i32,
+            _ => {}
+        }
+    }
+
+    // Marca o carro do jogador e mantém só os carros presentes (no mundo
+    // ou com progresso válido) — descarta os slots vazios.
+    if let Some(player) = cars.get_mut(t.player_car_idx.max(0) as usize) {
+        player.is_player = true;
+    }
+    cars.retain(|car| car.track_surface > -1 || car.lap_dist_pct >= 0.0);
+    t.cars = cars;
+
+    t.speed_kmh = t.speed_ms * 3.6;
+    Ok(t)
+}
