@@ -699,11 +699,14 @@ pub(crate) fn refresh_planned_hierarchy_for_team(
     let hierarchy_week = plan
         .planned_events
         .iter()
+        // Só a semana dos eventos DESTA equipe — o `retain` logo abaixo também
+        // remove só os dela, então o evento recriado tem que voltar na mesma
+        // semana. Um braço catch-all aqui fazia o `max` pegar a semana de
+        // qualquer equipe e empurrar a hierarquia desta pra frente.
         .filter_map(|event| match &event.event {
             PendingAction::UpdateHierarchy {
                 team_id: current, ..
             } if current == team_id => Some(event.week),
-            PendingAction::UpdateHierarchy { .. } => Some(event.week),
             _ => None,
         })
         .max()

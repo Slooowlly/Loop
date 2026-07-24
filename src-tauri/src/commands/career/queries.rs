@@ -323,11 +323,15 @@ pub(crate) fn get_race_results_by_category_in_base_dir(
     build_driver_histories(&career_dir, &category, total_rounds, &driver_ids)
 }
 
+/// Campeões da temporada passada nesta categoria. Alimenta o selo de campeão
+/// reinante na classificação e o "trono vago" da prévia de temporada — ambos
+/// ficavam mudos porque esta função devolvia vazio em qualquer temporada.
 pub(crate) fn get_previous_champions_in_base_dir(
     base_dir: &Path,
     career_id: &str,
-    _category: &str,
+    category: &str,
 ) -> Result<PreviousChampions, String> {
+    let category = category.trim().to_lowercase();
     let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
@@ -337,8 +341,23 @@ pub(crate) fn get_previous_champions_in_base_dir(
         return Ok(empty_previous_champions());
     }
 
+    let seasons = season_queries::get_all_seasons(&db.conn)
+        .map_err(|e| format!("Falha ao listar temporadas: {e}"))?;
+    let Some(previous) = seasons.iter().find(|s| s.numero == season.numero - 1) else {
+        return Ok(empty_previous_champions());
+    };
+
+    let driver_champion_id = crate::db::queries::race_history::get_category_champion_for_season(
+        &db.conn,
+        &previous.id,
+        &category,
+    )
+    .map_err(|e| format!("Falha ao buscar campeao da temporada anterior: {e}"))?;
+
     Ok(PreviousChampions {
-        driver_champion_id: None,
+        driver_champion_id,
+        // Títulos de construtores pedem contagem histórica por equipe (`titles`)
+        // e o sinal de defesa; segue vazio até essa parte existir.
         constructor_champions: Vec::<ConstructorChampion>::new(),
     })
 }

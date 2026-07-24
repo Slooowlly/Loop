@@ -2375,6 +2375,92 @@ fn test_get_previous_champions_returns_empty_for_first_season() {
 }
 
 #[test]
+fn test_get_previous_champions_returns_last_season_category_champion() {
+    let base_dir = create_test_career_dir("previous_champions_second_season");
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let db = Database::open_existing(&db_path).expect("db");
+
+    let season = season_queries::get_active_season(&db.conn)
+        .expect("temporada ativa")
+        .expect("temporada ativa existente");
+
+    // Duas corridas da categoria na temporada 1, com um piloto somando mais.
+    let races: Vec<String> = db
+        .conn
+        .prepare(
+            "SELECT id FROM calendar WHERE categoria = 'mazda_rookie' ORDER BY rodada ASC LIMIT 2",
+        )
+        .expect("prepare calendario")
+        .query_map([], |row| row.get(0))
+        .expect("query calendario")
+        .map(|row| row.expect("linha do calendario"))
+        .collect();
+    assert_eq!(races.len(), 2, "categoria deveria ter ao menos duas rodadas");
+
+    let drivers = get_drivers_by_category_in_base_dir(&base_dir, "career_001", "mazda_rookie")
+        .expect("grid da categoria");
+    let champion_id = drivers[0].id.clone();
+    let runner_up_id = drivers[1].id.clone();
+
+    // race_results tem FK para teams, entao o resultado precisa de equipe real.
+    // Qual delas nao importa: o campeao sai por soma de pontos por piloto.
+    let team_id: String = db
+        .conn
+        .query_row(
+            "SELECT id FROM teams WHERE categoria = 'mazda_rookie' LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("equipe da categoria");
+
+    for race_id in &races {
+        db.conn
+            .execute(
+                "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, pontos)
+                 VALUES (?1, ?2, ?3, 1, 25.0)",
+                rusqlite::params![race_id, champion_id, team_id],
+            )
+            .expect("resultado do campeao");
+        db.conn
+            .execute(
+                "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, pontos)
+                 VALUES (?1, ?2, ?3, 2, 18.0)",
+                rusqlite::params![race_id, runner_up_id, team_id],
+            )
+            .expect("resultado do vice");
+    }
+
+    // Encerra a temporada 1 e abre a 2 — o campeão passa a ser "reinante".
+    // Nessa ordem: há índice único garantindo uma só temporada em andamento.
+    db.conn
+        .execute(
+            "UPDATE seasons SET status = 'Finalizada' WHERE id = ?1",
+            rusqlite::params![season.id],
+        )
+        .expect("encerra temporada anterior");
+    db.conn
+        .execute(
+            "INSERT INTO seasons (id, numero, ano, status)
+             SELECT 'S_TEST_NEXT', numero + 1, ano + 1, 'EmAndamento' FROM seasons WHERE id = ?1",
+            rusqlite::params![season.id],
+        )
+        .expect("cria temporada seguinte");
+    drop(db);
+
+    let champions = get_previous_champions_in_base_dir(&base_dir, "career_001", "mazda_rookie")
+        .expect("previous champions");
+
+    assert_eq!(
+        champions.driver_champion_id.as_deref(),
+        Some(champion_id.as_str()),
+        "campeao reinante deveria ser quem somou mais pontos na temporada anterior"
+    );
+
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+#[test]
 fn test_get_driver_detail_returns_contracted_ai_payload() {
     let base_dir = create_test_career_dir("driver_detail_contracted");
     let config = AppConfig::load_or_default(&base_dir);
