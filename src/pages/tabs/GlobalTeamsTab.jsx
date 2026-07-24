@@ -6,7 +6,7 @@ import i18n from "../../i18n/index.js";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
-import { TeamHistoryDrawer } from "./MyTeamTab";
+import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
 import goldTrophy from "../../assets/utilities/trophies/ouro.png";
 
 /**

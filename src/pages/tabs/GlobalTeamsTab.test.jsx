@@ -19,7 +19,7 @@ vi.mock("../../components/team/TeamLogoMark", () => ({
   ),
 }));
 
-vi.mock("./MyTeamTab", () => ({
+vi.mock("../../components/team/TeamHistoryDrawer", () => ({
   TeamHistoryDrawer: ({ team, activeTab, onClose }) => (
     <aside data-testid="team-history-drawer">
       <h4>{team.nome}</h4>

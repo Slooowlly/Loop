@@ -16,7 +16,7 @@ import useDeferredLoading from "../../hooks/useLoading";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
-import { TeamHistoryDrawer } from "./MyTeamTab";
+import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
 
 const ALL_CATEGORIES = [
   "mazda_rookie",
