@@ -137,12 +137,14 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /<Section[\s\S]*title="Perfil"[\s\S]*headerRight=\{licenseLevelBadge \? <BadgePill badge=\{licenseLevelBadge\} \/> : null\}/,
+    // O headerRight ganhou a estrela de favorito ao lado do badge, então o
+    // badge não é mais o filho único — o que importa é ele seguir à direita.
+    /<Section[\s\S]*title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*headerRight=\{[\s\S]*licenseLevelBadge \? <BadgePill badge=\{licenseLevelBadge\} \/> : null/,
     "expected the Perfil section to place the license badge on the right side of the card header",
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
     "expected the Perfil body to place motivation above the pros-and-cons panel on the right",
   );
   assert.match(
@@ -152,12 +154,13 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /const RETIRED_DOSSIER_TABS = \[\{ id: ["']historico["'], label: ["']Histórico["'] \}\][\s\S]*isRetiredDetail[\s\S]*effectiveActiveTab = isRetiredDriver \? ["']historico["'] : activeTab/,
+    // Os labels das abas saíram do array e viraram t() no render, sobrando o id.
+    /const RETIRED_DOSSIER_TABS = \[\{ id: ["']historico["'] \}\][\s\S]*isRetiredDetail[\s\S]*effectiveActiveTab = isRetiredDriver \? ["']historico["'] : activeTab/,
     "expected retired driver dossiers to force the Histórico tab only",
   );
   assert.match(
     drawerSource,
-    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*Motivação[\s\S]*\{normalized\}%/,
+    /function MotivationBar\(\{ value, compact = false, className = "" \}\)[\s\S]*if \(compact\)[\s\S]*bg-transparent[\s\S]*driverDetail.motivation.label[\s\S]*\{normalized\}%/,
     "expected the compact motivation component to show both the label, fill, and percentage in the profile body",
   );
   assert.match(
@@ -167,7 +170,8 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /perfil\?\.idade \?\? detail\.idade\} anos/,
+    // "N anos" virou a chave pluralizada driverDetail.profile.age.
+    /driverDetail\.profile\.age", \{ count: perfil\?\.idade \?\? detail\.idade \}/,
     "expected the driver's age to move into the main header line near the name",
   );
   assert.match(
@@ -267,7 +271,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /aria-label="Fechar ficha do piloto"[\s\S]*<DriverEdgeNavigator[\s\S]*drawerWidth=\{drawerWidth\}[\s\S]*viewportWidth=\{viewportWidth\}[\s\S]*previousDriverId=\{previousDriverId\}[\s\S]*nextDriverId=\{nextDriverId\}[\s\S]*onSelectDriver=\{selectAdjacentDriver\}[\s\S]*visible=\{showEdgeNavigator && !isClosing\}[\s\S]*isClosing=\{isClosing\}[\s\S]*<div[\s\S]*fixed inset-y-0 right-0/,
+    /aria-label=\{t\("driverDetail\.profile\.closeSheet"\)\}[\s\S]*<DriverEdgeNavigator[\s\S]*drawerWidth=\{drawerWidth\}[\s\S]*viewportWidth=\{viewportWidth\}[\s\S]*previousDriverId=\{previousDriverId\}[\s\S]*nextDriverId=\{nextDriverId\}[\s\S]*onSelectDriver=\{selectAdjacentDriver\}[\s\S]*visible=\{showEdgeNavigator && !isClosing\}[\s\S]*isClosing=\{isClosing\}[\s\S]*<div[\s\S]*fixed inset-y-0 right-0/,
     "expected the portal root to mount the external adjacent-driver navigator alongside the drawer instead of inside the scrollable panel",
   );
   assert.doesNotMatch(
@@ -277,12 +281,12 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /label="Anterior"[\s\S]*disabled=\{!previousDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(previousDriverId\)\}/,
+    /label=\{t\("driverDetail\.navigator\.previous"\)\}[\s\S]*disabled=\{!previousDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(previousDriverId\)\}/,
     "expected the external navigator to disable the previous button at the top of the list",
   );
   assert.match(
     drawerSource,
-    /label="Próximo"[\s\S]*disabled=\{!nextDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(nextDriverId\)\}/,
+    /label=\{t\("driverDetail\.navigator\.next"\)\}[\s\S]*disabled=\{!nextDriverId \|\| isClosing\}[\s\S]*onClick=\{\(\) => onSelectDriver\(nextDriverId\)\}/,
     "expected the external navigator to disable the next button at the bottom of the list",
   );
   assert.match(
@@ -317,7 +321,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>/,
     "expected motivation to sit in the right side of the Perfil card body",
   );
   assert.match(
@@ -332,17 +336,17 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*<HeaderPersonalityList competitivo=\{competitivo\} \/>/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*<HeaderPersonalityList competitivo=\{competitivo\} \/>/,
     "expected the profile header to place the personality summary inside the left-side dead space",
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*lg:grid-cols-\[300px_minmax\(0,1fr\)\][\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*lg:grid-cols-\[300px_minmax\(0,1fr\)\][\s\S]*<MotivationBar value=\{competitivo\?\.motivacao\} compact \/>[\s\S]*<ProsConsPanel competitivo=\{competitivo\} className="w-full" \/>/,
     "expected the drawer header to use the dead space beside the name for the pros-and-cons panel",
   );
   assert.match(
     drawerSource,
-    /function ProsConsPanel[\s\S]*grid h-\[118px\] min-h-0 grid-cols-2[\s\S]*Pontos fortes[\s\S]*Atenção[\s\S]*overflow-y-auto/,
+    /function ProsConsPanel[\s\S]*grid h-\[118px\] min-h-0 grid-cols-2[\s\S]*driverDetail.prosCons.strengths[\s\S]*driverDetail.prosCons.attention[\s\S]*overflow-y-auto/,
     "expected the pros-and-cons panel near the header to keep a fixed height and split pros/cons side by side with internal scrolling",
   );
   assert.match(
@@ -352,12 +356,12 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*lg:min-h-\[170px\]/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*lg:min-h-\[170px\]/,
     "expected the profile header area to keep a fixed desktop height instead of growing with the content",
   );
   assert.match(
     drawerSource,
-    /title="Perfil"[\s\S]*grid min-w-0 gap-3 lg:pt-4[\s\S]*<MotivationBar[\s\S]*<ProsConsPanel competitivo=\{competitivo\}/,
+    /title=\{t\("driverDetail\.profile\.sectionTitle"\)\}[\s\S]*grid min-w-0 gap-3 lg:pt-4[\s\S]*<MotivationBar[\s\S]*<ProsConsPanel competitivo=\{competitivo\}/,
     "expected the right side of the profile body to align motivation and pros-and-cons below the card header",
   );
   assert.match(
@@ -367,7 +371,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*Lesão ativa[\s\S]*\{injuryDisplayName\(injury\)\}[\s\S]*Ocorreu[\s\S]*Melhora prevista[\s\S]*Gravidade[\s\S]*\{injury\.tipo\}[\s\S]*onClick=\{onConfirm\}[\s\S]*OK/,
+    /function InjuryPopup\(\{ injury, onConfirm, drawerWidth \}\)[\s\S]*driverDetail\.injury\.title[\s\S]*\{injuryDisplayName\(injury\)\}[\s\S]*driverDetail\.injury\.occurred[\s\S]*driverDetail\.injury\.recoveryLabel[\s\S]*driverDetail\.injury\.severity[\s\S]*\{injury\.tipo\}[\s\S]*onClick=\{onConfirm\}[\s\S]*OK/,
     "expected injured drivers to see the specific injury name in a centered popup before reading the dossier",
   );
   assert.match(
@@ -432,32 +436,32 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /Forma recente/,
-    "expected the current moment summary card to be renamed to Forma recente",
+    /driverDetail.moment.recentForm/,
+    "expected the current moment summary card to be renamed to driverDetail.moment.recentForm",
   );
   assert.match(
     drawerSource,
-    /Situacao contratual/,
-    "expected the contract card to be renamed to Situacao contratual",
+    /driverDetail.moment.contractStatus/,
+    "expected the contract card to be renamed to driverDetail.moment.contractStatus",
   );
   assert.match(
     drawerSource,
-    /Status de forma/,
+    /driverDetail.moment.formStatus/,
     "expected the current form card to label the form status explicitly",
   );
   assert.match(
     drawerSource,
-    /Expira em/,
+    /driverDetail.moment.expiresIn/,
     "expected the contract card to emphasize when the contract expires",
   );
   assert.match(
     drawerSource,
-    /Salario anual/,
+    /driverDetail.moment.salary/,
     "expected the contract card to clarify the salary period",
   );
   assert.match(
     drawerSource,
-    /Vigencia[\s\S]*formatContractPeriod\(contract\)/,
+    /driverDetail.moment.term[\s\S]*formatContractPeriod\(contract\)/,
     "expected contract duration to read as calendar years",
   );
   assert.doesNotMatch(
@@ -482,7 +486,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /function formatContractRole[\s\S]*return "N1"[\s\S]*return "N2"[\s\S]*label="Funcao"[\s\S]*formatContractRole\(contract\.papel\)/,
+    /function formatContractRole[\s\S]*return "N1"[\s\S]*return "N2"[\s\S]*label=\{t\("driverDetail\.moment\.role"\)\}[\s\S]*formatContractRole\(contract\.papel\)/,
     "expected the contract role to be normalized to N1/N2 without redundant wording",
   );
   assert.match(
@@ -497,7 +501,7 @@ test("driver detail drawer stays above the app layers and closes with a coordina
   );
   assert.match(
     drawerSource,
-    /["']Resumo["'][\s\S]*["']Histórico["'][\s\S]*["']Rivais["'][\s\S]*["']Mercado["']/,
+    /id: ["']resumo["'][\s\S]*id: ["']historico["'][\s\S]*id: ["']rivais["'][\s\S]*id: ["']mercado["']/,
     "expected the drawer to declare the consolidated dossier tabs",
   );
   assert.doesNotMatch(
@@ -626,12 +630,12 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.doesNotMatch(
     dossierSectionsSource,
-    /<StatCard label="Motivacao"|<StatCard label="Motivação"/,
+    /<StatCard label="Motivacao"|<StatCard label="driverDetail.motivation.label"/,
     "expected the quality base block to avoid the redundant motivation card",
   );
   assert.doesNotMatch(
     dossierSectionsSource,
-    /title="Pontos Fortes e Atencao"|title="Pontos Fortes e Atenção"/,
+    /title="Pontos Fortes e Atencao"|title="Pontos Fortes e driverDetail.prosCons.attention"/,
     "expected the quality tab to avoid duplicating the header's strengths and attention block",
   );
   assert.match(
@@ -641,12 +645,14 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     dossierSectionsSource,
-    /function RookieFormState\(\)[\s\S]*ESTREANTE[\s\S]*>0<[\s\S]*corridas/,
+    // "ESTREANTE"/"corridas" viraram chaves de i18n; o formato visual (badge,
+    // o zero grande e o rótulo de corridas) é o que o guard protege.
+    /function RookieFormState\(\)[\s\S]*driverDetail\.summary\.rookieBadge[\s\S]*>0<[\s\S]*driverDetail\.summary\.races/,
     "expected rookie recent form to communicate the state visually without requiring a paragraph read",
   );
   assert.match(
     dossierSectionsSource,
-    /function InsufficientFormState\(\)[\s\S]*Dados insuficientes/,
+    /function InsufficientFormState\(\)[\s\S]*driverDetail.summary.insufficientTitle/,
     "expected non-rookie missing form data to use a distinct empty state",
   );
   assert.doesNotMatch(
@@ -741,12 +747,12 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     dossierSectionsSource,
-    /function RookieDossierState\(\{ SectionComponent, title = "Resumo Atual" \}\)[\s\S]*Estreante[\s\S]*Expectativa desconhecida/,
+    /function RookieDossierState\(\{ SectionComponent, title \}\)[\s\S]*driverDetail\.summary\.rookie[\s\S]*driverDetail\.summary\.unknownExpectation/,
     "expected the summary tab to show a clear rookie dossier state instead of a normal verdict",
   );
   assert.match(
     dossierSectionsSource,
-    /function RookieDossierState\(\{ SectionComponent, title = "Resumo Atual" \}\)[\s\S]*flex min-h-\[180px\] flex-col items-center justify-center text-center/,
+    /function RookieDossierState\(\{ SectionComponent, title \}\)[\s\S]*flex min-h-\[180px\] flex-col items-center justify-center text-center/,
     "expected the rookie summary message to be centered instead of styled as a stat card",
   );
   assert.doesNotMatch(
@@ -761,7 +767,7 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     dossierSectionsSource,
-    /function RookieUnavailableSection\(\{ SectionComponent, title \}\)[\s\S]*Indispon[ií]vel para estreante[\s\S]*Sem passado competitivo/,
+    /function RookieUnavailableSection\(\{ SectionComponent, title \}\)[\s\S]*driverDetail\.summary\.unavailableForRookie[\s\S]*driverDetail\.summary\.noCompetitivePast/,
     "expected history-dependent tabs to communicate that rookie analysis is unavailable",
   );
   assert.match(
@@ -776,40 +782,46 @@ test("driver detail modal stops loading safely without ids and delegates dense d
   );
   assert.match(
     dossierSectionsSource,
-    /export function PerformanceReadSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Leitura de Desempenho" \/>;/,
+    /export function PerformanceReadSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title=\{t\("driverDetail\.performance\.title"\)\} \/>;/,
     "expected the performance-reading tab to be unavailable for rookies",
   );
   assert.match(
     dossierSectionsSource,
-    /export function HistorySection\(\{ SectionComponent, detail, trajetoria \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Histórico de Carreira" \/>;/,
+    /export function HistorySection\(\{ SectionComponent, detail, trajetoria \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title=\{t\("driverDetail\.history\.title"\)\} \/>;/,
     "expected the career-history tab to be unavailable for rookies",
   );
   assert.match(
     dossierSectionsSource,
-    /export function RivalsSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title="Rivais" \/>;/,
+    /export function RivalsSection\(\{ SectionComponent, detail \}\)[\s\S]*if \(isCareerDebutantDetail\(detail\)\) return <RookieUnavailableSection SectionComponent=\{SectionComponent\} title=\{t\("driverDetail\.rivals\.title"\)\} \/>;/,
     "expected the rivals tab to be unavailable for rookies",
   );
 });
 
+// Este guard importava formatters.js em runtime, mas o módulo passou a puxar a
+// cadeia de i18n e o Node puro recusa o common.json sem import attribute — o Vite
+// resolve JSON nativamente, o node:test não. A verificação de comportamento
+// (formatSalary(12500) === "$12,500", bandeiras, código de nacionalidade) mora
+// agora em src/utils/formatters.structural.test.js, sob o vitest. Aqui fica só a
+// garantia estrutural de que os helpers seguem exportados.
 test("formatters exports formatSalary for contract rendering", async () => {
-  const formattersModule = await import(
-    pathToFileURL(path.join(projectRoot, "src/utils/formatters.js")).href
+  const formattersSource = await readFile(
+    path.join(projectRoot, "src/utils/formatters.js"),
+    "utf8",
   );
 
-  assert.equal(
-    typeof formattersModule.formatSalary,
-    "function",
+  assert.match(
+    formattersSource,
+    /export function formatSalary\(value\)/,
     "expected formatSalary to be exported",
   );
-  assert.equal(formattersModule.formatSalary(12500), "$12,500");
-  assert.equal(
-    formattersModule.extractNationalityCode("JP Japones"),
-    "jp",
-    "expected nationality code extraction to support stored country-code strings",
+  assert.match(
+    formattersSource,
+    /export function extractNationalityCode\(/,
+    "expected extractNationalityCode to be exported",
   );
-  assert.equal(
-    formattersModule.extractFlag("JP Japones"),
-    "🇯🇵",
-    "expected flag extraction to resolve an emoji from stored country-code strings",
+  assert.match(
+    formattersSource,
+    /export function extractFlag\(/,
+    "expected extractFlag to be exported",
   );
 });

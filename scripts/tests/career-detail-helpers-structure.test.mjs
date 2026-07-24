@@ -48,7 +48,8 @@ test("career driver-detail helpers live in a dedicated sibling module", async ()
   );
   assert.match(
     careerDetailSource,
-    /if driver\.stats_carreira\.corridas == 0 && results\.is_empty\(\) \{[\s\S]*veredito:\s*"Estreante"\.to_string\(\),[\s\S]*tom:\s*"info"\.to_string\(\)/,
+    // O veredito "Estreante" passou pelo rust-i18n e virou chave traduzível.
+    /if driver\.stats_carreira\.corridas == 0 && results\.is_empty\(\) \{[\s\S]*veredito:\s*rust_i18n::t!\("driver_read\.verdict\.rookie"\)\.to_string\(\),[\s\S]*tom:\s*"info"\.to_string\(\)/,
     "expected backend summary to expose a distinct rookie verdict when no history exists",
   );
   assert.match(

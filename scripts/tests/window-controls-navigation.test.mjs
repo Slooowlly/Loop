@@ -12,19 +12,23 @@ async function readProjectFile(relativePath) {
   return readFile(path.join(projectRoot, relativePath), "utf8");
 }
 
-test("window controls drawer defines the approved route widget and save-aware menu exit flow", async () => {
+// O atalho 🏠 do drawer foi aposentado: quem sai da carreira hoje é o PauseMenu
+// (tecla Esc ou o botão Loop no canto superior esquerdo), com o LeaveToMenuModal.
+// Restam aqui as garantias que continuam valendo pro drawer.
+test("window controls drawer keeps the save-aware exit flow", async () => {
   const drawerSource = await readProjectFile("src/components/layout/WindowControlsDrawer.jsx");
 
-  assert.match(drawerSource, /useNavigate/, "expected route navigation in the drawer");
   assert.match(drawerSource, /useLocation/, "expected route awareness in the drawer");
-  assert.match(drawerSource, /clearCareer/, "expected menu widget to clear the active career");
   assert.match(drawerSource, /flushSave/, "expected the drawer to offer a save-before-exit path");
   assert.match(drawerSource, /SaveConfirmModal/, "expected the drawer to confirm leaving the career");
-  assert.match(
-    drawerSource,
-    /const widgetItems = \[\{\s*emoji:\s*"[^"]+"\s*,\s*route:\s*"\/menu"\s*,\s*title:\s*"Home"\s*,\s*clearsCareer:\s*true\s*\}\];/s,
-    "expected the drawer widget tray to keep the home shortcut back to the menu",
-  );
+});
+
+test("the pause menu owns the route back to the main menu", async () => {
+  const pauseSource = await readProjectFile("src/components/layout/PauseMenu.jsx");
+
+  assert.match(pauseSource, /useNavigate/, "expected the pause menu to navigate away");
+  assert.match(pauseSource, /"Escape"/, "expected Esc to open the pause menu");
+  assert.match(pauseSource, /LeaveToMenuModal/, "expected a confirmation before leaving the career");
 });
 
 test("window controls drawer becomes global and dashboard menu button is removed", async () => {

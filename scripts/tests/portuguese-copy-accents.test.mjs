@@ -37,7 +37,7 @@ const FILES_AND_FORBIDDEN_COPY = [
     forbidden: ["Nao foi possivel", "variacao recente", "Avancar para pre-temporada", "Voce nao tem equipe", "Sem historico", "maximo de pontos possivel"],
   },
   {
-    file: "src/pages/tabs/NewsTab.jsx",
+    file: "src/pages/tabs/NewsMagazineTab.jsx",
     forbidden: ["Nao foi possivel", "Sem leitura disponivel"],
   },
   {

@@ -54,7 +54,8 @@ test("placeholder pages and tabs still reuse the shared placeholder component wh
 
 test("implemented screens stop pretending to be placeholders", async () => {
   const settingsSource = await readProjectFile("src/pages/Settings.jsx");
-  const newsSource = await readProjectFile("src/pages/tabs/NewsTab.jsx");
+  // A antiga NewsTab virou NewsMagazineTab, com layout próprio marcado por .newsmag.
+  const newsSource = await readProjectFile("src/pages/tabs/NewsMagazineTab.jsx");
 
   assert.doesNotMatch(
     settingsSource,
@@ -69,11 +70,11 @@ test("implemented screens stop pretending to be placeholders", async () => {
   assert.doesNotMatch(
     newsSource,
     /AppPlaceholder/,
-    "expected NewsTab to keep its editorial layout instead of falling back to a placeholder",
+    "expected the news tab to keep its editorial layout instead of falling back to a placeholder",
   );
   assert.match(
     newsSource,
-    /data-news-section="hero"/,
-    "expected NewsTab to expose its live hero section",
+    /className="newsmag"/,
+    "expected the news tab to render its magazine shell",
   );
 });
