@@ -9,6 +9,7 @@ import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
 import { TeamHistoryGrid } from "../../components/team/WorldTeamHistoryGrid";
 import { YearWindowScrubber } from "../../components/team/YearWindowScrubber";
 import {
+  DEFAULT_START_YEAR,
   buildGeometry,
   buildTeamTracks,
   buildYears,
@@ -29,7 +30,8 @@ import {
 // Zoom "recente": quantos anos a linha do tempo mostra quando o zoom está ligado.
 const ZOOM_RECENT_YEARS = 10;
 const HISTORY_FETCH_WINDOW_SIZE = 32;
-const HISTORY_FETCH_START_YEAR = 2000;
+// Mesmo ano-base do fallback da geometria — fonte única para não divergirem.
+const HISTORY_FETCH_START_YEAR = DEFAULT_START_YEAR;
 const TEAM_CLICK_DELAY_MS = 220;
 
 function GlobalTeamsTab({
