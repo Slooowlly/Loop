@@ -68,8 +68,41 @@ struct ActiveRace {
 struct CareerContext {
     ano: i32,
     categoria: String,
+    dificuldade: String,
     temporadas_completas: i32,
     corridas_totais: i32,
+}
+
+/// Desfecho de uma corrida, anexado ao `race_end`. Tudo já é calculado pelo
+/// `race_monitor` para o painel pós-corrida — aqui é só cópia.
+///
+/// Campos numéricos usam 0 (ou 0.0) para "desconhecido" e são OMITIDOS do payload:
+/// mandar zero faria o servidor achar que o jogador largou da posição zero e fez uma
+/// volta de zero segundo. Melhor um campo ausente que um número mentiroso.
+///
+/// Por que três campos de posição em vez de um: quinto entre 8 não é quinto entre 24,
+/// e quinto partindo de décimo segundo não é quinto partindo da pole. Sozinha, a
+/// posição final produz uma média que mistura tudo.
+#[derive(Default)]
+pub struct RaceOutcome {
+    pub posicao_final: i32,
+    pub posicao_grid: i32,
+    pub carros_na_classe: i32,
+    /// Melhor volta do jogador, em segundos.
+    pub melhor_volta_s: f64,
+    /// Melhor volta da CLASSE do jogador. A razão entre as duas é o déficit de ritmo —
+    /// o sinal de dificuldade imune a tamanho de grid, incidente e abandono.
+    pub melhor_volta_classe_s: f64,
+    pub voltas: i32,
+    pub incidentes: i32,
+    pub restarts: i32,
+    pub off_track: bool,
+    pub towed: bool,
+    pub garage: bool,
+    pub black_flag: bool,
+    pub disqualified: bool,
+    pub pior_batida: Option<String>,
+    pub carro: Option<String>,
 }
 
 // ── Ligar / desligar ────────────────────────────────────────────────────────
@@ -105,6 +138,7 @@ pub fn is_enabled() -> bool {
 pub fn set_career_context(
     ano: i32,
     categoria: String,
+    dificuldade: String,
     temporadas_completas: i32,
     corridas_totais: i32,
 ) {
@@ -112,6 +146,7 @@ pub fn set_career_context(
         *career = Some(CareerContext {
             ano,
             categoria,
+            dificuldade,
             temporadas_completas,
             corridas_totais,
         });
@@ -190,7 +225,7 @@ pub fn maybe_ping() {
 /// (`finished` | `dnf` | `not_started`) ou é `sim_closed` na queda da conexão.
 /// No-op se não houver corrida aberta — a queda de conexão chama isso sempre,
 /// mesmo quando não havia tentativa ativa.
-pub fn race_end(status: &str) {
+pub fn race_end(status: &str, outcome: Option<RaceOutcome>) {
     if !is_enabled() {
         return;
     }
@@ -201,15 +236,57 @@ pub fn race_end(status: &str) {
         return;
     };
     HAS_ACTIVE.store(false, Ordering::Relaxed);
-    send(
-        "race_end",
-        json!({
-            "subsession_id": race.subsession_id,
-            "track_id": race.track_id,
-            "duracao_s": race.started.elapsed().as_secs(),
-            "status": status,
-        }),
-    );
+
+    let mut payload = json!({
+        "subsession_id": race.subsession_id,
+        "track_id": race.track_id,
+        "duracao_s": race.started.elapsed().as_secs(),
+        "status": status,
+    });
+
+    if let (Some(o), Some(map)) = (outcome, payload.as_object_mut()) {
+        // Só o que tem valor real entra (ver o doc da struct).
+        let mut put_i = |k: &str, v: i32| {
+            if v > 0 {
+                map.insert(k.into(), json!(v));
+            }
+        };
+        put_i("posicao_final", o.posicao_final);
+        put_i("posicao_grid", o.posicao_grid);
+        put_i("carros_na_classe", o.carros_na_classe);
+        put_i("voltas", o.voltas);
+        put_i("restarts", o.restarts);
+        // Incidentes: 0 é um valor LEGÍTIMO (corrida limpa) e o mais interessante
+        // deles, então este não passa pelo filtro de "> 0".
+        map.insert("incidentes".into(), json!(o.incidentes.max(0)));
+        for (k, v) in [
+            ("melhor_volta_s", o.melhor_volta_s),
+            ("melhor_volta_classe_s", o.melhor_volta_classe_s),
+        ] {
+            if v > 0.0 && v.is_finite() {
+                map.insert(k.into(), json!((v * 1000.0).round() / 1000.0));
+            }
+        }
+        for (k, v) in [
+            ("off_track", o.off_track),
+            ("towed", o.towed),
+            ("garage", o.garage),
+            ("black_flag", o.black_flag),
+            ("disqualified", o.disqualified),
+        ] {
+            if v {
+                map.insert(k.into(), json!(true));
+            }
+        }
+        if let Some(c) = o.pior_batida {
+            map.insert("pior_batida".into(), json!(c));
+        }
+        if let Some(c) = o.carro {
+            map.insert("carro".into(), json!(c));
+        }
+    }
+
+    send("race_end", payload);
 }
 
 // ── Envio ───────────────────────────────────────────────────────────────────
@@ -240,6 +317,7 @@ fn send(event: &str, payload: serde_json::Value) {
             if let Some(c) = career {
                 map.insert("ano".into(), json!(c.ano));
                 map.insert("categoria".into(), json!(c.categoria));
+                map.insert("dificuldade".into(), json!(c.dificuldade));
                 map.insert("temporadas_completas".into(), json!(c.temporadas_completas));
                 map.insert("corridas_totais".into(), json!(c.corridas_totais));
             }

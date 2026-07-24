@@ -10,6 +10,11 @@
       "label": "Salvamento automático",
       "desc": "Salva o progresso ao final de cada semana/corrida."
     },
+    "telemetry": {
+      "label": "Ajudar a melhorar o Loop",
+      "on": "Ligado — avisa quando uma corrida começa e termina.",
+      "off": "Desligado — nada é enviado."
+    },
     "raceSection": "Corrida",
     "autoYellow": {
       "label": "Bandeira amarela automática",
@@ -1467,8 +1472,7 @@
         "pitCrewQuality": "Qualidade do pit crew",
         "pitStrategyRisk": "Risco de pit strategy",
         "overallConsistency": "Consistência geral",
-        "carPackage": "Pacote do carro",
-        "trackPerformance": "Desempenho na pista"
+        "carPackage": "Pacote do carro"
       },
       "raw": {
         "pitReliability": "Pit + confiabilidade",
@@ -3136,6 +3140,17 @@
   },
   "marketTab": {
     "title": "Mercado"
+  },
+  "telemetryConsent": {
+    "title": "Ajude a melhorar o Loop",
+    "body": "Quando você corre no iRacing, o Loop pode contar pra gente que a corrida aconteceu. Somado ao de todo mundo, isso mostra o que é de fato jogado — e é o que decide o que a gente faz primeiro.",
+    "sendsLabel": "O que é enviado",
+    "sends": "Início e fim da corrida, duração, pista e carro, em que posição você terminou e sua melhor volta, mais o ano, a categoria e a dificuldade da sua carreira.",
+    "neverLabel": "O que nunca é enviado",
+    "never": "Seu nome, o do seu piloto ou da sua equipe, nada do seu save. Nada que te identifique.",
+    "reversible": "Dá pra mudar de ideia quando quiser, em Configurações › Geral.",
+    "accept": "Pode contar comigo",
+    "decline": "Prefiro não"
   },
   "updater": {
     "available": "Atualização disponível",

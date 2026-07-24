@@ -786,6 +786,9 @@ struct RaceMonitor {
     session_track_id: i64,
     /// Identidade única do evento (`WeekendInfo:SubSessionID`).
     session_subsession_id: i64,
+    /// Carro do jogador nesta sessão (`CarScreenName`). Só telemetria de produto: sem
+    /// ele, o tempo de volta não é comparável — 1:35 é rápido num carro e lento noutro.
+    session_car_name: Option<String>,
     /// `SessionNum` da sessão de qualify (-1 se não houver) — detecta a quali.
     qualy_session_num: i32,
     /// Se estávamos em quali no tick anterior (detecta entrada numa quali nova).
@@ -988,6 +991,7 @@ impl RaceMonitor {
             car_redline: None,
             session_track_id: 0,
             session_subsession_id: 0,
+            session_car_name: None,
             qualy_session_num: -1,
             prev_in_qualy: false,
             qualy_laps: Vec::new(),
@@ -1156,6 +1160,15 @@ impl RaceMonitor {
     fn set_session_track_id(&mut self, track_id: i64) {
         if track_id > 0 {
             self.session_track_id = track_id;
+        }
+    }
+
+    /// Guarda o carro do jogador (do `CarScreenName` do YAML).
+    fn set_session_car_name(&mut self, name: Option<String>) {
+        if let Some(n) = name {
+            if !n.is_empty() {
+                self.session_car_name = Some(n);
+            }
         }
     }
 
@@ -1553,6 +1566,73 @@ impl RaceMonitor {
 
     /// Fecha a tentativa ativa, classificando o desfecho e (se finalizada)
     /// rebaixando a severidade das batidas. Retorna o texto do evento.
+    /// Monta o desfecho da corrida para a telemetria de produto. Lê SÓ do que já foi
+    /// acumulado para o painel pós-corrida (`self.history`) — nenhuma amostragem nova,
+    /// nenhum custo por tick. Roda uma vez, no fim da corrida.
+    ///
+    /// Tudo é best-effort: campo que não dá para determinar sai zerado e o
+    /// `telemetry::race_end` o omite do payload.
+    fn build_race_outcome(
+        &self,
+        ev: &AttemptEvidence,
+        laps: i32,
+        attempt_number: i32,
+        worst_crash: Option<String>,
+    ) -> crate::telemetry::RaceOutcome {
+        let mut out = crate::telemetry::RaceOutcome {
+            voltas: laps,
+            incidentes: ev.incident_points,
+            // Tentativa nº3 = duas largadas refeitas.
+            restarts: (attempt_number - 1).max(0),
+            off_track: ev.off_track,
+            towed: ev.towed_to_pit,
+            garage: ev.garage,
+            black_flag: ev.black_flag,
+            disqualified: ev.disqualified,
+            pior_batida: worst_crash,
+            carro: self.session_car_name.clone(),
+            ..Default::default()
+        };
+
+        let idx = self.history.player_car_idx;
+        let Some(me) = self.history.cars_meta.iter().find(|c| c.idx == idx) else {
+            // Sem meta do jogador não há posição nem classe de referência; o resto do
+            // desfecho (voltas, incidentes, carro) continua valendo.
+            return out;
+        };
+        out.posicao_final = me.class_position.max(0);
+        out.posicao_grid = me.grid_class_position.max(0);
+
+        // Índice por car_idx, para uma passada só sobre as voltas (que são milhares).
+        let mut class_of = [i64::MIN; 64];
+        for c in self.history.cars_meta.iter() {
+            if c.idx >= 0 && (c.idx as usize) < 64 && !c.is_pace {
+                class_of[c.idx as usize] = c.class_id;
+            }
+        }
+        out.carros_na_classe = class_of.iter().filter(|c| **c == me.class_id).count() as i32;
+
+        let (mut best_me, mut best_class) = (f64::INFINITY, f64::INFINITY);
+        for l in self.history.car_laps.iter() {
+            if l.time <= 0.0 || l.car_idx < 0 || l.car_idx as usize >= 64 {
+                continue;
+            }
+            if l.car_idx == idx {
+                best_me = best_me.min(l.time);
+            }
+            if class_of[l.car_idx as usize] == me.class_id {
+                best_class = best_class.min(l.time);
+            }
+        }
+        if best_me.is_finite() {
+            out.melhor_volta_s = best_me;
+        }
+        if best_class.is_finite() {
+            out.melhor_volta_classe_s = best_class;
+        }
+        out
+    }
+
     fn finalize_attempt(&mut self, ended_by: &str) -> Option<String> {
         // Uma batida em aberto pertence a esta tentativa: fecha primeiro.
         if self.in_crash {
@@ -1592,13 +1672,18 @@ impl RaceMonitor {
         let lap = attempt.laps_completed;
         let worst = attempt.worst_crash.clone();
 
-        // Telemetria de produto: fecha a corrida com o status JÁ classificado
-        // acima (finished | dnf | not_started). Restart mantém a corrida aberta
-        // — o servidor reabre pelo subsession_id na largada seguinte.
-        if ended_by != "restart" {
-            crate::telemetry::race_end(&status);
-        }
         // (o borrow de `attempt` termina aqui; a partir daqui pode emitir)
+
+        // Telemetria de produto: fecha a corrida com o status JÁ classificado acima
+        // (finished | dnf | not_started) e o desfecho. Restart mantém a corrida aberta
+        // — o servidor reabre pelo subsession_id na largada seguinte.
+        //
+        // Fica DEPOIS do borrow porque o desfecho lê `self.history`, e não antes como
+        // era: o `attempt` emprestado mutavelmente bloquearia a leitura.
+        if ended_by != "restart" {
+            let outcome = self.build_race_outcome(&ev, lap, number, worst.clone());
+            crate::telemetry::race_end(&status, Some(outcome));
+        }
 
         let now = self.live_session_time;
         if ended_by == "restart" {
@@ -2962,6 +3047,40 @@ fn parse_qualy_session_num(yaml: &str) -> i32 {
     -1
 }
 
+/// Carro do JOGADOR (`CarScreenName`) no `DriverInfo`. Acha o `DriverCarIdx` (o índice
+/// do próprio jogador, que vem antes da lista) e devolve o `CarScreenName` da entrada
+/// com aquele `CarIdx`. `None` se o YAML não trouxer os dois.
+///
+/// Existe só para a telemetria de produto: sem o carro, o tempo de volta não é
+/// comparável entre jogadores — a chave de comparação é (pista, carro).
+fn parse_player_car_name(yaml: &str) -> Option<String> {
+    let mut driver_car_idx: Option<usize> = None;
+    for line in yaml.lines() {
+        if let Some(rest) = line.trim().strip_prefix("DriverCarIdx:") {
+            driver_car_idx = rest.trim().parse::<usize>().ok();
+            break;
+        }
+    }
+    let target = driver_car_idx?;
+
+    let mut current: Option<usize> = None;
+    for line in yaml.lines() {
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("CarIdx:") {
+            current = rest.trim().parse::<usize>().ok();
+        } else if let Some(rest) = t.strip_prefix("CarScreenName:") {
+            if current == Some(target) {
+                let name = rest.trim().trim_matches('"').trim();
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Número de cada carro (`CarNumberRaw`) por `CarIdx` do `DriverInfo`. A ponte para
 /// o nosso `driver_id` (nós exportamos o roster, então o número é o que demos).
 fn parse_car_numbers(yaml: &str) -> [i32; 64] {
@@ -3277,6 +3396,7 @@ fn start_sampler() {
                                 let qualy_num = parse_qualy_session_num(&session.session_yaml);
                                 let numbers = parse_car_numbers(&session.session_yaml);
                                 let redline = super::parse_car_redline(&session.session_yaml);
+                                let car_name = parse_player_car_name(&session.session_yaml);
                                 {
                                     let mut m = lock();
                                     m.set_car_classes(&classes);
@@ -3287,6 +3407,7 @@ fn start_sampler() {
                                     m.set_qualy_session_num(qualy_num);
                                     m.set_car_numbers(&numbers);
                                     m.set_car_redline(redline);
+                                    m.set_session_car_name(car_name);
                                 }
                                 // Captura o custid do jogador automaticamente (uma vez).
                                 super::note_session_custid(&session.session_yaml);
@@ -3343,7 +3464,9 @@ fn start_sampler() {
                             // se não havia nenhuma (finalize_attempt acima já pode
                             // ter fechado). Sem isso a corrida viraria fantasma e
                             // só sumiria do contador na expiração de 35 min.
-                            crate::telemetry::race_end("sim_closed");
+                            // Sem desfecho: a conexão caiu, então não há posição final
+                            // nem volta confiável pra reportar.
+                            crate::telemetry::race_end("sim_closed", None);
                             // Borda de descida: arma a janela de foco da nossa janela.
                             arm_focus_self();
                         }
@@ -3662,6 +3785,110 @@ mod tests {
         let yaml = "WeekendInfo:\n  TrackID: 123\n  SubSessionID: 987654\n";
 
         assert_eq!(parse_subsession_id(yaml), 987654);
+    }
+
+    /// `DriverInfo` com dois carros: o jogador (idx 7) e um adversário. O nome do carro
+    /// só pode sair da entrada cujo `CarIdx` casa com o `DriverCarIdx`.
+    const DRIVER_INFO_YAML: &str = concat!(
+        "DriverInfo:\n",
+        " DriverCarIdx: 7\n",
+        " Drivers:\n",
+        " - CarIdx: 3\n",
+        "   CarScreenName: Porsche 911 GT3 Cup\n",
+        "   CarNumberRaw: 12\n",
+        " - CarIdx: 7\n",
+        "   CarScreenName: Global Mazda MX-5 Cup\n",
+        "   CarNumberRaw: 64\n",
+    );
+
+    #[test]
+    fn parser_pega_o_carro_do_jogador_e_nao_o_do_vizinho() {
+        assert_eq!(
+            parse_player_car_name(DRIVER_INFO_YAML).as_deref(),
+            Some("Global Mazda MX-5 Cup")
+        );
+    }
+
+    #[test]
+    fn parser_do_carro_devolve_none_quando_o_yaml_nao_ajuda() {
+        // Sem DriverCarIdx não dá pra saber qual das entradas é a do jogador — e chutar
+        // a primeira mandaria o carro ERRADO na telemetria, pior que não mandar nada.
+        let sem_idx = "DriverInfo:\n Drivers:\n - CarIdx: 3\n   CarScreenName: Skip Barber\n";
+        assert_eq!(parse_player_car_name(sem_idx), None);
+        // Jogador presente, mas sem nome de carro na entrada dele.
+        let sem_nome = "DriverInfo:\n DriverCarIdx: 7\n Drivers:\n - CarIdx: 7\n   CarNumberRaw: 64\n";
+        assert_eq!(parse_player_car_name(sem_nome), None);
+        assert_eq!(parse_player_car_name(""), None);
+    }
+
+    /// Monta um monitor com um histórico de corrida plausível: jogador (idx 0) na mesma
+    /// classe de dois adversários, mais um pace car que NÃO conta no tamanho da classe.
+    fn monitor_com_historico() -> RaceMonitor {
+        let mut m = RaceMonitor::new();
+        m.session_car_name = Some("Global Mazda MX-5 Cup".to_string());
+        m.history.player_car_idx = 0;
+        m.history.cars_meta = vec![
+            CarMeta { idx: 0, is_ai: false, is_pace: false, class_id: 10, class_position: 4, car_number: 64, grid_class_position: 9 },
+            CarMeta { idx: 1, is_ai: true, is_pace: false, class_id: 10, class_position: 1, car_number: 1, grid_class_position: 1 },
+            CarMeta { idx: 2, is_ai: true, is_pace: false, class_id: 10, class_position: 2, car_number: 2, grid_class_position: 2 },
+            CarMeta { idx: 3, is_ai: true, is_pace: false, class_id: 99, class_position: 1, car_number: 3, grid_class_position: 1 },
+            CarMeta { idx: 4, is_ai: true, is_pace: true, class_id: 10, class_position: 0, car_number: 0, grid_class_position: 0 },
+        ];
+        m.history.car_laps = vec![
+            CarLap { car_idx: 0, lap: 1, time: 95.5 },
+            CarLap { car_idx: 0, lap: 2, time: 94.2 }, // melhor do jogador
+            CarLap { car_idx: 1, lap: 1, time: 92.0 }, // melhor da classe
+            CarLap { car_idx: 2, lap: 1, time: 93.1 },
+            CarLap { car_idx: 3, lap: 1, time: 80.0 }, // outra classe: não conta
+            CarLap { car_idx: 0, lap: 3, time: -1.0 }, // volta inválida: ignorada
+        ];
+        m
+    }
+
+    #[test]
+    fn desfecho_sai_do_historico_com_as_tres_pecas_da_posicao() {
+        let m = monitor_com_historico();
+        let ev = AttemptEvidence { raced: true, incident_points: 4, off_track: true, ..Default::default() };
+
+        let o = m.build_race_outcome(&ev, 12, 3, Some("leve".to_string()));
+
+        assert_eq!(o.posicao_final, 4);
+        assert_eq!(o.posicao_grid, 9);
+        // Só a classe do jogador, e o pace car fora da conta.
+        assert_eq!(o.carros_na_classe, 3);
+        assert_eq!(o.voltas, 12);
+        assert_eq!(o.incidentes, 4);
+        assert_eq!(o.restarts, 2); // 3ª tentativa = 2 largadas refeitas
+        assert!(o.off_track);
+        assert_eq!(o.carro.as_deref(), Some("Global Mazda MX-5 Cup"));
+        assert_eq!(o.pior_batida.as_deref(), Some("leve"));
+    }
+
+    #[test]
+    fn melhor_volta_ignora_volta_invalida_e_outra_classe() {
+        let m = monitor_com_historico();
+        let o = m.build_race_outcome(&AttemptEvidence::default(), 12, 1, None);
+
+        assert_eq!(o.melhor_volta_s, 94.2);
+        // 80.0 é de outra classe: a referência de ritmo tem que ser a classe do jogador.
+        assert_eq!(o.melhor_volta_classe_s, 92.0);
+    }
+
+    #[test]
+    fn desfecho_sem_meta_do_jogador_nao_inventa_posicao() {
+        // Corrida que acabou sem o YAML ter enchido o cars_meta: o que dá pra saber
+        // continua indo, o que não dá sai zerado (e o telemetry omite do payload).
+        let mut m = monitor_com_historico();
+        m.history.cars_meta.clear();
+
+        let o = m.build_race_outcome(&AttemptEvidence::default(), 5, 1, None);
+
+        assert_eq!(o.posicao_final, 0);
+        assert_eq!(o.posicao_grid, 0);
+        assert_eq!(o.carros_na_classe, 0);
+        assert_eq!(o.melhor_volta_s, 0.0);
+        assert_eq!(o.voltas, 5);
+        assert_eq!(o.carro.as_deref(), Some("Global Mazda MX-5 Cup"));
     }
 
     #[test]

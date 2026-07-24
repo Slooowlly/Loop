@@ -14,6 +14,7 @@ import PoachAuctionHost from "./components/season/PoachAuctionHost";
 import UpdaterProvider from "./components/system/UpdaterProvider";
 import UpdateGate from "./components/system/UpdateGate";
 import UpdateChangelogModal from "./components/system/UpdateChangelogModal";
+import TelemetryConsentGate from "./components/system/TelemetryConsentGate";
 
 function App() {
   // Assina as trocas de idioma: quando o locale muda (Settings), a árvore inteira
@@ -32,6 +33,7 @@ function App() {
         <PoachAuctionHost />
         <UpdateGate />
         <UpdateChangelogModal />
+        <TelemetryConsentGate />
         <Routes>
           <Route path="/" element={<MainMenu intro />} />
           <Route path="/menu" element={<MainMenu />} />

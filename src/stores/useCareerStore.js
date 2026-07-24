@@ -65,6 +65,10 @@ const initialState = {
   // reabertura de corrida antiga pela Home (false)? Só a fresca aciona a lógica
   // de aba pós-corrida.
   resultIsFresh: false,
+  // O resultado na tela veio de uma corrida DIRIGIDA no iRacing (true) ou de uma
+  // simulação/reabertura (false)? Marcado explicitamente por quem abre a tela: dá
+  // pra tentar inferir pela telemetria, mas ela pode vir vazia numa corrida real.
+  lastRaceFromIracing: false,
   // Conserto do carro a mostrar no pop-up ao abrir o resultado (import do iRacing).
   iracingRepair: null,
   // Trava p/ o poller do iRacing não importar a mesma corrida duas vezes em voo.
@@ -112,6 +116,7 @@ function applyCareerData(data) {
     showResult: false,
     showRaceBriefing: false,
     lastRaceResult: null,
+    lastRaceFromIracing: false,
     otherCategoriesResult: null,
   };
 }
@@ -503,6 +508,7 @@ const useCareerStore = create((set, get) => ({
         lastRaceId: nextRace.id,
         lastRaceEvaluation: result.evaluation ?? null, // mesmo cérebro do import iRacing
         lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
+        lastRaceFromIracing: false, // simulou: não pisou na pista
         lastRaceMaintenance: result.maintenance ?? null,
         lastRaceWasFinale: isFinaleSlot(nextRace.thematic_slot),
         resultIsFresh: true,
@@ -536,6 +542,7 @@ const useCareerStore = create((set, get) => ({
           lastRaceId: payload.summary?.race_id ?? null,
           lastRaceEvaluation: payload.evaluation ?? null,
           lastRaceTelemetry: payload.telemetry ?? null,
+          lastRaceFromIracing: true, // correu de verdade: resultado importado do sim
           lastRaceMaintenance: payload.summary?.maintenance ?? null,
           lastRaceWasFinale: isFinaleSlot(nextRace?.thematic_slot),
           resultIsFresh: true,
@@ -567,6 +574,7 @@ const useCareerStore = create((set, get) => ({
           lastRaceId: screen.race_id ?? null,
           lastRaceEvaluation: screen.evaluation ?? null,
           lastRaceTelemetry: screen.telemetry ?? null,
+          lastRaceFromIracing: false, // reabertura de corrida antiga, não é evento novo
           lastRaceMaintenance: screen.maintenance ?? null,
           iracingRepair: null,
           // Reabertura de corrida antiga: NÃO aciona a aba pós-corrida.

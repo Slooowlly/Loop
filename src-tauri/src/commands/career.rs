@@ -263,6 +263,28 @@ pub(crate) fn load_career_in_base_dir(
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar piloto do jogador: {e}"))?;
     let player_team = find_player_team(&db.conn, &player.id, active_season.fase)?;
+
+    // Telemetria: onde esta carreira está no mundo (ano/categoria/dificuldade/progresso).
+    // Fica aqui porque `load_career` é o ponto por onde TODA carreira aberta passa —
+    // inclusive depois de virar a temporada, quando a UI recarrega. Só grava num estático
+    // em memória; quem envia é a borda de corrida, e só se o jogador tiver consentido.
+    // Sem equipe (agente livre) a categoria vem do último campeonato do piloto.
+    //
+    // A dificuldade viaja em TODO evento (não só no fim de corrida) porque é o eixo pelo
+    // qual o desfecho é lido: posição e ritmo só calibram a curva se você souber em que
+    // nível aquela corrida foi disputada.
+    crate::telemetry::set_career_context(
+        active_season.ano,
+        player_team
+            .as_ref()
+            .map(|t| t.categoria.clone())
+            .or_else(|| player.categoria_atual.clone())
+            .unwrap_or_else(|| "sem_equipe".to_string()),
+        meta.difficulty.clone(),
+        player.stats_carreira.temporadas as i32,
+        player.stats_carreira.corridas as i32,
+    );
+
     let next_race = if let Some(ref team) = player_team {
         calendar_queries::get_next_race(&db.conn, &active_season.id, &team.categoria)
             .map_err(|e| format!("Falha ao carregar proxima corrida: {e}"))?

@@ -10,6 +10,11 @@
       "label": "Auto-save",
       "desc": "Saves progress at the end of each week/race."
     },
+    "telemetry": {
+      "label": "Help improve Loop",
+      "on": "On — reports when a race starts and ends.",
+      "off": "Off — nothing is sent."
+    },
     "raceSection": "Race",
     "autoYellow": {
       "label": "Automatic yellow flag",
@@ -1467,8 +1472,7 @@
         "pitCrewQuality": "Pit crew quality",
         "pitStrategyRisk": "Pit strategy risk",
         "overallConsistency": "Overall consistency",
-        "carPackage": "Car package",
-        "trackPerformance": "Track performance"
+        "carPackage": "Car package"
       },
       "raw": {
         "pitReliability": "Pit + reliability",
@@ -3136,6 +3140,17 @@
   },
   "marketTab": {
     "title": "Market"
+  },
+  "telemetryConsent": {
+    "title": "Help improve Loop",
+    "body": "When you race in iRacing, Loop can let us know the race happened. Added to everyone else's, that shows what actually gets played — and that's what decides what we build first.",
+    "sendsLabel": "What gets sent",
+    "sends": "Race start and end, duration, track and car, where you finished and your best lap, plus your career's year, category and difficulty.",
+    "neverLabel": "What never gets sent",
+    "never": "Your name, your driver's or team's name, anything from your save. Nothing that identifies you.",
+    "reversible": "You can change your mind any time, in Settings › General.",
+    "accept": "Count me in",
+    "decline": "No thanks"
   },
   "updater": {
     "available": "Update available",

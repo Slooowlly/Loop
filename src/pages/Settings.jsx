@@ -371,6 +371,24 @@ function Settings() {
             </div>
           </div>
 
+          {/* Telemetria de produto — reversível a qualquer momento. `telemetry_enabled`
+              é tri-estado no disco (null = nunca perguntado), mas aqui só existe
+              ligado/desligado: qualquer clique grava um booleano explícito. */}
+          <div
+            className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5"
+            onClick={() => handleChange("telemetry_enabled", !config.telemetry_enabled)}
+          >
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.telemetry.label")}</p>
+              <p className="text-[11px] text-text-secondary">
+                {config.telemetry_enabled ? t("settings.telemetry.on") : t("settings.telemetry.off")}
+              </p>
+            </div>
+            <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.telemetry_enabled ? "bg-accent-primary" : "bg-white/10"}`}>
+              <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.telemetry_enabled ? "translate-x-5" : "translate-x-0"}`} />
+            </div>
+          </div>
+
           {/* ── Grupo: Corrida ── */}
           <div id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="border-t border-white/10 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
             {t("settings.raceSection")}
