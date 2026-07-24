@@ -1,0 +1,313 @@
+//! Evolução dos pilotos na virada: crescimento, declínio, motivação, retenção do
+//! veterano insubstituível e registro das aposentadorias.
+
+use super::*;
+
+pub(super) fn process_driver_evolution(
+    conn: &Connection,
+    season: &Season,
+    standings_by_driver: &HashMap<String, StandingEntry>,
+    titles_by_driver: &HashMap<String, i32>,
+    contracts_by_driver: &HashMap<String, Contract>,
+    teams_by_id: &HashMap<String, Team>,
+    rng: &mut impl Rng,
+) -> Result<
+    (
+        Vec<GrowthReport>,
+        Vec<MotivationReport>,
+        Vec<RetirementInfo>,
+        HashSet<String>,
+    ),
+    String,
+> {
+    let mut all_drivers = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao buscar pilotos: {e}"))?;
+    let existing_names: HashSet<String> = all_drivers
+        .iter()
+        .map(|driver| driver.nome.clone())
+        .collect();
+    let mut growth_reports = Vec::new();
+    let mut motivation_reports = Vec::new();
+    let mut retirements = Vec::new();
+
+    // Distribuição de força de carro por categoria (times DISTINTOS que competem
+    // nela), pra medir o percentil do carro de cada piloto — base da "superação de
+    // expectativa" no crescimento (talento = render acima da própria máquina).
+    let mut cat_car_perfs: HashMap<String, Vec<f64>> = HashMap::new();
+    {
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for (driver_id, standing) in standings_by_driver {
+            if let Some(contract) = contracts_by_driver.get(driver_id) {
+                if let Some(team) = teams_by_id.get(&contract.equipe_id) {
+                    if seen.insert((standing.category.clone(), contract.equipe_id.clone())) {
+                        cat_car_perfs
+                            .entry(standing.category.clone())
+                            .or_default()
+                            .push(team.car_strength());
+                    }
+                }
+            }
+        }
+        for perfs in cat_car_perfs.values_mut() {
+            perfs.sort_by(|a, b| a.total_cmp(b));
+        }
+    }
+    // Percentil do carro na categoria (0 = pior, 1 = melhor); midrank pra empates.
+    // Categoria trivial/desconhecida → 0.5 (neutro, sem bônus nem penalidade).
+    let car_percentile = |category: &str, perf: f64| -> f64 {
+        match cat_car_perfs.get(category) {
+            Some(perfs) if perfs.len() > 1 => {
+                let below = perfs.iter().filter(|&&p| p < perf).count() as f64;
+                let equal = perfs
+                    .iter()
+                    .filter(|&&p| (p - perf).abs() < f64::EPSILON)
+                    .count() as f64;
+                (below + equal / 2.0) / perfs.len() as f64
+            }
+            _ => 0.5,
+        }
+    };
+
+    for driver in &mut all_drivers {
+        if driver.status != DriverStatus::Ativo {
+            continue;
+        }
+
+        let standing = standings_by_driver.get(&driver.id).cloned();
+        if let Some(standing) = standing {
+            let team = contracts_by_driver
+                .get(&driver.id)
+                .and_then(|contract| teams_by_id.get(&contract.equipe_id));
+            let team_car_strength = team.map(|team| team.car_strength()).unwrap_or(0.0);
+            let car_field_percentile = team
+                .map(|team| car_percentile(&standing.category, team.car_strength()))
+                .unwrap_or(0.5);
+
+            let category_tier = get_category_config(&standing.category)
+                .map(|config| config.tier)
+                .unwrap_or(0);
+            let growth_report = calculate_growth(
+                driver,
+                &standing.stats,
+                team_car_strength,
+                category_tier,
+                car_field_percentile,
+                rng,
+            );
+            if !growth_report.changes.is_empty() {
+                growth_reports.push(growth_report);
+            }
+
+            let _decline_changes = apply_age_decline(driver, rng);
+            let seasons_in_category = driver.temporadas_na_categoria as i32 + 1;
+            // Superou a maquina: terminou bem acima do que a forca do carro previa.
+            // Expectativa ~ (carros melhores na categoria) * 2 pilotos + 1.
+            let cars_ahead = teams_by_id
+                .values()
+                .filter(|team| {
+                    team.categoria == standing.category
+                        && team.car_strength() > team_car_strength
+                })
+                .count() as i32;
+            let expected_position = cars_ahead * 2 + 1;
+            let outperformed_machinery = standing.stats.posicao_campeonato + 3 <= expected_position;
+            let motivation_ctx = MotivationContext {
+                was_champion: standing.position == 1,
+                was_promoted: false,
+                was_relegated: false,
+                contract_renewed: false,
+                lost_seat: false,
+                seasons_in_category,
+                outperformed_machinery,
+            };
+            let motivation_report =
+                adjust_end_of_season_motivation(driver, &standing.stats, &motivation_ctx, rng);
+            motivation_reports.push(motivation_report);
+
+            driver.temporadas_na_categoria += 1;
+            driver.corridas_na_categoria += standing.stats.corridas.max(0) as u32;
+        }
+
+        driver.idade += 1;
+        if driver.motivacao < 20.0 {
+            driver.temporadas_motivacao_baixa += 1;
+        } else {
+            driver.temporadas_motivacao_baixa = 0;
+        }
+
+        driver.close_career_season();
+        if let Some(titles) = titles_by_driver.get(&driver.id) {
+            driver.stats_carreira.titulos += *titles as u32;
+        }
+
+        let mut retirement =
+            check_retirement(driver, driver.temporadas_motivacao_baixa as i32, false, rng);
+        // Item 6: órfão ocioso (IA sem assento que não correu nesta temporada nem tem
+        // categoria) — o mercado o preteriu. Se o check padrão não o aposentou, aplica
+        // a chance de aposentadoria por falta de equipe (evita agente livre eterno).
+        if !retirement.should_retire && !driver.is_jogador {
+            let idle_orphan = !standings_by_driver.contains_key(&driver.id)
+                && !contracts_by_driver.contains_key(&driver.id)
+                && driver.categoria_atual.is_none();
+            if idle_orphan
+                && rng.gen::<f64>()
+                    < idle_orphan_retirement_chance(driver.idade, driver.atributos.skill)
+            {
+                retirement.should_retire = true;
+                retirement.reason = Some("Aposentou-se sem encontrar equipe".to_string());
+            }
+        }
+        // Retenção de lenda: se o piloto quer se aposentar mas é INSUBSTITUÍVEL (nenhum
+        // piloto licenciado da categoria de baixo o supera), o time o segura por +1 ano
+        // com salário maior. Adia a aposentadoria até surgir um substituto à altura
+        // (acontece naturalmente pela queda de idade). É decisão do time — vale inclusive
+        // para o time do jogador (só não retém o próprio piloto-jogador).
+        if retirement.should_retire
+            && !try_retain_irreplaceable_veteran(conn, driver, contracts_by_driver, season)?
+        {
+            let reason = retirement
+                .reason
+                .clone()
+                .unwrap_or_else(|| "Aposentadoria".to_string());
+            let final_category = driver.categoria_atual.clone().or_else(|| {
+                standings_by_driver
+                    .get(&driver.id)
+                    .map(|standing| standing.category.clone())
+            });
+            let retired_category = final_category
+                .clone()
+                .unwrap_or_else(|| "SemCategoria".to_string());
+            persist_retired_driver(conn, driver, season, &retired_category, &reason)
+                .map_err(|e| format!("Falha ao registrar aposentadoria: {e}"))?;
+            process_retirement(driver);
+            driver.categoria_atual = None;
+            retirements.push(RetirementInfo {
+                driver_id: driver.id.clone(),
+                driver_name: driver.nome.clone(),
+                age: driver.idade as i32,
+                reason,
+                categoria: final_category,
+            });
+        }
+        driver_queries::update_driver(conn, driver)
+            .map_err(|e| format!("Falha ao salvar piloto '{}': {e}", driver.nome))?;
+    }
+
+    Ok((
+        growth_reports,
+        motivation_reports,
+        retirements,
+        existing_names,
+    ))
+}
+
+/// Tenta reter um veterano que quer se aposentar mas é INSUBSTITUÍVEL: nenhum piloto
+/// licenciado da categoria de baixo tem skill >= a dele. Nesse caso estende o contrato
+/// por +1 ano com salário +40% e o mantém ativo (retorna `true`), adiando a aposentadoria
+/// até surgir um substituto à altura (acontece naturalmente pela queda de idade — sem teto
+/// de idade). É uma decisão DO TIME — vale também para o time do jogador (o jogador não
+/// controla o que o time decide). Só IA (o piloto-jogador nunca é retido contra a vontade)
+/// e só categorias regulares (não-estreia, não-especiais; rookies têm reposição abundante
+/// e especiais usam convocação).
+pub(super) fn try_retain_irreplaceable_veteran(
+    conn: &Connection,
+    driver: &Driver,
+    contracts_by_driver: &HashMap<String, Contract>,
+    season: &Season,
+) -> Result<bool, String> {
+    const RETENTION_RAISE: f64 = 1.40;
+
+    if driver.is_jogador || driver.stats_carreira.corridas == 0 {
+        return Ok(false);
+    }
+    let Some(contract) = contracts_by_driver.get(&driver.id) else {
+        return Ok(false);
+    };
+    if runs_in_special_phase(&contract.categoria) {
+        return Ok(false);
+    }
+    let Some(required_license) =
+        required_license_for_division(&contract.categoria, contract.classe.as_deref())
+    else {
+        return Ok(false);
+    };
+
+    let feeders = get_feeder_categories(&contract.categoria);
+    if feeders.is_empty() {
+        return Ok(false);
+    }
+    let placeholders = feeders.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT COUNT(*) FROM drivers d
+         WHERE d.status = 'Ativo' AND d.is_jogador = 0
+           AND d.categoria_atual IN ({placeholders})
+           AND d.skill >= ?
+           AND EXISTS (
+               SELECT 1 FROM licenses l
+               WHERE l.piloto_id = d.id AND CAST(l.nivel AS INTEGER) >= ?
+           )"
+    );
+    let mut params: Vec<rusqlite::types::Value> = feeders
+        .iter()
+        .map(|feeder| rusqlite::types::Value::Text((*feeder).to_string()))
+        .collect();
+    params.push(rusqlite::types::Value::Real(driver.atributos.skill));
+    params.push(rusqlite::types::Value::Integer(required_license as i64));
+    let better_replacements: i64 = conn
+        .query_row(&sql, rusqlite::params_from_iter(params), |row| row.get(0))
+        .map_err(|e| format!("Falha ao avaliar substitutos do veterano: {e}"))?;
+    if better_replacements > 0 {
+        return Ok(false);
+    }
+
+    // Insubstituível: rescinde o contrato atual e cria um de +1 ano com salário +40%.
+    contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
+        .map_err(|e| format!("Falha ao rescindir contrato do veterano retido: {e}"))?;
+    let mut renewed = Contract::new(
+        next_id(conn, IdType::Contract)
+            .map_err(|e| format!("Falha ao gerar ID de contrato de retenção: {e}"))?,
+        driver.id.clone(),
+        driver.nome.clone(),
+        contract.equipe_id.clone(),
+        contract.equipe_nome.clone(),
+        season.numero + 1,
+        1,
+        contract.salario_anual * RETENTION_RAISE,
+        contract.papel.clone(),
+        contract.categoria.clone(),
+    );
+    renewed.classe = contract.classe.clone();
+    contract_queries::insert_contract(conn, &renewed)
+        .map_err(|e| format!("Falha ao inserir contrato de retenção: {e}"))?;
+    Ok(true)
+}
+
+pub(crate) fn persist_retired_driver(
+    conn: &Connection,
+    driver: &Driver,
+    season: &Season,
+    final_category: &str,
+    reason: &str,
+) -> Result<(), String> {
+    let stats_json = serde_json::to_string(&driver.stats_carreira).map_err(|e| {
+        format!(
+            "Falha ao serializar estatisticas do piloto aposentado '{}': {e}",
+            driver.nome
+        )
+    })?;
+    conn.execute(
+        "INSERT OR REPLACE INTO retired (
+            piloto_id, nome, temporada_aposentadoria, categoria_final, estatisticas, motivo
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            &driver.id,
+            &driver.nome,
+            season.ano.to_string(),
+            final_category,
+            stats_json,
+            reason,
+        ],
+    )
+    .map_err(|e| format!("Falha ao salvar piloto aposentado '{}': {e}", driver.nome))?;
+    Ok(())
+}
