@@ -420,7 +420,7 @@ describe("NextRaceTab", () => {
     expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
   });
 
-  it("avanÃ§a Encerramento no modelo 9D sem abrir convocaÃ§Ã£o", async () => {
+  it("avança Encerramento no modelo 9D sem abrir convocação", async () => {
     mockState.nextRace = null;
     mockState.season = {
       ...mockState.season,
@@ -445,7 +445,7 @@ describe("NextRaceTab", () => {
     expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
   });
 
-  it("mostra a prÃ³xima corrida da Endurance LMP2 no modelo 9D", async () => {
+  it("mostra a próxima corrida da Endurance LMP2 no modelo 9D", async () => {
     mockState.playerTeam = {
       ...mockState.playerTeam,
       categoria: "endurance",
@@ -469,7 +469,7 @@ describe("NextRaceTab", () => {
     render(<NextRaceTab />);
 
     expect(await screen.findByRole("heading", { name: /^le mans$/i })).toBeInTheDocument();
-    expect(screen.queryByText(/convocaÃ§Ã£o/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/convocação/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/bloco especial/i)).not.toBeInTheDocument();
   });
 

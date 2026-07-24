@@ -2,26 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
-import GlassButton from "../../components/ui/GlassButton";
-import GlassCard from "../../components/ui/GlassCard";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
-import TeamLogoMark from "../../components/team/TeamLogoMark";
-import RivalMarker from "../../components/driver/RivalMarker";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
-import WeatherButton from "../../components/race/WeatherButton";
-import BreakdownRiskButton from "../../components/race/BreakdownRiskButton";
+import ChampionshipTablePanel from "../../components/race/ChampionshipTablePanel";
+import EngineerBriefingPanel from "../../components/race/EngineerBriefingPanel";
+import NextRaceEmptyState from "../../components/race/NextRaceEmptyState";
+import NextRaceExportToasts from "../../components/race/NextRaceExportToasts";
+import NextRacePaintPrompt from "../../components/race/NextRacePaintPrompt";
+import PodiumFavoritesPanel from "../../components/race/PodiumFavoritesPanel";
 import useCareerStore from "../../stores/useCareerStore";
 import { useAttentionStore } from "../../stores/useAttentionStore";
 import { exportSuccess } from "../../utils/sfx";
 import { renderTextWithDriverMentions } from "../../utils/driverMentions";
-import { getTeamGlow } from "../../utils/teamColors";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
-import {
-  buildBriefingContext,
-  getFavoriteMedalTone,
-  formatAudience,
-  getReadableTeamColor,
-} from "./nextRaceContext";
+import { buildBriefingContext } from "./nextRaceContext";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
 // Chave de "já vi o tutorial do iRacing" (mostrado só na 1ª ida ao iRacing).
@@ -101,9 +95,6 @@ function NextRaceTab() {
   // IDs das EQUIPES com risco real de quebra na próxima corrida → 🔧 na tabela do campeonato.
   const [breakdownRiskTeams, setBreakdownRiskTeams] = useState(() => new Set());
   const [briefingError, setBriefingError] = useState("");
-  // Tabela do campeonato: alterna entre pilotos e construtores; hover destaca a dupla da equipe.
-  const [standingsView, setStandingsView] = useState("pilotos");
-  const [hoveredStandingsTeamId, setHoveredStandingsTeamId] = useState(null);
   // Piloto realçado ao passar o mouse num nome mencionado no texto do engenheiro: acende
   // o mesmo piloto nos Favoritos e na Tabela do Campeonato.
   const [hoveredDriverId, setHoveredDriverId] = useState(null);
@@ -710,111 +701,26 @@ function NextRaceTab() {
 
   if (!nextRace) {
     const isFreeAgent = !playerTeam;
-    const emptyHeading = isFreeAgent
-      ? t("nextRaceTab.status.noTeamHeading")
-      : phase === "PreTemporada"
-      ? t("nextRaceTab.status.preseasonOpenHeading")
-      : phase === "Encerramento"
-      ? t("nextRaceTab.status.seasonEndHeading")
-      : isLegacyPhase && phase === "BlocoEspecial"
-      ? t("nextRaceTab.status.specialBlockHeading")
-      : isLegacyPhase && phase === "PosEspecial"
-      ? t("nextRaceTab.status.specialDoneHeading")
-      : t("nextRaceTab.status.seasonFinishedHeading");
-    const emptyDescription = isFreeAgent
-      ? t("nextRaceTab.status.noTeamDesc")
-      : phase === "PreTemporada"
-      ? t("nextRaceTab.status.preseasonOpenDesc")
-      : phase === "Encerramento"
-      ? t("nextRaceTab.status.seasonEndDesc")
-      : isLegacyPhase && phase === "BlocoEspecial"
-      ? t("nextRaceTab.status.specialBlockDesc")
-      : isLegacyPhase && phase === "BlocoRegular"
-      ? hasPendingRegularRaces
-        ? t("nextRaceTab.status.regularPendingDesc")
-        : t("nextRaceTab.status.regularDoneDesc")
-      : isLegacyPhase && phase === "PosEspecial"
-      ? t("nextRaceTab.status.posEspecialDesc")
-      : hasExistingPreseason
-      ? t("nextRaceTab.status.preseasonStartedDesc")
-      : t("nextRaceTab.status.allRacesDoneDesc");
-    const emptyButtonLabel = isFreeAgent
-      ? t("nextRaceTab.actions.skipSeason")
-      : isLegacyPhase && phase === "BlocoEspecial"
-      ? t("nextRaceTab.actions.skipSpecialBlock")
-      : hasPendingRegularRaces
-      ? t("nextRaceTab.actions.advanceCalendar")
-      : isLegacyPhase && phase === "BlocoRegular"
-      ? t("nextRaceTab.actions.advanceToCallup")
-      : isLegacyPhase && phase === "PosEspecial"
-      ? t("nextRaceTab.actions.endSeason")
-      : phase === "PreTemporada" || hasExistingPreseason
-      ? t("nextRaceTab.actions.continuePreseason")
-      : t("nextRaceTab.actions.advanceToPreseason");
     return (
-      <div className="relative">
-        <LoadingOverlay
-          open={isAdvancing || isConvocating || isEnteringPreseason}
-          title={
-            isEnteringPreseason
-              ? t("nextRaceTab.loading.openingMarketTitle")
-              : isFreeAgent
-              ? t("nextRaceTab.loading.skippingSeasonTitle")
-              : isLegacyPhase && phase === "BlocoEspecial"
-              ? t("nextRaceTab.loading.simulatingSpecialTitle")
-              : isLegacyPhase && phase === "BlocoRegular"
-              ? t("nextRaceTab.loading.openingCallupTitle")
-              : t("nextRaceTab.loading.turningSeasonTitle")
-          }
-          message={
-            isEnteringPreseason
-              ? t("nextRaceTab.loading.openingMarketMsg")
-              : isFreeAgent
-              ? t("nextRaceTab.loading.skippingSeasonMsg")
-              : isLegacyPhase && phase === "BlocoEspecial"
-              ? t("nextRaceTab.loading.simulatingSpecialMsg")
-              : isLegacyPhase && phase === "BlocoRegular"
-              ? t("nextRaceTab.loading.openingCallupMsg")
-              : t("nextRaceTab.loading.turningSeasonMsg")
-          }
-        />
-
-        <GlassCard hover={false} className="rounded-[28px] p-10">
-          <div className="py-6 text-center">
-            <div className="text-6xl">{isFreeAgent ? "🏳️" : "PQ"}</div>
-            <p className="mt-4 text-sm uppercase tracking-[0.22em] text-accent-primary">
-              {isFreeAgent ? t("nextRaceTab.labels.freeAgent") : t("nextRaceTab.labels.nextRace")}
-            </p>
-            <h2 className="mt-3 text-3xl font-semibold text-text-primary">
-              {emptyHeading}
-            </h2>
-            <p className="mt-3 text-sm text-text-secondary">
-              {emptyDescription}
-            </p>
-            <div className="mt-6">
-              <GlassButton
-                variant="primary"
-                disabled={isAdvancing || isConvocating || isEnteringPreseason}
-                onClick={() => {
-                if (isFreeAgent) {
-                  setError("");
-                  skipAllPendingRaces().catch((e) => {
-                    setError(getDisplayError(e, t("nextRaceTab.errors.skipSeason")));
-                  });
-                } else {
-                  void handleSeasonAdvance();
-                }
-              }}
-              >
-                {isAdvancing || isConvocating || isEnteringPreseason
-                  ? t("nextRaceTab.actions.processing")
-                  : emptyButtonLabel}
-              </GlassButton>
-            </div>
-            {error ? <p className="mt-4 text-sm text-status-red">{error}</p> : null}
-          </div>
-        </GlassCard>
-      </div>
+      <NextRaceEmptyState
+        phase={phase}
+        isLegacyPhase={isLegacyPhase}
+        isFreeAgent={isFreeAgent}
+        hasPendingRegularRaces={hasPendingRegularRaces}
+        hasExistingPreseason={hasExistingPreseason}
+        busy={{
+          open: isAdvancing || isConvocating || isEnteringPreseason,
+          isEnteringPreseason,
+        }}
+        error={error}
+        onAdvance={() => void handleSeasonAdvance()}
+        onSkipSeason={() => {
+          setError("");
+          skipAllPendingRaces().catch((e) => {
+            setError(getDisplayError(e, t("nextRaceTab.errors.skipSeason")));
+          });
+        }}
+      />
     );
   }
 
@@ -855,50 +761,16 @@ function NextRaceTab() {
       </div>
 
       {/* Popup: pegar a cor do carro (1ª corrida da 1ª temporada) */}
-      {showPaintPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">
-              <span className="mr-2">🎨</span>{t("nextRaceTab.paint.eyebrow")}
-            </p>
-            <h2 className="mt-2 text-xl font-extrabold text-white">
-              {t("nextRaceTab.paint.promptTitle")}
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-gray-400">
-              {t("nextRaceTab.paint.promptBody")}
-            </p>
-
-            {paintError && (
-              <p className="mt-3 rounded-lg border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red">
-                {paintError}
-              </p>
-            )}
-
-            <div className="mt-5 flex flex-col gap-2">
-              <button
-                onClick={handleGrabPaint}
-                disabled={paintBusy}
-                className="w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-3 text-sm font-bold text-[#58a6ff] transition hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {paintBusy ? t("nextRaceTab.paint.painting") : t("nextRaceTab.paint.grab")}
-              </button>
-              <button
-                onClick={() => {
-                  setShowPaintPrompt(false);
-                  setPaintError("");
-                }}
-                disabled={paintBusy}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-gray-400 transition hover:bg-white/10 disabled:opacity-60"
-              >
-                {t("nextRaceTab.paint.notNow")}
-              </button>
-            </div>
-            <p className="mt-3 text-center text-[10px] text-gray-500">
-              {t("nextRaceTab.paint.requiresTradingPaints")}
-            </p>
-          </div>
-        </div>
-      )}
+      <NextRacePaintPrompt
+        open={showPaintPrompt}
+        busy={paintBusy}
+        error={paintError}
+        onConfirm={handleGrabPaint}
+        onCancel={() => {
+          setShowPaintPrompt(false);
+          setPaintError("");
+        }}
+      />
 
       {/* Toast de confirmação da pintura */}
       {paintToast && (
@@ -998,43 +870,12 @@ function NextRaceTab() {
         {exportNotice && <p className="text-right text-sm text-[#58a6ff]">{exportNotice}</p>}
         {error && <p className="text-right text-sm text-red-500">{error}</p>}
 
-        {exported && (
-          <div className="fixed bottom-6 right-6 z-50 flex w-[300px] flex-col items-stretch gap-3">
-            {/* Toast 1 — confirmação (empurrado pra cima quando o 2 surge) */}
-            <div className="animate-toast-up flex items-center gap-3 rounded-2xl border border-green-300/40 bg-green-500/95 px-4 py-3.5 text-[#06090e] shadow-[0_10px_30px_rgba(34,197,94,0.45)]">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#06090e]/15">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
-                  <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clipRule="evenodd" />
-                </svg>
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight">{t("nextRaceTab.toast.exportedTitle")}</p>
-                <p className="text-[11px] font-medium leading-tight text-[#06090e]/70">{t("nextRaceTab.toast.exportedMsg")}</p>
-              </div>
-            </div>
-
-            {/* Toast 2 — ação (surge embaixo, empurrando o de cima) */}
-            {showGoToast && (
-              <div className="animate-toast-up">
-                <button
-                  onClick={handleGoToIracing}
-                  className="group flex w-full items-center gap-3 rounded-2xl border border-[#58a6ff]/40 bg-[#101826]/95 px-4 py-3.5 text-left shadow-[0_10px_30px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-[#58a6ff]/70 hover:bg-[#16223a]/95"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#58a6ff]/15 text-base">🏁</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold leading-tight text-text-primary">{t("nextRaceTab.toast.enterIracingTitle")}</p>
-                    <p className={`text-[11px] font-medium leading-tight ${iracingFocusMsg ? "text-red-400" : "text-text-muted"}`}>
-                      {iracingFocusMsg || t("nextRaceTab.toast.bringSimForward")}
-                    </p>
-                  </div>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-[#58a6ff] transition-transform group-hover:translate-x-0.5">
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <NextRaceExportToasts
+          exported={exported}
+          showGoToast={showGoToast}
+          iracingFocusMsg={iracingFocusMsg}
+          onGoToIracing={handleGoToIracing}
+        />
 
         {showTutorial && (
           <IracingTutorialModal
@@ -1048,419 +889,44 @@ function NextRaceTab() {
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch pb-10">
           
           {/* 1) NARRATIVA DA ETAPA */}
-          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
-            {/* Condições Compactas — o CARD INTEIRO abre a previsão do tempo. */}
-            <WeatherButton
-              careerId={careerId}
-              raceId={nextRace?.id}
-              forecast
-              onOpen={() => markAttnSeen(raceId, "weather")}
-              className={`group ${weatherGlow} w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 flex justify-between items-center bg-gradient-to-r from-black/40 to-transparent transition hover:border-[#58a6ff]/40`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="text-4xl">{briefing.weatherIcon}</div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-widest text-[#58a6ff] font-bold">
-                    {t("nextRaceTab.labels.trackCondition")} <span className="opacity-60 group-hover:opacity-100">›</span>
-                  </p>
-                  <p className="text-xl font-bold text-white">
-                    {briefing.weatherSummary} <span className="text-xs text-gray-400">{briefing.trackTemperatureLabel}</span>
-                  </p>
-                  <p className="text-[10px] text-gray-500 group-hover:text-[#58a6ff] transition">
-                    {t("nextRaceTab.labels.seeForecast")}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">{t("nextRaceTab.labels.audience")}</p>
-                <p className="text-xl font-bold text-white">{formatAudience(briefing.audienceEstimate)}</p>
-              </div>
-            </WeatherButton>
-
-            {/* Risco de quebra (aviso pré-corrida) — card compacto pulsante que abre o
-                detalhamento; o glow cala depois de aberto nesta corrida. */}
-            <BreakdownRiskButton
-              forecast={breakdownForecast}
-              onOpen={() => markAttnSeen(raceId, "breakdown")}
-              className={`group ${breakdownGlow} w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 transition hover:border-[#58a6ff]/40`}
-            />
-
-            {/* Narrativa Expandida */}
-            <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">
-              <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(240,195,107,0.1),transparent_65%)] pointer-events-none"></div>
-              <div className="flex items-center justify-between mb-4 relative z-10">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#f5c76d] font-bold flex items-center">
-                  <span className="mr-2 text-sm">🎧</span>{t("nextRaceTab.labels.trackEngineer")}
-                  {showAiDebug && effectiveAi ? (
-                    usingAi ? (
-                      <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30">
-                        {t("nextRaceTab.debug.aiBadge")}
-                      </span>
-                    ) : (
-                      <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] tracking-normal bg-white/[0.06] text-gray-400 border border-white/10">
-                        {t("nextRaceTab.debug.templateBadge")}
-                      </span>
-                    )
-                  ) : null}
-                </p>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-10 flex flex-col">
-                {showAiSkeleton ? (
-                  <div className="space-y-5" aria-hidden="true">
-                    <div className="h-7 w-3/4 rounded-lg bg-white/[0.07] animate-pulse" />
-                    <div className="space-y-2.5">
-                      <div className="h-4 w-full rounded bg-white/[0.05] animate-pulse" />
-                      <div className="h-4 w-[94%] rounded bg-white/[0.05] animate-pulse" />
-                      <div className="h-4 w-[86%] rounded bg-white/[0.05] animate-pulse" />
-                    </div>
-                    <div className="space-y-2.5">
-                      <div className="h-4 w-[96%] rounded bg-white/[0.05] animate-pulse" />
-                      <div className="h-4 w-[68%] rounded bg-white/[0.05] animate-pulse" />
-                    </div>
-                  </div>
-                ) : usingAi ? (
-                  <>
-                    {effectiveAi.headline ? (
-                      <h3 className="text-2xl font-bold text-white leading-snug mb-4">{effectiveAi.headline}</h3>
-                    ) : null}
-                    {effectiveAi.narrative
-                      .split(/\n{2,}/)
-                      .map((para) => para.trim())
-                      .filter(Boolean)
-                      .map((para, index) => (
-                        <p key={index} className="text-[15px] text-gray-300 leading-relaxed mb-4">
-                          {renderNarrative(para)}
-                        </p>
-                      ))}
-                  </>
-                ) : aiFallbackError ? (
-                  <p className="text-[15px] text-gray-500 italic leading-relaxed">{aiFallbackError}</p>
-                ) : (
-                  <>
-                    <h3 className="text-2xl font-bold text-white leading-snug mb-4">{briefing.headline}</h3>
-                    <p className="text-[15px] text-gray-300 leading-relaxed mb-4">
-                      {renderNarrative(briefing.paragraphs[0] ?? briefing.attendanceNarrative)}
-                    </p>
-                    <p className="text-[15px] text-gray-300 leading-relaxed mb-6">
-                      {renderNarrative(briefing.paragraphs[1] || briefing.actionHint)}
-                    </p>
-                  </>
-                )}
-
-                {/* Leitura de Box Expandida */}
-                <div className="bg-black/30 border border-white/5 p-4 rounded-2xl relative mt-auto">
-                  <div className="absolute top-2 right-4 text-[#58a6ff] opacity-20 pointer-events-none">
-                    <span className="text-6xl font-serif leading-none h-[40px] block overflow-hidden">"</span>
-                  </div>
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#58a6ff] mb-2 font-bold">
-                    {t("nextRaceTab.labels.teamVoice")} <span className="text-gray-500 font-semibold normal-case tracking-normal">{t("nextRaceTab.labels.toPress")}</span>
-                  </p>
-                  {showAiSkeleton ? (
-                    <div className="space-y-2" aria-hidden="true">
-                      <div className="h-3.5 w-full rounded bg-white/[0.05] animate-pulse" />
-                      <div className="h-3.5 w-[72%] rounded bg-white/[0.05] animate-pulse" />
-                    </div>
-                  ) : aiFallbackError ? (
-                    <p className="text-sm italic text-gray-500 leading-relaxed">{aiFallbackError}</p>
-                  ) : (
-                    <p className="text-sm italic text-gray-200 leading-relaxed">"{renderNarrative(usingAi ? effectiveAi.teamVoice : briefing.quote)}"</p>
-                  )}
-                  <p className="text-xs font-semibold text-gray-400 mt-3 text-right">
-                    -{" "}
-                    <span style={briefing.teamColor ? { color: getReadableTeamColor(briefing.teamColor) } : undefined}>
-                      {briefing.teamVoiceLabel}
-                    </span>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <EngineerBriefingPanel
+            careerId={careerId}
+            raceId={nextRace?.id}
+            briefing={briefing}
+            breakdownForecast={breakdownForecast}
+            weatherGlow={weatherGlow}
+            breakdownGlow={breakdownGlow}
+            onWeatherOpen={() => markAttnSeen(raceId, "weather")}
+            onBreakdownOpen={() => markAttnSeen(raceId, "breakdown")}
+            effectiveAi={effectiveAi}
+            usingAi={usingAi}
+            showAiSkeleton={showAiSkeleton}
+            aiFallbackError={aiFallbackError}
+            showAiDebug={showAiDebug}
+            renderNarrative={renderNarrative}
+          />
 
           {/* 2) METAS HORIZONTAIS E FAVORITOS */}
-          <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
-            {/* Aviso de contrato expirando */}
-            {nextRaceBriefing?.contract_warning != null &&
-              Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0)) <= 1 && (
-              <div className="bg-amber-900/30 border border-amber-500/40 rounded-2xl px-4 py-3 flex items-start gap-3">
-                <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400 font-bold mb-0.5">{t("nextRaceTab.labels.contractExpiring")}</p>
-                  <p className="text-xs text-amber-100 leading-relaxed">
-                    {t("nextRaceTab.labels.contractWarningPrefix")} <span className="font-semibold">{nextRaceBriefing.contract_warning.equipe_nome}</span> {t("nextRaceTab.labels.contractWarningSuffix")}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Metas */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-                <span className="text-2xl mb-1.5 block leading-none">👥</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTeam")}</p>
-                <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
-                  {briefing.goals[0]?.value}
-                </p>
-              </div>
-              <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-                <span className="text-xl mb-1.5 block leading-none">👤</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalPersonal")}</p>
-                <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
-                  {briefing.goals[1]?.value}
-                </p>
-              </div>
-              <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-                <span className="text-xl mb-1.5 block leading-none">🏆</span>
-                <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTitle")}</p>
-                <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
-                  {briefing.goals[2]?.value}
-                </p>
-              </div>
-            </div>
-
-            {/* Favoritos ao Pódio */}
-            <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col min-h-0">
-              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#58a6ff] mb-5">{t("nextRaceTab.labels.podiumFavorites")}</p>
-
-              <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                {isLoadingBriefing ? (
-                  <p className="text-sm text-gray-400">{t("nextRaceTab.labels.buildingAnalysis")}</p>
-                ) : (
-                  briefing.favorites.map((driver, index) => {
-                    let medalTone = getFavoriteMedalTone(index);
-                    const isJogador = driver.is_jogador;
-                    const isMentionHovered = hoveredDriverId != null && driver.id === hoveredDriverId;
-
-                    return (
-                      <div
-                        key={driver.id}
-                        className={`border rounded-2xl p-4 flex flex-col xl:flex-row gap-3 xl:gap-0 justify-between xl:items-center transition hover:bg-white/5 ${
-                          isJogador ? "bg-[#58a6ff]/10 border-[#58a6ff]/30" : "bg-black/20 border-white/5"
-                        }`}
-                        style={
-                          isMentionHovered
-                            ? (() => {
-                                const tone = getTeamGlow(driver.equipe_cor);
-                                return { borderColor: tone.solid, boxShadow: `0 0 18px ${tone.glow}` };
-                              })()
-                            : undefined
-                        }
-                      >
-                        <div className="flex items-center gap-4">
-                          <span className={`font-black w-8 text-center text-[30px] ${isJogador ? "text-[#58a6ff]" : medalTone}`}>
-                            {index + 1}
-                          </span>
-                          <TeamLogoMark
-                            teamName={driver.equipe_nome}
-                            color={driver.equipe_cor}
-                            size="sm"
-                            testId="strategy-favorite-team-logo"
-                          />
-                          <div>
-                            <p className="text-base font-bold text-white leading-none mb-1.5 flex items-center gap-1.5">
-                              {driver.nome}
-                              <RivalMarker driverId={driver.id} />
-                            </p>
-                            <p
-                              className="text-[11px] font-bold uppercase"
-                              style={{ color: getReadableTeamColor(driver.equipe_cor) }}
-                            >
-                              {driver.equipe_nome}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-1.5 justify-end xl:ml-0 overflow-x-auto custom-scrollbar pb-1 xl:pb-0">
-                          {driver.formChips.map((chip, chipIdx) => {
-                            let customStyle = "bg-gray-500/10 text-gray-400 border-gray-500/30";
-                            if (chip.label === "P1") customStyle = "bg-[#f5c76d]/10 text-[#f5c76d] border-[#f5c76d]/30";
-                            else if (chip.label === "P2") customStyle = "bg-[#d8dfef]/10 text-[#d8dfef] border-[#d8dfef]/30";
-                            else if (chip.label === "P3") customStyle = "bg-[#cf8d63]/10 text-[#cf8d63] border-[#cf8d63]/30";
-                            else if (chip.label.includes("DNF")) customStyle = "bg-red-500/10 text-red-500 border-red-500/30";
-                            else if (chip.label.startsWith("P") && parseInt(chip.label.substring(1)) <= 6)
-                              customStyle = "bg-[#58a6ff]/10 text-[#58a6ff] border-[#58a6ff]/30";
-
-                            return (
-                              <span
-                                key={chipIdx}
-                                className={`border px-2 py-1 rounded text-[10px] whitespace-nowrap font-bold ${customStyle}`}
-                              >
-                                {chip.label}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
+          <PodiumFavoritesPanel
+            goals={briefing.goals}
+            favorites={briefing.favorites}
+            isLoading={isLoadingBriefing}
+            hoveredDriverId={hoveredDriverId}
+            contractWarning={nextRaceBriefing?.contract_warning}
+            showContractWarning={
+              nextRaceBriefing?.contract_warning != null &&
+              Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0)) <= 1
+            }
+          />
 
           {/* 3) TABELA CAMPEONATO */}
-          <div className="xl:col-span-4 h-[500px] xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
-            <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 h-full flex flex-col relative overflow-hidden">
-              <div className="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
-                <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">{t("nextRaceTab.labels.championshipTable")}</p>
-                <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/5 p-0.5">
-                  {[
-                    { id: "pilotos", label: t("nextRaceTab.labels.tabDrivers") },
-                    { id: "construtores", label: t("nextRaceTab.labels.tabConstructors") },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setStandingsView(tab.id)}
-                      className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-[0.06em] transition ${
-                        standingsView === tab.id
-                          ? "bg-[#58a6ff] text-[#06090e] shadow-[0_0_16px_rgba(88,166,255,0.35)]"
-                          : "text-gray-400 hover:text-white"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {standingsView === "pilotos" ? (
-                briefing.championshipTable.length === 0 ? (
-                  <p className="text-sm text-gray-400">{t("nextRaceTab.labels.standingsUnavailable")}</p>
-                ) : (
-                  <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
-                        <tr>
-                          <th className="py-2 px-3 text-center w-8">#</th>
-                          <th className="py-2 px-1">{t("nextRaceTab.labels.colDriver")}</th>
-                          <th className="py-2 px-3 text-right">{t("nextRaceTab.labels.colPts")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {briefing.championshipTable.map((driver) => {
-                          const isPlayer = driver.is_jogador;
-                          const isHoveredTeam =
-                            hoveredStandingsTeamId != null && driver.equipe_id === hoveredStandingsTeamId;
-                          const isMentionHovered = hoveredDriverId != null && driver.id === hoveredDriverId;
-                          const teamColor = getReadableTeamColor(driver.equipe_cor);
-                          return (
-                            <tr
-                              key={driver.id}
-                              onMouseEnter={() => setHoveredStandingsTeamId(driver.equipe_id ?? null)}
-                              onMouseLeave={() => setHoveredStandingsTeamId(null)}
-                              className={`border-b transition-glass ${
-                                isMentionHovered || isHoveredTeam
-                                  ? "border-transparent"
-                                  : isPlayer
-                                    ? "border-[#58a6ff]/40 bg-[#58a6ff]/10"
-                                    : "border-white/5 hover:bg-white/5"
-                              }`}
-                              style={
-                                isMentionHovered
-                                  ? (() => {
-                                      const tone = getTeamGlow(driver.equipe_cor);
-                                      return { backgroundColor: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` };
-                                    })()
-                                  : isHoveredTeam
-                                    ? (() => {
-                                        const tone = getTeamGlow(driver.equipe_cor);
-                                        return { backgroundColor: tone.soft, boxShadow: `inset 3px 0 0 0 ${tone.solid}` };
-                                      })()
-                                    : undefined
-                              }
-                            >
-                              <td className={`py-3 px-3 text-center ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                                {driver.posicao_campeonato}
-                              </td>
-                              <td className="py-3 px-1">
-                                <div className="flex items-center gap-2">
-                                  <TeamLogoMark
-                                    teamName={driver.equipe_nome}
-                                    color={driver.equipe_cor}
-                                    size="xs"
-                                  />
-                                  <div className="min-w-0">
-                                    <p className={`flex items-center gap-1 leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
-                                      <span className="truncate">{driver.nome_completo ?? driver.nome}</span>
-                                      <RivalMarker driverId={driver.id} />
-                                      {breakdownRiskTeams.has(driver.equipe_id) ? (
-                                        <span
-                                          className="shrink-0 text-[11px] leading-none"
-                                          title={t("nextRaceTab.labels.breakdownRiskDriverTip")}
-                                          aria-label={t("nextRaceTab.labels.breakdownRiskDriverTip")}
-                                        >
-                                          🔧
-                                        </span>
-                                      ) : null}
-                                    </p>
-                                    <p
-                                      className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
-                                      style={{ color: teamColor }}
-                                    >
-                                      {driver.equipe_nome_curto ?? driver.equipe_nome ?? "—"}
-                                    </p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className={`py-3 px-3 text-right align-top ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                                {driver.pontos}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              ) : briefing.constructorsTable.length === 0 ? (
-                <p className="text-sm text-gray-400">{t("nextRaceTab.labels.teamStandingsUnavailable")}</p>
-              ) : (
-                <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 pb-2">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-[#06090ebd] backdrop-blur z-20 text-[9px] text-gray-500 uppercase font-bold text-left border-b border-white/10">
-                      <tr>
-                        <th className="py-2 px-3 text-center w-8">#</th>
-                        <th className="py-2 px-1">{t("nextRaceTab.labels.colTeam")}</th>
-                        <th className="py-2 px-3 text-right">{t("nextRaceTab.labels.colPts")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {briefing.constructorsTable.map((team) => {
-                        const isPlayerTeam = briefing.playerTeamId != null && team.id === briefing.playerTeamId;
-                        const teamColor = getReadableTeamColor(team.cor_primaria);
-                        return (
-                          <tr
-                            key={team.id}
-                            className={`border-b ${isPlayerTeam ? "border-[#58a6ff]/40 bg-[#58a6ff]/10" : "border-white/5 hover:bg-white/5"}`}
-                          >
-                            <td className={`py-3 px-3 text-center ${isPlayerTeam ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                              {team.posicao}
-                            </td>
-                            <td className="py-3 px-1">
-                              <div className="flex items-center gap-2">
-                                <TeamLogoMark teamName={team.nome} color={team.cor_primaria} size="xs" />
-                                <div className="min-w-0">
-                                  <p
-                                    className="truncate font-semibold leading-tight"
-                                    style={{ color: teamColor }}
-                                  >
-                                    {team.nome}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className={`py-3 px-3 text-right align-top ${isPlayerTeam ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                              {team.pontos}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          <ChampionshipTablePanel
+            championshipTable={briefing.championshipTable}
+            constructorsTable={briefing.constructorsTable}
+            playerTeamId={briefing.playerTeamId}
+            breakdownRiskTeams={breakdownRiskTeams}
+            hoveredDriverId={hoveredDriverId}
+          />
           
         </div>
       </div>
