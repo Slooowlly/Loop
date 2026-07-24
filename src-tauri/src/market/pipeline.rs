@@ -77,47 +77,26 @@ use crate::models::license::{
 };
 use crate::models::team::TeamHierarchyClimate;
 
+// Etapas da entressafra. Este arquivo guarda só a orquestração de alto nível
+// (`run_market_inner` + o preenchimento final); cada etapa mora no seu módulo e
+// enxerga os imports acima via `use super::*`.
+mod comum;
+mod contratacao;
+mod estado;
+mod vagas;
+
+use comum::*;
+use contratacao::*;
+use estado::*;
+use vagas::*;
+
+// Reexports: callsites fora do pipeline continuam usando `market::pipeline::X`.
+pub(crate) use contratacao::{sign_driver_to_team, transfer_between_teams};
+
 /// Instrumentação do harness de estatística: contadores de preenchimento de
 /// emergência da escada fechada — promoções concedidas sem mérito por escassez,
 /// e rookies gerados sem feeder. Incrementados onde essa lógica ocorre; lidos
 /// pelo Monte Carlo em sim_stats. (Declaração mínima; ligar os incrementos.)
-
-#[derive(Debug, Clone)]
-struct DriverMarketContext {
-    posicao_campeonato: i32,
-    total_pilotos: i32,
-    categoria: String,
-    category_tier: u8,
-    vitorias: i32,
-    poles: i32,
-    titulos: i32,
-    papel: TeamRole,
-}
-
-fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
-where
-    F: FnOnce() -> Result<T, String>,
-{
-    conn.execute_batch(&format!("SAVEPOINT {name}"))
-        .map_err(|e| format!("Falha ao abrir savepoint '{name}': {e}"))?;
-
-    match action() {
-        Ok(value) => {
-            conn.execute_batch(&format!("RELEASE SAVEPOINT {name}"))
-                .map_err(|e| format!("Falha ao confirmar savepoint '{name}': {e}"))?;
-            Ok(value)
-        }
-        Err(err) => {
-            conn.execute_batch(&format!(
-                "ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};"
-            ))
-            .map_err(|rollback_err| {
-                format!("{err}; alem disso falhou o rollback do savepoint '{name}': {rollback_err}")
-            })?;
-            Err(err)
-        }
-    }
-}
 
 /// Mercado completo (pré-passes + Janela IA + propostas + rookies). Resolve tudo de
 /// uma vez. A pré-temporada interativa NÃO usa isto (usa `run_market_prepasses` + a
@@ -409,27 +388,6 @@ fn run_market_inner(
     })
 }
 
-#[allow(dead_code)] // superada pela Janela de Transferências (apply_weekly_market)
-fn is_rookie_signing_candidate(
-    candidate: &AvailableDriver,
-    expiring_by_driver: &HashMap<String, Contract>,
-    target_category: &str,
-) -> bool {
-    if !is_real_career_debut_category(target_category) {
-        return false;
-    }
-    if expiring_by_driver.contains_key(&candidate.driver.id) {
-        return false;
-    }
-    if !candidate.categoria_atual.is_empty() {
-        return false;
-    }
-    if candidate.posicao_campeonato < 99 {
-        return false;
-    }
-    true
-}
-
 /// Escaneia todas as equipes de categorias regulares e garante que tenham 2 pilotos.
 /// Caso faltem pilotos, preenche com novos rookies (rookies são gerados e contratados).
 pub fn fill_all_remaining_vacancies(
@@ -506,417 +464,6 @@ pub(crate) fn fill_all_remaining_vacancies_reported(
     Ok(())
 }
 
-fn get_season_by_number(
-    conn: &Connection,
-    season_number: i32,
-) -> Result<Option<crate::models::season::Season>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, numero, ano, status, rodada_atual, created_at, updated_at
-             FROM seasons
-             WHERE numero = ?1
-             LIMIT 1",
-        )
-        .map_err(|e| format!("Falha ao preparar busca de temporada: {e}"))?;
-    stmt.query_row(params![season_number], |row| {
-        Ok(crate::models::season::Season {
-            id: row.get(0)?,
-            numero: row.get(1)?,
-            ano: row.get(2)?,
-            status: crate::models::enums::SeasonStatus::from_str_strict(&row.get::<_, String>(3)?)
-                .map_err(rusqlite::Error::InvalidParameterName)?,
-            rodada_atual: row.get(4)?,
-            fase: crate::models::enums::SeasonPhase::BlocoRegular,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        })
-    })
-    .optional()
-    .map_err(|e| format!("Falha ao buscar temporada {season_number}: {e}"))
-}
-
-fn reset_market_state(conn: &Connection, season_id: &str) -> Result<(), String> {
-    conn.execute(
-        "DELETE FROM market_proposals WHERE temporada_id = ?1",
-        params![season_id],
-    )
-    .map_err(|e| format!("Falha ao limpar propostas de mercado: {e}"))?;
-    conn.execute(
-        "DELETE FROM market WHERE temporada_id = ?1",
-        params![season_id],
-    )
-    .map_err(|e| format!("Falha ao limpar estado do mercado: {e}"))?;
-    Ok(())
-}
-
-fn persist_market_state(conn: &Connection, season_id: &str) -> Result<(), String> {
-    let now = timestamp_now();
-    conn.execute(
-        "INSERT INTO market (temporada_id, status, fase, inicio, fim)
-         VALUES (?1, 'Fechado', 'PreTemporada', ?2, ?3)",
-        params![season_id, now, now],
-    )
-    .map_err(|e| format!("Falha ao persistir estado do mercado: {e}"))?;
-    Ok(())
-}
-
-fn load_market_contexts(
-    conn: &Connection,
-    previous_season_id: Option<&str>,
-    drivers_by_id: &HashMap<String, Driver>,
-    expiring_by_driver: &HashMap<String, Contract>,
-) -> Result<HashMap<String, DriverMarketContext>, String> {
-    let mut contexts = HashMap::new();
-    if let Some(season_id) = previous_season_id {
-        let mut stmt = conn
-            .prepare(
-                "SELECT piloto_id, categoria, posicao, vitorias, poles
-                 FROM standings
-                 WHERE temporada_id = ?1",
-            )
-            .map_err(|e| format!("Falha ao preparar standings do mercado: {e}"))?;
-        let mut rows = stmt
-            .query(params![season_id])
-            .map_err(|e| format!("Falha ao ler standings do mercado: {e}"))?;
-        let mut totals_by_category: HashMap<String, i32> = HashMap::new();
-        let mut raw_rows = Vec::new();
-
-        while let Some(row) = rows
-            .next()
-            .map_err(|e| format!("Falha ao iterar standings do mercado: {e}"))?
-        {
-            let piloto_id: String = row
-                .get("piloto_id")
-                .map_err(|e| format!("Falha ao ler piloto_id do standings: {e}"))?;
-            let categoria: String = row.get("categoria").map_err(|e| {
-                format!(
-                    "Falha ao ler categoria do standings para piloto '{}': {e}",
-                    piloto_id
-                )
-            })?;
-            let posicao: i32 = row
-                .get("posicao")
-                .map_err(|e| format!("Falha ao ler posicao do standings: {e}"))?;
-            let vitorias: i32 = row
-                .get("vitorias")
-                .map_err(|e| format!("Falha ao ler vitorias do standings: {e}"))?;
-            let poles: i32 = row
-                .get("poles")
-                .map_err(|e| format!("Falha ao ler poles do standings: {e}"))?;
-            *totals_by_category.entry(categoria.clone()).or_insert(0) += 1;
-            raw_rows.push((piloto_id, categoria, posicao, vitorias, poles));
-        }
-
-        for (piloto_id, categoria, posicao, vitorias, poles) in raw_rows {
-            let driver = drivers_by_id.get(&piloto_id);
-            contexts.insert(
-                piloto_id.clone(),
-                DriverMarketContext {
-                    posicao_campeonato: posicao,
-                    total_pilotos: totals_by_category.get(&categoria).copied().unwrap_or(1),
-                    category_tier: get_category_config(&categoria)
-                        .map(|config| config.tier)
-                        .unwrap_or(0),
-                    categoria: categoria.clone(),
-                    vitorias,
-                    poles,
-                    titulos: driver.map(|d| d.stats_carreira.titulos as i32).unwrap_or(0),
-                    papel: expiring_by_driver
-                        .get(&piloto_id)
-                        .map(|contract| contract.papel.clone())
-                        .unwrap_or(TeamRole::Numero2),
-                },
-            );
-        }
-    }
-
-    for driver in drivers_by_id.values() {
-        contexts
-            .entry(driver.id.clone())
-            .or_insert_with(|| default_market_context(driver));
-    }
-    Ok(contexts)
-}
-
-fn default_market_context(driver: &Driver) -> DriverMarketContext {
-    let categoria = driver.categoria_atual.clone().unwrap_or_default();
-    DriverMarketContext {
-        posicao_campeonato: 99,
-        total_pilotos: 99,
-        category_tier: get_category_config(&categoria)
-            .map(|config| config.tier)
-            .unwrap_or(0),
-        categoria,
-        vitorias: driver.stats_temporada.vitorias as i32,
-        poles: driver.stats_temporada.poles as i32,
-        titulos: driver.stats_carreira.titulos as i32,
-        papel: TeamRole::Numero2,
-    }
-}
-
-/// Mapa piloto → categoria do contrato Regular mais recente (por `temporada_fim`).
-/// Serve para resgatar o nível de veteranos parados no leilão (ver `find_available_drivers`).
-fn load_last_regular_categories(conn: &Connection) -> Result<HashMap<String, String>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT c1.piloto_id, c1.categoria
-             FROM contracts c1
-             WHERE c1.tipo = 'Regular'
-               AND CAST(c1.temporada_fim AS INTEGER) = (
-                   SELECT MAX(CAST(c2.temporada_fim AS INTEGER))
-                   FROM contracts c2
-                   WHERE c2.piloto_id = c1.piloto_id AND c2.tipo = 'Regular'
-               )",
-        )
-        .map_err(|e| format!("Falha ao preparar últimas categorias: {e}"))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| format!("Falha ao consultar últimas categorias: {e}"))?;
-    let mut map = HashMap::new();
-    for row in rows {
-        let (piloto_id, categoria) =
-            row.map_err(|e| format!("Falha ao ler última categoria: {e}"))?;
-        map.insert(piloto_id, categoria);
-    }
-    Ok(map)
-}
-
-fn sync_team_slots(
-    conn: &Connection,
-    teams: &[crate::models::team::Team],
-    drivers_by_id: &HashMap<String, Driver>,
-) -> Result<(), String> {
-    sync_team_slots_from_active_regular_contracts(conn, teams, drivers_by_id)
-}
-
-fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
-    let teams =
-        team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao buscar equipes: {e}"))?;
-    let mut vacancies = Vec::new();
-
-    for team in teams {
-        if !uses_regular_contracts(&team.categoria) {
-            continue;
-        }
-        let category_tier = get_category_config(&team.categoria)
-            .map(|config| config.tier)
-            .unwrap_or(0);
-        match (&team.piloto_1_id, &team.piloto_2_id) {
-            (None, None) => {
-                vacancies.push(Vacancy {
-                    team_id: team.id.clone(),
-                    team_name: team.nome.clone(),
-                    categoria: team.categoria.clone(),
-                    classe: team.classe.clone(),
-                    category_tier,
-                    car_strength: team.car_strength(),
-                    budget: team.budget,
-                    cash_balance: team.cash_balance,
-                    debt_balance: team.debt_balance,
-                    financial_state: team.financial_state.clone(),
-                    reputacao: team.reputacao,
-                    papel_necessario: TeamRole::Numero1,
-                    piloto_existente_id: None,
-                });
-                vacancies.push(Vacancy {
-                    team_id: team.id.clone(),
-                    team_name: team.nome.clone(),
-                    categoria: team.categoria.clone(),
-                    classe: team.classe.clone(),
-                    category_tier,
-                    car_strength: team.car_strength(),
-                    budget: team.budget,
-                    cash_balance: team.cash_balance,
-                    debt_balance: team.debt_balance,
-                    financial_state: team.financial_state.clone(),
-                    reputacao: team.reputacao,
-                    papel_necessario: TeamRole::Numero2,
-                    piloto_existente_id: None,
-                });
-            }
-            (Some(existing), None) => vacancies.push(Vacancy {
-                team_id: team.id.clone(),
-                team_name: team.nome.clone(),
-                categoria: team.categoria.clone(),
-                classe: team.classe.clone(),
-                category_tier,
-                car_strength: team.car_strength(),
-                budget: team.budget,
-                cash_balance: team.cash_balance,
-                debt_balance: team.debt_balance,
-                financial_state: team.financial_state.clone(),
-                reputacao: team.reputacao,
-                papel_necessario: TeamRole::Numero2,
-                piloto_existente_id: Some(existing.clone()),
-            }),
-            (None, Some(existing)) => vacancies.push(Vacancy {
-                team_id: team.id.clone(),
-                team_name: team.nome.clone(),
-                categoria: team.categoria.clone(),
-                classe: team.classe.clone(),
-                category_tier,
-                car_strength: team.car_strength(),
-                budget: team.budget,
-                cash_balance: team.cash_balance,
-                debt_balance: team.debt_balance,
-                financial_state: team.financial_state.clone(),
-                reputacao: team.reputacao,
-                papel_necessario: TeamRole::Numero1,
-                piloto_existente_id: Some(existing.clone()),
-            }),
-            (Some(_), Some(_)) => {}
-        }
-    }
-
-    Ok(vacancies)
-}
-
-fn load_max_license_levels(conn: &Connection) -> Result<HashMap<String, u8>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT piloto_id, MAX(CAST(nivel AS INTEGER))
-             FROM licenses
-             GROUP BY piloto_id",
-        )
-        .map_err(|e| format!("Falha ao preparar consulta de licencas: {e}"))?;
-    let mut rows = stmt
-        .query([])
-        .map_err(|e| format!("Falha ao ler licencas: {e}"))?;
-    let mut map = HashMap::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("Falha ao iterar licencas: {e}"))?
-    {
-        let piloto_id: String = row.get(0).unwrap_or_default();
-        let nivel: u8 = row.get::<_, i64>(1).unwrap_or(0) as u8;
-        map.insert(piloto_id, nivel);
-    }
-    Ok(map)
-}
-
-fn find_available_drivers(
-    conn: &Connection,
-    standings_by_driver: &HashMap<String, DriverMarketContext>,
-) -> Result<Vec<AvailableDriver>, String> {
-    let active_contracts = contract_queries::get_all_active_regular_contracts(conn)
-        .map_err(|e| format!("Falha ao recarregar contratos ativos: {e}"))?;
-    let contracted_ids: HashSet<String> = active_contracts
-        .into_iter()
-        .map(|contract| contract.piloto_id)
-        .collect();
-
-    let drivers = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar pilotos disponiveis: {e}"))?;
-    let license_levels = load_max_license_levels(conn)?;
-    // Última categoria contratada por piloto — para resgatar o nível de veteranos parados
-    // (categoria_atual zerada por sync.rs) em vez de rebaixá-los a tier 0 no leilão.
-    let last_categories = load_last_regular_categories(conn)?;
-    let mut available = Vec::new();
-
-    for driver in drivers {
-        if driver.is_jogador
-            || driver.status != DriverStatus::Ativo
-            || contracted_ids.contains(&driver.id)
-        {
-            continue;
-        }
-        let mut context = standings_by_driver
-            .get(&driver.id)
-            .cloned()
-            .unwrap_or_else(|| default_market_context(&driver));
-        // Piloto parado (sem categoria atual nem standing da última temporada): ancora no
-        // nível da última categoria que correu, espelhando `player_market_tier`. Sem isso,
-        // um ex-GT3 vira candidato tier 0 (só recebe proposta de rookie).
-        if context.categoria.is_empty() {
-            if let Some(last_cat) = last_categories.get(&driver.id) {
-                if let Some(config) = get_category_config(last_cat) {
-                    context.categoria = last_cat.clone();
-                    context.category_tier = config.tier;
-                }
-            }
-        }
-        let visibility = calculate_visibility(
-            &driver,
-            context.posicao_campeonato,
-            context.total_pilotos,
-            context.category_tier,
-            context.vitorias,
-            context.titulos,
-            context.poles,
-            &context.papel,
-            &context.categoria,
-        );
-        let max_license_level = license_levels.get(&driver.id).copied();
-        available.push(AvailableDriver {
-            driver,
-            visibility,
-            posicao_campeonato: context.posicao_campeonato,
-            categoria_atual: context.categoria,
-            category_tier: context.category_tier,
-            max_license_level,
-        });
-    }
-
-    Ok(available)
-}
-
-pub(crate) fn sign_driver_to_team(
-    conn: &Connection,
-    driver: &Driver,
-    vacancy: &Vacancy,
-    new_season_number: i32,
-    salary: f64,
-    duration: i32,
-    role: TeamRole,
-) -> Result<(), String> {
-    with_savepoint(conn, "market_sign_driver", || {
-        let team = team_queries::get_team_by_id(conn, &vacancy.team_id)
-            .map_err(|e| format!("Falha ao buscar equipe da assinatura: {e}"))?
-            .ok_or_else(|| format!("Equipe '{}' nao encontrada", vacancy.team_id))?;
-        ensure_driver_can_join_division(
-            conn,
-            &driver.id,
-            &driver.nome,
-            &vacancy.categoria,
-            vacancy.classe.as_deref(),
-        )?;
-        let mut new_contract = Contract::new(
-            next_id(conn, IdType::Contract)
-                .map_err(|e| format!("Falha ao gerar ID de contrato: {e}"))?,
-            driver.id.clone(),
-            driver.nome.clone(),
-            vacancy.team_id.clone(),
-            team.nome.clone(),
-            new_season_number,
-            duration,
-            salary,
-            role,
-            vacancy.categoria.clone(),
-        );
-        new_contract.classe = team.classe.clone();
-        contract_queries::insert_contract(conn, &new_contract)
-            .map_err(|e| format!("Falha ao inserir contratacao: {e}"))?;
-
-        let mut updated_driver = driver.clone();
-        updated_driver.categoria_atual = Some(vacancy.categoria.clone());
-        driver_queries::update_driver(conn, &updated_driver).map_err(|e| {
-            format!(
-                "Falha ao atualizar piloto contratado '{}': {e}",
-                driver.nome
-            )
-        })?;
-        Ok(())
-    })?;
-    // Rivalidade entre EQUIPES — Fonte 2 (Elo 2) na TRANSFERÊNCIA NORMAL: assinar um piloto
-    // que largou o rival na temporada passada deixa marca no par de times. Fora do savepoint
-    // (best-effort — nunca desfaz a assinatura) e DEPOIS do commit, pra o histórico já incluir
-    // o contrato novo. O poaching tem seu próprio site (rancor máximo), então não duplica.
-    seed_ordinary_transfer_rivalry(conn, driver, &vacancy.team_id, new_season_number);
-    Ok(())
-}
-
 /// Fonte 2 (Elo 2) para TRANSFERÊNCIAS NORMAIS (não-poaching): se o piloto correu na
 /// temporada imediatamente anterior por um time DIFERENTE do novo, semeia rivalidade de
 /// mercado LEVE (`is_poaching=false` — o peso final vem do calibre do piloto, dentro da
@@ -951,25 +498,6 @@ fn seed_ordinary_transfer_rivalry(
     ) {
         eprintln!("Aviso: falha ao semear rivalidade de equipe na transferência: {e}");
     }
-}
-
-/// Transfere `amount` do caixa do time `from` para o `to` — a 1ª mecânica de dinheiro
-/// time→time (a multa de rescisão do poaching, Fase 2b). No-op se `amount ≤ 0` ou
-/// mesma equipe. Debita o assediante e credita o vendedor.
-pub(crate) fn transfer_between_teams(
-    conn: &Connection,
-    from_team: &str,
-    to_team: &str,
-    amount: f64,
-) -> Result<(), String> {
-    if amount <= 0.0 || from_team == to_team {
-        return Ok(());
-    }
-    team_queries::adjust_team_cash(conn, from_team, -amount)
-        .map_err(|e| format!("Falha ao debitar multa do assediante: {e}"))?;
-    team_queries::adjust_team_cash(conn, to_team, amount)
-        .map_err(|e| format!("Falha ao creditar multa ao vendedor: {e}"))?;
-    Ok(())
 }
 
 /// DEBUG (Fase 2b): raio-x de um assédio — tudo que decidiu o leilão. O leilão só
@@ -1546,64 +1074,6 @@ fn apply_slam_priority_pass(
         available.remove(driver_index);
     }
     Ok(())
-}
-
-/// Prestígio competitivo (0-100) de uma equipe pelos ÚLTIMOS 10 ANOS do campeonato
-/// de construtores (título alto, pódio médio, com peso por recência). O que o
-/// piloto mais confia (vs a promessa não-verificável do carro). Sem archive → 0.
-fn team_prestige(conn: &Connection, team_id: &str, current_season: i32) -> Result<f64, String> {
-    let mut stmt = match conn.prepare(
-        "SELECT season_number, posicao_campeonato FROM team_season_archive
-         WHERE team_id = ?1 AND season_number > ?2",
-    ) {
-        Ok(stmt) => stmt,
-        Err(_) => return Ok(0.0),
-    };
-    let rows = stmt
-        .query_map(params![team_id, current_season - 10], |row| {
-            Ok((row.get::<_, i32>(0)?, row.get::<_, Option<i32>>(1)?))
-        })
-        .map_err(|e| format!("Falha ao consultar prestigio da equipe: {e}"))?;
-    let mut raw = 0.0;
-    for row in rows {
-        let (season, pos) = row.map_err(|e| format!("Falha ao ler prestigio da equipe: {e}"))?;
-        let Some(pos) = pos else { continue };
-        let pts = match pos {
-            1 => 10.0,
-            2..=3 => 5.0,
-            4..=6 => 2.0,
-            _ => 0.0,
-        };
-        let age = (current_season - season).max(0) as f64;
-        let recency = (1.0 - age / 10.0).clamp(0.1, 1.0);
-        raw += pts * recency;
-    }
-    Ok((raw * 2.5).min(100.0))
-}
-
-/// Marca (mazda/toyota) derivada do id da categoria — só tiers 0-1.
-fn brand_of_category(category: &str) -> Option<String> {
-    if category.starts_with("mazda_") {
-        Some("mazda".to_string())
-    } else if category.starts_with("toyota_") {
-        Some("toyota".to_string())
-    } else {
-        None
-    }
-}
-
-/// Piloto-estrela sintético p/ derivar o teto de salário que a equipe comporta.
-fn synthetic_star() -> Driver {
-    let mut star = Driver::new(
-        "STAR".to_string(),
-        "Star".to_string(),
-        "BR".to_string(),
-        "M".to_string(),
-        26,
-        2000,
-    );
-    star.atributos.skill = 92.0;
-    star
 }
 
 /// Constrói o `Seat` (vaga do motor) a partir de uma `Vacancy` do banco.
@@ -3100,17 +2570,6 @@ pub(crate) fn player_active_interest_teams(
         .collect())
 }
 
-fn team_quality(team: &crate::models::team::Team) -> f64 {
-    // `team_prestige_quality` sempre assumiu carro em 0–100 (ela clampa nisso, e os testes
-    // passam 90). Recebia a coluna legada em 0–16: o carro pesava no máximo 9,6 contra 100 de
-    // reputação, então o astro só olhava para prestígio. `car_strength` entrega a escala certa.
-    crate::fame::team_prestige_quality(
-        team.reputacao,
-        team.car_strength(),
-        team.historico_titulos_pilotos + team.historico_titulos_construtores,
-    )
-}
-
 // ============================================================================
 // Fase 2b.3 — QUEBRA DE CONTRATO DO JOGADOR (o leilão que o jogador VÊ e decide).
 // ============================================================================
@@ -4110,84 +3569,6 @@ fn guarantee_rookie_champion_promotions(
     Ok(())
 }
 
-/// Executa a troca de assentos: `riser` (de baixo) assume a vaga de `weak` (de cima)
-/// e `weak` assume a vaga de `riser`. Rescinde os dois contratos e cria os novos
-/// trocados; ambos já têm a licença das divisões de destino (ver chamador).
-fn swap_contract_seats(
-    conn: &Connection,
-    riser: &Contract,
-    weak: &Contract,
-    new_season_number: i32,
-    report: &mut MarketReport,
-) -> Result<(), String> {
-    for contract_id in [&riser.id, &weak.id] {
-        contract_queries::update_contract_status(conn, contract_id, &ContractStatus::Rescindido)
-            .map_err(|e| format!("Falha ao rescindir contrato na troca de mérito: {e}"))?;
-    }
-
-    let mut move_driver = |conn: &Connection,
-                           piloto_id: &str,
-                           piloto_nome: &str,
-                           destino: &Contract,
-                           tipo: &str|
-     -> Result<(), String> {
-        let mut contract = Contract::new(
-            next_id(conn, IdType::Contract)
-                .map_err(|e| format!("Falha ao gerar ID de contrato na troca: {e}"))?,
-            piloto_id.to_string(),
-            piloto_nome.to_string(),
-            destino.equipe_id.clone(),
-            destino.equipe_nome.clone(),
-            new_season_number,
-            1,
-            destino.salario_anual,
-            destino.papel.clone(),
-            destino.categoria.clone(),
-        );
-        contract.classe = destino.classe.clone();
-        contract_queries::insert_contract(conn, &contract)
-            .map_err(|e| format!("Falha ao inserir contrato na troca de mérito: {e}"))?;
-
-        if let Some(mut driver) = driver_queries::get_all_drivers(conn)
-            .map_err(|e| format!("Falha ao carregar piloto na troca: {e}"))?
-            .into_iter()
-            .find(|driver| driver.id == piloto_id)
-        {
-            driver.categoria_atual = Some(destino.categoria.clone());
-            driver_queries::update_driver(conn, &driver)
-                .map_err(|e| format!("Falha ao atualizar categoria na troca: {e}"))?;
-        }
-
-        report.new_signings.push(SigningInfo {
-            driver_id: piloto_id.to_string(),
-            driver_name: piloto_nome.to_string(),
-            team_id: destino.equipe_id.clone(),
-            team_name: destino.equipe_nome.clone(),
-            categoria: destino.categoria.clone(),
-            papel: destino.papel.as_str().to_string(),
-            tipo: tipo.to_string(),
-        });
-        Ok(())
-    };
-
-    // riser sobe para a vaga de weak; weak desce para a vaga do riser.
-    move_driver(
-        conn,
-        &riser.piloto_id,
-        &riser.piloto_nome,
-        weak,
-        "promocao_merito",
-    )?;
-    move_driver(
-        conn,
-        &weak.piloto_id,
-        &weak.piloto_nome,
-        riser,
-        "rebaixamento",
-    )?;
-    Ok(())
-}
-
 /// Categoria de ENTRADA da escada num ano: ativa e com nenhuma feeder ativa ainda
 /// (a de menor tier existente). É onde nascem novos pilotos da época.
 fn is_entry_category_for_year(categoria: &str, year: i32) -> bool {
@@ -4387,53 +3768,6 @@ fn deep_recruitment_candidate(
     Ok(None)
 }
 
-fn generate_and_sign_rookie_for_vacancy(
-    conn: &Connection,
-    vacancy: &Vacancy,
-    new_season_number: i32,
-    debut_year: i32,
-    rng: &mut impl Rng,
-) -> Result<Driver, String> {
-    let mut existing_names: HashSet<String> = driver_queries::get_all_drivers(conn)
-        .map_err(|e| format!("Falha ao carregar nomes existentes para rookie: {e}"))?
-        .into_iter()
-        .map(|driver| driver.nome)
-        .collect();
-    let mut rookie = generate_rookies(1, debut_year, &mut existing_names, rng)
-        .into_iter()
-        .next()
-        .ok_or_else(|| "Falha ao gerar rookie para vaga final.".to_string())?;
-    rookie.id =
-        next_id(conn, IdType::Driver).map_err(|e| format!("Falha ao gerar ID de rookie: {e}"))?;
-    rookie.categoria_atual = None;
-
-    driver_queries::insert_driver(conn, &rookie)
-        .map_err(|e| format!("Falha ao inserir rookie '{}': {e}", rookie.nome))?;
-    grant_driver_license_for_division_if_needed(
-        conn,
-        &rookie.id,
-        &vacancy.categoria,
-        vacancy.classe.as_deref(),
-    )?;
-    sign_driver_to_team(
-        conn,
-        &rookie,
-        vacancy,
-        new_season_number,
-        calculate_offer_salary(vacancy, &rookie, rng),
-        1,
-        vacancy.papel_necessario.clone(),
-    )?;
-
-    Ok(rookie)
-}
-
-fn is_regular_vacancy(vacancy: &Vacancy) -> bool {
-    get_category_config(&vacancy.categoria)
-        .map(|category| uses_regular_contracts(category.id))
-        .unwrap_or(true)
-}
-
 fn compare_pool_fallback_candidates(
     a: &AvailableDriver,
     b: &AvailableDriver,
@@ -4517,19 +3851,6 @@ fn affordability_penalty(price: f64, ceiling: f64) -> f64 {
         return 0.0;
     }
     (AFFORDABILITY_PENALTY_WEIGHT * (price / ceiling - 1.0)).min(AFFORDABILITY_PENALTY_CAP)
-}
-
-/// Desejabilidade de um assento para a ORDEM de escolha (port de
-/// `transfer_window::driver_offer_score`): carro + prestígio (reputação da equipe, já na
-/// vaga). Os pesos vêm da FONTE ÚNICA `transfer_window::{SEAT_W_CAR, SEAT_W_PRESTIGE}` — os
-/// mesmos do motor de janela —, então não divergem. Assim o melhor carro numa equipe
-/// prestigiada escolhe do pool antes de um carro igual sem tradição — o que o leilão dava de
-/// graça, reproduzido na escada gulosa.
-fn seat_desirability(vacancy: &Vacancy) -> f64 {
-    use crate::market::transfer_window::{SEAT_W_CAR, SEAT_W_PRESTIGE};
-    let car_norm = vacancy.car_strength;
-    (car_norm / 100.0).min(1.2) * SEAT_W_CAR
-        + (vacancy.reputacao.clamp(0.0, 100.0) / 100.0) * SEAT_W_PRESTIGE
 }
 
 /// Margem do piso de skill do pool de resgate: um órfão só preenche uma vaga
@@ -4655,10 +3976,6 @@ fn refresh_team_hierarchy(
         })?;
     }
     Ok(())
-}
-
-fn timestamp_now() -> String {
-    Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
 #[cfg(test)]
