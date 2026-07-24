@@ -65,6 +65,16 @@ use crate::news::{NewsImportance, NewsItem, NewsType};
 
 pub use crate::commands::career_types::CreateCareerInput;
 
+#[path = "career/save_state.rs"]
+mod save_state;
+
+pub(crate) use save_state::{
+    delete_resume_context, get_briefing_phrase_history_in_base_dir,
+    persist_resume_context_in_base_dir, read_resume_context, read_save_meta,
+    save_briefing_phrase_history_in_base_dir, save_meta_to_info, write_resume_context,
+    write_save_meta,
+};
+
 static CAREER_OPEN_REPAIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1059,8 +1069,7 @@ pub(crate) fn debug_force_player_poach_offer_in_base_dir(
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
         .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
-    let offer =
-        crate::market::pipeline::debug_build_player_poach_offer(&db.conn, season.numero)?;
+    let offer = crate::market::pipeline::debug_build_player_poach_offer(&db.conn, season.numero)?;
     // Se estamos numa janela de mercado, persiste no plano (fluxo real); senão só devolve.
     if let Ok(Some(mut plan)) = load_preseason_plan(&career_dir) {
         plan.player_poach_offer = offer.clone();
@@ -1275,7 +1284,8 @@ fn debug_run_poaching_dry(
         .map_err(|e| format!("Falha ao temperar fama (debug): {e}"))?;
     }
 
-    let teams = team_queries::get_all_teams(&tx).map_err(|e| format!("Falha ao carregar times: {e}"))?;
+    let teams =
+        team_queries::get_all_teams(&tx).map_err(|e| format!("Falha ao carregar times: {e}"))?;
     let mut rng = StdRng::seed_from_u64(2026);
     let mut report = crate::market::proposals::MarketReport::default();
     let mut audit = Vec::new();
@@ -1739,219 +1749,6 @@ pub(crate) fn toggle_driver_favorite_in_base_dir(
     let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     crate::db::queries::favorites::toggle_favorite(&db.conn, driver_id)
         .map_err(|e| format!("Falha ao alternar favorito: {e}"))
-}
-
-fn read_save_meta(path: &Path) -> Result<SaveMeta, String> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("Falha ao ler meta.json: {e}"))?;
-    serde_json::from_str::<SaveMeta>(&content)
-        .map_err(|e| format!("Falha ao parsear meta.json: {e}"))
-}
-
-fn resume_context_path(career_dir: &Path) -> PathBuf {
-    career_dir.join("resume_context.json")
-}
-
-fn read_resume_context(career_dir: &Path) -> Result<Option<CareerResumeContext>, String> {
-    let path = resume_context_path(career_dir);
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Falha ao ler resume_context.json: {e}"))?;
-    let context = serde_json::from_str::<CareerResumeContext>(&content)
-        .map_err(|e| format!("Falha ao parsear resume_context.json: {e}"))?;
-    normalize_resume_context(career_dir, context)
-}
-
-fn normalize_resume_context(
-    career_dir: &Path,
-    context: CareerResumeContext,
-) -> Result<Option<CareerResumeContext>, String> {
-    match context.active_view {
-        CareerResumeView::Dashboard => Ok(None),
-        CareerResumeView::EndOfSeason => {
-            if context.end_of_season_result.is_some() {
-                Ok(Some(context))
-            } else if load_preseason_plan(career_dir)?.is_some() {
-                Ok(Some(CareerResumeContext {
-                    active_view: CareerResumeView::Preseason,
-                    end_of_season_result: None,
-                }))
-            } else {
-                Ok(None)
-            }
-        }
-        CareerResumeView::Preseason => {
-            if load_preseason_plan(career_dir)?.is_some() {
-                Ok(Some(CareerResumeContext {
-                    active_view: CareerResumeView::Preseason,
-                    end_of_season_result: None,
-                }))
-            } else {
-                Ok(None)
-            }
-        }
-    }
-}
-
-fn write_resume_context(career_dir: &Path, context: &CareerResumeContext) -> Result<(), String> {
-    let path = resume_context_path(career_dir);
-    let payload = serde_json::to_string_pretty(context)
-        .map_err(|e| format!("Falha ao serializar resume_context.json: {e}"))?;
-    std::fs::write(&path, payload).map_err(|e| format!("Falha ao gravar resume_context.json: {e}"))
-}
-
-fn delete_resume_context(career_dir: &Path) -> Result<(), String> {
-    let path = resume_context_path(career_dir);
-    if !path.exists() {
-        return Ok(());
-    }
-
-    std::fs::remove_file(&path).map_err(|e| format!("Falha ao remover resume_context.json: {e}"))
-}
-
-pub(crate) fn persist_resume_context_in_base_dir(
-    base_dir: &Path,
-    career_id: &str,
-    active_view: CareerResumeView,
-    end_of_season_result: Option<EndOfSeasonResult>,
-) -> Result<(), String> {
-    // Persiste só estado de UI em JSON (nada de banco). Antes abria com reparo, o que
-    // rodava a transação de escrita de contratos a cada troca de tela. Read-only.
-    let (_db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
-
-    match active_view {
-        CareerResumeView::Dashboard => delete_resume_context(&career_dir),
-        CareerResumeView::EndOfSeason => {
-            let Some(result) = end_of_season_result else {
-                return Err(
-                    "Estado de fim de temporada requer payload para restauracao.".to_string(),
-                );
-            };
-
-            write_resume_context(
-                &career_dir,
-                &CareerResumeContext {
-                    active_view,
-                    end_of_season_result: Some(result),
-                },
-            )
-        }
-        CareerResumeView::Preseason => write_resume_context(
-            &career_dir,
-            &CareerResumeContext {
-                active_view,
-                end_of_season_result: None,
-            },
-        ),
-    }
-}
-
-pub(crate) fn get_briefing_phrase_history_in_base_dir(
-    base_dir: &Path,
-    career_id: &str,
-) -> Result<BriefingPhraseHistory, String> {
-    // Só precisamos do career_dir para ler o JSON de frases — nada de banco. Abrir
-    // com reparo aqui rodava uma transação de ESCRITA (BEGIN IMMEDIATE + varredura de
-    // contratos/equipes) e pegava o lock global a cada carregamento do briefing,
-    // brigando com os SELECTs paralelos e travando a Sala de Estratégia. Read-only.
-    let (_db, career_dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
-    read_briefing_phrase_history(&briefing_phrase_history_path(&career_dir))
-}
-
-pub(crate) fn save_briefing_phrase_history_in_base_dir(
-    base_dir: &Path,
-    career_id: &str,
-    season_number: i32,
-    entries: Vec<BriefingPhraseEntryInput>,
-) -> Result<BriefingPhraseHistory, String> {
-    // Grava só o JSON de frases — não usa o banco. Read-only evita a transação de
-    // reparo de contratos (e o lock global) a cada persistência de briefing.
-    let (_db, career_dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
-    let history_path = briefing_phrase_history_path(&career_dir);
-    let current = read_briefing_phrase_history(&history_path)?;
-    let updated = merge_briefing_phrase_history(current, season_number, entries);
-    write_briefing_phrase_history(&history_path, &updated)?;
-    Ok(updated)
-}
-
-fn briefing_phrase_history_path(career_dir: &Path) -> PathBuf {
-    career_dir.join("briefing_phrase_history.json")
-}
-
-fn read_briefing_phrase_history(path: &Path) -> Result<BriefingPhraseHistory, String> {
-    if !path.exists() {
-        return Ok(BriefingPhraseHistory::default());
-    }
-
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Falha ao ler briefing_phrase_history.json: {e}"))?;
-    serde_json::from_str::<BriefingPhraseHistory>(&content)
-        .map_err(|e| format!("Falha ao parsear briefing_phrase_history.json: {e}"))
-}
-
-fn write_briefing_phrase_history(
-    path: &Path,
-    history: &BriefingPhraseHistory,
-) -> Result<(), String> {
-    let payload = serde_json::to_string_pretty(history)
-        .map_err(|e| format!("Falha ao serializar briefing_phrase_history.json: {e}"))?;
-    std::fs::write(path, payload)
-        .map_err(|e| format!("Falha ao gravar briefing_phrase_history.json: {e}"))
-}
-
-fn merge_briefing_phrase_history(
-    current: BriefingPhraseHistory,
-    season_number: i32,
-    entries: Vec<BriefingPhraseEntryInput>,
-) -> BriefingPhraseHistory {
-    let mut merged_entries = if current.season_number == season_number {
-        current.entries
-    } else {
-        Vec::new()
-    };
-
-    for entry in entries {
-        merged_entries.retain(|existing| {
-            !(existing.round_number == entry.round_number
-                && existing.driver_id == entry.driver_id
-                && existing.bucket_key == entry.bucket_key)
-        });
-
-        merged_entries.push(BriefingPhraseEntry {
-            season_number,
-            round_number: entry.round_number,
-            driver_id: entry.driver_id,
-            bucket_key: entry.bucket_key,
-            phrase_id: entry.phrase_id,
-        });
-    }
-
-    merged_entries.sort_by(|left, right| {
-        right
-            .round_number
-            .cmp(&left.round_number)
-            .then_with(|| left.driver_id.cmp(&right.driver_id))
-            .then_with(|| left.bucket_key.cmp(&right.bucket_key))
-    });
-
-    let mut per_bucket_counts: HashMap<(String, String), usize> = HashMap::new();
-    merged_entries.retain(|entry| {
-        let key = (entry.driver_id.clone(), entry.bucket_key.clone());
-        let count = per_bucket_counts.entry(key).or_insert(0);
-        if *count >= 5 {
-            return false;
-        }
-        *count += 1;
-        true
-    });
-
-    BriefingPhraseHistory {
-        season_number,
-        entries: merged_entries,
-    }
 }
 
 fn persist_end_of_season_news(
@@ -3141,7 +2938,9 @@ pub(crate) fn select_player_interests(
     let to_interest = |r: &crate::rivalry::PilotRivalrySummary| {
         // Um só fetch de episódios do par → label (1º capítulo) + retrospecto h2h.
         let eps = crate::db::queries::rivalry_episodes::get_episodes_for_pair(
-            conn, &player_id, &r.rival_id,
+            conn,
+            &player_id,
+            &r.rival_id,
         )
         .unwrap_or_default();
         let label = eps
@@ -3274,8 +3073,7 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
                 is_estreante: driver.temporadas_na_categoria == 0,
                 is_estreante_da_vida: driver.stats_carreira.corridas == 0,
                 lesao_ativa_tipo: active_injuries_by_driver.get(&driver_id).cloned(),
-                is_aposentado: driver.status
-                    == crate::models::enums::DriverStatus::Aposentado,
+                is_aposentado: driver.status == crate::models::enums::DriverStatus::Aposentado,
                 pontos: driver.stats_temporada.pontos.round() as i32,
                 vitorias: driver.stats_temporada.vitorias as i32,
                 podios: driver.stats_temporada.podios as i32,
@@ -3416,8 +3214,7 @@ fn get_special_driver_standings_from_results(
                 is_estreante: driver.temporadas_na_categoria == 0,
                 is_estreante_da_vida: driver.stats_carreira.corridas == 0,
                 lesao_ativa_tipo: active_injuries_by_driver.get(&driver.id).cloned(),
-                is_aposentado: driver.status
-                    == crate::models::enums::DriverStatus::Aposentado,
+                is_aposentado: driver.status == crate::models::enums::DriverStatus::Aposentado,
                 pontos: row.points.round() as i32,
                 vitorias: row.wins,
                 podios: row.podiums,
@@ -3819,7 +3616,6 @@ fn team_founded_year_for_payload(team: &Team) -> i32 {
     historical_team_foundation_year(&team.nome, &team.categoria, rank_index, 10)
 }
 
-
 fn get_special_team_standings_from_results(
     conn: &rusqlite::Connection,
     season: &Season,
@@ -4039,29 +3835,6 @@ pub(crate) fn get_calendar_for_category_in_base_dir(
             public_fame_share: None,
         })
         .collect())
-}
-
-fn write_save_meta(path: &Path, meta: &SaveMeta) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(meta)
-        .map_err(|e| format!("Falha ao serializar meta.json: {e}"))?;
-    std::fs::write(path, json).map_err(|e| format!("Falha ao gravar meta.json: {e}"))
-}
-
-fn save_meta_to_info(meta: SaveMeta) -> SaveInfo {
-    SaveInfo {
-        career_id: format!("career_{:03}", meta.career_number),
-        player_name: meta.player_name,
-        category_name: categories::get_category_config(&meta.category)
-            .map(|category| category.nome.to_string())
-            .unwrap_or_else(|| meta.category.clone()),
-        category: meta.category,
-        season: meta.current_season as i32,
-        year: meta.current_year as i32,
-        difficulty: meta.difficulty,
-        created: meta.created_at,
-        last_played: meta.last_played,
-        total_races: meta.total_races,
-    }
 }
 
 fn preferred_active_contract_for_phase(
