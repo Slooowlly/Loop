@@ -1,7 +1,5 @@
 //! Teste de chuva: tabela de referência de skill por cenário de chuva.
 
-use super::*;
-
 /// Uma linha da tabela de referência do teste de chuva (skill por cenário).
 #[derive(serde::Serialize)]
 pub struct RainTestRow {

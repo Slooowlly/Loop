@@ -1,7 +1,5 @@
 //! Clima do evento: hemisfério, tendência climática, semente determinística e linha do tempo da corrida.
 
-use super::*;
-
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
 pub(crate) fn track_hemisphere(pais: &str) -> crate::iracing_sdk::weather::Hemisphere {
     use crate::iracing_sdk::weather::Hemisphere;
