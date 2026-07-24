@@ -16,12 +16,12 @@ import {
   buildMonthGrid,
   formatIsoDateKey,
   getMonthPhaseType,
+  getRaceTooltipStyle,
   getTrackImageSrc,
   parseDisplayDate,
   weatherLabel,
 } from "../../utils/calendarShared.js";
 import { TRACK_COUNTRIES } from "../../utils/trackCountries.js";
-import { getRaceTooltipStyle } from "./CalendarTab";
 
 // Superfície de painel: separa do fundo por elevação (fundo sutil + rim light no
 // topo + sombra suave), sem borda — para aliviar o excesso de contornos. O rim é um

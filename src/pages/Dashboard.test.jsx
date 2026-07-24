@@ -42,18 +42,6 @@ vi.mock("./tabs/NextRaceTab", () => ({
   default: () => <div>Briefing pre-corrida</div>,
 }));
 
-vi.mock("./tabs/CalendarTab", () => ({
-  default: ({ activeTab, raceArrivalFeedbackActive = false }) => (
-    <div
-      data-testid="calendar-tab-prop"
-      data-race-arrival-feedback-active={raceArrivalFeedbackActive ? "true" : "false"}
-    >
-      {activeTab ?? "sem-prop"}
-    </div>
-  ),
-}));
-
-// O calendário redesenhado é o padrão (chave em Settings); recebe as mesmas props.
 vi.mock("./tabs/CalendarTabRedesign", () => ({
   default: ({ activeTab, raceArrivalFeedbackActive = false }) => (
     <div

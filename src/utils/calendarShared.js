@@ -1,10 +1,8 @@
-// Helpers puros compartilhados pelo calendário (usados pelo redesign — o
-// CalendarTab.jsx legado mantém as próprias cópias, para preservá-lo intacto
-// como fallback enquanto o novo calendário não é garantido).
+// Helpers puros compartilhados pelo calendário.
 import i18n from "../i18n/index.js";
 
 // Imagens por track_id (ids reais do iRacing).
-export const TRACK_IMAGES = {
+const TRACK_IMAGES = {
   9: "/utilities/tracks/summitpoint.webp",
   353: "/utilities/tracks/limerock.jpeg",
   586: "/utilities/tracks/lagunaseca.webp",
@@ -23,7 +21,7 @@ export const TRACK_IMAGES = {
   465: "/utilities/tracks/virginia.jpeg",
 };
 
-export const TRACK_IMAGE_FILES = [
+const TRACK_IMAGE_FILES = [
   { match: ["charlotte"], file: "charlotte.webp" },
   { match: ["laguna seca"], file: "lagunaseca.webp" },
   { match: ["lime rock"], file: "limerock.jpeg" },
@@ -80,16 +78,6 @@ export function getMonthPhaseType(monthIndex, isLegacyCalendar = false) {
   return "encerramento";
 }
 
-export function getMonthPhaseLabel(monthIndex, isLegacyCalendar = false) {
-  const type = getMonthPhaseType(monthIndex, isLegacyCalendar);
-  if (type === "mercado") {
-    return isLegacyCalendar ? i18n.t("calendar.phase.mercado") : i18n.t("calendar.phase.pretemporada");
-  }
-  if (type === "especial") return i18n.t("calendar.phase.especial");
-  if (type === "encerramento") return i18n.t("calendar.phase.encerramento");
-  return isLegacyCalendar ? i18n.t("calendar.phase.regularLegacy") : i18n.t("calendar.phase.temporada");
-}
-
 export function parseDisplayDate(dateStr) {
   if (!dateStr) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
@@ -99,16 +87,6 @@ export function parseDisplayDate(dateStr) {
 
 export function formatIsoDateKey(year, month, day) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-export function buildMonthCells(year, month) {
-  const firstWeekday = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < firstWeekday; i += 1) cells.push(null);
-  for (let day = 1; day <= daysInMonth; day += 1) cells.push(day);
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
 }
 
 // Grade fixa de 6 linhas (42 células) com os dias vizinhos preenchidos e marcados
@@ -162,4 +140,54 @@ export function getTrackImageSrc(race) {
   );
   if (entry) return getTrackAssetPath(entry.file);
   return getTrackAssetPath(TRACK_IMAGES[race?.track_id]);
+}
+
+// Posiciona o tooltip de corrida ancorado na célula do dia: prefere abrir acima,
+// cai para baixo quando não há espaço, e sempre respeita as bordas da viewport.
+export function getRaceTooltipStyle(cellRect, viewport = {}, tooltipSize = {}, options = {}) {
+  const tooltipWidth = tooltipSize.width ?? 208;
+  const tooltipHeight = tooltipSize.height ?? 176;
+  const margin = 12;
+  const gap = 8;
+  const verticalOffset = options.verticalOffset ?? 0;
+  const viewportWidth = viewport.width
+    ?? document.documentElement?.clientWidth
+    ?? window.innerWidth;
+  const viewportHeight = viewport.height
+    ?? document.documentElement?.clientHeight
+    ?? window.innerHeight;
+
+  const minLeft = margin;
+  const maxLeft = Math.max(margin, viewportWidth - tooltipWidth - margin);
+  const centeredLeft = cellRect.left + (cellRect.width / 2) - (tooltipWidth / 2);
+  const spaceLeft = cellRect.left - margin;
+  const spaceRight = viewportWidth - (cellRect.left + cellRect.width) - margin;
+
+  let left = centeredLeft;
+  if (spaceRight < tooltipWidth && spaceLeft >= tooltipWidth) {
+    left = cellRect.left + cellRect.width - tooltipWidth;
+  } else if (spaceLeft < tooltipWidth && spaceRight >= tooltipWidth) {
+    left = cellRect.left;
+  } else if (centeredLeft + tooltipWidth > viewportWidth - margin) {
+    left = cellRect.left + cellRect.width - tooltipWidth;
+  } else if (centeredLeft < margin) {
+    left = cellRect.left;
+  }
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+
+  const hasRoomAbove = cellRect.top >= tooltipHeight + gap + margin;
+  const belowTop = cellRect.top + cellRect.height + gap - verticalOffset;
+  const aboveTop = cellRect.top - tooltipHeight - gap - verticalOffset;
+  const maxTop = Math.max(margin, viewportHeight - tooltipHeight - margin);
+  const preferredTop = hasRoomAbove ? aboveTop : belowTop;
+  const top = Math.min(Math.max(preferredTop, margin), maxTop);
+
+  return {
+    position: "fixed",
+    left,
+    top,
+    transform: "translate(0, 0)",
+    zIndex: 9999,
+    pointerEvents: "none",
+  };
 }

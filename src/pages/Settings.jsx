@@ -7,7 +7,6 @@ import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
 import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
 import useCareerStore from "../stores/useCareerStore";
-import { useCalendarVersion } from "../utils/calendarVersion";
 import { useTranslation } from "react-i18next";
 
 // Fundo da tela: "particles" (campo de partículas, igual ao menu) ou "glass"
@@ -28,7 +27,6 @@ function Settings() {
   const [yellowStatus, setYellowStatus] = useState(null);
   const [yellowMsg, setYellowMsg] = useState("");
   const [debugMenuOpen, setDebugMenuOpen] = useState(false);
-  const [calendarVersion, setCalendarVersion] = useCalendarVersion();
 
   // Estado do "automático" (flag do RaceControl) e trava anti-duplo-clique.
   const [autoYellow, setAutoYellow] = useState(false);
@@ -574,37 +572,6 @@ function Settings() {
                 }`}
               />
             </button>
-          </div>
-
-          {/* Versão do calendário: Legado / V2 / V3 (o V3 é o padrão) */}
-          <div className="border-t border-white/10 px-5 py-3.5">
-            <div className="min-w-0 pr-4">
-              <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.calendarTitle")}</p>
-              <p className="text-[11px] text-text-secondary">
-                {t("settings.debug.calendarDesc")}
-              </p>
-            </div>
-            <div className="mt-3 inline-flex rounded-lg bg-white/5 p-0.5">
-              {[
-                ["legacy", "calendarLegacy"],
-                ["v2", "calendarV2"],
-                ["v3", "calendarV3"],
-              ].map(([value, key]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={calendarVersion === value}
-                  onClick={() => setCalendarVersion(value)}
-                  className={`rounded-md px-3.5 py-1.5 text-[12px] font-semibold transition-glass ${
-                    calendarVersion === value
-                      ? "bg-accent-primary/80 text-[#05080c]"
-                      : "text-text-secondary hover:text-text-primary"
-                  }`}
-                >
-                  {t(`settings.debug.${key}`)}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Gravador de corrida (DEBUG): salva a telemetria real pra calibração */}

@@ -15,10 +15,7 @@ import {
   recordNewsSkip,
   resolvePostRaceLanding,
 } from "../utils/postRaceLanding";
-import { useCalendarVersion } from "../utils/calendarVersion";
-import CalendarTab from "./tabs/CalendarTab";
 import CalendarTabRedesign from "./tabs/CalendarTabRedesign";
-import CalendarTabRedesignV2 from "./tabs/CalendarTabRedesignV2";
 import MyTeamTab from "./tabs/MyTeamTab";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
@@ -51,7 +48,6 @@ function Dashboard() {
   const showConvocation = useCareerStore((state) => state.showConvocation);
   const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
   const [activeTab, setActiveTab] = useState("standings");
-  const [calendarVersion] = useCalendarVersion();
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
   const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
@@ -232,20 +228,13 @@ function Dashboard() {
         return <NewsMagazineTab />;
       case "my-team":
         return <MyTeamTab />;
-      case "calendar": {
-        const CalendarComponent =
-          calendarVersion === "legacy"
-            ? CalendarTab
-            : calendarVersion === "v2"
-              ? CalendarTabRedesignV2
-              : CalendarTabRedesign;
+      case "calendar":
         return (
-          <CalendarComponent
+          <CalendarTabRedesign
             activeTab={activeTab}
             raceArrivalFeedbackActive={shouldShowRaceArrivalFeedback}
           />
         );
-      }
       case "standings":
       default:
         return (
