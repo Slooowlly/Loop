@@ -577,7 +577,7 @@ fn build_draft_state(
                 categoria: team.categoria.clone(),
                 cor_primaria: team.cor_primaria.clone(),
                 cor_secundaria: team.cor_secundaria.clone(),
-                car_performance: team.car_performance,
+                car_performance: team.effective_car_performance(),
                 reputacao: team.reputacao,
                 n1_nome: optional_driver_name(&db.conn, team.piloto_1_id.as_deref()),
                 n2_nome: optional_driver_name(&db.conn, team.piloto_2_id.as_deref()),

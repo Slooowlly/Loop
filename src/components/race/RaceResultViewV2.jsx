@@ -7,12 +7,13 @@ import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
 import RivalMarker from "../driver/RivalMarker";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
-import { MOCK_TELEMETRY } from "./__mockTelemetry";
+import { buildMockBreakdowns, MOCK_TELEMETRY } from "./__mockTelemetry";
 import {
   driverMentionClass,
   renderTextWithDriverMentions,
   segmentDriverMentions,
 } from "../../utils/driverMentions";
+import { capitalizar } from "../../utils/formatters";
 import { getTeamGlow } from "../../utils/teamColors";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
@@ -61,6 +62,33 @@ function formatLapMs(ms) {
 function formatUSD(v) {
   const n = Math.round(v || 0);
   return `$${n.toLocaleString("en-US")}`;
+}
+
+// Tooltip de quebra: uma linha por peça que largou — volta, peça, o problema concreto e o que
+// custou (segundos no box ou a corrida).
+function breakdownTip(list, t) {
+  return list
+    .map((b) => {
+      const cost = b.penalty_secs != null ? `+${b.penalty_secs}s` : t("raceResult.breakdowns.retired");
+      return `${t("raceResult.breakdowns.lapTip", { lap: b.lap })} · ${b.part_name} — ${capitalizar(b.label)} (${cost})`;
+    })
+    .join("\n");
+}
+
+// Custo agregado das quebras de UM piloto: segundos somados e se alguma encerrou a corrida.
+// É o que vira o rótulo ao lado da chave inglesa na tabela.
+function breakdownCost(list) {
+  return {
+    secs: list.reduce((sum, b) => sum + (b.penalty_secs ?? 0), 0),
+    retired: list.some((b) => b.severity === "dnf"),
+  };
+}
+
+// Cor pelo pior desfecho do piloto: abandono > pesado > leve.
+function breakdownColor(list) {
+  if (list.some((b) => b.severity === "dnf")) return "#f0a3a3";
+  if (list.some((b) => b.severity === "heavy")) return "#f0b37a";
+  return "#e6d27a";
 }
 
 function formatGap(entry) {
@@ -162,14 +190,34 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
     };
   }, [careerId, lastRaceId]);
 
+  // DEV: com os dados fake ligados, as quebras vêm de uma receita montada sobre o grid REAL da
+  // tela (ver `buildMockBreakdowns`) — é o que permite conferir a UI de quebra sem depender de
+  // uma corrida em que alguém de fato quebrou. Daqui pra baixo tudo lê `shownBreakdowns`.
+  const shownBreakdowns = useMemo(
+    () => (mockTelem ? buildMockBreakdowns(result?.race_results) : breakdowns),
+    [mockTelem, result, breakdowns],
+  );
+
   // Agrupa as quebras por piloto (um piloto pode ter mais de uma peça largando).
   const breakdownsByDriver = useMemo(() => {
     const m = {};
-    for (const b of breakdowns) {
+    for (const b of shownBreakdowns) {
       (m[b.driver_id] ||= []).push(b);
     }
     return m;
-  }, [breakdowns]);
+  }, [shownBreakdowns]);
+
+  // O que a quebra custou AO JOGADOR — é a leitura que o debrief dele precisa dar. Tempo de
+  // box somado; se uma peça encerrou a corrida, o custo não é tempo, é a corrida inteira.
+  const playerBreakdowns = useMemo(
+    () => shownBreakdowns.filter((b) => b.is_player),
+    [shownBreakdowns],
+  );
+  const playerTimeLost = useMemo(
+    () => playerBreakdowns.reduce((sum, b) => sum + (b.penalty_secs ?? 0), 0),
+    [playerBreakdowns],
+  );
+  const playerRetiredByPart = playerBreakdowns.some((b) => b.severity === "dnf");
 
   const natById = useMemo(() => {
     const m = {};
@@ -278,7 +326,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
             )}
           </div>
           <div className="flex items-center gap-2">
-            {import.meta.env.DEV && tab === "telemetry" && (
+            {/* Vale nas DUAS abas: os dados fake alimentam o cockpit da Telemetria E a UI de
+                quebra do Debrief (chips, 🔧 na tabela, tempo perdido na régua). */}
+            {import.meta.env.DEV && (
               <button
                 type="button"
                 onClick={() => setMockTelem((v) => !v)}
@@ -398,7 +448,13 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                             style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)", borderLeft: `3px solid ${teamColor}`, paddingLeft: "18px", paddingRight: "8px" }}
                           >
                             {e.is_dnf ? (
-                              <span style={{ background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)", fontFamily: MONO }} className="text-[10px] px-1.5 py-0.5 rounded">DNF</span>
+                              <span
+                                title={e.dnf_reason ? capitalizar(e.dnf_reason) : undefined}
+                                style={{ background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)", fontFamily: MONO }}
+                                className={`text-[10px] px-1.5 py-0.5 rounded${e.dnf_reason ? " cursor-help" : ""}`}
+                              >
+                                DNF
+                              </span>
                             ) : isPodium ? (
                               <span
                                 style={{
@@ -431,8 +487,33 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                             {e.has_fastest_lap && (
                               <span title={t("raceResult.table.fastestLapTitle")} style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
                             )}
+                            {/* Quebra de peça: a chave inglesa marca quem teve problema e o
+                                rótulo diz o que custou. A peça e a volta ficam no tooltip —
+                                a linha da tabela só carrega a consequência. */}
+                            {breakdownsByDriver[e.pilot_id] && (() => {
+                              const list = breakdownsByDriver[e.pilot_id];
+                              const { secs, retired } = breakdownCost(list);
+                              return (
+                                <span
+                                  title={breakdownTip(list, t)}
+                                  style={{ color: breakdownColor(list) }}
+                                  className="ml-1.5 cursor-help whitespace-nowrap text-[12px]"
+                                >
+                                  🔧
+                                  {secs > 0 && (
+                                    <span style={{ fontFamily: MONO }} className="ml-1 tabular-nums">
+                                      +{secs}s
+                                    </span>
+                                  )}
+                                  {secs === 0 && retired && (
+                                    <span style={{ fontFamily: MONO }} className="ml-1">DNF</span>
+                                  )}
+                                </span>
+                              );
+                            })()}
+                            {/* Sem marcador "você": a linha do jogador já vem realçada em
+                                turquesa e o nome é o dele — o rótulo só repetia. */}
                             <RivalMarker driverId={e.pilot_id} className="ml-1 inline-block" />
-                            {isPlayer && <span style={{ color: "#8b949e" }} className="text-[11px]">{" "}{t("raceResult.table.you")}</span>}
                           </td>
                           <td className="text-left px-2 py-2" style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)" }}>
                             <span className="flex items-center gap-1.5">
@@ -466,51 +547,10 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                 </table>
               </div>
 
-              {/* Resumo de quebras (Peça 3): quem teve problema de peça e o desfecho. O
-                  detalhe volta a volta fica na aba Telemetria. */}
-              {breakdowns.length > 0 && (
-                <div
-                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  className="rounded-2xl px-5 py-3"
-                >
-                  <div className="text-[11px] uppercase tracking-[0.14em] mb-2" style={{ color: "#8b949e" }}>
-                    🔧 {t("raceResult.breakdowns.title")}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(breakdownsByDriver).map(([id, list]) => {
-                      const first = list[0];
-                      const hasDnf = list.some((b) => b.severity === "dnf");
-                      const hasHeavy = list.some((b) => b.severity === "heavy");
-                      const color = hasDnf ? "#f0a3a3" : hasHeavy ? "#f0b37a" : "#e6d27a";
-                      const parts = list
-                        .map((b) => `${b.part_name} (${b.penalty_secs != null ? `${b.penalty_secs}s` : "DNF"})`)
-                        .join(", ");
-                      const tip = list.map((b) => `${t("raceResult.breakdowns.lapTip", { lap: b.lap })}: ${b.label}`).join(" · ");
-                      return (
-                        <div
-                          key={id}
-                          title={tip}
-                          style={{
-                            background: first.is_player ? "rgba(45,212,191,0.10)" : "rgba(255,255,255,0.04)",
-                            border: `1px solid ${first.is_player ? "rgba(45,212,191,0.4)" : "rgba(255,255,255,0.08)"}`,
-                          }}
-                          className="rounded-lg px-2.5 py-1 text-[12px]"
-                        >
-                          <span
-                            style={{ color: first.is_player ? "#5eead4" : "#e6edf3" }}
-                            className="font-medium"
-                          >
-                            {first.driver_name}
-                          </span>
-                          <span style={{ color }} className="ml-1.5">
-                            {parts}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* A quebra NÃO tem painel próprio: ela vive na linha do piloto (🔧 + o que
+                  custou), com peça e volta no tooltip. Um resumo separado repetia a mesma
+                  informação e afastava a consequência de quem a sofreu. O detalhe volta a
+                  volta continua na aba Telemetria. */}
 
               {/* Debrief do engenheiro — painel completo (placeholder até a IA pós-corrida) */}
               {evaluation && (
@@ -575,6 +615,19 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
                     <DebriefMetric label={t("raceResult.metrics.incidents")} divider>
                       {playerEntry?.incidents_count ?? 0}
                     </DebriefMetric>
+                    {/* Só entra quando uma peça do jogador de fato largou — numa corrida em que
+                        o carro aguentou não há nada a reportar, e a régua fica com 5 células. */}
+                    {playerBreakdowns.length > 0 && (
+                      <DebriefMetric
+                        label={t("raceResult.metrics.timeLost")}
+                        title={breakdownTip(playerBreakdowns, t)}
+                        divider
+                      >
+                        <span style={{ color: playerRetiredByPart ? "#f0a3a3" : "#e0a458" }}>
+                          {playerRetiredByPart ? "DNF" : `+${playerTimeLost}s`}
+                        </span>
+                      </DebriefMetric>
+                    )}
                     <MaintenanceMetric maintenance={maintenance} />
                   </div>
                 </div>
@@ -584,7 +637,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
             <RaceTelemetryCockpit
               telemetry={telemetryForCockpit}
               teammateName={teammateName}
-              breakdowns={breakdowns}
+              breakdowns={shownBreakdowns}
             />
           )}
         </div>
@@ -710,10 +763,11 @@ function EngineerSpeech({
   );
 }
 
-function DebriefMetric({ label, divider, children }) {
+function DebriefMetric({ label, divider, title, children }) {
   return (
     <div
-      className="flex-1 px-5 py-3.5"
+      className={`flex-1 px-5 py-3.5${title ? " cursor-help" : ""}`}
+      title={title}
       style={divider ? { borderRight: "1px solid rgba(255,255,255,0.06)" } : undefined}
     >
       <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{label}</div>

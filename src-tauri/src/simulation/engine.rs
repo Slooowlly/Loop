@@ -3,9 +3,10 @@ use rand::Rng;
 use super::catalog::IncidentCatalog;
 use super::context::{SimDriver, SimulationContext};
 use super::qualifying::simulate_qualifying;
-use super::race::{simulate_race, RaceResult};
+use super::race::{simulate_race_with_breakdowns, MechanicalOutcome, RaceResult};
 use super::scoring::{assign_points, determine_fastest_lap};
 
+/// Fim de semana completo SEM quebra de peça. Ver [`run_full_race_with_breakdowns`].
 pub fn run_full_race(
     drivers: &[SimDriver],
     ctx: &SimulationContext,
@@ -13,8 +14,33 @@ pub fn run_full_race(
     catalog: &IncidentCatalog,
     rng: &mut impl Rng,
 ) -> RaceResult {
+    run_full_race_with_breakdowns(drivers, ctx, is_endurance, catalog, None, rng)
+}
+
+/// Fim de semana completo cobrando os desfechos de QUEBRA DE PEÇA pré-rolados (Fase 7). Como a
+/// quebra entra ANTES de `build_race_results`, posição, gap e pontos já saem coerentes com o
+/// tempo perdido no box — nada é remendado depois.
+///
+/// `mechanicals` `Some(..)` também DESLIGA a pane genérica do catálogo de incidentes — ver
+/// [`simulate_race_with_breakdowns`] para o porquê da fonte única.
+pub fn run_full_race_with_breakdowns(
+    drivers: &[SimDriver],
+    ctx: &SimulationContext,
+    is_endurance: bool,
+    catalog: &IncidentCatalog,
+    mechanicals: Option<&[MechanicalOutcome]>,
+    rng: &mut impl Rng,
+) -> RaceResult {
     let qualifying = simulate_qualifying(drivers, ctx, rng);
-    let mut race_result = simulate_race(drivers, &qualifying, ctx, catalog, is_endurance, rng);
+    let mut race_result = simulate_race_with_breakdowns(
+        drivers,
+        &qualifying,
+        ctx,
+        catalog,
+        is_endurance,
+        mechanicals,
+        rng,
+    );
 
     let fastest_lap_id = determine_fastest_lap(&mut race_result.race_results).unwrap_or_default();
     assign_points(&mut race_result.race_results, is_endurance);

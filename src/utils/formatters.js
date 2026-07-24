@@ -320,3 +320,12 @@ export function extractNationalityCode(nacionalidade) {
 
   return FLAG_CODE_BY_EMOJI[firstPart] || FLAG_CODE_BY_LABEL[normalizeNationalityLabel(nacionalidade)] || null;
 }
+
+// As frases de problema de peça vêm do backend em MINÚSCULA de propósito: lá elas entram no
+// meio de uma sentença ("…por problema em Câmbio: câmbio travando…", na notícia). Onde a frase
+// abre uma linha na UI — tooltip da tabela, coluna "problema" da telemetria — a inicial sobe
+// aqui. Capitalizar na fonte estragaria a prosa da notícia.
+export function capitalizar(texto) {
+  const txt = typeof texto === "string" ? texto.trim() : "";
+  return txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : "";
+}

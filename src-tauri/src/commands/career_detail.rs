@@ -22,6 +22,7 @@ use crate::constants::categories;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::injuries as injury_queries;
+use crate::db::queries::teams as team_queries;
 use crate::models::contract::Contract;
 use crate::models::driver::{AttributeTag, Driver, TagLevel};
 use crate::models::enums::{DriverStatus, InjuryType, PrimaryPersonality, SecondaryPersonality};
@@ -174,6 +175,7 @@ pub(crate) fn build_driver_detail_payload(
         forma: build_driver_form_block(&recent_results, form_context.as_deref()),
         resumo_atual: build_current_summary_block(driver, &recent_results, championship_position),
         leitura_desempenho: build_performance_read_block(
+            conn,
             driver,
             team,
             teammate.as_ref(),
@@ -1040,12 +1042,13 @@ fn build_current_summary_block(
 }
 
 fn build_performance_read_block(
+    conn: &Connection,
     driver: &Driver,
     team: Option<&Team>,
     teammate: Option<&Driver>,
     championship_position: Option<i32>,
 ) -> DriverPerformanceReadBlock {
-    let expected = team.and_then(expected_position_for_team);
+    let expected = team.and_then(|value| expected_position_for_team(conn, value));
     let delta = match (expected, championship_position) {
         (Some(expected_position), Some(position)) => Some(expected_position - position),
         _ => None,
@@ -1062,7 +1065,7 @@ fn build_performance_read_block(
         esperado_posicao: expected,
         entregue_posicao: championship_position,
         delta_posicao: delta,
-        car_performance: team.map(|value| value.car_performance),
+        car_performance: team.map(|value| value.effective_car_performance()),
         companheiro_nome: teammate.map(|value| value.nome.clone()),
         companheiro_pontos: teammate_points,
         piloto_pontos: driver.stats_temporada.pontos.round() as i32,
@@ -1070,19 +1073,57 @@ fn build_performance_read_block(
     }
 }
 
-fn expected_position_for_team(team: &Team) -> Option<i32> {
-    let perf = team.car_performance;
-    Some(if perf >= 13.0 {
-        2
-    } else if perf >= 10.0 {
-        4
-    } else if perf >= 7.0 {
-        7
-    } else if perf >= 4.0 {
-        10
-    } else {
-        14
-    })
+/// Dois carros dentro desta distância de `car_performance` estão em EMPATE TÉCNICO — o
+/// pacote não separa os dois. Carros de mesmo nível dão magnitude idêntica, então a margem
+/// só existe pro caminho legado (equipe sem peças persistidas, escalar contínuo).
+const CAR_TIE_EPSILON: f64 = 1e-6;
+
+/// Assentos OCUPADOS da equipe (0–2) — o grid REAL, não a capacidade nominal.
+fn filled_seats(team: &Team) -> i32 {
+    i32::from(team.piloto_1_id.is_some()) + i32::from(team.piloto_2_id.is_some())
+}
+
+/// Posição ESPERADA pelo pacote (carro), RELATIVA ao grid da categoria.
+///
+/// Era uma tabela de limiares ABSOLUTOS sobre o escalar de carro, e ela mentia por dois
+/// lados: o escalar não tem escala comum entre categorias (as de cima estouram o topo da
+/// tabela e o grid inteiro "espera" P2), e num grid SPEC — rookie, todo carro no nível 1 —
+/// o escalar é IDÊNTICO pra todo mundo, então a tabela dava posição de fundo pra todas as
+/// equipes de uma vez. Aqui a equipe é ranqueada pelo carro EFETIVO ([`Team::effective_car_performance`])
+/// contra as rivais do mesmo grid (categoria + classe) e a expectativa é o meio da faixa de
+/// assentos do seu rank. Grid spec (todo mundo empatado) → todo mundo espera o meio do grid,
+/// que é a leitura honesta quando o carro não separa ninguém e o resultado é só piloto.
+fn expected_position_for_team(conn: &Connection, team: &Team) -> Option<i32> {
+    let rivals = team_queries::get_teams_by_category(conn, &team.categoria).ok()?;
+    let grid: Vec<(f64, i32)> = rivals
+        .iter()
+        .filter(|rival| rival.classe == team.classe)
+        .map(|rival| (rival.effective_car_performance(), filled_seats(rival)))
+        .collect();
+
+    expected_position_from_grid(team.effective_car_performance(), &grid)
+}
+
+/// Núcleo PURO do rank: dado o carro da equipe e o grid `(carro, assentos ocupados)`, cai no
+/// MEIO da faixa de assentos do bloco em que ela está. Assentos com carro estritamente melhor
+/// ficam à frente; o bloco do empate técnico inclui a própria equipe. `None` quando o bloco
+/// está vazio (equipe sem assento ocupado — não há expectativa a dar).
+fn expected_position_from_grid(mine: f64, grid: &[(f64, i32)]) -> Option<i32> {
+    let mut seats_ahead = 0;
+    let mut seats_tied = 0;
+    for &(perf, seats) in grid {
+        let delta = perf - mine;
+        if delta > CAR_TIE_EPSILON {
+            seats_ahead += seats;
+        } else if delta >= -CAR_TIE_EPSILON {
+            seats_tied += seats;
+        }
+    }
+
+    if seats_tied == 0 {
+        return None;
+    }
+    Some(seats_ahead + (seats_tied + 1) / 2)
 }
 
 fn build_career_rank_block(
@@ -1984,8 +2025,9 @@ mod tests {
     use super::{
         build_archived_recent_results_for_driver, build_career_history_block,
         build_category_timeline, build_current_summary_block, build_driver_career_path_block,
-        build_driver_form_block, career_debut_year_from_archive, fallback_injury_display_name,
-        resolve_driver_category, CareerSeasonArchiveRow, HistoricalRaceResult,
+        build_driver_form_block, career_debut_year_from_archive, expected_position_from_grid,
+        fallback_injury_display_name, resolve_driver_category, CareerSeasonArchiveRow,
+        HistoricalRaceResult,
     };
     use crate::constants::categories::competitive_division_label;
     use crate::models::contract::Contract;
@@ -2004,6 +2046,45 @@ mod tests {
         driver.stats_carreira.corridas = 5;
         driver.stats_temporada.corridas = 5;
         driver
+    }
+
+    /// Grid SPEC (rookie): 6 equipes, 12 assentos, TODAS com o mesmo carro. Ninguém pode
+    /// "esperar" posição de fundo por causa do pacote — o pacote não separa ninguém, então
+    /// a expectativa honesta é o meio do grid, igual pra todo mundo.
+    #[test]
+    fn grid_spec_espera_o_meio_do_grid_pra_todo_mundo() {
+        let grid: Vec<(f64, i32)> = vec![(0.0, 2); 6];
+
+        assert_eq!(expected_position_from_grid(0.0, &grid), Some(6));
+    }
+
+    /// Carro claramente melhor → topo; claramente pior → fundo. O rank é por assentos, não
+    /// por uma tabela de limiares absolutos.
+    #[test]
+    fn rank_segue_os_assentos_a_frente() {
+        // 3 equipes de 2 assentos: carros 10, 5 e 1.
+        let grid = [(10.0, 2), (5.0, 2), (1.0, 2)];
+
+        assert_eq!(expected_position_from_grid(10.0, &grid), Some(1));
+        assert_eq!(expected_position_from_grid(5.0, &grid), Some(3));
+        assert_eq!(expected_position_from_grid(1.0, &grid), Some(5));
+    }
+
+    /// Assento VAZIO não conta: o grid é o que está na pista, não a capacidade nominal.
+    #[test]
+    fn assento_vazio_nao_empurra_a_expectativa() {
+        // A líder só tem 1 piloto inscrito → quem vem atrás espera P2, não P3.
+        let grid = [(10.0, 1), (5.0, 2)];
+
+        assert_eq!(expected_position_from_grid(5.0, &grid), Some(2));
+    }
+
+    /// Equipe sem nenhum assento ocupado não tem expectativa a dar.
+    #[test]
+    fn sem_assento_ocupado_nao_ha_expectativa() {
+        let grid = [(10.0, 2), (5.0, 0)];
+
+        assert_eq!(expected_position_from_grid(5.0, &grid), None);
     }
 
     fn finish(rodada: i32, position: i32) -> HistoricalRaceResult {

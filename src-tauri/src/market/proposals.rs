@@ -103,7 +103,9 @@ pub struct Vacancy {
     /// categorias regulares; `Some(..)` para Production/Endurance multiclasse.
     pub classe: Option<String>,
     pub category_tier: u8,
-    pub car_performance: f64,
+    /// Força do carro da equipe em **0–100** ([`crate::models::team::Team::car_strength`]).
+    /// Carregava a coluna legada em 0–16, e cada consumidor a re-normalizava do seu jeito.
+    pub car_strength: f64,
     pub budget: f64,
     pub cash_balance: f64,
     pub debt_balance: f64,

@@ -202,7 +202,11 @@ fn vacancy_as_finance_team(vacancy: &Vacancy) -> crate::models::team::Team {
         vacancy.categoria.clone(),
         "2026-01-01".to_string(),
     );
-    team.car_performance = vacancy.car_performance;
+    // Este `Team` é um placeholder só pra rodar as contas de finanças sobre a vaga; ele não
+    // tem carro (`car: None`), então `car_strength()` cai na coluna legada. Gravamos aqui o
+    // valor que faz esse fallback devolver a força da vaga — inverso de `car_strength`. Some
+    // junto com a coluna: quando ela morrer, o placeholder carrega a força direto.
+    team.car_performance = vacancy.car_strength / 100.0 * 21.0 - 5.0;
     team.budget = vacancy.budget;
     team.cash_balance = vacancy.cash_balance;
     team.debt_balance = vacancy.debt_balance;
@@ -415,7 +419,7 @@ mod tests {
             categoria: categoria.to_string(),
             classe: None,
             category_tier: tier,
-            car_performance: 8.0,
+            car_strength: 8.0,
             budget: 75.0,
             cash_balance: finance_scale.expected_cash_midpoint(),
             debt_balance: 0.0,

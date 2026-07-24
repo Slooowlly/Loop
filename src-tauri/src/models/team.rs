@@ -153,6 +153,48 @@ pub struct Team {
 }
 
 impl Team {
+    /// `car_performance` EFETIVO — o MESMO escalar que a simulação usa.
+    ///
+    /// Com o Sistema de Nível do Carro ativo (as 11 peças persistidas em `team_car`), a
+    /// magnitude do carro MANDA e a coluna legada `car_performance` é ignorada — igual ao
+    /// que [`crate::simulation::context`] faz ao montar o grid. Sem carro persistido (save
+    /// antigo, pré-seed) cai na coluna, que aí é a única leitura que existe.
+    ///
+    /// Fonte ÚNICA para todo payload que mostra "carro" ao jogador. Ler `self.car_performance`
+    /// direto num payload é bug: a coluna legada tem escala própria por categoria e NUNCA é
+    /// atualizada pelo sistema de peças, então a UI passa a exibir diferença de carro que o
+    /// sim não aplica — num grid spec (rookie, tudo nível 1) ela inventa uma hierarquia
+    /// inteira que não existe na pista.
+    pub fn effective_car_performance(&self) -> f64 {
+        match &self.car {
+            Some(car) => crate::car::sim_bridge::car_performance_from(car),
+            None => self.car_performance,
+        }
+    }
+
+    /// **Força do carro em 0–100** — a leitura de carro de TODO consumidor de IA, economia,
+    /// fama e mercado. Nível 1 → `0`; nível 10 → `100`.
+    ///
+    /// Por que existe uma segunda leitura: o escalar de [`Self::effective_car_performance`]
+    /// (0–16) é um delta de RITMO, que só faz sentido dentro da simulação. Fora dela o carro
+    /// é comparado com reputação, confiabilidade e moral — todas 0–100 — e a coluna legada
+    /// nunca teve escala acordada: `fame::team_prestige_quality` assumia 0–100,
+    /// `finance::state` assumia 0–16, e `finance::strategy` comparava com `18.0`, acima do
+    /// máximo do domínio (o ramo `sustainable` nunca era alcançado). Uma escala só, aqui,
+    /// mata essa classe de bug.
+    ///
+    /// Times sem carro persistido (save antigo) caem na coluna legada mapeada do domínio
+    /// histórico `−5..16` — a mesma conversão do `normalize_car_performance` do sim.
+    pub fn car_strength(&self) -> f64 {
+        match &self.car {
+            Some(car) => (crate::car::sim_bridge::car_performance_from(car)
+                / crate::car::sim_bridge::CAR_PERF_MAX
+                * 100.0)
+                .clamp(0.0, 100.0),
+            None => ((self.car_performance + 5.0) / 21.0 * 100.0).clamp(0.0, 100.0),
+        }
+    }
+
     pub fn from_template(
         template: &TeamTemplate,
         category_id: &str,
@@ -395,6 +437,95 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     use super::*;
+
+    /// Com peças persistidas, o escalar do payload vem do CARRO — a coluna legada some.
+    /// É o que impede a UI de mostrar hierarquia de carro que o sim não aplica.
+    #[test]
+    fn carro_persistido_manda_e_ignora_a_coluna_legada() {
+        let template = get_team_templates("gt3")[0];
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut team =
+            Team::from_template_with_rng(template, "gt3", "T001".to_string(), 2026, &mut rng);
+        team.car_performance = 12.5;
+
+        team.car = Some(Car::uniform(1));
+        assert!(team.effective_car_performance().abs() < 1e-9);
+
+        team.car = Some(Car::uniform(10));
+        assert!(team.effective_car_performance() > 15.0);
+    }
+
+    /// Grid spec (rookie): times com a coluna legada BEM diferente, mas o mesmo carro nível 1,
+    /// têm que sair idênticos — nenhum deles tem vantagem de pacote na pista.
+    #[test]
+    fn grid_spec_nao_tem_diferenca_de_carro() {
+        let template = get_team_templates("gt3")[0];
+        let mut rng = StdRng::seed_from_u64(9);
+        let mut a = Team::from_template_with_rng(template, "gt3", "A".to_string(), 2026, &mut rng);
+        let mut b = Team::from_template_with_rng(template, "gt3", "B".to_string(), 2026, &mut rng);
+        a.car_performance = 5.28;
+        b.car_performance = 10.58;
+        a.car = Some(Car::spec_rookie());
+        b.car = Some(Car::spec_rookie());
+
+        assert_eq!(a.effective_car_performance(), b.effective_car_performance());
+    }
+
+    /// A escala de IA/economia é 0–100 ancorada no NÍVEL: nível 1 → 0, nível 10 → 100.
+    /// É o contrato que `fame`, `finance::state`/`strategy` e o mercado passam a assumir.
+    #[test]
+    fn car_strength_vai_de_zero_a_cem_pelo_nivel() {
+        let template = get_team_templates("gt3")[0];
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut team =
+            Team::from_template_with_rng(template, "gt3", "T001".to_string(), 2026, &mut rng);
+        // A coluna legada é ignorada quando há carro — inclusive um valor derivado absurdo.
+        team.car_performance = 57.51;
+
+        team.car = Some(Car::uniform(1));
+        assert!(team.car_strength().abs() < 1e-6);
+
+        team.car = Some(Car::uniform(10));
+        assert!((team.car_strength() - 100.0).abs() < 1e-6);
+
+        // Monotônica e dentro da faixa no meio do caminho.
+        team.car = Some(Car::uniform(5));
+        let meio = team.car_strength();
+        assert!((0.0..=100.0).contains(&meio), "meio={meio}");
+        team.car = Some(Car::uniform(6));
+        assert!(team.car_strength() > meio);
+    }
+
+    /// Save antigo: a coluna derivada além do domínio não pode estourar a escala 0–100
+    /// nem levar `fame`/`state` a comparar maçã com laranja.
+    #[test]
+    fn car_strength_satura_em_cem_para_coluna_derivada() {
+        let template = get_team_templates("gt3")[0];
+        let mut rng = StdRng::seed_from_u64(4);
+        let mut team =
+            Team::from_template_with_rng(template, "gt3", "T001".to_string(), 2026, &mut rng);
+        team.car = None;
+
+        team.car_performance = 57.51;
+        assert_eq!(team.car_strength(), 100.0);
+
+        team.car_performance = -12.0;
+        assert_eq!(team.car_strength(), 0.0);
+    }
+
+    /// Save antigo (nenhuma peça persistida) continua lendo a coluna — é a única leitura
+    /// que existe ali, e é o mesmo fallback do sim.
+    #[test]
+    fn sem_carro_persistido_cai_na_coluna_legada() {
+        let template = get_team_templates("gt3")[0];
+        let mut rng = StdRng::seed_from_u64(13);
+        let mut team =
+            Team::from_template_with_rng(template, "gt3", "T001".to_string(), 2026, &mut rng);
+        team.car = None;
+        team.car_performance = 9.75;
+
+        assert_eq!(team.effective_car_performance(), 9.75);
+    }
 
     #[test]
     fn test_team_from_template_basic_fields() {

@@ -117,7 +117,7 @@ const GROWABLE_ATTRIBUTES: [(DriverAttributeKey, f64); 10] = [
 pub fn calculate_growth(
     driver: &mut Driver,
     season_stats: &SeasonStats,
-    team_car_performance: f64,
+    car_strength: f64,
     category_tier: u8,
     car_field_percentile: f64,
     rng: &mut impl Rng,
@@ -136,7 +136,7 @@ pub fn calculate_growth(
     let potencial = driver.atributos.potencial.min(POTENTIAL_HARD_MAX);
 
     let base_growth = (result_base_growth(season_stats)
-        + car_bonus(team_car_performance)
+        + car_bonus(car_strength)
         + overperformance_growth(season_stats, car_field_percentile)
         + youth_maturation_growth(
             driver.idade,
@@ -305,12 +305,17 @@ fn apply_potential_boost(driver: &mut Driver, stats: &SeasonStats, category_tier
     driver.atributos.potencial = (current + gain).min(POTENTIAL_HARD_MAX);
 }
 
-fn car_bonus(team_car_performance: f64) -> f64 {
-    if team_car_performance > 10.0 {
+/// Bônus/pênalti de crescimento pela máquina. `car_strength` em **0–100**.
+///
+/// Os limiares eram `10.0 / 5.0 / 0.0` no domínio histórico `−5..16` do escalar cru;
+/// aqui estão convertidos ponto a ponto por `(T+5)/21×100`, preservando a forma que o
+/// autor escreveu (carro bom acelera, carro ruim atrasa) sobre a escala única.
+fn car_bonus(car_strength: f64) -> f64 {
+    if car_strength > 71.4 {
         0.5
-    } else if team_car_performance > 5.0 {
+    } else if car_strength > 47.6 {
         0.2
-    } else if team_car_performance < 0.0 {
+    } else if car_strength < 23.8 {
         -0.3
     } else {
         0.0

@@ -476,6 +476,8 @@ pub fn build_race_result_from_session(
         // dado REAL do SessionFlags e entra pelos fatos de telemetria. Derivar aqui
         // faria a revista contar a mesma neutralização duas vezes.
         caution_segments: Vec::new(),
+        // Corrida AO VIVO: a quebra vem do log do disparo (`!black`/`!dq`), não da simulação.
+        applied_mechanicals: Vec::new(),
     }
 }
 
@@ -878,6 +880,8 @@ pub fn build_race_result_from_aiseason(
         most_positions_gained_id,
         // Ver acima: a amarela da corrida importada vem do SDK, não daqui.
         caution_segments: Vec::new(),
+        // Corrida AO VIVO: a quebra vem do log do disparo (`!black`/`!dq`), não da simulação.
+        applied_mechanicals: Vec::new(),
     }
 }
 

@@ -412,7 +412,7 @@ fn seed_assignment_schedule(
                 .find(|cfg| cfg.class_name == grid.class_name)
                 .map(|cfg| cfg.special_category)
                 .unwrap_or(team.categoria.as_str());
-            let reveal_day = schedule_reveal_day(index, total, team.car_performance, &team.id);
+            let reveal_day = schedule_reveal_day(index, total, team.car_strength(), &team.id);
             conn.execute(
                 "INSERT INTO special_window_assignments (
                     id, season_id, special_category, class_name, team_id, driver_id, papel,
@@ -1315,9 +1315,10 @@ fn schedule_reveal_day(rank_index: usize, total: usize, team_strength: f64, team
     } else {
         1 + ((rank_index * (TOTAL_SPECIAL_WINDOW_DAYS as usize - 1)) / (total - 1)) as i32
     };
-    let strength_modifier = if team_strength >= 12.0 {
+    // Limiares na escala única 0–100 (eram 12,0 / 4,0 no domínio 0–16 do escalar cru).
+    let strength_modifier = if team_strength >= 75.0 {
         -1
-    } else if team_strength <= 4.0 {
+    } else if team_strength <= 25.0 {
         1
     } else {
         0

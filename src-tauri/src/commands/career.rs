@@ -2015,8 +2015,8 @@ fn build_player_proposal_view(
         },
         salario_oferecido: proposal.salario_oferecido,
         duracao_anos: proposal.duracao_anos,
-        car_performance: team.car_performance,
-        car_performance_rating: normalize_car_performance(team.car_performance),
+        car_performance: team.effective_car_performance(),
+        car_performance_rating: normalize_car_performance(team.effective_car_performance()),
         reputacao: team.reputacao,
         companheiro_nome: companion.as_ref().map(|driver| driver.nome.clone()),
         companheiro_skill: companion
@@ -2360,7 +2360,13 @@ fn generate_emergency_player_proposals(
             }
         }
     }
-    vacancies.sort_by(|a, b| b.team.car_performance.total_cmp(&a.team.car_performance));
+    // Melhor vaga = melhor CARRO efetivo (peças > coluna legada). Num grid spec ninguém
+    // desempata pelo pacote e a ordem de entrada manda — que é a verdade da pista.
+    vacancies.sort_by(|a, b| {
+        b.team
+            .effective_car_performance()
+            .total_cmp(&a.team.effective_car_performance())
+    });
 
     let mut created = Vec::new();
     for (index, vacancy) in vacancies.into_iter().take(2).enumerate() {
@@ -2435,7 +2441,11 @@ fn force_place_player(
             }
         }
     }
-    vacancies.sort_by(|a, b| a.team.car_performance.total_cmp(&b.team.car_performance));
+    vacancies.sort_by(|a, b| {
+        a.team
+            .effective_car_performance()
+            .total_cmp(&b.team.effective_car_performance())
+    });
     let Some(vacancy) = vacancies.into_iter().next() else {
         return Ok(None);
     };
@@ -3678,6 +3688,9 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 active_season_number,
             );
             let founded_year = team_founded_year_for_payload(&team);
+            // Escalar do carro que o SIM usa (peças > coluna legada) — calculado antes do
+            // literal porque os campos `nome`/`nome_curto` movem o `team`.
+            let car_performance = team.effective_car_performance();
 
             TeamStanding {
                 posicao: 0,
@@ -3686,7 +3699,7 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 nome_curto: team.nome_curto,
                 cor_primaria: team.cor_primaria,
                 cash_balance: team.cash_balance,
-                car_performance: team.car_performance,
+                car_performance,
                 car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
                 confiabilidade: team.confiabilidade,
                 pit_crew_quality: team.pit_crew_quality,
@@ -4363,7 +4376,14 @@ fn build_real_team_management(
         0
     };
     let state_label = financial_state_label_for_dossier(&team.financial_state);
-    let technical_level = team.car_performance.round().clamp(0.0, 16.0) as i32;
+    // "Nível do pacote" aqui é o Nível do Carro (1–10) — a MESMA leitura de carro que o
+    // jogador vê no ranking e na aba da equipe. Antes era o escalar legado arredondado numa
+    // faixa 0–16: outro número, outra escala, e ainda por cima cego ao sistema de peças.
+    let technical_level = team
+        .car
+        .as_ref()
+        .map(|car| car.display_level())
+        .unwrap_or(1) as i32;
 
     let efficiency_value = format_decimal_pt(points_per_season, 1);
     let points_int = points.round() as i32;
@@ -5346,6 +5366,7 @@ fn get_special_team_standings_from_results(
                 query_special_team_driver_names(conn, &season.id, category, &row.team_id)?;
             let team_id = team.id.clone();
             let founded_year = team_founded_year_for_payload(&team);
+            let car_performance = team.effective_car_performance();
 
             Ok(TeamStanding {
                 posicao: index as i32 + 1,
@@ -5354,7 +5375,7 @@ fn get_special_team_standings_from_results(
                 nome_curto: team.nome_curto,
                 cor_primaria: team.cor_primaria,
                 cash_balance: team.cash_balance,
-                car_performance: team.car_performance,
+                car_performance,
                 car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
                 confiabilidade: team.confiabilidade,
                 pit_crew_quality: team.pit_crew_quality,
@@ -5699,7 +5720,7 @@ fn build_team_summary(conn: &rusqlite::Connection, team: &Team) -> Result<TeamSu
         cor_secundaria: team.cor_secundaria.clone(),
         categoria: team.categoria.clone(),
         classe: team.classe.clone(),
-        car_performance: team.car_performance,
+        car_performance: team.effective_car_performance(),
         car_level: team.car.as_ref().map(|c| c.display_level()).unwrap_or(1),
         confiabilidade: team.confiabilidade,
         pit_strategy_risk: team.pit_strategy_risk,
@@ -8162,6 +8183,15 @@ mod tests {
                 ],
             )
             .expect("update real finance snapshot");
+        // O "pacote técnico" do dossiê é o Nível do Carro (as 11 peças), NÃO a coluna legada
+        // `car_performance` acima — que o sistema de peças nunca atualiza. Semeia o carro no
+        // nível 7 pra o dossiê ter o que ler.
+        crate::db::queries::team_car::upsert_team_car(
+            &db.conn,
+            &selected.id,
+            &crate::car::Car::uniform(7),
+        )
+        .expect("seed team car");
         drop(db);
 
         let dossier = get_team_history_dossier_in_base_dir(

@@ -752,8 +752,8 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
                 <td className="whitespace-nowrap px-4 py-3">
                   <RankingTier
                     testId={`ranking-car-tier-${team.id}`}
-                    tier={carTierIndex(team.car_level ?? carLevel(team.car_performance))}
-                    label={t(`myTeamTab.ranking.tiers.car.${carTierIndex(team.car_level ?? carLevel(team.car_performance))}`)}
+                    tier={carTierIndex(team.car_level)}
+                    label={t(`myTeamTab.ranking.tiers.car.${carTierIndex(team.car_level)}`)}
                   />
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
@@ -1370,7 +1370,6 @@ function sortRankingRows(rows, sort) {
 
 function rankingSortValue(team, key) {
   if (key === "nome") return team.nome ?? "";
-  if (key === "car_level") return team.car_level ?? carLevel(team.car_performance);
   return team?.[key] ?? 0;
 }
 
@@ -1671,11 +1670,15 @@ function technicalMetrics(team, axis) {
       { label: i18n.t("myTeamTab.tech.metrics.overallConsistency"), value: ((team?.pit_crew_quality ?? 0) + (team?.confiabilidade ?? 0)) / 2, rawValue: i18n.t("myTeamTab.tech.raw.pitReliability") },
     ];
   }
-  const level = team?.car_level ?? carLevel(team?.car_performance);
+  // O Nível do Carro é a ÚNICA leitura de pacote que o jogador vê. A barra de "desempenho na
+  // pista" que existia aqui lia o escalar `car_performance` — hoje ele é derivado do MESMO
+  // nível, então era uma segunda barra que só repetia a primeira (e, antes da correção do
+  // payload, repetia a coluna legada e inventava diferença de carro que o sim não aplica).
+  const level = team?.car_level ?? 1;
   return [
     { label: i18n.t("myTeamTab.tech.metrics.carPackage"), value: (level / 10) * 100, rawValue: i18n.t("myTeamTab.tech.raw.carLevel", { level }) },
-    { label: i18n.t("myTeamTab.tech.metrics.trackPerformance"), value: normalizeCar(team?.car_performance ?? 0), rawValue: `${Math.round(normalizeCar(team?.car_performance ?? 0))}/100` },
     { label: i18n.t("myTeamTab.tech.metrics.reliability"), value: team?.confiabilidade ?? 0, rawValue: Math.round(team?.confiabilidade ?? 0) },
+    { label: i18n.t("myTeamTab.tech.metrics.pitCrewQuality"), value: team?.pit_crew_quality ?? 0, rawValue: pitCrew(team?.pit_crew_quality ?? 0) },
   ];
 }
 
@@ -1711,14 +1714,6 @@ function cashTimelineFromReport(report) {
       isSeasonClose,
     };
   });
-}
-
-function normalizeCar(value) {
-  return clamp(((value + 5) / 21) * 100, 0, 100);
-}
-
-function carLevel(value) {
-  return clamp(Math.round(value ?? 0), 1, 10);
 }
 
 function carTierIndex(value) {

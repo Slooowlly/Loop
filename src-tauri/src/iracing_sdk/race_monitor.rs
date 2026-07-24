@@ -1215,7 +1215,7 @@ impl RaceMonitor {
 
     /// Avalia a quebra do carro do jogador nesta volta e enfileira os comandos. Chamado por
     /// tick no `process_player`; o diretor deduplica por volta (só avança pra frente).
-    fn tick_breakdown_player(&mut self, lap_completed: i32) {
+    fn tick_breakdown_player(&mut self, t: &IracingTelemetry) {
         if self.breakdown.is_none() {
             return;
         }
@@ -1223,9 +1223,18 @@ impl RaceMonitor {
             return;
         };
         let idx = self.history.player_car_idx;
-        let lap = lap_completed.max(0) as u32;
-        // Clima FIXO da corrida (do export); NEUTRAL no arme debug. Clima vivo do SDK = Peça 2.
-        let weather = self.breakdown_weather;
+        let lap = t.lap_completed.max(0) as u32;
+        // Clima VIVO do SDK, o MESMO de `tick_breakdown_grid` — não pode ser o baseline fixo.
+        //
+        // Este tick roda ANTES do da grade (`process_player` vem antes em `on_telemetry`), e
+        // `on_lap_at` só avança pra frente: quem chega primeiro na volta é quem manda. Com o
+        // baseline aqui, o carro do JOGADOR rodava a corrida inteira sob o clima do export
+        // enquanto o resto da grade rodava sob a chuva e a temperatura reais — e ainda
+        // alternava entre os dois, porque no box este tick não roda e a grade avançava o carro
+        // dele com o clima vivo. Fura o §8 do design (o jogador herda o tier do time, sem
+        // desconto no risco): num dia quente o motor dele ficava protegido do estresse térmico.
+        // Com os dois ticks no mesmo clima, a ordem entre eles deixa de importar.
+        let weather = effective_weather(t, self.breakdown_weather);
         let progress = self.breakdown_progress; // enduro: rampa de fim (a grade atualiza)
         // Guardado por `is_none()` no topo; `let Some … else` em vez de `unwrap` pra
         // nunca derrubar a thread de telemetria se o invariante mudar.
@@ -2441,7 +2450,7 @@ impl RaceMonitor {
             }
             // 1.6) Disparo de quebra AO VIVO: avalia o carro do jogador nesta volta e enfileira
             // os comandos (só correndo na pista). O diretor deduplica por volta.
-            self.tick_breakdown_player(t.lap_completed);
+            self.tick_breakdown_player(t);
         }
 
         // 2) Evidências da tentativa.
@@ -3919,6 +3928,91 @@ mod tests {
         assert!((w.wetness - 1.0).abs() < 1e-9);
         assert!((w.humidity - 80.0).abs() < 1e-9);
         assert!((w.wind_kmh - 36.0).abs() < 1e-9);
+    }
+
+    /// Monitor armado com UM carro (o do jogador, nº 7) cuja eletrônica já está na zona de
+    /// risco, e com o clima baseline SECO. A telemetria traz chuva pesada — é essa diferença
+    /// entre baseline e vivo que o teste mede.
+    fn monitor_com_quebra_do_jogador() -> (RaceMonitor, IracingTelemetry) {
+        let mut m = RaceMonitor::new();
+        m.history.player_car_idx = 0;
+        m.car_number[0] = 7;
+
+        let mut car = crate::car::Car::uniform(3);
+        car.set_wear(crate::car::PartType::Electronics, 0.91);
+        let live = crate::car::breakdown::LiveBreakdown::new(&car, 42, 50.0, (1.0, 1.0, 1.0));
+        let mut dir = crate::car::breakdown::BreakdownDirector::new();
+        dir.add_car(7, live, Vec::new());
+        dir.prime_lap(7, 0);
+        m.breakdown = Some(dir);
+        // Baseline SECO — se o tick do jogador usar isto, a eletrônica gasta menos.
+        m.breakdown_weather = crate::car::breakdown::Weather::NEUTRAL;
+        m.breakdown_needs_prime = false;
+
+        let t = IracingTelemetry {
+            session_state: STATE_RACING,
+            player_car_idx: 0,
+            lap_completed: 1,
+            track_wetness: 7,       // ExtremelyWet → chuva castiga a eletrônica (§3.5)
+            air_temp: 31.0,
+            relative_humidity: 0.8,
+            cars: vec![on_track(0, 1, 1)],
+            ..Default::default()
+        };
+        (m, t)
+    }
+
+    fn desgaste_da_eletronica(m: &RaceMonitor) -> f64 {
+        m.breakdown
+            .as_ref()
+            .expect("diretor armado")
+            .car_parts_in_danger(7)
+            .into_iter()
+            .find(|(_, pt, _)| *pt == crate::car::PartType::Electronics)
+            .map(|(_, _, wear)| wear)
+            .expect("eletrônica na zona de risco")
+    }
+
+    #[test]
+    fn quebra_do_jogador_usa_o_clima_vivo_igual_ao_resto_da_grade() {
+        // O tick do jogador roda ANTES do da grade e `on_lap_at` só avança pra frente: quem
+        // chega primeiro na volta é quem manda. Se os dois usam o MESMO clima, tanto faz a
+        // ordem — e é essa invariante que se mede aqui. Com o baseline no tick do jogador, o
+        // carro dele rodava sob o clima do export enquanto a grade rodava sob a chuva real.
+        let (mut so_grade, t) = monitor_com_quebra_do_jogador();
+        so_grade.tick_breakdown_grid(&t);
+
+        let (mut jogador_primeiro, t2) = monitor_com_quebra_do_jogador();
+        jogador_primeiro.tick_breakdown_player(&t2);
+        jogador_primeiro.tick_breakdown_grid(&t2);
+
+        assert_eq!(
+            desgaste_da_eletronica(&jogador_primeiro),
+            desgaste_da_eletronica(&so_grade),
+            "o tick do jogador tem que gastar a peça sob o mesmo clima que a grade"
+        );
+    }
+
+    #[test]
+    fn chuva_ao_vivo_castiga_mais_a_eletronica_do_jogador_que_o_baseline_seco() {
+        // Prova que o teste acima não passa por acidente: sob chuva a eletrônica TEM que gastar
+        // mais do que gastaria no seco (§3.5 — chuva é curto/sensor). Se os dois fossem iguais,
+        // a asserção de igualdade acima seria vácua.
+        let (mut com_chuva, t) = monitor_com_quebra_do_jogador();
+        com_chuva.tick_breakdown_player(&t);
+
+        let (mut no_seco, mut t_seco) = monitor_com_quebra_do_jogador();
+        t_seco.track_wetness = 1; // Dry
+        t_seco.air_temp = 25.0;
+        t_seco.relative_humidity = 0.45;
+        no_seco.tick_breakdown_player(&t_seco);
+
+        assert!(
+            desgaste_da_eletronica(&com_chuva) > desgaste_da_eletronica(&no_seco),
+            "chuva ao vivo: {} deveria ser > seco: {}",
+            desgaste_da_eletronica(&com_chuva),
+            desgaste_da_eletronica(&no_seco)
+        );
     }
 
     #[test]

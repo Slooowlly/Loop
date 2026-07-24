@@ -1925,28 +1925,8 @@ pub fn iracing_generate_roster(
 
         let ev_seed = event_seed(&career_id, &race.id);
         // Clima da corrida — MESMA história determinística do resto do export (o "cache" do clima).
-        let weather = if let Some(track) = get_track(race.track_id) {
-            let mut story = weather::generate_weather(
-                month_from_week(race.week_of_year),
-                track_hemisphere(track.pais),
-                climate_tendency(track.rain_group),
-                ev_seed,
-                false,
-            );
-            if force_wet.unwrap_or(false) {
-                story.is_wet_race = true;
-                story.race_intensity = weather::RainIntensity::Heavy;
-                story.scenario = weather::WeatherScenario::SteadyRain;
-            }
-            crate::car::breakdown::Weather {
-                wetness: story_to_weather_condition(&story).wetness(),
-                temperature: weather::story_temperature(&story, ev_seed) as f64,
-                humidity: weather::story_to_profile(&story, 60).humidity as f64,
-                wind_kmh: weather::generate_wind(&story, ev_seed).speed_kmh as f64,
-            }
-        } else {
-            crate::car::breakdown::Weather::NEUTRAL
-        };
+        let weather =
+            race_breakdown_weather(race.track_id, race.week_of_year, ev_seed, force_wet.unwrap_or(false));
         let track_pha = maintenance_demand(&[race.track_id]);
 
         // Semente por carro: mistura o piloto na semente do evento → o aviso pré-corrida (pré-roll)
@@ -2865,11 +2845,9 @@ fn resolve_race_breakdown_ctx(
     db: &crate::db::connection::Database,
     career_id: &str,
 ) -> Option<RaceBreakdownCtx> {
-    use crate::constants::tracks::get_track;
     use crate::db::queries::{
         calendar as calq, contracts as cq, drivers as dq, seasons as sq, teams as tq,
     };
-    use crate::iracing_sdk::weather;
     use crate::market::car_maintenance::maintenance_demand;
 
     // Time + categoria do jogador (a tabela do campeonato mostrada é a da categoria dele).
@@ -2886,23 +2864,7 @@ fn resolve_race_breakdown_ctx(
 
     // Clima da etapa — MESMA história determinística do export/disparo vivo.
     let ev_seed = event_seed(career_id, &race.id);
-    let weather = if let Some(track) = get_track(race.track_id) {
-        let story = weather::generate_weather(
-            month_from_week(race.week_of_year),
-            track_hemisphere(track.pais),
-            climate_tendency(track.rain_group),
-            ev_seed,
-            false,
-        );
-        crate::car::breakdown::Weather {
-            wetness: story_to_weather_condition(&story).wetness(),
-            temperature: weather::story_temperature(&story, ev_seed) as f64,
-            humidity: weather::story_to_profile(&story, 60).humidity as f64,
-            wind_kmh: weather::generate_wind(&story, ev_seed).speed_kmh as f64,
-        }
-    } else {
-        crate::car::breakdown::Weather::NEUTRAL
-    };
+    let weather = race_breakdown_weather(race.track_id, race.week_of_year, ev_seed, false);
     let track_pha = maintenance_demand(&[race.track_id]);
 
     // Enduro (corrida longa) → o forecast reflete o DNF raro (severidade abrandada).
@@ -3149,9 +3111,49 @@ fn month_from_week(week: i32) -> u32 {
     (((week.max(1) - 1) * 12 / 52) + 1).clamp(1, 12) as u32
 }
 
+/// Clima da etapa no formato do Sistema de Quebra (molhado/temperatura/umidade/vento).
+///
+/// FONTE ÚNICA dos quatro consumidores da quebra: o disparo AO VIVO (export do roster), o
+/// aviso pré-corrida (forecast) e o pré-roll da corrida SIMULADA (Fase 7). Todos derivam da
+/// MESMA história determinística (`generate_weather` sobre a `event_seed`), então o risco que
+/// o jogador vê na Sala de Estratégia é o risco sob o tempo que a corrida de fato terá — não
+/// importa se ela vai ser dirigida ou simulada. Pista desconhecida cai no clima NEUTRO.
+pub(crate) fn race_breakdown_weather(
+    track_id: u32,
+    week_of_year: i32,
+    ev_seed: u64,
+    force_wet: bool,
+) -> crate::car::breakdown::Weather {
+    use crate::constants::tracks::get_track;
+    use crate::iracing_sdk::weather;
+
+    let Some(track) = get_track(track_id) else {
+        return crate::car::breakdown::Weather::NEUTRAL;
+    };
+    let mut story = weather::generate_weather(
+        month_from_week(week_of_year),
+        track_hemisphere(track.pais),
+        climate_tendency(track.rain_group),
+        ev_seed,
+        false,
+    );
+    if force_wet {
+        story.is_wet_race = true;
+        story.race_intensity = weather::RainIntensity::Heavy;
+        story.scenario = weather::WeatherScenario::SteadyRain;
+    }
+    crate::car::breakdown::Weather {
+        wetness: story_to_weather_condition(&story).wetness(),
+        temperature: weather::story_temperature(&story, ev_seed) as f64,
+        humidity: weather::story_to_profile(&story, 60).humidity as f64,
+        wind_kmh: weather::generate_wind(&story, ev_seed).speed_kmh as f64,
+    }
+}
+
 /// Semente estável por etapa (carreira + id da etapa) → clima/horário fixos
-/// (não re-sorteia a cada export).
-fn event_seed(career_id: &str, event_id: &str) -> u64 {
+/// (não re-sorteia a cada export). A carreira entra na mistura porque o id da etapa é
+/// SEQUENCIAL por save ("R001") — sem ela, dois saves rolariam a mesma sorte na mesma rodada.
+pub(crate) fn event_seed(career_id: &str, event_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     career_id.hash(&mut h);

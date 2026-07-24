@@ -30,12 +30,15 @@ pub fn evaluate_driver_performance(
     score.clamp(0.0, 100.0)
 }
 
-pub fn estimate_expected_position(car_performance: f64, total_positions: i32) -> i32 {
+/// Posição esperada pelo pacote. `car_strength` em **0–100**
+/// ([`crate::models::team::Team::car_strength`]) — recebia o escalar cru em −5..16 e
+/// normalizava aqui dentro; a normalização agora é única e mora na fonte.
+pub fn estimate_expected_position(car_strength: f64, total_positions: i32) -> i32 {
     if total_positions <= 1 {
         return 1;
     }
 
-    let normalized = ((car_performance + 5.0) / 21.0).clamp(0.0, 1.0);
+    let normalized = (car_strength / 100.0).clamp(0.0, 1.0);
     let expected = ((1.0 - normalized) * (total_positions as f64 - 1.0)) as i32 + 1;
     expected.clamp(1, total_positions)
 }
@@ -58,8 +61,8 @@ mod tests {
 
     #[test]
     fn test_expected_position_high_car_perf() {
-        let strong = estimate_expected_position(15.0, 10);
-        let weak = estimate_expected_position(-4.0, 10);
+        let strong = estimate_expected_position(90.0, 10);
+        let weak = estimate_expected_position(5.0, 10);
 
         assert!(strong < weak);
         assert_eq!(strong, 1);
@@ -67,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_expected_position_respects_full_driver_grid_size() {
-        let midfield_car = 5.0;
+        let midfield_car = 50.0;
         let expected_two_cars = estimate_expected_position(midfield_car, 10);
         let expected_two_drivers = estimate_expected_position(midfield_car, 20);
 

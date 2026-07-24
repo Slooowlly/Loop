@@ -7,6 +7,7 @@ import RaceTraceChart from "./RaceTraceChart";
 import PaceDeltaChart from "./PaceDeltaChart";
 import WeatherTimelineChart from "./WeatherTimelineChart";
 import TeamLogoMark from "../team/TeamLogoMark";
+import { capitalizar } from "../../utils/formatters";
 import {
   LineChart,
   Line,
@@ -474,7 +475,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                     >
                       <td className="py-1.5 px-2" style={{ color: b.is_player ? "#5eead4" : "#e6edf3" }}>{b.driver_name}</td>
                       <td className="py-1.5 px-2" style={{ color: "#c9d1d9" }}>{b.part_name}</td>
-                      <td className="py-1.5 px-2" style={{ color: "#9da7b0" }}>{b.label}</td>
+                      <td className="py-1.5 px-2" style={{ color: "#9da7b0" }}>{capitalizar(b.label)}</td>
                       <td className="py-1.5 px-2 text-center" style={{ color: "#8b949e" }}>{b.lap}</td>
                       <td className="py-1.5 px-2 text-right font-medium" style={{ color }}>
                         {isDnf ? t("telemetryCockpit.dnf") : `+${b.penalty_secs}s`}

@@ -195,7 +195,7 @@ fn build_offer_view(
         class: offer.class.clone(),
         role: if offer.is_n1 { "N1" } else { "N2" }.to_string(),
         salary: offer.salary,
-        car_performance_rating: normalize_car_performance(team.car_performance)
+        car_performance_rating: normalize_car_performance(team.effective_car_performance())
             .round()
             .clamp(0.0, 100.0) as u8,
         teammate_name: companion_ref.map(|d| d.nome.clone()),

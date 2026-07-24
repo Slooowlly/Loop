@@ -394,7 +394,7 @@ fn process_driver_evolution(
     let mut motivation_reports = Vec::new();
     let mut retirements = Vec::new();
 
-    // Distribuição de car_performance por categoria (times DISTINTOS que competem
+    // Distribuição de força de carro por categoria (times DISTINTOS que competem
     // nela), pra medir o percentil do carro de cada piloto — base da "superação de
     // expectativa" no crescimento (talento = render acima da própria máquina).
     let mut cat_car_perfs: HashMap<String, Vec<f64>> = HashMap::new();
@@ -407,7 +407,7 @@ fn process_driver_evolution(
                         cat_car_perfs
                             .entry(standing.category.clone())
                             .or_default()
-                            .push(team.car_performance);
+                            .push(team.car_strength());
                     }
                 }
             }
@@ -442,9 +442,9 @@ fn process_driver_evolution(
             let team = contracts_by_driver
                 .get(&driver.id)
                 .and_then(|contract| teams_by_id.get(&contract.equipe_id));
-            let team_car_performance = team.map(|team| team.car_performance).unwrap_or(0.0);
+            let team_car_strength = team.map(|team| team.car_strength()).unwrap_or(0.0);
             let car_field_percentile = team
-                .map(|team| car_percentile(&standing.category, team.car_performance))
+                .map(|team| car_percentile(&standing.category, team.car_strength()))
                 .unwrap_or(0.5);
 
             let category_tier = get_category_config(&standing.category)
@@ -453,7 +453,7 @@ fn process_driver_evolution(
             let growth_report = calculate_growth(
                 driver,
                 &standing.stats,
-                team_car_performance,
+                team_car_strength,
                 category_tier,
                 car_field_percentile,
                 rng,
@@ -470,7 +470,7 @@ fn process_driver_evolution(
                 .values()
                 .filter(|team| {
                     team.categoria == standing.category
-                        && team.car_performance > team_car_performance
+                        && team.car_strength() > team_car_strength
                 })
                 .count() as i32;
             let expected_position = cars_ahead * 2 + 1;

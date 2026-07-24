@@ -246,7 +246,7 @@ fn run_market_inner(
                 .cloned()
                 .unwrap_or_else(|| default_market_context(driver));
             let expected_position =
-                estimate_expected_position(team.car_performance, context.total_pilotos.max(1));
+                estimate_expected_position(team.car_strength(), context.total_pilotos.max(1));
             let performance_score = evaluate_driver_performance(
                 context.posicao_campeonato,
                 context.total_pilotos,
@@ -711,7 +711,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                     categoria: team.categoria.clone(),
                     classe: team.classe.clone(),
                     category_tier,
-                    car_performance: team.car_performance,
+                    car_strength: team.car_strength(),
                     budget: team.budget,
                     cash_balance: team.cash_balance,
                     debt_balance: team.debt_balance,
@@ -726,7 +726,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                     categoria: team.categoria.clone(),
                     classe: team.classe.clone(),
                     category_tier,
-                    car_performance: team.car_performance,
+                    car_strength: team.car_strength(),
                     budget: team.budget,
                     cash_balance: team.cash_balance,
                     debt_balance: team.debt_balance,
@@ -742,7 +742,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                 categoria: team.categoria.clone(),
                 classe: team.classe.clone(),
                 category_tier,
-                car_performance: team.car_performance,
+                car_strength: team.car_strength(),
                 budget: team.budget,
                 cash_balance: team.cash_balance,
                 debt_balance: team.debt_balance,
@@ -757,7 +757,7 @@ fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> {
                 categoria: team.categoria.clone(),
                 classe: team.classe.clone(),
                 category_tier,
-                car_performance: team.car_performance,
+                car_strength: team.car_strength(),
                 budget: team.budget,
                 cash_balance: team.cash_balance,
                 debt_balance: team.debt_balance,
@@ -1512,7 +1512,7 @@ fn apply_slam_priority_pass(
                         None => true,
                     }
             })
-            .max_by(|(_, a), (_, b)| a.car_performance.total_cmp(&b.car_performance))
+            .max_by(|(_, a), (_, b)| a.car_strength.total_cmp(&b.car_strength))
             .map(|(index, _)| index);
         let Some(vacancy_index) = best else {
             continue; // sem vaga na categoria-alvo → cai pro mercado normal
@@ -1614,7 +1614,6 @@ fn seat_from_vacancy(
     season: i32,
     rng: &mut impl Rng,
 ) -> Result<crate::market::transfer_window::Seat, String> {
-    use crate::simulation::math::normalize_car_performance;
     let ceiling = calculate_offer_salary(vac, star, rng).max(20_000.0);
     Ok(crate::market::transfer_window::Seat {
         id: format!("{}#{}", vac.team_id, vac.papel_necessario.as_str()),
@@ -1623,7 +1622,7 @@ fn seat_from_vacancy(
         class: vac.classe.clone(),
         tier: vac.category_tier,
         is_n1: matches!(vac.papel_necessario, TeamRole::Numero1),
-        car_norm: normalize_car_performance(vac.car_performance),
+        car_norm: vac.car_strength,
         prestige: team_prestige(conn, &vac.team_id, season)?,
         required_license: crate::models::license::required_license_for_division(
             &vac.categoria,
@@ -1954,7 +1953,7 @@ fn place_player_in_natural_vacancy(
             })
             .collect();
         if !cands.is_empty() {
-            cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
+            cands.sort_by(|a, b| a.car_strength.total_cmp(&b.car_strength));
             pick = cands.first().copied();
             break;
         }
@@ -2214,14 +2213,14 @@ fn worst_team<'a>(
 ) -> Option<&'a crate::models::team::Team> {
     teams
         .iter()
-        .min_by(|a, b| a.car_performance.total_cmp(&b.car_performance))
+        .min_by(|a, b| a.car_strength().total_cmp(&b.car_strength()))
         .copied()
 }
 
 fn best_team<'a>(teams: &[&'a crate::models::team::Team]) -> Option<&'a crate::models::team::Team> {
     teams
         .iter()
-        .max_by(|a, b| a.car_performance.total_cmp(&b.car_performance))
+        .max_by(|a, b| a.car_strength().total_cmp(&b.car_strength()))
         .copied()
 }
 
@@ -2244,7 +2243,7 @@ fn fallback_vacancy_from_team(team: &crate::models::team::Team) -> Vacancy {
         category_tier: get_category_config(&team.categoria)
             .map(|config| config.tier)
             .unwrap_or(0),
-        car_performance: team.car_performance,
+        car_strength: team.car_strength(),
         budget: team.budget,
         cash_balance: team.cash_balance,
         debt_balance: team.debt_balance,
@@ -2583,8 +2582,8 @@ fn fill_remaining_vacancies_with_rookies(
                         .partial_cmp(&seat_desirability(a))
                         .unwrap_or(std::cmp::Ordering::Equal)
                 } else {
-                    b.car_performance
-                        .partial_cmp(&a.car_performance)
+                    b.car_strength
+                        .partial_cmp(&a.car_strength)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 }
             })
@@ -3031,7 +3030,7 @@ pub(crate) fn player_reserved_seats(
                     }
             })
             .collect();
-        cands.sort_by(|a, b| a.car_performance.total_cmp(&b.car_performance));
+        cands.sort_by(|a, b| a.car_strength.total_cmp(&b.car_strength));
         for vac in cands {
             let seat = format!("{}#{}", vac.team_id, vac.papel_necessario.as_str());
             if !seats.contains(&seat) {
@@ -3102,9 +3101,12 @@ pub(crate) fn player_active_interest_teams(
 }
 
 fn team_quality(team: &crate::models::team::Team) -> f64 {
+    // `team_prestige_quality` sempre assumiu carro em 0–100 (ela clampa nisso, e os testes
+    // passam 90). Recebia a coluna legada em 0–16: o carro pesava no máximo 9,6 contra 100 de
+    // reputação, então o astro só olhava para prestígio. `car_strength` entrega a escala certa.
     crate::fame::team_prestige_quality(
         team.reputacao,
-        team.car_performance,
+        team.car_strength(),
         team.historico_titulos_pilotos + team.historico_titulos_construtores,
     )
 }
@@ -3456,7 +3458,7 @@ fn compute_player_poach_offer_inner(
         holder_best,
         suitor_name: suitor.nome.clone(),
         suitor_color: suitor.cor_primaria.clone(),
-        suitor_car_rating: crate::simulation::math::normalize_car_performance(suitor.car_performance)
+        suitor_car_rating: suitor.car_strength()
             .round()
             .clamp(0.0, 100.0) as u8,
         current_team_name: current_team.nome.clone(),
@@ -4373,7 +4375,7 @@ fn deep_recruitment_candidate(
             current_contract,
             current_tier,
             vacancy.category_tier,
-            vacancy.car_performance,
+            vacancy.car_strength,
             vacancy.reputacao,
             rng,
         )
@@ -4525,7 +4527,7 @@ fn affordability_penalty(price: f64, ceiling: f64) -> f64 {
 /// graça, reproduzido na escada gulosa.
 fn seat_desirability(vacancy: &Vacancy) -> f64 {
     use crate::market::transfer_window::{SEAT_W_CAR, SEAT_W_PRESTIGE};
-    let car_norm = crate::simulation::math::normalize_car_performance(vacancy.car_performance);
+    let car_norm = vacancy.car_strength;
     (car_norm / 100.0).min(1.2) * SEAT_W_CAR
         + (vacancy.reputacao.clamp(0.0, 100.0) / 100.0) * SEAT_W_PRESTIGE
 }
@@ -5722,7 +5724,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(4);
         let base = fallback_vacancy_from_team(&sample_team("gt3", "TSD", &mut rng));
         let mut better_car = base.clone();
-        better_car.car_performance = base.car_performance + 4.0;
+        better_car.car_strength = base.car_strength + 4.0;
         let mut more_prestige = base.clone();
         more_prestige.reputacao = (base.reputacao + 30.0).min(100.0);
         assert!(seat_desirability(&better_car) > seat_desirability(&base));

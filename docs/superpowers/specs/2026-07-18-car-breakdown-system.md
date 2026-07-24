@@ -19,7 +19,8 @@
    uma roleta que se joga volta a volta. ~69% das quebras são por azar (não pela
    parede — ver §11).
 4. **Cada quebra tem culpado** (motor, câmbio, etc.) → combustível narrativo para
-   revista/debrief/"do mundo do grid".
+   revista/debrief/"do mundo do grid". Vale nas duas corridas: a dirigida no iRacing e a
+   simulada (§14 fase 7) gravam o mesmo desfecho em `race_breakdowns`.
 5. O jogador **não gerencia manutenção** (o cérebro do time faz por ele). Logo a
    quebra do jogador é **telegrafada** no pré-corrida (§10) — contrato de justiça.
 
@@ -334,8 +335,34 @@ efeito do tamanho da corrida.
 4. **Aviso pré-corrida** (§10): engenheiro avisa a peça na Sala de Estratégia.
 5. **Enduro pit-service** (§6): política de parada + estratégia de pit por tier.
 6. **Narrativa** (fase futura): quebra alimenta debrief/revista/"do mundo do grid".
-7. **Atrito da IA em corridas simuladas** (opcional): DNF mecânico simulado nas
-   corridas de outras categorias (sem comando), para consistência do mundo.
+7. **[FEITO] Quebra na corrida SIMULADA** — o que era "atrito da IA, opcional" virou a
+   fonte de quebra de TODA corrida não-dirigida (todas as categorias, não só as outras).
+   `commands::race::preroll_simulated_breakdowns` pré-rola o grid inteiro com os MESMOS
+   inputs do disparo ao vivo (desgaste real do `team_car`, pit crew, pista, clima da
+   etapa via `iracing::race_breakdown_weather` — agora fonte única dos 3 consumidores).
+   Os desfechos entram em `simulate_race_with_breakdowns` ANTES de `build_race_results`,
+   então posição/gap/pontos já saem coerentes: `repair_secs_to_score` é o inverso exato de
+   `RACE_SCORE_TO_LAP_MS`, e N segundos no box viram N segundos de corrida (medidos contra
+   o líder). DNF marca `dnf_reason` com a frase da peça + `dnf_catalog_id` do catálogo
+   `Mechanical`. O resultado persiste em `race_breakdowns` (tela/notícia) e volta pra
+   economia via `team_breakdowns` (§4.6) — mesmo laço da corrida ao vivo.
+   - Carro já fora por batida antes da volta da quebra NÃO registra (`applied_mechanicals`).
+   - Rascunho histórico fica de fora (grid sintético, sem `team_car` pra ler).
+   - **FONTE ÚNICA de pane mecânica.** Onde a quebra roda, a pane genérica do catálogo de
+     incidentes (`roll_mechanical`, `MECHANICAL_BASE_CHANCE = 0.015` → ~1,3% DNF/carro/
+     corrida) é DESLIGADA. Ela sorteava sobre a `confiabilidade` abstrata da equipe sem saber
+     que peças o carro tem: não nomeava culpado, não danificava nada e não conversava com a
+     economia. Manter as duas dobraria o abandono mecânico sobre as taxas calibradas do §12 e
+     deixaria carro de peça nova fundindo motor **sem** o aviso pré-corrida do §10.
+     - O chaveamento é o `Option` de `simulate_race_with_breakdowns`: `Some(..)` (mesmo vazio)
+       = quebra no comando, catálogo fora; `None` = quebra não rodou, catálogo é a fonte. O
+       pré-roll devolve `None` só quando NENHUM carro do grid pôde ser lido — save antigo
+       nunca fica sem nenhuma fonte de falha mecânica.
+     - `roll_mechanical` continua sendo CHAMADO e o resultado descartado: ele consome do RNG,
+       e pular a chamada deslocaria o fluxo, mudando todos os erros de piloto e batidas
+       seguintes. Assim a única coisa que sai da corrida é a pane.
+     - As frases `Mechanical` do catálogo seguem em uso na corrida IMPORTADA do iRacing (a
+       ponte não passa por aqui) e no rascunho histórico.
 
 ## 15. Assumidos e questões em aberto
 

@@ -374,6 +374,9 @@ pub(crate) fn make_incident(
     }
 }
 
+/// Incidentes do segmento com a pane mecânica do catálogo LIGADA — o comportamento histórico.
+/// Ver [`process_segment_incidents_cfg`] para o caminho onde o Sistema de Quebra assume a pane.
+#[allow(clippy::too_many_arguments)]
 pub fn process_segment_incidents(
     drivers: &[SimDriver],
     states: &[RaceState],
@@ -386,6 +389,48 @@ pub fn process_segment_incidents(
     catalog: &IncidentCatalog,
     vehicle_class: VehicleClass,
     is_endurance: bool,
+    rng: &mut impl Rng,
+) -> SegmentIncidentResult {
+    process_segment_incidents_cfg(
+        drivers,
+        states,
+        segment,
+        weather,
+        is_championship_deciding,
+        incident_rate_multiplier,
+        start_chaos_multiplier,
+        pack_density_factor,
+        catalog,
+        vehicle_class,
+        is_endurance,
+        true,
+        rng,
+    )
+}
+
+/// Igual a [`process_segment_incidents`], mas com `catalog_mechanical`: quando `false`, a pane
+/// mecânica genérica do catálogo NÃO é sorteada.
+///
+/// Existe por causa da fonte única de pane. A pane do catálogo ([`roll_mechanical`]) sorteia
+/// sobre a `confiabilidade` ABSTRATA da equipe e não sabe que peças o carro tem — não nomeia
+/// culpado, não danifica nada e não conversa com a economia. O Sistema de Quebra faz as quatro
+/// coisas, lendo o desgaste real. Onde ele roda, esta aqui sai de cena: manter as duas dobraria
+/// a taxa de abandono mecânico e deixaria carro de peça nova fundindo motor sem o aviso
+/// pré-corrida que o design promete.
+#[allow(clippy::too_many_arguments)]
+pub fn process_segment_incidents_cfg(
+    drivers: &[SimDriver],
+    states: &[RaceState],
+    segment: RaceSegment,
+    weather: WeatherCondition,
+    is_championship_deciding: bool,
+    incident_rate_multiplier: f64,
+    start_chaos_multiplier: f64,
+    pack_density_factor: f64,
+    catalog: &IncidentCatalog,
+    vehicle_class: VehicleClass,
+    is_endurance: bool,
+    catalog_mechanical: bool,
     rng: &mut impl Rng,
 ) -> SegmentIncidentResult {
     let mut incidents = Vec::new();
@@ -403,12 +448,20 @@ pub fn process_segment_incidents(
             continue;
         };
 
+        // Pane do catálogo: só quando o Sistema de Quebra NÃO está no comando desta corrida.
+        //
+        // O sorteio ACONTECE e o resultado é descartado, em vez de pular a chamada. É de
+        // propósito: `roll_mechanical` consome do RNG, então pular deslocaria o fluxo e mudaria
+        // TODOS os erros de piloto e batidas seguintes. Descartando, a única coisa que sai da
+        // corrida é a pane — o resto do comportamento fica byte-idêntico ao de antes.
         if let Some((severity, is_dnf, pos_lost)) = roll_mechanical(
             driver.car_reliability,
             segment,
             incident_rate_multiplier,
             rng,
-        ) {
+        )
+        .filter(|_| catalog_mechanical)
+        {
             let generic_desc = if is_dnf {
                 format!("{} abandona com problema mecanico", driver.nome)
             } else {

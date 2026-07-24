@@ -188,6 +188,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#facc15",
             cash_balance: 132_565_957,
             car_performance: 9,
+            car_level: 9,
             car_build_profile: "power_intermediate",
             confiabilidade: 92,
             pit_crew_quality: 84,
@@ -202,6 +203,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#58a6ff",
             cash_balance: 6_500_000,
             car_performance: 7,
+            car_level: 7,
             car_build_profile: "balanced",
             confiabilidade: 72,
             pit_crew_quality: 68,
@@ -215,6 +217,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#22c55e",
             cash_balance: 1_000_000,
             car_performance: 10,
+            car_level: 10,
             car_build_profile: "handling_intermediate",
             confiabilidade: 38,
             pit_crew_quality: 18,
@@ -244,6 +247,7 @@ describe("MyTeamTab", () => {
         cor_secundaria: "#0d1117",
         categoria: "gt4",
         car_performance: 8,
+        car_level: 8,
         car_build_profile: "balanced",
         confiabilidade: 72,
         pit_strategy_risk: 42,
@@ -369,6 +373,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#dc0000",
             cash_balance: 12_000_000,
             car_performance: 9,
+            car_level: 9,
             car_build_profile: "power_intermediate",
             pontos: 144,
           },
@@ -380,6 +385,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#00d2be",
             cash_balance: 10_000_000,
             car_performance: 8,
+            car_level: 8,
             car_build_profile: "balanced",
             pontos: 132,
           },
@@ -450,10 +456,26 @@ describe("MyTeamTab", () => {
     render(<MyTeamTab />);
 
     expect(await screen.findByText(/Pacote do carro/i)).toBeInTheDocument();
-    expect(screen.getByText(/Desempenho na pista/i)).toBeInTheDocument();
+    // O Nível do Carro é a ÚNICA leitura de pacote. A barra de "Desempenho na pista" lia o
+    // escalar `car_performance` — hoje derivado do MESMO nível, então só repetia a de cima.
+    expect(screen.queryByText(/Desempenho na pista/i)).not.toBeInTheDocument();
     // Shape do carro escondido: nada de "Foco do projeto"/"Equilíbrio do acerto".
     expect(screen.queryByText(/Foco do projeto/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Distribuição técnica/i)).not.toBeInTheDocument();
+  });
+
+  it("reads the car package from car_level only, never from the legacy scalar", async () => {
+    // `car_level` ausente (save antigo/payload incompleto) NÃO pode cair no escalar legado:
+    // ele tem escala própria por categoria e ignora o sistema de peças, então a UI passaria
+    // a mostrar diferença de carro que a simulação não aplica (grid spec de rookie).
+    delete mockState.playerTeam.car_level;
+    mockState.playerTeam.car_performance = 8;
+
+    render(<MyTeamTab />);
+
+    expect(await screen.findByText(/Pacote do carro/i)).toBeInTheDocument();
+    expect(screen.getByText("Nível 1/10")).toBeInTheDocument();
+    expect(screen.queryByText("Nível 8/10")).not.toBeInTheDocument();
   });
 
   it("does not render generic explanatory helper copy", async () => {
@@ -744,6 +766,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#dc0000",
             cash_balance: 42_000_000,
             car_performance: 10,
+            car_level: 10,
             car_build_profile: "power_extreme",
             founded_year: 1929,
             pontos: 240,
@@ -756,6 +779,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#3f3f46",
             cash_balance: 800_000,
             car_performance: 5,
+            car_level: 5,
             car_build_profile: "balanced",
             pontos: 14,
           },
@@ -812,6 +836,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#38bdf8",
             cash_balance: 1_100_000,
             car_performance: 5,
+            car_level: 5,
             car_build_profile: "balanced",
             founded_year: 2020,
             pontos: 0,
@@ -824,6 +849,7 @@ describe("MyTeamTab", () => {
             cor_primaria: "#fb7185",
             cash_balance: 850_000,
             car_performance: 4,
+            car_level: 4,
             car_build_profile: "balanced",
             pontos: 0,
           },

@@ -1983,12 +1983,13 @@
       "bestLapSortTitle": "Clique para ordenar pela volta mais rápida (volta ao normal em 5s)",
       "gap": "gap",
       "points": "pts",
-      "fastestLapTitle": "Volta mais rápida",
-      "you": "você"
+      "fastestLapTitle": "Volta mais rápida"
     },
     "breakdowns": {
       "title": "Problemas de peça",
-      "lapTip": "V{{lap}}"
+      "lapTip": "V{{lap}}",
+      "rowMarkerTitle": "Problema de peça nesta corrida",
+      "retired": "Abandonou"
     },
     "debrief": {
       "engineerTitle": "Debrief do engenheiro",
@@ -2007,7 +2008,8 @@
       "raceTarget": "meta da corrida",
       "bestLap": "melhor volta",
       "incidents": "incidentes",
-      "maintenance": "manutenção"
+      "maintenance": "manutenção",
+      "timeLost": "perdido no box"
     },
     "maintenance": {
       "invoiceTitle": "Fatura do carro",
@@ -3053,8 +3055,8 @@
     "traceGapToLeader": "Gap ao líder",
     "raceTrace": "Race Trace",
     "you": " (você)",
-    "avg": "média",
-    "best": "melhor",
+    "avg": "Média",
+    "best": "Melhor",
     "lapVariation": "Variação de voltas",
     "pace": "Ritmo",
     "noPlayerLaps": "Sem voltas suas registradas.",
@@ -3063,12 +3065,12 @@
     "noGapData": "Sem dados de gap para este piloto.",
     "legendDry": "Seco",
     "legendWet": "Molhado",
-    "legendFuelOnly": "só combustível",
+    "legendFuelOnly": "Só combustível",
     "pitStrategy": "Estratégia de pit",
     "noPits": "Nenhuma parada nesta corrida.",
-    "pitTimesHint": "tempo na caixa · pneu/comb. estimado",
+    "pitTimesHint": "Tempo na caixa · pneu/comb. estimado",
     "pitTimes": "Tempos de pit",
-    "breakdownsHint": "peça · problema · volta · desfecho",
+    "breakdownsHint": "Peça · problema · volta · desfecho",
     "breakdowns": "Quebras de peça",
     "colDriver": "piloto",
     "colPart": "peça",

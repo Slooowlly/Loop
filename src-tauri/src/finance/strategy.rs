@@ -76,6 +76,10 @@ pub fn apply_elite_resource_floor(team: &mut Team) {
     }
 }
 
+/// Força de carro (0–100) a partir da qual a equipe se considera NO TOPO e passa a
+/// sustentar em vez de empurrar título. Equivale a ~nível 8,5 de 10.
+const TOP_CAR_STRENGTH: f64 = 75.0;
+
 /// Escolhe um plano de longo prazo conforme o estado financeiro e o carro atual.
 /// (`elite_dominance` não é escolhido aqui — é atribuído às elites no Pilar D.)
 pub fn choose_strategic_plan(team: &Team) -> &'static str {
@@ -84,7 +88,10 @@ pub fn choose_strategic_plan(team: &Team) -> &'static str {
         "elite" | "healthy" => {
             // Bem-financiada: mira janela de título enquanto o carro tem o que
             // crescer; já no topo, apenas sustenta.
-            if team.car_performance < 18.0 {
+            // O limiar era `car_performance < 18.0` sobre um domínio cujo MÁXIMO é 16 — sempre
+            // verdadeiro, então `sustainable` era inalcançável e toda equipe saudável empurrava
+            // título pra sempre. Em 0–100, "no topo" é de fato o topo.
+            if team.car_strength() < TOP_CAR_STRENGTH {
                 "title_push"
             } else {
                 "sustainable"

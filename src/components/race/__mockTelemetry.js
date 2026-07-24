@@ -129,3 +129,103 @@ export const MOCK_TELEMETRY = {
   // DEV: companheiro de equipe fake (pra o Gap abrir nele por padrão).
   __mockTeammateName: "David Meier",
 };
+
+// ───────────────────────── Quebras de peça FAKE (Fase 7) ─────────────────────────
+
+/// Receita das quebras fake: uma por estado visual que a UI sabe desenhar. A ordem importa —
+/// é a prioridade com que os papéis são preenchidos a partir do grid REAL da tela.
+const FAKE_BREAKDOWNS = [
+  {
+    role: "player",
+    part: "gearbox",
+    part_name: "Câmbio",
+    lap: 11,
+    severity: "heavy",
+    penalty_secs: 17,
+    label: "câmbio perdeu a 3ª marcha",
+  },
+  {
+    // Segunda peça do MESMO piloto: exercita o tooltip de várias linhas e o chip com duas
+    // peças separadas por vírgula.
+    role: "player",
+    part: "brakes",
+    part_name: "Freios",
+    lap: 14,
+    severity: "light",
+    penalty_secs: 4,
+    label: "freio dianteiro perdendo mordida",
+  },
+  {
+    role: "dnf",
+    part: "engine",
+    part_name: "Motor",
+    lap: 8,
+    severity: "dnf",
+    penalty_secs: null,
+    label: "motor fundiu por superaquecimento",
+  },
+  {
+    role: "other",
+    part: "suspension",
+    part_name: "Suspensão",
+    lap: 6,
+    severity: "heavy",
+    penalty_secs: 12,
+    label: "braço de suspensão trincado",
+  },
+  {
+    role: "other",
+    part: "electronics",
+    part_name: "Eletrônica",
+    lap: 3,
+    severity: "light",
+    penalty_secs: 3,
+    label: "chicote molhado falhando intermitente",
+  },
+];
+
+/// Monta quebras fake a partir do grid REAL que está na tela.
+///
+/// Derivar dos resultados de verdade (em vez de uma lista de nomes chumbada) é o que faz o 🔧
+/// acender na linha certa da tabela e a métrica "perdido no box" somar — as duas casam por
+/// `driver_id`/`pilot_id`. Com nomes inventados, a tela mostraria os chips e mais nada.
+///
+/// Determinístico: mesmo resultado → mesmas quebras, sem random, então a tela não pisca a cada
+/// render. Só DEV: chamado atrás do flag de dados fake do RaceResultViewV2.
+export function buildMockBreakdowns(raceResults) {
+  const rows = Array.isArray(raceResults) ? raceResults : [];
+  if (rows.length === 0) return [];
+
+  const player = rows.find((r) => r.is_jogador) ?? null;
+  const retired = rows.find((r) => r.is_dnf && !r.is_jogador) ?? null;
+  // Preenche os papéis "other" com quem sobrou, do fim do grid pra frente (quem quebrou tende
+  // a estar lá atrás) e sem repetir quem já foi escalado.
+  const usados = new Set([player?.pilot_id, retired?.pilot_id].filter(Boolean));
+  const outros = rows
+    .filter((r) => !usados.has(r.pilot_id))
+    .slice(-2)
+    .reverse();
+
+  let proximoOutro = 0;
+  const out = [];
+  for (const receita of FAKE_BREAKDOWNS) {
+    let alvo = null;
+    if (receita.role === "player") alvo = player;
+    else if (receita.role === "dnf") alvo = retired;
+    else alvo = outros[proximoOutro++] ?? null;
+    // Grid sem jogador, sem abandono ou sem gente sobrando: o papel simplesmente não aparece.
+    if (!alvo) continue;
+    out.push({
+      driver_id: alvo.pilot_id,
+      driver_name: alvo.pilot_name,
+      part: receita.part,
+      part_name: receita.part_name,
+      lap: receita.lap,
+      severity: receita.severity,
+      penalty_secs: receita.penalty_secs,
+      label: receita.label,
+      is_player: !!alvo.is_jogador,
+    });
+  }
+  return out.sort((a, b) => a.lap - b.lap);
+}

@@ -140,7 +140,9 @@ pub fn safety_reserve_multiplier_for_state(state: &str) -> f64 {
 pub fn calculate_projected_income(team: &Team) -> f64 {
     let scale = category_finance_scale(&team.categoria);
     let reputation_factor = 0.70 + team.reputacao.clamp(0.0, 100.0) / 250.0;
-    let performance_factor = 0.85 + (team.car_performance + 5.0).clamp(0.0, 21.0) / 105.0;
+    // Mesma amplitude de antes (0,85–1,05), agora sobre a escala única 0–100: o divisor 500
+    // reproduz exatamente o `/105` do domínio −5..16 que estava aqui.
+    let performance_factor = 0.85 + team.car_strength() / 500.0;
 
     scale.expected_cash_midpoint() * 0.45 * reputation_factor * performance_factor
         + team.parachute_payment_remaining.max(0.0)

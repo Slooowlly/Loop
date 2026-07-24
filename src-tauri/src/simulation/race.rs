@@ -8,7 +8,7 @@ use crate::constants::scoring::RACE_SCORE_TO_LAP_MS;
 use super::catalog::IncidentCatalog;
 use super::context::{SimDriver, SimulationContext};
 use super::incidents::{
-    process_segment_incidents, IncidentResult, IncidentSeverity, IncidentType, PendingDamage,
+    process_segment_incidents_cfg, IncidentResult, IncidentSeverity, IncidentType, PendingDamage,
 };
 use super::math::{
     car_weight_scale, category_car_performance, normalize_car_performance, rain_intensity_for,
@@ -46,6 +46,51 @@ impl RaceSegment {
             Self::Finish => 4,
         }
     }
+
+    /// Em qual dos 5 segmentos uma volta cai. O cérebro da quebra raciocina POR VOLTA; a
+    /// simulação raciocina por segmento — é aqui que os dois se encontram. Volta 1 é a
+    /// largada; a última volta é o FINISH.
+    fn from_lap(lap: u32, total_laps: i32) -> Self {
+        let total = total_laps.max(1) as f64;
+        let idx = (((lap.max(1) - 1) as f64 / total) * 5.0).floor() as usize;
+        match idx.min(4) {
+            0 => Self::Start,
+            1 => Self::Early,
+            2 => Self::Mid,
+            3 => Self::Late,
+            _ => Self::Finish,
+        }
+    }
+}
+
+/// Desfecho de QUEBRA DE PEÇA pré-rolado pelo cérebro (`car::breakdown`) e injetado na corrida
+/// simulada — a Fase 7 do Sistema de Quebra. A simulação não sabe de peça, desgaste nem
+/// economia: recebe só "este piloto ficou N segundos parado (ou abandonou) nesta volta" e
+/// cobra o preço na moeda dela. Quem sabe de peça é quem rola, em `commands::race`.
+#[derive(Debug, Clone)]
+pub struct MechanicalOutcome {
+    pub pilot_id: String,
+    /// Volta em que a peça largou (1-based).
+    pub lap: u32,
+    /// A quebra encerrou a corrida do carro.
+    pub is_dnf: bool,
+    /// Segundos parados no box consertando. 0 quando `is_dnf`.
+    pub penalty_secs: u32,
+    /// Frase do problema ("motor fundiu por superaquecimento") — vira o `dnf_reason` no abandono.
+    pub label: String,
+}
+
+/// Converte segundos parados no box em pontos de `cumulative_score`, a moeda da simulação.
+/// É o INVERSO exato de [`RACE_SCORE_TO_LAP_MS`]: descontar isto do score faz o
+/// `total_race_time_ms` do piloto sair de `build_race_results` `secs` mais lento. Sem esse
+/// casamento o reparo custaria um número inventado de posições.
+///
+/// A equivalência é medida CONTRA O LÍDER (`build_race_results` ancora o tempo no vencedor).
+/// Quando quem quebra é o próprio líder, a âncora se move junto e o custo aparente encolhe
+/// pela margem que ele tinha — o que é o comportamento certo: ele só perde o que a margem
+/// não cobria.
+fn repair_secs_to_score(secs: u32, total_laps: i32) -> f64 {
+    (secs as f64 * 1000.0) / (RACE_SCORE_TO_LAP_MS * total_laps.max(1) as f64)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +180,15 @@ pub struct RaceResult {
     /// simulada: não agrupa o pelotão nem mexe em posição nenhuma.
     #[serde(default)]
     pub caution_segments: Vec<String>,
+    /// Índices, no slice de [`MechanicalOutcome`] passado à simulação, das quebras que a corrida
+    /// de fato COBROU. Um carro que já tinha abandonado por batida antes da volta da quebra não
+    /// entra: a peça largaria num carro que não estava mais na pista. O caller persiste só isto
+    /// em `race_breakdowns`, pra tela e notícia nunca falarem de quebra que não houve.
+    ///
+    /// TRANSITÓRIO: vale só no retorno da simulação. `#[serde(skip)]` de propósito — não é
+    /// estado da corrida, não vai pro `race_screens.json` nem pro save.
+    #[serde(skip)]
+    pub applied_mechanicals: Vec<usize>,
 }
 
 /// Segmentos em que a corrida foi neutralizada por bandeira amarela, derivados dos
@@ -166,6 +220,8 @@ pub fn derive_caution_segments<'a>(
     segs
 }
 
+/// Corrida simulada SEM quebra de peça — o caminho de sempre. Ver
+/// [`simulate_race_with_breakdowns`] para o caminho com a Fase 7 ligada.
 pub fn simulate_race(
     drivers: &[SimDriver],
     qualifying: &[QualifyingResult],
@@ -174,7 +230,33 @@ pub fn simulate_race(
     is_endurance: bool,
     rng: &mut impl Rng,
 ) -> RaceResult {
+    simulate_race_with_breakdowns(drivers, qualifying, ctx, catalog, is_endurance, None, rng)
+}
+
+/// Corrida simulada cobrando também os desfechos de QUEBRA DE PEÇA pré-rolados (Fase 7).
+///
+/// `mechanicals` é a chave de FONTE ÚNICA da pane mecânica:
+/// - `Some(..)` — o Sistema de Quebra está no comando. Os desfechos vêm do cérebro
+///   `car::breakdown`, rolados sobre o desgaste REAL do carro de cada time (por isso o time
+///   pobre, que estica peça por falta de caixa, é o que quebra), e a pane genérica do catálogo
+///   de incidentes é DESLIGADA. Lista vazia é válido: significa "a quebra rodou e ninguém
+///   quebrou", não "sistema desligado".
+/// - `None` — a quebra não roda nesta corrida (rascunho histórico, grid sintético sem carro no
+///   banco). A pane do catálogo continua sendo a fonte de falha mecânica.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_race_with_breakdowns(
+    drivers: &[SimDriver],
+    qualifying: &[QualifyingResult],
+    ctx: &SimulationContext,
+    catalog: &IncidentCatalog,
+    is_endurance: bool,
+    mechanicals: Option<&[MechanicalOutcome]>,
+    rng: &mut impl Rng,
+) -> RaceResult {
+    let catalog_mechanical = mechanicals.is_none();
+    let mechanicals = mechanicals.unwrap_or(&[]);
     let total_drivers = qualifying.len() as i32;
+    let mut applied_mechanicals: Vec<usize> = Vec::new();
     let mut states: Vec<RaceState> = qualifying
         .iter()
         .map(|result| RaceState {
@@ -210,7 +292,7 @@ pub fn simulate_race(
                 rng,
             );
 
-            let result = process_segment_incidents(
+            let result = process_segment_incidents_cfg(
                 drivers,
                 &states,
                 segment,
@@ -222,6 +304,7 @@ pub fn simulate_race(
                 catalog,
                 ctx.vehicle_class,
                 is_endurance,
+                catalog_mechanical,
                 rng,
             );
 
@@ -242,6 +325,34 @@ pub fn simulate_race(
                     state.pending_damage.push(pd);
                 }
             }
+        }
+
+        // QUEBRA DE PEÇA (Fase 7): o desfecho pré-rolado cobra o preço nesta altura da corrida.
+        // Roda FORA do `incidents_enabled` de propósito — quebra não é incidente de pilotagem;
+        // é consequência do desgaste que o time carregou pra cá, e vale mesmo com incidentes
+        // desligados. DNF encerra o carro; leve/grave desconta os segundos do box na moeda da
+        // sim, então a perda de posição sai da física do resultado, não de um chute.
+        for (idx, m) in mechanicals.iter().enumerate() {
+            if RaceSegment::from_lap(m.lap, ctx.total_laps) != segment {
+                continue;
+            }
+            let Some(state) = states.iter_mut().find(|s| s.driver_id == m.pilot_id) else {
+                continue;
+            };
+            // Carro já fora (batida antes): a peça largaria num carro que não estava mais lá.
+            if state.is_dnf {
+                continue;
+            }
+            if m.is_dnf {
+                state.is_dnf = true;
+                state.dnf_reason = Some(m.label.clone());
+                state.dnf_segment = Some(segment);
+            } else {
+                state.cumulative_score = (state.cumulative_score
+                    - repair_secs_to_score(m.penalty_secs, ctx.total_laps))
+                .max(0.0);
+            }
+            applied_mechanicals.push(idx);
         }
 
         let seg_str = segment.as_str();
@@ -327,6 +438,7 @@ pub fn simulate_race(
         notable_incident_pilot_ids,
         most_positions_gained_id,
         caution_segments,
+        applied_mechanicals,
     }
 }
 
@@ -1318,5 +1430,240 @@ mod tests {
             endurance_profile.tire_degradation_rate,
             gt4_profile.tire_degradation_rate
         );
+    }
+
+    // ───────────────── Quebra de peça na corrida simulada (Fase 7) ─────────────────
+
+    fn mech(pilot: &str, lap: u32, is_dnf: bool, secs: u32) -> MechanicalOutcome {
+        MechanicalOutcome {
+            pilot_id: pilot.to_string(),
+            lap,
+            is_dnf,
+            penalty_secs: secs,
+            label: "câmbio travou na 3ª".to_string(),
+        }
+    }
+
+    fn race_with(mechanicals: &[MechanicalOutcome], seed: u64) -> (RaceResult, Vec<SimDriver>) {
+        let grid = build_grid();
+        let mut rng = StdRng::seed_from_u64(seed);
+        let ctx = sample_context(30, WeatherCondition::Dry);
+        let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
+        let result = simulate_race_with_breakdowns(
+            &grid,
+            &qualifying,
+            &ctx,
+            &IncidentCatalog::empty(),
+            false,
+            Some(mechanicals),
+            &mut rng,
+        );
+        (result, grid)
+    }
+
+    #[test]
+    fn volta_cai_no_segmento_certo() {
+        // 20 voltas → 4 por segmento. Volta 1 é largada; a última é FINISH.
+        assert_eq!(RaceSegment::from_lap(1, 20), RaceSegment::Start);
+        assert_eq!(RaceSegment::from_lap(4, 20), RaceSegment::Start);
+        assert_eq!(RaceSegment::from_lap(5, 20), RaceSegment::Early);
+        assert_eq!(RaceSegment::from_lap(12, 20), RaceSegment::Mid);
+        assert_eq!(RaceSegment::from_lap(17, 20), RaceSegment::Finish);
+        assert_eq!(RaceSegment::from_lap(20, 20), RaceSegment::Finish);
+        // Volta além do fim (corrida encurtada por bandeira) não estoura o índice.
+        assert_eq!(RaceSegment::from_lap(99, 20), RaceSegment::Finish);
+        assert_eq!(RaceSegment::from_lap(1, 0), RaceSegment::Start);
+    }
+
+    #[test]
+    fn com_a_quebra_desligada_a_corrida_e_identica_a_de_antes() {
+        // `None` tem que ser byte-a-byte o caminho antigo — incidentes LIGADOS de propósito,
+        // pra cobrir também a pane do catálogo e a ordem de consumo do RNG.
+        let grid = build_grid();
+        let ctx = sample_context_with_incidents(30, WeatherCondition::Dry);
+
+        let mut rng_novo = StdRng::seed_from_u64(77);
+        let q_novo = simulate_qualifying(&grid, &ctx, &mut rng_novo);
+        let novo = simulate_race_with_breakdowns(
+            &grid,
+            &q_novo,
+            &ctx,
+            &IncidentCatalog::empty(),
+            false,
+            None,
+            &mut rng_novo,
+        );
+
+        let mut rng_antigo = StdRng::seed_from_u64(77);
+        let q_antigo = simulate_qualifying(&grid, &ctx, &mut rng_antigo);
+        let antigo = simulate_race(
+            &grid,
+            &q_antigo,
+            &ctx,
+            &IncidentCatalog::empty(),
+            false,
+            &mut rng_antigo,
+        );
+
+        let resumo = |r: &RaceResult| -> Vec<(String, i32, bool, i32)> {
+            r.race_results
+                .iter()
+                .map(|e| {
+                    (
+                        e.pilot_id.clone(),
+                        e.finish_position,
+                        e.is_dnf,
+                        e.incidents_count,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(resumo(&novo), resumo(&antigo));
+        assert!(novo.applied_mechanicals.is_empty());
+    }
+
+    #[test]
+    fn quebra_com_dnf_tira_o_carro_e_registra_a_peca_como_motivo() {
+        let (result, _) = race_with(&[mech("003", 6, true, 0)], 31);
+        let entry = result
+            .race_results
+            .iter()
+            .find(|r| r.pilot_id == "003")
+            .expect("piloto no resultado");
+        assert!(entry.is_dnf, "a quebra deveria ter encerrado a corrida dele");
+        assert_eq!(entry.dnf_reason.as_deref(), Some("câmbio travou na 3ª"));
+        assert_eq!(result.applied_mechanicals, vec![0]);
+    }
+
+    #[test]
+    fn reparo_custa_exatamente_os_segundos_perdidos() {
+        // O contrato do `repair_secs_to_score`: 15s no box = 15s a mais no tempo de corrida.
+        // Medido num carro do MEIO do grid — no líder a âncora do tempo se move junto e o
+        // custo aparente encolhe pela margem que ele tinha (ver o doc da função).
+        const SECS: u32 = 15;
+        const ALVO: &str = "006";
+        let (limpo, _) = race_with(&[], 99);
+        assert_ne!(limpo.winner_id, ALVO, "o alvo do teste não pode ser o líder");
+        let (penalizado, _) = race_with(&[mech(ALVO, 6, false, SECS)], 99);
+        assert_eq!(penalizado.winner_id, limpo.winner_id, "o líder não pode mudar");
+
+        let antes = limpo
+            .race_results
+            .iter()
+            .find(|r| r.pilot_id == ALVO)
+            .unwrap()
+            .total_race_time_ms;
+        let depois = penalizado
+            .race_results
+            .iter()
+            .find(|r| r.pilot_id == ALVO)
+            .unwrap()
+            .total_race_time_ms;
+
+        let delta_s = (depois - antes) / 1000.0;
+        assert!(
+            (delta_s - SECS as f64).abs() < 0.5,
+            "esperava ~{SECS}s a mais, veio {delta_s:.2}s (antes {antes:.0}ms, depois {depois:.0}ms)"
+        );
+        assert_eq!(penalizado.applied_mechanicals, vec![0]);
+    }
+
+    #[test]
+    fn reparo_pesado_custa_posicao() {
+        // 25s num sprint de 12 voltas tem que doer na classificação — se não doesse, a Fase 7
+        // seria decorativa.
+        let (limpo, _) = race_with(&[], 5);
+        let (penalizado, _) = race_with(&[mech("012", 4, false, 25)], 5);
+        let pos = |r: &RaceResult| {
+            r.race_results
+                .iter()
+                .find(|e| e.pilot_id == "012")
+                .unwrap()
+                .finish_position
+        };
+        assert!(
+            pos(&penalizado) > pos(&limpo),
+            "P{} → P{} — o reparo não custou posição nenhuma",
+            pos(&limpo),
+            pos(&penalizado)
+        );
+    }
+
+    #[test]
+    fn carro_ja_fora_por_batida_nao_registra_a_quebra() {
+        // Duas quebras no MESMO piloto: a primeira (volta 3, DNF) o tira; a segunda (volta 10)
+        // não pode ser cobrada nem registrada — a peça largaria num carro que não está mais lá.
+        let (result, _) = race_with(
+            &[mech("007", 3, true, 0), mech("007", 10, false, 12)],
+            13,
+        );
+        assert_eq!(
+            result.applied_mechanicals,
+            vec![0],
+            "só a quebra que aconteceu de verdade pode ser registrada"
+        );
+    }
+
+    /// Roda MUITAS corridas com incidentes ligados e conta os abandonos por pane mecânica do
+    /// catálogo, com a quebra ligada (`Some`) e desligada (`None`).
+    fn panes_do_catalogo(mechanicals: Option<&[MechanicalOutcome]>, corridas: u64) -> usize {
+        let grid = build_grid();
+        let ctx = sample_context_with_incidents(30, WeatherCondition::Dry);
+        let mut total = 0;
+        for seed in 0..corridas {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
+            let result = simulate_race_with_breakdowns(
+                &grid,
+                &qualifying,
+                &ctx,
+                &IncidentCatalog::empty(),
+                false,
+                mechanicals,
+                &mut rng,
+            );
+            total += result
+                .race_results
+                .iter()
+                .flat_map(|r| &r.incidents)
+                .filter(|i| i.incident_type == IncidentType::Mechanical)
+                .count();
+        }
+        total
+    }
+
+    #[test]
+    fn quebra_ligada_desliga_a_pane_generica_do_catalogo() {
+        // FONTE ÚNICA: a pane do catálogo sorteia sobre a `confiabilidade` abstrata da equipe e
+        // não nomeia peça nem danifica nada. Onde o Sistema de Quebra roda, ela some — senão a
+        // taxa de abandono mecânico dobraria e carro de peça nova fundiria motor sem aviso.
+        const CORRIDAS: u64 = 400;
+        let com_quebra = panes_do_catalogo(Some(&[]), CORRIDAS);
+        let sem_quebra = panes_do_catalogo(None, CORRIDAS);
+
+        assert_eq!(
+            com_quebra, 0,
+            "com a quebra no comando o catálogo não pode gerar pane nenhuma"
+        );
+        assert!(
+            sem_quebra > 0,
+            "sem a quebra o catálogo TEM que continuar sendo a fonte de pane (veio {sem_quebra} \
+             em {CORRIDAS} corridas) — se zerou, o teste não está medindo nada"
+        );
+    }
+
+    #[test]
+    fn quebra_vale_mesmo_com_incidentes_desligados() {
+        // `incidents_enabled: false` é o default do contexto de teste. A quebra não é incidente
+        // de pilotagem: é o desgaste que o time trouxe, e tem que valer do mesmo jeito.
+        let ctx = sample_context(30, WeatherCondition::Dry);
+        assert!(!ctx.incidents_enabled);
+        let (result, _) = race_with(&[mech("005", 8, true, 0)], 44);
+        assert!(result
+            .race_results
+            .iter()
+            .find(|r| r.pilot_id == "005")
+            .unwrap()
+            .is_dnf);
     }
 }

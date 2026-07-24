@@ -44,7 +44,7 @@ use crate::simulation::batch::{
 };
 use crate::simulation::catalog::IncidentCatalog;
 use crate::simulation::context::{SimDriver, SimulationContext};
-use crate::simulation::engine::run_full_race;
+use crate::simulation::engine::run_full_race_with_breakdowns;
 use crate::simulation::incidents::IncidentResult;
 use crate::simulation::race::RaceResult;
 use crate::{calendar::CalendarEntry, models::team::Team};
@@ -802,6 +802,133 @@ pub(crate) fn simulate_historical_category_race(
     simulate_category_race_with_mode(db, race_entry, false, RacePersistenceMode::HistoricalDraft)
 }
 
+/// `career_id` da carreira aberta, deduzido do caminho do banco (`<saves>/<career_id>/career.db`).
+///
+/// A quebra da corrida simulada precisa dele pra semear exatamente como o caminho AO VIVO
+/// (`event_seed`): o id da etapa é SEQUENCIAL por save ("R001"), então sem a carreira na mistura
+/// dois saves diferentes rolariam a MESMA sorte na mesma rodada. Vazio se o caminho não tiver a
+/// forma esperada — aí a semente perde só o tempero entre saves, não o determinismo dentro de um.
+fn career_id_from_db(db: &Database) -> String {
+    db.path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Uma quebra pré-rolada de corrida simulada, com as três caras que ela precisa ter: o que a
+/// SIMULAÇÃO cobra (tempo/abandono), o que o SAVE registra (peça, volta, severidade) e o que a
+/// ECONOMIA recebe de volta (peça danificada do time). Juntas aqui pra o caller não remontar nada.
+struct PrerolledBreakdown {
+    outcome: crate::simulation::race::MechanicalOutcome,
+    row: crate::db::queries::race_breakdowns::RaceBreakdownRow,
+    team_id: String,
+    part: crate::car::PartType,
+    severity: crate::car::breakdown::Severity,
+}
+
+/// Pré-rola a QUEBRA DE PEÇA do grid inteiro de uma corrida SIMULADA — a Fase 7 do Sistema de
+/// Quebra, o que faltava pra corrida não-dirigida ter culpado.
+///
+/// Usa o MESMO cérebro e os MESMOS inputs do disparo ao vivo: o desgaste REAL do `team_car` de
+/// cada equipe, o pit crew dela, a demanda P/H/A da pista e o clima determinístico da etapa. É
+/// isso que faz a quebra ser consequência da economia e não um dado jogado por cima — o time
+/// pobre, que estica peça por falta de caixa, é o que larga na pista.
+///
+/// Piloto cujo time não tem carro no banco (save antigo, grid sintético) simplesmente não rola:
+/// a corrida segue sem quebra pra ele, em vez de inventar um carro médio que não existe.
+///
+/// Devolve `None` quando NENHUM carro do grid pôde ser lido — aí o sistema não tem como rodar e
+/// quem responde pela falha mecânica continua sendo a pane do catálogo de incidentes. `Some`
+/// (mesmo vazio) significa "a quebra rodou": o catálogo sai de cena e esta é a fonte única.
+fn preroll_simulated_breakdowns(
+    conn: &rusqlite::Connection,
+    career_id: &str,
+    race_entry: &CalendarEntry,
+    category: &CategoryConfig,
+    total_laps: i32,
+    sim_drivers: &[SimDriver],
+    teams: &[Team],
+) -> Option<Vec<PrerolledBreakdown>> {
+    use crate::car::breakdown::{is_enduro_duration, roll_race_breakdowns_cfg};
+    use crate::db::queries::race_breakdowns::RaceBreakdownRow;
+    use crate::db::queries::team_car as tcq;
+    use crate::market::car_maintenance::maintenance_demand;
+    use crate::simulation::race::MechanicalOutcome;
+
+    let ev_seed = crate::commands::iracing::event_seed(career_id, &race_entry.id);
+    let weather = crate::commands::iracing::race_breakdown_weather(
+        race_entry.track_id,
+        race_entry.week_of_year,
+        ev_seed,
+        false,
+    );
+    let track_pha = maintenance_demand(&[race_entry.track_id]);
+    // Enduro: severidade abrandada (o grid não esvazia) + rampa de desgaste no fim.
+    let is_enduro = is_enduro_duration(category.duracao_corrida_min);
+    // Tenda de durabilidade por nível só em categoria GERIDA (teto ≥ 3); spec fica de fora.
+    let apply_tent = crate::car::cost::category_ceiling(&race_entry.categoria) > 2;
+    let laps = total_laps.max(1) as u32;
+
+    let pit_by_team: HashMap<&str, f64> = teams
+        .iter()
+        .map(|t| (t.id.as_str(), t.pit_crew_quality))
+        .collect();
+    // O carro é da EQUIPE (os dois pilotos partilham) — lido uma vez e reusado.
+    let mut car_cache: HashMap<String, Option<crate::car::Car>> = HashMap::new();
+
+    let mut out = Vec::new();
+    let mut algum_carro_lido = false;
+    for driver in sim_drivers {
+        let car = car_cache
+            .entry(driver.team_id.clone())
+            .or_insert_with(|| tcq::get_team_car(conn, &driver.team_id).ok().flatten());
+        let Some(car) = car.as_ref() else {
+            continue;
+        };
+        algum_carro_lido = true;
+        // Semente por PILOTO sobre a da etapa — o mesmo `seed_for` do disparo ao vivo. Os dois
+        // pilotos de um time rolam sortes independentes a partir do MESMO desgaste do carro.
+        let mut seed = ev_seed;
+        for b in driver.id.bytes() {
+            seed = seed.wrapping_mul(0x0000_0100_0000_01B3).wrapping_add(b as u64);
+        }
+        let pit = pit_by_team
+            .get(driver.team_id.as_str())
+            .copied()
+            .unwrap_or(50.0);
+        let events = roll_race_breakdowns_cfg(
+            car, laps, seed, pit, track_pha, weather, &[], is_enduro, apply_tent,
+        );
+        for ev in events {
+            let label = ev.problem_label().to_string();
+            out.push(PrerolledBreakdown {
+                outcome: MechanicalOutcome {
+                    pilot_id: driver.id.clone(),
+                    lap: ev.lap,
+                    is_dnf: ev.is_dnf(),
+                    penalty_secs: ev.penalty_secs.unwrap_or(0),
+                    label: label.clone(),
+                },
+                row: RaceBreakdownRow {
+                    driver_id: driver.id.clone(),
+                    part: ev.part.as_str().to_string(),
+                    problem: ev.problem,
+                    lap: ev.lap,
+                    severity: ev.severity.key().to_string(),
+                    penalty_secs: ev.penalty_secs,
+                    forced: ev.forced,
+                    label,
+                },
+                team_id: driver.team_id.clone(),
+                part: ev.part,
+                severity: ev.severity,
+            });
+        }
+    }
+    algum_carro_lido.then_some(out)
+}
+
 fn simulate_category_race_with_mode(
     db: &mut Database,
     race_entry: &CalendarEntry,
@@ -1065,11 +1192,34 @@ fn simulate_category_race_with_mode(
     );
     let mut rng = rand::thread_rng();
     let catalog = IncidentCatalog::load(&db.conn).unwrap_or_else(|_| IncidentCatalog::empty());
-    let mut result = run_full_race(
+
+    // QUEBRA DE PEÇA (Fase 7): pré-rola o grid inteiro sobre o desgaste REAL dos carros e deixa
+    // a simulação cobrar o preço. Só na carreira jogável — o rascunho histórico reconstrói
+    // temporadas antigas com grid sintético, onde não existe `team_car` pra ler. Quando roda,
+    // ela vira a FONTE ÚNICA de pane: a mecânica genérica do catálogo é desligada na simulação.
+    let prerolled = if persistence_mode == RacePersistenceMode::Playable {
+        preroll_simulated_breakdowns(
+            &db.conn,
+            &career_id_from_db(db),
+            race_entry,
+            category,
+            ctx.total_laps,
+            &sim_drivers,
+            &teams,
+        )
+    } else {
+        None
+    };
+    let mechanicals: Option<Vec<crate::simulation::race::MechanicalOutcome>> = prerolled
+        .as_ref()
+        .map(|list| list.iter().map(|p| p.outcome.clone()).collect());
+
+    let mut result = run_full_race_with_breakdowns(
         &sim_drivers,
         &ctx,
         category.id == "endurance",
         &catalog,
+        mechanicals.as_deref(),
         &mut rng,
     );
     if is_multiclass_category(&race_entry.categoria) {
@@ -1079,6 +1229,59 @@ fn simulate_category_race_with_mode(
         Some((active_season.rodada_atual + 1).min(category.corridas_por_temporada as i32))
     } else {
         None
+    };
+
+    // Só o que a corrida de fato COBROU: quem já tinha abandonado por batida antes da volta da
+    // quebra não conta (ver `RaceResult::applied_mechanicals`). Daqui saem as três consequências.
+    let applied: Vec<&PrerolledBreakdown> = match prerolled.as_ref() {
+        Some(list) => result
+            .applied_mechanicals
+            .iter()
+            .filter_map(|&i| list.get(i))
+            .collect(),
+        None => Vec::new(),
+    };
+
+    // Abandono POR QUEBRA precisa apontar pro catálogo `Mechanical`: é por esse id que o
+    // histórico de DNF e o beat de Abandono da notícia reconhecem a pane. O `dnf_reason` a
+    // simulação já gravou com a frase da peça. MESMO tratamento do import do iRacing.
+    if applied.iter().any(|p| p.severity == crate::car::breakdown::Severity::Dnf) {
+        let mech_id: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT id FROM incident_catalog WHERE incident_source = 'Mechanical' LIMIT 1",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        if let Some(id) = mech_id {
+            for p in applied
+                .iter()
+                .filter(|p| p.severity == crate::car::breakdown::Severity::Dnf)
+            {
+                if let Some(dr) = result
+                    .race_results
+                    .iter_mut()
+                    .find(|d| d.pilot_id == p.row.driver_id && d.is_dnf)
+                {
+                    dr.dnf_catalog_id = Some(id.clone());
+                }
+            }
+        }
+    }
+
+    // Feedback físico da quebra (§4.6), por TIME: Leve segue, Grave vira fim de vida, DNF
+    // destrói a peça (troca forçada a débito no fechamento da fatura). É o que fecha o laço
+    // quebra → economia, igual à corrida ao vivo.
+    let team_breakdowns: HashMap<
+        String,
+        Vec<(crate::car::PartType, crate::car::breakdown::Severity)>,
+    > = {
+        let mut map: HashMap<String, Vec<_>> = HashMap::new();
+        for p in &applied {
+            map.entry(p.team_id.clone()).or_default().push((p.part, p.severity));
+        }
+        map
     };
 
     let new_injuries_out = persist_race_result_tx(
@@ -1092,9 +1295,24 @@ fn simulate_category_race_with_mode(
         persistence_mode,
         None, // sim offline: sem inputs do jogador → sem estilo
         0,    // sim offline: sem paradas reais (a IA modela pela duração)
-        &std::collections::HashMap::new(), // sim offline: sem quebra ao vivo → sem feedback
+        &team_breakdowns,
         &mut rng,
     )?;
+
+    // Registra os desfechos pra tela pós-corrida e pra notícia. Best-effort: uma falha aqui não
+    // desfaz o resultado já persistido — a corrida aconteceu, só o detalhe da peça se perde.
+    if !applied.is_empty() {
+        let rows: Vec<_> = applied.iter().map(|p| p.row.clone()).collect();
+        warn_if_side_effect_fails(
+            crate::db::queries::race_breakdowns::insert_breakdowns_batch(
+                &db.conn,
+                &race_entry.id,
+                &rows,
+            )
+            .map_err(|e| e.to_string()),
+            "Falha ao gravar race_breakdowns da corrida simulada",
+        );
+    }
 
     Ok((result, new_injuries_out))
 }
@@ -1881,9 +2099,9 @@ pub(crate) fn compute_race_evaluation(
             let car = team_queries::get_team_by_id(conn, &r.team_id)
                 .ok()
                 .flatten()
-                .map(|t| t.car_performance)
+                .map(|t| t.car_strength())
                 .unwrap_or(0.0);
-            let car_norm = crate::simulation::math::normalize_car_performance(car);
+            let car_norm = car;
             let merit = compute_merit(
                 driver.atributos.skill,
                 car_norm,
@@ -5546,6 +5764,7 @@ mod tests {
             notable_incident_pilot_ids: Vec::new(),
             most_positions_gained_id: None,
             caution_segments: Vec::new(),
+            applied_mechanicals: Vec::new(),
         };
 
         apply_special_class_scoring(&mut result, &teams, true);
@@ -5564,6 +5783,105 @@ mod tests {
         assert_eq!(by_pilot["P-GT3-A"].points_earned, 35);
         assert_eq!(by_pilot["P-GT4-A"].finish_position, 1);
         assert_eq!(by_pilot["P-GT4-A"].points_earned, 35);
+    }
+
+    /// Fase 7 ponta a ponta: peça no fim da vida entra na corrida SIMULADA → a corrida cobra
+    /// o preço → o desfecho fica gravado com a peça culpada e o tempo perdido.
+    ///
+    /// É o buraco que a Fase 7 fechou: antes disto, corrida não-dirigida não quebrava peça
+    /// nenhuma e a tela de debrief não tinha o que mostrar. O carro é forçado ALÉM da parede
+    /// (`HARD_WALL` = 1.20) de propósito — ali a falha é certa, então o teste mede o WIRING
+    /// (roll → simulação → `race_breakdowns`), não a sorte do modelo.
+    #[test]
+    fn corrida_simulada_grava_a_peca_que_quebrou_e_o_tempo_perdido() {
+        use crate::db::queries::team_car as tcq;
+
+        let base_dir = unique_test_dir("fase7_quebra_na_sim");
+        fs::create_dir_all(&base_dir).expect("base dir");
+
+        create_career_in_base_dir(
+            &base_dir,
+            CreateCareerInput {
+                player_name: "Joao Silva".to_string(),
+                player_nationality: "br".to_string(),
+                player_age: Some(20),
+                category: "mazda_rookie".to_string(),
+                team_index: 0,
+                difficulty: "medio".to_string(),
+            },
+        )
+        .expect("career");
+
+        let config = AppConfig::load_or_default(&base_dir);
+        let db_path = config.saves_dir().join("career_001").join("career.db");
+        let mut db = Database::open_existing(&db_path).expect("db");
+
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("season")
+            .expect("active season");
+        let race = get_next_race(&db.conn, &season.id, "mazda_rookie")
+            .expect("next race")
+            .expect("pending race");
+
+        // Detona TODOS os carros da categoria: cada peça entra além da parede. Assim o grid
+        // inteiro tem falha forçada e o teste não depende de qual time o sorteio escolheria.
+        let teams = team_queries::get_teams_by_category(&db.conn, "mazda_rookie").expect("teams");
+        assert!(!teams.is_empty(), "categoria precisa ter equipes");
+        for team in &teams {
+            if let Ok(Some(mut car)) = tcq::get_team_car(&db.conn, &team.id) {
+                for part in car.parts.iter_mut() {
+                    part.wear = 1.30; // > HARD_WALL (1.20) → falha certa na 1ª volta
+                }
+                tcq::upsert_team_car(&db.conn, &team.id, &car).expect("upsert car gasto");
+            }
+        }
+
+        let (result, _) = simulate_category_race(&mut db, &race, false).expect("simular corrida");
+
+        let rows = crate::db::queries::race_breakdowns::get_breakdowns_for_race(&db.conn, &race.id)
+            .expect("ler quebras");
+        assert!(
+            !rows.is_empty(),
+            "carro todo além da parede tinha que gravar quebra; veio vazio"
+        );
+
+        // Cada linha carrega o culpado e a consequência — é isso que a tela lê.
+        for row in &rows {
+            assert!(!row.part.is_empty(), "quebra sem peça culpada");
+            assert!(!row.label.is_empty(), "quebra sem descrição do problema");
+            assert!(row.lap >= 1, "quebra sem volta");
+            match row.severity.as_str() {
+                "dnf" => assert!(row.penalty_secs.is_none(), "DNF não tem tempo de box"),
+                "light" | "heavy" => assert!(
+                    row.penalty_secs.unwrap_or(0) > 0,
+                    "penalidade de box tem que custar tempo"
+                ),
+                other => panic!("severidade inesperada: {other}"),
+            }
+        }
+
+        // Nada de quebra fantasma: só quem está no resultado pode ter linha gravada.
+        for row in &rows {
+            assert!(
+                result
+                    .race_results
+                    .iter()
+                    .any(|r| r.pilot_id == row.driver_id),
+                "quebra gravada para piloto fora do resultado: {}",
+                row.driver_id
+            );
+        }
+
+        // Quem abandonou POR quebra tem que sair da corrida com a frase da peça como motivo.
+        for row in rows.iter().filter(|r| r.severity == "dnf") {
+            let entry = result
+                .race_results
+                .iter()
+                .find(|r| r.pilot_id == row.driver_id)
+                .expect("piloto no resultado");
+            assert!(entry.is_dnf, "quebra fatal não tirou o carro da corrida");
+            assert_eq!(entry.dnf_reason.as_deref(), Some(row.label.as_str()));
+        }
     }
 
     #[test]

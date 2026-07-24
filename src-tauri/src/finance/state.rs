@@ -43,14 +43,16 @@ pub fn choose_season_strategy(team: &Team) -> &'static str {
         return "survival";
     }
 
-    if plan.spending_power < scale.operating_cost_midpoint() * 0.20 && team.car_performance < 6.0 {
+    // Sem caixa E com carro fraco → aposta tudo. Limiares convertidos do domínio 0–16 para
+    // a escala única 0–100 de `car_strength` (6/16 ≈ 38; 8/16 = 50).
+    if plan.spending_power < scale.operating_cost_midpoint() * 0.20 && team.car_strength() < 38.0 {
         return "all_in";
     }
 
     match derive_financial_state(financial_health_score(team)) {
         "elite" => "balanced",
         "healthy" => {
-            if team.car_performance < 8.0 {
+            if team.car_strength() < 50.0 {
                 "expansion"
             } else {
                 "balanced"

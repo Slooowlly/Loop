@@ -1983,12 +1983,13 @@
       "bestLapSortTitle": "Click to sort by fastest lap (returns to normal in 5s)",
       "gap": "gap",
       "points": "pts",
-      "fastestLapTitle": "Fastest lap",
-      "you": "you"
+      "fastestLapTitle": "Fastest lap"
     },
     "breakdowns": {
       "title": "Part failures",
-      "lapTip": "L{{lap}}"
+      "lapTip": "L{{lap}}",
+      "rowMarkerTitle": "Part failure in this race",
+      "retired": "Retired"
     },
     "debrief": {
       "engineerTitle": "Engineer debrief",
@@ -2007,7 +2008,8 @@
       "raceTarget": "race target",
       "bestLap": "best lap",
       "incidents": "incidents",
-      "maintenance": "maintenance"
+      "maintenance": "maintenance",
+      "timeLost": "lost in the pits"
     },
     "maintenance": {
       "invoiceTitle": "Car invoice",
@@ -3053,8 +3055,8 @@
     "traceGapToLeader": "Gap to leader",
     "raceTrace": "Race Trace",
     "you": " (you)",
-    "avg": "avg",
-    "best": "best",
+    "avg": "Avg",
+    "best": "Best",
     "lapVariation": "Lap variation",
     "pace": "Pace",
     "noPlayerLaps": "No laps of yours recorded.",
@@ -3063,12 +3065,12 @@
     "noGapData": "No gap data for this driver.",
     "legendDry": "Dry",
     "legendWet": "Wet",
-    "legendFuelOnly": "fuel only",
+    "legendFuelOnly": "Fuel only",
     "pitStrategy": "Pit strategy",
     "noPits": "No stops in this race.",
-    "pitTimesHint": "box time · est. tires/fuel",
+    "pitTimesHint": "Box time · est. tires/fuel",
     "pitTimes": "Pit times",
-    "breakdownsHint": "part · problem · lap · outcome",
+    "breakdownsHint": "Part · problem · lap · outcome",
     "breakdowns": "Part failures",
     "colDriver": "driver",
     "colPart": "part",

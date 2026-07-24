@@ -610,7 +610,7 @@ fn build_player_special_offers(
 
             if let Some(priority) = preferred_priority {
                 preferred.push((
-                    priority + team.car_performance.round() as i32,
+                    priority + (team.car_strength() * 0.16).round() as i32,
                     team.id,
                     team.nome,
                     cfg.special_category.to_string(),
@@ -621,7 +621,7 @@ fn build_player_special_offers(
 
             if license_ok && quality_score >= fallback_quality_threshold(cfg) {
                 fallback.push((
-                    100 + team.car_performance.round() as i32,
+                    100 + (team.car_strength() * 0.16).round() as i32,
                     team.id,
                     team.nome,
                     cfg.special_category.to_string(),
