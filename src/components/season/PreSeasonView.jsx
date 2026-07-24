@@ -4,10 +4,6 @@ import { currentLang } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
-import { formatSalaryAnnual, formatMoneyCompact, extractNationalityLabel } from "../../utils/formatters";
-import TeamLogoMark from "../team/TeamLogoMark";
-import FlagIcon from "../ui/FlagIcon";
-import GlobalTeamsTab from "../../pages/tabs/GlobalTeamsTab";
 import WeeklyClosingMovement from "./preseason/WeeklyClosingMovement";
 import MarketCategoryHeader from "./preseason/MarketCategoryHeader";
 import TeamDriverRow from "./preseason/TeamDriverRow";
@@ -16,6 +12,12 @@ import OfferCategoryRow from "./preseason/OfferCategoryRow";
 import OfferCardRich from "./preseason/OfferCardRich";
 import TeamGridCard from "./preseason/TeamGridCard";
 import ProposalCard from "./preseason/ProposalCard";
+import OffersModal from "./preseason/OffersModal";
+import ContractModal from "./preseason/ContractModal";
+import TeamHistoryOverlay from "./preseason/TeamHistoryOverlay";
+import DisplacedDriversModal from "./preseason/DisplacedDriversModal";
+import TransferDetailModal from "./preseason/TransferDetailModal";
+import FreeAgentWarningModal from "./preseason/FreeAgentWarningModal";
 
 import {
   CATEGORIES,
@@ -28,24 +30,18 @@ import {
   bandForTier,
   MARKET_TIER_BY_CATEGORY,
   CATEGORY_TIER,
-  WEEKLY_MARKET_MOVEMENT_BADGES,
-  RELATION_EMPHASIS,
   shortCatName,
   subcatLabel,
   subcatColor,
   shortDestLabel,
-  BOND_LEVEL_COLORS,
   brandOf,
   is_regular_market_category,
   playerCatToFilter,
   getTeamMovementOrder,
   getTeamMappingSortValue,
   count_team_vacancies,
-  formatLastChampionshipResult,
   isRealCareerDebutCategory,
   buildWeeklyClosingGroups,
-  LICENSE_COLORS,
-  licenseTooltip,
 } from "./preSeasonFormatters.js";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -186,6 +182,17 @@ export default function PreSeasonView() {
 
   // Abre a ficha de contrato de uma oferta (assinatura sempre começa zerada).
   const handleViewContract = (offer) => { setIsSigning(false); setContractOffer(offer); };
+
+  // Assinar: escreve a assinatura (~1.25s) e só então efetiva a oferta.
+  const handleSignContract = (offer) => {
+    if (isSigning) return;
+    setIsSigning(true);
+    setTimeout(() => {
+      setContractOffer(null);
+      setShowOffersModal(false);
+      handleAcceptOffer(offer);
+    }, 1550);
+  };
 
   const currentDateLabel = useMemo(
     () => {
@@ -1023,675 +1030,56 @@ export default function PreSeasonView() {
 
       {/* ══ MODAL: Suas ofertas (fichas das equipes) ══ */}
       {showOffersModal && totalOffers > 0 && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowOffersModal(false); }}
-        >
-          {(() => {
-          const modalGroups = offersModalCat
-            ? offersByCategory.filter((g) => g.cat === offersModalCat)
-            : offersByCategory;
-          const modalCount = modalGroups.reduce((sum, g) => sum + g.n1.length + g.n2.length, 0);
-          const modalCatLabel = offersModalCat ? modalGroups[0]?.label : null;
-          return (
-          <div className="glass-strong animate-fade-in flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
-              <div>
-                <div className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-                  {modalCatLabel ? t("preSeason.offersModal.eyebrowCat", { label: modalCatLabel }) : t("preSeason.offersModal.eyebrow")}
-                </div>
-                <h2 className="mt-1 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-                  {t("preSeason.offersModal.countTitle", { count: modalCount })}
-                </h2>
-                <p className="mt-1 text-body-sm text-[color:var(--text-secondary)]">
-                  {t("preSeason.offersModal.subtitle")}
-                </p>
-                {offersModalCat && offersByCategory.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setOffersModalCat(null)}
-                    className="mt-2 text-body-sm font-semibold text-[color:var(--accent-primary)] hover:underline"
-                  >
-                    {t("preSeason.offersModal.viewAll", { count: totalOffers })}
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowOffersModal(false)}
-                className="transition-glass glass-light shrink-0 rounded-lg px-3 py-2 text-body font-bold text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)]"
-                aria-label={t("preSeason.actions.close")}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="scroll-area space-y-5 overflow-y-auto px-6 py-5">
-              {modalGroups.map((group) => {
-                const n = group.n1.length + group.n2.length;
-                const isPromotion = playerTier != null && group.tier > playerTier;
-                const accent = subcatColor(group.cat);
-                return (
-                  <section key={group.cat} className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="text-body font-black uppercase tracking-[0.16em]"
-                        style={{ color: accent }}
-                      >
-                        {group.label}
-                      </span>
-                      {isPromotion && (
-                        <span className="rounded-md bg-[rgba(63,185,80,0.14)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--status-green)]">
-                          ↑ {t("preSeason.offersModal.promotion")}
-                        </span>
-                      )}
-                      <div className="h-px flex-1" style={{ background: `linear-gradient(to right, ${accent}55, transparent)` }} />
-                      <span className="text-body-sm text-[color:var(--text-muted)]">
-                        {t("preSeason.offers.vacancies", { count: n })}
-                      </span>
-                    </div>
-                    {[["n1", group.n1], ["n2", group.n2]].map(([roleKey, list]) =>
-                      list.length === 0 ? null : (
-                        <div key={roleKey} className="space-y-3">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-                            {t(`preSeason.offersModal.role.${roleKey}`)}
-                          </p>
-                          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                            {list.map((o) => (
-                              <OfferCardRich
-                                key={o.seat_id}
-                                offer={o}
-                                isAdvancingWeek={isAdvancingWeek}
-                                onViewContract={handleViewContract}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          </div>
-          );
-          })()}
-        </div>
+        <OffersModal
+          offersByCategory={offersByCategory}
+          offersModalCat={offersModalCat}
+          totalOffers={totalOffers}
+          playerTier={playerTier}
+          isAdvancingWeek={isAdvancingWeek}
+          onClose={() => setShowOffersModal(false)}
+          onClearCat={() => setOffersModalCat(null)}
+          onViewContract={handleViewContract}
+        />
       )}
 
       {/* ══ MODAL: Contrato — documento A4 de assinatura ══ */}
-      {contractOffer && (() => {
-        const offer = contractOffer;
-        const accent = offer.team_color || "#58a6ff";
-        const countryLabel = extractNationalityLabel(offer.team_country) || offer.team_country || "";
-        const bondLevel = offer.bond_level ?? 1;
-        const bondColor = BOND_LEVEL_COLORS[Math.min(bondLevel, BOND_LEVEL_COLORS.length) - 1];
-        const hasHistory = bondLevel >= 2;
-        const dur = offer.offer_duration ?? 1;
-        const isProject = dur >= 2;
-        const docRef = String(offer.seat_id ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase() || "000000";
-        const signName = playerName || t("preSeason.contract.driverFallback");
-        // Paleta do documento (folha escura, tinta clara — combina com o resto do app).
-        const paper = "#0e1319";
-        const ink = "var(--text-primary)";
-        const inkSoft = "var(--text-secondary)";
-        const inkMute = "var(--text-muted)";
-        const hair = "rgba(255,255,255,0.08)";
-        const money = "var(--status-green)";
-        return (
-          <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
-            onClick={(e) => { if (isSigning) return; if (e.target === e.currentTarget) setContractOffer(null); }}
-          >
-            <div
-              className="animate-scale-in relative flex max-h-[94vh] w-full max-w-[600px] flex-col overflow-hidden rounded-[14px] shadow-[0_40px_120px_-24px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
-              style={{ background: paper }}
-            >
-              {/* Faixa de cor da equipe no topo da folha */}
-              <div className="h-1.5 w-full shrink-0" style={{ background: accent }} />
-
-              {/* Botão fechar (canto) */}
-              <button
-                type="button"
-                onClick={() => setContractOffer(null)}
-                disabled={isSigning}
-                className="absolute right-3 top-4 z-10 rounded-lg bg-white/5 px-3 py-2 text-body font-bold transition-colors hover:bg-white/10 disabled:opacity-40"
-                style={{ color: inkSoft }}
-                aria-label={t("preSeason.actions.close")}
-              >
-                ✕
-              </button>
-
-              {/* Folha rolável, com moldura interna estilo documento */}
-              <div className="scroll-area relative flex-1 overflow-y-auto">
-                {/* Marca d'água: logo gigante da equipe ao fundo */}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04]">
-                  <div className="scale-[3.2]">
-                    <TeamLogoMark teamName={offer.team_name} color="#ffffff" size="hero" />
-                  </div>
-                </div>
-
-                {/* Moldura interna (margem do documento) */}
-                <div className="pointer-events-none absolute inset-4 rounded-md border" style={{ borderColor: hair }} />
-
-                <div className="relative px-8 py-8 sm:px-10">
-                  {/* ── Timbre: logo + identidade da equipe ── */}
-                  <header className="flex flex-col items-center text-center">
-                    <TeamLogoMark teamName={offer.team_name} color={accent} size="lg" />
-                    <h2 className="mt-3 text-[22px] font-black leading-tight" style={{ color: ink }}>
-                      {offer.team_name}
-                    </h2>
-                    <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: inkMute }}>
-                      <FlagIcon nacionalidade={offer.team_country} className="h-3.5 w-5" />
-                      {countryLabel && <span>{countryLabel}</span>}
-                      {offer.team_founded_year ? <span>{t("preSeason.foundedSince", { year: offer.team_founded_year })}</span> : null}
-                    </div>
-                  </header>
-
-                  {/* ── Título do documento ── */}
-                  <div className="mt-6 flex items-center gap-3">
-                    <div className="h-px flex-1" style={{ background: `linear-gradient(to right, transparent, ${accent}88)` }} />
-                    <div className="text-center">
-                      <p className="text-[15px] font-black uppercase tracking-[0.3em]" style={{ color: ink }}>
-                        {t("preSeason.contract.title")}
-                      </p>
-                      <p className="mt-1 text-[9px] font-semibold uppercase tracking-[0.24em]" style={{ color: accent }}>
-                        {t("preSeason.contract.categoryRef", { category: offer.category_label || offer.category, ref: docRef })}
-                      </p>
-                    </div>
-                    <div className="h-px flex-1" style={{ background: `linear-gradient(to left, transparent, ${accent}88)` }} />
-                  </div>
-
-                  {/* ── Preâmbulo ── */}
-                  <p className="mt-5 text-[12px] leading-relaxed" style={{ color: inkSoft }}>
-                    <span className="font-bold" style={{ color: ink }}>{offer.team_name}</span>
-                    {" "}{t("preSeason.contract.preamblePart1")} <span className="font-bold" style={{ color: ink }}>{signName}</span>{" "}
-                    {t("preSeason.contract.preamblePart2")}
-                  </p>
-
-                  {/* ── Cláusulas ── */}
-                  <div className="mt-5 space-y-0">
-                    {/* I — Função */}
-                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          {t("preSeason.contract.clause1")}
-                        </p>
-                        <p className="text-right text-body font-bold" style={{ color: accent }}>
-                          {offer.role === "N1" ? t("preSeason.contract.roleN1") : t("preSeason.contract.roleN2")}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* II — Remuneração */}
-                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          {t("preSeason.contract.clause2")}
-                        </p>
-                        <p className="num-medium text-title-md font-black" style={{ color: money }}>
-                          {formatSalaryAnnual(offer.salary)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* III — Vigência */}
-                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          {t("preSeason.contract.clause3")}
-                        </p>
-                        <p className="num-medium text-body font-bold" style={{ color: isProject ? money : ink }}>
-                          {t("preSeason.offers.card.contractDuration", { count: dur })}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* IV — Projeto esportivo (foco do time) */}
-                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}` }}>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          {t("preSeason.contract.clause4")}
-                        </p>
-                        <p className="text-right text-body font-bold" style={{ color: accent }}>
-                          {offer.team_focus || t("preSeason.contract.focusFallback")}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* V — Relação com a equipe (vínculo) */}
-                    <div className="py-3.5" style={{ borderTop: `1px solid ${hair}`, borderBottom: `1px solid ${hair}` }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color: inkMute }}>
-                          {t("preSeason.contract.clause5")}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex gap-0.5">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                              <span
-                                key={i}
-                                className="h-2 w-4 rounded-full"
-                                style={{ background: i < bondLevel ? bondColor : "#21262d" }}
-                              />
-                            ))}
-                          </div>
-                          <span className="text-body-sm font-bold" style={{ color: hasHistory ? bondColor : inkMute }}>
-                            {offer.bond_label || t("preSeason.contract.bondFallback")}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── Área de assinatura ── */}
-                  <div className="mt-8 grid grid-cols-2 gap-8">
-                    {/* Piloto (você) — assinado com animação manuscrita ao aceitar */}
-                    <div>
-                      <div
-                        className="flex h-14 items-end justify-center overflow-hidden border-b-2 border-dashed"
-                        style={{ borderColor: `${accent}88` }}
-                      >
-                        {isSigning ? (
-                          <span
-                            className="animate-signature truncate pb-0.5 text-[24px] leading-none"
-                            style={{ fontFamily: "'Segoe Script','Brush Script MT','Comic Sans MS',cursive", color: accent }}
-                          >
-                            {signName}
-                          </span>
-                        ) : (
-                          <span className="pb-1.5 text-[11px] italic" style={{ color: inkMute }}>
-                            {t("preSeason.contract.signHint")}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
-                        {t("preSeason.contract.driverRole")}
-                      </p>
-                      <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{signName}</p>
-                    </div>
-                    {/* Equipe (já assinado) */}
-                    <div>
-                      <div className="flex h-14 items-end justify-center border-b-2" style={{ borderColor: "rgba(255,255,255,0.25)" }}>
-                        <span
-                          className="truncate pb-0.5 text-[24px] leading-none"
-                          style={{ fontFamily: "'Segoe Script','Brush Script MT','Comic Sans MS',cursive", color: accent }}
-                        >
-                          {offer.team_name}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-center text-[9px] uppercase tracking-[0.22em]" style={{ color: inkMute }}>
-                        {t("preSeason.contract.teamRole")}
-                      </p>
-                      <p className="text-center text-[12px] font-bold" style={{ color: ink }}>{offer.team_name}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Rodapé de ações ── */}
-              <div className="flex shrink-0 gap-3 border-t border-white/10 bg-black/30 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={() => setContractOffer(null)}
-                  disabled={isSigning}
-                  className="transition-glass glass-light rounded-lg px-4 py-2.5 text-body font-bold text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {t("preSeason.actions.back")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isSigning) return;
-                    // Escreve a assinatura (~1.25s) e só então efetiva a oferta.
-                    setIsSigning(true);
-                    setTimeout(() => {
-                      setContractOffer(null);
-                      setShowOffersModal(false);
-                      handleAcceptOffer(offer);
-                    }, 1550);
-                  }}
-                  disabled={isAdvancingWeek || isSigning}
-                  className="transition-glass glow-blue flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-4 py-2.5 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="text-[15px] leading-none">✒️</span>
-                  {isSigning ? t("preSeason.contract.signing") : t("preSeason.contract.sign")}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {contractOffer && (
+        <ContractModal
+          offer={contractOffer}
+          playerName={playerName}
+          isSigning={isSigning}
+          isAdvancingWeek={isAdvancingWeek}
+          onClose={() => setContractOffer(null)}
+          onSign={handleSignContract}
+        />
+      )}
 
       {/* ══ OVERLAY: Histórico mundial de equipes (atlas, duplo clique no card) ══ */}
       {historyTeam ? (
-        <div
-          className="fixed inset-0 z-[80] overflow-y-auto bg-black/80 backdrop-blur-md"
-          onClick={() => setHistoryTeam(null)}
-        >
-          <div
-            className="mx-auto max-w-7xl px-4 py-6 sm:px-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GlobalTeamsTab
-              selectedTeamId={historyTeam.id}
-              selectedTeamCategory={historyTeam._categoria ?? historyTeam.categoria ?? null}
-              selectedTeamClassName={historyTeam.classe ?? null}
-              initialZoomYears={10}
-              pinnedTeamId={historyTeam.id}
-              drawerPlacement="center"
-              onBack={() => setHistoryTeam(null)}
-            />
-          </div>
-        </div>
+        <TeamHistoryOverlay team={historyTeam} onClose={() => setHistoryTeam(null)} />
       ) : null}
 
       {/* ══ MODAL: Pilotos sem vaga ══ */}
       {showDisplacedModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowDisplacedModal(false); }}
-        >
-          <div className="glass-strong animate-fade-in mx-4 w-full max-w-4xl rounded-2xl p-6 md:p-7">
-            <div className="mb-1 text-body-sm font-bold uppercase tracking-[0.22em] text-[#f85149]">
-              {t("preSeason.displaced.eyebrow")}
-            </div>
-            <h2 className="mb-1 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-              {t("preSeason.displaced.title")}
-            </h2>
-            <p className="mb-5 text-body text-[color:var(--text-secondary)]">
-              {t("preSeason.displaced.subtitle", { count: displacedVeterans.length })}
-            </p>
-
-            <div className="mb-6 max-h-[70vh] space-y-4 overflow-y-auto pr-1">
-              {displacedVeteransByCategory.map((group) => (
-                <section key={group.category} className="space-y-2.5">
-                  <div
-                    className="flex items-center gap-3 rounded-xl px-3 py-2"
-                    style={{
-                      background: `linear-gradient(135deg, ${group.color}22 0%, rgba(255,255,255,0.03) 100%)`,
-                      borderLeft: `3px solid ${group.color}`,
-                    }}
-                  >
-                    <span
-                      className="text-[13px] font-bold uppercase tracking-[0.16em]"
-                      style={{ color: group.color }}
-                    >
-                      {group.label}
-                    </span>
-                    <div
-                      className="h-px flex-1"
-                      style={{ background: `linear-gradient(to right, ${group.color}55, transparent)` }}
-                    />
-                    <span className="text-body-sm text-[color:var(--text-muted)]">
-                      {group.drivers.length}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-                    {group.drivers.map((d) => {
-                      const lic = LICENSE_COLORS[d.license_sigla] ?? LICENSE_COLORS.R;
-                      const licenseTitle = licenseTooltip(d.license_sigla);
-                      const lastChampionshipResult = formatLastChampionshipResult(d);
-
-                      return (
-                        <div
-                          key={d.driver_id}
-                          className="flex items-center gap-3 rounded-xl px-3.5 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)]"
-                          style={{
-                            background: "rgba(8, 13, 24, 0.76)",
-                            border: "1px solid rgba(255, 255, 255, 0.12)",
-                            boxShadow:
-                              "inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 24px rgba(0,0,0,0.18)",
-                          }}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-[17px] font-bold leading-tight text-[color:var(--text-primary)]">
-                                {d.driver_name}
-                              </p>
-                            </div>
-                            <div className="mt-1.5 space-y-0.5 text-body-sm text-[color:var(--text-muted)]">
-                              {d.previous_team_name && d.seasons_at_last_team > 0 && (
-                                <div className="min-w-0">
-                                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--text-muted)]">
-                                    {t("preSeason.displaced.formerTeam")}
-                                  </div>
-                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <TeamLogoMark
-                                      teamName={d.previous_team_name}
-                                      color={d.previous_team_color}
-                                      size="xs"
-                                      testId="displaced-driver-previous-team-logo"
-                                    />
-                                    <span
-                                      className="block truncate text-[14px] font-semibold"
-                                      style={{ color: d.previous_team_color ?? "var(--text-secondary)" }}
-                                    >
-                                      {d.previous_team_name}
-                                    </span>
-                                    {lastChampionshipResult && (
-                                      <span className="text-[13px] font-bold text-[color:var(--text-secondary)]">
-                                        {`• ${lastChampionshipResult}`}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[12px]">{t("preSeason.displaced.seasons", { count: d.seasons_at_last_team })}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <span
-                            aria-label={licenseTitle}
-                            className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] text-[10px] font-black uppercase tracking-[0.12em] min-w-[3.25rem] min-w-[2.4rem] text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
-                            style={{ background: lic.bg, color: lic.text }}
-                            title={licenseTitle}
-                          >
-                            {d.license_sigla}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDisplacedModal(false)}
-                className="transition-glass flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10"
-              >
-                {t("preSeason.actions.back")}
-              </button>
-              <button
-                onClick={handleConfirmStartSeason}
-                className="transition-glass glow-blue flex-1 rounded-xl border border-[#3fb95099] bg-[#3fb950] px-4 py-2.5 text-body font-bold text-[#06101f] hover:bg-[#52d16a]"
-              >
-                {t("preSeason.actions.startSeason")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DisplacedDriversModal
+          groups={displacedVeteransByCategory}
+          totalCount={displacedVeterans.length}
+          onClose={() => setShowDisplacedModal(false)}
+          onConfirm={handleConfirmStartSeason}
+        />
       )}
 
       {/* ══ MODAL: Detalhe da transferência ══ */}
-      {transferDetail && (() => {
-        const ev = transferDetail;
-        const badge = WEEKLY_MARKET_MOVEMENT_BADGES[ev.movement_kind];
-        const emphasis = RELATION_EMPHASIS[ev.relation];
-        const isDebut = !ev.from_team;
-        const fromTeam = ev.from_team;
-        const toTeam = ev.to_team || ev.team_name;
-        const isRenewal = ev.movement_kind === "renewal" || (fromTeam && fromTeam === toTeam);
-        const accent = badge?.color ?? subcatColor(ev.categoria);
-        const tenure = ev.seasons_at_previous;
-        const fromCatLabel = ev.from_categoria ? subcatLabel(ev.from_categoria) : null;
-        const toCatLabel = ev.categoria ? subcatLabel(ev.categoria) : null;
-        const sameCat = fromCatLabel && fromCatLabel === toCatLabel;
-
-        return (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={(e) => { if (e.target === e.currentTarget) setTransferDetail(null); }}
-          >
-            <div className="glass-strong animate-fade-in relative mx-4 w-full max-w-lg rounded-2xl p-6 md:p-7">
-              <button
-                onClick={() => setTransferDetail(null)}
-                aria-label={t("preSeason.actions.close")}
-                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-white/12 bg-white/5 text-[color:var(--text-muted)] transition-glass hover:bg-white/10 hover:text-[color:var(--text-primary)]"
-              >
-                ✕
-              </button>
-
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                {badge && (
-                  <div
-                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
-                    style={{ color: badge.color, background: badge.bg, borderColor: badge.border }}
-                  >
-                    <span className="text-[13px] leading-none">{badge.symbol}</span>
-                    {t(`preSeason.movementBadge.${ev.movement_kind}`)}
-                  </div>
-                )}
-                {emphasis && (
-                  <div
-                    className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.16em]"
-                    style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
-                  >
-                    <span className="text-[13px] leading-none">{emphasis.symbol}</span>
-                    {t(`preSeason.relation.${ev.relation}`)}
-                  </div>
-                )}
-              </div>
-              <h2 className="mb-5 text-[20px] font-bold leading-tight text-[color:var(--text-primary)]">
-                {ev.driver_name}
-              </h2>
-
-              {/* Renovação: permaneceu na mesma equipe (sem De → Para) */}
-              {isRenewal ? (
-                <div className="mb-5 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-5 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    {t("preSeason.transferDetail.stayed")}
-                  </div>
-                  <TeamLogoMark teamName={toTeam} color={accent} size="md" />
-                  <span className="block truncate text-[15px] font-bold text-[color:var(--text-primary)]">
-                    {toTeam}
-                  </span>
-                </div>
-              ) : (
-              /* De → Para (equipes) */
-              <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-4">
-                <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    {t("preSeason.transferDetail.from")}
-                  </div>
-                  {isDebut ? (
-                    <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
-                      {t("preSeason.transferDetail.careerDebut")}
-                    </span>
-                  ) : (
-                    <>
-                      <TeamLogoMark teamName={fromTeam} color={accent} size="md" />
-                      <span className="block truncate text-[14px] font-bold text-[color:var(--text-primary)]">
-                        {fromTeam}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                <span className="shrink-0 text-[22px] font-black" style={{ color: accent }}>
-                  →
-                </span>
-
-                <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                    {t("preSeason.transferDetail.to")}
-                  </div>
-                  {toTeam ? (
-                    <>
-                      <TeamLogoMark teamName={toTeam} color={accent} size="md" />
-                      <span className="block truncate text-[14px] font-bold text-[color:var(--text-primary)]">
-                        {toTeam}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
-                      {t("preSeason.transferDetail.noTeam")}
-                    </span>
-                  )}
-                </div>
-              </div>
-              )}
-
-              {/* Categoria */}
-              {toCatLabel && (
-                <div className="mb-3 flex items-center justify-center gap-2 text-[13px]">
-                  {fromCatLabel && !sameCat ? (
-                    <>
-                      <span className="font-semibold text-[color:var(--text-secondary)]">{fromCatLabel}</span>
-                      <span className="font-black" style={{ color: accent }}>→</span>
-                      <span className="font-bold text-[color:var(--text-primary)]">{toCatLabel}</span>
-                    </>
-                  ) : (
-                    <span className="font-bold text-[color:var(--text-primary)]">{toCatLabel}</span>
-                  )}
-                </div>
-              )}
-
-              {/* Tempo de casa */}
-              <p className="text-center text-body-sm text-[color:var(--text-muted)]">
-                {isDebut
-                  ? t("preSeason.transferDetail.careerDebut")
-                  : tenure != null && tenure > 0
-                    ? isRenewal
-                      ? t("preSeason.transferDetail.tenureCurrent", { count: tenure })
-                      : t("preSeason.transferDetail.tenurePrevious", { count: tenure })
-                    : isRenewal
-                      ? t("preSeason.transferDetail.renewed")
-                      : t("preSeason.transferDetail.previousTeam")}
-              </p>
-            </div>
-          </div>
-        );
-      })()}
+      {transferDetail && (
+        <TransferDetailModal event={transferDetail} onClose={() => setTransferDetail(null)} />
+      )}
 
       {/* ── Modal: Iniciar temporada sem equipe ── */}
       {showFreeAgentWarning && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowFreeAgentWarning(false); }}
-        >
-          <div className="glass-strong animate-fade-in mx-4 w-full max-w-md rounded-2xl p-6 md:p-7">
-            <div className="mb-1 text-body-sm font-bold uppercase tracking-[0.22em] text-[#f85149]">
-              {t("preSeason.freeAgentWarning.eyebrow")}
-            </div>
-            <h2 className="mb-3 text-[18px] font-bold leading-tight text-[color:var(--text-primary)]">
-              {t("preSeason.freeAgentWarning.title")}
-            </h2>
-            <p className="mb-2 text-body text-[color:var(--text-secondary)]">
-              {t("preSeason.freeAgentWarning.body1Prefix")}{" "}
-              <span className="font-semibold text-[color:var(--text-primary)]">{t("preSeason.freeAgentWarning.freeAgentTerm")}</span>{" "}
-              {t("preSeason.freeAgentWarning.body1Suffix")}
-            </p>
-            <p className="mb-6 text-body text-[color:var(--text-secondary)]">
-              {t("preSeason.freeAgentWarning.body2")}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowFreeAgentWarning(false)}
-                className="transition-glass flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10"
-              >
-                {t("preSeason.actions.back")}
-              </button>
-              <button
-                onClick={handleConfirmFreeAgentStart}
-                className="transition-glass flex-1 rounded-xl border border-[#f8514999] bg-[#f85149]/20 px-4 py-2.5 text-body font-bold text-[#f85149] hover:bg-[#f85149]/30"
-              >
-                {t("preSeason.freeAgentWarning.confirmAnyway")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <FreeAgentWarningModal
+          onClose={() => setShowFreeAgentWarning(false)}
+          onConfirm={handleConfirmFreeAgentStart}
+        />
       )}
 
     </div>
