@@ -42,8 +42,8 @@ pub use api::*;
 pub(crate) use observacao::*;
 pub(crate) use pontuacao::*;
 pub use resultado::*;
-pub use tipos::*;
 use sessao::*;
+pub use tipos::*;
 
 // ─── Constantes de tentativa/sessão ──────────────────────────────────────────
 const STATE_RACING: i32 = 4;
