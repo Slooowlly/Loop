@@ -3946,7 +3946,14 @@ mod tests {
                 historico_vitorias INTEGER NOT NULL DEFAULT 0,
                 carreira_vitorias INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL DEFAULT ''
+                updated_at TEXT NOT NULL DEFAULT '',
+                -- Idem: colunas que a v2 garante e a v45 consome.
+                temporada_atual INTEGER NOT NULL DEFAULT 1,
+                cash_balance REAL NOT NULL DEFAULT 0.0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                last_round_income REAL NOT NULL DEFAULT 0.0,
+                last_round_expenses REAL NOT NULL DEFAULT 0.0,
+                last_round_net REAL NOT NULL DEFAULT 0.0
             );
 
             INSERT INTO teams (
@@ -4225,10 +4232,20 @@ mod tests {
                 nome TEXT NOT NULL
             );
 
+            -- Um banco v13 real já passou pela v2, que garante estas colunas via
+            -- ensure_column. Como o fixture entra direto na v13, ele precisa
+            -- declará-las: a v45 lê teams.temporada_atual e o bloco financeiro
+            -- pra semear o team_finance_history.
             CREATE TABLE teams (
                 id TEXT PRIMARY KEY,
                 nome TEXT NOT NULL,
-                categoria TEXT NOT NULL
+                categoria TEXT NOT NULL,
+                temporada_atual INTEGER NOT NULL DEFAULT 1,
+                cash_balance REAL NOT NULL DEFAULT 0.0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                last_round_income REAL NOT NULL DEFAULT 0.0,
+                last_round_expenses REAL NOT NULL DEFAULT 0.0,
+                last_round_net REAL NOT NULL DEFAULT 0.0
             );
 
             CREATE TABLE contracts (
@@ -4312,10 +4329,20 @@ mod tests {
                 status TEXT NOT NULL DEFAULT 'Ativa'
             );
 
+            -- Um banco v13 real já passou pela v2, que garante estas colunas via
+            -- ensure_column. Como o fixture entra direto na v13, ele precisa
+            -- declará-las: a v45 lê teams.temporada_atual e o bloco financeiro
+            -- pra semear o team_finance_history.
             CREATE TABLE teams (
                 id TEXT PRIMARY KEY,
                 nome TEXT NOT NULL,
-                categoria TEXT NOT NULL
+                categoria TEXT NOT NULL,
+                temporada_atual INTEGER NOT NULL DEFAULT 1,
+                cash_balance REAL NOT NULL DEFAULT 0.0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                last_round_income REAL NOT NULL DEFAULT 0.0,
+                last_round_expenses REAL NOT NULL DEFAULT 0.0,
+                last_round_net REAL NOT NULL DEFAULT 0.0
             );
 
             CREATE TABLE calendar (
@@ -4396,10 +4423,20 @@ mod tests {
                 final_tire_wear  REAL NOT NULL DEFAULT 1.0
             );
 
+            -- Um banco v13 real já passou pela v2, que garante estas colunas via
+            -- ensure_column. Como o fixture entra direto na v13, ele precisa
+            -- declará-las: a v45 lê teams.temporada_atual e o bloco financeiro
+            -- pra semear o team_finance_history.
             CREATE TABLE teams (
                 id TEXT PRIMARY KEY,
                 nome TEXT NOT NULL,
-                categoria TEXT NOT NULL
+                categoria TEXT NOT NULL,
+                temporada_atual INTEGER NOT NULL DEFAULT 1,
+                cash_balance REAL NOT NULL DEFAULT 0.0,
+                debt_balance REAL NOT NULL DEFAULT 0.0,
+                last_round_income REAL NOT NULL DEFAULT 0.0,
+                last_round_expenses REAL NOT NULL DEFAULT 0.0,
+                last_round_net REAL NOT NULL DEFAULT 0.0
             );
             ",
         )

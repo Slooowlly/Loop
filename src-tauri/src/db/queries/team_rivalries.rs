@@ -171,6 +171,16 @@ mod tests {
     fn setup_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         migrations::run_all(&conn).unwrap();
+        // A v49 criou team_rivalries com FOREIGN KEY para teams(id), então as
+        // equipes do par precisam existir antes de qualquer insert.
+        conn.execute_batch(
+            "INSERT INTO teams (id, nome, categoria) VALUES
+                ('T001', 'Equipe 1', 'gt3'),
+                ('T002', 'Equipe 2', 'gt3'),
+                ('T005', 'Equipe 5', 'gt3'),
+                ('T010', 'Equipe 10', 'gt3');",
+        )
+        .unwrap();
         conn
     }
 
