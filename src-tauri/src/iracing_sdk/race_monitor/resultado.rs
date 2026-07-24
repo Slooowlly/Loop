@@ -1,4 +1,4 @@
-//! Desfecho e agregacao do resultado: a ponte para a camada adaptativa e os
+//! Desfecho e agregação do resultado: a ponte para a camada adaptativa e os
 //! helpers que traduzem severidade/status em prosa de DNF.
 
 use super::*;

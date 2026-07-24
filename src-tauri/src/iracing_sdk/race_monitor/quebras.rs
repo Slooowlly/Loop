@@ -1,4 +1,4 @@
-//! Disparo de quebra AO VIVO: instalacao do diretor, avaliacao por volta do
+//! Disparo de quebra AO VIVO: instalação do diretor, avaliação por volta do
 //! jogador e da grade, alertas do overlay e a fila de comandos pro chat.
 
 use super::*;

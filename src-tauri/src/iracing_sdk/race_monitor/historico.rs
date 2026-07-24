@@ -1,5 +1,5 @@
-//! Agregacao do historico volta a volta: race trace, voltas e setores do
-//! jogador, paradas de box/clima e o diagnostico por carro para a UI.
+//! Agregação do histórico volta a volta: race trace, voltas e setores do
+//! jogador, paradas de box/clima e o diagnóstico por carro para a UI.
 
 use super::*;
 

@@ -1,5 +1,5 @@
-//! Superficie publica do monitor: as consultas que o frontend faz por invoke e
-//! os gatilhos de debug/producao do sistema de quebra.
+//! Superfície pública do monitor: as consultas que o frontend faz por invoke e
+//! os gatilhos de debug/produção do sistema de quebra.
 
 use super::*;
 

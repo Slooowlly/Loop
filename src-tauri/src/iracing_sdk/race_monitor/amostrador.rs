@@ -1,4 +1,4 @@
-//! Amostrador de fundo (~60 Hz): le a telemetria e o YAML da sessao, alimenta o
+//! Amostrador de fundo (~60 Hz): lê a telemetria e o YAML da sessão, alimenta o
 //! monitor e drena a fila de comandos de quebra pro chat do iRacing.
 
 use super::*;

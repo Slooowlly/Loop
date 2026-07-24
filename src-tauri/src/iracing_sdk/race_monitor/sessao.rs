@@ -1,5 +1,5 @@
-//! Leitura da sessao: parsers do YAML do iRacing e os campos do monitor que
-//! guardam a identidade da sessao (pista, subsessao, classes, nomes, quali).
+//! Leitura da sessão: parsers do YAML do iRacing e os campos do monitor que
+//! guardam a identidade da sessão (pista, subsessão, classes, nomes, quali).
 
 use super::*;
 

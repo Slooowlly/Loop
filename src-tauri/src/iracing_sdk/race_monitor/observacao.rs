@@ -1,5 +1,5 @@
-//! Observacao por tick: le a telemetria, detecta os eventos do jogador e da IA
-//! e acumula as evidencias da tentativa.
+//! Observação por tick: lê a telemetria, detecta os eventos do jogador e da IA
+//! e acumula as evidências da tentativa.
 
 use super::*;
 

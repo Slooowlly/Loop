@@ -1,5 +1,5 @@
 //! Tipos que cruzam a ponte para a UI: o modelo de tentativa/batida, o status
-//! ao vivo e o historico volta a volta da corrida.
+//! ao vivo e o histórico volta a volta da corrida.
 
 use super::*;
 

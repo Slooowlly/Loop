@@ -1,4 +1,4 @@
-//! Pontuacao de batida: os componentes do impacto, os rotulos de severidade e
+//! Pontuação de batida: os componentes do impacto, os rótulos de severidade e
 //! o ciclo de abrir/fechar uma batida dentro da tentativa.
 
 use super::*;
