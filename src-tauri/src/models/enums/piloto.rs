@@ -1,0 +1,213 @@
+//! Enums do piloto: status, personalidades, hierarquia na equipe e lesões.
+
+use serde::{Deserialize, Serialize};
+
+// ── Status do piloto ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DriverStatus {
+    Ativo,
+    Lesionado,
+    Aposentado,
+    Suspenso,
+}
+
+impl DriverStatus {
+    pub fn as_str(&self) -> &str {
+        match self {
+            DriverStatus::Ativo => "Ativo",
+            DriverStatus::Lesionado => "Lesionado",
+            DriverStatus::Aposentado => "Aposentado",
+            DriverStatus::Suspenso => "Suspenso",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Lesionado" => DriverStatus::Lesionado,
+            "Aposentado" => DriverStatus::Aposentado,
+            "Suspenso" => DriverStatus::Suspenso,
+            _ => DriverStatus::Ativo,
+        }
+    }
+
+    /// Parser estrito para leitura de banco de dados.
+    /// Erros de valor inválido são propagados — sem fallback silencioso.
+    /// Para uso em row mappers de queries. Manter from_str() para contextos permissivos.
+    pub fn from_str_strict(s: &str) -> Result<Self, String> {
+        match s.trim() {
+            "Ativo" => Ok(DriverStatus::Ativo),
+            "Lesionado" => Ok(DriverStatus::Lesionado),
+            "Aposentado" => Ok(DriverStatus::Aposentado),
+            "Suspenso" => Ok(DriverStatus::Suspenso),
+            other => Err(format!("DriverStatus inválido: '{other}'")),
+        }
+    }
+}
+
+// ── Personalidade primária ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrimaryPersonality {
+    Ambicioso,
+    Consolidador,
+    Mercenario,
+    Leal,
+}
+
+impl PrimaryPersonality {
+    pub fn as_str(&self) -> &str {
+        match self {
+            PrimaryPersonality::Ambicioso => "Ambicioso",
+            PrimaryPersonality::Consolidador => "Consolidador",
+            PrimaryPersonality::Mercenario => "Mercenario",
+            PrimaryPersonality::Leal => "Leal",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Ambicioso" => PrimaryPersonality::Ambicioso,
+            "Consolidador" | "Tecnico" | "Consistente" => PrimaryPersonality::Consolidador,
+            "Mercenario" | "Agressivo" => PrimaryPersonality::Mercenario,
+            "Leal" | "Calmo" => PrimaryPersonality::Leal,
+            _ => PrimaryPersonality::Ambicioso,
+        }
+    }
+
+    pub fn from_str_strict(s: &str) -> Result<Self, String> {
+        match s.trim() {
+            "Ambicioso" => Ok(PrimaryPersonality::Ambicioso),
+            "Consolidador" | "Tecnico" | "Consistente" => Ok(PrimaryPersonality::Consolidador),
+            "Mercenario" | "Agressivo" => Ok(PrimaryPersonality::Mercenario),
+            "Leal" | "Calmo" => Ok(PrimaryPersonality::Leal),
+            other => Err(format!("PrimaryPersonality invalido: '{other}'")),
+        }
+    }
+}
+
+// ── Personalidade secundária ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SecondaryPersonality {
+    CabecaQuente,
+    SangueFrio,
+    Apostador,
+    Calculista,
+    Showman,
+    TeamPlayer,
+    Solitario,
+    Estudioso,
+}
+
+impl SecondaryPersonality {
+    pub fn as_str(&self) -> &str {
+        match self {
+            SecondaryPersonality::CabecaQuente => "CabecaQuente",
+            SecondaryPersonality::SangueFrio => "SangueFrio",
+            SecondaryPersonality::Apostador => "Apostador",
+            SecondaryPersonality::Calculista => "Calculista",
+            SecondaryPersonality::Showman => "Showman",
+            SecondaryPersonality::TeamPlayer => "TeamPlayer",
+            SecondaryPersonality::Solitario => "Solitario",
+            SecondaryPersonality::Estudioso => "Estudioso",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "CabecaQuente" => SecondaryPersonality::CabecaQuente,
+            "SangueFrio" | "Sensivel" => SecondaryPersonality::SangueFrio,
+            "Apostador" | "Competitivo" => SecondaryPersonality::Apostador,
+            "Calculista" => SecondaryPersonality::Calculista,
+            "Showman" | "Lider" => SecondaryPersonality::Showman,
+            "TeamPlayer" | "Trabalhador" => SecondaryPersonality::TeamPlayer,
+            "Solitario" => SecondaryPersonality::Solitario,
+            "Estudioso" | "Inteligente" => SecondaryPersonality::Estudioso,
+            _ => SecondaryPersonality::Calculista,
+        }
+    }
+
+    pub fn from_str_strict(s: &str) -> Result<Self, String> {
+        match s.trim() {
+            "CabecaQuente" => Ok(SecondaryPersonality::CabecaQuente),
+            "SangueFrio" | "Sensivel" => Ok(SecondaryPersonality::SangueFrio),
+            "Apostador" | "Competitivo" => Ok(SecondaryPersonality::Apostador),
+            "Calculista" => Ok(SecondaryPersonality::Calculista),
+            "Showman" | "Lider" => Ok(SecondaryPersonality::Showman),
+            "TeamPlayer" | "Trabalhador" => Ok(SecondaryPersonality::TeamPlayer),
+            "Solitario" => Ok(SecondaryPersonality::Solitario),
+            "Estudioso" | "Inteligente" => Ok(SecondaryPersonality::Estudioso),
+            other => Err(format!("SecondaryPersonality invalido: '{other}'")),
+        }
+    }
+}
+
+// ── Hierarquia da equipe (N1/N2) ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DriverHierarchyRole {
+    N1,
+    N2,
+    Independente,
+}
+
+impl DriverHierarchyRole {
+    pub fn as_str(&self) -> &str {
+        match self {
+            DriverHierarchyRole::N1 => "N1",
+            DriverHierarchyRole::N2 => "N2",
+            DriverHierarchyRole::Independente => "Independente",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "N1" => DriverHierarchyRole::N1,
+            "N2" => DriverHierarchyRole::N2,
+            _ => DriverHierarchyRole::Independente,
+        }
+    }
+}
+
+// ── Tipo de lesão ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum InjuryType {
+    Leve,
+    Moderada,
+    Grave,
+    Critica,
+}
+
+impl InjuryType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            InjuryType::Leve => "Leve",
+            InjuryType::Moderada => "Moderada",
+            InjuryType::Grave => "Grave",
+            InjuryType::Critica => "Critica",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Moderada" => InjuryType::Moderada,
+            "Grave" => InjuryType::Grave,
+            "Critica" => InjuryType::Critica,
+            _ => InjuryType::Leve,
+        }
+    }
+
+    /// Parser estrito para leitura de banco de dados.
+    /// Erros de valor inválido são propagados — sem fallback silencioso.
+    pub fn from_str_strict(s: &str) -> Result<Self, String> {
+        match s.trim() {
+            "Leve" => Ok(InjuryType::Leve),
+            "Moderada" => Ok(InjuryType::Moderada),
+            "Grave" => Ok(InjuryType::Grave),
+            "Critica" => Ok(InjuryType::Critica),
+            other => Err(format!("InjuryType inválido: '{other}'")),
+        }
+    }
+}
