@@ -132,7 +132,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_REL)
     }
 
-    /// Trava do schema-ouro: roda as migrações num banco novo e compara a
+    /// Trava do schema-ouro: roda a baseline num banco novo e compara a
     /// descrição normalizada com o fixture versionado. Se der diff, o errado é o
     /// código de migração — o fixture é a verdade.
     #[test]
