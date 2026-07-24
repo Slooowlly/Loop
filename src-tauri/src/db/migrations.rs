@@ -2,6 +2,11 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
+/// Trava do schema-ouro (só em teste): descreve o schema de forma normalizada e
+/// compara com um fixture versionado.
+#[cfg(test)]
+mod schema_ouro;
+
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
 const CURRENT_VERSION: u32 = 53;
