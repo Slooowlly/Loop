@@ -69,7 +69,7 @@ fn test_safe_driver_rarely_has_incidents() {
 
     let mut total = 0;
     for _ in 0..200 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Mid,
@@ -81,6 +81,7 @@ fn test_safe_driver_rarely_has_incidents() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -101,7 +102,7 @@ fn test_unreliable_car_has_more_mechanicals() {
 
     let (mut good_mech, mut bad_mech) = (0, 0);
     for _ in 0..1000 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &[good.clone()],
             &[make_state("G", 1)],
             RaceSegment::Mid,
@@ -113,6 +114,7 @@ fn test_unreliable_car_has_more_mechanicals() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -121,7 +123,7 @@ fn test_unreliable_car_has_more_mechanicals() {
             .filter(|i| i.incident_type == IncidentType::Mechanical)
             .count();
 
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &[bad.clone()],
             &[make_state("B", 1)],
             RaceSegment::Mid,
@@ -133,6 +135,7 @@ fn test_unreliable_car_has_more_mechanicals() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -156,7 +159,7 @@ fn test_rain_increases_driver_errors() {
     let (mut dry_err, mut wet_err) = (0, 0);
     for _ in 0..1000 {
         let state = make_state("P1", 5);
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &[driver.clone()],
             &[state.clone()],
             RaceSegment::Mid,
@@ -168,6 +171,7 @@ fn test_rain_increases_driver_errors() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -176,7 +180,7 @@ fn test_rain_increases_driver_errors() {
             .filter(|i| i.incident_type == IncidentType::DriverError)
             .count();
 
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &[driver.clone()],
             &[state],
             RaceSegment::Mid,
@@ -188,6 +192,7 @@ fn test_rain_increases_driver_errors() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -210,7 +215,7 @@ fn test_collision_can_involve_neighbor() {
 
     let mut pairs = 0;
     for _ in 0..500 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -222,6 +227,7 @@ fn test_collision_can_involve_neighbor() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -244,7 +250,7 @@ fn test_dnf_driver_not_processed() {
     state.is_dnf = true;
 
     let mut rng = StdRng::seed_from_u64(111);
-    let inc = process_segment_incidents(
+    let inc = process_segment_incidents_cfg(
         &drivers,
         &[state],
         RaceSegment::Start,
@@ -256,6 +262,7 @@ fn test_dnf_driver_not_processed() {
         &IncidentCatalog::empty(),
         VehicleClass::StreetBased,
         false,
+        true,
         &mut rng,
     );
     assert!(inc.incidents.is_empty());
@@ -271,7 +278,7 @@ fn test_start_segment_more_collisions_than_mid() {
 
     let (mut start_c, mut mid_c) = (0, 0);
     for _ in 0..500 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -283,6 +290,7 @@ fn test_start_segment_more_collisions_than_mid() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -291,7 +299,7 @@ fn test_start_segment_more_collisions_than_mid() {
             .filter(|i| i.incident_type == IncidentType::Collision)
             .count();
 
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Mid,
@@ -303,6 +311,7 @@ fn test_start_segment_more_collisions_than_mid() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -324,7 +333,7 @@ fn test_one_incident_per_driver_per_segment() {
     let mut rng = StdRng::seed_from_u64(555);
 
     for _ in 0..200 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -336,6 +345,7 @@ fn test_one_incident_per_driver_per_segment() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -361,7 +371,7 @@ fn test_start_chaos_multiplier_increases_start_collisions() {
 
     let (mut normal_c, mut chaos_c) = (0, 0);
     for _ in 0..500 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -373,6 +383,7 @@ fn test_start_chaos_multiplier_increases_start_collisions() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng_normal,
         );
         let inc = inc.incidents;
@@ -381,7 +392,7 @@ fn test_start_chaos_multiplier_increases_start_collisions() {
             .filter(|i| i.incident_type == IncidentType::Collision)
             .count();
 
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -393,6 +404,7 @@ fn test_start_chaos_multiplier_increases_start_collisions() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng_chaos,
         );
         let inc = inc.incidents;
@@ -483,7 +495,7 @@ fn test_is_two_car_incident_bilateral() {
 
     let mut found_bilateral = false;
     'outer: for _ in 0..500 {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Start,
@@ -495,6 +507,7 @@ fn test_is_two_car_incident_bilateral() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng,
         );
         let inc = inc.incidents;
@@ -581,7 +594,7 @@ fn test_high_pack_density_increases_collision_rate() {
     let mut rng2 = StdRng::seed_from_u64(42424242);
 
     for _ in 0..runs {
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Mid,
@@ -593,6 +606,7 @@ fn test_high_pack_density_increases_collision_rate() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng1,
         );
         let inc = inc.incidents;
@@ -601,7 +615,7 @@ fn test_high_pack_density_increases_collision_rate() {
             .filter(|i| i.incident_type == IncidentType::Collision)
             .count();
 
-        let inc = process_segment_incidents(
+        let inc = process_segment_incidents_cfg(
             &drivers,
             &states,
             RaceSegment::Mid,
@@ -613,6 +627,7 @@ fn test_high_pack_density_increases_collision_rate() {
             &IncidentCatalog::empty(),
             VehicleClass::StreetBased,
             false,
+            true,
             &mut rng2,
         );
         let inc = inc.incidents;

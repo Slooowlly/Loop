@@ -10,16 +10,15 @@
  * O app é Windows-only (iRacing), por isso o target é fixo aqui.
  */
 
+import { estaNoTauri } from "./tauri";
+
 export const CHANNELS = {
   stable: "windows-x86_64",
   beta: "windows-x86_64-beta",
 };
 
-const IN_TAURI =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
 export function isTauri() {
-  return IN_TAURI;
+  return estaNoTauri();
 }
 
 /**
@@ -28,7 +27,7 @@ export function isTauri() {
  * Nunca lança: erro de rede vira null (com log), pra não travar a UI.
  */
 export async function checkChannel(channel = "stable") {
-  if (!IN_TAURI) return null;
+  if (!estaNoTauri()) return null;
   const target = CHANNELS[channel] ?? CHANNELS.stable;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");

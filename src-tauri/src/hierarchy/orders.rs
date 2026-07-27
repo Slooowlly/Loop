@@ -10,9 +10,11 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::db::connection::DbError;
+use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
 use crate::models::driver::Driver;
+use crate::models::enums::TeamRole;
 use crate::models::team::{Team, TeamHierarchyClimate};
 use crate::simulation::race::RaceDriverResult;
 
@@ -171,34 +173,6 @@ pub fn update_status(team: &mut Team) {
         .to_string();
 }
 
-// ── Passo 9 — Detectar reavaliação real ──────────────────────────────────────
-
-/// Retorna `true` se a equipe entrou em reavaliação real da hierarquia.
-///
-/// Condições:
-/// - Pelo menos 5 duelos disputados
-/// - N2 está em sequência de ≥ 4 vitórias consecutivas
-/// - N2 venceu ≥ 60% dos duelos totais
-/// - Status atual é reavaliação, inversão ou crise
-pub fn is_em_reavaliacao(team: &Team) -> bool {
-    let win_rate = n2_win_rate(
-        team.hierarquia_duelos_total,
-        team.hierarquia_duelos_n2_vencidos,
-    );
-    let status = TeamHierarchyClimate::from_str(&team.hierarquia_status);
-    let status_critico = matches!(
-        status,
-        TeamHierarchyClimate::Reavaliacao
-            | TeamHierarchyClimate::Inversao
-            | TeamHierarchyClimate::Crise
-    );
-
-    team.hierarquia_duelos_total >= 5
-        && team.hierarquia_sequencia_n2 >= 4
-        && win_rate >= 0.60
-        && status_critico
-}
-
 // ── Passo 10 — Detectar gatilho de inversão ──────────────────────────────────
 
 /// Retorna `true` quando todas as condições para trocar N1/N2 estão satisfeitas.
@@ -257,6 +231,41 @@ pub fn apply_inversao(team: &mut Team) {
 pub fn apply_inversao_driver_effects(promoted: &mut Driver, demoted: &mut Driver) {
     promoted.motivacao = (promoted.motivacao + 15.0).clamp(0.0, 100.0);
     demoted.motivacao = (demoted.motivacao - 10.0).clamp(0.0, 100.0);
+}
+
+/// Faz a inversão valer no CONTRATO, não só no estado da equipe.
+///
+/// `team.hierarquia_n1_id` e `contract.papel` são duas representações do mesmo "quem
+/// é o N1", e o mercado lê a segunda: [`crate::market::renewal::should_renew_contract`]
+/// aplica os gates de N2 (`"N2 fraco"`, `"N2 mediano"`) e classifica continuidade por
+/// `contract.papel`. Enquanto a inversão só trocava os ids na tabela `teams`, o piloto
+/// que ganhava a política interna continuava sendo julgado como N2 na renovação — a
+/// consequência mais natural do sistema nunca chegava ao mercado.
+///
+/// Só mexe em contrato **Regular** e **da própria equipe** — o contrato Especial
+/// (bloco de convocação) tem hierarquia própria e não deve ser tocado aqui.
+/// Best-effort por piloto: contrato ausente simplesmente não é atualizado.
+fn sync_contract_roles_after_inversao(
+    conn: &Connection,
+    team_id: &str,
+    promoted_id: &str,
+    demoted_id: &str,
+) -> Result<(), DbError> {
+    for (driver_id, papel) in [
+        (promoted_id, TeamRole::Numero1),
+        (demoted_id, TeamRole::Numero2),
+    ] {
+        let Some(contract) =
+            contract_queries::get_active_regular_contract_for_pilot(conn, driver_id)?
+        else {
+            continue;
+        };
+        if contract.equipe_id != team_id {
+            continue;
+        }
+        contract_queries::update_contract_role(conn, &contract.id, &papel)?;
+    }
+    Ok(())
 }
 
 // ── Passo 14 — Pipeline pós-corrida de hierarquia ────────────────────────────
@@ -328,6 +337,9 @@ pub fn process_hierarchy_for_category(
                     )?;
                     driver_queries::update_driver_motivation(conn, &demoted.id, demoted.motivacao)?;
                 }
+
+                // A inversão precisa valer no CONTRATO — é o que o mercado lê.
+                sync_contract_roles_after_inversao(conn, &team.id, &promoted_id, &demoted_id)?;
             }
         }
 
@@ -371,6 +383,169 @@ mod tests {
         team.hierarquia_n1_id = Some(n1.to_string());
         team.hierarquia_n2_id = Some(n2.to_string());
         team
+    }
+
+    // ── Passo 12b — sincronia do contrato ────────────────────────────────────
+
+    /// Schema mínimo de `contracts` — só o necessário para `SELECT *` mapear.
+    fn contracts_only_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("db em memoria");
+        conn.execute_batch(
+            "CREATE TABLE contracts (
+                id TEXT PRIMARY KEY NOT NULL,
+                piloto_id TEXT NOT NULL,
+                piloto_nome TEXT NOT NULL,
+                equipe_id TEXT NOT NULL,
+                equipe_nome TEXT NOT NULL,
+                temporada_inicio INTEGER NOT NULL,
+                duracao_anos INTEGER NOT NULL,
+                temporada_fim INTEGER NOT NULL,
+                salario REAL NOT NULL DEFAULT 0.0,
+                salario_anual REAL NOT NULL DEFAULT 0.0,
+                papel TEXT NOT NULL DEFAULT 'Numero2',
+                status TEXT NOT NULL DEFAULT 'Ativo',
+                tipo TEXT NOT NULL DEFAULT 'Regular',
+                categoria TEXT NOT NULL,
+                classe TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .expect("schema de contratos");
+        conn
+    }
+
+    fn insert_contract_stub(
+        conn: &Connection,
+        id: &str,
+        piloto_id: &str,
+        equipe_id: &str,
+        papel: TeamRole,
+        tipo: crate::models::enums::ContractType,
+    ) {
+        conn.execute(
+            "INSERT INTO contracts (
+                id, piloto_id, piloto_nome, equipe_id, equipe_nome,
+                temporada_inicio, duracao_anos, temporada_fim,
+                salario, salario_anual, papel, status, tipo, categoria, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 1, 2, 2, 0.0, 100000.0, ?6, 'Ativo', ?7, 'gt3', '2026-01-01T12:00:00')",
+            rusqlite::params![
+                id,
+                piloto_id,
+                format!("Piloto {piloto_id}"),
+                equipe_id,
+                format!("Equipe {equipe_id}"),
+                papel.as_str(),
+                tipo.as_str(),
+            ],
+        )
+        .expect("insert contrato");
+    }
+
+    fn papel_de(conn: &Connection, contract_id: &str) -> String {
+        conn.query_row(
+            "SELECT papel FROM contracts WHERE id = ?1",
+            rusqlite::params![contract_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("papel")
+    }
+
+    #[test]
+    fn inversao_troca_o_papel_no_contrato() {
+        use crate::models::enums::ContractType;
+        let conn = contracts_only_db();
+        insert_contract_stub(
+            &conn,
+            "C1",
+            "P001",
+            "T001",
+            TeamRole::Numero1,
+            ContractType::Regular,
+        );
+        insert_contract_stub(
+            &conn,
+            "C2",
+            "P002",
+            "T001",
+            TeamRole::Numero2,
+            ContractType::Regular,
+        );
+
+        // P002 (o N2) venceu a política interna e foi promovido.
+        sync_contract_roles_after_inversao(&conn, "T001", "P002", "P001").expect("sync");
+
+        assert_eq!(papel_de(&conn, "C2"), TeamRole::Numero1.as_str());
+        assert_eq!(papel_de(&conn, "C1"), TeamRole::Numero2.as_str());
+    }
+
+    #[test]
+    fn sync_ignora_contrato_de_outra_equipe() {
+        use crate::models::enums::ContractType;
+        let conn = contracts_only_db();
+        // O "demoted" já assinou com outro time — não é nosso para rebaixar.
+        insert_contract_stub(
+            &conn,
+            "C1",
+            "P001",
+            "T999",
+            TeamRole::Numero1,
+            ContractType::Regular,
+        );
+        insert_contract_stub(
+            &conn,
+            "C2",
+            "P002",
+            "T001",
+            TeamRole::Numero2,
+            ContractType::Regular,
+        );
+
+        sync_contract_roles_after_inversao(&conn, "T001", "P002", "P001").expect("sync");
+
+        assert_eq!(papel_de(&conn, "C2"), TeamRole::Numero1.as_str());
+        assert_eq!(
+            papel_de(&conn, "C1"),
+            TeamRole::Numero1.as_str(),
+            "contrato de outra equipe nao pode ser tocado"
+        );
+    }
+
+    #[test]
+    fn sync_ignora_contrato_especial() {
+        use crate::models::enums::ContractType;
+        let conn = contracts_only_db();
+        insert_contract_stub(
+            &conn,
+            "C1",
+            "P001",
+            "T001",
+            TeamRole::Numero1,
+            ContractType::Especial,
+        );
+        insert_contract_stub(
+            &conn,
+            "C2",
+            "P002",
+            "T001",
+            TeamRole::Numero2,
+            ContractType::Especial,
+        );
+
+        sync_contract_roles_after_inversao(&conn, "T001", "P002", "P001").expect("sync");
+
+        assert_eq!(
+            papel_de(&conn, "C2"),
+            TeamRole::Numero2.as_str(),
+            "o bloco especial tem hierarquia propria"
+        );
+        assert_eq!(papel_de(&conn, "C1"), TeamRole::Numero1.as_str());
+    }
+
+    #[test]
+    fn sync_sem_contrato_nao_falha() {
+        let conn = contracts_only_db();
+        sync_contract_roles_after_inversao(&conn, "T001", "P002", "P001")
+            .expect("piloto sem contrato e caso normal, nao erro");
     }
 
     // Passo 3
@@ -782,52 +957,6 @@ mod tests {
         team.hierarquia_tensao = 95.0;
         update_status(&mut team);
         assert_eq!(team.hierarquia_status, "crise");
-    }
-
-    // ── Passo 9 ───────────────────────────────────────────────────────────────
-
-    fn team_em_reavaliacao() -> Team {
-        let mut team = sample_team("P001", "P002");
-        team.hierarquia_duelos_total = 8;
-        team.hierarquia_duelos_n2_vencidos = 6; // 75%
-        team.hierarquia_sequencia_n2 = 4;
-        team.hierarquia_tensao = 65.0;
-        team.hierarquia_status = "reavaliacao".to_string();
-        team
-    }
-
-    #[test]
-    fn test_is_em_reavaliacao_all_conditions_met() {
-        assert!(is_em_reavaliacao(&team_em_reavaliacao()));
-    }
-
-    #[test]
-    fn test_is_em_reavaliacao_poucos_duelos() {
-        let mut team = team_em_reavaliacao();
-        team.hierarquia_duelos_total = 4;
-        assert!(!is_em_reavaliacao(&team));
-    }
-
-    #[test]
-    fn test_is_em_reavaliacao_sequencia_curta() {
-        let mut team = team_em_reavaliacao();
-        team.hierarquia_sequencia_n2 = 3;
-        assert!(!is_em_reavaliacao(&team));
-    }
-
-    #[test]
-    fn test_is_em_reavaliacao_win_rate_baixo() {
-        let mut team = team_em_reavaliacao();
-        team.hierarquia_duelos_n2_vencidos = 4; // 50%
-        assert!(!is_em_reavaliacao(&team));
-    }
-
-    #[test]
-    fn test_is_em_reavaliacao_status_baixo() {
-        let mut team = team_em_reavaliacao();
-        team.hierarquia_tensao = 30.0;
-        team.hierarquia_status = "competitivo".to_string();
-        assert!(!is_em_reavaliacao(&team));
     }
 
     // ── Passo 10 ──────────────────────────────────────────────────────────────

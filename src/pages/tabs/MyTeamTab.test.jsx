@@ -820,6 +820,66 @@ describe("MyTeamTab", () => {
     expect(within(drawer).queryByText("GT3 Series")).not.toBeInTheDocument();
   });
 
+  // ── Clima da garagem (módulo `hierarchy` do backend) ──────────────────────────
+
+  it("hides the garage climate panel when the payload has no hierarchy data", async () => {
+    render(<MyTeamTab />);
+
+    expect(await screen.findByText(/Dossiê financeiro/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("garage-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows the garage climate with the real tension reading", async () => {
+    mockState.playerTeam.hierarquia_n1_id = "P001";
+    mockState.playerTeam.hierarquia_n2_id = "P002";
+    mockState.playerTeam.hierarquia_status = "competitivo";
+    mockState.playerTeam.hierarquia_tensao = 32;
+
+    render(<MyTeamTab />);
+
+    const panel = await screen.findByTestId("garage-panel");
+    expect(within(panel).getByText(/Clima da garagem/i)).toBeInTheDocument();
+    expect(within(panel).getByTestId("garage-climate-label")).toHaveTextContent("Competitivo");
+    expect(within(panel).getByTestId("garage-tension-value")).toHaveTextContent("32");
+    expect(within(panel).getByTestId("garage-tension-bar")).toHaveClass("bg-status-yellow");
+    // Só acima de 50 a tensão pune a moral — 32 ainda não é alerta.
+    expect(within(panel).queryByTestId("garage-morale-warning")).not.toBeInTheDocument();
+  });
+
+  it("warns when tension is high enough to hurt team morale", async () => {
+    mockState.playerTeam.hierarquia_n1_id = "P001";
+    mockState.playerTeam.hierarquia_n2_id = "P002";
+    mockState.playerTeam.hierarquia_status = "crise";
+    mockState.playerTeam.hierarquia_tensao = 92;
+
+    render(<MyTeamTab />);
+
+    const panel = await screen.findByTestId("garage-panel");
+    expect(within(panel).getByTestId("garage-climate-label")).toHaveTextContent("Crise");
+    expect(within(panel).getByTestId("garage-tension-bar")).toHaveClass("bg-status-red");
+    expect(within(panel).getByTestId("garage-morale-warning")).toBeInTheDocument();
+  });
+
+  // REGRESSÃO: a inversão troca a hierarquia sem mexer nos assentos. Se a UI ler
+  // `piloto_1_id`, ela mostra o N1 errado justo depois do evento mais dramático do módulo.
+  it("reads the driver pair from the hierarchy, not from the seat order", async () => {
+    mockState.playerTeam.hierarquia_n1_id = "P002"; // o antigo N2 venceu a política interna
+    mockState.playerTeam.hierarquia_n2_id = "P001";
+    mockState.playerTeam.hierarquia_status = "inversao";
+    mockState.playerTeam.hierarquia_tensao = 80;
+    mockState.playerTeam.hierarquia_inversoes_temporada = 1;
+
+    render(<MyTeamTab />);
+
+    const panel = await screen.findByTestId("garage-panel");
+    expect(within(panel).getByTestId("garage-inverted-note")).toBeInTheDocument();
+    expect(within(panel).getByTestId("garage-inversions")).toHaveTextContent("1 inversão nesta temporada");
+
+    // O salário segue o assento certo: o N1 agora é o P002, que ganha 170k.
+    const n1Salary = screen.getByText(/Salário N1/i).parentElement;
+    expect(within(n1Salary).getByText("$170,000")).toBeInTheDocument();
+  });
+
   it("uses recent founding years for rookie teams", async () => {
     invoke.mockImplementation((command, args = {}) => {
       if (command === "get_drivers_by_category") {

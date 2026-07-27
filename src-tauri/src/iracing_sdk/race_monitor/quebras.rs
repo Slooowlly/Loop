@@ -13,8 +13,10 @@ impl RaceMonitor {
         dir: crate::car::breakdown::BreakdownDirector,
         player_live: Option<crate::car::breakdown::LiveBreakdown>,
         weather: crate::car::breakdown::Weather,
+        showcase: bool,
     ) {
         self.breakdown = Some(dir);
+        self.showcase_pending = showcase; // 1ª corrida do save → vitrine garantida da quebra
         self.pending_player_live = player_live;
         self.breakdown_weather = weather;
         self.breakdown_needs_prime = true;
@@ -225,6 +227,81 @@ impl RaceMonitor {
                 self.breakdown_alert[idx] = None;
             }
         }
+    }
+
+    /// VITRINE da 1ª corrida do save (dispara UMA vez): garante que o PENÚLTIMO carro — nunca o
+    /// jogador — sofra uma quebra GRAVE e pare pra arrumar, pra o jogador ver o sistema logo de
+    /// cara. Escolhe o alvo pela posição AO VIVO (penúltimo colocado; se esse for o jogador, o
+    /// último). Injeta o `!black` direto (não passa pela sorte do diretor) e registra
+    /// alerta/flash/log como uma quebra normal — assim overlay, debrief e notícia acendem igual.
+    pub(super) fn tick_showcase_breakdown(&mut self, t: &IracingTelemetry) {
+        if !self.showcase_pending {
+            return;
+        }
+        // Só correndo, e depois de o jogador dar 2 voltas (grade espalhada + ele já engajado).
+        const SHOWCASE_TRIGGER_LAP: i32 = 2;
+        if t.session_state != STATE_RACING || t.lap_completed < SHOWCASE_TRIGGER_LAP {
+            return;
+        }
+        // Acha os DOIS últimos colocados (posição > 0), guardando se cada um é o jogador. O pace
+        // car vem com posição 0 e cai fora naturalmente.
+        let mut last: Option<(i32, usize, bool)> = None; // (posição, car_idx, is_player)
+        let mut penult: Option<(i32, usize, bool)> = None;
+        for c in t.cars.iter() {
+            if c.idx < 0 || (c.idx as usize) >= 64 || c.position <= 0 {
+                continue;
+            }
+            let idx = c.idx as usize;
+            if self.car_is_pace[idx] {
+                continue;
+            }
+            let entry = (c.position, idx, c.is_player);
+            if last.map_or(true, |(p, _, _)| c.position > p) {
+                penult = last;
+                last = Some(entry);
+            } else if penult.map_or(true, |(p, _, _)| c.position > p) {
+                penult = Some(entry);
+            }
+        }
+        // Alvo = penúltimo; se for o jogador (ou não existir), cai pro último. Os dois nunca são o
+        // mesmo carro, então o fallback garante um alvo != jogador.
+        let target = match penult {
+            Some((_, idx, false)) => Some(idx),
+            _ => last
+                .filter(|(_, _, is_player)| !*is_player)
+                .map(|(_, idx, _)| idx),
+        };
+        let Some(idx) = target else {
+            return; // grade ainda não classificada / só o jogador — tenta no próximo tick
+        };
+        let num = self.car_number[idx];
+        if num <= 0 {
+            return;
+        }
+        let car_lap = t
+            .cars
+            .iter()
+            .find(|c| c.idx == idx as i32)
+            .map(|c| c.lap_completed.max(0))
+            .unwrap_or(0) as u32;
+        // Peça notável (reparo perceptível) variando por número de carro; sempre GRAVE, nunca DNF.
+        use crate::car::PartType;
+        const SHOWCASE_PARTS: [PartType; 5] = [
+            PartType::Gearbox,
+            PartType::Engine,
+            PartType::Suspension,
+            PartType::Cooling,
+            PartType::Brakes,
+        ];
+        let part = SHOWCASE_PARTS[(num as usize) % SHOWCASE_PARTS.len()];
+        let seed = (num as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5340_57CA;
+        let ev = crate::car::breakdown::showcase_repair_event(part, car_lap, 50.0, seed);
+        self.pending_breakdown_cmds.push(ev.command(num as u32));
+        self.breakdown_log.push(BreakdownOutcome::from_event(num as u32, &ev));
+        self.breakdown_alert[idx] =
+            Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+        self.breakdown_flash_at[idx] = t.session_time;
+        self.showcase_pending = false; // uma vez só
     }
 
     /// Snapshot dos alertas de quebra ativos, por car_idx, pro overlay:

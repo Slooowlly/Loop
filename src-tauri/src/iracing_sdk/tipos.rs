@@ -9,6 +9,14 @@ use thiserror::Error;
 pub enum IracingError {
     #[error("iRacing não está rodando (mapa de memória '{0}' não encontrado)")]
     NotRunning(String),
+    // O mapeamento EXISTE, mas o Windows recusou abri-lo (`ERROR_ACCESS_DENIED`).
+    // Quase sempre é diferença de elevação entre os processos: o sim rodando como
+    // administrador e o Loop não. É um estado bem diferente de "sim fechado" — e
+    // confundir os dois foi o que deixou um beta tester com a telemetria zerada
+    // sem nenhuma pista do motivo. Só é construído no caminho Windows.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    #[error("o iRacing está aberto, mas o Windows negou acesso à memória do SDK (código {0}) — feche o Loop e abra como administrador")]
+    AccessDenied(u32),
     #[error("iRacing conectado, mas a sessão ainda não está pronta (status={0})")]
     NotConnected(i32),
     #[error("cabeçalho do SDK inválido ou incompleto")]
@@ -241,4 +249,65 @@ impl Default for CarSnapshot {
             tire_compound: -1,
         }
     }
+}
+
+/// Retrato da conexão com o iRacing por DOIS sinais independentes.
+///
+/// O SDK sozinho é um ponto único de falha mudo: `OpenFileMappingW` devolve nulo
+/// e não dá para saber se o sim está fechado, se está aberto sem publicar ou se o
+/// Windows negou o acesso. Cruzando o mapeamento com a JANELA do sim (que vem de
+/// `EnumWindows`, um caminho que não depende de permissão de objeto) as três
+/// situações se separam — ver [`Veredito`].
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagnosticoIracing {
+    /// Veredito legível, já cruzado. É o que a UI mostra em destaque.
+    pub veredito: Veredito,
+    /// O mapeamento de memória abriu.
+    pub memoria_ok: bool,
+    /// Nome que funcionou (`Local\...` ou o nu), quando algum abriu.
+    pub memoria_nome: Option<String>,
+    /// `GetLastError()` da ÚLTIMA tentativa de abertura. 2 = não encontrado
+    /// (sim fechado), 5 = acesso negado (elevação). 0 quando abriu.
+    pub memoria_erro: u32,
+    /// Alguma janela do iRacing está aberta (simulador ou UI/launcher).
+    pub janela_encontrada: bool,
+    /// A janela encontrada é a do SIMULADOR (e não só a UI/launcher). É o sim que
+    /// publica a memória — a UI aberta sozinha não publica nada, e é normal.
+    pub janela_simulador: bool,
+    /// Bits de `status` do cabeçalho (bit 0 = conectado). `None` se não abriu.
+    pub status: Option<i32>,
+    /// Quantidade de canais de telemetria anunciados. `None` se não abriu.
+    pub num_vars: Option<i32>,
+    /// Tamanho da string YAML de sessão. `None` se não abriu.
+    pub session_info_len: Option<i32>,
+    /// O Loop está rodando elevado (como administrador).
+    pub elevado: bool,
+    /// Quantos ticks o sampler já observou desde o boot. Zero com o sim aberto é
+    /// o sintoma exato de "telemetria toda zerada".
+    pub ticks_observados: u64,
+    /// Caminho do arquivo de log, para o jogador anexar.
+    pub log_caminho: Option<String>,
+}
+
+/// Conclusão do cruzamento dos dois sinais. A UI escolhe a cor e o texto por
+/// aqui em vez de reinterpretar os campos crus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Veredito {
+    /// Memória aberta e conectada: tudo certo.
+    Ok,
+    /// Nem memória nem janela: o sim está fechado. Estado normal, não é erro.
+    SimFechado,
+    /// Só a UI/launcher aberta. Também normal — a UI não publica telemetria.
+    SoLauncher,
+    /// Janela do simulador aberta, mas o Windows NEGOU o acesso à memória.
+    /// Causa quase certa: o sim roda elevado e o Loop não.
+    AcessoNegado,
+    /// Simulador aberto e o mapeamento simplesmente não existe. Sobra SDK
+    /// desabilitado no sim, versão incompatível ou antivírus no meio.
+    SimSemSdk,
+    /// A memória abriu, mas o cabeçalho não anuncia sessão pronta.
+    SessaoNaoPronta,
+    /// Fora do Windows: não há SDK.
+    NaoSuportado,
 }

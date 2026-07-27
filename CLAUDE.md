@@ -55,7 +55,7 @@ Não há ESLint/Prettier configurados. O Rust segue `cargo fmt`/clippy com `too_
 
 Toda a simulação vive em Rust; o React só desenha e dispara `invoke`. O padrão de camadas no backend é consistente e deve ser seguido:
 
-- **`commands/career.rs`** — a lógica de verdade, exposta como funções `*_in_base_dir(base_dir, ...)` que recebem o diretório de save explicitamente. São puras em relação ao Tauri, o que as torna testáveis sem `AppHandle`.
+- **`commands/career/`** — a lógica de verdade, exposta como funções `*_in_base_dir(base_dir, ...)` que recebem o diretório de save explicitamente. São puras em relação ao Tauri, o que as torna testáveis sem `AppHandle`. O `career.rs` é só o índice; a lógica mora nos irmãos por área (`standings`, `queries`, `season_flow`, `market_window`, `lifecycle`, `interests`, `briefing`, `save_state`, `vacancies`, `debug`), com os testes em `career/tests/`.
 - **`commands/career_commands.rs`** — casca fina `#[tauri::command]` que resolve o `base_dir` a partir do `AppHandle` e delega para as funções acima.
 - **`commands/career_types.rs`** — os DTOs serde que cruzam a ponte.
 - **`lib.rs`** — `invoke_handler(tauri::generate_handler![...])`. **Um comando novo só existe depois de ser registrado nessa lista** (~150 entradas hoje).
@@ -82,10 +82,10 @@ SQLite local, migrações versionadas em [db/migrations.rs](src-tauri/src/db/mig
 
 ### Frontend (`src/`)
 
-- **Estado**: Zustand. [`useCareerStore.js`](src/stores/useCareerStore.js) (~1400 linhas) é o hub — carrega a carreira, chama os `invoke`, cacheia previews de IA e standings pré-corrida. Os outros stores (`useUIStore`, `useNotificationStore`, `useAttentionStore`) são triviais.
+- **Estado**: Zustand. [`useCareerStore.js`](src/stores/useCareerStore.js) é o hub, mas hoje é só a **composição** dos slices de `src/stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `preRaceCacheSlice`) sobre o `initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um único estado e uma ação chama a de outro domínio via `get()`. Os `invoke` ficam nos slices — e, quando o dado é local de uma tela, em hooks `use*.js` dentro de `components/`. Os outros stores (`useUIStore`, `useNotificationStore`, `useAttentionStore`) são triviais.
 - **Navegação**: `pages/` são as telas (MainMenu, Dashboard, NewCareer, Settings) e `pages/tabs/` as abas dentro do Dashboard.
 - **Componentes** em `components/` por domínio: `race`, `market` (dentro de tabs), `driver`, `season`, `standings`, `team`, `layout`, `ui`, `wizard`, `iracing`, `system`.
-- `src/hooks/useTauri.js` é um stub (`// TODO`) — os `invoke` são chamados direto do store.
+- `src/hooks/useTauri.js` é um stub (`// TODO`) — os `invoke` vêm direto de `@tauri-apps/api/core`, nos slices do store ou nos hooks de dados dos componentes.
 
 ### Janelas
 

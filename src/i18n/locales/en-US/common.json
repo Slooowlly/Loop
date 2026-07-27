@@ -22,6 +22,46 @@
       "on": "On — throws a yellow automatically in crashes against the AI.",
       "off": "Throws a yellow flag automatically in crashes against the AI."
     },
+    "iracingDiag": {
+      "title": "iRacing diagnostics",
+      "desc": "Checks the connection to the simulator and generates a log for bug reports.",
+      "check": "Check",
+      "checking": "Checking",
+      "details": "Technical details",
+      "openLog": "Open log folder",
+      "copyLog": "Copy log",
+      "logCopied": "Log copied to the clipboard.",
+      "sendTitle": "Send log to the developer",
+      "sendPrivacy": "Sends the tail of the log, the app version and the result of this check. Your Windows username is stripped from file paths. Nothing is sent unless you click.",
+      "sendNotePlaceholder": "What was happening? (optional)",
+      "send": "Send",
+      "sending": "Sending",
+      "sentTicket": "Sent. Include this code in your report:",
+      "fieldMemory": "SDK memory",
+      "fieldError": "code",
+      "fieldWindow": "iRacing window",
+      "fieldSimulator": "simulator",
+      "fieldTicks": "samples read",
+      "fieldElevated": "as administrator",
+      "veredito": {
+        "ok": "Connected — telemetry coming through normally.",
+        "sim_fechado": "Simulator closed.",
+        "so_launcher": "Only the iRacing interface is open.",
+        "sessao_nao_pronta": "Simulator connecting — session not ready yet.",
+        "acesso_negado": "Windows denied access to the simulator's memory.",
+        "sim_sem_sdk": "Simulator open, but it is not publishing telemetry.",
+        "nao_suportado": "The iRacing SDK only works on Windows."
+      },
+      "acao": {
+        "ok": "Nothing to do. If a screen still shows zeros, copy the log and include it in your report.",
+        "sim_fechado": "Normal state. Open the simulator and join a session for Loop to start reading.",
+        "so_launcher": "Normal state. The interface alone publishes no data — get on track to connect.",
+        "sessao_nao_pronta": "Wait a few seconds on track and check again.",
+        "acesso_negado": "This happens when the simulator runs as administrator and Loop does not. Close Loop and reopen it with right-click → Run as administrator.",
+        "sim_sem_sdk": "Check whether your antivirus is blocking Loop and whether the simulator is up to date. Copy the log and include it in your report.",
+        "nao_suportado": "No action available on this system."
+      }
+    },
     "save": "Save",
     "saving": "Saving",
     "applying": "Applying settings...",
@@ -69,6 +109,9 @@
       "calendarV2": "V2",
       "calendarV3": "V3"
     }
+  },
+  "iracingSemDados": {
+    "aviso": "Loop has not been able to read iRacing even once since the app started — this screen may be empty because of that, not because of what happened in the race. Check Settings › iRacing diagnostics."
   },
   "difficulty": {
     "facil": "Easy",
@@ -1457,6 +1500,25 @@
       "payrollWeight": "Payroll weight",
       "noDriverData": "Driver without detailed data yet"
     },
+    "garage": {
+      "eyebrow": "Internal politics",
+      "title": "Garage climate",
+      "tension": "Internal tension",
+      "moraleWarning": "High tension already drags team morale down at season's end.",
+      "n1": "Driver no. 1",
+      "n2": "Driver no. 2",
+      "invertedNote": "The garage order flipped mid-season.",
+      "inversions_one": "{{count}} swap this season",
+      "inversions_other": "{{count}} swaps this season",
+      "climate": {
+        "estavel": "Stable",
+        "competitivo": "Competitive",
+        "tensao": "Tense",
+        "reavaliacao": "Under review",
+        "inversao": "Swap",
+        "crise": "Crisis"
+      }
+    },
     "tech": {
       "eyebrow": "Technical operation",
       "title": "Technical axes",
@@ -2389,23 +2451,23 @@
   },
   "header": {
     "trackCountry": {
-      "Estados Unidos": "United States",
-      "Japão": "Japan",
-      "Reino Unido": "United Kingdom",
-      "França": "France",
-      "Alemanha": "Germany",
-      "Espanha": "Spain",
-      "Portugal": "Portugal",
-      "Austrália": "Australia",
-      "Noruega": "Norway",
-      "Bélgica": "Belgium",
-      "Itália": "Italy",
-      "Brasil": "Brazil",
-      "México": "Mexico",
-      "Canadá": "Canada",
-      "Hungria": "Hungary",
-      "Áustria": "Austria",
-      "Holanda": "Netherlands"
+      "us": "United States",
+      "jp": "Japan",
+      "gb": "United Kingdom",
+      "fr": "France",
+      "de": "Germany",
+      "es": "Spain",
+      "pt": "Portugal",
+      "au": "Australia",
+      "no": "Norway",
+      "be": "Belgium",
+      "it": "Italy",
+      "br": "Brazil",
+      "mx": "Mexico",
+      "ca": "Canada",
+      "hu": "Hungary",
+      "at": "Austria",
+      "nl": "Netherlands"
     }
   },
   "newCareer": {

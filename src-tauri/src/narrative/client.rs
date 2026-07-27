@@ -23,6 +23,11 @@ const WORLD_NOTES_URL: &str =
 /// `docs/season-preview-design.md` e `docs/season-preview-endpoint.md`.
 const SEASON_PREVIEW_URL: &str =
     "https://iracer-news-124606451488.southamerica-east1.run.app/season-preview";
+/// Comprimento-alvo da prévia, em palavras. Vai no payload (`target_words`) porque a
+/// matéria é a peça principal da aba e o bundle hoje carrega uns dez dossiês — cobrir
+/// todos com 400 palavras dá uma frase por piloto, que é o que fazia a matéria soar
+/// rasa. O servidor manda no texto final; isto é o pedido do cliente.
+const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (700, 900);
 /// `pub(crate)` porque a telemetria de produto (`crate::telemetry`) entra pela
 /// MESMA porta do servidor — um segredo só, um lugar só pra trocar.
 pub(crate) const APP_SECRET: &str =
@@ -50,6 +55,26 @@ pub enum StoryError {
 #[derive(Deserialize)]
 struct StoryResponse {
     story: String,
+}
+
+/// Fecho de frase de verdade — o que uma matéria pode terminar sem parecer cortada.
+const FECHOS_DE_FRASE: [char; 6] = ['.', '!', '?', '…', '"', '»'];
+
+/// O servidor gera com teto de tokens: quando a geração estoura, o texto chega
+/// cortado no meio da frase (fica um "O resultado em Lédenon" pendurado no fim).
+/// Apara a cauda até o último fim de frase real — o texto perde a última ideia, mas
+/// FECHA. NUNCA descarta: texto curto, cortado cedo ou sem nenhum fim de frase volta
+/// como veio. O que a IA escreveu sempre vale mais que o template determinístico; a
+/// solução do corte é o teto de geração no servidor, não jogar a matéria fora aqui.
+pub(crate) fn aparar_frase_incompleta(texto: &str) -> String {
+    let t = texto.trim_end();
+    if t.chars().last().is_some_and(|c| FECHOS_DE_FRASE.contains(&c)) {
+        return t.to_string();
+    }
+    match t.char_indices().rev().find(|(_, c)| FECHOS_DE_FRASE.contains(c)) {
+        Some((idx, ch)) => t[..idx + ch.len_utf8()].trim_end().to_string(),
+        None => t.to_string(),
+    }
 }
 
 /// Envia os fatos curados ao servidor e devolve o boletim redigido no idioma
@@ -93,7 +118,7 @@ pub fn fetch_story(
         .json()
         .map_err(|e| StoryError::Server(e.to_string()))?;
 
-    let story = parsed.story.trim().to_string();
+    let story = aparar_frase_incompleta(&parsed.story);
     if story.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -156,7 +181,7 @@ pub fn fetch_pre_race_briefing(
         .map_err(|e| StoryError::Server(e.to_string()))?;
 
     let headline = parsed.headline.trim().to_string();
-    let body = parsed.body.trim().to_string();
+    let body = aparar_frase_incompleta(&parsed.body);
     let team_voice = parsed.team_voice.trim().to_string();
     if headline.is_empty() || body.is_empty() || team_voice.is_empty() {
         return Err(StoryError::Empty);
@@ -221,7 +246,7 @@ pub fn fetch_post_race_debrief(
         .map_err(|e| StoryError::Server(e.to_string()))?;
 
     let headline = parsed.headline.trim().to_string();
-    let body = parsed.body.trim().to_string();
+    let body = aparar_frase_incompleta(&parsed.body);
     if headline.is_empty() || body.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -259,6 +284,7 @@ pub fn fetch_season_preview(
         "facts": facts,
         "lang": lang,
         "install_id": install_id,
+        "target_words": { "min": SEASON_PREVIEW_TARGET_WORDS.0, "max": SEASON_PREVIEW_TARGET_WORDS.1 },
     });
 
     let resp = client
@@ -283,8 +309,8 @@ pub fn fetch_season_preview(
 
     let headline = parsed.headline.trim().to_string();
     let standfirst = parsed.standfirst.trim().to_string();
-    let body = parsed.body.trim().to_string();
     // O corpo é o que não pode faltar; manchete/linha-fina vazias o front tolera.
+    let body = aparar_frase_incompleta(&parsed.body);
     if body.is_empty() {
         return Err(StoryError::Empty);
     }

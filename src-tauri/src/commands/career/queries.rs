@@ -557,6 +557,11 @@ pub(crate) fn build_team_summary(
         piloto_2_id: team.piloto_2_id.clone(),
         piloto_2_nome,
         piloto_2_salario_anual,
+        hierarquia_n1_id: team.hierarquia_n1_id.clone(),
+        hierarquia_n2_id: team.hierarquia_n2_id.clone(),
+        hierarquia_status: team.hierarquia_status.clone(),
+        hierarquia_tensao: team.hierarquia_tensao,
+        hierarquia_inversoes_temporada: team.hierarquia_inversoes_temporada,
     })
 }
 

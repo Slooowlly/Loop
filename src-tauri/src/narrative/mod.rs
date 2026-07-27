@@ -10,9 +10,13 @@
 //! Filosofia: a inteligência de "o que é interessante" mora AQUI, não na IA.
 //! A IA só redige em cima dos fatos que escolhermos (zero invenção de resultado).
 //!
-//! Esta é a Etapa A (MVP): só os beats que saem do próprio `RaceResult`.
-//! Os beats de carreira/forma (lesão, rookie, rivalidade-arco, forma das últimas
-//! 5 corridas) entram na Etapa B, alimentados pela base do app.
+//! O módulo é PURO: não conhece o banco. Os beats que saem do próprio `RaceResult`
+//! nascem aqui; os de CARREIRA (memória entre corridas) nascem em
+//! `commands/race/noticias/`, que tem a conexão, e chegam já pesados por
+//! `RaceContextInput::career_beats` — passando pelo MESMO limiar e pela MESMA
+//! hierarquia. Hoje só o arco de rivalidade veio por essa porta; forma recente,
+//! lesão-arco, marcos de carreira e vínculo com a equipe ainda viajam como texto
+//! sem peso em `context_facts` e são os próximos candidatos a virar beat.
 
 mod beats;
 mod consulta;

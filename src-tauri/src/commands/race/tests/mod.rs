@@ -61,6 +61,76 @@
         assert!(facts.iter().any(|f| f.contains("levou a melhor sobre Rafael Costa")));
     }
 
+    /// Passou o rival no meio da corrida mas foi repassado antes da bandeirada: os
+    /// fatos precisam dizer QUEM terminou na frente, senão a IA escreve que o
+    /// jogador deixou o rival para trás.
+    #[test]
+    fn telemetry_facts_dizem_quem_terminou_na_frente_no_duelo() {
+        use crate::iracing_sdk::telemetry_analysis::{
+            BestMoment, ChartCar, ChartTracePoint, RaceCharts, RivalCard, TelemetryAnalysis,
+        };
+        let ponto = |lap: f64, position: i32| ChartTracePoint {
+            lap,
+            gap: 0.0,
+            position,
+        };
+        let tel = TelemetryAnalysis {
+            has_telemetry: true,
+            rival: Some(RivalCard {
+                pilot_name: "Benedikt Muller".to_string(),
+                laps_battled: 9,
+                avg_gap_s: 0.8,
+            }),
+            best_moment: Some(BestMoment {
+                lap: 5,
+                kind: "rival_beaten".to_string(),
+                positions_gained: 0,
+                time_gain_ms: 0.0,
+                streak: 0,
+                rival_name: "Benedikt Muller".to_string(),
+                confidence: "alta".to_string(),
+            }),
+            charts: Some(RaceCharts {
+                cars: vec![
+                    ChartCar {
+                        idx: 0,
+                        name: "Rodrigo Carvalho".to_string(),
+                        is_player: true,
+                        // Passou na volta 5 (P9 → P8) e foi repassado na última (P9).
+                        points: vec![ponto(1.0, 9), ponto(5.0, 8), ponto(7.0, 9)],
+                    },
+                    ChartCar {
+                        idx: 1,
+                        name: "Benedikt Muller".to_string(),
+                        is_player: false,
+                        points: vec![ponto(1.0, 8), ponto(5.0, 9), ponto(7.0, 8)],
+                    },
+                ],
+                yellow_laps: vec![],
+                lap_times: vec![],
+                car_lap_times: vec![],
+                rival_gap: vec![],
+                rival_name: "Benedikt Muller".to_string(),
+            }),
+            ..Default::default()
+        };
+        let facts = telemetry_context_facts(&tel, "Rodrigo Carvalho");
+        assert!(
+            facts
+                .iter()
+                .any(|f| f.contains("quem terminou à frente foi Benedikt Muller")),
+            "desfecho do duelo: {facts:?}"
+        );
+        assert!(
+            facts.iter().any(|f| f.contains("não sustentou a posição até o fim")),
+            "melhor momento não pode virar 'levou a melhor': {facts:?}"
+        );
+        assert!(
+            !facts.iter().any(|f| f.contains("levou a melhor")),
+            "não pode afirmar vitória no duelo: {facts:?}"
+        );
+    }
+
     #[test]
     fn round_finance_context_uses_real_money_instead_of_raw_budget() {
         let mut rich = placeholder_team_from_db(

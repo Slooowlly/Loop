@@ -12,7 +12,6 @@ pub(super) struct PreviewData {
     pub(super) material: Material,
     /// Dossiês na ordem da PERCEPÇÃO pública (favoritos primeiro).
     pub(super) ranked: Vec<Dossier>,
-    pub(super) perc_labels: Vec<String>,
     pub(super) relations: Vec<String>,
     pub(super) opening_track: Option<String>,
     pub(super) rounds: usize,
@@ -109,14 +108,7 @@ pub(super) fn build_preview_data(
         .iter()
         .map(|d| {
             let c = &d.stats_carreira;
-            let perception = W_TITLE * c.titulos as f64
-                + W_WIN * c.vitorias as f64
-                + W_PODIUM * c.podios as f64
-                + W_FAME * d.atributos.midia
-                + W_CHARISMA * d.atributos.carisma
-                + W_EXPERIENCE * (c.corridas as f64).min(EXPERIENCE_CAP)
-                + W_SKILL_HINT * d.atributos.skill
-                + jitter(&d.id);
+            let perception = perception_score(d);
 
             let mut ganchos = Vec::new();
             if market_top.as_deref() == Some(d.id.as_str()) {
@@ -135,6 +127,7 @@ pub(super) fn build_preview_data(
                 experiencia: experiencia_token(d),
                 tracos: style_traits(d, &agg, &smo, &conf),
                 ganchos,
+                tem_titulo: c.titulos > 0,
                 tem_vitoria: c.vitorias > 0,
                 tem_podio: c.podios > 0,
                 estreante: c.corridas == 0,
@@ -248,16 +241,17 @@ pub(super) fn build_preview_data(
     }
 
     if ranked.len() > FAVORITES_COUNT {
+        // O segundo pelotão estica até o bundle ter MIN_PROFILED dossiês: o modelo escreve
+        // uma matéria rasa quando só recebe meia dúzia de nomes.
+        let quantos = PROMISES_COUNT.max(MIN_PROFILED.saturating_sub(FAVORITES_COUNT));
         let _ = writeln!(f, "\n{}", tk("block.promises_head"));
         for (i, d) in ranked
             .iter()
             .enumerate()
             .skip(FAVORITES_COUNT)
-            .take(PROMISES_COUNT)
+            .take(quantos)
         {
-            let mut line = d.fact_line(&perc_labels[i]);
-            line.push_str(&format!(" | {}", d.experiencia));
-            let _ = writeln!(f, "{line}");
+            let _ = writeln!(f, "{}", d.fact_line(&perc_labels[i]));
         }
     }
 
@@ -297,7 +291,6 @@ pub(super) fn build_preview_data(
         thesis,
         material,
         ranked,
-        perc_labels,
         relations,
         opening_track,
         rounds,

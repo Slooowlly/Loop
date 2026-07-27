@@ -28,6 +28,84 @@ fn podio_pesa_mais_que_skill_na_percepcao() {
     );
 }
 
+/// Um dossiê de mentira, só para exercitar a prosa do fallback.
+fn dossie(nome: &str, equipe: Option<&str>, titulo: bool, vitoria: bool, podio: bool) -> Dossier {
+    Dossier {
+        id: nome.to_string(),
+        nome: nome.to_string(),
+        equipe: equipe.map(|s| s.to_string()),
+        perception: 0.0,
+        curriculo: String::new(),
+        experiencia: String::new(),
+        tracos: vec!["aggressive"],
+        ganchos: Vec::new(),
+        tem_titulo: titulo,
+        tem_vitoria: vitoria,
+        tem_podio: podio,
+        estreante: !vitoria && !podio,
+    }
+}
+
+/// A matéria de fallback é a que o jogador lê quando a IA não responde — ela não pode
+/// soar preenchida por máquina. Dois guards do que já saiu errado: a mesma fôrma repetida
+/// por piloto e o nome da equipe entre parênteses colado no nome.
+#[test]
+fn fallback_nao_repete_a_mesma_forma_por_piloto() {
+    let data = PreviewData {
+        facts: String::new(),
+        teams: serde_json::json!({}),
+        thesis: Thesis::OpenOnTalent,
+        material: Material::Uniform,
+        ranked: vec![
+            dossie("Ana Reis", Some("Meteora"), false, true, true),
+            dossie("Bruno Sá", Some("Arcen"), false, false, true),
+            dossie("Caio Melo", Some("Vento"), false, false, false),
+            dossie("Davi Luz", Some("Norte"), false, false, false),
+            dossie("Elis Prado", None, false, false, false),
+        ],
+        relations: vec!["Ana Reis e Bruno Sá já dividiram equipe.".to_string()],
+        opening_track: Some("Interlagos".to_string()),
+        rounds: 12,
+        champion: Some("Ana Reis".to_string()),
+        throne_vacant: false,
+        cat_label: "F3".to_string(),
+        year: 2027,
+    };
+
+    let art = deterministic_article(&data);
+    let body = art.body;
+
+    assert!(!art.headline.is_empty() && !art.standfirst.is_empty());
+    // Os dois primeiros são agressivos: a oração de estilo só pode aparecer uma vez.
+    assert_eq!(
+        body.matches("briga por cada posição").count(),
+        1,
+        "dois pilotos ganharam a mesma frase de estilo:\n{body}"
+    );
+    assert_eq!(
+        body.split("\n\n").count(),
+        3,
+        "a matéria tem três parágrafos — cenário, topo e o resto:\n{body}"
+    );
+    assert!(
+        !body.contains('('),
+        "nome de equipe entre parênteses vira ficha técnica, não prosa:\n{body}"
+    );
+    for nome in ["Ana Reis", "Bruno Sá", "Caio Melo"] {
+        assert!(body.contains(nome), "{nome} ficou de fora:\n{body}");
+    }
+    // Nenhuma frase do topo pode começar igual à outra — é o sintoma de fôrma repetida.
+    let aberturas: Vec<&str> = body
+        .split("\n\n")
+        .nth(1)
+        .unwrap()
+        .split(". ")
+        .map(|s| s.split(' ').next().unwrap_or(""))
+        .collect();
+    let unicas: std::collections::HashSet<&&str> = aberturas.iter().collect();
+    assert_eq!(unicas.len(), aberturas.len(), "frases repetem a abertura:\n{body}");
+}
+
 #[test]
 fn tese_de_estreantes_vence_quando_grid_e_novato() {
     assert!(matches!(

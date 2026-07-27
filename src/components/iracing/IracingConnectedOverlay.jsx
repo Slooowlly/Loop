@@ -16,30 +16,16 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
+import { AXIS_TICK, GRID, PALETTE, PLAYER_COLOR } from "../../utils/chartTheme";
+import { formatLapSeconds } from "../../utils/formatters";
 
 // Overlay de "iRacing Conectado": aparece quando o jogador volta o foco pro nosso
 // app E o iRacing está rodando. Mostra um blur por cima do app, a mensagem de
 // conexão e gráficos AO VIVO da sessão (variação de voltas, gap pro carro da
 // frente, ritmo do jogador e o race pace do grid) — feedback de "tudo certo".
 
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const PLAYER_COLOR = "#58a6ff";
-const PALETTE = [
-  "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
-  "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
-  "#fb7185", "#c084fc", "#22d3ee", "#fbbf24", "#4ade80", "#f472b6",
-];
-
 // Inatividade (sem mouse/teclado) que reabre a tela de feedback sozinha.
 const IDLE_MS = 10000;
-
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
-}
 
 function ChartCard({ title, hint, hasData, children }) {
   const { t } = useTranslation();
@@ -69,6 +55,10 @@ function IracingConnectedOverlay() {
   const [paceDriver, setPaceDriver] = useState(null); // idx; null = jogador
   const [paceMenuOpen, setPaceMenuOpen] = useState(false);
   const lastInteractionRef = useRef(Date.now());
+  // Assinatura do último histórico aplicado — para PULAR o setHistory quando nada
+  // mudou (evita re-render dos gráficos enquanto o app fica conectado parado, ex.:
+  // na tela de resultado pós-corrida). Ver o tick abaixo.
+  const lastHistorySigRef = useRef("");
   const careerId = useCareerStore((s) => s.careerId);
 
   // Busca as cores dos times (por nome do piloto) quando o overlay abre.
@@ -129,13 +119,41 @@ function IracingConnectedOverlay() {
   useEffect(() => {
     if (!visible) return undefined;
     let alive = true;
+    // Zera a assinatura ao ABRIR. Ela é um ref, então sobrevive ao fechamento do
+    // overlay; se a sessão tiver sido reiniciada no meio (arrays voltando a um
+    // tamanho já visto), a comparação daria "igual" e o overlay reexibiria o
+    // histórico da sessão anterior. Uma linha aqui e a primeira batida sempre
+    // aplica o estado atual.
+    lastHistorySigRef.current = "";
     async function tick() {
+      // Enquanto o app está OCULTO (jogador dentro do iRacing, em tela cheia) não há
+      // nada pra ver no overlay: pular o fetch do histórico INTEIRO + o re-render dos
+      // gráficos. Sem esse gate, uma corrida longa acumulava 1 fetch/s de um payload
+      // de vários MB (até 600 snapshots × 63 carros + 5000 pontos de traçado + 4000
+      // voltas) re-renderizado em 60+ séries de linha num documento oculto — o WebView2
+      // estourava a memória ("Out of Memory") durante a corrida e a tela vinha quebrada
+      // ao voltar pro app. Ao trazer o app de volta, o visibilitychange/focus dispara e
+      // a próxima batida (≤1s) já repovoa tudo.
+      if (document.hidden) return;
       try {
         const [h, connected] = await Promise.all([
           invoke("iracing_get_race_feedback"),
           invoke("iracing_connected"),
         ]);
         if (!alive) return;
+        // Só re-renderiza se ALGO mudou. A assinatura combina os tamanhos dos
+        // arrays que alimentam os gráficos + o último instante amostrado; quando
+        // idêntica (app conectado parado, ex.: resultado pós-corrida), devolvemos
+        // o mesmo objeto e o React aborta o re-render — sem isso o overlay ficava
+        // reconstruindo os gráficos 1×/s pra sempre depois da corrida.
+        const sig = h
+          ? `${h.laps?.length ?? 0}|${h.car_laps?.length ?? 0}|${h.player_laps?.length ?? 0}|${h.player_track?.length ?? 0}|${h.yellow_laps?.length ?? 0}|${h.player_incidents?.length ?? 0}`
+          : "";
+        if (sig && sig === lastHistorySigRef.current) {
+          if (!connected) setVisible(false);
+          return;
+        }
+        lastHistorySigRef.current = sig;
         setHistory(h);
         if (!connected) setVisible(false);
       } catch {
@@ -143,10 +161,19 @@ function IracingConnectedOverlay() {
       }
     }
     tick();
-    const id = setInterval(tick, 1000);
+    // ~2s (não 1s): o overlay é feedback glanceável; dobrar o intervalo corta pela
+    // metade o churn de fetch+render numa sessão longa deixada visível num 2º monitor.
+    const id = setInterval(tick, 2000);
+    // Ao voltar a ficar visível (alt-tab de volta), atualiza NA HORA em vez de
+    // esperar até 1s pela próxima batida do intervalo.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [visible]);
 
@@ -401,6 +428,38 @@ function IracingConnectedOverlay() {
     return y == null ? null : { x: bestLapNum, y };
   }, [playerInTrace, bestLapNum, playerGapByLap]);
 
+  // O race trace é o gráfico MAIS PESADO (até 63 séries de linha, centenas de
+  // pontos cada). O que ele mostra só muda por VOLTA/ultrapassagem, não a cada
+  // amostra de telemetria. Memoizamos o elemento numa ASSINATURA enxuta: enquanto
+  // ela não muda, devolvemos o MESMO elemento React e o React pula a reconciliação
+  // dessa subárvore. Sem isso, o SVG inteiro era reconstruído a cada poll — a raiz
+  // do "Out of Memory" pra quem deixa o overlay visível num 2º monitor por horas.
+  // (As props derivam de `laps` → capturá-las na virada de assinatura é correto.)
+  const lapsSig = laps.length ? `${laps.length}:${laps[laps.length - 1].lap}` : "0";
+  const nameCount = Object.keys(driverNames).length;
+  const bestPinSig = bestLapPin ? `${bestLapPin.x}:${bestLapPin.y}` : "n";
+  const traceChart = useMemo(
+    () => (
+      <RaceTraceChart
+        rows={displayRows}
+        cars={traceCars.map((c) => ({ idx: c.idx, isPlayer: c.isPlayer }))}
+        colorForCar={(idx) => colorFor[idx]}
+        nameByIdx={nameByIdx}
+        mode="gap"
+        lapDomain={["dataMin", "dataMax"]}
+        gapCap={gapCap}
+        yellowLaps={yellowLaps}
+        playerPins={playerPins}
+        bestLapPin={bestLapPin}
+        tickFontSize={10}
+      />
+    ),
+    // Deps = só primitivos ESTÁVEIS. Referenciar displayRows/traceCars/etc. (refs
+    // novas a cada poll) invalidaria o memo toda batida e anularia o ganho.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lapsSig, selectedClass, nameCount, carColors, yellowLaps.length, playerPins.length, bestPinSig],
+  );
+
   if (!visible) return null;
 
   return (
@@ -442,7 +501,7 @@ function IracingConnectedOverlay() {
             {/* Variação de voltas (Pace Consistency) — escolhe o piloto */}
             <ChartCard
               title={t("iracingConnected.lapVariationTitle")}
-              hint={avgLap ? t("iracingConnected.avgHint", { time: formatLap(avgLap) }) : null}
+              hint={avgLap ? t("iracingConnected.avgHint", { time: formatLapSeconds(avgLap) }) : null}
               hasData={deltaRows.length >= 1}
             >
               <div className="relative mb-2">
@@ -541,21 +600,7 @@ function IracingConnectedOverlay() {
                 ))}
               </div>
             )}
-            <div className="h-[240px] w-full">
-              <RaceTraceChart
-                rows={displayRows}
-                cars={traceCars.map((c) => ({ idx: c.idx, isPlayer: c.isPlayer }))}
-                colorForCar={(idx) => colorFor[idx]}
-                nameByIdx={nameByIdx}
-                mode="gap"
-                lapDomain={["dataMin", "dataMax"]}
-                gapCap={gapCap}
-                yellowLaps={yellowLaps}
-                playerPins={playerPins}
-                bestLapPin={bestLapPin}
-                tickFontSize={10}
-              />
-            </div>
+            <div className="h-[240px] w-full">{traceChart}</div>
 
             {/* Legenda: nome do piloto na cor do time/carro */}
             {traceCars.length > 0 && (

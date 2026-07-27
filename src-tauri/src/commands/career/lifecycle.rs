@@ -268,13 +268,13 @@ pub(crate) fn load_career_in_base_dir(
             .map(|t| {
                 let medias =
                     team_queries::get_team_lineup_medias(&db.conn, &t.id).unwrap_or_default();
-                crate::public_presence::team::derive_team_public_presence(&medias).raw_score
+                crate::public_presence::team::derive_team_public_presence(&medias)
             })
             .sum();
         let team_medias =
             team_queries::get_team_lineup_medias(&db.conn, &team.id).unwrap_or_default();
         let team_presence =
-            crate::public_presence::team::derive_team_public_presence(&team_medias).raw_score;
+            crate::public_presence::team::derive_team_public_presence(&team_medias);
         let n = category_teams.len().max(1) as f64;
         Some(crate::finance::cashflow::team_gate_share(
             team_presence,
@@ -773,7 +773,7 @@ pub(crate) fn repair_regular_contract_consistency(
 
         if driver.categoria_atual.as_deref() != Some(team.categoria.as_str()) {
             let mut updated_driver = driver.clone();
-            updated_driver.categoria_atual = Some(team.categoria.clone());
+            updated_driver.mover_para_categoria(Some(team.categoria.clone()));
             driver_queries::update_driver(&tx, &updated_driver).map_err(|e| {
                 format!("Falha ao corrigir categoria do piloto '{}': {e}", driver.id)
             })?;

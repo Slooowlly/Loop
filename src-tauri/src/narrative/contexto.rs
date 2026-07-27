@@ -18,6 +18,10 @@ pub struct RaceContextInput<'a> {
     /// Incidentes CRUS da corrida (jogador + IA). O peso e a redação por gravidade
     /// são resolvidos aqui dentro — a curadoria mora no motor, não na IA.
     pub incidents: &'a [IncidentResult],
+    /// Beats de CARREIRA (memória entre corridas: arco de rivalidade, forma...) já
+    /// pesados por quem tem o banco em mãos. Entram no mesmo limiar e na mesma
+    /// hierarquia dos beats da corrida — a curadoria continua morando aqui.
+    pub career_beats: &'a [Beat],
     /// Pano de fundo (rookie/veterano, histórico, sequência...) já renderizado.
     /// Vai numa seção "Contexto" — cor pra IA usar quando ajudar, sem virar manchete.
     pub context_facts: &'a [String],
@@ -47,6 +51,7 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
             team_name: None,
         });
     }
+    beats.extend(input.career_beats.iter().cloned());
     let selected = select(beats);
     let has_player = selected.iter().any(|b| b.kind == BeatKind::NossoPiloto);
 
@@ -99,8 +104,9 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     facts.push_str(&statement);
     facts.push('\n');
 
-    let (apoio, fundo): (Vec<&Beat>, Vec<&Beat>) =
-        selected.iter().partition(|b| support.contains(&b.kind));
+    let (apoio, fundo): (Vec<&Beat>, Vec<&Beat>) = selected
+        .iter()
+        .partition(|b| support.contains(&b.kind) || b.forces_highlight());
 
     if !apoio.is_empty() {
         facts.push_str(&rust_i18n::t!("narrative.context.highlights_label").to_string());

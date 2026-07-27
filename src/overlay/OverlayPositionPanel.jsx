@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { estaNoTauri } from "../lib/tauri";
 
 // Painel de POSIÇÃO do overlay de VR. Deixa você:
 //   • escolher o ALVO: TORRE (timing) ou RÁDIO (card do engenheiro) — cada um é um quad
@@ -16,7 +17,6 @@ import { invoke } from "@tauri-apps/api/core";
 // Dica de uso no Pico + Virtual Desktop: com o desktop visível no VD dá pra ver o
 // painel do app e o overlay ao mesmo tempo — posiciona uma vez e fica gravado.
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const TARGET_KEY = "vrOverlayPanelTarget"; // último alvo escolhido (torre/rádio)
 
 // Cada ALVO tem seus comandos, chaves de storage e padrões de fábrica próprios. Os
@@ -94,7 +94,7 @@ function loadPose(cfg) {
 }
 
 function push(cfg, pose) {
-  if (!IN_TAURI) return;
+  if (!estaNoTauri()) return;
   invoke(cfg.setPose, {
     lockMode: pose.lockMode,
     x: pose.x,
@@ -184,7 +184,7 @@ export default function OverlayPositionPanel() {
     push(c, p);
     const rk = loadRecenterKey(c);
     setRecenterKey(rk);
-    if (IN_TAURI) invoke(c.setRecenterKey, { vk: rk?.vk ?? 0 }).catch(() => {});
+    if (estaNoTauri()) invoke(c.setRecenterKey, { vk: rk?.vk ?? 0 }).catch(() => {});
     setSavedAt(0);
   };
 
@@ -213,7 +213,7 @@ export default function OverlayPositionPanel() {
 
   // Recentra AGORA: reancora o world-lock do alvo na cabeça atual (mesma posição sempre).
   const recenter = () => {
-    if (!IN_TAURI) return;
+    if (!estaNoTauri()) return;
     invoke(cfgRef.current.recenter).catch(() => {});
   };
 
@@ -221,7 +221,7 @@ export default function OverlayPositionPanel() {
   // de recentro (pra valer dentro do VR mesmo sem o app em foco).
   useEffect(() => {
     push(cfgRef.current, poseRef.current);
-    if (IN_TAURI) {
+    if (estaNoTauri()) {
       invoke(cfgRef.current.setRecenterKey, { vk: recenterKey?.vk ?? 0 }).catch(() => {});
     }
   }, []);
@@ -246,7 +246,7 @@ export default function OverlayPositionPanel() {
       } catch {
         /* sem persistência: tudo bem */
       }
-      if (IN_TAURI) invoke(cfgRef.current.setRecenterKey, { vk }).catch(() => {});
+      if (estaNoTauri()) invoke(cfgRef.current.setRecenterKey, { vk }).catch(() => {});
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -260,13 +260,13 @@ export default function OverlayPositionPanel() {
     } catch {
       /* ignora */
     }
-    if (IN_TAURI) invoke(cfgRef.current.setRecenterKey, { vk: 0 }).catch(() => {});
+    if (estaNoTauri()) invoke(cfgRef.current.setRecenterKey, { vk: 0 }).catch(() => {});
   };
 
   // Poll: adota o que o AJUSTE POR TECLADO mudou na layer, no alvo corrente. NÃO
   // reempurra (senão brigaria com o "segurar tecla" — a layer é a dona da SHM aí).
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let stopped = false;
     const timer = setInterval(async () => {
       try {
@@ -286,7 +286,7 @@ export default function OverlayPositionPanel() {
     };
   }, []);
 
-  if (!IN_TAURI) return null;
+  if (!estaNoTauri()) return null;
 
   if (!open) {
     // Recolhido: só uma engrenagem discreta no canto. Fica translúcida e ganha

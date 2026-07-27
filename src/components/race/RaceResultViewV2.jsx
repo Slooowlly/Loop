@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import i18n from "../../i18n/index.js";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
@@ -16,6 +15,7 @@ import {
 import { capitalizar } from "../../utils/formatters";
 import { getTeamGlow } from "../../utils/teamColors";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
+import { CLIMA_RESULTADO, weatherLabel as climaLabel } from "../../utils/weather";
 
 // Tela pós-corrida REDESENHADA (v2), atrás de flag de dev. NÃO substitui a atual —
 // renderizada em paralelo no Dashboard só quando a flag liga, para comparar lado a
@@ -37,13 +37,11 @@ const PODIUM = { 1: "#f5c76d", 2: "#c9d1d9", 3: "#cd8a55" };
 const MONO =
   '"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, "Roboto Mono", ui-monospace, monospace';
 
-function weatherLabel(w) {
-  if (w === "HeavyRain") return i18n.t("raceResult.weather.heavyRain");
-  if (w === "Wet") return i18n.t("raceResult.weather.rain");
-  if (w === "Damp") return i18n.t("raceResult.weather.damp");
-  return i18n.t("raceResult.weather.dry");
-}
+const weatherLabel = (w) => climaLabel(w, CLIMA_RESULTADO);
 
+// Glifo próprio desta tela: sem seletor de variação (fica alinhado com a numeração
+// mono da tabela) e "Dry" → ☀, não o ⛅ do banner do Header — aqui o rótulo ao lado
+// é "Seco", então um sol é o pareamento certo. Ver utils/weather.js.
 function weatherIcon(w) {
   if (w === "HeavyRain") return "⛈";
   if (w === "Wet") return "🌧";

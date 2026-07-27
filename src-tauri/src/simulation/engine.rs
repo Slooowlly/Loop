@@ -6,17 +6,6 @@ use super::qualifying::simulate_qualifying;
 use super::race::{simulate_race_with_breakdowns, MechanicalOutcome, RaceResult};
 use super::scoring::{assign_points, determine_fastest_lap};
 
-/// Fim de semana completo SEM quebra de peça. Ver [`run_full_race_with_breakdowns`].
-pub fn run_full_race(
-    drivers: &[SimDriver],
-    ctx: &SimulationContext,
-    is_endurance: bool,
-    catalog: &IncidentCatalog,
-    rng: &mut impl Rng,
-) -> RaceResult {
-    run_full_race_with_breakdowns(drivers, ctx, is_endurance, catalog, None, rng)
-}
-
 /// Fim de semana completo cobrando os desfechos de QUEBRA DE PEÇA pré-rolados (Fase 7). Como a
 /// quebra entra ANTES de `build_race_results`, posição, gap e pontos já saem coerentes com o
 /// tempo perdido no box — nada é remendado depois.
@@ -113,11 +102,12 @@ mod tests {
     fn test_full_race_integration() {
         let drivers: Vec<SimDriver> = (0..12).map(build_driver).collect();
         let mut rng = StdRng::seed_from_u64(41);
-        let result = run_full_race(
+        let result = run_full_race_with_breakdowns(
             &drivers,
             &sample_context(),
             false,
             &IncidentCatalog::empty(),
+            None,
             &mut rng,
         );
 
@@ -131,11 +121,12 @@ mod tests {
     fn test_full_race_positions_consistent() {
         let drivers: Vec<SimDriver> = (0..12).map(build_driver).collect();
         let mut rng = StdRng::seed_from_u64(42);
-        let result = run_full_race(
+        let result = run_full_race_with_breakdowns(
             &drivers,
             &sample_context(),
             false,
             &IncidentCatalog::empty(),
+            None,
             &mut rng,
         );
 

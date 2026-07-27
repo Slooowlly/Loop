@@ -5,6 +5,8 @@
 #[cfg(windows)]
 mod chat;
 #[cfg(windows)]
+mod diagnostico;
+#[cfg(windows)]
 mod janela;
 #[cfg(windows)]
 mod leitura;
@@ -15,6 +17,8 @@ mod util;
 
 #[cfg(windows)]
 pub use chat::{send_chat_macro, send_chat_text};
+#[cfg(windows)]
+pub use diagnostico::diagnosticar;
 #[cfg(windows)]
 pub use janela::{focus_iracing_window, force_foreground_window, foreground_is_iracing};
 #[cfg(windows)]

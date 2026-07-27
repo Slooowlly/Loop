@@ -54,7 +54,7 @@ pub struct PendingDamage {
     pub is_dnf_capable: bool,
 }
 
-/// Retorno de `process_segment_incidents`, carregando incidentes do segmento e novos danos latentes.
+/// Retorno de `process_segment_incidents_cfg`, carregando incidentes do segmento e novos danos latentes.
 pub struct SegmentIncidentResult {
     pub incidents: Vec<IncidentResult>,
     /// Pares (driver_id, PendingDamage) a serem adicionados aos estados correspondentes.

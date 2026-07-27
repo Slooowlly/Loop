@@ -21,26 +21,38 @@ fn horizonte_distribuicao_bate_20_30_30_20() {
         }
     }
     let frac = |x: i32| x as f64 / n as f64;
-    assert!((frac(single) - 0.20).abs() < 0.04, "single={}", frac(single));
+    assert!(
+        (frac(single) - 0.20).abs() < 0.04,
+        "single={}",
+        frac(single)
+    );
     assert!((frac(three) - 0.30).abs() < 0.04, "three={}", frac(three));
     assert!((frac(five) - 0.30).abs() < 0.04, "five={}", frac(five));
-    assert!((frac(season) - 0.20).abs() < 0.04, "season={}", frac(season));
+    assert!(
+        (frac(season) - 0.20).abs() < 0.04,
+        "season={}",
+        frac(season)
+    );
 }
 
 #[test]
 fn horizonte_e_deterministico() {
-    assert_eq!(planning_horizon("Team-42", 7), planning_horizon("Team-42", 7));
+    assert_eq!(
+        planning_horizon("Team-42", 7),
+        planning_horizon("Team-42", 7)
+    );
 }
 
 #[test]
 fn horizonte_re_rola_por_temporada() {
     let n = 500;
     let changed = (0..n)
-        .filter(|i| {
-            planning_horizon(&format!("T{i}"), 1) != planning_horizon(&format!("T{i}"), 2)
-        })
+        .filter(|i| planning_horizon(&format!("T{i}"), 1) != planning_horizon(&format!("T{i}"), 2))
         .count();
-    assert!(changed > 200, "esperado muitos times re-rolando; mudaram {changed}");
+    assert!(
+        changed > 200,
+        "esperado muitos times re-rolando; mudaram {changed}"
+    );
 }
 
 // -------- Demanda de manutenção --------
@@ -54,7 +66,10 @@ fn demanda_normaliza_e_le_as_pistas() {
     // Monza (239) é power-heavy → P domina.
     let (p2, h2, a2) = maintenance_demand(&[239]);
     assert!((p2 + h2 + a2 - 1.0).abs() < 1e-6);
-    assert!(p2 > h2 && p2 > a2, "Monza deveria exigir Power: P={p2} H={h2} A={a2}");
+    assert!(
+        p2 > h2 && p2 > a2,
+        "Monza deveria exigir Power: P={p2} H={h2} A={a2}"
+    );
 }
 
 // -------- Decisão de manutenção --------
@@ -70,9 +85,15 @@ fn prioriza_peca_do_atributo_exigido_com_caixa_curto() {
     let plan = decide_maintenance(&car, "gt4", budget, demand);
 
     // O motor (relevante em power) leva a única troca possível...
-    assert_eq!(plan.actions.get(&PartType::Engine), Some(&PartAction::Replace));
+    assert_eq!(
+        plan.actions.get(&PartType::Engine),
+        Some(&PartAction::Replace)
+    );
     // ...e os freios (H puro, irrelevantes aqui, sem caixa) degradam.
-    assert_eq!(plan.actions.get(&PartType::Brakes), Some(&PartAction::Degrade));
+    assert_eq!(
+        plan.actions.get(&PartType::Brakes),
+        Some(&PartAction::Degrade)
+    );
 }
 
 #[test]
@@ -85,7 +106,10 @@ fn estica_quando_sem_caixa_mas_a_pista_exige() {
 
     let plan = decide_maintenance(&car, "gt4", sc, demand);
 
-    assert_eq!(plan.actions.get(&PartType::Engine), Some(&PartAction::Stretch));
+    assert_eq!(
+        plan.actions.get(&PartType::Engine),
+        Some(&PartAction::Stretch)
+    );
 }
 
 #[test]
@@ -96,7 +120,10 @@ fn degrada_peca_irrelevante_para_a_proxima_pista() {
 
     let plan = decide_maintenance(&car, "gt4", 0.0, demand);
 
-    assert_eq!(plan.actions.get(&PartType::Brakes), Some(&PartAction::Degrade));
+    assert_eq!(
+        plan.actions.get(&PartType::Brakes),
+        Some(&PartAction::Degrade)
+    );
 }
 
 // -------- Seed inicial --------
@@ -116,9 +143,9 @@ fn seed_persiste_carros_correlacionados_com_a_categoria() {
         t
     };
     let teams = vec![
-        mk("A", "gt3", 15.0),          // topo do GT3
-        mk("B", "gt3", 5.0),           // fundo do GT3
-        mk("R", "mazda_rookie", 2.0),  // spec
+        mk("A", "gt3", 15.0),         // topo do GT3
+        mk("B", "gt3", 5.0),          // fundo do GT3
+        mk("R", "mazda_rookie", 2.0), // spec
     ];
 
     seed_and_persist_team_cars(&conn, &teams).unwrap();
@@ -152,7 +179,13 @@ fn integracao_temporada_o_orcamento_abre_o_spread_da_grade() {
     }
     // Sanidade: largaram iguais.
     for id in rich.iter().chain(poor.iter()) {
-        assert_eq!(team_car::get_team_car(&conn, id).unwrap().unwrap().display_level(), 5);
+        assert_eq!(
+            team_car::get_team_car(&conn, id)
+                .unwrap()
+                .unwrap()
+                .display_level(),
+            5
+        );
     }
 
     // Calendário misto de uma temporada: power → handling → accel, repetindo.
@@ -174,17 +207,34 @@ fn integracao_temporada_o_orcamento_abre_o_spread_da_grade() {
         }
     }
 
-    let nivel = |id: &str| team_car::get_team_car(&conn, id).unwrap().unwrap().display_level();
+    let nivel = |id: &str| {
+        team_car::get_team_car(&conn, id)
+            .unwrap()
+            .unwrap()
+            .display_level()
+    };
     let ricos: Vec<u8> = rich.iter().map(|id| nivel(id)).collect();
     let pobres: Vec<u8> = poor.iter().map(|id| nivel(id)).collect();
 
     // Os ricos sobem rumo ao teto (7); os pobres sangram; todos respeitam o teto.
-    assert!(ricos.iter().all(|&l| l >= 6), "ricos deveriam chegar perto do teto: {ricos:?}");
-    assert!(pobres.iter().all(|&l| l <= 3), "pobres deveriam sangrar: {pobres:?}");
-    assert!(ricos.iter().all(|&l| l <= 7), "ninguém passa do teto do GT3: {ricos:?}");
+    assert!(
+        ricos.iter().all(|&l| l >= 6),
+        "ricos deveriam chegar perto do teto: {ricos:?}"
+    );
+    assert!(
+        pobres.iter().all(|&l| l <= 3),
+        "pobres deveriam sangrar: {pobres:?}"
+    );
+    assert!(
+        ricos.iter().all(|&l| l <= 7),
+        "ninguém passa do teto do GT3: {ricos:?}"
+    );
     let melhor_pobre = *pobres.iter().max().unwrap();
     let pior_rico = *ricos.iter().min().unwrap();
-    assert!(pior_rico > melhor_pobre + 2, "o spread deveria ser nítido: ricos={ricos:?} pobres={pobres:?}");
+    assert!(
+        pior_rico > melhor_pobre + 2,
+        "o spread deveria ser nítido: ricos={ricos:?} pobres={pobres:?}"
+    );
 }
 
 #[test]
@@ -209,15 +259,25 @@ fn tick_por_rodada_evolui_e_persiste_o_carro_pelo_caixa() {
 
     // Várias rodadas com caixa alto → o carro sobe rumo ao teto, e cada rodada tem custo.
     for _ in 0..20 {
-        let cost =
-            maintain_team_car(&conn, &team, "gt3", 1, &[239, 489, 324], WearConditions::neutral(), None)
-                .unwrap();
+        let cost = maintain_team_car(
+            &conn,
+            &team,
+            "gt3",
+            1,
+            &[239, 489, 324],
+            WearConditions::neutral(),
+            None,
+        )
+        .unwrap();
         assert!(cost >= 0.0);
         team.car = team_car::get_team_car(&conn, "T1").unwrap();
     }
 
     let end = team.car.as_ref().unwrap().display_level();
-    assert!(end > start, "carro de time rico deveria melhorar (start={start}, end={end})");
+    assert!(
+        end > start,
+        "carro de time rico deveria melhorar (start={start}, end={end})"
+    );
 }
 
 #[test]
@@ -236,7 +296,16 @@ fn carro_acima_do_teto_regride_ao_entrar_na_categoria() {
     team.car = Some(high);
 
     // Amador tem teto 2 → o carro deve regredir a ≤ 2.
-    maintain_team_car(&conn, &team, "mazda_amador", 1, &[], WearConditions::neutral(), None).unwrap();
+    maintain_team_car(
+        &conn,
+        &team,
+        "mazda_amador",
+        1,
+        &[],
+        WearConditions::neutral(),
+        None,
+    )
+    .unwrap();
 
     let after = team_car::get_team_car(&conn, "T1").unwrap().unwrap();
     assert!(
@@ -304,16 +373,17 @@ fn dna_pica_a_demanda_que_o_calendario_diverso_lavaria() {
     // DNA de potência empurra a demanda efetiva acima do gatilho.
     let blended = blend_with_focus(diverse, CarFocus::Power);
     let (p, h, a) = blended;
-    assert!(p > h && p > a, "DNA deveria puxar power: P={p:.2} H={h:.2} A={a:.2}");
+    assert!(
+        p > h && p > a,
+        "DNA deveria puxar power: P={p:.2} H={h:.2} A={a:.2}"
+    );
     assert!(
         demand_spread(blended) >= DEMAND_PEAK_THRESHOLD,
         "DNA deveria peakar a demanda: spread={}",
         demand_spread(blended)
     );
     // DNA balanceado NÃO peaka (generalista continua generalista).
-    assert!(
-        demand_spread(blend_with_focus(diverse, CarFocus::Balanced)) < DEMAND_PEAK_THRESHOLD
-    );
+    assert!(demand_spread(blend_with_focus(diverse, CarFocus::Balanced)) < DEMAND_PEAK_THRESHOLD);
 }
 
 #[test]
@@ -344,8 +414,16 @@ fn time_com_dna_de_potencia_foca_mesmo_em_calendario_diverso() {
     let diverse = [489, 325, 180, 318, 93, 188];
     for season in 1..=4 {
         for _ in 0..15 {
-            maintain_team_car(&conn, &team, "gt3", season, &diverse, WearConditions::neutral(), None)
-                .unwrap();
+            maintain_team_car(
+                &conn,
+                &team,
+                "gt3",
+                season,
+                &diverse,
+                WearConditions::neutral(),
+                None,
+            )
+            .unwrap();
             team.car = team_car::get_team_car(&conn, &team_id).unwrap();
         }
     }
@@ -430,10 +508,22 @@ fn dnf_destroi_e_repoe_a_peca_mesmo_sem_caixa() {
     use crate::car::breakdown::Severity;
     // Time POBRE (sem caixa), motor a MEIA-VIDA (não estava no fim). DNF destrói → troca
     // FORÇADA a débito: a peça vira NOVA (não fica presa em sobreuso) e há custo cobrado.
-    let (cost, engine) =
-        maintain_com_quebra(0.0, 1e9, "critical", 0.30, &[(PartType::Engine, Severity::Dnf)]);
-    assert!(engine.wear < 0.5, "motor destruído deveria virar NOVO (wear baixo), deu {}", engine.wear);
-    assert!(cost > 0.0, "a troca forçada do DNF deveria cobrar custo (a débito), deu {cost}");
+    let (cost, engine) = maintain_com_quebra(
+        0.0,
+        1e9,
+        "critical",
+        0.30,
+        &[(PartType::Engine, Severity::Dnf)],
+    );
+    assert!(
+        engine.wear < 0.5,
+        "motor destruído deveria virar NOVO (wear baixo), deu {}",
+        engine.wear
+    );
+    assert!(
+        cost > 0.0,
+        "a troca forçada do DNF deveria cobrar custo (a débito), deu {cost}"
+    );
 }
 
 #[test]
@@ -441,15 +531,24 @@ fn sem_feedback_a_peca_do_pobre_so_acumula() {
     // Contraste: MESMO cenário, sem evento → o motor a 0.30 num time pobre só acumula, NÃO
     // vira novo. Prova que é o FEEDBACK (não o cérebro) que reseta a peça no DNF.
     let (_c, engine) = maintain_com_quebra(0.0, 1e9, "critical", 0.30, &[]);
-    assert!(engine.wear > 0.4, "sem quebra, o motor só acumula (não reseta): {}", engine.wear);
+    assert!(
+        engine.wear > 0.4,
+        "sem quebra, o motor só acumula (não reseta): {}",
+        engine.wear
+    );
 }
 
 #[test]
 fn leve_nao_altera_a_peca() {
     use crate::car::breakdown::Severity;
     // Leve = mesmo desfecho que SEM quebra (a peça só perdeu rendimento na corrida).
-    let (_c1, com) =
-        maintain_com_quebra(0.0, 1e9, "critical", 0.30, &[(PartType::Engine, Severity::Light)]);
+    let (_c1, com) = maintain_com_quebra(
+        0.0,
+        1e9,
+        "critical",
+        0.30,
+        &[(PartType::Engine, Severity::Light)],
+    );
     let (_c2, sem) = maintain_com_quebra(0.0, 1e9, "critical", 0.30, &[]);
     assert!(
         (com.wear - sem.wear).abs() < 1e-9,
@@ -464,10 +563,22 @@ fn grave_forca_troca_ate_sem_caixa() {
     use crate::car::breakdown::Severity;
     // GRAVE também força a troca (variante simples) — inclusive no time POBRE, a débito: a
     // peça que custou tempo vira NOVA e não requebra; o buraco é financeiro (custo cobrado).
-    let (cost, engine) =
-        maintain_com_quebra(0.0, 1e9, "critical", 0.30, &[(PartType::Engine, Severity::Heavy)]);
-    assert!(engine.wear < 0.5, "Grave deveria trocar a peça (nova) mesmo sem caixa: {}", engine.wear);
-    assert!(cost > 0.0, "a troca forçada do Grave deveria cobrar custo (a débito): {cost}");
+    let (cost, engine) = maintain_com_quebra(
+        0.0,
+        1e9,
+        "critical",
+        0.30,
+        &[(PartType::Engine, Severity::Heavy)],
+    );
+    assert!(
+        engine.wear < 0.5,
+        "Grave deveria trocar a peça (nova) mesmo sem caixa: {}",
+        engine.wear
+    );
+    assert!(
+        cost > 0.0,
+        "a troca forçada do Grave deveria cobrar custo (a débito): {cost}"
+    );
 }
 
 // -------- Economia do enduro (custo por duração + alívio de parada) --------
@@ -499,8 +610,16 @@ fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
         };
         // Carro do JOGADOR (Some) com paradas reais; estilo neutro (fator 1.0).
         maintain_team_car_pits(
-            &conn, &team, "gt3", 1, &[], cond,
-            Some(crate::car::driving_style::StyleFactors::uniform(1.0)), true, pits, &[],
+            &conn,
+            &team,
+            "gt3",
+            1,
+            &[],
+            cond,
+            Some(crate::car::driving_style::StyleFactors::uniform(1.0)),
+            true,
+            pits,
+            &[],
         )
         .unwrap();
         let after = team_car::get_team_car(&conn, "T").unwrap().unwrap();
@@ -509,9 +628,18 @@ fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
     let sprint = total_wear(30, 0);
     let enduro = total_wear(60, 0);
     let enduro_pit = total_wear(60, 3); // teto de alívio (−30% do sobrecusto)
-    assert!(enduro > sprint * 1.5, "enduro deveria desgastar bem mais (sprint={sprint:.4} enduro={enduro:.4})");
-    assert!(enduro_pit < enduro, "paradas deveriam aliviar o enduro ({enduro_pit:.4} < {enduro:.4})");
-    assert!(enduro_pit > sprint, "mesmo com paradas o enduro custa mais que o sprint");
+    assert!(
+        enduro > sprint * 1.5,
+        "enduro deveria desgastar bem mais (sprint={sprint:.4} enduro={enduro:.4})"
+    );
+    assert!(
+        enduro_pit < enduro,
+        "paradas deveriam aliviar o enduro ({enduro_pit:.4} < {enduro:.4})"
+    );
+    assert!(
+        enduro_pit > sprint,
+        "mesmo com paradas o enduro custa mais que o sprint"
+    );
 }
 
 /// A IA (player_style = None) modela as paradas pela duração — recebe o alívio SOZINHA, sem
@@ -522,7 +650,10 @@ fn ia_recebe_alivio_modelado_no_enduro() {
     let ai_wear = |duracao_min: u8| -> f64 {
         let conn = Connection::open_in_memory().unwrap();
         let mut team = placeholder_team_from_db(
-            "T".to_string(), "T".to_string(), "gt3".to_string(), "2026-01-01T00:00:00".to_string(),
+            "T".to_string(),
+            "T".to_string(),
+            "gt3".to_string(),
+            "2026-01-01T00:00:00".to_string(),
         );
         team.cash_balance = 0.0;
         team.debt_balance = 1e9;
@@ -536,13 +667,26 @@ fn ia_recebe_alivio_modelado_no_enduro() {
             duracao_min,
         };
         maintain_team_car(&conn, &team, "gt3", 1, &[], cond, None).unwrap();
-        team_car::get_team_car(&conn, "T").unwrap().unwrap().parts.iter().map(|p| p.wear).sum()
+        team_car::get_team_car(&conn, "T")
+            .unwrap()
+            .unwrap()
+            .parts
+            .iter()
+            .map(|p| p.wear)
+            .sum()
     };
     let sprint = ai_wear(30);
     let enduro = ai_wear(60); // 2 paradas modeladas → −20% do sobrecusto
-    assert!(enduro > sprint, "enduro da IA deveria custar mais ({enduro:.4} > {sprint:.4})");
+    assert!(
+        enduro > sprint,
+        "enduro da IA deveria custar mais ({enduro:.4} > {sprint:.4})"
+    );
     // Sobrecusto 60min = 1.0; com 2 paradas modeladas (−20%) → mult 1.8 → 1.8× o sprint.
-    assert!((enduro / sprint - 1.8).abs() < 0.02, "IA 60min deveria ser ~1.8× o sprint, deu {:.3}", enduro / sprint);
+    assert!(
+        (enduro / sprint - 1.8).abs() < 0.02,
+        "IA 60min deveria ser ~1.8× o sprint, deu {:.3}",
+        enduro / sprint
+    );
 }
 
 #[test]
@@ -556,7 +700,10 @@ fn calendario_equilibrado_mantem_carro_parelho() {
     let levels: Vec<u8> = car.parts.iter().map(|p| p.level).collect();
     let max = *levels.iter().max().unwrap();
     let min = *levels.iter().min().unwrap();
-    assert!(max - min <= 1, "equilibrado deveria manter o carro parelho: {levels:?}");
+    assert!(
+        max - min <= 1,
+        "equilibrado deveria manter o carro parelho: {levels:?}"
+    );
 }
 
 #[test]
@@ -607,7 +754,7 @@ fn time_rico_atinge_o_teto_e_pobre_sangra() {
 #[test]
 #[ignore]
 fn analise_recorrencia_entre_corridas() {
-    use crate::car::breakdown::{roll_race_breakdowns, Weather};
+    use crate::car::breakdown::{roll_race_breakdowns_cfg, Weather};
     use crate::car::PartType;
     use crate::models::team::placeholder_team_from_db;
     use std::collections::HashSet;
@@ -671,7 +818,13 @@ fn analise_recorrencia_entre_corridas() {
 
             // Carro inicial: qualidade correlacionada ao tier (rico começa melhor), mas a
             // dinâmica de recorrência vem da manutenção corrida a corrida, não do seed.
-            let q = if cash > 1e6 { 0.7 } else if cash > 0.0 { 0.5 } else { 0.35 };
+            let q = if cash > 1e6 {
+                0.7
+            } else if cash > 0.0 {
+                0.5
+            } else {
+                0.35
+            };
             let car = seed_car(CAT, q);
             team_car::upsert_team_car(&conn, &team_id, &car).unwrap();
             team.car = Some(car);
@@ -684,9 +837,21 @@ fn analise_recorrencia_entre_corridas() {
                 // Semente única por (time, corrida) — como o disparo ao vivo do jogo (1 sorte).
                 let mut seed = 0xC0FF_EE00_u64 ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
                 for b in team_id.bytes() {
-                    seed = seed.wrapping_mul(0x0000_0100_0000_01B3).wrapping_add(b as u64);
+                    seed = seed
+                        .wrapping_mul(0x0000_0100_0000_01B3)
+                        .wrapping_add(b as u64);
                 }
-                let evs = roll_race_breakdowns(&car, 18, seed, 50.0, track_pha, weather, &[]);
+                let evs = roll_race_breakdowns_cfg(
+                    &car,
+                    18,
+                    seed,
+                    50.0,
+                    track_pha,
+                    weather,
+                    &[],
+                    false,
+                    true,
+                );
 
                 let cur: HashSet<PartType> = evs.iter().map(|e| e.part).collect();
                 total_races += 1;
@@ -759,15 +924,9 @@ fn analise_recorrencia_entre_corridas() {
             forced * 100.0,
         );
     }
-    println!(
-        "\n  Leitura: 'base/peça' = chance de UMA peça qualquer quebrar numa corrida."
-    );
-    println!(
-        "  'recorrência' = dado que a peça quebrou, chance de a MESMA quebrar na próxima."
-    );
-    println!(
-        "  'razão' ≫ 1 = a quebra é PEGAJOSA (a mesma peça repete muito acima do acaso).\n"
-    );
+    println!("\n  Leitura: 'base/peça' = chance de UMA peça qualquer quebrar numa corrida.");
+    println!("  'recorrência' = dado que a peça quebrou, chance de a MESMA quebrar na próxima.");
+    println!("  'razão' ≫ 1 = a quebra é PEGAJOSA (a mesma peça repete muito acima do acaso).\n");
 }
 
 // -------- As 11 peças desgastam de forma diferente? (staggering) --------
@@ -814,7 +973,11 @@ fn analise_desgaste_por_peca() {
     };
 
     for (nome, calendario, usar_clima) in [
-        ("NEUTRO  (pista equilibrada, clima neutro)", &neutro[..], false),
+        (
+            "NEUTRO  (pista equilibrada, clima neutro)",
+            &neutro[..],
+            false,
+        ),
         ("VARIADO (P→H→A rotando, +1 dia quente)", &variado[..], true),
     ] {
         println!("\n================ DESGASTE PERSISTIDO POR PEÇA — {nome} ================");
@@ -844,12 +1007,13 @@ fn analise_desgaste_por_peca() {
             // Estado PERSISTIDO no INÍCIO desta corrida = o que o pré-roll de quebra leria.
             // "Em risco" = a peça CRUZA a zona (≥87%) DURANTE esta corrida (entrada +
             // desgaste da corrida), não só se já entrou acima de 87%.
-            let cruza_zona =
-                |pt: PartType, w: f64| w + wear_per_race(pt) >= RISK_OPEN;
+            let cruza_zona = |pt: PartType, w: f64| w + wear_per_race(pt) >= RISK_OPEN;
             let em_risco: Vec<&str> = PartType::ALL
                 .iter()
                 .filter(|&&pt| {
-                    car.part(pt).map(|p| cruza_zona(pt, p.wear)).unwrap_or(false)
+                    car.part(pt)
+                        .map(|p| cruza_zona(pt, p.wear))
+                        .unwrap_or(false)
                 })
                 .map(|&pt| abbr(pt))
                 .collect();
@@ -867,16 +1031,13 @@ fn analise_desgaste_por_peca() {
 
             // Avança a corrida (cérebro rico repõe no fim-de-vida; clima/pista modulam).
             let plan = decide_maintenance(&car, "gt3", 1e12, demand);
-            let wear_mults =
-                crate::car::breakdown::conditions_wear_mults(track, weather);
+            let wear_mults = crate::car::breakdown::conditions_wear_mults(track, weather);
             apply_plan_scaled(&mut car, &plan, &wear_mults, true, 1.0);
         }
     }
     println!(
         "\n  Leitura: peças de MESMA durabilidade e MESMO perfil (ex.: AsD/AsT, ambas durab 3)"
     );
-    println!(
-        "  entram na zona (*) JUNTAS no neutro. A pista/clima é o ÚNICO desempate — sem ela,"
-    );
+    println!("  entram na zona (*) JUNTAS no neutro. A pista/clima é o ÚNICO desempate — sem ela,");
     println!("  o desgaste persistido não diferencia peças de mesma durabilidade.\n");
 }

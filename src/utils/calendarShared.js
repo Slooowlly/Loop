@@ -1,43 +1,6 @@
 // Helpers puros compartilhados pelo calendário.
-import i18n from "../i18n/index.js";
-
-// Imagens por track_id (ids reais do iRacing).
-const TRACK_IMAGES = {
-  9: "/utilities/tracks/summitpoint.webp",
-  353: "/utilities/tracks/limerock.jpeg",
-  586: "/utilities/tracks/lagunaseca.webp",
-  166: "/utilities/tracks/okayama.webp",
-  180: "/utilities/tracks/oultonpark.jpeg",
-  181: "/utilities/tracks/oultonpark.jpeg",
-  182: "/utilities/tracks/oultonpark.jpeg",
-  324: "/utilities/tracks/Tsukuba.webp",
-  449: "/utilities/tracks/motorsport arena.webp",
-  451: "/utilities/tracks/rudskogen.jpeg",
-  489: "/utilities/tracks/ledenon.webp",
-  202: "/utilities/tracks/oranpark.webp",
-  440: "/utilities/tracks/winton.jpeg",
-  515: "/utilities/tracks/Navarra.webp",
-  554: "/utilities/tracks/charlotte.webp",
-  465: "/utilities/tracks/virginia.jpeg",
-};
-
-const TRACK_IMAGE_FILES = [
-  { match: ["charlotte"], file: "charlotte.webp" },
-  { match: ["laguna seca"], file: "lagunaseca.webp" },
-  { match: ["lime rock"], file: "limerock.jpeg" },
-  { match: ["okayama"], file: "okayama.webp" },
-  { match: ["oulton"], file: "oultonpark.jpeg" },
-  { match: ["snetterton"], file: "snetterton.jpeg" },
-  { match: ["summit point", "jefferson"], file: "summitpoint.webp" },
-  { match: ["tsukuba"], file: "Tsukuba.webp" },
-  { match: ["virginia international raceway", "vir full", "vir patriot"], file: "virginia.jpeg" },
-  { match: ["ledenon"], file: "ledenon.webp" },
-  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.webp" },
-  { match: ["navarra"], file: "Navarra.webp" },
-  { match: ["oran park"], file: "oranpark.webp" },
-  { match: ["rudskogen"], file: "rudskogen.jpeg" },
-  { match: ["winton"], file: "winton.jpeg" },
-];
+import { getTrackThumbnailSrc } from "./trackImages";
+import { CLIMA_CALENDARIO, weatherLabel as climaLabel } from "./weather";
 
 export const CATEGORY_LOGOS = {
   mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.webp",
@@ -112,34 +75,15 @@ export function buildMonthGrid(year, month) {
 }
 
 export function weatherLabel(value) {
-  if (value === "HeavyRain") return i18n.t("weather.heavyRain");
-  if (value === "Wet") return i18n.t("weather.wet");
-  if (value === "Damp") return i18n.t("weather.damp");
-  return i18n.t("weather.dry");
+  return climaLabel(value, CLIMA_CALENDARIO);
 }
 
-function getTrackAssetPath(file) {
-  if (!file) return null;
-  if (file.startsWith("/utilities/tracks/")) {
-    return `/utilities/tracks/${encodeURIComponent(file.slice("/utilities/tracks/".length))}`;
-  }
-  return `/utilities/tracks/${encodeURIComponent(file)}`;
-}
-
-function normalizeTrackName(trackName) {
-  return (trackName ?? "")
-    .normalize("NFD")
-    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
-    .toLowerCase();
-}
-
+// Adaptador do calendário para o resolvedor de miniatura: recebe a corrida inteira
+// e, ao NÃO achar imagem, devolve null — o EventRow depende disso para desenhar o
+// placeholder colorido no lugar de uma <img> quebrada. Não é açúcar sintático: a
+// política de "miss" é o que diferencia esta chamada da do resto do app.
 export function getTrackImageSrc(race) {
-  const normalizedName = normalizeTrackName(race?.track_name);
-  const entry = TRACK_IMAGE_FILES.find(({ match }) =>
-    match.some((candidate) => normalizedName.includes(candidate)),
-  );
-  if (entry) return getTrackAssetPath(entry.file);
-  return getTrackAssetPath(TRACK_IMAGES[race?.track_id]);
+  return getTrackThumbnailSrc(race?.track_name, race?.track_id, { aoFalhar: "nulo" });
 }
 
 // Posiciona o tooltip de corrida ancorado na célula do dia: prefere abrir acima,

@@ -46,8 +46,17 @@ fn live_step_equivale_ao_preroll() {
             let u = roll(seed ^ 0xBEEF, i, 1, 7);
             car.set_wear(pt, 0.30 + 0.67 * u * u);
         }
-        let batch =
-            roll_race_breakdowns(&car, 22, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
+        let batch = roll_race_breakdowns_cfg(
+            &car,
+            22,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
         let mut state = LiveBreakdown::new(&car, seed, PIT_NEUTRO, TRACK_NEUTRO);
         let mut live = Vec::new();
         for lap in 1..=22 {
@@ -87,9 +96,21 @@ fn perfil(kind: &str) -> Car {
             // Time rico no PIOR momento do ciclo: logo antes de repor.
             "rico_limitrofe" => (limiar(pt) - 0.02).max(0.0),
             // Time pobre: não repôs as frágeis → esticou até o limiar; resto na metade.
-            "pobre_esticando" => if frag { limiar(pt) } else { limiar(pt) / 2.0 },
+            "pobre_esticando" => {
+                if frag {
+                    limiar(pt)
+                } else {
+                    limiar(pt) / 2.0
+                }
+            }
             // Time quebrado: frágeis DEGRADADAS além da vida; resto no limiar.
-            "pobre_degradado" => if frag { 0.98 } else { limiar(pt) - 0.02 },
+            "pobre_degradado" => {
+                if frag {
+                    0.98
+                } else {
+                    limiar(pt) - 0.02
+                }
+            }
             _ => 0.0,
         };
         car.set_wear(pt, w);
@@ -97,18 +118,37 @@ fn perfil(kind: &str) -> Car {
     car
 }
 
-/// Roda o MC real (`roll_race_breakdowns`) e mede, POR CORRIDA:
+/// Roda o MC real (`roll_race_breakdowns_cfg`) e mede, POR CORRIDA:
 /// (P(≥1 quebra qualquer), P(≥1 quebra que custa tempo), P(DNF do carro)).
-fn medir(car: &Car, laps: u32, track: (f64, f64, f64), weather: Weather, samples: u32) -> (f64, f64, f64) {
+fn medir(
+    car: &Car,
+    laps: u32,
+    track: (f64, f64, f64),
+    weather: Weather,
+    samples: u32,
+) -> (f64, f64, f64) {
     let base = 0x00C0_FFEE_u64;
     let (mut any, mut costly, mut dnf) = (0u32, 0u32, 0u32);
     for i in 0..samples {
         let seed = splitmix64(base ^ splitmix64(i as u64));
-        let evs = roll_race_breakdowns(car, laps, seed, PIT_NEUTRO, track, weather, &[]);
+        let evs = roll_race_breakdowns_cfg(
+            car,
+            laps,
+            seed,
+            PIT_NEUTRO,
+            track,
+            weather,
+            &[],
+            false,
+            true,
+        );
         if !evs.is_empty() {
             any += 1;
         }
-        if evs.iter().any(|e| e.severity == Severity::Heavy || e.is_dnf()) {
+        if evs
+            .iter()
+            .any(|e| e.severity == Severity::Heavy || e.is_dnf())
+        {
             costly += 1;
         }
         if evs.iter().any(|e| e.is_dnf()) {
@@ -134,10 +174,23 @@ fn cada(p: f64) -> String {
 #[ignore]
 fn analise_taxa_quebra() {
     const N: u32 = 20_000;
-    let perfis = ["rico_saudavel", "rico_limitrofe", "pobre_esticando", "pobre_degradado"];
+    let perfis = [
+        "rico_saudavel",
+        "rico_limitrofe",
+        "pobre_esticando",
+        "pobre_degradado",
+    ];
     let cenarios: [(&str, (f64, f64, f64), Weather); 2] = [
-        ("NEUTRO  (pista equilibrada, 25C seco)", TRACK_NEUTRO, WEATHER_NEUTRO),
-        ("BRUTAL  (pista de potencia, 32C umido)", TRACK_POWER, WEATHER_BRUTAL),
+        (
+            "NEUTRO  (pista equilibrada, 25C seco)",
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+        ),
+        (
+            "BRUTAL  (pista de potencia, 32C umido)",
+            TRACK_POWER,
+            WEATHER_BRUTAL,
+        ),
     ];
 
     for laps in [18u32, 30] {
@@ -176,8 +229,12 @@ fn analise_taxa_quebra() {
         println!(
             "  {:>3}%   N:{:>5.1}%/{:>5.1}%/{:>5.1}%   B:{:>5.1}%/{:>5.1}%/{:>5.1}%",
             pct,
-            an * 100.0, cn * 100.0, dn * 100.0,
-            ab * 100.0, cb * 100.0, db * 100.0,
+            an * 100.0,
+            cn * 100.0,
+            dn * 100.0,
+            ab * 100.0,
+            cb * 100.0,
+            db * 100.0,
         );
     }
     println!();
@@ -201,7 +258,7 @@ struct DistQuebra {
 }
 
 /// Roda o MC real e agrega a DISTRIBUIÇÃO do nº de quebras por corrida (não só "teve/não
-/// teve"). `roll_race_breakdowns` já para no 1º DNF, então o nº de eventos é o nº de peças
+/// teve"). `roll_race_breakdowns_cfg` já para no 1º DNF, então o nº de eventos é o nº de peças
 /// que largaram antes (ou até) o carro sair.
 fn medir_profundo(
     car: &Car,
@@ -216,7 +273,17 @@ fn medir_profundo(
     let mut total_events = 0u64;
     for i in 0..samples {
         let seed = splitmix64(base ^ splitmix64(i as u64));
-        let evs = roll_race_breakdowns(car, laps, seed, PIT_NEUTRO, track, weather, &[]);
+        let evs = roll_race_breakdowns_cfg(
+            car,
+            laps,
+            seed,
+            PIT_NEUTRO,
+            track,
+            weather,
+            &[],
+            false,
+            true,
+        );
         let n = evs.len();
         total_events += n as u64;
         match n {
@@ -228,7 +295,10 @@ fn medir_profundo(
         if n >= 1 {
             any += 1;
         }
-        if evs.iter().any(|e| e.severity == Severity::Heavy || e.is_dnf()) {
+        if evs
+            .iter()
+            .any(|e| e.severity == Severity::Heavy || e.is_dnf())
+        {
             costly += 1;
         }
         if evs.iter().any(|e| e.is_dnf()) {
@@ -261,10 +331,23 @@ fn medir_profundo(
 #[ignore]
 fn analise_profunda_quebras() {
     const N: u32 = 40_000;
-    let perfis = ["rico_saudavel", "rico_limitrofe", "pobre_esticando", "pobre_degradado"];
+    let perfis = [
+        "rico_saudavel",
+        "rico_limitrofe",
+        "pobre_esticando",
+        "pobre_degradado",
+    ];
     let cenarios: [(&str, (f64, f64, f64), Weather); 2] = [
-        ("NEUTRO (pista equilibrada, 25C seco)", TRACK_NEUTRO, WEATHER_NEUTRO),
-        ("BRUTAL (pista de potencia, 32C umido+vento)", TRACK_POWER, WEATHER_BRUTAL),
+        (
+            "NEUTRO (pista equilibrada, 25C seco)",
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+        ),
+        (
+            "BRUTAL (pista de potencia, 32C umido+vento)",
+            TRACK_POWER,
+            WEATHER_BRUTAL,
+        ),
     ];
 
     for laps in [18u32, 30] {
@@ -310,14 +393,20 @@ fn diretor_dispara_peca_no_limite() {
     assert_eq!(evs.len(), 1, "deveria disparar 1 evento na volta 1");
     assert_eq!(evs[0].part, PartType::Engine);
     let cmd = evs[0].command(7);
-    assert!(cmd.starts_with("!black #7") || cmd == "!dq #7", "comando inesperado: {cmd}");
+    assert!(
+        cmd.starts_with("!black #7") || cmd == "!dq #7",
+        "comando inesperado: {cmd}"
+    );
 }
 
 #[test]
 fn diretor_ignora_carro_fora_do_grid() {
     let mut dir = BreakdownDirector::new();
     assert!(dir.is_empty());
-    assert!(dir.on_lap(99, 5, WEATHER_NEUTRO).is_empty(), "carro não montado → nada");
+    assert!(
+        dir.on_lap(99, 5, WEATHER_NEUTRO).is_empty(),
+        "carro não montado → nada"
+    );
 }
 
 #[test]
@@ -327,8 +416,14 @@ fn diretor_nao_redispara_a_mesma_volta() {
     let live = LiveBreakdown::new(&car, 1, PIT_NEUTRO, TRACK_NEUTRO);
     let mut dir = BreakdownDirector::new();
     dir.add_car(3, live, vec![]);
-    assert!(!dir.on_lap(3, 1, WEATHER_NEUTRO).is_empty(), "1ª chamada deveria disparar");
-    assert!(dir.on_lap(3, 1, WEATHER_NEUTRO).is_empty(), "reprocessar a volta 1 não redispara");
+    assert!(
+        !dir.on_lap(3, 1, WEATHER_NEUTRO).is_empty(),
+        "1ª chamada deveria disparar"
+    );
+    assert!(
+        dir.on_lap(3, 1, WEATHER_NEUTRO).is_empty(),
+        "reprocessar a volta 1 não redispara"
+    );
 }
 
 #[test]
@@ -339,7 +434,10 @@ fn diretor_avanca_multiplas_voltas_sem_duplicar() {
     let mut dir = BreakdownDirector::new();
     dir.add_car(1, live, vec![]);
     let _ = dir.on_lap(1, 40, WEATHER_NEUTRO);
-    assert!(dir.on_lap(1, 40, WEATHER_NEUTRO).is_empty(), "reprocessar não redispara");
+    assert!(
+        dir.on_lap(1, 40, WEATHER_NEUTRO).is_empty(),
+        "reprocessar não redispara"
+    );
 }
 
 #[test]
@@ -361,8 +459,14 @@ fn diretor_para_apos_dnf() {
     let mut dir = BreakdownDirector::new();
     dir.add_car(2, live, vec![]);
     let first = dir.on_lap(2, 1, WEATHER_NEUTRO);
-    assert!(first.iter().any(|e| e.severity == Severity::Dnf), "volta 1 deveria dar DNF");
-    assert!(dir.on_lap(2, 30, WEATHER_NEUTRO).is_empty(), "após DNF o carro não dispara mais");
+    assert!(
+        first.iter().any(|e| e.severity == Severity::Dnf),
+        "volta 1 deveria dar DNF"
+    );
+    assert!(
+        dir.on_lap(2, 30, WEATHER_NEUTRO).is_empty(),
+        "após DNF o carro não dispara mais"
+    );
 }
 
 // -------- Confiabilidade da peça sadia --------
@@ -371,8 +475,21 @@ fn diretor_para_apos_dnf() {
 fn peca_sadia_nunca_quebra_num_sprint() {
     let car = Car::uniform(5);
     for seed in 0..1000 {
-        let ev = roll_race_breakdowns(&car, 20, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
-        assert!(ev.is_empty(), "carro novo não deveria quebrar em 20 voltas (seed {seed})");
+        let ev = roll_race_breakdowns_cfg(
+            &car,
+            20,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
+        assert!(
+            ev.is_empty(),
+            "carro novo não deveria quebrar em 20 voltas (seed {seed})"
+        );
     }
 }
 
@@ -381,7 +498,17 @@ fn nenhuma_quebra_abaixo_de_95_por_cento() {
     for w in [0.0, 0.5, 0.80, 0.90, 0.94] {
         let car = car_with(PartType::Engine, w);
         for seed in 0..200 {
-            for ev in roll_race_breakdowns(&car, 18, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]) {
+            for ev in roll_race_breakdowns_cfg(
+                &car,
+                18,
+                seed,
+                PIT_NEUTRO,
+                TRACK_NEUTRO,
+                WEATHER_NEUTRO,
+                &[],
+                false,
+                true,
+            ) {
                 assert!(
                     ev.wear_at_fail >= RISK_OPEN,
                     "quebra a {:.3} < 95% (peça entrou {w})",
@@ -398,7 +525,20 @@ fn nenhuma_quebra_abaixo_de_95_por_cento() {
 fn peca_no_limite_quebra_com_frequencia() {
     let car = car_with(PartType::Engine, 0.97);
     let quebrou = (0..1000)
-        .filter(|&s| !roll_race_breakdowns(&car, 18, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]).is_empty())
+        .filter(|&s| {
+            !roll_race_breakdowns_cfg(
+                &car,
+                18,
+                s,
+                PIT_NEUTRO,
+                TRACK_NEUTRO,
+                WEATHER_NEUTRO,
+                &[],
+                false,
+                true,
+            )
+            .is_empty()
+        })
         .count();
     assert!(quebrou > 700, "esperado muitas quebras, deu {quebrou}/1000");
 }
@@ -407,8 +547,22 @@ fn peca_no_limite_quebra_com_frequencia() {
 fn a_culpada_e_a_peca_no_limite() {
     let car = car_with(PartType::Gearbox, 0.98);
     for seed in 0..300 {
-        for ev in roll_race_breakdowns(&car, 18, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]) {
-            assert_eq!(ev.part, PartType::Gearbox, "só o câmbio deveria quebrar aqui");
+        for ev in roll_race_breakdowns_cfg(
+            &car,
+            18,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        ) {
+            assert_eq!(
+                ev.part,
+                PartType::Gearbox,
+                "só o câmbio deveria quebrar aqui"
+            );
         }
     }
 }
@@ -419,9 +573,32 @@ fn a_culpada_e_a_peca_no_limite() {
 fn e_deterministico() {
     let car = car_with(PartType::Engine, 0.96);
     for seed in [0u64, 7, 42, 1000, 999_999] {
-        let a = roll_race_breakdowns(&car, 22, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
-        let b = roll_race_breakdowns(&car, 22, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
-        assert_eq!(a, b, "mesmos inputs deveriam dar o mesmo resultado (seed {seed})");
+        let a = roll_race_breakdowns_cfg(
+            &car,
+            22,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
+        let b = roll_race_breakdowns_cfg(
+            &car,
+            22,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
+        assert_eq!(
+            a, b,
+            "mesmos inputs deveriam dar o mesmo resultado (seed {seed})"
+        );
     }
 }
 
@@ -430,11 +607,26 @@ fn a_sorte_varia_o_desfecho() {
     let car = car_with(PartType::Engine, 0.96);
     let mut voltas = std::collections::HashSet::new();
     for seed in 0..200 {
-        if let Some(ev) = roll_race_breakdowns(&car, 22, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]).first() {
+        if let Some(ev) = roll_race_breakdowns_cfg(
+            &car,
+            22,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        )
+        .first()
+        {
             voltas.insert(ev.lap);
         }
     }
-    assert!(voltas.len() > 3, "a volta da quebra deveria variar com a sorte, deu {voltas:?}");
+    assert!(
+        voltas.len() > 3,
+        "a volta da quebra deveria variar com a sorte, deu {voltas:?}"
+    );
 }
 
 // -------- Parede vs sorte --------
@@ -443,7 +635,17 @@ fn a_sorte_varia_o_desfecho() {
 fn parede_forca_a_falha() {
     let car = car_with(PartType::Engine, 1.04);
     for seed in 0..300 {
-        let ev = roll_race_breakdowns(&car, 18, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
+        let ev = roll_race_breakdowns_cfg(
+            &car,
+            18,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
         assert!(!ev.is_empty(), "peça a 104% deveria quebrar (seed {seed})");
     }
 }
@@ -454,7 +656,17 @@ fn parede_forca_a_falha() {
 fn dnf_e_o_ultimo_e_unico() {
     let car = car_with(PartType::Engine, 1.04);
     for seed in 0..500 {
-        let ev = roll_race_breakdowns(&car, 30, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]);
+        let ev = roll_race_breakdowns_cfg(
+            &car,
+            30,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            false,
+            true,
+        );
         let dnfs = ev.iter().filter(|e| e.is_dnf()).count();
         assert!(dnfs <= 1, "no máximo 1 DNF por corrida");
         if let Some(pos) = ev.iter().position(|e| e.is_dnf()) {
@@ -463,6 +675,27 @@ fn dnf_e_o_ultimo_e_unico() {
         // DNF não tem tempo de penalidade; leve/grave têm.
         for e in &ev {
             assert_eq!(e.is_dnf(), e.penalty_secs.is_none());
+        }
+    }
+}
+
+#[test]
+fn vitrine_e_sempre_reparo_grave_nunca_dnf() {
+    // A vitrine da 1ª corrida GARANTE uma parada de reparo (Grave, com tempo de box) — nunca
+    // um DNF — pra qualquer peça e qualquer semente.
+    for &pt in PartType::ALL.iter() {
+        for seed in 0..64u64 {
+            let ev = showcase_repair_event(pt, 3, PIT_NEUTRO, seed);
+            assert_eq!(ev.severity, Severity::Heavy, "vitrine deve ser Grave");
+            assert!(!ev.is_dnf(), "vitrine nunca é DNF");
+            assert!(
+                ev.penalty_secs.map_or(false, |s| s >= 1),
+                "tem tempo de reparo"
+            );
+            assert!(
+                ev.command(42).starts_with("!black #42"),
+                "vira !black, não !dq"
+            );
         }
     }
 }
@@ -484,8 +717,14 @@ fn motor_termina_em_dnf_mais_que_eletronica() {
 #[test]
 fn parede_agrava_a_severidade() {
     let r = 0.05; // dentro da fatia "leve" do motor (light=0.20)
-    assert_eq!(sample_severity(PartType::Engine, false, r, false), Severity::Light);
-    assert_eq!(sample_severity(PartType::Engine, true, r, false), Severity::Heavy);
+    assert_eq!(
+        sample_severity(PartType::Engine, false, r, false),
+        Severity::Light
+    );
+    assert_eq!(
+        sample_severity(PartType::Engine, true, r, false),
+        Severity::Heavy
+    );
 }
 
 // -------- Tempo de conserto CONDIZENTE com a peça e a severidade --------
@@ -494,7 +733,10 @@ fn parede_agrava_a_severidade() {
 fn grave_demora_mais_que_leve_na_mesma_peca() {
     let leve = repair_secs(PartType::Gearbox, Severity::Light, PIT_NEUTRO, 0.5);
     let grave = repair_secs(PartType::Gearbox, Severity::Heavy, PIT_NEUTRO, 0.5);
-    assert!(grave > leve, "câmbio grave ({grave}s) deveria demorar mais que leve ({leve}s)");
+    assert!(
+        grave > leve,
+        "câmbio grave ({grave}s) deveria demorar mais que leve ({leve}s)"
+    );
 }
 
 #[test]
@@ -513,7 +755,10 @@ fn cambio_leve_e_grave_nos_intervalos_esperados() {
         let leve = repair_secs(PartType::Gearbox, Severity::Light, PIT_NEUTRO, r);
         assert!((6..=9).contains(&leve), "câmbio leve fora de 6-9: {leve}");
         let grave = repair_secs(PartType::Gearbox, Severity::Heavy, PIT_NEUTRO, r);
-        assert!((14..=20).contains(&grave), "câmbio grave fora de 14-20: {grave}");
+        assert!(
+            (14..=20).contains(&grave),
+            "câmbio grave fora de 14-20: {grave}"
+        );
     }
 }
 
@@ -523,7 +768,10 @@ fn cambio_leve_e_grave_nos_intervalos_esperados() {
 fn pit_crew_melhor_conserta_mais_rapido() {
     let ruim = repair_secs(PartType::Gearbox, Severity::Heavy, 20.0, 0.5);
     let bom = repair_secs(PartType::Gearbox, Severity::Heavy, 95.0, 0.5);
-    assert!(bom < ruim, "pit bom ({bom}s) deveria ser mais rápido que ruim ({ruim}s)");
+    assert!(
+        bom < ruim,
+        "pit bom ({bom}s) deveria ser mais rápido que ruim ({ruim}s)"
+    );
 }
 
 #[test]
@@ -549,7 +797,11 @@ fn comando_black_para_penalidade_dq_para_dnf() {
     };
     assert_eq!(pen.command(7), "!black #7 9");
     assert!(!pen.is_dnf());
-    let dnf = BreakdownEvent { severity: Severity::Dnf, penalty_secs: None, ..pen };
+    let dnf = BreakdownEvent {
+        severity: Severity::Dnf,
+        penalty_secs: None,
+        ..pen
+    };
     assert_eq!(dnf.command(7), "!dq #7");
     assert!(dnf.is_dnf());
 }
@@ -583,20 +835,68 @@ fn catalogo_de_problemas_cobre_todas_as_pecas_e_severidades() {
 fn previsao_de_risco_reflete_o_desgaste_de_entrada() {
     // Carro novo (desgaste baixo) → risco ~zero num sprint.
     let sadio = Car::uniform(3);
-    let f0 = forecast_breakdown_risk(&sadio, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
-    assert!(f0.dnf_prob < 0.02, "carro novo não deveria ter risco de DNF: {}", f0.dnf_prob);
+    let f0 = forecast_breakdown_risk(
+        &sadio,
+        18,
+        42,
+        PIT_NEUTRO,
+        TRACK_NEUTRO,
+        WEATHER_NEUTRO,
+        &[],
+        300,
+        false,
+        true,
+    );
+    assert!(
+        f0.dnf_prob < 0.02,
+        "carro novo não deveria ter risco de DNF: {}",
+        f0.dnf_prob
+    );
 
     // Motor entrando na zona de perigo → motor vira a peça de MAIOR risco e o risco sobe.
     let mut gasto = Car::uniform(3);
     gasto.set_wear(PartType::Engine, 0.98);
-    let f1 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
-    assert!(f1.dnf_prob > f0.dnf_prob, "carro gasto deveria ter mais risco");
+    let f1 = forecast_breakdown_risk(
+        &gasto,
+        18,
+        42,
+        PIT_NEUTRO,
+        TRACK_NEUTRO,
+        WEATHER_NEUTRO,
+        &[],
+        300,
+        false,
+        true,
+    );
+    assert!(
+        f1.dnf_prob > f0.dnf_prob,
+        "carro gasto deveria ter mais risco"
+    );
     assert!(!f1.parts.is_empty());
-    assert_eq!(f1.parts[0].part, PartType::Engine, "o motor no fio deveria liderar o risco");
-    assert!(f1.parts[0].any_prob > 0.3, "motor a 98% deveria largar com frequência: {}", f1.parts[0].any_prob);
+    assert_eq!(
+        f1.parts[0].part,
+        PartType::Engine,
+        "o motor no fio deveria liderar o risco"
+    );
+    assert!(
+        f1.parts[0].any_prob > 0.3,
+        "motor a 98% deveria largar com frequência: {}",
+        f1.parts[0].any_prob
+    );
 
     // Determinístico: mesma entrada → mesma previsão.
-    let f2 = forecast_breakdown_risk(&gasto, 18, 42, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], 300, false, true);
+    let f2 = forecast_breakdown_risk(
+        &gasto,
+        18,
+        42,
+        PIT_NEUTRO,
+        TRACK_NEUTRO,
+        WEATHER_NEUTRO,
+        &[],
+        300,
+        false,
+        true,
+    );
     assert_eq!(f1, f2);
 }
 
@@ -624,7 +924,10 @@ fn pista_de_potencia_estressa_o_motor_nao_os_freios() {
         / 11.0;
     let motor = track_wear_mult(PartType::Engine, TRACK_POWER, mean);
     let freios = track_wear_mult(PartType::Brakes, TRACK_POWER, mean);
-    assert!(motor > 1.0, "motor deveria sofrer mais na pista de potência ({motor})");
+    assert!(
+        motor > 1.0,
+        "motor deveria sofrer mais na pista de potência ({motor})"
+    );
     assert!(freios < 1.0, "freios deveriam sofrer menos ({freios})");
     assert!(motor > freios);
 }
@@ -638,7 +941,10 @@ fn pista_de_handling_estressa_os_freios_nao_o_motor() {
         / 11.0;
     let motor = track_wear_mult(PartType::Engine, TRACK_HANDLING, mean);
     let freios = track_wear_mult(PartType::Brakes, TRACK_HANDLING, mean);
-    assert!(freios > motor, "na pista técnica os freios ({freios}) deveriam sofrer mais que o motor ({motor})");
+    assert!(
+        freios > motor,
+        "na pista técnica os freios ({freios}) deveriam sofrer mais que o motor ({motor})"
+    );
 }
 
 /// Roda uma frota REALISTA (desgaste de entrada variado por peça: maioria baixo, poucas
@@ -653,7 +959,8 @@ fn fleet_breaks(track: (f64, f64, f64), weather: Weather) -> ([u32; 11], u32) {
             let u = roll(seed ^ 0xA5A5_5A5A, i, 1, 99);
             car.set_wear(pt, 0.30 + 0.67 * u * u);
         }
-        let ev = roll_race_breakdowns(&car, 20, seed, PIT_NEUTRO, track, weather, &[]);
+        let ev =
+            roll_race_breakdowns_cfg(&car, 20, seed, PIT_NEUTRO, track, weather, &[], false, true);
         if !ev.is_empty() {
             total += 1;
         }
@@ -681,26 +988,44 @@ fn taxa_total_quase_invariante_e_distribuicao_inclina_por_pista() {
     );
     for &pt in &PartType::ALL {
         let i = idx(pt);
-        println!("{:<12} {:>8} {:>8} {:>8}", pt.as_str(), neutro[i], power[i], handling[i]);
+        println!(
+            "{:<12} {:>8} {:>8} {:>8}",
+            pt.as_str(),
+            neutro[i],
+            power[i],
+            handling[i]
+        );
     }
 
     // (a) A taxa total quase não muda com o tipo de pista (redistribui, não infla).
     let max = tn.max(tp).max(th) as f64;
     let min = tn.min(tp).min(th) as f64;
-    assert!((max - min) / max < 0.15, "taxa total variou demais: {tn}/{tp}/{th}");
+    assert!(
+        (max - min) / max < 0.15,
+        "taxa total variou demais: {tn}/{tp}/{th}"
+    );
 
     // (b) O motor sofre mais na pista de potência; os freios, na técnica.
-    assert!(power[idx(PartType::Engine)] > handling[idx(PartType::Engine)],
-        "motor deveria quebrar mais na pista de potência");
-    assert!(handling[idx(PartType::Brakes)] > power[idx(PartType::Brakes)],
-        "freios deveriam quebrar mais na pista técnica");
+    assert!(
+        power[idx(PartType::Engine)] > handling[idx(PartType::Engine)],
+        "motor deveria quebrar mais na pista de potência"
+    );
+    assert!(
+        handling[idx(PartType::Brakes)] > power[idx(PartType::Brakes)],
+        "freios deveriam quebrar mais na pista técnica"
+    );
 }
 
 // -------- Influência do clima (chuva/calor) --------
 
 /// Clima só com wetness+temp movidos (umidade/vento neutros) — pra isolar um eixo.
 fn wx(wetness: f64, temperature: f64) -> Weather {
-    Weather { wetness, temperature, humidity: 45.0, wind_kmh: WIND_TYPICAL_KMH }
+    Weather {
+        wetness,
+        temperature,
+        humidity: 45.0,
+        wind_kmh: WIND_TYPICAL_KMH,
+    }
 }
 
 #[test]
@@ -716,7 +1041,10 @@ fn chuva_estressa_eletronica_e_alivia_a_termica() {
     let motor = weather_wear_mult(PartType::Engine, wx(1.0, 20.0));
     let cooling = weather_wear_mult(PartType::Cooling, wx(1.0, 20.0));
     assert!(elec > 1.0, "chuva deveria estressar a eletrônica ({elec})");
-    assert!(motor < 1.0 && cooling < 1.0, "chuva deveria aliviar motor/arrefecimento");
+    assert!(
+        motor < 1.0 && cooling < 1.0,
+        "chuva deveria aliviar motor/arrefecimento"
+    );
     // Peça sem relação com chuva/vento não muda.
     assert!((weather_wear_mult(PartType::Brakes, wx(1.0, 20.0)) - 1.0).abs() < 1e-9);
 }
@@ -728,40 +1056,107 @@ fn calor_agrava_e_frio_alivia_o_motor() {
     let motor_quente = weather_wear_mult(PartType::Engine, wx(0.0, 32.0));
     let motor_frio = weather_wear_mult(PartType::Engine, wx(0.0, 18.0));
     assert!((motor_neutro - 1.0).abs() < 1e-9, "25° deveria ser neutro");
-    assert!(motor_quente > 1.0, "dia quente (32°) deveria agravar o motor ({motor_quente})");
-    assert!(motor_frio < 1.0, "dia frio (18°) deveria aliviar o motor ({motor_frio})");
-    assert!((weather_wear_mult(PartType::Brakes, wx(0.0, 32.0)) - 1.0).abs() < 1e-9, "calor não mexe nos freios");
+    assert!(
+        motor_quente > 1.0,
+        "dia quente (32°) deveria agravar o motor ({motor_quente})"
+    );
+    assert!(
+        motor_frio < 1.0,
+        "dia frio (18°) deveria aliviar o motor ({motor_frio})"
+    );
+    assert!(
+        (weather_wear_mult(PartType::Brakes, wx(0.0, 32.0)) - 1.0).abs() < 1e-9,
+        "calor não mexe nos freios"
+    );
 }
 
 #[test]
 fn umidade_amplifica_o_calor() {
-    let seco = Weather { wetness: 0.0, temperature: 32.0, humidity: 10.0, wind_kmh: WIND_TYPICAL_KMH };
-    let umido = Weather { wetness: 0.0, temperature: 32.0, humidity: 95.0, wind_kmh: WIND_TYPICAL_KMH };
+    let seco = Weather {
+        wetness: 0.0,
+        temperature: 32.0,
+        humidity: 10.0,
+        wind_kmh: WIND_TYPICAL_KMH,
+    };
+    let umido = Weather {
+        wetness: 0.0,
+        temperature: 32.0,
+        humidity: 95.0,
+        wind_kmh: WIND_TYPICAL_KMH,
+    };
     let motor_seco = weather_wear_mult(PartType::Engine, seco);
     let motor_umido = weather_wear_mult(PartType::Engine, umido);
-    assert!(motor_umido > motor_seco, "dia quente ÚMIDO deveria castigar mais o motor ({motor_umido} vs {motor_seco})");
+    assert!(
+        motor_umido > motor_seco,
+        "dia quente ÚMIDO deveria castigar mais o motor ({motor_umido} vs {motor_seco})"
+    );
     // Em dia FRIO a umidade não vira alívio extra (só amplifica o lado quente).
-    let frio_seco = weather_wear_mult(PartType::Engine, Weather { wetness: 0.0, temperature: 18.0, humidity: 10.0, wind_kmh: WIND_TYPICAL_KMH });
-    let frio_umido = weather_wear_mult(PartType::Engine, Weather { wetness: 0.0, temperature: 18.0, humidity: 95.0, wind_kmh: WIND_TYPICAL_KMH });
-    assert!((frio_seco - frio_umido).abs() < 1e-9, "umidade não deveria mexer no dia frio");
+    let frio_seco = weather_wear_mult(
+        PartType::Engine,
+        Weather {
+            wetness: 0.0,
+            temperature: 18.0,
+            humidity: 10.0,
+            wind_kmh: WIND_TYPICAL_KMH,
+        },
+    );
+    let frio_umido = weather_wear_mult(
+        PartType::Engine,
+        Weather {
+            wetness: 0.0,
+            temperature: 18.0,
+            humidity: 95.0,
+            wind_kmh: WIND_TYPICAL_KMH,
+        },
+    );
+    assert!(
+        (frio_seco - frio_umido).abs() < 1e-9,
+        "umidade não deveria mexer no dia frio"
+    );
 }
 
 #[test]
 fn vento_estressa_suspensao_e_asas() {
-    let calmo = Weather { wetness: 0.0, temperature: 25.0, humidity: 45.0, wind_kmh: 2.0 };
-    let vendaval = Weather { wetness: 0.0, temperature: 25.0, humidity: 45.0, wind_kmh: 48.0 };
-    for pt in [PartType::Suspension, PartType::FrontWing, PartType::RearWing] {
-        assert!(weather_wear_mult(pt, vendaval) > weather_wear_mult(pt, calmo),
-            "{pt:?} deveria sofrer mais no vendaval");
+    let calmo = Weather {
+        wetness: 0.0,
+        temperature: 25.0,
+        humidity: 45.0,
+        wind_kmh: 2.0,
+    };
+    let vendaval = Weather {
+        wetness: 0.0,
+        temperature: 25.0,
+        humidity: 45.0,
+        wind_kmh: 48.0,
+    };
+    for pt in [
+        PartType::Suspension,
+        PartType::FrontWing,
+        PartType::RearWing,
+    ] {
+        assert!(
+            weather_wear_mult(pt, vendaval) > weather_wear_mult(pt, calmo),
+            "{pt:?} deveria sofrer mais no vendaval"
+        );
     }
     // Motor não sente o vento.
-    assert!((weather_wear_mult(PartType::Engine, vendaval) - weather_wear_mult(PartType::Engine, calmo)).abs() < 1e-9);
+    assert!(
+        (weather_wear_mult(PartType::Engine, vendaval)
+            - weather_wear_mult(PartType::Engine, calmo))
+        .abs()
+            < 1e-9
+    );
 }
 
 #[test]
 fn clima_redistribui_e_dia_quente_agrava_frio_alivia() {
     let idx = |pt: PartType| PartType::ALL.iter().position(|&x| x == pt).unwrap();
-    const WEATHER_COOL: Weather = Weather { wetness: 0.0, temperature: 18.0, humidity: 45.0, wind_kmh: WIND_TYPICAL_KMH };
+    const WEATHER_COOL: Weather = Weather {
+        wetness: 0.0,
+        temperature: 18.0,
+        humidity: 45.0,
+        wind_kmh: WIND_TYPICAL_KMH,
+    };
     let (seco, ts) = fleet_breaks(TRACK_NEUTRO, WEATHER_NEUTRO);
     let (chuva, _tc) = fleet_breaks(TRACK_NEUTRO, WEATHER_RAIN);
     let (forno, tf) = fleet_breaks(TRACK_NEUTRO, WEATHER_HOT);
@@ -771,13 +1166,19 @@ fn clima_redistribui_e_dia_quente_agrava_frio_alivia() {
     println!("Taxa total: neutro {ts} · quente {tf} · frio {tfr}");
 
     // Chuva: eletrônica quebra mais; motor menos.
-    assert!(chuva[idx(PartType::Electronics)] > seco[idx(PartType::Electronics)],
-        "chuva deveria quebrar mais eletrônica");
-    assert!(chuva[idx(PartType::Engine)] < seco[idx(PartType::Engine)],
-        "chuva deveria quebrar menos motor");
+    assert!(
+        chuva[idx(PartType::Electronics)] > seco[idx(PartType::Electronics)],
+        "chuva deveria quebrar mais eletrônica"
+    );
+    assert!(
+        chuva[idx(PartType::Engine)] < seco[idx(PartType::Engine)],
+        "chuva deveria quebrar menos motor"
+    );
     // Dia quente (32°) agrava o motor E sobe o total; dia frio (18°) alivia.
-    assert!(forno[idx(PartType::Engine)] > seco[idx(PartType::Engine)],
-        "dia quente deveria quebrar mais motor");
+    assert!(
+        forno[idx(PartType::Engine)] > seco[idx(PartType::Engine)],
+        "dia quente deveria quebrar mais motor"
+    );
     assert!(tf > ts, "dia quente deveria subir o total: {tf} vs {ts}");
     assert!(tfr < ts, "dia frio deveria aliviar o total: {tfr} vs {ts}");
 }
@@ -804,12 +1205,27 @@ fn conditions_mults_neutro_sao_um() {
 fn conditions_mults_levam_o_clima_por_peca() {
     let bal = (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
     let quente = conditions_wear_mults(bal, wx(0.0, 32.0));
-    assert!(quente[&PartType::Engine] > 1.0, "calor deveria agravar o motor");
-    assert!(quente[&PartType::Cooling] > 1.0, "calor deveria agravar o arrefecimento");
+    assert!(
+        quente[&PartType::Engine] > 1.0,
+        "calor deveria agravar o motor"
+    );
+    assert!(
+        quente[&PartType::Cooling] > 1.0,
+        "calor deveria agravar o arrefecimento"
+    );
     let chuva = conditions_wear_mults(bal, wx(1.0, 20.0));
-    assert!(chuva[&PartType::Electronics] > 1.0, "chuva deveria estressar a eletrônica");
-    assert!(chuva[&PartType::Engine] < 1.0, "chuva deveria aliviar o motor");
-    assert!((chuva[&PartType::Brakes] - 1.0).abs() < 1e-9, "clima não mexe nos freios");
+    assert!(
+        chuva[&PartType::Electronics] > 1.0,
+        "chuva deveria estressar a eletrônica"
+    );
+    assert!(
+        chuva[&PartType::Engine] < 1.0,
+        "chuva deveria aliviar o motor"
+    );
+    assert!(
+        (chuva[&PartType::Brakes] - 1.0).abs() < 1e-9,
+        "clima não mexe nos freios"
+    );
 }
 
 // -------- Proteção do jogador (só o jogador, via manutenção) --------
@@ -820,7 +1236,10 @@ fn time_forte_nao_da_protecao_ao_jogador() {
     let mut car = Car::uniform(4);
     car.set_wear(PartType::Engine, 0.90);
     let protegido = player_protected_car(&car, 100.0);
-    assert_eq!(protegido, car, "time forte não deveria mudar o carro do jogador");
+    assert_eq!(
+        protegido, car,
+        "time forte não deveria mudar o carro do jogador"
+    );
 }
 
 #[test]
@@ -837,8 +1256,18 @@ fn protecao_reduz_quebras_do_jogador_em_time_fraco() {
                 raw.set_wear(pt, 0.20 + 0.48 * u); // 0.20–0.68 (poucas peças perto da zona)
             }
             let car = player_protected_car(&raw, crew);
-            if !roll_race_breakdowns(&car, 18, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[])
-                .is_empty()
+            if !roll_race_breakdowns_cfg(
+                &car,
+                18,
+                seed,
+                PIT_NEUTRO,
+                TRACK_NEUTRO,
+                WEATHER_NEUTRO,
+                &[],
+                false,
+                true,
+            )
+            .is_empty()
             {
                 c += 1;
             }
@@ -856,8 +1285,14 @@ fn protecao_reduz_quebras_do_jogador_em_time_fraco() {
     // sintética é arbitrária; o valor fino se calibra no wiring com desgaste real). Com a
     // janela de risco alargada (RISK_OPEN 0.87), o mesmo alívio de 5% cobre proporção menor
     // da zona → a redução relativa cai de ~20% pra ~19%; a banda acompanha.
-    assert!(protegido < sem * 85 / 100, "proteção fraca demais: {protegido} vs {sem}");
-    assert!(protegido > sem / 5, "proteção forte demais (quase imune): {protegido} vs {sem}");
+    assert!(
+        protegido < sem * 85 / 100,
+        "proteção fraca demais: {protegido} vs {sem}"
+    );
+    assert!(
+        protegido > sem / 5,
+        "proteção forte demais (quase imune): {protegido} vs {sem}"
+    );
 }
 
 // -------- Manutenção em box do enduro (gap 2) --------
@@ -866,12 +1301,41 @@ fn protecao_reduz_quebras_do_jogador_em_time_fraco() {
 fn parada_de_box_reduz_quebras_no_enduro() {
     let car = car_with(PartType::Engine, 0.5);
     let sem: usize = (0..500)
-        .filter(|&s| !roll_race_breakdowns(&car, 50, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[]).is_empty())
+        .filter(|&s| {
+            !roll_race_breakdowns_cfg(
+                &car,
+                50,
+                s,
+                PIT_NEUTRO,
+                TRACK_NEUTRO,
+                WEATHER_NEUTRO,
+                &[],
+                false,
+                true,
+            )
+            .is_empty()
+        })
         .count();
     let com: usize = (0..500)
-        .filter(|&s| !roll_race_breakdowns(&car, 50, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[16, 32]).is_empty())
+        .filter(|&s| {
+            !roll_race_breakdowns_cfg(
+                &car,
+                50,
+                s,
+                PIT_NEUTRO,
+                TRACK_NEUTRO,
+                WEATHER_NEUTRO,
+                &[16, 32],
+                false,
+                true,
+            )
+            .is_empty()
+        })
         .count();
-    assert!(com < sem, "a parada de box deveria reduzir quebras (sem={sem}, com={com})");
+    assert!(
+        com < sem,
+        "a parada de box deveria reduzir quebras (sem={sem}, com={com})"
+    );
 }
 
 // ========== ENDURO: DNF raro + rampa de fim + economia ==========
@@ -885,9 +1349,19 @@ fn enduro_rebaixa_a_maioria_dos_dnfs_a_grave() {
         (0..2000u64)
             .filter(|&s| {
                 let car = car_with(PartType::Engine, 0.98);
-                roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], is_enduro, true)
-                    .iter()
-                    .any(|e| e.is_dnf())
+                roll_race_breakdowns_cfg(
+                    &car,
+                    40,
+                    s,
+                    PIT_NEUTRO,
+                    TRACK_NEUTRO,
+                    WEATHER_NEUTRO,
+                    &[],
+                    is_enduro,
+                    true,
+                )
+                .iter()
+                .any(|e| e.is_dnf())
             })
             .count()
     };
@@ -904,12 +1378,25 @@ fn enduro_rebaixa_a_maioria_dos_dnfs_a_grave() {
 fn enduro_peca_nao_estrutural_nunca_da_dnf() {
     for seed in 0..1000u64 {
         let car = car_with(PartType::FrontWing, 1.08); // dentro da janela → a asa vai quebrar
-        for ev in roll_race_breakdowns_cfg(&car, 40, seed, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true, true) {
+        for ev in roll_race_breakdowns_cfg(
+            &car,
+            40,
+            seed,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            true,
+            true,
+        ) {
             // O invariante é sobre a ASA (não-estrutural). Numa corrida de 40 voltas, peças
             // frágeis frescas (motor/câmbio) também entram na zona e, por serem estruturais,
             // PODEM dar DNF no enduro — então filtramos só os eventos da asa.
             if ev.part == PartType::FrontWing {
-                assert!(!ev.is_dnf(), "asa não deveria dar DNF no enduro (seed {seed})");
+                assert!(
+                    !ev.is_dnf(),
+                    "asa não deveria dar DNF no enduro (seed {seed})"
+                );
             }
         }
     }
@@ -920,9 +1407,19 @@ fn enduro_peca_nao_estrutural_nunca_da_dnf() {
 fn enduro_estrutural_ainda_pode_dar_dnf() {
     let algum_dnf = (0..1000u64).any(|s| {
         let car = car_with(PartType::Engine, 1.06);
-        roll_race_breakdowns_cfg(&car, 40, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], true, true)
-            .iter()
-            .any(|e| e.is_dnf())
+        roll_race_breakdowns_cfg(
+            &car,
+            40,
+            s,
+            PIT_NEUTRO,
+            TRACK_NEUTRO,
+            WEATHER_NEUTRO,
+            &[],
+            true,
+            true,
+        )
+        .iter()
+        .any(|e| e.is_dnf())
     });
     assert!(algum_dnf, "motor deveria conseguir dar DNF mesmo no enduro");
 }
@@ -941,15 +1438,27 @@ fn enduro_estrutural_mantem_so_a_fracao_de_dnf() {
         })
         .count();
     let frac = dnf as f64 / n as f64;
-    assert!((frac - ENDURO_DNF_SCALE).abs() < 0.08, "estrutural deveria manter ~25% de DNF, deu {frac}");
+    assert!(
+        (frac - ENDURO_DNF_SCALE).abs() < 0.08,
+        "estrutural deveria manter ~25% de DNF, deu {frac}"
+    );
     // Não-estrutural NUNCA vira DNF no enduro, nem na fatia de DNF nem na parede.
     for k in 0..1000 {
         let r = 0.96 + 0.04 * (k as f64 / 1000.0);
-        assert_ne!(sample_severity(PartType::FrontWing, false, r, true), Severity::Dnf);
-        assert_ne!(sample_severity(PartType::FrontWing, true, r, true), Severity::Dnf);
+        assert_ne!(
+            sample_severity(PartType::FrontWing, false, r, true),
+            Severity::Dnf
+        );
+        assert_ne!(
+            sample_severity(PartType::FrontWing, true, r, true),
+            Severity::Dnf
+        );
     }
     // Sem enduro, a fatia inteira do motor é DNF.
-    assert_eq!(sample_severity(PartType::Engine, false, 0.95, false), Severity::Dnf);
+    assert_eq!(
+        sample_severity(PartType::Engine, false, 0.95, false),
+        Severity::Dnf
+    );
 }
 
 /// Eixo 2 (rampa de fim): a mesma peça no fio quebra MAIS no clímax (progress alto) que no
@@ -957,8 +1466,14 @@ fn enduro_estrutural_mantem_so_a_fracao_de_dnf() {
 #[test]
 fn enduro_rampa_agrava_o_fim_da_corrida() {
     assert!(enduro_late_ramp(0.0) < enduro_late_ramp(1.0));
-    assert!((enduro_late_ramp(0.25) - 1.0).abs() < 1e-9, "1ª metade não deveria ter rampa");
-    assert!((enduro_late_ramp(0.5) - 1.0).abs() < 1e-9, "rampa começa na metade");
+    assert!(
+        (enduro_late_ramp(0.25) - 1.0).abs() < 1e-9,
+        "1ª metade não deveria ter rampa"
+    );
+    assert!(
+        (enduro_late_ramp(0.5) - 1.0).abs() < 1e-9,
+        "rampa começa na metade"
+    );
     assert!((enduro_late_ramp(1.0) - (1.0 + ENDURO_LATE_RAMP_EXTRA)).abs() < 1e-9);
 }
 
@@ -975,7 +1490,10 @@ fn gate_de_enduro_por_duracao() {
 #[test]
 fn sprint_nao_tem_sobrecusto_de_peca() {
     for d in [0u8, 15, 25, 30, 40] {
-        assert!((enduro_economy_wear_mult(d, 0) - 1.0).abs() < 1e-9, "sprint {d}min deveria ser 1.0");
+        assert!(
+            (enduro_economy_wear_mult(d, 0) - 1.0).abs() < 1e-9,
+            "sprint {d}min deveria ser 1.0"
+        );
     }
 }
 
@@ -983,8 +1501,14 @@ fn sprint_nao_tem_sobrecusto_de_peca() {
 fn enduro_custa_mais_e_escala_com_a_duracao() {
     let m60 = enduro_economy_wear_mult(60, 0);
     let m80 = enduro_economy_wear_mult(80, 0);
-    assert!((m60 - 2.0).abs() < 1e-9, "60min sem parada deveria ser 2.0×, deu {m60}");
-    assert!(m80 > m60, "corrida mais longa deveria custar mais ({m80} vs {m60})");
+    assert!(
+        (m60 - 2.0).abs() < 1e-9,
+        "60min sem parada deveria ser 2.0×, deu {m60}"
+    );
+    assert!(
+        m80 > m60,
+        "corrida mais longa deveria custar mais ({m80} vs {m60})"
+    );
 }
 
 #[test]
@@ -993,10 +1517,19 @@ fn parada_alivia_o_sobrecusto_com_teto_de_30() {
     let uma = enduro_economy_wear_mult(60, 1); // −10% do sobrecusto
     let tres = enduro_economy_wear_mult(60, 3); // −30% (teto)
     let cinco = enduro_economy_wear_mult(60, 5); // ainda −30% (teto)
-    assert!(uma < base && tres < uma, "cada parada deveria aliviar ({base} → {uma} → {tres})");
-    assert!((tres - cinco).abs() < 1e-9, "o alívio deveria travar em 30% (3+ paradas)");
+    assert!(
+        uma < base && tres < uma,
+        "cada parada deveria aliviar ({base} → {uma} → {tres})"
+    );
+    assert!(
+        (tres - cinco).abs() < 1e-9,
+        "o alívio deveria travar em 30% (3+ paradas)"
+    );
     // O alívio nunca leva abaixo de 1.0 (só corta o sobrecusto).
-    assert!(cinco > 1.0, "enduro com muitas paradas ainda custa mais que sprint ({cinco})");
+    assert!(
+        cinco > 1.0,
+        "enduro com muitas paradas ainda custa mais que sprint ({cinco})"
+    );
     assert!((enduro_pit_relief(3) - 0.30).abs() < 1e-9);
     assert!((enduro_pit_relief(10) - 0.30).abs() < 1e-9);
 }
@@ -1019,7 +1552,10 @@ fn tenda_de_nivel_tem_pico_no_5_e_e_simetrica() {
         (m(3) - m(7)).abs() < 1e-9 && (m(2) - m(8)).abs() < 1e-9 && (m(1) - m(9)).abs() < 1e-9,
         "curva simétrica em torno do 5"
     );
-    assert!(m(1) < m(2) && m(2) < m(3) && m(3) < m(4) && m(4) < m(5), "sobe até o 5");
+    assert!(
+        m(1) < m(2) && m(2) < m(3) && m(3) < m(4) && m(4) < m(5),
+        "sobe até o 5"
+    );
     assert!(m(9) < m(8) && m(8) < m(7) && m(7) < m(6), "cai depois do 5");
 }
 
@@ -1032,14 +1568,27 @@ fn peca_nivel_alto_quebra_mais_que_nivel_5() {
             .filter(|&s| {
                 let mut car = Car::uniform(level);
                 car.set_wear(PartType::Engine, 0.80);
-                !roll_race_breakdowns(&car, 18, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[])
-                    .is_empty()
+                !roll_race_breakdowns_cfg(
+                    &car,
+                    18,
+                    s,
+                    PIT_NEUTRO,
+                    TRACK_NEUTRO,
+                    WEATHER_NEUTRO,
+                    &[],
+                    false,
+                    true,
+                )
+                .is_empty()
             })
             .count()
     };
     let n5 = breaks(5);
     let n8 = breaks(8);
-    assert!(n8 > n5 + 50, "nível 8 deveria quebrar bem mais que o 5 (5={n5}, 8={n8})");
+    assert!(
+        n8 > n5 + 50,
+        "nível 8 deveria quebrar bem mais que o 5 (5={n5}, 8={n8})"
+    );
 }
 
 #[test]
@@ -1052,12 +1601,27 @@ fn categoria_spec_ignora_a_tenda_de_nivel() {
                 let mut car = Car::uniform(level);
                 car.set_wear(PartType::Engine, 0.80);
                 !roll_race_breakdowns_cfg(
-                    &car, 18, s, PIT_NEUTRO, TRACK_NEUTRO, WEATHER_NEUTRO, &[], false, tent,
+                    &car,
+                    18,
+                    s,
+                    PIT_NEUTRO,
+                    TRACK_NEUTRO,
+                    WEATHER_NEUTRO,
+                    &[],
+                    false,
+                    tent,
                 )
                 .is_empty()
             })
             .count()
     };
-    assert!(breaks(1, true) > breaks(5, true), "com tenda, nível 1 (0.60×) quebra mais que 5");
-    assert_eq!(breaks(1, false), breaks(5, false), "sem tenda (spec), o nível é irrelevante");
+    assert!(
+        breaks(1, true) > breaks(5, true),
+        "com tenda, nível 1 (0.60×) quebra mais que 5"
+    );
+    assert_eq!(
+        breaks(1, false),
+        breaks(5, false),
+        "sem tenda (spec), o nível é irrelevante"
+    );
 }

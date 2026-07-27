@@ -35,34 +35,10 @@ pub(crate) fn compute_race_evaluation(
     conn: &rusqlite::Connection,
     result: &RaceResult,
 ) -> Option<crate::race_eval::RaceEvaluation> {
-    use crate::race_eval::{compute_merit, evaluate, DriverMerit, RaceEvalInput};
+    use crate::race_eval::{evaluate, RaceEvalInput};
 
     let player = result.race_results.iter().find(|r| r.is_jogador)?;
-    let field_size = result.race_results.len() as i32;
-    let field: Vec<DriverMerit> = result
-        .race_results
-        .iter()
-        .filter_map(|r| {
-            let driver = driver_queries::get_driver(conn, &r.pilot_id).ok()?;
-            let car = team_queries::get_team_by_id(conn, &r.team_id)
-                .ok()
-                .flatten()
-                .map(|t| t.car_strength())
-                .unwrap_or(0.0);
-            let car_norm = car;
-            let merit = compute_merit(
-                driver.atributos.skill,
-                car_norm,
-                recent_avg_finish(&driver.ultimos_resultados),
-                field_size,
-                0, // corridas na pista entram na Fase 2 (afinamento)
-            );
-            Some(DriverMerit {
-                pilot_id: r.pilot_id.clone(),
-                merit,
-            })
-        })
-        .collect();
+    let field = build_merit_field(conn, result);
     if field.is_empty() {
         return None;
     }

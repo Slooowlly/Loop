@@ -7,3 +7,6 @@ build/
 *.exp
 *.pdb
 *.ilk
+
+# Headers do OpenXR clonados pro build sem CMake (veja o README) — não são nossos.
+src/OpenXR-SDK/

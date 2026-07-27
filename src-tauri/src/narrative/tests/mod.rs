@@ -173,6 +173,24 @@ fn limiar_corta_beats_fracos_mas_preserva_o_nosso_piloto() {
     assert!(sel.iter().any(|b| b.kind == BeatKind::NossoPiloto));
 }
 
+/// O arco de rivalidade chega de fora (o callsite tem o banco) e passa pelo MESMO
+/// limiar dos beats da corrida — não é passe livre por ser de carreira.
+#[test]
+fn arco_de_rivalidade_obedece_o_limiar_padrao() {
+    assert!(beat(BeatKind::RivalidadeArco, 48.0).passes());
+    assert!(!beat(BeatKind::RivalidadeArco, 22.0).passes());
+}
+
+/// Arco forte vira DESTAQUE mesmo quando a tese não o pediu (a tese só lê o
+/// `RaceResult`, então é cega para a novela). Arco morno fica no pano de fundo.
+#[test]
+fn arco_forte_sobe_para_destaque_sozinho() {
+    assert!(beat(BeatKind::RivalidadeArco, ARC_HIGHLIGHT_WEIGHT).forces_highlight());
+    assert!(!beat(BeatKind::RivalidadeArco, ARC_HIGHLIGHT_WEIGHT - 1.0).forces_highlight());
+    // O privilégio é só do arco: peso alto de outro tipo não fura a tese.
+    assert!(!beat(BeatKind::Podio, 90.0).forces_highlight());
+}
+
 #[test]
 fn selecao_ordena_por_peso_decrescente() {
     let beats = vec![
@@ -259,4 +277,27 @@ fn dominio_quando_vencedor_larga_na_frente() {
 #[test]
 fn corrida_limpa_como_piso() {
     assert_eq!(thesis_of(&sig()), RaceThesis::CorridaLimpa);
+}
+
+/// Resposta cortada pelo teto de tokens do servidor: a última frase pendurada é
+/// aparada, mas o texto NUNCA é descartado — curto ou cortado cedo, vale o que veio.
+#[test]
+fn boletim_cortado_no_meio_da_frase_e_aparado() {
+    use crate::narrative::client::aparar_frase_incompleta;
+
+    let inteiro = "Foi um domingo de decisões. Ana venceu em Lédenon.";
+    assert_eq!(aparar_frase_incompleta(inteiro), inteiro);
+
+    let cortado = "Foi um domingo de decisões. Ana venceu em Lédenon. O resultado em Lédenon";
+    assert_eq!(
+        aparar_frase_incompleta(cortado),
+        "Foi um domingo de decisões. Ana venceu em Lédenon."
+    );
+
+    // Cortado antes da primeira frase fechar: não há o que aparar sem perder tudo,
+    // então vale o pedaço como veio.
+    assert_eq!(
+        aparar_frase_incompleta("O resultado em Lédenon"),
+        "O resultado em Lédenon"
+    );
 }

@@ -7,6 +7,16 @@ use crate::iracing_sdk::IracingError;
 /// simulador (score 2) sobre a UI/launcher (score 1). Devolve o `HWND` como
 /// `isize` (bruto, `Copy`) ou `None` quando nada casa (sim fechado).
 pub(super) fn find_iracing_hwnd() -> Option<isize> {
+    find_iracing_janela().map(|(hwnd, _)| hwnd)
+}
+
+/// Igual à [`find_iracing_hwnd`], mas devolve também o SCORE do que foi achado:
+/// 2 = simulador, 1 = só a UI/launcher. Essa distinção é o segundo sinal do
+/// diagnóstico cruzado: só o simulador publica a memória do SDK, então "UI aberta
+/// e memória ausente" é estado normal, enquanto "simulador aberto e memória
+/// ausente" é problema de verdade. Vem de `EnumWindows`, que não depende de
+/// permissão sobre o objeto de memória — por isso é um sinal independente.
+pub(super) fn find_iracing_janela() -> Option<(isize, i32)> {
     use winapi::shared::minwindef::{BOOL, LPARAM, TRUE};
     use winapi::shared::windef::HWND;
     use winapi::um::winuser::{EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible};
@@ -50,7 +60,7 @@ pub(super) fn find_iracing_hwnd() -> Option<isize> {
     unsafe {
         EnumWindows(Some(enum_proc), &mut found as *mut _ as LPARAM);
     }
-    found.map(|f| f.hwnd as isize)
+    found.map(|f| (f.hwnd as isize, f.score))
 }
 
 /// Restaura (se minimizada) e traz a janela `hwnd_raw` ao primeiro plano. Devolve

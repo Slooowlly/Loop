@@ -132,18 +132,23 @@ pub(super) fn record_rivalry_episodes(
 /// Recapitula o ARCO de rivalidade para os destaques que se cruzaram HOJE: origem,
 /// número de capítulos, retrospecto direto (h2h), o capítulo de hoje e revanche.
 /// Só para rivalidades já claras (percebida ≥ 40) com capítulo registrado nesta corrida.
-pub(super) fn rivalry_arc_facts(
+///
+/// Devolve BEATS (com peso), não frases soltas: este é o único material do boletim com
+/// MEMÓRIA entre corridas, e ele merece disputar a manchete com a vitória do dia em vez
+/// de cair numa lista plana no rodapé. A curadoria final (limiar, teto, hierarquia)
+/// continua sendo do `narrative` — aqui só damos o peso, que depende do banco.
+pub(super) fn rivalry_arc_beats(
     conn: &rusqlite::Connection,
     race_result: &RaceResult,
     featured: &[String],
     temporada: i32,
     rodada: i32,
-) -> Vec<String> {
+) -> Vec<crate::narrative::Beat> {
     use crate::db::queries::drivers as driver_queries;
     use crate::models::rivalry::RivalryType;
     use std::collections::HashSet;
 
-    let mut out = Vec::new();
+    let mut out: Vec<crate::narrative::Beat> = Vec::new();
     let mut seen: HashSet<(String, String)> = HashSet::new();
     let name = |id: &str| {
         driver_queries::get_driver(conn, id)
@@ -270,7 +275,34 @@ pub(super) fn rivalry_arc_facts(
                     s.push_str(&rust_i18n::t!("briefing.rivalry.revenge", name = twn.as_str()));
                 }
             }
-            out.push(s);
+
+            // Peso na escala do `narrative` (limiar 30; vitória 70). A base 40 já passa
+            // folgado — o gate de entrada é a rivalidade EXISTIR e ter tido capítulo hoje,
+            // o que é raro. O que o peso decide de verdade é se ela vira manchete (≥ 60).
+            let mut weight = 40.0 + (r.perceived_intensity / 5.0).min(20.0);
+            if revenge {
+                weight += 5.0; // reviravolta: a novela virou hoje
+            }
+            if chapters >= 5 {
+                weight += 5.0; // história longa pesa mais que atrito recente
+            }
+            let both_up_front = [a.as_str(), b.as_str()].iter().all(|id| {
+                race_result
+                    .race_results
+                    .iter()
+                    .any(|d| d.pilot_id == *id && !d.is_dnf && d.finish_position <= 5)
+            });
+            if both_up_front {
+                weight += 5.0; // brigaram onde a corrida é decidida
+            }
+
+            out.push(crate::narrative::Beat {
+                kind: crate::narrative::BeatKind::RivalidadeArco,
+                weight,
+                text: s,
+                driver_id: Some(a.clone()),
+                team_name: None,
+            });
         }
     }
     out
@@ -293,7 +325,7 @@ pub(super) fn performance_context_facts(
 ) -> Vec<String> {
     use crate::db::queries::drivers as driver_queries;
     use crate::db::queries::race_history as rh;
-    use crate::race_eval::{compute_merit, evaluate, Assessment, DriverMerit, RaceEvalInput};
+    use crate::race_eval::{evaluate, Assessment, RaceEvalInput};
     use std::collections::HashMap;
 
     let mut out: Vec<String> = Vec::new();
@@ -303,26 +335,14 @@ pub(super) fn performance_context_facts(
         return out;
     }
 
-    // Carrega cada participante uma vez (skill + nome) e o car_performance por equipe.
+    // Carrega cada participante uma vez, para resolver nome (o mérito vem pronto de
+    // `build_merit_field`).
     let mut drivers: HashMap<String, Driver> = HashMap::new();
     for d in rows {
         if let std::collections::hash_map::Entry::Vacant(e) = drivers.entry(d.pilot_id.clone()) {
             if let Ok(drv) = driver_queries::get_driver(conn, &d.pilot_id) {
                 e.insert(drv);
             }
-        }
-    }
-    let mut car_perf: HashMap<String, f64> = HashMap::new();
-    for d in rows {
-        if let std::collections::hash_map::Entry::Vacant(e) = car_perf.entry(d.team_id.clone()) {
-            let cp: f64 = conn
-                .query_row(
-                    "SELECT car_performance FROM teams WHERE id = ?1",
-                    rusqlite::params![d.team_id],
-                    |r| r.get(0),
-                )
-                .unwrap_or(50.0);
-            e.insert(cp);
         }
     }
     let name_of = |id: &str| -> String {
@@ -332,18 +352,11 @@ pub(super) fn performance_context_facts(
             .unwrap_or_else(|| id.to_string())
     };
 
-    // Campo de mérito (skill + carro pesam igual) — base da posição ESPERADA.
-    let field: Vec<DriverMerit> = rows
-        .iter()
-        .map(|d| {
-            let skill = drivers.get(&d.pilot_id).map(|x| x.atributos.skill).unwrap_or(50.0);
-            let car = car_perf.get(&d.team_id).copied().unwrap_or(50.0);
-            DriverMerit {
-                pilot_id: d.pilot_id.clone(),
-                merit: compute_merit(skill, car, None, field_size, 0),
-            }
-        })
-        .collect();
+    // Campo de mérito — a MESMA construção que alimenta o debrief do jogador. Ler o
+    // carro daqui por conta própria já custou uma incoerência: a coluna crua
+    // `car_performance` vive em −5..16 e `compute_merit` espera 0–100, então o carro
+    // sumia do mérito e o boletim ranqueava o grid quase só por skill.
+    let field = build_merit_field(conn, race_result);
 
     // ── 1) Esperado×real: só sinais FORTES (muito acima / muito abaixo). ──────────
     // O pole que floppou já é coberto pelo beat de Decepção; o DNF, pelo de Abandono.
@@ -585,6 +598,28 @@ pub(super) fn performance_context_facts(
     out
 }
 
+/// Posição do ÚLTIMO ponto captado (≈ bandeirada) do jogador e de um rival, lida do
+/// mesmo race trace que gerou os fatos de duelo. É o que impede a narrativa de tratar
+/// uma ultrapassagem no meio da corrida como se fosse o desfecho.
+fn desfecho_no_trace(
+    charts: &crate::iracing_sdk::telemetry_analysis::RaceCharts,
+    rival_name: &str,
+) -> Option<(i32, i32)> {
+    let ultima = |c: &crate::iracing_sdk::telemetry_analysis::ChartCar| {
+        c.points.last().map(|p| p.position).filter(|p| *p > 0)
+    };
+    let jogador = charts.cars.iter().find(|c| c.is_player).and_then(ultima)?;
+    let rival = charts
+        .cars
+        .iter()
+        .find(|c| !c.is_player && c.name == rival_name)
+        .and_then(ultima)?;
+    if jogador == rival {
+        return None;
+    }
+    Some((jogador, rival))
+}
+
 /// Converte a TELEMETRIA REAL do SDK (ritmo, duelo, erro mais caro, melhor momento)
 /// em fatos de pano de fundo sobre a corrida do JOGADOR — a cor que só existe quando
 /// ele correu de verdade no iRacing. O jogador é CITADO (subtrama), nunca protagonista;
@@ -665,20 +700,49 @@ pub(super) fn telemetry_context_facts(
                 )
                 .to_string(),
             );
+            // O duelo só significa alguma coisa com o desfecho junto: sem isto a IA
+            // lê "duelo + ultrapassagem" e escreve que o jogador deixou o rival para
+            // trás, mesmo quando o rival cruzou a linha na frente.
+            if let Some((eu, dele)) =
+                telemetry.charts.as_ref().and_then(|c| desfecho_no_trace(c, &r.pilot_name))
+            {
+                let key = if eu < dele {
+                    "briefing.tel.duel_outcome_ahead"
+                } else {
+                    "briefing.tel.duel_outcome_behind"
+                };
+                out.push(
+                    rust_i18n::t!(
+                        key,
+                        who = who,
+                        rival = r.pilot_name.as_str(),
+                        you = eu,
+                        rival_pos = dele
+                    )
+                    .to_string(),
+                );
+            }
         }
     }
 
     // Melhor momento da corrida do jogador.
     if let Some(b) = &telemetry.best_moment {
         let phrase = match b.kind.as_str() {
-            "rival_beaten" if !b.rival_name.trim().is_empty() => Some(
-                rust_i18n::t!(
-                    "briefing.tel.best_rival_beaten",
-                    who = who,
-                    rival = b.rival_name.as_str()
-                )
-                .to_string(),
-            ),
+            // "Levou a melhor" só vale se a passagem tiver sobrevivido até a bandeirada;
+            // se o rival terminou na frente, o fato vira a passagem NÃO sustentada.
+            "rival_beaten" if !b.rival_name.trim().is_empty() => {
+                let perdeu_depois = telemetry
+                    .charts
+                    .as_ref()
+                    .and_then(|c| desfecho_no_trace(c, &b.rival_name))
+                    .is_some_and(|(eu, dele)| eu > dele);
+                let key = if perdeu_depois {
+                    "briefing.tel.best_rival_passed_not_held"
+                } else {
+                    "briefing.tel.best_rival_beaten"
+                };
+                Some(rust_i18n::t!(key, who = who, rival = b.rival_name.as_str()).to_string())
+            }
             "position_gain" if b.positions_gained >= 1 => Some(
                 rust_i18n::t!(
                     "briefing.tel.best_position_gain",

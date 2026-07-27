@@ -115,12 +115,22 @@ export function formatLicenseLevel(level) {
 }
 
 export function formatLapTime(ms) {
-  if (!ms || ms <= 0) return "-";
+  if (!Number.isFinite(ms) || ms <= 0) return "-";
 
   const totalSeconds = ms / 1000;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
+}
+
+// Mesma coisa que formatLapTime, mas a entrada é em SEGUNDOS — é o que a telemetria
+// dos gráficos entrega. Existe separada (e não como wrapper) porque a sentinela de
+// "sem volta" é outra: os gráficos usam "--", alinhado com as colunas tabular-nums.
+export function formatLapSeconds(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
 }
 
 export function formatGap(ms) {

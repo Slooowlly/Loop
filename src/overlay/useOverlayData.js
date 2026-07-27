@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCategoryColor } from "../utils/categoryColors";
+import { estaNoTauri } from "../lib/tauri";
 
 // Puxa os dados AO VIVO da torre do backend (`get_overlay_data`), que cruza a
 // telemetria do iRacing com o nosso elenco (times/cores/pontos). Retorna null
 // quando não há sessão ativa — o chamador decide o que fazer (esconder / mock).
-
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // O backend manda a classe só com id/label; a COR vem da fonte única do app
 // (categoryColors.js), pra bater com o resto da interface.
@@ -27,9 +26,9 @@ export function useOverlayData(careerId, { intervalMs = 500, fallback = null, on
   });
 
   useEffect(() => {
-    if (!IN_TAURI || !careerId) {
+    if (!estaNoTauri() || !careerId) {
       setData(fallback);
-      onStateRef.current?.(IN_TAURI ? "no-career" : "not-tauri");
+      onStateRef.current?.(estaNoTauri() ? "no-career" : "not-tauri");
       return undefined;
     }
 

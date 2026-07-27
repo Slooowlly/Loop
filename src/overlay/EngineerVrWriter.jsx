@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../stores/useCareerStore";
 import { RADIO_VR_W, RADIO_VR_H, drawRadioCard } from "./radioCanvas";
 import { useBreakdownFeed, usePlayerWarnings } from "./useBreakdownFeed";
+import { estaNoTauri } from "../lib/tauri";
 
 // Escritor do RÁDIO DA EQUIPE no VR: quando uma quebra é anunciada, desenha o card
 // num canvas e manda os pixels (~10 Hz) pro backend, que os coloca no 2º mapeamento
@@ -17,7 +18,6 @@ import { useBreakdownFeed, usePlayerWarnings } from "./useBreakdownFeed";
 //
 // Componente invisível: só alimenta o overlay do VR. Roda só dentro do Tauri.
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const HOLD_MS = 6000; // quanto a mensagem fica no ar
 const FADE_MS = 450; // fade-out no fim
 const DEMO_STEP_MS = 6000; // troca de exemplo no demo
@@ -54,7 +54,7 @@ export default function EngineerVrWriter() {
 
   // Poll do flag de demo (fonte no backend, botão das Configurações).
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let stopped = false;
     const tick = () =>
       invoke("overlay_demo_enabled")
@@ -73,7 +73,7 @@ export default function EngineerVrWriter() {
   // Lista de exemplos do backend (mesma fonte do rádio de monitor). Fallback local.
   const [demoMsgs, setDemoMsgs] = useState([]);
   useEffect(() => {
-    if (!demo || !IN_TAURI) {
+    if (!demo || !estaNoTauri()) {
       setDemoMsgs([]);
       return undefined;
     }
@@ -94,7 +94,7 @@ export default function EngineerVrWriter() {
   // do rádio de monitor. Entram misturados no rodízio pra também aparecerem no demo.
   const [demoWarns, setDemoWarns] = useState([]);
   useEffect(() => {
-    if (!demo || !IN_TAURI) {
+    if (!demo || !estaNoTauri()) {
       setDemoWarns([]);
       return undefined;
     }
@@ -145,7 +145,7 @@ export default function EngineerVrWriter() {
   }, [demo, demoMsgs, demoWarns, demoTick]);
 
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
 
     const canvas = document.createElement("canvas");
     canvas.width = RADIO_VR_W;

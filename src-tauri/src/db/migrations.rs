@@ -39,8 +39,24 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
 }
 
 /// Aplica apenas as migrações pendentes num banco existente.
+///
+/// Um banco vazio (versão 0) nasce da baseline normalmente. Já um save carimbado
+/// entre 1 e 52 veio das migrações incrementais que foram colapsadas: a baseline
+/// é DDL `IF NOT EXISTS` e não faz backfill de dado, então aplicá-la ali só
+/// carimbaria a versão 53 num banco que continua na forma velha. Recusamos em vez
+/// de mentir sobre a versão — o arquivo do jogador fica intocado.
 pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     let version = get_schema_version(conn)?;
+
+    if version > 0 && version < CURRENT_VERSION {
+        return Err(DbError::InvalidData(format!(
+            "este save está no schema v{version}, anterior à baseline v{CURRENT_VERSION}. \
+             As migrações incrementais foram colapsadas numa baseline única e não existe \
+             caminho de atualização a partir daqui. O arquivo não foi alterado: use um \
+             backup mais recente ou comece uma carreira nova."
+        )));
+    }
+
     for (target, migrate) in MIGRATIONS {
         if version < *target {
             migrate(conn)?;

@@ -11,6 +11,14 @@ use crate::models::enums::{DriverStatus, PrimaryPersonality, SecondaryPersonalit
 
 pub use crate::models::driver_tags::{AttributeTag, TagLevel};
 
+/// Tier da categoria na escada (Rookie 0 → Endurance 6). Categoria desconhecida
+/// (ou vazia) cai em 0, o que só evita subida fantasma.
+fn category_tier_of(categoria: &str) -> u8 {
+    crate::constants::categories::get_category_config(categoria)
+        .map(|config| config.tier)
+        .unwrap_or(0)
+}
+
 // TODO(migration): o schema atual já cobre todos os campos persistidos do Módulo 10.
 // Se no futuro tags visíveis ou metadados de geração forem persistidos, novas colunas seriam necessárias.
 
@@ -228,6 +236,31 @@ impl Driver {
         }
     }
 
+    /// Move o piloto para `categoria`, zerando a antiguidade na categoria quando ele
+    /// SOBE de tier.
+    ///
+    /// `temporadas_na_categoria`/`corridas_na_categoria` medem tempo NA categoria, e
+    /// nenhum ponto do código zerava esses contadores na mudança — o campeão do Rookie
+    /// chegava no Amador contando as temporadas do Rookie, e por isso escapava de todos
+    /// os efeitos de estreante que já existiam (penalidade de inexperiência da quali e
+    /// da corrida, `is_estreante`, pauta de estreia do boletim).
+    ///
+    /// Só zera na SUBIDA: quem desce volta pra uma categoria que já conhece (e quem
+    /// troca de equipe dentro da mesma categoria não perde a antiguidade).
+    pub fn mover_para_categoria(&mut self, categoria: Option<String>) {
+        let sobe = match (self.categoria_atual.as_deref(), categoria.as_deref()) {
+            (Some(origem), Some(destino)) => {
+                origem != destino && category_tier_of(destino) > category_tier_of(origem)
+            }
+            _ => false,
+        };
+        self.categoria_atual = categoria;
+        if sobe {
+            self.temporadas_na_categoria = 0;
+            self.corridas_na_categoria = 0;
+        }
+    }
+
     pub fn new_player(
         id: String,
         nome: String,
@@ -355,6 +388,55 @@ mod tests {
 
     use super::*;
     use crate::constants::skill_ranges;
+
+    fn piloto_com_antiguidade(categoria: &str, temporadas: u32, corridas: u32) -> Driver {
+        let mut driver = Driver::new(
+            "DRV-CAT".to_string(),
+            "Teste".to_string(),
+            "Brasil".to_string(),
+            "M".to_string(),
+            22,
+            2024,
+        );
+        driver.categoria_atual = Some(categoria.to_string());
+        driver.temporadas_na_categoria = temporadas;
+        driver.corridas_na_categoria = corridas;
+        driver
+    }
+
+    #[test]
+    fn mover_para_categoria_zera_antiguidade_na_subida() {
+        let mut driver = piloto_com_antiguidade("mazda_rookie", 2, 10);
+
+        driver.mover_para_categoria(Some("mazda_amador".to_string()));
+
+        assert_eq!(driver.categoria_atual.as_deref(), Some("mazda_amador"));
+        assert_eq!(driver.temporadas_na_categoria, 0);
+        assert_eq!(driver.corridas_na_categoria, 0);
+    }
+
+    #[test]
+    fn mover_para_categoria_preserva_antiguidade_na_descida() {
+        let mut driver = piloto_com_antiguidade("mazda_amador", 3, 24);
+
+        driver.mover_para_categoria(Some("mazda_rookie".to_string()));
+
+        assert_eq!(driver.temporadas_na_categoria, 3);
+        assert_eq!(driver.corridas_na_categoria, 24);
+    }
+
+    #[test]
+    fn mover_para_categoria_preserva_antiguidade_na_troca_de_equipe() {
+        // Mesma categoria (troca de equipe) e movimento lateral de mesmo tier não
+        // custam antiguidade.
+        let mut driver = piloto_com_antiguidade("mazda_amador", 3, 24);
+        driver.mover_para_categoria(Some("mazda_amador".to_string()));
+        assert_eq!(driver.corridas_na_categoria, 24);
+
+        driver.mover_para_categoria(Some("toyota_amador".to_string()));
+        assert_eq!(driver.temporadas_na_categoria, 3);
+        assert_eq!(driver.corridas_na_categoria, 24);
+    }
 
     #[test]
     fn test_get_visible_tags_returns_only_extreme_attributes() {

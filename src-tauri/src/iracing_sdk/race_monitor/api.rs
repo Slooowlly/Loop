@@ -31,9 +31,10 @@ pub fn install_breakdown_director(
     dir: crate::car::breakdown::BreakdownDirector,
     player_live: Option<crate::car::breakdown::LiveBreakdown>,
     weather: crate::car::breakdown::Weather,
+    showcase: bool,
 ) {
     start_sampler();
-    lock().install_breakdown_director(dir, player_live, weather);
+    lock().install_breakdown_director(dir, player_live, weather, showcase);
 }
 
 /// Alertas de quebra ativos por car_idx, pro overlay: `(car_idx, kind)` com

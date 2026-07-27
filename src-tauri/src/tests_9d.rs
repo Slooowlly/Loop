@@ -5,8 +5,8 @@
 ///   • Imutabilidade do calendário.
 ///   • Pureza do fluxo novo (zero tabelas legadas, zero Especial).
 ///   • Ciclo de 2 temporadas completo (prova-mestra da fase).
-///   • Travessia legada: BlocoRegular v32 → v33/v34 → modelo novo.
-///   • Travessia legada: BlocoEspecial → fluxo legado até fim → modelo novo.
+///   • Recusa explícita de save anterior à baseline (as travessias legadas
+///     v32 → v33/v34 saíram junto com o colapso das migrações).
 
 // ── Helpers compartilhados ────────────────────────────────────────────────────
 
@@ -858,40 +858,32 @@ mod ciclo_dois_temporadas {
     }
 }
 
-// ── Travessia legada ─────────────────────────────────────────────────────────
+// ── Saves anteriores à baseline ──────────────────────────────────────────────
 
 #[cfg(test)]
-mod travessia_legada {
-    use super::helpers::*;
-    use crate::commands::career::advance_season_in_base_dir;
-    use crate::commands::career::skip_all_pending_races_in_base_dir;
+mod saves_pre_baseline {
     use crate::db::connection::Database;
     use crate::db::migrations;
-    use crate::db::queries::seasons as season_queries;
-    use crate::models::enums::SeasonPhase;
 
-    /// Simula a migração v33+v34 sobre um save sintético em BlocoRegular.
+    /// As migrações incrementais foram colapsadas numa baseline única, então não
+    /// existe mais travessia de save antigo. O que este teste garante é que a
+    /// ausência de caminho é ADMITIDA, e não disfarçada: abrir um save v32 tem de
+    /// falhar e deixar o arquivo exatamente como estava.
     ///
-    /// Fluxo:
-    ///   1. Criar DB v34 com `run_all` + dados sintéticos (world completo).
-    ///   2. Reverter para v32: season_week → NULL, fase → BlocoRegular.
-    ///      Remover production/endurance do calendário (serão regenerados por v34).
-    ///   3. Definir schema_version = 32 via meta.
-    ///   4. `run_pending` → aplica v33 (backfill season_week) + v34 (gera especiais, → Temporada).
-    ///   5. Verificar estado resultante.
-    ///   6. Skip all pending → Encerramento → advance → S2 em PreTemporada (modelo novo).
+    /// O risco que ele cobre é específico — a baseline é DDL `IF NOT EXISTS` e não
+    /// faz backfill, então rodá-la sobre um banco velho "funcionaria" e carimbaria
+    /// v53 num schema em forma antiga, sem erro nenhum para o jogador.
     #[test]
-    fn migracao_v33v34_bloco_regular_para_temporada() {
+    fn save_anterior_a_baseline_e_recusado_sem_tocar_no_arquivo() {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time")
             .as_nanos();
-        let base_dir = std::env::temp_dir().join(format!("iracer_9d_legacy_bloco_regular_{nanos}"));
+        let base_dir = std::env::temp_dir().join(format!("iracer_9d_pre_baseline_{nanos}"));
         std::fs::create_dir_all(&base_dir).expect("base dir");
 
-        // 1. Criar carreira completa (world + calendário 9D v34)
         let input = crate::commands::career::CreateCareerInput {
             player_name: "Piloto Legacy".to_string(),
             player_nationality: "br".to_string(),
@@ -901,67 +893,17 @@ mod travessia_legada {
             difficulty: "medio".to_string(),
         };
         crate::commands::career::create_career_in_base_dir(&base_dir, input)
-            .expect("criar carreira legada");
+            .expect("criar carreira");
 
         let config = crate::config::app_config::AppConfig::load_or_default(&base_dir);
-        let career_dir = config.saves_dir().join("career_001");
-        let db_path = career_dir.join("career.db");
+        let db_path = config.saves_dir().join("career_001").join("career.db");
 
-        // 2. Retrogradar estado para simular save v32 em BlocoRegular (meio do ano):
-        //    - Remover entradas de production_challenger e endurance (v34 vai regenerá-las)
-        //    - Marcar algumas corridas regulares como Concluída (meio do ano)
-        //    - Nullar season_week (coluna adicionada em v33)
-        //    - Mudar fase para BlocoRegular
-        //    - Definir schema_version = 32
+        // Retrograda o save para a forma pré-baseline: season_week nulo (a coluna
+        // só passou a ser preenchida na v33) e schema_version carimbado em 32.
         {
-            let db = Database::open_existing(&db_path).expect("db");
-            let conn = &db.conn;
-
-            // Identificar a temporada ativa
-            let season_id: String = conn
-                .query_row(
-                    "SELECT id FROM seasons WHERE status = 'EmAndamento'",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("season_id");
-
-            // Remover entradas de production/endurance (serão regeneradas por v34)
-            conn.execute(
-                "DELETE FROM calendar
-                 WHERE COALESCE(season_id, temporada_id) = ?1
-                   AND categoria IN ('production_challenger', 'endurance')",
-                rusqlite::params![season_id],
-            )
-            .expect("remover production/endurance");
-
-            // Marcar corridas das primeiras 24 semanas como Concluída (simula meio do ano)
-            // sem ultrapassar o início da janela de production/endurance (woy 25+)
-            conn.execute(
-                "UPDATE calendar
-                 SET status = 'Concluida'
-                 WHERE COALESCE(season_id, temporada_id) = ?1
-                   AND week_of_year < 25",
-                rusqlite::params![season_id],
-            )
-            .expect("marcar corridas concluídas");
-
-            // Nullar season_week (simula pré-v33)
-            conn.execute(
-                "UPDATE calendar SET season_week = NULL
-                 WHERE COALESCE(season_id, temporada_id) = ?1",
-                rusqlite::params![season_id],
-            )
-            .expect("nullar season_week");
-
-            // Mudar fase para BlocoRegular (salvo pré-v34)
-            conn.execute(
-                "UPDATE seasons SET fase = 'BlocoRegular' WHERE id = ?1",
-                rusqlite::params![season_id],
-            )
-            .expect("fase BlocoRegular");
-
-            // Definir schema_version = 32
+            let conn = rusqlite::Connection::open(&db_path).expect("abrir cru");
+            conn.execute("UPDATE calendar SET season_week = NULL", [])
+                .expect("nullar season_week");
             conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '32')",
                 [],
@@ -969,259 +911,34 @@ mod travessia_legada {
             .expect("schema_version = 32");
         }
 
-        // 3. Verificar schema_version = 32 antes da migração
-        {
-            let db = Database::open_existing(&db_path).expect("db antes de run_pending");
-            // open_existing chama run_pending automaticamente!
-            // Então precisamos verificar APÓS a abertura.
-            let version = migrations::get_schema_version(&db.conn).expect("schema version");
-            assert!(
-                version >= 34,
-                "após open_existing (run_pending), schema deve estar em 34+"
-            );
-
-            // v33: season_week backfill deve ter sido aplicado
-            let sem_sw: i64 = db
-                .conn
-                .query_row(
-                    "SELECT COUNT(*) FROM calendar
-                     WHERE COALESCE(season_id, temporada_id) = (
-                         SELECT id FROM seasons WHERE status = 'EmAndamento'
-                     )
-                     AND week_of_year > 0
-                     AND season_week IS NULL",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("verificar season_week");
-            assert_eq!(
-                sem_sw, 0,
-                "v33: todas as entradas com week_of_year > 0 devem ter season_week após migração"
-            );
-
-            // v33: season_week = week_of_year + 4 para entradas com week_of_year > 0
-            let sw_incorreto: i64 = db
-                .conn
-                .query_row(
-                    "SELECT COUNT(*) FROM calendar
-                     WHERE week_of_year > 0
-                     AND season_week IS NOT NULL
-                     AND season_week != week_of_year + 4",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("verificar relação sw/woy");
-            assert_eq!(
-                sw_incorreto, 0,
-                "v33: season_week deve ser week_of_year + 4 para todas as entradas"
-            );
-
-            // v34: fase deve ter mudado de BlocoRegular para Temporada
-            let season = season_queries::get_active_season(&db.conn)
-                .expect("query")
-                .expect("temporada ativa");
-            assert_eq!(
-                season.fase,
-                SeasonPhase::Temporada,
-                "v34: BlocoRegular deve ter sido convertido para Temporada"
-            );
-
-            // v34: entradas de production_challenger e endurance devem ter sido geradas
-            let especiais: i64 = db
-                .conn
-                .query_row(
-                    "SELECT COUNT(*) FROM calendar
-                     WHERE COALESCE(season_id, temporada_id) = ?1
-                       AND categoria IN ('production_challenger', 'endurance')",
-                    rusqlite::params![season.id],
-                    |r| r.get(0),
-                )
-                .expect("contar especiais");
-            assert!(
-                especiais > 0,
-                "v34: production_challenger e endurance devem ter entradas geradas (encontrou {especiais})"
-            );
-        }
-
-        // 4. Jogar até Encerramento → advance → S2 em PreTemporada (modelo novo)
-        {
-            skip_all_pending_races_in_base_dir(&base_dir, "career_001")
-                .expect("skip all pending (legado→9D)");
-
-            let result = advance_season_in_base_dir(&base_dir, "career_001")
-                .expect("advance season após travessia legada");
-
-            assert!(
-                result.preseason_initialized,
-                "pré-temporada deve ser inicializada"
-            );
-
-            let db = Database::open_existing(&db_path).expect("db após advance");
-            let s2 = season_queries::get_active_season(&db.conn)
-                .expect("query")
-                .expect("S2 ativa");
-            assert_eq!(s2.numero, 2);
-            assert_eq!(
-                s2.fase,
-                SeasonPhase::PreTemporada,
-                "S2 deve estar em PreTemporada após travessia legada"
-            );
-
-            // S2 deve ter 74 entradas (modelo novo)
-            assert_calendar_invariants_9d(&db_path, &s2.id);
-        }
-
-        let _ = std::fs::remove_dir_all(&base_dir);
-    }
-
-    /// Travessia legada: save sintético em BlocoEspecial.
-    ///
-    /// Um save em BlocoEspecial NÃO é tocado pela migração v34 (que só converte
-    /// BlocoRegular). O fluxo legado (BlocoEspecial → PosEspecial → advance)
-    /// deve levar ao modelo novo com zero contratos Especial ativos.
-    #[test]
-    fn travessia_bloco_especial_chega_ao_modelo_novo() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        let base_dir =
-            std::env::temp_dir().join(format!("iracer_9d_legacy_bloco_especial_{nanos}"));
-        std::fs::create_dir_all(&base_dir).expect("base dir");
-
-        // Criar carreira normal (modelo 9D com fase Temporada)
-        let input = crate::commands::career::CreateCareerInput {
-            player_name: "Piloto Especial".to_string(),
-            player_nationality: "br".to_string(),
-            player_age: Some(23),
-            category: "mazda_rookie".to_string(),
-            team_index: 0,
-            difficulty: "medio".to_string(),
-        };
-        crate::commands::career::create_career_in_base_dir(&base_dir, input)
-            .expect("criar carreira para teste de BlocoEspecial");
-
-        let config = crate::config::app_config::AppConfig::load_or_default(&base_dir);
-        let career_dir = config.saves_dir().join("career_001");
-        let db_path = career_dir.join("career.db");
-
-        // Modificar o estado para simular um save em BlocoEspecial:
-        // - Marcar todas as corridas regulares como Concluída
-        // - Mudar fase para BlocoEspecial
-        // - Adicionar entradas de production/endurance pendentes
-        {
-            let db = Database::open_existing(&db_path).expect("db");
-            let conn = &db.conn;
-
-            let season_id: String = conn
-                .query_row(
-                    "SELECT id FROM seasons WHERE status = 'EmAndamento'",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("season_id");
-
-            let season_year: i32 = conn
-                .query_row(
-                    "SELECT ano FROM seasons WHERE id = ?1",
-                    rusqlite::params![season_id],
-                    |r| r.get(0),
-                )
-                .expect("season_year");
-
-            // Marcar todas as corridas regulares como concluídas
-            conn.execute(
-                "UPDATE calendar
-                 SET status = 'Concluida'
-                 WHERE COALESCE(season_id, temporada_id) = ?1
-                   AND categoria NOT IN ('production_challenger', 'endurance')",
-                rusqlite::params![season_id],
-            )
-            .expect("concluir corridas regulares");
-
-            // Remover entradas existentes de production/endurance (serão adicionadas como especial)
-            conn.execute(
-                "DELETE FROM calendar
-                 WHERE COALESCE(season_id, temporada_id) = ?1
-                   AND categoria IN ('production_challenger', 'endurance')",
-                rusqlite::params![season_id],
-            )
-            .expect("remover especiais 9D");
-
-            // Usar o gerador legado de calendário especial para criar o bloco especial
-            let mut rng = rand::thread_rng();
-            crate::calendar::generate_and_insert_special_calendars(
-                conn,
-                &season_id,
-                season_year,
-                &mut rng,
-            )
-            .expect("gerar calendário especial legado");
-
-            // Definir fase como BlocoEspecial
-            conn.execute(
-                "UPDATE seasons SET fase = 'BlocoEspecial' WHERE id = ?1",
-                rusqlite::params![season_id],
-            )
-            .expect("fase BlocoEspecial");
-        }
-
-        // Verificar que v34 NÃO toca o BlocoEspecial:
-        // Reabrir (run_pending é no-op pois schema já está em 34) e verificar fase
-        {
-            let db = Database::open_existing(&db_path).expect("db");
-            let season = season_queries::get_active_season(&db.conn)
-                .expect("query")
-                .expect("temporada ativa");
-            assert_eq!(
-                season.fase,
-                SeasonPhase::BlocoEspecial,
-                "v34 NÃO deve tocar saves em BlocoEspecial (fase deve permanecer BlocoEspecial)"
-            );
-        }
-
-        // Fluxo legado até o fim: skip all (BlocoEspecial → PosEspecial) → advance → modelo novo
-        skip_all_pending_races_in_base_dir(&base_dir, "career_001")
-            .expect("skip all pending (BlocoEspecial)");
-
-        let result = advance_season_in_base_dir(&base_dir, "career_001")
-            .expect("advance season após BlocoEspecial");
-
+        // Abrir tem de falhar — e não silenciosamente promover o banco.
+        let erro = Database::open_existing(&db_path)
+            .err()
+            .expect("abrir save v32 deve falhar");
+        let texto = erro.to_string();
         assert!(
-            result.preseason_initialized,
-            "pré-temporada deve ser inicializada"
+            texto.contains("v32") && texto.contains("v53"),
+            "a mensagem deve nomear a versão do save e a da baseline; veio: {texto}"
         );
 
-        // S2 deve estar em PreTemporada com 74 entradas (modelo novo)
+        // E o arquivo do jogador tem de sair intocado.
         {
-            let db = Database::open_existing(&db_path).expect("db");
-            let s2 = season_queries::get_active_season(&db.conn)
-                .expect("query")
-                .expect("S2 ativa");
+            let conn = rusqlite::Connection::open(&db_path).expect("reabrir cru");
             assert_eq!(
-                s2.fase,
-                SeasonPhase::PreTemporada,
-                "S2 deve estar em PreTemporada após travessia BlocoEspecial"
+                migrations::get_schema_version(&conn).expect("versão"),
+                32,
+                "o save recusado não pode ser recarimbado"
             );
-            assert_calendar_invariants_9d(&db_path, &s2.id);
-        }
-
-        // Zero contratos Especial ativos no modelo novo
-        {
-            let db = Database::open_existing(&db_path).expect("db");
-            let especial_ativos: i64 = db
-                .conn
+            let ainda_nulo: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM contracts WHERE tipo = 'Especial' AND status = 'Ativo'",
+                    "SELECT COUNT(*) FROM calendar WHERE season_week IS NULL",
                     [],
                     |r| r.get(0),
                 )
-                .expect("contar Especial ativos");
-            assert_eq!(
-                especial_ativos, 0,
-                "zero contratos Especial ativos no modelo novo após travessia"
+                .expect("contar season_week");
+            assert!(
+                ainda_nulo > 0,
+                "o save recusado não pode ter sofrido backfill parcial"
             );
         }
 

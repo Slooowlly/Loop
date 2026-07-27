@@ -304,6 +304,18 @@ pub(super) fn simulate_category_race_with_mode(
                 sd.skill = (sd.skill as f64 - pen).max(5.0).round() as u8;
                 sd.ritmo_classificacao =
                     (sd.ritmo_classificacao as f64 - pen).max(5.0).round() as u8;
+                // Adaptação à categoria: quem acabou de subir corre abaixo do próprio
+                // número nas primeiras etapas e vai se ajustando. Freia o campeão da
+                // categoria de baixo que chegava atropelando a de cima já na estreia.
+                let adapt_pen = crate::simulation::category_adaptation::category_adaptation_penalty(
+                    driver.corridas_na_categoria,
+                    driver.atributos.adaptabilidade,
+                    driver.atributos.experiencia,
+                );
+                sd.skill = (sd.skill as f64 - adapt_pen).max(5.0).round() as u8;
+                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 - adapt_pen)
+                    .max(5.0)
+                    .round() as u8;
                 // Lesão: o machucado CORRE, mas com o ritmo reduzido. A penalidade é cheia
                 // logo após a batida e DIMINUI a cada etapa até sarar (volta enferrujado e
                 // vai melhorando). Fração do skill × (corridas restantes / total). Liga os

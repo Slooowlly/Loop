@@ -52,11 +52,17 @@ const CONDITIONS_MAX_MULT: f64 = 1.5;
 /// Mult combinado de condições (pista × clima) de uma peça, já com o [`CONDITIONS_MAX_MULT`].
 /// Fonte ÚNICA da poda — usado pelo risco ao vivo ([`LiveBreakdown::advance_lap_at`]) e pela
 /// economia ([`conditions_wear_mults`]) pra os dois ficarem sincronizados.
-fn conditions_mult(pt: PartType, track_pha: (f64, f64, f64), mean_align: f64, weather: Weather) -> f64 {
-    (track_wear_mult(pt, track_pha, mean_align) * weather_wear_mult(pt, weather)).min(CONDITIONS_MAX_MULT)
+fn conditions_mult(
+    pt: PartType,
+    track_pha: (f64, f64, f64),
+    mean_align: f64,
+    weather: Weather,
+) -> f64 {
+    (track_wear_mult(pt, track_pha, mean_align) * weather_wear_mult(pt, weather))
+        .min(CONDITIONS_MAX_MULT)
 }
 
-/// Numa manutenção em box (enduro), troca a peça acima deste desgaste. Ver [`roll_race_breakdowns`].
+/// Numa manutenção em box (enduro), troca a peça acima deste desgaste. Ver [`roll_race_breakdowns_cfg`].
 const SERVICE_WEAR_FLOOR: f64 = 0.60;
 
 // ───────────────────────── Enduro (corridas longas) ─────────────────────────
@@ -469,9 +475,7 @@ fn weather_wear_mult(pt: PartType, weather: Weather) -> f64 {
         PartType::Engine | PartType::Cooling => {
             (1.0 - w * RAIN_THERMAL_RELIEF) * (1.0 + thermal_term)
         }
-        PartType::Suspension | PartType::FrontWing | PartType::RearWing => {
-            1.0 + wind * WIND_STRESS
-        }
+        PartType::Suspension | PartType::FrontWing | PartType::RearWing => 1.0 + wind * WIND_STRESS,
         _ => 1.0,
     }
 }
@@ -518,7 +522,8 @@ fn enduro_late_ramp(progress: f64) -> f64 {
 /// Sobrecusto de desgaste de peça do enduro pela duração (acima do gate), ANTES do alívio de
 /// parada. Contínuo no gate (40 min → 0). Ex.: 60 min → 1.0 (over 0.5 × K 2.0); 80 min → 3.0.
 fn enduro_surcharge(duracao_min: u8) -> f64 {
-    let over = ((duracao_min as f64) - ENDURO_DURATION_GATE_MIN).max(0.0) / ENDURO_DURATION_GATE_MIN;
+    let over =
+        ((duracao_min as f64) - ENDURO_DURATION_GATE_MIN).max(0.0) / ENDURO_DURATION_GATE_MIN;
     ENDURO_COST_K * over
 }
 
@@ -705,11 +710,42 @@ fn repair_secs(pt: PartType, sev: Severity, pit_crew_quality: f64, r: f64) -> u3
         .max(1.0) as u32
 }
 
+/// Evento de quebra GARANTIDO e NÃO-DNF — a "vitrine" da primeira corrida de um save novo: a
+/// peça larga com severidade GRAVE (parada de reparo no box via `!black`), com o tempo próprio da
+/// peça × pit crew. NÃO passa pela sorte da janela/parede; é determinístico por `(part, seed)`,
+/// que só varia a peça/tempo/frase entre saves. Serve pra MOSTRAR o sistema logo de cara (um
+/// backmarker para pra arrumar), sem tirar o carro da corrida.
+pub fn showcase_repair_event(
+    part: PartType,
+    lap: u32,
+    pit_crew_quality: f64,
+    seed: u64,
+) -> BreakdownEvent {
+    let severity = Severity::Heavy;
+    let penalty = repair_secs(
+        part,
+        severity,
+        pit_crew_quality,
+        hash_to_unit(seed ^ 0x5340_57CA_5E00_0001),
+    );
+    let problem = (hash_to_unit(seed ^ 0x0B0B_0B0B_0B0B_0B0B) * FAILURE_MODES as f64) as u8;
+    BreakdownEvent {
+        part,
+        lap,
+        severity,
+        penalty_secs: Some(penalty),
+        entered_wear: HARD_WALL,
+        wear_at_fail: HARD_WALL,
+        forced: true,
+        problem,
+    }
+}
+
 // ───────────────────────── Passo por-volta (ao vivo) ─────────────────────────
 
 /// Estado do risco de quebra de UM carro, avançado **volta a volta**. É o primitivo do
 /// disparo AO VIVO (o monitor chama [`LiveBreakdown::advance_lap`] com o clima REAL de cada
-/// volta) E do pré-roll ([`roll_race_breakdowns`] é só um loop disto). Determinístico dado
+/// volta) E do pré-roll ([`roll_race_breakdowns_cfg`] é só um loop disto). Determinístico dado
 /// `(wear de entrada, seed, pista)` + a sequência de climas por volta — a SORTE é a semente.
 #[derive(Debug, Clone)]
 pub struct LiveBreakdown {
@@ -749,8 +785,11 @@ impl LiveBreakdown {
         }
         // Média do alinhamento das 11 peças — subtraída em cada peça pra CENTRAR os mults em
         // ~1.0 (redistribui sem inflar a taxa total).
-        let mean_align =
-            PartType::ALL.iter().map(|&pt| track_alignment(pt, track_pha)).sum::<f64>() / 11.0;
+        let mean_align = PartType::ALL
+            .iter()
+            .map(|&pt| track_alignment(pt, track_pha))
+            .sum::<f64>()
+            / 11.0;
         Self {
             wear,
             broken: [false; 11],
@@ -818,18 +857,32 @@ impl LiveBreakdown {
     /// eventos de quebra que aconteceram (0 ou 1 no caso comum; para no 1º DNF). Cada peça acumula
     /// desgaste (pista × clima × ruído × — só no enduro — rampa de fim); na janela [95%,105%] a
     /// sorte decide, na parede é forçado. `progress` só importa no enduro (ver [`enduro_late_ramp`]).
-    pub fn advance_lap_at(&mut self, lap: u32, weather: Weather, progress: f64) -> Vec<BreakdownEvent> {
+    pub fn advance_lap_at(
+        &mut self,
+        lap: u32,
+        weather: Weather,
+        progress: f64,
+    ) -> Vec<BreakdownEvent> {
         let mut out = Vec::new();
         if self.out {
             return out;
         }
-        let ramp = if self.is_enduro { enduro_late_ramp(progress) } else { 1.0 };
+        let ramp = if self.is_enduro {
+            enduro_late_ramp(progress)
+        } else {
+            1.0
+        };
         for (i, &pt) in PartType::ALL.iter().enumerate() {
             if self.broken[i] {
                 continue;
             }
             let noise = 1.0 + (roll(self.seed, i, lap, CH_NOISE) * 2.0 - 1.0) * WEAR_NOISE;
-            let life = self.life_scale[i] * if self.is_tent { self.level_mult[i] } else { 1.0 };
+            let life = self.life_scale[i]
+                * if self.is_tent {
+                    self.level_mult[i]
+                } else {
+                    1.0
+                };
             self.wear[i] += wear_per_lap(pt)
                 * noise
                 * conditions_mult(pt, self.track_pha, self.mean_align, weather)
@@ -848,8 +901,12 @@ impl LiveBreakdown {
 
             if failed {
                 self.broken[i] = true;
-                let severity =
-                    sample_severity(pt, forced, roll(self.seed, i, lap, CH_SEVERITY), self.is_enduro);
+                let severity = sample_severity(
+                    pt,
+                    forced,
+                    roll(self.seed, i, lap, CH_SEVERITY),
+                    self.is_enduro,
+                );
                 let problem = (roll(self.seed, i, lap, CH_PROBLEM) * FAILURE_MODES as f64) as u8;
                 let penalty = match severity {
                     Severity::Dnf => None,
@@ -892,21 +949,9 @@ impl LiveBreakdown {
 /// - `weather` ([`Weather`]): chuva → eletrônica; temperatura centrada; umidade amplifica o
 ///   calor; vento → suspensão/asas.
 /// - `service_laps`: voltas de parada no box (enduro) — vazio para sprints.
-pub fn roll_race_breakdowns(
-    car: &Car,
-    laps: u32,
-    seed: u64,
-    pit_crew_quality: f64,
-    track_pha: (f64, f64, f64),
-    weather: Weather,
-    service_laps: &[u32],
-) -> Vec<BreakdownEvent> {
-    roll_race_breakdowns_cfg(car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, false, true)
-}
-
-/// Igual a [`roll_race_breakdowns`], mas com o flag `is_enduro`: a corrida longa abranda a
-/// severidade (DNF raro) e aplica a rampa de desgaste no fim (progresso = volta/total). O
-/// forecast do enduro passa por aqui pra refletir o risco REAL (menos DNF, mais Grave no fim).
+/// O flag `is_enduro`: a corrida longa abranda a severidade (DNF raro) e aplica a rampa de
+/// desgaste no fim (progresso = volta/total). O forecast do enduro passa por aqui pra refletir
+/// o risco REAL (menos DNF, mais Grave no fim).
 pub fn roll_race_breakdowns_cfg(
     car: &Car,
     laps: u32,
@@ -961,7 +1006,7 @@ pub struct PartRisk {
 }
 
 /// PREVISÃO de risco de quebra de UM carro numa corrida — a base do aviso pré-corrida. Roda o
-/// pré-roll [`roll_race_breakdowns`] MUITAS vezes variando a semente (Monte Carlo) e agrega, por
+/// pré-roll [`roll_race_breakdowns_cfg`] MUITAS vezes variando a semente (Monte Carlo) e agrega, por
 /// peça, a probabilidade de largar e de DNF, + o risco geral de DNF. É RISCO, não o desfecho de
 /// uma semente específica: não revela QUAL peça/volta vai quebrar na corrida real (essa usa uma
 /// única semente), só a chance. Determinístico dado `(car, laps, base_seed, pista, clima)`.
@@ -997,7 +1042,15 @@ pub fn forecast_breakdown_risk(
     for i in 0..n {
         let seed = splitmix64(base_seed ^ splitmix64(i as u64));
         let evs = roll_race_breakdowns_cfg(
-            car, laps, seed, pit_crew_quality, track_pha, weather, service_laps, is_enduro, apply_tent,
+            car,
+            laps,
+            seed,
+            pit_crew_quality,
+            track_pha,
+            weather,
+            service_laps,
+            is_enduro,
+            apply_tent,
         );
         let mut part_failed = [false; 11];
         let mut part_costly = [false; 11];
@@ -1044,8 +1097,16 @@ pub fn forecast_breakdown_risk(
         })
         .filter(|r| r.any_prob > 0.0)
         .collect();
-    parts.sort_by(|a, b| b.any_prob.partial_cmp(&a.any_prob).unwrap_or(std::cmp::Ordering::Equal));
-    BreakdownForecast { parts, dnf_prob: any_dnf as f64 / denom, samples: n }
+    parts.sort_by(|a, b| {
+        b.any_prob
+            .partial_cmp(&a.any_prob)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    BreakdownForecast {
+        parts,
+        dnf_prob: any_dnf as f64 / denom,
+        samples: n,
+    }
 }
 
 // ───────────────────────── Diretor do disparo ao vivo ─────────────────────────
@@ -1086,7 +1147,11 @@ impl BreakdownDirector {
     pub fn add_car(&mut self, car_number: u32, live: LiveBreakdown, service_laps: Vec<u32>) {
         self.cars.insert(
             car_number,
-            DirectorCar { live, last_lap: 0, service_laps },
+            DirectorCar {
+                live,
+                last_lap: 0,
+                service_laps,
+            },
         );
     }
 

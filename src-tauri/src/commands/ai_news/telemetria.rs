@@ -42,10 +42,74 @@ fn tire_deg_ms_per_lap(tel: &serde_json::Value) -> Option<f64> {
     Some((n * sxy - sx * sy) / denom)
 }
 
+/// Uma troca de posição do jogador no race trace.
+struct Overtake {
+    lap: String,
+    rival: String,
+    pos: i64,
+    /// `true` = o jogador ganhou a posição; `false` = perdeu.
+    gained: bool,
+}
+
+impl Overtake {
+    fn frase(&self) -> String {
+        let key = if self.gained {
+            "ai_news.overtake.passed"
+        } else {
+            "ai_news.overtake.lost"
+        };
+        rust_i18n::t!(
+            key,
+            lap = self.lap.as_str(),
+            rival = self.rival.as_str(),
+            pos = self.pos.to_string()
+        )
+        .to_string()
+    }
+}
+
+/// Posição do último ponto captado de cada carro (nome → posição final no trace).
+/// É a régua do desfecho: quem passou quem no meio da corrida não decide nada.
+fn final_position_by_name(tel: &serde_json::Value) -> std::collections::HashMap<String, i64> {
+    let mut out = std::collections::HashMap::new();
+    let Some(cars) = tel.get("charts").and_then(|c| c.get("cars")).and_then(|c| c.as_array())
+    else {
+        return out;
+    };
+    for car in cars {
+        let (Some(name), Some(pos)) = (
+            car.get("name").and_then(|x| x.as_str()),
+            car.get("points")
+                .and_then(|p| p.as_array())
+                .and_then(|p| p.last())
+                .and_then(|p| p.get("position"))
+                .and_then(|x| x.as_i64()),
+        ) else {
+            continue;
+        };
+        out.insert(name.to_string(), pos);
+    }
+    out
+}
+
+/// Posição do jogador no ÚLTIMO ponto captado do race trace (≈ bandeirada).
+fn player_final_position(tel: &serde_json::Value) -> Option<i64> {
+    tel.get("charts")?
+        .get("cars")?
+        .as_array()?
+        .iter()
+        .find(|c| c.get("is_player").and_then(|x| x.as_bool()) == Some(true))?
+        .get("points")?
+        .as_array()?
+        .last()?
+        .get("position")?
+        .as_i64()
+}
+
 /// Reconstrói as ultrapassagens do jogador a partir do race trace: cada vez que a
 /// posição dele muda entre dois pontos, o rival envolvido é o carro que assumiu a
-/// posição ANTIGA do jogador naquele mesmo instante. Devolve frases prontas.
-fn overtake_feed(tel: &serde_json::Value) -> Vec<String> {
+/// posição ANTIGA do jogador naquele mesmo instante.
+fn overtake_feed(tel: &serde_json::Value) -> Vec<Overtake> {
     let mut out = Vec::new();
     let Some(cars) = tel.get("charts").and_then(|c| c.get("cars")).and_then(|c| c.as_array())
     else {
@@ -112,29 +176,12 @@ fn overtake_feed(tel: &serde_json::Value) -> Vec<String> {
             .and_then(|m| m.get(&pos0))
             .cloned()
             .unwrap_or_else(|| rust_i18n::t!("ai_news.overtake.default_rival").to_string());
-        let lap = format!("{lap1:.1}");
-        let pos = pos1.to_string();
-        if pos1 < pos0 {
-            out.push(
-                rust_i18n::t!(
-                    "ai_news.overtake.passed",
-                    lap = lap.as_str(),
-                    rival = rival.as_str(),
-                    pos = pos.as_str()
-                )
-                .to_string(),
-            );
-        } else {
-            out.push(
-                rust_i18n::t!(
-                    "ai_news.overtake.lost",
-                    lap = lap.as_str(),
-                    rival = rival.as_str(),
-                    pos = pos.as_str()
-                )
-                .to_string(),
-            );
-        }
+        out.push(Overtake {
+            lap: format!("{lap1:.1}"),
+            rival,
+            pos: pos1,
+            gained: pos1 < pos0,
+        });
     }
     out
 }
@@ -263,8 +310,60 @@ pub(crate) fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i3
             "{}",
             rust_i18n::t!("ai_news.telemetry.overtakes", n = passes.len())
         );
-        for p in passes.iter().take(8) {
-            let _ = writeln!(f, "  · {p}");
+        // Corta o MEIO, nunca o fim: o último evento é o que define quem cruzou a
+        // linha na frente, e é justamente ele que a narrativa não pode ignorar.
+        if passes.len() <= 8 {
+            for p in &passes {
+                let _ = writeln!(f, "  · {}", p.frase());
+            }
+        } else {
+            for p in passes.iter().take(4) {
+                let _ = writeln!(f, "  · {}", p.frase());
+            }
+            let _ = writeln!(
+                f,
+                "{}",
+                rust_i18n::t!("ai_news.telemetry.overtakes_gap", n = passes.len() - 8)
+            );
+            for p in passes.iter().skip(passes.len() - 4) {
+                let _ = writeln!(f, "  · {}", p.frase());
+            }
+        }
+
+        // Desfecho de cada duelo: a passagem no meio da corrida não decide nada, e
+        // sem esta régua a narrativa transforma uma ultrapassagem desfeita depois
+        // em "deixou o rival para trás".
+        if let Some(you) = player_final_position(tel) {
+            let finais = final_position_by_name(tel);
+            let mut vistos: Vec<&str> = Vec::new();
+            for p in &passes {
+                if !vistos.contains(&p.rival.as_str()) {
+                    vistos.push(p.rival.as_str());
+                }
+            }
+            let mut linhas = String::new();
+            for nome in vistos {
+                let Some(&deles) = finais.get(nome) else {
+                    continue;
+                };
+                if deles == you {
+                    continue;
+                }
+                let key = if you < deles {
+                    "ai_news.telemetry.h2h_ahead"
+                } else {
+                    "ai_news.telemetry.h2h_behind"
+                };
+                let _ = writeln!(
+                    linhas,
+                    "{}",
+                    rust_i18n::t!(key, name = nome, you = you, rival = deles)
+                );
+            }
+            if !linhas.is_empty() {
+                let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.h2h_head"));
+                let _ = write!(f, "{linhas}");
+            }
         }
     }
 

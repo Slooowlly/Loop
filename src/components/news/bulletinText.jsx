@@ -2,7 +2,11 @@ import { Fragment } from "react";
 
 import RivalMarker from "../driver/RivalMarker";
 import { driverMentionClass, segmentDriverMentions } from "../../utils/driverMentions";
-import { getReadableTeamColor } from "../../pages/tabs/newsHelpers";
+import { getReadableTeamColor } from "../../utils/teamColors";
+
+// A revista clareia um pouco mais que as outras telas e cai num cinza-claro de
+// papel quando a equipe não tem cor.
+const TOM_DA_REVISTA = { fallback: "#d0d7e2", mix: 0.62 };
 
 // Colore os nomes de equipes citados no boletim de IA com a cor do time.
 // `teams` é o mapa nome→cor (hex) das equipes da corrida.
@@ -16,7 +20,7 @@ export function colorizeTeams(text, teams) {
   const re = new RegExp(`(${escaped.join("|")})`, "g");
   return text.split(re).map((part, i) =>
     teams[part] ? (
-      <span key={i} style={{ color: getReadableTeamColor(teams[part]), fontWeight: 600 }}>
+      <span key={i} style={{ color: getReadableTeamColor(teams[part], TOM_DA_REVISTA), fontWeight: 600 }}>
         {part}
       </span>
     ) : (

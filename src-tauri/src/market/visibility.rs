@@ -53,10 +53,11 @@ pub fn calculate_visibility(
     vis.clamp(0.0, 10.0)
 }
 
-// ── Perfil de visibilidade pública persistente para mercado (contrato v1) ────
+// ── Perfil de visibilidade pública persistente para mercado ──────────────────
 // `derive_market_visibility_profile()` — derivada do campo persistente `midia`
 // (longitudinal, pública). Distinta de performance: apelo de mercado ≠ talento.
-// Não altera nenhuma decisão real de mercado neste bloco — contrato preparatório.
+// Este perfil está ATIVO: alimenta seleção de candidatos, geração de propostas,
+// aceitação do piloto e renovação (ver lista de integrações abaixo).
 
 /// Tier de visibilidade pública de mercado derivado do campo persistente `midia`.
 ///
@@ -84,17 +85,21 @@ pub enum MarketVisibilityTier {
 /// vocabulário do mercado sem expor o número bruto diretamente.
 ///
 /// `marketability_bias`: normalização linear de `midia` (raw_media / 100.0).
-/// É uma representação inicial e preparatória — não é um score calibrado pronto para
-/// uso direto em decisões reais de mercado. Existe para definir o contrato semântico
-/// e permitir testes. Não deve ser jogado em score de proposta/renovação sem nova etapa
-/// de design.
+/// Usado apenas como critério de desempate contínuo DENTRO de um mesmo tier — não
+/// entra diretamente em score de proposta nem em salário. Quem carrega o peso das
+/// decisões é o `tier`; o bias só refina a ordenação.
 ///
-/// Pontos futuros de integração (não ativados):
-/// - `team_ai: candidate_score()` — marketability_bias como fator de apelo comercial
-/// - `team_ai: generate_team_proposals()` — prioridade elevada para tier Elite
-/// - `driver_ai: evaluate_proposal()` — MarketVisibilityTier na percepção de desejabilidade
-/// - `renewal: calculate_renewal_salary()` — premium para alto perfil público (ponto sensível:
-///   exige cuidado para não confundir apelo público com valor esportivo estrutural)
+/// Pontos de integração ativos hoje:
+/// - `team_ai::candidate_score()` — bônus de apelo público por tier
+///   (`market_public_visibility_bonus`, 0.0/1.5/3.0/5.0)
+/// - `team_ai::generate_team_proposals()` — ordenação dos candidatos: mérito esportivo,
+///   depois tier, depois `marketability_bias` como desempate fino
+/// - `driver_ai::evaluate_proposal()` — `market_visibility_acceptance_adjustment()`
+///   ajusta a componente contínua de aceitação; não contorna hard rejections
+/// - `renewal::process_renewal()` — `market_visibility_renewal_resistance()` (resistência
+///   à continuidade, teto de 8%) e `fame_salary_premium()` (1.00/1.03/1.08/1.15) dentro
+///   de `renewal_target_salary()` → `calculate_renewal_salary()`. Ponto sensível: o prêmio
+///   é sempre ≥ 1.0 e fica POR CIMA do valor esportivo, nunca o substitui.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarketVisibilityProfile {
     pub raw_media: f64,

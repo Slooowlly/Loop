@@ -61,6 +61,8 @@ mod grade;
 mod importacao;
 #[path = "race/manutencao.rs"]
 mod manutencao;
+#[path = "race/merito.rs"]
+mod merito;
 #[path = "race/noticias.rs"]
 mod noticias;
 #[path = "race/persistencia.rs"]
@@ -74,9 +76,10 @@ pub(crate) use importacao::*;
 pub(crate) use manutencao::*;
 pub(crate) use persistencia::*;
 pub(crate) use simulacao::*;
-// Só o próprio race.rs (e os irmãos, via `use super::*`) consomem estes três.
+// Só o próprio race.rs (e os irmãos, via `use super::*`) consomem estes quatro.
 use fatos::*;
 use grade::*;
+use merito::*;
 use noticias::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -14,45 +14,65 @@ pub(super) struct Dossier {
     pub(super) curriculo: String,
     /// Rótulo de experiência (estreante … veterano).
     pub(super) experiencia: String,
-    /// 0–2 traços de estilo (observáveis em pista).
-    pub(super) tracos: Vec<String>,
+    /// 0–2 traços de estilo (observáveis em pista), guardados como SUFIXO do token —
+    /// o bundle de fatos quer o rótulo curto (`trait_*`) e a prosa do fallback quer a
+    /// oração (`trait_clause_*`). Guardar a chave evita manter as duas strings.
+    pub(super) tracos: Vec<&'static str>,
     /// Ganchos extras (nome de público, contratação mais cara…).
     pub(super) ganchos: Vec<String>,
     /// Sinais crus guardados só para o fallback determinístico decidir frases.
+    pub(super) tem_titulo: bool,
     pub(super) tem_vitoria: bool,
     pub(super) tem_podio: bool,
     pub(super) estreante: bool,
 }
 
 impl Dossier {
-    /// Linha do bundle: `nome | equipe | percepção | currículo | traço | gancho`.
+    /// Linha do bundle: `nome | equipe | percepção | currículo | experiência | traço | gancho`.
+    /// A experiência vale para TODO piloto citado, não só para o segundo pelotão — é ela
+    /// que separa o veterano sem título do estreante de mesmo currículo.
     pub(super) fn fact_line(&self, perc_label: &str) -> String {
         let mut parts = vec![self.nome.clone()];
         parts.push(self.equipe.clone().unwrap_or_else(|| tk("token.no_team")));
         parts.push(perc_label.to_string());
         parts.push(self.curriculo.clone());
-        parts.extend(self.tracos.iter().cloned());
+        parts.push(self.experiencia.clone());
+        parts.extend(self.tracos.iter().map(|s| tk(&format!("token.trait_{s}"))));
         parts.extend(self.ganchos.iter().cloned());
         format!("- {}", parts.join(" | "))
+    }
+
+    /// O traço mais marcante como ORAÇÃO, para caber dentro de uma frase da matéria.
+    /// `usados` impede que dois pilotos do topo ganhem a MESMA frase de estilo — dois
+    /// agressivos no grid é comum, e repetir a oração denuncia o template.
+    pub(super) fn traco_clause(&self, usados: &mut HashSet<&'static str>) -> Option<String> {
+        let escolhido = *self.tracos.iter().find(|s| !usados.contains(*s))?;
+        usados.insert(escolhido);
+        Some(tk(&format!("token.trait_clause_{escolhido}")))
     }
 }
 
 /// Traços de estilo a partir dos atributos que vão para o iRacing (§5.3). Só os extremos
 /// do grid viram traço; piloto mediano em tudo fica sem — e isso é proposital.
-pub(super) fn style_traits(d: &Driver, agg: &[f64], smo: &[f64], conf: &[f64]) -> Vec<String> {
-    let axes: [(f64, &[f64], &str, &str); 3] = [
-        (d.atributos.aggression, agg, "token.trait_aggressive", "token.trait_cautious"),
-        (d.atributos.smoothness, smo, "token.trait_smooth", "token.trait_ragged"),
-        (d.atributos.confianca, conf, "token.trait_bold", "token.trait_measured"),
+pub(super) fn style_traits(
+    d: &Driver,
+    agg: &[f64],
+    smo: &[f64],
+    conf: &[f64],
+) -> Vec<&'static str> {
+    let axes: [(f64, &[f64], &'static str, &'static str); 3] = [
+        (d.atributos.aggression, agg, "aggressive", "cautious"),
+        (d.atributos.smoothness, smo, "smooth", "ragged"),
+        (d.atributos.confianca, conf, "bold", "measured"),
     ];
-    // (quão extremo, token) — os mais extremos primeiro.
-    let mut found: Vec<(f64, String)> = Vec::new();
+    // (quão extremo, sufixo do token) — os mais extremos primeiro.
+    let mut found: Vec<(f64, &'static str)> = Vec::new();
     for (value, all, high_key, low_key) in axes {
         let p = percentile(value, all);
         if p >= TRAIT_HIGH_PCT {
-            found.push(((p - 0.5).abs(), tk(high_key)));
+            found.push(((p - 0.5).abs(), high_key));
         } else if p <= TRAIT_LOW_PCT {
-            found.push(((p - 0.5).abs(), tk(low_key)));
+            found.push(((p - 0.5).abs(), low_key));
         }
     }
     found.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));

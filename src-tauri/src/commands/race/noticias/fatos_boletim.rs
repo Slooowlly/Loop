@@ -1,6 +1,8 @@
 //! Curadoria dos FATOS que alimentam o boletim de IA: lesões, pano de fundo dos
 //! pilotos em destaque, histórico de pista, recordes, campeonato, rivalidades,
-//! desempenho e as quebras de peça. Devolve `(fatos de lesão, fatos de contexto)`.
+//! desempenho e as quebras de peça. Devolve `(fatos de lesão, fatos de contexto,
+//! beats de carreira)` — os beats já vêm pesados e disputam a hierarquia do boletim
+//! junto com os da corrida; os "fatos de contexto" continuam sendo cor sem peso.
 
 use super::super::*;
 
@@ -13,7 +15,7 @@ pub(super) fn montar_fatos_do_boletim(
     flat_incidents: &[IncidentResult],
     new_injuries: &[Injury],
     extra_context_facts: &[String],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<crate::narrative::Beat>) {
     use crate::db::queries::drivers as driver_queries;
 
     // Lesões ocorridas nesta corrida → viram fatos do boletim (nome resolvido).
@@ -141,9 +143,8 @@ pub(super) fn montar_fatos_do_boletim(
         active_season.numero,
         active_season.ano,
     );
-    for fact in rivalry_arc_facts(conn, race_result, &featured, active_season.numero, round) {
-        context_facts.push(fact);
-    }
+    let career_beats =
+        rivalry_arc_beats(conn, race_result, &featured, active_season.numero, round);
 
     // Desempenho e forma: esperado×real, forma recente, histórico de pista e
     // confronto entre companheiros (pano de fundo dos destaques).
@@ -208,5 +209,5 @@ pub(super) fn montar_fatos_do_boletim(
         }
     }
 
-    (injury_facts, context_facts)
+    (injury_facts, context_facts, career_beats)
 }

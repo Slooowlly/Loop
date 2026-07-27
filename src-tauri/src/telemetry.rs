@@ -133,6 +133,12 @@ pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
 
+/// Identificador da instalação, para o envio de log casar o relato com o resto
+/// dos eventos daquela máquina. `None` antes do `init()` do boot.
+pub fn install_id() -> Option<String> {
+    INSTALL_ID.get().cloned()
+}
+
 /// Contexto da carreira aberta, anexado a todo evento. Chamado quando uma
 /// carreira é carregada e quando a temporada vira.
 pub fn set_career_context(

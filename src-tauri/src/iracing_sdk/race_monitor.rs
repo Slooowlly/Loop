@@ -371,6 +371,12 @@ struct RaceMonitor {
     pit_stall_enter_lap: [i32; 64],
     /// Pista estava molhada no instante em que o carro parou na caixa.
     pit_stall_wet: [bool; 64],
+    /// O carro já foi visto FORA da caixa nesta sessão. Todo mundo NASCE parado na
+    /// caixa; sem este selo, a ida inicial pra pista fecharia uma "parada" com dwell
+    /// gigante e a torre mostraria um pit-stop fantasma antes da primeira volta.
+    pit_left_stall: [bool; 64],
+    /// A parada em andamento conta (o carro já tinha saído da caixa antes de entrar).
+    pit_stall_valid: [bool; 64],
     /// Já capturamos o clima da LARGADA nesta tentativa (uma vez, no verde).
     weather_start_captured: bool,
 
@@ -424,6 +430,11 @@ struct RaceMonitor {
     /// Progresso da corrida por TEMPO (0..1), atualizado a cada tick da grade a partir do
     /// tempo de sessão. Só o enduro usa (rampa de desgaste do fim); o tick do jogador reusa.
     breakdown_progress: f64,
+    /// VITRINE da PRIMEIRA corrida do save: enquanto `true`, o monitor GARANTE que o penúltimo
+    /// carro (nunca o jogador) sofra uma quebra de peça GRAVE e pare pra arrumar, pra mostrar o
+    /// sistema logo de cara. Ligado só quando o export detecta a 1ª corrida (temporada 1, rodada
+    /// 1) e apagado assim que dispara (uma vez por install).
+    showcase_pending: bool,
     /// AVISO pessoal: peças do JOGADOR que já cruzaram o limiar de risco (`RISK_OPEN`) nesta
     /// corrida, por índice em `PartType::ALL`. Rearma quando a peça sai da zona (troca/reparo).
     player_risk_warned: [bool; 11],
@@ -523,6 +534,8 @@ impl RaceMonitor {
             pit_stall_enter_time: [0.0; 64],
             pit_stall_enter_lap: [0; 64],
             pit_stall_wet: [false; 64],
+            pit_left_stall: [false; 64],
+            pit_stall_valid: [false; 64],
             weather_start_captured: false,
             sec_prev: -1,
             sec_enter_time: 0.0,
@@ -541,6 +554,7 @@ impl RaceMonitor {
             breakdown_repair_laps: Vec::new(),
             breakdown_flash_at: [0.0; 64],
             breakdown_progress: 0.0,
+            showcase_pending: false,
             chat_send_warned: false,
         }
     }

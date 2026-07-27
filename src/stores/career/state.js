@@ -25,6 +25,12 @@ export const initialState = {
   season: null,
   nextRace: null,
   nextRaceBriefing: null,
+  // Categoria atualmente EM EXIBIÇÃO na Home (aba Standings). O jogador troca de
+  // série/tier na tabela e o banner cinematográfico do topo acompanha, mostrando a
+  // próxima corrida daquela categoria. `null` = vendo a própria categoria do jogador
+  // (comportamento padrão do banner, que lê `nextRace`). A StandingsTab mantém isto
+  // sincronizado e o zera ao desmontar.
+  homeCategory: null,
   // Prévia por IA pré-buscada durante a animação de avanço (evita o flash template→IA).
   preRaceAi: null,
   // Standings pré-buscados junto com a IA (get_drivers_by_category + get_teams_standings

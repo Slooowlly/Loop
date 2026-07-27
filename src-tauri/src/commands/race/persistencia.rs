@@ -469,8 +469,7 @@ pub(super) fn apply_race_result_to_database(
         .iter()
         .map(|team| {
             let medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
-            let presence =
-                crate::public_presence::team::derive_team_public_presence(&medias).raw_score;
+            let presence = crate::public_presence::team::derive_team_public_presence(&medias);
             (team.id.clone(), presence)
         })
         .collect();

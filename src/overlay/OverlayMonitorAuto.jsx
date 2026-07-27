@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import useCareerStore from "../stores/useCareerStore";
 import { useOverlayData } from "./useOverlayData";
+import { estaNoTauri } from "../lib/tauri";
 
 // Controlador do overlay de MONITOR (roda na janela PRINCIPAL). Só LÓGICA — não
 // renderiza nada. Não há mais travar/destravar: a torre é sempre arrastável no
@@ -14,7 +15,6 @@ import { useOverlayData } from "./useOverlayData";
 // A JANELA aparece sempre que há sessão (o olho decide torre inteira vs nub) — se
 // gateássemos por `enabled`, oculto ficaria sem como voltar (nada pra passar o mouse).
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const MODE_KEY = "overlayMonitorMode"; // "full" | "mini" | "hidden"
 const LEGACY_ENABLED_KEY = "overlayMonitorEnabled"; // booleano do esquema antigo
 const VALID_MODES = new Set(["full", "mini", "hidden"]);
@@ -53,7 +53,7 @@ export default function OverlayMonitorAuto() {
   // Poll do estado do demo (fonte no backend) — decide se a janela do rádio aparece
   // mesmo sem corrida, pra você achar/posicionar o overlay quando quiser.
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let stopped = false;
     const tick = () =>
       invoke("overlay_demo_enabled")
@@ -71,7 +71,7 @@ export default function OverlayMonitorAuto() {
 
   // TORRE: só com dados ao vivo. Ao mostrar, sincroniza o olho no overlay.
   useEffect(() => {
-    if (!IN_TAURI) return;
+    if (!estaNoTauri()) return;
     if (live) {
       towerShownRef.current = true;
       invoke("overlay_window_show", { careerId: careerId || "setup" }).catch(() => {});
@@ -87,7 +87,7 @@ export default function OverlayMonitorAuto() {
   // é reposicionável enquanto você ajusta, mas em CORRIDA REAL fica 100% clique-atravessa
   // (o mouse vai pro iRacing, não trava a interface do jogo por baixo do card).
   useEffect(() => {
-    if (!IN_TAURI) return;
+    if (!estaNoTauri()) return;
     const showRadio = live || demo;
     invoke("engineer_set_hover_watch", { active: demo }).catch(() => {});
     if (showRadio) {
@@ -101,7 +101,7 @@ export default function OverlayMonitorAuto() {
 
   // Vigia de hover: ativo enquanto a torre está visível (torre OU nub).
   useEffect(() => {
-    if (!IN_TAURI) return;
+    if (!estaNoTauri()) return;
     invoke("overlay_set_hover_watch", { active: shouldShow }).catch(() => {});
   }, [shouldShow]);
 
@@ -112,12 +112,12 @@ export default function OverlayMonitorAuto() {
     } catch {
       /* sem persistência */
     }
-    if (IN_TAURI) emitTo("overlay", "overlay-enabled", { mode }).catch(() => {});
+    if (estaNoTauri()) emitTo("overlay", "overlay-enabled", { mode }).catch(() => {});
   }, [mode]);
 
   // O olho (👁) na torre cicla o modo. Idempotente: aplica o payload.
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let un;
     listen("overlay-toggle-enabled", (e) => setMode(payloadToMode(e.payload)))
       .then((f) => {

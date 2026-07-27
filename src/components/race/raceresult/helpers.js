@@ -1,11 +1,9 @@
 // Funções puras de formatação/copy da tela de resultado V1 (RaceResultView).
 import { CATEGORY_SUMMARY_FITS, CATEGORY_SUMMARY_LOGOS } from "./constants";
+import { CLIMA_RESULTADO, weatherLabel as climaLabel } from "../../../utils/weather";
 
 export function weatherLabel(value) {
-  if (value === "HeavyRain") return "Chuva forte";
-  if (value === "Wet") return "Chuva";
-  if (value === "Damp") return "Úmido";
-  return "Seco";
+  return climaLabel(value, CLIMA_RESULTADO);
 }
 
 // Caixa da nota colorida pela faixa.

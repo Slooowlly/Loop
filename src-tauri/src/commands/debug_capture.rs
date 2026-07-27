@@ -8,7 +8,15 @@ use tauri::Manager;
 use crate::iracing_sdk::{race_capture, race_monitor};
 
 /// Pasta onde os arquivos de captura são gravados: `<app_data>/debug/race_captures`.
+///
+/// Fonte única é o `race_capture::init` do boot — se esta função montasse o caminho por
+/// conta própria e os dois divergissem, a rotação limparia uma pasta e o botão de debug
+/// gravaria noutra. O `AppHandle` só entra como saída de emergência, se o boot não passou
+/// pelo `init`.
 fn capture_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    if let Some(dir) = race_capture::pasta() {
+        return Ok(dir.clone());
+    }
     let base = app
         .path()
         .app_data_dir()
@@ -16,10 +24,17 @@ fn capture_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(base.join("debug").join("race_captures"))
 }
 
-/// Começa a gravar uma corrida. Devolve o caminho do arquivo criado. O sampler do monitor
-/// passa a despejar telemetria (subamostrada) + o YAML da sessão nele até `race_capture_stop`.
+/// Começa a gravar uma corrida. Devolve o caminho do arquivo criado.
+///
+/// A gravação hoje é AUTOMÁTICA (o sampler abre na borda de conexão do sim), então isto só
+/// serve pra forçar um arquivo novo com o sim fechado. Se já há uma captura em curso, devolve
+/// o caminho dela em vez de abrir outra: chamar `start` por cima descartaria a corrida que
+/// está sendo gravada — sem o bloco `history`, que só é anexado no `stop`.
 #[tauri::command]
 pub fn race_capture_start(app: tauri::AppHandle) -> Result<String, String> {
+    if let Some(atual) = race_capture::caminho_atual() {
+        return Ok(atual.display().to_string());
+    }
     let dir = capture_dir(&app)?;
     let path = race_capture::start(dir)?;
     Ok(path.display().to_string())

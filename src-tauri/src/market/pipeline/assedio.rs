@@ -103,7 +103,7 @@ pub(super) fn execute_poach(
         .map_err(|e| format!("Falha ao inserir contrato no poaching: {e}"))?;
 
     let mut moved = target.clone();
-    moved.categoria_atual = Some(poacher.categoria.clone());
+    moved.mover_para_categoria(Some(poacher.categoria.clone()));
     driver_queries::update_driver(conn, &moved)
         .map_err(|e| format!("Falha ao atualizar piloto arrancado: {e}"))?;
 

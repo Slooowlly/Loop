@@ -14,6 +14,10 @@ pub const THRESHOLD: f64 = 30.0;
 /// seja CITADO quase sempre que fez algo minimamente notável — mas nunca como
 /// protagonista.
 pub const PLAYER_THRESHOLD: f64 = 25.0;
+/// Um arco de rivalidade acima deste peso sobe para DESTAQUES mesmo quando a tese
+/// da corrida não o pediu: a novela é boa demais para virar rodapé, e ela é o único
+/// ângulo que a tese — que só lê o `RaceResult` — não tem como enxergar sozinha.
+pub const ARC_HIGHLIGHT_WEIGHT: f64 = 60.0;
 /// Teto de segurança de tokens. A seleção é dinâmica (quanto mais caótica a
 /// corrida, mais beats), mas nunca passa disto. Raramente morde.
 pub const MAX_BEATS: usize = 14;
@@ -31,6 +35,9 @@ pub enum BeatKind {
     Acidente,
     Lesao,
     NossoPiloto,
+    /// Capítulo de uma rivalidade em curso — o único beat com MEMÓRIA entre corridas.
+    /// Nasce fora daqui (o callsite tem o banco) e chega por `career_beats`.
+    RivalidadeArco,
 }
 
 /// Um pedaço de história já avaliado e renderizado como fato em PT neutro.
@@ -54,6 +61,12 @@ impl Beat {
 
     pub(crate) fn passes(&self) -> bool {
         self.weight >= self.threshold()
+    }
+
+    /// Sobe para DESTAQUES mesmo sem a tese ter pedido. Só o arco de rivalidade forte:
+    /// a tese só lê o `RaceResult` e por isso é cega para a novela entre corridas.
+    pub(crate) fn forces_highlight(&self) -> bool {
+        self.kind == BeatKind::RivalidadeArco && self.weight >= ARC_HIGHLIGHT_WEIGHT
     }
 }
 

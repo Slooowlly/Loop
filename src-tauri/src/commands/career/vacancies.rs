@@ -391,7 +391,7 @@ pub(crate) fn force_place_player(
     place_driver_in_team(&tx, &vacancy.team.id, &player.id, vacancy.role.clone())?;
     refresh_team_hierarchy_now(&tx, &vacancy.team.id)?;
     let mut updated_player = player.clone();
-    updated_player.categoria_atual = Some(vacancy.team.categoria.clone());
+    updated_player.mover_para_categoria(Some(vacancy.team.categoria.clone()));
     updated_player.status = crate::models::enums::DriverStatus::Ativo;
     driver_queries::update_driver(&tx, &updated_player)
         .map_err(|e| format!("Falha ao atualizar jogador apos alocacao forcada: {e}"))?;
@@ -497,7 +497,7 @@ pub(crate) fn backfill_team_vacancy(
         .map_err(|e| format!("Falha ao inserir contrato de reposicao: {e}"))?;
     place_driver_in_team(conn, &team.id, &replacement.id, role)?;
     let mut updated_driver = replacement.clone();
-    updated_driver.categoria_atual = Some(team.categoria.clone());
+    updated_driver.mover_para_categoria(Some(team.categoria.clone()));
     driver_queries::update_driver(conn, &updated_driver)
         .map_err(|e| format!("Falha ao atualizar piloto de reposicao: {e}"))?;
     Ok(())

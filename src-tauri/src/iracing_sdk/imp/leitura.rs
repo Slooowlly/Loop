@@ -9,8 +9,16 @@ use super::util::{
 };
 use crate::iracing_sdk::{
     header, parse_track_name, CarSnapshot, IracingError, IracingSession, IracingTelemetry,
-    MEM_MAP_FILE_NAME, STATUS_CONNECTED,
+    MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU, STATUS_CONNECTED,
 };
+
+/// `ERROR_FILE_NOT_FOUND` — o mapeamento não existe: o sim está fechado (ou não
+/// publicou o SDK). É o "erro" esperado e silencioso na maior parte do tempo.
+pub(super) const ERRO_NAO_ENCONTRADO: u32 = 2;
+/// `ERROR_ACCESS_DENIED` — o mapeamento EXISTE e o Windows recusou abrir. Estado
+/// completamente diferente do anterior, e o que antes se disfarçava de "sim
+/// fechado" deixando a telemetria zerada sem explicação.
+pub(super) const ERRO_ACESSO_NEGADO: u32 = 5;
 
 pub fn read_session() -> Result<IracingSession, IracingError> {
     unsafe { with_view(extract_session) }
@@ -29,12 +37,7 @@ pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
 unsafe fn with_view<T>(
     extract: unsafe fn(*const u8) -> Result<T, IracingError>,
 ) -> Result<T, IracingError> {
-    let name = wide_null(MEM_MAP_FILE_NAME);
-
-    let mapping = OpenFileMappingW(FILE_MAP_READ, 0, name.as_ptr());
-    if mapping.is_null() {
-        return Err(IracingError::NotRunning(MEM_MAP_FILE_NAME.to_string()));
-    }
+    let (mapping, _) = abrir_mapeamento()?;
 
     let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
     if view.is_null() {
@@ -47,6 +50,45 @@ unsafe fn with_view<T>(
     UnmapViewOfFile(view);
     CloseHandle(mapping);
     result
+}
+
+/// Abre o mapeamento do SDK, com uma SEGUNDA CHANCE e sem perder o motivo da
+/// falha. Devolve o handle (que o chamador fecha) e o nome que funcionou.
+///
+/// Duas tentativas porque `Local\` resolve no namespace da sessão do Windows:
+/// se o Loop e o sim caírem em sessões distintas, o nome canônico não acha nada
+/// mesmo com o iRacing aberto, e o nome nu ainda acha. A segunda chamada só
+/// acontece depois de a primeira já ter falhado, então não custa nada no caminho
+/// feliz.
+///
+/// E o `GetLastError()` é PRESERVADO: distinguir "não encontrado" (sim fechado,
+/// silêncio) de "acesso negado" (elevação, precisa avisar o jogador) é a única
+/// forma de a UI dizer algo útil em vez de mostrar tudo zerado.
+///
+/// # Safety
+/// Chama a API do Windows; o handle devolvido precisa de `CloseHandle`.
+pub(super) unsafe fn abrir_mapeamento(
+) -> Result<(winapi::shared::ntdef::HANDLE, &'static str), IracingError> {
+    let mut ultimo_erro = ERRO_NAO_ENCONTRADO;
+
+    for nome in [MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU] {
+        let wide = wide_null(nome);
+        let mapping = OpenFileMappingW(FILE_MAP_READ, 0, wide.as_ptr());
+        if !mapping.is_null() {
+            return Ok((mapping, nome));
+        }
+        ultimo_erro = winapi::um::errhandlingapi::GetLastError();
+        // Acesso negado é conclusivo: o objeto EXISTE e a permissão é que falta.
+        // Tentar o outro nome não muda nada e só embaralharia o código de erro.
+        if ultimo_erro == ERRO_ACESSO_NEGADO {
+            return Err(IracingError::AccessDenied(ultimo_erro));
+        }
+    }
+
+    if ultimo_erro == ERRO_ACESSO_NEGADO {
+        return Err(IracingError::AccessDenied(ultimo_erro));
+    }
+    Err(IracingError::NotRunning(MEM_MAP_FILE_NAME.to_string()))
 }
 
 /// Lê os campos do cabeçalho e copia a string de sessão.

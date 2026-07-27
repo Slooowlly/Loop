@@ -16,29 +16,12 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
+import { AXIS_TICK, BAD, GOOD, GRID, PALETTE, PLAYER_COLOR, YELLOW } from "../../utils/chartTheme";
+import { formatLapSeconds } from "../../utils/formatters";
 
 // Gráficos do pós-corrida (race trace, posição, tempos de volta, gap pro rival),
 // com marcações do melhor momento (verde) e do erro mais caro (vermelho). Os
 // dados vêm empacotados em `telemetry.charts` (capturados no import).
-
-const PALETTE = [
-  "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
-  "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
-  "#fb7185", "#c084fc", "#22d3ee", "#fbbf24", "#4ade80", "#f472b6",
-];
-const PLAYER_COLOR = "#58a6ff";
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const YELLOW = "#facc15";
-const GOOD = "#22c55e";
-const BAD = "#ef4444";
-
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
-}
 
 function TabButton({ active, onClick, children }) {
   return (
@@ -303,8 +286,8 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
             </div>
             {pace && (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-400">
-                <span>{t("raceCharts.avgLabel")} <span className="font-semibold text-white">{formatLap(pace.avg)}</span></span>
-                <span>{t("raceCharts.bestLabel")} <span className="font-semibold text-green-400">{formatLap(pace.best)}</span></span>
+                <span>{t("raceCharts.avgLabel")} <span className="font-semibold text-white">{formatLapSeconds(pace.avg)}</span></span>
+                <span>{t("raceCharts.bestLabel")} <span className="font-semibold text-green-400">{formatLapSeconds(pace.best)}</span></span>
               </div>
             )}
           </div>

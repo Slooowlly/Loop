@@ -11,7 +11,9 @@ use crate::simulation::incidents::process_segment_incidents_cfg;
 use crate::simulation::qualifying::QualifyingResult;
 
 use super::danos::process_pending_damage;
-use super::pontuacao::{apply_physical_degradation, apply_tire_degradation, calculate_segment_score};
+use super::pontuacao::{
+    apply_physical_degradation, apply_tire_degradation, calculate_segment_score,
+};
 use super::resultados::{build_race_results, derive_caution_segments};
 use super::tipos::{MechanicalOutcome, RaceResult, RaceSegment, RaceState};
 
@@ -26,19 +28,6 @@ use super::tipos::{MechanicalOutcome, RaceResult, RaceSegment, RaceState};
 /// não cobria.
 fn repair_secs_to_score(secs: u32, total_laps: i32) -> f64 {
     (secs as f64 * 1000.0) / (RACE_SCORE_TO_LAP_MS * total_laps.max(1) as f64)
-}
-
-/// Corrida simulada SEM quebra de peça — o caminho de sempre. Ver
-/// [`simulate_race_with_breakdowns`] para o caminho com a Fase 7 ligada.
-pub fn simulate_race(
-    drivers: &[SimDriver],
-    qualifying: &[QualifyingResult],
-    ctx: &SimulationContext,
-    catalog: &IncidentCatalog,
-    is_endurance: bool,
-    rng: &mut impl Rng,
-) -> RaceResult {
-    simulate_race_with_breakdowns(drivers, qualifying, ctx, catalog, is_endurance, None, rng)
 }
 
 /// Corrida simulada cobrando também os desfechos de QUEBRA DE PEÇA pré-rolados (Fase 7).

@@ -140,6 +140,7 @@ struct Panel {
     bool   shmWritable = false;
     bool   shmLogged   = false;
     bool   shmVersionLogged = false;  // já logou um mismatch de versão? (evita spam a ~10 Hz)
+    uint32_t nullTicks  = 0;          // ticks seguidos sem frame válido (throttle do log)
     bool   rendered    = false;
     XrTime lastRender  = 0;
     uint32_t lastRecenterSeq = 0;
@@ -190,18 +191,45 @@ struct Panel {
         return true;
     }
 
+    // Enquanto não vem frame válido, o painel fica cinza "aguardando" — e antes isso
+    // era MUDO: dava pra ficar uma sessão inteira sem saber se o problema era SHM
+    // fechada, cabeçalho de outro build ou resolução trocada. Agora, a cada ~10 s
+    // (kNullLogEvery ticks do gate de 10 Hz), a gente loga o motivo com os números.
+    static const uint32_t kNullLogEvery = 100;
+
+    void LogNullReason(const char* motivo, const IracerFrameHeader* hdr) {
+        if (nullTicks++ % kNullLogEvery != 0) {
+            return;  // já logamos há pouco; não vira spam
+        }
+        if (hdr) {
+            LogLine("Sem frame [%ls]: %s (magic=0x%08X ver=%u %ux%u frame=%u) — esperado "
+                    "(magic=0x%08X ver=%u %ux%u)",
+                    shmName, motivo, hdr->magic, hdr->version, hdr->width, hdr->height,
+                    hdr->frame, IRACER_SHM_MAGIC, IRACER_SHM_VERSION, width, height);
+        } else {
+            LogLine("Sem frame [%ls]: %s — o app está aberto e escrevendo?", shmName, motivo);
+        }
+    }
+
     const uint8_t* TryGetFramePixels() {
         if (!EnsureShmOpen()) {
+            LogNullReason("SHM não abriu", nullptr);
             return nullptr;
         }
         const IracerFrameHeader* hdr = static_cast<const IracerFrameHeader*>(shmPtr);
-        if (!HeaderValid(hdr) || hdr->width != width || hdr->height != height) {
+        if (!HeaderValid(hdr)) {
+            LogNullReason("cabeçalho inválido", hdr);
+            return nullptr;
+        }
+        if (hdr->width != width || hdr->height != height) {
+            LogNullReason("resolução diferente da do painel", hdr);
             return nullptr;
         }
         if (!shmLogged) {
             LogLine("Primeiro frame [%ls] (frame=%u)", shmName, hdr->frame);
             shmLogged = true;
         }
+        nullTicks = 0;  // voltou a fluir: o próximo problema loga na hora
         return static_cast<const uint8_t*>(shmPtr) + sizeof(IracerFrameHeader);
     }
 

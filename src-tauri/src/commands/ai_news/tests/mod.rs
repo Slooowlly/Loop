@@ -171,6 +171,10 @@
             out.contains("volta 7.4: passou Bruno Perez"),
             "feed de ultrapassagem: {out}"
         );
+        assert!(
+            out.contains("Bruno Perez: você terminou ATRÁS dele (P6 contra P4)"),
+            "desfecho do duelo (passou e foi repassado): {out}"
+        );
         assert!(out.contains("Largada: P8 → P7"), "largada: {out}");
         assert!(out.contains("Erro mais caro: volta 9"), "erro: {out}");
         assert!(

@@ -148,7 +148,7 @@ pub fn apply_pilot_effect(
             PilotEffectType::MovesWithTeam => {
                 // Movimento estrutural: Production/Endurance usam categoria_atual como
                 // qualquer categoria; categoria_especial_ativa é legado da convocação.
-                driver.categoria_atual = Some(movement.to_category.clone());
+                driver.mover_para_categoria(Some(movement.to_category.clone()));
                 driver.categoria_especial_ativa = None;
                 driver_queries::update_driver(conn, &driver)
                     .map_err(|e| format!("Falha ao atualizar piloto '{}': {e}", driver.nome))?;

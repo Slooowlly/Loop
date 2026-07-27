@@ -4,7 +4,7 @@ use rusqlite::{params, Connection};
 
 use crate::db::connection::DbError;
 use crate::models::contract::Contract;
-use crate::models::enums::ContractStatus;
+use crate::models::enums::{ContractStatus, TeamRole};
 
 pub fn insert_contract(conn: &Connection, contract: &Contract) -> Result<(), DbError> {
     conn.execute(
@@ -74,6 +74,26 @@ pub fn update_contract_salary(conn: &Connection, id: &str, salario_anual: f64) -
     if affected == 0 {
         return Err(DbError::NotFound(format!(
             "Contrato '{id}' nao encontrado para reajustar salario"
+        )));
+    }
+    Ok(())
+}
+
+/// Troca o papel (N1/N2) de um contrato.
+///
+/// Usado pela INVERSÃO de hierarquia ([`crate::hierarchy::orders::apply_inversao`]):
+/// quem vence a política interna da garagem passa a ser N1 **no contrato**, que é a
+/// fonte que o mercado lê ([`crate::market::renewal::should_renew_contract`] decide por
+/// `contract.papel`, não por `team.hierarquia_n1_id`). Sem esta sincronia a inversão
+/// era cosmética — o piloto promovido continuava caindo nos gates de N2 na renovação.
+pub fn update_contract_role(conn: &Connection, id: &str, papel: &TeamRole) -> Result<(), DbError> {
+    let affected = conn.execute(
+        "UPDATE contracts SET papel = ?1 WHERE id = ?2",
+        params![papel.as_str(), id],
+    )?;
+    if affected == 0 {
+        return Err(DbError::NotFound(format!(
+            "Contrato '{id}' nao encontrado para atualizar papel"
         )));
     }
     Ok(())

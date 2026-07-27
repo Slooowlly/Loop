@@ -1,8 +1,35 @@
 //! Fachada pública do SDK: as funções que o resto do app chama. Cada uma só
 //! delega para a implementação do SO (`imp`), que é Windows real ou stub.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use super::imp;
-use super::{IracingError, IracingSession, IracingTelemetry};
+use super::{DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry};
+
+/// Quantos ticks de telemetria o sampler já observou desde o boot.
+///
+/// É a métrica que separa "o sim nunca conectou" de "conectou e os dados é que
+/// vieram vazios" — sem ela, uma tela toda zerada tem as duas leituras e nenhuma
+/// forma de escolher entre elas.
+static TICKS_OBSERVADOS: AtomicU64 = AtomicU64::new(0);
+
+/// Marca um tick observado. Chamado pelo sampler a cada leitura bem-sucedida;
+/// `Relaxed` porque é um contador de diagnóstico, sem ordenação com mais nada.
+pub fn nota_tick_observado() {
+    TICKS_OBSERVADOS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Total de ticks observados desde o boot. Zero com o simulador aberto é o
+/// sintoma exato de "telemetria toda zerada".
+pub fn ticks_observados() -> u64 {
+    TICKS_OBSERVADOS.load(Ordering::Relaxed)
+}
+
+/// Retrato cruzado da conexão (memória do SDK × janela do sim × elevação), para
+/// a tela de diagnóstico e para o log. Ver [`DiagnosticoIracing`].
+pub fn diagnosticar() -> DiagnosticoIracing {
+    imp::diagnosticar()
+}
 
 /// Conecta no iRacing, valida o cabeçalho e devolve a info de sessão.
 ///

@@ -117,8 +117,49 @@ export function defaultSortDirection(key) {
   return ["cash_balance", "car_level", "confiabilidade", "pit_crew_quality", "pontos"].includes(key) ? "desc" : "asc";
 }
 
-export function buildDriverRow(role, driver, team, playerId) {
-  const isN1 = role === "N1";
+// Política interna da garagem (módulo `hierarchy` do backend). `hierarquia_n1_id` é a
+// hierarquia REAL — os slots `piloto_1_id`/`piloto_2_id` guardam só a ordem dos assentos e
+// podem discordar dela depois de uma INVERSÃO no meio da temporada. Quem manda aqui é a
+// hierarquia; os slots só entram como fallback (save antigo, payload sem os campos).
+export function resolveHierarchy(team) {
+  const n1Id = team?.hierarquia_n1_id ?? team?.piloto_1_id ?? null;
+  const n2Id = team?.hierarquia_n2_id ?? team?.piloto_2_id ?? null;
+  return {
+    n1Id,
+    n2Id,
+    // Assento de onde cada um veio — é por ele que se casa nome/salário do payload.
+    n1Slot: n1Id && n1Id === team?.piloto_2_id ? 2 : 1,
+    n2Slot: n2Id && n2Id === team?.piloto_1_id ? 1 : 2,
+    // A ordem da garagem discorda da ordem dos assentos: houve inversão.
+    inverted: Boolean(n1Id) && n1Id === team?.piloto_2_id,
+    hasData: Boolean(team?.hierarquia_n1_id),
+  };
+}
+
+export const GARAGE_CLIMATES = ["estavel", "competitivo", "tensao", "reavaliacao", "inversao", "crise"];
+
+// Leitura do clima interno para a UI. Os patamares acompanham o backend:
+// `TeamHierarchyClimate::from_tensao` troca de estável para competitivo em 20, e
+// `finance::morale::advance_team_morale` só começa a punir a moral ACIMA de 50 — é aí
+// que a treta deixa de ser ruído e vira consequência.
+export function garageClimate(team) {
+  const raw = String(team?.hierarquia_status ?? "estavel");
+  const status = GARAGE_CLIMATES.includes(raw) ? raw : "estavel";
+  const tension = clamp(Number(team?.hierarquia_tensao) || 0, 0, 100);
+  const hurtsMorale = tension > 50;
+  return {
+    status,
+    tension,
+    hurtsMorale,
+    label: i18n.t(`myTeamTab.garage.climate.${status}`),
+    tone: hurtsMorale ? "text-status-red" : tension >= 20 ? "text-status-yellow" : "text-status-green",
+    barTone: hurtsMorale ? "bg-status-red" : tension >= 20 ? "bg-status-yellow" : "bg-status-green",
+    inversions: Math.max(0, Number(team?.hierarquia_inversoes_temporada) || 0),
+  };
+}
+
+export function buildDriverRow(role, driver, team, playerId, slot = role === "N1" ? 1 : 2) {
+  const isN1 = slot === 1;
   const fallbackName = isN1 ? team?.piloto_1_nome : team?.piloto_2_nome;
   const fallbackSalary = isN1 ? team?.piloto_1_salario_anual : team?.piloto_2_salario_anual;
   const fallbackId = isN1 ? team?.piloto_1_id : team?.piloto_2_id;

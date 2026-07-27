@@ -85,14 +85,6 @@ pub(crate) fn session_kind(session_types: &HashMap<i32, String>, session_num: i3
     }
 }
 
-pub(crate) fn tower_order_key(pos: i32, unclassified: &(i64, i64)) -> (bool, i64, i64) {
-    if pos > 0 {
-        (false, i64::from(pos), 0)
-    } else {
-        (true, unclassified.0, unclassified.1)
-    }
-}
-
 pub(crate) fn best_positive_lap(live: Option<f64>, recorded: Option<f64>) -> f64 {
     match (
         live.filter(|secs| *secs > 0.0),

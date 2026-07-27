@@ -16,42 +16,8 @@ use super::sorteios::{
 };
 use super::tipos::{IncidentSeverity, IncidentType, PendingDamage, SegmentIncidentResult};
 
-/// Incidentes do segmento com a pane mecânica do catálogo LIGADA — o comportamento histórico.
-/// Ver [`process_segment_incidents_cfg`] para o caminho onde o Sistema de Quebra assume a pane.
-#[allow(clippy::too_many_arguments)]
-pub fn process_segment_incidents(
-    drivers: &[SimDriver],
-    states: &[RaceState],
-    segment: RaceSegment,
-    weather: WeatherCondition,
-    is_championship_deciding: bool,
-    incident_rate_multiplier: f64,
-    start_chaos_multiplier: f64,
-    pack_density_factor: f64,
-    catalog: &IncidentCatalog,
-    vehicle_class: VehicleClass,
-    is_endurance: bool,
-    rng: &mut impl Rng,
-) -> SegmentIncidentResult {
-    process_segment_incidents_cfg(
-        drivers,
-        states,
-        segment,
-        weather,
-        is_championship_deciding,
-        incident_rate_multiplier,
-        start_chaos_multiplier,
-        pack_density_factor,
-        catalog,
-        vehicle_class,
-        is_endurance,
-        true,
-        rng,
-    )
-}
-
-/// Igual a [`process_segment_incidents`], mas com `catalog_mechanical`: quando `false`, a pane
-/// mecânica genérica do catálogo NÃO é sorteada.
+/// Incidentes do segmento. `catalog_mechanical` liga/desliga a pane mecânica genérica do
+/// catálogo: quando `false`, ela NÃO é sorteada.
 ///
 /// Existe por causa da fonte única de pane. A pane do catálogo ([`roll_mechanical`]) sorteia
 /// sobre a `confiabilidade` ABSTRATA da equipe e não sabe que peças o carro tem — não nomeia

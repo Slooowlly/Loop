@@ -55,6 +55,22 @@ pub struct TeamSummary {
     pub piloto_2_nome: Option<String>,
     #[serde(default)]
     pub piloto_2_salario_anual: Option<f64>,
+    /// Política interna da garagem (módulo `hierarchy`). Quem é N1 aqui é a hierarquia
+    /// REAL — pode divergir de `piloto_1_id`/`piloto_2_id`, que é só a ordem dos slots,
+    /// depois de uma inversão no meio da temporada.
+    #[serde(default)]
+    pub hierarquia_n1_id: Option<String>,
+    #[serde(default)]
+    pub hierarquia_n2_id: Option<String>,
+    /// Clima: `estavel` | `competitivo` | `tensao` | `reavaliacao` | `inversao` | `crise`.
+    #[serde(default)]
+    pub hierarquia_status: String,
+    /// Tensão acumulada (0–100). Acima de 50 já pesa na moral da equipe
+    /// ([`crate::finance::morale::advance_team_morale`]).
+    #[serde(default)]
+    pub hierarquia_tensao: f64,
+    #[serde(default)]
+    pub hierarquia_inversoes_temporada: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

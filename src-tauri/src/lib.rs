@@ -165,6 +165,7 @@ mod config;
 mod constants;
 mod convocation;
 mod db;
+mod diagnostico;
 mod event_interest;
 mod evolution;
 mod fame;
@@ -297,6 +298,13 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+            // Log em arquivo ANTES de tudo: o app é GUI sem console, então sem
+            // isto qualquer falha de boot na máquina do jogador é invisível.
+            diagnostico::init(&base_dir);
+            // Gravador de corrida: fixa a pasta antes do sampler, que roda sem AppHandle
+            // e abre/fecha as capturas sozinho pelas bordas de conexão do sim.
+            iracing_sdk::race_capture::init(&base_dir);
+
             let mut config = config::app_config::AppConfig::load_or_default(&base_dir);
 
             // Idioma ativo do backend (texto determinístico + "fatos" pra IA)
@@ -348,6 +356,18 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            /// Anexa o `history` e fecha a captura, se houver uma gravando. Idempotente:
+            /// `CloseRequested` e `Destroyed` chegam os dois, e o segundo vira no-op.
+            fn finalizar_captura_em_curso() {
+                if !iracing_sdk::race_capture::is_active() {
+                    return;
+                }
+                if let Ok(v) = serde_json::to_value(iracing_sdk::race_monitor::get_history()) {
+                    iracing_sdk::race_capture::record_block("history", v);
+                }
+                iracing_sdk::race_capture::stop();
+            }
+
             // Só a janela PRINCIPAL persiste tamanho/estado. A janela "overlay"
             // (512×1024, por cima do iRacing) emite resize/close próprios — sem esse
             // guard, o boot seguinte abriria a principal no tamanho do overlay.
@@ -373,6 +393,10 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                    // Fecha a captura em curso ANTES de sair. Sem isto, quem fecha o Loop
+                    // com o sim ainda aberto perde o bloco `history` (o dado já derivado:
+                    // voltas, setores, posições) e o arquivo fica sem o trailer do gzip.
+                    finalizar_captura_em_curso();
                     match snapshot_from_window(window) {
                         Ok(snapshot) => {
                             if let Err(error) = persist_window_snapshot(&base_dir, &snapshot) {
@@ -448,6 +472,11 @@ pub fn run() {
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
+            commands::iracing::iracing_diagnostico,
+            commands::iracing::iracing_log_ler,
+            commands::iracing::iracing_log_caminho,
+            commands::iracing::iracing_log_revelar,
+            commands::iracing::iracing_log_enviar,
             commands::iracing::iracing_player_custid,
             commands::iracing::iracing_poll_race,
             commands::iracing::iracing_reset_race,

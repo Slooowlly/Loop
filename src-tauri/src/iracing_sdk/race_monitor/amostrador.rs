@@ -17,6 +17,13 @@ pub(super) fn start_sampler() {
             let connected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 match crate::iracing_sdk::read_telemetry() {
                     Ok(t) => {
+                        // Contador de diagnóstico + marca da TRANSIÇÃO para conectado.
+                        // `linha_unica` garante uma linha por transição, não por tick.
+                        crate::iracing_sdk::nota_tick_observado();
+                        crate::diagnostico::linha_unica(
+                            "iracing",
+                            "conectado — telemetria fluindo",
+                        );
                         // Recarrega a classificação de carros (IA/pace car) do YAML de
                         // tempos em tempos — ela muda raramente, então não precisa ser
                         // a cada tick.
@@ -50,7 +57,9 @@ pub(super) fn start_sampler() {
                             }
                         }
                         lock().observe(&t);
-                        // DEBUG: grava o frame de telemetria (subamostrado) pra calibração.
+                        // Gravador SEMPRE LIGADO: abre a captura na borda de conexão (no-op
+                        // se já há uma gravando) e despeja o frame. Custa ~24 µs por frame.
+                        crate::iracing_sdk::race_capture::ensure_started();
                         crate::iracing_sdk::race_capture::record_frame(&t);
                         // Disparo de quebra ESTRANGULADO: 1 comando a cada ~1,5s (a ~60 Hz),
                         // FORA do lock (o send_chat_text foca a janela + SendInput; não pode
@@ -79,6 +88,30 @@ pub(super) fn start_sampler() {
                         true
                     }
                     Err(error) => {
+                        // Registra a falha UMA vez por transição e, só nesse instante,
+                        // paga o diagnóstico cruzado (que varre janelas). Assim o log
+                        // já nasce com a resposta — "sim fechado" ou "acesso negado com
+                        // o simulador aberto" — sem depender de o jogador abrir tela
+                        // nenhuma nem reproduzir o problema de novo.
+                        if crate::diagnostico::linha_unica(
+                            "iracing",
+                            &format!("sem telemetria: {error}"),
+                        ) {
+                            let d = crate::iracing_sdk::diagnosticar();
+                            crate::diagnostico::linha(
+                                "iracing",
+                                &format!(
+                                    "diagnóstico: veredito={:?} memoria_ok={} erro={} janela={} simulador={} elevado={} ticks={}",
+                                    d.veredito,
+                                    d.memoria_ok,
+                                    d.memoria_erro,
+                                    d.janela_encontrada,
+                                    d.janela_simulador,
+                                    d.elevado,
+                                    d.ticks_observados
+                                ),
+                            );
+                        }
                         let mut m = lock();
                         // Sim fechado com tentativa ativa = DNF.
                         let sim_closed = matches!(error, crate::iracing_sdk::IracingError::NotRunning(_));
@@ -90,6 +123,16 @@ pub(super) fn start_sampler() {
                                 .unwrap_or(false);
                             if active {
                                 m.pending_event = m.finalize_attempt("sim_closed");
+                            }
+                            // Fecha a captura na MESMA borda: o `history` só é útil no
+                            // arquivo se for anexado antes do gzip receber o trailer.
+                            // Usa `m.history` direto — `get_history()` daqui travaria,
+                            // o lock já está na mão.
+                            if crate::iracing_sdk::race_capture::is_active() {
+                                if let Ok(v) = serde_json::to_value(&m.history) {
+                                    crate::iracing_sdk::race_capture::record_block("history", v);
+                                }
+                                crate::iracing_sdk::race_capture::stop();
                             }
                             m.was_connected = false;
                             m.prev = None;

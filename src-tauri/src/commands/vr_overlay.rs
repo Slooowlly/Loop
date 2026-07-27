@@ -16,6 +16,7 @@
 mod imp {
     use std::sync::{Mutex, OnceLock};
 
+    use winapi::um::errhandlingapi::GetLastError;
     use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
     use winapi::um::memoryapi::{CreateFileMappingW, MapViewOfFile, FILE_MAP_WRITE};
 
@@ -31,6 +32,9 @@ mod imp {
     // → 16 palavras de 4 bytes = 64 bytes.
     const HEADER: usize = 64;
     const PAGE_READWRITE: u32 = 0x04;
+    // `CreateFileMappingW` devolveu um objeto que JÁ existia (não é feature do winapi
+    // que a gente habilita — a constante é estável desde sempre).
+    const ERROR_ALREADY_EXISTS: u32 = 183;
 
     /// Descrição de um painel: nome do mapeamento, resolução e pose padrão (espelham
     /// os defaults da layer). A TORRE é retrato cockpit-locked; o RÁDIO é banner
@@ -108,6 +112,15 @@ mod imp {
 
     /// Garante que o mapeamento do painel existe, criando-o (com cabeçalho + pose
     /// padrão) na primeira vez. Chamado tanto pela escrita de frame quanto de pose.
+    ///
+    /// **Só inicializa o cabeçalho quando o mapeamento é NOVO.** Se ele já existia
+    /// (outra instância do app viva, ou a nossa reconectando enquanto a layer segura
+    /// o objeto), `CreateFileMappingW` devolve o objeto existente com
+    /// `ERROR_ALREADY_EXISTS` — reescrever o cabeçalho ali zeraria `frame`/`epoch` e
+    /// jogaria a pose de volta pro padrão por baixo de quem já estava desenhando.
+    /// Nesse caso a gente só ADOTA o que está lá; a reinicialização acontece apenas
+    /// se o conteúdo estiver inválido (magic/versão/dimensões erradas), que é lixo
+    /// de um build antigo e não dá pra aproveitar.
     fn ensure_bridge(guard: &mut Option<Bridge>, p: &Panel) -> Result<(), String> {
         if guard.is_some() {
             return Ok(());
@@ -126,6 +139,7 @@ mod imp {
             if handle.is_null() {
                 return Err("CreateFileMappingW falhou".into());
             }
+            let already = GetLastError() == ERROR_ALREADY_EXISTS;
             let base = MapViewOfFile(handle, FILE_MAP_WRITE, 0, 0, size);
             if base.is_null() {
                 CloseHandle(handle);
@@ -133,22 +147,30 @@ mod imp {
             }
             let up = base as *mut u32;
             let fp = base as *mut f32;
-            *up.add(0) = MAGIC;
-            *up.add(1) = VERSION;
-            *up.add(2) = p.w;
-            *up.add(3) = p.h;
-            *up.add(4) = 0; // frame
-            *up.add(5) = 0; // epoch
-            *(up.add(6) as *mut i32) = p.def_lock;
-            *fp.add(7) = p.def_x;
-            *fp.add(8) = p.def_y;
-            *fp.add(9) = p.def_z;
-            *fp.add(10) = p.def_yaw;
-            *fp.add(11) = p.def_pitch;
-            *fp.add(12) = p.def_scale;
-            *up.add(13) = 1; // visible
-            *up.add(14) = 0; // recenterSeq
-            *up.add(15) = 0; // recenterKey
+            // Reusa o cabeçalho existente só se ele for NOSSO e do mesmo layout.
+            let reusable = already
+                && *up.add(0) == MAGIC
+                && *up.add(1) == VERSION
+                && *up.add(2) == p.w
+                && *up.add(3) == p.h;
+            if !reusable {
+                *up.add(0) = MAGIC;
+                *up.add(1) = VERSION;
+                *up.add(2) = p.w;
+                *up.add(3) = p.h;
+                *up.add(4) = 0; // frame
+                *up.add(5) = 0; // epoch
+                *(up.add(6) as *mut i32) = p.def_lock;
+                *fp.add(7) = p.def_x;
+                *fp.add(8) = p.def_y;
+                *fp.add(9) = p.def_z;
+                *fp.add(10) = p.def_yaw;
+                *fp.add(11) = p.def_pitch;
+                *fp.add(12) = p.def_scale;
+                *up.add(13) = 1; // visible
+                *up.add(14) = 0; // recenterSeq
+                *up.add(15) = 0; // recenterKey
+            }
             *guard = Some(Bridge {
                 handle: handle as usize,
                 base: base as usize,

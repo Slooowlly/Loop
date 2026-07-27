@@ -7,7 +7,9 @@ import RaceTraceChart from "./RaceTraceChart";
 import PaceDeltaChart from "./PaceDeltaChart";
 import WeatherTimelineChart from "./WeatherTimelineChart";
 import TeamLogoMark from "../team/TeamLogoMark";
-import { capitalizar } from "../../utils/formatters";
+import IracingSemDadosAviso from "../iracing/IracingSemDadosAviso";
+import { capitalizar, formatLapSeconds } from "../../utils/formatters";
+import { AXIS_TICK, GRID, PALETTE, PLAYER_COLOR } from "../../utils/chartTheme";
 import {
   LineChart,
   Line,
@@ -24,14 +26,6 @@ import {
 // gráfico compartilhados, mas num layout empilhado (não-abas): RACE TRACE full →
 // VARIAÇÃO full → RITMO + GAP pequenos lado a lado → ESTRATÉGIA DE PIT.
 
-const PALETTE = [
-  "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
-  "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
-  "#fb7185", "#c084fc", "#22d3ee", "#fbbf24", "#4ade80", "#f472b6",
-];
-const PLAYER_COLOR = "#58a6ff";
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
 const MONO =
   '"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, "Roboto Mono", ui-monospace, monospace';
 
@@ -49,13 +43,6 @@ const COMPOUND = {
 };
 function compoundOf(c) {
   return COMPOUND[c] || COMPOUND.Unknown;
-}
-
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
 }
 
 function SectionTitle({ children, right }) {
@@ -256,6 +243,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
         className="rounded-2xl p-10 text-center text-[13px]"
       >
         {t("telemetryCockpit.emptyState")}
+        <IracingSemDadosAviso />
       </div>
     );
   }
@@ -264,7 +252,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
     <div className="flex flex-col gap-3">
       {/* Régua de métricas */}
       <div className="flex gap-3">
-        <MetricTile label={t("telemetryCockpit.metricBestLap")} value={pace ? formatLap(pace.best) : "--"} />
+        <MetricTile label={t("telemetryCockpit.metricBestLap")} value={pace ? formatLapSeconds(pace.best) : "--"} />
         <MetricTile label={t("telemetryCockpit.metricLapsSeen")} value={telemetry?.laps_seen ?? lapTimes.length} />
         <MetricTile label={t("telemetryCockpit.metricConsistency")} value={pace ? `±${pace.std.toFixed(3)}s` : "--"} />
         <MetricTile label={t("telemetryCockpit.metricStops")} value={totalStops} />
@@ -314,9 +302,9 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
           <SectionTitle
             right={
               <span style={{ color: "#8b949e" }} className="text-[11px]">
-                {t("telemetryCockpit.avg")} <span style={{ color: "#fff", fontFamily: MONO }}>{formatLap(pace.avg)}</span>
+                {t("telemetryCockpit.avg")} <span style={{ color: "#fff", fontFamily: MONO }}>{formatLapSeconds(pace.avg)}</span>
                 <span className="mx-2">·</span>
-                {t("telemetryCockpit.best")} <span style={{ color: "#4ade80", fontFamily: MONO }}>{formatLap(pace.best)}</span>
+                {t("telemetryCockpit.best")} <span style={{ color: "#4ade80", fontFamily: MONO }}>{formatLapSeconds(pace.best)}</span>
               </span>
             }
           >

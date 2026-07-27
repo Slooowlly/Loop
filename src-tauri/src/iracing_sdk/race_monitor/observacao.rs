@@ -111,6 +111,8 @@ impl RaceMonitor {
         self.process_ai_cars(t);
         // Disparo de quebra da GRADE TODA (usa a volta de cada carro do `t.cars`).
         self.tick_breakdown_grid(t);
+        // Vitrine da 1ª corrida do save: quebra GARANTIDA num backmarker (nunca o jogador).
+        self.tick_showcase_breakdown(t);
         self.evaluate_race_control(t);
         self.build_cars_debug(t);
         self.capture_qualy(t);

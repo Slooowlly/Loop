@@ -95,6 +95,7 @@ impl RaceMonitor {
         // fecharia (com dwell enorme) no instante da largada.
         if t.session_state < STATE_RACING {
             self.pit_in_stall = [false; 64];
+            self.pit_left_stall = [false; 64];
             return;
         }
         for car in &t.cars {
@@ -103,15 +104,28 @@ impl RaceMonitor {
                 continue;
             }
             let in_stall = car.track_surface == SURFACE_IN_PIT_STALL;
+            if !in_stall {
+                // Visto fora da caixa: a partir daqui as entradas dele são paradas de verdade.
+                self.pit_left_stall[i] = true;
+            }
             if in_stall && !self.pit_in_stall[i] {
                 // Entrou na caixa → abre o cronômetro de dwell.
                 self.pit_in_stall[i] = true;
                 self.pit_stall_enter_time[i] = now;
                 self.pit_stall_enter_lap[i] = car.lap.max(car.lap_completed + 1).max(1);
                 self.pit_stall_wet[i] = wet;
+                // A CAIXA DE PARTIDA não é uma parada. Todo carro começa a sessão dentro
+                // dela (é a "estampa" inicial do `InPitStall`), e sem esta trava a saída
+                // pra pista fechava uma parada com o dwell inteiro da espera — na quali,
+                // onde a sessão nasce com todo mundo no box, a coluna de pneu da torre
+                // vinha cheia de paradas que nunca aconteceram.
+                self.pit_stall_valid[i] = self.pit_left_stall[i];
             } else if !in_stall && self.pit_in_stall[i] {
                 // Saiu da caixa → fecha a parada.
                 self.pit_in_stall[i] = false;
+                if !self.pit_stall_valid[i] {
+                    continue;
+                }
                 let dwell = (now - self.pit_stall_enter_time[i]).max(0.0);
                 // Ignora blips transientes de `InPitStall` (dwell ~0s): o carro
                 // apenas cruzou a zona da caixa, não parou. Só conta parada real.
@@ -203,6 +217,15 @@ impl RaceMonitor {
         // pós-corrida. As voltas de quali que importam (grid) já são capturadas à
         // parte em `capture_qualy` → `qualy_laps`.
         if self.qualy_session_num >= 0 && t.session_num == self.qualy_session_num {
+            // Sair sem gravar não basta: o histórico da sessão ANTERIOR (o treino livre,
+            // onde todo mundo sai do box) continuaria vivo por baixo, e a torre leria
+            // aquelas paradas como estratégia de pneu da quali. Entrar na quali zera.
+            if self.hist_session_num != t.session_num {
+                self.history = RaceHistory::empty();
+                self.hist_session_num = t.session_num;
+                self.pit_in_stall = [false; 64];
+                self.pit_left_stall = [false; 64];
+            }
             return;
         }
 
@@ -248,6 +271,7 @@ impl RaceMonitor {
             self.history.qualy_laps = self.qualy_laps.clone();
             // Reseta o detector de pit / clima / setor para a tentativa nova.
             self.pit_in_stall = [false; 64];
+            self.pit_left_stall = [false; 64];
             self.weather_start_captured = false;
             self.sec_prev = -1;
             self.sec_enter_time = 0.0;
@@ -334,6 +358,14 @@ impl RaceMonitor {
                         .fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a| a.min(v))))
                 })
                 .unwrap_or(90.0);
+            // Posição do líder DENTRO da volta em segundos (`CarIdxEstTime`), base do
+            // gap contínuo abaixo.
+            let leader_est = t
+                .cars
+                .iter()
+                .find(|c| c.position == 1)
+                .map(|c| c.est_time)
+                .unwrap_or(0.0);
             let cars: Vec<CarGapPoint> = t
                 .cars
                 .iter()
@@ -352,22 +384,46 @@ impl RaceMonitor {
                     if position < 1 {
                         return None;
                     }
-                    // Gap ao líder: F2Time do SDK, mas com um PISO por voltas atrás.
-                    // Um carro lapado (ou parado no box, sem volta completa) vem com
-                    // F2Time ~0 e ficaria colado no líder; o piso `voltas_atrás × tempo
-                    // de volta do líder` o empurra pro fim. O `max` preserva um F2Time
-                    // já válido (que em corrida real JÁ inclui o tempo lapado) sem
-                    // duplicar a contagem.
-                    let base_gap = if c.f2_time.is_finite() {
+                    // Gap ao líder CONTÍNUO. O `CarIdxF2Time` do SDK só é reescrito
+                    // quando o carro CRUZA a linha: usado direto, a linha do trace fica
+                    // congelada por uma volta inteira e depois desce em DEGRAU — um
+                    // artefato de amostragem que não aconteceu na corrida. Aqui o gap sai
+                    // do "tempo de pista": `voltas × tempo de volta de referência +
+                    // est_time` (segundos desde a linha na volta atual, populado em
+                    // qualquer sessão, inclusive de IA) — varia a cada tick e já embute
+                    // as voltas de quem está lapado ou parado no box.
+                    let car_progress = if c.lap_dist_pct.is_finite() {
+                        c.lap_dist_pct.clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    // Parte intra-volta: est_time quando vier; senão, progresso × volta
+                    // de referência (backstop pra sessão sem EstTime).
+                    let intra = |est: f64, pct: f64| {
+                        if est.is_finite() && est > 0.0 {
+                            est
+                        } else {
+                            pct * leader_lap_ref
+                        }
+                    };
+                    let leader_secs =
+                        leader_lap as f64 * leader_lap_ref + intra(leader_est, leader_progress);
+                    let car_secs =
+                        c.lap_completed as f64 * leader_lap_ref + intra(c.est_time, car_progress);
+                    let dist_gap = (leader_secs - car_secs).max(0.0);
+                    // F2Time só como fallback: sem distância utilizável (carro colado na
+                    // linha, sem EstTime), ele ainda é melhor que zerar o gap.
+                    let gap = if dist_gap > 0.0 {
+                        dist_gap
+                    } else if c.f2_time.is_finite() {
                         c.f2_time.max(0.0)
                     } else {
                         0.0
                     };
-                    let laps_behind = (leader_lap - c.lap_completed).max(0);
                     Some(CarGapPoint {
                         idx: c.idx,
                         position,
-                        gap: base_gap.max(laps_behind as f64 * leader_lap_ref),
+                        gap,
                         lap_dist_pct: if c.lap_dist_pct.is_finite() {
                             c.lap_dist_pct.clamp(0.0, 1.0) as f32
                         } else {

@@ -8,11 +8,15 @@ import useExitToMenu from "../../hooks/useExitToMenu";
 import LeaveToMenuModal from "./LeaveToMenuModal";
 import {
   categoryLabel,
+  extractNationalityCode,
   formatCompactDate,
   formatNextRaceCountdown,
   formatSurfaceSeasonLabel,
 } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
+import { getBannerImageFocus, getBannerImageSrc } from "../../utils/trackBanners";
+import { trackCountryLabel } from "../../utils/trackCountry";
+import { CLIMA_BANNER, weatherEmoji, weatherLabel as climaLabel } from "../../utils/weather";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
@@ -24,6 +28,7 @@ function Header({ activeTab, onTabChange }) {
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
   const nextRace = useCareerStore((state) => state.nextRace);
+  const homeCategory = useCareerStore((state) => state.homeCategory);
   const temporalSummary = useCareerStore((state) => state.temporalSummary);
   const calendarDisplayDate = useCareerStore((state) => state.calendarDisplayDate);
   const displayDaysUntilNextEvent = useCareerStore((state) => state.displayDaysUntilNextEvent);
@@ -38,6 +43,11 @@ function Header({ activeTab, onTabChange }) {
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
   const closeRaceBriefing = useCareerStore((state) => state.closeRaceBriefing);
   const [seasonChampion, setSeasonChampion] = useState(null);
+  // Banner da PRÓXIMA corrida de uma categoria que NÃO é a do jogador (o jogador
+  // trocou de série/tier na tabela da Home). `null` quando estamos na categoria do
+  // jogador (o banner usa `nextRace` do store). { race, totalRodadas, countdownDays,
+  // pending } quando é outra categoria.
+  const [categoryRace, setCategoryRace] = useState(null);
 
   // Clicar no chip da equipe abre direto a pergunta de sair (salvando ou não).
   const { isSaving, exit, saveAndExit } = useExitToMenu();
@@ -47,6 +57,10 @@ function Header({ activeTab, onTabChange }) {
   const visibleCountdown = displayDaysUntilNextEvent ?? temporalSummary?.days_until_next_event;
   const hasNoPendingRace = !nextRace;
   const isFreeAgent = !playerTeam;
+  // Categoria em exibição na Home: a do jogador (padrão) ou outra que ele abriu na
+  // tabela. Quando é a do jogador, o banner segue lendo `nextRace` do store.
+  const viewingOwnCategory = !homeCategory || homeCategory === playerTeam?.categoria;
+  const viewedCategory = homeCategory ?? playerTeam?.categoria ?? null;
   const phase = season?.fase;
   const isLegacyPhase = isLegacySeasonPhase(phase);
   const hasPendingLegacyRegularRaces =
@@ -59,8 +73,10 @@ function Header({ activeTab, onTabChange }) {
   // vive DENTRO do banner cinematográfico — então escondemos o duplicado da barra
   // superior (deixando só o cartão de data à direita). Nos demais casos/abas, o
   // botão da barra continua sendo o controle universal.
+  // O banner só "dona" o botão Avançar quando é a próxima corrida DO JOGADOR. Vendo
+  // outra categoria, o banner é informativo (sem botão) e o botão global volta à barra.
   const bannerOwnsAdvance =
-    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace);
+    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace) && viewingOwnCategory;
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +116,65 @@ function Header({ activeTab, onTabChange }) {
       mounted = false;
     };
   }, [careerId, playerTeam?.categoria, hasNoPendingRace, season?.ano]);
+
+  // Quando o jogador abre OUTRA categoria na tabela da Home, busca o calendário dela
+  // e deriva a próxima corrida (1ª pendente) + total de etapas + contagem regressiva
+  // (relativa à data atual do jogador). O comando `get_calendar_for_category` já
+  // devolve tudo que o banner precisa (pista, clima, temperatura, data, rodada).
+  // As outras categorias correm em LOCKSTEP com o jogador, então quase sempre há uma
+  // corrida pendente na mesma janela; sem pendente (fim de temporada) mostramos a
+  // última etapa sem contagem regressiva.
+  useEffect(() => {
+    let mounted = true;
+
+    if (
+      !careerId ||
+      viewingOwnCategory ||
+      !viewedCategory ||
+      activeTab !== "standings" ||
+      showRaceBriefing
+    ) {
+      setCategoryRace(null);
+      return undefined;
+    }
+
+    invoke("get_calendar_for_category", { careerId, category: viewedCategory })
+      .then((entries) => {
+        if (!mounted) return;
+        const list = Array.isArray(entries) ? entries : [];
+        const pending = list.find((entry) => entry.status === "Pendente") ?? null;
+        const race = pending ?? list[list.length - 1] ?? null;
+        if (!race) {
+          setCategoryRace(null);
+          return;
+        }
+        setCategoryRace({
+          race,
+          totalRodadas: list.length,
+          countdownDays: pending
+            ? daysBetweenDisplayDates(visibleDate, pending.display_date)
+            : null,
+          pending: Boolean(pending),
+        });
+      })
+      .catch(() => {
+        if (mounted) setCategoryRace(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+    // `visibleDate` + `rodada_atual` mudam a cada avanço → recalcula ao reabrir a Home.
+  }, [
+    careerId,
+    viewedCategory,
+    viewingOwnCategory,
+    activeTab,
+    showRaceBriefing,
+    visibleDate,
+    season?.ano,
+    season?.rodada_atual,
+  ]);
 
   function handleNextRace() {
     // Leva o jogador para o Calendário (com fade) para ele ver a animação dos
@@ -254,11 +329,25 @@ function Header({ activeTab, onTabChange }) {
       </div>
 
       {activeTab === "standings" && !showRaceBriefing && (
-        nextRace ? (
+        !viewingOwnCategory ? (
+          // Vendo OUTRA categoria: banner informativo (sem botão Avançar), com a
+          // próxima corrida daquela categoria. Enquanto o calendário carrega,
+          // segura a altura do banner para não "pular" o layout.
+          categoryRace?.race ? (
+            <NextRaceBanner
+              nextRace={categoryRace.race}
+              championship={categoryLabel(viewedCategory)}
+              totalRodadas={categoryRace.totalRodadas}
+              countdownDays={categoryRace.pending ? categoryRace.countdownDays : null}
+            />
+          ) : (
+            <BannerHeightPlaceholder />
+          )
+        ) : nextRace ? (
           <NextRaceBanner
             nextRace={nextRace}
-            season={season}
-            playerTeam={playerTeam}
+            championship={categoryLabel(playerTeam?.categoria)}
+            totalRodadas={season?.total_rodadas ?? null}
             countdownDays={visibleCountdown}
             onAdvance={handleNextRace}
             advanceLabel={getAdvanceButtonLabel()}
@@ -338,17 +427,17 @@ function SeasonFinishedBanner({ season, category, champion }) {
 // reaproveitando o handler existente (onAdvance = handleNextRace).
 function NextRaceBanner({
   nextRace,
-  season,
-  playerTeam,
+  championship,
+  totalRodadas = null,
   countdownDays,
-  onAdvance,
+  onAdvance = null,
   advanceLabel,
   advanceDisabled,
 }) {
   const trackName = nextRace.track_name;
-  const totalRodadas = season?.total_rodadas ?? null;
-  const championship = categoryLabel(playerTeam?.categoria);
-  const country = trackCountry(trackName);
+  // "🇧🇷 Brasil" — o rótulo cru alimenta o FlagIcon; o código ISO vira a chave i18n.
+  const country = trackCountryLabel(trackName);
+  const countryCode = extractNationalityCode(country);
   const bannerDate = formatBannerDate(nextRace.display_date);
   const hasWeather = nextRace.clima != null || nextRace.temperatura != null;
   const countdown = compactCountdown(countdownDays);
@@ -415,7 +504,7 @@ function NextRaceBanner({
                   <span className="flex items-center gap-2">
                     <FlagIcon nacionalidade={country} />
                     <span className="font-semibold uppercase tracking-[0.06em] text-text-primary">
-                      {i18n.t(`header.trackCountry.${country}`, { defaultValue: country })}
+                      {i18n.t(`header.trackCountry.${countryCode}`, { defaultValue: country })}
                     </span>
                   </span>
                   <span className="text-white/25">•</span>
@@ -451,7 +540,7 @@ function NextRaceBanner({
                     </span>
                   )}
                   <span className="hidden text-text-secondary sm:inline">
-                    {weatherLabel(nextRace.clima)}
+                    {climaLabel(nextRace.clima, CLIMA_BANNER)}
                   </span>
                 </span>
               )}
@@ -463,7 +552,10 @@ function NextRaceBanner({
             </div>
           </div>
 
-          {/* Ações — botão principal reaproveita o handler de avanço do calendário. */}
+          {/* Ações — botão principal reaproveita o handler de avanço do calendário.
+              Só aparece na próxima corrida DO JOGADOR; vendo outra categoria o banner
+              é puramente informativo (o botão global volta à barra do topo). */}
+          {onAdvance ? (
           <div className="flex shrink-0 items-center justify-end md:pb-1">
             <button
               type="button"
@@ -488,6 +580,7 @@ function NextRaceBanner({
               </svg>
             </button>
           </div>
+          ) : null}
         </div>
         </div>
       </div>
@@ -495,10 +588,21 @@ function NextRaceBanner({
   );
 }
 
+// Segura a altura do banner enquanto o calendário de outra categoria é buscado, para
+// a Home não "pular" quando o banner informativo entra logo em seguida.
+function BannerHeightPlaceholder() {
+  return (
+    <div className="px-3 pb-1 pt-0.5 sm:px-4 lg:px-5 xl:px-6">
+      <div className="mx-auto w-full max-w-[1680px]">
+        <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-[#03060f] min-h-[196px] md:h-[clamp(200px,21vh,230px)]" />
+      </div>
+    </div>
+  );
+}
+
 // Imagem de fundo do banner: fundo escuro enquanto carrega, fade-in + zoom lento
-// ao terminar, e some (mantendo o gradiente) caso o arquivo não exista. O alt e a
-// origem seguem a mesma resolução usada antes (getTrackImageSrc), por isso o teste
-// de mapeamento de miniaturas continua válido.
+// ao terminar, e some (mantendo o gradiente) caso o arquivo não exista. A resolução
+// (panorâmica → miniatura → chute) mora em utils/trackBanners.js.
 function BannerTrackImage({ trackName }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -518,260 +622,6 @@ function BannerTrackImage({ trackName }) {
       ].join(" ")}
     />
   );
-}
-
-const TRACK_IMAGE_FILES = [
-  { match: ["charlotte"], file: "charlotte.webp" },
-  { match: ["laguna seca"], file: "lagunaseca.webp" },
-  { match: ["lime rock"], file: "limerock.jpeg" },
-  { match: ["okayama"], file: "okayama.webp" },
-  { match: ["oulton park"], file: "oultonpark.jpeg" },
-  { match: ["snetterton"], file: "snetterton.jpeg" },
-  { match: ["summit point", "jefferson"], file: "summitpoint.webp" },
-  { match: ["tsukuba"], file: "Tsukuba.webp" },
-  { match: ["virginia international raceway", "vir full", "vir patriot"], file: "virginia.jpeg" },
-  { match: ["ledenon"], file: "ledenon.webp" },
-  { match: ["oschersleben", "motorsport arena"], file: "motorsport arena.webp" },
-  { match: ["navarra"], file: "Navarra.webp" },
-  { match: ["oran park"], file: "oranpark.webp" },
-  { match: ["rudskogen"], file: "rudskogen.jpeg" },
-  { match: ["winton"], file: "winton.jpeg" },
-];
-
-function getTrackImageSrc(trackName) {
-  const normalizedName = normalizeTrackName(trackName);
-  const entry = TRACK_IMAGE_FILES.find(({ match }) =>
-    match.some((candidate) => normalizedName.includes(candidate)),
-  );
-
-  if (entry) {
-    return `/utilities/tracks/${encodeURIComponent(entry.file)}`;
-  }
-
-  return `/utilities/tracks/${encodeURIComponent(trackName)}.webp`;
-}
-
-// Imagens LARGAS/cinematográficas do banner do Home (pasta "Pistas Header").
-// Mapa próprio (não a miniatura da tabela): resolve o nome da pista → arquivo
-// panorâmico. Se a pista não tiver imagem larga, cai na miniatura de sempre
-// (getTrackImageSrc), e o onError do banner segura o visual só com o gradiente.
-// Os nomes de arquivo refletem exatamente o que está em disco (inclusive grafias
-// como "chartlotte"/"outonpark"/"rudsoken").
-const BANNER_IMAGE_DIR = "/utilities/tracks/Pistas%20Header";
-const BANNER_IMAGE_FILES = [
-  { match: ["algarve", "portimao"], file: "Algarve International Circuit.jpg", focus: "center 27%" },
-  { match: ["hermanos rodriguez", "rodriguez", "mexico city"], file: "Autódromo Hermanos Rodriguez.jpg", focus: "center 63%" },
-  { match: ["jose carlos pace", "interlagos"], file: "Autódromo José Carlos Pace.jpg", focus: "center 28%" },
-  { match: ["monza"], file: "Autódromo Nazionale Monza.jpg", focus: "center 36%" },
-  { match: ["brands hatch"], file: "Brands Hatch.jpg", focus: "center 86%" },
-  { match: ["cadwell"], file: "Cadwell Park Circuit.jpg", focus: "center 15%" },
-  { match: ["canadian tire", "mosport"], file: "Canadian Tire Motorsport Park.jpg", focus: "center 70%" },
-  { match: ["zandvoort"], file: "Circuit Park Zandvoort.jpg", focus: "center 64%" },
-  { match: ["barcelona", "catalunya"], file: "Circuit de Barcelona-Catalunya.jpg", focus: "center 56%" },
-  { match: ["magny-cours", "magny cours"], file: "Circuit de Nevers Magny-Cours.jpg", focus: "center 60%" },
-  { match: ["francorchamps", "spa-francorchamps"], file: "Circuit de Spa-Francorchamps.jpg", focus: "center 44%" },
-  { match: ["le mans", "24 heures", "sarthe", "24 hours"], file: "Circuit des 24 Heures du Mans.jpg", focus: "center 32%" },
-  { match: ["circuit of the americas", "cota", "of the americas"], file: "Circuit of the Americas.jpg", focus: "center 34%" },
-  { match: ["melbourne", "albert park"], file: "Circuito de Melbourne.jpg", focus: "center 14%" },
-  { match: ["detroit", "belle isle"], file: "Detroit Grand Prix at Belle Isle.jpg" },
-  { match: ["donington"], file: "Donington Park Racing Circuit.jpg", focus: "center 64%" },
-  { match: ["fuji"], file: "Fuji International Speedway.jpg", focus: "center 58%" },
-  { match: ["hockenheim"], file: "HockenheimRing.jpg", focus: "center 86%" },
-  { match: ["hungaroring", "hungar"], file: "Hungaroring.jpg", focus: "center 39%" },
-  { match: ["long beach"], file: "Long Beach Street Circuit.jpg", focus: "center 67%" },
-  { match: ["road atlanta"], file: "Michelin Raceway Road Atlanta.jpg" },
-  { match: ["mid-ohio", "mid ohio"], file: "Mid-Ohio Sports Car Course.jpg", focus: "center 43%" },
-  { match: ["misano"], file: "Misano World Circuit Marco Simoncelli.jpg", focus: "center 52%" },
-  { match: ["mount panorama", "bathurst"], file: "Mount Panorama Circuit.jpg", focus: "center 48%" },
-  { match: ["nurburgring", "nordschleife"], file: "Nürburgring Nordschleife.jpg", focus: "center 49%" },
-  { match: ["red bull ring", "spielberg"], file: "Red Bull Ring – Spielberg.jpg", focus: "center 49%" },
-  { match: ["sandown"], file: "Sandown International Motor Raceway.jpg", focus: "center 50%" },
-  { match: ["summit point", "jefferson"], file: "Summit Point — Raceway.jpg", focus: "center 52%" },
-  { match: ["thruxton"], file: "Thruxton Circuit.jpg", focus: "center 19%" },
-  { match: ["virginia", "vir full", "vir patriot"], file: "Virginia Int. Raceway.jpg", focus: "center 51%" },
-  { match: ["watkins"], file: "Watkins Glen International.jpg", focus: "center 45%" },
-  { match: ["mugello"], file: "autodromo Internazionale del Mugello.jpg", focus: "center 66%" },
-  { match: ["charlotte"], file: "chartlotte.jpg", focus: "center 64%" },
-  { match: ["daytona"], file: "daytona.jpg", focus: "center 51%" },
-  { match: ["laguna seca", "laguna"], file: "laguna seca.jpg", focus: "center 40%" },
-  { match: ["ledenon"], file: "ledenon.jpg" },
-  { match: ["lime rock", "limerock"], file: "limerockpark.jpg", focus: "center 44%" },
-  { match: ["motorsport arena", "oschersleben"], file: "motorsportarena.jpg", focus: "center 58%" },
-  { match: ["navarra"], file: "navarra_panorama_1915x821.jpg", focus: "center 66%" },
-  { match: ["okayama"], file: "okayama.jpg", focus: "center 37%" },
-  { match: ["oran park"], file: "oran park.jpg", focus: "center 47%" },
-  { match: ["oulton park", "oulton"], file: "outonpark.jpg", focus: "center 46%" },
-  { match: ["road america"], file: "road america.jpg", focus: "center 48%" },
-  { match: ["rudskogen"], file: "rudsoken.jpg", focus: "center 59%" },
-  { match: ["sebring"], file: "sebring.jpg", focus: "center 68%" },
-  { match: ["snetterton"], file: "snetterton.jpg", focus: "center 66%" },
-  { match: ["sonoma", "sears point", "infineon"], file: "sonoma.jpg", focus: "center 47%" },
-  { match: ["tsukuba"], file: "tsukuba.jpg", focus: "center 56%" },
-  { match: ["winton"], file: "winton.jpg", focus: "center 35%" },
-  { match: ["suzuka"], file: "Suzuka International Racing Course.jpg", focus: "center 48%" },
-  { match: ["silverstone"], file: "Silverstone Circuit.jpg", focus: "center 50%" },
-  { match: ["philip island", "phillip island"], file: "Philip Island Grand Prix Circuit.jpg", focus: "center 21%" },
-  { match: ["zolder"], file: "Circuit Zolder.jpg", focus: "center 33%" },
-  // Arte adicionada recentemente (arquivos .png em disco).
-  { match: ["adelaide"], file: "Adelaide Street Circuit.webp", focus: "67% 55%" },
-  { match: ["enzo e dino", "imola"], file: "Autódromo Internazionale Enzo e Dino Ferrari.webp", focus: "center 71%" },
-  { match: ["barber"], file: "Barber Motorsports Park.webp", focus: "center 19%" },
-  { match: ["chicago"], file: "Chicago Street Course.webp", focus: "center 17%" },
-  { match: ["gilles villeneuve", "montreal"], file: "Circuit Gilles Villeneuve.webp" },
-  { match: ["jerez"], file: "Circuito de Jerez.webp", focus: "center 45%" },
-  { match: ["indianapolis", "indy road"], file: "Indianapolis Motor Speedway.webp", focus: "center 63%" },
-  { match: ["knockhill"], file: "Knockhill.webp" },
-  { match: ["miami"], file: "Miami.webp", focus: "center 65%" },
-  // Pistas AINDA sem arte na pasta: o mapa já espera estes arquivos.
-  // Basta soltar um arquivo com EXATAMENTE este nome em "Pistas Header/" que o banner
-  // passa a usá-lo. Enquanto não existir, cai no fundo premium (fallback).
-  { match: ["motegi", "mobility resort"], file: "Mobility Resort Motegi.webp" },
-  { match: ["aragon", "motorland"], file: "MotorLand Aragon.webp" },
-  { match: ["portland"], file: "Portland International Raceway.webp" },
-  { match: ["qualcomm", "coronado", "naval base"], file: "Qualcomm Circuit.webp" },
-  { match: ["sachsenring"], file: "Sachsenring.webp" },
-  { match: ["the bend", "shell v-power"], file: "The Bend Motorsport Park.webp" },
-  { match: ["petersburg", "st. pete", "st pete"], file: "St Petersburg Grand Prix.webp" },
-  { match: ["willow springs"], file: "Willow Springs International Raceway.webp" },
-];
-
-function getBannerImageSrc(trackName) {
-  const normalizedName = normalizeTrackName(trackName);
-  const entry = BANNER_IMAGE_FILES.find(({ match }) =>
-    match.some((candidate) => normalizedName.includes(candidate)),
-  );
-
-  if (entry) {
-    return `${BANNER_IMAGE_DIR}/${encodeURIComponent(entry.file)}`;
-  }
-
-  // Sem imagem larga → usa a miniatura de sempre como fallback.
-  return getTrackImageSrc(trackName);
-}
-
-// Ponto de foco (object-position) do corte do banner. Cada foto tem o "assunto"
-// numa altura diferente; sem override, ancoramos em BANNER_FOCUS_DEFAULT. Para
-// calibrar uma pista, basta adicionar `focus: "center NN%"` na entrada dela em
-// BANNER_IMAGE_FILES (NN menor sobe o corte, maior desce).
-const BANNER_FOCUS_DEFAULT = "center 38%";
-
-function getBannerImageFocus(trackName) {
-  const normalizedName = normalizeTrackName(trackName);
-  const entry = BANNER_IMAGE_FILES.find(({ match }) =>
-    match.some((candidate) => normalizedName.includes(candidate)),
-  );
-
-  return entry?.focus ?? BANNER_FOCUS_DEFAULT;
-}
-
-function normalizeTrackName(trackName) {
-  return (trackName ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-function weatherLabel(value) {
-  if (value === "HeavyRain") return i18n.t("weather.heavyRain");
-  if (value === "Wet") return i18n.t("weather.wet");
-  if (value === "Damp") return i18n.t("weather.damp");
-  return i18n.t("weather.partlyCloudy");
-}
-
-function weatherEmoji(value) {
-  if (value === "HeavyRain") return "\u{26C8}\u{FE0F}"; // ⛈️
-  if (value === "Wet") return "\u{1F327}\u{FE0F}"; // 🌧️
-  if (value === "Damp") return "\u{1F326}\u{FE0F}"; // 🌦️
-  return "\u{26C5}"; // ⛅
-}
-
-// País de cada circuito, derivado do nome (metadado de referência, no espírito de
-// TRACK_IMAGE_FILES). A bandeira/país só aparece quando o circuito é reconhecido —
-// nunca uma bandeira errada. A label é passada crua ao FlagIcon, que já normaliza
-// "Japão"→jp, "Estados Unidos"→us, etc.
-const TRACK_COUNTRY = [
-  {
-    match: [
-      "charlotte",
-      "laguna seca",
-      "lime rock",
-      "limerock",
-      "summit point",
-      "jefferson",
-      "virginia",
-      "vir full",
-      "vir patriot",
-      "watkins",
-      "road america",
-      "road atlanta",
-      "mid-ohio",
-      "mid ohio",
-      "sebring",
-      "daytona",
-      "sonoma",
-      "sears point",
-      "long beach",
-      "detroit",
-      "belle isle",
-      "circuit of the americas",
-      "cota",
-      "indianapolis",
-    ],
-    country: "Estados Unidos",
-  },
-  { match: ["okayama", "tsukuba", "suzuka", "motegi", "fuji"], country: "Japão" },
-  {
-    match: [
-      "oulton park",
-      "oulton",
-      "snetterton",
-      "silverstone",
-      "brands hatch",
-      "cadwell",
-      "donington",
-      "thruxton",
-    ],
-    country: "Reino Unido",
-  },
-  {
-    match: ["ledenon", "magny-cours", "magny cours", "le mans", "24 heures", "paul ricard"],
-    country: "França",
-  },
-  {
-    match: [
-      "oschersleben",
-      "motorsport arena",
-      "nurburgring",
-      "nordschleife",
-      "hockenheim",
-      "sachsenring",
-    ],
-    country: "Alemanha",
-  },
-  { match: ["navarra", "barcelona", "catalunya", "jerez", "valencia", "aragon"], country: "Espanha" },
-  { match: ["algarve", "portimao"], country: "Portugal" },
-  {
-    match: ["oran park", "winton", "bathurst", "mount panorama", "phillip island", "sandown", "melbourne", "albert park"],
-    country: "Austrália",
-  },
-  { match: ["rudskogen"], country: "Noruega" },
-  { match: ["zolder", "spa-francorchamps", "francorchamps"], country: "Bélgica" },
-  { match: ["monza", "imola", "mugello", "misano", "vallelunga"], country: "Itália" },
-  { match: ["interlagos", "jose carlos pace", "velocitta", "goiania"], country: "Brasil" },
-  { match: ["hermanos rodriguez", "rodriguez", "mexico city"], country: "México" },
-  { match: ["canadian tire", "mosport"], country: "Canadá" },
-  { match: ["hungaroring", "hungar"], country: "Hungria" },
-  { match: ["red bull ring", "spielberg"], country: "Áustria" },
-  { match: ["zandvoort"], country: "Holanda" },
-];
-
-function trackCountry(trackName) {
-  const normalized = normalizeTrackName(trackName);
-  if (!normalized) return null;
-  const entry = TRACK_COUNTRY.find(({ match }) =>
-    match.some((candidate) => normalized.includes(candidate)),
-  );
-  return entry?.country ?? null;
 }
 
 const BANNER_MONTHS_PT = [
@@ -797,6 +647,21 @@ function formatBannerDate(displayDate) {
   const [, year, month, day] = match;
   const monthLabel = BANNER_MONTHS_PT[Number(month) - 1] ?? month;
   return `${day} ${monthLabel} ${year}`;
+}
+
+// Dias entre duas datas YYYY-MM-DD (usa UTC para não sofrer com fuso). Usado para a
+// contagem regressiva do banner de OUTRA categoria, cuja próxima corrida é lida do
+// calendário — para a categoria do jogador a contagem já vem pronta do store.
+function daysBetweenDisplayDates(from, to) {
+  const parse = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+    if (!match) return null;
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  };
+  const a = parse(from);
+  const b = parse(to);
+  if (a == null || b == null) return null;
+  return Math.round((b - a) / 86400000);
 }
 
 // Contagem regressiva curtíssima ("EM 7 DIAS") a partir dos mesmos dados do header.

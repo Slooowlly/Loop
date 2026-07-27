@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod car_build;
 pub mod catalog;
+pub mod category_adaptation;
 pub mod context;
 pub mod engine;
 pub mod incidents;

@@ -43,16 +43,17 @@ pub(crate) fn persist_race_news(
             None => category_id,
         };
 
-        let (injury_facts, context_facts) = super::fatos_boletim::montar_fatos_do_boletim(
-            conn,
-            race_result,
-            active_season,
-            round,
-            category_id,
-            flat_incidents,
-            new_injuries,
-            extra_context_facts,
-        );
+        let (injury_facts, context_facts, career_beats) =
+            super::fatos_boletim::montar_fatos_do_boletim(
+                conn,
+                race_result,
+                active_season,
+                round,
+                category_id,
+                flat_incidents,
+                new_injuries,
+                extra_context_facts,
+            );
 
         let ctx = crate::narrative::build_race_context(
             race_result,
@@ -62,6 +63,7 @@ pub(crate) fn persist_race_news(
                 round,
                 injuries: &injury_facts,
                 incidents: flat_incidents,
+                career_beats: &career_beats,
                 context_facts: &context_facts,
             },
         );

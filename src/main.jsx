@@ -11,6 +11,7 @@ import "./index.css";
 import "./styles/kardust.css"; // Kardust: destaques (home, notícias, calendário)
 import "./i18n"; // inicializa o i18next (UI estática, Fase 0 da tradução).
 import useCareerStore from "./stores/useCareerStore";
+import { estaNoTauri } from "./lib/tauri";
 
 // A MESMA build serve a janela principal E a de overlay. Qual é qual:
 //   • No app (Tauri): pela LABEL da janela. A janela criada pelo Rust chama-se
@@ -19,11 +20,10 @@ import useCareerStore from "./stores/useCareerStore";
 //     URL, porque o `#` na WebviewUrl vira %23 e quebra a rota.)
 //   • No navegador (sem Tauri): pelas rotas por HASH, só pra inspecionar —
 //     `#overlay-versions` = 3 peles; `#overlay*` = torre com xadrez + mock.
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const hash = window.location.hash;
 
 let tauriLabel = null;
-if (IN_TAURI) {
+if (estaNoTauri()) {
   try {
     tauriLabel = getCurrentWindow().label;
   } catch {

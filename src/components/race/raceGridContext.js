@@ -2,6 +2,7 @@
 // forma recente, perspectiva competitiva do jogador e metas do fim de semana.
 // Lógica pura extraída de `pages/tabs/nextRaceContext.js`.
 import { buildFavoriteExpectationSelection, recentResults } from "../../pages/tabs/nextRaceBriefing";
+import { getReadableTeamColor as readableTeamColor } from "../../utils/teamColors";
 import { ordinal } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 
@@ -12,26 +13,11 @@ export function getFavoriteMedalTone(index) {
   return "text-gray-500";
 }
 
-// Cor de equipe legível sobre o fundo escuro: cores muito escuras são clareadas.
-export function getReadableTeamColor(color) {
-  if (!color || !/^#([0-9a-f]{6})$/i.test(color)) {
-    return "#58a6ff";
-  }
-
-  const hex = color.slice(1);
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-
-  if (luminance < 0.32) {
-    const mixWithWhite = 0.58;
-    const boost = (channel) => Math.round(channel + (255 - channel) * mixWithWhite);
-    return `rgb(${boost(r)}, ${boost(g)}, ${boost(b)})`;
-  }
-
-  return color;
-}
+// Cor de equipe legível sobre o fundo escuro dos painéis de corrida.
+// O fallback `#58a6ff` é o accent primário do app (`utils/colors.js`), provavelmente
+// copiado por engano do default de `getCategoryColor` — um piloto sem equipe acaba
+// pintado com a cor de destaque da UI. Trocar é mudança visual: commit próprio.
+export const getReadableTeamColor = (color) => readableTeamColor(color, { fallback: "#58a6ff" });
 
 export function buildFavoriteRating(driver) {
   const recentScore = recentResults(driver).reduce((total, result) => {

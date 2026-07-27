@@ -4,6 +4,15 @@
 /// Nome do arquivo mapeado em memória que o iRacing expõe enquanto roda.
 pub(crate) const MEM_MAP_FILE_NAME: &str = "Local\\IRSDKMemMapFileName";
 
+/// Mesmo mapeamento SEM o prefixo `Local\`, tentado como segunda chance.
+///
+/// `Local\` resolve para o namespace da SESSÃO do Windows: se o Loop e o iRacing
+/// caírem em sessões diferentes (app subido por instalador/updater ou por um
+/// contexto elevado distinto), o nome canônico não encontra nada mesmo com o sim
+/// aberto. O nome nu cai no namespace global e cobre esse caso. Custa uma chamada
+/// que só acontece quando a primeira já falhou.
+pub(crate) const MEM_MAP_FILE_NAME_NU: &str = "IRSDKMemMapFileName";
+
 /// Bit de `status` no cabeçalho indicando que o sim está conectado/ativo.
 pub(crate) const STATUS_CONNECTED: i32 = 1;
 

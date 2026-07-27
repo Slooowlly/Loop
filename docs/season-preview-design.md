@@ -219,7 +219,9 @@ O bundle deixa de ser uma lista solta e passa a ser **estruturado por bloco**, j
 linguagem qualitativa. Formato de referência (PT; gerado no idioma ativo via rust-i18n):
 
 Cada piloto é uma linha com campos separados por `|`, na ordem:
-`nome | equipe | percepção | currículo | [traço de estilo] | [gancho]`. A **ordem das
+`nome | equipe | percepção | currículo | experiência | [traço de estilo] | [gancho]`.
+São **cinco linhas em `FAVORITOS` e cinco em `PROMESSAS`** — dez dossiês, ou o grid
+inteiro quando ele for menor que isso. A **ordem das
 linhas em `FAVORITOS` é a percepção pública** (§5.2), **não** o skill. O skill oculto,
 quando entra, vem só no bloco `INTUIÇÃO` como impressão hedgeada — nunca colado ao piloto.
 
@@ -292,11 +294,17 @@ retrospecto. Publicação séria, não fofoca.
 - **Teça as `RELAÇÕES` como enredo**, quando houver: "velhos conhecidos", ex-parceiros que
   se reencontram, uma rivalidade que a categoria herda. Trate-as como história do **grid**,
   em 3ª pessoa — não como algo que envolve "você". No máximo 1–2, sem forçar.
-- Estruture em **manchete + linha-fina + 4 blocos** (§4). Cubra **cada piloto** de
-  `FAVORITOS` com uma expectativa própria; mencione ao menos os de `PROMESSAS`. Quando um
-  piloto tiver traço de estilo, teça-o na descrição dele.
-- Comprimento-alvo: **250–400 palavras**. Menos que isso é raso; a matéria é a peça
-  principal da aba.
+- Estruture em **manchete + linha-fina + 4 blocos** (§4). O bundle traz **dez dossiês**
+  (5 em `FAVORITOS`, 5 em `PROMESSAS`) e **todos** devem aparecer no texto: cada um dos
+  cinco favoritos ganha um **tratamento próprio** (duas ou três frases — o que ele já fez,
+  como pilota, o que se espera dele), e cada nome de `PROMESSAS` ganha ao menos **uma
+  frase própria**. Uma lista de nomes despejados numa frase só não cumpre isso.
+- Quando um piloto tiver traço de estilo, teça-o na descrição dele — e **não repita a
+  mesma construção** de um piloto para o outro ("Fulano chega como X: Y" dez vezes é o
+  fracasso que esta regra existe para evitar). Varie a forma da frase a cada nome.
+- Comprimento-alvo: **700–900 palavras** — o payload manda o intervalo em `target_words`,
+  e ele é a autoridade. Com dez pilotos a cobrir, menos que isso vira legenda de foto; a
+  matéria é a peça principal da aba e deve ter fôlego de revista.
 - Feche pela **etapa de abertura**.
 
 **Formato de resposta** (JSON):

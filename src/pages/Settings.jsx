@@ -6,6 +6,7 @@ import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
 import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
+import IracingDiagnosticoPanel from "../components/iracing/IracingDiagnosticoPanel";
 import useCareerStore from "../stores/useCareerStore";
 import { useTranslation } from "react-i18next";
 
@@ -391,6 +392,11 @@ function Settings() {
           <div id="racecontrol" style={{ scrollMarginTop: "1rem" }} className="border-t border-white/10 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
             {t("settings.raceSection")}
           </div>
+
+          {/* Diagnóstico da conexão com o iRacing — FORA do menu de debug de
+              propósito: é o que o jogador precisa achar quando a telemetria vem
+              zerada, e é de lá que sai o log para anexar num relato. */}
+          <IracingDiagnosticoPanel />
 
           {/* Bandeira amarela automática — liga/desliga o disparo (a macro já foi instalada ao abrir a tela) */}
           <div

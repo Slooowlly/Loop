@@ -46,6 +46,9 @@ mod relacoes;
 
 // Só o comando é público (registrado em lib.rs); o resto circula entre os irmãos.
 pub use comando::*;
+// Exceção: a percepção pública também ordena a torre do overlay antes de haver tempo,
+// pra "expectativa" ser UMA só entre a matéria de pré-temporada e o que aparece na pista.
+pub(crate) use comum::perception_score;
 use comum::*;
 use contexto::*;
 use dossie::*;
@@ -55,11 +58,17 @@ use relacoes::*;
 
 // ── Curadoria ────────────────────────────────────────────────────────────────────
 /// Quantos nomes entram em FAVORITOS (o topo da percepção pública).
-const FAVORITES_COUNT: usize = 4;
+const FAVORITES_COUNT: usize = 5;
 /// Quantos entram em PROMESSAS / INCÓGNITAS (o segundo pelotão).
-const PROMISES_COUNT: usize = 3;
+const PROMISES_COUNT: usize = 5;
+/// Piso de pilotos com dossiê no bundle. A matéria de IA fica rasa quando só há meia
+/// dúzia de nomes para trabalhar — com o grid inteiro pequeno, cobre todo mundo.
+const MIN_PROFILED: usize = 10;
+/// Quantos nomes o FALLBACK cita no pelotão de trás. O bundle da IA pode ser generoso
+/// (é insumo), mas a prosa determinística vira lista se despejar dez nomes.
+const FB_PACK_COUNT: usize = 3;
 /// Teto de relações do grid citadas (§5.5) — mais que isso vira lista.
-const MAX_RELATIONS: usize = 3;
+const MAX_RELATIONS: usize = 4;
 /// Percentis que definem um traço de estilo "marcante" (fora disso, o piloto é mediano
 /// naquele eixo e não ganha traço — evita ficha técnica).
 const TRAIT_HIGH_PCT: f64 = 0.85;

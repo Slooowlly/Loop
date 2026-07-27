@@ -7,12 +7,12 @@ import "./EngineerRadio.css";
 import { useBreakdownFeed, usePlayerWarnings, useChatSendBlocked } from "./useBreakdownFeed";
 import TowerCanvasView from "./TowerCanvasView";
 import { OVERLAY_MOCK } from "./overlayMockData";
+import { estaNoTauri } from "../lib/tauri";
 
 // Overlay do RÁDIO DA EQUIPE: um card central, texto simples, como se o engenheiro
 // avisasse por rádio sobre problemas de peça na grade (quebra ao vivo). Mostra UMA
 // mensagem por vez, com fade; a próxima substitui a atual.
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const POS_KEY = "engineerMonitorPos"; // { x, y } físicos da janela do rádio
 // Posição PADRÃO de fábrica (px físicos) — vale pra quem baixou o app e ainda não moveu.
 // Espelha o `x`/`y` da janela `engineer` no tauri.conf.json (abaixo do espelho, centro-alto).
@@ -164,7 +164,7 @@ export function EngineerRadioLive() {
   const [demoTick, setDemoTick] = useState(0);
 
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let stopped = false;
     const tick = async () => {
       try {
@@ -191,7 +191,7 @@ export function EngineerRadioLive() {
   // toda peça × leve/grave × 3 opções, com os PILOTOS REAIS do grid). Fallback: os MOCK.
   const [demoMsgs, setDemoMsgs] = useState([]);
   useEffect(() => {
-    if (!demo || !IN_TAURI) {
+    if (!demo || !estaNoTauri()) {
       setDemoMsgs([]);
       return undefined;
     }
@@ -220,7 +220,7 @@ export function EngineerRadioLive() {
   const [demoWarns, setDemoWarns] = useState([]);
   const [demoWarnTick, setDemoWarnTick] = useState(0);
   useEffect(() => {
-    if (!demo || !IN_TAURI) {
+    if (!demo || !estaNoTauri()) {
       setDemoWarns([]);
       return undefined;
     }
@@ -254,7 +254,7 @@ export function EngineerRadioLive() {
   // (o vigia de cursor no backend alterna o clique-atravessa); fora, vai pro iRacing.
   const [hover, setHover] = useState(false);
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     const w = getCurrentWindow();
     const cleanups = [];
     (async () => {

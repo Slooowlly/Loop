@@ -4,6 +4,7 @@ import useCareerStore from "../stores/useCareerStore";
 import { VR_W, VR_H, drawTower, preloadAssets } from "./towerCanvas";
 import { VR_THEME } from "./towerThemes";
 import { useOverlayData } from "./useOverlayData";
+import { estaNoTauri } from "../lib/tauri";
 
 // Escritor do overlay de VR: desenha a torre com dados AO VIVO da corrida e manda
 // os pixels (~10 Hz) pro backend, que os coloca na memória compartilhada lida pela
@@ -15,8 +16,6 @@ import { useOverlayData } from "./useOverlayData";
 //
 // TODO(produtização): hoje liga sozinho quando o app abre. Depois vai atrás de um
 // toggle nas configs.
-
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export default function OverlayVrWriter() {
   const careerId = useCareerStore((s) => s.careerId);
@@ -41,7 +40,7 @@ export default function OverlayVrWriter() {
 
   // Loop de desenho + escrita a 10 Hz (independente da taxa dos dados).
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
 
     const canvas = document.createElement("canvas");
     canvas.width = VR_W;

@@ -11,6 +11,8 @@ import {
   YAxis,
 } from "recharts";
 import { useTranslation } from "react-i18next";
+import { AXIS_TICK, BAD, GOOD, GRID, YELLOW } from "../../utils/chartTheme";
+import { formatLapSeconds } from "../../utils/formatters";
 
 // "Variação de voltas" / Pace Consistency COMPARTILHADO: barras do delta de cada volta
 // em relação à média. Usado pelo pós-corrida da carreira, pelo pós real do iRacing e
@@ -21,19 +23,6 @@ import { useTranslation } from "react-i18next";
 //
 // rows: [{ lap, delta, isBest?, time? }]  (delta em segundos vs média; time opcional p/ tooltip)
 
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const YELLOW = "#facc15";
-const GOOD = "#22c55e";
-const BAD = "#ef4444";
-
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
-}
-
 function PaceTooltip({ active, payload }) {
   const { t } = useTranslation();
   if (!active || !payload?.length) return null;
@@ -41,7 +30,7 @@ function PaceTooltip({ active, payload }) {
   return (
     <div className="rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-lg backdrop-blur">
       <div className="font-semibold text-white">{t("paceDelta.lap", { lap: r.lap })}</div>
-      {Number.isFinite(r.time) && <div className="text-gray-400">{formatLap(r.time)}</div>}
+      {Number.isFinite(r.time) && <div className="text-gray-400">{formatLapSeconds(r.time)}</div>}
       <div className={r.delta > 0 ? "text-red-400" : "text-green-400"}>
         {t("paceDelta.deltaToAvg", {
           delta: `${r.delta > 0 ? "+" : ""}${r.delta.toFixed(2)}`,

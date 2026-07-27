@@ -7,22 +7,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AXIS_TICK, GRID, PLAYER_COLOR } from "../../utils/chartTheme";
+import { formatLapSeconds } from "../../utils/formatters";
 
 // Gráfico ÚNICO de "Ritmo" (linha de tempo de volta), compartilhado entre o overlay
 // do iRacing Conectado (ao vivo) e o pós-corrida (RaceCharts). Fonte única → os dois
 // ficam sempre idênticos. Recebe `rows` = [{ lap, time }]; o `time` é em segundos.
 // O contêiner de altura fica por conta de quem usa (overlay 180px, pós-corrida 300px).
-
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const PLAYER_COLOR = "#58a6ff";
-
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
-}
 
 function LapTimeLineChart({ rows, color = PLAYER_COLOR }) {
   return (
@@ -35,7 +26,7 @@ function LapTimeLineChart({ rows, color = PLAYER_COLOR }) {
           stroke={GRID}
           width={48}
           domain={["dataMin - 0.5", "dataMax + 0.5"]}
-          tickFormatter={(v) => formatLap(v)}
+          tickFormatter={(v) => formatLapSeconds(v)}
         />
         <Tooltip
           contentStyle={{
@@ -44,7 +35,7 @@ function LapTimeLineChart({ rows, color = PLAYER_COLOR }) {
             borderRadius: 8,
             fontSize: 11,
           }}
-          formatter={(v) => [formatLap(v), "volta"]}
+          formatter={(v) => [formatLapSeconds(v), "volta"]}
           labelFormatter={(l) => `Volta ${l}`}
         />
         <Line

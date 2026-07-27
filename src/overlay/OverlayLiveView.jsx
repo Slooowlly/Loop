@@ -17,6 +17,7 @@ import {
 } from "./towerCanvas";
 import { useOverlayData } from "./useOverlayData";
 import OverlayWeatherArc from "./OverlayWeatherArc";
+import { estaNoTauri } from "../lib/tauri";
 
 // Vista AO VIVO do overlay de MONITOR (a janela transparente por cima do iRacing).
 // Roda dentro da janela `#overlay`, um webview separado (sem o store do app), então
@@ -37,7 +38,6 @@ import OverlayWeatherArc from "./OverlayWeatherArc";
 // A posição é salva/restaurada (localStorage). O modo é dono do app (via
 // `overlay-toggle-enabled`/`overlay-enabled`), pra sobreviver a mostrar/ocultar a janela.
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const POS_KEY = "overlayMonitorPos"; // { x, y } físicos da janela
 const TOWER_W = VR_W / SUPERSAMPLE; // 512 CSS px = largura da janela
 // Caixa de hover do nub (um pouco maior que o visual, pra o mouse pegar fácil).
@@ -76,7 +76,7 @@ export default function OverlayLiveView() {
 
   // Poll da carreira ativa (o app grava ao mostrar o overlay).
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     let stopped = false;
     const poll = async () => {
       try {
@@ -97,7 +97,7 @@ export default function OverlayLiveView() {
   // Setup da JANELA: restaura posição, persiste ao mover, e ouve o app (modo) e o
   // vigia de cursor (hover).
   useEffect(() => {
-    if (!IN_TAURI) return undefined;
+    if (!estaNoTauri()) return undefined;
     const w = getCurrentWindow();
     const cleanups = [];
     (async () => {
@@ -155,7 +155,7 @@ export default function OverlayLiveView() {
   // Reporta ao vigia a caixa que conta como "em cima da torre": a torre inteira
   // quando completa, o painel estreito (+ pins) na mini, ou só o nub quando escondida.
   useEffect(() => {
-    if (!IN_TAURI) return;
+    if (!estaNoTauri()) return;
     let width = NUB_W;
     let height = NUB_H;
     if (visible && data) {

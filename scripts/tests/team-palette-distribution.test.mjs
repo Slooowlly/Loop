@@ -24,8 +24,12 @@ function getStringField(block, field) {
   return match?.[1] ?? null;
 }
 
+// Os templates moram em `constants/teams/dados.rs` desde que `teams.rs` virou
+// fachada; ler a fachada faria os testes passarem sem inspecionar nada.
+const TEAM_DATA_FILE = "src-tauri/src/constants/teams/dados.rs";
+
 async function loadTeamTemplates() {
-  const source = await readFile(path.join(projectRoot, "src-tauri/src/constants/teams.rs"), "utf8");
+  const source = await readFile(path.join(projectRoot, TEAM_DATA_FILE), "utf8");
   return [...source.matchAll(/TeamTemplate\s*\{([\s\S]*?)\n\s*\}/g)]
     .map((match) => match[1])
     .map((block) => ({
@@ -72,6 +76,8 @@ function familyForColor(color) {
 
 test("team templates use one color per team and stay diverse by category tier", async () => {
   const teams = await loadTeamTemplates();
+
+  assert.ok(teams.length > 0, `nenhum TeamTemplate encontrado em ${TEAM_DATA_FILE} — o parser ficou cego`);
 
   for (const team of teams) {
     assert.match(team.primaryColor, /^#[0-9a-f]{6}$/i, `${team.shortName} needs a valid primary color`);
@@ -126,7 +132,8 @@ test("team identity UI renders a single team color", async () => {
 });
 
 test("team names avoid car-code siglas and raw model names", async () => {
-  const source = await readFile(path.join(projectRoot, "src-tauri/src/constants/teams.rs"), "utf8");
+  const source = await readFile(path.join(projectRoot, TEAM_DATA_FILE), "utf8");
+  let inspecionados = 0;
   const forbidden = /\b(TRD|GR86|GR|MX5|M2|SPS|SRO|WRT|GT4|GT3|R8G|TR3|R8|M4|Z06|296|720S)\b/i;
   const allowedManufacturers = /\b(Ferrari|BMW|Audi|Chevrolet|McLaren|Mercedes|Porsche|Ford|Lamborghini|Aston Martin|Acura|Toyota|Mazda)\b/;
 
@@ -134,6 +141,7 @@ test("team names avoid car-code siglas and raw model names", async () => {
     const name = getStringField(block[1], "nome");
     const shortName = getStringField(block[1], "nome_curto");
     if (!name || !shortName) continue;
+    inspecionados += 1;
 
     assert.doesNotMatch(name, forbidden, `${name} should not use forbidden car-code naming`);
     assert.doesNotMatch(shortName, forbidden, `${shortName} should not use forbidden car-code naming`);
@@ -146,4 +154,6 @@ test("team names avoid car-code siglas and raw model names", async () => {
       );
     }
   }
+
+  assert.ok(inspecionados > 0, `nenhum TeamTemplate encontrado em ${TEAM_DATA_FILE} — o parser ficou cego`);
 });

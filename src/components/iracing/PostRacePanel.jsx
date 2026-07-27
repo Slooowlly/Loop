@@ -15,25 +15,8 @@ import {
 } from "recharts";
 import GlassCard from "../ui/GlassCard";
 import GlassButton from "../ui/GlassButton";
-
-// Paleta distinta e legível no tema escuro para as linhas dos carros.
-const PALETTE = [
-  "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444",
-  "#a3e635", "#f97316", "#14b8a6", "#e879f9", "#facc15", "#34d399",
-  "#fb7185", "#c084fc", "#22d3ee", "#fbbf24", "#4ade80", "#f472b6",
-];
-const PLAYER_COLOR = "#3b82f6";
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const YELLOW = "#facc15";
-
-/** Segundos → "m:ss.mmm" (tempo de volta). */
-function formatLap(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
-  const m = Math.floor(seconds / 60);
-  const s = seconds - m * 60;
-  return `${m}:${s.toFixed(3).padStart(6, "0")}`;
-}
+import { AXIS_TICK, GRID, PALETTE, PLAYER_COLOR, YELLOW } from "../../utils/chartTheme";
+import { formatLapSeconds } from "../../utils/formatters";
 
 /** Segundos decorridos → "m:ss" (relógio da corrida). */
 function formatClock(seconds) {
@@ -422,7 +405,7 @@ function PostRacePanel() {
             />
             <SummaryCard
               label={t("postRacePanel.cardBestLap")}
-              value={pace ? formatLap(pace.best) : "--"}
+              value={pace ? formatLapSeconds(pace.best) : "--"}
             />
             <SummaryCard
               label={t("postRacePanel.cardYourLaps")}
@@ -520,13 +503,13 @@ function PostRacePanel() {
                     <span>
                       {t("postRacePanel.average")}{" "}
                       <span className="font-semibold text-text-primary">
-                        {formatLap(pace.avg)}
+                        {formatLapSeconds(pace.avg)}
                       </span>
                     </span>
                     <span>
                       {t("postRacePanel.best")}{" "}
                       <span className="font-semibold text-status-green">
-                        {formatLap(pace.best)}
+                        {formatLapSeconds(pace.best)}
                       </span>
                     </span>
                     <span className="flex items-center gap-3">

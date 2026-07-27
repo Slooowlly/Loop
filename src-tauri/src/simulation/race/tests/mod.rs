@@ -22,10 +22,7 @@ fn sample_context(duration: i32, weather: WeatherCondition) -> SimulationContext
     }
 }
 
-fn sample_context_with_incidents(
-    duration: i32,
-    weather: WeatherCondition,
-) -> SimulationContext {
+fn sample_context_with_incidents(duration: i32, weather: WeatherCondition) -> SimulationContext {
     SimulationContext {
         incidents_enabled: true,
         weather,
@@ -94,12 +91,13 @@ fn test_race_returns_all_drivers() {
     let mut rng = StdRng::seed_from_u64(21);
     let ctx = sample_context(30, WeatherCondition::Dry);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
 
@@ -117,12 +115,13 @@ fn test_race_positions_sequential() {
     let mut rng = StdRng::seed_from_u64(22);
     let ctx = sample_context(30, WeatherCondition::Dry);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
     assert_eq!(
@@ -141,12 +140,13 @@ fn test_race_tire_degradation() {
     let mut rng = StdRng::seed_from_u64(23);
     let ctx = sample_context(45, WeatherCondition::Dry);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
 
@@ -162,12 +162,13 @@ fn test_race_physical_degradation() {
     let mut rng = StdRng::seed_from_u64(24);
     let ctx = sample_context(45, WeatherCondition::Dry);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
 
@@ -183,12 +184,13 @@ fn test_race_positions_gained_calculated() {
     let mut rng = StdRng::seed_from_u64(25);
     let ctx = sample_context(30, WeatherCondition::Dry);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
 
@@ -201,10 +203,7 @@ fn test_race_positions_gained_calculated() {
 fn test_race_good_driver_tends_to_win() {
     let ace = build_driver("ACE", 95.0, 90.0, 85.0, 88.0, 15.0);
     let grid: Vec<SimDriver> = std::iter::once(ace.clone())
-        .chain(
-            (0..11)
-                .map(|index| build_driver(&format!("R{index}"), 60.0, 60.0, 60.0, 60.0, 6.0)),
-        )
+        .chain((0..11).map(|index| build_driver(&format!("R{index}"), 60.0, 60.0, 60.0, 60.0, 6.0)))
         .collect();
 
     let mut wins = 0;
@@ -212,12 +211,13 @@ fn test_race_good_driver_tends_to_win() {
         let mut rng = StdRng::seed_from_u64(seed);
         let ctx = sample_context(35, WeatherCondition::Dry);
         let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-        let result = simulate_race(
+        let result = simulate_race_with_breakdowns(
             &grid,
             &qualifying,
             &ctx,
             &IncidentCatalog::empty(),
             false,
+            None,
             &mut rng,
         );
         if result.winner_id == ace.id {
@@ -244,7 +244,15 @@ fn test_pilar_a_car_decides_at_top_not_rookie() {
                 ..sample_context(35, WeatherCondition::Dry)
             };
             let q = simulate_qualifying(grid, &ctx, &mut rng);
-            let r = simulate_race(grid, &q, &ctx, &IncidentCatalog::empty(), false, &mut rng);
+            let r = simulate_race_with_breakdowns(
+                grid,
+                &q,
+                &ctx,
+                &IncidentCatalog::empty(),
+                false,
+                None,
+                &mut rng,
+            );
             if r.winner_id == car_id {
                 wins += 1;
             }
@@ -285,12 +293,13 @@ fn test_race_bad_tires_hurt_late_segments() {
         let mut rng = StdRng::seed_from_u64(seed);
         let ctx = sample_context(60, WeatherCondition::Dry);
         let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-        let result = simulate_race(
+        let result = simulate_race_with_breakdowns(
             &grid,
             &qualifying,
             &ctx,
             &IncidentCatalog::empty(),
             false,
+            None,
             &mut rng,
         );
         if result.winner_id == tire_saver.id {
@@ -394,12 +403,13 @@ fn test_incidents_can_generate_dnfs_when_enabled() {
         let mut rng = StdRng::seed_from_u64(seed);
         let ctx = sample_context_with_incidents(50, WeatherCondition::HeavyRain);
         let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-        let result = simulate_race(
+        let result = simulate_race_with_breakdowns(
             &grid,
             &qualifying,
             &ctx,
             &IncidentCatalog::empty(),
             false,
+            None,
             &mut rng,
         );
 
@@ -427,12 +437,13 @@ fn test_race_result_tracks_total_incidents() {
     let mut rng = StdRng::seed_from_u64(999);
     let ctx = sample_context_with_incidents(45, WeatherCondition::Wet);
     let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-    let result = simulate_race(
+    let result = simulate_race_with_breakdowns(
         &grid,
         &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
+        None,
         &mut rng,
     );
 
@@ -513,12 +524,13 @@ fn test_dnf_gap_never_negative() {
         let mut rng = StdRng::seed_from_u64(seed);
         let ctx = sample_context_with_incidents(40, WeatherCondition::Wet);
         let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
-        let result = simulate_race(
+        let result = simulate_race_with_breakdowns(
             &grid,
             &qualifying,
             &ctx,
             &IncidentCatalog::empty(),
             false,
+            None,
             &mut rng,
         );
 
@@ -554,8 +566,7 @@ fn test_endurance_more_tire_degradation_than_sprint() {
 
     let endurance_profile =
         resolve_simulation_profile("endurance", 288, 25.0, WeatherCondition::Dry, 0, 10);
-    let gt4_profile =
-        resolve_simulation_profile("gt4", 47, 25.0, WeatherCondition::Dry, 30, 12);
+    let gt4_profile = resolve_simulation_profile("gt4", 47, 25.0, WeatherCondition::Dry, 30, 12);
 
     assert!(
         endurance_profile.tire_degradation_rate > gt4_profile.tire_degradation_rate,
@@ -609,50 +620,27 @@ fn volta_cai_no_segmento_certo() {
 }
 
 #[test]
-fn com_a_quebra_desligada_a_corrida_e_identica_a_de_antes() {
-    // `None` tem que ser byte-a-byte o caminho antigo — incidentes LIGADOS de propósito,
-    // pra cobrir também a pane do catálogo e a ordem de consumo do RNG.
+fn com_a_quebra_desligada_nenhuma_pane_e_cobrada() {
+    // `None` = a Fase 7 não roda nesta corrida (rascunho histórico, grid sintético). Incidentes
+    // LIGADOS de propósito: a pane do catálogo continua sendo a fonte de falha mecânica, mas
+    // nada entra em `applied_mechanicals`.
     let grid = build_grid();
     let ctx = sample_context_with_incidents(30, WeatherCondition::Dry);
 
-    let mut rng_novo = StdRng::seed_from_u64(77);
-    let q_novo = simulate_qualifying(&grid, &ctx, &mut rng_novo);
-    let novo = simulate_race_with_breakdowns(
+    let mut rng = StdRng::seed_from_u64(77);
+    let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
+    let result = simulate_race_with_breakdowns(
         &grid,
-        &q_novo,
+        &qualifying,
         &ctx,
         &IncidentCatalog::empty(),
         false,
         None,
-        &mut rng_novo,
+        &mut rng,
     );
 
-    let mut rng_antigo = StdRng::seed_from_u64(77);
-    let q_antigo = simulate_qualifying(&grid, &ctx, &mut rng_antigo);
-    let antigo = simulate_race(
-        &grid,
-        &q_antigo,
-        &ctx,
-        &IncidentCatalog::empty(),
-        false,
-        &mut rng_antigo,
-    );
-
-    let resumo = |r: &RaceResult| -> Vec<(String, i32, bool, i32)> {
-        r.race_results
-            .iter()
-            .map(|e| {
-                (
-                    e.pilot_id.clone(),
-                    e.finish_position,
-                    e.is_dnf,
-                    e.incidents_count,
-                )
-            })
-            .collect()
-    };
-    assert_eq!(resumo(&novo), resumo(&antigo));
-    assert!(novo.applied_mechanicals.is_empty());
+    assert!(result.applied_mechanicals.is_empty());
+    assert_eq!(result.race_results.len(), grid.len());
 }
 
 #[test]
@@ -663,7 +651,10 @@ fn quebra_com_dnf_tira_o_carro_e_registra_a_peca_como_motivo() {
         .iter()
         .find(|r| r.pilot_id == "003")
         .expect("piloto no resultado");
-    assert!(entry.is_dnf, "a quebra deveria ter encerrado a corrida dele");
+    assert!(
+        entry.is_dnf,
+        "a quebra deveria ter encerrado a corrida dele"
+    );
     assert_eq!(entry.dnf_reason.as_deref(), Some("câmbio travou na 3ª"));
     assert_eq!(result.applied_mechanicals, vec![0]);
 }
@@ -676,9 +667,15 @@ fn reparo_custa_exatamente_os_segundos_perdidos() {
     const SECS: u32 = 15;
     const ALVO: &str = "006";
     let (limpo, _) = race_with(&[], 99);
-    assert_ne!(limpo.winner_id, ALVO, "o alvo do teste não pode ser o líder");
+    assert_ne!(
+        limpo.winner_id, ALVO,
+        "o alvo do teste não pode ser o líder"
+    );
     let (penalizado, _) = race_with(&[mech(ALVO, 6, false, SECS)], 99);
-    assert_eq!(penalizado.winner_id, limpo.winner_id, "o líder não pode mudar");
+    assert_eq!(
+        penalizado.winner_id, limpo.winner_id,
+        "o líder não pode mudar"
+    );
 
     let antes = limpo
         .race_results
@@ -726,10 +723,7 @@ fn reparo_pesado_custa_posicao() {
 fn carro_ja_fora_por_batida_nao_registra_a_quebra() {
     // Duas quebras no MESMO piloto: a primeira (volta 3, DNF) o tira; a segunda (volta 10)
     // não pode ser cobrada nem registrada — a peça largaria num carro que não está mais lá.
-    let (result, _) = race_with(
-        &[mech("007", 3, true, 0), mech("007", 10, false, 12)],
-        13,
-    );
+    let (result, _) = race_with(&[mech("007", 3, true, 0), mech("007", 10, false, 12)], 13);
     assert_eq!(
         result.applied_mechanicals,
         vec![0],
@@ -792,10 +786,12 @@ fn quebra_vale_mesmo_com_incidentes_desligados() {
     let ctx = sample_context(30, WeatherCondition::Dry);
     assert!(!ctx.incidents_enabled);
     let (result, _) = race_with(&[mech("005", 8, true, 0)], 44);
-    assert!(result
-        .race_results
-        .iter()
-        .find(|r| r.pilot_id == "005")
-        .unwrap()
-        .is_dnf);
+    assert!(
+        result
+            .race_results
+            .iter()
+            .find(|r| r.pilot_id == "005")
+            .unwrap()
+            .is_dnf
+    );
 }

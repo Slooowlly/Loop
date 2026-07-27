@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   CartesianGrid,
   Line,
@@ -10,6 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AXIS_TICK, BAD, GOOD, GRID, YELLOW } from "../../utils/chartTheme";
 
 // Race trace COMPARTILHADO (posição/gap por volta, uma linha por carro), usado pelo
 // pós-corrida da carreira, pelo pós real do iRacing e pelo overlay ao vivo. O MIOLO é
@@ -31,12 +33,6 @@ import {
 //   playerPins   [{ key, x, y, color, kind }]
 //   bestLapPin   { x, y } | null
 //   tickFontSize número                     (10 no overlay menor, 11 nos painéis)
-
-const AXIS_TICK = "#94a3b8";
-const GRID = "rgba(255,255,255,0.07)";
-const YELLOW = "#facc15";
-const GOOD = "#22c55e";
-const BAD = "#ef4444";
 
 // Rótulo das linhas verticais (★ melhor momento / ✕ erro mais caro) COM tooltip nativo:
 // um <title> + uma área de hover transparente larga pra ficar fácil de mirar.
@@ -100,6 +96,26 @@ function RaceTraceChart({
   bestLapPin = null,
   tickFontSize = 11,
 }) {
+  // Eixo X: as voltas do trace são FRACIONÁRIAS (volta do líder + progresso dele),
+  // então um domínio numérico exato faz o recharts interpolar os ticks a partir das
+  // pontas e imprimir coisas como "4.000019819304725". Arredondamos o domínio para
+  // inteiros e ditamos os ticks — o dado continua fracionário, só o rótulo é inteiro.
+  const lapAxis = useMemo(() => {
+    const nums = (rows ?? []).map((r) => r.lap).filter((v) => Number.isFinite(v));
+    const rawMin = typeof lapDomain?.[0] === "number" ? lapDomain[0] : Math.min(...nums);
+    const rawMax = typeof lapDomain?.[1] === "number" ? lapDomain[1] : Math.max(...nums);
+    if (!Number.isFinite(rawMin) || !Number.isFinite(rawMax) || rawMax < rawMin) {
+      return { domain: lapDomain, ticks: undefined };
+    }
+    const min = Math.max(0, Math.floor(rawMin));
+    const max = Math.max(min + 1, Math.ceil(rawMax));
+    const step = Math.max(1, Math.ceil((max - min) / 8));
+    const ticks = [];
+    for (let v = min; v <= max; v += step) ticks.push(v);
+    if (ticks[ticks.length - 1] !== max) ticks.push(max);
+    return { domain: [min, max], ticks };
+  }, [rows, lapDomain]);
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={rows} margin={{ top: 12, right: 12, bottom: 18, left: 4 }}>
@@ -132,7 +148,8 @@ function RaceTraceChart({
         <XAxis
           type="number"
           dataKey="lap"
-          domain={lapDomain}
+          domain={lapAxis.domain}
+          ticks={lapAxis.ticks}
           allowDecimals={false}
           tick={{ fill: AXIS_TICK, fontSize: tickFontSize }}
           stroke={GRID}

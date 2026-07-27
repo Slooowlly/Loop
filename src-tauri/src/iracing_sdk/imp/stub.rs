@@ -1,7 +1,27 @@
 //! Stub fora do Windows: tudo devolve [`IracingError::Unsupported`], para a lib
 //! continuar compilando em qualquer SO.
 
-use crate::iracing_sdk::{IracingError, IracingSession, IracingTelemetry};
+use crate::iracing_sdk::{
+    DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry, Veredito,
+};
+
+/// Fora do Windows não há SDK — o diagnóstico diz isso sem fingir que mediu algo.
+pub fn diagnosticar() -> DiagnosticoIracing {
+    DiagnosticoIracing {
+        veredito: Veredito::NaoSuportado,
+        memoria_ok: false,
+        memoria_nome: None,
+        memoria_erro: 0,
+        janela_encontrada: false,
+        janela_simulador: false,
+        status: None,
+        num_vars: None,
+        session_info_len: None,
+        elevado: false,
+        ticks_observados: crate::iracing_sdk::ticks_observados(),
+        log_caminho: crate::diagnostico::caminho().map(|p| p.to_string_lossy().to_string()),
+    }
+}
 
 pub fn read_session() -> Result<IracingSession, IracingError> {
     Err(IracingError::Unsupported)

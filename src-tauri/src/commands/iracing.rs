@@ -15,6 +15,8 @@ mod adaptativo;
 mod clima;
 #[path = "iracing/controle_corrida.rs"]
 mod controle_corrida;
+#[path = "iracing/diagnostico.rs"]
+mod diagnostico;
 #[path = "iracing/corridas_salvas.rs"]
 mod corridas_salvas;
 #[path = "iracing/importacao.rs"]
@@ -38,6 +40,7 @@ pub use adaptativo::*;
 pub use clima::*;
 pub use controle_corrida::*;
 pub use corridas_salvas::*;
+pub use diagnostico::*;
 pub use importacao::*;
 pub use pintura::*;
 pub use previsao_quebras::*;

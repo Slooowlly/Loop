@@ -1,6 +1,6 @@
 [package]
 name = "loop"
-version = "0.13.1"
+version = "0.13.2"
 description = "Loop"
 authors = ["you"]
 edition = "2021"
@@ -34,6 +34,9 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # i18n do backend (texto determinístico + "fatos" pra IA). Locale global setado
 # do config.language no boot e na troca em Settings. Ver docs/i18n-translation-spec.md.
 rust-i18n = "3"
+# Compressão do gravador de corrida (debug): o JSONL cru passa de 200 MB em 15 min
+# de captura a 60 Hz. Ver iracing_sdk/race_capture.rs.
+flate2 = "1.1"
 
 # Testes que dependem do LOCALE global (prosa i18n do backend) precisam rodar
 # serializados: o locale do rust-i18n é um estado de processo. `#[serial]` garante
@@ -55,6 +58,10 @@ winapi = { version = "0.3", features = [
     "windef",
     "processthreadsapi",
     "winuser",
+    # Elevação do processo no diagnóstico do iRacing: sem saber se rodamos como
+    # administrador, "acesso negado" à memória do SDK fica sem explicação.
+    "securitybaseapi",
+    "winnt",
     "combaseapi",
     "knownfolders",
     "shlobj",

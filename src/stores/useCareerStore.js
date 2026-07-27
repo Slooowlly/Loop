@@ -27,6 +27,10 @@ const useCareerStore = create((set, get) => ({
   // Mora na raiz do store por ser transversal (nenhum domínio a reivindica).
   showChampionOverlay: (data = null) => set({ championOverlay: data ?? { demo: true } }),
   hideChampionOverlay: () => set({ championOverlay: null }),
+
+  // Categoria em exibição na Home → banner do topo acompanha (ver `homeCategory`).
+  // Também transversal: quem escreve é a StandingsTab, quem lê é o Header.
+  setHomeCategory: (category) => set({ homeCategory: category ?? null }),
 }));
 
 export default useCareerStore;

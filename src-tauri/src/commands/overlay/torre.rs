@@ -6,9 +6,10 @@ use serde::Serialize;
 
 use super::formato::{
     best_positive_lap, compound_str, dbg_state, fmt_lap, history_matches_subsession, name_key,
-    parse_session_types, roster_with_telemetry, session_kind, tower_order_key,
-    wetness_to_condition, NEUTRAL_TEAM_COLOR,
+    parse_session_types, roster_with_telemetry, session_kind, wetness_to_condition,
+    NEUTRAL_TEAM_COLOR,
 };
+use super::ordem::{modo_da_sessao, ordem_pre_sessao, ordenar, OrderInput, PreSinal};
 use crate::config::app_config::AppConfig;
 use crate::constants::scoring;
 use crate::db::connection::Database;
@@ -89,6 +90,16 @@ pub struct OverlayClass {
     cars: Vec<OverlayCar>,
 }
 
+/// O que a torre precisa saber de um piloto do lado da CARREIRA (o join do save).
+/// Fica de fora do `OverlayCar` porque nada disto vai pro front — só ordena.
+struct DriverInfo {
+    nome: String,
+    pontos: i32,
+    equipe: String,
+    cor: String,
+    pre: PreSinal,
+}
+
 #[derive(Serialize)]
 pub struct OverlayData {
     session: OverlaySession,
@@ -131,6 +142,14 @@ pub fn get_overlay_data(
         history_matches_subsession(history.subsession_id, current_subsession_id);
     let is_green = race_monitor::poll().is_green;
 
+    // Tipo de sessão (do YAML) — precisa vir ANTES do cruzamento: ele decide o critério
+    // de ordenação da torre e se a estratégia de pneu vale (só em CORRIDA).
+    let yaml = crate::iracing_sdk::read_session()
+        .map(|s| s.session_yaml)
+        .unwrap_or_default();
+    let kind = session_kind(&parse_session_types(&yaml), tele.session_num);
+    let is_race = kind == "R";
+
     // Posição no grid (delta desde a largada) vem do histórico, quando já existe.
     let grid_by_idx: HashMap<i32, i32> = if history_is_current {
         history
@@ -142,8 +161,12 @@ pub fn get_overlay_data(
         HashMap::new()
     };
 
-    // Estratégia de pneu por CarIdx (stints + nº de trocas).
-    let tire_by_idx: HashMap<i32, tire_strategy::CarTireStrategy> = if history_is_current {
+    // Estratégia de pneu por CarIdx (stints + nº de trocas). SÓ em corrida: em treino
+    // e classificatória os carros começam PARADOS na caixa e saem pra pista, o que a
+    // inferência leria como uma parada de box gigante — a coluna de pneu vinha cheia
+    // de stints fantasmas antes mesmo da largada.
+    let tire_by_idx: HashMap<i32, tire_strategy::CarTireStrategy> = if is_race && history_is_current
+    {
         tire_strategy::infer_all(&history.pit_stops, history.weather.clone())
             .into_iter()
             .map(|s| (s.car_idx, s))
@@ -199,8 +222,8 @@ pub fn get_overlay_data(
         m
     };
 
-    // Resolve driver_id → (nome, pontos, time, cor).
-    let resolve = |driver_id: &str| -> Option<(String, i32, String, String)> {
+    // Resolve driver_id → o que a torre mostra do piloto na carreira.
+    let resolve = |driver_id: &str| -> Option<DriverInfo> {
         let d = dq::get_driver(&db.conn, driver_id).ok()?;
         let team = cq::get_active_contract_for_pilot(&db.conn, driver_id)
             .ok()
@@ -212,7 +235,21 @@ pub fn get_overlay_data(
             .map(|t| t.cor_primaria.clone())
             .filter(|c| !c.is_empty())
             .unwrap_or_else(|| NEUTRAL_TEAM_COLOR.to_string());
-        Some((d.nome, d.stats_temporada.pontos.round() as i32, team_name, color))
+        let temp = &d.stats_temporada;
+        Some(DriverInfo {
+            pontos: temp.pontos.round() as i32,
+            pre: PreSinal {
+                corridas_temporada: temp.corridas as i32,
+                pontos: temp.pontos.round() as i32,
+                vitorias: temp.vitorias as i32,
+                podios: temp.podios as i32,
+                expectativa: crate::commands::season_preview::perception_score(&d),
+                conhecido: true,
+            },
+            nome: d.nome,
+            equipe: team_name,
+            cor: color,
+        })
     };
 
     // Join de RESERVA nome→driver_id, montado SOB DEMANDA (só quando algum carro falha
@@ -231,14 +268,6 @@ pub fn get_overlay_data(
     let cam_is_valid =
         cam_idx >= 0 && feedback.cars_yaml_meta.iter().any(|m| m.idx == cam_idx && !m.is_pace);
     let focus_idx = if cam_is_valid { cam_idx } else { player_idx };
-
-    // Tipo de sessão (do YAML) — necessário ANTES do loop: o grid da qualy só é
-    // usado pra ordenar fora de treino livre ("P"), onde o `qualy_laps` pode ser
-    // resto de outro fim de semana.
-    let yaml = crate::iracing_sdk::read_session()
-        .map(|s| s.session_yaml)
-        .unwrap_or_default();
-    let kind = session_kind(&parse_session_types(&yaml), tele.session_num);
 
     // Melhor volta registrada da sessão atual: quali alimenta apenas Q, histórico
     // da corrida alimenta apenas R. Treino não reutiliza dados potencialmente stale.
@@ -294,8 +323,9 @@ pub fn get_overlay_data(
         race_monitor::get_breakdown_flashes().into_iter().collect();
 
     // ── Monta carros, agrupados por classe (class_id) ──
-    // (carro, melhor_volta_s, chave_pra_nao_classificado)
-    let mut by_class: HashMap<i64, Vec<(OverlayCar, f64, (i64, i64))>> = HashMap::new();
+    // (carro, melhor_volta_s, entrada de ordenação, posição de largada, sinal prévio)
+    let mut by_class: HashMap<i64, Vec<(OverlayCar, f64, OrderInput, i32, PreSinal)>> =
+        HashMap::new();
     let mut class_label: HashMap<i64, String> = HashMap::new();
     // Diagnóstico do funil. `sem_piloto_fallback` não descarta mais nada: mede quantos
     // carros entraram com identidade do SDK por não terem casado com a carreira — se vier
@@ -372,7 +402,7 @@ pub fn get_overlay_data(
             }
         }
 
-        let (driver_id, (name, points, team, color)) = match matched {
+        let (driver_id, info) = match matched {
             Some((id, t)) => (Some(id), t),
             None => {
                 // O carro EXISTE na pista: não pode sumir da torre só porque não achamos
@@ -383,21 +413,24 @@ pub fn get_overlay_data(
                 sem_piloto_fallback += 1;
                 (
                     None,
-                    (
-                        sdk_name
+                    DriverInfo {
+                        nome: sdk_name
                             .map(str::to_string)
                             .unwrap_or_else(|| format!("#{}", meta.car_number)),
-                        0,
-                        String::new(),
-                        NEUTRAL_TEAM_COLOR.to_string(),
-                    ),
+                        pontos: 0,
+                        equipe: String::new(),
+                        cor: NEUTRAL_TEAM_COLOR.to_string(),
+                        // Sem dono na carreira não há campeonato nem expectativa: este
+                        // carro fica atrás de quem tem hierarquia, ordenado pelo número.
+                        pre: PreSinal::default(),
+                    },
                 )
             }
         };
         if class_pos <= 0 {
             sem_pos_incluido += 1;
         }
-        if driver_id.is_some() && team.is_empty() {
+        if driver_id.is_some() && info.equipe.is_empty() {
             sem_equipe += 1;
         }
 
@@ -448,38 +481,39 @@ pub fn get_overlay_data(
             .unwrap_or_default();
 
         let grid_pos = grid_by_idx.get(&meta.idx).copied().unwrap_or(0);
-        let delta = if class_pos > 0 && grid_pos > 0 {
-            grid_pos - class_pos
-        } else {
-            0
-        };
-        let gain = if class_pos > 0 {
-            scoring::get_points_for_position(class_pos.clamp(0, 255) as u8, is_endurance) as i32
-        } else {
-            0
-        };
 
         class_label
             .entry(meta.class_id)
             .or_insert_with(|| feedback.class_names.get(&meta.class_id).cloned().unwrap_or_default());
 
-        // Chave p/ não-classificado: melhor tempo da qualy (grid) → nº do carro.
-        let unclass_key = (
-            qualy_best_ms.get(&meta.idx).copied().unwrap_or(i64::MAX),
-            meta.car_number as i64,
-        );
+        // Tudo que a ordenação da torre precisa deste carro. A posição/delta/pontos
+        // ficam em 0 aqui: só existem depois de a classe inteira ser ordenada.
+        let order_input = OrderInput {
+            class_position: class_pos,
+            lap_completed: car.map(|s| s.lap_completed).unwrap_or(-1),
+            lap_dist_pct: car.map(|s| s.lap_dist_pct).unwrap_or(-1.0),
+            best_lap_ms: if best_lap > 0.0 {
+                (best_lap * 1000.0).round() as i64
+            } else {
+                i64::MAX
+            },
+            qualy_best_ms: qualy_best_ms.get(&meta.idx).copied().unwrap_or(i64::MAX),
+            // Preenchido depois: a ordem prévia é relativa aos outros carros da CLASSE.
+            pre_ordem: i64::MAX,
+            car_number: meta.car_number as i64,
+        };
 
         by_class.entry(meta.class_id).or_default().push((
             OverlayCar {
-                pos: class_pos.max(0),
-                name,
-                team,
-                color,
-                delta,
+                pos: 0,
+                name: info.nome,
+                team: info.equipe,
+                color: info.cor,
+                delta: 0,
                 stops,
                 tire_history,
-                points,
-                gain,
+                points: info.pontos,
+                gain: 0,
                 fastest: fmt_lap(best_lap),
                 fol: false, // definido após agrupar
                 pit: car.map(|snapshot| snapshot.on_pit_road).unwrap_or(false),
@@ -500,7 +534,9 @@ pub fn get_overlay_data(
                 tire_compound: car.map(|snapshot| snapshot.tire_compound).unwrap_or(-1),
             },
             best_lap,
-            unclass_key,
+            order_input,
+            grid_pos,
+            info.pre,
         ));
     }
 
@@ -516,26 +552,55 @@ pub fn get_overlay_data(
         return Ok(None);
     }
 
-    // Ordena cada classe (posição oficial → grid da qualy → número) e marca a
-    // volta mais rápida da classe.
+    // Ordena cada classe pelo critério do MOMENTO (ver `ordem.rs`): tempo em treino/
+    // quali, grid antes do verde, progresso real na pista com a corrida rolando e a
+    // posição oficial depois da bandeirada. A posição mostrada é o lugar nessa ordem —
+    // não o `CarIdxClassPosition` cru, que só se move quando o carro cruza a linha.
+    let modo = modo_da_sessao(kind, tele.session_state);
     let mut classes: Vec<OverlayClass> = Vec::new();
     for (class_id, mut cars) in by_class {
-        cars.sort_by_key(|(c, _, key)| tower_order_key(c.pos, key));
+        // Ordem de ANTES do tempo (campeonato / expectativa de pré-temporada): é o
+        // desempate de todo mundo que ainda não marcou volta — sem ela a torre da
+        // classificatória começa numa fila por número de carro.
+        let previa = ordem_pre_sessao(
+            &cars.iter().map(|(_, _, _, _, pre)| *pre).collect::<Vec<_>>(),
+        );
+        let inputs: Vec<OrderInput> = cars
+            .iter()
+            .enumerate()
+            .map(|(i, (_, _, input, _, _))| OrderInput {
+                pre_ordem: previa[i],
+                ..*input
+            })
+            .collect();
+        let ordem = ordenar(modo, &inputs);
+        let mut rank = vec![0usize; cars.len()];
+        for (lugar, &i) in ordem.iter().enumerate() {
+            rank[i] = lugar;
+        }
+        // Agora que a posição existe, derivam-se dela o delta pro grid e os pontos.
+        for (i, (c, _, _, grid_pos, _)) in cars.iter_mut().enumerate() {
+            c.pos = rank[i] as i32 + 1;
+            c.delta = if *grid_pos > 0 { *grid_pos - c.pos } else { 0 };
+            c.gain =
+                scoring::get_points_for_position(c.pos.clamp(0, 255) as u8, is_endurance) as i32;
+        }
         // volta mais rápida da classe (menor tempo positivo)
         if let Some((best_i, _)) = cars
             .iter()
             .enumerate()
-            .filter(|(_, (_, secs, _))| *secs > 0.0)
+            .filter(|(_, (_, secs, _, _, _))| *secs > 0.0)
             .min_by(|a, b| a.1 .1.partial_cmp(&b.1 .1).unwrap())
         {
             cars[best_i].0.fol = true;
         }
+        cars.sort_by_key(|(c, _, _, _, _)| c.pos);
         let label = class_label.get(&class_id).cloned().unwrap_or_default();
         let id = label.trim().to_lowercase().replace(' ', "");
         classes.push(OverlayClass {
             id,
             label: label.trim().to_uppercase(),
-            cars: cars.into_iter().map(|(c, _, _)| c).collect(),
+            cars: cars.into_iter().map(|(c, _, _, _, _)| c).collect(),
         });
     }
 

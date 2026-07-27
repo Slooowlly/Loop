@@ -22,6 +22,8 @@ mod avisos;
 mod demo;
 #[path = "overlay/formato.rs"]
 mod formato;
+#[path = "overlay/ordem.rs"]
+mod ordem;
 #[path = "overlay/radio.rs"]
 mod radio;
 #[path = "overlay/tipos.rs"]

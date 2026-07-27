@@ -22,6 +22,46 @@
       "on": "Ligada — joga amarela sozinho em acidentes contra a IA.",
       "off": "Joga bandeira amarela sozinho em acidentes contra a IA."
     },
+    "iracingDiag": {
+      "title": "Diagnóstico do iRacing",
+      "desc": "Confere a conexão com o simulador e gera um log para reportar problemas.",
+      "check": "Verificar",
+      "checking": "Verificando",
+      "details": "Detalhes técnicos",
+      "openLog": "Abrir pasta do log",
+      "copyLog": "Copiar log",
+      "logCopied": "Log copiado para a área de transferência.",
+      "sendTitle": "Enviar log para o desenvolvedor",
+      "sendPrivacy": "Envia o final do log, a versão do app e o resultado desta verificação. Seu nome de usuário do Windows é removido dos caminhos. Nada é enviado sem você clicar.",
+      "sendNotePlaceholder": "O que estava acontecendo? (opcional)",
+      "send": "Enviar",
+      "sending": "Enviando",
+      "sentTicket": "Enviado. Informe este código no relato:",
+      "fieldMemory": "memória do SDK",
+      "fieldError": "código",
+      "fieldWindow": "janela do iRacing",
+      "fieldSimulator": "simulador",
+      "fieldTicks": "amostras lidas",
+      "fieldElevated": "como administrador",
+      "veredito": {
+        "ok": "Conectado — telemetria chegando normalmente.",
+        "sim_fechado": "Simulador fechado.",
+        "so_launcher": "Só a interface do iRacing está aberta.",
+        "sessao_nao_pronta": "Simulador conectando — sessão ainda não está pronta.",
+        "acesso_negado": "O Windows negou acesso à memória do simulador.",
+        "sim_sem_sdk": "Simulador aberto, mas não está publicando telemetria.",
+        "nao_suportado": "O SDK do iRacing só funciona no Windows."
+      },
+      "acao": {
+        "ok": "Nada a fazer. Se alguma tela ainda aparecer zerada, copie o log e envie no relato.",
+        "sim_fechado": "Estado normal. Abra o simulador e entre numa sessão para o Loop começar a ler.",
+        "so_launcher": "Estado normal. A interface sozinha não publica dados — entre na pista para conectar.",
+        "sessao_nao_pronta": "Aguarde alguns segundos na pista e verifique de novo.",
+        "acesso_negado": "Isso acontece quando o simulador roda como administrador e o Loop não. Feche o Loop e abra com o botão direito → Executar como administrador.",
+        "sim_sem_sdk": "Verifique se o antivírus está bloqueando o Loop e se o simulador está atualizado. Copie o log e envie no relato.",
+        "nao_suportado": "Nenhuma ação disponível neste sistema."
+      }
+    },
     "save": "Salvar",
     "saving": "Salvando",
     "applying": "Aplicando configurações...",
@@ -69,6 +109,9 @@
       "calendarV2": "V2",
       "calendarV3": "V3"
     }
+  },
+  "iracingSemDados": {
+    "aviso": "O Loop não conseguiu ler o iRacing nenhuma vez desde que o app abriu — esta tela pode estar vazia por causa disso, e não pelo que aconteceu na corrida. Verifique em Configurações › Diagnóstico do iRacing."
   },
   "difficulty": {
     "facil": "Fácil",
@@ -1457,6 +1500,25 @@
       "payrollWeight": "Peso na folha",
       "noDriverData": "Piloto ainda sem dados detalhados"
     },
+    "garage": {
+      "eyebrow": "Política interna",
+      "title": "Clima da garagem",
+      "tension": "Tensão interna",
+      "moraleWarning": "Tensão alta já pesa na moral da equipe no fim da temporada.",
+      "n1": "Piloto nº 1",
+      "n2": "Piloto nº 2",
+      "invertedNote": "A ordem da garagem virou no meio da temporada.",
+      "inversions_one": "{{count}} inversão nesta temporada",
+      "inversions_other": "{{count}} inversões nesta temporada",
+      "climate": {
+        "estavel": "Estável",
+        "competitivo": "Competitivo",
+        "tensao": "Tensão",
+        "reavaliacao": "Reavaliação",
+        "inversao": "Inversão",
+        "crise": "Crise"
+      }
+    },
     "tech": {
       "eyebrow": "Operação técnica",
       "title": "Eixos técnicos",
@@ -2389,23 +2451,23 @@
   },
   "header": {
     "trackCountry": {
-      "Estados Unidos": "Estados Unidos",
-      "Japão": "Japão",
-      "Reino Unido": "Reino Unido",
-      "França": "França",
-      "Alemanha": "Alemanha",
-      "Espanha": "Espanha",
-      "Portugal": "Portugal",
-      "Austrália": "Austrália",
-      "Noruega": "Noruega",
-      "Bélgica": "Bélgica",
-      "Itália": "Itália",
-      "Brasil": "Brasil",
-      "México": "México",
-      "Canadá": "Canadá",
-      "Hungria": "Hungria",
-      "Áustria": "Áustria",
-      "Holanda": "Holanda"
+      "us": "Estados Unidos",
+      "jp": "Japão",
+      "gb": "Reino Unido",
+      "fr": "França",
+      "de": "Alemanha",
+      "es": "Espanha",
+      "pt": "Portugal",
+      "au": "Austrália",
+      "no": "Noruega",
+      "be": "Bélgica",
+      "it": "Itália",
+      "br": "Brasil",
+      "mx": "México",
+      "ca": "Canadá",
+      "hu": "Hungria",
+      "at": "Áustria",
+      "nl": "Holanda"
     }
   },
   "newCareer": {

@@ -480,7 +480,7 @@ pub(crate) fn resolve_player_poach(
         .map_err(|e| format!("Falha ao inserir novo contrato do jogador: {e}"))?;
 
     let mut moved = player.clone();
-    moved.categoria_atual = Some(suitor.categoria.clone());
+    moved.mover_para_categoria(Some(suitor.categoria.clone()));
     driver_queries::update_driver(conn, &moved)
         .map_err(|e| format!("Falha ao mover jogador de equipe: {e}"))?;
 

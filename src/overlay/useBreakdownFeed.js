@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { estaNoTauri } from "../lib/tauri";
 
 // Puxa o feed de quebras ao vivo (`get_breakdown_feed`) e devolve a mensagem mais NOVA
 // que ainda não foi mostrada (por id crescente). null quando não há novidade.
@@ -7,15 +8,13 @@ import { invoke } from "@tauri-apps/api/core";
 // Na 1ª leitura só "prima" o cursor (não reexibe quebras que já aconteceram antes do
 // overlay abrir) — a partir daí, cada quebra nova aparece uma vez.
 
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
 export function useBreakdownFeed(careerId, { intervalMs = 700 } = {}) {
   const [message, setMessage] = useState(null);
   const seenRef = useRef(-1); // maior id já exibido
   const primedRef = useRef(false); // já ancorou o cursor na 1ª leitura?
 
   useEffect(() => {
-    if (!IN_TAURI || !careerId) return undefined;
+    if (!estaNoTauri() || !careerId) return undefined;
     // Cada carreira recomeça o cursor.
     seenRef.current = -1;
     primedRef.current = false;
@@ -63,7 +62,7 @@ export function usePlayerWarnings(active, { intervalMs = 800 } = {}) {
   const primedRef = useRef(false);
 
   useEffect(() => {
-    if (!IN_TAURI || !active) {
+    if (!estaNoTauri() || !active) {
       setMessage(null);
       return undefined;
     }
@@ -108,7 +107,7 @@ export function useChatSendBlocked(active, { intervalMs = 1500 } = {}) {
   const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
-    if (!IN_TAURI || !active) {
+    if (!estaNoTauri() || !active) {
       setBlocked(false);
       return undefined;
     }

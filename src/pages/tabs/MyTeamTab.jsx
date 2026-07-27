@@ -6,9 +6,10 @@ import CommandHeader from "../../components/team/myteam/CommandHeader";
 import CostChart from "../../components/team/myteam/CostChart";
 import DriverPanel from "../../components/team/myteam/DriverPanel";
 import FinanceDossier from "../../components/team/myteam/FinanceDossier";
+import GaragePanel from "../../components/team/myteam/GaragePanel";
 import RankingTable from "../../components/team/myteam/RankingTable";
 import TechPanel from "../../components/team/myteam/TechPanel";
-import { buildDriverRow } from "../../components/team/myteam/teamMetrics";
+import { buildDriverRow, garageClimate, resolveHierarchy } from "../../components/team/myteam/teamMetrics";
 import useCareerStore from "../../stores/useCareerStore";
 import i18n from "../../i18n/index.js";
 
@@ -58,13 +59,17 @@ function MyTeamTab() {
     };
   }, [careerId, playerTeam?.categoria, playerTeam?.id]);
 
-  const piloto1 = drivers.find((driver) => driver.id === playerTeam?.piloto_1_id);
-  const piloto2 = drivers.find((driver) => driver.id === playerTeam?.piloto_2_id);
+  // A dupla sai da HIERARQUIA da garagem, não da ordem dos assentos: depois de uma
+  // inversão no meio da temporada, quem ocupa o slot 1 pode já não ser o N1.
+  const hierarchy = resolveHierarchy(playerTeam);
+  const pilotoN1 = drivers.find((driver) => driver.id === hierarchy.n1Id);
+  const pilotoN2 = drivers.find((driver) => driver.id === hierarchy.n2Id);
   const standing = teams.find((team) => team.id === playerTeam?.id);
   const driverRows = [
-    buildDriverRow("N1", piloto1, playerTeam, player?.id),
-    buildDriverRow("N2", piloto2, playerTeam, player?.id),
+    buildDriverRow("N1", pilotoN1, playerTeam, player?.id, hierarchy.n1Slot),
+    buildDriverRow("N2", pilotoN2, playerTeam, player?.id, hierarchy.n2Slot),
   ];
+  const climate = garageClimate(playerTeam);
 
   return (
     <div className="space-y-5">
@@ -79,6 +84,14 @@ function MyTeamTab() {
       <div className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
         <div className="space-y-5" data-testid="my-team-side-rail">
           <DriverPanel drivers={driverRows} salaryCeiling={playerTeam?.salary_ceiling ?? 0} />
+          {hierarchy.hasData ? (
+            <GaragePanel
+              climate={climate}
+              n1Name={driverRows[0].name}
+              n2Name={driverRows[1].name}
+              inverted={hierarchy.inverted}
+            />
+          ) : null}
           <TechPanel team={playerTeam} activeAxis={activeAxis} setActiveAxis={setActiveAxis} />
           <CostChart report={financeReport} />
         </div>

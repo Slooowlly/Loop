@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { tireCompoundKind } from "../../overlay/tireCompounds";
+import { estaNoTauri } from "../../lib/tauri";
 
 // Painel PRÉ-CORRIDA de "Composto de largada": lista, por classe, qual pneu cada carro
 // (inclusive a IA) escolheu — lido ao vivo do `CarIdxTireCompound` do iRacing (a mesma info
@@ -11,8 +12,6 @@ import { tireCompoundKind } from "../../overlay/tireCompounds";
 // O composto vem como ÍNDICE 0-based por série (-1 = desconhecido); o mapa índice→nome fica
 // em `tireCompounds.js` (macio/médio/duro/seco/chuva, por categoria + fallback). Reusa o
 // mesmo dado da torre (`get_overlay_data`).
-
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // Estilo (ícone + cores) por composto. Slicks seguem a convenção de cor (macio quente →
 // duro claro); seco/chuva mantêm o sol/chuva de antes.
@@ -46,7 +45,7 @@ export default function StartingCompoundsPanel({ careerId }) {
   const [classes, setClasses] = useState(null);
 
   useEffect(() => {
-    if (!IN_TAURI || !careerId) return undefined;
+    if (!estaNoTauri() || !careerId) return undefined;
     let alive = true;
     const tick = async () => {
       try {

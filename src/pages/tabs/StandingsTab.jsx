@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
@@ -33,6 +33,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);
   const acceptedSpecialOffer = useCareerStore((state) => state.acceptedSpecialOffer);
+  const setHomeCategory = useCareerStore((state) => state.setHomeCategory);
   const openSavedRaceScreen = useCareerStore((state) => state.openSavedRaceScreen);
   const forcedSpecialCategory = getForcedSpecialStandingCategory(
     season?.fase,
@@ -110,6 +111,16 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forcedSpecialCategory, viewCategory, seriesId]);
+
+  // Espelha a categoria em exibição para o store, para que o banner cinematográfico
+  // do topo (Header) acompanhe a troca de série/tier e mostre a próxima corrida da
+  // categoria certa. useLayoutEffect roda antes do paint → sem "flash" de banner na
+  // categoria errada ao montar/trocar. Ao desmontar (trocar de aba, pós-corrida etc.)
+  // zera para o banner voltar à categoria do jogador.
+  useLayoutEffect(() => {
+    setHomeCategory(viewCategory);
+  }, [viewCategory, setHomeCategory]);
+  useEffect(() => () => setHomeCategory(null), [setHomeCategory]);
 
   useEffect(() => () => {
     clearDriverClickTimeout();

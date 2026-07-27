@@ -44,7 +44,7 @@ pub(crate) fn sign_driver_to_team(
             .map_err(|e| format!("Falha ao inserir contratacao: {e}"))?;
 
         let mut updated_driver = driver.clone();
-        updated_driver.categoria_atual = Some(vacancy.categoria.clone());
+        updated_driver.mover_para_categoria(Some(vacancy.categoria.clone()));
         driver_queries::update_driver(conn, &updated_driver).map_err(|e| {
             format!(
                 "Falha ao atualizar piloto contratado '{}': {e}",
@@ -123,7 +123,7 @@ pub(super) fn swap_contract_seats(
             .into_iter()
             .find(|driver| driver.id == piloto_id)
         {
-            driver.categoria_atual = Some(destino.categoria.clone());
+            driver.mover_para_categoria(Some(destino.categoria.clone()));
             driver_queries::update_driver(conn, &driver)
                 .map_err(|e| format!("Falha ao atualizar categoria na troca: {e}"))?;
         }
