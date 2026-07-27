@@ -50,6 +50,10 @@ F-06 é desproporcionalmente barato pro risco que remove.
 | D-06 | **`constants/tracks/consultas.rs`** | P | `TODO(design final)`: trocar a consulta por "pistas que o jogador realmente possui". Decisão de design pendente, não bugfix. |
 | D-07 | **Tracks ausentes do DB** | P | `calendar/generator.rs` lista venues marcados `// TODO` que ainda não existem no banco. |
 | D-08 | **`models/driver.rs`** | P | `TODO(migration)` afirmando que o schema já cobre os campos do Módulo 10 — verificar e apagar o comentário, ou agir. |
+| D-09 | **Varredura de acoplamento — lado Rust (R1–R5)** | G | Cinco briefings autocontidos em [varredura-acoplamento/](varredura-acoplamento/): `narrative/` cego com a Etapa B nunca ligada (R1), três motores de tese concorrentes (R2), `public_presence` vs `market/visibility` duplicando tiers (R3), `hierarchy/` com estado rico e sem consumidor (R4), caminhos paralelos vivos só pelos testes (R5). **R1 e R2 tocam os mesmos arquivos — não rodar em paralelo.** Cada briefing pede uma segunda análise antes de virar código: a varredura original foi rasa por design e conta com falsos positivos. |
+
+O lado frontend da varredura (**F1–F4** — helpers de pista/clima, `formatLap` e paleta de gráficos,
+`getReadableTeamColor`, `IN_TAURI`) foi resolvido no commit `2c85f44`.
 
 ---
 
@@ -57,9 +61,10 @@ F-06 é desproporcionalmente barato pro risco que remove.
 
 | id | item | tam | por quê |
 |---|---|---|---|
-| P-01 | **9 arquivos de tela órfãos** | P | `MarketTab`, `DriversTab`, `MyProfileTab`, `PredictionTab`, `OtherCategoriesTab`, `TrophyRoom`, `Archive`, `Rivalries`, `SeasonsHistory` são placeholders de 7–9 linhas sem rota e sem import. Enquanto existirem assim, mentem sobre o estado do app pra quem lê o diretório. Ou viram os `F-xx` acima, ou saem do repo até a hora de escrever de verdade. |
-| P-02 | **Sem rota `/history`** | P | Nenhuma das telas de `pages/history/` está no `App.jsx`. Bloqueia F-03/F-04/F-05. |
-| P-03 | **Árvore de trabalho suja** | P | Dezenas de arquivos modificados não commitados na branch `main-menu-redesign`. Fechar ou empilhar antes de abrir frente nova. |
+| ~~P-01~~ | ~~9 arquivos de tela órfãos~~ | — | **Feito em 2026-07-27.** Removidos os 9 placeholders (`MarketTab`, `DriversTab`, `MyProfileTab`, `PredictionTab`, `OtherCategoriesTab`, `TrophyRoom`, `Archive`, `Rivalries`, `SeasonsHistory`), mais o componente `AppPlaceholder` e o guard `app-placeholder-visual-alignment.test.mjs` que só existiam para eles. `src/pages/history/` deixou de existir. As telas voltam pelo caminho dos `F-xx`, escritas de verdade. |
+| ~~P-02~~ | ~~Sem rota `/history`~~ | — | **Reclassificado.** Não é ponta solta: sem tela de história para rotear, a rota não tem o que apontar. Vira parte do escopo de F-03/F-04/F-05. |
+| ~~P-03~~ | ~~Árvore de trabalho suja~~ | — | **Feito em 2026-07-27** (commit `2c85f44`): 161 arquivos, cinco frentes, com as três suítes verdes antes de commitar. |
+| P-04 | **Chaves i18n órfãs** | P | Removidas as telas do P-01, as chaves `marketTab.*`, `driversTab.*` e afins ficaram sem consumidor em `pt-BR/common.json` e `en-US/common.json`. Deixadas de propósito — voltam a ser usadas nos `F-xx`. Se algum `F-xx` for cancelado, limpar as dele. |
 
 ---
 
