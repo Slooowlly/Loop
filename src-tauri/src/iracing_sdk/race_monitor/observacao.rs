@@ -247,7 +247,14 @@ impl RaceMonitor {
 
         // 4.5) Eventos de sessão/jogador.
         let lap = t.lap_completed;
-        if self.prev_session_state < STATE_RACING
+        // O verde SÓ conta na sessão de corrida. Treino livre e classificatória também
+        // passam por `SessionState = Racing`, e como `race_started_emitted` só reabre em
+        // `start_attempt`, a primeira sessão do fim de semana consumia o gate: a corrida
+        // largava sem tirar snapshot de grid e o `delta` da torre ficava ancorado na
+        // ordem do treino. De quebra, o evento de produto `race_start` também disparava
+        // em treino.
+        if self.in_race_session(t)
+            && self.prev_session_state < STATE_RACING
             && t.session_state >= STATE_RACING
             && t.session_state < STATE_CHECKERED
             && !self.race_started_emitted

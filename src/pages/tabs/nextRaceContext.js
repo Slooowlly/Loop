@@ -94,7 +94,7 @@ export function buildBriefingContext({
   const remainingRounds = Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0));
   const ratedDrivers = buildRatedDrivers(orderedDrivers);
   const favorites = buildFavorites(ratedDrivers, { season, nextRace, briefingPhraseHistory });
-  const audienceEstimate = nextRace?.event_interest?.display_value ?? estimateAudience(nextRace?.event_interest?.tier_label);
+  const audienceEstimate = nextRace?.event_interest?.display_value ?? estimateAudience(nextRace?.event_interest?.tier);
   const totalRounds = Math.max(1, season?.total_rodadas ?? 1);
   const currentRound = Math.max(1, nextRace?.rodada ?? 1);
   const playerCompetitive = ratedDrivers.find((driver) => driver.id === playerStanding?.id) ?? null;

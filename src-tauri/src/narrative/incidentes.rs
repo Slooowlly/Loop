@@ -14,16 +14,6 @@ pub(crate) fn severity_rank(s: IncidentSeverity) -> u8 {
     }
 }
 
-/// "Batida" no sentido do boletim: contato entre carros, ou erro do piloto que passou
-/// de um susto. Falha mecânica NÃO conta — o carro quebrou, ninguém bateu.
-pub(crate) fn is_crash(inc: &IncidentResult) -> bool {
-    match inc.incident_type {
-        IncidentType::Collision => true,
-        IncidentType::DriverError => inc.severity != IncidentSeverity::Minor,
-        IncidentType::Mechanical => false,
-    }
-}
-
 /// Rótulo de ESCALA do incidente. Carrega, no próprio texto, a instrução de
 /// proporcionalidade: um toque leve tem que ser narrado como toque leve. É isto que
 /// impede a IA de transformar um encostão em tragédia.

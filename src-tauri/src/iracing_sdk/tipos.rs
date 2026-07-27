@@ -165,8 +165,10 @@ pub struct IracingTelemetry {
     pub session_time_total: f64,
     /// Tempo restante da sessão em segundos (`SessionTimeRemain`).
     pub session_time_remain: f64,
-    /// Estimativa do iRacing de voltas restantes na sessão (`SessionLapsRemainEx`),
-    /// válida INCLUSIVE em corrida por tempo. -1/0 quando indisponível.
+    /// Voltas restantes na sessão segundo o próprio iRacing (`SessionLapsRemainEx`).
+    /// Só vale em prova por VOLTAS: em prova por tempo o sim manda o sentinela de
+    /// "ilimitado" (32767) e quem quiser um total precisa estimar por tempo/ritmo.
+    /// -1/0 quando indisponível.
     pub session_laps_remain_ex: i32,
     /// Snapshot de TODOS os carros na sessão (lido das variáveis de array
     /// `CarIdx*`). Só os carros presentes (no mundo) entram aqui.

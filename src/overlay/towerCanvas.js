@@ -9,6 +9,7 @@
 
 import { getTeamLogoSrc } from "../components/team/TeamLogoMark";
 import { buildTowerSections, isTeammate, playerTeam } from "./towerRows";
+import { rowKey } from "./towerAnimation";
 import { DEFAULT_THEME } from "./towerThemes";
 import { tireCompoundDryWet } from "./tireCompounds";
 
@@ -95,8 +96,12 @@ const RIVAL_GAP = 4;
 // nunca usa mini — é coisa só do monitor.
 export const MINI_PANEL_W = 208;
 
-// Menos carros na mini: top 2 de cada classe + 2 na frente/2 atrás do jogador.
-export const MINI_SECTION_OPTS = { topN: 2, neighbors: 2, maxRows: 6 };
+// Menos carros na mini: top 2 de cada classe + 3 na frente/3 atrás do jogador.
+// A vizinhança era de 2 e ficava confusa em corrida: com tão pouco contexto em volta,
+// uma ultrapassagem mexia em quase metade das linhas visíveis e não dava pra ler o
+// que tinha acontecido. Custa +2 linhas de altura (60 px) — a mini continua estreita,
+// que é o que define o modo; o que ela ganha é fôlego vertical.
+export const MINI_SECTION_OPTS = { topN: 2, neighbors: 3, maxRows: 6 };
 
 // Métricas de layout por modo. `drawTower` monta uma destas e passa pras funções de
 // desenho, que leem SEMPRE do layout (nunca das consts de largura direto).
@@ -920,6 +925,19 @@ const FLAG_WORDS = {
 };
 const SESSION_WORDS = { R: "RACE", Q: "QUALIFYING", P: "PRACTICE" };
 
+// Relógio da sessão: segundos -> "M:SS", ou "H:MM:SS" quando passa da hora (enduro).
+// Trunca em vez de arredondar, pra o contador não pular pro minuto seguinte antes da
+// hora — 7:59.9 ainda é 7:59.
+export function formatSessionClock(secs) {
+  if (!Number.isFinite(secs) || secs < 0) return "--:--";
+  const total = Math.floor(secs);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
 function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
   const H = SESSION_H;
   const panelW = L.panelW;
@@ -986,23 +1004,31 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
     drawWeatherIcon(ctx, rx - airW - 14, cy1, w.condition);
   }
 
-  // Voltas: LAPS 36/40
+  // Contador do canto direito. Em CORRIDA é a volta (LAPS 36/40). Fora dela é o
+  // RELÓGIO da sessão (TIME 3:12/8:00) — na classificação de 8 min o que importa é
+  // quanto ainda sobra, não em que volta o líder está.
+  const clock = session.type !== "R" && session.durationS > 0;
+  const bigStr = clock ? formatSessionClock(session.elapsedS) : String(session.lap);
+  const tailStr = clock
+    ? `/${formatSessionClock(session.durationS)}`
+    : session.totalLaps > 0
+      ? `/${session.totalLaps}`
+      : ""; // total desconhecido: mostra só a volta, sem "/0"
+
   ctx.textAlign = "right";
   ctx.font = `700 12px ${FONT}`;
   ctx.fillStyle = theme.textMuted;
-  const totalStr = `/${session.totalLaps}`;
-  ctx.fillText(totalStr, rx, cy2);
-  const totalW = ctx.measureText(totalStr).width;
+  ctx.fillText(tailStr, rx, cy2);
+  const tailW = ctx.measureText(tailStr).width;
 
   ctx.font = `800 18px ${FONT}`;
   ctx.fillStyle = theme.text;
-  const lapStr = String(session.lap);
-  ctx.fillText(lapStr, rx - totalW - 2, cy2);
-  const lapW = ctx.measureText(lapStr).width;
+  ctx.fillText(bigStr, rx - tailW - 2, cy2);
+  const bigW = ctx.measureText(bigStr).width;
 
   ctx.font = `700 8px ${FONT}`;
   ctx.fillStyle = theme.textMuted;
-  ctx.fillText("LAPS", rx - totalW - lapW - 8, cy2);
+  ctx.fillText(clock ? "TIME" : "LAPS", rx - tailW - bigW - 8, cy2);
 
   // Dois rótulos que ajudam: "pits" sobre a coluna de pneus e "best" sobre a
   // melhor volta — no chrome do header, acima da linha de acento. Só na completa
@@ -1026,13 +1052,39 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
   ctx.fillRect(0, H - 2, panelW, 2);
 }
 
-function sectionsHeight(sections) {
-  let h = SESSION_H; // o colhead agora vive DENTRO do header
-  sections.forEach((s, i) => {
-    if (i > 0) h += CLASS_GAP;
-    h += CLASS_H + s.rows.reduce((a, r) => a + (r.kind === "separator" ? SEP_H : ROW_H), 0);
+// Percorre as seções UMA vez e devolve tudo que o desenho precisa: os blocos de
+// classe (fundo + cabeçalho) e as linhas já com o y final. Existir separado do
+// desenho é o que permite a animação — dá pra comparar o layout de agora com o de
+// antes sem tocar num `ctx` —, e mantém uma única conta de y (antes o cálculo de
+// altura e o laço de desenho repetiam a mesma soma, livres pra divergir).
+export function towerLayout(sections) {
+  const blocks = [];
+  const items = [];
+  let y = SESSION_H; // o colhead vive DENTRO do header
+  sections.forEach(({ cls, rows }, i) => {
+    if (i > 0) y += CLASS_GAP;
+    const bodyH = rows.reduce((a, r) => a + (r.kind === "separator" ? SEP_H : ROW_H), 0);
+    blocks.push({ cls, y, blockH: CLASS_H + bodyH, isLast: i === sections.length - 1 });
+    y += CLASS_H;
+    // Limites do CORPO da classe: uma linha em trânsito é recortada neles, pra não
+    // pintar por cima do cabeçalho da classe nem vazar pro bloco vizinho.
+    const bodyTop = y;
+    const bodyBottom = y + bodyH;
+    rows.forEach((row) => {
+      if (row.kind === "separator") {
+        items.push({ kind: "separator", y, bodyTop, bodyBottom });
+        y += SEP_H;
+      } else {
+        items.push({ kind: "car", car: row.car, key: rowKey(row.car), y, bodyTop, bodyBottom });
+        y += ROW_H;
+      }
+    });
   });
-  return h;
+  return { blocks, items, total: y };
+}
+
+function sectionsHeight(sections) {
+  return towerLayout(sections).total;
 }
 
 // Altura (px lógicos = CSS) que a torre ocupa pros dados atuais — usada pra dizer
@@ -1065,40 +1117,60 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME, opts = {}) {
     if (!s.cls.label && fallbackLabel) s.cls = { ...s.cls, label: fallbackLabel };
   });
 
-  const total = sectionsHeight(sections);
+  const { blocks, items, total } = towerLayout(sections);
+
+  // Animação de posição (opcional). Sem `opts.anim` a torre desenha como sempre —
+  // é o caminho do VR e dos testes, que não têm relógio.
+  const anim = opts.anim ?? null;
+  const now = opts.now ?? 0;
+  if (anim) {
+    anim.sync(
+      new Map(items.filter((it) => it.kind === "car").map((it) => [it.key, it.y])),
+      now,
+    );
+  }
 
   // Faixa da sessão (topo do painel).
   drawSessionHeader(ctx, data.session, theme, assets, L);
 
   // A TABELA começa logo abaixo do header. O cabeçalho de colunas fica ANEXADO
   // ao topo do 1º bloco (mesmo fundo), então não flutua solto no meio.
-  let y = SESSION_H;
-
-  sections.forEach(({ cls, rows }, i) => {
-    if (i > 0) y += CLASS_GAP;
-
-    const isLast = i === sections.length - 1;
-    const bodyH = rows.reduce((a, r) => a + (r.kind === "separator" ? SEP_H : ROW_H), 0);
-    const blockH = CLASS_H + bodyH;
-
+  blocks.forEach(({ cls, y, blockH, isLast }) => {
     // Fundo do bloco (classe + corpo), cantos do tema.
     const br = theme.blockRadius;
     roundRect(ctx, 0, y, panelW, blockH, [0, 0, isLast ? br : 0, isLast ? br : 0]);
     ctx.fillStyle = theme.panelBg;
     ctx.fill();
-
     drawClassHeader(ctx, cls, y, theme, panelW);
-    y += CLASS_H;
+  });
 
-    rows.forEach((row) => {
-      if (row.kind === "separator") {
-        drawSeparator(ctx, y, panelW);
-        y += SEP_H;
-      } else {
-        drawRow(ctx, row.car, y, assets, team, theme, L);
-        y += ROW_H;
-      }
-    });
+  // Linhas paradas primeiro; as EM TRÂNSITO por último, pra quem está passando ficar
+  // por cima de quem é passado (a faixa do jogador é opaca — desenhada antes, ela
+  // levaria o texto do ultrapassado por cima no meio do cruzamento).
+  const moving = [];
+  items.forEach((item) => {
+    if (item.kind === "separator") {
+      drawSeparator(ctx, item.y, panelW);
+      return;
+    }
+    const st = anim ? anim.state(item.key, now) : null;
+    if (st && (st.alpha < 1 || Math.abs(st.y - item.y) > 0.01)) {
+      moving.push({ item, st });
+      return;
+    }
+    drawRow(ctx, item.car, item.y, assets, team, theme, L);
+  });
+
+  moving.forEach(({ item, st }) => {
+    ctx.save();
+    // Recorte só na VERTICAL (largura cheia): os pins de alerta/penalidade moram fora
+    // do painel, à direita, e um clip em `panelW` os decapitaria durante o deslize.
+    ctx.beginPath();
+    ctx.rect(0, item.bodyTop, LOGICAL_W, item.bodyBottom - item.bodyTop);
+    ctx.clip();
+    ctx.globalAlpha = st.alpha;
+    drawRow(ctx, item.car, st.y, assets, team, theme, L);
+    ctx.restore();
   });
 
   return total;

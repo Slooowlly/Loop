@@ -35,6 +35,7 @@ pub(super) fn start_sampler() {
                                 let track_id = parse_track_id(&session.session_yaml);
                                 let subsession_id = parse_subsession_id(&session.session_yaml);
                                 let qualy_num = parse_qualy_session_num(&session.session_yaml);
+                                let race_num = parse_race_session_num(&session.session_yaml);
                                 let numbers = parse_car_numbers(&session.session_yaml);
                                 let redline = crate::iracing_sdk::parse_car_redline(&session.session_yaml);
                                 let car_name = parse_player_car_name(&session.session_yaml);
@@ -46,6 +47,7 @@ pub(super) fn start_sampler() {
                                     m.set_session_track_id(track_id);
                                     m.set_session_subsession_id(subsession_id);
                                     m.set_qualy_session_num(qualy_num);
+                                    m.set_race_session_num(race_num);
                                     m.set_car_numbers(&numbers);
                                     m.set_car_redline(redline);
                                     m.set_session_car_name(car_name);

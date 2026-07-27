@@ -16,12 +16,6 @@ pub fn iracing_install_yellow_macro() -> Result<YellowMacroStatus, String> {
     race_control::install()
 }
 
-/// Restaura o valor original da macro.
-#[tauri::command]
-pub fn iracing_restore_yellow_macro() -> Result<YellowMacroStatus, String> {
-    race_control::restore()
-}
-
 /// Dispara a macro instalada (aciona a bandeira no iRacing).
 #[tauri::command]
 pub fn iracing_throw_yellow() -> Result<(), String> {

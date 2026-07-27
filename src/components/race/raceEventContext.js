@@ -4,12 +4,24 @@
 import { currentLang } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 
-// Público estimado quando o backend não manda o valor real: só o tier do evento.
-export function estimateAudience(tierLabel) {
-  if (tierLabel?.toLowerCase().includes("principal")) return 84000;
-  if (tierLabel?.toLowerCase().includes("alto")) return 62000;
-  if (tierLabel?.toLowerCase().includes("moderado")) return 41000;
-  return 28000;
+// DÍVIDA CONHECIDA: número de público inventado no FRONT. Só entra quando o backend
+// não mandou `display_value` (save antigo). Não amplie o padrão — todo valor novo de
+// interesse deve nascer no `event_interest` do Rust. Ver docs/briefings/F07.
+//
+// Chaveado pelo ENUM `InterestTier` (serializado como "Baixo"…"EventoPrincipal"), não
+// pelo `tier_label`: o label é traduzido pelo locale do backend e sniffar o texto
+// quebrava em inglês — e já falhava em português para o tier `Alto` ("Grande público",
+// que não contém "alto").
+const AUDIENCE_BY_TIER = {
+  EventoPrincipal: 84000,
+  MuitoAlto: 72000,
+  Alto: 62000,
+  Moderado: 41000,
+  Baixo: 28000,
+};
+
+export function estimateAudience(tier) {
+  return AUDIENCE_BY_TIER[tier] ?? AUDIENCE_BY_TIER.Baixo;
 }
 
 export function formatAudience(value) {
@@ -19,17 +31,17 @@ export function formatAudience(value) {
 export function buildAudienceRankLabel(nextRace, season) {
   const totalRounds = Math.max(1, season?.total_rodadas ?? 1);
   const round = nextRace?.rodada ?? 1;
-  const interestTier = nextRace?.event_interest?.tier_label?.toLowerCase() ?? "";
+  const interestTier = nextRace?.event_interest?.tier;
 
   if (round === 1 || round === totalRounds) {
     return i18n.t("raceContext.display.audienceRank.biggest");
   }
 
-  if (interestTier.includes("principal")) {
+  if (interestTier === "EventoPrincipal") {
     return i18n.t("raceContext.display.audienceRank.third");
   }
 
-  if (interestTier.includes("alto")) {
+  if (interestTier === "MuitoAlto" || interestTier === "Alto") {
     return i18n.t("raceContext.display.audienceRank.amongBiggest");
   }
 
@@ -39,9 +51,9 @@ export function buildAudienceRankLabel(nextRace, season) {
 export function isLiveCoverageEvent(nextRace, season) {
   const totalRounds = Math.max(1, season?.total_rodadas ?? 1);
   const round = nextRace?.rodada ?? 1;
-  const interestTier = nextRace?.event_interest?.tier_label?.toLowerCase() ?? "";
+  const interestTier = nextRace?.event_interest?.tier;
 
-  return round === 1 || round === totalRounds || interestTier.includes("principal");
+  return round === 1 || round === totalRounds || interestTier === "EventoPrincipal";
 }
 
 export function buildTeamExpectationValue({ playerStanding, teamStanding, gapToLeader, outlook }) {

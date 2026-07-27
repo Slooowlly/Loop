@@ -78,17 +78,17 @@ fn jogador_pesa_mais_que_ia_no_mesmo_incidente() {
     assert!(incident_weight(&i, true) > incident_weight(&i, false));
 }
 
-/// "Batida" exclui pane mecânica: o carro quebrar não é alguém bater.
+/// "Batida" exclui pane mecânica: o carro quebrar não é alguém bater. A regra
+/// mora em `race_signals` — é a mesma que o debrief do jogador usa.
 #[test]
 fn pane_mecanica_nao_conta_como_batida() {
+    use crate::race_signals::dnf_kind;
     let mecanico = inc("a", IncidentType::Mechanical, IncidentSeverity::Critical, true, 0);
     let colisao = inc("b", IncidentType::Collision, IncidentSeverity::Minor, true, 0);
-    let erro_grave = inc("c", IncidentType::DriverError, IncidentSeverity::Major, true, 0);
-    let erro_leve = inc("d", IncidentType::DriverError, IncidentSeverity::Minor, false, 0);
-    assert!(!is_crash(&mecanico));
-    assert!(is_crash(&colisao));
-    assert!(is_crash(&erro_grave));
-    assert!(!is_crash(&erro_leve));
+    let erro = inc("c", IncidentType::DriverError, IncidentSeverity::Major, true, 0);
+    assert!(!dnf_kind(Some(&mecanico), false, None).is_crash());
+    assert!(dnf_kind(Some(&colisao), false, None).is_crash());
+    assert!(dnf_kind(Some(&erro), false, None).is_crash());
 }
 
 /// Um piloto que se meteu em três confusões rende UMA linha — a pior delas.

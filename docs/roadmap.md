@@ -192,25 +192,26 @@ categoria vizinha", isso é um filtro de categoria no `StandingsTab`, não uma a
 
 ---
 
-### 8. Integração com iRacing — decisão pendente, não tarefa
+### 8. Integração com iRacing — ✅ decidido em 2026-07-27
 
-**O que falta:** definir o escopo.
+Análise completa em [iracing-escopo.md](iracing-escopo.md); resumo em `DESIGN.md` §23.1.
 
-**Como falta:** o estado é contraditório. O `DESIGN.md` §23 diz que `export/` e
-`commands/export.rs` foram **removidos** e que a integração é "expansão futura". Mas o
-`iracing_sdk/` está vivo e crescendo: leitura de telemetria, monitor de corrida,
-detecção de quebras, estratégia de pneu, percepção de rivalidade, geração de grid, e um
-módulo de diagnóstico recém-escrito (commit `2c85f44`). Há ~15 comandos `iracing_*`
-registrados; vários (`iracing_poll_race`, `iracing_read_telemetry`, `iracing_throw_yellow`)
-sem consumidor no frontend.
+**A decisão:** o Loop é uma **ferramenta de iRacing com uma carreira simulada dentro**.
+Correr de verdade é o caminho principal.
 
-**Por que falta:** provavelmente não falta — mudou de forma sem o documento acompanhar.
-O que era "exportar carreira para o iRacing" virou "ler o iRacing real e trazer para
-dentro do Loop".
+**A correção de leitura:** nem o `DESIGN.md` (que dizia "removido, expansão futura") nem a
+versão anterior desta seção (que dizia "exportar virou ler") estavam certos. `export/` foi
+deletado, mas a exportação **mudou de casa** para `iracing_sdk/roster_gen.rs` e
+`season_gen.rs`. A integração é um ciclo fechado: exporta roster+temporada → o jogador
+corre → importa o resultado oficial + os sinais do monitor ao vivo. São 49 comandos (não
+~15) e 16.910 linhas.
 
-**A tarefa real:** atualizar o `DESIGN.md` §23 para descrever a integração que existe,
-e decidir se os comandos sem consumidor são features pendentes ou código a remover.
-Enquanto isso não acontecer, essa área não é planejável.
+**O que sobrou de trabalho real:** 16 dos 49 comandos são inalcançáveis pelo jogador — 9
+sem consumidor e 7 presos em `RosterGenPanel` e `PostRacePanel` (1.420 linhas), dois
+componentes que não são importados em lugar nenhum. O item mais caro:
+`iracing_process_race_result` é a **dificuldade adaptativa, implementada e nunca
+executada**, porque só o painel desligado a chamava. Backlog derivado na §6 do
+`iracing-escopo.md`.
 
 ---
 
@@ -246,7 +247,7 @@ episódio do `MarketTab` neste documento é exatamente esse erro em outra forma.
 | 4 | **Mercado em temporada** (F-01 revisado) | Extensão do que já funciona, não construção nova. Inclui conduzir `advance_transfer_window`. |
 | 5 | **R4 / R1 / R2** (D-09) | Antes de encostar em narrativa ou hierarquia. R1 e R2 nunca em paralelo. |
 | 6 | **Espectadores** (F-07) | Depois que houver telas onde a informação caiba. |
-| 7 | **Decidir o escopo do iRacing** (F-10) | Não é código: é atualizar o §23 e resolver os comandos órfãos. Pode ser feito a qualquer momento e destrava planejamento. |
+| 7 | ~~**Decidir o escopo do iRacing** (F-10)~~ ✅ 2026-07-27 | Decidido: ferramenta de iRacing com carreira dentro. Ver [iracing-escopo.md](iracing-escopo.md) §6 para o backlog derivado — o primeiro item é ligar a dificuldade adaptativa. |
 
 **Fora da fila:** F-08 (outras categorias) até alguém responder o que ele mostraria que
 as abas globais não mostram. F-09 (previsões) é sabor — só depois de 1–4.

@@ -16,10 +16,9 @@ briefings foram escritos) e **em que ordem despachar**.
 
 ## Regra dura, antes de qualquer coisa
 
-**R1 e R2 tocam os mesmos arquivos — nunca rode os dois em paralelo.** O R1 vai criar
-beats novos em `narrative/`; a fatia P1 do R2 vai extrair predicados usados por
-`narrative/tese.rs` e `narrative/beats.rs`. Duas sessões mexendo ali ao mesmo tempo
-produzem conflito garantido.
+~~**R1 e R2 tocam os mesmos arquivos — nunca rode os dois em paralelo.**~~ **Resolvido:**
+a fatia P1 do R2 já extraiu os predicados de `narrative/tese.rs` e `narrative/beats.rs`.
+O R1 pode ir sem coordenação.
 
 R4 é independente dos dois e pode rodar em paralelo com qualquer um.
 
@@ -27,7 +26,7 @@ R4 é independente dos dois e pode rodar em paralelo com qualquer um.
 
 ## R2 — o mais adiantado, e o que achou um bug de verdade
 
-**Estado: segunda análise concluída. P0 já implementado.**
+**Estado: segunda análise concluída. P0 e P1 implementados.**
 
 A suspeita original do briefing era "há três motores de tese duplicados, unifique". A
 análise ([`R2-analise.md`](../varredura-acoplamento/R2-analise.md), 241 linhas) devolveu
@@ -46,9 +45,36 @@ finish <= 6` (boletim/tese), `gained > 0` (boletim/beat), `gained >= 4` (`race_e
 [`commands/race/merito.rs`](../../src-tauri/src/commands/race/merito.rs) virou a
 construção única do campo de mérito, no commit `2c85f44`.
 
+**O P1 também já foi feito** — [`race_signals.rs`](../../src-tauri/src/race_signals.rs) é
+agora a definição única de `dnf_kind` e dos predicados nomeados (`remontada`,
+`remontada_epica`, `colapso`, `pole_frustrada`, `vitoria_improvavel`, `caos`,
+`overperf`/`underperf`), um limiar por conceito, consumida pelos dois motores de tese,
+pelos beats e pelo `race_eval`. **`narrative/` está livre para o R1.**
+
+**Duas recalibrações foram embutidas nesse P1** — a varredura de bugs as pegou (item #5
+de [varredura-bugs-2026-07.md](../varredura-bugs-2026-07.md)) e ambas ficam, agora com
+teste que as crava:
+
+1. **`REMONTADA_MIN = 4`.** Dos quatro limiares que existiam (>0, 4, 5, 8), o debrief
+   usava 5 e o beat de recuperação usava >0. Um ganho de 1 posição não é história, e
+   gastava vaga do boletim; 5 deixava de fora recuperações que o jogador claramente
+   sente. 4 é o número do meio e vale para os dois motores. Efeito colateral aceito: a
+   tese "remontada" do debrief agora dispara uma posição mais cedo do que antes.
+   Cravado em `race_signals::limiares_de_remontada_e_colapso` e em
+   `remontada_dispara_com_4_posicoes_e_nao_com_3` (`commands/ai_news/tests/`). O limiar
+   8 continua existindo à parte, como `REMONTADA_EPICA_MIN` — é outro conceito
+   (manchete), não um segundo limiar de remontada.
+2. **`positional_bonus` contínuo, 0,4 por posição.** As faixas antigas davam 4,0 a
+   partir de +5 e 2,0 a partir de +2; a rampa só alcança esses valores em +10 e +5, e o
+   teto/piso (+4,0/−3,0) são os mesmos. O miolo ficou mais fraco de propósito: com o
+   salto antigo preservado, a inclinação no miolo seria de 0,8/posição, repercussão
+   demais para uma corrida em que só o tráfego se desfez. O ponto de atenção é a
+   jusante — `score_to_tier` (85/65/45/25) e `news_importance_bias` (85/55) têm faixas
+   fixas, então um `final_score` que caía em 83–85 ou 53–55 numa remontada de 5 desce um
+   tier. `media_delta_modifier` e `motivation_delta_modifier` são contínuos e não
+   sentem. Cravado em `contribuicao_posicional_e_de_04_por_posicao`.
+
 **O que resta:**
-- **P1 (fazer, ~4–6h):** extrair `dnf_kind` e os predicados nomeados; um limiar por
-  conceito. **Toca `narrative/` — coordene com o R1.**
 - **P2 (opcional, ~1h):** frontend lê o `assessment` persistido em vez de recalcular
   `dismal`. Não toca `narrative/`; pode ir a qualquer momento.
 
@@ -122,9 +148,9 @@ a conversa muda inteira.
 
 | # | item | por quê |
 |---|---|---|
-| 1 | **R2 / P1** | Já tem análise pronta e um bug confirmado em produção. Menor incerteza, valor imediato. Faça antes do R1 para não conflitar. |
-| 2 | **R1** (análise) | Maior valor de produto do conjunto. Só depois que o P1 do R2 assentar `narrative/`. |
-| 3 | **R4** (análise) | Independente — pode rodar em paralelo com qualquer um dos dois. Despache quando houver banca. |
+| ~~1~~ | ~~**R2 / P1**~~ | ✅ feito — `race_signals.rs`. |
+| 1 | **R1** (análise) | Maior valor de produto do conjunto. `narrative/` já assentou; pode ir. |
+| 2 | **R4** (análise) | Independente — pode rodar em paralelo com o R1. Despache quando houver banca. |
 
 R2/P2 (frontend) é avulso e cabe em qualquer buraco.
 

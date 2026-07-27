@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 import GlassButton from "./GlassButton";
 import GlassCard from "./GlassCard";
 import {
@@ -13,7 +15,9 @@ const difficultyAccent = {
   lendario: "border-status-red/30",
 };
 
-function SaveCard({ save, onLoad, onDelete, loading = false }) {
+function SaveCard({ save, onLoad, onDelete, onBackups, loading = false }) {
+  const { t } = useTranslation();
+
   return (
     <GlassCard
       hover={false}
@@ -58,6 +62,16 @@ function SaveCard({ save, onLoad, onDelete, loading = false }) {
           >
             Carregar
           </GlassButton>
+          {onBackups ? (
+            <GlassButton
+              variant="secondary"
+              disabled={loading}
+              onClick={() => onBackups(save)}
+              className="min-w-36"
+            >
+              {t("loadSave.backups.open")}
+            </GlassButton>
+          ) : null}
           <GlassButton
             variant="danger"
             disabled={loading}

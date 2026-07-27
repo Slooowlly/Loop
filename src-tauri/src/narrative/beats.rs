@@ -3,8 +3,9 @@
 
 use super::consulta::{dnf_reason_of, find};
 use super::incidentes::{
-    contact_link, incident_weight, is_crash, scale_label, worst_non_dnf_incident_per_pilot,
+    contact_link, incident_weight, scale_label, worst_non_dnf_incident_per_pilot,
 };
+use crate::race_signals::{dnf_kind, pole_frustrada, remontada, vitoria_improvavel};
 use crate::simulation::incidents::{IncidentResult, IncidentType};
 use crate::simulation::race::RaceResult;
 
@@ -79,7 +80,7 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
     if let Some(w) = find(rows, &result.winner_id) {
         let mut weight = 70.0;
         // Vencer largando lá atrás vale mais.
-        if w.grid_position >= 6 {
+        if vitoria_improvavel(w.grid_position) {
             weight += ((w.grid_position - 5) as f64).min(15.0);
         }
         let extra = if w.has_fastest_lap {
@@ -123,9 +124,11 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
     }
 
     // ── Maior recuperação ────────────────────────────────────────────────────
+    // Só quem de fato remontou. Antes bastava ganhar UMA posição — e um ganho de 1
+    // já passava do limiar (peso 32), gastando uma vaga do boletim com nada.
     if let Some(id) = &result.most_positions_gained_id {
         if let Some(d) = find(rows, id) {
-            if d.positions_gained > 0 {
+            if remontada(d.positions_gained) {
                 let weight = (30.0 + d.positions_gained as f64 * 2.0).min(70.0);
                 beats.push(Beat {
                     kind: BeatKind::Recuperacao,
@@ -169,7 +172,7 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
 
     // ── Decepção: pole que não venceu e terminou mal ─────────────────────────
     if let Some(p) = find(rows, &result.pole_sitter_id) {
-        if p.pilot_id != result.winner_id && !p.is_dnf && p.finish_position >= 5 {
+        if pole_frustrada(p.pilot_id == result.winner_id, p.is_dnf, p.finish_position) {
             let weight = (30.0 + (p.finish_position - 1) as f64 * 2.0).min(60.0);
             beats.push(Beat {
                 kind: BeatKind::Decepcao,
@@ -203,7 +206,11 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
         if d.notable_incident.is_some() {
             weight += 8.0;
         }
-        if dnf_inc.map(is_crash).unwrap_or(false) {
+        // A natureza do abandono sai da MESMA classificação que o debrief usa (o
+        // boletim tem o incidente em mãos; o debrief só o motivo salvo). Antes cada
+        // um decidia por conta e o mesmo DNF era batida aqui e pane lá.
+        let reason = dnf_reason_of(d);
+        if dnf_kind(dnf_inc, false, Some(&reason)).is_crash() {
             weight += 10.0;
         }
         let link = dnf_inc.map(|i| contact_link(rows, i)).unwrap_or_default();
@@ -214,7 +221,7 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                 "narrative.beat.dnf",
                 name = d.pilot_name.as_str(),
                 team = d.team_name.as_str(),
-                reason = dnf_reason_of(d),
+                reason = reason.as_str(),
                 link = link.as_str()
             )
             .to_string(),
@@ -278,7 +285,7 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
         if !p.is_dnf && p.finish_position <= 3 {
             weight += 20.0;
         }
-        if p.positions_gained >= 4 {
+        if remontada(p.positions_gained) {
             weight += 10.0;
         }
         if p.is_dnf {

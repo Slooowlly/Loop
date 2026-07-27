@@ -3,6 +3,7 @@
 
 use super::beats::BeatKind;
 use super::consulta::find;
+use crate::race_signals::{caos, pole_frustrada, remontada_epica, vitoria_improvavel};
 use crate::simulation::race::RaceResult;
 
 /// A TESE JORNALÍSTICA do boletim — o ângulo dominante da matéria (voz de revista,
@@ -38,7 +39,7 @@ pub fn race_thesis_signals(result: &RaceResult) -> RaceThesisSignals {
     let rows = &result.race_results;
     let winner = find(rows, &result.winner_id);
     let pole_flopped = find(rows, &result.pole_sitter_id).and_then(|p| {
-        if p.pilot_id != result.winner_id && !p.is_dnf && p.finish_position >= 5 {
+        if pole_frustrada(p.pilot_id == result.winner_id, p.is_dnf, p.finish_position) {
             Some((p.pilot_name.clone(), p.finish_position))
         } else {
             None
@@ -78,8 +79,7 @@ pub fn race_thesis_signals(result: &RaceResult) -> RaceThesisSignals {
 pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<BeatKind>) {
     use BeatKind::*;
     // Caos: muitos abandonos redesenharam o grid.
-    let caos_gate = 4.max(s.field_size / 4);
-    if s.total_dnfs >= caos_gate {
+    if caos(s.total_dnfs, s.field_size) {
         return (
             RaceThesis::Caos,
             rust_i18n::t!("narrative.thesis.caos", dnfs = s.total_dnfs).to_string(),
@@ -87,7 +87,7 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
         );
     }
     // Vitória improvável: o vencedor veio lá de trás.
-    if s.winner_grid >= 6 {
+    if vitoria_improvavel(s.winner_grid) {
         return (
             RaceThesis::VitoriaImprovavel,
             rust_i18n::t!(
@@ -116,7 +116,7 @@ pub fn select_race_thesis(s: &RaceThesisSignals) -> (RaceThesis, String, Vec<Bea
     }
     // Remontada épica de um não-vencedor.
     if let Some((name, grid, finish, gained)) = &s.biggest_recovery {
-        if *gained >= 8 && *finish <= 6 {
+        if remontada_epica(*gained, *finish) {
             return (
                 RaceThesis::Remontada,
                 rust_i18n::t!(

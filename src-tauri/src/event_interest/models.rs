@@ -1,3 +1,8 @@
+// O allow cobre HOJE só `EventInterestContext::{week_of_year, track_id, track_name}`:
+// insumos que o cálculo ainda não pondera mas que descrevem o evento e são preenchidos
+// por todos os call sites. O restante do módulo já é lido (o `RealizedEventInterest`
+// passou a sair na UI via `EventRepercussionSummary`). Ao ligar esses três campos,
+// remova o allow em vez de ampliá-lo.
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
@@ -89,4 +94,31 @@ pub struct EventInterestSummary {
     pub display_value: i32,
     pub tier: InterestTier,
     pub tier_label: String,
+}
+
+/// Resumo da REPERCUSSÃO realizada, exposto ao frontend no payload de resultado de
+/// corrida. Mesmo critério do `EventInterestSummary`: só o que tem uso real na tela.
+/// Os modificadores (`media_delta_modifier`, `motivation_delta_modifier`) e o
+/// `news_importance_bias` cru ficam em `RealizedEventInterest` — o jogador lê o
+/// EFEITO deles pelo `headline_strength_label`, não o coeficiente.
+///
+/// Os `*_label` já vêm traduzidos pelo `rust-i18n` (locale global do processo): o
+/// front exibe direto, sem mapa paralelo. Para LÓGICA, use os enums `final_tier` /
+/// `headline_strength`, nunca o texto do label.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventRepercussionSummary {
+    /// O que se esperava do evento antes da largada (mesma escala do
+    /// `EventInterestSummary.display_value` mostrado na Sala de Estratégia).
+    pub expected_display_value: i32,
+    pub expected_tier: InterestTier,
+    pub expected_tier_label: String,
+    /// O que o evento de fato entregou, já com resultado do jogador e contexto de título.
+    pub final_display_value: i32,
+    pub final_tier: InterestTier,
+    pub final_tier_label: String,
+    /// `final_display_value - expected_display_value`. Positivo = a corrida entregou
+    /// mais do que prometia. É a leitura que a tela de resultado destaca.
+    pub delta_display_value: i32,
+    pub headline_strength: HeadlineStrength,
+    pub headline_strength_label: String,
 }

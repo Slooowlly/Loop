@@ -181,9 +181,11 @@ mod news;
 mod promotion;
 mod public_presence;
 mod race_eval;
+mod race_signals;
 mod rivalry;
 mod simulation;
 mod telemetry;
+mod volante;
 mod world;
 
 #[cfg(test)]
@@ -509,7 +511,6 @@ pub fn run() {
             commands::iracing::iracing_perceive_rivalries,
             commands::iracing::iracing_yellow_macro_status,
             commands::iracing::iracing_install_yellow_macro,
-            commands::iracing::iracing_restore_yellow_macro,
             commands::iracing::iracing_throw_yellow,
             commands::iracing::iracing_send_chat_macro,
             commands::iracing::iracing_send_chat_text,
@@ -549,6 +550,9 @@ pub fn run() {
             commands::vr_overlay::vr_engineer_get_pose,
             commands::vr_overlay::vr_engineer_recenter,
             commands::vr_overlay::vr_engineer_set_recenter_key,
+            commands::volante::volante_botao_pressionado,
+            commands::volante::volante_dispositivos,
+            commands::volante::volante_set_recenter_button,
             commands::overlay_window::overlay_window_show,
             commands::overlay_window::overlay_window_hide,
             commands::overlay_window::engineer_window_show,

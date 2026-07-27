@@ -29,6 +29,10 @@ pub struct ImportedRaceSummary {
     /// Fatura de manutenção do carro (gasolina/pneus + itens do conserto). Sempre presente.
     #[serde(default)]
     pub maintenance: MaintenanceBreakdown,
+    /// Repercussão pública do evento (esperado × realizado) — mesma leitura da corrida
+    /// simulada. `None` se a categoria não tem config.
+    #[serde(default)]
+    pub event_repercussion: Option<EventRepercussionSummary>,
 }
 
 pub(crate) fn compute_race_evaluation(
@@ -275,7 +279,9 @@ pub(crate) fn import_iracing_race_result(
     // astro nasce igual correndo na pista. Vitória/pódio sobem fama (modulada por
     // carisma), incidente/remontada movem carisma, o grid decai. Best-effort: uma
     // falha aqui não desfaz o resultado já persistido.
-    let _ = apply_post_race_fame(&db.conn, &race_entry, &result, &import_injuries);
+    let event_repercussion = apply_post_race_fame(&db.conn, &race_entry, &result, &import_injuries)
+        .ok()
+        .and_then(|outcome| outcome.player_repercussion);
 
     // Grava também o histórico por rodada (race_results.json) — é a fonte da grade
     // R1..R5 da classificação (build_driver_histories). O caminho offline faz o
@@ -425,14 +431,28 @@ pub(crate) fn import_iracing_race_result(
         }
     }
 
-    // Fatura de manutenção do carro (sempre presente; soma o conserto se houve batida).
-    let maintenance = compute_maintenance_breakdown(
-        &race_entry.categoria,
-        player.map(|r| r.final_tire_wear).unwrap_or(0.0),
-        player.map(|r| r.laps_completed).unwrap_or(0),
-        repair_cost,
-        player_crash_severity,
-    );
+    // Fatura do fim de semana: a decomposição do custo de operação JÁ debitado desta
+    // rodada (carro, logística, equipe) + o conserto, se houve batida.
+    let maintenance = team_queries::get_team_by_id(&db.conn, &player_team_id)
+        .ok()
+        .flatten()
+        .map(|team| {
+            compute_maintenance_breakdown(
+                &db.conn,
+                &team,
+                &result,
+                race_entry.track_id,
+                get_category_config(&race_entry.categoria)
+                    .map(|c| c.corridas_por_temporada as f64)
+                    .unwrap_or(12.0),
+                global_economic_health_for_season(active_season.numero as i32),
+                repair_cost,
+                player_crash_severity,
+                active_season.numero as i32,
+                race_entry.rodada,
+            )
+        })
+        .unwrap_or_default();
 
     let summary = ImportedRaceSummary {
         race_id: race_entry.id.clone(),
@@ -450,6 +470,7 @@ pub(crate) fn import_iracing_race_result(
         repair_count,
         repair_message,
         maintenance,
+        event_repercussion,
     };
     Ok((summary, result))
 }

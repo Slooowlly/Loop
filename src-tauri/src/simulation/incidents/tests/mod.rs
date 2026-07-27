@@ -644,3 +644,78 @@ fn test_high_pack_density_increases_collision_rate() {
         sparse_c
     );
 }
+
+/// Invariante que a narrativa depende sem dizer: **erro de pilotagem que abandona
+/// nunca é `Minor`**.
+///
+/// `race_signals::dnf_kind` classifica o DNF só pelo `IncidentType` — um
+/// `DriverError` que tira o carro da prova é sempre "batida", sem olhar a
+/// severidade. Isso só é honesto porque o motor acopla as duas coisas no erro de
+/// pilotagem: o sorteio devolve `Minor ⇒ segue na prova` / `Major ⇒ abandona`, e
+/// a escalada por stall sobe a severidade JUNTO com o abandono. Se alguém
+/// desacoplar, o boletim passa a chamar de batida um pião leve — e o teste morre
+/// aqui, no motor, que é onde a regra mora.
+///
+/// A colisão fica de fora de propósito: lá severidade e consequência SÃO
+/// sorteadas em separado (`roll_collision` × `resolve_collision_consequence`), e
+/// um contato `Minor` que quebra a suspensão é caso legítimo. Para a narrativa
+/// não muda nada — colisão é batida em qualquer severidade.
+#[test]
+fn erro_de_pilotagem_com_abandono_nunca_sai_minor() {
+    let drivers: Vec<_> = (1..=8)
+        .map(|i| make_driver(&format!("P{i}"), 40, 90, 30, 40.0))
+        .collect();
+    let states: Vec<_> = (1..=8).map(|i| make_state(&format!("P{i}"), i)).collect();
+    let mut rng = StdRng::seed_from_u64(2024);
+
+    let mut dnfs = 0;
+    for rodada in 0..1500 {
+        let segment = match rodada % 5 {
+            0 => RaceSegment::Start,
+            1 => RaceSegment::Early,
+            2 => RaceSegment::Mid,
+            3 => RaceSegment::Late,
+            _ => RaceSegment::Finish,
+        };
+        let weather = if rodada % 2 == 0 {
+            WeatherCondition::Dry
+        } else {
+            WeatherCondition::HeavyRain
+        };
+
+        let inc = process_segment_incidents_cfg(
+            &drivers,
+            &states,
+            segment,
+            weather,
+            false,
+            8.0, // taxa alta: queremos VOLUME de incidente, não realismo
+            2.0,
+            1.4,
+            &IncidentCatalog::empty(),
+            VehicleClass::StreetBased,
+            false,
+            true,
+            &mut rng,
+        );
+
+        for i in inc
+            .incidents
+            .iter()
+            .filter(|i| i.is_dnf && i.incident_type == IncidentType::DriverError)
+        {
+            dnfs += 1;
+            assert_ne!(
+                i.severity,
+                IncidentSeverity::Minor,
+                "erro de pilotagem com DNF saiu Minor: quebra a classificação de dnf_kind"
+            );
+        }
+    }
+
+    // Sem isto o teste passaria de graça caso o motor parasse de gerar abandonos.
+    assert!(
+        dnfs > 50,
+        "amostra fraca: só {dnfs} abandonos por erro em 1500 segmentos"
+    );
+}

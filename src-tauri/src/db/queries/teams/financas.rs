@@ -182,6 +182,30 @@ pub fn get_team_finance_history_recent(
     Ok(entries)
 }
 
+/// Custo de operação REALMENTE debitado de uma equipe numa rodada EXATA. `None` quando
+/// não existe linha dessa `(temporada, rodada)` — e aí a leitura correta é "nada de
+/// operação saiu do caixa nesta rodada", não "procure a linha mais próxima": corrida de
+/// fase especial não movimenta caixa nenhum (`apply_race_result_to_database` sai antes do
+/// bloco financeiro) e save antigo pode simplesmente não ter gravado.
+pub fn get_team_round_operations_cost(
+    conn: &Connection,
+    team_id: &str,
+    season_number: i32,
+    round: i32,
+) -> Result<Option<f64>, DbError> {
+    use rusqlite::OptionalExtension;
+    let cost = conn
+        .query_row(
+            "SELECT event_operations_cost
+             FROM team_finance_history
+             WHERE team_id = ?1 AND season_number = ?2 AND round = ?3",
+            params![team_id, season_number, round],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    Ok(cost)
+}
+
 /// Rodada "sintética" da linha de encerramento (prêmio de construtores). Alta o bastante
 /// para nenhuma temporada real alcançar, então ordena SEMPRE depois da última corrida da
 /// temporada no gráfico de caixa.

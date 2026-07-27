@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { OVERLAY_MOCK } from "./overlayMockData";
 import { VR_W, VR_H, SUPERSAMPLE, MINI_SECTION_OPTS, drawTower, preloadAssets } from "./towerCanvas";
+import { createTowerAnimator } from "./towerAnimation";
+import { createTowerWindow } from "./towerRows";
 import { DEFAULT_THEME } from "./towerThemes";
 
 // A torre para o overlay de MONITOR — desenhada pelo MESMO `drawTower` que
@@ -14,6 +16,14 @@ export default function TowerCanvasView({
   compact = false,
 }) {
   const ref = useRef(null);
+  // Sobrevive à troca de `data`: é o que dá continuidade ao deslize quando as
+  // posições mudam (recriar por render zeraria a animação a cada ultrapassagem).
+  const animRef = useRef(null);
+  if (animate && !animRef.current) animRef.current = createTowerAnimator();
+  // Idem: a janela solta só faz sentido com o tempo passando, então acompanha o
+  // `animate`. Sem ele, a torre estática segue com a janela grudada de sempre.
+  const windowRef = useRef(null);
+  if (animate && !windowRef.current) windowRef.current = createTowerWindow();
 
   useEffect(() => {
     const ctx = ref.current.getContext("2d", { willReadFrequently: true });
@@ -22,10 +32,21 @@ export default function TowerCanvasView({
     (async () => {
       const assets = await preloadAssets(data); // carrega uma vez por data
       if (cancelled) return;
-      const opts = { compact, sections: compact ? MINI_SECTION_OPTS : undefined };
-      const draw = () => {
-        drawTower(ctx, data, assets, theme, opts);
-        // `animate` redesenha a cada frame → o piscar (alerta/flash) pulsa de verdade.
+      const opts = {
+        compact,
+        sections: {
+          ...(compact ? MINI_SECTION_OPTS : {}),
+          ...(windowRef.current ? { window: windowRef.current } : {}),
+        },
+      };
+      // O relógio precisa ser o MESMO do `requestAnimationFrame` (performance.now).
+      // Este primeiro desenho é o que enxerga o layout novo quando `data` muda — se
+      // ele passasse um `now` de outra régua (ou 0), o deslize começaria fora de
+      // escala e a linha saltaria direto pro destino.
+      const draw = (now = performance.now()) => {
+        drawTower(ctx, data, assets, theme, { ...opts, anim: animRef.current, now });
+        // `animate` redesenha a cada frame → o piscar (alerta/flash) pulsa de verdade
+        // e o deslize das linhas roda.
         if (animate) raf = requestAnimationFrame(draw);
       };
       draw();

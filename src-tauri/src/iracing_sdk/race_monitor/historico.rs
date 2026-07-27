@@ -511,13 +511,19 @@ impl RaceMonitor {
         // pós-bandeira em que todos voltam ao menu) MANTÉM a última amostra; assim
         // as posições finais não são apagadas no fim da corrida. (Antes era um
         // replace total, que zerava cars_meta quando o campo esvaziava no cooldown.)
+        let in_race = self.in_race_session(t);
         for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
             let i = c.idx as usize;
             // Grid ROBUSTO: além do snapshot exato do verde, fixa a PRIMEIRA posição
             // na classe já observada (set-once). Se o monitor só começou a amostrar
             // depois da largada (transição do verde perdida), o grid ainda é a
             // posição mais antiga vista — bem melhor que vazio.
-            if self.grid_class_pos[i] == 0 && c.class_position >= 1 {
+            //
+            // Só na CORRIDA. `record_history` barra a quali, mas roda no treino livre, e
+            // ali este set-once congelava o "grid" na ordem em que os carros apareceram
+            // no treino — que depois não era corrigida, porque o snapshot do verde tem
+            // gate de uma vez só por tentativa.
+            if in_race && self.grid_class_pos[i] == 0 && c.class_position >= 1 {
                 self.grid_class_pos[i] = c.class_position;
             }
             let meta = CarMeta {

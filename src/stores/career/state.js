@@ -56,6 +56,9 @@ export const initialState = {
   lastRaceTelemetry: null,
   // Fatura de manutenção do carro do pós-corrida (gasolina/pneus + conserto). Null se não houve.
   lastRaceMaintenance: null,
+  // Repercussão pública do evento (esperado × entregue, peso na cobertura). Null em
+  // corrida sem jogador, categoria sem config ou tela salva antes deste campo existir.
+  lastRaceRepercussion: null,
   otherCategoriesResult: null,
   showResult: false,
   showRaceBriefing: false,

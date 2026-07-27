@@ -270,8 +270,26 @@ describe("MyTeamTab", () => {
         piloto_2_id: "P002",
         piloto_2_nome: "Colega IA",
         piloto_2_salario_anual: 170_000,
+        presenca_publica: 63.5,
       },
     };
+  });
+
+  it("shows the public presence that multiplies sponsorship income", async () => {
+    render(<MyTeamTab />);
+
+    const panel = await screen.findByTestId("public-presence");
+    // Valor CRU do backend — a tela não recalcula a média ponderada do lineup.
+    expect(panel).toHaveTextContent("63.5");
+    expect(panel).toHaveTextContent(/patroc[ií]nio/i);
+  });
+
+  it("hides the public presence panel when the backend has no lineup reading", async () => {
+    mockState.playerTeam = { ...mockState.playerTeam, presenca_publica: 0 };
+    render(<MyTeamTab />);
+
+    expect(await screen.findByText(/^Caixa$/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("public-presence")).not.toBeInTheDocument();
   });
 
   it("shows real money finance readouts instead of the legacy budget bar", async () => {

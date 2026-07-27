@@ -221,7 +221,7 @@ fn build_headline(input: &RaceEvalInput, a: Assessment, gained: i32) -> String {
     if input.is_dnf {
         return rust_i18n::t!("race_eval.headline.dnf", pos = finish).to_string();
     }
-    let recovery = gained >= 4;
+    let recovery = crate::race_signals::remontada(gained);
     let assessment = a.label();
     match a {
         Assessment::MuitoAcima | Assessment::Acima if recovery => rust_i18n::t!(

@@ -1,8 +1,8 @@
 use crate::models::enums::{SeasonPhase, ThematicSlot};
 
 use super::models::{
-    EventInterestContext, EventInterestSummary, ExpectedEventInterest, HeadlineStrength,
-    InterestTier, RealizedEventInterest,
+    EventInterestContext, EventInterestSummary, EventRepercussionSummary, ExpectedEventInterest,
+    HeadlineStrength, InterestTier, RealizedEventInterest,
 };
 
 // ── Cálculo principal ─────────────────────────────────────────────────────────
@@ -37,18 +37,44 @@ pub fn to_summary(result: &ExpectedEventInterest) -> EventInterestSummary {
     EventInterestSummary {
         display_value: result.display_value,
         tier: result.tier.clone(),
-        tier_label: tier_label(&result.tier).to_string(),
+        tier_label: tier_label(&result.tier),
     }
 }
 
-pub fn tier_label(tier: &InterestTier) -> &'static str {
-    match tier {
-        InterestTier::Baixo => "Interesse baixo",
-        InterestTier::Moderado => "Interesse moderado",
-        InterestTier::Alto => "Grande público",
-        InterestTier::MuitoAlto => "Evento de destaque",
-        InterestTier::EventoPrincipal => "Evento principal",
+/// Resumo público da repercussão: o confronto esperado × realizado que a tela de
+/// resultado mostra. Só o que a UI usa — ver a nota em `EventRepercussionSummary`.
+pub fn to_repercussion_summary(realized: &RealizedEventInterest) -> EventRepercussionSummary {
+    EventRepercussionSummary {
+        expected_display_value: realized.expected_display_value,
+        expected_tier: realized.expected_tier.clone(),
+        expected_tier_label: tier_label(&realized.expected_tier),
+        final_display_value: realized.final_display_value,
+        final_tier: realized.final_tier.clone(),
+        final_tier_label: tier_label(&realized.final_tier),
+        delta_display_value: realized.final_display_value - realized.expected_display_value,
+        headline_strength: realized.headline_strength.clone(),
+        headline_strength_label: headline_strength_label(&realized.headline_strength),
     }
+}
+
+pub fn tier_label(tier: &InterestTier) -> String {
+    let key = match tier {
+        InterestTier::Baixo => "event_interest.tier.baixo",
+        InterestTier::Moderado => "event_interest.tier.moderado",
+        InterestTier::Alto => "event_interest.tier.alto",
+        InterestTier::MuitoAlto => "event_interest.tier.muito_alto",
+        InterestTier::EventoPrincipal => "event_interest.tier.evento_principal",
+    };
+    rust_i18n::t!(key).to_string()
+}
+
+pub fn headline_strength_label(strength: &HeadlineStrength) -> String {
+    let key = match strength {
+        HeadlineStrength::Normal => "event_interest.headline.normal",
+        HeadlineStrength::Forte => "event_interest.headline.forte",
+        HeadlineStrength::Principal => "event_interest.headline.principal",
+    };
+    rust_i18n::t!(key).to_string()
 }
 
 // ── Blocos internos do score ──────────────────────────────────────────────────
@@ -176,6 +202,11 @@ pub fn calculate_realized_event_interest(
     player_dnf: bool,
     is_final_round_decider: bool,
 ) -> RealizedEventInterest {
+    // Marcos grossos até o top-5; do P6 para trás, uma RAMPA contínua de meio ponto por
+    // posição, com piso. A rampa existe porque as faixas antigas davam 0.0 para todo
+    // P6–P10: somado ao termo posicional (que zerava de -4 a +1), o pelotão do meio
+    // caía em `final_score == expected.score` e a repercussão realizada empatava,
+    // corrida após corrida, com a esperada. P5=3.0 → P6=2.5 emenda sem degrau.
     let result_bonus = if player_won {
         10.0
     } else if player_podium {
@@ -184,8 +215,8 @@ pub fn calculate_realized_event_interest(
         3.0
     } else if player_dnf {
         -8.0
-    } else if finish_position.is_some_and(|p| p > 10) {
-        -2.0
+    } else if let Some(p) = finish_position {
+        (2.5 - (p - 6) as f32 * 0.5).max(-5.0)
     } else {
         0.0
     };
@@ -194,15 +225,14 @@ pub fn calculate_realized_event_interest(
         (Some(f), Some(g)) => g - f,
         _ => 0,
     };
-    let positional_bonus = if positions_gained >= 5 {
-        4.0
-    } else if positions_gained >= 2 {
-        2.0
-    } else if positions_gained <= -5 {
-        -3.0
-    } else {
-        0.0
-    };
+    // Termo CONTÍNUO: qualquer posição ganha ou perdida move a repercussão. Os limites
+    // repetem o teto/piso das faixas antigas (remontada de 10+ não vira evento por si),
+    // mas o JOELHO da curva desceu de propósito: as faixas davam 4,0 já a partir de +5 e
+    // 2,0 a partir de +2, valores que agora só chegam em +10 e +5. Trocar o degrau por
+    // rampa e manter o antigo salto de +5 seria dar 0,8/posição no miolo — repercussão
+    // demais para uma corrida em que só o tráfego se desfez. Calibração cravada em
+    // `contribuicao_posicional_e_de_04_por_posicao`.
+    let positional_bonus = (positions_gained as f32 * 0.4).clamp(-3.0, 4.0);
 
     let big_event_bonus = if (expected.tier == InterestTier::MuitoAlto
         || expected.tier == InterestTier::EventoPrincipal)
@@ -539,6 +569,122 @@ mod tests {
     fn headline_strength_sobe_em_grandes_eventos() {
         let pequeno = realized_with("mazda_rookie", 8, 8, false, false, false, false);
         assert_eq!(pequeno.headline_strength, HeadlineStrength::Normal);
+    }
+
+    // ── Testes do DTO público de repercussão ────────────────────────────────
+
+    #[test]
+    #[serial_test::serial]
+    fn repercussao_expoe_delta_em_valor_de_exibicao() {
+        rust_i18n::set_locale("pt-BR"); // os labels resolvem no locale ativo.
+        let vitoria = realized_with("gt3", 1, 8, true, true, false, false);
+        let resumo = to_repercussion_summary(&vitoria);
+        assert_eq!(resumo.expected_display_value, vitoria.expected_display_value);
+        assert_eq!(resumo.final_display_value, vitoria.final_display_value);
+        assert_eq!(
+            resumo.delta_display_value,
+            vitoria.final_display_value - vitoria.expected_display_value
+        );
+        // Vitória vinda de P8: a corrida entregou mais do que prometia.
+        assert!(resumo.delta_display_value > 0);
+    }
+
+    #[test]
+    fn pelotao_do_meio_nao_empata_com_o_esperado() {
+        // A regressão que motivou a rampa: P6–P10 sem troca de posição zerava TODOS os
+        // termos, e o realizado saía idêntico ao esperado em toda corrida.
+        for pos in 6..=10 {
+            let r = realized_with("mazda_rookie", pos, pos, false, false, false, false);
+            assert!(
+                (r.final_score - r.expected_display_value as f32 / 450.0).abs() > 1e-4,
+                "P{pos} empatou com o esperado (final={})",
+                r.final_score
+            );
+            assert_ne!(r.final_display_value, r.expected_display_value, "P{pos}");
+        }
+    }
+
+    #[test]
+    fn rampa_do_miolo_e_monotonica_e_emenda_no_top5() {
+        // Terminar melhor nunca pode render menos repercussão.
+        let scores: Vec<f32> = (5..=14)
+            .map(|p| realized_with("gt3", p, p, false, false, false, false).final_score)
+            .collect();
+        for par in scores.windows(2) {
+            assert!(par[0] > par[1], "rampa não é decrescente: {scores:?}");
+        }
+    }
+
+    /// CONTRATO DE CALIBRAÇÃO do termo posicional — o único teste desta suíte que crava
+    /// NÚMERO em vez de relação. Existe porque a troca das faixas antigas por rampa
+    /// contínua mexeu no joelho da curva (+5 valia 4,0 e passou a valer 2,0) sem que
+    /// nenhuma asserção relacional pudesse notar: monotonicidade e sinal continuam
+    /// valendo em qualquer inclinação. Mexer nestes números é decisão de design, não
+    /// refactor — se este teste quebrar, atualize junto o comentário da linha do
+    /// `positional_bonus` e o registro em `docs/briefings/D09-despacho-r1-r2-r4.md`.
+    #[test]
+    fn contribuicao_posicional_e_de_04_por_posicao() {
+        // Chegada fixa em todos os casos: o result_bonus não se mexe, então a diferença
+        // contra o carro que não trocou de posição é o termo posicional puro.
+        let base_ganho = realized_with("gt3", 8, 8, false, false, false, false).final_score;
+        for (ganho, esperado) in [(1, 0.4), (2, 0.8), (4, 1.6), (5, 2.0), (10, 4.0), (15, 4.0)] {
+            let r = realized_with("gt3", 8, 8 + ganho, false, false, false, false);
+            let contrib = r.final_score - base_ganho;
+            assert!(
+                (contrib - esperado).abs() < 1e-4,
+                "+{ganho} posições deveria valer {esperado}, valeu {contrib}"
+            );
+        }
+
+        // Perdas, com chegada lá atrás para o grid nunca ficar negativo.
+        let base_perda = realized_with("gt3", 14, 14, false, false, false, false).final_score;
+        for (perda, esperado) in [(1, -0.4), (4, -1.6), (5, -2.0), (8, -3.0), (12, -3.0)] {
+            let r = realized_with("gt3", 14, 14 - perda, false, false, false, false);
+            let contrib = r.final_score - base_perda;
+            assert!(
+                (contrib - esperado).abs() < 1e-4,
+                "-{perda} posições deveria valer {esperado}, valeu {contrib}"
+            );
+        }
+    }
+
+    #[test]
+    fn posicoes_ganhas_movem_mesmo_de_uma_em_uma() {
+        // O termo posicional era em faixas e zerava de -4 a +1; agora é contínuo.
+        let parado = realized_with("gt3", 8, 8, false, false, false, false);
+        let uma_a_mais = realized_with("gt3", 8, 9, false, false, false, false);
+        let uma_a_menos = realized_with("gt3", 8, 7, false, false, false, false);
+        assert!(uma_a_mais.final_score > parado.final_score);
+        assert!(uma_a_menos.final_score < parado.final_score);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repercussao_de_dnf_entrega_menos_que_o_esperado() {
+        rust_i18n::set_locale("pt-BR");
+        let dnf = realized_with("gt3", 20, 4, false, false, true, false);
+        let resumo = to_repercussion_summary(&dnf);
+        assert!(resumo.delta_display_value < 0);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn labels_de_tier_e_manchete_traduzem_pelo_locale() {
+        rust_i18n::set_locale("pt-BR");
+        assert_eq!(tier_label(&InterestTier::EventoPrincipal), "Evento principal");
+        assert_eq!(
+            headline_strength_label(&HeadlineStrength::Principal),
+            "Manchete principal"
+        );
+
+        rust_i18n::set_locale("en-US");
+        assert_eq!(tier_label(&InterestTier::EventoPrincipal), "Main event");
+        assert_eq!(
+            headline_strength_label(&HeadlineStrength::Principal),
+            "Lead headline"
+        );
+
+        rust_i18n::set_locale("pt-BR"); // devolve o locale-base pros demais testes.
     }
 
     #[test]

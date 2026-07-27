@@ -526,6 +526,12 @@ pub(crate) fn build_team_summary(
     let piloto_1_salario_anual = salary_for_driver(&active_contracts, team.piloto_1_id.as_deref());
     let piloto_2_salario_anual = salary_for_driver(&active_contracts, team.piloto_2_id.as_deref());
 
+    // Presença pública: mesma conta que a receita de patrocínio consome na rodada
+    // (`FAME_SPONSORSHIP_COEFF`). Sem lineup lido → 0.0, e a UI simplesmente não mostra.
+    let presenca_publica = crate::public_presence::team::derive_team_public_presence(
+        &team_queries::get_team_lineup_medias(conn, &team.id).unwrap_or_default(),
+    );
+
     Ok(TeamSummary {
         id: team.id.clone(),
         nome: team.nome.clone(),
@@ -562,6 +568,7 @@ pub(crate) fn build_team_summary(
         hierarquia_status: team.hierarquia_status.clone(),
         hierarquia_tensao: team.hierarquia_tensao,
         hierarquia_inversoes_temporada: team.hierarquia_inversoes_temporada,
+        presenca_publica,
     })
 }
 

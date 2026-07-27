@@ -198,15 +198,30 @@ pub fn enviar(nota: Option<String>, diagnostico: serde_json::Value) -> Result<St
         .build()
         .map_err(|e| format!("Falha ao preparar o envio: {e}"))?;
 
+    // A FALHA também vai para o log, e não só o sucesso. Sem isto, um jogador que
+    // aperta Enviar, não consegue e diz "mandei" deixa os dois lados sem rastro
+    // nenhum do que houve — que é exatamente o buraco que este módulo existe para
+    // fechar. O ticket vai junto: se ele reenviar depois, dá para casar as duas
+    // tentativas.
     let resposta = cliente
         .post(ENDPOINT_LOG)
         .header("x-app-secret", crate::narrative::client::APP_SECRET)
         .json(&corpo)
         .send()
-        .map_err(|e| format!("Falha ao enviar: {e}"))?;
+        .map_err(|e| {
+            linha(
+                "diagnostico",
+                &format!("envio do log FALHOU (ticket {ticket}): {e}"),
+            );
+            format!("Falha ao enviar: {e}")
+        })?;
 
     let status = resposta.status();
     if !status.is_success() {
+        linha(
+            "diagnostico",
+            &format!("envio do log recusado (ticket {ticket}): HTTP {status}"),
+        );
         return Err(format!("O servidor recusou o envio (HTTP {status})."));
     }
     linha("diagnostico", &format!("log enviado ao servidor, ticket {ticket}"));

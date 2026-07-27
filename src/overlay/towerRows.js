@@ -18,6 +18,54 @@
 export const MAX_ROWS_WITHOUT_WINDOW = 15;
 export const TOP_N = 3;
 export const NEIGHBORS = 4;
+// Quantas linhas o jogador pode chegar da borda da janela antes de ela ceder.
+export const WINDOW_MARGIN = 2;
+
+const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
+
+// A janela GRUDADA no jogador: recentra a cada quadro, sempre com ele no meio.
+// É o comportamento histórico e continua sendo o padrão de quem não passa uma janela
+// própria (`towerContentHeight`, testes, o preview estático).
+const CENTERED_WINDOW = {
+  resolve(playerIdx, n, size) {
+    return clamp(playerIdx - Math.floor((size - 1) / 2), 0, Math.max(0, n - size));
+  },
+};
+
+/**
+ * Janela SOLTA, com zona morta. Guarda onde ela está e só cede quando o jogador chega
+ * a `margin` linhas da borda — e aí anda o mínimo pra restaurar a folga.
+ *
+ * O motivo é de leitura, não de desempenho: grudada no jogador, toda ultrapassagem
+ * arrastava a janela junto, então a linha DELE ficava imóvel e o pelotão inteiro
+ * rolava uma casa. Numa torre pequena isso mexia em metade das linhas visíveis por
+ * ultrapassagem e ficava impossível de acompanhar. Solta, uma ultrapassagem normal
+ * mexe só nos dois carros da disputa — e a linha do jogador volta a subir e descer,
+ * que era o ponto da animação.
+ *
+ * Tem estado, então é UMA POR CANVAS (monitor, VR e preview têm a sua). Duas vistas
+ * dividindo a mesma janela brigariam pelo `start`.
+ */
+export function createTowerWindow() {
+  let start = null;
+  return {
+    resolve(playerIdx, n, size, margin = WINDOW_MARGIN) {
+      const max = Math.max(0, n - size);
+      // 1ª vez (ou grade nova): entra centrada, como a versão grudada.
+      if (start === null) start = CENTERED_WINDOW.resolve(playerIdx, n, size);
+      // Zona morta: só anda quando o jogador encosta na borda. `margin` é limitado a
+      // metade da janela, senão as duas correções brigariam e a janela oscilaria.
+      const m = Math.min(margin, Math.floor((size - 1) / 2));
+      if (playerIdx - start < m) start = playerIdx - m;
+      if (start + size - 1 - playerIdx < m) start = playerIdx - size + 1 + m;
+      start = clamp(start, 0, max);
+      return start;
+    },
+    reset() {
+      start = null;
+    },
+  };
+}
 
 // Ordem canônica das classes na torre (mais rápida em cima). Cobre os dois tipos
 // de evento multiclasse:
@@ -44,7 +92,7 @@ export function totalCars(data) {
 const carRow = (car) => ({ kind: "car", car });
 const separatorRow = () => ({ kind: "separator" });
 
-function compressPlayerClass(cars, topN, neighbors) {
+function compressPlayerClass(cars, topN, neighbors, win) {
   const playerIdx = cars.findIndex((c) => c.player);
   if (playerIdx < 0) {
     // Sem jogador nessa classe (não deveria acontecer aqui): trata como as outras.
@@ -55,19 +103,12 @@ function compressPlayerClass(cars, topN, neighbors) {
   // Total "de sempre" da classe do jogador: topo + vizinhança (ex.: 3 + 9 = 12).
   const target = Math.min(n, topN + 2 * neighbors + 1);
 
-  // Janela de TAMANHO FIXO em torno do jogador. Perto de uma ponta, DESLIZA pro outro
-  // lado em vez de encolher — senão liderar (nada acima) mostraria só ~5 carros.
-  let start = playerIdx - neighbors;
-  let end = playerIdx + neighbors;
-  if (start < 0) {
-    end -= start; // empurra a janela pra baixo (líder)
-    start = 0;
-  }
-  if (end > n - 1) {
-    start -= end - (n - 1); // empurra pra cima (lanterna)
-    end = n - 1;
-  }
-  start = Math.max(0, start);
+  // Janela de TAMANHO FIXO em torno do jogador. Perto de uma ponta ela DESLIZA pro
+  // outro lado em vez de encolher — senão liderar (nada acima) mostraria só ~5 carros.
+  // Quem decide ONDE ela fica é a janela recebida: grudada (padrão) ou solta.
+  const size = Math.min(n, 2 * neighbors + 1);
+  const start = (win ?? CENTERED_WINDOW).resolve(playerIdx, n, size);
+  const end = Math.min(n - 1, start + size - 1);
 
   // Janela encosta no topo → bloco contínuo do 1º, com pelo menos o total de sempre e
   // sem cortar a vizinhança do jogador (o `end` deslizado).
@@ -101,7 +142,7 @@ export function buildTowerSections(data, opts = {}) {
   return classes.map((cls) => {
     const hasPlayer = cls.cars.some((c) => c.player);
     const rows = hasPlayer
-      ? compressPlayerClass(cls.cars, topN, neighbors)
+      ? compressPlayerClass(cls.cars, topN, neighbors, opts.window)
       : cls.cars.slice(0, topN).map(carRow);
     return { cls, rows };
   });

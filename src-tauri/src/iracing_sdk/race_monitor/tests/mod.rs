@@ -557,3 +557,84 @@ fn blip_de_pit_stall_de_dwell_zero_nao_vira_parada() {
         "blip transiente de pit stall (dwell ~0) não pode virar parada"
     );
 }
+
+/// Carro parado no grid com posição NA CLASSE — o que alimenta o snapshot de largada.
+fn grid_car(idx: i32, class_position: i32) -> CarSnapshot {
+    CarSnapshot {
+        idx,
+        class_position,
+        track_surface: SURFACE_ON_TRACK,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn parser_acha_o_numero_da_sessao_de_corrida() {
+    let yaml = "SessionInfo:\n Sessions:\n  - SessionNum: 0\n    SessionType: Practice\n  \
+                - SessionNum: 1\n    SessionType: Open Qualify\n  - SessionNum: 2\n    \
+                SessionType: Race\n";
+
+    assert_eq!(parse_race_session_num(yaml), 2);
+}
+
+#[test]
+fn parser_da_corrida_nao_confunde_quali_nem_inventa_sessao() {
+    // "Lone Qualify" e "Warmup" não podem passar por corrida.
+    let so_quali = "SessionNum: 0\nSessionType: Practice\nSessionNum: 1\nSessionType: Lone Qualify\n\
+                    SessionNum: 2\nSessionType: Warmup\n";
+    assert_eq!(parse_race_session_num(so_quali), -1);
+
+    // Sem YAML nenhum também é -1 (e o gate fecha, em vez de capturar grid errado).
+    assert_eq!(parse_race_session_num(""), -1);
+}
+
+#[test]
+fn treino_livre_nao_congela_o_grid() {
+    let mut m = RaceMonitor::new();
+    m.set_race_session_num(2); // a corrida é a sessão 2
+    m.ensure_active(0.0); // `record_history` só grava com tentativa ativa
+
+    // Sessão 0 = treino livre. Os carros já têm posição na classe, mas ela não é grid.
+    m.record_history(&IracingTelemetry {
+        session_num: 0,
+        session_state: STATE_RACING, // treino também chega a "Racing"
+        session_time: 50.0,
+        cars: vec![grid_car(0, 9), grid_car(1, 1)],
+        ..Default::default()
+    });
+    assert_eq!(
+        m.grid_class_pos[0], 0,
+        "posição vista no treino não pode virar grid da corrida"
+    );
+    assert_eq!(m.grid_class_pos[1], 0);
+
+    // Já na corrida, o mesmo set-once vale — é a rede de segurança para quando a
+    // transição do verde é perdida.
+    m.record_history(&IracingTelemetry {
+        session_num: 2,
+        session_state: STATE_RACING,
+        session_time: 50.0,
+        cars: vec![grid_car(0, 4), grid_car(1, 2)],
+        ..Default::default()
+    });
+    assert_eq!(m.grid_class_pos[0], 4);
+    assert_eq!(m.grid_class_pos[1], 2);
+}
+
+/// Recorte com a indentação REAL do dump do iRacing (`Sessions:` é uma lista, então a
+/// primeira chave de cada item vem com "- "). Os dois parsers têm de aguentar isso.
+const SESSIONS_YAML_REAL: &str = "\
+Sessions:
+ - SessionNum: 0
+   SessionType: Open Qualify
+   SessionName: QUALIFY
+ - SessionNum: 1
+   SessionType: Race
+   SessionName: RACE
+";
+
+#[test]
+fn parsers_de_sessao_aguentam_o_traco_da_lista_do_yaml_real() {
+    assert_eq!(parse_qualy_session_num(SESSIONS_YAML_REAL), 0);
+    assert_eq!(parse_race_session_num(SESSIONS_YAML_REAL), 1);
+}

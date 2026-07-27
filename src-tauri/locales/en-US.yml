@@ -609,6 +609,13 @@ part:
 maintenance:
   gasolina: "Fuel"
   pneus: "Tires"
+  pecas: "Wear parts"
+  frete: "Car freight"
+  viagem: "Team travel"
+  estadia: "Lodging"
+  inscricao: "Event entry"
+  diarias: "Team per diems"
+  estrutura: "Mobile hospitality"
   carroceria: "Bodywork"
   suspensao: "Suspension"
   freio: "Brakes"
@@ -1119,3 +1126,18 @@ briefing:
     breakdown_pit: "%{name} (%{team}) lost %{secs}s in the pits due to a problem with %{part}: %{label} (%{severity} problem)"
     severity_heavy: "severe"
     severity_light: "minor"
+
+# Event interest (event_interest/): label for the interest tier and for the weight
+# of the headline the race earned. Consumed by the EventInterestSummary and
+# EventRepercussionSummary DTOs — the frontend does NOT reimplement this mapping.
+event_interest:
+  tier:
+    baixo: "Low interest"
+    moderado: "Moderate interest"
+    alto: "Big crowd"
+    muito_alto: "Standout event"
+    evento_principal: "Main event"
+  headline:
+    normal: "Routine coverage"
+    forte: "Strong headline"
+    principal: "Lead headline"

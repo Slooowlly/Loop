@@ -34,11 +34,43 @@ pub(crate) fn parse_subsession_id(yaml: &str) -> i64 {
 pub(crate) fn parse_qualy_session_num(yaml: &str) -> i32 {
     let mut cur_num: i32 = -1;
     for line in yaml.lines() {
+        // Idem `parse_race_session_num`: sem tirar o "- " da lista o `SessionNum` nunca
+        // casa, a função devolve -1 sempre e o gate da quali fica desarmado — voltas e
+        // paradas da classificatória entravam no histórico da CORRIDA.
         let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
         if let Some(rest) = t.strip_prefix("SessionNum:") {
             cur_num = rest.trim().parse::<i32>().unwrap_or(-1);
         } else if let Some(rest) = t.strip_prefix("SessionType:") {
             if rest.to_lowercase().contains("qualify") {
+                return cur_num;
+            }
+        }
+    }
+    -1
+}
+
+/// `SessionNum` da sessão de CORRIDA no YAML (-1 se não houver). Mesmo formato do
+/// parser de quali, mas casando `SessionType: Race` EXATO — "Open Qualify" e
+/// "Lone Qualify" também contêm palavras genéricas, e um `contains` aqui pegaria
+/// qualquer sessão cujo tipo mencionasse corrida.
+///
+/// Existe porque o snapshot do grid (posição na classe no verde) só pode ser tirado
+/// na corrida. Treino livre e classificatória também passam por `SessionState =
+/// Racing`, então sem este número a primeira sessão do fim de semana consumia o
+/// gate e o grid da corrida vinha do treino.
+pub(crate) fn parse_race_session_num(yaml: &str) -> i32 {
+    let mut cur_num: i32 = -1;
+    for line in yaml.lines() {
+        // `Sessions:` é uma LISTA no YAML do iRacing, então a primeira chave de cada
+        // item vem com "- " na frente (`- SessionNum: 0`). Sem tirar o traço, o número
+        // nunca casa e todo fim de semana pareceria não ter corrida.
+        let t = line.trim();
+        let t = t.strip_prefix("- ").unwrap_or(t);
+        if let Some(rest) = t.strip_prefix("SessionNum:") {
+            cur_num = rest.trim().parse::<i32>().unwrap_or(-1);
+        } else if let Some(rest) = t.strip_prefix("SessionType:") {
+            if rest.trim().trim_matches('"').trim().eq_ignore_ascii_case("race") {
                 return cur_num;
             }
         }
@@ -254,6 +286,20 @@ impl RaceMonitor {
             self.reset_qualy_state();
         }
         self.qualy_session_num = num;
+    }
+
+    /// Guarda o número da sessão de corrida (do YAML). Sem reset associado: ao
+    /// contrário da quali, este número não guarda estado derivado — é só a régua
+    /// que diz "a sessão atual é a corrida".
+    pub(super) fn set_race_session_num(&mut self, num: i32) {
+        self.race_session_num = num;
+    }
+
+    /// A sessão que está rolando AGORA é a corrida? Quando o YAML não traz sessão de
+    /// corrida (-1) responde `false`: melhor não capturar grid nenhum — e mostrar
+    /// delta zerado — do que capturar o do treino e mostrar número errado.
+    pub(super) fn in_race_session(&self, t: &IracingTelemetry) -> bool {
+        self.race_session_num >= 0 && t.session_num == self.race_session_num
     }
 
     /// Guarda o número de cada carro (do `CarNumberRaw`).

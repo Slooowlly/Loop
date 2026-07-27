@@ -7,6 +7,78 @@ use super::*;
 /// no mesmo patamar: contratar um rosto famoso capta patrocínio de verdade. Tunável.
 pub(super) const FAME_SPONSORSHIP_COEFF: f64 = 0.004;
 
+/// O que uma etapa cobra de um time em campo, além da escala da categoria: onde ela
+/// aconteceu e o quanto os carros dele efetivamente rodaram. Alimenta a fatura de
+/// operação (`finance::operacao`) — a mesma para IA e para o jogador.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RoundOperationContext {
+    pub track_id: u32,
+    /// Fração da corrida completada pelos carros do time (0..1). Abandono cedo queima
+    /// menos combustível e menos pneu.
+    pub laps_ratio: f64,
+    /// Desgaste final médio dos pneus dos carros do time (0..1).
+    pub tire_wear: f64,
+}
+
+/// Média de voltas e desgaste dos carros de um time numa corrida, normalizada pela
+/// distância que o vencedor completou. Sem carro do time no resultado → rodada cheia
+/// com desgaste médio (o time pagou a etapa de qualquer jeito).
+pub(crate) fn round_operation_context(
+    result: &RaceResult,
+    team_id: &str,
+    track_id: u32,
+) -> RoundOperationContext {
+    let race_laps = result
+        .race_results
+        .iter()
+        .map(|r| r.laps_completed)
+        .max()
+        .unwrap_or(0)
+        .max(1) as f64;
+    let carros: Vec<_> = result
+        .race_results
+        .iter()
+        .filter(|r| r.team_id == team_id)
+        .collect();
+    if carros.is_empty() {
+        return RoundOperationContext { track_id, laps_ratio: 1.0, tire_wear: 0.6 };
+    }
+    let n = carros.len() as f64;
+    RoundOperationContext {
+        track_id,
+        laps_ratio: (carros.iter().map(|r| r.laps_completed as f64).sum::<f64>() / n / race_laps)
+            .clamp(0.0, 1.0),
+        tire_wear: (carros.iter().map(|r| r.final_tire_wear).sum::<f64>() / n).clamp(0.0, 1.0),
+    }
+}
+
+/// Junta time + etapa nos fatores da fatura de operação. É o ÚNICO ponto onde a fatura
+/// nasce, então o total debitado no caixa e a fatura mostrada no pós-corrida não podem
+/// divergir.
+pub(crate) fn operation_inputs(
+    team: &Team,
+    round_operating_base: f64,
+    cost_modifier: f64,
+    ctx: RoundOperationContext,
+) -> crate::finance::operacao::OperationInputs {
+    crate::finance::operacao::OperationInputs::for_round(
+        round_operating_base,
+        team.facilities,
+        team.pit_crew_quality,
+        cost_modifier,
+        &team.pais_sede,
+        ctx.track_id,
+        ctx.laps_ratio,
+        ctx.tire_wear,
+    )
+}
+
+/// Custo operacional médio de UMA rodada da categoria — a base de que todos os pesos
+/// financeiros da rodada são fração.
+pub(crate) fn round_operating_base(categoria: &str, rounds_in_season: f64) -> f64 {
+    category_finance_scale(categoria).operating_cost_midpoint() / rounds_in_season.max(1.0)
+}
+
 pub(super) fn calculate_team_round_finance_context(
     team: &Team,
     lineup_public_presence: f64,
@@ -18,6 +90,9 @@ pub(super) fn calculate_team_round_finance_context(
     rounds_in_season: f64,
     economic_health: GlobalEconomicHealth,
     car_maintenance_cost: f64,
+    // O que esta etapa cobrou deste time em campo: onde foi e o que os carros dele fizeram.
+    // Dimensiona a fatura de operação — cujo total É o `event_operations_cost`.
+    round_operation: RoundOperationContext,
     // Bilheteria (Fase 3 do Estrelato): prestígio do evento (score do event_interest,
     // pré-vendido) + presença pública somada do grid + nº de times, para dividir o
     // bolo de público por cota de fama competitiva.
@@ -47,9 +122,12 @@ pub(super) fn calculate_team_round_finance_context(
         * income_modifier;
     let partial_prize_income = added_points as f64 * 120.0 * income_modifier;
     let aid_income = team.parachute_payment_remaining.min(25_000.0);
-    let event_operations_cost = (round_operating_base * 0.42
-        + team.facilities * round_operating_base * 0.004)
-        * cost_modifier;
+    // Custo de operação = a soma da fatura itemizada (ver `finance::operacao`). Substituiu
+    // a constante achatada `base * 0.42 + facilities * base * 0.004`: mesma escala média,
+    // mas a rodada agora responde à distância da etapa, às voltas rodadas e ao desgaste.
+    let event_operations_cost = crate::finance::operacao::compute_operation_cost(
+        &operation_inputs(team, round_operating_base, cost_modifier, round_operation),
+    );
     let structural_maintenance_cost = (round_operating_base * 0.18
         + team.engineering * round_operating_base * 0.0025
         + team.pit_crew_quality * round_operating_base * 0.0015)
@@ -86,6 +164,16 @@ pub(super) fn calculate_team_round_finance_context(
         technical_investment_cost,
         debt_service_cost,
     }
+}
+
+/// O que o bloco de fama do fim de semana devolve ao caller: o peso da corrida na
+/// cobertura (notícias) e a repercussão PÚBLICA que a tela de resultado mostra.
+pub(crate) struct PostRaceFameOutcome {
+    pub news_importance_bias: i32,
+    pub interest_tier: InterestTier,
+    /// Repercussão ancorada no JOGADOR — `None` quando ele não correu esta corrida
+    /// (fim de semana 100% IA). É o que alimenta o bloco "Repercussão" da tela.
+    pub player_repercussion: Option<EventRepercussionSummary>,
 }
 
 pub(super) fn compute_post_race_impact(
@@ -206,13 +294,13 @@ pub(super) fn venue_prestige_score(race_entry: &CalendarEntry) -> f64 {
 ///   modulado pelo carisma de cada um),
 /// - deriva leve de CARISMA por marcos do fim de semana ("drama vende"),
 /// - decaimento passivo da fama de todo o grid que correu.
-/// Retorna `(news_importance_bias, interest_tier)` pro caller alimentar as notícias.
+/// Retorna o [`PostRaceFameOutcome`] pro caller alimentar as notícias e a tela.
 pub(crate) fn apply_post_race_fame(
     conn: &rusqlite::Connection,
     race_entry: &CalendarEntry,
     result: &RaceResult,
     new_injuries: &[Injury],
-) -> Result<(i32, InterestTier), String> {
+) -> Result<PostRaceFameOutcome, String> {
     // ID do jogador — excluído do bloco world-facing (já tratado no player-facing).
     // Vazio quando o jogador não corre esta categoria (corrida 100% IA).
     let excluded_driver_id = result
@@ -268,9 +356,19 @@ pub(crate) fn apply_post_race_fame(
 
     // Interesse do evento para o mundo: do jogador se ele correu; senão, "de local"
     // (categoria da IA). É isto que faz a fama valer em TODAS as categorias.
+    // Repercussão pública do JOGADOR — calculada aqui porque `player_realized` é
+    // consumido logo abaixo (o `or_else` do fallback "de local" o move).
+    let player_repercussion = player_realized.as_ref().map(to_repercussion_summary);
     let realized = match player_realized.or_else(|| compute_venue_impact(race_entry)) {
         Some(r) => r,
-        None => return Ok((0, InterestTier::Baixo)), // sem config de categoria → nada a fazer
+        // Sem config de categoria → nada a fazer.
+        None => {
+            return Ok(PostRaceFameOutcome {
+                news_importance_bias: 0,
+                interest_tier: InterestTier::Baixo,
+                player_repercussion,
+            })
+        }
     };
     let post_race_bias = realized.news_importance_bias;
     let interest_tier = realized.final_tier.clone();
@@ -355,5 +453,9 @@ pub(crate) fn apply_post_race_fame(
         );
     }
 
-    Ok((post_race_bias, interest_tier))
+    Ok(PostRaceFameOutcome {
+        news_importance_bias: post_race_bias,
+        interest_tier,
+        player_repercussion,
+    })
 }

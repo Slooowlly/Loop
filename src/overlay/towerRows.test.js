@@ -5,6 +5,7 @@ import {
   orderClasses,
   playerTeam,
   totalCars,
+  createTowerWindow,
 } from "./towerRows";
 
 // Helpers pra montar grades fictícias enxutas.
@@ -125,5 +126,70 @@ describe("companheiro de equipe", () => {
     expect(isTeammate(p1, team)).toBe(true); // mesmo time
     expect(isTeammate(p2, team)).toBe(false); // outro time
     expect(isTeammate(p3, team)).toBe(false); // e o proprio jogador
+  });
+});
+
+// ── Janela SOLTA (zona morta) ────────────────────────────────────────────────
+// Grade de 20 carros; o jogador começa em P12 e vai andando. `posicoes` devolve o
+// que a torre mostraria, com "|" na separação.
+describe("createTowerWindow", () => {
+  const grade = (playerPos) =>
+    data(cls("gt3", Array.from({ length: 20 }, (_, i) => car(i + 1, { player: i === playerPos - 1 }))));
+  const posicoes = (playerPos, opts) => positionsOf(buildTowerSections(grade(playerPos), opts)[0]);
+  // Em que LINHA da torre o jogador aparece — é o número que a animação move.
+  const linhaDoJogador = (playerPos, opts) =>
+    buildTowerSections(grade(playerPos), opts)[0].rows.findIndex(
+      (r) => r.kind === "car" && r.car.player,
+    );
+
+  it("sem janela própria, continua GRUDADA: o jogador nunca muda de linha", () => {
+    // Grudada, a janela anda junto com ele: quem rola é o pelotão, e a linha do
+    // jogador fica imóvel. É o comportamento antigo, preservado como padrão.
+    expect(linhaDoJogador(12)).toBe(linhaDoJogador(11));
+    expect(posicoes(12)).not.toEqual(posicoes(11));
+  });
+
+  it("solta, uma ultrapassagem normal move o JOGADOR, não a janela", () => {
+    const win = createTowerWindow();
+    const antes = posicoes(12, { window: win });
+    const linha = linhaDoJogador(12, { window: win });
+    const depois = posicoes(11, { window: win });
+
+    // As mesmas linhas, na mesma ordem: a janela ficou parada...
+    expect(depois).toEqual(antes);
+    // ...e quem subiu uma casa foi o jogador — que é o que se quer acompanhar.
+    expect(linhaDoJogador(11, { window: win })).toBe(linha - 1);
+  });
+
+  it("solta, a janela cede quando o jogador encosta na borda", () => {
+    const win = createTowerWindow();
+    const inicial = posicoes(12, { window: win });
+    const dentro = inicial.filter((p) => p !== "|");
+    const ultimo = dentro[dentro.length - 1];
+
+    // Anda até depois da última posição visível: a janela tem de acompanhar.
+    const longe = posicoes(ultimo + 2, { window: win });
+    expect(longe).not.toEqual(inicial);
+    expect(longe).toContain(ultimo + 2);
+  });
+
+  it("ao ceder, anda o MÍNIMO — não recentra o jogador", () => {
+    const win = createTowerWindow();
+    const linhaInicial = linhaDoJogador(12, { window: win });
+    // Cai duas posições: a janela cede o necessário e o jogador continua embaixo,
+    // não volta pro meio (recentrar é justamente o que deixava tudo rolando).
+    const linhaDepois = linhaDoJogador(14, { window: win });
+    expect(linhaDepois).toBeGreaterThan(linhaInicial);
+    expect(linhaDepois).not.toBe(linhaDoJogador(14)); // ≠ da grudada, que recentra
+  });
+
+  it("reset volta a janela a centrar no jogador", () => {
+    const win = createTowerWindow();
+    posicoes(12, { window: win });
+    const cedida = posicoes(16, { window: win }); // caiu 4: a janela cedeu o mínimo
+    win.reset();
+    const recentrada = posicoes(16, { window: win });
+    expect(recentrada).not.toEqual(cedida);
+    expect(recentrada).toEqual(posicoes(16)); // igual à grudada
   });
 });

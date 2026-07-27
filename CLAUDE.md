@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## O que é
 
-**Loop** — simulador desktop offline de carreira no automobilismo. Tauri v2 (Rust) + React 18 + Vite, com SQLite local. O jogador controla **um piloto** subindo uma pirâmide de 9 categorias, cercado por um mundo vivo de 200+ pilotos de IA e 60+ equipes que correm, evoluem, trocam de equipe e se aposentam sozinhos.
+**Loop** — jogo desktop de carreira no automobilismo **construído em volta do iRacing**. Tauri v2 (Rust) + React 18 + Vite, com SQLite local. O jogador controla **um piloto** subindo uma pirâmide de 9 categorias, cercado por um mundo vivo de 200+ pilotos de IA e 60+ equipes que correm, evoluem, trocam de equipe e se aposentam sozinhos.
 
-Alvo real é **Windows** (o SDK do iRacing e winapi são Windows-only) — o CI roda em `windows-latest`.
+O caminho principal é correr a etapa **de verdade**: o Loop exporta o grid e o calendário como AI roster/AI season do iRacing, o jogador corre, e o resultado oficial volta para a carreira. A simulação interna preenche o que ele não corre. "Offline" vale para os **dados** (nada de servidor, tudo em SQLite local), não para o propósito — ver [docs/iracing-escopo.md](docs/iracing-escopo.md).
+
+Alvo real é **Windows** — não por acaso: o SDK do iRacing e winapi são Windows-only, e fora do Windows a integração compila como stub inerte. O CI roda em `windows-latest`.
 
 **O código, os comentários e a UI são em português.** Mantenha esse padrão ao escrever código novo.
 

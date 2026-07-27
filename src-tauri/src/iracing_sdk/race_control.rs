@@ -10,7 +10,10 @@
 //! 4. salva o valor original e troca por `!y$`;
 //! 5. guarda o slot, para disparar depois pelo SDK ([`super::send_chat_macro`]).
 //!
-//! Tudo reversível: o original fica salvo e há um backup completo do `app.ini`.
+//! Reversível **à mão**: o valor original fica salvo no estado (e exposto em
+//! [`status`]), e há um backup completo do `app.ini` ao lado dele. Não expomos um
+//! botão de restaurar — quem quiser desfazer troca o slot de volta ou recupera o
+//! backup; o iRacing também reescreve o `app.ini` ao fechar.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -256,19 +259,6 @@ pub fn install() -> Result<YellowMacroStatus, String> {
     // Migração: remove o arquivo de estado com o nome antigo.
     let _ = fs::remove_file(old_state_path(&app_ini));
 
-    Ok(status())
-}
-
-/// Restaura o valor original do slot e remove o estado.
-pub fn restore() -> Result<YellowMacroStatus, String> {
-    let app_ini = find_app_ini().ok_or("app.ini não encontrado.")?;
-    let state = read_state(&app_ini).ok_or("Nada instalado para restaurar.")?;
-    let content = fs::read_to_string(&app_ini).map_err(|e| format!("Falha ao ler app.ini: {e}"))?;
-    let new_content = set_slot(&content, state.slot, &state.original)
-        .ok_or(format!("Slot AutoChatStr{} não encontrado.", state.slot))?;
-    fs::write(&app_ini, &new_content).map_err(|e| format!("Falha ao escrever app.ini: {e}"))?;
-    let _ = fs::remove_file(state_path(&app_ini));
-    let _ = fs::remove_file(old_state_path(&app_ini));
     Ok(status())
 }
 

@@ -32,6 +32,8 @@ const TARGETS = {
     poseKey: "vrOverlayPose",
     defaultKey: "vrOverlayDefault",
     recenterKeyStore: "vrOverlayRecenterKey",
+    recenterPadStore: "vrOverlayRecenterPad",
+    alvo: "overlay", // nome do alvo no vigia de volante (Rust)
     factory: { lockMode: 1, x: 0, y: 0.61, z: -1.29, yaw: 0, pitch: 30, scale: 1.7, visible: true },
   },
   radio: {
@@ -43,6 +45,8 @@ const TARGETS = {
     poseKey: "vrEngineerPose",
     defaultKey: "vrEngineerDefault",
     recenterKeyStore: "vrEngineerRecenterKey",
+    recenterPadStore: "vrEngineerRecenterPad",
+    alvo: "engineer",
     // Padrão de fábrica = pose ajustada pelo usuário (cockpit-lock, pequeno e perto).
     factory: { lockMode: 1, x: 0, y: 0.22, z: -0.73, yaw: 0, pitch: 10, scale: 0.26, visible: true },
   },
@@ -65,6 +69,21 @@ function loadRecenterKey(cfg) {
     if (raw) {
       const k = JSON.parse(raw);
       if (k && typeof k.vk === "number" && k.vk > 0) return k;
+    }
+  } catch {
+    /* ignora storage corrompido */
+  }
+  return null;
+}
+
+// Botão de volante salvo ({ dispositivo, botao }) ou null. Dispositivo e botão são
+// índices do Windows — 0 é válido nos dois, então o teste é por tipo, não por verdade.
+function loadRecenterPad(cfg) {
+  try {
+    const raw = localStorage.getItem(cfg.recenterPadStore);
+    if (raw) {
+      const b = JSON.parse(raw);
+      if (b && Number.isInteger(b.dispositivo) && Number.isInteger(b.botao)) return b;
     }
   } catch {
     /* ignora storage corrompido */
@@ -165,6 +184,9 @@ export default function OverlayPositionPanel() {
   const [savedAt, setSavedAt] = useState(0); // > 0 = "padrão salvo" (some ao mexer)
   const [recenterKey, setRecenterKey] = useState(() => loadRecenterKey(TARGETS[loadTargetName()]));
   const [capturing, setCapturing] = useState(false); // ouvindo a próxima tecla?
+  const [recenterPad, setRecenterPad] = useState(() => loadRecenterPad(TARGETS[loadTargetName()]));
+  const [capturingPad, setCapturingPad] = useState(false); // esperando um botão do volante?
+  const [padDevices, setPadDevices] = useState(null); // quantos volantes o Windows vê
   const poseRef = useRef(pose); // espelho pra comparar sem depender do render
 
   // Troca de ALVO (Torre/Rádio): carrega a pose/tecla daquele quad e empurra pra layer.
@@ -185,6 +207,10 @@ export default function OverlayPositionPanel() {
     const rk = loadRecenterKey(c);
     setRecenterKey(rk);
     if (estaNoTauri()) invoke(c.setRecenterKey, { vk: rk?.vk ?? 0 }).catch(() => {});
+    // O botão de volante é por alvo também; o efeito que reempurra pro vigia depende
+    // de `target`, então trocar o estado aqui basta.
+    setRecenterPad(loadRecenterPad(c));
+    setCapturingPad(false);
     setSavedAt(0);
   };
 
@@ -251,6 +277,72 @@ export default function OverlayPositionPanel() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [capturing]);
+
+  // Captura de BOTÃO DE VOLANTE. Não dá pra ouvir evento: botão de volante é HID e
+  // não gera `keydown` nenhum no webview — foi exatamente por isso que associá-lo não
+  // funcionava. Então aqui é POLL: enquanto "capturando", pergunta ao backend qual
+  // botão está apertado agora, e o primeiro que aparecer vence.
+  useEffect(() => {
+    if (!capturingPad || !estaNoTauri()) return undefined;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      try {
+        const b = await invoke("volante_botao_pressionado");
+        if (stopped || !b) return;
+        setCapturingPad(false);
+        setRecenterPad(b);
+        try {
+          localStorage.setItem(cfgRef.current.recenterPadStore, JSON.stringify(b));
+        } catch {
+          /* sem persistência: tudo bem */
+        }
+        invoke("volante_set_recenter_button", {
+          alvo: cfgRef.current.alvo,
+          botao: b,
+        }).catch(() => {});
+      } catch {
+        /* backend ainda não pronto */
+      }
+    }, 80);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [capturingPad]);
+
+  // Enquanto captura, mostra se o Windows sequer enxerga um volante — "nenhum
+  // dispositivo" é um diagnóstico bem diferente de "apertei e não pegou".
+  useEffect(() => {
+    if (!capturingPad || !estaNoTauri()) return;
+    invoke("volante_dispositivos")
+      .then((ds) => setPadDevices(ds?.length ?? 0))
+      .catch(() => setPadDevices(0));
+  }, [capturingPad]);
+
+  // Reempurra a ligação salva ao backend quando o alvo (ou a ligação) muda — o vigia
+  // vive no Rust e não conhece o localStorage.
+  useEffect(() => {
+    if (!estaNoTauri()) return;
+    invoke("volante_set_recenter_button", {
+      alvo: cfgRef.current.alvo,
+      botao: recenterPad ?? null,
+    }).catch(() => {});
+  }, [recenterPad, target]);
+
+  const clearRecenterPad = () => {
+    setRecenterPad(null);
+    setCapturingPad(false);
+    try {
+      localStorage.removeItem(cfgRef.current.recenterPadStore);
+    } catch {
+      /* ignora */
+    }
+    if (estaNoTauri()) {
+      invoke("volante_set_recenter_button", { alvo: cfgRef.current.alvo, botao: null }).catch(
+        () => {},
+      );
+    }
+  };
 
   const clearRecenterKey = () => {
     setRecenterKey(null);
@@ -524,8 +616,65 @@ export default function OverlayPositionPanel() {
             </button>
           )}
         </div>
+        {/* Botão de VOLANTE — linha irmã da tecla. Separado de propósito: são dois
+            caminhos diferentes por baixo (a tecla vai pra layer OpenXR, o botão é
+            vigiado aqui no app), e juntar os dois num campo só esconderia isso. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: "#9aa4ad", flex: 1 }}>
+            {t("overlay.positionPanel.vrPad")}{" "}
+            <strong style={{ color: capturingPad ? "#e3b341" : "#e6edf3" }}>
+              {capturingPad
+                ? t("overlay.positionPanel.pressPad")
+                : recenterPad
+                  ? t("overlay.positionPanel.padLabel", {
+                      device: recenterPad.dispositivo,
+                      button: recenterPad.botao,
+                    })
+                  : t("overlay.positionPanel.none")}
+            </strong>
+          </span>
+          <button
+            onClick={() => setCapturingPad((c) => !c)}
+            style={{
+              background: "none",
+              border: "1px solid rgba(255,255,255,0.14)",
+              color: "#9aa4ad",
+              borderRadius: 6,
+              padding: "4px 8px",
+              cursor: "pointer",
+              fontSize: 11,
+            }}
+          >
+            {capturingPad ? t("overlay.positionPanel.cancel") : t("overlay.positionPanel.capture")}
+          </button>
+          {recenterPad && !capturingPad && (
+            <button
+              onClick={clearRecenterPad}
+              title={t("overlay.positionPanel.clearPadTooltip")}
+              style={{
+                background: "none",
+                border: "1px solid rgba(255,255,255,0.14)",
+                color: "#9aa4ad",
+                borderRadius: 6,
+                padding: "4px 8px",
+                cursor: "pointer",
+                fontSize: 11,
+              }}
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {capturingPad && padDevices === 0 && (
+          <p style={{ fontSize: 10, color: "#e3b341", margin: "6px 0 0", lineHeight: 1.4 }}>
+            {t("overlay.positionPanel.padNoDevices")}
+          </p>
+        )}
         <p style={{ fontSize: 10, color: "#6e7681", margin: "6px 0 0", lineHeight: 1.4 }}>
           {t("overlay.positionPanel.recenterKeyHint")} <strong>Ctrl direito + C</strong>.
+        </p>
+        <p style={{ fontSize: 10, color: "#6e7681", margin: "6px 0 0", lineHeight: 1.4 }}>
+          {t("overlay.positionPanel.padHint")}
         </p>
       </div>
     </div>

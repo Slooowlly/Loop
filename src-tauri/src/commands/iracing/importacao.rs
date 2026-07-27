@@ -95,6 +95,15 @@ pub fn iracing_auto_import_if_ready(
             );
         }
     }
+    // DIFICULDADE ADAPTATIVA: calibra o nível da IA ao jogador (perfil por custid, global
+    // + por pista) que o `ai_sweet_spot` lê na PRÓXIMA geração de roster/temporada. Roda
+    // aqui, e não na UI, porque o ajuste tem de acontecer sempre que uma corrida entra na
+    // carreira — e em SILÊNCIO: o jogador não deve perceber, senão duvida dos próprios
+    // resultados. Idempotente pelo mesmo motivo do resto deste bloco (só corre depois de
+    // um import bem-sucedido). Best-effort: corrida sem dados suficientes devolve Err e é
+    // engolido — nunca desfaz o import.
+    let _ = iracing_process_race_result(app.clone());
+
     let evaluation = crate::commands::race::compute_race_evaluation(&db.conn, &race_result);
 
     // Persiste a tela completa (resultado + avaliação + telemetria/gráficos) para
@@ -107,6 +116,7 @@ pub fn iracing_auto_import_if_ready(
             "evaluation": &evaluation,
             "telemetry": &telemetry,
             "maintenance": &summary.maintenance,
+            "event_repercussion": &summary.event_repercussion,
         }),
     );
 

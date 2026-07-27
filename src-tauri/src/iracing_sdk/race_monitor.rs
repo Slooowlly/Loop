@@ -319,6 +319,10 @@ struct RaceMonitor {
     session_car_name: Option<String>,
     /// `SessionNum` da sessão de qualify (-1 se não houver) — detecta a quali.
     qualy_session_num: i32,
+    /// `SessionNum` da sessão de CORRIDA (-1 se não houver) — o gate do snapshot de
+    /// grid. Treino e quali também chegam a `SessionState = Racing`, então sem ele a
+    /// primeira sessão do fim de semana roubava a captura do grid.
+    race_session_num: i32,
     /// Se estávamos em quali no tick anterior (detecta entrada numa quali nova).
     prev_in_qualy: bool,
     /// Voltas capturadas na sessão de quali (carregadas no histórico da corrida).
@@ -513,6 +517,7 @@ impl RaceMonitor {
             session_subsession_id: 0,
             session_car_name: None,
             qualy_session_num: -1,
+            race_session_num: -1,
             prev_in_qualy: false,
             qualy_laps: Vec::new(),
             qualy_car_lap_completed: [0; 64],

@@ -112,8 +112,13 @@ pub struct AdaptiveResult {
 }
 
 /// Processa o resultado da ÚLTIMA corrida e atualiza o perfil adaptativo do
-/// jogador (por `custid`). Chamado pelo frontend quando detecta a corrida
-/// encerrada (opção a — automático). Só aplica em corrida limpa do jogador.
+/// jogador (por `custid`). Só aplica em corrida limpa do jogador.
+///
+/// Chamado de dentro do import automático ([`super::iracing_auto_import_if_ready`]),
+/// não pelo frontend: o ajuste tem de acontecer sempre que uma corrida entra na
+/// carreira, e o jogador NÃO deve percebê-lo — se perceber, passa a duvidar dos
+/// próprios resultados. Ficou anos preso a um painel desligado; o perfil nunca era
+/// escrito e o `ai_sweet_spot` lia sempre zero (ver `docs/iracing-escopo.md` §4).
 #[tauri::command]
 pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResult, String> {
     use crate::constants::tracks::get_track;

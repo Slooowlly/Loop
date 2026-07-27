@@ -1589,6 +1589,12 @@
       "expenseTitle": "Saídas da rodada",
       "salaryHint": "{{value}}/ano",
       "ledgerEmpty": "Sem rodada registrada ainda.",
+      "presence": {
+        "eyebrow": "Presença pública",
+        "label": "Perfil de audiência",
+        "caption": "0–100, do lineup ativo",
+        "explainer": "A mídia da sua dupla define o perfil público da equipe — o piloto mais midiático pesa 70%, o companheiro 30%. Esse número multiplica o patrocínio de cada rodada: contratar um rosto conhecido é receita, não só vitrine."
+      },
       "lines": {
         "sponsorship_income": "Patrocínios",
         "gate_income": "Bilheteria",
@@ -2070,12 +2076,27 @@
       "raceTarget": "meta da corrida",
       "bestLap": "melhor volta",
       "incidents": "incidentes",
-      "maintenance": "manutenção",
-      "timeLost": "perdido no box"
+      "maintenance": "custos da corrida",
+      "timeLost": "perdido no box",
+      "repercussion": "repercussão"
+    },
+    "repercussion": {
+      "tooltipTitle": "Repercussão do evento",
+      "expected": "Esperado",
+      "delivered": "Entregue",
+      "delta": "Diferença",
+      "headline": "Peso na cobertura",
+      "audienceUnit": "espectadores"
     },
     "maintenance": {
-      "invoiceTitle": "Fatura do carro",
-      "total": "Total"
+      "invoiceTitle": "Fatura do fim de semana",
+      "total": "Total",
+      "groups": {
+        "carro": "Carro",
+        "logistica": "Logística",
+        "equipe": "Equipe",
+        "reparo": "Reparo"
+      }
     }
   },
   "newsMagazine": {
@@ -2843,6 +2864,36 @@
     "backToMenu": "Voltar ao menu",
     "loadingOverlay": {
       "title": "Gerenciando saves"
+    },
+    "backups": {
+      "open": "Backups",
+      "eyebrow": "Rede de segurança",
+      "title": "Backups da carreira",
+      "subtitle": "Cada avanço de temporada gera um backup automático. Restaurar volta o save inteiro àquele ponto — não é um merge.",
+      "loading": "Carregando backups...",
+      "empty": "Nenhum backup ainda. O primeiro aparece quando você avançar de temporada.",
+      "seasonLabel": "Temporada {{season}}",
+      "size": "{{kb}} KB",
+      "create": "Criar backup agora",
+      "working": "Trabalhando...",
+      "restore": "Restaurar",
+      "close": "Fechar",
+      "confirmCancel": "Cancelar",
+      "createConfirm": {
+        "title": "Criar backup da temporada {{season}}?",
+        "body": "Existe um único backup por temporada. Se já houver um backup desta temporada, ele será sobrescrito e não poderá ser recuperado.",
+        "confirm": "Criar backup"
+      },
+      "restoreConfirm": {
+        "title": "Restaurar a temporada {{season}}?",
+        "body": "Todo o progresso feito depois desse ponto será perdido — banco, resultados e contexto voltam ao estado daquela temporada. Uma cópia do estado atual é guardada em career.db.bak, mas há apenas um slot: um segundo restore a substitui.",
+        "confirm": "Restaurar mesmo assim"
+      },
+      "errors": {
+        "list": "Não foi possível listar os backups desta carreira.",
+        "create": "Não foi possível criar o backup.",
+        "restore": "Não foi possível restaurar o backup."
+      }
     }
   },
   "rivalryPerception": {
@@ -3077,7 +3128,13 @@
       "capture": "definir",
       "cancel": "cancelar",
       "clearKeyTooltip": "Remover tecla de recentro",
-      "recenterKeyHint": "Dica: use a MESMA tecla do \"Center VR\" do iRacing (Options → Controls) e um aperte só recentra os dois. No VR também dá com"
+      "recenterKeyHint": "Dica: use a MESMA tecla do \"Center VR\" do iRacing (Options → Controls) e um aperte só recentra os dois. No VR também dá com",
+      "vrPad": "Botão do volante:",
+      "pressPad": "aperte um botão do volante…",
+      "padLabel": "volante {{device}} · botão {{button}}",
+      "clearPadTooltip": "Remover botão de recentro",
+      "padNoDevices": "Nenhum dispositivo de jogo encontrado. Ligue o volante antes de capturar — se ele não aparece em \"Dispositivos de Jogo\" do Windows, o Loop também não enxerga.",
+      "padHint": "O botão do volante é vigiado pelo Loop, não pela camada do VR: funciona com o app em segundo plano, mas o app precisa estar aberto."
     },
     "liveView": {
       "hideTower": "Ocultar a torre",

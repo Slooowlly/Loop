@@ -567,6 +567,7 @@ pub(super) fn apply_race_result_to_database(
             rounds_in_season,
             economic_health,
             car_maintenance_cost,
+            round_operation_context(result, &team.id, track_id),
             event_prestige_score,
             grid_total_presence,
             grid_team_count,

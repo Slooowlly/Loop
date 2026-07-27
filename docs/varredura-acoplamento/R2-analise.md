@@ -225,7 +225,7 @@ Todo o resto do arquivo fica onde está.
 | | O quê | Custo | Toca `narrative/`? |
 |---|---|---|---|
 | **P0 — ✅ feito** | `build_merit_field` em [`commands/race/merito.rs`](../../src-tauri/src/commands/race/merito.rs) vira a única construção do campo de mérito; `performance_context_facts` e `compute_race_evaluation` passam a chamá-la | ~1h | **não** — `commands/race/{merito,fatos,importacao}.rs` |
-| **P1 — fazer** | Extrair `build_merit_field` (4a) + `dnf_kind` + os predicados nomeados (4b). Um limiar por conceito | ~4–6h | **sim** — coordenar com o R1 |
+| **P1 — ✅ feito** | [`race_signals.rs`](../../src-tauri/src/race_signals.rs): `dnf_kind` + os predicados nomeados, um limiar por conceito. Consumido por `narrative/{tese,beats}.rs`, `commands/ai_news/{tese,fatos}.rs` e `race_eval.rs` | ~4–6h | **sim** — coordenar com o R1 |
 | **P2 — opcional** | Frontend lê o `assessment` persistido em vez de recalcular `dismal` | ~1h | não |
 
 **Não fazer:** um `RaceFacts` único e completo consumido pelos três seletores. Os

@@ -34,6 +34,7 @@ function Dashboard() {
   const lastRaceEvaluation = useCareerStore((state) => state.lastRaceEvaluation);
   const lastRaceTelemetry = useCareerStore((state) => state.lastRaceTelemetry);
   const lastRaceMaintenance = useCareerStore((state) => state.lastRaceMaintenance);
+  const lastRaceRepercussion = useCareerStore((state) => state.lastRaceRepercussion);
   const dismissResult = useCareerStore((state) => state.dismissResult);
   const lastRaceWasFinale = useCareerStore((state) => state.lastRaceWasFinale);
   const resultIsFresh = useCareerStore((state) => state.resultIsFresh);
@@ -264,6 +265,7 @@ function Dashboard() {
           evaluation={lastRaceEvaluation}
           telemetry={lastRaceTelemetry}
           maintenance={lastRaceMaintenance}
+          repercussion={lastRaceRepercussion}
           onDismiss={handleDismissResult}
         />
         {iracingRepair && (

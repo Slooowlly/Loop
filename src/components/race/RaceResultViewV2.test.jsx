@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 
 import RaceResultViewV2 from "./RaceResultViewV2";
@@ -100,7 +100,7 @@ function mockInvoke({ breakdowns = [] } = {}) {
   });
 }
 
-function renderView() {
+function renderView(props = {}) {
   return render(
     <RaceResultViewV2
       result={RESULT}
@@ -108,9 +108,24 @@ function renderView() {
       telemetry={null}
       maintenance={{ total: 1200, items: [] }}
       onDismiss={vi.fn()}
+      {...props}
     />,
   );
 }
+
+/// Repercussão como o backend manda: rótulos JÁ traduzidos (`EventRepercussionSummary`)
+/// e o delta em valor de exibição. A tela não pode recalcular nem retraduzir nada disso.
+const REPERCUSSION = {
+  expected_display_value: 25_000,
+  expected_tier: "Alto",
+  expected_tier_label: "Grande público",
+  final_display_value: 31_500,
+  final_tier: "MuitoAlto",
+  final_tier_label: "Evento de destaque",
+  delta_display_value: 6_500,
+  headline_strength: "Forte",
+  headline_strength_label: "Manchete forte",
+};
 
 describe("RaceResultViewV2 — quebra de peça no debrief", () => {
   beforeEach(() => {
@@ -214,5 +229,202 @@ describe("RaceResultViewV2 — quebra de peça no debrief", () => {
     await waitFor(() => expect(screen.getByText("incidentes")).toBeInTheDocument());
     expect(screen.queryByText("perdido no box")).not.toBeInTheDocument();
     expect(screen.queryAllByTitle(/V\d+ ·/)).toHaveLength(0);
+  });
+});
+
+describe("RaceResultViewV2 — repercussão do evento", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    mockState = {
+      careerId: "career-1",
+      lastRaceId: "R007",
+      language: "pt-BR",
+      season: { ano: 2026 },
+      playerTeam: { id: "team-drv-1", nome: "Equipe Aurora", categoria: "gt3" },
+    };
+  });
+
+  /// O segmento do cabeçalho, achado pelo rótulo da faixa de contexto.
+  const segmento = () => screen.getByText("repercussão").parentElement;
+
+  it("fica na faixa de contexto do cabeçalho, ao lado de voltas e temporada", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ repercussion: REPERCUSSION });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    // Mesmo bloco de "Voltas"/"Temporada" — é contexto do EVENTO, não métrica do piloto.
+    // Ancorado no nome da pista (único na tela) → sobe até a faixa de contexto.
+    const faixa = screen.getByText("Interlagos").parentElement.parentElement;
+    expect(faixa).toContainElement(screen.getByText("repercussão"));
+    // E não sobrou nada na régua do debrief, onde ficava antes.
+    expect(screen.getByText("incidentes").parentElement.parentElement).not.toContainElement(
+      screen.getByText("repercussão"),
+    );
+  });
+
+  it("mostra o tier alcançado e o saldo contra o esperado", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ repercussion: REPERCUSSION });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    // O PÚBLICO é o número em destaque; o tier é a legenda embaixo.
+    expect(segmento()).toHaveTextContent("31.500");
+    // O rótulo vem PRONTO do backend — a tela exibe, não traduz.
+    expect(segmento()).toHaveTextContent("Evento de destaque");
+    // Entregou mais do que prometia: seta pra cima com o delta do backend.
+    expect(segmento()).toHaveTextContent("▲6.500");
+  });
+
+  it("mantém o número no eixo com um espelho invisível do delta", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ repercussion: REPERCUSSION });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    // Dois nós com o mesmo texto: o visível à direita do número e o espelho à esquerda,
+    // que só ocupa espaço. Sem ele o número escorrega do centro do segmento — e escorrega
+    // um tanto diferente a cada corrida, porque a largura do delta varia.
+    const ambos = within(segmento()).getAllByText("▲6.500");
+    expect(ambos).toHaveLength(2);
+    const espelho = ambos.find((n) => n.className.includes("invisible"));
+    expect(espelho).toBeTruthy();
+    expect(espelho).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("sem saldo contra o esperado, não sobra espelho nem seta", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({
+      repercussion: { ...REPERCUSSION, final_display_value: 25_000, delta_display_value: 0 },
+    });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    expect(segmento()).not.toHaveTextContent("▲");
+    expect(segmento()).not.toHaveTextContent("▼");
+    expect(segmento()).toHaveTextContent("25.000");
+  });
+
+  it("abre o card do confronto ao passar o mouse, e não o tooltip nativo do sistema", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ repercussion: REPERCUSSION });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    const gatilho = screen.getByTestId("repercussion-segment");
+    // Nada de `title`: o tooltip nativo do SO não tem a linguagem visual do app.
+    expect(gatilho).not.toHaveAttribute("title");
+
+    const card = screen.getByTestId("repercussion-card");
+    expect(card).toHaveClass("opacity-0");
+    fireEvent.mouseEnter(gatilho);
+    expect(screen.getByTestId("repercussion-card")).toHaveClass("opacity-100");
+
+    // O confronto completo mora no card.
+    expect(card).toHaveTextContent("Grande público");
+    expect(card).toHaveTextContent("25.000 espectadores");
+    expect(card).toHaveTextContent("Evento de destaque");
+    expect(card).toHaveTextContent("31.500 espectadores");
+    expect(card).toHaveTextContent("+6.500");
+    expect(card).toHaveTextContent("Manchete forte");
+
+    fireEvent.mouseLeave(gatilho);
+    expect(screen.getByTestId("repercussion-card")).toHaveClass("opacity-0");
+  });
+
+  it("o card fica FORA da faixa recortada, senão seria cortado pelo overflow", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ repercussion: REPERCUSSION });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    const faixa = screen.getByText("Interlagos").parentElement.parentElement;
+    expect(faixa.className).toContain("overflow-hidden");
+    expect(faixa).not.toContainElement(screen.getByTestId("repercussion-card"));
+  });
+
+  it("aponta pra baixo quando a corrida entrega menos do que prometia", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({
+      repercussion: {
+        ...REPERCUSSION,
+        final_display_value: 18_500,
+        final_tier: "Moderado",
+        final_tier_label: "Interesse moderado",
+        delta_display_value: -6_500,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText("repercussão")).toBeInTheDocument());
+    expect(segmento()).toHaveTextContent("▼6.500");
+    expect(screen.getByTestId("repercussion-card")).toHaveTextContent("-6.500");
+  });
+
+  it("sem repercussão no payload (save antigo), o segmento some em vez de mostrar zero", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView();
+
+    await waitFor(() => expect(screen.getByText("incidentes")).toBeInTheDocument());
+    expect(screen.queryByText("repercussão")).not.toBeInTheDocument();
+  });
+});
+
+/// Fatura do fim de semana: os itens vêm do backend já agrupados em carro / logística /
+/// equipe / reparo, e a cor do total é informação — âmbar SÓ quando houve conserto.
+const FATURA = {
+  total: 11_100,
+  repair_total: 0,
+  items: [
+    { key: "gasolina", label: "Gasolina", cost: 1_800, group: "carro" },
+    { key: "pneus", label: "Pneus", cost: 1_900, group: "carro" },
+    { key: "frete", label: "Frete do carro", cost: 3_200, group: "logistica" },
+    { key: "inscricao", label: "Inscrição na etapa", cost: 1_200, group: "logistica" },
+    { key: "diarias", label: "Diárias da equipe", cost: 1_500, group: "equipe" },
+    { key: "estrutura", label: "Estrutura móvel", cost: 1_500, group: "equipe" },
+  ],
+};
+
+describe("RaceResultViewV2 — fatura do fim de semana", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    mockState = {
+      careerId: "career-1",
+      lastRaceId: "R007",
+      language: "pt-BR",
+      season: { ano: 2026 },
+    };
+  });
+
+  it("agrupa a fatura em blocos em vez de despejar todos os custos numa lista só", async () => {
+    mockInvoke({ breakdowns: [] });
+    renderView({ maintenance: FATURA });
+
+    await waitFor(() => expect(screen.getByText("custos da corrida")).toBeInTheDocument());
+    for (const bloco of ["Carro", "Logística", "Equipe"]) {
+      expect(screen.getByText(bloco)).toBeInTheDocument();
+    }
+    // O bloco de reparo só existe quando bateu.
+    expect(screen.queryByText("Reparo")).not.toBeInTheDocument();
+    expect(screen.getByText("Frete do carro")).toBeInTheDocument();
+  });
+
+  it("fim de semana limpo não pinta o total de alerta; com conserto, pinta", async () => {
+    mockInvoke({ breakdowns: [] });
+    const { unmount } = renderView({ maintenance: FATURA });
+    await waitFor(() => expect(screen.getByText("custos da corrida")).toBeInTheDocument());
+    const limpo = screen.getByText("custos da corrida").nextElementSibling;
+    expect(limpo).toHaveStyle({ color: "#c9d1d9" });
+    unmount();
+
+    renderView({
+      maintenance: {
+        ...FATURA,
+        repair_total: 4_000,
+        items: [
+          ...FATURA.items,
+          { key: "carroceria", label: "Carroceria", cost: 4_000, group: "reparo" },
+        ],
+      },
+    });
+    await waitFor(() => expect(screen.getByText("custos da corrida")).toBeInTheDocument());
+    expect(screen.getByText("custos da corrida").nextElementSibling).toHaveStyle({
+      color: "#e0a458",
+    });
+    expect(screen.getByText("Reparo")).toBeInTheDocument();
   });
 });

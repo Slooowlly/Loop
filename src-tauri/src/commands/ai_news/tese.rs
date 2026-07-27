@@ -32,10 +32,10 @@ pub(crate) struct PostRaceSignals {
 /// Devolve (statement do eixo, ids de bloco promovidos ao APOIO). `resultado` e `pre_race`
 /// são sempre promovidos pelo chamador (resultado é o núcleo; pre_race fecha o loop).
 pub(crate) fn select_post_race_thesis(s: &PostRaceSignals) -> (String, Vec<&'static str>) {
-    use crate::race_eval::Assessment::{Abaixo, Acima, MuitoAbaixo, MuitoAcima};
+    use crate::race_signals as sinais;
     let track = &s.track_name;
-    let overperf = matches!(s.assessment, Some(Acima) | Some(MuitoAcima));
-    let underperf = matches!(s.assessment, Some(Abaixo) | Some(MuitoAbaixo));
+    let overperf = sinais::overperf(s.assessment);
+    let underperf = sinais::underperf(s.assessment);
 
     // 1) DNF mecânico — o carro falhou, não foi erro seu.
     if s.is_dnf && s.dnf_mechanical {
@@ -64,7 +64,7 @@ pub(crate) fn select_post_race_thesis(s: &PostRaceSignals) -> (String, Vec<&'sta
         );
     }
     // 4) Remontada — ganhou muitas posições e não ficou abaixo da meta.
-    if s.positions_gained >= 5 && !underperf {
+    if sinais::remontada(s.positions_gained) && !underperf {
         return (
             rust_i18n::t!(
                 "ai_news.thesis.comeback",
@@ -77,7 +77,7 @@ pub(crate) fn select_post_race_thesis(s: &PostRaceSignals) -> (String, Vec<&'sta
         );
     }
     // 5) Colapso — perdeu muitas posições, ou ficou abaixo da meta largando bem.
-    if s.positions_gained <= -4 || (underperf && s.grid <= s.target_low) {
+    if sinais::colapso(s.positions_gained) || (underperf && s.grid <= s.target_low) {
         return (
             rust_i18n::t!("ai_news.thesis.collapse", grid = s.grid, finish = s.finish).to_string(),
             vec!["eval", "telemetry"],

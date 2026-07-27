@@ -21,5 +21,6 @@ pub mod world_footer;
 pub mod race_history;
 pub mod save;
 pub mod transfer_market;
+pub mod volante;
 pub mod vr_overlay;
 pub mod window;

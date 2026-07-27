@@ -273,3 +273,93 @@
 
         assert_eq!(ordenar(OrderMode::Oficial, &cars), vec![2, 1, 3, 0]);
     }
+
+    // ── Medição do custo de `get_overlay_data` (ignorada por padrão) ─────────
+    // Roda contra um save REAL. Não é asserção: imprime os tempos para decidir
+    // onde otimizar o caminho de 500 ms do overlay.
+    //   LOOP_BENCH_DB=<career.db> LOOP_BENCH_YAML=<session.yaml> \
+    //     cargo test --manifest-path src-tauri/Cargo.toml bench_overlay -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_overlay_custo() {
+        use std::time::Instant;
+
+        let db_path = std::env::var("LOOP_BENCH_DB").expect("LOOP_BENCH_DB");
+        let yaml_path = std::env::var("LOOP_BENCH_YAML").expect("LOOP_BENCH_YAML");
+        let yaml = std::fs::read_to_string(&yaml_path).expect("yaml");
+        let db_path = std::path::PathBuf::from(db_path);
+
+        let media = |rot: u32, t: std::time::Duration| t.as_secs_f64() * 1000.0 / rot as f64;
+
+        // 1) Abrir o banco (inclui `migrations::run_pending`).
+        let rot = 20;
+        let t0 = Instant::now();
+        for _ in 0..rot {
+            let _db = crate::db::connection::Database::open_existing(&db_path).expect("abrir");
+        }
+        println!("abrir_banco: {:.2} ms/chamada", media(rot, t0.elapsed()));
+
+        let db = crate::db::connection::Database::open_existing(&db_path).expect("abrir");
+
+        // 2) Piloto do jogador + categoria (contrato ativo → equipe).
+        let t0 = Instant::now();
+        for _ in 0..rot {
+            let p = crate::db::queries::drivers::get_player_driver(&db.conn).ok();
+            let _cat = p
+                .as_ref()
+                .and_then(|p| {
+                    crate::db::queries::contracts::get_active_contract_for_pilot(&db.conn, &p.id)
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|c| {
+                    crate::db::queries::teams::get_team_by_id(&db.conn, &c.equipe_id)
+                        .ok()
+                        .flatten()
+                });
+        }
+        println!("jogador+categoria: {:.2} ms/chamada", media(rot, t0.elapsed()));
+
+        // 3) Papéis de rivalidade.
+        let t0 = Instant::now();
+        for _ in 0..rot {
+            let current =
+                crate::db::queries::player_nemesis::get_current_nemesis(&db.conn).unwrap_or(None);
+            let _ = crate::commands::career::select_player_interests(&db.conn, current.as_deref());
+        }
+        println!("rivalidade: {:.2} ms/chamada", media(rot, t0.elapsed()));
+
+        // 4) `resolve` por carro do grid: piloto + contrato + equipe + percepção.
+        let ids: Vec<String> = crate::db::queries::drivers::get_all_drivers(&db.conn)
+            .expect("elenco")
+            .into_iter()
+            .take(30)
+            .map(|d| d.id)
+            .collect();
+        println!("(grid simulado: {} carros)", ids.len());
+        let t0 = Instant::now();
+        for _ in 0..rot {
+            for id in &ids {
+                let d = crate::db::queries::drivers::get_driver(&db.conn, id).expect("piloto");
+                let _team =
+                    crate::db::queries::contracts::get_active_contract_for_pilot(&db.conn, id)
+                        .ok()
+                        .flatten()
+                        .and_then(|c| {
+                            crate::db::queries::teams::get_team_by_id(&db.conn, &c.equipe_id)
+                                .ok()
+                                .flatten()
+                        });
+                let _ = crate::commands::season_preview::perception_score(&d);
+            }
+        }
+        println!("resolve(grid inteiro): {:.2} ms/chamada", media(rot, t0.elapsed()));
+
+        // 5) Parse do YAML de sessão (28 KB reais).
+        let rot_yaml = 100;
+        let t0 = Instant::now();
+        for _ in 0..rot_yaml {
+            let _ = super::formato::parse_session_types(&yaml);
+        }
+        println!("parse_session_types: {:.2} ms/chamada", media(rot_yaml, t0.elapsed()));
+    }

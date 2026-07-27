@@ -1,5 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { formatTowerPosition, pinsFor, shortDriverName } from "./towerCanvas";
+import {
+  formatSessionClock,
+  formatTowerPosition,
+  pinsFor,
+  shortDriverName,
+  towerLayout,
+} from "./towerCanvas";
+import { buildTowerSections } from "./towerRows";
+import { OVERLAY_MOCK } from "./overlayMockData";
+
+describe("towerLayout", () => {
+  const sections = buildTowerSections(OVERLAY_MOCK);
+  const { items, total } = towerLayout(sections);
+  const carros = items.filter((it) => it.kind === "car");
+
+  it("dá uma chave a cada linha e y crescente, sem repetir", () => {
+    const chaves = carros.map((c) => c.key);
+    expect(chaves.length).toBeGreaterThan(0);
+    expect(new Set(chaves).size).toBe(chaves.length);
+    const ys = items.map((it) => it.y);
+    expect([...ys].sort((a, b) => a - b)).toEqual(ys);
+  });
+
+  it("mantém cada linha dentro do corpo da sua classe (o recorte do deslize)", () => {
+    items.forEach((it) => {
+      expect(it.y).toBeGreaterThanOrEqual(it.bodyTop);
+      expect(it.y).toBeLessThan(it.bodyBottom);
+    });
+  });
+
+  it("o total bate com a última linha (é a altura usada pela área de hover)", () => {
+    const ultima = items[items.length - 1];
+    expect(total).toBeGreaterThan(ultima.y);
+  });
+});
+
+
+describe("formatSessionClock", () => {
+  it.each([
+    [0, "0:00"],
+    [9, "0:09"],
+    [192, "3:12"],
+    [480, "8:00"], // quali padrão
+    [479.9, "7:59"], // trunca: não pula pro minuto antes da hora
+    [3600, "1:00:00"], // enduro passa a mostrar hora
+    [4200, "1:10:00"],
+  ])("formata %s s como %s", (secs, expected) => {
+    expect(formatSessionClock(secs)).toBe(expected);
+  });
+
+  it("sem valor vira placeholder", () => {
+    expect(formatSessionClock(undefined)).toBe("--:--");
+    expect(formatSessionClock(null)).toBe("--:--");
+    expect(formatSessionClock(-1)).toBe("--:--");
+  });
+});
 
 describe("formatTowerPosition", () => {
   it.each([

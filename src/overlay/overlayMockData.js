@@ -40,6 +40,8 @@ export const OVERLAY_MOCK = {
     type: "R",
     lap: 36,
     totalLaps: 40,
+    elapsedS: 3720,
+    durationS: 4200,
     flag: "green",
     category: "endurance", // logo + nome + cor da categoria no header
     weather: { condition: "clouds", airTemp: 21, trackTemp: 28 },
@@ -99,4 +101,17 @@ export const OVERLAY_MOCK = {
       ],
     },
   ],
+};
+
+// Mesmo grid, mas em CLASSIFICAÇÃO: o header troca a volta pelo relógio da sessão
+// (TIME 3:12/8:00). Serve ao preview do navegador — sem isso não dá pra inspecionar
+// o modo quali, que é o único lugar onde o contador de tempo aparece.
+export const OVERLAY_MOCK_QUALY = {
+  ...OVERLAY_MOCK,
+  session: {
+    ...OVERLAY_MOCK.session,
+    type: "Q",
+    elapsedS: 192,
+    durationS: 480,
+  },
 };

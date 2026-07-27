@@ -71,6 +71,16 @@ pub struct TeamSummary {
     pub hierarquia_tensao: f64,
     #[serde(default)]
     pub hierarquia_inversoes_temporada: i32,
+    /// PRESENÇA PÚBLICA da equipe (0–100): perfil de audiência derivado da mídia do
+    /// lineup ativo (`public_presence::team`, 70% do mais midiático + 30% do segundo).
+    /// Multiplica linearmente o patrocínio da rodada em `commands/race/financas.rs` —
+    /// é o que torna a escolha de companheiro uma decisão financeira.
+    ///
+    /// NÃO confundir com `DriverCareerPresenceBlock.presenca` (piloto.rs), que é TEMPO
+    /// DE CARREIRA, nem com `market::visibility::MarketVisibilityTier`, que classifica
+    /// a `midia` de um piloto individual. Grandezas distintas e sem tier aqui.
+    #[serde(default)]
+    pub presenca_publica: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

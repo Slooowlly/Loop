@@ -616,28 +616,13 @@ pub(crate) fn build_post_race_facts(
         }
     }
 
-    // DNF mecânico = peça grave no carro do jogador OU motivo textual mecânico (vs
-    // batida/incidente). Separa "o carro te traiu" de "você/alguém rodou".
+    // "O carro te traiu" vs "você/alguém rodou". A classificação é a MESMA que o
+    // boletim usa (`race_signals::dnf_kind`); aqui os insumos disponíveis são a peça
+    // grave registrada no banco e o motivo textual — o incidente cru não sobrevive ao
+    // save.
     let dnf_mechanical = player.is_dnf
-        && (player_mech_break
-            || player
-                .dnf_reason
-                .as_deref()
-                .map(|r| {
-                    let r = r.to_lowercase();
-                    [
-                        // PT
-                        "motor", "câmbio", "cambio", "mecân", "mecan", "suspens", "freio",
-                        "transmiss", "embreagem", "turbo", "óleo", "oleo", "superaquec", "pane",
-                        "elétric", "eletric", "diferencial",
-                        // EN (saves feitos no locale inglês guardam o motivo em inglês)
-                        "engine", "gearbox", "mechanic", "suspension", "brake", "clutch", "oil",
-                        "overheat", "electric", "differential", "failure",
-                    ]
-                    .iter()
-                    .any(|k| r.contains(k))
-                })
-                .unwrap_or(false));
+        && crate::race_signals::dnf_kind(None, player_mech_break, player.dnf_reason.as_deref())
+            .is_mecanico();
 
     // ---- TESE DOMINANTE ----
     let signals = PostRaceSignals {

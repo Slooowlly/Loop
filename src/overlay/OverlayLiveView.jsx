@@ -15,6 +15,8 @@ import {
   preloadAssets,
   towerContentHeight,
 } from "./towerCanvas";
+import { createTowerAnimator } from "./towerAnimation";
+import { createTowerWindow } from "./towerRows";
 import { useOverlayData } from "./useOverlayData";
 import OverlayWeatherArc from "./OverlayWeatherArc";
 import { estaNoTauri } from "../lib/tauri";
@@ -64,6 +66,12 @@ export default function OverlayLiveView() {
   const canvasRef = useRef(null);
   const sourceRef = useRef({ data: null, assets: null });
   const modeRef = useRef("full"); // o loop de desenho lê daqui (sem recriar o timer)
+  // Estado do deslize das linhas. Um por canvas, e fora do React de propósito: muda
+  // a cada quadro e não tem nada a ver com render.
+  const animRef = useRef(createTowerAnimator());
+  // Janela SOLTA (zona morta) desta vista. Uma por canvas: se o VR dividisse esta,
+  // os dois brigariam pelo início da janela.
+  const windowRef = useRef(createTowerWindow());
 
   useEffect(() => {
     modeRef.current = mode;
@@ -72,7 +80,12 @@ export default function OverlayLiveView() {
   const compact = mode === "mini";
   const visible = mode !== "hidden";
   const panelW = compact ? MINI_PANEL_W : PANEL_W;
-  const sectionOpts = compact ? MINI_SECTION_OPTS : undefined;
+  // A MESMA janela vai pro desenho e pra medida de altura (área de hover): as duas
+  // precisam concordar sobre quais linhas aparecem, senão a caixa do cursor fica
+  // fora do que está na tela.
+  const sectionOpts = compact
+    ? { ...MINI_SECTION_OPTS, window: windowRef.current }
+    : { window: windowRef.current };
 
   // Poll da carreira ativa (o app grava ao mostrar o overlay).
   useEffect(() => {
@@ -135,7 +148,10 @@ export default function OverlayLiveView() {
     return () => cleanups.forEach((fn) => fn && fn());
   }, []);
 
-  const data = useOverlayData(careerId, { intervalMs: 1000 });
+  // 500 ms (o padrão do hook). Era 1 s, o que bastava pra uma torre estática mas
+  // atrasava demais o deslize: a troca de posição só era descoberta até um segundo
+  // depois de acontecer na pista, e a animação saía visivelmente fora de hora.
+  const data = useOverlayData(careerId, { intervalMs: 500 });
 
   // Recarrega assets (logos/pneus) só quando os dados mudam de verdade.
   useEffect(() => {
@@ -165,25 +181,35 @@ export default function OverlayLiveView() {
     invoke("overlay_set_hover_rect", { width, height }).catch(() => {});
   }, [mode, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Loop de desenho ~10 Hz. Escondido → limpa (mostra só o nub em HTML).
+  // Loop de desenho por quadro. Era um timer de 10 Hz, que bastava pra uma torre
+  // estática; com o deslize da ultrapassagem (~260 ms) seriam 3 quadros e a animação
+  // sairia em degraus. O `rAF` também para sozinho quando a janela não está
+  // compondo, coisa que o `setInterval` não fazia.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return undefined;
-    const timer = setInterval(() => {
+    let raf = null;
+    const frame = (now) => {
+      raf = requestAnimationFrame(frame);
       const { data: d, assets } = sourceRef.current;
       const m = modeRef.current;
       if (d && assets && m !== "hidden") {
         const isMini = m === "mini";
         drawTower(ctx, d, assets, undefined, {
           compact: isMini,
-          sections: isMini ? MINI_SECTION_OPTS : undefined,
+          sections: isMini
+            ? { ...MINI_SECTION_OPTS, window: windowRef.current }
+            : { window: windowRef.current },
+          anim: animRef.current,
+          now,
         });
       } else {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, VR_W, VR_H);
       }
-    }, 100);
-    return () => clearInterval(timer);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => raf && cancelAnimationFrame(raf);
   }, []);
 
   // Ação do olho / nub: avança o modo no ciclo e avisa o app (dono do estado).

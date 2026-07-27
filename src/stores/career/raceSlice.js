@@ -31,6 +31,7 @@ export const createRaceSlice = (set, get) => ({
         lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
         lastRaceFromIracing: false, // simulou: não pisou na pista
         lastRaceMaintenance: result.maintenance ?? null,
+        lastRaceRepercussion: result.event_repercussion ?? null,
         lastRaceWasFinale: isFinaleSlot(nextRace.thematic_slot),
         resultIsFresh: true,
         otherCategoriesResult: result.other_categories,
@@ -65,6 +66,7 @@ export const createRaceSlice = (set, get) => ({
           lastRaceTelemetry: payload.telemetry ?? null,
           lastRaceFromIracing: true, // correu de verdade: resultado importado do sim
           lastRaceMaintenance: payload.summary?.maintenance ?? null,
+          lastRaceRepercussion: payload.summary?.event_repercussion ?? null,
           lastRaceWasFinale: isFinaleSlot(nextRace?.thematic_slot),
           resultIsFresh: true,
           showResult: true,
@@ -97,6 +99,7 @@ export const createRaceSlice = (set, get) => ({
           lastRaceTelemetry: screen.telemetry ?? null,
           lastRaceFromIracing: false, // reabertura de corrida antiga, não é evento novo
           lastRaceMaintenance: screen.maintenance ?? null,
+          lastRaceRepercussion: screen.event_repercussion ?? null,
           iracingRepair: null,
           // Reabertura de corrida antiga: NÃO aciona a aba pós-corrida.
           lastRaceWasFinale: false,
@@ -122,6 +125,8 @@ export const createRaceSlice = (set, get) => ({
       iracingRepair: null,
       lastRaceEvaluation: null,
       lastRaceTelemetry: null,
+      lastRaceMaintenance: null,
+      lastRaceRepercussion: null,
       resultIsFresh: false,
     });
 

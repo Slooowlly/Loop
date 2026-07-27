@@ -37,7 +37,12 @@ pub struct OverlaySession {
     kind: String, // "R" | "Q" | "P"
     lap: i32,
     total_laps: i32, // 0 = desconhecido (o front esconde o "/total")
-    flag: String,    // "green" | "yellow" | "checkered"
+    /// Segundos já corridos da sessão. None em sessão sem duração (prova por voltas).
+    elapsed_s: Option<i32>,
+    /// Duração total da sessão em segundos (quali costuma ser 480 = 8 min). None quando
+    /// a sessão é por voltas — aí o header mostra a volta, não o relógio.
+    duration_s: Option<i32>,
+    flag: String, // "green" | "yellow" | "checkered"
     category: String, // id da categoria do evento (ex.: "gt3", "endurance")
     weather: OverlayWeather,
 }
@@ -45,6 +50,11 @@ pub struct OverlaySession {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverlayCar {
+    /// `CarIdx` do iRacing — identidade ESTÁVEL da linha. Não muda quando o piloto
+    /// troca de posição, entra no box ou some da telemetria, e é por isso que existe:
+    /// o front usa como chave pra saber que "esta linha é a mesma de antes, só mudou
+    /// de lugar" e animar o deslize. Sem ela só sobraria o nome.
+    idx: i32,
     pos: i32, // posição na CLASSE
     name: String,
     team: String,
@@ -505,6 +515,7 @@ pub fn get_overlay_data(
 
         by_class.entry(meta.class_id).or_default().push((
             OverlayCar {
+                idx: meta.idx,
                 pos: 0,
                 name: info.nome,
                 team: info.equipe,
@@ -604,15 +615,48 @@ pub fn get_overlay_data(
         });
     }
 
-    // Volta do líder = maior volta completa + 1. Voltas totais = concluídas do
-    // líder + estimativa do iRacing (vale em corrida por tempo).
+    // Volta do líder = maior volta completa + 1.
     let max_completed = tele.cars.iter().map(|c| c.lap_completed).max().unwrap_or(0);
     let lead_lap = max_completed + 1;
-    let total_laps = if tele.session_laps_remain_ex > 0 && tele.session_laps_remain_ex < 10_000 {
+
+    // Sessão por TEMPO (o caso normal no Loop: quali de 8 min, corrida de X min) versus
+    // por VOLTAS. O iRacing manda valores-sentinela de "ilimitado" — 604800 s e 32767
+    // voltas —, então os dois lados precisam de teto pra não virarem número de verdade.
+    let timed = tele.session_time_total > 0.0 && tele.session_time_total < 86_400.0;
+    let duration_s = timed.then(|| tele.session_time_total.round() as i32);
+    let elapsed_s =
+        duration_s.map(|total| (total - tele.session_time_remain.round() as i32).clamp(0, total));
+
+    // Ritmo de referência pra estimar quantas voltas ainda cabem: a melhor volta de
+    // quem está na pista.
+    let ref_lap = tele
+        .cars
+        .iter()
+        .map(|c| c.best_lap_time)
+        .filter(|t| *t > 0.0)
+        .fold(f64::INFINITY, f64::min);
+
+    // Total de voltas. Prova por voltas: o iRacing sabe o número exato (em prova por
+    // TEMPO ele manda o sentinela 32767, por isso o `!timed`). Prova por TEMPO: não
+    // existe total fixo, então estimamos pelo tempo restante dividido pelo ritmo de
+    // referência e arredondamos AO MAIS PRÓXIMO. Nada de arredondar pra cima: a melhor
+    // volta já é mais rápida que o ritmo real de corrida (tráfego, combustível, pneu),
+    // então a divisão por ela JÁ superestima quantas voltas cabem — o `ceil` empilharia
+    // viés em cima de viés. O total é estimativa e pode mexer ±1 durante a prova.
+    let total_laps = if !timed
+        && tele.session_laps_remain_ex > 0
+        && tele.session_laps_remain_ex < 10_000
+    {
         max_completed + tele.session_laps_remain_ex
+    } else if timed && kind == "R" && ref_lap.is_finite() {
+        max_completed + (tele.session_time_remain.max(0.0) / ref_lap).round() as i32
     } else {
         0
     };
+    // O total nunca pode ficar ATRÁS da volta atual: no fim da prova o tempo restante
+    // zera, a estimativa colapsaria pra baixo e o "/total" sumiria do header justo na
+    // bandeirada.
+    let total_laps = if total_laps > 0 { total_laps.max(lead_lap) } else { 0 };
 
     // (o tipo de sessão — `kind` — já foi resolvido antes do loop de carros)
     let checkered = tele.session_state == 5;
@@ -659,6 +703,8 @@ pub fn get_overlay_data(
         kind: kind.to_string(),
         lap: lead_lap,
         total_laps,
+        elapsed_s,
+        duration_s,
         flag: flag.to_string(),
         category,
         weather: OverlayWeather {

@@ -749,13 +749,54 @@ PreTemporada/Temporada/Encerramento, migrações v33/v34, suite de testes de int
 
 **Pendências conhecidas**:
 - **UI de espectadores** (event interest) — backend completo, UI ainda básica (ver §17.1).
-- **Integração real com iRacing** — `AppConfig` guarda o caminho, mas export/watchdog foram
-  **removidos** do código atual (módulos `export/` e `commands/export.rs` deletados; a integração é
-  expansão futura).
+- **Integração com iRacing** — não é pendência: é o caminho principal do jogo (ver abaixo).
 - Tabela `races` legada coexiste com o uso de `calendar` como corridas.
 - **Código legado de convocação** — `convocation/`, `simulate_special_block`, fases
   `BlocoRegular/JanelaConvocacao/BlocoEspecial/PosEspecial` preservados para saves antigos;
   remoção segura após confirmar que nenhum save ativo usa essas fases.
+
+### 23.1 Integração com iRacing — o que existe (revisto em 2026-07-27)
+
+A versão anterior deste parágrafo dizia que a integração havia sido **removida** e era
+"expansão futura". Estava errada, e o erro foi de leitura: `export/` e `commands/export.rs`
+foram mesmo deletados, mas a **exportação não morreu — mudou de casa**, para
+`iracing_sdk/roster_gen.rs` e `iracing_sdk/season_gen.rs`. Quem ler "módulo deletado" aqui
+não deve concluir "feature removida".
+
+Hoje a integração é um **ciclo fechado**, não um mão-única:
+
+```
+carreira → exporta AI roster + AI season para Documentos/iRacing/
+        → jogador corre a etapa no iRacing
+        → resultado oficial (JSON do aiseason) + sinais do monitor ao vivo (~60 Hz)
+        → importa para a carreira (iracing_auto_import_if_ready)
+        → resultado, telemetria, quebras, rivalidade de pista (inclusive IA-vs-IA)
+```
+
+São **49 comandos** `iracing_*` de 158 (31% da ponte IPC) e **16.910 linhas** em
+`iracing_sdk/` — leitura de telemetria/sessão, monitor de corrida, análise de telemetria,
+estratégia de pneu, clima, percepção de rivalidade, geração de grid/temporada, race control
+(bandeira amarela por macro no `app.ini`), dificuldade adaptativa, ponte de resultados e
+diagnóstico. Tudo isso é **Windows-only** por construção; fora do Windows o `imp/stub.rs`
+compila no lugar do winapi e a integração é inerte — isso é desenho, não bug.
+
+**Decisão de produto registrada em 2026-07-27**: o Loop é uma **ferramenta de iRacing com
+uma carreira simulada dentro**, não uma carreira offline que opcionalmente lê o iRacing.
+Correr de verdade é o caminho principal; a simulação preenche o que o jogador não corre.
+"Offline" continua verdadeiro sobre os **dados** (sem servidor, tudo em SQLite local) e não
+sobre o propósito.
+
+**Dívida conhecida da área** (levantada com nome e número em
+[`iracing-escopo.md`](iracing-escopo.md)): 14 dos 48 comandos ainda são inalcançáveis pelo
+jogador — 8 sem consumidor algum e 6 presos em dois painéis React (`RosterGenPanel`,
+`PostRacePanel`, 1.420 linhas) que não são importados em lugar nenhum.
+
+Dois casos já resolvidos em 2026-07-27: a **dificuldade adaptativa**
+(`iracing_process_race_result`) estava implementada e nunca rodava — o perfil por `custid`
+nunca era escrito e o `ai_sweet_spot` lia sempre zero, então a IA jamais calibrava ao
+jogador; agora é chamada de dentro do import automático, em silêncio. E
+`iracing_restore_yellow_macro` foi removido: a reversão da macro no `app.ini` é manual e
+assumida (o backup e o valor original continuam salvos).
 
 **Cuidados ao manter** (registrados como aprendizado):
 - Não colapsar as duas semânticas de categoria especial (§5.1).

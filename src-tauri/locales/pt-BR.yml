@@ -610,6 +610,13 @@ part:
 maintenance:
   gasolina: "Gasolina"
   pneus: "Pneus"
+  pecas: "Peças de desgaste"
+  frete: "Frete do carro"
+  viagem: "Viagem da equipe"
+  estadia: "Hospedagem"
+  inscricao: "Inscrição na etapa"
+  diarias: "Diárias da equipe"
+  estrutura: "Estrutura móvel"
   carroceria: "Carroceria"
   suspensao: "Suspensão"
   freio: "Freio"
@@ -1120,3 +1127,18 @@ briefing:
     breakdown_pit: "%{name} (%{team}) perdeu %{secs}s nos boxes por problema em %{part}: %{label} (problema %{severity})"
     severity_heavy: "grave"
     severity_light: "leve"
+
+# Interesse de evento (event_interest/): rótulo do tier de interesse e do peso da
+# manchete que a corrida rendeu. Consumidos pelos DTOs EventInterestSummary e
+# EventRepercussionSummary — o front NÃO reimplementa esta tradução.
+event_interest:
+  tier:
+    baixo: "Interesse baixo"
+    moderado: "Interesse moderado"
+    alto: "Grande público"
+    muito_alto: "Evento de destaque"
+    evento_principal: "Evento principal"
+  headline:
+    normal: "Cobertura comum"
+    forte: "Manchete forte"
+    principal: "Manchete principal"

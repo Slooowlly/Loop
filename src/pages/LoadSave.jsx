@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
+import BackupsModal from "../components/ui/BackupsModal";
 import GlassButton from "../components/ui/GlassButton";
 import GlassCard from "../components/ui/GlassCard";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
@@ -50,7 +51,9 @@ function LoadSave() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const loadCareer = useCareerStore((state) => state.loadCareer);
+  const clearCareer = useCareerStore((state) => state.clearCareer);
   const [saves, setSaves] = useState([]);
+  const [backupsSave, setBackupsSave] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(t("loadSave.status.searching"));
   const [error, setError] = useState("");
@@ -124,6 +127,14 @@ function LoadSave() {
     }
   }
 
+  // Depois de restaurar, o estado em memoria aponta para o save antigo: limpa a
+  // carreira carregada e relista os saves para refletir a viagem no tempo.
+  async function handleRestored() {
+    clearCareer?.();
+    setBackupsSave(null);
+    await loadSaves();
+  }
+
   function handleDeleteCancel() {
     setPendingDeleteCareerId(null);
   }
@@ -138,6 +149,14 @@ function LoadSave() {
           deleting={loading}
           onCancel={handleDeleteCancel}
           onConfirm={handleDeleteConfirm}
+        />
+      ) : null}
+
+      {backupsSave ? (
+        <BackupsModal
+          save={backupsSave}
+          onClose={() => setBackupsSave(null)}
+          onRestored={handleRestored}
         />
       ) : null}
 
@@ -204,6 +223,7 @@ function LoadSave() {
                     loading={loading}
                     onLoad={handleLoad}
                     onDelete={handleDeleteRequest}
+                    onBackups={setBackupsSave}
                   />
                 ))
               )}

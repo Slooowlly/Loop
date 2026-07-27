@@ -1589,6 +1589,12 @@
       "expenseTitle": "Round expenses",
       "salaryHint": "{{value}}/yr",
       "ledgerEmpty": "No round recorded yet.",
+      "presence": {
+        "eyebrow": "Public presence",
+        "label": "Audience profile",
+        "caption": "0–100, from the active lineup",
+        "explainer": "Your pairing's media profile sets the team's public standing — the more famous driver counts for 70%, the teammate for 30%. That number multiplies every round's sponsorship: signing a known face is revenue, not just showcase."
+      },
       "lines": {
         "sponsorship_income": "Sponsorships",
         "gate_income": "Gate receipts",
@@ -2070,12 +2076,27 @@
       "raceTarget": "race target",
       "bestLap": "best lap",
       "incidents": "incidents",
-      "maintenance": "maintenance",
-      "timeLost": "lost in the pits"
+      "maintenance": "race costs",
+      "timeLost": "lost in the pits",
+      "repercussion": "repercussion"
+    },
+    "repercussion": {
+      "tooltipTitle": "Event repercussion",
+      "expected": "Expected",
+      "delivered": "Delivered",
+      "delta": "Difference",
+      "headline": "Coverage weight",
+      "audienceUnit": "spectators"
     },
     "maintenance": {
-      "invoiceTitle": "Car invoice",
-      "total": "Total"
+      "invoiceTitle": "Race weekend invoice",
+      "total": "Total",
+      "groups": {
+        "carro": "Car",
+        "logistica": "Logistics",
+        "equipe": "Crew",
+        "reparo": "Repairs"
+      }
     }
   },
   "newsMagazine": {
@@ -2843,6 +2864,36 @@
     "backToMenu": "Back to menu",
     "loadingOverlay": {
       "title": "Managing saves"
+    },
+    "backups": {
+      "open": "Backups",
+      "eyebrow": "Safety net",
+      "title": "Career backups",
+      "subtitle": "Every season rollover creates an automatic backup. Restoring rolls the whole save back to that point — it isn't a merge.",
+      "loading": "Loading backups...",
+      "empty": "No backups yet. The first one shows up once you advance a season.",
+      "seasonLabel": "Season {{season}}",
+      "size": "{{kb}} KB",
+      "create": "Create backup now",
+      "working": "Working...",
+      "restore": "Restore",
+      "close": "Close",
+      "confirmCancel": "Cancel",
+      "createConfirm": {
+        "title": "Create a backup of season {{season}}?",
+        "body": "There is a single backup per season. If this season already has one, it will be overwritten and cannot be recovered.",
+        "confirm": "Create backup"
+      },
+      "restoreConfirm": {
+        "title": "Restore season {{season}}?",
+        "body": "All progress made after that point will be lost — database, results and context roll back to that season. A copy of the current state is kept in career.db.bak, but there is only one slot: a second restore replaces it.",
+        "confirm": "Restore anyway"
+      },
+      "errors": {
+        "list": "Couldn't list this career's backups.",
+        "create": "Couldn't create the backup.",
+        "restore": "Couldn't restore the backup."
+      }
     }
   },
   "rivalryPerception": {
@@ -3077,7 +3128,13 @@
       "capture": "set",
       "cancel": "cancel",
       "clearKeyTooltip": "Remove recenter key",
-      "recenterKeyHint": "Tip: use the SAME key as iRacing's \"Center VR\" (Options → Controls) and one press recenters both. In VR you can also use"
+      "recenterKeyHint": "Tip: use the SAME key as iRacing's \"Center VR\" (Options → Controls) and one press recenters both. In VR you can also use",
+      "vrPad": "Wheel button:",
+      "pressPad": "press a wheel button…",
+      "padLabel": "wheel {{device}} · button {{button}}",
+      "clearPadTooltip": "Remove recenter button",
+      "padNoDevices": "No game device found. Turn the wheel on before capturing — if it doesn't show up in Windows \"Game Controllers\", Loop can't see it either.",
+      "padHint": "The wheel button is watched by Loop, not by the VR layer: it works with the app in the background, but the app must be running."
     },
     "liveView": {
       "hideTower": "Hide the tower",

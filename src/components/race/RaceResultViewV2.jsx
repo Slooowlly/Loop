@@ -13,6 +13,7 @@ import {
   segmentDriverMentions,
 } from "../../utils/driverMentions";
 import { capitalizar } from "../../utils/formatters";
+import { currentLang } from "../../i18n/format.js";
 import { getTeamGlow } from "../../utils/teamColors";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 import { CLIMA_RESULTADO, weatherLabel as climaLabel } from "../../utils/weather";
@@ -98,7 +99,7 @@ function formatGap(entry) {
   return `+${s.toFixed(3)}`;
 }
 
-function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismiss }) {
+function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercussion, onDismiss }) {
   const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
@@ -124,6 +125,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
   // Piloto realçado ao passar o mouse no nome dele no texto do engenheiro → acende a
   // linha correspondente na tabela de resultados (na cor da equipe).
   const [hoveredDriverId, setHoveredDriverId] = useState(null);
+  // Card da repercussão: estado em vez de `group-hover` porque o card mora FORA da
+  // faixa (que recorta), então gatilho e painel não são pai/filho.
+  const [repercussionOpen, setRepercussionOpen] = useState(false);
 
   function handleSortByLap() {
     setSortByLap(true);
@@ -296,6 +300,10 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
           style={{ background: "rgba(255,255,255,0.025)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}
           className="flex items-center justify-between px-5 py-3.5"
         >
+          {/* `relative` para ancorar o card da repercussão FORA da faixa: a faixa é
+              `overflow-hidden` (as pontas arredondadas cortam os segmentos), então um
+              painel flutuante dentro dela seria recortado. */}
+          <div className="relative">
           <div className="glass-light flex items-stretch h-[76px] rounded-2xl overflow-hidden">
             {/* Bloco do clima */}
             <div
@@ -317,11 +325,26 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, onDismis
               <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[24px] font-medium leading-none">{result?.total_laps ?? 0}</div>
             </div>
             {season?.ano && (
-              <div className="flex flex-col justify-center px-7 text-center">
+              <div
+                className="flex flex-col justify-center px-7 text-center"
+                style={repercussion ? { borderRight: "1px solid rgba(255,255,255,0.08)" } : undefined}
+              >
                 <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-2.5">{t("raceResult.header.season")}</div>
                 <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[24px] font-medium leading-none">{season.ano}</div>
               </div>
             )}
+            {/* Repercussão do EVENTO — fecha a faixa de contexto (pista, voltas, temporada).
+                Fica aqui, e não na régua do debrief, porque não é métrica do piloto: é o
+                porte que a corrida alcançou. Só entra quando o backend mandou o dado. */}
+            {repercussion && (
+              <RepercussionSegment
+                repercussion={repercussion}
+                onHover={setRepercussionOpen}
+                open={repercussionOpen}
+              />
+            )}
+          </div>
+          {repercussion && <RepercussionCard repercussion={repercussion} open={repercussionOpen} />}
           </div>
           <div className="flex items-center gap-2">
             {/* Vale nas DUAS abas: os dados fake alimentam o cockpit da Telemetria E a UI de
@@ -776,17 +799,171 @@ function DebriefMetric({ label, divider, title, children }) {
   );
 }
 
-// Célula "Manutenção" da régua: total sempre visível (âmbar, pra puxar atenção ao
-// cuidado com o carro) + tooltip de breakdown por item ao passar o mouse.
+// Verde quando a corrida entregou mais do que prometia, vermelho quando entregou
+// menos, neutro no empate. A cor sai do SINAL do delta — nada de faixa inventada.
+const repercussionTone = (delta) => (delta > 0 ? "#4ade80" : delta < 0 ? "#f87171" : "#8b949e");
+
+const formatAudience = (v, t) =>
+  `${(v ?? 0).toLocaleString(currentLang())} ${t("raceResult.repercussion.audienceUnit")}`;
+
+// Segmento "Repercussão" da faixa de contexto do cabeçalho: o tier que o evento
+// ALCANÇOU e o saldo contra o que se esperava antes da largada — "esta corrida entregou
+// mais do que prometia" é a leitura que interessa.
+//
+// TODOS os números e rótulos vêm do backend (`EventRepercussionSummary`): o front não
+// recalcula tier nem traduz label.
+function RepercussionSegment({ repercussion, onHover, open }) {
+  const { t } = useTranslation();
+  const delta = repercussion.delta_display_value ?? 0;
+  const deltaText = `${delta > 0 ? "▲" : "▼"}${Math.abs(delta).toLocaleString(currentLang())}`;
+  return (
+    <div
+      className="flex flex-col justify-center px-5 text-center cursor-help transition-colors duration-150"
+      style={{ background: open ? "rgba(255,255,255,0.05)" : undefined }}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      data-testid="repercussion-segment"
+    >
+      <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.16em] leading-none mb-1.5">
+        {t("raceResult.metrics.repercussion")}
+      </div>
+      {/* O PÚBLICO é o número — mesma tipografia de Voltas/Temporada, e CENTRADO como
+          eles. O delta fica à direita dele, e um espelho INVISÍVEL do mesmo texto ocupa
+          a esquerda: com os dois flancos de largura igual, o número cai no eixo exato do
+          segmento. Sem o espelho ele escorregava — e escorregava um tanto diferente a
+          cada corrida, porque "▼225" e "▲6.500" não têm a mesma largura. Posicionar o
+          delta absoluto no canto resolvia o eixo, mas ele batia no rótulo: o segmento é
+          estreito demais para ter canto livre. */}
+      <div className="flex items-baseline justify-center gap-1 leading-none whitespace-nowrap">
+        {delta !== 0 && (
+          <span
+            aria-hidden="true"
+            style={{ fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+            className="invisible text-[11px]"
+          >
+            {deltaText}
+          </span>
+        )}
+        <span
+          style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+          className="text-[24px] font-medium"
+        >
+          {(repercussion.final_display_value ?? 0).toLocaleString(currentLang())}
+        </span>
+        {delta !== 0 && (
+          <span
+            style={{ color: repercussionTone(delta), fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+            className="text-[11px]"
+          >
+            {deltaText}
+          </span>
+        )}
+      </div>
+      <div style={{ color: "#8b949e" }} className="text-[13px] mt-2 leading-none whitespace-nowrap">
+        {repercussion.final_tier_label}
+      </div>
+    </div>
+  );
+}
+
+// Card do confronto esperado × entregue. Mesma linguagem visual do tooltip da
+// Manutenção (vidro escuro, borda de 1px, sombra funda) — é o idioma de painel
+// flutuante desta tela. Renderizado FORA da faixa, ancorado no wrapper `relative`.
+function RepercussionCard({ repercussion, open }) {
+  const { t } = useTranslation();
+  const delta = repercussion.delta_display_value ?? 0;
+  const tone = repercussionTone(delta);
+  return (
+    <div
+      style={{
+        background: "rgba(13,19,30,0.97)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        boxShadow: "0 16px 40px rgba(0,0,0,0.55)",
+        backdropFilter: "blur(8px)",
+      }}
+      className={`absolute top-full right-0 mt-2 z-40 rounded-xl px-4 py-3 min-w-[300px] pointer-events-none transition-all duration-150 ${
+        open ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
+      }`}
+      data-testid="repercussion-card"
+    >
+      <div style={{ color: "#8b949e" }} className="text-[10px] uppercase tracking-[0.14em] mb-2.5">
+        {t("raceResult.repercussion.tooltipTitle")}
+      </div>
+      <div className="flex flex-col gap-2">
+        <RepercussionRow
+          label={t("raceResult.repercussion.expected")}
+          value={repercussion.expected_tier_label}
+          hint={formatAudience(repercussion.expected_display_value, t)}
+        />
+        <RepercussionRow
+          label={t("raceResult.repercussion.delivered")}
+          value={repercussion.final_tier_label}
+          hint={formatAudience(repercussion.final_display_value, t)}
+        />
+      </div>
+      <div
+        style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
+        className="flex items-center justify-between gap-6 mt-2.5 pt-2.5"
+      >
+        <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">
+          {t("raceResult.repercussion.delta")}
+        </span>
+        <span
+          style={{ color: tone, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+          className="text-[13px]"
+        >
+          {delta > 0 ? "+" : ""}
+          {delta.toLocaleString(currentLang())}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-6 mt-1.5">
+        <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">
+          {t("raceResult.repercussion.headline")}
+        </span>
+        <span style={{ color: "#fff" }} className="text-[12.5px]">{repercussion.headline_strength_label}</span>
+      </div>
+    </div>
+  );
+}
+
+function RepercussionRow({ label, value, hint }) {
+  return (
+    <div className="flex items-baseline justify-between gap-6">
+      <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{label}</span>
+      <span className="text-right">
+        <span style={{ color: "#fff" }} className="text-[12.5px]">{value}</span>
+        <span
+          style={{ color: "#6e7681", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+          className="block text-[10.5px] mt-0.5"
+        >
+          {hint}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+// Ordem dos blocos na fatura do fim de semana. Itens sem `group` (telas salvas antes dos
+// blocos existirem) caem num bloco sem cabeçalho, no fim.
+const MAINTENANCE_GROUPS = ["carro", "logistica", "equipe", "reparo"];
+
+// Célula "Custos da corrida" da régua: total sempre visível + tooltip com a fatura
+// agrupada em carro / logística / equipe / reparo. A cor é informação: âmbar SÓ quando
+// houve conserto — fim de semana limpo é custo de rotina, não alerta.
 function MaintenanceMetric({ maintenance }) {
   const { t } = useTranslation();
   const total = maintenance?.total ?? 0;
   const items = Array.isArray(maintenance?.items) ? maintenance.items : [];
+  const hasRepair = (maintenance?.repair_total ?? 0) > 0;
+  const totalColor = hasRepair ? "#e0a458" : "#c9d1d9";
+  const grouped = MAINTENANCE_GROUPS.map((g) => [g, items.filter((it) => it.group === g)])
+    .concat([[null, items.filter((it) => !MAINTENANCE_GROUPS.includes(it.group))]])
+    .filter(([, list]) => list.length > 0);
   return (
     <div className="flex-1 px-5 py-3.5 relative group">
       <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{t("raceResult.metrics.maintenance")}</div>
       <div
-        style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+        style={{ color: totalColor, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
         className="text-[19px] mt-2 leading-none inline-flex items-center gap-1.5 cursor-help"
       >
         {formatUSD(total)}
@@ -800,20 +977,32 @@ function MaintenanceMetric({ maintenance }) {
             boxShadow: "0 16px 40px rgba(0,0,0,0.55)",
             backdropFilter: "blur(8px)",
           }}
-          className="absolute bottom-full right-4 mb-2 z-30 rounded-xl px-4 py-3 min-w-[200px] opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150"
+          className="absolute bottom-full right-4 mb-2 z-30 rounded-xl px-4 py-3 min-w-[230px] opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150"
         >
           <div style={{ color: "#8b949e" }} className="text-[10px] uppercase tracking-[0.14em] mb-2.5">{t("raceResult.maintenance.invoiceTitle")}</div>
-          <div className="flex flex-col gap-1.5">
-            {items.map((it) => (
-              <div key={it.key} className="flex items-center justify-between gap-6">
-                <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">{it.label}</span>
-                <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatUSD(it.cost)}</span>
+          <div className="flex flex-col gap-3">
+            {grouped.map(([grupo, list]) => (
+              <div key={grupo ?? "outros"} className="flex flex-col gap-1.5">
+                {grupo && (
+                  <div
+                    style={{ color: grupo === "reparo" ? "#e0a458" : "#6e7681" }}
+                    className="text-[9.5px] uppercase tracking-[0.14em]"
+                  >
+                    {t(`raceResult.maintenance.groups.${grupo}`)}
+                  </div>
+                )}
+                {list.map((it) => (
+                  <div key={it.key} className="flex items-center justify-between gap-6">
+                    <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">{it.label}</span>
+                    <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatUSD(it.cost)}</span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-2.5 pt-2.5">
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-3 pt-2.5">
             <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.maintenance.total")}</span>
-            <span style={{ color: "#e0a458", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
+            <span style={{ color: totalColor, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
           </div>
         </div>
       )}

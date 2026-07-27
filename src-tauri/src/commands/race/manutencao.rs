@@ -2,22 +2,35 @@
 
 use super::*;
 
-/// Um item da fatura de manutenção do carro (gasolina, pneus, carroceria...). Só
-/// itens com custo > 0 entram na lista.
+/// Um item da fatura do fim de semana (gasolina, frete, carroceria...). Só itens com
+/// custo > 0 entram na lista.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaintenanceItem {
     pub key: String,
     pub label: String,
     pub cost: f64,
+    /// Bloco ao qual o item pertence (`carro` / `logistica` / `equipe` / `reparo`).
+    /// `default` cobre as telas salvas antes dos blocos existirem.
+    #[serde(default)]
+    pub group: String,
 }
 
-/// Fatura de manutenção do carro da corrida — INFORMATIVA: itemiza dinheiro que já
-/// sai do caixa (parcela de manutenção da operação da rodada + conserto da batida).
-/// Não cria cobrança nova; só mostra onde o dinheiro foi.
+/// Grupo dos itens de conserto — o único bloco da fatura que responde a como o jogador
+/// pilotou, e por isso o único que a tela destaca.
+pub(super) const GROUP_REPAIR: &str = "reparo";
+
+/// Fatura do fim de semana. Não é informativa nem paralela: as linhas de operação SÃO a
+/// decomposição do `event_operations_cost` que saiu do caixa em `apply_round_cashflow`,
+/// normalizadas ao valor exatamente debitado; o bloco de conserto soma o débito extra da
+/// batida (cobrado em `race.rs`/`importacao.rs`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MaintenanceBreakdown {
     pub total: f64,
     pub items: Vec<MaintenanceItem>,
+    /// Só o que a batida cobrou. 0 num fim de semana limpo — a tela usa isso para
+    /// decidir se pinta o total de alerta ou de custo de rotina.
+    #[serde(default)]
+    pub repair_total: f64,
 }
 
 /// Como o custo do conserto se divide entre os itens mecânicos, por severidade. NÃO
@@ -60,53 +73,82 @@ pub(super) fn maintenance_label(key: &str) -> String {
     rust_i18n::t!(&full).to_string()
 }
 
-/// Fração do custo de OPERAÇÃO da categoria que vira "manutenção do carro" (gasolina,
-/// pneus, revisão). O resto da operação é salário/estrutura/etc. — fora da fatura.
-pub(super) const CAR_UPKEEP_FRACTION: f64 = 0.30;
-
-/// Monta a fatura de manutenção do carro da corrida. Piso (sempre): a parcela de
-/// manutenção da operação da rodada, fatiada em gasolina (peso por voltas) + pneus
-/// (peso por desgaste). Se houve batida, soma os itens mecânicos do conserto.
+/// Monta a fatura do fim de semana do time do jogador.
+///
+/// As linhas de operação (carro / logística / equipe) são a MESMA conta que produziu o
+/// `event_operations_cost` desta rodada — ver [`crate::finance::operacao`]. Para não
+/// depender de os dois cálculos coincidirem, o total real é lido do histórico financeiro
+/// já gravado e as linhas são normalizadas até somarem exatamente ele. Se houve batida,
+/// o conserto entra num bloco à parte, porque é o único débito que responde à pilotagem.
+///
+/// A âncora é a linha de `(season_number, round)` DESTA rodada, nunca "a mais recente":
+/// numa corrida de fase especial não existe linha (o caixa não se move) e a linha mais
+/// recente seria a da última rodada REGULAR — a fatura mostraria, com números plausíveis,
+/// um dinheiro que nunca saiu. Sem linha desta rodada, o bloco de operação simplesmente
+/// não é emitido; só o conserto, que é debitado à parte.
 pub(crate) fn compute_maintenance_breakdown(
-    category: &str,
-    final_tire_wear: f64,
-    laps_completed: i32,
+    conn: &rusqlite::Connection,
+    team: &Team,
+    result: &RaceResult,
+    track_id: u32,
+    rounds_in_season: f64,
+    economic_health: GlobalEconomicHealth,
     repair_cost: f64,
     repair_severity: &str,
+    season_number: i32,
+    round: i32,
 ) -> MaintenanceBreakdown {
-    let rounds = get_category_config(category)
-        .map(|c| c.corridas_por_temporada as i32)
-        .unwrap_or(12)
-        .max(1);
-    let operating_per_round = category_finance_scale(category).operating_cost_midpoint() / rounds as f64;
-    let floor = operating_per_round * CAR_UPKEEP_FRACTION;
+    let debitado =
+        team_queries::get_team_round_operations_cost(conn, &team.id, season_number, round)
+            .ok()
+            .flatten()
+            .filter(|v| *v > 0.0);
 
-    // Pesos dinâmicos: pneu cresce com desgaste, gasolina com voltas rodadas. Mantêm
-    // a soma = piso (informativo), mas variam a divisão de corrida pra corrida.
-    let wear = final_tire_wear.clamp(0.0, 1.0);
-    let tire_w = 0.5 + wear; // 0.5..1.5
-    let fuel_w = 0.6 + (laps_completed.max(0) as f64 / 18.0).min(1.0); // 0.6..1.6
-    let sum_w = (tire_w + fuel_w).max(0.001);
-    let gasolina = (floor * fuel_w / sum_w).round();
-    let pneus = (floor * tire_w / sum_w).round();
+    let mut items: Vec<MaintenanceItem> = match debitado {
+        Some(debitado) => {
+            let inputs = operation_inputs(
+                team,
+                round_operating_base(&team.categoria, rounds_in_season),
+                economy_cost_modifier(economic_health),
+                round_operation_context(result, &team.id, track_id),
+            );
+            let lines = crate::finance::operacao::compute_operation_lines(&inputs);
+            let bruto: f64 = lines.iter().map(|l| l.cost).sum();
+            let ajuste = if bruto > 0.0 { debitado / bruto } else { 0.0 };
+            lines
+                .iter()
+                .map(|l| MaintenanceItem {
+                    key: l.key.to_string(),
+                    label: maintenance_label(l.key),
+                    cost: (l.cost * ajuste).round(),
+                    group: l.group.to_string(),
+                })
+                .filter(|i| i.cost > 0.0)
+                .collect()
+        }
+        None => Vec::new(),
+    };
 
-    let mut items = Vec::new();
-    if gasolina > 0.0 {
-        items.push(MaintenanceItem { key: "gasolina".into(), label: maintenance_label("gasolina"), cost: gasolina });
-    }
-    if pneus > 0.0 {
-        items.push(MaintenanceItem { key: "pneus".into(), label: maintenance_label("pneus"), cost: pneus });
-    }
     if repair_cost > 0.0 {
         for (key, prop) in damage_split(repair_severity) {
             let cost = (repair_cost * prop).round();
             if cost > 0.0 {
-                items.push(MaintenanceItem { key: key.into(), label: maintenance_label(key), cost });
+                items.push(MaintenanceItem {
+                    key: key.into(),
+                    label: maintenance_label(key),
+                    cost,
+                    group: GROUP_REPAIR.into(),
+                });
             }
         }
     }
+
     let total = items.iter().map(|i| i.cost).sum();
-    MaintenanceBreakdown { total, items }
+    MaintenanceBreakdown {
+        total,
+        items,
+        repair_total: repair_cost.max(0.0).round(),
+    }
 }
 
 /// Fração do custo de OPERAÇÃO da categoria que cada severidade de batida cobra em

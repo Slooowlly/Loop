@@ -77,6 +77,8 @@ function FinanceDossier({ team, drivers, report }) {
         <Ledger title={t("myTeamTab.finance.expenseTitle")} rows={expenseLedger} />
       </div>
 
+      <PublicPresencePanel presence={team?.presenca_publica ?? 0} />
+
       {hasProjection ? (
         <div className="mt-5 rounded-[24px] border border-white/8 bg-white/[0.03] p-5" data-testid="season-projection">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -216,6 +218,43 @@ function Kpi({ label, value, caption, tone = "text-text-primary", compact = fals
       </div>
       <p className={`mt-2 font-mono ${compact ? "text-sm" : "text-lg"} font-semibold ${tone}`}>{value}</p>
       {caption ? <p className="mt-1 text-xs text-text-secondary">{caption}</p> : null}
+    </div>
+  );
+}
+
+// PRESENÇA PÚBLICA da equipe (0–100) — vem pronta do backend (`presenca_publica`,
+// derivada da mídia do lineup) e é o multiplicador de patrocínio de cada rodada.
+// Fica logo abaixo das entradas porque é ali que ela age: sem esse painel, o efeito
+// de contratar um companheiro midiático era invisível.
+//
+// A barra é só a leitura visual do MESMO 0–100 do backend — nada é recalculado aqui.
+// `0` (equipe sem lineup lido) esconde o painel em vez de mostrar um zero sem sentido.
+function PublicPresencePanel({ presence }) {
+  const { t } = useTranslation();
+  if (!(presence > 0)) return null;
+  return (
+    <div className="mt-5 rounded-[24px] border border-white/8 bg-white/[0.03] p-5" data-testid="public-presence">
+      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
+        {t("myTeamTab.finance.presence.eyebrow")}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-5">
+        <div className="min-w-[150px]">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+            {t("myTeamTab.finance.presence.label")}
+          </p>
+          <p className="mt-2 font-mono text-lg font-semibold text-accent-primary">{presence.toFixed(1)}</p>
+          <p className="mt-1 text-xs text-text-secondary">{t("myTeamTab.finance.presence.caption")}</p>
+        </div>
+        <div className="h-2 min-w-[120px] flex-1 overflow-hidden rounded-full bg-white/8">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-accent-primary/70 to-accent-hover"
+            style={{ width: `${Math.min(100, Math.max(0, presence))}%` }}
+          />
+        </div>
+      </div>
+      <p className="mt-4 text-xs leading-5 text-text-secondary">
+        {t("myTeamTab.finance.presence.explainer")}
+      </p>
     </div>
   );
 }

@@ -25,8 +25,8 @@ use crate::db::queries::standings::ChampionshipContext;
 use crate::db::queries::teams as team_queries;
 use crate::db::queries::track_history as track_history_queries;
 use crate::event_interest::{
-    calculate_expected_event_interest, calculate_realized_event_interest, EventInterestContext,
-    InterestTier, RealizedEventInterest,
+    calculate_expected_event_interest, calculate_realized_event_interest, to_repercussion_summary,
+    EventInterestContext, EventRepercussionSummary, InterestTier, RealizedEventInterest,
 };
 use crate::finance::cashflow::{apply_round_cashflow, TeamRoundFinanceContext};
 use crate::finance::economy::{
@@ -93,6 +93,10 @@ pub struct RaceWeekendResult {
     /// Fatura de manutenção do carro (gasolina/pneus; sim offline não tem batida).
     #[serde(default)]
     pub maintenance: MaintenanceBreakdown,
+    /// Repercussão pública do evento: o que se esperava × o que a corrida entregou.
+    /// `None` quando o jogador não corre esta categoria ou a categoria não tem config.
+    #[serde(default)]
+    pub event_repercussion: Option<EventRepercussionSummary>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,8 +204,11 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
 
     // Repercussão pós-corrida: fama (jogador + IA, modulada por carisma), deriva de
     // carisma e decaimento passivo. MESMA lógica da corrida importada do iRacing.
-    let (post_race_bias, interest_tier) =
+    let fame_outcome =
         apply_post_race_fame(&db.conn, &race_entry, &player_race, &player_new_injuries)?;
+    let post_race_bias = fame_outcome.news_importance_bias;
+    let interest_tier = fame_outcome.interest_tier;
+    let event_repercussion = fame_outcome.player_repercussion;
 
     warn_if_side_effect_fails(
         append_race_result(
@@ -277,35 +284,51 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
     let player_entry = player_race.race_results.iter().find(|r| r.is_jogador);
     let mut repair_cost = 0.0;
     let mut repair_severity = "nenhum";
+    let mut player_team = player_entry.and_then(|pe| {
+        team_queries::get_team_by_id(&db.conn, &pe.team_id)
+            .ok()
+            .flatten()
+    });
     if player_entry.map(|r| r.is_dnf).unwrap_or(false) {
         repair_severity = "moderado";
-        if let Some(pe) = player_entry {
-            if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &pe.team_id) {
-                let mut rng = rand::thread_rng();
-                let cost = compute_repair_cost(
-                    repair_severity,
-                    &team.categoria,
-                    team.car_performance,
-                    &mut rng,
-                );
-                if cost > 0.0 {
-                    team.cash_balance -= cost;
-                    team.last_round_expenses += cost;
-                    let _ = team_queries::update_team(&db.conn, &team);
-                    repair_cost = cost;
-                }
+        if let Some(team) = player_team.as_mut() {
+            let mut rng = rand::thread_rng();
+            let cost = compute_repair_cost(
+                repair_severity,
+                &team.categoria,
+                team.car_performance,
+                &mut rng,
+            );
+            if cost > 0.0 {
+                team.cash_balance -= cost;
+                team.last_round_expenses += cost;
+                let _ = team_queries::update_team(&db.conn, team);
+                repair_cost = cost;
             }
         }
     }
 
-    // Fatura de manutenção do carro (gasolina/pneus + conserto, se houve DNF).
-    let maintenance = compute_maintenance_breakdown(
-        &race_entry.categoria,
-        player_entry.map(|r| r.final_tire_wear).unwrap_or(0.0),
-        player_entry.map(|r| r.laps_completed).unwrap_or(0),
-        repair_cost,
-        repair_severity,
-    );
+    // Fatura do fim de semana: a decomposição do custo de operação JÁ debitado desta
+    // rodada (carro, logística, equipe) + o conserto, se houve DNF.
+    let maintenance = player_team
+        .as_ref()
+        .map(|team| {
+            compute_maintenance_breakdown(
+                &db.conn,
+                team,
+                &player_race,
+                race_entry.track_id,
+                get_category_config(&race_entry.categoria)
+                    .map(|c| c.corridas_por_temporada as f64)
+                    .unwrap_or(12.0),
+                global_economic_health_for_season(active_season.numero as i32),
+                repair_cost,
+                repair_severity,
+                active_season.numero as i32,
+                race_entry.rodada,
+            )
+        })
+        .unwrap_or_default();
 
     // Persiste a tela do pós-corrida para reabrir depois pela Home (offline não
     // tem telemetria ao vivo → sem gráficos, mas tem cérebro + saldo + manutenção).
@@ -317,6 +340,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
             "evaluation": &evaluation,
             "telemetry": serde_json::Value::Null,
             "maintenance": &maintenance,
+            "event_repercussion": &event_repercussion,
         }),
     );
 
@@ -325,6 +349,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
         other_categories,
         evaluation,
         maintenance,
+        event_repercussion,
     })
 }
 

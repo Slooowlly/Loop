@@ -79,6 +79,25 @@
         assert!(thesis_of(&s).contains("RECUPERAÇÃO"));
     }
 
+    /// A borda exata do limiar unificado. O debrief exigia 5 posições antes de passar a
+    /// ler `race_signals::remontada` (que é 4) — e nenhum teste cobria a faixa que mudou,
+    /// porque todos usavam ganhos folgados. Uma remontada de 4 é a tese do dia; uma de 3
+    /// é dia de somar.
+    #[test]
+    #[serial]
+    fn remontada_dispara_com_4_posicoes_e_nao_com_3() {
+        pt();
+        let mut s = sig();
+        s.grid = 10;
+        s.finish = 6;
+        s.positions_gained = 4;
+        assert!(thesis_of(&s).contains("RECUPERAÇÃO"));
+
+        s.grid = 9;
+        s.positions_gained = 3;
+        assert!(!thesis_of(&s).contains("RECUPERAÇÃO"));
+    }
+
     #[test]
     #[serial]
     fn colapso_quando_perde_muitas_posicoes() {

@@ -3662,10 +3662,19 @@ fn test_accept_proposal_to_full_team_replaces_incumbent_instead_of_creating_thir
         target_team.piloto_1_id.is_some() && target_team.piloto_2_id.is_some(),
         "target team should be explicitly filled before accepting the proposal"
     );
-    let displaced_driver_id = target_team
-        .piloto_1_id
-        .clone()
-        .expect("full target team should have n1 incumbent");
+    // Qual dos dois titulares perde a vaga depende do papel gravado no contrato,
+    // nao da hierarquia por skill do lineup — entao o teste checa que exatamente
+    // um deles saiu, sem fixar qual.
+    let incumbent_ids = [
+        target_team
+            .piloto_1_id
+            .clone()
+            .expect("full target team should have n1 incumbent"),
+        target_team
+            .piloto_2_id
+            .clone()
+            .expect("full target team should have n2 incumbent"),
+    ];
 
     seed_player_proposal(
         &db.conn,
@@ -3694,11 +3703,14 @@ fn test_accept_proposal_to_full_team_replaces_incumbent_instead_of_creating_thir
             .into_iter()
             .filter(|contract| contract.tipo == crate::models::enums::ContractType::Regular)
             .collect::<Vec<_>>();
-    let displaced_contract = contract_queries::get_active_regular_contract_for_pilot(
-        &refreshed_db.conn,
-        &displaced_driver_id,
-    )
-    .expect("displaced contract query");
+    let incumbents_still_at_team = incumbent_ids
+        .iter()
+        .filter(|driver_id| {
+            contract_queries::get_active_regular_contract_for_pilot(&refreshed_db.conn, driver_id)
+                .expect("incumbent contract query")
+                .is_some_and(|contract| contract.equipe_id == target_team.id)
+        })
+        .count();
     let player_team = career.player_team.as_ref().expect("player team");
 
     assert_eq!(player_team.id, target_team.id);
@@ -3708,11 +3720,9 @@ fn test_accept_proposal_to_full_team_replaces_incumbent_instead_of_creating_thir
             || refreshed_target_team.piloto_2_id.as_deref() == Some(player.id.as_str()),
         "accepted player should remain in the target lineup after consistency repair"
     );
-    assert!(
-        displaced_contract
-            .as_ref()
-            .is_none_or(|contract| contract.equipe_id != target_team.id),
-        "incumbent displaced from the accepted role should no longer hold an active regular contract for the target team"
+    assert_eq!(
+        incumbents_still_at_team, 1,
+        "exactly one incumbent should keep an active regular contract for the target team after the player takes a seat"
     );
 
     let _ = fs::remove_dir_all(base_dir);

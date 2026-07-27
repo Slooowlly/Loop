@@ -164,6 +164,7 @@
             8.0,
             GlobalEconomicHealth::Neutral,
             0.0,
+            RoundOperationContext::default(),
             0.0,
             0.0,
             1.0,
@@ -179,6 +180,7 @@
             8.0,
             GlobalEconomicHealth::Neutral,
             0.0,
+            RoundOperationContext::default(),
             0.0,
             0.0,
             1.0,
@@ -200,12 +202,12 @@
         );
         team.reputacao = 50.0;
         let sem_fama = calculate_team_round_finance_context(
-            &team, 0.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 0.0, 0.0,
-            1.0,
+            &team, 0.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            RoundOperationContext::default(), 0.0, 0.0, 1.0,
         );
         let com_estrela = calculate_team_round_finance_context(
-            &team, 85.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 0.0, 0.0,
-            1.0,
+            &team, 85.0, 4, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            RoundOperationContext::default(), 0.0, 0.0, 1.0,
         );
         assert!(
             com_estrela.sponsorship_income > sem_fama.sponsorship_income,
@@ -228,12 +230,12 @@
         team.reputacao = 50.0;
         // Evento de prestígio 60, grid com presença total 300 e 8 times.
         let anonimo = calculate_team_round_finance_context(
-            &team, 30.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 60.0,
-            300.0, 8.0,
+            &team, 30.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            RoundOperationContext::default(), 60.0, 300.0, 8.0,
         );
         let estrela = calculate_team_round_finance_context(
-            &team, 150.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0, 60.0,
-            300.0, 8.0,
+            &team, 150.0, 0, 0, 0, 8, 35_000.0, 8.0, GlobalEconomicHealth::Neutral, 0.0,
+            RoundOperationContext::default(), 60.0, 300.0, 8.0,
         );
         assert!(
             estrela.gate_income > anonimo.gate_income,
@@ -291,6 +293,153 @@
         );
         team.classe = Some(class_name.to_string());
         team
+    }
+
+    /// Cria só a `team_finance_history` em memória, com a MESMA chave única da baseline.
+    fn conn_com_historico_financeiro() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().expect("conn em memoria");
+        conn.execute_batch(
+            "CREATE TABLE team_finance_history (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id                     TEXT NOT NULL,
+                season_number               INTEGER NOT NULL,
+                round                       INTEGER NOT NULL,
+                category                    TEXT NOT NULL DEFAULT '',
+                sponsorship_income          REAL NOT NULL DEFAULT 0.0,
+                result_bonus                REAL NOT NULL DEFAULT 0.0,
+                partial_prize_income        REAL NOT NULL DEFAULT 0.0,
+                constructor_prize_income    REAL NOT NULL DEFAULT 0.0,
+                gate_income                 REAL NOT NULL DEFAULT 0.0,
+                aid_income                  REAL NOT NULL DEFAULT 0.0,
+                salary_expense              REAL NOT NULL DEFAULT 0.0,
+                event_operations_cost       REAL NOT NULL DEFAULT 0.0,
+                structural_maintenance_cost REAL NOT NULL DEFAULT 0.0,
+                technical_investment_cost   REAL NOT NULL DEFAULT 0.0,
+                debt_service_cost           REAL NOT NULL DEFAULT 0.0,
+                income_total                REAL NOT NULL DEFAULT 0.0,
+                expenses_total              REAL NOT NULL DEFAULT 0.0,
+                net                         REAL NOT NULL DEFAULT 0.0,
+                cash_balance                REAL NOT NULL DEFAULT 0.0,
+                debt_balance                REAL NOT NULL DEFAULT 0.0,
+                created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(team_id, season_number, round)
+            );",
+        )
+        .expect("criar team_finance_history");
+        conn
+    }
+
+    fn grava_operacao(conn: &rusqlite::Connection, round: i32, custo: f64) {
+        conn.execute(
+            "INSERT INTO team_finance_history
+                (team_id, season_number, round, category, event_operations_cost)
+             VALUES ('T001', 1, ?1, 'gt3', ?2)",
+            rusqlite::params![round, custo],
+        )
+        .expect("gravar linha de historico");
+    }
+
+    fn fatura_de_teste(
+        conn: &rusqlite::Connection,
+        round: i32,
+        repair_cost: f64,
+    ) -> MaintenanceBreakdown {
+        let team = placeholder_team_from_db(
+            "T001".to_string(),
+            "Equipe Teste".to_string(),
+            "gt3".to_string(),
+            "2026-01-01".to_string(),
+        );
+        // Sem carros do time no resultado → `round_operation_context` cai no contexto
+        // neutro, então a fatura só depende do time e da ancoragem no histórico.
+        let result = RaceResult {
+            qualifying_results: Vec::new(),
+            race_results: Vec::new(),
+            pole_sitter_id: String::new(),
+            winner_id: String::new(),
+            fastest_lap_id: String::new(),
+            total_laps: 20,
+            weather: "dry".to_string(),
+            track_name: "Test".to_string(),
+            total_incidents: 0,
+            total_dnfs: 0,
+            main_incident_count: 0,
+            notable_incident_pilot_ids: Vec::new(),
+            most_positions_gained_id: None,
+            caution_segments: Vec::new(),
+            applied_mechanicals: Vec::new(),
+        };
+        compute_maintenance_breakdown(
+            conn,
+            &team,
+            &result,
+            1,
+            12.0,
+            global_economic_health_for_season(1),
+            repair_cost,
+            if repair_cost > 0.0 { "grave" } else { "nenhum" },
+            1,
+            round,
+        )
+    }
+
+    /// A fatura ancora na linha DESTA rodada, não na mais recente do time. Com a rodada
+    /// 5 gravada por cima da 4, a fatura da 4 continua valendo 10.000 — antes ela saía
+    /// presa aos 90.000 da 5, mostrando um total que não bate com o que saiu do caixa.
+    #[test]
+    fn fatura_ancora_na_rodada_corrente_e_nao_na_linha_mais_recente() {
+        let conn = conn_com_historico_financeiro();
+        grava_operacao(&conn, 4, 10_000.0);
+        grava_operacao(&conn, 5, 90_000.0);
+
+        let rodada_4 = fatura_de_teste(&conn, 4, 0.0);
+        assert!(
+            (rodada_4.total - 10_000.0).abs() < 20.0,
+            "a fatura da rodada 4 devia somar os 10.000 dela, veio {}",
+            rodada_4.total
+        );
+
+        let rodada_5 = fatura_de_teste(&conn, 5, 0.0);
+        assert!(
+            (rodada_5.total - 90_000.0).abs() < 20.0,
+            "a fatura da rodada 5 devia somar os 90.000 dela, veio {}",
+            rodada_5.total
+        );
+    }
+
+    /// Corrida de fase especial não movimenta o caixa (`apply_race_result_to_database`
+    /// sai antes do bloco financeiro), então não existe linha da rodada. A fatura não
+    /// pode inventar as linhas de operação a partir da última rodada REGULAR: só o
+    /// conserto, que é debitado à parte, tem direito de aparecer.
+    #[test]
+    fn fatura_sem_linha_da_rodada_nao_emite_bloco_de_operacao() {
+        let conn = conn_com_historico_financeiro();
+        grava_operacao(&conn, 4, 10_000.0); // última rodada regular
+        // Rodada 7 = etapa da fase especial, sem linha de histórico.
+
+        let especial = fatura_de_teste(&conn, 7, 0.0);
+        assert!(
+            especial.items.is_empty(),
+            "sem débito de operação a fatura devia sair vazia, veio {:?}",
+            especial.items
+        );
+        assert_eq!(especial.total, 0.0);
+
+        // O conserto continua aparecendo — esse o caixa realmente pagou.
+        let com_conserto = fatura_de_teste(&conn, 7, 4_000.0);
+        assert!(
+            com_conserto
+                .items
+                .iter()
+                .all(|i| i.group == GROUP_REPAIR),
+            "só o bloco de conserto devia sobrar, veio {:?}",
+            com_conserto.items
+        );
+        assert!(
+            (com_conserto.total - 4_000.0).abs() < 20.0,
+            "o total devia ser só o conserto (4.000), veio {}",
+            com_conserto.total
+        );
     }
 
     #[test]
