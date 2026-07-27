@@ -3,6 +3,10 @@
 Lista única do que fazer no app. Levantada em 2026-07-27 varrendo o código contra
 [DESIGN.md](DESIGN.md) §23 e as telas realmente montadas no `Dashboard`.
 
+**O porquê de cada item está em [roadmap.md](roadmap.md)** — aqui fica a lista com ids
+e status; lá fica o raciocínio. Itens marcados ⚠️ foram revisados depois da segunda
+varredura, mais funda, que corrigiu erros desta primeira.
+
 **Como usar:** cada item tem um id estável (`F-xx`, `D-xx`, `P-xx`), um tamanho
 (P / M / G) e uma linha de por quê. Item feito sai daqui e, se for dívida técnica,
 vira registro em [divida-tecnica.md](divida-tecnica.md). Item novo entra no fim da
@@ -21,20 +25,21 @@ trabalho de frontend em cima de simulação que já roda.
 
 | id | item | tam | por quê |
 |---|---|---|---|
-| F-01 | **Aba de Mercado** | G | `market/` inteiro (propostas, renovação, poaching, IA das equipes, janela de transferências) roda e o jogador nunca vê. `MarketTab.jsx` é um placeholder de 9 linhas, nem importado no Dashboard. É o maior buraco do app. |
+| F-01 | **Mercado durante a temporada** | M | ⚠️ **Revisado** — a redação original ("o mercado não tem tela") estava errada: existem ~2700 linhas de UI de mercado em `PreSeasonView` + `season/preseason/` + `PoachAuctionHost`. O buraco real é o mercado **fora da janela de pré-temporada**: não há onde consultar estado de contrato, quem está de olho em você e vagas abertas no meio do ano. Inclui conduzir `advance_transfer_window`, registrado e nunca chamado. Ver [roadmap.md](roadmap.md) §3. |
 | F-02 | **Tela do meu piloto** (`MyProfileTab`) | M | Atributos, evolução por idade, motivação, licença, lesões — tudo simulado, nada exibido. O jogador controla um piloto e não tem ficha dele. |
 | F-03 | **Arquivo histórico / temporadas passadas** | M | `world/` arquiva a temporada e `db/queries/race_history/` já responde recordes, títulos e vitórias por pista. `Archive.jsx` e `SeasonsHistory.jsx` são placeholders sem rota. |
 | F-04 | **Sala de troféus** (`TrophyRoom`) | P | Consome o mesmo `race_history` do F-03. Barato depois que F-03 existir. |
-| F-05 | **Rivalidades** | M | `rivalry/` calcula e persiste; `Rivalries.jsx` é placeholder sem rota. Bom gancho narrativo já pago. |
+| F-05 | **Rivalidades — visão consolidada** | P | ⚠️ **Revisado** — rivalidade já aparece em 9 componentes (marcação no calendário, detalhe do piloto, análise de corrida, `RivalryPerceptionPanel`). Falta só a sala própria: quem são meus rivais, desde quando, qual o placar. Barato se entrar junto de F-03. |
 | F-06 | **Backup e restauração de save** | P | `create_season_backup`, `list_backups`, `restore_backup` registrados e **nunca chamados**. É segurança de dados do jogador por um punhado de linhas de UI. |
 | F-07 | **UI de espectadores / interesse de evento** | M | Backend completo (§17.1 do DESIGN); a UI é básica. Pendência já reconhecida no doc. |
-| F-08 | **Outras categorias** (`OtherCategoriesTab`) | M | O mundo tem 9 categorias vivas; o jogador só enxerga a dele mais os globais. Placeholder. |
+| F-08 | **Outras categorias** | ? | ⚠️ **Provavelmente já resolvido.** `GlobalDriversTab` e `GlobalTeamsTab` já atravessam as 9 categorias. Antes de agendar, responder: o que essa aba mostraria que as globais não mostram? Se for "a classificação da categoria vizinha", é um filtro no `StandingsTab`, não uma aba. |
 | F-09 | **Previsões / palpites** (`PredictionTab`) | M | Placeholder. Só vale depois de F-01 e F-02 — é camada de sabor, não de fundação. |
 | F-10 | **Integração real com iRacing** | G | `AppConfig` guarda o caminho, mas `export/` e `commands/export.rs` foram removidos. Expansão futura assumida — decidir se entra ou se sai do escopo de vez. |
 
-**Ordem que eu sugiro:** F-01 → F-02 → F-06 → F-03 → F-05 → F-04 → F-07 → F-08 → F-09.
-F-01 e F-02 mudam o jogo de "simulador que roda sozinho" pra "jogo com decisões".
-F-06 é desproporcionalmente barato pro risco que remove.
+**Ordem revisada** (o raciocínio completo está em [roadmap.md](roadmap.md)):
+F-06 → F-03+F-04+F-05 juntos → F-02 → F-01 → F-07.
+F-06 primeiro porque é o único item cuja ausência destrói dados do jogador.
+F-03/F-04/F-05 numa aba de História só: os três comem da mesma `race_history`.
 
 ---
 
