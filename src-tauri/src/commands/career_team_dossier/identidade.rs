@@ -125,9 +125,11 @@ fn real_identity_summary(team_name: &str, profile_key: &str, races: i32, _titles
         "winning" => {
             rust_i18n::t!("team_dossier.identity_summary.winning", team = team_name).to_string()
         }
-        "competitive" => {
-            rust_i18n::t!("team_dossier.identity_summary.competitive", team = team_name).to_string()
-        }
+        "competitive" => rust_i18n::t!(
+            "team_dossier.identity_summary.competitive",
+            team = team_name
+        )
+        .to_string(),
         "midfield" => {
             rust_i18n::t!("team_dossier.identity_summary.midfield", team = team_name).to_string()
         }

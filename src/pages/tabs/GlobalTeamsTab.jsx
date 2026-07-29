@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "../../i18n/index.js";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
-import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
+import { TeamHistoryDrawer } from "../../components/team/history";
 import { TeamHistoryGrid } from "../../components/team/WorldTeamHistoryGrid";
 import { YearWindowScrubber } from "../../components/team/YearWindowScrubber";
 import {

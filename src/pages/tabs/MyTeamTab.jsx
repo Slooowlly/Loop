@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
+import { TeamHistoryDrawer } from "../../components/team/history";
 import CommandHeader from "../../components/team/myteam/CommandHeader";
 import CostChart from "../../components/team/myteam/CostChart";
 import DriverPanel from "../../components/team/myteam/DriverPanel";

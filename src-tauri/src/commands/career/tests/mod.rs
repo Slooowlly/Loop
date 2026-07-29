@@ -2129,6 +2129,63 @@ fn test_get_team_history_dossier_uses_real_race_results_for_any_team() {
             .map(|record| (record.rank.as_str(), record.value.as_str())),
         Some(("2º", "1"))
     );
+    // Todos os records comparam contra o MESMO universo: as equipes que correram
+    // no grupo. Títulos rankeava só contra as campeãs, e o dossiê mostrava
+    // denominadores diferentes lado a lado ("10º de 10" junto de "14º de 19").
+    let record_by_id = |id: &str| {
+        dossier
+            .records
+            .iter()
+            .find(|record| record.id == id)
+            .unwrap_or_else(|| panic!("record {id}"))
+            .clone()
+    };
+    assert_eq!(record_by_id("titles").rank_total, 2);
+    assert_eq!(record_by_id("wins").rank_total, 2);
+    assert_eq!(record_by_id("podiums").rank_total, 2);
+    assert_eq!(record_by_id("titles").value, "0");
+    // A média do grupo em títulos conta os zeros das não-campeãs.
+    assert_eq!(record_by_id("titles").group_average, "0,0");
+    // Colocações da temporada: 1º, 2º, 8º e 3º nas quatro corridas — o 8º não
+    // entra em nenhum degrau, e os degraus não se sobrepõem.
+    let season = dossier.season_results.first().expect("season result");
+    assert_eq!(
+        (
+            season.races,
+            season.wins,
+            season.seconds,
+            season.thirds,
+            season.fourths,
+            season.fifths,
+            season.podiums
+        ),
+        (4, 1, 1, 1, 0, 0, 3)
+    );
+    // Fita de forma recente: uma entrada por corrida, da mais antiga para a mais
+    // nova, com a colocação de cada uma.
+    assert_eq!(
+        dossier
+            .recent_form
+            .iter()
+            .map(|race| race.position)
+            .collect::<Vec<_>>(),
+        vec![Some(1), Some(2), Some(8), Some(3)]
+    );
+    assert_eq!(dossier.recent_form[0].category_id, "mazda_rookie");
+    // Assinatura: as faixas são exclusivas e somam as corridas. O 8º cai em
+    // 6º-10º, e não some como caía da faixa de top 5.
+    let spread = &dossier.result_spread;
+    assert_eq!(
+        (
+            spread.races,
+            spread.first,
+            spread.podium,
+            spread.near_miss,
+            spread.top_ten,
+            spread.outside
+        ),
+        (4, 1, 2, 0, 1, 0)
+    );
     assert_eq!(dossier.identity.origin, "Mazda Rookie");
     assert_eq!(dossier.identity.current, "Mazda Rookie");
     assert_eq!(dossier.identity.profile, "Dominante");
@@ -2396,7 +2453,11 @@ fn test_get_previous_champions_returns_last_season_category_champion() {
         .expect("query calendario")
         .map(|row| row.expect("linha do calendario"))
         .collect();
-    assert_eq!(races.len(), 2, "categoria deveria ter ao menos duas rodadas");
+    assert_eq!(
+        races.len(),
+        2,
+        "categoria deveria ter ao menos duas rodadas"
+    );
 
     let drivers = get_drivers_by_category_in_base_dir(&base_dir, "career_001", "mazda_rookie")
         .expect("grid da categoria");

@@ -22,7 +22,7 @@ import GlassCard from "../../components/ui/GlassCard";
 import useDeferredLoading from "../../hooks/useLoading";
 import useCareerStore from "../../stores/useCareerStore";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
-import { TeamHistoryDrawer } from "../../components/team/TeamHistoryDrawer";
+import { TeamHistoryDrawer } from "../../components/team/history";
 
 const DRIVER_CLICK_DELAY_MS = 220;
 const TEAM_CLICK_DELAY_MS = 220;
@@ -363,7 +363,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
           teams={teamStandings}
           playerTeam={playerTeam}
           activeCategory={viewCategory}
-          placement="left"
+          placement="center"
           activeTab={activeHistoryTab}
           onTabChange={setActiveHistoryTab}
           onSelectTeam={setSelectedHistoryTeam}

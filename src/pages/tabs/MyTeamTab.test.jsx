@@ -676,18 +676,19 @@ describe("MyTeamTab", () => {
     const teamTitle = within(drawer).getByRole("heading", { name: /Falcon Motorsport/i });
 
     expect(teamLogo.compareDocumentPosition(teamTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(teamLogo).toHaveClass("h-28", "w-[168px]");
+    expect(teamLogo).toHaveClass("h-16", "w-24");
     expect(within(drawer).queryByText(/Arquivo compacto/i)).not.toBeInTheDocument();
-    expect(within(drawer).queryByText("GT4 Series")).not.toBeInTheDocument();
+    // A categoria atual é selo do cabeçalho no v2 — o v1 a omitia.
+    expect(within(drawer).getByText("GT4 Series")).toBeInTheDocument();
     expect(within(drawer).queryByText("Estável")).not.toBeInTheDocument();
     expect(within(drawer).queryByText("Operação moderna")).not.toBeInTheDocument();
     expect(within(drawer).getByText("Projeto consolidado")).toBeInTheDocument();
     expect(within(drawer).getByText("Fundada em 2002")).toBeInTheDocument();
     expect(within(ranking).getByText("Falcon Motorsport").closest("tr")).toHaveClass("ring-1");
     expect(drawer.closest("[data-testid='team-history-layer']")).toHaveClass("z-[90]");
-    expect(drawer).toHaveClass("w-[min(50vw,720px)]");
-    expect(drawer).toHaveClass("right-0");
-    expect(drawer).toHaveClass("border-l");
+    // O dossiê abre centralizado, ocupando a tela — não colado numa borda.
+    expect(drawer).toHaveClass("w-[min(94vw,1180px)]");
+    expect(drawer).not.toHaveClass("right-0");
     expect(drawer).not.toHaveClass("left-0");
     expect(drawer).toHaveClass("bg-[#07101d]");
     expect(screen.getByLabelText(/Fechar histórico da equipe/i)).toHaveClass("bg-black/70");
@@ -699,7 +700,8 @@ describe("MyTeamTab", () => {
     expect(screen.getByRole("button", { name: /Equipe anterior/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Próxima equipe/i })).toBeEnabled();
     expect(within(drawer).getByText(/Comparativo em/i)).toBeInTheDocument();
-    expect(within(drawer).getByText(/Records históricos/i)).toBeInTheDocument();
+    // O v2 nomeia a seção na coluna lateral — o título repetido dentro do conteúdo saiu.
+    expect(within(drawer).getByRole("tab", { name: /Records/i })).toHaveAttribute("aria-selected", "true");
     expect(within(drawer).getByText(/Taxa de pódio/i)).toBeInTheDocument();
     expect(within(drawer).queryByText(/Taxa de podio/i)).not.toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("get_team_history_dossier", {
@@ -718,8 +720,15 @@ describe("MyTeamTab", () => {
 
     fireEvent.click(within(drawer).getByRole("tab", { name: /Esportivo/i }));
 
-    expect(await within(drawer).findByText(/2 Temporadas reais/)).toBeInTheDocument();
+    // Temporadas disputadas vive no âncora do cabeçalho, com o número em fonte
+    // grande e a unidade em fonte pequena — dois nós de texto, não um.
+    expect(drawer.querySelector("[data-anchor='seasons']").textContent).toMatch(/2\s*Temporadas reais/);
     expect(within(drawer).getByText(/3 Pódios consecutivos reais/)).toBeInTheDocument();
+    // Taxa de pódio saiu de Esportivo: é card de Records, e lá vem com a média
+    // do grupo e a posição no ranking. Aqui era o mesmo número, sem contexto.
+    expect(within(drawer).queryByText("75%")).not.toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Records/i }));
     expect(within(drawer).getByText("75%")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Próxima equipe/i }));

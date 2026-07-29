@@ -561,7 +561,11 @@ function TimelineBlock({ items }) {
   );
 }
 
-function orderTeamsForHistoryNavigation(teams) {
+// Exportados para o v2 (src/components/team/v2/TeamHistoryDrawerV2.jsx) consumir
+// o MESMO dossiê. Nada além do `export` mudou aqui: o v1 continua desenhando
+// exatamente o que desenhava, e a regra de reaproveitar o v1 por importação
+// (v2/README.md) evita duas cópias da normalização do payload.
+export function orderTeamsForHistoryNavigation(teams) {
   return [...(Array.isArray(teams) ? teams : [])].sort((a, b) => {
     const positionDiff = (a.posicao ?? 999) - (b.posicao ?? 999);
     if (positionDiff !== 0) return positionDiff;
@@ -569,7 +573,7 @@ function orderTeamsForHistoryNavigation(teams) {
   });
 }
 
-function buildTeamHistoryDossier(
+export function buildTeamHistoryDossier(
   team,
   teams,
   playerTeam,
@@ -634,6 +638,24 @@ function buildTeamHistoryDossier(
     highlights: realHistory?.highlights ?? [],
     milestones: realHistory?.milestones ?? [],
     seasonResults: realHistory?.seasonResults ?? [],
+    recentForm: realHistory?.recentForm ?? [],
+    resultSpread: realHistory?.resultSpread ?? normalizeResultSpread(null),
+    outsideScopeSeasons: realHistory?.outsideScopeSeasons ?? [],
+    // Intervalo de anos do MUNDO — só o v2 usa, para marcar na faixa os anos em
+    // que a equipe não correu. Zero quando o backend não informa.
+    worldFirstYear: realHistory?.worldFirstYear ?? 0,
+    worldLastYear: realHistory?.worldLastYear ?? 0,
+  };
+}
+
+function normalizeResultSpread(spread) {
+  return {
+    races: Number(spread?.races ?? 0),
+    first: Number(spread?.first ?? 0),
+    podium: Number(spread?.podium ?? 0),
+    nearMiss: Number(spread?.near_miss ?? spread?.nearMiss ?? 0),
+    topTen: Number(spread?.top_ten ?? spread?.topTen ?? 0),
+    outside: Number(spread?.outside ?? 0),
   };
 }
 
@@ -647,9 +669,16 @@ function normalizeTeamHistoryPayload(payload) {
     recordScope: payload.record_scope ?? payload.recordScope ?? i18n.t("myTeamTab.history.defaults.recordScope"),
     hasHistory: Boolean(payload.has_history ?? payload.hasHistory),
     records: (payload.records ?? []).map((record) => ({
+      // Identificador estável da métrica; o v2 escolhe ícone e layout por ele.
+      id: record.id ?? "",
       label: record.label,
       rank: record.rank,
       value: String(record.value),
+      // Campos que só o v2 desenha (barra de posição e média do grupo). O v1
+      // ignora — carregá-los aqui mantém uma única normalização do payload.
+      rankPosition: Number(record.rank_position ?? record.rankPosition ?? 0),
+      rankTotal: Number(record.rank_total ?? record.rankTotal ?? 0),
+      groupAverage: record.group_average ?? record.groupAverage ?? "",
     })),
     sport: {
       seasons: sport.seasons ?? i18n.t("myTeamTab.history.defaults.noSeasons"),
@@ -662,7 +691,19 @@ function normalizeTeamHistoryPayload(payload) {
       podiums: sport.podiums ?? 0,
     },
     timeline: payload.timeline ?? [],
-    titleCategories: payload.title_categories ?? payload.titleCategories ?? [],
+    titleCategories: (payload.title_categories ?? payload.titleCategories ?? []).map((item) => ({
+      category: item.category ?? "",
+      year: String(item.year ?? ""),
+      color: item.color ?? "",
+      // Campos que só o v2 desenha: a galeria dele conta como o título foi
+      // ganho e quem pilotava, não só em que ano.
+      categoryId: item.category_id ?? item.categoryId ?? "",
+      points: String(item.points ?? ""),
+      wins: Number(item.wins ?? 0),
+      championDriver: item.champion_driver ?? item.championDriver ?? "",
+      championTeam: item.champion_team ?? item.championTeam ?? "",
+      championIsTeam: Boolean(item.champion_is_team ?? item.championIsTeam ?? false),
+    })),
     categoryPath: (payload.category_path ?? payload.categoryPath ?? []).map((step) => ({
       category: step.category,
       years: step.years,
@@ -670,6 +711,8 @@ function normalizeTeamHistoryPayload(payload) {
       color: step.color,
       movement: step.movement ?? "same",
     })),
+    worldFirstYear: Number(payload.world_first_year ?? payload.worldFirstYear ?? 0),
+    worldLastYear: Number(payload.world_last_year ?? payload.worldLastYear ?? 0),
     movement: payload.movement
       ? {
           promotions: payload.movement.promotions ?? 0,
@@ -694,14 +737,42 @@ function normalizeTeamHistoryPayload(payload) {
     milestones: (payload.milestones ?? []).map((item) => ({
       label: item.label,
       year: String(item.year ?? ""),
+      // Identidade do fato, para o v2 fundir marcos e linha do tempo sem casar
+      // prosa traduzida. Ver TeamHistoryMilestone::kind no backend.
+      kind: item.kind ?? "",
     })),
     seasonResults: (payload.season_results ?? payload.seasonResults ?? []).map((item) => ({
       year: String(item.year ?? ""),
       category: item.category ?? "",
+      // Id cru da categoria — o rótulo acima é traduzido e não serve de chave na
+      // paleta de categorias. Só o v2 usa, na faixa de pódios por corrida.
+      categoryId: item.category_id ?? item.categoryId ?? "",
       position: String(item.position ?? "—"),
       wins: item.wins ?? 0,
       podiums: item.podiums ?? 0,
       points: String(item.points ?? "0"),
+      // Denominador das taxas por temporada e os degraus do pódio — só o v2
+      // desenha (ver a faixa de pódios por corrida em v2/TeamHistoryDrawerV2.jsx).
+      races: Number(item.races ?? 0),
+      seconds: Number(item.seconds ?? 0),
+      thirds: Number(item.thirds ?? 0),
+      fourths: Number(item.fourths ?? 0),
+      fifths: Number(item.fifths ?? 0),
+    })),
+    // Fita de forma recente e distribuição por faixa de colocação — só o v2
+    // desenha (ver a aba Esportivo em v2/TeamHistoryDrawerV2.jsx).
+    recentForm: (payload.recent_form ?? payload.recentForm ?? []).map((item) => ({
+      year: String(item.year ?? ""),
+      round: Number(item.round ?? 0),
+      category: item.category ?? "",
+      categoryId: item.category_id ?? item.categoryId ?? "",
+      position: item.position ?? null,
+    })),
+    resultSpread: normalizeResultSpread(payload.result_spread ?? payload.resultSpread),
+    outsideScopeSeasons: (payload.outside_scope_seasons ?? payload.outsideScopeSeasons ?? []).map((item) => ({
+      year: String(item.year ?? ""),
+      category: item.category ?? "",
+      categoryId: item.category_id ?? item.categoryId ?? "",
     })),
     identity: {
       origin: identity.origin ?? i18n.t("myTeamTab.history.defaults.noOrigin"),
@@ -800,7 +871,9 @@ function categoryGroupLabel(category) {
   return i18n.t("myTeamTab.history.groups.default");
 }
 
-function operationHealthTone(label) {
+// Exportada pelo mesmo motivo do dossiê: o v2 pinta a saúde da operação com a
+// MESMA regra, e duas cópias divergiriam na primeira palavra nova.
+export function operationHealthTone(label) {
   const normalized = String(label ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")

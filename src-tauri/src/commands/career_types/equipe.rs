@@ -208,8 +208,28 @@ pub struct TeamHistoryDossier {
     /// Resultados temporada a temporada — alimenta a aba Esportivo (resultados
     /// ao longo do tempo), distinguindo-a de Categorias (movimento entre tiers).
     pub season_results: Vec<TeamHistorySeasonResult>,
+    /// Últimas corridas registradas, da mais antiga para a mais nova. É o único
+    /// recorte do dossiê que fala do PRESENTE — todo o resto é história agregada,
+    /// e agregado de 87 corridas não mostra que a equipe subiu de categoria mês
+    /// passado e não anda mais perto do pódio.
+    pub recent_form: Vec<TeamHistoryFormRace>,
+    /// Distribuição de TODAS as corridas por faixa de colocação. A taxa de pódio
+    /// em Records diz quanto; isto diz a forma — separa a equipe que vence ou
+    /// abandona da que vive em quarto, que têm a mesma taxa.
+    pub result_spread: TeamHistoryResultSpread,
+    /// Anos em que a equipe correu fora do recorte de categorias deste dossiê.
+    /// A faixa temporada a temporada precisa deles para não marcar como
+    /// "não disputou" um ano em que a equipe estava em outra escada.
+    pub outside_scope_seasons: Vec<TeamHistoryOutsideSeason>,
     /// Resumo de movimento entre categorias (real) — alimenta a aba Categorias.
     pub movement: TeamHistoryMovement,
+    /// Primeiro e último ano do MUNDO (não da equipe). A faixa temporada a
+    /// temporada desenha uma coluna por ano deste intervalo, marcando com "×" os
+    /// anos em que a equipe não correu — sem isso, uma equipe nova ocupava três
+    /// colunas num gráfico largo e não dava para ver que ela é nova.
+    /// Zero quando o save ainda não tem temporada alguma.
+    pub world_first_year: i32,
+    pub world_last_year: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -232,17 +252,73 @@ pub struct TeamHistoryHighlight {
 pub struct TeamHistoryMilestone {
     pub label: String,
     pub year: String,
+    /// Identidade do marco ("first_podium", "first_win", "first_title"). Existe
+    /// para o frontend fundir marcos e linha do tempo sem casar prosa traduzida:
+    /// os dois blocos contavam a primeira vitória, cada um com uma frase.
+    pub kind: String,
+}
+
+/// Um ano em que a equipe correu em outra escada de categorias.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryOutsideSeason {
+    pub year: String,
+    pub category: String,
+    pub category_id: String,
+}
+
+/// Uma corrida na fita de forma recente.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryFormRace {
+    pub year: String,
+    pub round: i32,
+    pub category: String,
+    pub category_id: String,
+    /// Melhor colocação da equipe na corrida. `None` quando o resultado não
+    /// registrou posição — o quadrado aparece vazio, e não como abandono.
+    pub position: Option<i32>,
+}
+
+/// Corridas repartidas por faixa de colocação. As faixas são exclusivas e somam
+/// `races`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TeamHistoryResultSpread {
+    pub races: i32,
+    pub first: i32,
+    pub podium: i32,
+    pub near_miss: i32,
+    pub top_ten: i32,
+    pub outside: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamHistorySeasonResult {
     pub year: String,
     pub category: String,
+    /// Id cru da categoria dominante ("gt4", "bmw_m2"). O `category` acima é
+    /// rótulo traduzido, bom para ler e inútil para casar com a paleta de
+    /// categorias do frontend — que é indexada por id.
+    pub category_id: String,
     /// Posição final no campeonato naquela temporada ("P3", "—" se desconhecida).
     pub position: String,
     pub wins: i32,
     pub podiums: i32,
     pub points: String,
+    /// Corridas disputadas na temporada. É o denominador que torna as temporadas
+    /// comparáveis: pontos somados dependem do tamanho do calendário, "pódios em
+    /// 12 corridas" não.
+    pub races: i32,
+    /// Corridas em que o melhor carro da equipe terminou em 2º.
+    pub seconds: i32,
+    /// Corridas em que o melhor carro da equipe terminou em 3º.
+    pub thirds: i32,
+    /// Corridas em que o melhor carro da equipe terminou em 4º.
+    pub fourths: i32,
+    /// Corridas em que o melhor carro da equipe terminou em 5º.
+    ///
+    /// 4º e 5º não são pódio, mas são o "quase" — e uma equipe que passou a
+    /// temporada inteira ali tem uma história a contar que um gráfico só de
+    /// pódios desenha como tela vazia.
+    pub fifths: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,9 +335,21 @@ pub struct TeamHistoryOwnershipEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamHistoryRecord {
+    /// Identificador estável da métrica ("titles", "wins", "podiums",
+    /// "podium_rate", "win_rate"). O `label` é texto traduzido e muda com o
+    /// idioma; a UI escolhe ícone e layout por ESTE campo.
+    pub id: String,
     pub label: String,
     pub rank: String,
     pub value: String,
+    /// Posição numérica do rank (o mesmo número que `rank` mostra por extenso).
+    /// Separado porque a UI desenha uma barra com ele, e reparsear "10º" seria
+    /// desfazer no front o que o backend já sabe.
+    pub rank_position: i32,
+    /// Quantas equipes disputam esse rank — o denominador do "10º de 24".
+    pub rank_total: i32,
+    /// Média do grupo na mesma métrica, já formatada como o `value`.
+    pub group_average: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,13 +404,32 @@ pub struct TeamHistoryManagement {
 pub struct TeamHistoryTimelineItem {
     pub year: String,
     pub text: String,
+    /// Mesma chave dos marcos (ver `TeamHistoryMilestone::kind`): quando os dois
+    /// falam do mesmo fato, o frontend fica com esta versão, que traz categoria
+    /// e rodada.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamHistoryTitleCategory {
     pub category: String,
+    /// Id cru da categoria — a cor do card vem da paleta de categorias, e não de
+    /// uma paleta rotativa que pintava títulos da MESMA categoria de cores
+    /// diferentes só porque estavam em linhas diferentes.
+    pub category_id: String,
     pub year: String,
     pub color: String,
+    /// Pontos e vitórias da equipe na temporada do título.
+    pub points: String,
+    pub wins: i32,
+    /// Campeão de PILOTOS daquela temporada e categoria. É outro campeonato: a
+    /// equipe pode ter levado o de construtores com regularidade enquanto o de
+    /// pilotos ia para outra casa.
+    pub champion_driver: String,
+    /// Equipe do campeão de pilotos, quando não é a do dossiê.
+    pub champion_team: String,
+    /// O campeão de pilotos era da equipe — construtores e pilotos no mesmo ano.
+    pub champion_is_team: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

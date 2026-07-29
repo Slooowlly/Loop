@@ -91,13 +91,19 @@ pub(super) fn build_real_team_management(
         operation_health: state_label.clone(),
         peak_cash: format_brl(cash),
         worst_crisis: if debt > 0.0 {
-            rust_i18n::t!("team_dossier.management.worst_crisis_debt", debt = format_brl(debt))
-                .to_string()
+            rust_i18n::t!(
+                "team_dossier.management.worst_crisis_debt",
+                debt = format_brl(debt)
+            )
+            .to_string()
         } else {
             rust_i18n::t!("team_dossier.management.worst_crisis_none").to_string()
         },
-        healthy_years: rust_i18n::t!("team_dossier.management.healthy_years", count = healthy_years)
-            .to_string(),
+        healthy_years: rust_i18n::t!(
+            "team_dossier.management.healthy_years",
+            count = healthy_years
+        )
+        .to_string(),
         efficiency: rust_i18n::t!(
             "team_dossier.management.efficiency",
             value = efficiency_value.as_str()

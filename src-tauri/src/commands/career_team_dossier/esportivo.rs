@@ -18,21 +18,67 @@ pub(super) fn build_team_milestones(
         milestones.push(TeamHistoryMilestone {
             label: rust_i18n::t!("team_dossier.first_milestone.podium").to_string(),
             year: year.to_string(),
+            kind: "first_podium".to_string(),
         });
     }
     if let Some(year) = facts.iter().filter(|f| f.win).map(|f| f.season_year).min() {
         milestones.push(TeamHistoryMilestone {
             label: rust_i18n::t!("team_dossier.first_milestone.win").to_string(),
             year: year.to_string(),
+            kind: "first_win".to_string(),
         });
     }
     if let Some(year) = titles.iter().map(|t| t.season_year).min() {
         milestones.push(TeamHistoryMilestone {
             label: rust_i18n::t!("team_dossier.first_milestone.title").to_string(),
             year: year.to_string(),
+            kind: "first_title".to_string(),
         });
     }
     milestones
+}
+
+/// Quantas corridas a fita de forma recente carrega. Dez cabe numa linha sem
+/// virar quadrado de 8px, e cobre pouco mais de uma temporada — o bastante para
+/// uma troca de categoria recente aparecer inteira.
+const FORM_RACES: usize = 10;
+
+/// As últimas corridas, da mais antiga para a mais nova. `facts` já vem ordenado
+/// por temporada e rodada.
+pub(super) fn build_team_recent_form(facts: &[TeamRaceFact]) -> Vec<TeamHistoryFormRace> {
+    facts
+        .iter()
+        .rev()
+        .take(FORM_RACES)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|fact| TeamHistoryFormRace {
+            year: fact.season_year.to_string(),
+            round: fact.round,
+            category: team_history_category_label(&fact.category),
+            category_id: fact.category.clone(),
+            position: fact.best_position,
+        })
+        .collect()
+}
+
+/// Distribuição das corridas por faixa de colocação. Corrida sem posição
+/// registrada cai em `outside` junto com o resto de fora do top 10: para quem lê
+/// a barra, "não pontuou" e "não terminou" são o mesmo fim de semana.
+pub(super) fn build_team_result_spread(facts: &[TeamRaceFact]) -> TeamHistoryResultSpread {
+    let mut spread = TeamHistoryResultSpread::default();
+    for fact in facts {
+        spread.races += 1;
+        match fact.best_position {
+            Some(1) => spread.first += 1,
+            Some(2..=3) => spread.podium += 1,
+            Some(4..=5) => spread.near_miss += 1,
+            Some(6..=10) => spread.top_ten += 1,
+            _ => spread.outside += 1,
+        }
+    }
+    spread
 }
 
 /// Resultados temporada a temporada (ano, categoria dominante, vitórias, pódios,
@@ -43,42 +89,77 @@ pub(super) fn build_team_season_results(
 ) -> Vec<TeamHistorySeasonResult> {
     use std::collections::BTreeMap;
 
-    // season_number → (ano, vitórias, pódios, pontos, categoria→corridas).
-    let mut by_season: BTreeMap<i32, (i32, i32, i32, f64, HashMap<String, i32>)> = BTreeMap::new();
+    // Acumulador por temporada. Virou struct quando os degraus do pódio entraram:
+    // uma tupla de oito campos posicionais é convite a erro na primeira mudança.
+    #[derive(Default)]
+    struct Acumulado {
+        year: i32,
+        wins: i32,
+        seconds: i32,
+        thirds: i32,
+        fourths: i32,
+        fifths: i32,
+        podiums: i32,
+        points: f64,
+        races: i32,
+        categories: HashMap<String, i32>,
+    }
+
+    let mut by_season: BTreeMap<i32, Acumulado> = BTreeMap::new();
     for fact in facts {
-        let entry = by_season
-            .entry(fact.season_number)
-            .or_insert_with(|| (fact.season_year, 0, 0, 0.0, HashMap::new()));
-        entry.0 = fact.season_year;
-        if fact.win {
-            entry.1 += 1;
-        }
+        let entry = by_season.entry(fact.season_number).or_default();
+        entry.year = fact.season_year;
         if fact.podium {
-            entry.2 += 1;
+            entry.podiums += 1;
         }
-        entry.3 += fact.points;
-        *entry.4.entry(fact.category.clone()).or_insert(0) += 1;
+        // As colocações são EXCLUSIVAS entre si: cada corrida entra uma única
+        // vez, pelo melhor carro da equipe. Sem isso, uma dobradinha 1º-3º
+        // contaria duas colocações na mesma corrida. O contador de pódios acima
+        // segue independente — ele é o total de top 3, usado em outras telas.
+        match fact.best_position {
+            Some(1) => entry.wins += 1,
+            Some(2) => entry.seconds += 1,
+            Some(3) => entry.thirds += 1,
+            Some(4) => entry.fourths += 1,
+            Some(5) => entry.fifths += 1,
+            _ => {}
+        }
+        entry.points += fact.points;
+        entry.races += 1;
+        *entry.categories.entry(fact.category.clone()).or_insert(0) += 1;
     }
 
     by_season
         .into_iter()
-        .map(|(season_number, (year, wins, podiums, points, cats))| {
-            let category = cats
+        .map(|(season_number, season)| {
+            let category_id = season
+                .categories
                 .iter()
                 .max_by_key(|(_, races)| **races)
-                .map(|(cat, _)| team_history_category_label(cat))
+                .map(|(cat, _)| cat.clone())
                 .unwrap_or_default();
+            let category = if category_id.is_empty() {
+                String::new()
+            } else {
+                team_history_category_label(&category_id)
+            };
             let position = positions
                 .get(&season_number)
                 .map(|pos| format!("P{pos}"))
                 .unwrap_or_else(|| "—".to_string());
             TeamHistorySeasonResult {
-                year: year.to_string(),
+                year: season.year.to_string(),
                 category,
+                category_id,
                 position,
-                wins,
-                podiums,
-                points: format!("{}", points.round() as i64),
+                wins: season.wins,
+                podiums: season.podiums,
+                points: format!("{}", season.points.round() as i64),
+                races: season.races,
+                seconds: season.seconds,
+                thirds: season.thirds,
+                fourths: season.fourths,
+                fifths: season.fifths,
             }
         })
         .collect()
@@ -171,8 +252,11 @@ pub(super) fn build_team_highlights(
     if best_run >= 2 {
         highlights.push(TeamHistoryHighlight {
             label: rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string(),
-            value: rust_i18n::t!("team_dossier.highlight.biggest_dynasty_value", count = best_run)
-                .to_string(),
+            value: rust_i18n::t!(
+                "team_dossier.highlight.biggest_dynasty_value",
+                count = best_run
+            )
+            .to_string(),
             detail: rust_i18n::t!("team_dossier.highlight.detail_until", year = best_run_end)
                 .to_string(),
         });
@@ -201,6 +285,7 @@ pub(super) fn build_real_team_timeline(facts: &[TeamRaceFact]) -> Vec<TeamHistor
         return vec![TeamHistoryTimelineItem {
             year: "-".to_string(),
             text: "Sem corridas registradas neste recorte.".to_string(),
+            kind: "empty".to_string(),
         }];
     };
     let mut items = vec![TeamHistoryTimelineItem {
@@ -210,6 +295,7 @@ pub(super) fn build_real_team_timeline(facts: &[TeamRaceFact]) -> Vec<TeamHistor
             team_history_category_label(&first.category),
             first.round
         ),
+        kind: "first_race".to_string(),
     }];
 
     if let Some(first_win) = facts.iter().find(|fact| fact.win) {
@@ -220,18 +306,14 @@ pub(super) fn build_real_team_timeline(facts: &[TeamRaceFact]) -> Vec<TeamHistor
                 team_history_category_label(&first_win.category),
                 first_win.round
             ),
+            kind: "first_win".to_string(),
         });
     }
 
-    if let Some((season, points)) = best_real_season_points(facts) {
-        items.push(TeamHistoryTimelineItem {
-            year: season.to_string(),
-            text: format!(
-                "Melhor temporada registrada: {} pts.",
-                points.round() as i32
-            ),
-        });
-    }
+    // A "melhor temporada registrada: N pts" saiu daqui. O card de destaque em
+    // Records já se chama "Melhor temporada" e mede outra coisa (vitórias), então
+    // os dois apareciam com o mesmo nome, anos possivelmente diferentes e números
+    // que não se conversam — leitura de contradição, não de informação a mais.
 
     if let Some(latest) = facts.last() {
         items.push(TeamHistoryTimelineItem {
@@ -241,6 +323,7 @@ pub(super) fn build_real_team_timeline(facts: &[TeamRaceFact]) -> Vec<TeamHistor
                 team_history_category_label(&latest.category),
                 latest.round
             ),
+            kind: "last_record".to_string(),
         });
     }
 
@@ -310,7 +393,11 @@ pub(super) fn current_level_streak_label(facts: &[TeamRaceFact]) -> String {
     }
 
     if streak <= 1 {
-        rust_i18n::t!("team_dossier.streak.level_one", level = current_level.as_str()).to_string()
+        rust_i18n::t!(
+            "team_dossier.streak.level_one",
+            level = current_level.as_str()
+        )
+        .to_string()
     } else {
         rust_i18n::t!(
             "team_dossier.streak.level_other",
