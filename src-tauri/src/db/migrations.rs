@@ -15,7 +15,13 @@ use seed_incidentes::seed_incident_catalog;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 53;
+const CURRENT_VERSION: u32 = 54;
+
+/// Versão da BASELINE — o piso a partir do qual um save ainda tem caminho de
+/// atualização. Save carimbado abaixo disto veio das migrações incrementais que
+/// foram colapsadas e não pode ser migrado; save em v53 ou acima sobe normalmente
+/// pelas migrações incrementais registradas depois dela.
+const BASELINE_VERSION: u32 = 53;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -27,7 +33,8 @@ const CURRENT_VERSION: u32 = 53;
 /// registrada na versão 53: um banco novo já nasce carimbado como 53 e
 /// `run_pending` continua coerente. Saves antigos NÃO são migrados — a baseline
 /// só sabe criar um banco do zero.
-const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[(53, migrate_baseline)];
+const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] =
+    &[(53, migrate_baseline), (54, migrate_v54_forma_do_piloto)];
 
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
 pub fn run_all(conn: &Connection) -> Result<(), DbError> {
@@ -48,9 +55,9 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
 pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
     let version = get_schema_version(conn)?;
 
-    if version > 0 && version < CURRENT_VERSION {
+    if version > 0 && version < BASELINE_VERSION {
         return Err(DbError::InvalidData(format!(
-            "este save está no schema v{version}, anterior à baseline v{CURRENT_VERSION}. \
+            "este save está no schema v{version}, anterior à baseline v{BASELINE_VERSION}. \
              As migrações incrementais foram colapsadas numa baseline única e não existe \
              caminho de atualização a partir daqui. O arquivo não foi alterado: use um \
              backup mais recente ou comece uma carreira nova."
@@ -75,6 +82,19 @@ fn migrate_baseline(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(BASELINE_DDL)?;
     seed_meta(conn)?;
     seed_incident_catalog(conn)?;
+    Ok(())
+}
+
+// ── Migrações incrementais sobre a baseline ───────────────────────────────────
+
+/// v54 — estado da FORMA do momento do piloto (o AR(1) de `simulation::forma`).
+///
+/// É a única das três camadas de performance de fim de semana que precisa de
+/// estado: afinidade de pista e acerto de fim de semana saem de hash
+/// determinístico e não persistem nada. 0.0 = forma neutra, que é exatamente o
+/// que um save antigo deve começar valendo.
+fn migrate_v54_forma_do_piloto(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch("ALTER TABLE drivers ADD COLUMN forma REAL NOT NULL DEFAULT 0.0;")?;
     Ok(())
 }
 
@@ -225,7 +245,9 @@ mod tests {
         run_all(&conn).expect("schema");
 
         let incidentes: i64 = conn
-            .query_row("SELECT COUNT(*) FROM incident_catalog", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM incident_catalog", [], |row| {
+                row.get(0)
+            })
             .expect("contagem do catálogo");
         assert_eq!(incidentes, 54);
 

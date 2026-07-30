@@ -2,16 +2,18 @@
 
 use crate::calendar::CalendarEntry;
 use crate::constants::tracks::get_track;
+use crate::finance::morale::{morale_pace_delta, morale_reliability_delta};
 use crate::models::driver::Driver;
 use crate::models::enums::WeatherCondition;
-use crate::finance::morale::{morale_pace_delta, morale_reliability_delta};
 use crate::models::team::Team;
 
-use crate::car::sim_bridge::{car_performance_from, car_shape_weights};
-use super::car_build::effective_car_performance_from_shape;
+use super::car_build::{
+    effective_car_performance_from_shape, quali_car_performance_from_shape, vies_de_pico,
+};
 use super::catalog::{vehicle_class_from_category, VehicleClass};
 use super::profile::resolve_simulation_profile;
 use super::track_profile::{get_track_simulation_data, pack_density_factor, TrackCharacter};
+use crate::car::sim_bridge::{car_performance_from, car_shape_weights};
 
 #[derive(Debug, Clone)]
 pub struct SimulationContext {
@@ -147,7 +149,28 @@ pub struct SimDriver {
     /// Motivação atual (0–100, recalculada no fim de temporada). Um desmotivado corre
     /// abaixo do próprio skill (ver `simulation::pressure::motivation_pace_delta`).
     pub motivacao: f64,
+    /// Trim de CORRIDA do carro: o ritmo sustentado, de tanque cheio. É o que
+    /// `race/**` lê, e continua sendo exatamente o que sempre foi.
     pub car_performance: f64,
+    /// Trim de CLASSIFICAÇÃO do mesmo carro: a volta de tanque vazio. Derivado do
+    /// `car_shape` (apoio crava a volta, ponta rende no stint) em
+    /// [`crate::simulation::car_build::quali_car_performance_from_shape`], NÃO
+    /// sorteado. Consumido **só** por `simulation::qualifying` — um carro é rápido
+    /// no sábado ou no domingo, e agora isso é uma escolha de projeto, não o mesmo
+    /// número duas vezes. Sem carro semeado no save, cai de volta no trim de corrida.
+    pub car_performance_quali: f64,
+    /// **Viés de pico do shape do carro**, em [-1, 1]: positivo = carro de apoio (handling),
+    /// que crava a volta e vive de aerodinâmica; negativo = carro de ponta/eficiência
+    /// (power). É o MESMO eixo que `car_build::vies_de_pico` já derivava para o trim de
+    /// classificação — aqui ele serve ao ar sujo, porque quanto mais o carro depende de
+    /// apoio, mais ele sofre atrás de outro. Reaproveitado de propósito, em vez de um eixo
+    /// novo. Sem carro semeado no save, 0.0 (neutro).
+    pub vies_de_pico: f64,
+    /// **Qualidade da chamada de estratégia da equipe** (0–100). É por aqui que a equipe
+    /// finalmente vira um ator DENTRO da corrida: equipe boa acerta a volta da parada, equipe
+    /// ruim erra para um dos lados da janela. Sai do `pit_crew_quality` do time, que até agora
+    /// só pesava na quebra de peça. Ver `race::estrategia::planejar_paradas`.
+    pub qualidade_de_estrategia: f64,
     pub car_reliability: f64,
     pub team_id: String,
     pub team_name: String,
@@ -183,6 +206,12 @@ impl SimDriver {
             // um tico melhor e mais confiável; em crise, pior e mais frágil. Vale
             // para todo carro do grid (jogador simulado + IA).
             car_performance: team.car_performance + morale_pace_delta(team.morale),
+            // Sem a pista e sem o carro semeado não há shape pra ler: os dois trims são o
+            // mesmo número. Quem separa é `from_driver_team_and_track`.
+            car_performance_quali: team.car_performance + morale_pace_delta(team.morale),
+            // Sem shape lido, o carro é neutro no eixo apoio × ponta.
+            vies_de_pico: 0.0,
+            qualidade_de_estrategia: team.pit_crew_quality,
             car_reliability: (team.confiabilidade + morale_reliability_delta(team.morale))
                 .clamp(0.0, 100.0),
             team_id: team.id.clone(),
@@ -204,15 +233,27 @@ impl SimDriver {
         // shape (contínuo) casa com a pista. Save antigo sem carro semeado → fallback ao
         // escalar legado. Re-aplicamos o delta de moral aqui (a confiabilidade já veio do
         // construtor base com a moral e não é reescrita).
-        let base_car_performance = match &team.car {
-            Some(car) => effective_car_performance_from_shape(
-                car_performance_from(car),
-                car_shape_weights(car),
-                track_weights,
-            ),
-            None => team.car_performance,
+        //
+        // Os DOIS trims saem daqui, do mesmo carro e do mesmo shape: o de corrida (ritmo
+        // sustentado) e o de classificação (volta única). Ver `car_build`.
+        let (base_car_performance, base_car_quali, vies) = match &team.car {
+            Some(car) => {
+                let magnitude = car_performance_from(car);
+                let shape = car_shape_weights(car);
+                (
+                    effective_car_performance_from_shape(magnitude, shape, track_weights),
+                    quali_car_performance_from_shape(magnitude, shape, track_weights),
+                    vies_de_pico(shape),
+                )
+            }
+            // Save antigo sem carro semeado: sem shape não há como separar os trims nem
+            // saber o quanto o carro vive de apoio.
+            None => (team.car_performance, team.car_performance, 0.0),
         };
-        sim_driver.car_performance = base_car_performance + morale_pace_delta(team.morale);
+        let moral = morale_pace_delta(team.morale);
+        sim_driver.car_performance = base_car_performance + moral;
+        sim_driver.car_performance_quali = base_car_quali + moral;
+        sim_driver.vies_de_pico = vies;
         sim_driver
     }
 }

@@ -98,6 +98,7 @@ tabela drivers
   coluna experiencia | tipo=REAL | notnull=1 | default=50.0 | pk=0
   coluna fator_chuva | tipo=REAL | notnull=1 | default=50.0 | pk=0
   coluna fitness | tipo=REAL | notnull=1 | default=50.0 | pk=0
+  coluna forma | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna genero | tipo=TEXT | notnull=1 | default='M' | pk=0
   coluna gestao_pneus | tipo=REAL | notnull=1 | default=50.0 | pk=0
   coluna habilidade_largada | tipo=REAL | notnull=1 | default=50.0 | pk=0

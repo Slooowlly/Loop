@@ -191,6 +191,12 @@ pub struct Driver {
     pub stats_carreira: DriverCareerStats,
     #[serde(default = "default_motivation")]
     pub motivacao: f64,
+    /// Estado da FORMA do momento: o AR(1) adimensional de
+    /// [`crate::simulation::forma`], em [-1, 1] (0 = neutro). Avança um passo por
+    /// fim de semana disputado e é a única das três camadas de performance que
+    /// precisa de estado persistido. `#[serde(default)]` para saves antigos.
+    #[serde(default)]
+    pub forma: f64,
     #[serde(default = "default_track_history")]
     pub historico_circuitos: serde_json::Value,
     #[serde(default = "default_recent_results")]
@@ -227,6 +233,7 @@ impl Driver {
             stats_temporada: DriverSeasonStats::default(),
             stats_carreira: DriverCareerStats::default(),
             motivacao: default_motivation(),
+            forma: 0.0,
             historico_circuitos: default_track_history(),
             ultimos_resultados: default_recent_results(),
             melhor_resultado_temp: None,

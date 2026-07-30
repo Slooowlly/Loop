@@ -107,12 +107,17 @@ fn scale_segment_car_weight(mut w: SegmentWeights, scale: f64) -> SegmentWeights
     w
 }
 
+/// O RITMO DE VOLTA deste piloto neste trecho, em pontos (maior = mais rápido).
+///
+/// Continua sendo o cérebro da simulação — a combinação de piloto, carro, pneu, físico,
+/// clima e caráter de pista. O que mudou é o que ele produz: era uma parcela de um saldo de
+/// pontos, virou um ritmo que o motor converte em tempo. **Determinístico**: o ruído saiu
+/// daqui (ver [`amplitude_de_ritmo`]).
 pub(crate) fn calculate_segment_score(
     driver: &SimDriver,
     state: &RaceState,
     segment: RaceSegment,
     ctx: &SimulationContext,
-    rng: &mut impl Rng,
 ) -> f64 {
     // Peso do carro escalado por categoria (rookie baixo, topo alto); carro spec
     // no rookie (todos idênticos). Pilar A do redesign carro/dinastias.
@@ -145,10 +150,14 @@ pub(crate) fn calculate_segment_score(
     // `rain_skill_penalty`). Seco = 0. Rain-good (fator alto) perde MENOS pontos →
     // re-rank consistente: o pelotão todo cai e os bons-de-chuva sobem relativos.
     // (O score está na escala ~0–100 do skill, então subtrair os pontos casa com o export.)
-    score -= crate::iracing_sdk::weather::rain_skill_penalty(
+    // A `rain_sensitivity` da pista/categoria ESCALA a curva validada (pacote G). Antes ela era
+    // calculada no perfil, guardada no contexto e nunca lida — chuva rendia igual em Spa e em
+    // Tsukuba. Sensibilidade 1,0 devolve exatamente a penalidade de antes.
+    score -= crate::simulation::math::rain_penalty_escalada(
+        ctx.weather,
         driver.fator_chuva as f64,
-        rain_intensity_for(ctx.weather),
-    ) as f64;
+        ctx.rain_sensitivity,
+    );
 
     // Bônus contextual em pista difícil: adaptabilidade vale mais
     if ctx.track_difficulty_multiplier > 1.0 {
@@ -179,19 +188,49 @@ pub(crate) fn calculate_segment_score(
         score *= 1.0 - inexperience_factor;
     }
 
-    // Variância escalada pelo perfil da categoria
-    let base_variance = (100.0 - driver.consistencia as f64) / 100.0 * 5.0;
-    let scaled_variance = base_variance * ctx.race_variance_multiplier;
-
-    // Caos extra na largada amplificado por densidade do pelotão
-    let actual_variance = if segment == RaceSegment::Start {
-        scaled_variance * ctx.start_chaos_multiplier * ctx.pack_density_factor
-    } else {
-        scaled_variance
-    };
-
-    score += rng.gen_range(-actual_variance..=actual_variance);
     score.max(5.0)
+}
+
+/// Amplitude do ruído de ritmo deste piloto neste trecho, em pontos de ritmo.
+///
+/// Era a faixa do sorteio que vivia dentro de [`calculate_segment_score`]. Saiu de lá porque
+/// o ruído deixou de ser "um número por segmento": agora ele tem ESCALA (por volta, não por
+/// segmento) e MEMÓRIA (correlacionado entre trechos), e as duas coisas são do laço da
+/// corrida, não do cálculo de ritmo. A fórmula em si não mudou.
+pub(crate) fn amplitude_de_ritmo(
+    driver: &SimDriver,
+    ctx: &SimulationContext,
+    segment: RaceSegment,
+) -> f64 {
+    amplitude_de_ritmo_com_relancamento(driver, ctx, segment, false)
+}
+
+/// Idem, com a opção de tratar o trecho como RELANÇAMENTO de safety car.
+///
+/// Um relançamento é uma segunda largada — pneu frio, pelotão colado, acordeão — então ele
+/// reusa exatamente a amplificação de caos que o segmento de largada já tinha, em vez de um
+/// mecanismo novo. É o que impede o safety car de ser só uma animação que comprime gaps sem
+/// mudar nada (ver `estrategia::CAOS_DO_RELANCAMENTO`).
+pub(crate) fn amplitude_de_ritmo_com_relancamento(
+    driver: &SimDriver,
+    ctx: &SimulationContext,
+    segment: RaceSegment,
+    relancamento: bool,
+) -> f64 {
+    let base = (100.0 - driver.consistencia as f64) / 100.0 * 5.0;
+    let escalada = base * ctx.race_variance_multiplier;
+
+    // Caos extra na largada — e no relançamento — amplificado por densidade do pelotão.
+    if segment == RaceSegment::Start {
+        escalada * ctx.start_chaos_multiplier * ctx.pack_density_factor
+    } else if relancamento {
+        escalada
+            * ctx.start_chaos_multiplier
+            * ctx.pack_density_factor
+            * super::estrategia::CAOS_DO_RELANCAMENTO
+    } else {
+        escalada
+    }
 }
 
 pub(crate) fn apply_tire_degradation(

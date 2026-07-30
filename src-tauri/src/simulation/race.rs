@@ -7,6 +7,8 @@
 
 #[path = "race/danos.rs"]
 mod danos;
+#[path = "race/estrategia.rs"]
+pub mod estrategia;
 #[path = "race/motor.rs"]
 mod motor;
 #[path = "race/pontuacao.rs"]
@@ -15,12 +17,16 @@ mod pontuacao;
 mod resultados;
 #[path = "race/tipos.rs"]
 mod tipos;
+#[path = "race/trafego.rs"]
+pub mod trafego;
 
 pub(crate) use danos::*;
+pub use estrategia::*;
 pub use motor::*;
 pub(crate) use pontuacao::*;
 pub use resultados::*;
 pub use tipos::*;
+pub use trafego::*;
 
 #[cfg(test)]
 #[path = "race/tests/mod.rs"]

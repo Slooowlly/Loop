@@ -63,9 +63,14 @@ pub fn build_race_result_from_aiseason(
     // METADE disso não "terminou" — bateu/saiu e foi AI-completado lá atrás. É a
     // regra padrão de classificação e pega o caso óbvio (8 voltas atrás = DNF),
     // direto do JSON, sem depender do monitor ao vivo.
-    let leader_laps = event
-        .laps_complete
-        .max(event.rows.iter().map(|r| r.laps_complete).max().unwrap_or(0));
+    let leader_laps = event.laps_complete.max(
+        event
+            .rows
+            .iter()
+            .map(|r| r.laps_complete)
+            .max()
+            .unwrap_or(0),
+    );
 
     let mut race_results: Vec<RaceDriverResult> = Vec::new();
     let mut qualifying_results: Vec<QualifyingResult> = Vec::new();
@@ -137,6 +142,20 @@ pub fn build_race_result_from_aiseason(
             notable_incident: None,
             dnf_catalog_id: None,
             damage_origin_segment: None,
+            // Corrida REAL do iRacing: o dado de posição na pista é subproduto da nossa
+            // simulação e não existe aqui — o resultado oficial não conta trecho a trecho.
+            posicoes_por_segmento: Vec::new(),
+            gaps_para_da_frente_ms: Vec::new(),
+            segmentos_em_ar_sujo: 0,
+            tentativas_ultrapassagem: 0,
+            ultrapassagens_concluidas: 0,
+            tentativas_sofridas: 0,
+            maior_sequencia_preso: 0,
+            // Corrida REAL do iRacing: estratégia de parada é subproduto da nossa simulação.
+            volta_da_parada: Vec::new(),
+            posicao_antes_da_parada: Vec::new(),
+            posicao_depois: Vec::new(),
+            estrategia_id: String::new(),
         });
 
         qualifying_results.push(QualifyingResult {
@@ -150,6 +169,9 @@ pub fn build_race_result_from_aiseason(
             gap_to_pole_ms: 0.0,
             is_pole: grid_position == 1,
             is_jogador: is_player,
+            // Corrida REAL do iRacing: a grade veio do resultado oficial, não da nossa
+            // sessão simulada — não há volta perdida a inferir.
+            volta_perdida: false,
         });
     }
 
@@ -172,7 +194,9 @@ pub fn build_race_result_from_aiseason(
         _ => String::new(),
     };
 
-    let attach = |results: &mut [RaceDriverResult], i: usize, inc: crate::simulation::incidents::IncidentResult| {
+    let attach = |results: &mut [RaceDriverResult],
+                  i: usize,
+                  inc: crate::simulation::incidents::IncidentResult| {
         results[i].notable_incident = Some(inc.description.clone());
         results[i].incidents_count = results[i].incidents_count.max(1);
         results[i].incidents.push(inc);
@@ -392,7 +416,12 @@ pub fn build_race_result_from_aiseason(
         .max_by_key(|r| r.positions_gained)
         .filter(|r| r.positions_gained > 0)
         .map(|r| r.pilot_id.clone());
-    let total_laps = event.rows.iter().map(|r| r.laps_complete).max().unwrap_or(0);
+    let total_laps = event
+        .rows
+        .iter()
+        .map(|r| r.laps_complete)
+        .max()
+        .unwrap_or(0);
 
     RaceResult {
         qualifying_results,
@@ -412,5 +441,7 @@ pub fn build_race_result_from_aiseason(
         caution_segments: Vec::new(),
         // Corrida AO VIVO: a quebra vem do log do disparo (`!black`/`!dq`), não da simulação.
         applied_mechanicals: Vec::new(),
+        safety_cars: Vec::new(),
+        ordem_pre_safety_car: Vec::new(),
     }
 }

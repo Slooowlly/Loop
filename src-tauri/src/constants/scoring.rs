@@ -7,12 +7,45 @@ use crate::models::enums::WeatherCondition;
 /// Gap típico entre pole e 5º: 5–10 pontos → 250–500 ms.
 pub const QUALI_SCORE_TO_LAP_MS: f64 = 50.0;
 
-/// Converte gap de cumulative_score de corrida em gap de tempo de volta (ms).
-/// O cumulative_score acumula 5 segmentos + componente de posição inicial,
-/// resultando em gaps absolutos ~3–5× maiores que o quali_score para a mesma
-/// diferença de skill. O coeficiente menor compensa essa diferença de escala.
+/// Converte gap de ritmo de corrida em gap de tempo de volta (ms).
 /// Gap típico entre P1 e P2 (skills próximos): 12–17 pontos → 360–510 ms/volta.
 pub const RACE_SCORE_TO_LAP_MS: f64 = 30.0;
+
+// ─────────────────── A moeda da corrida é TEMPO ───────────────────
+//
+// O motor acumulava PONTOS e ordenava no fim. Sem gap entre carros não existe ar sujo,
+// trem de carros, undercut nem safety car — e a única alavanca sobre o resultado era mexer
+// no dado. Agora `RaceState` acumula MILISSEGUNDOS: o score composto de `pontuacao.rs`
+// continua sendo o cérebro, só que produz um RITMO DE VOLTA em vez de um saldo de pontos.
+//
+// As constantes abaixo são a tradução, e vieram do modelo antigo por equivalência exata —
+// nenhuma delas é calibração nova.
+
+/// Quanto vale, em ms de tempo de volta, UM ponto de ritmo de `pontuacao.rs`.
+///
+/// O ×5 não é escolha, é fidelidade: o modelo antigo somava o score de cada um dos 5
+/// segmentos a um total único, como se o ritmo daquele segmento valesse a corrida INTEIRA.
+/// Agora que o tempo de um segmento é `ritmo × voltas_do_segmento` (e um segmento é 1/5 da
+/// corrida), o ×5 devolve exatamente a mesma magnitude. Fica explícito aqui em vez de
+/// escondido na aritmética.
+pub const MS_POR_PONTO_DE_RITMO_POR_VOLTA: f64 = RACE_SCORE_TO_LAP_MS * 5.0;
+
+/// Ritmo de um carro de referência teórico, em pontos. Só desloca a origem do relógio: o
+/// tempo publicado é sempre ancorado no vencedor, então este valor CANCELA no resultado.
+/// Escolhido acima do ritmo máximo alcançável para o tempo acumulado ser sempre positivo e
+/// crescente — o que faz `tempo_acumulado_ms` se ler como "atraso para o carro perfeito".
+pub const RITMO_DE_REFERENCIA: f64 = 100.0;
+
+/// Atraso que cada posição de grid custa, em ms por volta de corrida.
+///
+/// Conversão fiel do bônus de largada antigo (`(total - posição + 1) × 2.0` pontos): a
+/// diferença entre a pole e a posição N era `2 × (N-1)` pontos, e é isso que este número
+/// reproduz em tempo. **Não foi inflado de propósito** — o peso real da posição na pista
+/// vem do modelo de ar sujo e dificuldade de ultrapassagem, não daqui.
+pub const ATRASO_LARGADA_MS_POR_POSICAO_POR_VOLTA: f64 = 2.0 * RACE_SCORE_TO_LAP_MS;
+
+/// Ritmo que cada posição perdida num incidente custa, em pontos (era `positions_lost × 2.0`).
+pub const RITMO_PERDIDO_POR_POSICAO_EM_INCIDENTE: f64 = 2.0;
 
 pub const POINTS_STANDARD: [u8; 10] = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 pub const POINTS_ENDURANCE: [u8; 10] = [35, 28, 23, 19, 16, 13, 10, 7, 4, 2];

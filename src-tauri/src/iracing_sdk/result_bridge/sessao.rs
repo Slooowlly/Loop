@@ -59,12 +59,7 @@ pub fn build_race_result_from_session(
     let last_gaps: HashMap<i32, f64> = history
         .laps
         .last()
-        .map(|snap| {
-            snap.cars
-                .iter()
-                .map(|c| (c.idx, c.gap * 1000.0))
-                .collect()
-        })
+        .map(|snap| snap.cars.iter().map(|c| (c.idx, c.gap * 1000.0)).collect())
         .unwrap_or_default();
 
     let mut race_results: Vec<RaceDriverResult> = Vec::new();
@@ -148,6 +143,19 @@ pub fn build_race_result_from_session(
             notable_incident,
             dnf_catalog_id: None,
             damage_origin_segment: None,
+            // Sessão REAL do iRacing: sem dado de posição na pista trecho a trecho.
+            posicoes_por_segmento: Vec::new(),
+            gaps_para_da_frente_ms: Vec::new(),
+            segmentos_em_ar_sujo: 0,
+            tentativas_ultrapassagem: 0,
+            ultrapassagens_concluidas: 0,
+            tentativas_sofridas: 0,
+            maior_sequencia_preso: 0,
+            // Corrida REAL do iRacing: estratégia de parada é subproduto da nossa simulação.
+            volta_da_parada: Vec::new(),
+            posicao_antes_da_parada: Vec::new(),
+            posicao_depois: Vec::new(),
+            estrategia_id: String::new(),
         });
 
         qualifying_results.push(QualifyingResult {
@@ -161,6 +169,8 @@ pub fn build_race_result_from_session(
             gap_to_pole_ms: 0.0,
             is_pole: false,
             is_jogador: is_player,
+            // Sessão REAL do iRacing: a grade é a de verdade, não a nossa simulada.
+            volta_perdida: false,
         });
     }
 
@@ -183,9 +193,7 @@ pub fn build_race_result_from_session(
 
     let winner_id = race_results
         .iter()
-        .filter(|r| {
-            !r.is_dnf && in_player_class(class_of.get(&r.pilot_id).copied().unwrap_or(0))
-        })
+        .filter(|r| !r.is_dnf && in_player_class(class_of.get(&r.pilot_id).copied().unwrap_or(0)))
         .min_by_key(|r| r.finish_position)
         .map(|r| r.pilot_id.clone())
         .unwrap_or_default();
@@ -255,5 +263,7 @@ pub fn build_race_result_from_session(
         caution_segments: Vec::new(),
         // Corrida AO VIVO: a quebra vem do log do disparo (`!black`/`!dq`), não da simulação.
         applied_mechanicals: Vec::new(),
+        safety_cars: Vec::new(),
+        ordem_pre_safety_car: Vec::new(),
     }
 }

@@ -1,4 +1,4 @@
-﻿//! Execucao da corrida em si: sorteio previo de quebras, simulacao de uma categoria (carreira ou historica) e varredura das demais categorias da mesma semana.
+//! Execucao da corrida em si: sorteio previo de quebras, simulacao de uma categoria (carreira ou historica) e varredura das demais categorias da mesma semana.
 
 use super::*;
 
@@ -111,14 +111,24 @@ pub(super) fn preroll_simulated_breakdowns(
         // pilotos de um time rolam sortes independentes a partir do MESMO desgaste do carro.
         let mut seed = ev_seed;
         for b in driver.id.bytes() {
-            seed = seed.wrapping_mul(0x0000_0100_0000_01B3).wrapping_add(b as u64);
+            seed = seed
+                .wrapping_mul(0x0000_0100_0000_01B3)
+                .wrapping_add(b as u64);
         }
         let pit = pit_by_team
             .get(driver.team_id.as_str())
             .copied()
             .unwrap_or(50.0);
         let events = roll_race_breakdowns_cfg(
-            car, laps, seed, pit, track_pha, weather, &[], is_enduro, apply_tent,
+            car,
+            laps,
+            seed,
+            pit,
+            track_pha,
+            weather,
+            &[],
+            is_enduro,
+            apply_tent,
         );
         for ev in events {
             let label = ev.problem_label().to_string();
@@ -290,7 +300,60 @@ pub(super) fn simulate_category_race_with_mode(
         m
     };
 
+    // FORMA DO MOMENTO (`simulation::forma`, camada 2): a única das três camadas de
+    // performance do fim de semana que tem estado. Avança um passo do AR(1) por etapa
+    // disputada e é gravada AQUI, antes da corrida, para que classificação e corrida
+    // enxerguem exatamente o mesmo valor. As outras duas (afinidade de pista e acerto
+    // de fim de semana) saem de hash determinístico e não persistem nada.
+    //
+    // Só grava na carreira jogável: o rascunho histórico reconstrói temporadas antigas
+    // e não pode mexer na forma corrente do piloto.
+    let forma_por_piloto: HashMap<String, f64> = {
+        let mut mapa = HashMap::new();
+        for driver in &driver_pool {
+            let estado = crate::simulation::forma::proxima_forma(
+                driver.forma,
+                crate::simulation::forma::semente_forma(
+                    active_season.numero as i32,
+                    race_entry.rodada,
+                    &driver.id,
+                ),
+                driver.motivacao,
+                driver.atributos.confianca,
+            );
+            if persistence_mode == RacePersistenceMode::Playable {
+                driver_queries::update_driver_forma(&db.conn, &driver.id, estado)
+                    .map_err(|e| format!("Falha ao gravar a forma do piloto: {e}"))?;
+            }
+            mapa.insert(driver.id.clone(), estado);
+        }
+        mapa
+    };
+
     let mut orphaned_drivers = Vec::new();
+    // ─────────────────── A ESTEIRA DE MODIFICADORES ───────────────────
+    //
+    // Cada elo abaixo desconta (ou dá) PONTOS DE SKILL ao `SimDriver` antes dele entrar na
+    // simulação. Duas armadilhas valem para a esteira INTEIRA, e não só para o elo que
+    // você veio mexer:
+    //
+    // **1. Um ponto de skill NÃO é um ponto de score.** `skill` pesa ~0,28 do score de
+    //    segmento em `race/pontuacao.rs` (0,20 na largada, 0,35 no miolo, 0,25 no fim), com
+    //    o resto indo para carro, racecraft, pneu, físico e cabeça. Na prática, o que a
+    //    esteira cobra chega diluído a menos de um terço na pista: os 8 pontos de
+    //    `MAX_PENALTY` do `track_knowledge` valem ~2,2 pontos de score, e a adaptação de
+    //    categoria e a penalidade de lesão estão na mesma moeda e sofrem do mesmo desconto.
+    //    É bem possível que os três estejam sistematicamente mais fracos do que quem os
+    //    escreveu pretendia. NÃO conserte isso aqui: é decisão de calibração e pertence ao
+    //    harness estatístico. Ficou escrito para a próxima pessoa não redescobrir do zero.
+    //
+    // **2. Cada elo arredonda de volta para `u8`.** São seis arredondamentos independentes
+    //    na sequência abaixo, e não um só no fim. Um modificador menor que meio ponto pode
+    //    sumir inteiro, e o erro dos seis não se cancela. Quando um elo novo tiver várias
+    //    parcelas, some-as ANTES de arredondar — é o que as três camadas de
+    //    `simulation::forma` fazem, num arredondamento único para as três. Consolidar os
+    //    seis elos num arredondamento só muda resultado e, por isso, é calibração também.
+    //    A perda de resolução some de vez quando a moeda da simulação virar tempo.
     let sim_drivers: Vec<SimDriver> = driver_pool
         .into_iter()
         .filter_map(|driver| match team_by_driver.get(&driver.id) {
@@ -313,9 +376,8 @@ pub(super) fn simulate_category_race_with_mode(
                     driver.atributos.experiencia,
                 );
                 sd.skill = (sd.skill as f64 - adapt_pen).max(5.0).round() as u8;
-                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 - adapt_pen)
-                    .max(5.0)
-                    .round() as u8;
+                sd.ritmo_classificacao =
+                    (sd.ritmo_classificacao as f64 - adapt_pen).max(5.0).round() as u8;
                 // Lesão: o machucado CORRE, mas com o ritmo reduzido. A penalidade é cheia
                 // logo após a batida e DIMINUI a cada etapa até sarar (volta enferrujado e
                 // vai melhorando). Fração do skill × (corridas restantes / total). Liga os
@@ -329,6 +391,39 @@ pub(super) fn simulate_category_race_with_mode(
                     sd.ritmo_classificacao =
                         (sd.ritmo_classificacao as f64 - inj_pen).max(5.0).round() as u8;
                 }
+                // Camadas de performance do FIM DE SEMANA (`simulation::forma`):
+                // afinidade permanente com esta pista + forma do momento + acerto do
+                // fim de semana. É o que faz a ordem de chegada se reembaralhar de
+                // etapa pra etapa, em vez de repetir o mesmo pódio o ano inteiro.
+                // A afinidade pesa MAIS na classificação (a volta perfeita é onde o
+                // casamento com a pista aparece inteiro); forma e acerto valem igual
+                // nos dois. O acerto, em particular, NÃO varia entre segmentos — é
+                // por isso que ele sobrevive à soma da corrida, ao contrário do ruído
+                // por segmento que a sim já rolava e que se auto-cancela.
+                //
+                // NOTA de resolução: como todo elo desta esteira, o ajuste é
+                // arredondado de volta para `u8` — a convenção do `SimDriver`. Um
+                // ajuste de ±0,4 ponto se perde no arredondamento. A resolução volta
+                // inteira quando a moeda da simulação virar TEMPO em vez de pontos;
+                // até lá, seguimos a convenção existente em vez de antecipar isso.
+                let ajuste = crate::simulation::forma::ajuste_fim_de_semana(
+                    &driver.id,
+                    &team.id,
+                    race_entry.track_id,
+                    active_season.numero as i32,
+                    race_entry.rodada,
+                    &crate::simulation::forma::EstiloPiloto {
+                        smoothness: driver.atributos.smoothness,
+                        consistencia: driver.atributos.consistencia,
+                        adaptabilidade: driver.atributos.adaptabilidade,
+                        aggression: driver.atributos.aggression,
+                    },
+                    forma_por_piloto.get(&driver.id).copied().unwrap_or(0.0),
+                );
+                sd.skill = (sd.skill as f64 + ajuste.corrida).clamp(5.0, 100.0).round() as u8;
+                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + ajuste.classificacao)
+                    .clamp(5.0, 100.0)
+                    .round() as u8;
                 // (Chuva NÃO entra aqui: a sim já aplica rain_skill_penalty no score
                 // em simulation/race.rs + qualifying.rs — aplicar de novo dobraria.)
                 // Motivação: um piloto desmotivado corre ABAIXO do próprio skill (efeito
@@ -336,8 +431,9 @@ pub(super) fn simulate_category_race_with_mode(
                 // o headroom já enxergar o rendimento real do piloto.
                 let mot = crate::simulation::pressure::motivation_pace_delta(sd.motivacao);
                 sd.skill = (sd.skill as f64 + mot).clamp(5.0, 100.0).round() as u8;
-                sd.ritmo_classificacao =
-                    (sd.ritmo_classificacao as f64 + mot).clamp(5.0, 100.0).round() as u8;
+                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + mot)
+                    .clamp(5.0, 100.0)
+                    .round() as u8;
                 // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
                 let pctx = crate::simulation::pressure::title_context(
                     driver.stats_temporada.pontos,
@@ -477,7 +573,10 @@ pub(super) fn simulate_category_race_with_mode(
     // Abandono POR QUEBRA precisa apontar pro catálogo `Mechanical`: é por esse id que o
     // histórico de DNF e o beat de Abandono da notícia reconhecem a pane. O `dnf_reason` a
     // simulação já gravou com a frase da peça. MESMO tratamento do import do iRacing.
-    if applied.iter().any(|p| p.severity == crate::car::breakdown::Severity::Dnf) {
+    if applied
+        .iter()
+        .any(|p| p.severity == crate::car::breakdown::Severity::Dnf)
+    {
         let mech_id: Option<String> = db
             .conn
             .query_row(
@@ -511,7 +610,9 @@ pub(super) fn simulate_category_race_with_mode(
     > = {
         let mut map: HashMap<String, Vec<_>> = HashMap::new();
         for p in &applied {
-            map.entry(p.team_id.clone()).or_default().push((p.part, p.severity));
+            map.entry(p.team_id.clone())
+                .or_default()
+                .push((p.part, p.severity));
         }
         map
     };

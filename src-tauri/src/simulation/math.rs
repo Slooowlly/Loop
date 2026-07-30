@@ -15,6 +15,12 @@ pub fn weather_multiplier(weather: WeatherCondition, fator_chuva: u8) -> f64 {
 
 /// Versão com sensibilidade de chuva do contexto.
 /// rain_sensitivity > 1.0 amplifica o efeito; < 1.0 atenua.
+///
+/// **Forma antiga, multiplicativa.** A penalidade de chuva que a simulação de fato cobra é a
+/// curva VALIDADA do export (`iracing_sdk::weather::rain_skill_penalty`), em pontos de skill,
+/// para que a sim offline e o que o iRacing roda batam. Aplicar este multiplicador POR CIMA
+/// dela cobraria chuva duas vezes. Quem liga a `rain_sensitivity` ao resultado é
+/// [`rain_penalty_escalada`]; esta função fica como referência da forma anterior.
 pub fn adjusted_weather_multiplier(
     weather: WeatherCondition,
     fator_chuva: u8,
@@ -22,6 +28,26 @@ pub fn adjusted_weather_multiplier(
 ) -> f64 {
     let base = weather_multiplier(weather, fator_chuva);
     1.0 - ((1.0 - base) * rain_sensitivity)
+}
+
+/// Penalidade de chuva em pontos de ritmo, **escalada pela sensibilidade da pista/categoria**.
+///
+/// Fecha uma cadeia órfã completa: `profile/resolucao.rs` calculava a `rain_sensitivity`
+/// (×1,20 e ×1,08), o `SimulationContext` guardava, um teste asseverava que a chuva a eleva —
+/// e nenhum consumidor a lia. A modulação de chuva por pista e por categoria estava
+/// configurada, testada e DESLIGADA. Este é o fio.
+///
+/// Escala a curva validada em vez de substituí-la: `rain_sensitivity == 1.0` devolve
+/// exatamente a penalidade de antes, então pista neutra e tempo seco não mudam nada.
+pub fn rain_penalty_escalada(
+    weather: WeatherCondition,
+    fator_chuva: f64,
+    rain_sensitivity: f64,
+) -> f64 {
+    let base =
+        crate::iracing_sdk::weather::rain_skill_penalty(fator_chuva, rain_intensity_for(weather))
+            as f64;
+    base * rain_sensitivity.max(0.0)
 }
 
 /// Mapeia o clima da simulação (WeatherCondition) → intensidade da curva de chuva

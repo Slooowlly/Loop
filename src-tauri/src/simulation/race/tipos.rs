@@ -81,7 +81,24 @@ pub struct RaceState {
     pub driver_id: String,
     pub tire_wear: f64,
     pub physical_condition: f64,
-    pub cumulative_score: f64,
+    /// **A moeda da corrida.** Tempo acumulado em ms desde a largada, medido contra um carro
+    /// de referência teórico (ver `RITMO_DE_REFERENCIA`) — MENOR é melhor, e a diferença
+    /// entre dois carros é literalmente o gap entre eles na pista.
+    ///
+    /// Substituiu o `cumulative_score` (pontos, MAIOR era melhor). A troca é o que destrava
+    /// tudo o que depende de distância entre carros: ar sujo, trem de carros, undercut,
+    /// safety car. Nenhum deles existe ainda — mas agora a pergunta "quanto falta pro carro
+    /// da frente?" tem resposta, via [`pelotao_ordenado`].
+    pub tempo_acumulado_ms: f64,
+    /// Estado do AR(1) do ruído de ritmo, em desvios-padrão. Dá MEMÓRIA ao ruído: um piloto
+    /// num trecho ruim tende a seguir num trecho ruim, o que impede o ruído de se
+    /// auto-cancelar na soma da corrida.
+    pub desvio_de_ritmo: f64,
+    /// Dado cru de POSIÇÃO NA PISTA acumulado durante a corrida: gaps, ar sujo, tentativas
+    /// de ultrapassagem e trem. Sai inteiro no `RaceDriverResult` — métrica é do harness.
+    pub trafego: super::trafego::TrafegoDoCarro,
+    /// Plano e histórico de paradas deste carro (pacote G).
+    pub paradas: super::estrategia::ParadasDoCarro,
     pub is_dnf: bool,
     pub current_position: i32,
     pub incidents: Vec<IncidentResult>,
@@ -89,6 +106,57 @@ pub struct RaceState {
     pub dnf_segment: Option<RaceSegment>,
     /// Danos latentes pós-colisão aguardando manifestação.
     pub pending_damage: Vec<PendingDamage>,
+}
+
+impl RaceState {
+    /// Gap deste carro para `outro`, em ms. Positivo = este está ATRÁS.
+    pub fn gap_para(&self, outro: &RaceState) -> f64 {
+        self.tempo_acumulado_ms - outro.tempo_acumulado_ms
+    }
+}
+
+/// Onde um carro está no pelotão neste instante da corrida — a foto que o modelo de posição
+/// na pista vai consumir.
+#[derive(Debug, Clone)]
+pub struct PosicaoNaPista<'a> {
+    pub driver_id: &'a str,
+    pub posicao: i32,
+    pub tempo_acumulado_ms: f64,
+    /// Gap para o carro imediatamente à frente, em ms. `None` para o líder.
+    pub gap_para_da_frente_ms: Option<f64>,
+    /// Gap para o líder, em ms. 0 para o próprio líder.
+    pub gap_para_o_lider_ms: f64,
+}
+
+/// O pelotão ordenado por tempo, já com os gaps calculados.
+///
+/// **Porta aberta de propósito.** O próximo passo (ar sujo, dificuldade de ultrapassagem)
+/// precisa perguntar, a cada trecho, "quanto falta pro carro da frente?" — com a moeda em
+/// pontos essa pergunta não tinha resposta; com tempo, é uma subtração. Abandonos ficam de
+/// fora: quem parou não ocupa mais pista.
+pub fn pelotao_ordenado(states: &[RaceState]) -> Vec<PosicaoNaPista<'_>> {
+    let mut vivos: Vec<&RaceState> = states.iter().filter(|s| !s.is_dnf).collect();
+    vivos.sort_by(|a, b| {
+        a.tempo_acumulado_ms
+            .partial_cmp(&b.tempo_acumulado_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let lider = vivos.first().map(|s| s.tempo_acumulado_ms).unwrap_or(0.0);
+    vivos
+        .iter()
+        .enumerate()
+        .map(|(idx, state)| PosicaoNaPista {
+            driver_id: state.driver_id.as_str(),
+            posicao: idx as i32 + 1,
+            tempo_acumulado_ms: state.tempo_acumulado_ms,
+            gap_para_da_frente_ms: idx
+                .checked_sub(1)
+                .and_then(|anterior| vivos.get(anterior))
+                .map(|frente| state.tempo_acumulado_ms - frente.tempo_acumulado_ms),
+            gap_para_o_lider_ms: state.tempo_acumulado_ms - lider,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +195,53 @@ pub struct RaceDriverResult {
     /// Segmento de origem do dano (pode diferir do segmento do DNF para dano latente).
     #[serde(default)]
     pub damage_origin_segment: Option<String>,
+
+    // ── Dado CRU de posição na pista (pacote D) ──
+    //
+    // Os nomes e os tipos abaixo seguem à risca o que o harness pediu em
+    // `calibracao::atrito::{DADO_PENDENTE, DADO_PEDIDO_AO_D}`. É dado cru de propósito:
+    // agregação e alvo são do harness, não daqui.
+    /// Posição ao fim de cada um dos 5 segmentos. Existia em `RaceState::current_position` e
+    /// morria em `build_race_results`; agora sobrevive.
+    #[serde(default)]
+    pub posicoes_por_segmento: Vec<i32>,
+    /// Gap para o carro da frente ao fim de cada segmento, em ms. `None` = era o líder.
+    #[serde(default)]
+    pub gaps_para_da_frente_ms: Vec<Option<f64>>,
+    /// Em quantos dos 5 segmentos terminou dentro da janela de ar sujo.
+    #[serde(default)]
+    pub segmentos_em_ar_sujo: i32,
+    /// Quantas vezes tentou passar alguém.
+    #[serde(default)]
+    pub tentativas_ultrapassagem: i32,
+    /// Quantas dessas tentativas vieram. A razão entre os dois é a taxa de sucesso — que
+    /// antes deste pacote era implicitamente 100%.
+    #[serde(default)]
+    pub ultrapassagens_concluidas: i32,
+    /// Quantas vezes foi atacado.
+    #[serde(default)]
+    pub tentativas_sofridas: i32,
+    /// Maior sequência de segmentos consecutivos preso atrás de um carro mais lento.
+    #[serde(default)]
+    pub maior_sequencia_preso: i32,
+
+    // ── Dado CRU de estratégia (pacote G) ──
+    //
+    // Nomes e tipos exatamente como o harness pediu na seção "Dados pedidos ao G" do
+    // BASELINE.md. Dado cru: contar estratégias distintas e medir o undercut é dele.
+    /// Voltas em que este carro parou. Vazio = foi de ponta a ponta.
+    #[serde(default)]
+    pub volta_da_parada: Vec<u32>,
+    /// Posição imediatamente antes de cada parada.
+    #[serde(default)]
+    pub posicao_antes_da_parada: Vec<i32>,
+    /// Posição depois de cada parada. O par com o campo acima é o que torna o undercut
+    /// mensurável sem reconstruir a corrida.
+    #[serde(default)]
+    pub posicao_depois: Vec<i32>,
+    /// Rótulo da estratégia escolhida pela equipe (ex.: `"1-parada-cedo"`).
+    #[serde(default)]
+    pub estrategia_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,4 +281,13 @@ pub struct RaceResult {
     /// estado da corrida, não vai pro `race_screens.json` nem pro save.
     #[serde(skip)]
     pub applied_mechanicals: Vec<usize>,
+
+    // ── Dado CRU de safety car (pacote G) ──
+    /// Volta de entrada de cada safety car da corrida.
+    #[serde(default)]
+    pub safety_cars: Vec<u32>,
+    /// A classificação no momento em que cada safety car entrou. É o que permite medir o
+    /// embaralhamento — ρ(ordem pré-SC × chegada) — sem reconstruir a corrida.
+    #[serde(default)]
+    pub ordem_pre_safety_car: Vec<Vec<String>>,
 }

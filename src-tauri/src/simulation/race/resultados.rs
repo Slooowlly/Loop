@@ -1,11 +1,11 @@
-//! Fechamento da corrida: ordenar quem terminou e quem abandonou, converter score em tempo,
-//! estimar as voltas do abandono e derivar em que segmentos houve bandeira amarela.
+//! Fechamento da corrida: ordenar quem terminou e quem abandonou, publicar o relógio
+//! ancorado no vencedor, estimar as voltas do abandono e derivar em que segmentos houve
+//! bandeira amarela.
 
 use std::collections::HashMap;
 
 use rand::Rng;
 
-use crate::constants::scoring::RACE_SCORE_TO_LAP_MS;
 use crate::simulation::context::{SimDriver, SimulationContext};
 use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
 use crate::simulation::qualifying::QualifyingResult;
@@ -24,17 +24,10 @@ pub fn derive_caution_segments<'a>(
 ) -> Vec<String> {
     let mut segs: Vec<String> = Vec::new();
     for inc in incidents {
-        let brings_yellow = match (inc.incident_type, inc.severity) {
-            // Batida forte: carro destruído e destroços na pista.
-            (IncidentType::Collision, IncidentSeverity::Critical) => true,
-            // Batida média só neutraliza se tirou o carro da corrida.
-            (IncidentType::Collision, IncidentSeverity::Major) => inc.is_dnf,
-            // Erro grave que terminou na parede.
-            (IncidentType::DriverError, IncidentSeverity::Critical) => inc.is_dnf,
-            // Pane mecânica: o carro recolhe pro box, não neutraliza.
-            _ => false,
-        };
-        if brings_yellow && !segs.contains(&inc.segment) {
+        // Predicado em fonte ÚNICA (`estrategia::traz_bandeira_amarela`): o registro aqui e a
+        // consequência do safety car no motor leem do mesmo lugar. Duplicar o critério seria a
+        // maneira mais fácil de eles divergirem sem ninguém notar.
+        if super::estrategia::traz_bandeira_amarela(inc) && !segs.contains(&inc.segment) {
             segs.push(inc.segment.clone());
         }
     }
@@ -60,27 +53,29 @@ pub(crate) fn build_race_results(
     let mut finishers: Vec<&RaceState> = states.iter().filter(|s| !s.is_dnf).collect();
     let mut dnfs: Vec<&RaceState> = states.iter().filter(|s| s.is_dnf).collect();
 
-    // Finishers: por cumulative_score desc
+    // Quem terminou: por TEMPO acumulado, menor na frente.
     finishers.sort_by(|a, b| {
-        b.cumulative_score
-            .partial_cmp(&a.cumulative_score)
+        a.tempo_acumulado_ms
+            .partial_cmp(&b.tempo_acumulado_ms)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // DNFs: segmento mais tardio primeiro; desempate por cumulative_score
+    // DNFs: segmento mais tardio primeiro; desempate por tempo acumulado (menor na frente).
     dnfs.sort_by(|a, b| {
         let seg_ord_b = b.dnf_segment.map(|s| s.ordinal()).unwrap_or(0);
         let seg_ord_a = a.dnf_segment.map(|s| s.ordinal()).unwrap_or(0);
         seg_ord_b.cmp(&seg_ord_a).then_with(|| {
-            b.cumulative_score
-                .partial_cmp(&a.cumulative_score)
+            a.tempo_acumulado_ms
+                .partial_cmp(&b.tempo_acumulado_ms)
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
     });
 
     let ordered: Vec<&RaceState> = finishers.into_iter().chain(dnfs).collect();
 
-    let winner_score = ordered.first().map(|s| s.cumulative_score).unwrap_or(0.0);
+    // O relógio publicado é ancorado no vencedor: o `RITMO_DE_REFERENCIA` embutido no tempo
+    // acumulado cancela nesta subtração, e o que sobra é o gap real entre os carros.
+    let tempo_do_vencedor_ms = ordered.first().map(|s| s.tempo_acumulado_ms).unwrap_or(0.0);
     let winner_lap_time_ms = ctx.base_lap_time_ms;
     let winner_total_time_ms = winner_lap_time_ms * ctx.total_laps as f64;
 
@@ -91,8 +86,10 @@ pub(crate) fn build_race_results(
             let driver = driver_map.get(state.driver_id.as_str())?;
             let qualifying_result = quali_map.get(state.driver_id.as_str())?;
 
-            let lap_time_ms = ctx.base_lap_time_ms
-                + (winner_score - state.cumulative_score).max(0.0) * RACE_SCORE_TO_LAP_MS;
+            // O atraso deste carro para o vencedor JÁ é tempo — não há mais conversão de
+            // moeda aqui, só uma subtração.
+            let atraso_ms = (state.tempo_acumulado_ms - tempo_do_vencedor_ms).max(0.0);
+            let lap_time_ms = ctx.base_lap_time_ms + atraso_ms / ctx.total_laps.max(1) as f64;
             let best_lap_factor = rng.gen_range(0.97..=1.0);
             let best_lap_time_ms = lap_time_ms * best_lap_factor;
 
@@ -106,7 +103,7 @@ pub(crate) fn build_race_results(
                 // Tempo proporcional às voltas completadas + pequeno overhead
                 winner_total_time_ms * (laps_completed as f64 / ctx.total_laps as f64) * 1.05
             } else {
-                lap_time_ms * ctx.total_laps as f64
+                winner_total_time_ms + atraso_ms
             };
 
             // gap sempre >= 0
@@ -158,6 +155,19 @@ pub(crate) fn build_race_results(
                 notable_incident,
                 dnf_catalog_id,
                 damage_origin_segment,
+                // Dado cru de posição na pista, direto do estado vivo da corrida.
+                posicoes_por_segmento: state.trafego.posicoes_por_segmento.clone(),
+                gaps_para_da_frente_ms: state.trafego.gaps_para_da_frente_ms.clone(),
+                segmentos_em_ar_sujo: state.trafego.segmentos_em_ar_sujo,
+                tentativas_ultrapassagem: state.trafego.tentativas_ultrapassagem,
+                ultrapassagens_concluidas: state.trafego.ultrapassagens_concluidas,
+                tentativas_sofridas: state.trafego.tentativas_sofridas,
+                maior_sequencia_preso: state.trafego.maior_sequencia_preso,
+                // Dado cru de estratégia, direto do estado vivo da corrida.
+                volta_da_parada: state.paradas.voltas.clone(),
+                posicao_antes_da_parada: state.paradas.posicao_antes.clone(),
+                posicao_depois: state.paradas.posicao_depois.clone(),
+                estrategia_id: state.paradas.estrategia_id.clone(),
             })
         })
         .collect()

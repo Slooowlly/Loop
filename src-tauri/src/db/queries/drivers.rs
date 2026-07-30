@@ -20,7 +20,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             temp_pontos, temp_vitorias, temp_podios, temp_poles, temp_corridas, temp_dnfs,
             temp_posicao_media, carreira_pontos_total, carreira_vitorias, carreira_podios,
             carreira_poles, carreira_corridas, carreira_temporadas, carreira_titulos,
-            carreira_dnfs, motivacao, historico_circuitos, ultimos_resultados,
+            carreira_dnfs, motivacao, forma, historico_circuitos, ultimos_resultados,
             melhor_resultado_temp, temporadas_na_categoria, corridas_na_categoria,
             temporadas_motivacao_baixa
         ) VALUES (
@@ -32,7 +32,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             :temp_pontos, :temp_vitorias, :temp_podios, :temp_poles, :temp_corridas, :temp_dnfs,
             :temp_posicao_media, :carreira_pontos_total, :carreira_vitorias, :carreira_podios,
             :carreira_poles, :carreira_corridas, :carreira_temporadas, :carreira_titulos,
-            :carreira_dnfs, :motivacao, :historico_circuitos, :ultimos_resultados,
+            :carreira_dnfs, :motivacao, :forma, :historico_circuitos, :ultimos_resultados,
             :melhor_resultado_temp, :temporadas_na_categoria, :corridas_na_categoria,
             :temporadas_motivacao_baixa
         )",
@@ -84,6 +84,7 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":carreira_titulos": driver.stats_carreira.titulos as i64,
             ":carreira_dnfs": driver.stats_carreira.dnfs as i64,
             ":motivacao": driver.motivacao,
+            ":forma": driver.forma,
             ":historico_circuitos": &historico,
             ":ultimos_resultados": &ultimos,
             ":melhor_resultado_temp": driver.melhor_resultado_temp.map(|v| v as i64),
@@ -218,7 +219,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             carreira_pontos_total = :carreira_pontos_total, carreira_vitorias = :carreira_vitorias,
             carreira_podios = :carreira_podios, carreira_poles = :carreira_poles, carreira_corridas = :carreira_corridas,
             carreira_temporadas = :carreira_temporadas, carreira_titulos = :carreira_titulos, carreira_dnfs = :carreira_dnfs,
-            motivacao = :motivacao, historico_circuitos = :historico_circuitos, ultimos_resultados = :ultimos_resultados,
+            motivacao = :motivacao, forma = :forma, historico_circuitos = :historico_circuitos, ultimos_resultados = :ultimos_resultados,
             melhor_resultado_temp = :melhor_resultado_temp, temporadas_na_categoria = :temporadas_na_categoria,
             corridas_na_categoria = :corridas_na_categoria, temporadas_motivacao_baixa = :temporadas_motivacao_baixa
         WHERE id = :id",
@@ -248,7 +249,8 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
             ":carreira_podios": driver.stats_carreira.podios as i64, ":carreira_poles": driver.stats_carreira.poles as i64,
             ":carreira_corridas": driver.stats_carreira.corridas as i64, ":carreira_temporadas": driver.stats_carreira.temporadas as i64,
             ":carreira_titulos": driver.stats_carreira.titulos as i64, ":carreira_dnfs": driver.stats_carreira.dnfs as i64,
-            ":motivacao": driver.motivacao, ":historico_circuitos": &historico, ":ultimos_resultados": &ultimos,
+            ":motivacao": driver.motivacao, ":forma": driver.forma,
+            ":historico_circuitos": &historico, ":ultimos_resultados": &ultimos,
             ":melhor_resultado_temp": driver.melhor_resultado_temp.map(|v| v as i64),
             ":temporadas_na_categoria": driver.temporadas_na_categoria as i64,
             ":corridas_na_categoria": driver.corridas_na_categoria as i64,
@@ -394,6 +396,18 @@ pub fn update_driver_motivation(
     conn.execute(
         "UPDATE drivers SET motivacao = ?1 WHERE id = ?2",
         rusqlite::params![motivacao.clamp(0.0, 100.0), id],
+    )?;
+    Ok(())
+}
+
+/// Grava o estado da FORMA do momento (AR(1) de `simulation::forma`, adimensional
+/// e normalizado em σ = 1, cortado no teto de sigmas do próprio módulo). Escrito
+/// uma vez por fim de semana disputado, no setup da corrida.
+pub fn update_driver_forma(conn: &Connection, id: &str, forma: f64) -> Result<(), DbError> {
+    let teto = crate::simulation::forma::TETO_SIGMAS;
+    conn.execute(
+        "UPDATE drivers SET forma = ?1 WHERE id = ?2",
+        rusqlite::params![forma.clamp(-teto, teto), id],
     )?;
     Ok(())
 }
@@ -553,6 +567,7 @@ fn driver_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Driver> {
             dnfs: parse_non_negative_u32(row, "carreira_dnfs")?,
         },
         motivacao: row.get("motivacao")?,
+        forma: row.get("forma")?,
         historico_circuitos: parse_json_object_field(&historico_str, "historico_circuitos")?,
         ultimos_resultados: parse_json_array_field(&ultimos_str, "ultimos_resultados")?,
         melhor_resultado_temp: parse_optional_non_negative_u32(row, "melhor_resultado_temp")?,
@@ -801,6 +816,7 @@ mod tests {
                 carreira_titulos INTEGER NOT NULL DEFAULT 0,
                 carreira_dnfs INTEGER NOT NULL DEFAULT 0,
                 motivacao REAL NOT NULL DEFAULT 70.0,
+                forma REAL NOT NULL DEFAULT 0.0,
                 historico_circuitos TEXT NOT NULL DEFAULT '{}',
                 ultimos_resultados TEXT NOT NULL DEFAULT '[]',
                 melhor_resultado_temp INTEGER,

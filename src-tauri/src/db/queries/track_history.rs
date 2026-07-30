@@ -302,6 +302,17 @@ mod tests {
             notable_incident: None,
             dnf_catalog_id: None,
             damage_origin_segment: None,
+            posicoes_por_segmento: Vec::new(),
+            gaps_para_da_frente_ms: Vec::new(),
+            segmentos_em_ar_sujo: 0,
+            tentativas_ultrapassagem: 0,
+            ultrapassagens_concluidas: 0,
+            tentativas_sofridas: 0,
+            maior_sequencia_preso: 0,
+            volta_da_parada: Vec::new(),
+            posicao_antes_da_parada: Vec::new(),
+            posicao_depois: Vec::new(),
+            estrategia_id: String::new(),
         }
     }
 }
