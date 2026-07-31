@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatSalary } from "../../utils/formatters";
+import { getCroppedCategoryLogo } from "../../utils/categoryLogos";
 import TeamLogoMark from "../team/TeamLogoMark";
 
 // ─── Category Definitions ─────────────────────────────────────────────────────
@@ -32,21 +33,6 @@ const SUBCAT_LABELS = {
   gt4: "GT4 Championship",
   lmp2: "LMP2 Prototype Championship",
   endurance: "Endurance Championship",
-};
-
-const SUBCAT_LOGOS = {
-  mazda: "/utilities/categorias/recortadas/MX5%20CUP.png",
-  mazda_amador: "/utilities/categorias/recortadas/MX5%20CUP.png",
-  mazda_rookie: "/utilities/categorias/recortadas/MX5%20ROOKIE.png",
-  toyota: "/utilities/categorias/recortadas/GR%20CUP.png",
-  toyota_amador: "/utilities/categorias/recortadas/GR%20CUP.png",
-  toyota_rookie: "/utilities/categorias/recortadas/GR%20ROOKIE.png",
-  bmw: "/utilities/categorias/recortadas/M2%20CUP.png",
-  bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.png",
-  gt4: "/utilities/categorias/recortadas/GT4.png",
-  gt3: "/utilities/categorias/recortadas/GT3.png",
-  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
-  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
 };
 
 const DEFAULT_LOGO_FIT = {
@@ -259,7 +245,7 @@ function subcatColor(key) {
 }
 
 function subcatLogo(key) {
-  return SUBCAT_LOGOS[key] ?? null;
+  return getCroppedCategoryLogo(key);
 }
 
 function subcatLogoFit(key) {

@@ -3,17 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import GlassButton from "../ui/GlassButton";
 import LoadingOverlay from "../ui/LoadingOverlay";
 import useCareerStore from "../../stores/useCareerStore";
+import { getCroppedCategoryLogo } from "../../utils/categoryLogos";
 import SeasonSectionHeader from "./SeasonSectionHeader";
 import TeamLogoMark from "../team/TeamLogoMark";
 
 const CATEGORY_LABELS = {
   production_challenger: "Production",
   endurance: "Endurance",
-};
-
-const CATEGORY_LOGOS = {
-  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
-  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
 };
 
 const CATEGORY_COLORS = {
@@ -675,9 +671,9 @@ export default function ConvocationView() {
                         boxShadow: `0 0 18px ${section.color}18`,
                       }}
                     >
-                      {CATEGORY_LOGOS[section.category] ? (
+                      {getCroppedCategoryLogo(section.category) ? (
                         <img
-                          src={CATEGORY_LOGOS[section.category]}
+                          src={getCroppedCategoryLogo(section.category)}
                           alt={section.label}
                           className="h-48 w-auto max-w-full object-contain drop-shadow-[0_18px_36px_rgba(0,0,0,0.38)] lg:h-52"
                           draggable={false}

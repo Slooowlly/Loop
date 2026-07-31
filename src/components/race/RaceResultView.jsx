@@ -3,22 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import TeamLogoMark from "../team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
 import { formatGap, formatLapTime } from "../../utils/formatters";
-
-const CATEGORY_SUMMARY_LOGOS = {
-  mazda: "/utilities/categorias/recortadas/MX5%20CUP.png",
-  mazda_amador: "/utilities/categorias/recortadas/MX5%20CUP.png",
-  mazda_rookie: "/utilities/categorias/recortadas/MX5%20ROOKIE.png",
-  toyota: "/utilities/categorias/recortadas/GR%20CUP.png",
-  toyota_amador: "/utilities/categorias/recortadas/GR%20CUP.png",
-  toyota_rookie: "/utilities/categorias/recortadas/GR%20ROOKIE.png",
-  bmw: "/utilities/categorias/recortadas/M2%20CUP.png",
-  bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.png",
-  gt4: "/utilities/categorias/recortadas/GT4.png",
-  gt3: "/utilities/categorias/recortadas/GT3.png",
-  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.png",
-  endurance: "/utilities/categorias/recortadas/ENDURANCE.png",
-  lmp2: "/utilities/categorias/recortadas/LMP2.png",
-};
+import { getCroppedCategoryLogo } from "../../utils/categoryLogos";
 
 const CATEGORY_SUMMARY_FITS = {
   mazda: {
@@ -43,7 +28,7 @@ function weatherLabel(value) {
 }
 
 function getCategorySummaryLogo(categoryId) {
-  return typeof categoryId === "string" ? CATEGORY_SUMMARY_LOGOS[categoryId] ?? null : null;
+  return getCroppedCategoryLogo(categoryId);
 }
 
 function getCategorySummaryFit(categoryId) {

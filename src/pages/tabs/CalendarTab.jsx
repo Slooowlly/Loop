@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import GlassCard from "../../components/ui/GlassCard";
 import useCareerStore from "../../stores/useCareerStore";
 import { getCategoryColor } from "../../utils/categoryColors";
+import { CATEGORY_LOGOS } from "../../utils/categoryLogos";
 import { categoryLabel } from "../../utils/formatters";
 import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 
@@ -52,19 +53,6 @@ const TRACK_IMAGE_FILES = [
   { match: ["rudskogen"], file: "rudskogen.jpeg" },
   { match: ["winton"], file: "winton.jpeg" },
 ];
-
-const CATEGORY_LOGOS = {
-  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.png",
-  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.png",
-  mazda_amador: "/utilities/categorias/MX5%20CUP.png",
-  toyota_amador: "/utilities/categorias/GR%20CUP.png",
-  bmw_m2: "/utilities/categorias/M2%20CUP.png",
-  production_challenger: "/utilities/categorias/PRODUCTION.png",
-  gt4: "/utilities/categorias/GT4.png",
-  gt3: "/utilities/categorias/GT3.png",
-  lmp2: "/utilities/categorias/LMP2.png",
-  endurance: "/utilities/categorias/ENDURANCE.png",
-};
 
 // Constantes visuais
 const MONTH_NAMES = [
