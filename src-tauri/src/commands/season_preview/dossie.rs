@@ -104,7 +104,11 @@ pub(super) fn experiencia_token(d: &Driver) -> String {
 /// Rótulo de percepção conforme a posição na fila pública + o que sustenta o nome.
 pub(super) fn perception_label(rank: usize, d: &Dossier, is_market_top: bool) -> String {
     if d.tem_vitoria {
-        return if rank == 0 { tk("token.perc_press_favorite") } else { tk("token.perc_contender") };
+        return if rank == 0 {
+            tk("token.perc_press_favorite")
+        } else {
+            tk("token.perc_contender")
+        };
     }
     if d.tem_podio {
         return tk("token.perc_rising");

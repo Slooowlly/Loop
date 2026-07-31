@@ -30,6 +30,10 @@ pub struct AiStoryRow {
     pub facts: String,
     pub story: Option<String>,
     pub teams_json: Option<String>,
+    /// Timestamp Unix (segundos, em texto) da última gravação da linha. Quando `story`
+    /// é `None`, é a marca da última TENTATIVA de gerar — o que sustenta o backoff de
+    /// quem cai no template e não quer bater no servidor a cada reabertura.
+    pub created_at: String,
 }
 
 /// Guarda os fatos curados de uma corrida, atrelados à notícia de Corrida.
@@ -56,13 +60,14 @@ pub fn get_story(conn: &Connection, news_id: &str) -> Result<Option<AiStoryRow>,
     ensure_table(conn)?;
     let row = conn
         .query_row(
-            "SELECT facts, story, teams_json FROM ai_race_story WHERE news_id = ?1",
+            "SELECT facts, story, teams_json, created_at FROM ai_race_story WHERE news_id = ?1",
             params![news_id],
             |r| {
                 Ok(AiStoryRow {
                     facts: r.get(0)?,
                     story: r.get(1)?,
                     teams_json: r.get(2)?,
+                    created_at: r.get(3).unwrap_or_default(),
                 })
             },
         )

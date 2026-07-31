@@ -9,7 +9,10 @@ pub(super) fn pilot_ex_team_ids(conn: &rusqlite::Connection, pilot_id: &str) -> 
     let mut seen = HashSet::new();
     if let Ok(history) = contracts::get_contracts_for_pilot(conn, pilot_id) {
         for c in history.iter().filter(|c| {
-            matches!(c.status, ContractStatus::Expirado | ContractStatus::Rescindido)
+            matches!(
+                c.status,
+                ContractStatus::Expirado | ContractStatus::Rescindido
+            )
         }) {
             if seen.insert(c.equipe_id.clone()) {
                 out.push(c.equipe_id.clone());
@@ -99,7 +102,9 @@ pub(super) fn teammate_news_note(
     if skip_team_ids.contains(&contract.equipe_id) {
         return None; // a crise desse time já virou nota própria.
     }
-    let team = teams::get_team_by_id(conn, &contract.equipe_id).ok().flatten()?;
+    let team = teams::get_team_by_id(conn, &contract.equipe_id)
+        .ok()
+        .flatten()?;
     let in_crisis =
         matches!(team.financial_state.as_str(), "crisis" | "collapse") || team.debt_balance > 0.0;
     if !in_crisis {

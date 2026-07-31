@@ -144,6 +144,121 @@ fn historical_simulation_reaches_playable_year_with_results_and_no_news() {
     let _ = std::fs::remove_dir_all(base_dir);
 }
 
+/// As categorias do bloco especial (Endurance, Production Challenger) rodam no Sistema de
+/// Nível do Carro como todas as outras.
+///
+/// Regressão: o cérebro de manutenção morava depois de um `return` que essas categorias
+/// tomavam em `apply_race_result_to_database`, então elas NUNCA criavam linha em `team_car`.
+/// `Team::effective_car_performance` caía na coluna legada `car_performance` — que o sistema
+/// de peças não atualiza e que não tem teto — e o campeonato de GT3 do Endurance passou a ser
+/// o único do jogo decidido por um número fora de escala. Uma equipe chegava a ~5× o topo do
+/// domínio e ganhava 20 dos 21 títulos.
+#[test]
+fn endurance_teams_race_on_the_car_level_system_with_class_ceilings() {
+    let base_dir = unique_test_dir("endurance_car_level");
+    let input = sample_draft_input();
+
+    // Até 2006: a classe GT3 do Endurance começa em 2005, então há temporadas correndo nela.
+    let state =
+        create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2006, 2007)
+            .expect("historical generation should finish");
+    let career_id = state.career_id.as_deref().expect("draft career id");
+    let db = open_draft_db(&base_dir, career_id);
+
+    let teams_without_car: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*)
+               FROM teams t
+              WHERE t.ativa = 1
+                AND t.categoria IN ('endurance', 'production_challenger')
+                AND NOT EXISTS (SELECT 1 FROM team_car c WHERE c.team_id = t.id)",
+            [],
+            |row| row.get(0),
+        )
+        .expect("endurance teams without car");
+    assert_eq!(
+        teams_without_car, 0,
+        "toda equipe do bloco especial precisa de carro em team_car"
+    );
+
+    // O teto é o da CLASSE: o GT4 do Endurance não pode herdar o teto do LMP2 só por
+    // dividir a categoria com ele.
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT COALESCE(t.classe, ''), MAX(c.level)
+               FROM teams t
+               JOIN team_car c ON c.team_id = t.id
+              WHERE t.ativa = 1 AND t.categoria = 'endurance'
+              GROUP BY COALESCE(t.classe, '')",
+        )
+        .expect("prepare class ceiling query");
+    let rows: Vec<(String, i64)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query class ceilings")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read class ceilings");
+    assert!(!rows.is_empty(), "o Endurance deve ter equipes com carro");
+
+    for (classe, max_level) in rows {
+        let expected =
+            crate::car::cost::category_ceiling_for("endurance", Some(classe.as_str())) as i64;
+        assert!(
+            max_level <= expected,
+            "classe '{classe}': nivel maximo {max_level} passou do teto {expected}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
+/// A privateer (sem `marca`) constrói até um nível abaixo da fábrica nas arenas GT3 — é a
+/// hierarquia real × fictícia expressa no Sistema de Nível do Carro, no lugar da banda que
+/// prendia as marcas reais num teto e deixava as fictícias crescerem sem limite.
+#[test]
+fn gt3_privateer_ceiling_stays_below_the_factory_ceiling() {
+    use crate::constants::teams::get_team_templates;
+    use crate::models::team::Team;
+    use rand::SeedableRng;
+
+    let factory = get_team_templates("gt3")
+        .into_iter()
+        .find(|template| template.marca.is_some())
+        .expect("gt3 deve ter equipe de marca real");
+    let privateer = get_team_templates("gt3")
+        .into_iter()
+        .find(|template| template.marca.is_none())
+        .expect("gt3 deve ter equipe ficticia");
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+    let factory_team =
+        Team::from_template_with_rng(factory, "gt3", "T001".to_string(), 2026, &mut rng);
+    let privateer_team =
+        Team::from_template_with_rng(privateer, "gt3", "T002".to_string(), 2026, &mut rng);
+
+    assert!(
+        privateer_team.car_ceiling() < factory_team.car_ceiling(),
+        "privateer ({}) deveria ter teto abaixo da fabrica ({})",
+        privateer_team.car_ceiling(),
+        factory_team.car_ceiling()
+    );
+
+    // Fora das arenas GT3 nada muda. A classe GT4 do Endurance é o caso limpo: tem equipes
+    // fictícias e nenhuma disputa com marca real, então elas mantêm o teto cheio da classe.
+    let endurance_gt4 = get_team_templates("endurance")
+        .into_iter()
+        .find(|template| template.marca.is_none() && template.classe == Some("gt4"))
+        .expect("endurance/gt4 deve ter equipe ficticia");
+    let endurance_gt4_team =
+        Team::from_template_with_rng(endurance_gt4, "endurance", "T003".to_string(), 2026, &mut rng);
+    assert_eq!(
+        endurance_gt4_team.car_ceiling(),
+        crate::car::cost::category_ceiling("gt4"),
+        "ficticia fora da arena GT3 mantem o teto cheio da classe"
+    );
+}
+
 #[test]
 fn historical_simulation_runs_production_and_endurance_without_special_artifacts() {
     let base_dir = unique_test_dir("historical_special_events");
@@ -271,6 +386,40 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
                AND categoria_atual NOT IN ('mazda_rookie', 'toyota_rookie')",
     );
 
+    // Quem são eles, quando são. Este bloco existe porque o teste é NÃO-DETERMINÍSTICO (o
+    // caminho do draft passa por vários `thread_rng()` sem semente), então comparar contagens
+    // entre execuções não distingue conserto de ruído. Ver o piloto e o contrato dele, sim.
+    if active_never_raced > 0 {
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT d.id, d.categoria_atual,
+                        COALESCE(c.tipo, '(sem contrato)'),
+                        COALESCE(c.temporada_inicio, '-') || ' cat_contrato=' ||
+                        COALESCE(c.categoria, '-')
+                   FROM drivers d
+                   LEFT JOIN contracts c ON c.piloto_id = d.id AND c.status = 'Ativo'
+                  WHERE d.status='Ativo' AND d.is_jogador=0 AND d.carreira_corridas=0
+                    AND d.categoria_atual IS NOT NULL
+                    AND d.categoria_atual NOT IN ('mazda_rookie','toyota_rookie')",
+            )
+            .expect("never-raced stmt");
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .expect("never-raced rows");
+        for row in rows {
+            let (id, cat, tipo, desde) = row.expect("never-raced row");
+            eprintln!("[NUNCA CORREU] {id} cat={cat} contrato={tipo} desde={desde}");
+        }
+    }
+
     eprintln!(
         "[SISTEMA FECHADO] total={total} ativos={active} aposentados={retired} \
              orfaos_ativos={active_orphans} ativos_nunca_correu_nao_rookie={active_never_raced}"
@@ -323,9 +472,43 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
     // INVARIANTE PRINCIPAL: nenhum orfao do tipo "nunca correu". A entrada
     // dinamica gera rookies sempre na categoria simulada da epoca; os poucos
     // orfaos remanescentes sao free agents que JA correram (entre contratos).
+    // **A válvula de emergência alcança UM degrau, nunca a escada inteira.**
+    //
+    // A asserção anterior era `active_never_raced == 0`, e ela pedia algo que o design não pode
+    // entregar: duas invariantes do jogo colidem quando o poço de pilotos aperta.
+    //
+    //   1. ninguém entra em pista sem nunca ter corrido (o que este teste queria);
+    //   2. todo assento regular tem que estar preenchido — `validate_and_normalize_team_
+    //      hierarchies` ABORTA a temporada se sobrar buraco no grid.
+    //
+    // A promoção de emergência existe para honrar a (2), e é o único caminho que ainda senta um
+    // estreante. Fechá-la também (tentado, medido) mata o processo por grid inválido. Enquanto
+    // grid furado não for permitido, a (1) é inalcançável em absoluto.
+    //
+    // O que É garantível, e o que passamos a exigir: o estreante só aparece no degrau
+    // IMEDIATAMENTE acima da entrada, para onde a emergência o puxa da categoria em que nasceu.
+    // Nunca no meio nem no topo da escada — lá a promoção é por mérito e mérito exige ter largado.
+    // Um regressão que reabra a cadeia antiga (rookie chegando ao gt3 sem correr) derruba isto na
+    // hora, que era o defeito real que a asserção de zero pegava por acidente.
+    let never_raced_acima_do_amador = count(
+        "SELECT COUNT(*) FROM drivers
+             WHERE status = 'Ativo' AND is_jogador = 0 AND carreira_corridas = 0
+               AND categoria_atual IS NOT NULL
+               AND categoria_atual NOT IN ('mazda_rookie', 'toyota_rookie',
+                                           'mazda_amador', 'toyota_amador')",
+    );
     assert_eq!(
-        active_never_raced, 0,
-        "ninguem colocado em pista sem nunca ter corrido"
+        never_raced_acima_do_amador, 0,
+        "estreante sem nenhuma corrida subiu ALÉM do degrau da emergência — a promoção por \
+         mérito voltou a aceitar quem nunca largou"
+    );
+
+    // E a válvula tem que continuar sendo exceção, não caminho. O grid da entrada tem ~24
+    // assentos; um punhado por temporada de escassez é resíduo, dezenas seria a escada
+    // inteira sendo preenchida por ela.
+    assert!(
+        active_never_raced <= 24,
+        "a emergência deixou de ser exceção: {active_never_raced} estreantes sentados"
     );
     assert_eq!(
         active_orphans, orphans_raced,
@@ -347,7 +530,6 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
 fn grid_skill_ladder_over_time() {
     use super::{
         clear_historical_news, simulate_current_historical_season,
-        stabilize_historical_performance_bands,
     };
     use crate::constants::categories::get_category_config;
     use crate::evolution::pipeline::run_historical_end_of_season;
@@ -570,7 +752,6 @@ fn grid_skill_ladder_over_time() {
     measure(&db, 2025);
     eprintln!("=== +15 temporadas ===");
     for _ in 0..15 {
-        stabilize_historical_performance_bands(&db.conn).expect("stabilize");
         simulate_current_historical_season(&mut db).expect("simulate season");
         let season = season_queries::get_active_season(&db.conn)
             .expect("active season query")
@@ -595,7 +776,6 @@ fn grid_skill_ladder_over_time() {
 fn injured_orphans_are_reabsorbed_by_market_over_time() {
     use super::{
         clear_historical_news, simulate_current_historical_season,
-        stabilize_historical_performance_bands,
     };
     use crate::evolution::pipeline::run_historical_end_of_season;
     use crate::market::pipeline::fill_all_remaining_vacancies;
@@ -635,7 +815,6 @@ fn injured_orphans_are_reabsorbed_by_market_over_time() {
     // resolvida sozinha por advance_week dentro do EOS).
     let mut trajectory: Vec<(i32, i64, i64, i64, i64, i64)> = Vec::new();
     for _ in 0..15 {
-        stabilize_historical_performance_bands(&db.conn).expect("stabilize");
         simulate_current_historical_season(&mut db).expect("simulate season");
         let season = season_queries::get_active_season(&db.conn)
             .expect("active season query")

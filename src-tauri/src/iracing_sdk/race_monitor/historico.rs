@@ -132,12 +132,14 @@ impl RaceMonitor {
                 if dwell < MIN_PIT_STALL_DWELL_SECS {
                     continue;
                 }
-                self.history.pit_stops.push(crate::iracing_sdk::tire_strategy::PitStop {
-                    car_idx: car.idx,
-                    lap: self.pit_stall_enter_lap[i],
-                    stationary_secs: dwell,
-                    track_wet_at_stop: self.pit_stall_wet[i],
-                });
+                self.history
+                    .pit_stops
+                    .push(crate::iracing_sdk::tire_strategy::PitStop {
+                        car_idx: car.idx,
+                        lap: self.pit_stall_enter_lap[i],
+                        stationary_secs: dwell,
+                        track_wet_at_stop: self.pit_stall_wet[i],
+                    });
                 if self.history.pit_stops.len() > MAX_PIT_STOPS {
                     self.history.pit_stops.remove(0);
                 }
@@ -348,14 +350,22 @@ impl RaceMonitor {
                 .cars
                 .iter()
                 .find(|c| c.position == 1)
-                .map(|c| if c.last_lap_time > 0.0 { c.last_lap_time } else { c.best_lap_time })
+                .map(|c| {
+                    if c.last_lap_time > 0.0 {
+                        c.last_lap_time
+                    } else {
+                        c.best_lap_time
+                    }
+                })
                 .filter(|&v| v > 0.0)
                 .or_else(|| {
                     t.cars
                         .iter()
                         .map(|c| c.last_lap_time)
                         .filter(|&v| v > 0.0)
-                        .fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a| a.min(v))))
+                        .fold(None, |acc: Option<f64>, v| {
+                            Some(acc.map_or(v, |a| a.min(v)))
+                        })
                 })
                 .unwrap_or(90.0);
             // Posição do líder DENTRO da volta em segundos (`CarIdxEstTime`), base do
@@ -468,7 +478,11 @@ impl RaceMonitor {
                     time: t.last_lap_time,
                     // Combustível restante ao fechar a volta (litros); consumo/volta
                     // sai da diferença entre voltas. <0 no SDK = ignora.
-                    fuel_remaining: if t.fuel_level >= 0.0 { t.fuel_level } else { -1.0 },
+                    fuel_remaining: if t.fuel_level >= 0.0 {
+                        t.fuel_level
+                    } else {
+                        -1.0
+                    },
                 });
                 if self.history.player_laps.len() > MAX_HISTORY_LAPS {
                     self.history.player_laps.remove(0);
@@ -512,7 +526,11 @@ impl RaceMonitor {
         // as posições finais não são apagadas no fim da corrida. (Antes era um
         // replace total, que zerava cars_meta quando o campo esvaziava no cooldown.)
         let in_race = self.in_race_session(t);
-        for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+        for c in t
+            .cars
+            .iter()
+            .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
+        {
             let i = c.idx as usize;
             // Grid ROBUSTO: além do snapshot exato do verde, fixa a PRIMEIRA posição
             // na classe já observada (set-once). Se o monitor só começou a amostrar

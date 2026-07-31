@@ -55,8 +55,7 @@ pub fn iracing_log_caminho() -> Option<String> {
 pub async fn iracing_log_enviar(nota: Option<String>) -> Result<String, String> {
     // O diagnóstico vai junto: quase sempre é ele que responde a pergunta, e
     // colhê-lo aqui garante que retrata o momento do envio.
-    let diag = serde_json::to_value(iracing_sdk::diagnosticar())
-        .unwrap_or(serde_json::Value::Null);
+    let diag = serde_json::to_value(iracing_sdk::diagnosticar()).unwrap_or(serde_json::Value::Null);
     tauri::async_runtime::spawn_blocking(move || crate::diagnostico::enviar(nota, diag))
         .await
         .map_err(|e| format!("Falha ao executar o envio: {e}"))?

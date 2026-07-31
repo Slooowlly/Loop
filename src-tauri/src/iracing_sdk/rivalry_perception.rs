@@ -499,7 +499,11 @@ mod tests {
         }
     }
 
-    fn history(laps: Vec<LapSnapshot>, cars_meta: Vec<CarMeta>, player_car_idx: i32) -> RaceHistory {
+    fn history(
+        laps: Vec<LapSnapshot>,
+        cars_meta: Vec<CarMeta>,
+        player_car_idx: i32,
+    ) -> RaceHistory {
         RaceHistory {
             laps,
             player_laps: Vec::new(),
@@ -674,7 +678,13 @@ mod tests {
         let h = history(laps, vec![meta(0, 10), meta(2, 33), meta(3, 44)], 0);
         let p = perceive_rivalries(&h, 2, None, &PerceptionParams::default());
         assert!(!p.is_player_probe);
-        assert!(find(&p, 3).is_some(), "percepção deve rodar para uma IA-sonda");
-        assert!(find(&p, 0).is_none(), "jogador (P1, longe) não brigou com o probe");
+        assert!(
+            find(&p, 3).is_some(),
+            "percepção deve rodar para uma IA-sonda"
+        );
+        assert!(
+            find(&p, 0).is_none(),
+            "jogador (P1, longe) não brigou com o probe"
+        );
     }
 }

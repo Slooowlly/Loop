@@ -206,11 +206,12 @@ pub fn get_breakdown_feed(
     let db_path = config.saves_dir().join(&career_id).join("career.db");
     let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
-    let numbers: HashMap<String, i64> =
-        std::fs::read_to_string(crate::commands::iracing::numbers_path(&base_dir, &career_id))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+    let numbers: HashMap<String, i64> = std::fs::read_to_string(
+        crate::commands::iracing::numbers_path(&base_dir, &career_id),
+    )
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or_default();
     let by_number: HashMap<i64, String> = numbers.into_iter().map(|(id, n)| (n, id)).collect();
 
     let out = log

@@ -184,8 +184,8 @@ pub(crate) fn build_event_weather(
         story.scenario = weather::WeatherScenario::SteadyRain;
     }
     let is_lit = track.track_id == 556; // Charlotte Roval — única com iluminação
-    // Etapa designada como noturna pelo calendário força a hora no escuro (sobrepõe
-    // o sorteio por-pista, mas nunca em rookie — o calendário nunca designa tier 0).
+                                        // Etapa designada como noturna pelo calendário força a hora no escuro (sobrepõe
+                                        // o sorteio por-pista, mas nunca em rookie — o calendário nunca designa tier 0).
     let hour = if force_night {
         weather::night_start_hour(story.season, seed ^ 0x55)
     } else {
@@ -202,10 +202,7 @@ pub(crate) fn build_event_weather(
     let humidity = (profile.humidity + hum_jitter).clamp(0, 100);
     let hh = (hour.floor() as i64).clamp(0, 23);
     let mm = (((hour - hour.floor()) * 60.0).round() as i64).clamp(0, 59);
-    let start_time = format!(
-        "{}-{month:02}-15T{hh:02}:{mm:02}:00",
-        sim_safe_year(year)
-    );
+    let start_time = format!("{}-{month:02}-15T{hh:02}:{mm:02}:00", sim_safe_year(year));
     let ew = season_gen::EventWeather {
         skies: profile.skies,
         humidity,

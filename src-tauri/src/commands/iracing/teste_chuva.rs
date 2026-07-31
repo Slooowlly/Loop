@@ -71,10 +71,10 @@ pub fn iracing_export_rain_test() -> Result<RainTestResult, String> {
     let start_time = "2031-06-15T16:00:00".to_string();
     let race_end: i64 = 15;
 
-    let airosters = paths::airosters_dir()
-        .ok_or("Não foi possível localizar a pasta airosters do iRacing.")?;
-    let aiseasons = paths::aiseasons_dir()
-        .ok_or("Não foi possível localizar a pasta aiseasons do iRacing.")?;
+    let airosters =
+        paths::airosters_dir().ok_or("Não foi possível localizar a pasta airosters do iRacing.")?;
+    let aiseasons =
+        paths::aiseasons_dir().ok_or("Não foi possível localizar a pasta aiseasons do iRacing.")?;
 
     let mut seasons = Vec::new();
     for (sc_label, scenario, intensity, is_wet) in scenarios {

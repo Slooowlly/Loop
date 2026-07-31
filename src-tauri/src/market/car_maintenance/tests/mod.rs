@@ -126,6 +126,71 @@ fn degrada_peca_irrelevante_para_a_proxima_pista() {
     );
 }
 
+// -------- Cadência de desenvolvimento --------
+
+/// A cota da janela é o freio: fora dela o time não sobe nível nenhum, por mais caixa
+/// que tenha. É o que impede o recém-promovido de igualar o campo num fim de semana.
+#[test]
+fn fora_da_janela_o_time_nao_sobe_nivel_nem_com_caixa_infinito() {
+    let car = Car::uniform(1);
+    let demand = (0.34, 0.33, 0.33);
+
+    let plan = decide_maintenance_with_limits(&car, "gt4", 1e12, demand, None, Some(0));
+
+    assert!(
+        plan.target_levels.is_empty(),
+        "sem cota, nenhuma peça pode subir"
+    );
+}
+
+/// Dentro da janela sobe UMA peça — não as onze. A escolhida é a mais relevante para a
+/// demanda, que é o que faz o foco importar quando os upgrades são poucos.
+#[test]
+fn na_janela_sobe_apenas_a_cota_e_pela_relevancia() {
+    let car = Car::uniform(1);
+    let power = (1.0, 0.0, 0.0);
+
+    let plan = decide_maintenance_with_limits(&car, "gt4", 1e12, power, None, Some(1));
+
+    assert_eq!(plan.target_levels.len(), 1, "a cota é de uma peça");
+    assert_eq!(
+        plan.target_levels.get(&PartType::Engine),
+        Some(&2),
+        "com demanda de power puro, o motor leva o upgrade"
+    );
+}
+
+/// Sem limite (chamada pura / harness) o comportamento antigo continua valendo — é o que
+/// mantém os testes de shape e o Monte Carlo medindo o carro completo.
+#[test]
+fn sem_limite_o_passe_de_upgrade_sobe_o_carro_todo() {
+    let car = Car::uniform(1);
+    let demand = (0.34, 0.33, 0.33);
+
+    let plan = decide_maintenance_with_limits(&car, "gt4", 1e12, demand, None, None);
+
+    assert_eq!(plan.target_levels.len(), PartType::ALL.len());
+}
+
+/// A cadência dá 3–4 janelas numa temporada de 12–16 etapas, e times diferentes não
+/// desenvolvem todos na mesma rodada.
+#[test]
+fn a_cadencia_da_tres_a_quatro_janelas_por_temporada() {
+    for etapas in 12..=16 {
+        for team_id in ["T001", "T042", "MA3"] {
+            let janelas: u32 = (0..etapas)
+                .map(|rodada| {
+                    upgrades_permitidos_nesta_corrida(team_id, etapas - 1 - rodada)
+                })
+                .sum();
+            assert!(
+                (3..=4).contains(&janelas),
+                "{team_id} em {etapas} etapas teve {janelas} janelas"
+            );
+        }
+    }
+}
+
 // -------- Seed inicial --------
 
 #[test]
@@ -496,11 +561,93 @@ fn maintain_com_quebra_team(
         false,
         0,
         events,
+        0,
     )
     .unwrap();
     let after = team_car::get_team_car(&conn, team_id).unwrap().unwrap();
     let engine = *after.part(PartType::Engine).unwrap();
     (cost, engine)
+}
+
+/// Roda a manutenção de um time pobre com `hits` contatos de disputa e a asa dianteira
+/// entrando na corrida com `front_wing_wear`. Devolve `(custo, asa depois)`.
+fn maintain_com_contatos(front_wing_wear: f64, hits: u32) -> (f64, CarPart) {
+    use crate::models::team::placeholder_team_from_db;
+    // DNA balanceado: o cérebro troca a peça no fim de vida em vez de degradá-la — isola o
+    // efeito do contato (mesma razão de `maintain_com_quebra`).
+    let team_id = (0..2000)
+        .map(|i| format!("T{i}"))
+        .find(|id| team_car_focus(id) == CarFocus::Balanced)
+        .unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    let mut team = placeholder_team_from_db(
+        team_id.clone(),
+        team_id.clone(),
+        "gt3".to_string(),
+        "2026-01-01T00:00:00".to_string(),
+    );
+    // Time POBRE: sem caixa e já endividado. O que ele gastar aqui é dívida.
+    team.cash_balance = 0.0;
+    team.debt_balance = 1e9;
+    team.financial_state = "critical".to_string();
+    let mut car = Car::uniform(5);
+    car.set_wear(PartType::FrontWing, front_wing_wear);
+    team_car::upsert_team_car(&conn, &team_id, &car).unwrap();
+    team.car = Some(car);
+    let cost = maintain_team_car_pits(
+        &conn,
+        &team,
+        "gt3",
+        1,
+        &[],
+        WearConditions::neutral(),
+        None,
+        false,
+        0,
+        &[],
+        hits,
+    )
+    .unwrap();
+    let after = team_car::get_team_car(&conn, &team_id).unwrap().unwrap();
+    let asa = *after.part(PartType::FrontWing).unwrap();
+    (cost, asa)
+}
+
+/// **Bater tem preço.** Até aqui um roda-a-roda da IA não deixava marca nenhuma no carro: o
+/// contato custava tempo dentro da corrida e evaporava. Agora ele castiga a peça, e uma corrida
+/// cheia de contato chega na seguinte com a asa mais perto do fim que uma corrida limpa.
+#[test]
+fn contato_de_disputa_desgasta_mais_que_corrida_limpa() {
+    let (_, asa_limpa) = maintain_com_contatos(0.0, 0);
+    let (_, asa_batida) = maintain_com_contatos(0.0, 6);
+
+    assert!(
+        asa_batida.wear > asa_limpa.wear,
+        "asa de quem bateu 6× deveria estar mais gasta: batida={} limpa={}",
+        asa_batida.wear,
+        asa_limpa.wear
+    );
+}
+
+/// **E bater com a peça no fim manda o time pro vermelho.** A asa que já estava acabada quando
+/// levou o contato é destruída → troca FORÇADA, mesmo sem caixa. É o elo que faltava entre a
+/// batida da IA e o orçamento dela: o time pobre que corre no soco vira dívida, e a peça volta
+/// NOVA (não fica presa em sobreuso, requebrando pra sempre).
+#[test]
+fn contato_em_peca_acabada_forca_troca_a_debito() {
+    // 0.90 está acima do limiar de destruição (0.85) de `car::crash`.
+    let (cost, asa) = maintain_com_contatos(0.90, 1);
+
+    assert!(
+        cost > 0.0,
+        "a troca forçada tem de cobrar, mesmo sem caixa (vira dívida); custo={cost}"
+    );
+    assert!(
+        asa.wear < 0.90,
+        "a asa destruída tem de voltar NOVA, não seguir acabada; wear={}",
+        asa.wear
+    );
+    assert!(!asa.spent, "peça reposta não pode nascer marcada como esgotada");
 }
 
 #[test]
@@ -620,6 +767,7 @@ fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
             true,
             pits,
             &[],
+            0,
         )
         .unwrap();
         let after = team_car::get_team_car(&conn, "T").unwrap().unwrap();
@@ -890,6 +1038,7 @@ fn analise_recorrencia_entre_corridas() {
                     false,
                     0,
                     &events,
+                    0,
                 )
                 .unwrap();
                 team.car = team_car::get_team_car(&conn, &team_id).unwrap();

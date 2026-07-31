@@ -43,11 +43,7 @@ pub(super) fn poach_value_of(drivers_by_id: &HashMap<String, Driver>, id: &str, 
     drivers_by_id
         .get(id)
         .map(|d| {
-            crate::market::poaching::poach_target_value(
-                d.atributos.skill,
-                d.atributos.midia,
-                need,
-            )
+            crate::market::poaching::poach_target_value(d.atributos.skill, d.atributos.midia, need)
         })
         .unwrap_or(0.0)
 }
@@ -77,7 +73,8 @@ pub(super) fn execute_poach(
 
     // O dispensado volta ao pool como agente livre LIMPO (categoria None) — senão
     // vira órfão que a escada não repesca.
-    if let Some(mut incumbent) = driver_queries::get_driver(conn, &incumbent_contract.piloto_id).ok()
+    if let Some(mut incumbent) =
+        driver_queries::get_driver(conn, &incumbent_contract.piloto_id).ok()
     {
         incumbent.categoria_atual = None;
         driver_queries::update_driver(conn, &incumbent)
@@ -221,8 +218,11 @@ pub(crate) fn run_poaching_pass(
             .filter(|id| is_active_non_player(id) && !moved.contains(id))
             .collect();
         inc_candidates.sort_by(|a, b| {
-            poach_value_of(&drivers_by_id, a, need)
-                .total_cmp(&poach_value_of(&drivers_by_id, b, need))
+            poach_value_of(&drivers_by_id, a, need).total_cmp(&poach_value_of(
+                &drivers_by_id,
+                b,
+                need,
+            ))
         });
         let Some(incumbent_id) = inc_candidates.first().cloned() else {
             continue;
@@ -321,8 +321,11 @@ pub(crate) fn run_poaching_pass(
                     seller.cash_balance,
                 ),
             };
-            let auction =
-                crate::market::poaching::resolve_salary_auction(reference, &poacher_side, &holder_side);
+            let auction = crate::market::poaching::resolve_salary_auction(
+                reference,
+                &poacher_side,
+                &holder_side,
+            );
 
             audit.push(PoachAudit {
                 categoria: poacher.categoria.clone(),

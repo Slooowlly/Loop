@@ -13,7 +13,9 @@ use winapi::um::memoryapi::{MapViewOfFile, UnmapViewOfFile, FILE_MAP_READ};
 use super::janela::find_iracing_janela;
 use super::leitura::{abrir_mapeamento, ERRO_ACESSO_NEGADO};
 use super::util::read_i32;
-use crate::iracing_sdk::{header, ticks_observados, DiagnosticoIracing, Veredito, STATUS_CONNECTED};
+use crate::iracing_sdk::{
+    header, ticks_observados, DiagnosticoIracing, Veredito, STATUS_CONNECTED,
+};
 
 /// Score de janela que corresponde ao SIMULADOR (a UI/launcher é 1).
 const SCORE_SIMULADOR: i32 = 2;
@@ -101,9 +103,7 @@ fn elevado() -> bool {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
-        let mut info = TOKEN_ELEVATION {
-            TokenIsElevated: 0,
-        };
+        let mut info = TOKEN_ELEVATION { TokenIsElevated: 0 };
         let mut tamanho = 0u32;
         let ok = GetTokenInformation(
             token,

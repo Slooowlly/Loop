@@ -35,12 +35,18 @@ em Δ = 0,000 em todas as 32 células.
 Convenção: correlações e desvio de posição são medidos **só sobre quem terminou**; abandono entra
 separado como `dnfs_por_etapa`.
 
-> **Âncora**: `CONGELADO` foi medido em `d4c55e8`, com a árvore limpa. Rodar
-> `compara_com_congelado` numa árvore suja mostra o efeito do trabalho ainda não commitado — é o
-> uso pretendido, mas convém saber contra o que se está comparando. Na primeira execução com o
-> pacote B em andamento o diff já acusou movimento na direção certa e de magnitude pequena:
-> ρ(grid × chegada) −0,04 na rookie, desvio de posição +0,10 na gt3, e ρ(etapa N × N+1)
-> **inalterado** — o sintoma central ainda não foi tocado.
+> **Âncora: `a905ca2`** — o commit da reforma da simulação (pacotes B, C, D, F, G + este harness),
+> 2043 testes verdes. O diff contra o congelado fecha em Δ = 0,000 nas 32 células.
+>
+> A âncora anterior era `d4c55e8`. Ela deixou de servir por **dois** motivos somados, e os dois
+> importam: o motor mudou (moeda em tempo, tráfego, forma, safety car, quali reescrita) **e a régua
+> estava errada** (o `campo.rs` derivava do talento sete atributos que o jogo sorteia livres, e
+> espalhava o skill da gt3 38% além do real). Comparar contra ela mediria as duas mudanças somadas
+> sem separá-las. Este recongelamento é o novo zero.
+>
+> As seções 1 a 9 abaixo são o retrato **pré-reforma medido com a régua antiga**. Ficam como
+> registro do diagnóstico e do raciocínio; os números comparáveis a partir de agora estão na
+> seção 12.
 
 ---
 
@@ -963,13 +969,282 @@ construção do experimento em vez de por propriedade do knob.
 
 ---
 
+# 12. O NOVO ZERO — congelado em `a905ca2`, régua corrigida
+
+Estes são os números comparáveis a partir de agora. Tudo acima é registro histórico.
+
+| Métrica | rookie s/inc | rookie c/inc | gt3 s/inc | gt3 c/inc | alvo (rookie / gt3) |
+|---|---|---|---|---|---|
+| Spearman grid × chegada | 0,895 | 0,892 | 0,967 | 0,963 | 0,40–0,75 / 0,60–0,88 |
+| Vitórias do pole | 76,0% | 73,8% | 82,4% | 78,4% | 15–35% / 30–55% |
+| Vencedores distintos | 2,13 | 2,26 | 2,11 | 2,17 | 5–10 / 3–8 |
+| **Desvio-padrão da posição** | **2,19** | **2,17** | **1,48** | **1,50** | 3,5–6,5 / 2,5–5,0 |
+| P(melhor fora do top 5) | 1,7% | 3,9% | 2,9% | 5,0% | 15–35% / 8–25% |
+| **Spearman etapa N × N+1** | **0,828** | **0,831** | **0,919** | **0,919** | 0,20–0,55 / 0,35–0,70 |
+| Trocas de liderança | 0,93 | 0,83 | 0,93 | 0,96 | 2–7 / 1–5 |
+| Margem do campeão | 21,9% | 21,1% | 17,9% | 17,7% | 2–15% / 4–20% |
+
+## O que a reforma entregou, e o que ficou
+
+**Entregou** — comparado ao retrato pré-reforma (medido com a régua antiga, então a comparação é
+indicativa e não exata): desvio da posição de 0,71 para 2,19 na rookie e de 0,45 para 1,48 na gt3;
+vencedores distintos de 1,30 para 2,13; trocas de liderança de 0,23 para 0,93 (4×); ρ entre etapas
+de 0,976 para 0,828.
+
+E entregou **os quatro alvos da sonda de grade sorteada**, que eram o critério de aceitação do
+pacote D escrito antes de ele existir — ρ(grid) 0,436 e 0,545, ρ(skill) 0,677 e 0,642, quatro dentro
+da faixa. Mais a recuperação máxima da rookie em 5,62, dentro do alvo de 5–10.
+
+**Ficou**: o sintoma central. ρ em 0,828 e 0,919 contra alvos de 0,55 e 0,70; desvio em 2,19 e 1,48
+contra 3,5 e 2,5. Nenhuma das oito métricas de resultado está dentro da faixa nas duas categorias —
+`margem_do_campeao` na gt3 é a única que passa.
+
+Isso é dívida real e não erro de instrumento: sobreviveu ao conserto da régua, que era a hipótese
+alternativa. Quem decide se ela é **alcançável** no espaço de parâmetros atual ou se falta mecanismo
+é a [máquina de busca](busca.rs) com o portão de decomposição — e essa é a próxima coisa a rodar.
+
+## Como comparar daqui pra frente
+
+```bash
+cargo test --release --manifest-path src-tauri/Cargo.toml calibracao::tests::compara_com_congelado -- --ignored --nocapture
+```
+
+Regra que não muda: `CONGELADO` só é reescrito por decisão consciente, num commit próprio, com o
+diff como evidência. Nunca como efeito colateral de uma calibração.
+
+---
+
+# 13. O déficit localizado — o orçamento e a matriz completa em `a905ca2`
+
+Esta seção existe porque a campanha estava bloqueada por algo que o harness não podia ver: **as
+constantes dos pacotes de mecanismo são `const`**, resolvidas em compilação. A busca só alcança os
+multiplicadores de `profile/`, e a seção 3 já provou que aqueles movem ruído. Rodar a campanha antes
+de as constantes serem injetáveis daria `INALCANÇÁVEL` correto e inútil.
+
+## O orçamento no commit — e a RETRATAÇÃO do fator 7
+
+**O harness não estava exercitando o pacote B.** As três camadas de `simulation::forma` (afinidade,
+forma, acerto) são aplicadas na esteira de modificadores de `commands/race/simulacao.rs`, que ajusta
+o `SimDriver` antes de chamar a corrida. Este harness monta o grid com `campo::gerar_campo` e chama
+`run_full_race_with_breakdowns` direto — a esteira nunca rodou aqui.
+
+Consequência: os 3,1% e 3,4% que eu reportei como "a camada de evento" mediam clima e diferença de
+perfil de pista, e nada do B. Replicada a esteira no arena (`arena::aplicar_esteira_de_forma`, ligada
+por `esteira_de_forma`, padrão `false` para não mover o congelado):
+
+| Fonte | rookie s/ | **rookie real** | alvo | gt3 s/ | **gt3 real** | alvo |
+|---|---|---|---|---|---|---|
+| Piloto (permanente) | 79,1% | 69,4% | 38–52% | 43,0% | 38,7% | 22–35% |
+| Equipe / carro | 0,1% | 2,3% | 0–5% ✅ | 48,7% | 46,7% | 22–38% |
+| Evento — pista (afinidade) | 0,6% | 4,8% | — | 0,5% | 3,0% | — |
+| Evento — clima + forma + acerto | 2,5% | 7,0% | — | 2,9% | 6,7% | — |
+| **Evento (total)** | 3,1% | **11,8%** | **20–32%** | 3,4% | **9,7%** | **22–34%** |
+| Corrida (ruído puro) | 17,7% | 16,5% | 22–35% | 4,8% | 4,9% | 12–24% |
+
+**O déficit é fator 1,7–2,7, não fator 7.** E o que cai com o número é o argumento que eu havia
+apresentado como o mais valioso justamente por sobreviver à hipótese que o ameaça: com a faixa de
+evento em 10–16% em vez de 20–32%, a rookie a 11,8% estaria dentro. "As faixas estão agressivas"
+volta a ser explicação viável, e o `.json` do iRacing volta a ser o que decide.
+
+Sobrevive que **a camada de evento é a maior lacuna do orçamento** nas duas categorias, e que **o
+permanente não precisa de calibração** — ligar a esteira já o levou de 79,1% para 69,4% sem tocar em
+`driver_generation`. O bracket recalculado (×1,4–2,2 em vez de ×3,5) e a lista de endereços estão na
+seção 7 do [CAMPANHA.md](CAMPANHA.md).
+
+Concordância das duas vias para o permanente: 0,012 na rookie e 0,001 na gt3. A decomposição estava
+correta o tempo todo — ela mediu com precisão o caminho que lhe foi dado.
+
+## O que a esteira entrega sem calibração nenhuma
+
+| Métrica | rookie s/ | rookie c/ | gt3 s/ | gt3 c/ |
+|---|---|---|---|---|
+| ρ(etapa N × N+1) | 0,828 | **0,782** | 0,919 | **0,862** |
+| Desvio da posição | 2,19 | **2,58** | 1,48 | **2,02** |
+| Vencedores distintos | 2,13 | **2,82** | 2,11 | **2,64** |
+| Trocas de liderança | 0,93 | 1,05 | 0,93 | **1,56 ✅** |
+
+A gt3 passou a ter duas células na faixa em vez de uma. É a primeira vez que o pacote B aparece numa
+medição deste harness.
+
+## O espelho não tem guarda, e isso é uma dívida
+
+No conserto do `campo.rs` eu pude escrever `comparar_com_gerador_real`, que chama
+`Driver::generate_for_category` e falha se a réplica divergir. Aqui **não dá**: a esteira mora dentro
+de um `#[tauri::command]` que exige `AppHandle` e banco. As funções chamadas são as do jogo — nenhuma
+constante foi copiada —, mas a *aplicação* (ordem dos elos, `clamp(5,100).round() as u8`) é espelho
+sem verificação automática. Quem mexer na esteira tem que saber que existe uma cópia aqui.
+
+A saída limpa seria a esteira virar uma função pura em `simulation/**` que o comando chama — fora da
+minha fronteira, e é a recomendação. **Aceita e despachada no adendo do pacote H.**
+
+Para que a extração já saia chamável daqui, a função pura precisa: receber tudo por parâmetro (sem
+`AppHandle` nem `Connection`); operar sobre `&[SimDriver]`, porque o harness não tem `Driver`/`Team`
+do banco; receber `temporada` e `rodada` explícitos, que é o que separa afinidade de acerto na
+medição; e **devolver** o estado de forma em vez de gravá-lo, deixando a persistência com o comando.
+O último é o único que muda desenho: hoje a esteira grava `drivers.forma` no meio do caminho.
+
+**Quinto item, e ele corrige uma promessa minha:** a função pura deve devolver **o ajuste por elo**,
+não só o `SimDriver` ajustado. Eu disse que consigo repartir o efeito da quantização por modificador
+rodando a decomposição antes e depois — isso vale para a camada de evento, porque a afinidade tem
+assinatura própria (é a única indexada por `track_id`). **Os seis arredondamentos não têm assinatura
+nenhuma**: conhecimento de pista, adaptação, lesão, forma, motivação e pressão caem todos no mesmo
+`skill`, no mesmo fim de semana. Antes-e-depois mede o efeito somado dos seis e não diz de quem é.
+
+Com o delta por elo a pergunta "o `MAX_PENALTY = 8,0` entregou 8 pontos?" vira subtração entre o
+pretendido e o aplicado, exata, sem simulação adicional — e um modificador sistematicamente mais
+fraco do que o autor pretendia aparece nomeado, com o tamanho do desvio.
+
+## A decisão sobre o congelado: ligar a esteira, mas depois da função pura
+
+Está decidido e está esperando, de propósito. Recongelar agora com o espelho e de novo depois da
+função pura criaria dois zeros a poucos dias de distância, e nenhum diff entre eles diria nada sobre
+o jogo — o mesmo erro que a âncora `d4c55e8` cometeu ao somar duas mudanças. E o baseline oficial não
+deve depender de uma réplica sem guarda.
+
+Até lá `esteira_de_forma = false` mantém este congelado reproduzível em Δ = 0,000, e a medição com a
+esteira fica disponível pelos geradores `imprime_decomposicao_com_esteira` e
+`imprime_resultado_com_esteira`, que não tocam em `CONGELADO`.
+
+## A quantização, que muda o cálculo da campanha
+
+`SimDriver::skill` é `u8`, e a esteira arredonda. Um ajuste de ±0,4 ponto desaparece. Com as escalas
+atuais (2,0 a 3,0 pontos) é perda de resolução, não anulação — mas significa que subir as escalas do
+`forma.rs` briga em parte com a quantização, e que o `k` efetivo é menor que o nominal. A própria
+esteira registra a dívida com a nota de que a resolução voltaria "quando a moeda virar TEMPO"; a
+moeda virou no pacote C e o campo continua `u8`.
+
+## A repartição da camada de evento passou de estipulada a medida
+
+Descontando o perfil de pista (0,6 pp e 0,5 pp) e o clima (2,5 pp e 2,9 pp), sobra o pacote B:
+
+| Sub-fonte | rookie | fatia | gt3 | fatia | alvo |
+|---|---|---|---|---|---|
+| afinidade piloto × pista | 4,2 pp | **48%** | 2,5 pp | **40%** | 20–30% |
+| forma + acerto | 4,5 pp | 52% | 3,8 pp | 60% | 70–80% |
+
+**A afinidade está ~1,8× mais pesada do que a repartição pede.** `AFINIDADE_ESCALA_PONTOS = 3,0` é a
+maior das três constantes quando, pelo argumento da reprodutibilidade, deveria ser a menor: afinidade
+é `hash(driver_id, track_id)` sem termo de temporada, então ela compra variedade dentro da temporada e
+**zero** variedade entre temporadas — duas temporadas com o mesmo calendário e o mesmo grid saem com a
+mesma assinatura de quem voa onde. Acerto (`hash(temporada, rodada, equipe)`) e forma compram as duas
+coisas.
+
+Ela também ganha `MULT_AFINIDADE_QUALI = 1,5` no canal de classificação, que as outras duas não têm —
+o que explica ρ(grid × chegada) não se mover ao ligar a esteira (0,89 → 0,89): a camada mais forte
+empurra grid e chegada na mesma direção.
+
+Recomendação para a fase 1: **redistribuir antes de aumentar** — baixar `AFINIDADE_ESCALA_PONTOS` e
+subir `ACERTO_ESCALA_PONTOS`, mantendo a soma no bracket. Subir as três juntas mantém a afinidade em
+48% e o sintoma "o mundo parece o mesmo todo ano" não é medido por nenhuma das oito métricas de
+resultado.
+
+## Um defeito de rótulo no meu próprio instrumento
+
+`frac_evento_clima` mede "o que sobrevive a fixar a pista". Quando foi escrito, a única coisa nessa
+condição era clima. Hoje o `simulation::forma` acrescentou duas — **forma** (AR(1) por piloto e
+etapa) e **acerto** de fim de semana (por equipe e evento) —, e nenhuma delas depende de qual pista
+é. O campo passou a ser um agregado de três fontes com nome de uma.
+
+Consequência prática: **`frac_evento_pista` isola a afinidade piloto × pista de forma limpa** (é a
+única camada indexada por `track_id`), e ela mede **0,6% e 0,5%** com
+`AFINIDADE_ESCALA_PONTOS = 3,0`. Isso é a magnitude de uma camada inteira do pacote B, medida
+isoladamente pela primeira vez. Quebrar o agregado restante em forma e acerto exige congelar uma
+delas, e congelar exige injeção — mesmo bloqueio.
+
+Corrigido no rótulo do relatório e na doc do campo, não no cálculo: o número sempre esteve certo, o
+nome é que ficou estreito.
+
+## A matriz knob × saída, completa — rookie
+
+| Knob | ρ(N,N+1) | desvio pos. | vencedores | SC/etapa | ρ(pré-SC) | DNF/etapa |
+|---|---|---|---|---|---|---|
+| `race_variance_multiplier` | **0,450** | **2,156** | **3,433** | 0,028 | **0,258** | 0,075 |
+| `race_pace_spread_multiplier` | 0,089 | 0,503 | 0,500 | 0,031 | 0,067 | 0,111 |
+| `start_chaos_multiplier` | **0,232** | **1,178** | **1,967** | **0,242** | **0,244** | **1,144** |
+| `qualifying_variance_multiplier` | **0,355** | **1,909** | **2,700** | 0,022 | **0,280** | 0,119 |
+| `pack_density_factor` | **0,445** | **1,777** | **3,467** | **0,728** | **0,258** | **2,367** |
+| `incident_rate_multiplier` | 0,022 | 0,051 | 0,733 | **0,558** | 0,026 | **4,103** |
+| `overtaking_difficulty_multiplier` | **0,150** | 0,927 | 0,700 | 0,022 | 0,084 | 0,092 |
+| `track_difficulty_multiplier` | 0,004 | 0,017 | 0,100 | 0,006 | 0,007 | 0,017 |
+| `rain_sensitivity` | 0,038 | 0,230 | 0,267 | 0,011 | 0,021 | 0,047 |
+
+## A matriz knob × saída, completa — gt3
+
+| Knob | ρ(N,N+1) | desvio pos. | vencedores | SC/etapa | ρ(pré-SC) | DNF/etapa |
+|---|---|---|---|---|---|---|
+| `race_variance_multiplier` | **0,119** | 0,850 | 0,600 | 0,031 | 0,084 | 0,039 |
+| `race_pace_spread_multiplier` | 0,009 | 0,052 | 0,233 | 0,031 | 0,069 | 0,069 |
+| `start_chaos_multiplier` | 0,034 | 0,298 | 0,267 | **0,142** | 0,045 | 0,481 |
+| `qualifying_variance_multiplier` | **0,281** | **1,790** | **1,500** | 0,033 | **0,305** | 0,044 |
+| `pack_density_factor` | 0,097 | 0,757 | 0,600 | **0,356** | 0,078 | **1,056** |
+| `incident_rate_multiplier` | 0,022 | 0,284 | 0,500 | **0,403** | 0,030 | **3,133** |
+| `overtaking_difficulty_multiplier` | 0,051 | 0,500 | 0,433 | 0,031 | 0,058 | 0,058 |
+| `track_difficulty_multiplier` | 0,001 | 0,013 | 0,067 | 0,003 | 0,000 | 0,025 |
+| `rain_sensitivity` | 0,070 | 0,546 | 0,267 | 0,011 | 0,010 | 0,028 |
+
+Cinco leituras, e três delas mudam decisão:
+
+1. **`pack_density_factor` é o knob mais forte em SC/etapa** (0,728 e 0,356), acima do
+   `incident_rate_multiplier` (0,558 e 0,403). Não era o palpite óbvio — pelotão colado gera mais
+   contato grave que taxa de incidente, porque a taxa espalha incidentes de todas as severidades e o
+   gatilho só olha as graves.
+2. **`incident_rate_multiplier` é MORTO em quatro das seis colunas** e vive só em `SC/etapa` e
+   `DNF/etapa`. É o caso que justificou o veredito por par: com a matriz antiga ele seria "fraco" e
+   alguém o teria descartado.
+3. **`track_difficulty_multiplier` é MORTO nas seis colunas, nas duas categorias.** Terceira
+   confirmação, agora exaustiva. Morto por magnitude, não por órfandade — o valor é lido, só não
+   importa.
+4. **`rain_sensitivity` saiu do zero exato.** Era órfão com alavanca 0,000; agora mede 0,070 de ρ e
+   0,546 de desvio na gt3 — vivo, fraco. O pacote G o conectou, e a guarda de `consumo.rs` pegou a
+   conexão sem ter sido avisada.
+5. **A assimetria entre categorias é grande, e é o argumento do pacote E.** `race_variance` vai de
+   0,450 na rookie para 0,119 na gt3; `start_chaos` de 0,232 para 0,034. O mesmo knob, no mesmo
+   valor, tem 4–7× menos efeito no topo, porque o permanente lá é 92% e engole ruído.
+
+E o achado que mais pesa na ordem da campanha: **na gt3, o único knob com alavanca em ρ, desvio e
+vencedores ao mesmo tempo é `qualifying_variance_multiplier`.** Ou seja, o único mecanismo existente
+capaz de mexer no sintoma central no topo é a loteria do grid — que é o mecanismo errado, e que a
+`reprodutibilidade_do_grid` da seção 6 pegaria como "a quali virou sorteio". Isso não é um knob a
+ajustar; é a demonstração de que falta fonte de variância de EVENTO na gt3, exatamente onde a
+decomposição aponta.
+
+## O gatilho de SC, reconfirmado no commit
+
+| medida | rookie | gt3 |
+|---|---|---|
+| Incidentes graves por corrida | 0,242 | 0,093 |
+| Qualificam pelo gatilho atual | 0,104 | 0,045 |
+| Qualificam alargando (sem `is_dnf`) | 0,242 | 0,093 |
+| SC por corrida | **0,079** | **0,033** |
+| Alvo | 0,25–0,60 | 0,15–0,40 |
+| Projeção alargando | 0,184 | 0,068 |
+| Gravidade ainda faltante | 1,4× | 2,2× |
+
+Idêntico à medição na árvore suja: alargar é o passo grande e grátis na rookie (2,3×, chega a 1,4× do
+piso), e na gt3 a gravidade domina (2,1× de ganho, ainda 2,2× abaixo). **São os dois, em proporções
+diferentes por categoria** — e é por isso que o veredito categórico com corte em 0,10 graves/corrida
+foi substituído por projeção quantitativa.
+
+Um tripwire novo garante que isso não passe em branco: `gatilho_do_jogo_ainda_exige_dnf` fica verde
+hoje e **vermelho no dia em que o alargamento entrar**. O superconjunto sozinho não avisava nada —
+ele passa antes e depois. Alargar move duas faixas de partida (`SC/etapa` e `ρ(pré-SC)`) sem
+invalidar nenhum outro teste, que é a classe de mudança que passa em silêncio.
+
+---
+
 # Ainda não feito
 
 - **A coleta do dado real.** O ingestor e o protocolo estão prontos (seção 7); falta alguém rodar
   uma temporada no iRacing e copiar o `.json`. É o único item da lista que não depende de código.
-- **O gatilho de SC alargado** — `traz_bandeira_amarela` sem `is_dnf` nas duas linhas que o exigem. Fora da fronteira; medido e reportado (seção 11).
-- **Rodar a busca sobre o espaço NOVO**, depois de C e D. A máquina existe e está validada contra
-  um espaço de fracasso conhecido (seção 9); é a primeira coisa a rodar quando o D fechar.
+- **O gatilho de SC alargado** — `traz_bandeira_amarela` sem `is_dnf` nas duas linhas que o exigem.
+  Fora da fronteira; medido e reportado (seções 11 e 13). O tripwire
+  `gatilho_do_jogo_ainda_exige_dnf` avisa quando entrar.
+- **Injetar as constantes de mecanismo** (`forma.rs`, `motor.rs`, `trafego.rs`, `estrategia.rs`).
+  Fora da fronteira. É o portão de entrada da campanha: sem isso a busca não alcança o parâmetro que
+  a decomposição aponta. Critério de aceitação: `compara_com_congelado` em Δ = 0,000 com os padrões.
+- **Rodar a busca sobre o espaço NOVO**, depois da injeção. A máquina existe e está validada contra
+  um espaço de fracasso conhecido (seção 9); o manifesto com faixas, fases e orçamento está na seção
+  7 do [CAMPANHA.md](CAMPANHA.md).
 - **Ligar as métricas de segmento** (`atrito.rs`) quando `posicoes_por_segmento` chegar. Um teste
   falha de propósito nesse momento, como lembrete.
 

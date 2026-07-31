@@ -76,8 +76,17 @@ fn demo_tour(real_names: &[String]) -> Vec<BreakdownMessage> {
         "Camila Monteiro",
     ];
     const PARTS: [&str; 11] = [
-        "engine", "gearbox", "brakes", "suspension", "cooling", "front_wing", "rear_wing",
-        "sidepods", "underbody", "chassis", "electronics",
+        "engine",
+        "gearbox",
+        "brakes",
+        "suspension",
+        "cooling",
+        "front_wing",
+        "rear_wing",
+        "sidepods",
+        "underbody",
+        "chassis",
+        "electronics",
     ];
     let name_at = |i: usize| -> String {
         if real_names.is_empty() {
@@ -146,8 +155,17 @@ pub(crate) fn demo_breakdown_feed(real_names: &[String]) -> Vec<BreakdownMessage
 /// Tour de avisos do demo: um por peça (desgaste 95–100%). Fonte única do card de aviso.
 pub(crate) fn demo_player_warnings() -> Vec<BreakdownMessage> {
     const PARTS: [&str; 11] = [
-        "engine", "gearbox", "brakes", "suspension", "cooling", "front_wing", "rear_wing",
-        "sidepods", "underbody", "chassis", "electronics",
+        "engine",
+        "gearbox",
+        "brakes",
+        "suspension",
+        "cooling",
+        "front_wing",
+        "rear_wing",
+        "sidepods",
+        "underbody",
+        "chassis",
+        "electronics",
     ];
     PARTS
         .iter()

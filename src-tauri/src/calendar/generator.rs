@@ -717,7 +717,10 @@ mod tests {
         ];
         for pool in pools {
             for &id in pool {
-                assert!(get_track(id).is_some(), "pool referencia track inexistente {id}");
+                assert!(
+                    get_track(id).is_some(),
+                    "pool referencia track inexistente {id}"
+                );
             }
         }
     }

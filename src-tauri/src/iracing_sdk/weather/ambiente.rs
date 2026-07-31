@@ -39,8 +39,7 @@ pub fn story_temperature(story: &WeatherStory, seed: u64) -> i64 {
 /// `wind_value` contínuo; só o preset vale. Medido in-sim (todos os 7 presets):
 /// 1≈2 · 2≈2 · 3≈10 · 0≈13 · 5≈21 · 6≈30 · 4≈48 km/h. Preset 1 descartado (duplica
 /// o 2). 6 degraus úteis cobrindo 2–48.
-pub const WIND_LADDER: [(i64, i64); 6] =
-    [(2, 2), (10, 3), (13, 0), (21, 5), (30, 6), (48, 4)];
+pub const WIND_LADDER: [(i64, i64); 6] = [(2, 2), (10, 3), (13, 0), (21, 5), (30, 6), (48, 4)];
 
 /// Vento sorteado para a corrida: velocidade em km/h (um dos degraus da `WIND_LADDER`,
 /// 2–48) + direção em graus **[0, 359]**. Um valor por corrida (não muda no meio).

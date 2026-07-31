@@ -3,7 +3,10 @@
 
 use super::*;
 
-pub(super) fn get_window_state(conn: &Connection, season_id: &str) -> Result<Option<WindowStateRow>, DbError> {
+pub(super) fn get_window_state(
+    conn: &Connection,
+    season_id: &str,
+) -> Result<Option<WindowStateRow>, DbError> {
     conn.query_row(
         "SELECT current_day, total_days, status, active_offer_id, player_result
          FROM special_window_state

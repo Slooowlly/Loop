@@ -84,7 +84,8 @@ fn test_insert_and_read_team_finance_history_roundtrip() {
     };
     team.cash_balance = 517_000.0;
     team.debt_balance = 0.0;
-    insert_team_finance_history(&conn, &team, &context, &summary_r3, 1, 3).expect("insert history r3");
+    insert_team_finance_history(&conn, &team, &context, &summary_r3, 1, 3)
+        .expect("insert history r3");
 
     let summary_r4 = RoundCashflowSummary {
         income: 130_000.0,
@@ -92,7 +93,8 @@ fn test_insert_and_read_team_finance_history_roundtrip() {
         net: 20_000.0,
     };
     team.cash_balance = 537_000.0;
-    insert_team_finance_history(&conn, &team, &context, &summary_r4, 1, 4).expect("insert history r4");
+    insert_team_finance_history(&conn, &team, &context, &summary_r4, 1, 4)
+        .expect("insert history r4");
 
     let entries = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
     assert_eq!(entries.len(), 2);
@@ -168,8 +170,15 @@ fn test_team_finance_history_reround_is_idempotent() {
     insert_team_finance_history(&conn, &team, &context, &second, 1, 4).expect("re-insert r4");
 
     let entries = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
-    assert_eq!(entries.len(), 1, "re-gravar a mesma rodada não deve duplicar");
-    assert_eq!(entries[0].cash_balance, 999_000.0, "deve refletir o novo valor");
+    assert_eq!(
+        entries.len(),
+        1,
+        "re-gravar a mesma rodada não deve duplicar"
+    );
+    assert_eq!(
+        entries[0].cash_balance, 999_000.0,
+        "deve refletir o novo valor"
+    );
     assert_eq!(entries[0].income_total, 200_000.0);
 }
 

@@ -16,11 +16,16 @@ use crate::db::connection::Database;
 use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
 use crate::iracing_sdk::{race_monitor, tire_strategy};
 
+/// A quantas voltas do fim o servidor de IA começa a ser aquecido. Três dá folga para o
+/// container subir (cold start pode passar de 20s) antes da bandeirada, sem antecipar
+/// tanto a ponto de o Cloud Run já ter escalado de volta a zero quando a corrida acabar.
+const WARMUP_VOLTAS_RESTANTES: i32 = 3;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverlayWeather {
-    condition: String,       // "clear" | "clouds" | "rain"
-    air_temp: Option<i32>,   // °C do ar (None = desconhecido ao vivo)
+    condition: String,     // "clear" | "clouds" | "rain"
+    air_temp: Option<i32>, // °C do ar (None = desconhecido ao vivo)
     /// Arco de chuva da corrida atual (frações 0..1 + tipo de tempo), o mesmo clima
     /// determinístico que o export gravou. Vazio quando a prova é seca / sem dado — o
     /// front só mostra a faixa quando há chuva a antecipar.
@@ -42,7 +47,7 @@ pub struct OverlaySession {
     /// Duração total da sessão em segundos (quali costuma ser 480 = 8 min). None quando
     /// a sessão é por voltas — aí o header mostra a volta, não o relógio.
     duration_s: Option<i32>,
-    flag: String, // "green" | "yellow" | "checkered"
+    flag: String,     // "green" | "yellow" | "checkered"
     category: String, // id da categoria do evento (ex.: "gt3", "endurance")
     weather: OverlayWeather,
 }
@@ -197,11 +202,12 @@ pub fn get_overlay_data(
         format!("Falha ao abrir banco: {e}")
     })?;
 
-    let numbers: HashMap<String, i64> =
-        std::fs::read_to_string(crate::commands::iracing::numbers_path(&base_dir, &career_id))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+    let numbers: HashMap<String, i64> = std::fs::read_to_string(
+        crate::commands::iracing::numbers_path(&base_dir, &career_id),
+    )
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or_default();
     let by_number: HashMap<i64, String> = numbers.into_iter().map(|(id, n)| (n, id)).collect();
 
     let player_driver = dq::get_player_driver(&db.conn).ok();
@@ -209,10 +215,18 @@ pub fn get_overlay_data(
     // Categoria do evento = a do time do jogador (via contrato ativo).
     let category = player_driver
         .as_ref()
-        .and_then(|p| cq::get_active_contract_for_pilot(&db.conn, &p.id).ok().flatten())
+        .and_then(|p| {
+            cq::get_active_contract_for_pilot(&db.conn, &p.id)
+                .ok()
+                .flatten()
+        })
         .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
         .map(|t| t.categoria)
-        .or_else(|| player_driver.as_ref().and_then(|p| p.categoria_atual.clone()))
+        .or_else(|| {
+            player_driver
+                .as_ref()
+                .and_then(|p| p.categoria_atual.clone())
+        })
         .unwrap_or_default();
     let is_endurance = category == "endurance";
 
@@ -275,8 +289,11 @@ pub fn get_overlay_data(
     // o próprio jogador. Só vale se for um carro real do grid (não o pace, presente no
     // roster); senão cai no carro do jogador. Identidade/black flag continuam no jogador.
     let cam_idx = tele.cam_car_idx;
-    let cam_is_valid =
-        cam_idx >= 0 && feedback.cars_yaml_meta.iter().any(|m| m.idx == cam_idx && !m.is_pace);
+    let cam_is_valid = cam_idx >= 0
+        && feedback
+            .cars_yaml_meta
+            .iter()
+            .any(|m| m.idx == cam_idx && !m.is_pace);
     let focus_idx = if cam_is_valid { cam_idx } else { player_idx };
 
     // Melhor volta registrada da sessão atual: quali alimenta apenas Q, histórico
@@ -446,14 +463,21 @@ pub fn get_overlay_data(
 
         let strat = tire_by_idx.get(&meta.idx);
         let tire_history: Vec<String> = strat
-            .map(|s| s.stints.iter().map(|st| compound_str(st.compound).to_string()).collect())
+            .map(|s| {
+                s.stints
+                    .iter()
+                    .map(|st| compound_str(st.compound).to_string())
+                    .collect()
+            })
             .unwrap_or_default();
         let stops = strat.map(|s| s.tire_changes).unwrap_or(0);
 
         // Tracker de tempo de pit: última parada do carro, só nas ~2 voltas seguintes.
         let pit_secs = strat.and_then(|s| s.stops.last()).and_then(|last| {
             let since = lead_lap_now - last.lap;
-            (0..=2).contains(&since).then(|| last.box_secs.round() as i32)
+            (0..=2)
+                .contains(&since)
+                .then(|| last.box_secs.round() as i32)
         });
 
         // Alerta de quebra: "light"/"heavy" → triângulo; "dnf" → bandeira preta.
@@ -470,9 +494,8 @@ pub fn get_overlay_data(
                 let reps = repair_laps_by_idx.get(&meta.idx);
                 let mut v = vec![compound_str(s.start_compound).to_string()];
                 for stop in &s.stops {
-                    let is_repair = reps.is_some_and(|ls| {
-                        ls.iter().any(|&l| (l as i32 - stop.lap).abs() <= 1)
-                    });
+                    let is_repair =
+                        reps.is_some_and(|ls| ls.iter().any(|&l| (l as i32 - stop.lap).abs() <= 1));
                     let icon = if is_repair {
                         "part"
                     } else if stop.tire_change {
@@ -492,9 +515,13 @@ pub fn get_overlay_data(
 
         let grid_pos = grid_by_idx.get(&meta.idx).copied().unwrap_or(0);
 
-        class_label
-            .entry(meta.class_id)
-            .or_insert_with(|| feedback.class_names.get(&meta.class_id).cloned().unwrap_or_default());
+        class_label.entry(meta.class_id).or_insert_with(|| {
+            feedback
+                .class_names
+                .get(&meta.class_id)
+                .cloned()
+                .unwrap_or_default()
+        });
 
         // Tudo que a ordenação da torre precisa deste carro. A posição/delta/pontos
         // ficam em 0 aqui: só existem depois de a classe inteira ser ordenada.
@@ -574,7 +601,10 @@ pub fn get_overlay_data(
         // desempate de todo mundo que ainda não marcou volta — sem ela a torre da
         // classificatória começa numa fila por número de carro.
         let previa = ordem_pre_sessao(
-            &cars.iter().map(|(_, _, _, _, pre)| *pre).collect::<Vec<_>>(),
+            &cars
+                .iter()
+                .map(|(_, _, _, _, pre)| *pre)
+                .collect::<Vec<_>>(),
         );
         let inputs: Vec<OrderInput> = cars
             .iter()
@@ -643,20 +673,33 @@ pub fn get_overlay_data(
     // volta já é mais rápida que o ritmo real de corrida (tráfego, combustível, pneu),
     // então a divisão por ela JÁ superestima quantas voltas cabem — o `ceil` empilharia
     // viés em cima de viés. O total é estimativa e pode mexer ±1 durante a prova.
-    let total_laps = if !timed
-        && tele.session_laps_remain_ex > 0
-        && tele.session_laps_remain_ex < 10_000
-    {
-        max_completed + tele.session_laps_remain_ex
-    } else if timed && kind == "R" && ref_lap.is_finite() {
-        max_completed + (tele.session_time_remain.max(0.0) / ref_lap).round() as i32
-    } else {
-        0
-    };
+    let total_laps =
+        if !timed && tele.session_laps_remain_ex > 0 && tele.session_laps_remain_ex < 10_000 {
+            max_completed + tele.session_laps_remain_ex
+        } else if timed && kind == "R" && ref_lap.is_finite() {
+            max_completed + (tele.session_time_remain.max(0.0) / ref_lap).round() as i32
+        } else {
+            0
+        };
     // O total nunca pode ficar ATRÁS da volta atual: no fim da prova o tempo restante
     // zera, a estimativa colapsaria pra baixo e o "/total" sumiria do header justo na
     // bandeirada.
-    let total_laps = if total_laps > 0 { total_laps.max(lead_lap) } else { 0 };
+    let total_laps = if total_laps > 0 {
+        total_laps.max(lead_lap)
+    } else {
+        0
+    };
+
+    // Reta final da corrida: aquece o servidor de IA. Quando a bandeirada cair, o debrief
+    // do engenheiro e o boletim da revista são pedidos quase juntos, e a PRIMEIRA dessas
+    // chamadas paga o cold start do Cloud Run inteiro — é ela que faz o jogador esperar.
+    // O texto em si não dá pra adiantar (os fatos só existem depois do resultado), então o
+    // que se antecipa é o container. `spawn_warmup` tem guarda de intervalo, o que importa
+    // porque isto roda no poll da torre. Vale para prova por tempo também: `total_laps` já
+    // chega aqui estimado pelo ritmo quando o iRacing manda o sentinela.
+    if kind == "R" && total_laps > 0 && total_laps - lead_lap <= WARMUP_VOLTAS_RESTANTES {
+        crate::narrative::client::spawn_warmup();
+    }
 
     // (o tipo de sessão — `kind` — já foi resolvido antes do loop de carros)
     let checkered = tele.session_state == 5;
@@ -688,7 +731,8 @@ pub fn get_overlay_data(
                     .flatten()
             });
         match next.and_then(|entry| {
-            crate::commands::iracing::build_race_weather_timeline(&db.conn, &career_id, &entry.id).ok()
+            crate::commands::iracing::build_race_weather_timeline(&db.conn, &career_id, &entry.id)
+                .ok()
         }) {
             Some(tl) if tl.is_wet_race => {
                 let now = (kind == "R" && total_laps > 0)

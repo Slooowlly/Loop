@@ -185,6 +185,27 @@ pub(crate) fn load_career_in_base_dir(
         player.stats_carreira.corridas as i32,
     );
 
+    // PRÉ-TEMPORADA: pré-gera a matéria "O Que Esperar" em background, para a revista já
+    // abrir com o texto pronto em vez de mostrar "escrevendo a prévia…" e esperar o
+    // servidor. Passada a 1ª etapa da categoria a revista troca essa matéria pela edição da
+    // corrida, então fora da pré-temporada não há o que adiantar. O trabalho é idempotente:
+    // com a matéria já em cache a thread só faz uma leitura e sai.
+    if let Some(ref team) = player_team {
+        let corridas_concluidas = calendar_queries::count_races_by_status(
+            &db.conn,
+            &active_season.id,
+            &team.categoria,
+            &crate::models::enums::RaceStatus::Concluida,
+        )
+        .unwrap_or(0);
+        if corridas_concluidas == 0 {
+            crate::commands::season_preview::spawn_prewarm_season_preview(
+                base_dir.to_path_buf(),
+                career_id.to_string(),
+            );
+        }
+    }
+
     let next_race = if let Some(ref team) = player_team {
         calendar_queries::get_next_race(&db.conn, &active_season.id, &team.categoria)
             .map_err(|e| format!("Falha ao carregar proxima corrida: {e}"))?
@@ -273,8 +294,7 @@ pub(crate) fn load_career_in_base_dir(
             .sum();
         let team_medias =
             team_queries::get_team_lineup_medias(&db.conn, &team.id).unwrap_or_default();
-        let team_presence =
-            crate::public_presence::team::derive_team_public_presence(&team_medias);
+        let team_presence = crate::public_presence::team::derive_team_public_presence(&team_medias);
         let n = category_teams.len().max(1) as f64;
         Some(crate::finance::cashflow::team_gate_share(
             team_presence,

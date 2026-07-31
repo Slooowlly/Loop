@@ -37,11 +37,11 @@ pub(crate) fn persist_race_news(
     // para os dados reais do SDK quando a integração corrida-real→carreira existir.
     let returned_news_id = corrida_news_id.clone();
     if let Some(news_id) = corrida_news_id {
-        let category_name: &str = match crate::constants::categories::get_category_config(category_id)
-        {
-            Some(c) => c.nome,
-            None => category_id,
-        };
+        let category_name: &str =
+            match crate::constants::categories::get_category_config(category_id) {
+                Some(c) => c.nome,
+                None => category_id,
+            };
 
         let (injury_facts, context_facts, career_beats) =
             super::fatos_boletim::montar_fatos_do_boletim(

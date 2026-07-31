@@ -106,7 +106,12 @@ pub struct StyleFactors {
 
 impl Default for StyleFactors {
     fn default() -> Self {
-        Self { engine: 1.0, gearbox: 1.0, brakes: 1.0, suspension: 1.0 }
+        Self {
+            engine: 1.0,
+            gearbox: 1.0,
+            brakes: 1.0,
+            suspension: 1.0,
+        }
     }
 }
 
@@ -126,7 +131,12 @@ impl StyleFactors {
     /// DESCONFIA do carro (DNF mecânico recente) e poupa as peças — o loop emergente da quebra
     /// (quebrou → desconfia → poupa → quebra menos). `f` < 1.0 = menos desgaste.
     pub fn uniform(f: f64) -> Self {
-        Self { engine: f, gearbox: f, brakes: f, suspension: f }
+        Self {
+            engine: f,
+            gearbox: f,
+            brakes: f,
+            suspension: f,
+        }
     }
 
     /// Nenhum fator se afasta de 1.0 (nada a aplicar — corrida sem estilo capturado).
@@ -142,18 +152,18 @@ impl StyleFactors {
 pub struct StyleAccumulator {
     samples: u64,
     // Motor
-    limiter_ticks: u64,      // rpm_frac > LIMITER_FRAC
-    wot_high_ticks: u64,     // throttle>0.95 && rpm_frac > HIGH_RPM_FRAC
+    limiter_ticks: u64,  // rpm_frac > LIMITER_FRAC
+    wot_high_ticks: u64, // throttle>0.95 && rpm_frac > HIGH_RPM_FRAC
     // Câmbio (upshifts classificados)
     upshifts: u64,
-    limiter_shifts: u64,     // upshift com rpm_frac > SHIFT_LIMITER_FRAC
-    short_shifts: u64,       // upshift com rpm_frac < SHORT_SHIFT_FRAC
+    limiter_shifts: u64, // upshift com rpm_frac > SHIFT_LIMITER_FRAC
+    short_shifts: u64,   // upshift com rpm_frac < SHORT_SHIFT_FRAC
     // Freios
-    brake_ticks: u64,        // brake > BRAKE_ACTIVE
-    hard_brake_ticks: u64,   // brake > HARD_BRAKE
+    brake_ticks: u64,      // brake > BRAKE_ACTIVE
+    hard_brake_ticks: u64, // brake > HARD_BRAKE
     // Suspensão
-    steer_jerk_ticks: u64,   // |Δsteering| > STEER_JERK_RAD
-    kerb_ticks: u64,         // |vert_accel| > KERB_G
+    steer_jerk_ticks: u64, // |Δsteering| > STEER_JERK_RAD
+    kerb_ticks: u64,       // |vert_accel| > KERB_G
     // Estado da última amostra (derivadas).
     last_gear: i32,
     last_steering: f64,
@@ -241,12 +251,18 @@ impl StyleAccumulator {
         // Motor: limitador (abuso) vs short-shift (economia).
         let limiter_frac = frac(self.limiter_ticks, n);
         let motor_abuse = norm(limiter_frac, MOTOR_LIMITER_NORMAL, MOTOR_LIMITER_ABUSE);
-        out.insert(PartType::Engine, (motor_abuse - economy_shift).clamp(-1.0, 1.0));
+        out.insert(
+            PartType::Engine,
+            (motor_abuse - economy_shift).clamp(-1.0, 1.0),
+        );
 
         // Câmbio: trocas no limitador (abuso) vs short-shift (economia).
         let limiter_shift_frac = frac(self.limiter_shifts, shifts);
         let gearbox_abuse = (limiter_shift_frac / GEARBOX_LIMITER_SHIFT_FULL).clamp(0.0, 1.0);
-        out.insert(PartType::Gearbox, (gearbox_abuse - economy_shift).clamp(-1.0, 1.0));
+        out.insert(
+            PartType::Gearbox,
+            (gearbox_abuse - economy_shift).clamp(-1.0, 1.0),
+        );
 
         // Freios: fração de frenagem forte, centrada no normal (frenagem leve = economia).
         // Sem NENHUMA frenagem no dado (brake_ticks=0) = sem sinal → neutro (não economia).
@@ -254,7 +270,10 @@ impl StyleAccumulator {
             let hard_brake_frac = frac(self.hard_brake_ticks, self.brake_ticks as f64);
             let brakes_abuse = norm(hard_brake_frac, BRAKE_HARD_NORMAL, BRAKE_HARD_ABUSE);
             let brakes_economy = norm(BRAKE_HARD_NORMAL - hard_brake_frac, 0.0, BRAKE_HARD_NORMAL);
-            out.insert(PartType::Brakes, (brakes_abuse - brakes_economy).clamp(-1.0, 1.0));
+            out.insert(
+                PartType::Brakes,
+                (brakes_abuse - brakes_economy).clamp(-1.0, 1.0),
+            );
         }
 
         // Suspensão: serrar + zebra (abuso) vs mãos suaves (economia).
@@ -262,7 +281,10 @@ impl StyleAccumulator {
         let kerb_frac = frac(self.kerb_ticks, n);
         let susp_abuse = ((jerk_frac + kerb_frac) / SUSP_ABUSE_SUM).clamp(0.0, 1.0);
         let susp_economy = norm(SUSP_SMOOTH_REF - jerk_frac, 0.0, SUSP_SMOOTH_REF);
-        out.insert(PartType::Suspension, (susp_abuse - susp_economy).clamp(-1.0, 1.0));
+        out.insert(
+            PartType::Suspension,
+            (susp_abuse - susp_economy).clamp(-1.0, 1.0),
+        );
 
         out
     }
@@ -278,7 +300,10 @@ impl StyleAccumulator {
 
     /// Fator de uma peça específica (1.0 se sem sinal). Conveniência pro consumidor.
     pub fn factor_for(&self, pt: PartType) -> f64 {
-        self.scores().get(&pt).map(|&s| style_factor(s)).unwrap_or(1.0)
+        self.scores()
+            .get(&pt)
+            .map(|&s| style_factor(s))
+            .unwrap_or(1.0)
     }
 
     /// Fatores das 4 peças com estilo, na forma `Copy` pra carregar até a economia.
@@ -320,11 +345,20 @@ mod tests {
     #[test]
     fn mapa_do_fator_e_assimetrico() {
         assert!((style_factor(0.0) - 1.0).abs() < 1e-9, "normal = 1.0");
-        assert!((style_factor(-1.0) - MIN_FACTOR).abs() < 1e-9, "economia máx = piso");
-        assert!((style_factor(1.0) - MAX_FACTOR).abs() < 1e-9, "abuso máx = teto");
+        assert!(
+            (style_factor(-1.0) - MIN_FACTOR).abs() < 1e-9,
+            "economia máx = piso"
+        );
+        assert!(
+            (style_factor(1.0) - MAX_FACTOR).abs() < 1e-9,
+            "abuso máx = teto"
+        );
         // Economia responsiva; abuso com zona morta.
         assert!(style_factor(-0.2) < 1.0, "economia leve já desconta");
-        assert!((style_factor(0.2) - 1.0).abs() < 1e-9, "abuso leve (na zona morta) não pune");
+        assert!(
+            (style_factor(0.2) - 1.0).abs() < 1e-9,
+            "abuso leve (na zona morta) não pune"
+        );
         assert!(style_factor(0.7) > 1.0, "abuso claro pune");
     }
 
@@ -332,7 +366,10 @@ mod tests {
     fn sem_dado_e_neutro() {
         let acc = StyleAccumulator::new();
         for &pt in &PartType::ALL {
-            assert!((acc.factor_for(pt) - 1.0).abs() < 1e-9, "{pt:?} sem dado deveria ser 1.0");
+            assert!(
+                (acc.factor_for(pt) - 1.0).abs() < 1e-9,
+                "{pt:?} sem dado deveria ser 1.0"
+            );
         }
     }
 
@@ -356,9 +393,17 @@ mod tests {
             samples.push(s);
         }
         let acc = run(samples);
-        for pt in [PartType::Engine, PartType::Gearbox, PartType::Brakes, PartType::Suspension] {
+        for pt in [
+            PartType::Engine,
+            PartType::Gearbox,
+            PartType::Brakes,
+            PartType::Suspension,
+        ] {
             let f = acc.factor_for(pt);
-            assert!((0.90..=1.10).contains(&f), "{pt:?} normal deveria ~1.0, deu {f}");
+            assert!(
+                (0.90..=1.10).contains(&f),
+                "{pt:?} normal deveria ~1.0, deu {f}"
+            );
         }
     }
 
@@ -381,8 +426,15 @@ mod tests {
             samples.push(s);
         }
         let acc = run(samples);
-        assert!(acc.factor_for(PartType::Engine) < 0.95, "short-shift deveria descontar o motor ({})", acc.factor_for(PartType::Engine));
-        assert!(acc.factor_for(PartType::Gearbox) < 0.95, "short-shift deveria descontar o câmbio");
+        assert!(
+            acc.factor_for(PartType::Engine) < 0.95,
+            "short-shift deveria descontar o motor ({})",
+            acc.factor_for(PartType::Engine)
+        );
+        assert!(
+            acc.factor_for(PartType::Gearbox) < 0.95,
+            "short-shift deveria descontar o câmbio"
+        );
     }
 
     #[test]
@@ -405,16 +457,36 @@ mod tests {
             samples.push(s);
         }
         let acc = run(samples);
-        assert!(acc.factor_for(PartType::Engine) > 1.05, "limitador deveria castigar o motor ({})", acc.factor_for(PartType::Engine));
-        assert!(acc.factor_for(PartType::Gearbox) > 1.05, "trocar no limitador deveria castigar o câmbio");
+        assert!(
+            acc.factor_for(PartType::Engine) > 1.05,
+            "limitador deveria castigar o motor ({})",
+            acc.factor_for(PartType::Engine)
+        );
+        assert!(
+            acc.factor_for(PartType::Gearbox) > 1.05,
+            "trocar no limitador deveria castigar o câmbio"
+        );
     }
 
     #[test]
     fn frenagem_forte_castiga_os_freios() {
-        let suave = run((0..2000).map(|_| StyleSample { brake: 0.4, ..cruise() }));
-        let bruta = run((0..2000).map(|_| StyleSample { brake: 1.0, ..cruise() }));
-        assert!(suave.factor_for(PartType::Brakes) < 1.0, "frenagem leve deveria descontar");
-        assert!(bruta.factor_for(PartType::Brakes) > 1.05, "frenagem no talo deveria castigar ({})", bruta.factor_for(PartType::Brakes));
+        let suave = run((0..2000).map(|_| StyleSample {
+            brake: 0.4,
+            ..cruise()
+        }));
+        let bruta = run((0..2000).map(|_| StyleSample {
+            brake: 1.0,
+            ..cruise()
+        }));
+        assert!(
+            suave.factor_for(PartType::Brakes) < 1.0,
+            "frenagem leve deveria descontar"
+        );
+        assert!(
+            bruta.factor_for(PartType::Brakes) > 1.05,
+            "frenagem no talo deveria castigar ({})",
+            bruta.factor_for(PartType::Brakes)
+        );
     }
 
     #[test]
@@ -429,16 +501,31 @@ mod tests {
             });
         }
         let acc = run(samples);
-        assert!(acc.factor_for(PartType::Suspension) > 1.05, "serrar+zebra deveria castigar a suspensão ({})", acc.factor_for(PartType::Suspension));
+        assert!(
+            acc.factor_for(PartType::Suspension) > 1.05,
+            "serrar+zebra deveria castigar a suspensão ({})",
+            acc.factor_for(PartType::Suspension)
+        );
         // Mãos suaves (volante parado, sem zebra) descontam.
         let suave = run((0..2000).map(|_| cruise()));
-        assert!(suave.factor_for(PartType::Suspension) < 1.0, "mãos suaves deveriam descontar");
+        assert!(
+            suave.factor_for(PartType::Suspension) < 1.0,
+            "mãos suaves deveriam descontar"
+        );
     }
 
     #[test]
     fn redline_desconhecido_ignora_rotacao() {
         // Sem redline (≤0): sinais de rotação são ignorados → motor neutro.
-        let acc = run((0..1000).map(|_| StyleSample { redline: 0.0, rpm: 9999.0, throttle: 1.0, ..cruise() }));
-        assert!((acc.factor_for(PartType::Engine) - 1.0).abs() < 1e-9, "sem redline o motor deveria ficar neutro");
+        let acc = run((0..1000).map(|_| StyleSample {
+            redline: 0.0,
+            rpm: 9999.0,
+            throttle: 1.0,
+            ..cruise()
+        }));
+        assert!(
+            (acc.factor_for(PartType::Engine) - 1.0).abs() < 1e-9,
+            "sem redline o motor deveria ficar neutro"
+        );
     }
 }

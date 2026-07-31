@@ -35,6 +35,13 @@ pub fn update_config(app: AppHandle, new_config: AppConfig) -> Result<(), String
         crate::telemetry::set_enabled(new_config.telemetry_enabled.unwrap_or(false));
     }
 
+    // Chaves de overlay — aplicadas no espelho volátil na hora, então os escritores do
+    // front (que leem por poll) param/voltam sem exigir restart.
+    current_config.vr_overlay_mode = new_config.vr_overlay_mode;
+    current_config.monitor_overlay_in_vr = new_config.monitor_overlay_in_vr;
+    crate::commands::vr_overlay::set_vr_mode(&current_config.vr_overlay_mode);
+    crate::commands::vr_overlay::set_monitor_in_vr(current_config.monitor_overlay_in_vr);
+
     // last_career, window_state e base_dir são preservados de current_config ou atualizados via eventos específicos.
 
     // Reflete a troca de idioma no locale do backend na hora (sem exigir restart).

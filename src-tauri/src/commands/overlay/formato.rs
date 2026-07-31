@@ -23,7 +23,11 @@ pub(crate) fn dbg_state(state: &str) {
     }
     let mut path = std::env::temp_dir();
     path.push("iracer_overlay_data.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -45,9 +49,9 @@ pub(crate) fn fmt_lap(secs: f64) -> String {
 
 pub(crate) fn wetness_to_condition(w: i32) -> &'static str {
     match w {
-        n if n >= 4 => "rain",  // LightlyWet+
-        1 => "clear",           // Dry
-        _ => "clouds",          // MostlyDry / desconhecido
+        n if n >= 4 => "rain", // LightlyWet+
+        1 => "clear",          // Dry
+        _ => "clouds",         // MostlyDry / desconhecido
     }
 }
 

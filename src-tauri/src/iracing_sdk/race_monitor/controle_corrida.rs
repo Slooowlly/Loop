@@ -165,7 +165,13 @@ impl RaceMonitor {
 
     /// Registra a recomendação de bandeira e, se o envio automático estiver
     /// ligado, dispara a macro `!y$` no iRacing.
-    pub(super) fn recommend_yellow(&mut self, now: f64, lap: i32, car_idx: Option<i32>, detail: String) {
+    pub(super) fn recommend_yellow(
+        &mut self,
+        now: f64,
+        lap: i32,
+        car_idx: Option<i32>,
+        detail: String,
+    ) {
         self.pending_yellow_time = Some(now);
         self.emit(now, lap, "yellow_recommended", car_idx, detail, None);
         if AUTO_YELLOW.load(Ordering::Relaxed) {

@@ -54,4 +54,3 @@ pub(super) struct SpecialCampaignAggregate {
     pub(super) wins: i32,
     pub(super) podiums: i32,
 }
-

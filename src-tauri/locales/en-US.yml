@@ -487,6 +487,7 @@ team_dossier:
     podiums: "Podiums"
     podium_rate: "Podium rate"
     win_rate: "Win rate"
+    world_scope: "Whole world"
   first_milestone:
     podium: "First podium"
     win: "First win"
@@ -549,6 +550,12 @@ team_dossier:
     podium_other: "%{count} podiums in a row"
     points_one: "1 race in the points"
     points_other: "%{count} races in the points"
+  alumni:
+    still_here: "Still with the team"
+    retired: "Retired"
+    retired_year: "Retired in %{year}"
+    now_at: "Now in %{category}"
+    unknown: "Whereabouts unknown"
   rival_none: "No established rival"
   symbol_none: "No symbol driver"
 
@@ -638,6 +645,11 @@ race:
     other_categories_summary: "Other categories summary: %{headline}."
   retirement:
     injury: "Retired at %{age} after a serious injury"
+    # Career-ending injury news. Destaque importance: the hardest headline the world produces
+    # outside a title — a driver is off the grid for good.
+    news_title: "%{name} retires at %{age}"
+    news_text: "%{injury} in round %{round} left damage too serious to race on. %{name} hangs up the helmet in %{category} with %{races} starts, %{wins} wins and %{podiums} podiums. The %{team} seat opens up mid-season."
+    news_text_no_team: "%{injury} in round %{round} left damage too serious to race on. %{name} hangs up the helmet in %{category} with %{races} starts, %{wins} wins and %{podiums} podiums."
 
 # Injury names (simulation/injuries.rs). The per-severity pool selects a KEY; the
 # name is persisted in the save (Option A). Key order in the pool must not change
@@ -1036,6 +1048,19 @@ ai_news:
     dnf_short: "DNF"
     maintenance_total: "CAR MAINTENANCE: $ %{total} total"
     maintenance_crash: "- CRASH REPAIR: %{items}"
+    forecast_head: "WHAT THE TEAM CALLED ON SATURDAY × WHAT ARRIVED:"
+    forecast_good_delivered: "- The weekend was in his favour and the result came. The team's read held up; there is no surprise to explain."
+    forecast_good_missed: "- The weekend was IN HIS FAVOUR and the result did NOT come. Conditions do not explain this one — the bill is the driver's, and that is the point of the debrief."
+    forecast_bad_confirmed: "- The team warned the weekend would be hard, and it was. The warning held: that is context for the result, not absolution."
+    forecast_bad_beaten: "- The weekend was AGAINST him and the result came anyway. It was the driver who took from it what the car and the track did not offer."
+    course_head: "HOW THE RACE UNFOLDED (what produced the result):"
+    course_traffic: "- Traffic: %{tried} overtake attempt(s), %{done} completed; was attacked %{suffered} time(s)"
+    course_stuck: "- Held up: %{n} consecutive segment(s) behind a slower car, %{dirty} segment(s) in dirty air"
+    course_pit: "- Pit on lap %{lap}: entered P%{before}, rejoined P%{after} (%{delta} positions across the stop)"
+    course_pit_bare: "- Pit on lap %{lap}"
+    course_strategy: "- Team strategy: %{strategy}"
+    course_safety_car: "- Safety car on lap %{lap}: you were P%{before} when it came out and finished P%{after}"
+    course_safety_car_bare: "- Safety car on lap %{lap}"
     parts_head: "YOUR CAR — PARTS THAT GAVE OUT:"
     part_pit: "%{secs}s lost in the pits"
     part_dnf: "retirement (car out)"

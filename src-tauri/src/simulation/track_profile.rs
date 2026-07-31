@@ -92,7 +92,7 @@ pub fn get_track_simulation_data(track_id: u32) -> TrackSimulationData {
         229 => TrackSimulationData::new(Technical, 1.20, 1.15, 25.0, 45.0, 30.0), // COTA
         465 => TrackSimulationData::new(Technical, 1.25, 1.20, 25.0, 25.0, 50.0), // VIR Full
         353 => TrackSimulationData::new(Technical, 0.85, 0.82, 50.0, 20.0, 30.0), // Lime Rock
-        9 => TrackSimulationData::new(Technical, 0.85, 0.85, 50.0, 20.0, 30.0),   // Summit Point
+        9 => TrackSimulationData::new(Technical, 0.85, 0.85, 50.0, 20.0, 30.0),  // Summit Point
 
         // Technical with neutral stress but explicit car weights
         586 => TrackSimulationData::new(Technical, 1.00, 1.00, 30.0, 20.0, 50.0), // Laguna Seca

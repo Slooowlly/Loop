@@ -20,7 +20,10 @@ pub(crate) fn numbers_path(base_dir: &std::path::Path, career_id: &str) -> std::
 
 /// "Post-it" do import: aponta para o arquivo de aiseason exportado e o mapa
 /// evento→corrida da carreira. Gravado no export, lido no import. Por carreira.
-pub(crate) fn season_pointer_path(base_dir: &std::path::Path, career_id: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn season_pointer_path(
+    base_dir: &std::path::Path,
+    career_id: &str,
+) -> Option<std::path::PathBuf> {
     Some(
         base_dir
             .join("iracing_pointers")
@@ -189,7 +192,8 @@ pub fn iracing_generate_roster(
                         .unwrap_or_default()
                         .iter()
                         .any(|p| {
-                            p.temporada_inicio < cur.temporada_inicio && p.equipe_id != cur.equipe_id
+                            p.temporada_inicio < cur.temporada_inicio
+                                && p.equipe_id != cur.equipe_id
                         })
             })
             .unwrap_or(false);
@@ -205,8 +209,8 @@ pub fn iracing_generate_roster(
                 crashed_out_last_race: false,
                 not_at_fault_dnfs: 0,
                 track_crash: false,
-                nemesis: false,        // preenchido após resolver a próxima corrida
-                mechanical_dnfs: 0,    // idem
+                nemesis: false,     // preenchido após resolver a próxima corrida
+                mechanical_dnfs: 0, // idem
                 switched_teams,
                 reigning_champion: prev_champion_id.as_deref() == Some(driver.id.as_str()),
                 career_debut: driver.stats_carreira.corridas == 0,
@@ -588,8 +592,12 @@ pub fn iracing_generate_roster(
 
         let ev_seed = event_seed(&career_id, &race.id);
         // Clima da corrida — MESMA história determinística do resto do export (o "cache" do clima).
-        let weather =
-            race_breakdown_weather(race.track_id, race.week_of_year, ev_seed, force_wet.unwrap_or(false));
+        let weather = race_breakdown_weather(
+            race.track_id,
+            race.week_of_year,
+            ev_seed,
+            force_wet.unwrap_or(false),
+        );
         let track_pha = maintenance_demand(&[race.track_id]);
 
         // Semente por carro: mistura o piloto na semente do evento → o aviso pré-corrida (pré-roll)
@@ -613,7 +621,9 @@ pub fn iracing_generate_roster(
         let mut dir = BreakdownDirector::new();
         for (driver, team_info) in &entries {
             let Some(ti) = team_info else { continue };
-            let Some(num) = numbers.get(&driver.id).copied() else { continue };
+            let Some(num) = numbers.get(&driver.id).copied() else {
+                continue;
+            };
             if num <= 0 {
                 continue;
             }

@@ -129,7 +129,10 @@ mod tests {
         let champ = season_reputation_target(1, FULL_GRID);
         let last = season_reputation_target(FULL_GRID, FULL_GRID);
         assert!(champ > 85.0, "campeão deve mirar alto, foi {champ}");
-        assert!(last <= TARGET_FLOOR + 0.01, "lanterna deve mirar o piso do alvo, foi {last}");
+        assert!(
+            last <= TARGET_FLOOR + 0.01,
+            "lanterna deve mirar o piso do alvo, foi {last}"
+        );
         assert!(champ > last);
     }
 
@@ -137,15 +140,24 @@ mod tests {
     fn mid_grid_target_sits_near_base() {
         // Grid de 5: posição 3 é exatamente o meio → alvo == BASE.
         let mid = season_reputation_target(3, 5);
-        assert!((mid - BASE).abs() < 0.01, "meio de tabela deve mirar a base, foi {mid}");
+        assert!(
+            (mid - BASE).abs() < 0.01,
+            "meio de tabela deve mirar a base, foi {mid}"
+        );
     }
 
     #[test]
     fn winning_lifts_a_mid_team_but_gradually() {
         let after = advance_team_reputation(BASE, 1, FULL_GRID);
         // Sobe, mas longe do alvo (~93): inércia média não pula.
-        assert!(after > BASE + 6.0, "deveria subir visivelmente, foi {after}");
-        assert!(after < 65.0, "não deveria pular pro alvo em uma temporada, foi {after}");
+        assert!(
+            after > BASE + 6.0,
+            "deveria subir visivelmente, foi {after}"
+        );
+        assert!(
+            after < 65.0,
+            "não deveria pular pro alvo em uma temporada, foi {after}"
+        );
     }
 
     #[test]
@@ -153,14 +165,20 @@ mod tests {
         // Potência (90) que termina em último decai — mas não despenca.
         let after = advance_team_reputation(90.0, FULL_GRID, FULL_GRID);
         assert!(after < 90.0, "deveria cair, foi {after}");
-        assert!(after > 70.0, "queda deveria ser gradual (inércia), foi {after}");
+        assert!(
+            after > 70.0,
+            "queda deveria ser gradual (inércia), foi {after}"
+        );
     }
 
     #[test]
     fn mean_reversion_lifts_an_underrated_team_finishing_mid() {
         // Time com reputação baixa (25) que termina no meio é puxado PRA CIMA.
         let after = advance_team_reputation(25.0, 3, 5);
-        assert!(after > 25.0, "meio de tabela deveria recuperar reputação, foi {after}");
+        assert!(
+            after > 25.0,
+            "meio de tabela deveria recuperar reputação, foi {after}"
+        );
     }
 
     #[test]
@@ -169,7 +187,10 @@ mod tests {
         for _ in 0..12 {
             rep = advance_team_reputation(rep, 1, FULL_GRID);
         }
-        assert!(rep > 90.0, "campeão perpétuo deveria virar potência, ficou {rep}");
+        assert!(
+            rep > 90.0,
+            "campeão perpétuo deveria virar potência, ficou {rep}"
+        );
         assert!(rep <= CEIL);
     }
 
@@ -179,7 +200,10 @@ mod tests {
         for _ in 0..15 {
             rep = advance_team_reputation(rep, FULL_GRID, FULL_GRID);
         }
-        assert!((rep - FLOOR).abs() < 1.0, "lanterna crônica deveria assentar no piso, ficou {rep}");
+        assert!(
+            (rep - FLOOR).abs() < 1.0,
+            "lanterna crônica deveria assentar no piso, ficou {rep}"
+        );
     }
 
     #[test]
@@ -252,12 +276,8 @@ mod tests {
             let season = Season::new("S1".to_string(), 1, 2026);
             update_team_reputations_from_season(&conn, &season).expect("update");
 
-            let champ = team_queries::get_team_by_id(&conn, "T1")
-                .unwrap()
-                .unwrap();
-            let last = team_queries::get_team_by_id(&conn, "T4")
-                .unwrap()
-                .unwrap();
+            let champ = team_queries::get_team_by_id(&conn, "T1").unwrap().unwrap();
+            let last = team_queries::get_team_by_id(&conn, "T4").unwrap().unwrap();
             assert!(champ.reputacao > 48.0, "campeão subiu: {}", champ.reputacao);
             assert!(last.reputacao < 48.0, "lanterna caiu: {}", last.reputacao);
             assert!(champ.reputacao <= CEIL && last.reputacao >= FLOOR);

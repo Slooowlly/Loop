@@ -207,3 +207,76 @@ fn telemetry_facts_vazio_sem_telemetria() {
     assert!(telemetry_facts(None, 5).is_empty());
     assert!(telemetry_facts(Some(&json!({ "has_telemetry": false })), 5).is_empty());
 }
+
+/// A MATRIZ DE TOM do fechamento do fim de semana. O eixo é "quem leva a conta": anunciado
+/// e entregue concordando → as condições explicam; divergindo → o piloto explica.
+///
+/// Este teste existe porque a matriz é a decisão de design, não um detalhe: trocar duas
+/// frases de lugar inverteria a atribuição sem quebrar mais nada.
+#[test]
+fn matriz_de_tom_do_anuncio_atribui_a_conta_a_quem_deve() {
+    // Anunciado A FAVOR.
+    assert_eq!(
+        caso_do_anuncio(3, Assessment::MuitoAcima),
+        Some("ai_news.facts.forecast_good_delivered"),
+        "a favor × acima: confirmação, a conta é das condições"
+    );
+    // O caso que impede a leitura de virar álibi: as condições estavam do lado dele.
+    assert_eq!(
+        caso_do_anuncio(2, Assessment::MuitoAbaixo),
+        Some("ai_news.facts.forecast_good_missed"),
+        "a favor × abaixo: a conta é do PILOTO"
+    );
+
+    // Anunciado CONTRA.
+    assert_eq!(
+        caso_do_anuncio(-2, Assessment::Abaixo),
+        Some("ai_news.facts.forecast_bad_confirmed"),
+        "contra × abaixo: contexto, a conta é das condições"
+    );
+    assert_eq!(
+        caso_do_anuncio(-4, Assessment::Acima),
+        Some("ai_news.facts.forecast_bad_beaten"),
+        "contra × acima: o crédito é do PILOTO"
+    );
+
+    // Os dois casos de DIVERGÊNCIA (os informativos) nunca podem colidir com os de
+    // confirmação — é a inversão que este teste existe para pegar.
+    assert_ne!(
+        caso_do_anuncio(2, Assessment::MuitoAbaixo),
+        caso_do_anuncio(-2, Assessment::Abaixo)
+    );
+    assert_ne!(
+        caso_do_anuncio(-4, Assessment::Acima),
+        caso_do_anuncio(3, Assessment::MuitoAcima)
+    );
+}
+
+/// Nem toda corrida rende uma frase. Anúncio neutro não tem previsão a cobrar, e resultado
+/// "dentro do esperado" não tem desvio a explicar — calar é a resposta certa, mesmo
+/// princípio da regra do vazio.
+#[test]
+fn anuncio_neutro_ou_resultado_esperado_nao_rende_frase() {
+    assert_eq!(caso_do_anuncio(0, Assessment::MuitoAcima), None);
+    assert_eq!(caso_do_anuncio(0, Assessment::MuitoAbaixo), None);
+    assert_eq!(caso_do_anuncio(5, Assessment::Dentro), None);
+    assert_eq!(caso_do_anuncio(-5, Assessment::Dentro), None);
+}
+
+/// A frase depende do SINAL do anúncio, não da magnitude: +1 e +6 contam a mesma história
+/// ("estava a favor"). A magnitude é assunto da tela, que mostra faixa por camada.
+#[test]
+fn so_o_sinal_do_anuncio_importa_para_a_frase() {
+    for soma in 1..=6 {
+        assert_eq!(
+            caso_do_anuncio(soma, Assessment::Abaixo),
+            Some("ai_news.facts.forecast_good_missed")
+        );
+    }
+    for soma in -6..=-1 {
+        assert_eq!(
+            caso_do_anuncio(soma, Assessment::Abaixo),
+            Some("ai_news.facts.forecast_bad_confirmed")
+        );
+    }
+}

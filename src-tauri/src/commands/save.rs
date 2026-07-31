@@ -18,8 +18,8 @@ mod comum;
 #[path = "save/restore.rs"]
 mod restore;
 
-pub use comandos::*;
 pub(crate) use backup::*;
+pub use comandos::*;
 pub(crate) use comum::*;
 pub(crate) use restore::*;
 

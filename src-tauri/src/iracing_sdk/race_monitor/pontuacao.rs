@@ -138,7 +138,10 @@ impl RaceMonitor {
     // ── Batidas (scorer) ─────────────────────────────────────────────────────
     /// Pontua os sinais de batida deste tick (incidente, G, yaw, rotação, fora
     /// da pista). Reboque e velocidade perdida são tratados no `observe`/`close`.
-    pub(super) fn score_tick(t: &IracingTelemetry, prev_incident: Option<i32>) -> (Components, Vec<String>) {
+    pub(super) fn score_tick(
+        t: &IracingTelemetry,
+        prev_incident: Option<i32>,
+    ) -> (Components, Vec<String>) {
         let mut c = Components::ZERO;
         let mut factors: Vec<String> = Vec::new();
 

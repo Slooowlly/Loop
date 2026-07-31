@@ -184,9 +184,8 @@ pub(super) fn empurrar_quadro_do_campeonato(
             &active_season.id,
             category_id,
         ) {
-            let pos_of = |team_id: &str| {
-                ts.iter().find(|t| t.team_id == team_id).map(|t| t.position)
-            };
+            let pos_of =
+                |team_id: &str| ts.iter().find(|t| t.team_id == team_id).map(|t| t.position);
             let prev_season = active_season.numero - 1;
 
             // Candidatos (jogador tem prioridade; senão, a virada mais dramática).
@@ -208,12 +207,11 @@ pub(super) fn empurrar_quadro_do_campeonato(
                 else {
                     continue;
                 };
-                let contracts = match crate::db::queries::contracts::get_contracts_for_pilot(
-                    conn, pilot_id,
-                ) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
+                let contracts =
+                    match crate::db::queries::contracts::get_contracts_for_pilot(conn, pilot_id) {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
                 // Equipe na temporada passada, mesma categoria, time diferente do atual.
                 let Some(prev) = contracts.iter().find(|c| {
                     c.categoria.as_str() == category_id

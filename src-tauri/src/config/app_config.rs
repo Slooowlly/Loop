@@ -45,6 +45,11 @@ pub struct SaveMeta {
 
 // ── AppConfig — espelha config.json ──────────────────────────────────────────
 
+/// Padrão do `vr_overlay_mode`. Função porque `#[serde(default)]` de String daria "".
+fn modo_vr_padrao() -> String {
+    "auto".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -63,6 +68,28 @@ pub struct AppConfig {
     /// procura pra saber se deve aparecer. Depois disso vira `Some(true/false)`.
     #[serde(default)]
     pub telemetry_enabled: Option<bool>,
+
+    /// Quando desenhar o overlay de VR (torre + rádio na memória compartilhada lida pela
+    /// API layer do OpenXR): `"auto"` | `"on"` | `"off"`.
+    ///
+    /// O padrão é `"auto"`: a própria API layer avisa quando o iRacing abre em VR (ela só
+    /// é carregada nesse caso), então a decisão não precisa ser do jogador. Importa porque
+    /// o pipeline é caro — cada quadro faz `getImageData` de 1024×2048 (8 MB) e manda por
+    /// IPC a 10-30 Hz, e no monitor isso é pressão de memória no WebView2 em troca de
+    /// nada (foi o que derrubou a janela com "Out of Memory" numa corrida longa).
+    ///
+    /// `"on"` força — escape pra quando a layer não está instalada ou o sinal não chega
+    /// (ex.: iRacing elevado e o Loop não). `"off"` nunca desenha.
+    #[serde(default = "modo_vr_padrao")]
+    pub vr_overlay_mode: String,
+
+    /// Com o VR ativo, abrir TAMBÉM as janelas de overlay no monitor? Padrão `false`:
+    /// dentro do headset ninguém vê o desktop, e a janela da torre redesenha um canvas
+    /// de 1024×2048 a cada quadro pra nada. Existe pra quem transmite ou grava a
+    /// corrida — aí o overlay no monitor é o ponto, não desperdício. Sem VR a chave é
+    /// irrelevante: o overlay de monitor aparece do mesmo jeito.
+    #[serde(default)]
+    pub monitor_overlay_in_vr: bool,
 
     // Window state
     pub window_width: u32,
@@ -84,6 +111,8 @@ impl Default for AppConfig {
             autosave_enabled: true,
             install_id: None,
             telemetry_enabled: None,
+            vr_overlay_mode: modo_vr_padrao(),
+            monitor_overlay_in_vr: false,
             window_width: 1280,
             window_height: 720,
             window_maximized: false,

@@ -71,7 +71,33 @@ pub const CUSTO_TENTATIVA_FALHA_ATACANTE_MS: f64 = 350.0;
 pub const CUSTO_TENTATIVA_FALHA_DEFENSOR_MS: f64 = 150.0;
 
 /// Chance de uma tentativa falha virar contato, no piloto de agressividade média.
-pub const RISCO_DE_CONTATO_NA_TENTATIVA_FALHA: f64 = 0.05;
+///
+/// Subiu de 0,05 para 0,06 porque o contato ganhou consequência: além do tempo perdido, ele
+/// agora avaria o carro (dano latente), castiga a peça e cobra reparo na fatura da rodada. A
+/// 5% o evento era raro demais para que qualquer uma dessas consequências fosse sentida — uma
+/// equipe levava ~1,4 pancadas por temporada contra ~58 trocas de peça.
+///
+/// **Está acoplado à taxa de lesão, e a lesão está acoplada ao TAMANHO DO MUNDO.** Cada
+/// contato é uma rolagem de lesão em cada um dos dois carros (`IRM_CONTATO_DE_DISPUTA`, 20%),
+/// e a lesão grave encerra carreira — mais aposentadoria, mais novato gerado para repor, mais
+/// gente sem assento. Medido no rascunho histórico de 26 temporadas:
+///
+/// | contato | lesões/largada | aposentados | free agents sem vaga |
+/// |---------|----------------|-------------|----------------------|
+/// | 0,05    | 1,18%          | 353         | 20                   |
+/// | 0,075   | 1,69%          | 377–408     | 37–42 — no muro      |
+/// | 0,10    | 2,22%          | 444 (+26%)  | 53 — estoura         |
+///
+/// O teto é o de `closed_system_playable_world_has_no_orphans_and_drivers_raced` (≤ 40 free
+/// agents). **A relação não é linear**: de 0,05 para 0,075 os órfãos dobram, e daí para 0,10
+/// sobem só mais 30%. Por isso 0,06 e não mais — 0,075 já deixava o teste piscando (falhava em
+/// 2 de 3 rodadas), que é pior do que falhar sempre.
+///
+/// O que NÃO se ganha subindo isto: pressão orçamentária. Mesmo a 0,10 o reparo de contato é
+/// 0,45% da conta de manutenção de uma equipe. O contato é mecanismo esportivo — posição
+/// perdida, piloto machucado, carro torto —, não econômico. Ver o harness
+/// `simulation::race::tests::medicao`, que mede as duas coisas juntas.
+pub const RISCO_DE_CONTATO_NA_TENTATIVA_FALHA: f64 = 0.06;
 
 // ─────────────────────── Ar sujo ───────────────────────
 

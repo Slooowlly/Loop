@@ -212,4 +212,3 @@ pub(super) fn calculate_form_trend(results: &[HistoricalRaceResult]) -> String {
         _ => "\u{2192}".to_string(),
     }
 }
-

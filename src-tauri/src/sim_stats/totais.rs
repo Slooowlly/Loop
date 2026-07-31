@@ -150,15 +150,15 @@ pub(super) struct Totals {
 
     // ── Recuperação de equipes em colapso (trajetória por equipe) ──
     pub(super) teams_ever_collapse: u64,
-    pub(super) teams_recovered: u64,  // chegaram a stable+ depois do colapso
-    pub(super) teams_escaped: u64,    // saíram do colapso (qualquer estado melhor) depois
-    pub(super) teams_stuck: u64,      // colapsaram e TERMINARAM em colapso
+    pub(super) teams_recovered: u64, // chegaram a stable+ depois do colapso
+    pub(super) teams_escaped: u64,   // saíram do colapso (qualquer estado melhor) depois
+    pub(super) teams_stuck: u64,     // colapsaram e TERMINARAM em colapso
     pub(super) recover_time_sum: u64, // temporadas do colapso até recuperação (stable+)
     pub(super) recover_time_n: u64,
     pub(super) collapse_seasons_sum: u64, // total de temporada-em-colapso (para média)
     // Desfecho dos episódios de colapso (contadores de produção)
-    pub(super) episodes_self_rescued: u64,     // salvaram-se no all-in, sem venda
-    pub(super) episodes_sold: u64,             // precisaram ser vendidas
+    pub(super) episodes_self_rescued: u64, // salvaram-se no all-in, sem venda
+    pub(super) episodes_sold: u64,         // precisaram ser vendidas
     pub(super) ownership_events_recorded: u64, // linhas em team_ownership_events (verificação)
 
     // ── Funil de carreira (cohort que começou no rookie, tier 0) ──
@@ -178,8 +178,8 @@ pub(super) struct Totals {
     pub(super) rookie_season_count: u64, // nº de temporadas-rookie observadas (>= temporada 1)
     pub(super) rookie_obs: u64,          // observações de ocupante de assento rookie
     pub(super) rookie_fresh: u64,        // estreias NOVAS (id nunca visto antes nesta run)
-    pub(super) rookie_retained: u64,     // mesmo piloto que já estava no rookie na temporada anterior
-    pub(super) rookie_returning: u64,    // conhecido (já visto) mas não estava no rookie ano passado
+    pub(super) rookie_retained: u64, // mesmo piloto que já estava no rookie na temporada anterior
+    pub(super) rookie_returning: u64, // conhecido (já visto) mas não estava no rookie ano passado
     pub(super) rookie_age_sum: u64,
     pub(super) rookie_age_n: u64,
 }

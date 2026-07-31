@@ -563,7 +563,6 @@ impl RaceMonitor {
             chat_send_warned: false,
         }
     }
-
 }
 
 // ─── Estado global + sampler ─────────────────────────────────────────────────

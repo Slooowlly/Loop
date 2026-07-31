@@ -242,13 +242,20 @@ pub fn iracing_link_player_paint(
         .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
         .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
 
-    let (path, color) =
-        write_player_car_tga(&car_key, &roster_gen::normalize_hex(&team.cor_primaria), custid)?;
+    let (path, color) = write_player_car_tga(
+        &car_key,
+        &roster_gen::normalize_hex(&team.cor_primaria),
+        custid,
+    )?;
 
     crate::db::queries::meta::put_meta_value(&db.conn, PLAYER_CUSTID_META_KEY, &custid.to_string())
         .map_err(|e| format!("Falha ao vincular o ID ao save: {e}"))?;
 
-    Ok(ApplyPaintResult { path, custid, color })
+    Ok(ApplyPaintResult {
+        path,
+        custid,
+        color,
+    })
 }
 
 /// Mercado: repinta o carro do jogador na cor da NOVA equipe ao aceitar um contrato.
@@ -294,5 +301,9 @@ pub fn iracing_apply_market_paint(
 
     let car_key = car_key_for_category(&category);
     let (path, color) = write_player_car_tga(car_key, &team_color, custid)?;
-    Ok(Some(ApplyPaintResult { path, custid, color }))
+    Ok(Some(ApplyPaintResult {
+        path,
+        custid,
+        color,
+    }))
 }

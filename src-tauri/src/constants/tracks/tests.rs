@@ -22,7 +22,10 @@ fn free_or_substitute_swaps_paid_for_free_and_is_stable() {
     assert!(sub.gratuita, "a substituta precisa ser uma pista grátis");
     // Determinístico: a mesma pista paga sempre mapeia para a mesma free (o import
     // compara o resultado contra a pista exportada).
-    assert_eq!(sub.track_id, free_or_substitute(580).expect("estável").track_id);
+    assert_eq!(
+        sub.track_id,
+        free_or_substitute(580).expect("estável").track_id
+    );
 }
 
 #[test]
@@ -58,7 +61,11 @@ fn catalog_has_no_duplicate_ids() {
 
 #[test]
 fn catalog_covers_all_owned_events() {
-    assert_eq!(TRACKS.len(), 107, "catálogo deve ter exatamente os eventos possuídos");
+    assert_eq!(
+        TRACKS.len(),
+        107,
+        "catálogo deve ter exatamente os eventos possuídos"
+    );
 }
 
 #[test]
@@ -70,7 +77,10 @@ fn corrected_ids_match_iracing() {
     assert_eq!(get_track(523).expect("Spa").nome_curto, "Spa");
     assert_eq!(get_track(168).expect("Suzuka").nome_curto, "Suzuka");
     assert_eq!(get_track(219).expect("Bathurst").nome_curto, "Bathurst");
-    assert_eq!(get_track(586).expect("Laguna Seca").nome_curto, "Laguna Seca");
+    assert_eq!(
+        get_track(586).expect("Laguna Seca").nome_curto,
+        "Laguna Seca"
+    );
 }
 
 #[test]

@@ -211,12 +211,16 @@ fn test_azarao_and_drought_queries() {
     .unwrap();
 
     // Azarão = P001 (3 largadas, nunca venceu).
-    let azarao = get_category_most_starts_no_win(&conn, "gt4").unwrap().unwrap();
+    let azarao = get_category_most_starts_no_win(&conn, "gt4")
+        .unwrap()
+        .unwrap();
     assert_eq!(azarao.pilot_id, "P001");
     assert_eq!(azarao.value, 3);
 
     // Maior pontuador = P001 (12+18+0=30) vs P002 (15+25+0=40) → P002.
-    let pts = get_category_most_career_points(&conn, "gt4").unwrap().unwrap();
+    let pts = get_category_most_career_points(&conn, "gt4")
+        .unwrap()
+        .unwrap();
     assert_eq!(pts.pilot_id, "P002");
 
     // Última vitória de P002 antes de S2/r1 = S1 (R2). Jejum a partir daí.
@@ -254,9 +258,18 @@ fn test_track_win_queries() {
     )
     .unwrap();
 
-    assert_eq!(get_pilot_track_wins(&conn, "P001", "gt4", "Interlagos").unwrap(), 1);
-    assert_eq!(get_pilot_track_wins(&conn, "P001", "gt4", "Spa").unwrap(), 1);
-    assert_eq!(get_pilot_track_wins(&conn, "P001", "gt4", "Monza").unwrap(), 0);
+    assert_eq!(
+        get_pilot_track_wins(&conn, "P001", "gt4", "Interlagos").unwrap(),
+        1
+    );
+    assert_eq!(
+        get_pilot_track_wins(&conn, "P001", "gt4", "Spa").unwrap(),
+        1
+    );
+    assert_eq!(
+        get_pilot_track_wins(&conn, "P001", "gt4", "Monza").unwrap(),
+        0
+    );
     // Ninguém além de P001 venceu em Interlagos.
     assert_eq!(
         get_track_win_leader_excluding(&conn, "gt4", "Interlagos", "P001").unwrap(),
@@ -334,8 +347,7 @@ fn test_get_recent_finishes_before_excludes_current_and_orders_desc() {
     .unwrap();
 
     // Antes de S2/r1 (numero=2, rodada=1) entram só R1 e R2 (ambas em S1).
-    let recent =
-        get_recent_finishes_before(&conn, "P001", "gt4", 2, 1, 5).unwrap();
+    let recent = get_recent_finishes_before(&conn, "P001", "gt4", 2, 1, 5).unwrap();
     assert_eq!(recent.len(), 2);
     // Mais recente primeiro: R2 (rodada 2) antes de R1 (rodada 1).
     assert_eq!(recent[0].finish, 1);

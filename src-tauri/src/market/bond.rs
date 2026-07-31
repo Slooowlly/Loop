@@ -51,7 +51,12 @@ pub fn bond_level_label(vinculo: f64) -> &'static str {
 
 /// Acúmulo de uma temporada juntos (com bônus se venceram o campeonato de construtores).
 pub fn accumulate_bond(current: f64, won_constructor_title: bool) -> f64 {
-    let gain = BASE_PER_SEASON + if won_constructor_title { TITLE_BONUS } else { 0.0 };
+    let gain = BASE_PER_SEASON
+        + if won_constructor_title {
+            TITLE_BONUS
+        } else {
+            0.0
+        };
     (current + gain).clamp(MIN, MAX)
 }
 
@@ -172,7 +177,10 @@ mod tests {
 
     #[test]
     fn levels_map_the_full_ladder() {
-        assert_eq!((bond_level(0.0), bond_level_label(0.0)), (1, "Recém-chegado"));
+        assert_eq!(
+            (bond_level(0.0), bond_level_label(0.0)),
+            (1, "Recém-chegado")
+        );
         assert_eq!(bond_level(20.0), 2);
         assert_eq!(bond_level(40.0), 3);
         assert_eq!(bond_level(60.0), 4);

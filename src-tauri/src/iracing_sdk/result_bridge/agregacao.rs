@@ -4,7 +4,9 @@
 
 use std::collections::HashMap;
 
-use crate::iracing_sdk::race_monitor::{severity_rank, Attempt, RaceEvent, RaceHistory, RaceStatus};
+use crate::iracing_sdk::race_monitor::{
+    severity_rank, Attempt, RaceEvent, RaceHistory, RaceStatus,
+};
 
 /// Melhor volta (em ms) de cada carro, a partir de `car_laps` (tempos em segundos).
 /// Slots com `time <= 0` (sem volta válida) são ignorados.

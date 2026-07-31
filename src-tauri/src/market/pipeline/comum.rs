@@ -47,7 +47,11 @@ pub(super) fn team_quality(team: &crate::models::team::Team) -> f64 {
 /// Prestígio competitivo (0-100) de uma equipe pelos ÚLTIMOS 10 ANOS do campeonato
 /// de construtores (título alto, pódio médio, com peso por recência). O que o
 /// piloto mais confia (vs a promessa não-verificável do carro). Sem archive → 0.
-pub(super) fn team_prestige(conn: &Connection, team_id: &str, current_season: i32) -> Result<f64, String> {
+pub(super) fn team_prestige(
+    conn: &Connection,
+    team_id: &str,
+    current_season: i32,
+) -> Result<f64, String> {
     let mut stmt = match conn.prepare(
         "SELECT season_number, posicao_campeonato FROM team_season_archive
          WHERE team_id = ?1 AND season_number > ?2",

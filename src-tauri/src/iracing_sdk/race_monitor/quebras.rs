@@ -85,18 +85,21 @@ impl RaceMonitor {
         // Com os dois ticks no mesmo clima, a ordem entre eles deixa de importar.
         let weather = effective_weather(t, self.breakdown_weather);
         let progress = self.breakdown_progress; // enduro: rampa de fim (a grade atualiza)
-        // Guardado por `is_none()` no topo; `let Some … else` em vez de `unwrap` pra
-        // nunca derrubar a thread de telemetria se o invariante mudar.
+                                                // Guardado por `is_none()` no topo; `let Some … else` em vez de `unwrap` pra
+                                                // nunca derrubar a thread de telemetria se o invariante mudar.
         let Some(dir) = self.breakdown.as_mut() else {
             return;
         };
         let evs = dir.on_lap_at(car_num, lap, weather, progress);
         for ev in evs {
             self.pending_breakdown_cmds.push(ev.command(car_num));
-            self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));
+            self.breakdown_log
+                .push(BreakdownOutcome::from_event(car_num, &ev));
             if idx >= 0 && (idx as usize) < 64 {
-                self.breakdown_alert[idx as usize] =
-                    Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+                self.breakdown_alert[idx as usize] = Some(BreakdownAlert {
+                    severity: ev.severity,
+                    entered_pit_since: false,
+                });
             }
         }
 
@@ -137,17 +140,23 @@ impl RaceMonitor {
         let racing = t.session_state == STATE_RACING;
         if self.arm_grid_pending && racing {
             let mut dir = crate::car::breakdown::BreakdownDirector::new();
-            for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+            for c in t
+                .cars
+                .iter()
+                .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
+            {
                 let num = self.car_number[c.idx as usize];
                 if num <= 0 {
                     continue;
                 }
                 // Uma peça (variando por carro) perto de quebrar; o resto sadio.
                 let seed = (num as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x00B4_EA12;
-                let part = crate::car::PartType::ALL[(num as usize) % crate::car::PartType::ALL.len()];
+                let part =
+                    crate::car::PartType::ALL[(num as usize) % crate::car::PartType::ALL.len()];
                 let mut car = crate::car::Car::uniform(3);
                 car.set_wear(part, 0.97);
-                let live = crate::car::breakdown::LiveBreakdown::new(&car, seed, 50.0, (1.0, 1.0, 1.0));
+                let live =
+                    crate::car::breakdown::LiveBreakdown::new(&car, seed, 50.0, (1.0, 1.0, 1.0));
                 dir.add_car(num as u32, live, Vec::new());
                 dir.prime_lap(num as u32, c.lap_completed.max(0) as u32);
             }
@@ -170,7 +179,11 @@ impl RaceMonitor {
             let Some(dir) = self.breakdown.as_mut() else {
                 return;
             };
-            for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+            for c in t
+                .cars
+                .iter()
+                .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
+            {
                 let num = self.car_number[c.idx as usize];
                 if num > 0 {
                     dir.prime_lap(num as u32, c.lap_completed.max(0) as u32);
@@ -184,7 +197,11 @@ impl RaceMonitor {
         // Progresso por tempo (enduro): guarda pro tick do jogador reusar.
         let progress = session_progress(t);
         self.breakdown_progress = progress;
-        for c in t.cars.iter().filter(|c| c.idx >= 0 && (c.idx as usize) < 64) {
+        for c in t
+            .cars
+            .iter()
+            .filter(|c| c.idx >= 0 && (c.idx as usize) < 64)
+        {
             let idx = c.idx as usize;
             let num = self.car_number[idx];
             if num <= 0 {
@@ -198,10 +215,13 @@ impl RaceMonitor {
             let evs = dir.on_lap_at(car_num, lap, weather, progress);
             for ev in evs {
                 self.pending_breakdown_cmds.push(ev.command(car_num));
-                self.breakdown_log.push(BreakdownOutcome::from_event(car_num, &ev));
+                self.breakdown_log
+                    .push(BreakdownOutcome::from_event(car_num, &ev));
                 // Estado de alerta pro overlay: última peça a largar manda (leve/grave/DNF).
-                self.breakdown_alert[idx] =
-                    Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+                self.breakdown_alert[idx] = Some(BreakdownAlert {
+                    severity: ev.severity,
+                    entered_pit_since: false,
+                });
                 // Carimba o instante → flash de 5 s na torre (junto do rádio do engenheiro).
                 self.breakdown_flash_at[idx] = t.session_time;
             }
@@ -221,7 +241,8 @@ impl RaceMonitor {
                 }
             }
             if record_repair {
-                self.breakdown_repair_laps.push((c.idx, c.lap_completed.max(0) as u32));
+                self.breakdown_repair_laps
+                    .push((c.idx, c.lap_completed.max(0) as u32));
             }
             if clear {
                 self.breakdown_alert[idx] = None;
@@ -297,9 +318,12 @@ impl RaceMonitor {
         let seed = (num as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5340_57CA;
         let ev = crate::car::breakdown::showcase_repair_event(part, car_lap, 50.0, seed);
         self.pending_breakdown_cmds.push(ev.command(num as u32));
-        self.breakdown_log.push(BreakdownOutcome::from_event(num as u32, &ev));
-        self.breakdown_alert[idx] =
-            Some(BreakdownAlert { severity: ev.severity, entered_pit_since: false });
+        self.breakdown_log
+            .push(BreakdownOutcome::from_event(num as u32, &ev));
+        self.breakdown_alert[idx] = Some(BreakdownAlert {
+            severity: ev.severity,
+            entered_pit_since: false,
+        });
         self.breakdown_flash_at[idx] = t.session_time;
         self.showcase_pending = false; // uma vez só
     }

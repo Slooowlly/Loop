@@ -23,7 +23,9 @@ pub fn seed_car(category_id: &str, quality: f64) -> Car {
     let q = quality.clamp(0.0, 1.0);
     let ceiling_f = ceiling as f64;
     let floor = (ceiling_f * SEED_FLOOR_FRACTION).round().max(1.0);
-    let level = (floor + q * (ceiling_f - floor)).round().clamp(1.0, ceiling_f) as u8;
+    let level = (floor + q * (ceiling_f - floor))
+        .round()
+        .clamp(1.0, ceiling_f) as u8;
     Car::uniform(level)
 }
 

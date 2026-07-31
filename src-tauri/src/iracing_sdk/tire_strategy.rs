@@ -315,7 +315,8 @@ pub fn infer_all(stops: &[PitStop], ctx: RaceWeatherContext) -> Vec<CarTireStrat
     idxs.dedup();
     idxs.into_iter()
         .map(|idx| {
-            let mut mine: Vec<PitStop> = stops.iter().copied().filter(|s| s.car_idx == idx).collect();
+            let mut mine: Vec<PitStop> =
+                stops.iter().copied().filter(|s| s.car_idx == idx).collect();
             mine.sort_by_key(|s| s.lap);
             infer_car_strategy_thr(idx, &mine, ctx, threshold)
         })
@@ -324,7 +325,10 @@ pub fn infer_all(stops: &[PitStop], ctx: RaceWeatherContext) -> Vec<CarTireStrat
 
 /// Frase curta em PT descrevendo a estratégia (para a UI pós-corrida).
 fn build_summary(stints: &[TireStint], tire_changes: i32, wrong_tire: bool) -> String {
-    let start = stints.first().map(|s| s.compound).unwrap_or(Compound::Unknown);
+    let start = stints
+        .first()
+        .map(|s| s.compound)
+        .unwrap_or(Compound::Unknown);
     let base = match tire_changes {
         0 => format!("Largou de {} e não trocou pneus", start.label()),
         1 => {
@@ -388,8 +392,12 @@ mod tests {
     fn abastecimento_grande_nao_e_troca_mas_pneus_sim() {
         // Números medidos pelo user: abastecer 11.4 L = ~19 s (NÃO é troca);
         // trocar pneus = 21–22 s (É troca). O limiar de 20 s separa os dois.
-        let so_combustivel = infer_car_strategy(1, &[stop(1, 10, 19.0, false)], RaceWeatherContext::DRY);
-        assert_eq!(so_combustivel.tire_changes, 0, "abastecer 11.4L não é troca");
+        let so_combustivel =
+            infer_car_strategy(1, &[stop(1, 10, 19.0, false)], RaceWeatherContext::DRY);
+        assert_eq!(
+            so_combustivel.tire_changes, 0,
+            "abastecer 11.4L não é troca"
+        );
         let so_pneus = infer_car_strategy(1, &[stop(1, 10, 21.0, false)], RaceWeatherContext::DRY);
         assert_eq!(so_pneus.tire_changes, 1, "21s = troca de pneus");
     }
@@ -520,7 +528,10 @@ mod tests {
         ];
         let all = infer_all(&stops, ctx);
         // 9 e 19 ambos < 20 e o vão (10) < 14 → nenhum vira troca.
-        assert!(all.iter().all(|s| s.tire_changes == 0), "sem vão, nada de troca");
+        assert!(
+            all.iter().all(|s| s.tire_changes == 0),
+            "sem vão, nada de troca"
+        );
     }
 
     #[test]

@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use crate::iracing_sdk::race_monitor::RaceHistory;
 
 use super::ritmo::find_rival;
-use super::tipos::{ChartCar, ChartCarLapTime, ChartGap, ChartLapTime, ChartTracePoint, RaceCharts};
+use super::tipos::{
+    ChartCar, ChartCarLapTime, ChartGap, ChartLapTime, ChartTracePoint, RaceCharts,
+};
 
 /// Monta as séries dos gráficos a partir do histórico ao vivo. Resolve nomes via
 /// `name_by_idx` (fallback "Carro N"). None se não há trace nem voltas.
@@ -28,11 +30,14 @@ pub(super) fn build_charts(
                 .laps
                 .iter()
                 .filter_map(|snap| {
-                    snap.cars.iter().find(|c| c.idx == idx).map(|c| ChartTracePoint {
-                        lap: snap.lap as f64 + snap.progress as f64,
-                        gap: c.gap,
-                        position: c.position,
-                    })
+                    snap.cars
+                        .iter()
+                        .find(|c| c.idx == idx)
+                        .map(|c| ChartTracePoint {
+                            lap: snap.lap as f64 + snap.progress as f64,
+                            gap: c.gap,
+                            position: c.position,
+                        })
                 })
                 .collect();
             let is_player = idx == history.player_car_idx;

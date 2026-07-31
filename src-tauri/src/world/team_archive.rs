@@ -87,12 +87,13 @@ pub(crate) fn archive_team_season(conn: &Connection, season: &Season) -> Result<
                 &snapshot.category,
             )
             .unwrap_or(0);
-            let others = crate::db::queries::teams::get_category_constructor_titles_leader_excluding(
-                conn,
-                &snapshot.category,
-                &snapshot.team_id,
-            )
-            .unwrap_or(0);
+            let others =
+                crate::db::queries::teams::get_category_constructor_titles_leader_excluding(
+                    conn,
+                    &snapshot.category,
+                    &snapshot.team_id,
+                )
+                .unwrap_or(0);
             if titles >= 3 && titles > others {
                 let team_name = crate::db::queries::teams::get_team_by_id(conn, &snapshot.team_id)
                     .ok()
@@ -240,7 +241,11 @@ fn assign_constructor_positions(snapshots: &mut [TeamSeasonSnapshot]) {
                 // desempate era por team_id (alfabético, sem sentido esportivo), o que
                 // fazia o arquivo/Atlas ordenar o empate ao contrário do rebaixamento —
                 // aparecia "9º rebaixado, 10º ficou" num empate de 0 pontos/0 vitórias.
-                .then_with(|| snapshots[*left].best_result.cmp(&snapshots[*right].best_result))
+                .then_with(|| {
+                    snapshots[*left]
+                        .best_result
+                        .cmp(&snapshots[*right].best_result)
+                })
                 .then_with(|| snapshots[*left].team_name.cmp(&snapshots[*right].team_name))
         });
 

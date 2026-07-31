@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getReadableTeamColor } from "./teamColors";
+import { getReadableTeamColor, getVividTeamColor } from "./teamColors";
 
 // Trava de regressão visual: esta tabela congela a saída exata das três telas que
 // clareiam cor de equipe (grid de corrida, classificação e revista de notícias).
@@ -43,5 +43,34 @@ describe("getReadableTeamColor", () => {
   it("usa cinza neutro e 0.58 quando ninguém passa opções", () => {
     expect(getReadableTeamColor(null)).toBe("#c9d1d9");
     expect(getReadableTeamColor("#1a1a2e")).toBe("rgb(159, 159, 167)");
+  });
+});
+
+// A cor da equipe quando ela vira DADO num gráfico escuro. Clarear resolve
+// visibilidade; não resolve identidade — e num dossiê inteiro pintado de cinza
+// não dá para distinguir a linha da equipe da grade que está atrás dela.
+describe("getVividTeamColor", () => {
+  it("devolve o matiz a uma cor escura e lavada", () => {
+    // #2f3542 (Thunderline Academy) é azul de 17% de saturação e luminância 0.21:
+    // clarear sozinho dava rgb(172, 174, 179), ou seja, cinza claro.
+    expect(getVividTeamColor("#2f3542")).toBe("rgb(98, 133, 209)");
+  });
+
+  it("não toca em quem já é vivo e já contrasta", () => {
+    // O ciano da Track Day Heroes passa dos 4,5:1 contra o card e tem saturação
+    // acima do piso — sai igual ao que entrou.
+    expect(getVividTeamColor("#37b6c9")).toBe("rgb(55, 182, 201)");
+  });
+
+  it("não inventa matiz para cinza de verdade", () => {
+    // Sem matiz não há identidade a resgatar: só clareia até dar para ver.
+    expect(getVividTeamColor("#808080")).toBe("rgb(133, 133, 133)");
+    expect(getVividTeamColor("#000000")).toBe("rgb(133, 133, 133)");
+  });
+
+  it("cai no cinza neutro quando a cor é ausente ou inválida", () => {
+    expect(getVividTeamColor(null)).toBe("#c9d1d9");
+    expect(getVividTeamColor("#FFF")).toBe("#c9d1d9");
+    expect(getVividTeamColor("azul", { fallback: "#58a6ff" })).toBe("#58a6ff");
   });
 });

@@ -35,8 +35,8 @@ const BOGEY_OPT: f64 = 12.0;
 const BOGEY_SMO: f64 = 8.0;
 const BOGEY_MIN_STARTS: u32 = 3; // precisa ter corrido aqui várias vezes
 const BOGEY_DEPTH: f64 = 0.45; // e o melhor resultado ainda pior que ~45% do grid
-// Fama/estrelato (a "2ª moeda") + vínculo estrutural com a equipe. Empurrões MODESTOS —
-// nudge, não dominância: são status/contexto de carreira, não drama da corrida.
+                               // Fama/estrelato (a "2ª moeda") + vínculo estrutural com a equipe. Empurrões MODESTOS —
+                               // nudge, não dominância: são status/contexto de carreira, não drama da corrida.
 const STARDOM_OPT: f64 = 6.0;
 const STARDOM_AGG: f64 = 4.0;
 const BOND_OPT: f64 = 6.0;

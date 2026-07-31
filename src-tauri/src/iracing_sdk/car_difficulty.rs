@@ -123,7 +123,10 @@ mod tests {
     fn cenario_a_carro_no_nivel_do_campo_quase_nao_mexe() {
         // Jogador L6; campo L5/L6/L7. Média = L6 → banda ~0; spreads pequenos e simétricos.
         let player = car_advantage(&Car::uniform(6), BALANCED);
-        let field = advantages(&[Car::uniform(5), Car::uniform(6), Car::uniform(7)], BALANCED);
+        let field = advantages(
+            &[Car::uniform(5), Car::uniform(6), Car::uniform(7)],
+            BALANCED,
+        );
         let band = band_skill_delta(player, &field);
         assert!(band.abs() < 0.01, "banda deveria ~0, veio {band}");
         let m = field_mean(&field);
@@ -135,7 +138,10 @@ mod tests {
     fn cenario_b_carrao_baixa_a_banda() {
         // Jogador L9 num campo L6 → banda NEGATIVA (~-6,7): IA mais fraca, corrida mais fácil.
         let player = car_advantage(&Car::uniform(9), BALANCED);
-        let field = advantages(&[Car::uniform(6), Car::uniform(6), Car::uniform(6)], BALANCED);
+        let field = advantages(
+            &[Car::uniform(6), Car::uniform(6), Car::uniform(6)],
+            BALANCED,
+        );
         let band = band_skill_delta(player, &field);
         assert!((band - (-6.67)).abs() < 0.2, "esperava ~-6,7, veio {band}");
     }
@@ -155,7 +161,10 @@ mod tests {
         // MAIOR (spread positivo) e em pista equilibrada a diferença some.
         let balanced_ai = car_advantage(&Car::uniform(7), MONZA);
         let power_ai = car_advantage(&power_car(7), MONZA);
-        assert!(power_ai > balanced_ai, "em Monza o carro de potência deveria valer mais");
+        assert!(
+            power_ai > balanced_ai,
+            "em Monza o carro de potência deveria valer mais"
+        );
         // Mesmos carros numa pista equilibrada: o shape quase não separa.
         let bal_flat = car_advantage(&Car::uniform(7), BALANCED);
         let pow_flat = car_advantage(&power_car(7), BALANCED);
@@ -171,7 +180,10 @@ mod tests {
         let player = car_advantage(&Car::uniform(9), BALANCED);
         let front = advantages(&[Car::uniform(6), Car::uniform(6)], BALANCED);
         let credit = car_pace_credit(player, &front);
-        assert!(credit > 0.0, "carro melhor que a frente → crédito > 0, veio {credit}");
+        assert!(
+            credit > 0.0,
+            "carro melhor que a frente → crédito > 0, veio {credit}"
+        );
         // Carro PIOR que a frente → crédito negativo (você está atrás por carro, não mãos).
         let weak = car_advantage(&Car::uniform(3), BALANCED);
         assert!(car_pace_credit(weak, &front) < 0.0);
@@ -187,7 +199,10 @@ mod tests {
         // em todos.
         let player = car_advantage(&Car::spec_rookie(), BALANCED);
         let field = advantages(&[Car::spec_rookie(), Car::spec_rookie()], BALANCED);
-        assert!((player - field[0]).abs() < 1e-9, "carros idênticos → mesma vantagem");
+        assert!(
+            (player - field[0]).abs() < 1e-9,
+            "carros idênticos → mesma vantagem"
+        );
         assert_eq!(band_skill_delta(player, &field), 0.0);
         assert_eq!(ai_spread_nudge(field[0], field_mean(&field)), 0.0);
     }

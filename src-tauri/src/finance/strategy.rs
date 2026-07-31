@@ -268,22 +268,46 @@ mod tests {
         team_queries::set_strategic_plan(&conn, &pusher.id, "title_push", 3).unwrap();
         team_queries::set_strategic_plan(&conn, &steady.id, "sustainable", 3).unwrap();
 
+        // O offseason não escreve mais na coluna legada (quem constrói carro é o Sistema
+        // de Nível do Carro), então o que se mede aqui é a INTENÇÃO de investimento que o
+        // plano gera — o `car_performance_delta` devolvido, que é o sinal consumido pelo
+        // relatório de pré-temporada.
+        let mut pusher_drive = 0.0;
+        let mut steady_drive = 0.0;
         for _ in 0..3 {
-            pusher.season_strategy = advance_strategic_plan(&conn, &pusher, false).unwrap().to_string();
-            apply_offseason_competitiveness_impact(&mut pusher, 0, crate::finance::focus::TeamFocus::MeioDeGrid);
-            steady.season_strategy = advance_strategic_plan(&conn, &steady, false).unwrap().to_string();
-            apply_offseason_competitiveness_impact(&mut steady, 0, crate::finance::focus::TeamFocus::MeioDeGrid);
+            pusher.season_strategy = advance_strategic_plan(&conn, &pusher, false)
+                .unwrap()
+                .to_string();
+            pusher_drive += apply_offseason_competitiveness_impact(
+                &mut pusher,
+                0,
+                crate::finance::focus::TeamFocus::MeioDeGrid,
+            )
+            .car_performance_delta;
+            steady.season_strategy = advance_strategic_plan(&conn, &steady, false)
+                .unwrap()
+                .to_string();
+            steady_drive += apply_offseason_competitiveness_impact(
+                &mut steady,
+                0,
+                crate::finance::focus::TeamFocus::MeioDeGrid,
+            )
+            .car_performance_delta;
         }
 
         assert!(
-            pusher.car_performance > steady.car_performance,
-            "title_push ({:.2}) deveria render mais carro que sustainable ({:.2})",
-            pusher.car_performance,
-            steady.car_performance
+            pusher_drive > steady_drive,
+            "title_push ({pusher_drive:.2}) deveria render mais investimento em carro que sustainable ({steady_drive:.2})"
         );
     }
 
-    fn premium_team(id: &str, categoria: &str, classe: Option<&str>, marca: Option<&str>, rep: f64) -> Team {
+    fn premium_team(
+        id: &str,
+        categoria: &str,
+        classe: Option<&str>,
+        marca: Option<&str>,
+        rep: f64,
+    ) -> Team {
         let mut t = placeholder_team_from_db(
             id.to_string(),
             format!("Equipe {id}"),
@@ -311,11 +335,20 @@ mod tests {
         ];
         let elites = designate_elite_teams(&teams);
         assert_eq!(elites.len(), 3, "3 elites por classe premium");
-        assert!(elites.contains("real_low"), "marca real fixa mesmo com reputação baixa");
+        assert!(
+            elites.contains("real_low"),
+            "marca real fixa mesmo com reputação baixa"
+        );
         assert!(elites.contains("real_a"));
         assert!(elites.contains("real_b"));
-        assert!(!elites.contains("fake_high"), "fictícia não passa da marca real");
-        assert!(!elites.contains("rookie"), "categoria não-premium não tem elite");
+        assert!(
+            !elites.contains("fake_high"),
+            "fictícia não passa da marca real"
+        );
+        assert!(
+            !elites.contains("rookie"),
+            "categoria não-premium não tem elite"
+        );
     }
 
     #[test]
@@ -341,7 +374,10 @@ mod tests {
         // nunca "expirar" para outro (a dinastia é estável).
         for _ in 0..5 {
             let s = advance_strategic_plan(&conn, &t, true).expect("advance elite");
-            assert_eq!(s, "elite_dominance", "elite_dominance tem season_strategy própria");
+            assert_eq!(
+                s, "elite_dominance",
+                "elite_dominance tem season_strategy própria"
+            );
             let (plan, _) = team_queries::get_strategic_plan(&conn, &t.id).unwrap();
             assert_eq!(plan, "elite_dominance", "elite mantém o plano de dinastia");
         }

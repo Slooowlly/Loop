@@ -38,7 +38,8 @@ pub fn compute_merit(
     // Forma recente: chegar bem ultimamente sobe um pouco o mérito. Converte a
     // média de chegada para 0–100 (1º = 100, último = 0) e mistura leve (15%).
     if let (Some(avg), true) = (recent_avg_finish, field_size > 1) {
-        let form = ((field_size as f64 - avg) / (field_size as f64 - 1.0) * 100.0).clamp(0.0, 100.0);
+        let form =
+            ((field_size as f64 - avg) / (field_size as f64 - 1.0) * 100.0).clamp(0.0, 100.0);
         m = 0.85 * m + 0.15 * form;
     }
     // Pista conhecida: pequeno bônus por experiência no circuito (satura rápido).
@@ -122,7 +123,7 @@ fn absolute_points(finish: i32, field_size: i32, is_dnf: bool) -> f64 {
         return 0.0;
     }
     let cutoff = 10.min(field_size); // zona de pontos
-    // Posição relativa no campo: 1º = 1.0, último = 0.0.
+                                     // Posição relativa no campo: 1º = 1.0, último = 0.0.
     let field_norm = (field_size - finish) as f64 / (field_size - 1) as f64;
     // Profundidade nos pontos: 1º = 1.0, último ponto ≈ 0.1, fora dos pontos = 0.
     let points_norm = if finish <= cutoff {
@@ -226,12 +227,17 @@ fn build_headline(input: &RaceEvalInput, a: Assessment, gained: i32) -> String {
     match a {
         Assessment::MuitoAcima | Assessment::Acima if recovery => rust_i18n::t!(
             "race_eval.headline.recovery",
-            grid = grid, finish = finish, gained = gained, assessment = assessment
+            grid = grid,
+            finish = finish,
+            gained = gained,
+            assessment = assessment
         )
         .to_string(),
         Assessment::MuitoAcima | Assessment::Acima => rust_i18n::t!(
             "race_eval.headline.solid",
-            assessment = assessment, grid = grid, finish = finish
+            assessment = assessment,
+            grid = grid,
+            finish = finish
         )
         .to_string(),
         Assessment::Dentro => {
@@ -239,12 +245,16 @@ fn build_headline(input: &RaceEvalInput, a: Assessment, gained: i32) -> String {
         }
         Assessment::Abaixo | Assessment::MuitoAbaixo if gained < 0 => rust_i18n::t!(
             "race_eval.headline.below_lost",
-            assessment = assessment, grid = grid, finish = finish
+            assessment = assessment,
+            grid = grid,
+            finish = finish
         )
         .to_string(),
         Assessment::Abaixo | Assessment::MuitoAbaixo => rust_i18n::t!(
             "race_eval.headline.below",
-            assessment = assessment, grid = grid, finish = finish
+            assessment = assessment,
+            grid = grid,
+            finish = finish
         )
         .to_string(),
     }
@@ -315,11 +325,23 @@ mod tests {
         let e = evaluate(&input);
         assert_eq!((e.target_low, e.target_high), (10, 13));
         assert_eq!(e.assessment, Assessment::Acima);
-        assert!(e.grade >= 7.5, "recuperação forte = nota alta, foi {}", e.grade);
+        assert!(
+            e.grade >= 7.5,
+            "recuperação forte = nota alta, foi {}",
+            e.grade
+        );
         assert!(e.headline.contains("recuperação"));
         // Interpolação de fato resolveu (não sobrou %{...} cru; ordinais entraram).
-        assert!(e.headline.contains("P14") && e.headline.contains("P8"), "{}", e.headline);
-        assert!(!e.headline.contains("%{"), "placeholder cru: {}", e.headline);
+        assert!(
+            e.headline.contains("P14") && e.headline.contains("P8"),
+            "{}",
+            e.headline
+        );
+        assert!(
+            !e.headline.contains("%{"),
+            "placeholder cru: {}",
+            e.headline
+        );
     }
 
     #[test]
@@ -361,7 +383,11 @@ mod tests {
             e.assessment,
             Assessment::Abaixo | Assessment::MuitoAbaixo
         ));
-        assert!(e.grade < 5.0, "abaixo do esperado = nota baixa, foi {}", e.grade);
+        assert!(
+            e.grade < 5.0,
+            "abaixo do esperado = nota baixa, foi {}",
+            e.grade
+        );
         assert!(e.team_read.contains("O conjunto tinha mais a oferecer"));
     }
 

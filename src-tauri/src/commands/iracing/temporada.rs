@@ -63,15 +63,25 @@ fn tier_difficulty_damp(tier: u8) -> f64 {
 /// tier + offset da pista + perfil adaptativo do jogador (global amortecido por tier). É a
 /// ÂNCORA da curva de skill — a season (banda) e o roster (skill por piloto) chamam o
 /// MESMO valor pra a forma e o cap da cauda baterem dos dois lados.
-pub(crate) fn ai_sweet_spot(tier: u8, track_id: Option<i64>, base_dir: &std::path::Path, custid: i64) -> i64 {
+pub(crate) fn ai_sweet_spot(
+    tier: u8,
+    track_id: Option<i64>,
+    base_dir: &std::path::Path,
+    custid: i64,
+) -> i64 {
     let track_offset = track_id.map(track_skill_offset).unwrap_or(0);
     let profile = load_adaptive_profile(base_dir, custid);
     let adapt_track = track_id.map(|id| profile.track_delta(id)).unwrap_or(0);
     // Boost global amortecido por tier (não infla as divisões baixas — ver tier_difficulty_damp).
     let global_eff = (profile.global as f64 * tier_difficulty_damp(tier)).round() as i64;
     // Rookie (tier 0) rebaixa o sweet spot um degrau FIXO, seja qual for a pista.
-    let rookie_discount = if tier == 0 { ROOKIE_DIFFICULTY_DISCOUNT } else { 0 };
-    (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track - rookie_discount).clamp(0, 125)
+    let rookie_discount = if tier == 0 {
+        ROOKIE_DIFFICULTY_DISCOUNT
+    } else {
+        0
+    };
+    (tier_difficulty_base(tier) + track_offset + global_eff + adapt_track - rookie_discount)
+        .clamp(0, 125)
 }
 
 /// Vantagens de carro (car-perf) do CAMPO e do JOGADOR na pista alvo, para a inversão
@@ -316,86 +326,86 @@ pub fn iracing_generate_season(
             if track.track_id != entry.track_id {
                 substituted += 1;
             }
-                let is_first = (career_first_race && entry.week_of_year == first_week)
-                    || (test_blank && first_race_id.as_deref() == Some(entry.id.as_str()));
-                let wet_here = force_wet && next_pending_id.as_deref() == Some(entry.id.as_str());
-                // Etapa noturna designada pelo calendário (≥1 corrida de noite/temporada).
-                let night_here = crate::calendar::is_night_horario(&entry.horario);
-                let seed = event_seed(&career_id, &entry.id);
-                let (ew, story) = build_event_weather(
-                    track,
-                    entry.week_of_year,
-                    season.ano,
-                    cat.tier,
-                    custid,
-                    seed,
-                    is_first,
-                    race_end,
-                    wet_here,
-                    night_here,
-                );
-                // FONTE ÚNICA: persiste clima E temperatura desta MESMA história, pra a
-                // UI e a simulação offline baterem com o que o iRacing vai rodar (e a
-                // temp nunca destoar da chuva real).
-                let wc = story_to_weather_condition(&story);
-                let _ = db.conn.execute(
-                    "UPDATE calendar SET clima = ?1, temperatura = ?2 WHERE id = ?3",
-                    rusqlite::params![wc.as_str(), ew.temp_c as f64, entry.id],
-                );
-                stories.insert(entry.track_id as i64, story);
-                // Etapa já disputada no app → escreve os resultados (iRacing "pula").
-                // No modo teste (zerado) nunca escreve resultados.
-                let results = if !test_blank
-                    && matches!(entry.status, crate::models::enums::RaceStatus::Concluida)
-                {
-                    rhq::get_event_results(&db.conn, &entry.id)
-                        .ok()
-                        .filter(|r| !r.is_empty())
-                        .map(|rows| {
-                            let drivers: Vec<results_gen::ResultDriver> = rows
-                                .into_iter()
-                                .map(|r| {
-                                    let num = numbers.get(&r.piloto_id).copied().unwrap_or(0);
-                                    results_gen::ResultDriver {
-                                        finish: r.finish,
-                                        start: r.start,
-                                        laps: r.laps,
-                                        total_ms: r.total_ms,
-                                        gap_ms: r.gap_ms,
-                                        incidents: r.incidents,
-                                        dnf: r.dnf,
-                                        dnf_reason: r.dnf_reason,
-                                        has_fastest: r.has_fastest,
-                                        car_number: if r.is_jogador {
-                                            "0".to_string()
-                                        } else {
-                                            num.to_string()
-                                        },
-                                        cust_id: if r.is_jogador { custid } else { 990_000 + num },
-                                        name: r.nome,
-                                        car_id: car.car_id,
-                                        car_class_id: car.car_class_id,
-                                    }
-                                })
-                                .collect();
-                            results_gen::build_results(&drivers)
-                        })
-                } else {
-                    None
-                };
-                events.push(season_gen::EventInput {
-                    // Pista EFETIVA que o iRacing carrega (a free substituta, quando a
-                    // original é paga). Nenhuma pista free é oval de verdade — Roval
-                    // (Charlotte) é ROAD no iRacing (paceCar road, sem largada lançada).
-                    track_id: track.track_id as i64,
-                    is_oval: false,
-                    event_id: uuid::Uuid::new_v4().to_string(),
-                    weather: ew,
-                    results,
-                });
-                // Guarda a pista EFETIVA no post-it: o import compara o resultado do
-                // iRacing contra o que foi de fato exportado (não contra a original paga).
-                event_race_map.push((entry.id.clone(), track.track_id as i64));
+            let is_first = (career_first_race && entry.week_of_year == first_week)
+                || (test_blank && first_race_id.as_deref() == Some(entry.id.as_str()));
+            let wet_here = force_wet && next_pending_id.as_deref() == Some(entry.id.as_str());
+            // Etapa noturna designada pelo calendário (≥1 corrida de noite/temporada).
+            let night_here = crate::calendar::is_night_horario(&entry.horario);
+            let seed = event_seed(&career_id, &entry.id);
+            let (ew, story) = build_event_weather(
+                track,
+                entry.week_of_year,
+                season.ano,
+                cat.tier,
+                custid,
+                seed,
+                is_first,
+                race_end,
+                wet_here,
+                night_here,
+            );
+            // FONTE ÚNICA: persiste clima E temperatura desta MESMA história, pra a
+            // UI e a simulação offline baterem com o que o iRacing vai rodar (e a
+            // temp nunca destoar da chuva real).
+            let wc = story_to_weather_condition(&story);
+            let _ = db.conn.execute(
+                "UPDATE calendar SET clima = ?1, temperatura = ?2 WHERE id = ?3",
+                rusqlite::params![wc.as_str(), ew.temp_c as f64, entry.id],
+            );
+            stories.insert(entry.track_id as i64, story);
+            // Etapa já disputada no app → escreve os resultados (iRacing "pula").
+            // No modo teste (zerado) nunca escreve resultados.
+            let results = if !test_blank
+                && matches!(entry.status, crate::models::enums::RaceStatus::Concluida)
+            {
+                rhq::get_event_results(&db.conn, &entry.id)
+                    .ok()
+                    .filter(|r| !r.is_empty())
+                    .map(|rows| {
+                        let drivers: Vec<results_gen::ResultDriver> = rows
+                            .into_iter()
+                            .map(|r| {
+                                let num = numbers.get(&r.piloto_id).copied().unwrap_or(0);
+                                results_gen::ResultDriver {
+                                    finish: r.finish,
+                                    start: r.start,
+                                    laps: r.laps,
+                                    total_ms: r.total_ms,
+                                    gap_ms: r.gap_ms,
+                                    incidents: r.incidents,
+                                    dnf: r.dnf,
+                                    dnf_reason: r.dnf_reason,
+                                    has_fastest: r.has_fastest,
+                                    car_number: if r.is_jogador {
+                                        "0".to_string()
+                                    } else {
+                                        num.to_string()
+                                    },
+                                    cust_id: if r.is_jogador { custid } else { 990_000 + num },
+                                    name: r.nome,
+                                    car_id: car.car_id,
+                                    car_class_id: car.car_class_id,
+                                }
+                            })
+                            .collect();
+                        results_gen::build_results(&drivers)
+                    })
+            } else {
+                None
+            };
+            events.push(season_gen::EventInput {
+                // Pista EFETIVA que o iRacing carrega (a free substituta, quando a
+                // original é paga). Nenhuma pista free é oval de verdade — Roval
+                // (Charlotte) é ROAD no iRacing (paceCar road, sem largada lançada).
+                track_id: track.track_id as i64,
+                is_oval: false,
+                event_id: uuid::Uuid::new_v4().to_string(),
+                weather: ew,
+                results,
+            });
+            // Guarda a pista EFETIVA no post-it: o import compara o resultado do
+            // iRacing contra o que foi de fato exportado (não contra a original paga).
+            event_race_map.push((entry.id.clone(), track.track_id as i64));
         }
     }
     let _ = substituted; // (contagem de substituições — reservado p/ UI/log futuro)

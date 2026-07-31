@@ -83,7 +83,8 @@ pub(super) fn analyze_mistake(
         let is_incident = crash.contains(&lap);
 
         let slow_s = slow_excess / 1000.0;
-        let score = slow_s + positions_lost as f64 * POS_WEIGHT
+        let score = slow_s
+            + positions_lost as f64 * POS_WEIGHT
             + if is_incident { INCIDENT_BONUS } else { 0.0 };
 
         // Quantos sinais BATEM nessa volta → confiança.
@@ -158,7 +159,11 @@ pub(super) fn analyze_best_moment(
         .player_laps
         .iter()
         .filter(|l| l.time > 0.0)
-        .min_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal))
+        .min_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
         .map(|l| l.lap);
 
     // ── 1. Ganho de posição (prioridade máxima) ─────────────────────────────
@@ -258,7 +263,11 @@ pub(super) fn analyze_best_moment(
             let signals = (regained >= 1) as i32 + pace_back as i32;
             let score = 2.0 + regained as f64 * 1.5 + if pace_back { 1.0 } else { 0.0 };
             if signals >= 1 && score >= BEST_MIN_SCORE {
-                let conf = if regained >= 2 && pace_back { "alta" } else { "media" };
+                let conf = if regained >= 2 && pace_back {
+                    "alta"
+                } else {
+                    "media"
+                };
                 return Some(BestMoment {
                     lap: 0,
                     kind: "recovery".to_string(),

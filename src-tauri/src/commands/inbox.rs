@@ -87,7 +87,8 @@ pub fn get_inbox_messages(app: tauri::AppHandle, career_id: String) -> Result<In
     let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
     let conn = &db.conn;
 
-    let player = dq::get_player_driver(conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+    let player =
+        dq::get_player_driver(conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let categoria = match player.categoria_atual.clone() {
         Some(c) if !c.is_empty() => c,
         _ => return Ok(InboxFacts::default()),
@@ -127,8 +128,10 @@ pub fn get_inbox_messages(app: tauri::AppHandle, career_id: String) -> Result<In
                     .position(|s| s.pilot_id == player.id)
                     .map(|i| i as i32 + 1)
                     .unwrap_or(0);
-                if let Some((idx, entry)) =
-                    standings.iter().enumerate().find(|(_, s)| s.pilot_id != player.id)
+                if let Some((idx, entry)) = standings
+                    .iter()
+                    .enumerate()
+                    .find(|(_, s)| s.pilot_id != player.id)
                 {
                     if let Ok(fav) = dq::get_driver(conn, &entry.pilot_id) {
                         let leads_player = player_pos == 0 || entry.position < player_pos;
@@ -137,8 +140,14 @@ pub fn get_inbox_messages(app: tauri::AppHandle, career_id: String) -> Result<In
                             .map(|n| (entry.points - n.points).round() as i32)
                             .unwrap_or(0)
                             .max(0);
-                        facts.title_favorite =
-                            Some(build_favorite(conn, &fav, entry.position, leads_player, points_lead, player_pos));
+                        facts.title_favorite = Some(build_favorite(
+                            conn,
+                            &fav,
+                            entry.position,
+                            leads_player,
+                            points_lead,
+                            player_pos,
+                        ));
                     }
                 }
             }
@@ -232,7 +241,11 @@ fn strong_weak(a: &DriverAttributes) -> (String, String) {
         ("habilidade_largada", a.habilidade_largada),
         ("consistencia", a.consistencia),
     ];
-    let strong = set.iter().fold(set[0], |m, x| if x.1 > m.1 { *x } else { m });
-    let weak = set.iter().fold(set[0], |m, x| if x.1 < m.1 { *x } else { m });
+    let strong = set
+        .iter()
+        .fold(set[0], |m, x| if x.1 > m.1 { *x } else { m });
+    let weak = set
+        .iter()
+        .fold(set[0], |m, x| if x.1 < m.1 { *x } else { m });
     (strong.0.to_string(), weak.0.to_string())
 }

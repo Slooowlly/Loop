@@ -185,8 +185,9 @@ pub(crate) fn build_session_race_result(
     let events = pointer.get("events").and_then(|v| v.as_array());
     let event_index = events
         .and_then(|evs| {
-            evs.iter()
-                .position(|e| e.get("race_id").and_then(|v| v.as_str()) == Some(next_race.id.as_str()))
+            evs.iter().position(|e| {
+                e.get("race_id").and_then(|v| v.as_str()) == Some(next_race.id.as_str())
+            })
         })
         .ok_or_else(|| {
             format!(
@@ -379,8 +380,11 @@ pub(crate) fn resolve_breakdown_rows(
 ) -> Vec<crate::db::queries::race_breakdowns::RaceBreakdownRow> {
     use crate::db::queries::drivers as dq;
     let player_id: Option<String> = dq::get_player_driver(conn).ok().map(|p| p.id);
-    let num_by_idx: std::collections::HashMap<i32, i32> =
-        history.cars_meta.iter().map(|m| (m.idx, m.car_number)).collect();
+    let num_by_idx: std::collections::HashMap<i32, i32> = history
+        .cars_meta
+        .iter()
+        .map(|m| (m.idx, m.car_number))
+        .collect();
     let player_number: Option<i32> = num_by_idx
         .get(&history.player_car_idx)
         .copied()
@@ -505,8 +509,12 @@ pub(crate) fn apply_track_rivalries(
         .iter()
         .find(|d| d.pilot_id == player_id);
 
-    let perception =
-        perceive_rivalries(history, history.player_car_idx, contact, &PerceptionParams::default());
+    let perception = perceive_rivalries(
+        history,
+        history.player_car_idx,
+        contact,
+        &PerceptionParams::default(),
+    );
 
     for opp in &perception.opponents {
         let Some(opp_id) = driver_by_idx.get(&opp.car_idx) else {

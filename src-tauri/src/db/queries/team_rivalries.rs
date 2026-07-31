@@ -273,8 +273,8 @@ mod tests {
             [],
         )
         .unwrap();
-        let err = get_team_rivalry_by_pair(&conn, "T001", "T002")
-            .expect_err("tipo invalido deve falhar");
+        let err =
+            get_team_rivalry_by_pair(&conn, "T001", "T002").expect_err("tipo invalido deve falhar");
         assert!(err.to_string().contains("TeamRivalryType"));
     }
 }

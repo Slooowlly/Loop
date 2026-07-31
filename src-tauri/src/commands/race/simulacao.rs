@@ -300,202 +300,96 @@ pub(super) fn simulate_category_race_with_mode(
         m
     };
 
-    // FORMA DO MOMENTO (`simulation::forma`, camada 2): a única das três camadas de
-    // performance do fim de semana que tem estado. Avança um passo do AR(1) por etapa
-    // disputada e é gravada AQUI, antes da corrida, para que classificação e corrida
-    // enxerguem exatamente o mesmo valor. As outras duas (afinidade de pista e acerto
-    // de fim de semana) saem de hash determinístico e não persistem nada.
-    //
-    // Só grava na carreira jogável: o rascunho histórico reconstrói temporadas antigas
-    // e não pode mexer na forma corrente do piloto.
-    let forma_por_piloto: HashMap<String, f64> = {
-        let mut mapa = HashMap::new();
-        for driver in &driver_pool {
-            let estado = crate::simulation::forma::proxima_forma(
-                driver.forma,
-                crate::simulation::forma::semente_forma(
-                    active_season.numero as i32,
-                    race_entry.rodada,
-                    &driver.id,
-                ),
-                driver.motivacao,
-                driver.atributos.confianca,
-            );
-            if persistence_mode == RacePersistenceMode::Playable {
-                driver_queries::update_driver_forma(&db.conn, &driver.id, estado)
-                    .map_err(|e| format!("Falha ao gravar a forma do piloto: {e}"))?;
-            }
-            mapa.insert(driver.id.clone(), estado);
-        }
-        mapa
-    };
-
-    let mut orphaned_drivers = Vec::new();
     // ─────────────────── A ESTEIRA DE MODIFICADORES ───────────────────
     //
-    // Cada elo abaixo desconta (ou dá) PONTOS DE SKILL ao `SimDriver` antes dele entrar na
-    // simulação. Duas armadilhas valem para a esteira INTEIRA, e não só para o elo que
-    // você veio mexer:
+    // Toda a esteira mora em `simulation::esteira::aplicar_esteira` — função PURA, sem
+    // `AppHandle` nem `Connection`. Aqui o comando faz só o que é dele: ler do banco o que a
+    // função não tem como saber (conhecimento de pista, lesão ativa, classificação do
+    // campeonato), chamar, e gravar o estado de forma que ela devolve.
     //
-    // **1. Um ponto de skill NÃO é um ponto de score.** `skill` pesa ~0,28 do score de
-    //    segmento em `race/pontuacao.rs` (0,20 na largada, 0,35 no miolo, 0,25 no fim), com
-    //    o resto indo para carro, racecraft, pneu, físico e cabeça. Na prática, o que a
-    //    esteira cobra chega diluído a menos de um terço na pista: os 8 pontos de
-    //    `MAX_PENALTY` do `track_knowledge` valem ~2,2 pontos de score, e a adaptação de
-    //    categoria e a penalidade de lesão estão na mesma moeda e sofrem do mesmo desconto.
-    //    É bem possível que os três estejam sistematicamente mais fracos do que quem os
-    //    escreveu pretendia. NÃO conserte isso aqui: é decisão de calibração e pertence ao
-    //    harness estatístico. Ficou escrito para a próxima pessoa não redescobrir do zero.
+    // Foi o harness de calibração que forçou a separação, e o argumento é bom: com a esteira
+    // dentro do comando ela não era chamável de teste, então o harness tinha que ESPELHAR a
+    // aplicação — mesma ordem de elos, mesmo `clamp(5,100).round()` — num espelho sem guarda
+    // automática. Espelho sem guarda deriva em silêncio, e o efeito das camadas de forma ficava
+    // fora da régua. Agora os dois lados chamam a MESMA função, o que é melhor que um teste de
+    // paridade.
     //
-    // **2. Cada elo arredonda de volta para `u8`.** São seis arredondamentos independentes
-    //    na sequência abaixo, e não um só no fim. Um modificador menor que meio ponto pode
-    //    sumir inteiro, e o erro dos seis não se cancela. Quando um elo novo tiver várias
-    //    parcelas, some-as ANTES de arredondar — é o que as três camadas de
-    //    `simulation::forma` fazem, num arredondamento único para as três. Consolidar os
-    //    seis elos num arredondamento só muda resultado e, por isso, é calibração também.
-    //    A perda de resolução some de vez quando a moeda da simulação virar tempo.
-    let sim_drivers: Vec<SimDriver> = driver_pool
-        .into_iter()
-        .filter_map(|driver| match team_by_driver.get(&driver.id) {
-            Some(team) => {
-                let mut sd =
-                    SimDriver::from_driver_team_and_track(driver, team, race_entry.track_id);
-                // Conhecimento de pista: pista nova/pouco conhecida = mais lento.
-                // Desconta do skill E do ritmo de classificação (corrida + quali).
-                let pen =
-                    track_penalty_for(driver, race_entry.track_id, active_season.numero as i32);
-                sd.skill = (sd.skill as f64 - pen).max(5.0).round() as u8;
-                sd.ritmo_classificacao =
-                    (sd.ritmo_classificacao as f64 - pen).max(5.0).round() as u8;
-                // Adaptação à categoria: quem acabou de subir corre abaixo do próprio
-                // número nas primeiras etapas e vai se ajustando. Freia o campeão da
-                // categoria de baixo que chegava atropelando a de cima já na estreia.
-                let adapt_pen = crate::simulation::category_adaptation::category_adaptation_penalty(
-                    driver.corridas_na_categoria,
-                    driver.atributos.adaptabilidade,
-                    driver.atributos.experiencia,
-                );
-                sd.skill = (sd.skill as f64 - adapt_pen).max(5.0).round() as u8;
-                sd.ritmo_classificacao =
-                    (sd.ritmo_classificacao as f64 - adapt_pen).max(5.0).round() as u8;
-                // Lesão: o machucado CORRE, mas com o ritmo reduzido. A penalidade é cheia
-                // logo após a batida e DIMINUI a cada etapa até sarar (volta enferrujado e
-                // vai melhorando). Fração do skill × (corridas restantes / total). Liga os
-                // campos skill_penalty da lesão, antes só gravados e nunca lidos.
-                if let Some(injury) = injuries_by_driver.get(&driver.id) {
-                    let recovery = (injury.races_remaining as f64
-                        / injury.races_total.max(1) as f64)
-                        .clamp(0.0, 1.0);
-                    let inj_pen = sd.skill as f64 * injury.skill_penalty * recovery;
-                    sd.skill = (sd.skill as f64 - inj_pen).max(5.0).round() as u8;
-                    sd.ritmo_classificacao =
-                        (sd.ritmo_classificacao as f64 - inj_pen).max(5.0).round() as u8;
-                }
-                // Camadas de performance do FIM DE SEMANA (`simulation::forma`):
-                // afinidade permanente com esta pista + forma do momento + acerto do
-                // fim de semana. É o que faz a ordem de chegada se reembaralhar de
-                // etapa pra etapa, em vez de repetir o mesmo pódio o ano inteiro.
-                // A afinidade pesa MAIS na classificação (a volta perfeita é onde o
-                // casamento com a pista aparece inteiro); forma e acerto valem igual
-                // nos dois. O acerto, em particular, NÃO varia entre segmentos — é
-                // por isso que ele sobrevive à soma da corrida, ao contrário do ruído
-                // por segmento que a sim já rolava e que se auto-cancela.
-                //
-                // NOTA de resolução: como todo elo desta esteira, o ajuste é
-                // arredondado de volta para `u8` — a convenção do `SimDriver`. Um
-                // ajuste de ±0,4 ponto se perde no arredondamento. A resolução volta
-                // inteira quando a moeda da simulação virar TEMPO em vez de pontos;
-                // até lá, seguimos a convenção existente em vez de antecipar isso.
-                let ajuste = crate::simulation::forma::ajuste_fim_de_semana(
-                    &driver.id,
-                    &team.id,
-                    race_entry.track_id,
-                    active_season.numero as i32,
-                    race_entry.rodada,
-                    &crate::simulation::forma::EstiloPiloto {
-                        smoothness: driver.atributos.smoothness,
-                        consistencia: driver.atributos.consistencia,
-                        adaptabilidade: driver.atributos.adaptabilidade,
-                        aggression: driver.atributos.aggression,
-                    },
-                    forma_por_piloto.get(&driver.id).copied().unwrap_or(0.0),
-                );
-                sd.skill = (sd.skill as f64 + ajuste.corrida).clamp(5.0, 100.0).round() as u8;
-                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + ajuste.classificacao)
-                    .clamp(5.0, 100.0)
-                    .round() as u8;
-                // (Chuva NÃO entra aqui: a sim já aplica rain_skill_penalty no score
-                // em simulation/race.rs + qualifying.rs — aplicar de novo dobraria.)
-                // Motivação: um piloto desmotivado corre ABAIXO do próprio skill (efeito
-                // modesto e calibrável). Aplicado ao skill efetivo antes da pressão, para
-                // o headroom já enxergar o rendimento real do piloto.
-                let mot = crate::simulation::pressure::motivation_pace_delta(sd.motivacao);
-                sd.skill = (sd.skill as f64 + mot).clamp(5.0, 100.0).round() as u8;
-                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + mot)
-                    .clamp(5.0, 100.0)
-                    .round() as u8;
-                // Pressão de campeonato (clutch/choke): ajusta ritmo + taxa de erro.
-                let pctx = crate::simulation::pressure::title_context(
-                    driver.stats_temporada.pontos,
-                    &title_points,
-                    races_left,
-                    max_race_points,
-                );
-                let title_eff = crate::simulation::pressure::pressure_for(
-                    &pctx,
-                    races_left,
-                    driver.atributos.mentalidade,
-                    driver.atributos.experiencia,
-                );
-                // Pressão de casa cheia (universal): pesa mais em quem vem em má fase.
-                let event_eff = crate::simulation::pressure::event_pressure_for(
-                    event_stakes,
-                    recent_avg_finish(&driver.ultimos_resultados),
-                    driver.atributos.mentalidade,
-                    driver.atributos.experiencia,
-                );
-                // Pressão de Duelo (Nemesis): 3ª fonte, acesa só quando jogador e rival
-                // brigam de verdade (gate de pace). Herda mentalidade/experiência — não é
-                // mais um bônus fixo. Percebida + pace do oponente vêm de `duel_by_driver`.
-                let duel_eff = match duel_by_driver.get(&driver.id) {
-                    Some(&(perceived, opponent_skill)) => {
-                        crate::simulation::pressure::rivalry_pressure_for(
-                            perceived,
-                            sd.skill as f64,
-                            opponent_skill,
-                            driver.atributos.mentalidade,
-                            driver.atributos.experiencia,
-                            1.0,
-                        )
-                    }
-                    None => crate::simulation::pressure::PressureEffect::NONE,
-                };
-                let peff = crate::simulation::pressure::combine(
-                    crate::simulation::pressure::combine(title_eff, event_eff),
-                    duel_eff,
-                );
-                // Headroom: converte o Δpace da pressão em pontos de skill conforme onde
-                // o piloto está na curva (subir tem teto, cair tem chão). Usa o skill
-                // efetivo do fim de semana (já com a penalidade de conhecimento de pista).
-                let hr = crate::simulation::pressure::headroom_pace_mult(
-                    sd.skill as f64,
-                    peff.pace_delta >= 0.0,
-                );
-                let pace_delta = peff.pace_delta * hr;
-                sd.skill = (sd.skill as f64 + pace_delta).clamp(5.0, 100.0).round() as u8;
-                sd.ritmo_classificacao = (sd.ritmo_classificacao as f64 + pace_delta)
-                    .clamp(5.0, 100.0)
-                    .round() as u8;
-                sd.pressure_error_mult = peff.error_mult;
-                Some(sd)
-            }
-            None if persistence_mode == RacePersistenceMode::HistoricalDraft => None,
-            None => {
+    // As duas armadilhas da esteira estão documentadas no módulo, junto com o relatório por
+    // elo × canal que as torna mensuráveis: um ponto de skill não é um ponto de score (`skill`
+    // pesa ~0,28 do score de segmento), e são SEIS arredondamentos `u8`, não um no fim.
+    let mut orphaned_drivers = Vec::new();
+    let mut base: Vec<SimDriver> = Vec::new();
+    let mut contextos: Vec<crate::simulation::esteira::ContextoDoPiloto> = Vec::new();
+    let mut pilotos_na_ordem: Vec<&Driver> = Vec::new();
+    let mut estado_de_forma: Vec<f64> = Vec::new();
+
+    let comprimento_da_pista_km = crate::constants::tracks::get_track(race_entry.track_id)
+        .map(|t| t.comprimento_km)
+        .unwrap_or(3.0);
+
+    for driver in driver_pool {
+        let Some(team) = team_by_driver.get(&driver.id) else {
+            // Rascunho histórico reconstrói temporadas antigas com grid sintético: piloto sem
+            // equipe simplesmente não corre. Na carreira jogável é erro.
+            if persistence_mode != RacePersistenceMode::HistoricalDraft {
                 orphaned_drivers.push(format!("{} ({})", driver.nome, driver.id));
-                None
             }
-        })
-        .collect();
+            continue;
+        };
+
+        // Pressão de campeonato (clutch/choke) e de casa cheia: as duas dependem da
+        // classificação e do interesse do evento, então são resolvidas AQUI e entram prontas.
+        // O duelo (Nemesis) não — o gate dele lê o skill já modificado pelos elos anteriores,
+        // e por isso é resolvido dentro da função pura.
+        let pctx = crate::simulation::pressure::title_context(
+            driver.stats_temporada.pontos,
+            &title_points,
+            races_left,
+            max_race_points,
+        );
+        let campeonato = crate::simulation::pressure::pressure_for(
+            &pctx,
+            races_left,
+            driver.atributos.mentalidade,
+            driver.atributos.experiencia,
+        );
+        let evento = crate::simulation::pressure::event_pressure_for(
+            event_stakes,
+            recent_avg_finish(&driver.ultimos_resultados),
+            driver.atributos.mentalidade,
+            driver.atributos.experiencia,
+        );
+
+        contextos.push(crate::simulation::esteira::ContextoDoPiloto {
+            conhecimento_de_pista: crate::simulation::track_knowledge::from_history(
+                &driver.historico_circuitos,
+                race_entry.track_id as i64,
+            ),
+            comprimento_da_pista_km,
+            // A lesão cobra uma FRAÇÃO do skill, cheia logo após a batida e decrescente até
+            // sarar. Liga os campos `skill_penalty`, antes só gravados e nunca lidos.
+            fracao_de_lesao: injuries_by_driver.get(&driver.id).map(|injury| {
+                let recuperacao = (injury.races_remaining as f64
+                    / injury.races_total.max(1) as f64)
+                    .clamp(0.0, 1.0);
+                injury.skill_penalty * recuperacao
+            }),
+            pressao: Some(crate::simulation::esteira::EntradaDePressao {
+                campeonato,
+                evento,
+                duelo: duel_by_driver.get(&driver.id).copied(),
+                mentalidade: driver.atributos.mentalidade,
+                experiencia: driver.atributos.experiencia,
+            }),
+        });
+        base.push(SimDriver::from_driver_team_and_track(
+            driver,
+            team,
+            race_entry.track_id,
+        ));
+        estado_de_forma.push(driver.forma);
+        pilotos_na_ordem.push(driver);
+    }
 
     if !orphaned_drivers.is_empty() {
         return Err(format!(
@@ -504,6 +398,30 @@ pub(super) fn simulate_category_race_with_mode(
             orphaned_drivers.join(", ")
         ));
     }
+
+    let esteira = crate::simulation::esteira::aplicar_esteira(
+        &base,
+        &contextos,
+        active_season.numero as i32,
+        race_entry.rodada,
+        race_entry.track_id,
+        &estado_de_forma,
+        // Default = as constantes de hoje. É isto que garante a equivalência: o jogo continua
+        // rodando os mesmos números, e quem varre as escalas é a campanha.
+        &crate::simulation::forma::EscalasDeForma::default(),
+    );
+
+    // A FORMA é devolvida pela função, não gravada por ela: a persistência é do comando. Isso
+    // tirou o `if persistence_mode` do meio da simulação — o rascunho histórico agora não
+    // grava porque ninguém o manda gravar, e não porque a simulação verifica um modo.
+    if persistence_mode == RacePersistenceMode::Playable {
+        for (driver, estado) in pilotos_na_ordem.iter().zip(&esteira.estado_de_forma) {
+            driver_queries::update_driver_forma(&db.conn, &driver.id, *estado)
+                .map_err(|e| format!("Falha ao gravar a forma do piloto: {e}"))?;
+        }
+    }
+
+    let sim_drivers: Vec<SimDriver> = esteira.grid;
 
     if sim_drivers.is_empty() {
         return Err(format!(

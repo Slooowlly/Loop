@@ -66,7 +66,10 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     )
     .to_string();
     if result.total_dnfs >= 2 {
-        header.push_str(&rust_i18n::t!("narrative.context.header_dnfs", dnfs = result.total_dnfs));
+        header.push_str(&rust_i18n::t!(
+            "narrative.context.header_dnfs",
+            dnfs = result.total_dnfs
+        ));
     }
     // Bandeira amarela: quantas vezes a prova foi neutralizada. Em corrida simulada vem
     // derivada dos incidentes; em corrida importada fica vazia aqui, porque lá a amarela

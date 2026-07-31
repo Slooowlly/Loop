@@ -86,7 +86,10 @@ mod tests {
             power_car.set_level(part, 10);
         }
         let (_a, p, h) = car_shape_weights(&power_car);
-        assert!(p > h, "carro de potência deveria pesar mais em power: P={p} H={h}");
+        assert!(
+            p > h,
+            "carro de potência deveria pesar mais em power: P={p} H={h}"
+        );
     }
 
     #[test]
@@ -95,6 +98,9 @@ mod tests {
         let (acc, power, handling) = car_shape_weights(&Car::uniform(6));
         let max = acc.max(power).max(handling);
         let min = acc.min(power).min(handling);
-        assert!(max - min < 2.0, "uniforme deveria ser ~balanceado: {acc},{power},{handling}");
+        assert!(
+            max - min < 2.0,
+            "uniforme deveria ser ~balanceado: {acc},{power},{handling}"
+        );
     }
 }

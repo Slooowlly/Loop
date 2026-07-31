@@ -58,8 +58,7 @@ pub(super) fn montar_fatos_do_boletim(
         // Rookie em destaque → valoriza a estreia. Veterano → só o vencedor (evita poluir).
         if driver.temporadas_na_categoria == 0 {
             context_facts.push(
-                rust_i18n::t!("briefing.ctx.rookie_debut", name = driver.nome.as_str())
-                    .to_string(),
+                rust_i18n::t!("briefing.ctx.rookie_debut", name = driver.nome.as_str()).to_string(),
             );
         } else if is_winner && driver.temporadas_na_categoria >= 5 {
             context_facts.push(
@@ -143,14 +142,18 @@ pub(super) fn montar_fatos_do_boletim(
         active_season.numero,
         active_season.ano,
     );
-    let career_beats =
-        rivalry_arc_beats(conn, race_result, &featured, active_season.numero, round);
+    let career_beats = rivalry_arc_beats(conn, race_result, &featured, active_season.numero, round);
 
     // Desempenho e forma: esperado×real, forma recente, histórico de pista e
     // confronto entre companheiros (pano de fundo dos destaques).
-    for fact in
-        performance_context_facts(conn, race_result, &featured, active_season, round, category_id)
-    {
+    for fact in performance_context_facts(
+        conn,
+        race_result,
+        &featured,
+        active_season,
+        round,
+        category_id,
+    ) {
         context_facts.push(fact);
     }
 
@@ -163,13 +166,15 @@ pub(super) fn montar_fatos_do_boletim(
     // Peça 3 · notícia: PENALIDADES de quebra (não-DNF) — "perdeu tempo arrumando a peça X,
     // problema leve/grave". Os DNFs de quebra já entram pelo beat Abandono (Camada B); aqui
     // entram as paradas `!black`. Vazio no sim offline (só corrida ao vivo dispara quebra).
-    let race_id_for_breakdowns = crate::db::queries::calendar::get_calendar(
-        conn,
-        &active_season.id,
-        category_id,
-    )
-    .ok()
-    .and_then(|entries| entries.into_iter().find(|e| e.rodada == round).map(|e| e.id));
+    let race_id_for_breakdowns =
+        crate::db::queries::calendar::get_calendar(conn, &active_season.id, category_id)
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .into_iter()
+                    .find(|e| e.rodada == round)
+                    .map(|e| e.id)
+            });
     if let Some(rid) = &race_id_for_breakdowns {
         if let Ok(bds) = crate::db::queries::race_breakdowns::get_breakdowns_for_race(conn, rid) {
             let mut count = 0;

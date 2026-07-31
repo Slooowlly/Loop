@@ -66,7 +66,11 @@ pub fn update_contract_status(
 /// Reajusta o salário anual de um contrato. Usado pela **retenção** do poaching
 /// (Fase 2b.2): segurar um piloto assediado custa aumento, e o aumento fica no
 /// contrato — pesando no orçamento do time nas temporadas seguintes.
-pub fn update_contract_salary(conn: &Connection, id: &str, salario_anual: f64) -> Result<(), DbError> {
+pub fn update_contract_salary(
+    conn: &Connection,
+    id: &str,
+    salario_anual: f64,
+) -> Result<(), DbError> {
     let affected = conn.execute(
         "UPDATE contracts SET salario_anual = ?1 WHERE id = ?2",
         params![salario_anual, id],

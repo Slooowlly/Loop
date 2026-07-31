@@ -1,4 +1,22 @@
-# iRacer VR Overlay — Spike 1 (OpenXR API Layer)
+# iRacer VR Overlay — OpenXR API Layer
+
+> **Distribuição (o caminho normal).** A layer NÃO é mais instalada à mão pelo jogador:
+> `scripts/build-vr-layer.mjs` a compila pra `src-tauri/resources/` em cada build (via
+> `beforeBuildCommand`), o bundle do Tauri a leva no instalador, e o app registra
+> manifesto + chave de registro a cada boot ([vr_layer.rs](../src-tauri/src/commands/vr_layer.rs)).
+> O hook do NSIS ([hooks.nsh](../src-tauri/installer/hooks.nsh)) limpa o registro ao
+> desinstalar. A DLL é artefato e não vai pro git.
+>
+> Os scripts `install.ps1`/`uninstall.ps1` daqui continuam úteis só pra **desenvolvimento**
+> — registrar um build local sem passar pelo instalador.
+>
+> A layer também é o **detector de VR** do app: enquanto o iRacing tem uma instância
+> OpenXR viva, ela mantém aberto o evento nomeado `Local\iRacerVrActive`, e é assim que o
+> Loop sabe que a corrida é de headset (o irsdk não publica nada de HMD). O sinal só
+> acende dentro do executável do iRacing — layers implícitas carregam em qualquer app
+> OpenXR, e sem esse filtro um menu de VR qualquer acenderia o sinal.
+
+## Histórico — Spike 1
 
 Prova de conceito: uma **OpenXR API layer** em C++ que injeta um **painel de teste
 (retângulo magenta)** grudado na sua visão dentro do iRacing rodando em **OpenXR /

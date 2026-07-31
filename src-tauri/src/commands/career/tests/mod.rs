@@ -6,7 +6,10 @@ use chrono::{Datelike, NaiveDate};
 use std::fs;
 
 use super::*;
-use crate::commands::career_team_dossier::get_team_history_dossier_in_base_dir;
+use crate::commands::career_team_dossier::{
+    get_team_history_dossier_in_base_dir, get_team_records_ranking_in_base_dir,
+};
+use crate::commands::career_types::TeamRecordsRow;
 
 #[test]
 fn test_validate_input_valid() {
@@ -2108,7 +2111,11 @@ fn test_get_team_history_dossier_uses_real_race_results_for_any_team() {
             .expect("team dossier");
 
     assert!(dossier.has_history);
-    assert_eq!(dossier.record_scope, "Grupo Mazda");
+    // Os cards de record comparam dentro da CATEGORIA, não do grupo: o card
+    // responde "onde esta equipe está entre as que correm com ela", e quem corre
+    // com ela é a categoria. É também o que faz o card e a tabela de recordes
+    // (que abre em "só a categoria") mostrarem o mesmo número.
+    assert_eq!(dossier.record_scope, "Mazda Rookie");
     assert_eq!(dossier.sport.races, 4);
     assert_eq!(dossier.sport.wins, 1);
     assert_eq!(dossier.sport.podiums, 3);
@@ -2186,6 +2193,167 @@ fn test_get_team_history_dossier_uses_real_race_results_for_any_team() {
         ),
         (4, 1, 2, 0, 1, 0)
     );
+    // Campanha do campeonato: a equipe do dossiê contra o campo, rodada a
+    // rodada. Só as duas equipes com resultado viram linha, e o acumulado soma
+    // os DOIS carros de cada uma — 25+12 na primeira, 18+10 na segunda...
+    let run = dossier
+        .championship_run
+        .as_ref()
+        .expect("campanha do campeonato");
+    assert_eq!(run.rounds.len(), 4);
+    assert_eq!(run.lines.len(), 2);
+    let minha = run
+        .lines
+        .iter()
+        .find(|line| line.selected)
+        .expect("linha da equipe do dossiê");
+    assert_eq!(minha.points, vec![37.0, 65.0, 71.0, 94.0]);
+    assert_eq!(minha.total, "94");
+    // 94 a 93: a ordenação é pela pontuação final, e é ela que dá a colocação.
+    assert_eq!(minha.position, 1);
+    let rival_line = run
+        .lines
+        .iter()
+        .find(|line| !line.selected)
+        .expect("linha do rival");
+    assert_eq!(rival_line.points, vec![18.0, 43.0, 68.0, 93.0]);
+    assert_eq!(rival_line.position, 2);
+    // O nome vem da tabela de equipes: linha sem nome não dá nem para
+    // identificar no tooltip do campo cinza.
+    assert!(!rival_line.team.is_empty());
+
+    // Tabela de recordes: o destino dos cards. O contrato é que ela e o card
+    // saiam do MESMO agregado — o dossiê diz que a equipe é a "2ª" em vitórias
+    // num recorte de 2, e a tabela ordenada por vitórias tem de pôr ela em
+    // segundo. Duas contagens separadas divergiriam no primeiro empate.
+    let ranking = get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "group", None)
+        .expect("ranking");
+    assert_eq!(ranking.scope, "Grupo Mazda");
+    assert_eq!(ranking.rows.len(), 2);
+    let minha = ranking
+        .rows
+        .iter()
+        .find(|row| row.team_id == selected.id)
+        .expect("linha da equipe");
+    assert_eq!(
+        (
+            minha.wins,
+            minha.podiums,
+            minha.races,
+            minha.win_rate,
+            minha.podium_rate
+        ),
+        (1, 3, 4, 25, 75)
+    );
+    assert!(!minha.team.is_empty());
+    let mut por_vitorias: Vec<&TeamRecordsRow> = ranking.rows.iter().collect();
+    por_vitorias.sort_by(|a, b| b.wins.cmp(&a.wins));
+    assert_eq!(por_vitorias[1].team_id, selected.id);
+    // As três amplitudes são três perguntas, e cada uma muda o recorte de fato —
+    // não só o rótulo. Só a categoria: apenas a Mazda Rookie.
+    assert_eq!(ranking.scope_kind, "group");
+    let so_categoria =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "category", None)
+            .expect("categoria");
+    assert_eq!(so_categoria.scope, "Mazda Rookie");
+    assert_eq!(so_categoria.scope_kind, "category");
+    // A promessa que sustenta a tela: a contagem é do RECORTE, não da carreira.
+    // Estas 4 corridas são todas de mazda_rookie, então categoria e grupo dão o
+    // mesmo número aqui; o que o teste trava é que a conta sai dos fatos do
+    // recorte, e não de um total guardado em outro lugar.
+    let minha_categoria = so_categoria
+        .rows
+        .iter()
+        .find(|row| row.team_id == selected.id)
+        .expect("linha na categoria");
+    assert_eq!(minha_categoria.races, 4);
+    // O período vem dos mesmos fatos: os anos das corridas que foram contadas.
+    assert!(!minha_categoria.first_year.is_empty());
+    assert_eq!(minha_categoria.first_year, minha_categoria.last_year);
+    // O par recorte/carreira: aqui as 4 corridas são as únicas do save, então os
+    // dois números coincidem e a tela não desenha o segundo. O que o teste trava
+    // é que o total existe e é uma conta À PARTE — sem ele, o recorte agiria em
+    // silêncio e um "5" solto se pareceria com uma equipe que mal correu.
+    assert_eq!(minha_categoria.total_races, minha_categoria.races);
+    assert_eq!(minha_categoria.total_wins, minha_categoria.wins);
+    // Pedir uma categoria em que a equipe nunca correu não devolve a carreira
+    // dela em outro lugar — devolve nada. É o caso que mais importa: era ele que
+    // fazia uma equipe da Production aparecer com as vitórias que fez na Mazda.
+    let outra_escada =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "gt3", "category", None).expect("gt3");
+    assert!(outra_escada
+        .rows
+        .iter()
+        .all(|row| row.team_id != selected.id));
+    // O grupo junta Rookie e Championship, e é por isso que o rótulo tem de dizer
+    // "Grupo": foi tratá-lo como categoria que fez os títulos da Championship
+    // aparecerem debaixo de um filtro escrito "Mazda Rookie".
+    assert_ne!(so_categoria.scope, ranking.scope);
+    assert_eq!(so_categoria.scope_categories, vec!["Mazda Rookie".to_string()]);
+    // O Grupo Mazda vai até a Production, que é onde a escada da marca termina —
+    // a equipe sobe sem trocar de mundo, o carro continua sendo o mesmo.
+    assert_eq!(
+        ranking.scope_categories,
+        vec![
+            "Mazda Rookie".to_string(),
+            "Mazda Championship".to_string(),
+            "Production".to_string()
+        ]
+    );
+    // Mas só a classe da marca: Toyota e BMW correm a MESMA categoria em
+    // campeonatos separados, e nunca dividiram a pista com uma Mazda.
+    assert_eq!(ranking.scope_family, "mazda");
+    let grupo_toyota =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "toyota_rookie", "group", None)
+            .expect("grupo toyota");
+    assert_eq!(grupo_toyota.scope_family, "toyota");
+    // A Production não tem marca própria — é o ponto onde as três escadas
+    // convergem —, então o grupo dela segue sendo a convergência inteira, sem
+    // recorte de classe.
+    let grupo_production =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "production_challenger", "group", None)
+            .expect("grupo production");
+    assert_eq!(grupo_production.scope, "Grupo Production");
+    assert_eq!(grupo_production.scope_categories.len(), 6);
+    assert_eq!(grupo_production.scope_family, "");
+    // O mundo ignora a categoria pedida: a mesma resposta venha de onde vier.
+    let mundo = get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "world", None)
+        .expect("mundo");
+    let mundo_pela_gt3 =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "gt3", "world", None).expect("mundo gt3");
+    assert_eq!(mundo.scope_kind, "world");
+    assert_eq!(mundo.rows.len(), mundo_pela_gt3.rows.len());
+    // Na amplitude mundial recorte e carreira são a mesma conta por definição, e
+    // é por isso que a tela não desenha o segundo número lá.
+    let minha_no_mundo = mundo
+        .rows
+        .iter()
+        .find(|row| row.team_id == selected.id)
+        .expect("linha no mundo");
+    assert_eq!(minha_no_mundo.total_races, minha_no_mundo.races);
+    // Amplitude desconhecida cai em grupo, que é a porta por onde a tela abre.
+    let padrao = get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "xpto", None)
+        .expect("padrão");
+    assert_eq!(padrao.scope_kind, "group");
+    // A escada sai do backend porque é regra de domínio, e traz o grupo de cada
+    // categoria junto — é o que deixa a tela dizer o que "grupo" significa AQUI
+    // antes de o jogador escolher.
+    // 14, e não 10: as duas multiclasse (Production e Endurance) abrem em três
+    // entradas cada, uma por carro.
+    assert_eq!(ranking.categories.len(), 14);
+    let rookie = ranking
+        .categories
+        .iter()
+        .find(|item| item.id == "mazda_rookie")
+        .expect("mazda rookie na escada");
+    assert_eq!((rookie.label.as_str(), rookie.group_label.as_str()), ("Mazda Rookie", "Grupo Mazda"));
+    let championship = ranking
+        .categories
+        .iter()
+        .find(|item| item.id == "mazda_amador")
+        .expect("mazda championship na escada");
+    assert_eq!(championship.label, "Mazda Championship");
+
     assert_eq!(dossier.identity.origin, "Mazda Rookie");
     assert_eq!(dossier.identity.current, "Mazda Rookie");
     assert_eq!(dossier.identity.profile, "Dominante");
@@ -2218,6 +2386,52 @@ fn test_get_team_history_dossier_uses_real_race_results_for_any_team() {
         "Nível 7 - pacote técnico atual"
     );
     assert!(dossier.management.summary.contains("Pressionada"));
+
+    // Galeria por vaga: os dois titulares da temporada em curso, um em cada
+    // coluna, com os números da PASSAGEM e não da carreira. Ambos seguem na
+    // equipe, então ambos são vigentes — o que não pode acontecer é a mesma vaga
+    // ter duas passagens marcadas como atuais.
+    let lineup = &dossier.lineup;
+    assert_eq!(lineup.len(), 2);
+    let vaga = |slot: i32| {
+        lineup
+            .iter()
+            .find(|term| term.slot == slot)
+            .unwrap_or_else(|| panic!("vaga {slot}"))
+    };
+    assert_eq!(vaga(1).driver_id, selected_driver_1);
+    assert_eq!(vaga(2).driver_id, selected_driver_2);
+    assert_eq!((vaga(1).races, vaga(1).wins, vaga(1).podiums), (4, 1, 3));
+    // 4º, 5º, 9º e 6º: nenhum pódio, e o melhor resultado é o que sobra de
+    // concreto para separar quem chegou perto de quem nunca ameaçou.
+    assert_eq!((vaga(2).races, vaga(2).wins, vaga(2).podiums), (4, 0, 0));
+    assert_eq!(vaga(2).best_position, 4);
+    assert!(vaga(1).still_here && vaga(2).still_here);
+    for slot in [1, 2] {
+        assert_eq!(
+            lineup
+                .iter()
+                .filter(|term| term.slot == slot && term.still_here)
+                .count(),
+            1,
+            "vaga {slot} não pode ter dois titulares atuais"
+        );
+    }
+
+    // Confiabilidade: sem `dnf` marcado, as quatro largadas de cada carro viraram
+    // chegada — e a taxa do grupo sai da mesma conta para todo mundo.
+    assert_eq!(
+        (
+            dossier.reliability.races,
+            dossier.reliability.finished,
+            dossier.reliability.finish_rate,
+            dossier.reliability.mechanical,
+            dossier.reliability.driver_error,
+            dossier.reliability.other
+        ),
+        (8, 8, 100, 0, 0, 0)
+    );
+    assert_eq!(dossier.reliability.group_finish_rate, 100);
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -4698,4 +4912,209 @@ fn latest_regular_contract_for_driver(
                 .then_with(|| a.created_at.cmp(&b.created_at))
         })
         .expect("latest regular contract")
+}
+
+/// A escada da marca vai até a Production, mas a Production é multiclasse: três
+/// marcas disputam a MESMA categoria em campeonatos separados. O Grupo Mazda
+/// conta a Production da classe Mazda e ignora a de Toyota — elas nunca
+/// dividiram a pista.
+#[test]
+#[serial_test::serial]
+fn test_team_records_group_counts_only_the_family_class_in_production() {
+    rust_i18n::set_locale("pt-BR");
+    let base_dir = create_test_career_dir("team_records_family_class");
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let db = Database::open_existing(&db_path).expect("db");
+
+    let corrida_production: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT id FROM calendar WHERE categoria = 'production_challenger' ORDER BY rodada LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .expect("consulta calendário");
+    let Some(corrida_production) = corrida_production else {
+        // Save de teste sem Production no calendário: não há o que separar.
+        return;
+    };
+
+    let equipes: Vec<String> = db
+        .conn
+        .prepare("SELECT id FROM teams ORDER BY id LIMIT 2")
+        .expect("prepare")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("equipes");
+    let (mazda, toyota) = (&equipes[0], &equipes[1]);
+    let (piloto_mazda, _) = team_driver_ids(&db.conn, mazda).expect("piloto mazda");
+    let (piloto_toyota, _) = team_driver_ids(&db.conn, toyota).expect("piloto toyota");
+
+    db.conn
+        .execute("DELETE FROM race_results", [])
+        .expect("limpa resultados");
+    for (team_id, classe) in [(mazda, "mazda"), (toyota, "toyota")] {
+        db.conn
+            .execute(
+                "UPDATE teams SET classe = ?1 WHERE id = ?2",
+                rusqlite::params![classe, team_id],
+            )
+            .expect("classe da equipe");
+    }
+    // Uma vitória na Production para cada uma, na mesma corrida.
+    for (piloto, equipe) in [(&piloto_mazda, mazda), (&piloto_toyota, toyota)] {
+        db.conn
+            .execute(
+                "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, pontos)
+                 VALUES (?1, ?2, ?3, 1, 25.0)",
+                rusqlite::params![&corrida_production, piloto, equipe],
+            )
+            .expect("resultado production");
+    }
+    drop(db);
+
+    let grupo_mazda =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "group", None)
+            .expect("grupo mazda");
+    let linha = |ranking: &crate::commands::career_types::TeamRecordsRanking, id: &str| {
+        ranking
+            .rows
+            .iter()
+            .find(|row| row.team_id == id)
+            .map(|row| row.races)
+            .unwrap_or(0)
+    };
+    // A corrida da equipe Mazda entra; a da Toyota, não — mesma categoria,
+    // campeonato outro.
+    assert_eq!(linha(&grupo_mazda, mazda), 1);
+    assert_eq!(linha(&grupo_mazda, toyota), 0);
+
+    // Espelho: no Grupo Toyota a conta se inverte.
+    let grupo_toyota =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "toyota_rookie", "group", None)
+            .expect("grupo toyota");
+    assert_eq!(linha(&grupo_toyota, toyota), 1);
+    assert_eq!(linha(&grupo_toyota, mazda), 0);
+
+    // A escada abre as multiclasse por carro: a Production não é um campeonato,
+    // são três correndo na mesma pista. Escolher "Production" inteira somaria
+    // Mazda, Toyota e BMW num número que não existe em classificação nenhuma.
+    let producao: Vec<&crate::commands::career_types::TeamRecordsCategory> = grupo_mazda
+        .categories
+        .iter()
+        .filter(|item| item.id == "production_challenger")
+        .collect();
+    assert_eq!(producao.len(), 3);
+    assert_eq!(producao[0].key, "production_challenger:mazda");
+    assert_eq!(producao[0].label, "Production · Mazda");
+    // Monomarca segue com uma entrada só, e a chave é o próprio id.
+    let gt3 = grupo_mazda
+        .categories
+        .iter()
+        .find(|item| item.id == "gt3")
+        .expect("gt3 na escada");
+    assert_eq!((gt3.key.as_str(), gt3.class.as_str()), ("gt3", ""));
+
+    // E cada campeonato da Production conta só o seu: pedir a classe é pedir um
+    // dos três, não a categoria inteira.
+    let producao_mazda = get_team_records_ranking_in_base_dir(
+        &base_dir,
+        "career_001",
+        "production_challenger",
+        "category",
+        Some("mazda"),
+    )
+    .expect("production mazda");
+    assert_eq!(producao_mazda.scope, "Production · Mazda");
+    assert_eq!(producao_mazda.scope_family, "mazda");
+    assert_eq!(linha(&producao_mazda, mazda), 1);
+    assert_eq!(linha(&producao_mazda, toyota), 0);
+    let producao_toda =
+        get_team_records_ranking_in_base_dir(&base_dir, "career_001", "production_challenger", "category", None)
+            .expect("production toda");
+    assert_eq!(linha(&producao_toda, mazda), 1);
+    assert_eq!(linha(&producao_toda, toyota), 1);
+
+    // E o mundo não recorta por marca: as duas corridas existem.
+    let mundo = get_team_records_ranking_in_base_dir(&base_dir, "career_001", "mazda_rookie", "world", None)
+        .expect("mundo");
+    assert_eq!(linha(&mundo, mazda), 1);
+    assert_eq!(linha(&mundo, toyota), 1);
+}
+
+/// Os cards de record são da CATEGORIA, não do grupo. Uma equipe com corridas na
+/// Mazda Rookie e na Mazda Championship vê, na ficha aberta pela Rookie, só o
+/// que fez na Rookie — a média e o "17º de 22" que vinham do grupo somavam um
+/// campeonato que ela nem sempre disputou.
+#[test]
+#[serial_test::serial]
+fn test_team_dossier_records_are_scoped_to_the_category_not_the_group() {
+    rust_i18n::set_locale("pt-BR");
+    let base_dir = create_test_career_dir("team_dossier_records_por_categoria");
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let db = Database::open_existing(&db_path).expect("db");
+
+    let corrida = |categoria: &str| -> Option<String> {
+        db.conn
+            .query_row(
+                "SELECT id FROM calendar WHERE categoria = ?1 ORDER BY rodada LIMIT 1",
+                rusqlite::params![categoria],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("consulta calendário")
+    };
+    let (Some(na_rookie), Some(na_championship)) =
+        (corrida("mazda_rookie"), corrida("mazda_amador"))
+    else {
+        // Sem as duas categorias no calendário não há grupo para separar.
+        return;
+    };
+
+    let teams = get_teams_standings_in_base_dir(&base_dir, "career_001", "mazda_rookie")
+        .expect("standings");
+    let equipe = teams.first().expect("equipe").id.clone();
+    let (piloto, _) = team_driver_ids(&db.conn, &equipe).expect("piloto");
+
+    db.conn
+        .execute("DELETE FROM race_results", [])
+        .expect("limpa resultados");
+    // Uma vitória na Rookie e duas na Championship. No grupo seriam 3 vitórias em
+    // 3 corridas; na categoria são 1 em 1.
+    for (race_id, posicao) in [(&na_rookie, 1), (&na_championship, 1)] {
+        db.conn
+            .execute(
+                "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, pontos)
+                 VALUES (?1, ?2, ?3, ?4, 25.0)",
+                rusqlite::params![race_id, &piloto, &equipe, posicao],
+            )
+            .expect("resultado");
+    }
+    drop(db);
+
+    let ficha_rookie =
+        get_team_history_dossier_in_base_dir(&base_dir, "career_001", &equipe, "mazda_rookie")
+            .expect("ficha rookie");
+    assert_eq!(ficha_rookie.record_scope, "Mazda Rookie");
+    assert_eq!(ficha_rookie.sport.races, 1);
+    assert_eq!(ficha_rookie.sport.wins, 1);
+
+    // A mesma equipe, aberta pela Championship: o card muda de recorte junto.
+    let ficha_championship =
+        get_team_history_dossier_in_base_dir(&base_dir, "career_001", &equipe, "mazda_amador")
+            .expect("ficha championship");
+    assert_eq!(ficha_championship.record_scope, "Mazda Championship");
+    assert_eq!(ficha_championship.sport.races, 1);
+
+    // Mas a HISTÓRIA continua sendo a do grupo: a fita de forma recente mostra as
+    // duas corridas, porque ela conta a trajetória e não a comparação.
+    assert_eq!(ficha_rookie.recent_form.len(), 2);
+    // E "tem histórico" não depende do recorte dos cards: uma equipe que subiu de
+    // tier não tem corrida na categoria de baixo, e o dossiê inteiro cairia em
+    // "sem histórico" por causa de um filtro que só vale para os cards.
+    assert!(ficha_rookie.has_history);
 }

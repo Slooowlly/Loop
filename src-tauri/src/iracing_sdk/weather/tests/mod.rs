@@ -108,7 +108,10 @@ fn normal_agora_molha_as_vezes() {
         }
     }
     // Normal no inverno ~30% → nem nunca nem maioria.
-    assert!((60..220).contains(&wet), "Normal inverno molhou {wet}/500 (esperado ~30%)");
+    assert!(
+        (60..220).contains(&wet),
+        "Normal inverno molhou {wet}/500 (esperado ~30%)"
+    );
 }
 
 #[test]
@@ -121,7 +124,11 @@ fn temporal_so_no_tier_alto() {
             vh_rainy += 1;
         }
         let n = generate_weather(1, Hemisphere::North, ClimateTendency::Normal, seed, false);
-        assert_ne!(n.race_intensity, RainIntensity::VeryHeavy, "Normal deu temporal (seed {seed})");
+        assert_ne!(
+            n.race_intensity,
+            RainIntensity::VeryHeavy,
+            "Normal deu temporal (seed {seed})"
+        );
     }
     assert!(vh_rainy > 0, "Rainy inverno nunca deu temporal");
 }
@@ -321,7 +328,11 @@ fn corrida_molhada_larga_inequivocamente_molhada() {
 #[test]
 fn timeline_comeca_na_largada_e_termina_na_bandeira() {
     // Qualquer cenário: frações ordenadas, começa ~0 e termina ~1, sem a QUALI.
-    let p = story_to_timeline(&story(WeatherScenario::PulsingStorm, true, RainIntensity::Heavy));
+    let p = story_to_timeline(&story(
+        WeatherScenario::PulsingStorm,
+        true,
+        RainIntensity::Heavy,
+    ));
     assert!(!p.is_empty());
     assert!(p[0].frac <= 0.05, "não começa na largada: {}", p[0].frac);
     assert!(p.last().unwrap().frac >= 0.95, "não termina na bandeira");
@@ -329,15 +340,32 @@ fn timeline_comeca_na_largada_e_termina_na_bandeira() {
         p.windows(2).all(|w| w[0].frac <= w[1].frac + 1e-9),
         "frações fora de ordem"
     );
-    assert!(p.iter().all(|pt| pt.frac >= 0.0), "tem ponto antes da largada (QUALI?)");
+    assert!(
+        p.iter().all(|pt| pt.frac >= 0.0),
+        "tem ponto antes da largada (QUALI?)"
+    );
 }
 
 #[test]
 fn timeline_molhado_tem_chuva_seco_nao() {
-    let wet = story_to_timeline(&story(WeatherScenario::SteadyRain, true, RainIntensity::VeryHeavy));
-    assert!(wet.iter().any(|p| p.event_type >= 6), "corrida molhada sem chuva");
-    let dry = story_to_timeline(&story(WeatherScenario::ClearDry, false, RainIntensity::None));
-    assert!(dry.iter().all(|p| p.event_type < 6), "corrida seca com chuva");
+    let wet = story_to_timeline(&story(
+        WeatherScenario::SteadyRain,
+        true,
+        RainIntensity::VeryHeavy,
+    ));
+    assert!(
+        wet.iter().any(|p| p.event_type >= 6),
+        "corrida molhada sem chuva"
+    );
+    let dry = story_to_timeline(&story(
+        WeatherScenario::ClearDry,
+        false,
+        RainIntensity::None,
+    ));
+    assert!(
+        dry.iter().all(|p| p.event_type < 6),
+        "corrida seca com chuva"
+    );
 }
 
 #[test]
@@ -352,10 +380,17 @@ fn temperatura_fica_na_faixa_do_iracing() {
             RainIntensity::VeryHeavy,
         ] {
             for seed in 0..300u64 {
-                let mut s = story(WeatherScenario::SteadyRain, intensity != RainIntensity::None, intensity);
+                let mut s = story(
+                    WeatherScenario::SteadyRain,
+                    intensity != RainIntensity::None,
+                    intensity,
+                );
                 s.season = season;
                 let t = story_temperature(&s, seed);
-                assert!((18..=32).contains(&t), "temp fora da faixa: {t} ({season:?}/{intensity:?})");
+                assert!(
+                    (18..=32).contains(&t),
+                    "temp fora da faixa: {t} ({season:?}/{intensity:?})"
+                );
             }
         }
     }
@@ -375,7 +410,10 @@ fn temperatura_chuva_esfria_e_verao_esquenta() {
     };
     let verao_seco = media(Season::Summer, RainIntensity::None, false);
     let inverno_temporal = media(Season::Winter, RainIntensity::VeryHeavy, true);
-    assert!(verao_seco > inverno_temporal, "{verao_seco} vs {inverno_temporal}");
+    assert!(
+        verao_seco > inverno_temporal,
+        "{verao_seco} vs {inverno_temporal}"
+    );
 }
 
 #[test]
@@ -393,11 +431,23 @@ fn vento_usa_a_escada_e_varia() {
     for seed in 0..500u64 {
         let s = story(WeatherScenario::ClearDry, false, RainIntensity::None);
         let w = generate_wind(&s, seed);
-        assert!(ladder.contains(&w.speed_kmh), "vento fora da escada: {}", w.speed_kmh);
-        assert!((0..=359).contains(&w.dir_deg), "direção fora da faixa: {}", w.dir_deg);
+        assert!(
+            ladder.contains(&w.speed_kmh),
+            "vento fora da escada: {}",
+            w.speed_kmh
+        );
+        assert!(
+            (0..=359).contains(&w.dir_deg),
+            "direção fora da faixa: {}",
+            w.dir_deg
+        );
         speeds.insert(w.speed_kmh);
     }
-    assert!(speeds.len() >= 4, "vento seco não varia o suficiente ({} degraus)", speeds.len());
+    assert!(
+        speeds.len() >= 4,
+        "vento seco não varia o suficiente ({} degraus)",
+        speeds.len()
+    );
 }
 
 #[test]

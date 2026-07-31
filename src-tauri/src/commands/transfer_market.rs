@@ -236,7 +236,10 @@ fn build_offer_view(
 /// derivadas das vagas regulares elegíveis (`pipeline::player_market_offers`). O feed
 /// real do mercado vai pelas notícias da semana (não por este payload); `signings`
 /// fica vazio. O fecho da janela é dirigido por `preseasonState.is_complete` na UI.
-fn build_payload(conn: &rusqlite::Connection, season: i32) -> Result<TransferWindowPayload, String> {
+fn build_payload(
+    conn: &rusqlite::Connection,
+    season: i32,
+) -> Result<TransferWindowPayload, String> {
     let offers = pipeline::player_market_offers(conn, season)?;
     let player_offers = offers
         .iter()

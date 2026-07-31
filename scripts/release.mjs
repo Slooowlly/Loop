@@ -39,7 +39,7 @@ const die = (msg) => {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
 };
-const step = (n, msg) => console.log(`\n[${n}/6] ${msg}`);
+const step = (n, msg) => console.log(`\n[${n}/7] ${msg}`);
 
 const channel = flag("--channel", "stable");
 if (!TARGETS[channel]) die(`Canal inválido: ${channel} (use stable ou beta)`);
@@ -108,7 +108,18 @@ const run = (cmd, cmdArgs, extraEnv = {}) =>
     env: { ...process.env, ...extraEnv },
   });
 
-step(2, "Build assinado (leva ~6-8 min)…");
+// ---------- API layer do OpenXR ----------
+// O `beforeBuildCommand` também compila a layer, então isto é redundante por design:
+// aqui ela falha em SEGUNDOS se o toolchain de C++ não estiver de pé, em vez de depois
+// de 6-8 minutos de vite + cargo. A layer é o leitor do overlay de VR — sem ela no
+// bundle, o VR não existe na máquina do jogador.
+step(2, "Compilando a API layer do OpenXR…");
+const layer = run("node", ["scripts/build-vr-layer.mjs"]);
+if (layer.status !== 0) {
+  die("Build da API layer falhou — precisa do Visual Studio 2022 com o workload de C++.");
+}
+
+step(3, "Build assinado (leva ~6-8 min)…");
 const build = run("npm", ["run", "tauri", "build", "--", "--bundles", "nsis"], {
   CARGO_TARGET_DIR: TARGET_DIR,
   TAURI_SIGNING_PRIVATE_KEY: fs.readFileSync(KEY_PATH, "utf8").trim(),
@@ -119,7 +130,7 @@ if (build.status !== 0) die("Build falhou (veja o erro acima).");
 // ---------- Guarda da assinatura ----------
 // O Tauri PULA a assinatura em silêncio se a senha/chave não chegam — foi o que
 // quebrou dois releases. Aqui isso vira erro explícito em vez de bug publicado.
-step(3, "Conferindo assinatura…");
+step(4, "Conferindo assinatura…");
 const setupName = `Loop_${version}_x64-setup.exe`;
 const setupPath = path.join(BUNDLE_DIR, setupName);
 const sigPath = `${setupPath}.sig`;
@@ -135,7 +146,7 @@ if (!fs.existsSync(sigPath)) {
 console.log(`      ok — ${setupName}.sig`);
 
 // ---------- Manifesto ----------
-step(4, "Gerando manifesto…");
+step(5, "Gerando manifesto…");
 // As notas vão por ARQUIVO, não por argumento: passar texto multi-linha pelo
 // shell viraria "\n" literal dentro do manifesto (e a tela "o que mudou"
 // mostraria a barra invertida em vez de quebrar a linha).
@@ -151,7 +162,7 @@ fs.rmSync(notesTmp, { force: true });
 if (man.status !== 0) die("Falha ao gerar o manifesto.");
 
 // ---------- Upload ----------
-step(5, "Publicando no bucket…");
+step(6, "Publicando no bucket…");
 const manifestPath = path.join(BUNDLE_DIR, "latest.json");
 const up1 = run("gcloud", ["storage", "cp", `"${setupPath}"`, `gs://${BUCKET}/downloads/`]);
 if (up1.status !== 0) die("Upload do instalador falhou.");
@@ -164,7 +175,7 @@ const up2 = run("gcloud", [
 if (up2.status !== 0) die("Upload do manifesto falhou.");
 
 // ---------- Verificação ----------
-step(6, "Verificando no ar…");
+step(7, "Verificando no ar…");
 const manifestUrl = `https://storage.googleapis.com/${BUCKET}/updates/${TARGETS[channel]}/latest.json`;
 const live = await (await fetch(manifestUrl, { cache: "no-store" })).json();
 if (live.version !== version) {

@@ -15,6 +15,8 @@ use crate::db::connection::Database;
 
 #[path = "global_team_history/bandas.rs"]
 mod bandas;
+#[path = "global_team_history/campeoes.rs"]
+mod campeoes;
 #[path = "global_team_history/dados.rs"]
 mod dados;
 #[path = "global_team_history/familias.rs"]
@@ -22,6 +24,7 @@ mod familias;
 
 // Consumidos pela propria fachada e pelos irmaos, via `use super::*`.
 use bandas::*;
+pub(crate) use campeoes::get_band_champions_in_base_dir;
 use dados::*;
 use familias::*;
 
@@ -75,7 +78,11 @@ pub(crate) fn build_global_team_history(
     // for the ongoing season still shows in its old division (the archive only holds
     // finished seasons). Only when the active season sits inside the visible window.
     if bounds.in_progress && current_year >= window_start && current_year <= window_end {
-        archive_rows.extend(load_current_season_rows(conn, current_year)?);
+        archive_rows.extend(load_current_season_rows(
+            conn,
+            current_year,
+            bounds.last_completed_year,
+        )?);
     }
     let archive_rows = dedupe_archive_rows_for_family(family_def, archive_rows);
     // Titles are loaded once across ALL years (no window filter) so the count is
@@ -104,6 +111,8 @@ pub(crate) fn build_global_team_history(
         window_end,
         window_size,
         current_year,
+        in_progress: bounds.in_progress,
+        last_completed_year: bounds.last_completed_year,
         families: FAMILY_DEFS.iter().map(family_payload).collect(),
         bands,
     })

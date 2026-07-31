@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../stores/useCareerStore";
 import { RADIO_VR_W, RADIO_VR_H, drawRadioCard } from "./radioCanvas";
 import { useBreakdownFeed, usePlayerWarnings } from "./useBreakdownFeed";
+import { useOverlayFlags } from "./useOverlayFlags";
 import { estaNoTauri } from "../lib/tauri";
 
 // Escritor do RÁDIO DA EQUIPE no VR: quando uma quebra é anunciada, desenha o card
@@ -48,7 +49,13 @@ function mixPools(msgs, warns) {
   return out;
 }
 
+// Gate da chave geral do VR (Configurações → "Overlay em VR"): desligado, este
+// componente não monta e nenhum poll/desenho acontece. Ver OverlayVrWriter.
 export default function EngineerVrWriter() {
+  return useOverlayFlags().vrOverlay ? <EngineerVrWriterAtivo /> : null;
+}
+
+function EngineerVrWriterAtivo() {
   const careerId = useCareerStore((s) => s.careerId);
   const [demo, setDemo] = useState(false);
 
@@ -152,8 +159,14 @@ export default function EngineerVrWriter() {
     canvas.height = RADIO_VR_H;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     let lastKey = null; // evita reenviar o mesmo frame ocioso à toa
+    let stopped = false;
+    let timer = null;
 
-    const timer = setInterval(async () => {
+    // Laço que se REAGENDA, não `setInterval`: com intervalo fixo e `await` dentro, um
+    // engasgo do backend fazia os ticks se empilharem, cada um segurando o buffer de
+    // pixels do frame — memória do WebView2 subindo até o "Out of Memory". Aqui o
+    // próximo tick só é marcado depois que a escrita termina.
+    const tick = async () => {
       let toDraw = null;
       if (demoRef.current) {
         // Demo: card fixo (sem fade) pra posicionar; troca a cada 6 s.
@@ -170,19 +183,27 @@ export default function EngineerVrWriter() {
 
       // Quando ocioso, só manda a limpeza UMA vez (não fica cuspindo transparente).
       const key = toDraw ? `${toDraw.id}:${Math.round(toDraw.alpha * 12)}` : "idle";
-      if (key === "idle" && lastKey === "idle") return;
+      const ocioso = key === "idle" && lastKey === "idle";
       lastKey = key;
 
-      try {
-        drawRadioCard(ctx, toDraw);
-        const img = ctx.getImageData(0, 0, RADIO_VR_W, RADIO_VR_H);
-        await invoke("vr_engineer_write_frame", new Uint8Array(img.data.buffer));
-      } catch {
-        // Falha ao escrever um frame não é fatal: tenta de novo no próximo tick.
+      if (!ocioso) {
+        try {
+          drawRadioCard(ctx, toDraw);
+          const img = ctx.getImageData(0, 0, RADIO_VR_W, RADIO_VR_H);
+          await invoke("vr_engineer_write_frame", new Uint8Array(img.data.buffer));
+        } catch {
+          // Falha ao escrever um frame não é fatal: tenta de novo no próximo tick.
+        }
       }
-    }, 100);
 
-    return () => clearInterval(timer);
+      if (!stopped) timer = setTimeout(tick, 100);
+    };
+    tick();
+
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   return null;

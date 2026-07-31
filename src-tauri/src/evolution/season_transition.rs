@@ -139,13 +139,16 @@ pub(crate) fn archive_driver_season(
         // Marco de TÍTULOS: com o arquivo desta temporada já gravado, o campeão pode
         // ter se tornado o dono ISOLADO do recorde de títulos da categoria. A partir de
         // 3 títulos, para não marcar o bicampeão. Camada narrativa — erro é silencioso.
+        // Os dois lados da comparação são filtrados pela MESMA classe: nas categorias
+        // multiclasse o campeonato é por classe, então o recorde também é.
         if posicao_campeonato == Some(1) && !categoria.is_empty() {
-            let champ_titles =
-                crate::db::queries::race_history::get_pilot_category_titles(conn, &driver.id, categoria)
-                    .unwrap_or(0);
+            let champ_titles = crate::db::queries::race_history::get_pilot_category_titles(
+                conn, &driver.id, categoria, classe,
+            )
+            .unwrap_or(0);
             let others_max =
                 crate::db::queries::race_history::get_category_titles_leader_excluding(
-                    conn, categoria, &driver.id,
+                    conn, categoria, &driver.id, classe,
                 )
                 .unwrap_or(0);
             if champ_titles >= 3 && champ_titles > others_max {
@@ -169,46 +172,53 @@ pub(crate) fn archive_driver_season(
             // Marcos escalares de fim de temporada (rodam uma vez por categoria, aqui no
             // campeão): campeão mais jovem, campeonato mais apertado/dominante, dupla mais
             // longeva. Emite quando o candidato supera o recorde existente.
-            let emit_scalar = |kind: &str, subj_id: &str, subj_name: &str, value: i32, higher: bool| {
-                if let Ok(Some(prev)) = crate::db::queries::milestones::update_scalar_and_check(
-                    conn,
-                    categoria,
-                    kind,
-                    subj_id,
-                    subj_name,
-                    value,
-                    "",
-                    season.numero,
-                    0,
-                    higher,
-                ) {
-                    let _ = crate::db::queries::milestones::insert_milestone(
+            let emit_scalar =
+                |kind: &str, subj_id: &str, subj_name: &str, value: i32, higher: bool| {
+                    if let Ok(Some(prev)) = crate::db::queries::milestones::update_scalar_and_check(
                         conn,
                         categoria,
-                        &crate::db::queries::milestones::RecordMilestone {
-                            metric: kind.to_string(),
-                            pilot_id: subj_id.to_string(),
-                            pilot_name: subj_name.to_string(),
-                            value,
-                            previous_value: Some(prev),
-                            context: String::new(),
-                            season_number: season.numero,
-                            ano: season.ano,
-                            round: 0,
-                        },
-                    );
-                }
-            };
+                        kind,
+                        subj_id,
+                        subj_name,
+                        value,
+                        "",
+                        season.numero,
+                        0,
+                        higher,
+                    ) {
+                        let _ = crate::db::queries::milestones::insert_milestone(
+                            conn,
+                            categoria,
+                            &crate::db::queries::milestones::RecordMilestone {
+                                metric: kind.to_string(),
+                                pilot_id: subj_id.to_string(),
+                                pilot_name: subj_name.to_string(),
+                                value,
+                                previous_value: Some(prev),
+                                context: String::new(),
+                                season_number: season.numero,
+                                ano: season.ano,
+                                round: 0,
+                            },
+                        );
+                    }
+                };
 
             // Campeão mais jovem (idade do campeão nesta temporada).
             if driver.idade > 0 {
-                emit_scalar("youngest_champion", &driver.id, &driver.nome, driver.idade as i32, false);
+                emit_scalar(
+                    "youngest_champion",
+                    &driver.id,
+                    &driver.nome,
+                    driver.idade as i32,
+                    false,
+                );
             }
 
             // Campeonato mais apertado / mais dominante (gap de pontos entre 1º e 2º).
-            if let Ok(standings) =
-                crate::db::queries::race_history::get_category_standings(conn, &season.id, categoria)
-            {
+            if let Ok(standings) = crate::db::queries::race_history::get_category_standings(
+                conn, &season.id, categoria,
+            ) {
                 if standings.len() >= 2 {
                     let gap = (standings[0].points - standings[1].points).round() as i32;
                     if gap >= 0 {
@@ -222,7 +232,13 @@ pub(crate) fn archive_driver_season(
             if let Ok(Some(pair)) =
                 crate::db::queries::race_history::get_category_longest_pairing(conn, categoria)
             {
-                emit_scalar("longest_pairing", &pair.pilot_id, &pair.pilot_name, pair.value, true);
+                emit_scalar(
+                    "longest_pairing",
+                    &pair.pilot_id,
+                    &pair.pilot_name,
+                    pair.value,
+                    true,
+                );
             }
         }
     }

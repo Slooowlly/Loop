@@ -488,6 +488,7 @@ team_dossier:
     podiums: "Pódios"
     podium_rate: "Taxa de pódio"
     win_rate: "Taxa de vitória"
+    world_scope: "Mundo inteiro"
   first_milestone:
     podium: "Primeiro pódio"
     win: "Primeira vitória"
@@ -550,6 +551,12 @@ team_dossier:
     podium_other: "%{count} Pódios consecutivos"
     points_one: "1 Corrida pontuando"
     points_other: "%{count} Corridas pontuando"
+  alumni:
+    still_here: "Ainda na equipe"
+    retired: "Aposentado"
+    retired_year: "Aposentado em %{year}"
+    now_at: "Hoje na %{category}"
+    unknown: "Paradeiro desconhecido"
   rival_none: "Sem rival consolidado"
   symbol_none: "Sem piloto símbolo"
 
@@ -639,6 +646,11 @@ race:
     other_categories_summary: "Resumo das outras categorias: %{headline}."
   retirement:
     injury: "Aposentou-se aos %{age} anos após lesão grave"
+    # Notícia da carreira encerrada por lesão. Importância Destaque: é a manchete mais dura
+    # que o mundo produz fora do título — um piloto do grid saiu e não volta.
+    news_title: "%{name} encerra a carreira aos %{age} anos"
+    news_text: "%{injury} na rodada %{round} deixou sequelas graves demais para seguir. %{name} pendura o capacete em %{category} com %{races} corridas, %{wins} vitórias e %{podiums} pódios. A vaga na %{team} abre no meio da temporada."
+    news_text_no_team: "%{injury} na rodada %{round} deixou sequelas graves demais para seguir. %{name} pendura o capacete em %{category} com %{races} corridas, %{wins} vitórias e %{podiums} pódios."
 
 # Nomes de lesão (simulation/injuries.rs). Pool por severidade seleciona uma CHAVE;
 # o nome persiste no save (Opção A). A ordem das chaves no pool não pode mudar (o
@@ -1037,6 +1049,19 @@ ai_news:
     dnf_short: "DNF"
     maintenance_total: "MANUTENÇÃO DO CARRO: $ %{total} no total"
     maintenance_crash: "- CONSERTO DA BATIDA: %{items}"
+    forecast_head: "O QUE A EQUIPE ANUNCIOU NO SÁBADO × O QUE VEIO:"
+    forecast_good_delivered: "- O fim de semana estava a favor e o resultado veio. A leitura da equipe se confirmou; não houve surpresa a explicar."
+    forecast_good_missed: "- O fim de semana estava A FAVOR e o resultado NÃO veio. As condições não explicam este resultado — a conta é do piloto, e é este o ponto do debrief."
+    forecast_bad_confirmed: "- A equipe avisou que o fim de semana seria difícil, e foi. O aviso se cumpriu: isso é contexto do resultado, não absolvição dele."
+    forecast_bad_beaten: "- O fim de semana estava CONTRA e o resultado veio assim mesmo. Foi o piloto que tirou daqui o que o carro e a pista não ofereciam."
+    course_head: "O CURSO DA CORRIDA (o que produziu o resultado):"
+    course_traffic: "- Trânsito: %{tried} tentativa(s) de ultrapassagem, %{done} concluída(s); foi atacado %{suffered} vez(es)"
+    course_stuck: "- Preso: %{n} trecho(s) consecutivos atrás de um carro mais lento, %{dirty} trecho(s) em ar sujo"
+    course_pit: "- Box na volta %{lap}: entrou P%{before}, voltou P%{after} (%{delta} posições no ciclo da parada)"
+    course_pit_bare: "- Box na volta %{lap}"
+    course_strategy: "- Estratégia da equipe: %{strategy}"
+    course_safety_car: "- Safety car na volta %{lap}: você estava P%{before} quando ele entrou e terminou P%{after}"
+    course_safety_car_bare: "- Safety car na volta %{lap}"
     parts_head: "SEU CARRO — PEÇAS QUE LARGARAM:"
     part_pit: "%{secs}s perdidos no box"
     part_dnf: "abandono (carro fora)"

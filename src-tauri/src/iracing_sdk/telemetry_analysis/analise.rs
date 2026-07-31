@@ -25,16 +25,16 @@ pub fn analyze(
     let rival = analyze_rival(history, name_by_idx);
     let position_flow = analyze_position_flow(history);
     let mistake = analyze_mistake(history, incidents, pace.as_ref());
-    let best_moment =
-        analyze_best_moment(history, name_by_idx, pace.as_ref(), incidents, mistake.as_ref());
+    let best_moment = analyze_best_moment(
+        history,
+        name_by_idx,
+        pace.as_ref(),
+        incidents,
+        mistake.as_ref(),
+    );
     let charts = build_charts(history, name_by_idx);
     let laps_seen = history.player_laps.len() as i32;
-    let last_lap_seen = history
-        .player_laps
-        .iter()
-        .map(|l| l.lap)
-        .max()
-        .unwrap_or(0);
+    let last_lap_seen = history.player_laps.iter().map(|l| l.lap).max().unwrap_or(0);
     // Voltas totais da corrida = última volta do líder no race trace.
     let race_laps = history.laps.iter().map(|s| s.lap).max().unwrap_or(0);
 

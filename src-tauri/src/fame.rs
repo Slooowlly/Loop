@@ -160,8 +160,14 @@ mod tests {
         // Mesma perda-base −3: estrela amortece pra bem menos que o apagado.
         let perda_estrela = apply_carisma_to_fame_delta(-3.0, 85.0);
         let perda_apagado = apply_carisma_to_fame_delta(-3.0, 25.0);
-        assert!(perda_estrela > perda_apagado, "estrela perde menos (menos negativo)");
-        assert!(perda_estrela.abs() < 2.0, "estrela mal sente: {perda_estrela}");
+        assert!(
+            perda_estrela > perda_apagado,
+            "estrela perde menos (menos negativo)"
+        );
+        assert!(
+            perda_estrela.abs() < 2.0,
+            "estrela mal sente: {perda_estrela}"
+        );
     }
 
     #[test]
@@ -176,7 +182,10 @@ mod tests {
         let dec_apagado = decay_fame_toward(80.0, 30.0, 0.05, 25.0);
         let dec_estrela = decay_fame_toward(80.0, 30.0, 0.05, 85.0);
         // Ambos caem, mas o apagado cai mais (fica com menos fama).
-        assert!(dec_apagado < dec_estrela, "apagado={dec_apagado}, estrela={dec_estrela}");
+        assert!(
+            dec_apagado < dec_estrela,
+            "apagado={dec_apagado}, estrela={dec_estrela}"
+        );
         assert!(dec_estrela < 80.0, "estrela ainda decai um pouco");
     }
 
@@ -254,7 +263,7 @@ mod tests {
         assert_eq!(active_interest_team_count(65.0), 1); // Nome forte
         assert_eq!(active_interest_team_count(80.0), 2); // Estrela
         assert_eq!(active_interest_team_count(95.0), 3); // Ídolo
-        // Nunca é a grade toda (o problema do screenshot).
+                                                         // Nunca é a grade toda (o problema do screenshot).
         assert!(active_interest_team_count(100.0) <= 3);
     }
 

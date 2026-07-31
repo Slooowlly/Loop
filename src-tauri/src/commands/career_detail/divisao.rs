@@ -46,4 +46,3 @@ pub(super) fn competitive_division_label_from_key(key: &str) -> Option<String> {
     }
     categories::get_category_config(key).map(|category| category.nome_curto.to_string())
 }
-

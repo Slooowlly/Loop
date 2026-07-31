@@ -71,4 +71,3 @@ pub(super) fn transfer_chance_for_driver(
         .round()
         .clamp(5.0, 95.0) as u8
 }
-

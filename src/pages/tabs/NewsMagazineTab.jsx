@@ -113,7 +113,9 @@ function NewsMagazineTab() {
             year={year}
             preview={preview}
             openingRace={openingRace}
+            standings={standings}
             driverStandings={driverStandings}
+            playerTeam={playerTeam}
             worldNotes={worldNotes}
           />
         ) : (

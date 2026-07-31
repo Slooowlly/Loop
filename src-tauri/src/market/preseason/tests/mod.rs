@@ -688,13 +688,7 @@ fn setup_market_fixture() -> Connection {
 
 fn sample_team(category: &str, id: &str, rng: &mut StdRng) -> crate::models::team::Team {
     let template = get_team_templates(category)[0];
-    crate::models::team::Team::from_template_with_rng(
-        template,
-        category,
-        id.to_string(),
-        2025,
-        rng,
-    )
+    crate::models::team::Team::from_template_with_rng(template, category, id.to_string(), 2025, rng)
 }
 
 fn sample_driver(

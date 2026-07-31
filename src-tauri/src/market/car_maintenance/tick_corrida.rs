@@ -32,7 +32,11 @@ impl WearConditions {
     }
 
     /// Resolve a partir da pista corrida + clima da rodada + duração da categoria.
-    pub fn from_race(track_id: u32, weather: crate::car::breakdown::Weather, duracao_min: u8) -> Self {
+    pub fn from_race(
+        track_id: u32,
+        weather: crate::car::breakdown::Weather,
+        duracao_min: u8,
+    ) -> Self {
         Self {
             track_pha: maintenance_demand(&[track_id]),
             weather,
@@ -70,6 +74,7 @@ pub fn maintain_team_car(
         false,
         0,
         &[],
+        0,
     )
 }
 
@@ -92,20 +97,28 @@ pub fn maintain_team_car_pits(
     // Leve → segue; Grave → fim de vida; DNF → destruída (troca forçada, a débito). Vazio = sem
     // quebra (sim offline / corridas fora da categoria do jogador).
     race_breakdowns: &[(PartType, crate::car::breakdown::Severity)],
+    // CONTATO DE DISPUTA: quantos roda-a-roda os carros DESTE time levaram na corrida. Vem da
+    // sim offline (é o único lugar que sabe disso) e é o que finalmente dá consequência física
+    // à batida da IA: castiga aero/laterais/suspensão e, se a peça já estava no fim, força a
+    // troca a débito. 0 = corrida sem contato, ou caminho que não conta contato.
+    contact_hits: u32,
 ) -> Result<f64, DbError> {
     use crate::car::breakdown::Severity;
 
     // Usa o carro anexado; senão carrega; senão semeia neutro (save antigo/robustez).
+    // O seed de emergência usa a chave COM classe — um GT4 do Endurance não pode nascer
+    // com o teto do LMP2 só porque a categoria é a mesma.
     let mut car = match &team.car {
         Some(car) => car.clone(),
         None => team_car::get_team_car(conn, &team.id)?
-            .unwrap_or_else(|| seed_car(category_id, 0.5)),
+            .unwrap_or_else(|| seed_car(&team.car_category_key(), 0.5)),
     };
 
-    // Um carro NUNCA pode estar acima do teto da sua categoria — regride ao teto ao entrar
-    // nela. Sem isto, um time REBAIXADO carregaria o carro alto da categoria anterior pra
-    // sempre (Replace mantém o nível; o teto só bloqueia upgrade, não reposição).
-    let ceiling = category_ceiling(category_id);
+    // Um carro NUNCA pode estar acima do teto da EQUIPE (classe + natureza) — regride a ele
+    // ao entrar na categoria. Sem isto, um time REBAIXADO carregaria o carro alto da
+    // categoria anterior pra sempre (Replace mantém o nível; o teto só bloqueia upgrade,
+    // não reposição), e uma privateer promovida manteria o nível de fábrica.
+    let ceiling = team.car_ceiling();
     for part in car.parts.iter_mut() {
         if part.level > ceiling {
             part.level = ceiling;
@@ -119,6 +132,19 @@ pub fn maintain_team_car_pits(
     // carro vira NOVA na próxima — NÃO requebra — e o buraco do time pobre vira DÍVIDA, não o
     // mesmo defeito eterno. (A variante graduada deixava o Grave do pobre requebrar; descartada.)
     let mut forced_parts: Vec<PartType> = Vec::new();
+
+    // CONTATO DE DISPUTA, antes de tudo: o castigo dos roda-a-roda entra como desgaste nas
+    // peças e ENTÃO o cérebro decide olhando o carro já castigado. A peça que já estava no fim
+    // da vida quando levou a pancada é destruída — cai em `forced_parts` junto com a quebra ao
+    // vivo e segue a mesma regra dura: trocada mesmo sem caixa, a débito.
+    let contato = crate::car::crash::apply_contact_wear(&mut car, category_id, contact_hits);
+    for &pt in &contato.destroyed {
+        if let Some(p) = car.parts.iter_mut().find(|p| p.part_type == pt) {
+            p.wear = p.wear.max(1.0); // o cérebro tem de vê-la no fim de vida
+        }
+        forced_parts.push(pt);
+    }
+
     for &(pt, sev) in race_breakdowns {
         if matches!(sev, Severity::Heavy | Severity::Dnf) {
             if let Some(p) = car.parts.iter_mut().find(|p| p.part_type == pt) {
@@ -135,7 +161,13 @@ pub fn maintain_team_car_pits(
         None => all_upcoming_track_ids,
     };
 
-    let mut plan = decide_car_maintenance(team, &car, category_id, window);
+    // Cota de DESENVOLVIMENTO desta corrida: conta as etapas que ainda restam na temporada
+    // (a lista INTEIRA, não a cortada pelo horizonte — a cadência é do calendário, não da
+    // miopia do time). Fora da janela o time faz manutenção e não sobe nível nenhum.
+    let max_upgrades =
+        upgrades_permitidos_nesta_corrida(&team.id, all_upcoming_track_ids.len());
+
+    let mut plan = decide_car_maintenance(team, &car, category_id, window, Some(max_upgrades));
     // Grave/DNF = troca OBRIGATÓRIA, mesmo se o cérebro não teve caixa (nem sempre por Replace: o
     // pobre teria Degradado). O custo extra estoura o orçamento → cai na fatura → o time paga ou
     // vai a DÍVIDA. É isto que transforma o runaway do pobre em espiral de dívida (não o mesmo
@@ -149,7 +181,9 @@ pub fn maintain_team_car_pits(
             plan.actions.insert(pt, PartAction::Replace);
         }
     }
-    let cost = plan.estimated_cost + forced_cost;
+    // `contato.cost` é o reparo dos amassados, cobrado na fatura DESTA rodada. É o que faz a
+    // batida pesar no caixa: o desgaste que ela deixa é lento demais para ser sentido.
+    let cost = plan.estimated_cost + forced_cost + contato.cost;
     // O desgaste desta corrida responde à pista + clima reais (grade toda). Corrida neutra
     // → mults ~1.0, e a economia calibrada não muda.
     let mut wear_mults =

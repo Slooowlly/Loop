@@ -620,3 +620,88 @@ pub(crate) fn count_calendar_entries(
         |row| row.get(0),
     )
 }
+
+/// A LEITURA de uma corrida — o dado que explica o resultado, gravado a partir da v55.
+///
+/// Uma consulta só, sem `AppHandle`: monta o traçado por trecho, o custo do box, o
+/// trânsito e os safety cars da etapa. Corrida antiga (ou importada do iRacing, que não
+/// tem trecho nenhum) volta com os vetores vazios em vez de erro — a tela decide não
+/// desenhar, e isso é a resposta certa, não uma falha.
+pub(crate) fn get_race_reading_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    race_id: &str,
+) -> Result<RaceReading, String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+
+    let cars = crate::db::queries::races::get_race_reading(&db.conn, race_id)
+        .map_err(|e| format!("Falha ao ler a corrida: {e}"))?;
+    let safety_cars = crate::db::queries::races::get_race_safety_cars(&db.conn, race_id)
+        .map_err(|e| format!("Falha ao ler os safety cars da corrida: {e}"))?;
+
+    // Total de voltas: quem venceu completou a distância, então o MAX das voltas
+    // completadas É a distância da etapa. Evita depender da duração configurada da
+    // categoria, que é em minutos e não em voltas.
+    let total_laps: i32 = db
+        .conn
+        .query_row(
+            "SELECT COALESCE(MAX(voltas_completadas), 0) FROM race_results WHERE race_id = ?1",
+            [race_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    // Quantos trechos a simulação usou, DERIVADO do dado — não chumbado. Se um dia o
+    // motor mudar de 5 trechos, a tela acompanha sem tocar aqui.
+    let total_segments = cars
+        .iter()
+        .map(|c| c.trafego.posicoes.len())
+        .max()
+        .unwrap_or(0) as i32;
+
+    Ok(RaceReading {
+        race_id: race_id.to_string(),
+        total_laps,
+        total_segments,
+        cars: cars
+            .into_iter()
+            .map(|c| RaceReadingCar {
+                pilot_id: c.piloto_id,
+                pilot_name: c.piloto_nome,
+                is_jogador: c.is_jogador,
+                grid_position: c.posicao_largada,
+                finish_position: c.posicao_final,
+                is_dnf: c.is_dnf,
+                segment_positions: c.trafego.posicoes,
+                segment_gaps_ms: c.trafego.gaps_ms,
+                dirty_air_segments: c.segmentos_em_ar_sujo,
+                overtake_attempts: c.tentativas_ultrapassagem,
+                overtakes_completed: c.ultrapassagens_concluidas,
+                attempts_suffered: c.tentativas_sofridas,
+                longest_stuck_streak: c.maior_sequencia_preso,
+                strategy_id: c.estrategia_id,
+                pit_laps: c.paradas.voltas,
+                position_before_pit: c.paradas.antes,
+                position_after_pit: c.paradas.depois,
+                // A faixa ANUNCIADA, lida do banco. JSON inválido ou ausente vira `None`
+                // em vez de uma leitura neutra fabricada: "não anunciado" e "anunciado
+                // como morno" são coisas diferentes, e só a primeira é honesta aqui.
+                // O default `'{}'` da v56 não tem os campos obrigatórios, então falha o
+                // parse e cai em `None` — exatamente o que se quer.
+                announced_weekend_reading: serde_json::from_str::<WeekendReading>(
+                    &c.leitura_fds_json,
+                )
+                .ok(),
+            })
+            .collect(),
+        safety_cars: safety_cars
+            .into_iter()
+            .map(|sc| RaceReadingSafetyCar {
+                lap: sc.volta,
+                order_before: sc.ordem_pre_safety_car,
+            })
+            .collect(),
+    })
+}

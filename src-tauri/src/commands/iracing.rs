@@ -15,10 +15,10 @@ mod adaptativo;
 mod clima;
 #[path = "iracing/controle_corrida.rs"]
 mod controle_corrida;
-#[path = "iracing/diagnostico.rs"]
-mod diagnostico;
 #[path = "iracing/corridas_salvas.rs"]
 mod corridas_salvas;
+#[path = "iracing/diagnostico.rs"]
+mod diagnostico;
 #[path = "iracing/importacao.rs"]
 mod importacao;
 #[path = "iracing/pintura.rs"]

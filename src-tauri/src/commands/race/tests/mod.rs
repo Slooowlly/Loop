@@ -1874,3 +1874,130 @@ fn align_next_race_display_date(
     )
     .expect("align next race display date");
 }
+
+/// **A carreira encerrada por lesão vira manchete de Destaque.**
+///
+/// Antes o bloco de aposentadoria por lesão fazia os quatro passos (hall dos aposentados,
+/// desativa a lesão, marca Aposentado, preenche a vaga) em SILÊNCIO: do lado do jogador um
+/// piloto conhecido do grid simplesmente evaporava, sem nada no noticiário explicando por quê.
+///
+/// O teste força o único ramo difícil de alcançar por simulação (a lesão grave é rara e a
+/// aposentadoria dela é uma rolagem de 6–35%): planta uma lesão `Grave` num veterano — faixa
+/// de idade em que a chance é 0,35 — e usa a semente em que essa rolagem dá positivo.
+#[test]
+fn aposentadoria_por_lesao_vira_noticia_de_destaque() {
+    use crate::commands::race::persistencia::process_severe_injury_retirements;
+    use crate::models::enums::{DriverStatus, InjuryType};
+    use crate::models::injury::Injury;
+    use crate::news::{NewsImportance, NewsType};
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+
+    let base_dir = unique_test_dir("noticia_aposentadoria_lesao");
+    fs::create_dir_all(&base_dir).expect("base dir");
+    create_career_in_base_dir(
+        &base_dir,
+        CreateCareerInput {
+            player_name: "Joao Silva".to_string(),
+            player_nationality: "br".to_string(),
+            player_age: Some(20),
+            category: "mazda_rookie".to_string(),
+            team_index: 0,
+            difficulty: "medio".to_string(),
+        },
+    )
+    .expect("career");
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let mut db = Database::open_existing(&db_path).expect("db");
+    let season = season_queries::get_active_season(&db.conn)
+        .expect("season")
+        .expect("active season");
+
+    // Uma IA com contrato ativo na categoria de entrada, envelhecida para a faixa de 41+
+    // (`severe_injury_retirement_chance` = 0,35 — o ramo mais provável, para o teste não
+    // depender de uma agulha no palheiro de sementes).
+    let mut vitima = driver_queries::get_drivers_by_category(&db.conn, "mazda_rookie")
+        .expect("grid")
+        .into_iter()
+        .find(|d| {
+            !d.is_jogador
+                && contract_queries::get_active_regular_contract_for_pilot(&db.conn, &d.id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+        })
+        .expect("uma IA contratada na categoria de entrada");
+    vitima.idade = 45;
+    vitima.stats_carreira.corridas = 120;
+    vitima.stats_carreira.vitorias = 7;
+    vitima.stats_carreira.podios = 22;
+    driver_queries::update_driver(&db.conn, &vitima).expect("envelhece a vitima");
+
+    let lesao = Injury {
+        id: "INJ-TESTE".to_string(),
+        pilot_id: vitima.id.clone(),
+        injury_type: InjuryType::Grave,
+        injury_name: "Costela fraturada".to_string(),
+        modifier: 0.75,
+        races_total: 8,
+        races_remaining: 8,
+        skill_penalty: 0.15,
+        season: season.numero,
+        race_occurred: "R-TESTE".to_string(),
+        active: true,
+    };
+    {
+        let tx = db.conn.transaction().expect("tx da lesao");
+        crate::db::queries::injuries::insert_injury(&tx, &lesao).expect("planta a lesao");
+        tx.commit().expect("commit da lesao");
+    }
+
+    // A primeira coisa que a função faz com o RNG é `gen_bool(0.35)`. Pegamos a semente em que
+    // ela dá positivo, para o ramo sob teste ser alcançado de forma determinística.
+    let seed = (0u64..10_000)
+        .find(|s| StdRng::seed_from_u64(*s).gen_bool(0.35))
+        .expect("alguma semente aposenta");
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let tx = db.conn.transaction().expect("tx");
+    process_severe_injury_retirements(&tx, &[lesao], &season, 7, &mut rng).expect("aposenta");
+    tx.commit().expect("commit");
+
+    let depois = driver_queries::get_driver(&db.conn, &vitima.id).expect("piloto depois");
+    assert_eq!(
+        depois.status,
+        DriverStatus::Aposentado,
+        "a semente escolhida tinha que aposentar — o resto do teste não mede nada sem isto"
+    );
+
+    let noticias = news_queries::get_news_by_driver(&db.conn, &vitima.id, 10).expect("noticias");
+    let manchete = noticias
+        .iter()
+        .find(|n| n.tipo == NewsType::Aposentadoria)
+        .expect("a aposentadoria por lesão TEM que virar notícia");
+
+    assert_eq!(
+        manchete.importancia,
+        NewsImportance::Destaque,
+        "é a manchete mais dura que o mundo produz fora de um título"
+    );
+    assert!(
+        manchete.titulo.contains(&vitima.nome) && manchete.titulo.contains("45"),
+        "a manchete tem que nomear o piloto e a idade: {}",
+        manchete.titulo
+    );
+    assert!(
+        manchete.texto.contains("Costela fraturada"),
+        "o texto tem que dizer QUAL lesão encerrou a carreira: {}",
+        manchete.texto
+    );
+    assert!(
+        manchete.texto.contains("120") && manchete.texto.contains('7') && manchete.texto.contains("22"),
+        "o texto tem que trazer o saldo da carreira (corridas/vitórias/pódios): {}",
+        manchete.texto
+    );
+    assert_eq!(manchete.rodada, Some(7), "a notícia se ancora na rodada da corrida");
+
+    let _ = fs::remove_dir_all(base_dir);
+}

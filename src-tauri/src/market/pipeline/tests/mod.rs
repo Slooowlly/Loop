@@ -17,12 +17,20 @@ fn i18n_do_mercado_resolve_nos_dois_locales() {
     assert_eq!(bid_label(0), "abertura");
     assert_eq!(bid_label(3), "lance 3");
     let stayed = rust_i18n::t!("market.poach_outcome.stayed", team = "Alfa").to_string();
-    assert!(stayed.contains("Alfa") && !stayed.contains("%{"), "{stayed}");
+    assert!(
+        stayed.contains("Alfa") && !stayed.contains("%{"),
+        "{stayed}"
+    );
     let dep = rust_i18n::t!(
-        "market.event.departure_headline", driver = "Ana", team = "Beta"
+        "market.event.departure_headline",
+        driver = "Ana",
+        team = "Beta"
     )
     .to_string();
-    assert!(dep.contains("Ana") && dep.contains("Beta") && !dep.contains("%{"), "{dep}");
+    assert!(
+        dep.contains("Ana") && dep.contains("Beta") && !dep.contains("%{"),
+        "{dep}"
+    );
 
     rust_i18n::set_locale("en-US");
     assert_eq!(bid_label(0), "opening");
@@ -164,14 +172,12 @@ fn test_merit_relegation_swaps_weak_top_driver_with_feeder_champion() {
         .expect("rebaixamento deve rodar");
 
     // O campeão do amador subiu para a vaga da BMW; o fraco da BMW desceu.
-    let champ_contract =
-        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_CHAMP")
-            .expect("champ contract query")
-            .expect("champ has active contract");
-    let weak_contract =
-        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
-            .expect("weak contract query")
-            .expect("weak has active contract");
+    let champ_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_CHAMP")
+        .expect("champ contract query")
+        .expect("champ has active contract");
+    let weak_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+        .expect("weak contract query")
+        .expect("weak has active contract");
     assert_eq!(champ_contract.categoria, "bmw_m2");
     assert_eq!(champ_contract.equipe_id, "TBMW");
     assert_eq!(weak_contract.categoria, "mazda_amador");
@@ -199,40 +205,52 @@ fn poaching_pass_ia_arranca_astro_contratado_pagando_multa() {
     team_queries::insert_team(&conn, &seller).expect("seller team");
 
     // Poacher: um razoável (mantém) + um FRACO (será dispensado no poaching).
-    let poa_keep =
-        sample_driver("P_KEEP", "Poacher N1", Some("gt3"), 75.0, DriverStatus::Ativo);
-    let mut poa_weak =
-        sample_driver("P_WEAK", "Poacher N2 Fraco", Some("gt3"), 55.0, DriverStatus::Ativo);
+    let poa_keep = sample_driver(
+        "P_KEEP",
+        "Poacher N1",
+        Some("gt3"),
+        75.0,
+        DriverStatus::Ativo,
+    );
+    let mut poa_weak = sample_driver(
+        "P_WEAK",
+        "Poacher N2 Fraco",
+        Some("gt3"),
+        55.0,
+        DriverStatus::Ativo,
+    );
     poa_weak.atributos.midia = 20.0;
     // Seller: o ASTRO (skill+fama alto) + um coadjuvante forte (que NÃO é upgrade
     // sobre o elenco do poacher → o seller nunca vira poacher).
     let mut astro = sample_driver("P_ASTRO", "O Astro", Some("gt3"), 92.0, DriverStatus::Ativo);
     astro.atributos.midia = 90.0;
-    let sel_other =
-        sample_driver("P_SEL2", "Seller N2", Some("gt3"), 80.0, DriverStatus::Ativo);
+    let sel_other = sample_driver(
+        "P_SEL2",
+        "Seller N2",
+        Some("gt3"),
+        80.0,
+        DriverStatus::Ativo,
+    );
     for d in [&poa_keep, &poa_weak, &astro, &sel_other] {
         driver_queries::insert_driver(&conn, d).expect("driver");
     }
 
-    let seed = |id: &str,
-                d: &Driver,
-                t: &crate::models::team::Team,
-                role: TeamRole,
-                salary: f64| {
-        let c = Contract::new(
-            id.to_string(),
-            d.id.clone(),
-            d.nome.clone(),
-            t.id.clone(),
-            t.nome.clone(),
-            1,
-            2,
-            salary,
-            role,
-            "gt3".to_string(),
-        );
-        contract_queries::insert_contract(&conn, &c).expect("contract");
-    };
+    let seed =
+        |id: &str, d: &Driver, t: &crate::models::team::Team, role: TeamRole, salary: f64| {
+            let c = Contract::new(
+                id.to_string(),
+                d.id.clone(),
+                d.nome.clone(),
+                t.id.clone(),
+                t.nome.clone(),
+                1,
+                2,
+                salary,
+                role,
+                "gt3".to_string(),
+            );
+            contract_queries::insert_contract(&conn, &c).expect("contract");
+        };
     seed("C_KEEP", &poa_keep, &poacher, TeamRole::Numero1, 150_000.0);
     seed("C_WEAK", &poa_weak, &poacher, TeamRole::Numero2, 100_000.0);
     seed("C_ASTRO", &astro, &seller, TeamRole::Numero1, 300_000.0);
@@ -251,17 +269,21 @@ fn poaching_pass_ia_arranca_astro_contratado_pagando_multa() {
         .expect("poaching pass");
 
     // O astro foi arrancado pra TPOA.
-    let astro_contract =
-        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_ASTRO")
-            .expect("query")
-            .expect("astro tem contrato ativo");
+    let astro_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_ASTRO")
+        .expect("query")
+        .expect("astro tem contrato ativo");
     assert_eq!(astro_contract.equipe_id, "TPOA");
     // O dispensado ficou sem contrato e virou agente livre LIMPO (categoria None).
-    assert!(contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
-        .expect("query")
-        .is_none());
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+            .expect("query")
+            .is_none()
+    );
     let weak = driver_queries::get_driver(&conn, "P_WEAK").expect("weak driver");
-    assert!(weak.categoria_atual.is_none(), "dispensado deve ser agente livre limpo");
+    assert!(
+        weak.categoria_atual.is_none(),
+        "dispensado deve ser agente livre limpo"
+    );
     // A multa andou de TPOA → TSEL.
     let poa = team_queries::get_team_by_id(&conn, "TPOA")
         .expect("q")
@@ -306,38 +328,50 @@ fn poaching_retencao_time_atual_segura_o_astro_com_vinculo_e_caixa() {
     team_queries::insert_team(&conn, &poacher).expect("poacher team");
     team_queries::insert_team(&conn, &seller).expect("seller team");
 
-    let poa_keep =
-        sample_driver("P_KEEP", "Poacher N1", Some("gt3"), 75.0, DriverStatus::Ativo);
-    let mut poa_weak =
-        sample_driver("P_WEAK", "Poacher N2 Fraco", Some("gt3"), 55.0, DriverStatus::Ativo);
+    let poa_keep = sample_driver(
+        "P_KEEP",
+        "Poacher N1",
+        Some("gt3"),
+        75.0,
+        DriverStatus::Ativo,
+    );
+    let mut poa_weak = sample_driver(
+        "P_WEAK",
+        "Poacher N2 Fraco",
+        Some("gt3"),
+        55.0,
+        DriverStatus::Ativo,
+    );
     poa_weak.atributos.midia = 20.0;
     let mut astro = sample_driver("P_ASTRO", "O Astro", Some("gt3"), 92.0, DriverStatus::Ativo);
     astro.atributos.midia = 90.0;
-    let sel_other =
-        sample_driver("P_SEL2", "Seller N2", Some("gt3"), 80.0, DriverStatus::Ativo);
+    let sel_other = sample_driver(
+        "P_SEL2",
+        "Seller N2",
+        Some("gt3"),
+        80.0,
+        DriverStatus::Ativo,
+    );
     for d in [&poa_keep, &poa_weak, &astro, &sel_other] {
         driver_queries::insert_driver(&conn, d).expect("driver");
     }
 
-    let seed = |id: &str,
-                d: &Driver,
-                t: &crate::models::team::Team,
-                role: TeamRole,
-                salary: f64| {
-        let c = Contract::new(
-            id.to_string(),
-            d.id.clone(),
-            d.nome.clone(),
-            t.id.clone(),
-            t.nome.clone(),
-            1,
-            2,
-            salary,
-            role,
-            "gt3".to_string(),
-        );
-        contract_queries::insert_contract(&conn, &c).expect("contract");
-    };
+    let seed =
+        |id: &str, d: &Driver, t: &crate::models::team::Team, role: TeamRole, salary: f64| {
+            let c = Contract::new(
+                id.to_string(),
+                d.id.clone(),
+                d.nome.clone(),
+                t.id.clone(),
+                t.nome.clone(),
+                1,
+                2,
+                salary,
+                role,
+                "gt3".to_string(),
+            );
+            contract_queries::insert_contract(&conn, &c).expect("contract");
+        };
     seed("C_KEEP", &poa_keep, &poacher, TeamRole::Numero1, 150_000.0);
     seed("C_WEAK", &poa_weak, &poacher, TeamRole::Numero2, 100_000.0);
     seed("C_ASTRO", &astro, &seller, TeamRole::Numero1, 300_000.0);
@@ -358,8 +392,7 @@ fn poaching_retencao_time_atual_segura_o_astro_com_vinculo_e_caixa() {
     let mut rng = StdRng::seed_from_u64(7);
     let mut report = MarketReport::default();
     let mut audit = Vec::new();
-    run_poaching_pass(&conn, &teams, 2, &mut rng, &mut report, &mut audit)
-        .expect("poaching pass");
+    run_poaching_pass(&conn, &teams, 2, &mut rng, &mut report, &mut audit).expect("poaching pass");
 
     // O raio-x do debug enxerga a briga (é o que a tela de debug mostra).
     let a = audit.first().expect("houve um assedio");
@@ -369,14 +402,15 @@ fn poaching_retencao_time_atual_segura_o_astro_com_vinculo_e_caixa() {
     assert!(a.bids.len() >= 2, "houve lance do assediante: {:?}", a.bids);
 
     // Ficou onde estava, e o dispensado NÃO foi dispensado.
-    let astro_contract =
-        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_ASTRO")
-            .expect("query")
-            .expect("astro tem contrato ativo");
-    assert_eq!(astro_contract.equipe_id, "TSEL");
-    assert!(contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+    let astro_contract = contract_queries::get_active_regular_contract_for_pilot(&conn, "P_ASTRO")
         .expect("query")
-        .is_some());
+        .expect("astro tem contrato ativo");
+    assert_eq!(astro_contract.equipe_id, "TSEL");
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "P_WEAK")
+            .expect("query")
+            .is_some()
+    );
     // Nenhuma multa andou.
     let poa = team_queries::get_team_by_id(&conn, "TPOA")
         .expect("q")
@@ -419,8 +453,7 @@ fn seed_player_poach_scenario() -> Connection {
     team_queries::insert_team(&conn, &giant).expect("giant team");
 
     // Jogador: skill alto + FAMA de estrela.
-    let mut player =
-        sample_driver("PLR", "O Jogador", Some("gt3"), 88.0, DriverStatus::Ativo);
+    let mut player = sample_driver("PLR", "O Jogador", Some("gt3"), 88.0, DriverStatus::Ativo);
     player.is_jogador = true;
     player.atributos.midia = 90.0;
     // Coadjuvante do jogador no time pequeno.
@@ -432,25 +465,22 @@ fn seed_player_poach_scenario() -> Connection {
         driver_queries::insert_driver(&conn, d).expect("driver");
     }
 
-    let seed = |id: &str,
-                d: &Driver,
-                t: &crate::models::team::Team,
-                role: TeamRole,
-                salary: f64| {
-        let c = Contract::new(
-            id.to_string(),
-            d.id.clone(),
-            d.nome.clone(),
-            t.id.clone(),
-            t.nome.clone(),
-            1,
-            2,
-            salary,
-            role,
-            "gt3".to_string(),
-        );
-        contract_queries::insert_contract(&conn, &c).expect("contract");
-    };
+    let seed =
+        |id: &str, d: &Driver, t: &crate::models::team::Team, role: TeamRole, salary: f64| {
+            let c = Contract::new(
+                id.to_string(),
+                d.id.clone(),
+                d.nome.clone(),
+                t.id.clone(),
+                t.nome.clone(),
+                1,
+                2,
+                salary,
+                role,
+                "gt3".to_string(),
+            );
+            contract_queries::insert_contract(&conn, &c).expect("contract");
+        };
     seed("CPLR", &player, &small, TeamRole::Numero1, 200_000.0);
     seed("CSN2", &small_n2, &small, TeamRole::Numero2, 90_000.0);
     seed("CG1", &g1, &giant, TeamRole::Numero1, 400_000.0);
@@ -474,7 +504,11 @@ fn player_poach_offer_surfaces_when_a_bigger_team_wants_the_star() {
     // O leilão tem lance do assediante (senão nem apareceria).
     assert!(offer.bids.iter().any(|b| b.is_poacher));
     // O gigante rico oferece bem acima do salário atual.
-    assert!(offer.poacher_best > offer.current_salary, "poacher_best={}", offer.poacher_best);
+    assert!(
+        offer.poacher_best > offer.current_salary,
+        "poacher_best={}",
+        offer.poacher_best
+    );
     // Quem sairia da vaga do gigante é o mais fraco (G2).
     assert_eq!(offer.incumbent_name.as_deref(), Some("Gigante N2"));
 }
@@ -482,7 +516,9 @@ fn player_poach_offer_surfaces_when_a_bigger_team_wants_the_star() {
 #[test]
 fn player_poach_accept_moves_the_player_and_pays_the_buyout() {
     let conn = seed_player_poach_scenario();
-    let offer = compute_player_poach_offer(&conn, 2).expect("compute").expect("oferta");
+    let offer = compute_player_poach_offer(&conn, 2)
+        .expect("compute")
+        .expect("oferta");
     let small_cash_before = team_queries::get_team_by_id(&conn, "TSMALL")
         .unwrap()
         .unwrap()
@@ -498,10 +534,15 @@ fn player_poach_accept_moves_the_player_and_pays_the_buyout() {
     assert_eq!(c.equipe_id, "TGIANT");
     assert_eq!(c.salario_anual, offer.poacher_best);
     // O N2 do gigante foi dispensado LIMPO (agente livre, categoria None).
-    assert!(contract_queries::get_active_regular_contract_for_pilot(&conn, "G2")
-        .expect("q")
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "G2")
+            .expect("q")
+            .is_none()
+    );
+    assert!(driver_queries::get_driver(&conn, "G2")
+        .unwrap()
+        .categoria_atual
         .is_none());
-    assert!(driver_queries::get_driver(&conn, "G2").unwrap().categoria_atual.is_none());
     // A multa entrou no caixa do time pequeno.
     let small_cash_after = team_queries::get_team_by_id(&conn, "TSMALL")
         .unwrap()
@@ -513,7 +554,9 @@ fn player_poach_accept_moves_the_player_and_pays_the_buyout() {
 #[test]
 fn player_poach_decline_keeps_the_player_and_may_raise_salary() {
     let conn = seed_player_poach_scenario();
-    let offer = compute_player_poach_offer(&conn, 2).expect("compute").expect("oferta");
+    let offer = compute_player_poach_offer(&conn, 2)
+        .expect("compute")
+        .expect("oferta");
 
     let outcome = resolve_player_poach(&conn, &offer, false, 2).expect("resolve");
     assert!(outcome.applied && !outcome.left);
@@ -533,20 +576,31 @@ fn player_poach_none_for_an_unknown_free_agent() {
     // Jogador sem contrato / sem fama não é alvo de quebra de contrato.
     let conn = Connection::open_in_memory().expect("db");
     migrations::run_all(&conn).expect("schema");
-    let mut player =
-        sample_driver("PLR", "Anônimo", Some("gt3"), 70.0, DriverStatus::Ativo);
+    let mut player = sample_driver("PLR", "Anônimo", Some("gt3"), 70.0, DriverStatus::Ativo);
     player.is_jogador = true;
     player.atributos.midia = 40.0; // longe de Estrela
     driver_queries::insert_driver(&conn, &player).expect("player");
-    assert!(compute_player_poach_offer(&conn, 2).expect("compute").is_none());
+    assert!(compute_player_poach_offer(&conn, 2)
+        .expect("compute")
+        .is_none());
 }
 
 #[test]
 fn player_display_bids_dramatize_a_real_fight_to_min_turns() {
     // Leilão real curto (2 lances), mas os DOIS lados subiram → dramatiza p/ ≥5.
     let real = vec![
-        PoachBid { team_name: "Y".into(), is_poacher: false, salary: 200_000.0, label: "abertura".into() },
-        PoachBid { team_name: "X".into(), is_poacher: true, salary: 400_000.0, label: "lance 1".into() },
+        PoachBid {
+            team_name: "Y".into(),
+            is_poacher: false,
+            salary: 200_000.0,
+            label: "abertura".into(),
+        },
+        PoachBid {
+            team_name: "X".into(),
+            is_poacher: true,
+            salary: 400_000.0,
+            label: "lance 1".into(),
+        },
     ];
     let bids = build_player_display_bids(&real, "X", "Y", 200_000.0, 400_000.0, 340_000.0);
     assert!(bids.len() >= PLAYER_MIN_DISPLAY_BIDS, "len={}", bids.len());
@@ -565,8 +619,18 @@ fn player_display_bids_dramatize_a_real_fight_to_min_turns() {
 fn player_display_bids_dont_fake_a_fight_when_holder_stays_put() {
     // Time atual NÃO cobriu (holder_best == salário atual) → não inventa disputa.
     let real = vec![
-        PoachBid { team_name: "Y".into(), is_poacher: false, salary: 200_000.0, label: "abertura".into() },
-        PoachBid { team_name: "X".into(), is_poacher: true, salary: 400_000.0, label: "lance 1".into() },
+        PoachBid {
+            team_name: "Y".into(),
+            is_poacher: false,
+            salary: 200_000.0,
+            label: "abertura".into(),
+        },
+        PoachBid {
+            team_name: "X".into(),
+            is_poacher: true,
+            salary: 400_000.0,
+            label: "lance 1".into(),
+        },
     ];
     let bids = build_player_display_bids(&real, "X", "Y", 200_000.0, 400_000.0, 200_000.0);
     assert_eq!(bids.len(), real.len());
@@ -663,7 +727,7 @@ fn test_non_rookie_vacancy_is_filled_by_promoting_from_feeder_then_rookie_at_bas
         None,
         &HashSet::new(),
     )
-        .expect("cascata deve preencher a vaga sem erro");
+    .expect("cascata deve preencher a vaga sem erro");
 
     // A vaga não-estreia foi preenchida por PROMOÇÃO (não pelo pool, não por erro).
     assert!(
@@ -818,8 +882,10 @@ fn test_market_creates_regular_contracts_with_team_class_for_endurance_slots() {
     // Endurance agora recruta SÓ do gt3 (feeder [gt3], não mais [gt4, gt3]). A
     // fixture base traz feeder em gt4, então damos 2 pilotos de gt3 para as vagas
     // lmp2 do endurance — refletindo a escada nova (gt3 → endurance).
-    for (id, nome, skill) in [("P920", "GT3 Feeder Um", 80.0), ("P921", "GT3 Feeder Dois", 79.0)]
-    {
+    for (id, nome, skill) in [
+        ("P920", "GT3 Feeder Um", 80.0),
+        ("P921", "GT3 Feeder Dois", 79.0),
+    ] {
         let feeder = sample_driver(id, nome, Some("gt3"), skill, DriverStatus::Ativo);
         driver_queries::insert_driver(&conn, &feeder).expect("insert gt3 feeder");
     }
@@ -919,8 +985,7 @@ fn test_sync_reopens_slots_when_active_contract_category_or_class_differs_from_t
         .into_iter()
         .map(|driver| (driver.id.clone(), driver))
         .collect();
-    sync_team_slots(&conn, &[production_team.clone()], &drivers_by_id)
-        .expect("sync team slots");
+    sync_team_slots(&conn, &[production_team.clone()], &drivers_by_id).expect("sync team slots");
 
     let vacancies = find_vacancies(&conn).expect("vacancies");
     let reopened = vacancies
@@ -1054,9 +1119,7 @@ fn candidate_market_price_grows_with_skill_and_role() {
     // Monotônico na skill.
     assert!(candidate_market_price(90.0, tier, true) > candidate_market_price(60.0, tier, true));
     // N1 (titular) custa mais que N2 na mesma skill.
-    assert!(
-        candidate_market_price(75.0, tier, true) > candidate_market_price(75.0, tier, false)
-    );
+    assert!(candidate_market_price(75.0, tier, true) > candidate_market_price(75.0, tier, false));
 }
 
 #[test]
@@ -1203,7 +1266,7 @@ fn test_pool_fallback_for_non_rookie_vacancy_uses_experienced_lower_license_befo
         None,
         &HashSet::new(),
     )
-        .expect("fill vacancy");
+    .expect("fill vacancy");
 
     let refreshed = team_queries::get_team_by_id(&conn, &team.id)
         .expect("team query")
@@ -1314,7 +1377,7 @@ fn test_pool_fallback_for_rookie_vacancy_keeps_retrying_rookie_before_veteran() 
         None,
         &HashSet::new(),
     )
-        .expect("fill vacancy");
+    .expect("fill vacancy");
 
     let refreshed = team_queries::get_team_by_id(&conn, &team.id)
         .expect("team query")
@@ -1409,7 +1472,7 @@ fn test_pool_fallback_for_rookie_vacancy_generates_new_rookie_before_veteran() {
         None,
         &HashSet::new(),
     )
-        .expect("fill vacancy");
+    .expect("fill vacancy");
 
     let refreshed = team_queries::get_team_by_id(&conn, &team.id)
         .expect("team query")
@@ -1498,7 +1561,7 @@ fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
         None,
         &HashSet::new(),
     )
-        .expect("fill deve concluir sem abortar mesmo sem candidato");
+    .expect("fill deve concluir sem abortar mesmo sem candidato");
 
     assert!(
         !find_vacancies(&conn)
@@ -1569,8 +1632,7 @@ fn test_run_market_does_not_auto_sign_player() {
         "mazda_rookie".to_string(),
     );
     contract_queries::insert_contract(&conn, &player_contract).expect("insert player contract");
-    contract_queries::insert_contract(&conn, &retired_contract)
-        .expect("insert retired contract");
+    contract_queries::insert_contract(&conn, &retired_contract).expect("insert retired contract");
 
     team_queries::update_team_pilots(&conn, &current_team.id, Some(&player.id), None)
         .expect("current team lineup");
@@ -1638,8 +1700,11 @@ fn test_player_reserved_seats_holds_multiple_for_free_agent() {
     // ninguém. Com contrato ativo, não segura nada.
     let conn = Connection::open_in_memory().expect("db");
     migrations::run_all(&conn).expect("schema");
-    conn.execute("UPDATE meta SET value = '10' WHERE key = 'next_contract_id'", [])
-        .expect("contract counter");
+    conn.execute(
+        "UPDATE meta SET value = '10' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
 
     // Dois times gt3 vazios → 4 vagas regulares abertas.
     let mut rng = StdRng::seed_from_u64(880);
@@ -1653,8 +1718,16 @@ fn test_player_reserved_seats_holds_multiple_for_free_agent() {
     player.is_jogador = true;
     driver_queries::insert_driver(&conn, &player).expect("player");
     let old = Contract::new(
-        "C001".to_string(), player.id.clone(), player.nome.clone(),
-        t1.id.clone(), t1.nome.clone(), 1, 1, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        "C001".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        t1.id.clone(),
+        t1.nome.clone(),
+        1,
+        1,
+        90_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &old).expect("old contract");
     contract_queries::update_contract_status(&conn, &old.id, &ContractStatus::Rescindido)
@@ -1674,12 +1747,24 @@ fn test_player_reserved_seats_holds_multiple_for_free_agent() {
         seats.len()
     );
     let uniq: std::collections::HashSet<_> = seats.iter().collect();
-    assert_eq!(uniq.len(), seats.len(), "assentos reservados nao devem repetir");
+    assert_eq!(
+        uniq.len(),
+        seats.len(),
+        "assentos reservados nao devem repetir"
+    );
 
     // Com contrato ATIVO → não reserva nada (o mercado roda normal).
     let active = Contract::new(
-        "C002".to_string(), player.id.clone(), player.nome.clone(),
-        t1.id.clone(), t1.nome.clone(), 2, 3, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        "C002".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        t1.id.clone(),
+        t1.nome.clone(),
+        2,
+        3,
+        90_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &active).expect("active contract");
     team_queries::update_team_pilots(&conn, &t1.id, Some(&player.id), None).expect("seat");
@@ -1693,7 +1778,11 @@ fn test_player_reserved_seats_holds_multiple_for_free_agent() {
 fn test_pedigree_boost_is_bounded_and_monotonic() {
     // Rookie (índice 0) não ganha nada; boost cresce com o índice e satura no teto.
     assert_eq!(pedigree_boost_from_index(0.0), 0.0);
-    assert_eq!(pedigree_boost_from_index(-50.0), 0.0, "índice negativo tratado como 0");
+    assert_eq!(
+        pedigree_boost_from_index(-50.0),
+        0.0,
+        "índice negativo tratado como 0"
+    );
     let mid = pedigree_boost_from_index(PEDIGREE_BOOST_SCALE); // índice = escala → metade do teto
     assert!((mid - PEDIGREE_BOOST_MAX / 2.0).abs() < 1e-9);
     let strong = pedigree_boost_from_index(4.0 * PEDIGREE_BOOST_SCALE);
@@ -1711,8 +1800,11 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
     // contrato ativo não recebe nada.
     let conn = Connection::open_in_memory().expect("db");
     migrations::run_all(&conn).expect("schema");
-    conn.execute("UPDATE meta SET value = '20' WHERE key = 'next_contract_id'", [])
-        .expect("contract counter");
+    conn.execute(
+        "UPDATE meta SET value = '20' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
 
     let s1 = Season::new("S001".to_string(), 1, 2024);
     let s2 = Season::new("S002".to_string(), 2, 2025);
@@ -1745,7 +1837,10 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
         &conn, &s2.id, &player.id,
     )
     .expect("pending");
-    assert!(!pending.is_empty(), "deve persistir proposta pendente pro jogador");
+    assert!(
+        !pending.is_empty(),
+        "deve persistir proposta pendente pro jogador"
+    );
 
     // Idempotência: rodar de novo não duplica (mesmo ID) e segue segurando o assento.
     let held2 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen2");
@@ -1758,12 +1853,23 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
         pending2.len(),
         "nao deve duplicar propostas ao rodar de novo"
     );
-    assert!(!held2.is_empty(), "deve continuar segurando o assento da proposta pendente");
+    assert!(
+        !held2.is_empty(),
+        "deve continuar segurando o assento da proposta pendente"
+    );
 
     // Jogador COM contrato ativo → nenhuma proposta formal na Fase A.
     let contract = Contract::new(
-        "C100".to_string(), player.id.clone(), player.nome.clone(),
-        team.id.clone(), team.nome.clone(), 2, 3, 100_000.0, TeamRole::Numero1, "gt3".to_string(),
+        "C100".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        team.id.clone(),
+        team.nome.clone(),
+        2,
+        3,
+        100_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &contract).expect("contract");
     team_queries::update_team_pilots(&conn, &team.id, Some(&player.id), None).expect("seat");
@@ -1780,8 +1886,11 @@ fn test_player_window_proposals_expire_after_ttl() {
     // semana do prazo e não é reoferecida (o assento deixa de ser segurado).
     let conn = Connection::open_in_memory().expect("db");
     migrations::run_all(&conn).expect("schema");
-    conn.execute("UPDATE meta SET value = '30' WHERE key = 'next_contract_id'", [])
-        .expect("contract counter");
+    conn.execute(
+        "UPDATE meta SET value = '30' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
 
     let s1 = Season::new("S001".to_string(), 1, 2024);
     let s2 = Season::new("S002".to_string(), 2, 2025);
@@ -1798,8 +1907,16 @@ fn test_player_window_proposals_expire_after_ttl() {
     driver_queries::insert_driver(&conn, &teammate).expect("teammate");
     team_queries::update_team_pilots(&conn, &team.id, Some(&teammate.id), None).expect("lineup");
     let tc = Contract::new(
-        "C001".to_string(), teammate.id.clone(), teammate.nome.clone(),
-        team.id.clone(), team.nome.clone(), 1, 3, 90_000.0, TeamRole::Numero1, "gt3".to_string(),
+        "C001".to_string(),
+        teammate.id.clone(),
+        teammate.nome.clone(),
+        team.id.clone(),
+        team.nome.clone(),
+        1,
+        3,
+        90_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &tc).expect("teammate contract");
 
@@ -1828,7 +1945,10 @@ fn test_player_window_proposals_expire_after_ttl() {
         &conn, &s2.id, &player.id,
     )
     .expect("p4");
-    assert!(pending_w4.is_empty(), "proposta expira na semana do prazo e não é reoferecida");
+    assert!(
+        pending_w4.is_empty(),
+        "proposta expira na semana do prazo e não é reoferecida"
+    );
     assert!(held_w4.is_empty(), "assento expirado não é mais segurado");
 }
 
@@ -1842,8 +1962,11 @@ fn test_free_player_without_categoria_atual_still_gets_offers_at_last_level() {
     // do ÚLTIMO contrato (gt3) e ele volta a receber oferta no nível dele.
     let conn = Connection::open_in_memory().expect("in-memory db");
     migrations::run_all(&conn).expect("schema");
-    conn.execute("UPDATE meta SET value = '10' WHERE key = 'next_contract_id'", [])
-        .expect("contract counter");
+    conn.execute(
+        "UPDATE meta SET value = '10' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
 
     // Time gt3 (tier 4) com UMA vaga aberta (só o titular ocupa um assento).
     // Nenhum time rookie no mundo: sem a correção, o jogador não veria vaga alguma.
@@ -1854,8 +1977,13 @@ fn test_free_player_without_categoria_atual_still_gets_offers_at_last_level() {
     // Jogador livre e SEM categoria_atual (limpo pelo sync após ficar sem correr).
     let mut player = sample_driver("P001", "Jogador", None, 80.0, DriverStatus::Ativo);
     player.is_jogador = true;
-    let teammate =
-        sample_driver("P002", "Titular GT3", Some("gt3"), 78.0, DriverStatus::Ativo);
+    let teammate = sample_driver(
+        "P002",
+        "Titular GT3",
+        Some("gt3"),
+        78.0,
+        DriverStatus::Ativo,
+    );
     driver_queries::insert_driver(&conn, &player).expect("insert player");
     driver_queries::insert_driver(&conn, &teammate).expect("insert teammate");
     team_queries::update_team_pilots(&conn, &gt3_team.id, Some(&teammate.id), None)
@@ -1864,19 +1992,35 @@ fn test_free_player_without_categoria_atual_still_gets_offers_at_last_level() {
     // Contrato ATIVO do titular (ancora o time) + contrato PASSADO (rescindido) do
     // jogador em gt3 — a única pista da categoria dele, já que categoria_atual é NULL.
     let teammate_contract = Contract::new(
-        "C001".to_string(), teammate.id.clone(), teammate.nome.clone(),
-        gt3_team.id.clone(), gt3_team.nome.clone(), 1, 3, 120_000.0,
-        TeamRole::Numero1, "gt3".to_string(),
+        "C001".to_string(),
+        teammate.id.clone(),
+        teammate.nome.clone(),
+        gt3_team.id.clone(),
+        gt3_team.nome.clone(),
+        1,
+        3,
+        120_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &teammate_contract).expect("teammate contract");
     let player_old_contract = Contract::new(
-        "C002".to_string(), player.id.clone(), player.nome.clone(),
-        gt3_team.id.clone(), gt3_team.nome.clone(), 1, 1, 90_000.0,
-        TeamRole::Numero2, "gt3".to_string(),
+        "C002".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        gt3_team.id.clone(),
+        gt3_team.nome.clone(),
+        1,
+        1,
+        90_000.0,
+        TeamRole::Numero2,
+        "gt3".to_string(),
     );
     contract_queries::insert_contract(&conn, &player_old_contract).expect("player old contract");
     contract_queries::update_contract_status(
-        &conn, &player_old_contract.id, &ContractStatus::Rescindido,
+        &conn,
+        &player_old_contract.id,
+        &ContractStatus::Rescindido,
     )
     .expect("rescind player contract");
 
@@ -2008,9 +2152,7 @@ fn test_sign_driver_to_team_rolls_back_contract_when_driver_update_fails() {
     let vacancy = find_vacancies(&conn)
         .expect("vacancies")
         .into_iter()
-        .find(|vacancy| {
-            vacancy.team_id == "T002" && vacancy.papel_necessario == TeamRole::Numero2
-        })
+        .find(|vacancy| vacancy.team_id == "T002" && vacancy.papel_necessario == TeamRole::Numero2)
         .expect("target vacancy");
     let driver = driver_queries::get_all_drivers(&conn)
         .expect("drivers query")
@@ -2307,13 +2449,7 @@ fn setup_market_fixture() -> Connection {
 
 fn sample_team(category: &str, id: &str, rng: &mut StdRng) -> crate::models::team::Team {
     let template = get_team_templates(category)[0];
-    crate::models::team::Team::from_template_with_rng(
-        template,
-        category,
-        id.to_string(),
-        2025,
-        rng,
-    )
+    crate::models::team::Team::from_template_with_rng(template, category, id.to_string(), 2025, rng)
 }
 
 fn sample_driver(

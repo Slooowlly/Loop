@@ -101,7 +101,9 @@ pub fn advance_week(
             let to_tier = crate::constants::categories::get_category_config(&signing.categoria)
                 .map(|c| c.tier);
             // Mesma equipe = RENOVAÇÃO (re-assinou o próprio assento), não troca lateral.
-            let same_team = prev.as_ref().is_some_and(|(team, _)| team.as_str() == tname);
+            let same_team = prev
+                .as_ref()
+                .is_some_and(|(team, _)| team.as_str() == tname);
             match (from_tier, to_tier) {
                 (Some(f), Some(t)) if t > f => "promotion",
                 (Some(f), Some(t)) if t < f => "relegation",

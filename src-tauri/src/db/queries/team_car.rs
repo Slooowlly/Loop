@@ -28,7 +28,9 @@ fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     // migração central, pra não colidir com WIP. `0` = não semeado → o carregador deriva o
     // fallback determinístico por tipo. Bancos existentes ganham a coluna via ALTER guardado.
     if !table_has_column(conn, "team_car", "unit_seed")? {
-        conn.execute_batch("ALTER TABLE team_car ADD COLUMN unit_seed INTEGER NOT NULL DEFAULT 0;")?;
+        conn.execute_batch(
+            "ALTER TABLE team_car ADD COLUMN unit_seed INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
     Ok(())
 }
@@ -147,7 +149,11 @@ mod tests {
         let mut car = Car::uniform(5);
         car.set_level(PartType::Engine, 8);
         car.set_wear(PartType::Engine, 0.42);
-        if let Some(p) = car.parts.iter_mut().find(|p| p.part_type == PartType::Brakes) {
+        if let Some(p) = car
+            .parts
+            .iter_mut()
+            .find(|p| p.part_type == PartType::Brakes)
+        {
             p.spent = true;
         }
         upsert_team_car(&c, "T1", &car).unwrap();
@@ -169,7 +175,11 @@ mod tests {
         upsert_team_car(&c, "T1", &car).unwrap();
 
         let count: i64 = c
-            .query_row("SELECT COUNT(*) FROM team_car WHERE team_id = 'T1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM team_car WHERE team_id = 'T1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 11, "deveria haver exatamente 11 peças, sem duplicar");
     }

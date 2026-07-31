@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import useCareerStore from "../stores/useCareerStore";
 import { VR_W, VR_H, drawTower, preloadAssets } from "./towerCanvas";
 import { createTowerAnimator } from "./towerAnimation";
 import { createTowerWindow } from "./towerRows";
 import { VR_THEME } from "./towerThemes";
 import { useOverlayData } from "./useOverlayData";
+import { useOverlayFlags } from "./useOverlayFlags";
 import { estaNoTauri } from "../lib/tauri";
 
 // Escritor do overlay de VR: desenha a torre com dados AO VIVO da corrida e manda
@@ -16,17 +16,22 @@ import { estaNoTauri } from "../lib/tauri";
 // carreira carregada), não escreve nada — o overlay simplesmente não aparece.
 // É invisível na interface: não renderiza nada, só alimenta o overlay do VR.
 //
-// TODO(produtização): hoje liga sozinho quando o app abre. Depois vai atrás de um
-// toggle nas configs.
+// Só roda com a chave geral do VR LIGADA (Configurações → "Overlay em VR"). O gate é
+// um componente de fora que monta/desmonta este: desligado, nem o poll de dados nem o
+// laço de desenho existem — é o único jeito de a economia ser real, porque o custo
+// (getImageData de 8 MB a 10-30 Hz) nasce aqui no JS, não do lado do Rust.
 
 const VR_IDLE_MS = 100; // 10 Hz: torre parada, o que ela é quase o tempo todo
 const VR_MOVING_MS = 33; // ~30 Hz: só durante o deslize de uma ultrapassagem
 
 export default function OverlayVrWriter() {
-  const careerId = useCareerStore((s) => s.careerId);
-  // 500 ms, igual ao monitor: a 1 s a troca de posição só era descoberta até um
-  // segundo depois de acontecer na pista, e o deslize saía visivelmente fora de hora.
-  const data = useOverlayData(careerId, { intervalMs: 500 });
+  return useOverlayFlags().vrOverlay ? <VrWriterAtivo /> : null;
+}
+
+function VrWriterAtivo() {
+  // Só LÊ o barramento: o poll (500 ms) é da fonte única em OverlayMonitorAuto, que
+  // vive na mesma janela. Antes este componente tinha o seu próprio.
+  const data = useOverlayData();
   // A "fonte" que o loop de desenho lê: dados + assets já carregados.
   const sourceRef = useRef({ data: null, assets: null });
 

@@ -1,4 +1,4 @@
-﻿//! Fatos que alimentam a narrativa do pos-corrida: episodios de rivalidade, arco das rivalidades, contexto de desempenho e leitura da telemetria.
+//! Fatos que alimentam a narrativa do pos-corrida: episodios de rivalidade, arco das rivalidades, contexto de desempenho e leitura da telemetria.
 
 use super::*;
 
@@ -183,11 +183,11 @@ pub(super) fn rivalry_arc_beats(
                 continue;
             }
 
-            let eps = match crate::db::queries::rivalry_episodes::get_episodes_for_pair(conn, &a, &b)
-            {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+            let eps =
+                match crate::db::queries::rivalry_episodes::get_episodes_for_pair(conn, &a, &b) {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
             // Só recapitula se houve capítulo HOJE (a rivalidade se manifestou na corrida).
             let Some(today) = eps
                 .last()
@@ -272,7 +272,10 @@ pub(super) fn rivalry_arc_beats(
             if revenge {
                 if let Some(tw) = today.winner_id.as_deref() {
                     let twn = if tw == a { &na } else { &nb };
-                    s.push_str(&rust_i18n::t!("briefing.rivalry.revenge", name = twn.as_str()));
+                    s.push_str(&rust_i18n::t!(
+                        "briefing.rivalry.revenge",
+                        name = twn.as_str()
+                    ));
                 }
             }
 
@@ -399,7 +402,10 @@ pub(super) fn performance_context_facts(
             .to_string(),
             _ => continue,
         };
-        exp.push(ExpCand { text, is_player: d.is_jogador });
+        exp.push(ExpCand {
+            text,
+            is_player: d.is_jogador,
+        });
     }
     // No máximo 2, com o jogador tendo prioridade.
     exp.sort_by_key(|c| std::cmp::Reverse(c.is_player));
@@ -448,7 +454,11 @@ pub(super) fn performance_context_facts(
                 rust_i18n::t!("briefing.perf.podium_streak", name = name.as_str()).to_string(),
             ));
         } else if d.finish_position <= 5 {
-            let valid: Vec<i32> = recent.iter().filter(|r| !r.is_dnf).map(|r| r.finish).collect();
+            let valid: Vec<i32> = recent
+                .iter()
+                .filter(|r| !r.is_dnf)
+                .map(|r| r.finish)
+                .collect();
             if valid.len() >= 3 {
                 let avg = valid.iter().sum::<i32>() as f64 / valid.len() as f64;
                 if avg >= field_size as f64 * 0.5 {
@@ -466,8 +476,7 @@ pub(super) fn performance_context_facts(
     }
 
     // ── 3) Histórico no circuito: destaque que já venceu aqui antes. ─────────────
-    if let Ok(Some(track_id)) =
-        rh::get_round_track_id(conn, &active_season.id, category_id, round)
+    if let Ok(Some(track_id)) = rh::get_round_track_id(conn, &active_season.id, category_id, round)
     {
         let mut track_facts: Vec<(i32, String)> = Vec::new();
         for pilot_id in featured {
@@ -477,8 +486,9 @@ pub(super) fn performance_context_facts(
             if d.is_dnf {
                 continue;
             }
-            let th = rh::get_pilot_track_history(conn, pilot_id, track_id, &active_season.id, round)
-                .unwrap_or_default();
+            let th =
+                rh::get_pilot_track_history(conn, pilot_id, track_id, &active_season.id, round)
+                    .unwrap_or_default();
             if th.wins < 1 {
                 continue;
             }
@@ -530,10 +540,12 @@ pub(super) fn performance_context_facts(
                 continue;
             }
             // Placar do confronto interno na temporada (rodadas em que ambos completaram).
-            let ra = rh::get_pilot_season_results(conn, &a.pilot_id, &active_season.id, category_id)
-                .unwrap_or_default();
-            let rb = rh::get_pilot_season_results(conn, &b.pilot_id, &active_season.id, category_id)
-                .unwrap_or_default();
+            let ra =
+                rh::get_pilot_season_results(conn, &a.pilot_id, &active_season.id, category_id)
+                    .unwrap_or_default();
+            let rb =
+                rh::get_pilot_season_results(conn, &b.pilot_id, &active_season.id, category_id)
+                    .unwrap_or_default();
             let rb_map: HashMap<i32, (i32, bool)> =
                 rb.iter().map(|(r, f, dnf)| (*r, (*f, *dnf))).collect();
             let (mut wa, mut wb) = (0, 0);
@@ -565,7 +577,11 @@ pub(super) fn performance_context_facts(
             .to_string();
             if wa + wb >= 2 {
                 if wa == wb {
-                    s.push_str(&rust_i18n::t!("briefing.perf.teammate_tied", a = wa, b = wb));
+                    s.push_str(&rust_i18n::t!(
+                        "briefing.perf.teammate_tied",
+                        a = wa,
+                        b = wb
+                    ));
                 } else {
                     let (ln, hi, lo) = if wa > wb {
                         (name_of(&a.pilot_id), wa, wb)
@@ -703,8 +719,10 @@ pub(super) fn telemetry_context_facts(
             // O duelo só significa alguma coisa com o desfecho junto: sem isto a IA
             // lê "duelo + ultrapassagem" e escreve que o jogador deixou o rival para
             // trás, mesmo quando o rival cruzou a linha na frente.
-            if let Some((eu, dele)) =
-                telemetry.charts.as_ref().and_then(|c| desfecho_no_trace(c, &r.pilot_name))
+            if let Some((eu, dele)) = telemetry
+                .charts
+                .as_ref()
+                .and_then(|c| desfecho_no_trace(c, &r.pilot_name))
             {
                 let key = if eu < dele {
                     "briefing.tel.duel_outcome_ahead"
@@ -751,9 +769,7 @@ pub(super) fn telemetry_context_facts(
                 )
                 .to_string(),
             ),
-            "recovery" => {
-                Some(rust_i18n::t!("briefing.tel.best_recovery", who = who).to_string())
-            }
+            "recovery" => Some(rust_i18n::t!("briefing.tel.best_recovery", who = who).to_string()),
             "clean_streak" if b.streak >= 3 => Some(
                 rust_i18n::t!("briefing.tel.best_clean_streak", who = who, n = b.streak)
                     .to_string(),

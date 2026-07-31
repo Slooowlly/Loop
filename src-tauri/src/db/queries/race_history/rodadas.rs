@@ -88,7 +88,12 @@ pub fn mechanical_dnf_counts_by_team(
            AND ic.incident_source IN ('Mechanical', 'Operational')
          GROUP BY r.equipe_id",
     )?;
-    let mut rows = stmt.query(rusqlite::params![temporada_id, categoria, min_round, max_round])?;
+    let mut rows = stmt.query(rusqlite::params![
+        temporada_id,
+        categoria,
+        min_round,
+        max_round
+    ])?;
     while let Some(row) = rows.next()? {
         let team: String = row.get(0)?;
         let count: i64 = row.get(1)?;

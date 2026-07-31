@@ -9,26 +9,31 @@ import { getTrackImageSrc } from "../../utils/trackImages";
 
 // "O Que Esperar": matéria de PRÉ-TEMPORADA. Só existe antes da 1ª corrida —
 // substitui o "livro fechado" por um spread aberto. Ver docs/season-preview-design.md.
-function PreseasonSpread({ catLabel, year, preview, openingRace, driverStandings, worldNotes }) {
+function PreseasonSpread({
+  catLabel,
+  year,
+  preview,
+  openingRace,
+  standings,
+  driverStandings,
+  playerTeam,
+  worldNotes,
+}) {
   const { t } = useTranslation();
   const [hoveredDriverId, setHoveredDriverId] = useState(null);
 
-  // Coluna direita da pré-temporada: o grid por POTENCIAL (o campeonato ainda está
-  // zerado). Aqui número é permitido — é data-viz, não a prosa da matéria.
-  const favorites = useMemo(() => {
-    return [...driverStandings]
-      .sort((a, b) => (b.skill ?? 0) - (a.skill ?? 0))
-      .slice(0, 12)
-      .map((d, i) => ({
-        id: d.id,
-        pos: i + 1,
-        name: d.nome,
-        skill: Math.round(d.skill ?? 0),
-        teamName: d.equipe_nome,
-        color: d.equipe_cor || "#888",
-        me: d.is_jogador,
-      }));
-  }, [driverStandings]);
+  // Coluna direita da pré-temporada: as equipes da categoria com o campeonato
+  // ainda ZERADO. Potencial é dado interno — não vira tabela pública.
+  const construtores = useMemo(() => {
+    return standings.map((tm, i) => ({
+      id: tm.id,
+      pos: tm.posicao ?? i + 1,
+      name: tm.nome,
+      pts: tm.pontos ?? 0,
+      color: tm.cor_primaria || "#888",
+      me: playerTeam?.id != null && tm.id === playerTeam.id,
+    }));
+  }, [standings, playerTeam]);
 
   const mentionDrivers = useMemo(
     () => driverStandings.map((d) => ({ id: d.id, nome: d.nome })),
@@ -76,7 +81,7 @@ function PreseasonSpread({ catLabel, year, preview, openingRace, driverStandings
           </div>
         </div>
 
-        {/* PÁGINA DIREITA — pista de abertura + grid por potencial */}
+        {/* PÁGINA DIREITA — pista de abertura + construtores zerados */}
         <div className="page page-r">
           <MagazineCredits catLabel={catLabel} />
           {openingRace ? (
@@ -98,19 +103,14 @@ function PreseasonSpread({ catLabel, year, preview, openingRace, driverStandings
             <div>
               <div className="nm-standings-head">
                 <h3 className="subhead">
-                  {t("newsMagazine.preseason.favoritesHead")}
+                  {t("newsMagazine.standings.constructors")}
                   {year ? <> · {year}</> : null}
                 </h3>
               </div>
-              {favorites.length > 0 ? (
-                <StandingsList
-                  rows={favorites}
-                  hoveredId={hoveredDriverId}
-                  onHover={setHoveredDriverId}
-                  logoTestId="news-favorite-team-logo"
-                />
+              {construtores.length > 0 ? (
+                <StandingsList rows={construtores} logoTestId="news-team-logo" />
               ) : (
-                <p>{t("newsMagazine.standings.driversUnavailable")}</p>
+                <p>{t("newsMagazine.standings.teamsUnavailable")}</p>
               )}
             </div>
           </div>

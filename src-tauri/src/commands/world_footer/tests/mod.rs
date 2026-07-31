@@ -55,10 +55,15 @@ fn i18n_do_rodape_resolve_nos_dois_locales() {
     assert_eq!(ord_label(2, true), "2ª");
     let pt = rust_i18n::t!(
         "world_footer.record_broken.season_wins_prev",
-        name = "Fulano", value = 9, prev = 7
+        name = "Fulano",
+        value = 9,
+        prev = 7
     )
     .to_string();
-    assert!(pt.contains('9') && pt.contains('7') && !pt.contains("%{"), "{pt}");
+    assert!(
+        pt.contains('9') && pt.contains('7') && !pt.contains("%{"),
+        "{pt}"
+    );
 
     rust_i18n::set_locale("en-US");
     assert_eq!(tag_label("record"), "RECORD");
@@ -69,7 +74,11 @@ fn i18n_do_rodape_resolve_nos_dois_locales() {
     assert_eq!(ord_label(11, false), "11th"); // regra do 11–13
     let en = rust_i18n::t!(
         "world_footer.record_watch.approaching",
-        name = "X", gap = 2, noun = metric_noun("wins", 2), value = 50, holder = "Y"
+        name = "X",
+        gap = 2,
+        noun = metric_noun("wins", 2),
+        value = 50,
+        holder = "Y"
     )
     .to_string();
     assert!(en.contains("2 wins") && !en.contains("%{"), "{en}");

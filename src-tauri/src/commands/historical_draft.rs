@@ -9,9 +9,7 @@ use crate::commands::career_types::{
 };
 use crate::config::app_config::AppConfig;
 use crate::config::app_config::SaveMeta;
-use crate::constants::historical_timeline::{
-    apply_historical_performance_band, is_category_active_in_year,
-};
+use crate::constants::historical_timeline::is_category_active_in_year;
 use crate::db::connection::{Database, DbError};
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
@@ -162,6 +160,12 @@ fn create_historical_career_draft_base(
                     driver_queries::insert_driver(tx, driver)?;
                 }
                 team_queries::insert_teams(tx, &world.teams)?;
+                // Sistema de Nível do Carro: o draft histórico semeia o carro igual à
+                // carreira clássica. Sem isto o carro só nascia no 1º pit da 1ª corrida,
+                // pelo fallback neutro de `maintain_team_car_pits` (qualidade 0,5 pra TODO
+                // mundo) — as 26 temporadas de backstory largavam com o grid inteiro no
+                // mesmo carro, e a hierarquia do seed era descartada.
+                crate::market::car_maintenance::seed_and_persist_team_cars(tx, &world.teams)?;
                 contract_queries::insert_contracts(tx, &world.contracts)?;
                 for contract in &world.contracts {
                     grant_driver_license_for_division_if_needed(
@@ -182,6 +186,7 @@ fn create_historical_career_draft_base(
                     1,
                     n,
                     HISTORY_START_YEAR,
+                    PLAYABLE_START_YEAR,
                 )?;
                 Ok(n)
             })
@@ -224,6 +229,7 @@ fn sync_draft_meta_counters(
     total_seasons: usize,
     total_races: usize,
     current_year: i32,
+    career_start_year: i32,
 ) -> Result<(), DbError> {
     meta_queries::set_meta_value(
         conn,
@@ -244,11 +250,14 @@ fn sync_draft_meta_counters(
     meta_queries::set_meta_value(conn, "next_race_id", &(total_races as u32 + 1).to_string())?;
     meta_queries::set_meta_value(conn, "current_season", &total_seasons.to_string())?;
     meta_queries::set_meta_value(conn, "current_year", &current_year.to_string())?;
-    // Marca o ano-base da carreira. Diferente de "current_year" (que avança a cada
-    // temporada), este valor é escrito UMA ÚNICA VEZ na criação e nunca atualizado.
-    // Serve de âncora para a penalidade fictícia GT3, que esmaece ao longo dos
-    // primeiros anos de carreira.
-    meta_queries::set_meta_value(conn, "career_start_year", &current_year.to_string())?;
+    // Marca o ano-base da carreira: o 1º ano JOGÁVEL, não o início do backstory. Diferente
+    // de "current_year" (que avança a cada temporada), este valor é escrito UMA ÚNICA VEZ na
+    // criação e nunca atualizado.
+    //
+    // Recebia `current_year` (= HISTORY_START_YEAR, 2000), o que fazia toda a carreira
+    // nascer com 26 "anos de carreira" já rodados — qualquer regra ancorada aqui já
+    // começava esmaecida.
+    meta_queries::set_meta_value(conn, "career_start_year", &career_start_year.to_string())?;
     Ok(())
 }
 
@@ -732,9 +741,7 @@ where
                 if attempt + 1 < ATTEMPTS {
                     // Backoff curto e crescente: ~50ms, 100ms, ... até dar tempo do
                     // scanner/indexador liberar o handle sem travar a UI por muito tempo.
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        50 * (attempt as u64 + 1),
-                    ));
+                    std::thread::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1)));
                 }
             }
         }
@@ -790,7 +797,6 @@ fn simulate_historical_range(
     playable_year: i32,
 ) -> Result<(), String> {
     for _year in start_year..=end_year {
-        stabilize_historical_performance_bands(&db.conn)?;
         simulate_current_historical_season(db)?;
         let current_season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada historica ativa: {e}"))?
@@ -806,7 +812,6 @@ fn simulate_historical_range(
             .map_err(|e| format!("Falha ao buscar proxima temporada historica: {e}"))?
             .ok_or_else(|| "Proxima temporada historica nao encontrada.".to_string())?;
         fill_all_remaining_vacancies(&db.conn, next_season.numero, &mut rand::thread_rng())?;
-        stabilize_historical_performance_bands(&db.conn)?;
         clear_historical_news(&db.conn)?;
         update_draft_progress(career_dir, (season.ano + 1) as u32)?;
     }
@@ -859,29 +864,6 @@ fn simulate_current_historical_special_block(db: &mut Database) -> Result<(), St
         .map_err(|e| format!("Falha ao encerrar bloco especial historico: {e}"))?;
     crate::convocation::run_pos_especial(&db.conn)
         .map_err(|e| format!("Falha ao limpar pos-especial historico: {e}"))?;
-
-    Ok(())
-}
-
-fn stabilize_historical_performance_bands(conn: &rusqlite::Connection) -> Result<(), String> {
-    let teams = team_queries::get_all_teams(conn)
-        .map_err(|e| format!("Falha ao carregar equipes para estabilidade historica: {e}"))?;
-
-    for team in teams {
-        let mut updated_team = team;
-        let before = updated_team.car_performance;
-        apply_historical_performance_band(&mut updated_team);
-        if (updated_team.car_performance - before).abs() < f64::EPSILON {
-            continue;
-        }
-
-        team_queries::update_team(conn, &updated_team).map_err(|e| {
-            format!(
-                "Falha ao estabilizar faixa historica da equipe {}: {e}",
-                updated_team.nome
-            )
-        })?;
-    }
 
     Ok(())
 }

@@ -14,7 +14,12 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
   ".git",
   ".git-backups",
   ".superpowers",
+  // Checkouts paralelos de agentes. Sao outra copia do repo: escanea-los faz o
+  // guard reclamar de arquivo que nao esta nesta arvore. O Claude Code cria em
+  // `.claude/worktrees/`, sem ponto — e `.claude` E escaneado, entao sem esta
+  // entrada o guard entra la dentro.
   ".worktrees",
+  "worktrees",
   "dist",
   "gen",
   "node_modules",
@@ -35,6 +40,7 @@ test("encoding scan skips generated and dependency directories", () => {
   assert.equal(shouldSkipDirectory("src-tauri/target-verify"), true);
   assert.equal(shouldSkipDirectory("dist"), true);
   assert.equal(shouldSkipDirectory("node_modules"), true);
+  assert.equal(shouldSkipDirectory(".claude/worktrees/algum-agente"), true);
   assert.equal(shouldSkipDirectory("src/pages"), false);
 });
 

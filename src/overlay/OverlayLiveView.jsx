@@ -17,13 +17,13 @@ import {
 } from "./towerCanvas";
 import { createTowerAnimator } from "./towerAnimation";
 import { createTowerWindow } from "./towerRows";
-import { useOverlayData } from "./useOverlayData";
+import { useOverlayData, useOverlayDataRelay } from "./useOverlayData";
 import OverlayWeatherArc from "./OverlayWeatherArc";
 import { estaNoTauri } from "../lib/tauri";
 
 // Vista AO VIVO do overlay de MONITOR (a janela transparente por cima do iRacing).
 // Roda dentro da janela `#overlay`, um webview separado (sem o store do app), então
-// descobre a carreira ativa por poll (`overlay_active_career`).
+// RECEBE o dado ao vivo da janela principal por evento (ver useOverlayData).
 //
 // TRÊS MODOS, ciclados pelo olho (👁): COMPLETO (todas as colunas) → MINI (painel
 // estreito, só pos·logo·nome·delta e menos carros) → ESCONDIDO (nub mínimo no canto).
@@ -60,7 +60,6 @@ function payloadToMode(p) {
 
 export default function OverlayLiveView() {
   const { t } = useTranslation();
-  const [careerId, setCareerId] = useState(null);
   const [mode, setMode] = useState("full"); // "full" | "mini" | "hidden"
   const [hover, setHover] = useState(false); // mouse sobre a torre/nub
   const canvasRef = useRef(null);
@@ -87,25 +86,6 @@ export default function OverlayLiveView() {
     ? { ...MINI_SECTION_OPTS, window: windowRef.current }
     : { window: windowRef.current };
 
-  // Poll da carreira ativa (o app grava ao mostrar o overlay).
-  useEffect(() => {
-    if (!estaNoTauri()) return undefined;
-    let stopped = false;
-    const poll = async () => {
-      try {
-        const id = await invoke("overlay_active_career");
-        if (!stopped) setCareerId(id ?? null);
-      } catch {
-        /* ponte ainda não pronta */
-      }
-    };
-    poll();
-    const t = setInterval(poll, 1000);
-    return () => {
-      stopped = true;
-      clearInterval(t);
-    };
-  }, []);
 
   // Setup da JANELA: restaura posição, persiste ao mover, e ouve o app (modo) e o
   // vigia de cursor (hover).
@@ -148,10 +128,12 @@ export default function OverlayLiveView() {
     return () => cleanups.forEach((fn) => fn && fn());
   }, []);
 
-  // 500 ms (o padrão do hook). Era 1 s, o que bastava pra uma torre estática mas
-  // atrasava demais o deslize: a troca de posição só era descoberta até um segundo
-  // depois de acontecer na pista, e a animação saía visivelmente fora de hora.
-  const data = useOverlayData(careerId, { intervalMs: 500 });
+  // Esta janela não consulta o backend: a principal faz o único poll (500 ms) e repassa
+  // por evento. Antes daqui saía um `get_overlay_data` próprio a 2 Hz, mais um poll de
+  // `overlay_active_career` a 1 Hz só pra saber de quem puxar — os dois viraram um
+  // ouvinte, e a carreira ativa deixou de ser assunto desta janela.
+  useOverlayDataRelay();
+  const data = useOverlayData();
 
   // Recarrega assets (logos/pneus) só quando os dados mudam de verdade.
   useEffect(() => {

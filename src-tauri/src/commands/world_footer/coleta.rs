@@ -110,7 +110,12 @@ pub(super) fn collect_world_notes(conn: &rusqlite::Connection) -> Vec<WorldNote>
     }
     if notes.len() < TARGET_NOTES {
         let budget = TARGET_NOTES - notes.len();
-        notes.extend(record_watch_notes(conn, &categoria, &mut used_drivers, budget));
+        notes.extend(record_watch_notes(
+            conn,
+            &categoria,
+            &mut used_drivers,
+            budget,
+        ));
     }
 
     notes.truncate(MAX_NOTES);

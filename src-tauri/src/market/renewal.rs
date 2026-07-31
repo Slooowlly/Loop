@@ -383,7 +383,10 @@ mod tests {
         estrela.atributos.midia = 95.0;
         let s_apagado = calculate_renewal_salary(&contract, 82.0, &apagado, &team);
         let s_estrela = calculate_renewal_salary(&contract, 82.0, &estrela, &team);
-        assert!(s_estrela > s_apagado, "estrela: {s_estrela} vs apagado: {s_apagado}");
+        assert!(
+            s_estrela > s_apagado,
+            "estrela: {s_estrela} vs apagado: {s_apagado}"
+        );
     }
 
     #[test]
@@ -811,8 +814,14 @@ mod tests {
         let alvo = renewal_target_salary(&driver, &team, 55.0);
         let renovado = calculate_renewal_salary(&contract, 55.0, &driver, &team);
 
-        assert!(alvo < caro, "cenário inválido: o alvo precisa estar abaixo do salário atual");
-        assert!(renovado < caro, "piloto acima do mercado precisa ceder: {renovado:.0}");
+        assert!(
+            alvo < caro,
+            "cenário inválido: o alvo precisa estar abaixo do salário atual"
+        );
+        assert!(
+            renovado < caro,
+            "piloto acima do mercado precisa ceder: {renovado:.0}"
+        );
         assert!(
             renovado > alvo,
             "mas a queda é gradual — não desaba pro alvo de uma vez: {renovado:.0} vs alvo {alvo:.0}"

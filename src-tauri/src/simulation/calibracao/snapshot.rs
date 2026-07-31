@@ -40,51 +40,93 @@ pub const ETAPAS: usize = 12;
 pub const SEMENTE_ROOKIE: u64 = 2026;
 pub const SEMENTE_GT3: u64 = 2027;
 
-/// Medido em 2026-07-29, antes dos pacotes B/C/D/E/F/G. 1008 corridas por linha.
+/// **Âncora: `a905ca2`** — o primeiro ponto da história em que a reforma da simulação existe de
+/// forma identificável (pacotes B, C, D, F, G + este harness), com 2043 testes verdes.
+///
+/// A âncora anterior era `d4c55e8`, medida com a régua ANTIGA e antes de qualquer conserto. Ela
+/// deixou de servir por dois motivos somados, e é importante que os dois estejam registrados:
+///
+/// 1. **O motor mudou** — moeda em tempo, tráfego, forma, safety car, quali reescrita.
+/// 2. **A régua estava errada** — o `campo.rs` derivava do talento sete atributos que o jogo
+///    sorteia livres, e espalhava o skill da gt3 38% além do real. Números medidos com ela não são
+///    comparáveis aos de agora, nem para melhor nem para pior.
+///
+/// Comparar contra a âncora velha mediria as duas mudanças somadas sem conseguir separá-las. Este
+/// recongelamento é o novo zero.
+///
+/// ## RECONGELADO com a esteira ligada — a terceira e última correção de régua
+///
+/// Os números anteriores mediam o caminho `campo → run_full_race_with_breakdowns`, que **não passa
+/// pela esteira de modificadores de fim de semana**. As três camadas de `forma` (afinidade, forma,
+/// acerto) eram invisíveis para toda medição deste harness.
+///
+/// A esteira agora é [`crate::simulation::esteira::aplicar_esteira`] — pura, chamável, com as
+/// escalas por parâmetro. O harness chama a função do jogo, `esteira_de_forma` é `true` por padrão,
+/// e estes números medem o caminho que o jogo roda.
+///
+/// O que muda em relação ao congelado anterior é **efeito de mecanismo, não de conserto de régua**:
+/// as camadas sempre estiveram lá no jogo; só não estavam aqui. O diff entre os dois congelados é o
+/// tamanho do pacote B visto pela primeira vez.
+///
+/// | Métrica | antes (sem esteira) | agora | alvo rookie / gt3 |
+/// |---|---|---|---|
+/// | ρ(N,N+1) rookie | 0,828 | **0,776** | 0,20–0,55 |
+/// | ρ(N,N+1) gt3 | 0,919 | **0,859** | 0,35–0,70 |
+/// | desvio rookie | 2,19 | **2,57** | 3,5–6,5 |
+/// | desvio gt3 | 1,48 | **2,03** | 2,5–5,0 |
+/// | vencedores rookie | 2,13 | **2,83** | 5–10 |
+/// | trocas de liderança gt3 | 0,93 | **1,50** ✅ | 1–5 |
+///
+/// **Este é o último recongelamento previsto antes da campanha.** As três correções de régua
+/// (atributos do `campo.rs`, espalhamento do skill da gt3, esteira ausente) estão fechadas; o que
+/// mover daqui em diante move por mudança de mecanismo ou de calibração, que é o que o diff deve
+/// medir.
+///
+/// 1008 corridas por linha.
 pub const CONGELADO: &[LinhaCongelada] = &[
     LinhaCongelada {
         rotulo: "mazda_rookie (sem incidentes)",
-        spearman_grid_chegada: 0.9358,
-        pct_vitorias_do_pole: 0.7560,
-        vencedores_distintos: 1.2976,
-        desvio_posicao: 0.7139,
-        p_melhor_fora_top5: 0.0129,
-        spearman_etapas_consecutivas: 0.9763,
-        trocas_de_lideranca: 0.2262,
-        margem_do_campeao: 0.2652,
+        spearman_grid_chegada: 0.8941,
+        pct_vitorias_do_pole: 0.7163,
+        vencedores_distintos: 2.8333,
+        desvio_posicao: 2.5696,
+        p_melhor_fora_top5: 0.0288,
+        spearman_etapas_consecutivas: 0.7756,
+        trocas_de_lideranca: 0.9762,
+        margem_do_campeao: 0.2101,
     },
     LinhaCongelada {
         rotulo: "mazda_rookie (com incidentes)",
-        spearman_grid_chegada: 0.9360,
-        pct_vitorias_do_pole: 0.7421,
-        vencedores_distintos: 1.4286,
-        desvio_posicao: 0.8927,
-        p_melhor_fora_top5: 0.0288,
-        spearman_etapas_consecutivas: 0.9749,
-        trocas_de_lideranca: 0.4643,
-        margem_do_campeao: 0.2576,
+        spearman_grid_chegada: 0.8898,
+        pct_vitorias_do_pole: 0.7044,
+        vencedores_distintos: 2.7738,
+        desvio_posicao: 2.5567,
+        p_melhor_fora_top5: 0.0595,
+        spearman_etapas_consecutivas: 0.7733,
+        trocas_de_lideranca: 1.0952,
+        margem_do_campeao: 0.2023,
     },
     LinhaCongelada {
         rotulo: "gt3 (sem incidentes)",
-        spearman_grid_chegada: 0.9857,
-        pct_vitorias_do_pole: 0.8879,
-        vencedores_distintos: 1.2976,
-        desvio_posicao: 0.4485,
-        p_melhor_fora_top5: 0.0397,
-        spearman_etapas_consecutivas: 0.9891,
-        trocas_de_lideranca: 0.2500,
-        margem_do_campeao: 0.2500,
+        spearman_grid_chegada: 0.9598,
+        pct_vitorias_do_pole: 0.8056,
+        vencedores_distintos: 2.6310,
+        desvio_posicao: 2.0300,
+        p_melhor_fora_top5: 0.0456,
+        spearman_etapas_consecutivas: 0.8591,
+        trocas_de_lideranca: 1.5000,
+        margem_do_campeao: 0.1388,
     },
     LinhaCongelada {
         rotulo: "gt3 (com incidentes)",
-        spearman_grid_chegada: 0.9855,
-        pct_vitorias_do_pole: 0.8819,
-        vencedores_distintos: 1.3810,
-        desvio_posicao: 0.5966,
-        p_melhor_fora_top5: 0.0526,
-        spearman_etapas_consecutivas: 0.9887,
-        trocas_de_lideranca: 0.2976,
-        margem_do_campeao: 0.2479,
+        spearman_grid_chegada: 0.9584,
+        pct_vitorias_do_pole: 0.7748,
+        vencedores_distintos: 2.5595,
+        desvio_posicao: 2.0299,
+        p_melhor_fora_top5: 0.0615,
+        spearman_etapas_consecutivas: 0.8588,
+        trocas_de_lideranca: 1.2024,
+        margem_do_campeao: 0.1530,
     },
 ];
 

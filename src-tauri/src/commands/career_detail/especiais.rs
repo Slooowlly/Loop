@@ -142,7 +142,9 @@ pub(super) fn build_special_event_rank_block(
     })
 }
 
-pub(super) fn load_special_contract_counts(conn: &Connection) -> Result<Vec<(String, i32)>, String> {
+pub(super) fn load_special_contract_counts(
+    conn: &Connection,
+) -> Result<Vec<(String, i32)>, String> {
     if !sqlite_table_exists(conn, "contracts")? {
         return Ok(Vec::new());
     }
@@ -168,7 +170,9 @@ pub(super) fn load_special_contract_counts(conn: &Connection) -> Result<Vec<(Str
     Ok(counts.into_iter().collect())
 }
 
-pub(super) fn load_special_result_counts(conn: &Connection) -> Result<HashMap<String, (i32, i32)>, String> {
+pub(super) fn load_special_result_counts(
+    conn: &Connection,
+) -> Result<HashMap<String, (i32, i32)>, String> {
     if !sqlite_table_exists(conn, "race_results")? || !sqlite_table_exists(conn, "calendar")? {
         return Ok(HashMap::new());
     }
@@ -269,4 +273,3 @@ pub(super) fn load_special_campaign_aggregates(
     }
     Ok(campaigns)
 }
-

@@ -64,13 +64,13 @@ mod vagas;
 // `market::pipeline::run_poaching_pass` (e afins) continua resolvendo.
 pub(crate) use assedio::*;
 pub(crate) use assedio_jogador::*;
+use comum::*;
 pub(crate) use consolidacao::*;
 pub(crate) use contratacao::*;
-pub(crate) use jogador::*;
-pub(crate) use slam::*;
-use comum::*;
 use estado::*;
 use janela::*;
+pub(crate) use jogador::*;
+pub(crate) use slam::*;
 use vagas::*;
 
 /// Instrumentação do harness de estatística: contadores de preenchimento de

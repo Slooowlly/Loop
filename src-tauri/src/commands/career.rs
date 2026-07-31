@@ -15,8 +15,9 @@ use crate::commands::career_types::{
     AcceptedSpecialOfferSummary, BriefingPhraseEntry, BriefingPhraseEntryInput,
     BriefingPhraseHistory, BriefingStorySummary, CareerData, CareerResumeContext, CareerResumeView,
     ContractWarningInfo, CreateCareerResult, DriverDetail, DriverSummary, NextRaceBriefingSummary,
-    PrimaryRivalSummary, RaceSummary, SaveInfo, SeasonSummary, TeamStanding, TeamSummary,
-    TrackHistorySummary, VerifyDatabaseResponse,
+    PrimaryRivalSummary, RaceReading, RaceReadingCar, RaceReadingSafetyCar, RaceSummary, SaveInfo,
+    SeasonSummary, TeamStanding, TeamSummary, TrackHistorySummary, VerifyDatabaseResponse,
+    WeekendReading,
 };
 use crate::commands::race_history::{
     build_driver_histories, empty_previous_champions, ConstructorChampion, DriverRaceHistory,
@@ -126,8 +127,8 @@ pub(crate) use queries::{
     calculate_consecutive_team_tenure, count_calendar_entries,
     get_calendar_for_category_in_base_dir, get_driver_detail_in_base_dir, get_driver_in_base_dir,
     get_drivers_by_category_in_base_dir, get_news_in_base_dir, get_player_dossier_in_base_dir,
-    get_previous_champions_in_base_dir, get_race_results_by_category_in_base_dir,
-    toggle_driver_favorite_in_base_dir,
+    get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
+    get_race_results_by_category_in_base_dir, toggle_driver_favorite_in_base_dir,
 };
 pub(crate) use save_state::{
     delete_resume_context, get_briefing_phrase_history_in_base_dir,

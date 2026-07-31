@@ -90,7 +90,10 @@ pub(super) fn load_retired_snapshots(
     Ok(retired)
 }
 
-pub(super) fn normalize_retirement_season(conn: &Connection, value: &str) -> Result<String, String> {
+pub(super) fn normalize_retirement_season(
+    conn: &Connection,
+    value: &str,
+) -> Result<String, String> {
     let Some(parsed) = parse_positive_i32(value) else {
         return Ok(value.to_string());
     };

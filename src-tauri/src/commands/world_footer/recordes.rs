@@ -37,73 +37,92 @@ pub(super) fn record_broken_notes(
         let text = match m.metric.as_str() {
             "lap_record" => rust_i18n::t!(
                 "world_footer.record_broken.lap_record",
-                name = name, context = ctx,
+                name = name,
+                context = ctx,
                 lap = format_lap_ms(m.value),
                 prev = m.previous_value.map(format_lap_ms).unwrap_or_default()
             )
             .to_string(),
-            "comeback" => {
-                rust_i18n::t!("world_footer.record_broken.comeback", name = name, value = m.value)
-                    .to_string()
-            }
+            "comeback" => rust_i18n::t!(
+                "world_footer.record_broken.comeback",
+                name = name,
+                value = m.value
+            )
+            .to_string(),
             "season_wins" => match m.previous_value {
                 Some(prev) => rust_i18n::t!(
                     "world_footer.record_broken.season_wins_prev",
-                    name = name, value = m.value, prev = prev
+                    name = name,
+                    value = m.value,
+                    prev = prev
                 )
                 .to_string(),
                 None => rust_i18n::t!(
                     "world_footer.record_broken.season_wins",
-                    name = name, value = m.value
+                    name = name,
+                    value = m.value
                 )
                 .to_string(),
             },
             "track_wins" => rust_i18n::t!(
                 "world_footer.record_broken.track_wins",
-                name = name, context = ctx, value = m.value
+                name = name,
+                context = ctx,
+                value = m.value
             )
             .to_string(),
-            "win_streak" => {
-                rust_i18n::t!("world_footer.record_broken.win_streak", name = name, value = m.value)
-                    .to_string()
-            }
+            "win_streak" => rust_i18n::t!(
+                "world_footer.record_broken.win_streak",
+                name = name,
+                value = m.value
+            )
+            .to_string(),
             "constructor_titles" => rust_i18n::t!(
                 "world_footer.record_broken.constructor_titles",
-                name = name, ord = ord_label(m.value, false)
+                name = name,
+                ord = ord_label(m.value, false)
             )
             .to_string(),
-            "team_wins" => {
-                rust_i18n::t!("world_footer.record_broken.team_wins", name = name, value = m.value)
-                    .to_string()
-            }
+            "team_wins" => rust_i18n::t!(
+                "world_footer.record_broken.team_wins",
+                name = name,
+                value = m.value
+            )
+            .to_string(),
             "one_two" => rust_i18n::t!(
                 "world_footer.record_broken.one_two",
-                name = name, ord = ord_label(m.value, true)
+                name = name,
+                ord = ord_label(m.value, true)
             )
             .to_string(),
             "youngest_winner" => rust_i18n::t!(
                 "world_footer.record_broken.youngest_winner",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "oldest_winner" => rust_i18n::t!(
                 "world_footer.record_broken.oldest_winner",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "youngest_champion" => rust_i18n::t!(
                 "world_footer.record_broken.youngest_champion",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "most_chaotic_race" => rust_i18n::t!(
                 "world_footer.record_broken.most_chaotic_race",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "drought_broken" => rust_i18n::t!(
                 "world_footer.record_broken.drought_broken",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "closest_championship" => {
@@ -116,39 +135,49 @@ pub(super) fn record_broken_notes(
                 } else {
                     rust_i18n::t!(
                         "world_footer.record_broken.closest_championship",
-                        name = name, value = m.value
+                        name = name,
+                        value = m.value
                     )
                     .to_string()
                 }
             }
             "biggest_blowout" => rust_i18n::t!(
                 "world_footer.record_broken.biggest_blowout",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "longest_pairing" => rust_i18n::t!(
                 "world_footer.record_broken.longest_pairing",
-                name = name, value = m.value
+                name = name,
+                value = m.value
             )
             .to_string(),
             "most_starts_no_win" => rust_i18n::t!(
                 "world_footer.record_broken.most_starts_no_win",
-                name = name, context = ctx, value = m.value
+                name = name,
+                context = ctx,
+                value = m.value
             )
             .to_string(),
             "most_career_dnfs" => rust_i18n::t!(
                 "world_footer.record_broken.most_career_dnfs",
-                name = name, context = ctx, value = m.value
+                name = name,
+                context = ctx,
+                value = m.value
             )
             .to_string(),
             "most_poles_no_title" => rust_i18n::t!(
                 "world_footer.record_broken.most_poles_no_title",
-                name = name, context = ctx, value = m.value
+                name = name,
+                context = ctx,
+                value = m.value
             )
             .to_string(),
             "most_career_points" => rust_i18n::t!(
                 "world_footer.record_broken.most_career_points",
-                name = name, context = ctx
+                name = name,
+                context = ctx
             )
             .to_string(),
             _ => {
@@ -156,12 +185,17 @@ pub(super) fn record_broken_notes(
                 match m.previous_value {
                     Some(prev) => rust_i18n::t!(
                         "world_footer.record_broken.generic_prev",
-                        name = name, noun = noun, value = m.value, prev = prev
+                        name = name,
+                        noun = noun,
+                        value = m.value,
+                        prev = prev
                     )
                     .to_string(),
                     None => rust_i18n::t!(
                         "world_footer.record_broken.generic",
-                        name = name, noun = noun, value = m.value
+                        name = name,
+                        noun = noun,
+                        value = m.value
                     )
                     .to_string(),
                 }

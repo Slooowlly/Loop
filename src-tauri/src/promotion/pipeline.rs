@@ -5,56 +5,88 @@ use std::collections::HashSet;
 
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
+use crate::models::team::Team;
 use crate::promotion::block1::execute_block1_for_year;
 use crate::promotion::block2::execute_block2_with_exclusions;
 use crate::promotion::block3::execute_block3_for_year;
-use crate::models::team::Team;
 use crate::promotion::effects::{
     apply_attribute_deltas, calculate_promotion_effects, calculate_relegation_effects,
-    promotion_car_landing_delta, promotion_diminish_config, promotion_diminish_factor,
+    promotion_diminish_config, promotion_diminish_factor, promotion_landing_level,
 };
 use crate::promotion::pilots::{apply_pilot_effect, resolve_pilot_situations};
 use crate::promotion::{MovementType, PromotionResult, TeamMovement};
 
-/// Soft-landing da promoção (Ideia 1): LIGADO por padrão no jogo. O campeão
-/// promovido aterrissa logo acima do pior incumbente da categoria de destino, em
-/// vez de manter o carro exato da categoria de baixo (que o deixava isolado em
-/// último). Retorna a margem (pontos de carro acima do pior incumbente).
+/// Soft-landing da promoção: LIGADO por padrão no jogo. O campeão promovido
+/// aterrissa no NÍVEL DE PEÇA do pior incumbente da categoria de destino, em vez de
+/// entrar com o carro cru da categoria de baixo (que o deixava isolado em último).
 ///
 /// Pode ser DESLIGADO via `IRACER_PROMO_SOFT_LANDING=0` (para A/B no Monte Carlo,
-/// comparando com o comportamento antigo de manter o carro atual). A margem é
-/// calibrável por `IRACER_PROMO_LANDING_MARGIN` (default 1.0). `None` = desligado.
-fn promotion_soft_landing_margin() -> Option<f64> {
-    let enabled = std::env::var("IRACER_PROMO_SOFT_LANDING")
+/// comparando com o comportamento antigo de manter o carro atual).
+///
+/// A antiga `IRACER_PROMO_LANDING_MARGIN` morreu com a versão em `car_performance`:
+/// margem em "pontos de carro" não tem tradução em nível de peça, e o pouso agora é
+/// exatamente o nível do lanterna do campo.
+fn promotion_soft_landing_enabled() -> bool {
+    std::env::var("IRACER_PROMO_SOFT_LANDING")
         .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
-        .unwrap_or(true);
-    if !enabled {
-        return None;
-    }
-    let margin = std::env::var("IRACER_PROMO_LANDING_MARGIN")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(1.0);
-    Some(margin)
+        .unwrap_or(true)
 }
 
 /// car_performance dos incumbentes que PERMANECEM na categoria de destino do
 /// promovido — mesma categoria (e classe, quando houver), excluindo o próprio
 /// promovido. Nesta altura do pipeline a rebaixada já saiu na troca (as trocas de
 /// categoria foram aplicadas antes do loop de deltas), então o campo é só quem fica.
-fn promotion_field_cars(conn: &Connection, team: &Team) -> Result<Vec<f64>, String> {
+/// Nível MÉDIO do carro de cada incumbente que permanece na categoria (ou classe) de
+/// destino — a leitura de "quão desenvolvido é o campo" que o pouso da promoção usa.
+/// Exclui o próprio promovido; time sem carro persistido (save antigo) conta como nível 1,
+/// o piso honesto — some do campo seria pior, porque justamente o lanterna é o alvo.
+fn promotion_field_levels(conn: &Connection, team: &Team) -> Result<Vec<f64>, String> {
     let teams = match team.classe.as_deref() {
-        Some(class) => {
-            team_queries::get_teams_by_category_and_class(conn, &team.categoria, class)
-        }
+        Some(class) => team_queries::get_teams_by_category_and_class(conn, &team.categoria, class),
         None => team_queries::get_teams_by_category(conn, &team.categoria),
     }
-    .map_err(|e| format!("Falha ao buscar campo da categoria '{}': {e}", team.categoria))?;
+    .map_err(|e| {
+        format!(
+            "Falha ao buscar campo da categoria '{}': {e}",
+            team.categoria
+        )
+    })?;
     Ok(teams
         .into_iter()
         .filter(|t| t.id != team.id)
-        .map(|t| t.car_performance)
+        .map(|t| t.car.as_ref().map(nivel_medio).unwrap_or(1.0))
         .collect())
+}
+
+/// Nível médio das peças de um carro.
+fn nivel_medio(car: &crate::car::Car) -> f64 {
+    if car.parts.is_empty() {
+        return 1.0;
+    }
+    car.parts.iter().map(|p| p.level as f64).sum::<f64>() / car.parts.len() as f64
+}
+
+/// Aplica o pouso: sobe ao `alvo` toda peça que está ABAIXO dele, respeitando o teto da
+/// equipe na categoria nova. Nunca rebaixa peça (quem chega acima do lanterna fica onde
+/// está) e não zera desgaste — o pouso dá nível, não peça nova. Devolve quantas subiram.
+fn apply_landing_level(conn: &Connection, team: &Team, alvo: u8) -> Result<usize, String> {
+    let Some(car) = team.car.as_ref() else {
+        return Ok(0);
+    };
+    let alvo = alvo.min(team.car_ceiling());
+    let mut car = car.clone();
+    let mut subiram = 0;
+    for part in car.parts.iter_mut() {
+        if part.level < alvo {
+            part.level = alvo;
+            subiram += 1;
+        }
+    }
+    if subiram > 0 {
+        crate::db::queries::team_car::upsert_team_car(conn, &team.id, &car)
+            .map_err(|e| format!("Falha ao aplicar pouso da promoção em '{}': {e}", team.nome))?;
+    }
+    Ok(subiram)
 }
 
 fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
@@ -141,7 +173,7 @@ pub(crate) fn run_promotion_relegation_for_year(
             apply_pilot_effect(conn, effect, &all_movements)?;
         }
 
-        let soft_landing_margin = promotion_soft_landing_margin();
+        let soft_landing = promotion_soft_landing_enabled();
         let diminish_config = promotion_diminish_config();
         let mut attribute_deltas = Vec::new();
         for movement in &all_movements {
@@ -151,14 +183,13 @@ pub(crate) fn run_promotion_relegation_for_year(
             let delta = match movement.movement_type {
                 MovementType::Promocao => {
                     let mut delta = calculate_promotion_effects(&team, rng);
-                    // Ideia 1 (soft landing): substitui o car_performance_delta default
-                    // (0.0, mantém carro atual) por um alvo relativo ao campo de destino.
-                    if let Some(margin) = soft_landing_margin {
-                        let field = promotion_field_cars(conn, &team)?;
-                        if let Some(car_delta) =
-                            promotion_car_landing_delta(team.car_performance, &field, margin)
-                        {
-                            delta.car_performance_delta = car_delta;
+                    // Soft landing, agora em NÍVEL DE PEÇA (o que o sim lê) e não na coluna
+                    // legada: o promovido sobe ao nível do lanterna do campo de destino e
+                    // constrói o resto sozinho, na cadência de desenvolvimento.
+                    if soft_landing {
+                        let field = promotion_field_levels(conn, &team)?;
+                        if let Some(alvo) = promotion_landing_level(&field) {
+                            apply_landing_level(conn, &team, alvo)?;
                         }
                     }
                     // Retorno decrescente (anti chain-promotion): encolhe o pacote econômico
@@ -185,7 +216,10 @@ pub(crate) fn run_promotion_relegation_for_year(
                             next_recent,
                         )
                         .map_err(|e| {
-                            format!("Falha ao gravar histórico de promoção de '{}': {e}", team.id)
+                            format!(
+                                "Falha ao gravar histórico de promoção de '{}': {e}",
+                                team.id
+                            )
                         })?;
                     }
                     delta
@@ -234,7 +268,10 @@ fn apply_team_category_change(conn: &Connection, movement: &TeamMovement) -> Res
     // (regride ao teto, valendo já na 1ª corrida); um promovido mantém o carro — abaixo do
     // novo teto — e evolui (soft landing).
     if let Some(car) = team.car.as_mut() {
-        let ceiling = crate::car::cost::category_ceiling(&team.categoria);
+        // Teto pela CLASSE: gt3 → endurance/gt3 sobe de 7 para 7 (mesmo carro), mas
+        // gt4 → endurance/gt4 não pode herdar o teto do LMP2 só por mudar de categoria.
+        let ceiling =
+            crate::car::cost::category_ceiling_for(&team.categoria, team.classe.as_deref());
         for part in car.parts.iter_mut() {
             if part.level > ceiling {
                 part.level = ceiling;
@@ -829,20 +866,20 @@ mod tests {
     }
 
     #[test]
-    fn test_promotion_field_cars_excludes_self_and_scopes_to_category() {
+    fn test_promotion_field_levels_excludes_self_and_scopes_to_category() {
         let conn = setup_promotion_db();
         // gt3 tem 14 equipes; o campo visto por uma delas deve ter 13 (exclui a própria).
         let gt3_team = team_queries::get_team_by_id(&conn, "GT31")
             .expect("team query")
             .expect("gt3 team");
-        let field = promotion_field_cars(&conn, &gt3_team).expect("field cars");
+        let field = promotion_field_levels(&conn, &gt3_team).expect("field levels");
         assert_eq!(field.len(), 13, "13 incumbentes (14 - a própria)");
 
         // Para uma categoria com classe (endurance/gt3), o campo é escopado à classe.
         let end_gt3 = team_queries::get_team_by_id(&conn, "EG31")
             .expect("team query")
             .expect("endurance gt3 team");
-        let end_field = promotion_field_cars(&conn, &end_gt3).expect("field cars");
+        let end_field = promotion_field_levels(&conn, &end_gt3).expect("field levels");
         assert_eq!(end_field.len(), 5, "6 da classe gt3 - a própria");
     }
 

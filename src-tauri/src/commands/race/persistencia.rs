@@ -1,4 +1,4 @@
-﻿//! Escrituracao do resultado no banco: transacao unica do fim de semana, baixa de assento por lesao grave, atualizacao de estatisticas e historico.
+//! Escrituracao do resultado no banco: transacao unica do fim de semana, baixa de assento por lesao grave, atualizacao de estatisticas e historico.
 
 use super::*;
 
@@ -176,13 +176,27 @@ pub(crate) fn persist_race_result_tx(
         // 3b. Lesão GRAVE pode (raramente, só IA) encerrar a carreira no meio da temporada.
         // Quem pendura o capacete fica congelado na classificação e a vaga é preenchida por
         // um substituto que entra como NOME NOVO (pilot_id próprio → começa do zero).
-        process_severe_injury_retirements(tx, &new_injuries_out, active_season, &mut *rng)?;
+        process_severe_injury_retirements(
+            tx,
+            &new_injuries_out,
+            active_season,
+            race_entry.rodada,
+            &mut *rng,
+        )?;
 
         // 4. Salva o resumo da corrida e avança
         crate::db::queries::races::insert_race_results_batch(
             tx,
             &race_entry.id,
             &result.race_results,
+        )?;
+        // Safety car é fato da CORRIDA, não do piloto — tabela própria, mesma transação
+        // (v55). Sem isto o jogador nunca fica sabendo que uma amarela decidiu a etapa.
+        crate::db::queries::races::insert_race_safety_cars(
+            tx,
+            &race_entry.id,
+            &result.safety_cars,
+            &result.ordem_pre_safety_car,
         )?;
         calendar_queries::mark_race_completed(tx, &race_entry.id)?;
         if let Some(round) = next_round {
@@ -291,6 +305,9 @@ pub(super) fn process_severe_injury_retirements(
     tx: &rusqlite::Transaction,
     new_injuries: &[Injury],
     active_season: &Season,
+    // Rodada da corrida que causou a lesão — entra na manchete e ancora a notícia no
+    // calendário (a `Season` só sabe a rodada corrente, que já pode ter avançado).
+    round: i32,
     rng: &mut impl rand::Rng,
 ) -> Result<(), DbError> {
     use crate::models::enums::InjuryType;
@@ -303,8 +320,7 @@ pub(super) fn process_severe_injury_retirements(
         if driver.is_jogador {
             continue;
         }
-        let chance =
-            crate::evolution::retirement::severe_injury_retirement_chance(driver.idade);
+        let chance = crate::evolution::retirement::severe_injury_retirement_chance(driver.idade);
         if !rng.gen_bool(chance.clamp(0.0, 1.0)) {
             continue;
         }
@@ -337,10 +353,16 @@ pub(super) fn process_severe_injury_retirements(
         })?;
 
         // 4. Libera a vaga e contrata um substituto (agente livre licenciado ou novato).
+        let mut team_name: Option<String> = None;
         if let Some(contract) =
             contract_queries::get_active_regular_contract_for_pilot(tx, &driver.id)?
         {
             let team_id = contract.equipe_id.clone();
+            // Lido ANTES de rescindir/preencher: depois do backfill a equipe já é de outro.
+            team_name = team_queries::get_team_by_id(tx, &team_id)
+                .ok()
+                .flatten()
+                .map(|team| team.nome);
             contract_queries::update_contract_status(
                 tx,
                 &contract.id,
@@ -355,8 +377,134 @@ pub(super) fn process_severe_injury_retirements(
             )
             .map_err(DbError::InvalidData)?;
         }
+
+        // 5. A NOTÍCIA. Sem ela o piloto simplesmente sumia do grid: o mundo registrava a
+        // aposentadoria no hall dos aposentados e preenchia a vaga em silêncio, e do lado do
+        // jogador um nome conhecido evaporava sem explicação. É a manchete mais dura que a
+        // simulação produz fora de um título — daí `Destaque`, o topo da escala.
+        persist_injury_retirement_news(tx, &driver, injury, active_season, round, team_name)?;
     }
     Ok(())
+}
+
+/// Manchete de carreira encerrada por lesão. Falhar aqui NÃO derruba a corrida: a
+/// aposentadoria em si já está persistida, e perder a notícia é menos grave do que abortar a
+/// transação inteira do fim de semana por causa dela.
+fn persist_injury_retirement_news(
+    tx: &rusqlite::Transaction,
+    driver: &crate::models::driver::Driver,
+    injury: &Injury,
+    active_season: &Season,
+    round: i32,
+    team_name: Option<String>,
+) -> Result<(), DbError> {
+    use crate::generators::ids::{next_ids, IdType};
+    use crate::news::{NewsImportance, NewsItem, NewsType};
+
+    let Ok(ids) = next_ids(tx, IdType::News, 1) else {
+        return Ok(());
+    };
+    let Some(id) = ids.into_iter().next() else {
+        return Ok(());
+    };
+
+    let category_id = driver.categoria_atual.clone();
+    let category_name = category_id
+        .as_deref()
+        .and_then(get_category_config)
+        .map(|config| config.nome.to_string());
+
+    let titulo = rust_i18n::t!(
+        "race.retirement.news_title",
+        name = driver.nome.as_str(),
+        age = driver.idade
+    )
+    .to_string();
+
+    // A prosa nomeia a equipe quando há uma; um piloto sem contrato ativo (raro, mas possível)
+    // ganha a versão sem a frase da vaga em vez de um buraco no texto.
+    let category_label = category_name
+        .clone()
+        .unwrap_or_else(|| category_id.clone().unwrap_or_default());
+    let texto = match team_name.as_deref() {
+        Some(team) => rust_i18n::t!(
+            "race.retirement.news_text",
+            injury = injury.injury_name.as_str(),
+            round = round,
+            name = driver.nome.as_str(),
+            category = category_label.as_str(),
+            races = driver.stats_carreira.corridas,
+            wins = driver.stats_carreira.vitorias,
+            podiums = driver.stats_carreira.podios,
+            team = team
+        ),
+        None => rust_i18n::t!(
+            "race.retirement.news_text_no_team",
+            injury = injury.injury_name.as_str(),
+            round = round,
+            name = driver.nome.as_str(),
+            category = category_label.as_str(),
+            races = driver.stats_carreira.corridas,
+            wins = driver.stats_carreira.vitorias,
+            podiums = driver.stats_carreira.podios
+        ),
+    }
+    .to_string();
+
+    let item = NewsItem {
+        id,
+        tipo: NewsType::Aposentadoria,
+        // Ícone próprio em vez do 👴 do tipo: quem sai por lesão não está velho — o Christian
+        // Marino que originou isto tinha 26 anos. O tipo classifica, o ícone conta o motivo.
+        icone: "🏥".to_string(),
+        titulo,
+        texto,
+        rodada: Some(round),
+        semana_pretemporada: None,
+        temporada: active_season.numero,
+        categoria_id: category_id,
+        categoria_nome: category_name,
+        importancia: NewsImportance::Destaque,
+        timestamp: chrono::Local::now().timestamp(),
+        driver_id: Some(driver.id.clone()),
+        driver_id_secondary: None,
+        team_id: None,
+    };
+
+    if let Err(e) = crate::db::queries::news::insert_news(tx, &item) {
+        eprintln!("[news] Falha ao publicar aposentadoria por lesao: {e:?}");
+    }
+    Ok(())
+}
+
+/// Quantos **contatos de disputa** cada time levou na corrida.
+///
+/// Contato = colisão entre dois carros que não escalou (`Minor`): o roda-a-roda da tentativa
+/// de ultrapassagem e o encostão do sorteio de segmento. É a entrada do castigo físico em
+/// `car::crash::apply_contact_wear` — a via pela qual a batida da IA vira desgaste, peça
+/// trocada e buraco no caixa, coisa que até aqui só o carro do jogador tinha.
+///
+/// Conta por CARRO: os dois envolvidos registram o incidente, então um roda-a-roda entre dois
+/// carros do mesmo time conta 2 para esse time — que é o certo, foram dois carros castigados.
+pub(super) fn count_team_contacts(result: &RaceResult) -> std::collections::HashMap<String, u32> {
+    use crate::simulation::incidents::{IncidentSeverity, IncidentType};
+
+    let mut map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for driver_result in &result.race_results {
+        let hits = driver_result
+            .incidents
+            .iter()
+            .filter(|incident| {
+                incident.is_two_car_incident
+                    && incident.incident_type == IncidentType::Collision
+                    && incident.severity == IncidentSeverity::Minor
+            })
+            .count() as u32;
+        if hits > 0 {
+            *map.entry(driver_result.team_id.clone()).or_insert(0) += hits;
+        }
+    }
+    map
 }
 
 pub(super) fn apply_race_result_to_database(
@@ -445,7 +593,31 @@ pub(super) fn apply_race_result_to_database(
         driver_queries::update_driver(tx, &driver)?;
     }
 
+    // O CARRO roda em TODA corrida, inclusive nas categorias do bloco especial.
+    //
+    // Antes, o `return` abaixo saía antes do bloco de finanças — e o cérebro de manutenção
+    // mora dentro dele. Resultado: `endurance` e `production_challenger` nunca criavam
+    // linha em `team_car`, e `Team::effective_car_performance` caía na coluna legada
+    // `car_performance` pra elas. Como essa coluna não tem teto (ver
+    // `simulation::math::normalize_car_performance`), o Endurance era o único campeonato do
+    // jogo decidido por um número que cresce sem limite — uma equipe chegava a 5× o topo do
+    // domínio e nenhuma outra alcançava. O carro é da EQUIPE e se desgasta em qualquer prova
+    // que ela dispute; só a ECONOMIA DE RODADA (contrato, bilheteria, patrocínio) é que não
+    // se aplica ao calendário especial.
     if runs_in_special_phase(race_category) {
+        maintain_special_phase_cars(
+            tx,
+            teams,
+            season_number,
+            upcoming_track_ids,
+            wear_conditions,
+            player_team_id,
+            player_style,
+            player_pits,
+            team_cautions,
+            team_breakdowns,
+            &count_team_contacts(result),
+        )?;
         return Ok(());
     }
 
@@ -475,6 +647,8 @@ pub(super) fn apply_race_result_to_database(
         .collect();
     let grid_total_presence: f64 = team_presences.values().sum();
     let grid_team_count = teams.len().max(1) as f64;
+    // Contatos de disputa por time nesta corrida — vira desgaste de peça lá embaixo.
+    let team_contacts = count_team_contacts(result);
     for team in teams {
         let Some(team_results) = race_results_by_team.get(&team.id) else {
             continue;
@@ -542,7 +716,10 @@ pub(super) fn apply_race_result_to_database(
         // Carro do JOGADOR usa o pit REAL do SDK pro alívio de enduro; a IA modela pela duração.
         // Feedback físico da quebra (§4.6): peças DESTE time que largaram nesta corrida.
         let this_team_breakdowns: &[(crate::car::PartType, crate::car::breakdown::Severity)] =
-            team_breakdowns.get(team.id.as_str()).map(|v| v.as_slice()).unwrap_or(&[]);
+            team_breakdowns
+                .get(team.id.as_str())
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
         let car_maintenance_cost = crate::market::car_maintenance::maintain_team_car_pits(
             tx,
             team,
@@ -554,6 +731,7 @@ pub(super) fn apply_race_result_to_database(
             is_player_car,
             player_pits,
             this_team_breakdowns,
+            team_contacts.get(team.id.as_str()).copied().unwrap_or(0),
         )?;
 
         let finance_context = calculate_team_round_finance_context(
@@ -588,6 +766,75 @@ pub(super) fn apply_race_result_to_database(
             season_number,
             round,
         )?;
+    }
+
+    Ok(())
+}
+
+/// Manutenção de carro nas categorias do bloco especial (Endurance, Production Challenger).
+///
+/// É a versão enxuta do bloco de finanças: roda o MESMO cérebro de manutenção
+/// ([`maintain_team_car_pits`]) — decide compra/troca, aplica desgaste e persiste o carro —
+/// mas sem a economia de rodada, que não existe no calendário especial. O custo decidido é
+/// debitado direto do caixa: a peça é paga, não sai de graça.
+///
+/// O teto vem de [`Team::car_category_key`] (`"endurance:gt3"`), não de `categoria`: as três
+/// classes do Endurance correm carros diferentes e não podem herdar um teto só.
+///
+/// [`maintain_team_car_pits`]: crate::market::car_maintenance::maintain_team_car_pits
+#[allow(clippy::too_many_arguments)]
+fn maintain_special_phase_cars(
+    tx: &rusqlite::Transaction<'_>,
+    teams: &[Team],
+    season_number: i32,
+    upcoming_track_ids: &[u32],
+    wear_conditions: crate::market::car_maintenance::WearConditions,
+    player_team_id: Option<&str>,
+    player_style: Option<crate::car::driving_style::StyleFactors>,
+    player_pits: u32,
+    team_cautions: &std::collections::HashMap<String, crate::car::driving_style::StyleFactors>,
+    team_breakdowns: &std::collections::HashMap<
+        String,
+        Vec<(crate::car::PartType, crate::car::breakdown::Severity)>,
+    >,
+    // Contatos de disputa por time (ver `count_team_contacts`) — castigam as peças.
+    team_contacts: &std::collections::HashMap<String, u32>,
+) -> Result<(), DbError> {
+    for team in teams {
+        let is_player_car = player_team_id == Some(team.id.as_str());
+        let team_style = if is_player_car {
+            player_style
+        } else {
+            team_cautions.get(&team.id).copied()
+        };
+        let this_team_breakdowns: &[(crate::car::PartType, crate::car::breakdown::Severity)] =
+            team_breakdowns
+                .get(team.id.as_str())
+                .map(|entries| entries.as_slice())
+                .unwrap_or(&[]);
+
+        let cost = crate::market::car_maintenance::maintain_team_car_pits(
+            tx,
+            team,
+            &team.car_category_key(),
+            season_number,
+            upcoming_track_ids,
+            wear_conditions,
+            team_style,
+            is_player_car,
+            player_pits,
+            this_team_breakdowns,
+            team_contacts.get(team.id.as_str()).copied().unwrap_or(0),
+        )?;
+
+        if cost <= 0.0 {
+            continue;
+        }
+        let mut updated_team = team.clone();
+        updated_team.cash_balance -= cost;
+        updated_team.last_round_expenses += cost;
+        refresh_team_financial_state(&mut updated_team);
+        team_queries::update_team_finance_snapshot(tx, &updated_team)?;
     }
 
     Ok(())

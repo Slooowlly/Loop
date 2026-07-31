@@ -12,21 +12,44 @@
 //! ```text
 //! cargo test --manifest-path src-tauri/Cargo.toml calibracao -- --ignored --nocapture
 //! ```
+//!
+//! # Uma classe de fragilidade a evitar de propósito
+//!
+//! **Asserção exata sobre propriedade EMERGENTE quebra por deriva de semente, não por defeito.**
+//! O `closed_system_playable_world` da verificação do commit é o caso de escola: exigia
+//! `active_never_raced == 0` exato sobre algo que emerge da geração de mundo. Ele passava em HEAD,
+//! falhava com a reforma pareada ao teste antigo, e voltava a passar com o teste reescrito — e
+//! distinguir "defeito" de "outra semente" custou três execuções.
+//!
+//! É a mesma classe do `reparo_custa`. Por isso, aqui:
+//!
+//! - o que é ESTRUTURAL (quantas equipes para 21 pilotos, o alargado conter o predicado atual,
+//!   níveis com o volume declarado) pode e deve ser exato;
+//! - o que é EMERGENTE (correlações, dispersão, frequências, arrependimento) é sempre faixa ou
+//!   comparação relativa, medida sobre volume grande e várias sementes;
+//! - e quando uma faixa aperta, a média sai sobre eixos e sementes múltiplos, não sobre uma
+//!   medição só — foi assim que a guarda da peneira T1 deixou de ser frágil.
+//!
+//! Vale relembrar quando a campanha começar a mover parâmetros: ali a deriva de semente é a regra,
+//! não a exceção.
 
 use super::alvos::{Alvos, Faixa};
 use super::ancora;
 use super::arena::{self, AjustesCtx, ConfigTemporada};
+use super::assinatura;
 use super::atrito;
 use super::busca;
 use super::campo::{gerar_campo, melhor_do_grid, nivelar_carros, nivelar_pilotos, PerfilCampo};
 use super::consumo;
 use super::metricas::{self, spearman};
+use super::previa::MovimentosDaCamadaDeEvento;
 use super::processo;
 use super::relatorio;
 use super::seguranca;
 use super::snapshot;
 use super::variancia::{self, ConfigDecomposicao};
 use super::varredura::{self, Knob};
+use crate::simulation::forma::EscalasDeForma;
 
 // ---------------------------------------------------------------------------
 // Camada leve — o harness
@@ -326,6 +349,7 @@ fn temporada_curta_roda_de_ponta_a_ponta() {
         &grid,
         &crate::simulation::catalog::IncidentCatalog::empty(),
         21,
+        1,
     );
 
     assert_eq!(corridas.len(), 4);
@@ -507,9 +531,17 @@ fn categoria_spec_nao_tem_variancia_de_carro() {
     // Segunda aferição do método: na rookie o carro é spec por construção
     // (`math::category_car_performance`), então nivelar carros não pode mudar nada e a fatia de
     // carro TEM que dar ~0. Se der diferente de zero, o congelamento seletivo está vazando.
+    //
+    // **A esteira fica DESLIGADA aqui, e isso é a asserção, não uma conveniência.** Este teste
+    // afere o MÉTODO (o congelamento seletivo isola o canal do carro), não o orçamento do jogo. Com
+    // a esteira ligada a rookie passa a ter 2,4% de fatia de equipe — legítimos, porque
+    // `ACERTO_FRACAO_EQUIPE = 0,70` faz o acerto de fim de semana ser majoritariamente da EQUIPE, e
+    // equipe existe mesmo onde o carro é igual para todos. Seria um teste medindo duas coisas ao
+    // mesmo tempo e falhando por causa da que ele não pretendia medir.
     let config = ConfigDecomposicao {
         base: ConfigTemporada {
             pilotos: 14,
+            esteira_de_forma: false,
             ..ConfigTemporada::rookie()
         },
         eventos: 4,
@@ -651,6 +683,12 @@ fn varredura_devolve_um_ponto_por_valor() {
 /// conectado pelo pacote D e o teste cumpriu o papel: falhou no momento da ligação.
 #[test]
 fn knob_morto_por_magnitude_continua_sem_alavanca() {
+    // 12 temporadas, e não 3. A calibração das camadas de evento aumentou muito a variância da
+    // árvore, e com ela o ruído de amostragem desta medida: com 3 réplicas a alavanca medida
+    // batia 0,0222 contra um limite de 0,02 — ou seja, a guarda passou a disparar dentro do
+    // próprio ruído, o que a torna pior que inútil (um vermelho que não significa nada treina
+    // todo mundo a ignorá-la). A varredura completa, com 1008 corridas, mede 0,004 no mesmo
+    // knob; o limite de 0,02 é o correto e quem estava errado era o tamanho da amostra.
     let config = ConfigTemporada {
         etapas: 6,
         pilotos: 16,
@@ -661,7 +699,7 @@ fn knob_morto_por_magnitude_continua_sem_alavanca() {
         &config,
         Knob::TrackDifficulty,
         &[0.0, 1.0, 10.0],
-        3,
+        12,
         23,
     );
 
@@ -873,6 +911,7 @@ fn metricas_de_atrito_saem_de_corrida_real() {
         &grid,
         &crate::simulation::catalog::IncidentCatalog::empty(),
         55,
+        1,
     );
     let m = atrito::medir_atrito(&corridas[0]);
 
@@ -898,6 +937,7 @@ fn adaptador_de_posicoes_por_segmento_ainda_esta_pendente() {
         &grid,
         &crate::simulation::catalog::IncidentCatalog::empty(),
         61,
+        1,
     );
 
     assert!(
@@ -1297,6 +1337,52 @@ fn gatilho_alargado_e_superconjunto_do_atual() {
     );
 }
 
+/// **Tripwire, não asserção de qualidade.** Este teste fica VERDE enquanto o gatilho do jogo ainda
+/// exige `is_dnf`, e fica VERMELHO no dia em que o alargamento entrar — que é o comportamento
+/// desejado.
+///
+/// O motivo: `gatilho_alargado_e_superconjunto_do_atual` passa antes E depois do alargamento, então
+/// ele não avisa nada. E alargar o gatilho move duas faixas de partida de uma vez — `SC/etapa` (de
+/// 0,079 e 0,033 para ~0,184 e ~0,068, projetado) e `ρ(pré-SC × chegada)` —, o que invalida a linha
+/// do safety car no [BASELINE.md](../BASELINE.md) sem invalidar nenhum teste. É exatamente a classe
+/// de mudança que passa em silêncio.
+///
+/// Quando ele quebrar, na ordem: remedir `imprime_diagnostico_do_gatilho_de_sc`, remedir a coluna
+/// `SC/etapa` da matriz de alavanca, atualizar a seção 11 do BASELINE, e **só então** apagar este
+/// teste. Recongelar o `snapshot::CONGELADO` é decisão separada e não é consequência desta.
+#[test]
+fn gatilho_do_jogo_ainda_exige_dnf() {
+    use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
+    use crate::simulation::race::estrategia::traz_bandeira_amarela;
+
+    let colisao_major_sem_dnf = IncidentResult {
+        pilot_id: "P".into(),
+        incident_type: IncidentType::Collision,
+        severity: IncidentSeverity::Major,
+        segment: "MID".into(),
+        positions_lost: 0,
+        is_dnf: false,
+        description: String::new(),
+        linked_pilot_id: None,
+        is_two_car_incident: false,
+        injury_risk_multiplier: 1.0,
+        narrative_importance_hint: 0,
+        catalog_id: None,
+        damage_origin_segment: None,
+    };
+
+    assert!(
+        seguranca::traz_bandeira_amarela_alargado(&colisao_major_sem_dnf),
+        "o contrafactual perdeu o caso que ele existe para medir"
+    );
+    assert!(
+        !traz_bandeira_amarela(&colisao_major_sem_dnf),
+        "O GATILHO DE SC FOI ALARGADO. Isto não é um defeito — é o aviso de que a frequência de \
+         safety car e o embaralhamento precisam ser remedidos antes de qualquer fase da campanha \
+         que use SC/etapa como saída. Ver a doc deste teste para a ordem."
+    );
+}
+
 /// **A medição que separa os três consertos possíveis** para a frequência de SC 6–10× abaixo do
 /// alvo. Não afirma qual é — imprime o veredito, porque o conserto é de outro pacote.
 #[test]
@@ -1556,12 +1642,26 @@ fn pasta_inexistente_nao_explode() {
 // Camada leve — guarda de consumo de knob
 // ---------------------------------------------------------------------------
 
+/// **Este teste está VERMELHO de propósito, e o vermelho é o relatório.**
+///
+/// Ele acusa `EscalasDeForma::peso_animo`: o campo existe, está documentado com a razão certa, e a
+/// esteira não o lê — `esteira.rs` chama `forma::proxima_forma_com_rho` (que usa a const
+/// `FORMA_PESO_ANIMO`) em vez de `proxima_forma_com_escalas` (que recebe o parâmetro). É uma linha,
+/// e está fora da fronteira deste pacote.
+///
+/// Não silencie declarando `("peso_animo", false)`. A guarda distingue "não é consumido e sabemos"
+/// de "não é consumido e ninguém percebeu", e mentir na coluna destruiria justamente a parte que
+/// funciona — é a mesma decisão já registrada para o `track_difficulty_multiplier`.
+///
+/// Some sozinho quando a linha for trocada.
 #[test]
 fn knobs_calculados_e_nunca_lidos_continuam_declarados() {
     let divergencias = consumo::divergencias();
     assert!(
         divergencias.is_empty(),
-        "a classificação de consumo em consumo.rs saiu da realidade:\n{}",
+        "a classificação de consumo em consumo.rs saiu da realidade:\n{}\n\
+         (se for o `peso_animo`: esteira.rs chama `proxima_forma_com_rho`; trocar para \
+         `proxima_forma_com_escalas(..., escalas.peso_animo)` fecha)",
         divergencias.join("\n")
     );
 }
@@ -1797,6 +1897,351 @@ fn imprime_decomposicao_de_variancia() {
         saida.push_str(&relatorio::tabela_variancia(
             &variancia::decompor_variancia(rotulo, &config, semente),
         ));
+    }
+    println!("{saida}");
+}
+
+/// Imprime o orçamento COM a esteira de forma ligada, lado a lado com o sem.
+///
+/// É a medição que responde se o déficit da camada de evento é do tamanho que eu reportei. Sem a
+/// esteira o harness não exercita nenhuma das três camadas do pacote B — ver
+/// [`arena::aplicar_esteira_de_forma`].
+#[test]
+#[ignore = "pesado; gerador do comparativo com/sem a esteira de forma"]
+fn imprime_decomposicao_com_esteira() {
+    let mut saida = String::from("\n== DECOMPOSIÇÃO: SEM vs COM A ESTEIRA DE FORMA ==\n");
+    for (rotulo, base, semente) in [
+        ("mazda_rookie", ConfigTemporada::rookie(), 2026_u64),
+        ("gt3", ConfigTemporada::gt3(), 2027),
+    ] {
+        for (sufixo, ligada) in [(" [SEM esteira]", false), (" [COM esteira]", true)] {
+            let config = ConfigDecomposicao::padrao(base.clone().com_esteira_de_forma(ligada));
+            saida.push_str(&relatorio::tabela_variancia(
+                &variancia::decompor_variancia(&format!("{rotulo}{sufixo}"), &config, semente),
+            ));
+        }
+    }
+    println!("{saida}");
+}
+
+/// Imprime as oito métricas de resultado COM a esteira ligada — o efeito no sintoma central.
+#[test]
+#[ignore = "pesado; gerador do comparativo de resultado com a esteira"]
+fn imprime_resultado_com_esteira() {
+    let mut blocos = Vec::new();
+    for (rotulo, base, alvos, semente) in [
+        (
+            "mazda_rookie",
+            ConfigTemporada::rookie(),
+            Alvos::entrada(),
+            snapshot::SEMENTE_ROOKIE,
+        ),
+        (
+            "gt3",
+            ConfigTemporada::gt3(),
+            Alvos::topo(),
+            snapshot::SEMENTE_GT3,
+        ),
+    ] {
+        for (sufixo, ligada) in [("sem esteira", false), ("COM esteira", true)] {
+            let config = base.clone().com_esteira_de_forma(ligada);
+            blocos.push((
+                arena::medir(
+                    &format!("{rotulo} ({sufixo})"),
+                    &config,
+                    snapshot::TEMPORADAS,
+                    semente,
+                ),
+                alvos.clone(),
+            ));
+        }
+    }
+    println!("{}", relatorio::relatorio(&blocos));
+}
+
+// ---------------------------------------------------------------------------
+// Prévia da fase 1 — ver `previa.rs` para o porquê de ser prévia e não resposta
+// ---------------------------------------------------------------------------
+
+/// O passo parametrizado tem que REDUZIR à função do jogo quando ρ é o do jogo. Sem isto, tudo o
+/// que a prévia mede é a diferença entre duas implementações da forma.
+#[test]
+fn passo_de_forma_com_rho_do_jogo_e_o_do_jogo() {
+    use crate::simulation::forma;
+    for (mot, conf) in [(50.0, 50.0), (80.0, 30.0), (20.0, 90.0), (100.0, 100.0)] {
+        for anterior in [-2.0, -0.5, 0.0, 0.7, 2.4] {
+            for id in ["P-01", "P-17", "zzz"] {
+                let s = forma::semente_forma(3, 7, id);
+                let oficial = forma::proxima_forma(anterior, s, mot, conf);
+                let meu = forma::proxima_forma_com_rho(anterior, s, mot, conf, forma::FORMA_RHO);
+                assert!(
+                    (oficial - meu).abs() < 1e-12,
+                    "divergiu em ({mot},{conf},{anterior},{id}): {oficial} vs {meu}"
+                );
+            }
+        }
+    }
+}
+
+/// `redistribuir` preserva a SOMA EM VARIÂNCIA, não a soma linear — senão as duas pernas da
+/// comparação teriam camadas de evento de tamanhos diferentes e nada seria comparável.
+#[test]
+fn redistribuir_preserva_a_soma_em_variancia() {
+    let base = EscalasDeForma::default();
+    for f in [0.0, 0.25, 0.5, 0.9, 1.0] {
+        let movido = base.redistribuindo(f);
+        assert!(
+            (movido.sigma_total() - base.sigma_total()).abs() < 1e-9,
+            "σ mudou ao redistribuir {f}: {} vs {}",
+            movido.sigma_total(),
+            base.sigma_total()
+        );
+        assert!(movido.afinidade <= base.afinidade + 1e-9);
+        assert!(movido.acerto >= base.acerto - 1e-9);
+    }
+    assert!(base.redistribuindo(1.0).afinidade < 1e-9);
+}
+
+/// A fatia da afinidade hoje é a que a medição do baseline reportou como pesada demais.
+#[test]
+fn fatia_da_afinidade_bate_com_o_medido() {
+    let f = EscalasDeForma::default().fatia_da_afinidade();
+    assert!(
+        (0.40..0.55).contains(&f),
+        "fatia da afinidade fora do esperado: {f:.3}"
+    );
+}
+
+/// **A predição falsificável.** Subir a amplitude da forma com ρ = 0,65 tem que empurrar
+/// ρ(N × N+1) para CIMA, porque com autocorrelação a forma é fonte parcialmente permanente.
+///
+/// Gerador, não asserção: o veredito é do relatório. Mas ele existe como teste para que a
+/// predição fique no código, feita ANTES da medição.
+#[test]
+#[ignore = "pesado; prévia — varredura do par FORMA_ESCALA × FORMA_RHO"]
+fn imprime_previa_da_forma() {
+    let mut saida = String::from(
+        "\n== PRÉVIA: o par FORMA_ESCALA × FORMA_RHO ==\n\
+         PREDIÇÃO (escrita antes): com ρ alto, subir a escala SOBE ρ(N,N+1).\n\
+         Com ρ baixo, subir a escala DESCE ρ(N,N+1). O sinal inverte em algum ρ intermediário.\n",
+    );
+    for (rotulo, base, semente) in [
+        ("mazda_rookie", ConfigTemporada::rookie(), 2026_u64),
+        ("gt3", ConfigTemporada::gt3(), 2027),
+    ] {
+        saida.push_str(&format!("\n### {rotulo}\n\n| ρ \\ escala |"));
+        let escalas = [2.0, 4.0, 6.0, 9.0];
+        for e in escalas {
+            saida.push_str(&format!(" {e:>6.1} |"));
+        }
+        saida.push_str("\n|------------|");
+        for _ in escalas {
+            saida.push_str("--------|");
+        }
+        saida.push('\n');
+
+        for rho in [0.0, 0.35, 0.65, 0.85] {
+            saida.push_str(&format!("| {rho:>10.2} |"));
+            for e in escalas {
+                let cfg = base
+                    .clone()
+                    .com_escalas_da_previa(EscalasDeForma::default().com_forma(e).com_rho(rho));
+                let m = arena::medir("previa", &cfg, 30, semente);
+                saida.push_str(&format!(" {:>6.3} |", m.spearman_etapas_consecutivas));
+            }
+            saida.push('\n');
+        }
+    }
+    println!("{saida}");
+}
+
+/// **Redistribuir contra escalar, com a soma em variância travada.**
+#[test]
+#[ignore = "pesado; prévia — redistribuir vs escalar"]
+fn imprime_previa_da_redistribuicao() {
+    let mut saida = String::from(
+        "\n== PRÉVIA: redistribuir vs escalar (soma em variância constante por linha) ==\n",
+    );
+    for (rotulo, base, semente) in [
+        ("mazda_rookie", ConfigTemporada::rookie(), 2026_u64),
+        ("gt3", ConfigTemporada::gt3(), 2027),
+    ] {
+        saida.push_str(&format!(
+            "\n### {rotulo}\n\n| movimento           | σ eventoterreno | fatia afin. | ρ(N,N+1) | desvio | vencedores |\n\
+             |---------------------|-----------------|-------------|----------|--------|------------|\n"
+        ));
+        let jogo = EscalasDeForma::default();
+        let linha = |nome: &str, esc: EscalasDeForma, saida: &mut String| {
+            let cfg = base.clone().com_escalas_da_previa(esc);
+            let m = arena::medir("previa", &cfg, 30, semente);
+            saida.push_str(&format!(
+                "| {:<19} | {:>15.2} | {:>11.1}% | {:>8.3} | {:>6.2} | {:>10.2} |\n",
+                nome,
+                esc.sigma_total(),
+                esc.fatia_da_afinidade() * 100.0,
+                m.spearman_etapas_consecutivas,
+                m.desvio_posicao,
+                m.vencedores_distintos
+            ));
+        };
+
+        linha("hoje", jogo, &mut saida);
+        for fator in [1.5, 2.0] {
+            let escalado = jogo.escalando(fator);
+            linha(&format!("escalar ×{fator}"), escalado, &mut saida);
+            // Mesma σ total, peso movido da afinidade para o acerto.
+            linha(
+                &format!("redistribuir ×{fator}"),
+                escalado.redistribuindo(0.6),
+                &mut saida,
+            );
+        }
+    }
+    println!("{saida}");
+}
+
+/// O excesso de emenda tem que ser ~0 quando a fonte não tem memória, por construção do nulo.
+/// Sem isto, qualquer número que a assinatura reportar pode ser viés do instrumento.
+///
+/// **40 temporadas, o mesmo volume do relatório que sustenta a faixa** — e isso é a asserção, não
+/// uma escolha de conveniência. A 12 temporadas o nulo mede −0,057, a 40 mede −0,016 a −0,002: o
+/// instrumento é não-viesado, mas o ruído dele é da ordem de 0,05 em volume baixo. Se a guarda
+/// rodasse com menos, ela estaria travando o ruído em vez do viés — e o piso de
+/// `FAIXA_DE_EMENDA` (0,08) foi escolhido contra o ruído deste volume, não de outro.
+#[test]
+fn assinatura_e_zero_sem_memoria() {
+    let config = ConfigTemporada::rookie()
+        .com_escalas_da_previa(EscalasDeForma::default().com_forma(6.0).com_rho(0.0));
+    let campanha = arena::rodar_campanha_crua(&config, 40, 4242);
+    let a = assinatura::medir(&campanha, 7);
+    assert!(
+        a.excesso_de_emenda.abs() < 0.20,
+        "com ρ = 0 o excesso deveria ser ~0, veio {:.3}",
+        a.excesso_de_emenda
+    );
+    // A métrica que virou alvo precisa do mesmo aval, e é ela que define o piso da faixa.
+    assert!(
+        a.excesso_de_emenda_percebida.abs() < 0.04,
+        "com ρ = 0 o excesso de emenda percebida deveria ser ~0, veio {:.3}",
+        a.excesso_de_emenda_percebida
+    );
+}
+
+/// A faixa da nona métrica tem que estar ACIMA do que o jogo entrega hoje — senão ela nasce
+/// satisfeita e não é alvo de nada.
+#[test]
+fn faixa_de_emenda_exige_mais_do_que_hoje() {
+    let (piso, teto) = assinatura::FAIXA_DE_EMENDA;
+    assert!(
+        piso > 0.046,
+        "o piso ({piso:.3}) tem que superar o medido hoje (0,046)"
+    );
+    assert!(teto > piso && teto <= 0.25);
+}
+
+/// **O piso de `FORMA_RHO`**: varre ρ e mede quanta sequência sobra, para o piso sair de medição.
+#[test]
+#[ignore = "pesado; prévia — o piso de FORMA_RHO pela assinatura temporal"]
+fn imprime_piso_de_forma_rho() {
+    let mut saida = String::from(
+        "\n== PISO DE FORMA_RHO — assinatura temporal ==\n\
+         Emenda = maior sequência de resultados acima da mediana pessoal, em corridas.\n\
+         Nulo = a MESMA temporada com a ordem embaralhada (teste de permutação).\n",
+    );
+    for (rotulo, base, semente, etapas) in [
+        (
+            "mazda_rookie (12 etapas)",
+            ConfigTemporada::rookie(),
+            2026_u64,
+            12,
+        ),
+        (
+            "mazda_rookie (24 etapas)",
+            ConfigTemporada::rookie(),
+            2026,
+            24,
+        ),
+        ("gt3 (12 etapas)", ConfigTemporada::gt3(), 2027, 12),
+    ] {
+        saida.push_str(&format!(
+            "\n### {rotulo}\n\n| FORMA_RHO | P(emenda 3+) | nulo | **excesso** | exc. compr. |\n\
+             |-----------|-------------|-------------|-------------|-------------------|\n"
+        ));
+        for rho in [0.0, 0.25, 0.35, 0.45, 0.55, 0.65, 0.80] {
+            let mut cfg = base
+                .clone()
+                .com_escalas_da_previa(EscalasDeForma::default().com_forma(6.0).com_rho(rho));
+            cfg.etapas = etapas;
+            let campanha = arena::rodar_campanha_crua(&cfg, 40, semente);
+            let a = assinatura::medir(&campanha, 99);
+            saida.push_str(&format!(
+                "| {rho:>9.2} | {:>11.3} | {:>11.3} | {:>11.3} | {:>17.2} |\n",
+                a.p_emenda_percebida,
+                a.p_emenda_percebida_nula,
+                a.excesso_de_emenda_percebida,
+                a.excesso_de_emenda
+            ));
+        }
+    }
+    // A pergunta que decide se o piso resolve: a emenda depende mais de ρ ou da AMPLITUDE?
+    saida.push_str(
+        "\n### Efeito da amplitude, com ρ = 0,65 fixo (rookie, 12 etapas)\n\n\
+         | FORMA_ESCALA | P(emenda 3+) | nulo | **excesso** |\n\
+         |--------------|-------------|-------------|-------------|\n",
+    );
+    for escala in [2.0, 4.0, 6.0, 9.0, 14.0] {
+        let cfg = ConfigTemporada::rookie()
+            .com_escalas_da_previa(EscalasDeForma::default().com_forma(escala).com_rho(0.65));
+        let campanha = arena::rodar_campanha_crua(&cfg, 40, 2026);
+        let a = assinatura::medir(&campanha, 99);
+        saida.push_str(&format!(
+            "| {escala:>12.1} | {:>11.3} | {:>11.3} | {:>11.3} |\n",
+            a.p_emenda_percebida, a.p_emenda_percebida_nula, a.excesso_de_emenda_percebida
+        ));
+    }
+
+    saida.push_str(&format!(
+        "\nPiso adotado: {:.2} (ver `assinatura::PISO_DE_FORMA_RHO`).\n",
+        assinatura::PISO_DE_FORMA_RHO
+    ));
+    println!("{saida}");
+}
+
+/// **A contaminação do ânimo**: quanto da camada de EVENTO é, na verdade, permanente.
+///
+/// O termo `peso_animo × animo` é somado dentro da construção AR(1). Como `normalizar_atributo`
+/// centra em 50 e o neutro da motivação é 70, o termo **não zera no ponto neutro** — e termo
+/// constante num AR(1) vira média estacionária `c/(1−ρ)`, que com ρ = 0,65 multiplica por 2,86.
+/// O resultado é um deslocamento por piloto, praticamente permanente, morando dentro da camada
+/// que a decomposição contabiliza como evento.
+///
+/// A medição é pareada: `peso_animo = 0` desliga o deslocamento e deixa só a parte serial. O delta
+/// é a contaminação. Mesmo padrão dos pares casados e do diagnóstico do safety car.
+#[test]
+#[ignore = "pesado; contaminação do ânimo na camada de evento"]
+fn imprime_contaminacao_do_animo() {
+    let mut saida = String::from(
+        "\n== CONTAMINAÇÃO DO ÂNIMO NA CAMADA DE EVENTO ==\n\
+         Pareado: mesma semente, mesmo grid, só `peso_animo` muda.\n",
+    );
+    for (rotulo, base, semente) in [
+        ("mazda_rookie", ConfigTemporada::rookie(), 2026_u64),
+        ("gt3", ConfigTemporada::gt3(), 2027),
+    ] {
+        // O padrão do jogo virou 0 — a remoção foi decisão de mecanismo, não de magnitude. Então a
+        // comparação útil é contra o valor ANTIGO (0,20): ela mede o que a remoção comprou, e
+        // corrige o orçamento que eu havia reportado com a contaminação dentro.
+        for (sufixo, peso) in [
+            (" [ânimo 0,20 — como era]", 0.20),
+            (" [ânimo 0 — o jogo hoje]", 0.0),
+        ] {
+            let mut esc = EscalasDeForma::default();
+            esc.peso_animo = peso;
+            let config = ConfigDecomposicao::padrao(base.clone().com_escalas_da_previa(esc));
+            saida.push_str(&relatorio::tabela_variancia(
+                &variancia::decompor_variancia(&format!("{rotulo}{sufixo}"), &config, semente),
+            ));
+        }
     }
     println!("{saida}");
 }

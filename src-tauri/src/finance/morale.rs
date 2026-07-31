@@ -136,7 +136,10 @@ mod tests {
     fn internal_strife_drags_morale_down_even_for_a_mid_team() {
         let calm = advance_team_morale(1.0, 0.0, 10.0);
         let crisis = advance_team_morale(1.0, 0.0, 100.0);
-        assert!((calm - 1.0).abs() < 0.001, "garagem calma no meio = neutra, foi {calm}");
+        assert!(
+            (calm - 1.0).abs() < 0.001,
+            "garagem calma no meio = neutra, foi {calm}"
+        );
         assert!(crisis < 0.95, "crise interna derruba a moral, foi {crisis}");
     }
 
@@ -151,7 +154,10 @@ mod tests {
     fn morale_is_volatile_reaching_target_faster_than_reputation() {
         // Um passo já cobre 35% da distância até o alvo (~1.4 p/ campeão calmo).
         let after_one = advance_team_morale(1.0, 1.0, 0.0);
-        assert!(after_one > 1.12, "volátil: sobe rápido em 1 temporada, foi {after_one}");
+        assert!(
+            after_one > 1.12,
+            "volátil: sobe rápido em 1 temporada, foi {after_one}"
+        );
     }
 
     #[test]

@@ -35,9 +35,10 @@ pub fn process_team_collisions_rivalry(
         let Some(linked) = &inc.linked_pilot_id else {
             continue;
         };
-        let (Some(ta), Some(tb)) =
-            (team_by_driver.get(&inc.pilot_id), team_by_driver.get(linked))
-        else {
+        let (Some(ta), Some(tb)) = (
+            team_by_driver.get(&inc.pilot_id),
+            team_by_driver.get(linked),
+        ) else {
             continue;
         };
         if ta == tb {

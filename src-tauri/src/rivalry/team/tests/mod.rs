@@ -157,8 +157,12 @@ fn ids_sao_sequenciais_com_prefixo_trv() {
         &event("T003", "T004", TeamRivalryType::Campeonato, 5.0, 12.0),
     )
     .unwrap();
-    let first = get_team_rivalries(&conn, "T001").unwrap()[0].rivalry_id.clone();
-    let second = get_team_rivalries(&conn, "T003").unwrap()[0].rivalry_id.clone();
+    let first = get_team_rivalries(&conn, "T001").unwrap()[0]
+        .rivalry_id
+        .clone();
+    let second = get_team_rivalries(&conn, "T003").unwrap()[0]
+        .rivalry_id
+        .clone();
     assert!(first.starts_with("TRV"), "id foi {first}");
     assert!(second.starts_with("TRV"), "id foi {second}");
     assert_ne!(first, second);
@@ -268,7 +272,11 @@ fn constructor_battle_top3_e_gap_apertado() {
     // Par 1º×2º decidiu o título → delta reforçado (6,15) → perceived = 11.4.
     let leader = get_team_rivalries(&conn, "T001").unwrap();
     let vs_t2 = leader.iter().find(|r| r.rival_id == "T002").unwrap();
-    assert!((vs_t2.perceived_intensity - 11.4).abs() < 1e-9, "foi {}", vs_t2.perceived_intensity);
+    assert!(
+        (vs_t2.perceived_intensity - 11.4).abs() < 1e-9,
+        "foi {}",
+        vs_t2.perceived_intensity
+    );
 }
 
 #[test]
@@ -340,7 +348,12 @@ fn bleed_so_transborda_rivalidade_intensa_cross_time() {
     .unwrap();
 
     let mut team_by_driver = HashMap::new();
-    for (p, t) in [("P1", "T001"), ("P2", "T002"), ("P3", "T001"), ("P4", "T002")] {
+    for (p, t) in [
+        ("P1", "T001"),
+        ("P2", "T002"),
+        ("P3", "T001"),
+        ("P4", "T002"),
+    ] {
         team_by_driver.insert(p.to_string(), t.to_string());
     }
     process_driver_rivalry_bleed(&conn, &team_by_driver, "gt3", 5, 1).unwrap();
@@ -404,5 +417,8 @@ fn derby_morale_ignora_par_ausente_ou_fraco() {
         .unwrap()
         .unwrap()
         .morale;
-    assert!((m1 - 1.0).abs() < 1e-9, "rivalidade fraca não move a moral, foi {m1}");
+    assert!(
+        (m1 - 1.0).abs() < 1e-9,
+        "rivalidade fraca não move a moral, foi {m1}"
+    );
 }

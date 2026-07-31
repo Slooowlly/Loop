@@ -31,14 +31,21 @@ const SKILL_HEADROOM_FRACTION_PER_SEASON: f64 = 0.25;
 
 /// Aplica as travas de skill sobre um delta já calculado. Só morde o ganho positivo
 /// do skill; devolve o delta intacto pra qualquer outro atributo ou queda.
-fn cap_skill_growth(attribute: DriverAttributeKey, delta: i8, current_skill: f64, potencial: f64) -> i8 {
+fn cap_skill_growth(
+    attribute: DriverAttributeKey,
+    delta: i8,
+    current_skill: f64,
+    potencial: f64,
+) -> i8 {
     if attribute != DriverAttributeKey::Skill || delta <= 0 {
         return delta;
     }
     let headroom = (potencial - current_skill).max(0.0);
     // ceil pra que, enquanto houver qualquer folga, a rampa ainda ande +1 no fim.
     let fraction_cap = (headroom * SKILL_HEADROOM_FRACTION_PER_SEASON).ceil() as i8;
-    delta.min(MAX_SKILL_GAIN_PER_SEASON).min(fraction_cap.max(0))
+    delta
+        .min(MAX_SKILL_GAIN_PER_SEASON)
+        .min(fraction_cap.max(0))
 }
 
 /// Quanto cada pódio "de azarão" (piloto abaixo da média da categoria) empurra o
@@ -488,12 +495,27 @@ mod tests {
     #[test]
     fn cap_skill_growth_only_touches_positive_skill() {
         // Só o ganho positivo de skill é travado; queda e outros atributos passam.
-        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 18, 72.0, 92.0), 3);
-        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, -2, 72.0, 92.0), -2);
-        assert_eq!(cap_skill_growth(DriverAttributeKey::Racecraft, 18, 72.0, 92.0), 18);
+        assert_eq!(
+            cap_skill_growth(DriverAttributeKey::Skill, 18, 72.0, 92.0),
+            3
+        );
+        assert_eq!(
+            cap_skill_growth(DriverAttributeKey::Skill, -2, 72.0, 92.0),
+            -2
+        );
+        assert_eq!(
+            cap_skill_growth(DriverAttributeKey::Racecraft, 18, 72.0, 92.0),
+            18
+        );
         // Fração da folga morde antes do teto quando já está perto do potencial.
-        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 3, 90.0, 92.0), 1); // ceil(0.5)=1
-        assert_eq!(cap_skill_growth(DriverAttributeKey::Skill, 3, 84.0, 92.0), 2); // ceil(2.0)=2
+        assert_eq!(
+            cap_skill_growth(DriverAttributeKey::Skill, 3, 90.0, 92.0),
+            1
+        ); // ceil(0.5)=1
+        assert_eq!(
+            cap_skill_growth(DriverAttributeKey::Skill, 3, 84.0, 92.0),
+            2
+        ); // ceil(2.0)=2
     }
 
     #[test]
@@ -514,7 +536,10 @@ mod tests {
             );
             seasons += 1;
         }
-        assert!(seasons >= 5, "72→92 tem que ser uma carreira (>=5 temporadas), levou {seasons}");
+        assert!(
+            seasons >= 5,
+            "72→92 tem que ser uma carreira (>=5 temporadas), levou {seasons}"
+        );
     }
 
     #[test]
@@ -614,7 +639,10 @@ mod tests {
         // bônus. (Um carro quase-topo que vence ainda rende um resíduo pequeno, o que
         // é correto: venceu de uma posição de largada esperada logo atrás da frente.)
         let term = overperformance_growth(&stats_pos(1, 20, 12), 1.0);
-        assert_eq!(term, 0.0, "vencer no melhor carro não é superação, got {term}");
+        assert_eq!(
+            term, 0.0,
+            "vencer no melhor carro não é superação, got {term}"
+        );
     }
 
     #[test]
@@ -628,7 +656,10 @@ mod tests {
     fn overperf_is_capped() {
         // Pior carro (0.0) virando campeão = superação máxima, mas travada no CAP.
         let term = overperformance_growth(&stats_pos(1, 20, 12), 0.0);
-        assert!((term - OVERPERF_CAP).abs() < 1e-9, "deveria bater o teto, got {term}");
+        assert!(
+            (term - OVERPERF_CAP).abs() < 1e-9,
+            "deveria bater o teto, got {term}"
+        );
     }
 
     #[test]
@@ -692,7 +723,7 @@ mod tests {
         // carro = posição real): não pódia, não supera — antes estagnava. Com a
         // maturação, ainda cresce só por correr a temporada.
         let stats = stats_pos(10, 20, 12); // meio de grid, sem pódio
-        // carro percentil ~0.53 pra bater a posição real (10/20) → superação ≈ 0
+                                           // carro percentil ~0.53 pra bater a posição real (10/20) → superação ≈ 0
         let mut prodigy = sample_driver(20, 56.0);
         let mut rng = StdRng::seed_from_u64(77);
         let report = calculate_growth(&mut prodigy, &stats, 0.0, 3, 0.53, &mut rng);

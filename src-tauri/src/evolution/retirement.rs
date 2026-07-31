@@ -23,15 +23,35 @@ pub fn check_retirement(
         };
     }
 
-    if driver.motivacao < 20.0 && consecutive_low_motivation_seasons >= 2 {
+    let age = driver.idade;
+    let skill = driver.atributos.skill;
+
+    // Desânimo aposenta — mas TALENTO COMPRA PACIÊNCIA, e antes não comprava. Este era o único
+    // ramo da função sem termo de skill: as duas temporadas valiam igual para o craque e para o
+    // pilotão, enquanto a aposentadoria por idade e a do órfão ocioso já pesavam talento.
+    //
+    // Por que isso importa agora: a motivação SEGUE O RESULTADO, então este ramo é o caminho pelo
+    // qual uma má fase vira fim de carreira. Com a variância antiga um bom piloto quase nunca
+    // emendava duas temporadas ruins; com as camadas de evento calibradas, emenda — e as
+    // aposentadorias do mundo histórico saltaram de 518 para 684, secando a oferta de veteranos
+    // que a escada precisa para preencher o topo.
+    //
+    // A regra é o que o automobilismo faz de verdade: quem tem talento recebe outro assento e não
+    // pendura o capacete na primeira sequência ruim; quem não tem, sai. Um fracasso deixa de ser
+    // terminal para quem tem com o que voltar.
+    let temporadas_para_desistir = if skill >= 70.0 {
+        4
+    } else if skill >= 55.0 {
+        3
+    } else {
+        2
+    };
+    if driver.motivacao < 20.0 && consecutive_low_motivation_seasons >= temporadas_para_desistir {
         return RetirementResult {
             should_retire: true,
             reason: Some("Aposentou-se por falta de motivacao".to_string()),
         };
     }
-
-    let age = driver.idade;
-    let skill = driver.atributos.skill;
 
     // Pilotos da IA que nunca competiram e já passaram da idade de estreia
     // dificilmente entrarão num grid — aposentam cedo para não se acumularem
@@ -167,16 +187,44 @@ mod tests {
 
     #[test]
     fn test_low_motivation_retirement() {
-        let driver = sample_driver(31, 60.0, 10.0);
         let mut rng = StdRng::seed_from_u64(3);
+        // Idade 31: fora de qualquer faixa de aposentadoria por idade, então o único desfecho
+        // possível aqui é o desânimo — o que isola o ramo sob teste.
+        let fraco = sample_driver(31, 40.0, 10.0);
 
-        let result = check_retirement(&driver, 2, false, &mut rng);
+        let result = check_retirement(&fraco, 2, false, &mut rng);
 
         assert!(result.should_retire);
         assert_eq!(
             result.reason.as_deref(),
             Some("Aposentou-se por falta de motivacao")
         );
+    }
+
+    /// **Talento compra paciência.** O que este teste guarda não é um limiar, é a ordem: um
+    /// piloto melhor tem que aguentar mais temporadas ruins antes de pendurar o capacete.
+    ///
+    /// Antes, este ramo era o único da função sem termo de skill, e o craque saía no mesmo prazo
+    /// do pilotão. Como a motivação segue o resultado, isso fazia de uma má fase um fim de
+    /// carreira — e quanto mais variância a simulação ganha, mais bons pilotos ela descartava.
+    #[test]
+    fn desanimo_descarta_o_fraco_antes_do_craque() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let craque = sample_driver(31, 80.0, 10.0);
+        let mediano = sample_driver(31, 60.0, 10.0);
+        let fraco = sample_driver(31, 40.0, 10.0);
+
+        // Duas temporadas ruins: só o fraco desiste.
+        assert!(check_retirement(&fraco, 2, false, &mut rng).should_retire);
+        assert!(!check_retirement(&mediano, 2, false, &mut rng).should_retire);
+        assert!(!check_retirement(&craque, 2, false, &mut rng).should_retire);
+
+        // Três: o mediano acompanha; o craque ainda tem crédito.
+        assert!(check_retirement(&mediano, 3, false, &mut rng).should_retire);
+        assert!(!check_retirement(&craque, 3, false, &mut rng).should_retire);
+
+        // Quatro: nem o talento segura mais.
+        assert!(check_retirement(&craque, 4, false, &mut rng).should_retire);
     }
 
     fn sample_driver(age: u32, skill: f64, motivation: f64) -> Driver {
@@ -255,13 +303,9 @@ mod tests {
         assert_eq!(idle_orphan_retirement_chance(20, 70.0), 0.0);
         assert_eq!(idle_orphan_retirement_chance(21, 55.0), 0.0);
         // Fraco aposenta muito mais que um bom piloto na mesma idade.
-        assert!(
-            idle_orphan_retirement_chance(25, 30.0) > idle_orphan_retirement_chance(25, 75.0)
-        );
+        assert!(idle_orphan_retirement_chance(25, 30.0) > idle_orphan_retirement_chance(25, 75.0));
         // A idade aumenta a chance para o mesmo skill.
-        assert!(
-            idle_orphan_retirement_chance(35, 40.0) > idle_orphan_retirement_chance(24, 40.0)
-        );
+        assert!(idle_orphan_retirement_chance(35, 40.0) > idle_orphan_retirement_chance(24, 40.0));
         // Lanterna jovem (skill baixo, fora da proteção) tem chance alta — é o caso
         // do "Oliver" depois que A+B pararem de encaixá-lo em categorias acima.
         assert!(idle_orphan_retirement_chance(24, 28.0) >= 0.5);

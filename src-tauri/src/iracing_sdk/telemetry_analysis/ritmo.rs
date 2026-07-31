@@ -107,7 +107,11 @@ pub(super) fn analyze_pace(history: &RaceHistory, player_idx: i32) -> Option<Pac
         .cloned()
         .filter(|t| *t <= best * CLEAN_LAP_FACTOR)
         .collect();
-    let clean_avg = if clean.is_empty() { real_avg } else { mean(&clean) };
+    let clean_avg = if clean.is_empty() {
+        real_avg
+    } else {
+        mean(&clean)
+    };
 
     // Ritmo do campo (todos os carros menos o jogador/pace), em ms.
     let grid_times: Vec<f64> = history

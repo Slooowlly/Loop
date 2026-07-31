@@ -5,6 +5,7 @@ import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
 import TeamLogoMark from "../team/TeamLogoMark";
 import RivalMarker from "../driver/RivalMarker";
+import RaceCoursePanel from "./RaceCoursePanel";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
 import { buildMockBreakdowns, MOCK_TELEMETRY } from "./__mockTelemetry";
 import {
@@ -572,6 +573,12 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                   custou), com peça e volta no tooltip. Um resumo separado repetia a mesma
                   informação e afastava a consequência de quem a sofreu. O detalhe volta a
                   volta continua na aba Telemetria. */}
+
+              {/* O CURSO da corrida — fica ENTRE a tabela e o engenheiro de propósito: a
+                  tabela diz o que aconteceu, o curso diz o que produziu aquilo, e o
+                  engenheiro comenta em cima dos dois. Some sozinho em corrida sem o dado
+                  de trecho (save antigo ou import do iRacing). */}
+              <RaceCoursePanel result={result} />
 
               {/* Debrief do engenheiro — painel completo (placeholder até a IA pós-corrida) */}
               {evaluation && (

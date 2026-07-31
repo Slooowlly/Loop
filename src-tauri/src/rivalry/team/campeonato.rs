@@ -68,9 +68,12 @@ pub fn process_constructor_battle_rivalry(
                     continue;
                 }
                 // +50% se o par decidiu o título (1º vs 2º).
-                let title_decider =
-                    (*a_pos == 1 && *b_pos == 2) || (*a_pos == 2 && *b_pos == 1);
-                let (h, r) = if title_decider { (6.0, 15.0) } else { (4.0, 10.0) };
+                let title_decider = (*a_pos == 1 && *b_pos == 2) || (*a_pos == 2 && *b_pos == 1);
+                let (h, r) = if title_decider {
+                    (6.0, 15.0)
+                } else {
+                    (4.0, 10.0)
+                };
                 let applied = apply_team_rivalry_event(
                     conn,
                     &TeamRivalryEvent {

@@ -86,14 +86,18 @@ mod tests {
         // Chave inexistente: put insere (set_meta_value falharia aqui).
         put_meta_value(&conn, "player_iracing_custid", "12345").expect("insert");
         assert_eq!(
-            get_meta_value(&conn, "player_iracing_custid").unwrap().as_deref(),
+            get_meta_value(&conn, "player_iracing_custid")
+                .unwrap()
+                .as_deref(),
             Some("12345")
         );
 
         // Mesma chave de novo: substitui o valor.
         put_meta_value(&conn, "player_iracing_custid", "67890").expect("replace");
         assert_eq!(
-            get_meta_value(&conn, "player_iracing_custid").unwrap().as_deref(),
+            get_meta_value(&conn, "player_iracing_custid")
+                .unwrap()
+                .as_deref(),
             Some("67890")
         );
     }

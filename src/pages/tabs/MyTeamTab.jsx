@@ -13,7 +13,7 @@ import { buildDriverRow, garageClimate, resolveHierarchy } from "../../component
 import useCareerStore from "../../stores/useCareerStore";
 import i18n from "../../i18n/index.js";
 
-function MyTeamTab() {
+function MyTeamTab({ onOpenTeamRecords = null }) {
   const careerId = useCareerStore((state) => state.careerId);
   const player = useCareerStore((state) => state.player);
   const playerTeam = useCareerStore((state) => state.playerTeam);
@@ -118,6 +118,7 @@ function MyTeamTab() {
           activeTab={activeHistoryTab}
           onTabChange={setActiveHistoryTab}
           onSelectTeam={setSelectedHistoryTeam}
+          onOpenRecordsRanking={onOpenTeamRecords}
           onClose={() => setSelectedHistoryTeam(null)}
         />
       ) : null}

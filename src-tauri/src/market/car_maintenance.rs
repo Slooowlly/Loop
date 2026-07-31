@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
-use crate::car::cost::{category_ceiling, part_cost};
+use crate::car::cost::{category_ceiling, upgrade_cost};
 use crate::car::seed::seed_car;
 use crate::car::wear::{
     advance_race, advance_race_scaled, can_stretch, replace_cost, stretch_cost, wear_per_race,

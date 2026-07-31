@@ -21,7 +21,8 @@ import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
 import StandingsTab from "./tabs/StandingsTab";
 import GlobalDriversTab from "./tabs/GlobalDriversTab";
-import GlobalTeamsTab from "./tabs/GlobalTeamsTab";
+import GlobalTeamsTab from "./tabs/atlas";
+import TeamRecordsTab from "./tabs/TeamRecordsTab";
 
 // Ao chegar o dia da corrida: a célula da PISTA pulsa por ~1s no calendário,
 // anunciando que vai abrir, e só então entra a sala de estratégia (com fade).
@@ -51,6 +52,10 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState("standings");
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
   const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
+  // Pedido em aberto da tela de recordes de equipes (métrica, recorte, equipe de
+  // origem) e a aba de onde o clique partiu, para o "Voltar".
+  const [teamRecordsRequest, setTeamRecordsRequest] = useState(null);
+  const [teamRecordsOrigin, setTeamRecordsOrigin] = useState("standings");
   const [raceArrivalFeedbackActive, setRaceArrivalFeedbackActive] = useState(false);
   // DEBUG (Ctrl+M): mensagem efêmera do atalho "pular corridas → mercado".
   const [debugSkipFlash, setDebugSkipFlash] = useState("");
@@ -222,13 +227,24 @@ function Dashboard() {
             selectedTeamId={globalTeamsSelection?.id ?? globalTeamsSelection}
             selectedTeamCategory={globalTeamsSelection?.categoria ?? globalTeamsSelection?.category ?? null}
             selectedTeamClassName={globalTeamsSelection?.classe ?? globalTeamsSelection?.class_name ?? null}
+            onOpenTeamRecords={openTeamRecords}
             onBack={() => setActiveTab("standings")}
+          />
+        );
+      case "team-records":
+        return (
+          <TeamRecordsTab
+            category={teamRecordsRequest?.category ?? null}
+            teamClass={teamRecordsRequest?.teamClass ?? null}
+            metric={teamRecordsRequest?.metric ?? null}
+            highlightTeamId={teamRecordsRequest?.teamId ?? null}
+            onBack={() => setActiveTab(teamRecordsOrigin)}
           />
         );
       case "news":
         return <NewsMagazineTab />;
       case "my-team":
-        return <MyTeamTab />;
+        return <MyTeamTab onOpenTeamRecords={openTeamRecords} />;
       case "calendar":
         return (
           <CalendarTabRedesign
@@ -242,6 +258,7 @@ function Dashboard() {
           <StandingsTab
             onOpenGlobalDrivers={openGlobalDrivers}
             onOpenGlobalTeams={openGlobalTeams}
+            onOpenTeamRecords={openTeamRecords}
           />
         );
     }
@@ -255,6 +272,21 @@ function Dashboard() {
   function openGlobalTeams(team) {
     setGlobalTeamsSelection(typeof team === "string" ? { id: team } : team);
     setActiveTab("global-teams");
+  }
+
+  // Destino dos cards de record do dossiê. A tela de recordes não está no menu —
+  // ela é a resposta a uma pergunta feita no dossiê —, então guarda de onde veio
+  // para o "Voltar" devolver o jogador ao lugar de onde ele clicou, e não a um
+  // destino fixo que seria certo para uma aba e errado para as outras três.
+  function openTeamRecords({ metric, category, teamClass, teamId } = {}) {
+    setTeamRecordsRequest({
+      metric: metric ?? null,
+      category: category ?? null,
+      teamClass: teamClass ?? null,
+      teamId: teamId ?? null,
+    });
+    setTeamRecordsOrigin(activeTab);
+    setActiveTab("team-records");
   }
 
   if (showResult && lastRaceResult) {

@@ -318,8 +318,16 @@ pub fn apply_offseason_competitiveness_impact(
     let impact = calculate_offseason_competitiveness_impact(team, career_year, focus);
 
     team.confiabilidade = (team.confiabilidade + impact.reliability_delta).clamp(0.0, 100.0);
-    // Sem teto superior (Pilar B): só piso em −5; os retornos decrescentes regulam o topo.
-    team.car_performance = (team.car_performance + impact.car_performance_delta).max(-5.0);
+    // O CARRO não se move mais por aqui. Quem constrói carro é o Sistema de Nível do Carro:
+    // o cérebro de manutenção decide compra/upgrade a cada corrida, olhando o caixa real, e
+    // o resultado vive em `team_car` — que é o que `effective_car_performance` lê.
+    //
+    // Mexer também na coluna legada era investir duas vezes no mesmo carro e, pior, num
+    // número que ninguém lê pra ritmo e que não tem teto: 26 temporadas de offseason
+    // levavam uma equipe a ~5× o topo do domínio (−5..16) sem que nada na tela mudasse,
+    // porque `car_strength` satura em 100. O `car_performance_delta` continua sendo
+    // calculado e devolvido — o relatório de pré-temporada mostra a INTENÇÃO de investimento
+    // da equipe —, mas não escreve mais na coluna.
     team.engineering = (team.engineering + impact.engineering_delta).clamp(0.0, 100.0);
     team.facilities = (team.facilities + impact.facilities_delta).clamp(0.0, 100.0);
 
@@ -454,9 +462,18 @@ mod tests {
         let mut real = sample_team("REAL", 1_500_000.0, 0.0, "healthy", "competitive");
         real.marca = Some("Ferrari".to_string());
 
-        let fictional_gain =
-            calculate_offseason_competitiveness_impact(&fictional, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
-        let real_gain = calculate_offseason_competitiveness_impact(&real, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let fictional_gain = calculate_offseason_competitiveness_impact(
+            &fictional,
+            0,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
+        let real_gain = calculate_offseason_competitiveness_impact(
+            &real,
+            0,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
 
         assert!(
             fictional_gain > 0.0,
@@ -501,26 +518,53 @@ mod tests {
         real.marca = Some("Ferrari".to_string());
 
         // Year 0: full penalty — fictional develops less than the real marque.
-        let fictional_y0 =
-            calculate_offseason_competitiveness_impact(&fictional, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
-        let real_y0 = calculate_offseason_competitiveness_impact(&real, 0, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let fictional_y0 = calculate_offseason_competitiveness_impact(
+            &fictional,
+            0,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
+        let real_y0 = calculate_offseason_competitiveness_impact(
+            &real,
+            0,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
         assert!(
             fictional_y0 < real_y0,
             "year 0: fictional ({fictional_y0}) must develop less than real ({real_y0})"
         );
 
         // Year 5 and 10: penalty fully faded — gains are identical.
-        let fictional_y5 =
-            calculate_offseason_competitiveness_impact(&fictional, 5, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
-        let real_y5 = calculate_offseason_competitiveness_impact(&real, 5, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let fictional_y5 = calculate_offseason_competitiveness_impact(
+            &fictional,
+            5,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
+        let real_y5 = calculate_offseason_competitiveness_impact(
+            &real,
+            5,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
         assert!(
             (fictional_y5 - real_y5).abs() < 1e-9,
             "year 5: penalty gone, fictional ({fictional_y5}) == real ({real_y5})"
         );
 
-        let fictional_y10 =
-            calculate_offseason_competitiveness_impact(&fictional, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
-        let real_y10 = calculate_offseason_competitiveness_impact(&real, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let fictional_y10 = calculate_offseason_competitiveness_impact(
+            &fictional,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
+        let real_y10 = calculate_offseason_competitiveness_impact(
+            &real,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
         assert!(
             (fictional_y10 - real_y10).abs() < 1e-9,
             "year 10: penalty gone, fictional ({fictional_y10}) == real ({real_y10})"
@@ -549,7 +593,10 @@ mod tests {
         // Mesmo time/grid: evento de prestígio (endurance/final) lota mais que rodada fraca.
         let grande = calculate_gate_income(95.0, 500_000.0, 100.0, 300.0, 8.0, 1.0);
         let pequeno = calculate_gate_income(25.0, 500_000.0, 100.0, 300.0, 8.0, 1.0);
-        assert!(grande > pequeno, "evento grande ({grande}) > pequeno ({pequeno})");
+        assert!(
+            grande > pequeno,
+            "evento grande ({grande}) > pequeno ({pequeno})"
+        );
     }
 
     #[test]
@@ -568,7 +615,10 @@ mod tests {
     fn gate_income_tem_piso_mesmo_sem_estrela() {
         // Grid inteiro anônimo (presença total 0): ainda há bilheteria (piso, cota igual).
         let sem_fama = calculate_gate_income(60.0, 500_000.0, 0.0, 0.0, 8.0, 1.0);
-        assert!(sem_fama > 0.0, "piso de público deveria garantir bilheteria > 0");
+        assert!(
+            sem_fama > 0.0,
+            "piso de público deveria garantir bilheteria > 0"
+        );
     }
 
     #[test]
@@ -694,8 +744,16 @@ mod tests {
         let rich = sample_team("T001", 1_500_000.0, 0.0, "healthy", "balanced");
         let poor = sample_team("T002", -100_000.0, 650_000.0, "crisis", "survival");
 
-        let rich_impact = calculate_offseason_competitiveness_impact(&rich, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
-        let poor_impact = calculate_offseason_competitiveness_impact(&poor, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+        let rich_impact = calculate_offseason_competitiveness_impact(
+            &rich,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
+        let poor_impact = calculate_offseason_competitiveness_impact(
+            &poor,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
 
         assert!(rich_impact.reliability_delta > poor_impact.reliability_delta);
         assert!(poor_impact.reliability_delta < 0.0);
@@ -706,8 +764,16 @@ mod tests {
         let balanced = sample_team("T001", 600_000.0, 0.0, "stable", "balanced");
         let all_in = sample_team("T002", 600_000.0, 0.0, "pressured", "all_in");
 
-        let balanced_impact = calculate_offseason_competitiveness_impact(&balanced, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
-        let all_in_impact = calculate_offseason_competitiveness_impact(&all_in, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+        let balanced_impact = calculate_offseason_competitiveness_impact(
+            &balanced,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
+        let all_in_impact = calculate_offseason_competitiveness_impact(
+            &all_in,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
 
         assert!(all_in_impact.car_performance_delta > balanced_impact.car_performance_delta);
         assert!(all_in_impact.reliability_delta < balanced_impact.reliability_delta);
@@ -721,7 +787,11 @@ mod tests {
         team.engineering = 2.0;
         team.facilities = 2.0;
 
-        apply_offseason_competitiveness_impact(&mut team, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+        apply_offseason_competitiveness_impact(
+            &mut team,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
 
         assert!((0.0..=100.0).contains(&team.confiabilidade));
         // Pilar B: piso em −5, sem teto superior.
@@ -738,8 +808,18 @@ mod tests {
         let mut high = sample_team("T002", 5_000_000.0, 0.0, "elite", "balanced");
         high.car_performance = 24.0;
 
-        let low_gain = calculate_offseason_competitiveness_impact(&low, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
-        let high_gain = calculate_offseason_competitiveness_impact(&high, 10, crate::finance::focus::TeamFocus::MeioDeGrid).car_performance_delta;
+        let low_gain = calculate_offseason_competitiveness_impact(
+            &low,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
+        let high_gain = calculate_offseason_competitiveness_impact(
+            &high,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        )
+        .car_performance_delta;
 
         assert!(low_gain > 0.0 && high_gain > 0.0);
         assert!(
@@ -749,18 +829,45 @@ mod tests {
     }
 
     #[test]
-    fn rich_team_car_grows_past_old_ceiling_of_16() {
-        // Equipe muito rica e bem gerida: ao longo de várias offseasons o carro
-        // ultrapassa o antigo teto rígido de 16 (Pilar B: sem teto).
+    fn offseason_nao_move_mais_a_coluna_legada_de_carro() {
+        // O carro é construído pelo Sistema de Nível do Carro (peças em `team_car`,
+        // decididas corrida a corrida pelo cérebro de manutenção). O offseason NÃO
+        // escreve mais em `car_performance`.
+        //
+        // Este teste substitui o antigo `rich_team_car_grows_past_old_ceiling_of_16`,
+        // que garantia o oposto: que uma equipe rica ultrapassasse o topo do domínio.
+        // Sem teto e com 26 offseasons de backstory, aquilo levava uma equipe a ~5× o
+        // máximo da escala — invisível na tela (`car_strength` satura em 100) e decisivo
+        // nas categorias que ainda liam a coluna.
         let mut team = sample_team("T001", 30_000_000.0, 0.0, "elite", "expansion");
         team.car_performance = 15.0;
         for _ in 0..8 {
-            apply_offseason_competitiveness_impact(&mut team, 10, crate::finance::focus::TeamFocus::MeioDeGrid);
+            apply_offseason_competitiveness_impact(
+                &mut team,
+                10,
+                crate::finance::focus::TeamFocus::MeioDeGrid,
+            );
         }
-        assert!(
-            team.car_performance > 16.0,
-            "carro deveria passar de 16 (ficou em {:.2})",
-            team.car_performance
+        assert_eq!(
+            team.car_performance, 15.0,
+            "a coluna legada deve ficar congelada; quem constrói carro é `team_car`"
         );
+    }
+
+    #[test]
+    fn offseason_ainda_move_confiabilidade_e_estrutura() {
+        // O que o Sistema de Nível do Carro NÃO cobre continua vindo daqui.
+        let mut team = sample_team("T001", 30_000_000.0, 0.0, "elite", "expansion");
+        let reliability_before = team.confiabilidade;
+        let engineering_before = team.engineering;
+
+        apply_offseason_competitiveness_impact(
+            &mut team,
+            10,
+            crate::finance::focus::TeamFocus::MeioDeGrid,
+        );
+
+        assert!(team.confiabilidade > reliability_before);
+        assert!(team.engineering > engineering_before);
     }
 }

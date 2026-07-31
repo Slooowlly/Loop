@@ -5,7 +5,10 @@ use rand::Rng;
 
 use crate::simulation::catalog::IncidentCatalog;
 use crate::simulation::context::SimDriver;
-use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
+use crate::simulation::incidents::{
+    IncidentResult, IncidentSeverity, IncidentType, CHANCE_DE_ABANDONO_NA_MANIFESTACAO,
+    IRM_DANO_LATENTE_COM_ABANDONO, IRM_DANO_LATENTE_SEM_ABANDONO,
+};
 
 use super::tipos::{RaceSegment, RaceState};
 
@@ -35,8 +38,10 @@ pub(crate) fn process_pending_damage(
 
         for (i, pd) in state.pending_damage.iter_mut().enumerate() {
             if rng.gen::<f64>() < pd.manifest_chance {
-                // Dano manifestou — determinar se é DNF
-                let is_dnf = pd.is_dnf_capable && rng.gen::<f64>() < 0.70;
+                // Dano manifestou — determinar se é DNF. Perder posições é o desfecho COMUM
+                // (o carro segue torto); o abandono é a minoria. Ver a constante.
+                let is_dnf =
+                    pd.is_dnf_capable && rng.gen::<f64>() < CHANCE_DE_ABANDONO_NA_MANIFESTACAO;
                 // Re-renderizar o catálogo com o nome correto e severidade correta
                 let (desc, cat_id) = if let Some(sel) = catalog.select_and_render(
                     vehicle_class,
@@ -77,7 +82,15 @@ pub(crate) fn process_pending_damage(
                     description: desc,
                     linked_pilot_id: None,
                     is_two_car_incident: false,
-                    injury_risk_multiplier: if is_dnf { 1.5 } else { 1.0 },
+                    // Os dois desfechos podem machucar, em ordem: abandonar com o carro
+                    // avariado (15%, mesmo peso da pane crítica) pesa mais que seguir na
+                    // pista perdendo posições (5%). Os `1.5`/`1.0` que estavam aqui davam
+                    // 37,5% e 25%.
+                    injury_risk_multiplier: if is_dnf {
+                        IRM_DANO_LATENTE_COM_ABANDONO
+                    } else {
+                        IRM_DANO_LATENTE_SEM_ABANDONO
+                    },
                     narrative_importance_hint: if is_dnf { 2 } else { 1 },
                     catalog_id: cat_id,
                     damage_origin_segment: Some(pd.origin_segment.clone()),

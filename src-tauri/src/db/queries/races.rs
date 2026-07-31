@@ -1,7 +1,74 @@
 use crate::db::connection::DbError;
 use crate::simulation::race::RaceDriverResult;
-use rusqlite::Transaction;
+use rusqlite::{Connection, OptionalExtension, Transaction};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+/// Os vetores POR TRECHO de um carro, como vão pra coluna `race_results.trafego_json`.
+///
+/// Espelha o dono do dado na simulação (`RaceState::trafego`). Vive em JSON porque a
+/// aridade é constante de OUTRO módulo ("5 trechos") e porque `gaps_ms` tem elemento
+/// nulo — o líder não tem carro à frente. Ver a v55 em `db::migrations`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrafegoDaCorrida {
+    /// Posição ao fim de cada trecho. Vazio = corrida anterior à v55 (nada a desenhar).
+    #[serde(default)]
+    pub posicoes: Vec<i32>,
+    /// Gap pro carro da frente ao fim de cada trecho, em ms. `null` = era o líder.
+    #[serde(default)]
+    pub gaps_ms: Vec<Option<f64>>,
+}
+
+/// As paradas de um carro, como vão pra coluna `race_results.paradas_json`.
+///
+/// Espelha `RaceState::paradas`. Aridade genuinamente variável (0..N paradas), e os três
+/// vetores são paralelos: o i-ésimo elemento de cada um descreve a i-ésima parada.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ParadasDaCorrida {
+    #[serde(default)]
+    pub voltas: Vec<u32>,
+    #[serde(default)]
+    pub antes: Vec<i32>,
+    #[serde(default)]
+    pub depois: Vec<i32>,
+}
+
+/// Um safety car da corrida, já lido do banco.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafetyCarDaCorrida {
+    /// Volta de entrada.
+    pub volta: u32,
+    /// A classificação no momento em que ele entrou, em ordem de posição.
+    pub ordem_pre_safety_car: Vec<String>,
+}
+
+/// A LEITURA de um carro numa corrida: tudo o que o motor calculou pra explicar a
+/// posição final e que antes da v55 morria em `build_race_results`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LeituraDoCarro {
+    pub piloto_id: String,
+    /// Resolvido por join com `drivers` — a tela não deveria precisar de uma 2ª consulta
+    /// só pra saber de quem é a linha.
+    pub piloto_nome: String,
+    pub is_jogador: bool,
+    pub posicao_largada: i32,
+    pub posicao_final: i32,
+    pub is_dnf: bool,
+    pub segmentos_em_ar_sujo: i32,
+    pub tentativas_ultrapassagem: i32,
+    pub ultrapassagens_concluidas: i32,
+    pub tentativas_sofridas: i32,
+    pub maior_sequencia_preso: i32,
+    pub estrategia_id: String,
+    pub trafego: TrafegoDaCorrida,
+    pub paradas: ParadasDaCorrida,
+    /// A leitura do fim de semana ANUNCIADA antes desta corrida, como gravada — vinda da
+    /// tabela própria da v57, por join.
+    ///
+    /// JSON cru de propósito: o formato é do DTO da fase 3, e esta camada só o carrega —
+    /// interpretá-lo aqui acoplaria a query à apresentação. `'{}'` = não anunciada.
+    pub leitura_fds_json: String,
+}
 
 pub fn insert_race_results_batch(
     tx: &Transaction<'_>,
@@ -43,9 +110,18 @@ pub fn insert_race_results_batch(
             gap_to_winner_ms,
             final_tire_wear,
             dnf_catalog_id,
-            damage_origin_segment
+            damage_origin_segment,
+            segmentos_em_ar_sujo,
+            tentativas_ultrapassagem,
+            ultrapassagens_concluidas,
+            tentativas_sofridas,
+            maior_sequencia_preso,
+            estrategia_id,
+            trafego_json,
+            paradas_json
         ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+            ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
         )
         ",
     )?;
@@ -53,6 +129,22 @@ pub fn insert_race_results_batch(
     for result in results {
         let dnf_int = if result.is_dnf { 1 } else { 0 };
         let fastest_lap_int = if result.has_fastest_lap { 1 } else { 0 };
+
+        // Os vetores por trecho e as paradas viram um blob cada. `unwrap_or` pro objeto
+        // vazio: um erro de serialização aqui não pode derrubar a transação do fim de
+        // semana inteiro — perder o traçado de uma corrida é infinitamente melhor que
+        // perder o resultado dela.
+        let trafego = serde_json::to_string(&TrafegoDaCorrida {
+            posicoes: result.posicoes_por_segmento.clone(),
+            gaps_ms: result.gaps_para_da_frente_ms.clone(),
+        })
+        .unwrap_or_else(|_| "{}".to_string());
+        let paradas = serde_json::to_string(&ParadasDaCorrida {
+            voltas: result.volta_da_parada.clone(),
+            antes: result.posicao_antes_da_parada.clone(),
+            depois: result.posicao_depois.clone(),
+        })
+        .unwrap_or_else(|_| "{}".to_string());
 
         stmt.execute(rusqlite::params![
             race_id,
@@ -71,11 +163,172 @@ pub fn insert_race_results_batch(
             result.gap_to_winner_ms,
             result.final_tire_wear,
             result.dnf_catalog_id,
-            result.damage_origin_segment
+            result.damage_origin_segment,
+            result.segmentos_em_ar_sujo,
+            result.tentativas_ultrapassagem,
+            result.ultrapassagens_concluidas,
+            result.tentativas_sofridas,
+            result.maior_sequencia_preso,
+            result.estrategia_id,
+            trafego,
+            paradas
         ])?;
     }
 
     Ok(())
+}
+
+/// Grava a leitura do fim de semana ANUNCIADA de cada piloto desta corrida (v57).
+///
+/// Recebe uma `Connection`, não uma `Transaction`, porque o ponto da v57 é justamente que
+/// esta linha nasce no PREPARO DA ETAPA — antes da corrida, portanto fora da transação do
+/// resultado, e antes de a linha de `race_results` sequer existir.
+///
+/// Recebe o JSON já serializado porque o formato é do DTO da fase 3
+/// (`career_types::WeekendReading`): esta camada carrega o blob, não o interpreta.
+///
+/// `INSERT OR REPLACE` torna o preparo idempotente: reabrir a Sala de Estratégia reescreve
+/// o mesmo par `(corrida, piloto)` em vez de duplicar. Lista vazia é no-op.
+pub fn set_race_weekend_readings(
+    conn: &Connection,
+    race_id: &str,
+    leituras: &[(String, String)],
+) -> Result<(), DbError> {
+    if leituras.is_empty() {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "INSERT OR REPLACE INTO race_weekend_readings (race_id, driver_id, leitura_json)
+         VALUES (?1, ?2, ?3)",
+    )?;
+    for (piloto_id, json) in leituras {
+        stmt.execute(rusqlite::params![race_id, piloto_id, json])?;
+    }
+    Ok(())
+}
+
+/// A leitura ANUNCIADA de um piloto numa corrida, como JSON cru. `None` = não anunciada.
+///
+/// É o que a Sala de Estratégia lê para NÃO recalcular: o anúncio nasce uma vez e as duas
+/// telas leem a mesma linha. Se voltar `None`, quem chama deve calcular e gravar via
+/// [`set_race_weekend_readings`] — e a partir daí a leitura está congelada para aquele fim
+/// de semana.
+pub fn get_race_weekend_reading(
+    conn: &Connection,
+    race_id: &str,
+    driver_id: &str,
+) -> Result<Option<String>, DbError> {
+    conn.query_row(
+        "SELECT leitura_json FROM race_weekend_readings WHERE race_id = ?1 AND driver_id = ?2",
+        rusqlite::params![race_id, driver_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(DbError::Sqlite)
+}
+
+/// Grava os safety cars da corrida — uma linha por entrada, na ordem em que saíram.
+///
+/// Chamado dentro da MESMA transação do resultado. Corrida sem safety car não grava
+/// linha nenhuma, e é assim que a leitura sabe que não houve (em vez de não ter sido
+/// gravado — ver o default neutro da v55). `INSERT OR REPLACE` porque a chave é
+/// (corrida, ordem): reimportar a mesma corrida sobrescreve em vez de duplicar.
+pub fn insert_race_safety_cars(
+    tx: &Transaction<'_>,
+    race_id: &str,
+    voltas: &[u32],
+    ordens: &[Vec<String>],
+) -> Result<(), DbError> {
+    if voltas.is_empty() {
+        return Ok(());
+    }
+
+    let mut stmt = tx.prepare(
+        "INSERT OR REPLACE INTO race_safety_cars (race_id, ordem, volta, grid_json)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+
+    for (idx, volta) in voltas.iter().enumerate() {
+        // A ordem do pelotão é opcional na prática: o motor empurra as duas listas em
+        // paralelo, mas um safety car sem ordem registrada ainda vale como fato ("saiu na
+        // volta 12"), então o `get` que falha vira lista vazia em vez de erro.
+        let grid = ordens
+            .get(idx)
+            .map(|o| serde_json::to_string(o).unwrap_or_else(|_| "[]".to_string()))
+            .unwrap_or_else(|| "[]".to_string());
+        stmt.execute(rusqlite::params![race_id, idx as i64, *volta, grid])?;
+    }
+
+    Ok(())
+}
+
+/// Lê a leitura de todos os carros de uma corrida, em ordem de chegada (DNF por último).
+///
+/// Corrida gravada antes da v55 volta com os escalares em 0 e os vetores vazios — é o
+/// default da migração, e é o que a tela usa pra decidir não desenhar nada.
+pub fn get_race_reading(conn: &Connection, race_id: &str) -> Result<Vec<LeituraDoCarro>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.piloto_id, r.posicao_largada, r.posicao_final, r.dnf,
+                r.segmentos_em_ar_sujo, r.tentativas_ultrapassagem, r.ultrapassagens_concluidas,
+                r.tentativas_sofridas, r.maior_sequencia_preso, r.estrategia_id,
+                r.trafego_json, r.paradas_json,
+                COALESCE(d.nome, ''), COALESCE(d.is_jogador, 0),
+                COALESCE(w.leitura_json, '{}')
+         FROM race_results r
+         LEFT JOIN drivers d ON d.id = r.piloto_id
+         LEFT JOIN race_weekend_readings w
+                ON w.race_id = r.race_id AND w.driver_id = r.piloto_id
+         WHERE r.race_id = ?1
+         ORDER BY r.dnf ASC, r.posicao_final ASC",
+    )?;
+
+    let rows = stmt.query_map([race_id], |row| {
+        let trafego_json: String = row.get(10)?;
+        let paradas_json: String = row.get(11)?;
+        Ok(LeituraDoCarro {
+            piloto_id: row.get(0)?,
+            piloto_nome: row.get(12)?,
+            is_jogador: row.get::<_, i64>(13)? != 0,
+            posicao_largada: row.get(1)?,
+            posicao_final: row.get(2)?,
+            is_dnf: row.get::<_, i64>(3)? != 0,
+            segmentos_em_ar_sujo: row.get(4)?,
+            tentativas_ultrapassagem: row.get(5)?,
+            ultrapassagens_concluidas: row.get(6)?,
+            tentativas_sofridas: row.get(7)?,
+            maior_sequencia_preso: row.get(8)?,
+            estrategia_id: row.get(9)?,
+            // JSON corrompido não derruba a leitura da corrida: vira vetor vazio, que a
+            // tela já sabe tratar como "sem traçado".
+            trafego: serde_json::from_str(&trafego_json).unwrap_or_default(),
+            paradas: serde_json::from_str(&paradas_json).unwrap_or_default(),
+            leitura_fds_json: row.get(14)?,
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
+}
+
+/// Os safety cars de uma corrida, na ordem em que saíram. Vazio = não houve (ou corrida
+/// anterior à v55).
+pub fn get_race_safety_cars(
+    conn: &Connection,
+    race_id: &str,
+) -> Result<Vec<SafetyCarDaCorrida>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT volta, grid_json FROM race_safety_cars WHERE race_id = ?1 ORDER BY ordem ASC",
+    )?;
+
+    let rows = stmt.query_map([race_id], |row| {
+        let grid_json: String = row.get(1)?;
+        Ok(SafetyCarDaCorrida {
+            volta: row.get(0)?,
+            ordem_pre_safety_car: serde_json::from_str(&grid_json).unwrap_or_default(),
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
 }
 
 #[cfg(test)]
@@ -190,5 +443,198 @@ mod tests {
         let err = insert_race_results_batch(&tx, "R001", &[result.clone(), result])
             .expect_err("duplicate pilot should fail");
         assert!(err.to_string().contains("piloto duplicado"));
+    }
+
+    /// O dado que EXPLICA o resultado sobrevive ao save (v55): escalares nas colunas,
+    /// vetores nos dois blobs, e volta idêntico na leitura. É o teste que impede a
+    /// regressão silenciosa — o motor calculando e o banco engolindo.
+    #[test]
+    fn leitura_da_corrida_faz_ida_e_volta_completa() {
+        let mut conn = setup_test_db();
+
+        let mut result = sample_result();
+        result.finish_position = 6;
+        result.grid_position = 4;
+        result.posicoes_por_segmento = vec![4, 5, 9, 7, 6];
+        // O líder não tem carro à frente: o `None` no meio é justamente o caso que
+        // coluna escalar não representaria sem inventar sentinela.
+        result.gaps_para_da_frente_ms = vec![Some(820.0), None, Some(1400.5), Some(310.0), None];
+        result.segmentos_em_ar_sujo = 3;
+        result.tentativas_ultrapassagem = 2;
+        result.ultrapassagens_concluidas = 0;
+        result.tentativas_sofridas = 5;
+        result.maior_sequencia_preso = 3;
+        result.estrategia_id = "1-parada-cedo".to_string();
+        result.volta_da_parada = vec![12];
+        result.posicao_antes_da_parada = vec![4];
+        result.posicao_depois = vec![9];
+
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[result]).expect("inserção");
+        insert_race_safety_cars(
+            &tx,
+            "C001",
+            &[18],
+            &[vec!["P001".to_string(), "P002".to_string()]],
+        )
+        .expect("safety cars");
+        tx.commit().unwrap();
+
+        let leitura = get_race_reading(&conn, "C001").expect("leitura");
+        assert_eq!(leitura.len(), 1);
+        let carro = &leitura[0];
+        assert_eq!(carro.piloto_id, "P001");
+        // O join com `drivers` resolve o nome: a tela não precisa de 2ª consulta.
+        assert_eq!(carro.piloto_nome, "Driver 1");
+        assert_eq!(carro.posicao_largada, 4);
+        assert_eq!(carro.posicao_final, 6);
+        assert_eq!(carro.trafego.posicoes, vec![4, 5, 9, 7, 6]);
+        assert_eq!(
+            carro.trafego.gaps_ms,
+            vec![Some(820.0), None, Some(1400.5), Some(310.0), None]
+        );
+        assert_eq!(carro.segmentos_em_ar_sujo, 3);
+        assert_eq!(carro.tentativas_ultrapassagem, 2);
+        assert_eq!(carro.ultrapassagens_concluidas, 0);
+        assert_eq!(carro.tentativas_sofridas, 5);
+        assert_eq!(carro.maior_sequencia_preso, 3);
+        assert_eq!(carro.estrategia_id, "1-parada-cedo");
+        // Os três vetores de parada são paralelos: largou P4, parou na volta 12, voltou P9.
+        assert_eq!(carro.paradas.voltas, vec![12]);
+        assert_eq!(carro.paradas.antes, vec![4]);
+        assert_eq!(carro.paradas.depois, vec![9]);
+
+        let scs = get_race_safety_cars(&conn, "C001").expect("safety cars");
+        assert_eq!(scs.len(), 1);
+        assert_eq!(scs[0].volta, 18);
+        assert_eq!(scs[0].ordem_pre_safety_car, vec!["P001", "P002"]);
+    }
+
+    /// Corrida SEM o dado novo (import do iRacing, ou save anterior à v55) precisa voltar
+    /// neutra em vez de erro — e com os vetores VAZIOS, que é como a tela distingue
+    /// "não aconteceu" de "não foi gravado" e decide não desenhar traçado nenhum.
+    #[test]
+    fn corrida_sem_dado_de_trecho_volta_neutra_e_nao_quebra() {
+        let mut conn = setup_test_db();
+
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[sample_result()]).expect("inserção");
+        tx.commit().unwrap();
+
+        let leitura = get_race_reading(&conn, "C001").expect("leitura");
+        let carro = &leitura[0];
+        assert!(carro.trafego.posicoes.is_empty());
+        assert!(carro.trafego.gaps_ms.is_empty());
+        assert!(carro.paradas.voltas.is_empty());
+        assert_eq!(carro.segmentos_em_ar_sujo, 0);
+        assert_eq!(carro.estrategia_id, "");
+        // Sem safety car gravado não existe linha — e não é um erro.
+        assert!(get_race_safety_cars(&conn, "C001")
+            .expect("safety cars")
+            .is_empty());
+    }
+
+    /// A faixa ANUNCIADA sobrevive por piloto e não é recomputada na leitura (v56). É o
+    /// que impede uma recalibração do σ de mudar, retroativamente, o que foi anunciado no
+    /// sábado de uma corrida antiga — a tela pós-corrida é revisitável.
+    fn blob_de_leitura() -> &'static str {
+        r#"{"race_id":"C001","available":true,"track_affinity":{"band":1,"qualifying_band":2,"trend":null,"support":null},"driver_form":{"band":-1,"qualifying_band":-1,"trend":-1,"support":null},"car_setup":{"band":0,"qualifying_band":0,"trend":null,"support":null}}"#
+    }
+
+    /// **O teste que justifica a v57.** A leitura é gravada e lida ANTES de existir qualquer
+    /// linha de `race_results` — que é exatamente o que a coluna da v56 tornava impossível,
+    /// porque a linha dela só nasce depois da corrida.
+    ///
+    /// É o que permite o anúncio nascer uma vez, no preparo da etapa, e as duas telas lerem
+    /// a mesma linha em vez de recalcular cada uma no seu instante.
+    #[test]
+    fn leitura_do_fim_de_semana_nasce_antes_de_existir_resultado() {
+        let conn = setup_test_db();
+
+        set_race_weekend_readings(
+            &conn,
+            "C001",
+            &[("P001".to_string(), blob_de_leitura().to_string())],
+        )
+        .expect("anúncio no preparo da etapa");
+
+        // Nenhuma corrida foi rodada ainda, e a leitura já está lá.
+        assert_eq!(
+            get_race_weekend_reading(&conn, "C001", "P001").expect("leitura"),
+            Some(blob_de_leitura().to_string())
+        );
+        assert!(get_race_reading(&conn, "C001").expect("leitura").is_empty());
+    }
+
+    /// O preparo da etapa é IDEMPOTENTE: reabrir a Sala de Estratégia reescreve o mesmo par
+    /// (corrida, piloto) em vez de duplicar, e o anúncio congelado não muda.
+    #[test]
+    fn regravar_a_leitura_do_mesmo_piloto_sobrescreve_sem_duplicar() {
+        let conn = setup_test_db();
+        let par = [("P001".to_string(), blob_de_leitura().to_string())];
+
+        set_race_weekend_readings(&conn, "C001", &par).expect("1ª gravação");
+        set_race_weekend_readings(&conn, "C001", &par).expect("2ª gravação");
+
+        let linhas: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM race_weekend_readings WHERE race_id = 'C001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("contagem");
+        assert_eq!(linhas, 1);
+    }
+
+    /// Depois da corrida, a leitura da corrida traz a faixa anunciada por JOIN — a mesma
+    /// linha que foi gravada antes da largada.
+    #[test]
+    fn faixa_anunciada_chega_na_leitura_da_corrida_por_join() {
+        let mut conn = setup_test_db();
+        set_race_weekend_readings(
+            &conn,
+            "C001",
+            &[("P001".to_string(), blob_de_leitura().to_string())],
+        )
+        .expect("anúncio antes da corrida");
+
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[sample_result()]).expect("inserção");
+        tx.commit().unwrap();
+
+        let leitura = get_race_reading(&conn, "C001").expect("leitura");
+        assert_eq!(leitura[0].leitura_fds_json, blob_de_leitura());
+    }
+
+    /// Sem anúncio o JOIN não acha linha e o `COALESCE` devolve `'{}'` — que NÃO é uma
+    /// leitura válida, e por isso a exibição trata como "não anunciado" em vez de "morno".
+    #[test]
+    fn corrida_sem_faixa_anunciada_volta_vazia() {
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[sample_result()]).expect("inserção");
+        tx.commit().unwrap();
+
+        assert_eq!(
+            get_race_weekend_reading(&conn, "C001", "P001").expect("leitura"),
+            None
+        );
+        let leitura = get_race_reading(&conn, "C001").expect("leitura");
+        assert_eq!(leitura[0].leitura_fds_json, "{}");
+    }
+
+    /// Safety car é opcional: uma corrida sem nenhum não grava linha, e a chamada com
+    /// vetor vazio é um no-op silencioso (não um erro, ao contrário do batch vazio de
+    /// resultados — lá o vazio significa perda de dado, aqui significa corrida limpa).
+    #[test]
+    fn corrida_sem_safety_car_nao_grava_linha() {
+        let mut conn = setup_test_db();
+        let tx = conn.transaction().unwrap();
+        insert_race_safety_cars(&tx, "C001", &[], &[]).expect("no-op");
+        tx.commit().unwrap();
+
+        assert!(get_race_safety_cars(&conn, "C001")
+            .expect("safety cars")
+            .is_empty());
     }
 }

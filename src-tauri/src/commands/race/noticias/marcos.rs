@@ -23,28 +23,27 @@ pub(super) fn registrar_marcos(
     // do topo (2º colocado == valor-1). `previous = valor-1` (cada corrida soma
     // no máximo 1). Pisos evitam marcos triviais. Idempotente por valor.
     if let Some(recs) = records {
-        let record_milestone = |metric: &str, r: &crate::db::queries::race_history::CategoryRecord| {
-            let _ = crate::db::queries::milestones::insert_milestone(
-                conn,
-                category_id,
-                &crate::db::queries::milestones::RecordMilestone {
-                    metric: metric.to_string(),
-                    pilot_id: r.pilot_id.clone(),
-                    pilot_name: r.pilot_name.clone(),
-                    value: r.value,
-                    previous_value: Some(r.value - 1),
-                    context: String::new(),
-                    season_number: active_season.numero,
-                    ano: active_season.ano,
-                    round,
-                },
-            );
-        };
+        let record_milestone =
+            |metric: &str, r: &crate::db::queries::race_history::CategoryRecord| {
+                let _ = crate::db::queries::milestones::insert_milestone(
+                    conn,
+                    category_id,
+                    &crate::db::queries::milestones::RecordMilestone {
+                        metric: metric.to_string(),
+                        pilot_id: r.pilot_id.clone(),
+                        pilot_name: r.pilot_name.clone(),
+                        value: r.value,
+                        previous_value: Some(r.value - 1),
+                        context: String::new(),
+                        season_number: active_season.numero,
+                        ano: active_season.ano,
+                        round,
+                    },
+                );
+            };
         // Vitórias: o recordista é o vencedor de hoje e abriu a marca.
         if let Some(r) = recs.most_wins.as_ref() {
-            if r.pilot_id == winner_id
-                && r.value >= 5
-                && recs.second_most_wins == Some(r.value - 1)
+            if r.pilot_id == winner_id && r.value >= 5 && recs.second_most_wins == Some(r.value - 1)
             {
                 record_milestone("wins", r);
             }
@@ -54,10 +53,7 @@ pub(super) fn registrar_marcos(
             let podium_today = race_result.race_results.iter().any(|d| {
                 d.pilot_id == r.pilot_id && !d.is_dnf && (1..=3).contains(&d.finish_position)
             });
-            if podium_today
-                && r.value >= 10
-                && recs.second_most_podiums == Some(r.value - 1)
-            {
+            if podium_today && r.value >= 10 && recs.second_most_podiums == Some(r.value - 1) {
                 record_milestone("podiums", r);
             }
         }
@@ -76,24 +72,23 @@ pub(super) fn registrar_marcos(
     // dono da pista (mais vitórias no circuito) e maior sequência de vitórias.
     {
         use crate::db::queries::{milestones, race_history};
-        let win_milestone =
-            |metric: &str, value: i32, previous: Option<i32>, context: String| {
-                let _ = milestones::insert_milestone(
-                    conn,
-                    category_id,
-                    &milestones::RecordMilestone {
-                        metric: metric.to_string(),
-                        pilot_id: winner_id.to_string(),
-                        pilot_name: winner_name.to_string(),
-                        value,
-                        previous_value: previous,
-                        context,
-                        season_number: active_season.numero,
-                        ano: active_season.ano,
-                        round,
-                    },
-                );
-            };
+        let win_milestone = |metric: &str, value: i32, previous: Option<i32>, context: String| {
+            let _ = milestones::insert_milestone(
+                conn,
+                category_id,
+                &milestones::RecordMilestone {
+                    metric: metric.to_string(),
+                    pilot_id: winner_id.to_string(),
+                    pilot_name: winner_name.to_string(),
+                    value,
+                    previous_value: previous,
+                    context,
+                    season_number: active_season.numero,
+                    ano: active_season.ano,
+                    round,
+                },
+            );
+        };
 
         // (a) Mais vitórias numa única temporada (recorde de `standings`, que só
         // tem temporadas encerradas → a atual não entra e não conta duplicado).
@@ -187,9 +182,10 @@ pub(super) fn registrar_marcos(
 
             // (e) Recorde de DOBRADINHAS (1-2): só conta quando HOJE foi uma
             // dobradinha da equipe do vencedor (ele em 1º + outro carro em 2º).
-            let one_two_today = race_result.race_results.iter().any(|d| {
-                d.team_id == w.team_id && !d.is_dnf && d.finish_position == 2
-            });
+            let one_two_today = race_result
+                .race_results
+                .iter()
+                .any(|d| d.team_id == w.team_id && !d.is_dnf && d.finish_position == 2);
             if one_two_today {
                 let count = crate::db::queries::teams::get_team_category_one_two(
                     conn,
@@ -364,8 +360,22 @@ pub(super) fn registrar_marcos(
             .map(|d| d.idade as i32)
             .unwrap_or(0);
         if winner_age > 0 {
-            scalar("youngest_winner", winner_id, winner_name, winner_age, "", false);
-            scalar("oldest_winner", winner_id, winner_name, winner_age, "", true);
+            scalar(
+                "youngest_winner",
+                winner_id,
+                winner_name,
+                winner_age,
+                "",
+                false,
+            );
+            scalar(
+                "oldest_winner",
+                winner_id,
+                winner_name,
+                winner_age,
+                "",
+                true,
+            );
         }
 
         // Corrida mais caótica da história (mais abandonos numa etapa).
@@ -398,19 +408,17 @@ pub(super) fn registrar_marcos(
         // título, maior pontuador. Só anuncia quando o dono muda e passa do piso.
         let crown = |kind: &str, leader: Option<race_history::CategoryRecord>, floor: i32| {
             if let Some(l) = leader {
-                if let Ok(Some((prev_name, prev_val))) =
-                    milestones::update_leader_and_check_crown(
-                        conn,
-                        category_id,
-                        kind,
-                        &l.pilot_id,
-                        &l.pilot_name,
-                        l.value,
-                        floor,
-                        active_season.numero,
-                        round,
-                    )
-                {
+                if let Ok(Some((prev_name, prev_val))) = milestones::update_leader_and_check_crown(
+                    conn,
+                    category_id,
+                    kind,
+                    &l.pilot_id,
+                    &l.pilot_name,
+                    l.value,
+                    floor,
+                    active_season.numero,
+                    round,
+                ) {
                     let _ = milestones::insert_milestone(
                         conn,
                         category_id,
@@ -431,22 +439,30 @@ pub(super) fn registrar_marcos(
         };
         crown(
             "most_starts_no_win",
-            race_history::get_category_most_starts_no_win(conn, category_id).ok().flatten(),
+            race_history::get_category_most_starts_no_win(conn, category_id)
+                .ok()
+                .flatten(),
             30,
         );
         crown(
             "most_career_dnfs",
-            race_history::get_category_most_career_dnfs(conn, category_id).ok().flatten(),
+            race_history::get_category_most_career_dnfs(conn, category_id)
+                .ok()
+                .flatten(),
             20,
         );
         crown(
             "most_poles_no_title",
-            race_history::get_category_most_poles_no_title(conn, category_id).ok().flatten(),
+            race_history::get_category_most_poles_no_title(conn, category_id)
+                .ok()
+                .flatten(),
             5,
         );
         crown(
             "most_career_points",
-            race_history::get_category_most_career_points(conn, category_id).ok().flatten(),
+            race_history::get_category_most_career_points(conn, category_id)
+                .ok()
+                .flatten(),
             300,
         );
     }

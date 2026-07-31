@@ -82,15 +82,23 @@ pub fn get_driver_category_career(
 
 /// Total de TÍTULOS de um piloto na categoria (temporadas encerradas como 1º), lido do
 /// arquivo histórico `driver_season_archive`.
+///
+/// `classe` restringe a contagem a uma classe da categoria. Categorias multiclasse
+/// (`production_challenger`, `endurance`) disputam um campeonato POR classe, então o
+/// título é da classe, não da categoria. Passe `None` nas categorias de classe única.
+/// A classe sai do `snapshot_json` porque a tabela não tem coluna própria para ela.
 pub fn get_pilot_category_titles(
     conn: &Connection,
     pilot_id: &str,
     categoria: &str,
+    classe: Option<&str>,
 ) -> Result<i32, DbError> {
     let n: i32 = conn.query_row(
         "SELECT COUNT(*) FROM driver_season_archive
-         WHERE piloto_id = ?1 AND categoria = ?2 AND posicao_campeonato = 1",
-        rusqlite::params![pilot_id, categoria],
+         WHERE piloto_id = ?1 AND categoria = ?2 AND posicao_campeonato = 1
+           AND (?3 IS NULL
+                OR COALESCE(NULLIF(TRIM(json_extract(snapshot_json, '$.classe')), ''), '') = ?3)",
+        rusqlite::params![pilot_id, categoria, classe],
         |r| r.get(0),
     )?;
     Ok(n)

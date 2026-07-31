@@ -640,6 +640,9 @@ export function buildTeamHistoryDossier(
     seasonResults: realHistory?.seasonResults ?? [],
     recentForm: realHistory?.recentForm ?? [],
     resultSpread: realHistory?.resultSpread ?? normalizeResultSpread(null),
+    championshipRun: realHistory?.championshipRun ?? null,
+    lineup: realHistory?.lineup ?? [],
+    reliability: realHistory?.reliability ?? normalizeReliability(null),
     outsideScopeSeasons: realHistory?.outsideScopeSeasons ?? [],
     // Intervalo de anos do MUNDO — só o v2 usa, para marcar na faixa os anos em
     // que a equipe não correu. Zero quando o backend não informa.
@@ -656,6 +659,46 @@ function normalizeResultSpread(spread) {
     nearMiss: Number(spread?.near_miss ?? spread?.nearMiss ?? 0),
     topTen: Number(spread?.top_ten ?? spread?.topTen ?? 0),
     outside: Number(spread?.outside ?? 0),
+  };
+}
+
+// Campanha do campeonato. As rodadas e as linhas vêm cruas do backend; o
+// desenho é que decide escala e cor. Um recorte sem pelo menos duas rodadas ou
+// sem linha nenhuma vira `null` aqui e não chega à tela como gráfico vazio.
+function normalizeChampionshipRun(run) {
+  if (!run) return null;
+  const rounds = (run.rounds ?? []).map((value) => Number(value ?? 0));
+  const lines = (run.lines ?? []).map((line) => ({
+    teamId: line.team_id ?? line.teamId ?? "",
+    team: line.team ?? "",
+    selected: Boolean(line.selected),
+    position: Number(line.position ?? 0),
+    total: String(line.total ?? "0"),
+    points: (line.points ?? []).map((value) => Number(value ?? 0)),
+  }));
+  if (rounds.length < 2 || !lines.length) return null;
+  return {
+    year: String(run.year ?? ""),
+    category: run.category ?? "",
+    categoryId: run.category_id ?? run.categoryId ?? "",
+    live: Boolean(run.live),
+    rounds,
+    lines,
+  };
+}
+
+// Confiabilidade: contagens cruas, sem prosa. As faixas se somam — quem soma é o
+// desenho, então o normalizador só garante que tudo é número.
+function normalizeReliability(reliability) {
+  return {
+    races: Number(reliability?.races ?? 0),
+    finished: Number(reliability?.finished ?? 0),
+    finishRate: Number(reliability?.finish_rate ?? reliability?.finishRate ?? 0),
+    groupFinishRate: Number(reliability?.group_finish_rate ?? reliability?.groupFinishRate ?? 0),
+    mechanical: Number(reliability?.mechanical ?? 0),
+    driverError: Number(reliability?.driver_error ?? reliability?.driverError ?? 0),
+    other: Number(reliability?.other ?? 0),
+    worstPart: reliability?.worst_part ?? reliability?.worstPart ?? "",
   };
 }
 
@@ -769,6 +812,29 @@ function normalizeTeamHistoryPayload(payload) {
       position: item.position ?? null,
     })),
     resultSpread: normalizeResultSpread(payload.result_spread ?? payload.resultSpread),
+    // Campanha do campeonato rodada a rodada, com a linha de todas as equipes —
+    // só o v2 desenha. `null` quando o backend não tem recorte para mandar
+    // (equipe com uma corrida só na última temporada, ou save anterior ao
+    // campo), e aí o v2 cai na curva de posição por temporada.
+    championshipRun: normalizeChampionshipRun(payload.championship_run ?? payload.championshipRun),
+    lineup: (payload.lineup ?? []).map((item) => ({
+      slot: Number(item.slot ?? 0),
+      driverId: item.driver_id ?? item.driverId ?? "",
+      name: item.name ?? "",
+      nationality: item.nationality ?? "",
+      firstYear: String(item.first_year ?? item.firstYear ?? ""),
+      lastYear: String(item.last_year ?? item.lastYear ?? ""),
+      races: Number(item.races ?? 0),
+      wins: Number(item.wins ?? 0),
+      podiums: Number(item.podiums ?? 0),
+      bestPosition: Number(item.best_position ?? item.bestPosition ?? 0),
+      currentTeamName: item.current_team_name ?? item.currentTeamName ?? "",
+      currentTeamColor: item.current_team_color ?? item.currentTeamColor ?? "",
+      isPlayer: Boolean(item.is_player ?? item.isPlayer ?? false),
+      stillHere: Boolean(item.still_here ?? item.stillHere ?? false),
+      currentLabel: item.current_label ?? item.currentLabel ?? "",
+    })),
+    reliability: normalizeReliability(payload.reliability),
     outsideScopeSeasons: (payload.outside_scope_seasons ?? payload.outsideScopeSeasons ?? []).map((item) => ({
       year: String(item.year ?? ""),
       category: item.category ?? "",

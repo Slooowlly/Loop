@@ -53,14 +53,20 @@ fn resolve_race_breakdown_ctx(
     // Time + categoria do jogador (a tabela do campeonato mostrada é a da categoria dele).
     let team_id = dq::get_player_driver(&db.conn)
         .ok()
-        .and_then(|p| cq::get_active_contract_for_pilot(&db.conn, &p.id).ok().flatten())
+        .and_then(|p| {
+            cq::get_active_contract_for_pilot(&db.conn, &p.id)
+                .ok()
+                .flatten()
+        })
         .map(|c| c.equipe_id)?;
     let team = tq::get_team_by_id(&db.conn, &team_id).ok().flatten()?;
     let categoria = team.categoria.clone();
 
     // Próxima corrida pendente da categoria.
     let season = sq::get_active_season(&db.conn).ok().flatten()?;
-    let race = calq::get_next_race(&db.conn, &season.id, &categoria).ok().flatten()?;
+    let race = calq::get_next_race(&db.conn, &season.id, &categoria)
+        .ok()
+        .flatten()?;
 
     // Clima da etapa — MESMA história determinística do export/disparo vivo.
     let ev_seed = event_seed(career_id, &race.id);
@@ -112,17 +118,22 @@ pub fn get_breakdown_forecast(
     if !db_path.exists() {
         return Ok(none);
     }
-    let db = Database::open_existing(&db_path)
-        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
     let Some(ctx) = resolve_race_breakdown_ctx(&db, &career_id) else {
         return Ok(none);
     };
     let categoria = ctx.categoria.clone();
-    let Some(team) = tq::get_team_by_id(&db.conn, &ctx.player_team_id).ok().flatten() else {
+    let Some(team) = tq::get_team_by_id(&db.conn, &ctx.player_team_id)
+        .ok()
+        .flatten()
+    else {
         return Ok(none);
     };
-    let Some(car) = tcq::get_team_car(&db.conn, &ctx.player_team_id).ok().flatten() else {
+    let Some(car) = tcq::get_team_car(&db.conn, &ctx.player_team_id)
+        .ok()
+        .flatten()
+    else {
         return Ok(none);
     };
 
@@ -224,8 +235,7 @@ pub fn get_grid_breakdown_risk(
     if !db_path.exists() {
         return Ok(Vec::new());
     }
-    let db = Database::open_existing(&db_path)
-        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
     let Some(ctx) = resolve_race_breakdown_ctx(&db, &career_id) else {
         return Ok(Vec::new());
@@ -239,12 +249,9 @@ pub fn get_grid_breakdown_risk(
         };
         // Semente decorrelacionada por equipe (FNV-1a do id) pra os times não partilharem o
         // mesmo padrão de sorteio — a probabilidade em si já é estável com 150 amostras.
-        let team_hash = team
-            .id
-            .bytes()
-            .fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
-                (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
-            });
+        let team_hash = team.id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+        });
         let f = crate::car::breakdown::forecast_breakdown_risk(
             &car,
             18,
@@ -260,8 +267,7 @@ pub fn get_grid_breakdown_risk(
         // "Risco real" = mesma régua do card (peça que custa tempo de verdade ou pode abandonar);
         // o desgaste trivial (any_prob) fica de fora pra o marcador não virar ruído.
         let notable = f.dnf_prob >= 0.05
-            || f
-                .parts
+            || f.parts
                 .iter()
                 .any(|p| p.dnf_prob >= 0.03 || p.costly_prob >= 0.08);
         if notable {

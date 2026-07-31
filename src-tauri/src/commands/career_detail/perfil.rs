@@ -226,7 +226,10 @@ pub(super) fn split_nationality(nacionalidade: &str) -> (String, String) {
     (bandeira, label)
 }
 
-pub(super) fn derive_driver_license(category_id: Option<&str>, driver: &Driver) -> DriverLicenseInfo {
+pub(super) fn derive_driver_license(
+    category_id: Option<&str>,
+    driver: &Driver,
+) -> DriverLicenseInfo {
     let (nivel, sigla) = match category_id
         .and_then(categories::get_category_config)
         .map(|config| config.tier)
@@ -279,4 +282,3 @@ pub(super) fn build_driver_badges(driver: &Driver, category_id: Option<&str>) ->
 
     badges
 }
-

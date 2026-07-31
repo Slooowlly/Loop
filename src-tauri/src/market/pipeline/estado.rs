@@ -168,7 +168,9 @@ pub(super) fn default_market_context(driver: &Driver) -> DriverMarketContext {
 
 /// Mapa piloto → categoria do contrato Regular mais recente (por `temporada_fim`).
 /// Serve para resgatar o nível de veteranos parados no leilão (ver `find_available_drivers`).
-pub(super) fn load_last_regular_categories(conn: &Connection) -> Result<HashMap<String, String>, String> {
+pub(super) fn load_last_regular_categories(
+    conn: &Connection,
+) -> Result<HashMap<String, String>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT c1.piloto_id, c1.categoria

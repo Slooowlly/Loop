@@ -64,7 +64,10 @@ pub(crate) struct CarDifficultyContext {
     pub(crate) by_number: std::collections::HashMap<String, f64>,
 }
 
-pub(crate) fn car_difficulty_context_path(base_dir: &std::path::Path, custid: i64) -> std::path::PathBuf {
+pub(crate) fn car_difficulty_context_path(
+    base_dir: &std::path::Path,
+    custid: i64,
+) -> std::path::PathBuf {
     base_dir
         .join("iracing_adaptive")
         .join(format!("{custid}_car.json"))

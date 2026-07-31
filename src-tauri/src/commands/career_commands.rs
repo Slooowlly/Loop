@@ -4,36 +4,37 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::career::{
     advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
-    debug_poaching_auctions_in_base_dir, debug_prepare_market_scenario_in_base_dir,
-    debug_stamp_player_championship_in_base_dir,
-    delete_career_in_base_dir,
-    finalize_preseason_in_base_dir,
+    debug_force_player_poach_offer_in_base_dir, debug_poaching_auctions_in_base_dir,
+    debug_prepare_market_scenario_in_base_dir, debug_stamp_player_championship_in_base_dir,
+    delete_career_in_base_dir, finalize_preseason_in_base_dir,
     get_briefing_phrase_history_in_base_dir, get_calendar_for_category_in_base_dir,
     get_driver_detail_in_base_dir, get_driver_in_base_dir, get_drivers_by_category_in_base_dir,
-    get_player_dossier_in_base_dir, get_player_interests_in_base_dir,
-    debug_force_player_poach_offer_in_base_dir,
-    get_news_in_base_dir, get_player_poach_offer_in_base_dir, get_player_proposals_in_base_dir,
-    get_preseason_free_agents_in_base_dir,
-    get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
-    resolve_player_poach_offer_in_base_dir,
-    get_race_results_by_category_in_base_dir,
-    get_teams_standings_in_base_dir, list_saves_in_base_dir, load_career_in_base_dir,
-    persist_resume_context_in_base_dir, respond_to_proposal_in_base_dir,
-    save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir,
-    PlayerInterests, PlayerProposalView, ProposalResponse,
+    get_news_in_base_dir, get_player_dossier_in_base_dir, get_player_interests_in_base_dir,
+    get_player_poach_offer_in_base_dir, get_player_proposals_in_base_dir,
+    get_preseason_free_agents_in_base_dir, get_preseason_state_in_base_dir,
+    get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
+    get_race_results_by_category_in_base_dir, get_teams_standings_in_base_dir,
+    list_saves_in_base_dir, load_career_in_base_dir, persist_resume_context_in_base_dir,
+    resolve_player_poach_offer_in_base_dir, respond_to_proposal_in_base_dir,
+    save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir, PlayerInterests,
+    PlayerProposalView, ProposalResponse,
 };
 use crate::commands::career_team_dossier::{
     get_team_finance_report_in_base_dir, get_team_history_dossier_in_base_dir,
+    get_team_records_ranking_in_base_dir,
 };
 use crate::commands::career_types::{
-    BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData, CareerDraftState,
-    CareerResumeView, CreateCareerInput, CreateCareerResult, CreateHistoricalDraftInput,
-    DriverDetail, DriverSummary, FinalizeHistoricalDraftInput, FreeAgentPreview,
-    GlobalDriverRankingPayload, GlobalTeamHistoryPayload, RaceSummary, SaveInfo,
-    TeamFinanceReport, TeamHistoryDossier, TeamStanding,
+    BandChampionsPayload, BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData,
+    CareerDraftState, CareerResumeView, CreateCareerInput, CreateCareerResult,
+    CreateHistoricalDraftInput, DriverDetail, DriverSummary, FinalizeHistoricalDraftInput,
+    FreeAgentPreview, GlobalDriverRankingPayload, GlobalTeamHistoryPayload, RaceReading,
+    RaceSummary, SaveInfo, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking,
+    TeamStanding,
 };
 use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
-use crate::commands::global_team_history::get_global_team_history_in_base_dir;
+use crate::commands::global_team_history::{
+    get_band_champions_in_base_dir, get_global_team_history_in_base_dir,
+};
 use crate::commands::historical_draft::{
     create_historical_career_draft_in_base_dir, discard_career_draft_in_base_dir,
     finalize_career_draft_in_base_dir, get_career_draft_in_base_dir,
@@ -300,6 +301,24 @@ pub async fn get_team_history_dossier(
 }
 
 #[tauri::command]
+pub async fn get_team_records_ranking(
+    app: AppHandle,
+    career_id: String,
+    category: String,
+    scope: Option<String>,
+    class: Option<String>,
+) -> Result<TeamRecordsRanking, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_team_records_ranking_in_base_dir(
+        &base_dir,
+        &career_id,
+        &category,
+        scope.as_deref().unwrap_or("group"),
+        class.as_deref(),
+    )
+}
+
+#[tauri::command]
 pub async fn get_team_finance_report(
     app: AppHandle,
     career_id: String,
@@ -355,6 +374,18 @@ pub fn get_player_dossier(
 ) -> Result<crate::player_skill::PlayerDossier, String> {
     let base_dir = app_data_dir(&app)?;
     get_player_dossier_in_base_dir(&base_dir, &career_id)
+}
+
+/// A leitura de uma corrida: traçado de posição por trecho, custo do box, trânsito e
+/// safety cars. Ver `RaceReading` e a migração v55.
+#[tauri::command]
+pub fn get_race_reading(
+    app: AppHandle,
+    career_id: String,
+    race_id: String,
+) -> Result<RaceReading, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_race_reading_in_base_dir(&base_dir, &career_id, &race_id)
 }
 
 #[tauri::command]
@@ -430,6 +461,16 @@ pub async fn get_global_team_history(
         start_year,
         window_size,
     )
+}
+
+#[tauri::command]
+pub async fn get_band_champions(
+    app: AppHandle,
+    career_id: String,
+    band_key: String,
+) -> Result<BandChampionsPayload, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_band_champions_in_base_dir(&base_dir, &career_id, &band_key)
 }
 
 #[tauri::command]

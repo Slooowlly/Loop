@@ -233,7 +233,9 @@ pub(super) fn load_career_race_history_rows(
     Ok(rows)
 }
 
-pub(super) fn best_career_season(seasons: &[&CareerSeasonArchiveRow]) -> Option<DriverBestSeasonBlock> {
+pub(super) fn best_career_season(
+    seasons: &[&CareerSeasonArchiveRow],
+) -> Option<DriverBestSeasonBlock> {
     seasons
         .iter()
         .copied()
@@ -317,4 +319,3 @@ pub(super) fn summarize_team_mobility(races: &[CareerRaceHistoryRow]) -> (i32, O
     };
     (team_count, average)
 }
-

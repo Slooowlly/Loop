@@ -20,8 +20,7 @@ pub(super) fn empurrar_fatos_de_recordes(
     let winner_name = driver_queries::get_driver(conn, winner_id)
         .map(|d| d.nome)
         .unwrap_or_else(|_| winner_id.clone());
-    let records = crate::db::queries::race_history::get_category_records(conn, category_id)
-        .ok();
+    let records = crate::db::queries::race_history::get_category_records(conn, category_id).ok();
 
     // Sequência de vitórias do vencedor (feito em destaque).
     if let Ok(streak) = crate::db::queries::race_history::get_win_streak(
@@ -43,29 +42,19 @@ pub(super) fn empurrar_fatos_de_recordes(
     }
 
     // Carreira do vencedor na categoria (para caça a rival e recorde batido).
-    let winner_career = crate::db::queries::race_history::get_driver_category_career(
-        conn,
-        winner_id,
-        category_id,
-    )
-    .ok();
+    let winner_career =
+        crate::db::queries::race_history::get_driver_category_career(conn, winner_id, category_id)
+            .ok();
 
     // Caça a um rival que AINDA está no grid: vencedor a poucas vitórias de
     // igualar alguém logo acima dele no total histórico da categoria.
     if let Some(wc) = &winner_career {
         if let Ok(actives) =
-            crate::db::queries::race_history::get_active_category_win_counts(
-                conn,
-                category_id,
-            )
+            crate::db::queries::race_history::get_active_category_win_counts(conn, category_id)
         {
             let target = actives
                 .iter()
-                .filter(|a| {
-                    a.pilot_id != *winner_id
-                        && a.value > wc.wins
-                        && a.value - wc.wins <= 3
-                })
+                .filter(|a| a.pilot_id != *winner_id && a.value > wc.wins && a.value - wc.wins <= 3)
                 .min_by_key(|a| a.value - wc.wins);
             if let Some(t) = target {
                 let diff = t.value - wc.wins;
@@ -98,17 +87,12 @@ pub(super) fn empurrar_fatos_de_recordes(
             .most_wins
             .as_ref()
             .map_or(false, |m| m.pilot_id == *winner_id && m.value == wc.wins);
-        if is_new_record
-            && wc.wins >= 3
-            && recs.second_most_wins == Some(wc.wins - 1)
-        {
-            if let Ok(Some(year)) =
-                crate::db::queries::race_history::first_year_reaching_wins(
-                    conn,
-                    category_id,
-                    wc.wins - 1,
-                )
-            {
+        if is_new_record && wc.wins >= 3 && recs.second_most_wins == Some(wc.wins - 1) {
+            if let Ok(Some(year)) = crate::db::queries::race_history::first_year_reaching_wins(
+                conn,
+                category_id,
+                wc.wins - 1,
+            ) {
                 let dur = active_season.ano - year;
                 if dur >= 2 {
                     context_facts.push(
@@ -130,13 +114,11 @@ pub(super) fn empurrar_fatos_de_recordes(
         .iter()
         .find(|d| d.pilot_id == *winner_id)
     {
-        if let Ok(Some(top)) =
-            crate::db::queries::race_history::get_team_top_winner_in_category(
-                conn,
-                &cur.team_id,
-                category_id,
-            )
-        {
+        if let Ok(Some(top)) = crate::db::queries::race_history::get_team_top_winner_in_category(
+            conn,
+            &cur.team_id,
+            category_id,
+        ) {
             if top.pilot_id == *winner_id && top.value >= 2 {
                 context_facts.push(
                     rust_i18n::t!(
@@ -182,7 +164,10 @@ pub(super) fn empurrar_fatos_de_recordes(
             .map(|d| d.nome)
             .unwrap_or_else(|_| pilot_id.clone());
         let recs = records.as_ref();
-        let holds = |rec: fn(&crate::db::queries::race_history::CategoryRecords) -> &Option<crate::db::queries::race_history::CategoryRecord>| {
+        let holds = |rec: fn(
+            &crate::db::queries::race_history::CategoryRecords,
+        )
+            -> &Option<crate::db::queries::race_history::CategoryRecord>| {
             recs.and_then(|r| rec(r).as_ref())
                 .map_or(false, |m| m.pilot_id == *pilot_id)
         };
@@ -225,12 +210,9 @@ pub(super) fn empurrar_fatos_de_recordes(
         // Marcos de número redondo — só vencedor e jogador, e só se fez hoje.
         if is_winner || is_player {
             let podium_today = race_result.race_results.iter().any(|d| {
-                d.pilot_id == *pilot_id
-                    && !d.is_dnf
-                    && (1..=3).contains(&d.finish_position)
+                d.pilot_id == *pilot_id && !d.is_dnf && (1..=3).contains(&d.finish_position)
             });
-            if is_winner && !is_wins_record && [5, 10, 25, 50, 75, 100].contains(&career.wins)
-            {
+            if is_winner && !is_wins_record && [5, 10, 25, 50, 75, 100].contains(&career.wins) {
                 context_facts.push(
                     rust_i18n::t!(
                         "briefing.ctx.nth_win",
@@ -240,10 +222,7 @@ pub(super) fn empurrar_fatos_de_recordes(
                     .to_string(),
                 );
             }
-            if podium_today
-                && !is_podiums_record
-                && [25, 50, 100, 150].contains(&career.podiums)
-            {
+            if podium_today && !is_podiums_record && [25, 50, 100, 150].contains(&career.podiums) {
                 context_facts.push(
                     rust_i18n::t!(
                         "briefing.ctx.nth_podium",

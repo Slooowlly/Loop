@@ -38,6 +38,8 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <cwchar>  // wcsrchr — nome do .exe hospedeiro
+#include <cwctype> // towlower — comparação sem caixa
 #include <mutex>
 #include <string>
 #include <vector>
@@ -71,6 +73,72 @@ static void LogLine(const char* fmt, ...) {
 
     std::fprintf(f, "\n");
     std::fclose(f);
+}
+
+// ─── Sinal de "o iRacing está em VR" (lido pelo app) ─────────────────────────
+//
+// O app não tem como saber, pela telemetria, se o sim foi aberto em VR ou em monitor —
+// o irsdk não publica nada de HMD. Mas ESTA layer é a resposta: uma API layer do OpenXR
+// só é carregada quando a aplicação cria uma instância XR. Se este código está rodando,
+// o processo hospedeiro está em VR.
+//
+// Como avisar: um EVENTO NOMEADO. Enquanto a instância existe a gente mantém um handle
+// aberto em `Local\iRacerVrActive`; o app faz `OpenEventW` e a mera existência do objeto
+// é a resposta. Preferido a uma palavra de heartbeat na memória compartilhada porque o
+// tempo de vida é do SO: se o iRacing fechar ou travar, o último handle morre com o
+// processo e o sinal apaga sozinho — sem estado velho grudado, sem timestamp pra
+// comparar, sem bump da versão do cabeçalho da SHM.
+//
+// FILTRO DE PROCESSO, e não é detalhe: layers implícitas carregam em QUALQUER app
+// OpenXR. Sem checar quem nos hospeda, abrir um menu de VR qualquer acenderia o sinal e
+// o app acharia que a corrida começou. Só acendemos dentro do executável do iRacing.
+static const wchar_t* const IRACER_VR_EVENT = L"Local\\iRacerVrActive";
+static HANDLE g_vrActiveEvent = nullptr;
+
+// O processo hospedeiro é o iRacing? (compara o nome do .exe, sem caminho e sem caixa —
+// o nome declarado pelo app no XrInstanceCreateInfo é escolha dele, o executável não.)
+static bool HostIsIracing() {
+    wchar_t path[MAX_PATH];
+    DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        return false;
+    }
+    const wchar_t* exe = std::wcsrchr(path, L'\\');
+    exe = exe ? exe + 1 : path;
+
+    std::wstring lower(exe);
+    for (wchar_t& c : lower) {
+        c = towlower(c);
+    }
+    // Cobre iRacingSim64DX11.exe e qualquer variante futura do mesmo prefixo.
+    return lower.rfind(L"iracingsim", 0) == 0;
+}
+
+static void SignalVrActive() {
+    if (g_vrActiveEvent) {
+        return; // já aceso
+    }
+    if (!HostIsIracing()) {
+        LogLine("Sinal de VR NAO aceso: processo hospedeiro nao e o iRacing.");
+        return;
+    }
+    // Manual-reset, não sinalizado: ninguém espera nele. O que importa é o objeto
+    // EXISTIR — o estado sinalizado/não é irrelevante pro nosso uso.
+    g_vrActiveEvent = CreateEventW(nullptr, TRUE, FALSE, IRACER_VR_EVENT);
+    if (g_vrActiveEvent) {
+        LogLine("Sinal de VR aceso (%ls) — o app pode detectar o modo VR.", IRACER_VR_EVENT);
+    } else {
+        LogLine("AVISO: CreateEventW falhou (%lu) — o app nao vera o modo VR.", GetLastError());
+    }
+}
+
+static void ClearVrActive() {
+    if (!g_vrActiveEvent) {
+        return;
+    }
+    CloseHandle(g_vrActiveEvent);
+    g_vrActiveEvent = nullptr;
+    LogLine("Sinal de VR apagado.");
 }
 
 // ─── Ponteiros da "próxima" camada (o runtime real, abaixo de nós) ────────────
@@ -783,6 +851,9 @@ static XrResult XRAPI_CALL Layer_xrDestroyInstance(XrInstance instance) {
     LogLine("xrDestroyInstance");
     XrResult res = g_next_xrDestroyInstance(instance);
     g_instance = XR_NULL_HANDLE;
+    // Saiu do VR de forma limpa (o jogador fechou o sim pelo menu): apaga o sinal já.
+    // Se o processo morrer de outro jeito, o SO fecha o handle e o efeito é o mesmo.
+    ClearVrActive();
     return res;
 }
 
@@ -826,6 +897,10 @@ static XrResult XRAPI_CALL Layer_xrCreateApiLayerInstance(const XrInstanceCreate
     if (res == XR_SUCCESS) {
         g_instance = *instance;
         LoadNextFunctions(*instance);
+        // A instância existir JÁ significa VR — antes de sessão, de swapchain, de
+        // qualquer frame. É o ponto mais cedo em que a resposta é confiável, e é o que
+        // deixa o app decidir o pipeline antes da corrida começar.
+        SignalVrActive();
         LogLine("Instância OpenXR criada; layer iRacer conectada à cadeia.");
     } else {
         LogLine("ERRO: nextCreateApiLayerInstance falhou (%d)", (int)res);

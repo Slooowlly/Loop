@@ -73,8 +73,8 @@ fn display_date_season_week_invalid_rejects() {
 fn test_generate_calendar_correct_count() {
     let mut rng = StdRng::seed_from_u64(1);
     let gt3 = generate_calendar_for_category("S001", "gt3", &mut rng).expect("gt3 calendar");
-    let mazda = generate_calendar_for_category("S001", "mazda_rookie", &mut rng)
-        .expect("rookie calendar");
+    let mazda =
+        generate_calendar_for_category("S001", "mazda_rookie", &mut rng).expect("rookie calendar");
 
     assert_eq!(gt3.len(), 14);
     assert_eq!(mazda.len(), 5);
@@ -113,8 +113,7 @@ fn test_generate_calendar_weather_distribution() {
     let mut total_races = 0_usize;
 
     for _ in 0..100 {
-        let calendar =
-            generate_calendar_for_category("S001", "gt3", &mut rng).expect("calendar");
+        let calendar = generate_calendar_for_category("S001", "gt3", &mut rng).expect("calendar");
         wet_races += calendar
             .iter()
             .filter(|entry| entry.clima != WeatherCondition::Dry)
@@ -151,8 +150,7 @@ fn test_generate_all_calendars_no_conflicts() {
 #[test]
 fn test_generate_calendar_voltas_reasonable() {
     let mut rng = StdRng::seed_from_u64(6);
-    let calendar =
-        generate_calendar_for_category("S001", "endurance", &mut rng).expect("calendar");
+    let calendar = generate_calendar_for_category("S001", "endurance", &mut rng).expect("calendar");
     assert!(calendar
         .iter()
         .all(|entry| (5..=50).contains(&entry.voltas)));
@@ -241,9 +239,8 @@ fn test_regular_calendar_display_date_not_empty() {
 fn test_weekday_policy_rookies_are_stable_monday_or_tuesday() {
     for category in ["mazda_rookie", "toyota_rookie"] {
         let mut rng = StdRng::seed_from_u64(42);
-        let calendar =
-            generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
-                .expect("rookie calendar");
+        let calendar = generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
+            .expect("rookie calendar");
         let weekdays: HashSet<Weekday> = calendar
             .iter()
             .map(|entry| {
@@ -270,9 +267,8 @@ fn test_weekday_policy_rookies_are_stable_monday_or_tuesday() {
 fn test_weekday_policy_amador_categories_are_stable_tuesday() {
     for category in ["mazda_amador", "toyota_amador"] {
         let mut rng = StdRng::seed_from_u64(43);
-        let calendar =
-            generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
-                .expect("amador calendar");
+        let calendar = generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
+            .expect("amador calendar");
         let weekdays: HashSet<Weekday> = calendar
             .iter()
             .map(|entry| {
@@ -323,13 +319,11 @@ fn test_weekday_policy_gt4_thursday_and_gt3_friday() {
 
     for (category, expected_weekday) in cases {
         let mut rng = StdRng::seed_from_u64(44);
-        let calendar =
-            generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
-                .expect("gt calendar");
+        let calendar = generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
+            .expect("gt calendar");
 
         for entry in &calendar {
-            let date =
-                NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
+            let date = NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
             assert_eq!(
                 date.weekday(),
                 expected_weekday,
@@ -365,13 +359,11 @@ fn test_weekday_policy_production_saturday_and_endurance_sunday() {
 
     for (category, expected_weekday) in cases {
         let mut rng = StdRng::seed_from_u64(45);
-        let calendar =
-            generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
-                .expect("special calendar");
+        let calendar = generate_calendar_for_category_with_year("S001", 2028, category, &mut rng)
+            .expect("special calendar");
 
         for entry in &calendar {
-            let date =
-                NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
+            let date = NaiveDate::parse_from_str(&entry.display_date, "%Y-%m-%d").expect("date");
             assert_eq!(
                 date.weekday(),
                 expected_weekday,
@@ -390,12 +382,10 @@ fn test_weekday_policy_production_saturday_and_endurance_sunday() {
 #[test]
 fn test_conflict_pairs_share_week_slots() {
     let mut rng = StdRng::seed_from_u64(12);
-    let mazda =
-        generate_calendar_for_category_with_year("S001", 2028, "mazda_rookie", &mut rng)
-            .expect("mazda");
-    let toyota =
-        generate_calendar_for_category_with_year("S001", 2028, "toyota_rookie", &mut rng)
-            .expect("toyota");
+    let mazda = generate_calendar_for_category_with_year("S001", 2028, "mazda_rookie", &mut rng)
+        .expect("mazda");
+    let toyota = generate_calendar_for_category_with_year("S001", 2028, "toyota_rookie", &mut rng)
+        .expect("toyota");
     // LEGADO 9D: gerador antigo ainda valida pares por week_of_year no contexto pré-v33.
     // Pares conflito têm mesmo N de rodadas → mesmas semanas.
     let mazda_weeks: Vec<i32> = mazda.iter().map(|e| e.week_of_year).collect();
@@ -456,9 +446,8 @@ fn test_special_calendars_month_window() {
 #[test]
 fn test_special_calendar_reaches_the_last_week_of_december() {
     let mut rng = StdRng::seed_from_u64(26);
-    let calendar =
-        generate_calendar_for_category_with_year("S001", 2028, "endurance", &mut rng)
-            .expect("special calendar");
+    let calendar = generate_calendar_for_category_with_year("S001", 2028, "endurance", &mut rng)
+        .expect("special calendar");
 
     let last_date = calendar
         .iter()
@@ -549,8 +538,7 @@ fn test_special_calendars_rejects_duplicate() {
     insert_season(&conn, &Season::new("S001".to_string(), 1, 2028)).expect("season");
 
     let mut rng = StdRng::seed_from_u64(23);
-    generate_and_insert_special_calendars(&conn, "S001", 2028, &mut rng)
-        .expect("primeira geração");
+    generate_and_insert_special_calendars(&conn, "S001", 2028, &mut rng).expect("primeira geração");
 
     let mut rng2 = StdRng::seed_from_u64(24);
     let result = generate_and_insert_special_calendars(&conn, "S001", 2028, &mut rng2);
@@ -583,8 +571,8 @@ fn rookie_all_tracks_from_eligible_regions() {
 
     for seed in 0..30u64 {
         let mut rng = StdRng::seed_from_u64(seed + 100);
-        let cal = generate_calendar_for_category("S001", "mazda_rookie", &mut rng)
-            .expect("mazda_rookie");
+        let cal =
+            generate_calendar_for_category("S001", "mazda_rookie", &mut rng).expect("mazda_rookie");
         for entry in &cal {
             assert!(
                 eligible.contains(&entry.track_id),
@@ -656,8 +644,8 @@ fn amador_season1_no_visitor() {
 
     for seed in 0..30u64 {
         let mut rng = StdRng::seed_from_u64(seed + 300);
-        let cal = generate_calendar_for_category("S001", "mazda_amador", &mut rng)
-            .expect("mazda_amador");
+        let cal =
+            generate_calendar_for_category("S001", "mazda_amador", &mut rng).expect("mazda_amador");
         let track_ids: HashSet<u32> = cal.iter().map(|e| e.track_id).collect();
         // Deve caber numa única região (DB atual pode forçar multi-region, mas sem visitor externo)
         // O que garantimos: tracks vêm do pool elegível de amador (USA + Europa + JapaoOceania)
@@ -855,8 +843,7 @@ fn endurance_all_tracks_from_curated_pool() {
         .collect();
     for seed in 0..20u64 {
         let mut rng = StdRng::seed_from_u64(seed + 1000);
-        let cal =
-            generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
+        let cal = generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
         for entry in &cal {
             assert!(
                 pool.contains(&entry.track_id),
@@ -877,8 +864,7 @@ fn endurance_has_at_least_two_strong_events() {
         .collect();
     for seed in 0..20u64 {
         let mut rng = StdRng::seed_from_u64(seed + 1100);
-        let cal =
-            generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
+        let cal = generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
         let strong_count = cal.iter().filter(|e| strong.contains(&e.track_id)).count();
         assert!(
             strong_count >= 2,
@@ -896,8 +882,7 @@ fn endurance_final_is_strong() {
         .collect();
     for seed in 0..20u64 {
         let mut rng = StdRng::seed_from_u64(seed + 1200);
-        let cal =
-            generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
+        let cal = generate_calendar_for_category("S001", "endurance", &mut rng).expect("endurance");
         let last = cal.last().expect("calendário vazio");
         assert!(
             strong.contains(&last.track_id),
@@ -923,11 +908,12 @@ fn tier1_sempre_uma_noturna_no_miolo() {
     // Toda temporada tier 1+ tem EXATAMENTE uma noturna, nunca a 1ª nem a última.
     for seed in 0..40u64 {
         let mut rng = StdRng::seed_from_u64(seed + 5000);
-        let cal =
-            generate_calendar_for_category("S001", "gt3", &mut rng).expect("gt3 calendar");
+        let cal = generate_calendar_for_category("S001", "gt3", &mut rng).expect("gt3 calendar");
         let max_rodada = cal.iter().map(|e| e.rodada).max().unwrap();
-        let night: Vec<&CalendarEntry> =
-            cal.iter().filter(|e| is_night_horario(&e.horario)).collect();
+        let night: Vec<&CalendarEntry> = cal
+            .iter()
+            .filter(|e| is_night_horario(&e.horario))
+            .collect();
         assert_eq!(
             night.len(),
             1,

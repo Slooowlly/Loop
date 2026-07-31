@@ -13,6 +13,12 @@ use crate::car::Car;
 use crate::constants::categories::{get_category_config, is_especial};
 use crate::constants::teams::{get_team_templates, TeamTemplate};
 
+/// Quantos níveis de carro a equipe SEM marca de fábrica fica abaixo do teto da classe nas
+/// arenas GT3. `1` = a privateer chega ao nível 6 onde a fábrica chega ao 7. Calibrável:
+/// subir isto afunda o azarão, zerar volta ao grid plano de antes.
+/// Ver [`Team::car_ceiling`].
+const FICTIONAL_CEILING_HANDICAP: u8 = 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TeamHierarchyClimate {
     Estavel,
@@ -170,6 +176,43 @@ impl Team {
             Some(car) => crate::car::sim_bridge::car_performance_from(car),
             None => self.car_performance,
         }
+    }
+
+    /// Chave de categoria **com a classe** (`"endurance:gt3"`) — a granularidade real do
+    /// carro nas categorias multiclasse. Toda leitura de teto/custo de peça deve usar esta
+    /// chave, não `self.categoria`: o Endurance tem três classes com carros diferentes, e
+    /// tratá-lo como uma categoria só dava ao GT4 do Endurance o teto do LMP2.
+    pub fn car_category_key(&self) -> String {
+        match self.classe.as_deref().filter(|classe| !classe.is_empty()) {
+            Some(classe) => format!("{}:{}", self.categoria, classe),
+            None => self.categoria.clone(),
+        }
+    }
+
+    /// **Teto de nível de peça desta equipe** — a hierarquia real × fictícia, agora expressa
+    /// no Sistema de Nível do Carro em vez de na coluna legada.
+    ///
+    /// Parte do teto da CLASSE e desce um nível para a equipe **sem marca de fábrica** nas
+    /// arenas onde ela disputa com marcas reais (GT3 sprint e GT3 do Endurance). É o que
+    /// põe a fábrica no topo por natureza e deixa a privateer como azarão: ela chega perto,
+    /// bate a fábrica mal gerida, e não vira dinastia sem um programa de fábrica.
+    ///
+    /// A penalidade fictícia ANTIGA vivia em `finance::cashflow::car_dev_gain_factor`, sobre
+    /// um delta da coluna legada que o sim não lê mais. Aqui ela é visível ao jogador — o
+    /// Nível do Carro (1–10) é justamente a leitura que ele enxerga.
+    pub fn car_ceiling(&self) -> u8 {
+        let base = crate::car::cost::category_ceiling_for(&self.categoria, self.classe.as_deref());
+        if self.marca.is_none() && self.competes_with_real_marques() {
+            base.saturating_sub(FICTIONAL_CEILING_HANDICAP).max(1)
+        } else {
+            base
+        }
+    }
+
+    /// A equipe corre numa arena onde marcas reais de fábrica também correm.
+    fn competes_with_real_marques(&self) -> bool {
+        self.categoria == "gt3"
+            || (self.categoria == "endurance" && self.classe.as_deref() == Some("gt3"))
     }
 
     /// **Força do carro em 0–100** — a leitura de carro de TODO consumidor de IA, economia,

@@ -53,9 +53,11 @@ pub(crate) fn contact_link(rows: &[RaceDriverResult], inc: &IncidentResult) -> S
         return String::new();
     };
     match find(rows, other_id) {
-        Some(o) => {
-            rust_i18n::t!("narrative.beat.incident_link", other = o.pilot_name.as_str()).to_string()
-        }
+        Some(o) => rust_i18n::t!(
+            "narrative.beat.incident_link",
+            other = o.pilot_name.as_str()
+        )
+        .to_string(),
         None => String::new(),
     }
 }

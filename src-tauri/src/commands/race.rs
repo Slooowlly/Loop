@@ -1,4 +1,4 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use chrono::Local;
@@ -185,8 +185,9 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
     // FONTE ÚNICA do clima: resolve pelo MESMO generate_weather do export (e persiste no
     // entry.clima), pra a simulação offline produzir o resultado que o iRacing rodaria.
     if let Some(track) = crate::constants::tracks::get_track(race_entry.track_id) {
-        let cal = calendar_queries::get_calendar(&db.conn, &race_entry.season_id, &race_entry.categoria)
-            .unwrap_or_default();
+        let cal =
+            calendar_queries::get_calendar(&db.conn, &race_entry.season_id, &race_entry.categoria)
+                .unwrap_or_default();
         let career_first = cal.iter().all(|e| e.status.as_str() != "Concluida");
         let first_week = cal.iter().map(|e| e.week_of_year).min().unwrap_or(i32::MAX);
         let is_first = career_first && race_entry.week_of_year == first_week;
@@ -531,7 +532,9 @@ pub fn get_saved_race_screen(
     let Some(entry) = entries.into_iter().find(|e| e.rodada == rodada) else {
         return Ok(None);
     };
-    let path = career_dir.join("race_screens").join(format!("{}.json", entry.id));
+    let path = career_dir
+        .join("race_screens")
+        .join(format!("{}.json", entry.id));
     match std::fs::read_to_string(&path) {
         Ok(s) => {
             let mut v = match serde_json::from_str::<serde_json::Value>(&s) {
@@ -540,7 +543,10 @@ pub fn get_saved_race_screen(
             };
             // Injeta o race_id (não estava no payload salvo) p/ o front reconstruir o clima.
             if let Some(obj) = v.as_object_mut() {
-                obj.insert("race_id".into(), serde_json::Value::String(entry.id.clone()));
+                obj.insert(
+                    "race_id".into(),
+                    serde_json::Value::String(entry.id.clone()),
+                );
             }
             Ok(Some(v))
         }
@@ -619,7 +625,6 @@ pub fn get_race_breakdowns(
         .collect();
     Ok(out)
 }
-
 
 #[cfg(test)]
 #[path = "race/tests/mod.rs"]

@@ -29,11 +29,39 @@ use super::trafego::{
     CUSTO_TENTATIVA_FALHA_ATACANTE_MS, CUSTO_TENTATIVA_FALHA_DEFENSOR_MS,
     GAP_MINIMO_ENTRE_CARROS_MS, JANELA_AR_SUJO_MS, JANELA_DE_ATAQUE_MS,
 };
-use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
+use crate::simulation::incidents::{
+    IncidentResult, IncidentSeverity, IncidentType, PendingDamage, CHANCE_DE_DANO_NO_CONTATO,
+    IRM_CONTATO_DE_DISPUTA, MANIFESTACAO_INICIAL_DO_DANO_DE_CONTATO,
+};
 
 /// Registra um contato de disputa no carro. Sem `positions_lost`: o custo da tentativa falha
 /// já foi cobrado em TEMPO, e somar posições aqui cobraria o mesmo evento duas vezes.
-fn empurrar_contato(state: &mut RaceState, outro_id: &str, seg_str: &str, descricao: &str) {
+///
+/// O contato também pode deixar o carro AVARIADO (dano latente): até aqui um roda-a-roda não
+/// tinha consequência física nenhuma — custava tempo e sumia. Agora ele entra no mesmo
+/// mecanismo de dano latente da colisão, então o encostão do trecho 2 pode cobrar posições no
+/// trecho 4. `is_dnf_capable: false` de propósito: um encostão não tira o carro sozinho (essa
+/// é a via da colisão de verdade); ele custa posições dentro da corrida e desgaste depois dela
+/// (ver `car::crash::apply_contact_wear`, aplicado na manutenção pós-corrida).
+fn empurrar_contato(
+    state: &mut RaceState,
+    outro_id: &str,
+    seg_str: &str,
+    descricao: &str,
+    car_reliability: f64,
+    rng: &mut impl Rng,
+) {
+    // Carro frágil se avaria mais fácil — a mesma modulação de `maybe_add_pending_damage`.
+    let chance = (CHANCE_DE_DANO_NO_CONTATO * (1.0 - (car_reliability / 100.0 * 0.40))).clamp(0.05, 0.80);
+    if rng.gen::<f64>() < chance {
+        state.pending_damage.push(PendingDamage {
+            catalog_id: String::new(),
+            origin_segment: seg_str.to_string(),
+            manifest_chance: MANIFESTACAO_INICIAL_DO_DANO_DE_CONTATO,
+            is_dnf_capable: false,
+        });
+    }
+
     state.incidents.push(IncidentResult {
         pilot_id: state.driver_id.clone(),
         incident_type: IncidentType::Collision,
@@ -44,7 +72,9 @@ fn empurrar_contato(state: &mut RaceState, outro_id: &str, seg_str: &str, descri
         description: descricao.to_string(),
         linked_pilot_id: Some(outro_id.to_string()),
         is_two_car_incident: true,
-        injury_risk_multiplier: 1.0,
+        // Contato de disputa PODE machucar, mas com o peso certo: ver
+        // `IRM_CONTATO_DE_DISPUTA` (20% por carro). O `1.0` que estava aqui dava 50%.
+        injury_risk_multiplier: IRM_CONTATO_DE_DISPUTA,
         narrative_importance_hint: 1,
         catalog_id: None,
         damage_origin_segment: None,
@@ -573,6 +603,8 @@ pub fn simulate_race_com_modo(
                                 );
                                 let (nome_atras, nome_frente) =
                                     (atacante.nome.clone(), defensor.nome.clone());
+                                let (rel_atras, rel_frente) =
+                                    (atacante.car_reliability, defensor.car_reliability);
                                 // Contato na disputa: registrado nos DOIS, sem `positions_lost`
                                 // — o custo já foi cobrado em tempo logo acima, e somar posições
                                 // aqui cobraria duas vezes.
@@ -581,12 +613,16 @@ pub fn simulate_race_com_modo(
                                     &id_frente,
                                     seg_str,
                                     &format!("{nome_atras} bate ao tentar passar {nome_frente}"),
+                                    rel_atras,
+                                    rng,
                                 );
                                 empurrar_contato(
                                     &mut states[frente],
                                     &id_atras,
                                     seg_str,
                                     &format!("{nome_frente} leva contato de {nome_atras}"),
+                                    rel_frente,
+                                    rng,
                                 );
                             }
                         }

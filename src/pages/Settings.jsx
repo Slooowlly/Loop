@@ -7,6 +7,7 @@ import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
 import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
 import IracingDiagnosticoPanel from "../components/iracing/IracingDiagnosticoPanel";
+import { useOverlayFlags } from "../overlay/useOverlayFlags";
 import useCareerStore from "../stores/useCareerStore";
 import { useTranslation } from "react-i18next";
 
@@ -25,6 +26,8 @@ function Settings() {
   const [errorMessage, setErrorMessage] = useState("");
 
   // Race Control: macro de bandeira amarela (edita o app.ini do iRacing).
+  // Estado AO VIVO do pipeline de overlay — o que diz se o iRacing está em VR agora.
+  const overlayFlags = useOverlayFlags();
   const [yellowStatus, setYellowStatus] = useState(null);
   const [yellowMsg, setYellowMsg] = useState("");
   const [debugMenuOpen, setDebugMenuOpen] = useState(false);
@@ -397,6 +400,53 @@ function Settings() {
               propósito: é o que o jogador precisa achar quando a telemetria vem
               zerada, e é de lá que sai o log para anexar num relato. */}
           <IracingDiagnosticoPanel />
+
+          {/* Overlay em VR — quando desenhar os painéis (torre + rádio nos quads da OpenXR
+              layer). "Automático" segue a DETECÇÃO: a layer só é carregada quando o
+              iRacing abre em VR, então ela mesma é a resposta. Importa porque o pipeline é
+              caro — cada quadro copia 8 MB de pixels, 10 a 30 vezes por segundo — e no
+              monitor isso é só pressão de memória no WebView2, que já derrubou a janela
+              com "Out of Memory" numa corrida longa. */}
+          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.vrOverlay.label")}</p>
+              <p className="text-[11px] text-text-secondary">
+                {overlayFlags.simInVr ? t("settings.vrOverlay.detected") : t("settings.vrOverlay.notDetected")}
+              </p>
+            </div>
+            <div className="w-[160px] shrink-0">
+              <GlassSelect
+                value={config.vr_overlay_mode || "auto"}
+                onChange={(e) => handleChange("vr_overlay_mode", e.target.value)}
+                className="!min-h-0 !rounded-lg !px-3 !py-2 !text-[13px]"
+              >
+                <option value="auto">{t("settings.vrOverlay.modeAuto")}</option>
+                <option value="on">{t("settings.vrOverlay.modeOn")}</option>
+                <option value="off">{t("settings.vrOverlay.modeOff")}</option>
+              </GlassSelect>
+            </div>
+          </div>
+
+          {/* Override de live/gravação: só faz sentido se o VR puder estar ativo, então
+              desaparece no modo "off" — aí o overlay de monitor abre sempre. */}
+          {(config.vr_overlay_mode || "auto") !== "off" && (
+            <div
+              className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5"
+              onClick={() => handleToggle("monitor_overlay_in_vr")}
+            >
+              <div className="min-w-0 pl-4">
+                <p className="text-[13px] font-medium text-text-primary">{t("settings.monitorOverlayInVr.label")}</p>
+                <p className="text-[11px] text-text-secondary">
+                  {config.monitor_overlay_in_vr
+                    ? t("settings.monitorOverlayInVr.on")
+                    : t("settings.monitorOverlayInVr.off")}
+                </p>
+              </div>
+              <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.monitor_overlay_in_vr ? "bg-accent-primary" : "bg-white/10"}`}>
+                <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.monitor_overlay_in_vr ? "translate-x-5" : "translate-x-0"}`} />
+              </div>
+            </div>
+          )}
 
           {/* Bandeira amarela automática — liga/desliga o disparo (a macro já foi instalada ao abrir a tela) */}
           <div

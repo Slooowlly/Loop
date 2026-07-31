@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod category_adaptation;
 pub mod context;
 pub mod engine;
+pub mod esteira;
 pub mod forma;
 pub mod incidents;
 pub mod injuries;

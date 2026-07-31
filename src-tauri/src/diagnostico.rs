@@ -224,7 +224,10 @@ pub fn enviar(nota: Option<String>, diagnostico: serde_json::Value) -> Result<St
         );
         return Err(format!("O servidor recusou o envio (HTTP {status})."));
     }
-    linha("diagnostico", &format!("log enviado ao servidor, ticket {ticket}"));
+    linha(
+        "diagnostico",
+        &format!("log enviado ao servidor, ticket {ticket}"),
+    );
     Ok(ticket)
 }
 

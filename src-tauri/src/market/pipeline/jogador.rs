@@ -268,7 +268,10 @@ pub(super) fn generate_player_proposals(
 }
 
 /// Retorna a categoria do contrato mais recente do jogador (qualquer status).
-pub(super) fn find_last_player_category(conn: &Connection, player_id: &str) -> Result<String, String> {
+pub(super) fn find_last_player_category(
+    conn: &Connection,
+    player_id: &str,
+) -> Result<String, String> {
     conn.query_row(
         "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
         params![player_id],
@@ -308,7 +311,9 @@ pub(super) fn worst_team<'a>(
         .copied()
 }
 
-pub(super) fn best_team<'a>(teams: &[&'a crate::models::team::Team]) -> Option<&'a crate::models::team::Team> {
+pub(super) fn best_team<'a>(
+    teams: &[&'a crate::models::team::Team],
+) -> Option<&'a crate::models::team::Team> {
     teams
         .iter()
         .max_by(|a, b| a.car_strength().total_cmp(&b.car_strength()))
@@ -548,7 +553,10 @@ pub(crate) fn generate_player_window_proposals(
         let seat = format!("{}#{}", vacancy.team_id, vacancy.papel_necessario.as_str());
         proposal.id = format!(
             "MP-{}-{}-{}-{}",
-            season, vacancy.team_id, player.id, vacancy.papel_necessario.as_str()
+            season,
+            vacancy.team_id,
+            player.id,
+            vacancy.papel_necessario.as_str()
         );
         // Dedup por status da proposta já existente com esse ID.
         let existing_status: Option<String> = conn
@@ -661,10 +669,7 @@ pub(super) const MAX_PLAYER_RESERVED_SEATS: usize = 3;
 /// VAZIOS até o fecho, quando o jogador escolhe um (ou é colocado) e os demais são
 /// repostos pela IA. Devolve os `seat_id` `team#papel`, ou vazio se ele já tem contrato
 /// / não está ativo. Nunca desloca ninguém: só reserva vagas já vazias.
-pub(crate) fn player_reserved_seats(
-    conn: &Connection,
-    season: i32,
-) -> Result<Vec<String>, String> {
+pub(crate) fn player_reserved_seats(conn: &Connection, season: i32) -> Result<Vec<String>, String> {
     let _ = season;
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(Vec::new());
@@ -770,9 +775,7 @@ pub(crate) fn player_active_interest_teams(
         .filter(|team| team.ativa && team.categoria == categoria)
         .filter(|team| Some(&team.id) != player_team_id.as_ref())
         .collect();
-    teams.sort_by(|a, b| {
-        team_quality(b).total_cmp(&team_quality(a))
-    });
+    teams.sort_by(|a, b| team_quality(b).total_cmp(&team_quality(a)));
     Ok(teams
         .into_iter()
         .take(count)
@@ -800,8 +803,8 @@ pub(crate) fn player_market_offers(
     let player_tier = player_market_tier(conn, &player)?;
     let player_lic = player_effective_license(conn, &player)?;
     // Pódio (1º–3º) na última temporada → habilita ofertas de PROMOÇÃO (tier acima).
-    let player_podium = player_last_finish_position(conn, &player.id)
-        .is_some_and(|pos| (1..=3).contains(&pos));
+    let player_podium =
+        player_last_finish_position(conn, &player.id).is_some_and(|pos| (1..=3).contains(&pos));
     // Interesse ativo (Fase 2a): os poucos MELHORES times que cobiçam o jogador.
     let interest_team_ids: std::collections::HashSet<String> =
         player_active_interest_teams(conn, &player)?
@@ -830,7 +833,11 @@ pub(crate) fn player_market_offers(
         std::collections::HashMap::new();
     for vac in find_vacancies(conn)?.into_iter().filter(is_regular_vacancy) {
         // Assento já ofertado como card formal → não duplica em "Suas ofertas".
-        if proposal_seats.contains(&format!("{}#{}", vac.team_id, vac.papel_necessario.as_str())) {
+        if proposal_seats.contains(&format!(
+            "{}#{}",
+            vac.team_id,
+            vac.papel_necessario.as_str()
+        )) {
             continue;
         }
         // Piso de RECOMEÇO: vaga de estreia (rookie) é sempre oferecida ao jogador,
@@ -953,7 +960,9 @@ pub(crate) fn sign_player_to_vacancy(
     )
     .unwrap_or(0);
     if !is_debut && !is_promotion && required > player_lic {
-        return Err(format!("Vaga '{seat_id}' nao esta disponivel para o jogador."));
+        return Err(format!(
+            "Vaga '{seat_id}' nao esta disponivel para o jogador."
+        ));
     }
 
     grant_driver_license_for_division_if_needed(

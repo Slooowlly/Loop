@@ -253,8 +253,13 @@ mod tests {
 
     #[test]
     fn staying_in_focus_ages_the_dwell() {
-        let (f, dwell, changed) =
-            resolve_focus(TeamFocus::Dinastia, 3, TeamFocus::Dinastia, false, MIN_DWELL);
+        let (f, dwell, changed) = resolve_focus(
+            TeamFocus::Dinastia,
+            3,
+            TeamFocus::Dinastia,
+            false,
+            MIN_DWELL,
+        );
         assert_eq!((f, dwell, changed), (TeamFocus::Dinastia, 4, false));
     }
 

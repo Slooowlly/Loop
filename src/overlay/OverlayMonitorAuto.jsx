@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import useCareerStore from "../stores/useCareerStore";
-import { useOverlayData } from "./useOverlayData";
+import { useOverlayData, useOverlayDataSource } from "./useOverlayData";
+import { useOverlayFlags } from "./useOverlayFlags";
 import { estaNoTauri } from "../lib/tauri";
 
 // Controlador do overlay de MONITOR (roda na janela PRINCIPAL). Só LÓGICA — não
@@ -41,13 +42,22 @@ function payloadToMode(p) {
 
 export default function OverlayMonitorAuto() {
   const careerId = useCareerStore((s) => s.careerId);
-  const data = useOverlayData(careerId, { intervalMs: 1000 });
+  // FONTE ÚNICA do dado ao vivo desta janela: este é o único `get_overlay_data` do app.
+  // O escritor de VR (mesma janela) e a janela de overlay leem o que sai daqui.
+  useOverlayDataSource(careerId, { intervalMs: 500 });
+  const data = useOverlayData();
+  const { vrOverlay, monitorInVr } = useOverlayFlags();
   const [mode, setMode] = useState(loadMode);
   const [demo, setDemo] = useState(false); // demo do rádio ligado (Configurações)?
   const towerShownRef = useRef(false);
   const engShownRef = useRef(false);
 
-  const live = Boolean(careerId) && Boolean(data); // iRacing com sessão ativa
+  const sessaoViva = Boolean(careerId) && Boolean(data); // iRacing com sessão ativa
+  // Correndo de headset, o overlay de monitor fica atrás do jogo e ninguém o vê — mas a
+  // janela continuaria redesenhando a torre a cada quadro. Com o VR ligado ele só abre
+  // se o jogador PEDIU (override de live/gravação). Sem VR, nada muda.
+  const monitorPermitido = !vrOverlay || monitorInVr;
+  const live = sessaoViva && monitorPermitido;
   const shouldShow = live;
 
   // Poll do estado do demo (fonte no backend) — decide se a janela do rádio aparece

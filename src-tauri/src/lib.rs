@@ -176,8 +176,8 @@ mod iracing_sdk;
 mod market;
 mod models;
 mod narrative;
-mod player_skill;
 mod news;
+mod player_skill;
 mod promotion;
 mod public_presence;
 mod race_eval;
@@ -320,6 +320,16 @@ pub fn run() {
             let install_id = config.get_or_create_install_id();
             telemetry::init(install_id, config.telemetry_enabled.unwrap_or(false));
 
+            // Chaves de overlay no espelho volátil, pra os escritores do front já
+            // nascerem parados quando o jogador não está em VR.
+            commands::vr_overlay::set_vr_mode(&config.vr_overlay_mode);
+            commands::vr_overlay::set_monitor_in_vr(config.monitor_overlay_in_vr);
+
+            // Registra a API layer do OpenXR (o leitor do overlay de VR) a partir do
+            // resource empacotado. A cada boot, porque o registro guarda caminho absoluto
+            // e um update pode movê-lo — ver commands/vr_layer.rs.
+            commands::vr_layer::instalar_do_bundle(app.handle());
+
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = window.set_size(tauri::LogicalSize::new(
                     config.window_width,
@@ -443,6 +453,7 @@ pub fn run() {
             commands::career_commands::get_teams_standings,
             commands::career_commands::get_player_interests,
             commands::career_commands::get_team_history_dossier,
+            commands::career_commands::get_team_records_ranking,
             commands::career_commands::get_team_finance_report,
             commands::career_commands::get_race_results_by_category,
             commands::career_commands::get_previous_champions,
@@ -450,11 +461,13 @@ pub fn run() {
             commands::career_commands::get_driver,
             commands::career_commands::get_driver_detail,
             commands::career_commands::get_player_dossier,
+            commands::career_commands::get_race_reading,
             commands::career_commands::get_global_driver_rankings,
             commands::career_commands::toggle_driver_favorite,
             commands::career_commands::get_transfer_window_state,
             commands::career_commands::advance_transfer_window,
             commands::career_commands::get_global_team_history,
+            commands::career_commands::get_band_champions,
             commands::career_commands::get_briefing_phrase_history,
             commands::career_commands::save_briefing_phrase_history,
             commands::career_commands::get_preseason_free_agents,
@@ -540,6 +553,7 @@ pub fn run() {
             commands::convocation::encerrar_bloco_especial,
             commands::convocation::run_pos_especial,
             commands::calendar::get_temporal_summary,
+            commands::vr_overlay::overlay_pipeline_flags,
             commands::vr_overlay::vr_overlay_write_frame,
             commands::vr_overlay::vr_overlay_set_pose,
             commands::vr_overlay::vr_overlay_get_pose,

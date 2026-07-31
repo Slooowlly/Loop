@@ -104,7 +104,9 @@ impl RealCareerIndex {
 /// (`race_results`, nunca podados entre temporadas), então cobre tudo o que foi
 /// corrido no jogo. Pilotos históricos pré-gerados não têm linhas aqui e simplesmente
 /// não aparecem no mapa (o chamador os deixa em 0). Uma varredura indexada, barata.
-pub(super) fn career_podium_splits(conn: &Connection) -> Result<HashMap<String, (i32, i32)>, String> {
+pub(super) fn career_podium_splits(
+    conn: &Connection,
+) -> Result<HashMap<String, (i32, i32)>, String> {
     if !table_exists(conn, "race_results")? {
         return Ok(HashMap::new());
     }

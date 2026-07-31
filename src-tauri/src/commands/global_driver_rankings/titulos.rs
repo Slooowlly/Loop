@@ -307,7 +307,11 @@ pub(super) fn valid_archived_title_categories_for_pilot(
     Ok(Some(summaries))
 }
 
-pub(super) fn title_years_for_event(titles: i32, year: i32, team_id: Option<String>) -> Vec<TitleYear> {
+pub(super) fn title_years_for_event(
+    titles: i32,
+    year: i32,
+    team_id: Option<String>,
+) -> Vec<TitleYear> {
     if titles > 0 && year > 0 {
         vec![TitleYear { year, team_id }]
     } else {

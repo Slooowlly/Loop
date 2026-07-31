@@ -27,7 +27,7 @@ import { TeamHistoryDrawer } from "../../components/team/history";
 const DRIVER_CLICK_DELAY_MS = 220;
 const TEAM_CLICK_DELAY_MS = 220;
 
-function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) {
+function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, onOpenTeamRecords = null }) {
   const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
@@ -367,6 +367,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null }) 
           activeTab={activeHistoryTab}
           onTabChange={setActiveHistoryTab}
           onSelectTeam={setSelectedHistoryTeam}
+          onOpenRecordsRanking={onOpenTeamRecords}
           onClose={() => setSelectedHistoryTeam(null)}
         />
       ) : null}

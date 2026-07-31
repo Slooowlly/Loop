@@ -723,7 +723,10 @@ describe("MyTeamTab", () => {
     // Temporadas disputadas vive no âncora do cabeçalho, com o número em fonte
     // grande e a unidade em fonte pequena — dois nós de texto, não um.
     expect(drawer.querySelector("[data-anchor='seasons']").textContent).toMatch(/2\s*Temporadas reais/);
-    expect(within(drawer).getByText(/3 Pódios consecutivos reais/)).toBeInTheDocument();
+    // As duas sequências saíram de Esportivo: "3 pódios consecutivos" é a fita de
+    // forma recente, e lá dá para ver QUANDO — a frase era a versão pior do
+    // mesmo dado, ocupando a primeira dobra da seção.
+    expect(within(drawer).queryByText(/3 Pódios consecutivos reais/)).not.toBeInTheDocument();
     // Taxa de pódio saiu de Esportivo: é card de Records, e lá vem com a média
     // do grupo e a posição no ranking. Aqui era o mesmo número, sem contexto.
     expect(within(drawer).queryByText("75%")).not.toBeInTheDocument();

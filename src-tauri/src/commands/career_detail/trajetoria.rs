@@ -2,7 +2,10 @@
 
 use super::*;
 
-pub(super) fn career_debut_year_from_archive(seasons: &[CareerSeasonArchiveRow], fallback_year: i32) -> i32 {
+pub(super) fn career_debut_year_from_archive(
+    seasons: &[CareerSeasonArchiveRow],
+    fallback_year: i32,
+) -> i32 {
     let archive_year = seasons
         .iter()
         .filter(|season| {
@@ -181,4 +184,3 @@ pub(super) fn build_driver_career_path_block(
         marcos,
     })
 }
-

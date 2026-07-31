@@ -16,6 +16,34 @@ pub(super) const DEMAND_PEAK_THRESHOLD: f64 = 0.15;
 /// especializa — é o que cria o FOCO. Calibrável (chunk 8).
 pub(super) const FOCUS_GAP: u8 = 3;
 
+/// Corridas entre duas JANELAS DE DESENVOLVIMENTO: fora da janela o time faz manutenção,
+/// mas não sobe nível nenhum. Numa temporada de 12–16 etapas dá 3–4 upgrades por ano.
+///
+/// Por que existe: sem cadência o passe de upgrade subia as ONZE peças na MESMA corrida se
+/// o caixa desse — e o caixa dava. Um time recém-promovido igualava o carro do campo em um
+/// fim de semana, e o pouso da promoção (que o deixa entrar por baixo) não durava nada.
+/// Carro se constrói em anos: a cadência é o que transforma "tenho dinheiro" em "tenho
+/// tempo de pista", e é o que faz o FOCO importar — com 3–4 upgrades por ano o time escolhe
+/// ONDE gastar em vez de subir tudo.
+pub const CADENCIA_DE_UPGRADE: usize = 4;
+
+/// Quantos upgrades o time pode instalar NESTA corrida, dado quantas etapas ainda restam na
+/// temporada. `0` fora da janela, `1` na janela.
+///
+/// A fase é deslocada por time (hash do id), então os times não desenvolvem todos na mesma
+/// rodada — cada um tem seu próprio calendário de evolução.
+pub fn upgrades_permitidos_nesta_corrida(team_id: &str, corridas_restantes: usize) -> u32 {
+    let mut fase: usize = 0;
+    for byte in team_id.bytes() {
+        fase = fase.wrapping_mul(31).wrapping_add(byte as usize);
+    }
+    if (corridas_restantes + fase) % CADENCIA_DE_UPGRADE == 0 {
+        1
+    } else {
+        0
+    }
+}
+
 // ===================== Plano de manutenção =====================
 
 /// Plano de manutenção do carro para UMA corrida.
@@ -75,7 +103,9 @@ pub(super) fn part_relevance(part: PartType, demand: (f64, f64, f64)) -> f64 {
 /// peça durável/nível-5 gasta menos e é trocada mais tarde; limão/nível-extremo, antes.
 pub(super) fn needs_decision(part: &CarPart, apply_tent: bool) -> bool {
     part.spent
-        || part.wear + wear_per_race(part.part_type) / crate::car::wear::part_effective_life(part, apply_tent)
+        || part.wear
+            + wear_per_race(part.part_type)
+                / crate::car::wear::part_effective_life(part, apply_tent)
             >= 1.0
 }
 
@@ -91,7 +121,37 @@ pub fn decide_maintenance(
     budget: f64,
     demand: (f64, f64, f64),
 ) -> CarMaintenancePlan {
-    let ceiling = category_ceiling(category_id);
+    decide_maintenance_with_ceiling(car, category_id, budget, demand, None)
+}
+
+/// Igual a [`decide_maintenance`], com o teto de nível informado por quem chama.
+///
+/// Existe porque o teto não é só da categoria: é da CLASSE e da NATUREZA da equipe
+/// (ver [`Team::car_ceiling`]) — uma privateer no GT3 constrói até um nível abaixo da
+/// fábrica. `None` cai no teto da categoria, que é o comportamento das chamadas puras.
+pub fn decide_maintenance_with_ceiling(
+    car: &Car,
+    category_id: &str,
+    budget: f64,
+    demand: (f64, f64, f64),
+    team_ceiling: Option<u8>,
+) -> CarMaintenancePlan {
+    decide_maintenance_with_limits(car, category_id, budget, demand, team_ceiling, None)
+}
+
+/// Igual a [`decide_maintenance_with_ceiling`], com o **limite de upgrades desta corrida**
+/// informado por quem chama (ver [`upgrades_permitidos_nesta_corrida`]). `None` = sem
+/// limite — é o comportamento das chamadas puras e do harness de calibração; o jogo passa
+/// sempre a cota da janela.
+pub fn decide_maintenance_with_limits(
+    car: &Car,
+    category_id: &str,
+    budget: f64,
+    demand: (f64, f64, f64),
+    team_ceiling: Option<u8>,
+    max_upgrades: Option<u32>,
+) -> CarMaintenancePlan {
+    let ceiling = team_ceiling.unwrap_or_else(|| category_ceiling(category_id));
     // Tenda de nível (§4.8) só em categoria GERIDA (teto ≥ 3); spec (rookie/amador) fica de fora.
     let apply_tent = ceiling > 2;
     let mut plan = CarMaintenancePlan::default();
@@ -118,8 +178,12 @@ pub fn decide_maintenance(
     };
 
     // 1) Peças no fim da vida, mais relevantes primeiro.
-    let mut eol: Vec<CarPart> =
-        car.parts.iter().copied().filter(|p| needs_decision(p, apply_tent)).collect();
+    let mut eol: Vec<CarPart> = car
+        .parts
+        .iter()
+        .copied()
+        .filter(|p| needs_decision(p, apply_tent))
+        .collect();
     eol.sort_by(|a, b| {
         part_relevance(b.part_type, demand)
             .partial_cmp(&part_relevance(a.part_type, demand))
@@ -168,7 +232,8 @@ pub fn decide_maintenance(
                 return false; // irrelevante em foco → deixa degradar, não repõe
             }
             // "Precisaria de troca na PRÓXIMA corrida" = desgaste + 2 incrementos ≥ 100%.
-            let incr = wear_per_race(p.part_type) / crate::car::wear::part_effective_life(p, apply_tent);
+            let incr =
+                wear_per_race(p.part_type) / crate::car::wear::part_effective_life(p, apply_tent);
             p.wear + 2.0 * incr >= 1.0
         })
         .collect();
@@ -188,6 +253,10 @@ pub fn decide_maintenance(
 
     // 2) Passe de upgrade: com caixa sobrando, sobe as peças rumo ao seu TETO EFETIVO
     //    (relevantes → teto da categoria; irrelevantes → teto de foco). Esticadas ficam fora.
+    //    Duas travas: a COTA da janela de desenvolvimento (quantas peças podem subir nesta
+    //    corrida) e o preço de P&D (`upgrade_cost`), que é o preço de CONSTRUIR carro — bem
+    //    acima do de repor a mesma peça.
+    let mut upgrades_restantes = max_upgrades.unwrap_or(u32::MAX);
     let mut upgradable: Vec<PartType> = PartType::ALL
         .iter()
         .copied()
@@ -203,13 +272,17 @@ pub fn decide_maintenance(
     });
 
     for pt in upgradable {
+        if upgrades_restantes == 0 {
+            break;
+        }
         let new_level = current_target(&plan, car, pt) + 1;
-        let up_cost = part_cost(category_id, pt, new_level);
+        let up_cost = upgrade_cost(category_id, pt, new_level);
         if budget >= up_cost {
             plan.target_levels.insert(pt, new_level);
             plan.actions.entry(pt).or_insert(PartAction::Replace);
             budget -= up_cost;
             plan.estimated_cost += up_cost;
+            upgrades_restantes -= 1;
         }
     }
 
@@ -226,18 +299,31 @@ pub(super) fn current_target(plan: &CarMaintenancePlan, car: &Car, part: PartTyp
 }
 
 /// Decide a manutenção usando o caixa real do time e as próximas pistas do calendário.
+///
+/// `max_upgrades` é a cota da janela de desenvolvimento desta corrida
+/// ([`upgrades_permitidos_nesta_corrida`]) — `None` só em chamada pura/harness.
 pub fn decide_car_maintenance(
     team: &Team,
     car: &Car,
     category_id: &str,
     upcoming_track_ids: &[u32],
+    max_upgrades: Option<u32>,
 ) -> CarMaintenancePlan {
     let budget = calculate_financial_plan(team).spending_power.max(0.0);
     // Demanda efetiva = calendário misturado com o DNA persistente do time. É o que faz o
     // foco EMERGIR: a média do calendário sozinha lava pra balanceado; o DNA sustenta o pico.
     let calendar_demand = maintenance_demand(upcoming_track_ids);
     let demand = blend_with_focus(calendar_demand, team_car_focus(&team.id));
-    decide_maintenance(car, category_id, budget, demand)
+    // Teto da EQUIPE (classe + natureza), não da categoria: é aqui que a fábrica real ganha
+    // o nível a mais sobre a privateer nas arenas GT3.
+    decide_maintenance_with_limits(
+        car,
+        category_id,
+        budget,
+        demand,
+        Some(team.car_ceiling()),
+        max_upgrades,
+    )
 }
 
 /// Aplica o plano ao carro: instala os upgrades e roda a corrida (desgaste + ações) com

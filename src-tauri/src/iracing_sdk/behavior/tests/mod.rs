@@ -275,9 +275,7 @@ fn lote_novo_sinais() {
     let autoridade = reigning_champion(true, 0.95);
     let peso = reigning_champion(true, 0.05);
     assert!(
-        autoridade.nudge.optimism > 0.0
-            && autoridade.nudge.smoothness > 0.0
-            && !autoridade.adverse
+        autoridade.nudge.optimism > 0.0 && autoridade.nudge.smoothness > 0.0 && !autoridade.adverse
     );
     assert!(peso.nudge.aggression > 0.0 && peso.nudge.smoothness < 0.0 && peso.adverse);
     assert_eq!(reigning_champion(false, 0.5).nudge.optimism, 0.0);
@@ -358,7 +356,10 @@ fn lote_novo_sinais() {
         best_finish: Some(15),
         last_season: Some(2),
     });
-    assert_eq!(aff.nudge.aggression, 0.0, "experiência sem resultado ≠ domínio");
+    assert_eq!(
+        aff.nudge.aggression, 0.0,
+        "experiência sem resultado ≠ domínio"
+    );
 }
 
 #[test]
@@ -385,7 +386,10 @@ fn fama_vinculo_e_lesao_ativa() {
     assert!(ferido < sadio - 10.0, "pace ferido {ferido} << são {sadio}");
     // Mental forte não blinda o handicap físico (some do que a compostura protege).
     i.mentality = 100.0;
-    assert!(compute(&i).skill < sadio - 10.0, "compostura não cura lesão");
+    assert!(
+        compute(&i).skill < sadio - 10.0,
+        "compostura não cura lesão"
+    );
 }
 
 #[test]
@@ -490,8 +494,14 @@ fn calibracao_magnitudes() {
         "cruzeiro (titulo ganho)",
         pressure_title(&tc(true, true, true), 1, 0.5),
     );
-    row("casa_cheia choke", pressure_event(1.0, &[18, 20, 19], 24, 0.15));
-    row("casa_cheia clutch", pressure_event(1.0, &[18, 20, 19], 24, 0.90));
+    row(
+        "casa_cheia choke",
+        pressure_event(1.0, &[18, 20, 19], 24, 0.15),
+    );
+    row(
+        "casa_cheia clutch",
+        pressure_event(1.0, &[18, 20, 19], 24, 0.90),
+    );
     row("forma_alta", form(&[1, 2, 1], 20, 0.5));
     row("forma_seca (fragil)", form(&[18, 19, 20], 20, 0.15));
     row(

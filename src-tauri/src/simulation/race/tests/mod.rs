@@ -816,6 +816,16 @@ fn carro_ja_fora_por_batida_nao_registra_a_quebra() {
 
 /// Roda MUITAS corridas com incidentes ligados e conta os abandonos por pane mecânica do
 /// catálogo, com a quebra ligada (`Some`) e desligada (`None`).
+///
+/// `damage_origin_segment.is_none()` separa a PANE de verdade da sequela de colisão: as duas
+/// são carimbadas `Mechanical` (ver `race::danos`), mas só a primeira é a "pane genérica" que
+/// o Sistema de Quebra vem substituir — a segunda é um carro andando torto por causa de uma
+/// batida, e existir ou não a quebra ao vivo não muda isso.
+///
+/// Sem esse recorte o contador media outra coisa: dava zero só porque `IncidentCatalog::empty()`
+/// impedia o dano latente de nascer (`maybe_add_pending_damage` exige template do catálogo).
+/// Com catálogo de verdade — ou com o dano de contato, que não depende dele — a conta subia e o
+/// teste acusava uma regressão que não era regressão nenhuma.
 fn panes_do_catalogo(mechanicals: Option<&[MechanicalOutcome]>, corridas: u64) -> usize {
     let grid = build_grid();
     let ctx = sample_context_with_incidents(30, WeatherCondition::Dry);
@@ -836,7 +846,9 @@ fn panes_do_catalogo(mechanicals: Option<&[MechanicalOutcome]>, corridas: u64) -
             .race_results
             .iter()
             .flat_map(|r| &r.incidents)
-            .filter(|i| i.incident_type == IncidentType::Mechanical)
+            .filter(|i| {
+                i.incident_type == IncidentType::Mechanical && i.damage_origin_segment.is_none()
+            })
             .count();
     }
     total
@@ -2272,7 +2284,16 @@ mod fase2 {
     fn pacote_g_safety_car_zera_a_margem_do_lider() {
         // Efeito mecânico, isolado: com SC, o gap do 2º para o líder na bandeirada tem que ser
         // menor do que sem SC. É o "zera os gaps" chegando ao resultado.
-        let cs = corridas("gt3", 4, 28, 45, 20, true);
+        //
+        // A taxa é FORÇADA pelo mesmo motivo de `pacote_g_safety_car_muda_quem_ganha`: na
+        // frequência de produção o safety car aparece em ~2,5% das corridas (ver
+        // `pacote_g_frequencia_de_safety_car`), então o balde "com SC" tinha ~5 corridas de 200
+        // e a média dele era ruído. O teste passava ou falhava conforme o embaralhamento do
+        // RNG — mexer em QUALQUER constante de incidente virava a moeda. Forçar a taxa não
+        // afrouxa a asserção: aumenta a amostra do efeito, que é o que este pacote controla.
+        // A frequência em si é da campanha de calibração, não daqui.
+        const TAXA_FORCADA: f64 = 8.0;
+        let cs = corridas_com_taxa("gt3", 4, 28, 45, 40, true, TAXA_FORCADA);
         let media_do_gap = |com_sc: bool| {
             let sel: Vec<&RaceResult> = cs
                 .iter()
@@ -2411,3 +2432,6 @@ mod fase2 {
         );
     }
 }
+
+#[cfg(test)]
+mod medicao;

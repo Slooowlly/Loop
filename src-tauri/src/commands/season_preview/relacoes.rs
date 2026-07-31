@@ -11,7 +11,10 @@ pub(super) fn build_relations(
 ) -> Vec<String> {
     use crate::db::queries::{contracts, rivalries};
 
-    let names: HashMap<&str, &str> = grid.iter().map(|d| (d.id.as_str(), d.nome.as_str())).collect();
+    let names: HashMap<&str, &str> = grid
+        .iter()
+        .map(|d| (d.id.as_str(), d.nome.as_str()))
+        .collect();
     let in_grid: HashSet<&str> = names.keys().copied().collect();
 
     // (prioridade, texto, piloto_a, piloto_b) — prioridade menor = enredo mais forte.
@@ -19,7 +22,11 @@ pub(super) fn build_relations(
     let mut seen_pairs: HashSet<(String, String)> = HashSet::new();
 
     let pair_key = |a: &str, b: &str| {
-        if a < b { (a.to_string(), b.to_string()) } else { (b.to_string(), a.to_string()) }
+        if a < b {
+            (a.to_string(), b.to_string())
+        } else {
+            (b.to_string(), a.to_string())
+        }
     };
 
     // 1) Rivalidades estabelecidas entre dois nomes do grid.

@@ -105,8 +105,7 @@ pub(super) fn process_driver_evolution(
             let cars_ahead = teams_by_id
                 .values()
                 .filter(|team| {
-                    team.categoria == standing.category
-                        && team.car_strength() > team_car_strength
+                    team.categoria == standing.category && team.car_strength() > team_car_strength
                 })
                 .count() as i32;
             let expected_position = cars_ahead * 2 + 1;

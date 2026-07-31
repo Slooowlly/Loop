@@ -20,8 +20,7 @@ fn test_end_of_season_increments_year() {
     let (mut conn, season) = setup_pipeline_fixture();
     let save_path = unique_test_dir("eos_year");
 
-    let result =
-        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+    let result = run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
     assert_eq!(result.new_year, season.ano + 1);
     assert!(
@@ -81,8 +80,7 @@ fn test_end_of_season_creates_new_season() {
     let (mut conn, season) = setup_pipeline_fixture();
     let save_path = unique_test_dir("eos_new_season");
 
-    let result =
-        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+    let result = run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
     let active = season_queries::get_active_season(&conn)
         .expect("active season query")
@@ -125,8 +123,7 @@ fn test_end_of_season_retirement_report_keeps_final_category() {
     driver.idade = 47;
     driver_queries::update_driver(&conn, &driver).expect("update retiring driver");
 
-    let result =
-        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+    let result = run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
     let retirement = result
         .retirements
@@ -143,8 +140,7 @@ fn test_end_of_season_archive_excludes_newly_generated_rookies() {
     let (mut conn, season) = setup_pipeline_fixture();
     let save_path = unique_test_dir("eos_archive_excludes_rookies");
 
-    let result =
-        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+    let result = run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
     let archived_count: i64 = conn
         .query_row(
@@ -204,8 +200,7 @@ fn test_end_of_season_standings_keep_regular_team_when_special_contract_is_activ
     );
     special_contract.tipo = ContractType::Especial;
     special_contract.classe = Some("mazda".to_string());
-    contract_queries::insert_contract(&conn, &special_contract)
-        .expect("insert special contract");
+    contract_queries::insert_contract(&conn, &special_contract).expect("insert special contract");
 
     run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
@@ -224,12 +219,10 @@ fn test_end_of_season_standings_keep_regular_team_when_special_contract_is_activ
 
 #[test]
 fn test_promotion_initializes_preseason_after_movements() {
-    let (mut conn, season, promoted_team_id, _second_driver_id) =
-        setup_promotion_order_fixture();
+    let (mut conn, season, promoted_team_id, _second_driver_id) = setup_promotion_order_fixture();
     let save_path = unique_test_dir("eos_preseason_order");
 
-    let result =
-        run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+    let result = run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
 
     // Fase 4B: a campea do gt4 sobe para a Endurance classe gt4 levando os
     // pilotos; nenhum movimento toca LMP2.
@@ -257,8 +250,7 @@ fn test_end_of_season_rolls_back_when_preseason_plan_save_fails() {
     let (mut conn, season) = setup_pipeline_fixture();
     let blocked_path = unique_test_dir("eos_save_failure").join("blocked_path");
     std::fs::write(&blocked_path, "not a directory").expect("blocker file");
-    let mut retiring_driver =
-        driver_queries::get_driver(&conn, "P001").expect("retiring driver");
+    let mut retiring_driver = driver_queries::get_driver(&conn, "P001").expect("retiring driver");
     retiring_driver.idade = 47;
     driver_queries::update_driver(&conn, &retiring_driver).expect("update retiring driver");
 
@@ -538,18 +530,11 @@ fn sample_team(category: &str, id: &str, rng: &mut StdRng) -> Team {
     Team::from_template_with_rng(template, category, id.to_string(), 2024, rng)
 }
 
-fn sample_named_team(
-    category: &str,
-    id: &str,
-    name: &str,
-    class: Option<&str>,
-    seed: u64,
-) -> Team {
+fn sample_named_team(category: &str, id: &str, name: &str, class: Option<&str>, seed: u64) -> Team {
     let template = crate::constants::teams::get_reference_team_template(category, class)
         .expect("team template");
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut team =
-        Team::from_template_with_rng(template, category, id.to_string(), 2025, &mut rng);
+    let mut team = Team::from_template_with_rng(template, category, id.to_string(), 2025, &mut rng);
     team.nome = name.to_string();
     team.nome_curto = name.to_string();
     team.classe = class.map(str::to_string);
@@ -591,15 +576,13 @@ fn retention_fixture() -> (Connection, Season, Team, Driver, Contract) {
 #[test]
 fn test_retains_irreplaceable_veteran_with_raise() {
     let (conn, season, _team, veteran, contract) = retention_fixture();
-    let contracts_by_driver: HashMap<String, Contract> =
-        [(veteran.id.clone(), contract.clone())]
-            .into_iter()
-            .collect();
+    let contracts_by_driver: HashMap<String, Contract> = [(veteran.id.clone(), contract.clone())]
+        .into_iter()
+        .collect();
 
     // Sem candidato licenciado na gt4 → deve reter.
-    let retained =
-        try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
-            .expect("retention check");
+    let retained = try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+        .expect("retention check");
     assert!(retained, "veterano sem substituto deve ser retido");
 
     // Contrato antigo não está mais ativo.
@@ -642,14 +625,12 @@ fn test_does_not_retain_veteran_when_licensed_substitute_exists() {
     )
     .expect("insert license");
 
-    let contracts_by_driver: HashMap<String, Contract> =
-        [(veteran.id.clone(), contract.clone())]
-            .into_iter()
-            .collect();
+    let contracts_by_driver: HashMap<String, Contract> = [(veteran.id.clone(), contract.clone())]
+        .into_iter()
+        .collect();
 
-    let retained =
-        try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
-            .expect("retention check");
+    let retained = try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+        .expect("retention check");
     assert!(
         !retained,
         "havendo substituto licenciado à altura, não deve reter"
@@ -662,14 +643,12 @@ fn test_retains_irreplaceable_veteran_even_on_player_team() {
     // NÃO isenta a retenção do companheiro insubstituível.
     let (conn, season, mut team, veteran, contract) = retention_fixture();
     team.is_player_team = true;
-    let contracts_by_driver: HashMap<String, Contract> =
-        [(veteran.id.clone(), contract.clone())]
-            .into_iter()
-            .collect();
+    let contracts_by_driver: HashMap<String, Contract> = [(veteran.id.clone(), contract.clone())]
+        .into_iter()
+        .collect();
 
-    let retained =
-        try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
-            .expect("retention check");
+    let retained = try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
+        .expect("retention check");
     assert!(retained, "retenção vale inclusive para o time do jogador");
 }
 

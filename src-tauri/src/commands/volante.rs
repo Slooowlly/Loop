@@ -82,7 +82,10 @@ pub fn volante_dispositivos() -> Vec<u32> {
 
 /// Associa (ou desassocia, com `botao: None`) um botão ao recentro do alvo.
 #[tauri::command]
-pub fn volante_set_recenter_button(alvo: String, botao: Option<BotaoVolante>) -> Result<(), String> {
+pub fn volante_set_recenter_button(
+    alvo: String,
+    botao: Option<BotaoVolante>,
+) -> Result<(), String> {
     let i = indice(&alvo)?;
     ligacoes().lock().unwrap()[i] = botao;
     garantir_vigia();
@@ -100,7 +103,10 @@ mod tests {
 
     #[test]
     fn associar_e_desassociar_guarda_o_botao_do_alvo_certo() {
-        let b = BotaoVolante { dispositivo: 1, botao: 7 };
+        let b = BotaoVolante {
+            dispositivo: 1,
+            botao: 7,
+        };
         volante_set_recenter_button("engineer".into(), Some(b)).unwrap();
         assert_eq!(ligacoes().lock().unwrap()[1], Some(b));
         // O outro alvo não pode ter sido tocado.

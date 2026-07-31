@@ -477,8 +477,14 @@ mod tests {
         let res = 0.50;
         let evento = event_pressure_effect(2.0, res);
         let titulo = pressure_effect(2.0, res, false);
-        assert!(evento.pace_delta > 0.0, "casa cheia em 0.50 = clutch: {evento:?}");
-        assert!(titulo.pace_delta < 0.0, "título em 0.50 = choke: {titulo:?}");
+        assert!(
+            evento.pace_delta > 0.0,
+            "casa cheia em 0.50 = clutch: {evento:?}"
+        );
+        assert!(
+            titulo.pace_delta < 0.0,
+            "título em 0.50 = choke: {titulo:?}"
+        );
     }
 
     #[test]
@@ -502,13 +508,23 @@ mod tests {
         let evento_max = event_pressure_for(stakes, Some(20.0), 100.0, 100.0);
         let titulo_max = pressure_effect(3.0, 1.0, false);
         let ratio = evento_max.pace_delta / titulo_max.pace_delta;
-        assert!(ratio > 0.7 && ratio < 1.4, "ratio={ratio} (evento={:?})", evento_max);
+        assert!(
+            ratio > 0.7 && ratio < 1.4,
+            "ratio={ratio} (evento={:?})",
+            evento_max
+        );
     }
 
     #[test]
     fn combine_soma_ritmo_multiplica_erro() {
-        let a = PressureEffect { pace_delta: 2.0, error_mult: 0.9 };
-        let b = PressureEffect { pace_delta: 1.0, error_mult: 0.8 };
+        let a = PressureEffect {
+            pace_delta: 2.0,
+            error_mult: 0.9,
+        };
+        let b = PressureEffect {
+            pace_delta: 1.0,
+            error_mult: 0.8,
+        };
         let c = combine(a, b);
         assert!((c.pace_delta - 3.0).abs() < 1e-9);
         assert!((c.error_mult - 0.72).abs() < 1e-9);
@@ -538,7 +554,10 @@ mod tests {
         for skill in [0.0, 40.0, 67.0, 95.0, 120.0] {
             for clutch in [true, false] {
                 let m = headroom_pace_mult(skill, clutch);
-                assert!((0.4..=2.5).contains(&m), "skill={skill} clutch={clutch} m={m}");
+                assert!(
+                    (0.4..=2.5).contains(&m),
+                    "skill={skill} clutch={clutch} m={m}"
+                );
             }
         }
     }
@@ -580,7 +599,10 @@ mod tests {
         // Resiliência 0.55 (mediana): no título (neutro 0.55) é neutro/leve; contra o
         // rival (neutro 0.62) já é CHOKE — a emoção contra o inimigo puxa pro erro.
         let dueleff = rivalry_pressure_effect(1.0, 0.55);
-        assert!(dueleff.pace_delta < 0.0 && dueleff.error_mult > 1.0, "{dueleff:?}");
+        assert!(
+            dueleff.pace_delta < 0.0 && dueleff.error_mult > 1.0,
+            "{dueleff:?}"
+        );
         // Só o genuinamente frio (0.85) converte em clutch.
         let frio = rivalry_pressure_effect(1.0, 0.85);
         assert!(frio.pace_delta > 0.0 && frio.error_mult < 1.0, "{frio:?}");
@@ -593,8 +615,14 @@ mod tests {
         let quente = 90.0;
         let frio = rivalry_pressure_for(quente, 80.0, 80.0, 95.0, 80.0, 1.0);
         let fragil = rivalry_pressure_for(quente, 80.0, 80.0, 20.0, 20.0, 1.0);
-        assert!(frio.pace_delta > fragil.pace_delta, "frio={frio:?} fragil={fragil:?}");
-        assert!(fragil.pace_delta < 0.0, "frágil contra o rival afoba: {fragil:?}");
+        assert!(
+            frio.pace_delta > fragil.pace_delta,
+            "frio={frio:?} fragil={fragil:?}"
+        );
+        assert!(
+            fragil.pace_delta < 0.0,
+            "frágil contra o rival afoba: {fragil:?}"
+        );
     }
 
     #[test]
@@ -618,9 +646,15 @@ mod tests {
         // Desmotivado (0) perde pace; máximo (100) ganha um pouco. Déficit >> superávit.
         let fundo = motivation_pace_delta(0.0);
         let topo = motivation_pace_delta(100.0);
-        assert!((fundo + MOTIVATION_DEFICIT_SPAN).abs() < 1e-9, "fundo={fundo}");
+        assert!(
+            (fundo + MOTIVATION_DEFICIT_SPAN).abs() < 1e-9,
+            "fundo={fundo}"
+        );
         assert!((topo - MOTIVATION_SURPLUS_SPAN).abs() < 1e-9, "topo={topo}");
-        assert!(fundo.abs() > topo.abs(), "déficit deve pesar mais que superávit");
+        assert!(
+            fundo.abs() > topo.abs(),
+            "déficit deve pesar mais que superávit"
+        );
     }
 
     #[test]

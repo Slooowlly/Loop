@@ -40,7 +40,12 @@ pub fn compute(i: &BehaviorInputs) -> BehaviorOutput {
     let amult = adverse_multiplier(i.mentality, i.seed);
     let signals = [
         pressure_title(&i.title, i.races_left, i.resilience),
-        pressure_event(i.event_stakes, &i.recent_positions, i.field_size, i.resilience),
+        pressure_event(
+            i.event_stakes,
+            &i.recent_positions,
+            i.field_size,
+            i.resilience,
+        ),
         form(&i.recent_positions, i.field_size, i.resilience),
         track_affinity(&i.track),
         weather(i.is_wet, i.fator_chuva, i.rain_intensity),

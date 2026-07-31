@@ -167,9 +167,9 @@ fn interpolate_in_grid(ahead_count: usize, mut attrs: Vec<f64>) -> Option<f64> {
     };
     let lo = attrs.get(ahead_count).copied();
     let v = match (hi, lo) {
-        (Some(h), Some(l)) => (h + l) / 2.0,          // fronteira entre os dois
-        (None, Some(l)) => l + BOUNDARY_MARGIN,       // venceu todos
-        (Some(h), None) => h - BOUNDARY_MARGIN,       // perdeu de todos
+        (Some(h), Some(l)) => (h + l) / 2.0, // fronteira entre os dois
+        (None, Some(l)) => l + BOUNDARY_MARGIN, // venceu todos
+        (Some(h), None) => h - BOUNDARY_MARGIN, // perdeu de todos
         (None, None) => return None,
     };
     Some(v.clamp(1.0, 99.0))
@@ -446,14 +446,24 @@ pub fn build_dossier(samples: &[RaceSample], current_midia: f64) -> PlayerDossie
         make_attribute("skill", skill, skill_n, UNLOCK_SKILL),
         make_attribute("ritmo_classificacao", quali, quali_n, UNLOCK_QUALI),
         make_attribute("racecraft", racecraft, racecraft_n, UNLOCK_RACECRAFT),
-        make_attribute("consistencia", consistency, consistency_n, UNLOCK_CONSISTENCY),
+        make_attribute(
+            "consistencia",
+            consistency,
+            consistency_n,
+            UNLOCK_CONSISTENCY,
+        ),
         make_attribute("habilidade_largada", start, start_n, UNLOCK_START),
         make_attribute("aggression", aggression, aggression_n, UNLOCK_AGGRESSION),
         make_attribute("fator_chuva", rain, rain_n, UNLOCK_RAIN),
         make_attribute("adaptabilidade", adapt, adapt_n, UNLOCK_ADAPT),
         make_attribute("experiencia", exp, exp_n, Unlock::Immediate),
         // midia é leitura direta da fama do sistema — sempre aberta.
-        make_attribute("midia", Some(current_midia), total_races.max(1), Unlock::Immediate),
+        make_attribute(
+            "midia",
+            Some(current_midia),
+            total_races.max(1),
+            Unlock::Immediate,
+        ),
     ];
 
     PlayerDossier {
@@ -520,7 +530,10 @@ mod tests {
             telemetry: None,
         };
         let (v, _) = estimate_skill(&[sample]);
-        assert!((v.unwrap() - 83.0).abs() < 0.01, "venceu todos → 80+margem, got {v:?}");
+        assert!(
+            (v.unwrap() - 83.0).abs() < 0.01,
+            "venceu todos → 80+margem, got {v:?}"
+        );
     }
 
     #[test]
@@ -538,7 +551,10 @@ mod tests {
             telemetry: None,
         };
         let (v, _) = estimate_skill(&[sample]);
-        assert!((v.unwrap() - 67.0).abs() < 0.01, "perdeu de todos → 70−margem, got {v:?}");
+        assert!(
+            (v.unwrap() - 67.0).abs() < 0.01,
+            "perdeu de todos → 70−margem, got {v:?}"
+        );
     }
 
     #[test]
@@ -599,7 +615,11 @@ mod tests {
             })
             .collect();
         let dossier = build_dossier(&four, 40.0);
-        let skill = dossier.attributes.iter().find(|a| a.key == "skill").unwrap();
+        let skill = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "skill")
+            .unwrap();
         assert!(!skill.unlocked);
         assert_eq!(skill.remaining, 1);
         assert!(skill.value.is_none());
@@ -618,7 +638,11 @@ mod tests {
             telemetry: None,
         });
         let dossier = build_dossier(&five, 40.0);
-        let skill = dossier.attributes.iter().find(|a| a.key == "skill").unwrap();
+        let skill = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "skill")
+            .unwrap();
         assert!(skill.unlocked);
         assert_eq!(skill.remaining, 0);
         assert!(skill.value.is_some());
@@ -638,8 +662,16 @@ mod tests {
             telemetry: None,
         }];
         let dossier = build_dossier(&one, 62.0);
-        let exp = dossier.attributes.iter().find(|a| a.key == "experiencia").unwrap();
-        let midia = dossier.attributes.iter().find(|a| a.key == "midia").unwrap();
+        let exp = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "experiencia")
+            .unwrap();
+        let midia = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "midia")
+            .unwrap();
         assert!(exp.unlocked && exp.value.is_some());
         assert!(midia.unlocked);
         assert_eq!(midia.value, Some(62));
@@ -660,14 +692,22 @@ mod tests {
         };
         let two = vec![wet(1), wet(2)];
         let dossier = build_dossier(&two, 30.0);
-        let rain = dossier.attributes.iter().find(|a| a.key == "fator_chuva").unwrap();
+        let rain = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "fator_chuva")
+            .unwrap();
         assert!(!rain.unlocked);
         assert_eq!(rain.unlock_kind, "wet_races");
         assert_eq!(rain.remaining, 1);
 
         let three = vec![wet(1), wet(2), wet(3)];
         let dossier = build_dossier(&three, 30.0);
-        let rain = dossier.attributes.iter().find(|a| a.key == "fator_chuva").unwrap();
+        let rain = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "fator_chuva")
+            .unwrap();
         assert!(rain.unlocked);
     }
 
@@ -687,12 +727,20 @@ mod tests {
         };
         let one_season = vec![mk(1, 8), mk(1, 8)];
         let dossier = build_dossier(&one_season, 30.0);
-        let adapt = dossier.attributes.iter().find(|a| a.key == "adaptabilidade").unwrap();
+        let adapt = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "adaptabilidade")
+            .unwrap();
         assert!(!adapt.unlocked, "uma temporada não basta");
 
         let two_seasons = vec![mk(1, 8), mk(2, 3)];
         let dossier = build_dossier(&two_seasons, 30.0);
-        let adapt = dossier.attributes.iter().find(|a| a.key == "adaptabilidade").unwrap();
+        let adapt = dossier
+            .attributes
+            .iter()
+            .find(|a| a.key == "adaptabilidade")
+            .unwrap();
         assert!(adapt.unlocked);
         // melhora de 5 posições → 50 + 25 = 75.
         assert_eq!(adapt.value, Some(75));

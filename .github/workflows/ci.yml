@@ -40,6 +40,14 @@ jobs:
       - name: Build do frontend (necessário para o contexto do Tauri)
         run: npm run build
 
+      # A API layer do OpenXR (C++) é o LEITOR do overlay de VR e vai no bundle — ou
+      # seja, é código que chega no jogador. Sem este passo ela só seria compilada na
+      # hora de publicar (o `beforeBuildCommand` do Tauri não roda em `cargo test`), e
+      # um `overlay_layer.cpp` quebrado apareceria no meio de um release.
+      # O runner windows-latest já traz o Visual Studio com o workload de C++.
+      - name: Compilar a API layer do OpenXR
+        run: node scripts/build-vr-layer.mjs
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

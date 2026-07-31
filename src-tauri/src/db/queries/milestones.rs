@@ -117,7 +117,16 @@ fn upsert_scalar_record(
             context = excluded.context,
             season_number = excluded.season_number,
             round = excluded.round",
-        params![categoria, kind, subject_id, subject_name, value, context, season_number, round],
+        params![
+            categoria,
+            kind,
+            subject_id,
+            subject_name,
+            value,
+            context,
+            season_number,
+            round
+        ],
     )?;
     Ok(())
 }
@@ -152,7 +161,15 @@ pub fn update_scalar_and_check(
     };
     if beats {
         upsert_scalar_record(
-            conn, categoria, kind, subject_id, subject_name, value, context, season_number, round,
+            conn,
+            categoria,
+            kind,
+            subject_id,
+            subject_name,
+            value,
+            context,
+            season_number,
+            round,
         )?;
         if let Some((_, _, pv, _)) = prev {
             return Ok(Some(pv));
@@ -182,7 +199,15 @@ pub fn update_leader_and_check_crown(
         None => {
             if value >= floor {
                 upsert_scalar_record(
-                    conn, categoria, kind, leader_id, leader_name, value, "", season_number, round,
+                    conn,
+                    categoria,
+                    kind,
+                    leader_id,
+                    leader_name,
+                    value,
+                    "",
+                    season_number,
+                    round,
                 )?;
             }
             Ok(None)
@@ -191,14 +216,29 @@ pub fn update_leader_and_check_crown(
             if leader_id == pid {
                 if value != pv {
                     upsert_scalar_record(
-                        conn, categoria, kind, leader_id, leader_name, value, "", season_number,
+                        conn,
+                        categoria,
+                        kind,
+                        leader_id,
+                        leader_name,
+                        value,
+                        "",
+                        season_number,
                         round,
                     )?;
                 }
                 Ok(None)
             } else if value >= floor {
                 upsert_scalar_record(
-                    conn, categoria, kind, leader_id, leader_name, value, "", season_number, round,
+                    conn,
+                    categoria,
+                    kind,
+                    leader_id,
+                    leader_name,
+                    value,
+                    "",
+                    season_number,
+                    round,
                 )?;
                 Ok(Some((pname, pv)))
             } else {
@@ -250,7 +290,15 @@ pub fn upsert_track_lap_record(
             lap_ms = excluded.lap_ms,
             season_number = excluded.season_number,
             round = excluded.round",
-        params![categoria, track_name, pilot_id, pilot_name, lap_ms, season_number, round],
+        params![
+            categoria,
+            track_name,
+            pilot_id,
+            pilot_name,
+            lap_ms,
+            season_number,
+            round
+        ],
     )?;
     Ok(())
 }
@@ -288,7 +336,13 @@ pub fn insert_milestone(
         let ctx = m
             .context
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>();
         format!("REC-{categoria}-{}-{ctx}-{}", m.metric, m.value)
     };
@@ -426,21 +480,30 @@ mod tests {
         let c = conn();
         // Inaugural grava em silêncio (None) — nada retroativo.
         assert_eq!(
-            update_scalar_and_check(&c, "gt3", "youngest_winner", "P1", "A", 24, "", 5, 2, false).unwrap(),
+            update_scalar_and_check(&c, "gt3", "youngest_winner", "P1", "A", 24, "", 5, 2, false)
+                .unwrap(),
             None
         );
         // 22 < 24 → supera (mínimo) e devolve o valor anterior.
         assert_eq!(
-            update_scalar_and_check(&c, "gt3", "youngest_winner", "P2", "B", 22, "", 6, 1, false).unwrap(),
+            update_scalar_and_check(&c, "gt3", "youngest_winner", "P2", "B", 22, "", 6, 1, false)
+                .unwrap(),
             Some(24)
         );
         // 25 não é mais jovem que 22 → não supera.
         assert_eq!(
-            update_scalar_and_check(&c, "gt3", "youngest_winner", "P3", "C", 25, "", 7, 1, false).unwrap(),
+            update_scalar_and_check(&c, "gt3", "youngest_winner", "P3", "C", 25, "", 7, 1, false)
+                .unwrap(),
             None
         );
         // O recorde guardado agora é o de P2 (22).
-        assert_eq!(get_scalar_record(&c, "gt3", "youngest_winner").unwrap().unwrap().2, 22);
+        assert_eq!(
+            get_scalar_record(&c, "gt3", "youngest_winner")
+                .unwrap()
+                .unwrap()
+                .2,
+            22
+        );
     }
 
     #[test]
@@ -448,17 +511,20 @@ mod tests {
         let c = conn();
         // Inaugural: baseline silencioso.
         assert_eq!(
-            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P1", "A", 40, 30, 5, 1).unwrap(),
+            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P1", "A", 40, 30, 5, 1)
+                .unwrap(),
             None
         );
         // Mesmo dono, valor sobe → não anuncia.
         assert_eq!(
-            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P1", "A", 41, 30, 6, 1).unwrap(),
+            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P1", "A", 41, 30, 6, 1)
+                .unwrap(),
             None
         );
         // Troca de dono acima do piso → anuncia com o dono anterior.
         assert_eq!(
-            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P2", "B", 42, 30, 7, 1).unwrap(),
+            update_leader_and_check_crown(&c, "gt3", "most_starts_no_win", "P2", "B", 42, 30, 7, 1)
+                .unwrap(),
             Some(("A".to_string(), 41))
         );
     }
@@ -466,12 +532,18 @@ mod tests {
     #[test]
     fn test_get_max_milestone_value() {
         let c = conn();
-        assert_eq!(get_max_milestone_value(&c, "gt3", "win_streak").unwrap(), None);
+        assert_eq!(
+            get_max_milestone_value(&c, "gt3", "win_streak").unwrap(),
+            None
+        );
         insert_milestone(&c, "gt3", &sample("win_streak", 4, 5, 2)).unwrap();
         insert_milestone(&c, "gt3", &sample("win_streak", 6, 6, 1)).unwrap();
         insert_milestone(&c, "gt3", &sample("wins", 12, 6, 1)).unwrap();
         // Maior valor de win_streak = 6; métrica diferente não interfere.
-        assert_eq!(get_max_milestone_value(&c, "gt3", "win_streak").unwrap(), Some(6));
+        assert_eq!(
+            get_max_milestone_value(&c, "gt3", "win_streak").unwrap(),
+            Some(6)
+        );
     }
 
     #[test]

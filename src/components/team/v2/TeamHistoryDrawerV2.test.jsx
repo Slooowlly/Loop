@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { invoke } from "@tauri-apps/api/core";
@@ -200,17 +200,27 @@ describe("TeamHistoryDrawerV2 — galeria de títulos", () => {
     expect(celulas[0].style.backgroundColor).toBe("rgb(20, 31, 44)");
   });
 
-  // Um título só não sustenta régua, cabeçalho e tabela — seria mais moldura que
-  // conteúdo.
-  it("colapsa um título único numa linha", async () => {
-    abrirGaleria([titulo(2019, { points: "268", wins: 5, champion_driver: "Lucas Prado" })], [temporada(2019)]);
+  // Um título só ganha a MESMA tela de quem tem seis. Dar a tela boa só para a
+  // dinastia premia quem já tem muito — e a régua é mais informativa aí, porque
+  // mostra o único ano que importou dentro de uma carreira longa.
+  it("dá a régua e a tabela também para quem ganhou uma vez só", async () => {
+    abrirGaleria(
+      [titulo(2019, { points: "268", wins: 5, champion_driver: "Lucas Prado" })],
+      [temporada(2017), temporada(2018), temporada(2019), temporada(2020), temporada(2021)],
+    );
 
-    const galeria = await screen.findByTestId("team-history-title-gallery");
-    expect(galeria).toHaveAttribute("data-single", "true");
-    expect(within(galeria).getByText("268 pts · 5 vitórias")).toBeInTheDocument();
-    expect(within(galeria).getByText(/Lucas Prado/)).toBeInTheDocument();
-    expect(screen.queryByTestId("team-history-title-rail")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("team-history-title-group")).not.toBeInTheDocument();
+    const regua = await screen.findByTestId("team-history-title-rail");
+    // Cinco temporadas na régua, uma só marcada — é o que localiza o título na
+    // carreira em vez de deixá-lo como fato solto.
+    const celulas = [...regua.children];
+    expect(celulas).toHaveLength(5);
+    expect(celulas.filter((el) => el.dataset.title === "true").map((el) => el.dataset.year)).toEqual(["2019"]);
+
+    const grupo = screen.getByTestId("team-history-title-group");
+    expect(within(grupo).getByText(/1 título · 2019 · 1 dobradinha/)).toBeInTheDocument();
+    expect(grupo.querySelectorAll("[data-title-year]")).toHaveLength(1);
+    expect(within(grupo).getByText("268")).toBeInTheDocument();
+    expect(within(grupo).getByText(/Lucas Prado/)).toBeInTheDocument();
   });
 
   it("omite a linha do campeão quando o banco não sabe quem foi", async () => {
@@ -334,6 +344,28 @@ describe("TeamHistoryDrawerV2 — cronologia em Esportivo", () => {
       ["topTen", "4"],
       ["outside", "1"],
     ]);
+    // A proporção a barra já desenha; o número e a fatia é o que ela escondia.
+    expect([...barra.children].map((el) => el.textContent)).toEqual([
+      "5 (25%)",
+      "7 (35%)",
+      "3 (15%)",
+      "4 (20%)",
+      "1 (5%)",
+    ]);
+  });
+
+  // Faixa fina demais recorta o número no meio. Ela fica só como cor, e a
+  // contagem passa para a legenda em vez de sumir.
+  it("manda o número da faixa estreita para a legenda", async () => {
+    abrirEsportivo({
+      recent_form: [{ year: "2025", round: 1, category: "Mazda Championship", category_id: "mazda_rookie", position: 5 }],
+      result_spread: { races: 100, first: 1, podium: 99 },
+    });
+
+    const barra = await screen.findByTestId("team-history-spread");
+    expect([...barra.children].map((el) => el.textContent)).toEqual(["", "99 (99%)"]);
+    expect(within(barra.parentElement).getByText("1º · 1 (1%)")).toBeInTheDocument();
+    expect(within(barra.parentElement).getByText("2º-3º")).toBeInTheDocument();
   });
 
   // Marcos e linha do tempo eram dois blocos, e os dois contavam a primeira
@@ -365,6 +397,199 @@ describe("TeamHistoryDrawerV2 — cronologia em Esportivo", () => {
     // O marco cru "Primeira vitória" some: a linha do tempo já conta o mesmo
     // fato, com categoria e rodada.
     expect(textos.some((texto) => texto === "2017Primeira vitória")).toBe(false);
+  });
+});
+
+describe("TeamHistoryDrawerV2 — confiabilidade e pilotos", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  function abrirEsportivo(extra) {
+    invoke.mockResolvedValue(dossieCom([], extra));
+    render(
+      <TeamHistoryDrawerV2
+        careerId="c1"
+        team={EQUIPE}
+        teams={[EQUIPE]}
+        playerTeam={null}
+        activeCategory="mazda_rookie"
+        activeTab="sport"
+        onTabChange={() => {}}
+        onSelectTeam={() => {}}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  // A barra reparte as LARGADAS, não os abandonos: chegar ao fim é a maior
+  // fatia numa equipe saudável, e é ela que dá a escala das outras três.
+  it("reparte as largadas entre chegadas e as causas de abandono", async () => {
+    abrirEsportivo({
+      reliability: {
+        races: 40,
+        finished: 33,
+        finish_rate: 83,
+        group_finish_rate: 89,
+        mechanical: 4,
+        driver_error: 2,
+        other: 1,
+        worst_part: "Câmbio",
+      },
+    });
+
+    const painel = await screen.findByTestId("team-history-reliability");
+    expect(screen.getByTestId("team-history-finish-rate").textContent).toBe("83%");
+    expect([...painel.querySelectorAll("[data-band]")].map((el) => [el.dataset.band, el.style.flexGrow])).toEqual([
+      ["finished", "33"],
+      ["mechanical", "4"],
+      ["driverError", "2"],
+      ["other", "1"],
+    ]);
+    // A média do grupo é o que dá escala: 83% é abaixo de 89%.
+    expect(within(painel).getByText(/grupo em 89%/)).toBeInTheDocument();
+    expect(within(painel.parentElement).getByText(/Câmbio/)).toBeInTheDocument();
+  });
+
+  // Faixa zerada não vira fatia invisível na barra nem entrada morta na legenda.
+  it("omite as causas sem nenhum abandono", async () => {
+    abrirEsportivo({
+      reliability: { races: 20, finished: 20, finish_rate: 100, group_finish_rate: 94 },
+    });
+
+    const painel = await screen.findByTestId("team-history-reliability");
+    expect([...painel.querySelectorAll("[data-band]")].map((el) => el.dataset.band)).toEqual(["finished"]);
+  });
+
+  it("não desenha confiabilidade sem largada registrada", async () => {
+    abrirEsportivo({ recent_form: [{ year: "2025", round: 1, category: "Mazda Championship", category_id: "mazda_rookie", position: 5 }], reliability: { races: 0 } });
+    await screen.findByTestId("team-history-recent-form");
+    expect(screen.queryByTestId("team-history-reliability")).not.toBeInTheDocument();
+  });
+
+  // As duas vagas lado a lado são o que responde "essa equipe troca muito de
+  // piloto?". Cada coluna é uma sucessão em ordem cronológica.
+  it("reparte as passagens pelas duas vagas, em ordem cronológica", async () => {
+    abrirEsportivo({
+      lineup: [
+        {
+          slot: 1,
+          driver_id: "d1",
+          name: "Ana Duarte",
+          nationality: "Brasil",
+          first_year: "2020",
+          last_year: "2023",
+          races: 32,
+          wins: 4,
+          podiums: 11,
+          best_position: 1,
+          current_label: "Hoje na GT Pro",
+          current_team_name: "Isar Track",
+          current_team_color: "#e5793a",
+        },
+        {
+          slot: 1,
+          driver_id: "d2",
+          name: "Você Mesmo",
+          first_year: "2024",
+          last_year: "2026",
+          races: 18,
+          is_player: true,
+          still_here: true,
+          current_label: "Ainda na equipe",
+        },
+        {
+          slot: 2,
+          driver_id: "d3",
+          name: "Rui Matos",
+          first_year: "2021",
+          last_year: "2021",
+          races: 9,
+          best_position: 5,
+          current_label: "Aposentado em 2022",
+        },
+        {
+          slot: 0,
+          driver_id: "d4",
+          name: "Nino Sub",
+          first_year: "2022",
+          last_year: "2022",
+          races: 1,
+          best_position: 14,
+          current_label: "Paradeiro desconhecido",
+        },
+      ],
+    });
+
+    const galeria = await screen.findByTestId("team-history-lineup");
+    const vaga1 = galeria.querySelector("[data-slot='1']");
+    const vaga2 = galeria.querySelector("[data-slot='2']");
+    expect([...vaga1.querySelectorAll("[data-driver]")].map((li) => li.dataset.driver)).toEqual(["d1", "d2"]);
+    expect([...vaga2.querySelectorAll("[data-driver]")].map((li) => li.dataset.driver)).toEqual(["d3"]);
+    // Quem correu sem constar como titular de temporada arquivada não some: cai
+    // numa faixa própria em vez de ser empurrado para uma das vagas.
+    const avulsos = galeria.querySelector("[data-slot='0']");
+    expect([...avulsos.querySelectorAll("[data-driver]")].map((li) => li.dataset.driver)).toEqual(["d4"]);
+
+    // Mesma leitura para todo mundo: quanto correu, até onde chegou. As vitórias
+    // entram só quando existem — "melhor P1" não diz se foi uma vez ou dez.
+    const linhaAna = galeria.querySelector("[data-driver='d1']");
+    // A bandeira é o retrato que a galeria não tem. Quem não tem país no save
+    // fica sem ela — e não com a de outro país qualquer.
+    expect(linhaAna.querySelector("[data-nationality]").dataset.nationality).toBe("Brasil");
+    expect(galeria.querySelector("[data-driver='d3'] [data-nationality]")).toBeNull();
+    expect(within(linhaAna).getByText("32 corridas · melhor P1 · 4x")).toBeInTheDocument();
+    // Sem vitória, nada de "0x" pendurado no fim da linha.
+    expect(within(galeria.querySelector("[data-driver='d3']")).getByText("9 corridas · melhor P5")).toBeInTheDocument();
+    expect(within(linhaAna).getByText("2020–2023")).toBeInTheDocument();
+
+    // Quem foi para outra equipe aparece COM a equipe, na cor dela.
+    const destino = linhaAna.querySelector("[data-current-team]");
+    expect(destino.dataset.currentTeam).toBe("Isar Track");
+    expect(destino.style.color).toBe("rgb(229, 121, 58)");
+
+    // Quem continua na equipe é marcado na própria linha, e não repete a frase
+    // "ainda na equipe" na coluna de destino.
+    const linhaAtual = galeria.querySelector("[data-driver='d2']");
+    expect(linhaAtual.dataset.current).toBe("true");
+    expect(linhaAtual.dataset.player).toBe("true");
+    expect(within(linhaAtual).getByText("Atual")).toBeInTheDocument();
+    expect(within(linhaAtual).queryByText("Ainda na equipe")).not.toBeInTheDocument();
+  });
+
+  // Save recém-criado: o titular de hoje já está no carro e a rodada 1 ainda não
+  // rolou. Ele tem de aparecer — a galeria é onde o jogador confere quem está na
+  // equipe — mas sem o "0 corridas", que é ruído com cara de dado.
+  it("mostra o titular vigente que ainda não largou", async () => {
+    abrirEsportivo({
+      lineup: [
+        {
+          slot: 1,
+          driver_id: "d1",
+          name: "Você Mesmo",
+          first_year: "2026",
+          last_year: "2026",
+          races: 0,
+          is_player: true,
+          still_here: true,
+        },
+      ],
+    });
+
+    const galeria = await screen.findByTestId("team-history-lineup");
+    const linha = galeria.querySelector("[data-driver='d1']");
+    expect(linha.dataset.current).toBe("true");
+    expect(within(linha).getByText("ainda não correu")).toBeInTheDocument();
+    expect(within(linha).queryByText(/0 corridas/)).not.toBeInTheDocument();
+  });
+
+  it("não desenha a galeria quando ninguém correu pela equipe", async () => {
+    abrirEsportivo({
+      recent_form: [{ year: "2025", round: 1, category: "Mazda Championship", category_id: "mazda_rookie", position: 5 }],
+      lineup: [],
+    });
+    await screen.findByTestId("team-history-recent-form");
+    expect(screen.queryByTestId("team-history-lineup")).not.toBeInTheDocument();
   });
 });
 
@@ -725,5 +950,282 @@ describe("TeamHistoryDrawerV2 — pódios por corrida", () => {
 
     await waitFor(() => expect(invoke).toHaveBeenCalled());
     expect(screen.queryByTestId("team-history-trajectory")).not.toBeInTheDocument();
+  });
+});
+
+// Os dois arranjos da seção Esportivo. O contrato é curto e é o que importa:
+// nenhum dado existe num e falta no outro, e o clássico continua a um clique.
+describe("TeamHistoryDrawerV2 — layout da seção Esportivo", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    localStorage.clear();
+  });
+
+  const DADOS = {
+    reliability: { races: 40, finished: 33, finish_rate: 83, group_finish_rate: 89, mechanical: 4, driver_error: 2, other: 1 },
+    result_spread: { races: 20, first: 5, podium: 7, near_miss: 3, top_ten: 4, outside: 1 },
+    recent_form: [
+      { year: "2025", round: 7, category: "Mazda Championship", category_id: "mazda_rookie", position: 1 },
+      { year: "2025", round: 8, category: "Mazda Championship", category_id: "mazda_rookie", position: 3 },
+    ],
+    season_results: [
+      { year: "2024", category: "Mazda Championship", category_id: "mazda_rookie", position: "P2", races: 8, wins: 4, podiums: 8, points: "224" },
+      { year: "2025", category: "Mazda Championship", category_id: "mazda_rookie", position: "P1", races: 8, wins: 7, podiums: 8, points: "215" },
+    ],
+    lineup: [{ slot: 1, driver_id: "d1", name: "Luke Brown", races: 13, best_position: 1, wins: 3, first_year: "2024", last_year: "2026", country: "GB" }],
+    timeline: [{ kind: "first_race", year: "2024", text: "Primeira corrida." }],
+  };
+
+  function abrirEsportivo() {
+    invoke.mockResolvedValue(dossieCom([], DADOS));
+    render(
+      <TeamHistoryDrawerV2
+        careerId="c1"
+        team={EQUIPE}
+        teams={[EQUIPE]}
+        playerTeam={null}
+        activeCategory="mazda_rookie"
+        activeTab="sport"
+        onTabChange={() => {}}
+        onSelectTeam={() => {}}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  const BLOCOS = [
+    "team-history-reliability",
+    "team-history-spread",
+    "team-history-curve",
+    "team-history-recent-form",
+    "team-history-lineup",
+    "team-history-milestones",
+  ];
+
+  it("abre no arranjo arrumado, com os seis blocos sob os três títulos de grupo", async () => {
+    abrirEsportivo();
+    await screen.findByTestId("team-history-reliability");
+
+    expect(screen.getByText("Como a equipe termina")).toBeInTheDocument();
+    expect(screen.getByText("Como a equipe evolui")).toBeInTheDocument();
+    expect(screen.getByText("Quem correu por ela")).toBeInTheDocument();
+    BLOCOS.forEach((id) => expect(screen.getByTestId(id)).toBeInTheDocument());
+
+    // Confiabilidade e assinatura são a mesma figura: no arrumado elas dividem
+    // a mesma linha, e é isso que o pareamento tem de garantir.
+    const linha = screen.getByTestId("team-history-reliability").parentElement.parentElement;
+    expect(linha).toContain(screen.getByTestId("team-history-spread"));
+  });
+
+  it("volta ao clássico pelo botão, sem perder nenhum bloco, e lembra a escolha", async () => {
+    abrirEsportivo();
+    const botao = await screen.findByTestId("team-history-sport-layout");
+    expect(botao.dataset.layout).toBe("arrumado");
+
+    fireEvent.click(botao);
+
+    expect(screen.queryByText("Como a equipe termina")).not.toBeInTheDocument();
+    BLOCOS.forEach((id) => expect(screen.getByTestId(id)).toBeInTheDocument());
+    expect(screen.getByTestId("team-history-sport-layout").dataset.layout).toBe("classico");
+    expect(localStorage.getItem("loop.teamDossier.sportLayout")).toBe("classico");
+  });
+});
+
+// A campanha do campeonato: a equipe do dossiê contra o campo, rodada a rodada.
+// O contrato é que TODAS as equipes viram linha e só uma acende — sem isso o
+// gráfico volta a ser um traço subindo, que é o que toda linha acumulada faz.
+describe("TeamHistoryDrawerV2 — campanha do campeonato", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    localStorage.clear();
+  });
+
+  const CAMPANHA = {
+    year: "2026",
+    category: "Mazda Championship",
+    category_id: "mazda_rookie",
+    live: true,
+    rounds: [1, 2, 3],
+    lines: [
+      { team_id: "T2", team: "Falcon", selected: false, position: 1, total: "60", points: [25, 43, 60] },
+      { team_id: "T1", team: "Track Day Heroes", selected: true, position: 2, total: "48", points: [18, 33, 48] },
+      { team_id: "T3", team: "Isar Track", selected: false, position: 3, total: "20", points: [12, 20, 20] },
+    ],
+  };
+
+  function abrirEsportivo(extra) {
+    invoke.mockResolvedValue(dossieCom([], extra));
+    render(
+      <TeamHistoryDrawerV2
+        careerId="c1"
+        team={EQUIPE}
+        teams={[EQUIPE]}
+        playerTeam={null}
+        activeCategory="mazda_rookie"
+        activeTab="sport"
+        onTabChange={() => {}}
+        onSelectTeam={() => {}}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  it("desenha uma linha por equipe e acende só a do dossiê", async () => {
+    abrirEsportivo({ championship_run: CAMPANHA });
+
+    const grafico = await screen.findByTestId("team-history-championship-run");
+    const linhas = [...grafico.querySelectorAll("[data-line]")];
+    expect(linhas.map((el) => el.dataset.line).sort()).toEqual(["T1", "T2", "T3"]);
+    // Uma só acesa, e é a última desenhada — nenhuma linha do campo passa por cima dela.
+    const acesas = linhas.filter((el) => el.dataset.selected === "true");
+    expect(acesas).toHaveLength(1);
+    expect(acesas[0].dataset.line).toBe("T1");
+    expect(linhas[linhas.length - 1]).toBe(acesas[0]);
+
+    // A colocação é o veredito e vira pílula, em vez de sair de contar linhas.
+    expect(screen.getByTestId("team-history-run-position").textContent).toMatch(/P2/);
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+  });
+
+  const ultimoY = (el) => Number(el.getAttribute("d").split(" ").pop().split(",")[1]);
+
+  // Colocação é o modo padrão porque é o que descomprime: em pontos, um líder
+  // disparado come o eixo sozinho e o pelotão vira um feixe de retas coladas;
+  // em colocação cada equipe ocupa uma faixa da altura, por construção.
+  //
+  // A prova é a distância entre vizinhos de tabela. Aqui T1 (48) e T3 (20) estão
+  // a 28 pontos um do outro num eixo que vai até 60 — menos de metade da altura —
+  // e são vizinhos diretos na classificação, a exatamente uma faixa de distância.
+  it("abre em colocação e reparte a altura igualmente entre as equipes", async () => {
+    abrirEsportivo({ championship_run: CAMPANHA });
+
+    const grafico = await screen.findByTestId("team-history-championship-run");
+    const [p1, p2, p3] = ["T2", "T1", "T3"].map((id) => ultimoY(grafico.querySelector(`[data-line='${id}']`)));
+    // P1 no topo, P3 embaixo, e os degraus entre eles são idênticos.
+    expect(p1).toBeLessThan(p2);
+    expect(p2).toBeLessThan(p3);
+    expect(p2 - p1).toBeCloseTo(p3 - p2, 1);
+    expect(grafico.querySelector("[data-line='T1']").getAttribute("d")).not.toContain("NaN");
+  });
+
+  // O modo de pontos continua a um clique — é a leitura que o eixo de colocação
+  // descarta: colocação não diz se a briga é de dois pontos ou de duzentos.
+  it("troca para pontos e escala o eixo pelo líder", async () => {
+    abrirEsportivo({ championship_run: CAMPANHA });
+
+    const seletor = await screen.findByTestId("team-history-run-mode");
+    fireEvent.click(within(seletor).getByText("Pontos"));
+
+    const grafico = screen.getByTestId("team-history-championship-run");
+    const lider = grafico.querySelector("[data-line='T2']");
+    const equipe = grafico.querySelector("[data-line='T1']");
+    // Menos pontos = mais baixo no desenho (y cresce para baixo).
+    expect(ultimoY(equipe)).toBeGreaterThan(ultimoY(lider));
+    // 60 é o total do líder: o topo do eixo é ele, e a linha dele o encosta.
+    expect(ultimoY(lider)).toBeCloseTo(16, 0);
+  });
+
+  // Sem campanha o bloco não some: a curva de posição por temporada é a reserva.
+  it("cai na curva de posição quando não há campanha para desenhar", async () => {
+    abrirEsportivo({
+      season_results: [
+        { year: "2024", category: "Mazda Championship", category_id: "mazda_rookie", position: "P2", races: 8, wins: 4, podiums: 8, points: "224" },
+        { year: "2025", category: "Mazda Championship", category_id: "mazda_rookie", position: "P1", races: 8, wins: 7, podiums: 8, points: "215" },
+      ],
+    });
+
+    await screen.findByTestId("team-history-curve");
+    expect(screen.queryByTestId("team-history-championship-run")).not.toBeInTheDocument();
+  });
+
+  // O clássico é a rota de volta e não muda: lá a curva continua sendo o gráfico.
+  it("mantém a curva de posição no arranjo clássico", async () => {
+    abrirEsportivo({
+      championship_run: CAMPANHA,
+      season_results: [
+        { year: "2024", category: "Mazda Championship", category_id: "mazda_rookie", position: "P2", races: 8, wins: 4, podiums: 8, points: "224" },
+        { year: "2025", category: "Mazda Championship", category_id: "mazda_rookie", position: "P1", races: 8, wins: 7, podiums: 8, points: "215" },
+      ],
+    });
+
+    fireEvent.click(await screen.findByTestId("team-history-sport-layout"));
+    expect(screen.getByTestId("team-history-curve")).toBeInTheDocument();
+    expect(screen.queryByTestId("team-history-championship-run")).not.toBeInTheDocument();
+  });
+});
+
+// Os cards de record são a porta para a tabela de recordes de equipes. O que o
+// clique carrega é o contrato: a métrica define a ordenação de chegada, e a
+// categoria define o RECORTE — o card diz "11º de 19" dentro de um grupo, e a
+// tabela precisa abrir no mesmo grupo para o 11º continuar sendo o 11º.
+describe("TeamHistoryDrawerV2 — cards de record abrem o ranking", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  function abrirRecords(onOpenRecordsRanking) {
+    invoke.mockResolvedValue(dossieCom([]));
+    render(
+      <TeamHistoryDrawerV2
+        careerId="c1"
+        team={EQUIPE}
+        teams={[EQUIPE]}
+        playerTeam={null}
+        activeCategory="gt3"
+        activeTab="records"
+        onTabChange={() => {}}
+        onSelectTeam={() => {}}
+        onOpenRecordsRanking={onOpenRecordsRanking}
+        onClose={() => {}}
+      />,
+    );
+  }
+
+  it("manda métrica, categoria e equipe ao clicar num card", async () => {
+    const abrir = vi.fn();
+    abrirRecords(abrir);
+
+    const botao = await screen.findByTestId("team-history-record-open-wins");
+    fireEvent.click(botao);
+
+    // A classe vai junto: numa multiclasse é ela que diz em qual dos
+    // campeonatos da categoria a equipe corre.
+    expect(abrir).toHaveBeenCalledWith({
+      metric: "wins",
+      category: "gt3",
+      teamClass: "",
+      teamId: "T1",
+    });
+  });
+
+  it("abre pela métrica de cada card, e não sempre pela primeira", async () => {
+    const abrir = vi.fn();
+    abrirRecords(abrir);
+
+    fireEvent.click(await screen.findByTestId("team-history-record-open-podium_rate"));
+    expect(abrir).toHaveBeenCalledWith(expect.objectContaining({ metric: "podium_rate" }));
+  });
+
+  // O dossiê também abre fora do Dashboard (overlay de pré-temporada), onde não
+  // há aba para onde navegar. Ali o card continua card.
+  it("não vira botão sem destino", async () => {
+    invoke.mockResolvedValue(dossieCom([]));
+    render(
+      <TeamHistoryDrawerV2
+        careerId="c1"
+        team={EQUIPE}
+        teams={[EQUIPE]}
+        playerTeam={null}
+        activeCategory="gt3"
+        activeTab="records"
+        onTabChange={() => {}}
+        onSelectTeam={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    // Os cards existem; o que não existe é o botão dentro deles.
+    await waitFor(() => expect(document.querySelectorAll("[data-record]")).toHaveLength(5));
+    expect(screen.queryAllByTestId(/^team-history-record-open-/)).toHaveLength(0);
   });
 });

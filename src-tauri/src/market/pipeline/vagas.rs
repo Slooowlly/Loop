@@ -11,8 +11,29 @@ pub(super) fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> 
         team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao buscar equipes: {e}"))?;
     let mut vacancies = Vec::new();
 
+    // ANO da temporada corrente, para não abrir vaga em equipe que ainda não existe.
+    //
+    // Sem isto, o levantamento varria TODAS as equipes do banco e ignorava a linha do tempo:
+    // em 2005, as equipes de `mazda_rookie` — categoria que só nasce em 2020 — já geravam vaga.
+    // A vaga era preenchida com um rookie recém-gerado que nunca corria (a categoria não é
+    // simulada naquele ano) e que a escada depois promovia para cima, chegando ao gt3 com zero
+    // corridas na conta. É a cadeia que `historical_draft` já descrevia em prosa e compensava
+    // depois, com uma purga que só alcançava quem tinha ficado sem contrato.
+    //
+    // No jogo moderno o filtro é inerte (todas as categorias estão ativas), e se não houver
+    // temporada ativa o comportamento é o de antes — não filtrar — em vez de esvaziar a grade.
+    let ano_corrente = crate::db::queries::seasons::get_active_season(conn)
+        .ok()
+        .flatten()
+        .map(|season| season.ano);
+
     for team in teams {
         if !uses_regular_contracts(&team.categoria) {
+            continue;
+        }
+        if ano_corrente
+            .is_some_and(|ano| !crate::constants::historical_timeline::is_team_active_in_year(&team, ano))
+        {
             continue;
         }
         let category_tier = get_category_config(&team.categoria)

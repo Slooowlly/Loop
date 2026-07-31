@@ -34,11 +34,8 @@ pub(super) fn montar_e_gravar_manchetes(
         let winner_name = driver_queries::get_driver(conn, winner_id)
             .map(|d| d.nome)
             .unwrap_or_else(|_| winner_id.clone());
-        let importance = super::importancia::race_news_importance(
-            news_importance_bias,
-            interest_tier,
-            1,
-        );
+        let importance =
+            super::importancia::race_news_importance(news_importance_bias, interest_tier, 1);
 
         let total_rodadas = crate::constants::categories::get_category_config(category_id)
             .map(|c| c.corridas_por_temporada as i32)
@@ -48,13 +45,33 @@ pub(super) fn montar_e_gravar_manchetes(
         let track = race_result.track_name.as_str();
         let (titulo, texto) = if fallback_races == 0 {
             (
-                rust_i18n::t!("race.news.win_final_title", name = winner_name, track = track).to_string(),
-                rust_i18n::t!("race.news.win_final_text", name = winner_name, season = active_season.numero).to_string(),
+                rust_i18n::t!(
+                    "race.news.win_final_title",
+                    name = winner_name,
+                    track = track
+                )
+                .to_string(),
+                rust_i18n::t!(
+                    "race.news.win_final_text",
+                    name = winner_name,
+                    season = active_season.numero
+                )
+                .to_string(),
             )
         } else if fallback_races <= 2 {
             (
-                rust_i18n::t!("race.news.win_crucial_title", name = winner_name, track = track).to_string(),
-                rust_i18n::t!("race.news.win_crucial_text", name = winner_name, round = round).to_string(),
+                rust_i18n::t!(
+                    "race.news.win_crucial_title",
+                    name = winner_name,
+                    track = track
+                )
+                .to_string(),
+                rust_i18n::t!(
+                    "race.news.win_crucial_text",
+                    name = winner_name,
+                    round = round
+                )
+                .to_string(),
             )
         } else {
             (
@@ -107,8 +124,18 @@ pub(super) fn montar_e_gravar_manchetes(
                         id: champ_id,
                         tipo: NewsType::FramingSazonal,
                         icone: NewsType::FramingSazonal.icone().to_string(),
-                        titulo: rust_i18n::t!("race.news.champion_title", name = champion.pilot_name.as_str(), season = active_season.numero).to_string(),
-                        texto: rust_i18n::t!("race.news.champion_text", rounds = total_rodadas, name = champion.pilot_name.as_str()).to_string(),
+                        titulo: rust_i18n::t!(
+                            "race.news.champion_title",
+                            name = champion.pilot_name.as_str(),
+                            season = active_season.numero
+                        )
+                        .to_string(),
+                        texto: rust_i18n::t!(
+                            "race.news.champion_text",
+                            rounds = total_rodadas,
+                            name = champion.pilot_name.as_str()
+                        )
+                        .to_string(),
                         rodada: Some(round),
                         semana_pretemporada: None,
                         temporada: active_season.numero,

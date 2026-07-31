@@ -27,9 +27,24 @@ fn history() -> RaceHistory {
             lap: 10,
             progress: 0.0,
             cars: vec![
-                CarGapPoint { idx: 0, position: 2, gap: 1.5, ..Default::default() },
-                CarGapPoint { idx: 1, position: 1, gap: 0.0, ..Default::default() },
-                CarGapPoint { idx: 2, position: 3, gap: 4.0, ..Default::default() },
+                CarGapPoint {
+                    idx: 0,
+                    position: 2,
+                    gap: 1.5,
+                    ..Default::default()
+                },
+                CarGapPoint {
+                    idx: 1,
+                    position: 1,
+                    gap: 0.0,
+                    ..Default::default()
+                },
+                CarGapPoint {
+                    idx: 2,
+                    position: 3,
+                    gap: 4.0,
+                    ..Default::default()
+                },
             ],
         }],
         player_laps: vec![],
@@ -55,12 +70,20 @@ fn history() -> RaceHistory {
     // Tempos de volta: idx1 mais rápido (90s), jogador 91s, idx2 92s.
     for (idx, t) in [(0, 91.0), (1, 90.0), (2, 92.0)] {
         for lap in 1..=10 {
-            h.car_laps.push(CarLap { car_idx: idx, lap, time: t });
+            h.car_laps.push(CarLap {
+                car_idx: idx,
+                lap,
+                time: t,
+            });
         }
     }
     // Quali: jogador foi pole (89s), idx1 90s, idx2 91s.
     for (idx, t) in [(0, 89.0), (1, 90.0), (2, 91.0)] {
-        h.qualy_laps.push(CarLap { car_idx: idx, lap: 1, time: t });
+        h.qualy_laps.push(CarLap {
+            car_idx: idx,
+            lap: 1,
+            time: t,
+        });
     }
     h
 }
@@ -134,10 +157,17 @@ fn ai_dnf_marks_driver_out() {
     let conn = Connection::open_in_memory().unwrap();
 
     let r = build_race_result_from_session(&h, &s, &conn, &by_number, None, "Seco", "Test");
-    let third = r.race_results.iter().find(|x| x.pilot_id == "ai-third").unwrap();
+    let third = r
+        .race_results
+        .iter()
+        .find(|x| x.pilot_id == "ai-third")
+        .unwrap();
     assert!(third.is_dnf);
     assert_eq!(third.dnf_reason.as_deref(), Some("Acidente na curva 3"));
-    assert_eq!(third.notable_incident.as_deref(), Some("Acidente na curva 3"));
+    assert_eq!(
+        third.notable_incident.as_deref(),
+        Some("Acidente na curva 3")
+    );
     assert_eq!(r.total_dnfs, 1);
 }
 
@@ -188,9 +218,21 @@ fn aiseason_marks_laps_down_and_gap_and_pole() {
         "nenhum",
         "",
     );
-    let leader = r.race_results.iter().find(|x| x.laps_completed == 11).unwrap();
-    let lapped = r.race_results.iter().find(|x| x.laps_completed == 10).unwrap();
-    let back: Vec<_> = r.race_results.iter().filter(|x| x.laps_completed == 3).collect();
+    let leader = r
+        .race_results
+        .iter()
+        .find(|x| x.laps_completed == 11)
+        .unwrap();
+    let lapped = r
+        .race_results
+        .iter()
+        .find(|x| x.laps_completed == 10)
+        .unwrap();
+    let back: Vec<_> = r
+        .race_results
+        .iter()
+        .filter(|x| x.laps_completed == 3)
+        .collect();
     assert!(!leader.is_dnf, "líder não é DNF");
     assert!(!lapped.is_dnf, "lapeado (10/11) terminou");
     assert_eq!(back.len(), 2);
@@ -273,7 +315,11 @@ fn aiseason_registra_batida_do_jogador_que_terminou() {
     let inc = player_inc(&r).expect("batida registrada");
     assert_eq!(inc.incident_type, IncidentType::Collision);
     assert_eq!(inc.severity, IncidentSeverity::Major);
-    assert!(inc.description.contains('7'), "cita a volta: {}", inc.description);
+    assert!(
+        inc.description.contains('7'),
+        "cita a volta: {}",
+        inc.description
+    );
 
     // Rodada (2 pts) → o "algo pequeno", citado como pequeno.
     let r = build(&[mark(2, 4.2)], "nenhum");
@@ -309,7 +355,10 @@ fn aiseason_registra_batida_do_jogador_que_terminou() {
     // Sem direção medida não inventa lado nenhum.
     let r = build_dir(&[mark(4, 6.0)], "moderado", "");
     let desc = player_inc(&r).unwrap().description;
-    assert!(!desc.contains("traseira") && !desc.contains("dianteira"), "{desc}");
+    assert!(
+        !desc.contains("traseira") && !desc.contains("dianteira"),
+        "{desc}"
+    );
 }
 
 #[test]
@@ -327,15 +376,14 @@ fn aiseason_links_player_to_who_hit_them() {
         track_id: 1,
         laps_complete: 11,
         rows: vec![
-            row(11, 1, 100),  // líder
-            row(0, 64, 99),   // jogador parado (0 voltas) — DNF, cust 99
-            row(11, 7, 700),  // culpado, que TERMINOU (11 voltas)
+            row(11, 1, 100), // líder
+            row(0, 64, 99),  // jogador parado (0 voltas) — DNF, cust 99
+            row(11, 7, 700), // culpado, que TERMINOU (11 voltas)
         ],
         qualify: vec![],
     };
     let conn = Connection::open_in_memory().unwrap();
-    let by_number: HashMap<i64, String> =
-        [(7i64, "ai-7".to_string())].into_iter().collect();
+    let by_number: HashMap<i64, String> = [(7i64, "ai-7".to_string())].into_iter().collect();
     let empty = std::collections::HashSet::new();
     let r = build_race_result_from_aiseason(
         &event,
@@ -358,9 +406,16 @@ fn aiseason_links_player_to_who_hit_them() {
     assert!(pi.is_two_car_incident);
     assert_eq!(pi.linked_pilot_id.as_deref(), Some("ai-7"));
     // O culpado ganha o incidente recíproco, MESMO tendo terminado a corrida.
-    let culprit = r.race_results.iter().find(|x| x.pilot_id == "ai-7").unwrap();
+    let culprit = r
+        .race_results
+        .iter()
+        .find(|x| x.pilot_id == "ai-7")
+        .unwrap();
     assert_eq!(
-        culprit.incidents.first().and_then(|i| i.linked_pilot_id.clone()),
+        culprit
+            .incidents
+            .first()
+            .and_then(|i| i.linked_pilot_id.clone()),
         Some(player.pilot_id.clone())
     );
 }

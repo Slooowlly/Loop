@@ -78,6 +78,55 @@ pub(crate) fn injury_base_chance(incident_type: IncidentType) -> f64 {
     }
 }
 
+/// IRM do **contato de disputa** (`race::motor::empurrar_contato`) — o encostão de uma
+/// tentativa de ultrapassagem que não deu certo.
+///
+/// Não sai de [`compute_irm`] de propósito: pela tabela, `(Collision, Minor)` é 0.0, e um
+/// roda-roda de disputa TEM de poder machucar. Mas ele também não pode valer o que valia
+/// antes — o call site cravava `1.0`, o que dava `0.50 × 1.0` = **50%** de lesão por
+/// contato, em CADA um dos dois carros. Como o contato é tráfego normal (5% das tentativas
+/// falhas, até 35% no piloto agressivo, cinco segmentos por corrida), aquilo sozinho
+/// respondia pela enchente de lesões: 11,7% das largadas terminavam com piloto machucado.
+///
+/// `0.40 × 0.50` = **20% por carro por contato** — abaixo da batida crítica (70%) e do erro
+/// crítico (40%), acima da pane crítica (15%).
+pub(crate) const IRM_CONTATO_DE_DISPUTA: f64 = 0.40;
+
+/// IRM do **dano latente que vira abandono** (`race::danos::process_pending_damage`): o carro
+/// que sobreviveu à batida, carregou a avaria e desistiu voltas depois.
+///
+/// Também fora de [`compute_irm`] — o incidente é carimbado `(Mechanical, Major)`, que na
+/// tabela é 0.0, mas o carro está abandonando por consequência direta de uma colisão. O valor
+/// é o MESMO da pane crítica (`0.60 × 0.25` = 15%): o piloto não sofre um impacto novo aqui,
+/// só recolhe um carro quebrado. Antes o call site cravava `1.5` (37,5%) — mais que a pane
+/// crítica, sem nada que justificasse.
+pub(crate) const IRM_DANO_LATENTE_COM_ABANDONO: f64 = 0.60;
+
+/// IRM do **dano latente que só custa posições** — o carro segue na pista, torto, e perde
+/// terreno. `0.20 × 0.25` = **5%**: existe (o carro avariado ainda pode morder), mas é o
+/// menor da escala, abaixo do abandono (15%) e do contato (20%). Antes o call site cravava
+/// `1.0` (25%), o que fazia andar avariado machucar mais que bater.
+pub(crate) const IRM_DANO_LATENTE_SEM_ABANDONO: f64 = 0.20;
+
+/// Com que frequência um dano latente **capaz de abandono** de fato tira o carro, quando se
+/// manifesta. O resto das manifestações custa só posições.
+///
+/// Era `0.70` — abandonar era mais que o DOBRO de comum que perder posições, o inverso do que
+/// a corrida faz: o normal é o carro avariado seguir andando mal. Em `0.35`, perder posições
+/// (65%) volta a ser o desfecho comum e o abandono (35%) o desfecho ruim.
+pub(crate) const CHANCE_DE_ABANDONO_NA_MANIFESTACAO: f64 = 0.35;
+
+/// Chance de um **contato de disputa** deixar o carro avariado (dano latente), antes da
+/// modulação por confiabilidade. Mesmo patamar da colisão `Minor` em
+/// `segmento::maybe_add_pending_damage` — um encostão torto é um encostão torto, venha ele da
+/// tentativa de ultrapassagem ou do sorteio de colisão do segmento.
+pub(crate) const CHANCE_DE_DANO_NO_CONTATO: f64 = 0.25;
+
+/// Chance INICIAL de o dano de um contato se manifestar no segmento seguinte (sobe +0.15 por
+/// segmento que passa sem manifestar, como todo dano latente). Um pouco abaixo do 0.20 da
+/// colisão de verdade: o encostão avaria menos.
+pub(crate) const MANIFESTACAO_INICIAL_DO_DANO_DE_CONTATO: f64 = 0.15;
+
 pub(crate) fn compute_narrative_hint(
     severity: IncidentSeverity,
     incident_type: IncidentType,

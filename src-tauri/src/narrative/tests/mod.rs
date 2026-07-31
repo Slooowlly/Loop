@@ -8,14 +8,43 @@ use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentTyp
 #[serial_test::serial]
 fn fatos_e_tese_resolvem_nos_dois_locales() {
     rust_i18n::set_locale("pt-BR");
-    let pt = rust_i18n::t!("narrative.beat.winner", name = "Ana", team = "Alfa", grid = 4, extra = "").to_string();
-    assert!(pt.contains("Ana") && pt.contains("Vencedor") && !pt.contains("%{"), "{pt}");
-    let pt_t = rust_i18n::t!("narrative.thesis.improbable_win", name = "Ana", team = "Alfa", grid = 8).to_string();
-    assert!(pt_t.contains("Ana") && pt_t.contains("P8") && !pt_t.contains("%{"), "{pt_t}");
+    let pt = rust_i18n::t!(
+        "narrative.beat.winner",
+        name = "Ana",
+        team = "Alfa",
+        grid = 4,
+        extra = ""
+    )
+    .to_string();
+    assert!(
+        pt.contains("Ana") && pt.contains("Vencedor") && !pt.contains("%{"),
+        "{pt}"
+    );
+    let pt_t = rust_i18n::t!(
+        "narrative.thesis.improbable_win",
+        name = "Ana",
+        team = "Alfa",
+        grid = 8
+    )
+    .to_string();
+    assert!(
+        pt_t.contains("Ana") && pt_t.contains("P8") && !pt_t.contains("%{"),
+        "{pt_t}"
+    );
 
     rust_i18n::set_locale("en-US");
-    let en = rust_i18n::t!("narrative.beat.winner", name = "Ana", team = "Alfa", grid = 4, extra = "").to_string();
-    assert!(en.contains("Ana") && en.contains("Winner") && !en.contains("%{"), "{en}");
+    let en = rust_i18n::t!(
+        "narrative.beat.winner",
+        name = "Ana",
+        team = "Alfa",
+        grid = 4,
+        extra = ""
+    )
+    .to_string();
+    assert!(
+        en.contains("Ana") && en.contains("Winner") && !en.contains("%{"),
+        "{en}"
+    );
     assert_ne!(pt, en);
 
     rust_i18n::set_locale("pt-BR");
@@ -47,9 +76,27 @@ fn inc(
 /// ele o tom — acompanha o tamanho do impacto.
 #[test]
 fn batida_do_jogador_escala_com_a_gravidade() {
-    let leve = inc("p", IncidentType::Collision, IncidentSeverity::Minor, false, 0);
-    let forte = inc("p", IncidentType::Collision, IncidentSeverity::Major, false, 2);
-    let grave = inc("p", IncidentType::Collision, IncidentSeverity::Critical, false, 5);
+    let leve = inc(
+        "p",
+        IncidentType::Collision,
+        IncidentSeverity::Minor,
+        false,
+        0,
+    );
+    let forte = inc(
+        "p",
+        IncidentType::Collision,
+        IncidentSeverity::Major,
+        false,
+        2,
+    );
+    let grave = inc(
+        "p",
+        IncidentType::Collision,
+        IncidentSeverity::Critical,
+        false,
+        5,
+    );
 
     let (wl, wf, wg) = (
         incident_weight(&leve, true),
@@ -64,17 +111,41 @@ fn batida_do_jogador_escala_com_a_gravidade() {
 /// A IA não pode inundar o boletim: susto leve fica fora, batida de verdade entra.
 #[test]
 fn batida_de_ia_so_entra_quando_e_de_verdade() {
-    let leve = inc("ai", IncidentType::Collision, IncidentSeverity::Minor, false, 0);
-    let forte = inc("ai", IncidentType::Collision, IncidentSeverity::Major, false, 3);
-    assert!(incident_weight(&leve, false) < THRESHOLD, "susto leve de IA fica fora");
-    assert!(incident_weight(&forte, false) >= THRESHOLD, "batida de IA entra");
+    let leve = inc(
+        "ai",
+        IncidentType::Collision,
+        IncidentSeverity::Minor,
+        false,
+        0,
+    );
+    let forte = inc(
+        "ai",
+        IncidentType::Collision,
+        IncidentSeverity::Major,
+        false,
+        3,
+    );
+    assert!(
+        incident_weight(&leve, false) < THRESHOLD,
+        "susto leve de IA fica fora"
+    );
+    assert!(
+        incident_weight(&forte, false) >= THRESHOLD,
+        "batida de IA entra"
+    );
 }
 
 /// O mesmo incidente pesa mais no piloto do leitor do que num rival — é a revista
 /// do jogador, o acidente dele importa mais.
 #[test]
 fn jogador_pesa_mais_que_ia_no_mesmo_incidente() {
-    let i = inc("x", IncidentType::Collision, IncidentSeverity::Major, false, 2);
+    let i = inc(
+        "x",
+        IncidentType::Collision,
+        IncidentSeverity::Major,
+        false,
+        2,
+    );
     assert!(incident_weight(&i, true) > incident_weight(&i, false));
 }
 
@@ -83,9 +154,27 @@ fn jogador_pesa_mais_que_ia_no_mesmo_incidente() {
 #[test]
 fn pane_mecanica_nao_conta_como_batida() {
     use crate::race_signals::dnf_kind;
-    let mecanico = inc("a", IncidentType::Mechanical, IncidentSeverity::Critical, true, 0);
-    let colisao = inc("b", IncidentType::Collision, IncidentSeverity::Minor, true, 0);
-    let erro = inc("c", IncidentType::DriverError, IncidentSeverity::Major, true, 0);
+    let mecanico = inc(
+        "a",
+        IncidentType::Mechanical,
+        IncidentSeverity::Critical,
+        true,
+        0,
+    );
+    let colisao = inc(
+        "b",
+        IncidentType::Collision,
+        IncidentSeverity::Minor,
+        true,
+        0,
+    );
+    let erro = inc(
+        "c",
+        IncidentType::DriverError,
+        IncidentSeverity::Major,
+        true,
+        0,
+    );
     assert!(!dnf_kind(Some(&mecanico), false, None).is_crash());
     assert!(dnf_kind(Some(&colisao), false, None).is_crash());
     assert!(dnf_kind(Some(&erro), false, None).is_crash());
@@ -95,12 +184,42 @@ fn pane_mecanica_nao_conta_como_batida() {
 #[test]
 fn cada_piloto_rende_so_o_pior_incidente() {
     let incidents = vec![
-        inc("a", IncidentType::Collision, IncidentSeverity::Minor, false, 0),
-        inc("a", IncidentType::Collision, IncidentSeverity::Critical, false, 4),
-        inc("a", IncidentType::Collision, IncidentSeverity::Major, false, 1),
-        inc("b", IncidentType::Collision, IncidentSeverity::Minor, false, 0),
+        inc(
+            "a",
+            IncidentType::Collision,
+            IncidentSeverity::Minor,
+            false,
+            0,
+        ),
+        inc(
+            "a",
+            IncidentType::Collision,
+            IncidentSeverity::Critical,
+            false,
+            4,
+        ),
+        inc(
+            "a",
+            IncidentType::Collision,
+            IncidentSeverity::Major,
+            false,
+            1,
+        ),
+        inc(
+            "b",
+            IncidentType::Collision,
+            IncidentSeverity::Minor,
+            false,
+            0,
+        ),
         // DNF não entra aqui — quem abandonou já tem o beat de Abandono.
-        inc("c", IncidentType::Collision, IncidentSeverity::Critical, true, 9),
+        inc(
+            "c",
+            IncidentType::Collision,
+            IncidentSeverity::Critical,
+            true,
+            9,
+        ),
     ];
     let worst = worst_non_dnf_incident_per_pilot(&incidents);
     assert_eq!(worst.len(), 2, "um por piloto, sem os DNFs");
@@ -136,8 +255,20 @@ fn incidentes_no_mesmo_segmento_sao_uma_amarela_so() {
     use crate::simulation::race::derive_caution_segments;
 
     let incidents = vec![
-        inc("a", IncidentType::Collision, IncidentSeverity::Critical, true, 0),
-        inc("b", IncidentType::Collision, IncidentSeverity::Critical, true, 0),
+        inc(
+            "a",
+            IncidentType::Collision,
+            IncidentSeverity::Critical,
+            true,
+            0,
+        ),
+        inc(
+            "b",
+            IncidentType::Collision,
+            IncidentSeverity::Critical,
+            true,
+            0,
+        ),
     ];
     assert_eq!(derive_caution_segments(&incidents).len(), 1);
 }

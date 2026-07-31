@@ -96,8 +96,8 @@ pub fn salary_for_appeal(
     bond: f64,
 ) -> f64 {
     let reference = reference_salary.max(1.0);
-    let non_money = team_quality.max(0.0) * APPEAL_QUALITY_WEIGHT
-        + bond.clamp(0.0, 100.0) * APPEAL_BOND_WEIGHT;
+    let non_money =
+        team_quality.max(0.0) * APPEAL_QUALITY_WEIGHT + bond.clamp(0.0, 100.0) * APPEAL_BOND_WEIGHT;
     (((target_appeal - non_money) / 100.0) * reference).max(reference)
 }
 

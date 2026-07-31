@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import BreakdownRiskButton from "./BreakdownRiskButton";
 import WeatherButton from "./WeatherButton";
+import WeekendReadingPanel from "./WeekendReadingPanel";
 import { formatAudience } from "./raceEventContext";
 import { getReadableTeamColor } from "./raceGridContext";
 
@@ -12,6 +13,8 @@ function EngineerBriefingPanel({
   raceId,
   briefing,
   breakdownForecast,
+  // Leitura do fim de semana (fase 3). `null`/ausente = o motor ainda não fornece.
+  weekendReading,
   weatherGlow,
   breakdownGlow,
   onWeatherOpen,
@@ -62,6 +65,13 @@ function EngineerBriefingPanel({
         onOpen={onBreakdownOpen}
         className={`group ${breakdownGlow} w-full text-left bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-5 transition hover:border-[#58a6ff]/40`}
       />
+
+      {/* Leitura do fim de semana (fase 3) — o TERCEIRO card de condições, junto do clima
+          e do risco de quebra, porque é do mesmo gênero: o que este fim de semana reserva.
+          Fica ANTES da narrativa de propósito — o engenheiro comenta em cima dela.
+          Renderiza `null` enquanto o motor não fornece a leitura, então não muda a tela
+          até o fio ser ligado. */}
+      <WeekendReadingPanel reading={weekendReading} />
 
       {/* Narrativa Expandida */}
       <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 flex-1 flex flex-col relative overflow-hidden">

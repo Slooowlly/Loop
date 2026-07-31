@@ -725,3 +725,74 @@ fn erro_de_pilotagem_com_abandono_nunca_sai_minor() {
         "amostra fraca: só {dnfs} abandonos por erro em 1500 segmentos"
     );
 }
+
+/// **A escada de risco de lesão, do mais grave ao mais banal.** O que este teste guarda não é
+/// nenhum número em particular — é a ORDEM entre eles, que já se perdeu uma vez.
+///
+/// Três call sites montam a `IncidentResult` na mão em vez de passar por `compute_irm`
+/// (`race::motor::empurrar_contato` e os dois desfechos de `race::danos`). Eles cravavam
+/// multiplicadores altos e soltos: um encostão de disputa valia 50% de lesão, mais que uma
+/// batida crítica; andar avariado perdendo posições valia 25%, mais que uma pane crítica. Numa
+/// carreira de 27 temporadas isso deu 11,7% das largadas terminando com piloto machucado.
+///
+/// A regra é a intuição da corrida: bater machuca mais que quebrar, e quebrar machuca mais que
+/// seguir andando torto.
+#[test]
+fn a_ordem_do_risco_de_lesao_e_a_da_corrida() {
+    let chance = |tipo: IncidentType, irm: f64| injury_base_chance(tipo) * irm;
+
+    let batida_critica = chance(
+        IncidentType::Collision,
+        compute_irm(IncidentType::Collision, IncidentSeverity::Critical),
+    )
+    .min(0.70); // o teto de `generate_injury_from_incident`
+    let erro_critico = chance(
+        IncidentType::DriverError,
+        compute_irm(IncidentType::DriverError, IncidentSeverity::Critical),
+    );
+    let contato = chance(IncidentType::Collision, IRM_CONTATO_DE_DISPUTA);
+    let pane_critica = chance(
+        IncidentType::Mechanical,
+        compute_irm(IncidentType::Mechanical, IncidentSeverity::Critical),
+    );
+    let avariado_abandona = chance(IncidentType::Mechanical, IRM_DANO_LATENTE_COM_ABANDONO);
+    let avariado_segue = chance(IncidentType::Mechanical, IRM_DANO_LATENTE_SEM_ABANDONO);
+
+    assert!(
+        batida_critica > erro_critico,
+        "batida crítica ({batida_critica}) tem de machucar mais que erro crítico ({erro_critico})"
+    );
+    assert!(
+        erro_critico > contato,
+        "erro crítico ({erro_critico}) tem de machucar mais que um encostão ({contato})"
+    );
+    assert!(
+        contato > pane_critica,
+        "bater ({contato}) tem de machucar mais que quebrar ({pane_critica})"
+    );
+    // Recolher um carro avariado não é impacto novo: vale o mesmo que a pane crítica.
+    assert!(
+        (avariado_abandona - pane_critica).abs() < 1e-9,
+        "abandonar avariado ({avariado_abandona}) devia valer a pane crítica ({pane_critica})"
+    );
+    assert!(
+        avariado_abandona > avariado_segue,
+        "abandonar ({avariado_abandona}) tem de machucar mais que seguir torto ({avariado_segue})"
+    );
+    assert!(
+        avariado_segue > 0.0,
+        "seguir avariado ainda pode machucar — zerar isto DESLIGA o risco, não o calibra"
+    );
+}
+
+/// **Carro avariado normalmente segue andando mal; abandonar é a exceção.** Era o contrário:
+/// `0.70` fazia do abandono o desfecho de 7 em cada 10 manifestações, e o jogador via o grid
+/// esvaziar por dano latente com mais frequência do que via alguém perder posições por ele.
+#[test]
+fn dano_latente_custa_posicoes_mais_do_que_tira_o_carro() {
+    assert!(
+        CHANCE_DE_ABANDONO_NA_MANIFESTACAO < 0.5,
+        "perder posições ({}) tem de ser mais comum que abandonar ({CHANCE_DE_ABANDONO_NA_MANIFESTACAO})",
+        1.0 - CHANCE_DE_ABANDONO_NA_MANIFESTACAO
+    );
+}

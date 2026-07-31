@@ -12,9 +12,9 @@ const PRESS_AGG: f64 = 10.0;
 const PRESS_OPT: f64 = 8.0;
 const PRESS_SMO: f64 = 12.0;
 const PRESS_SKILL: f64 = 1.9; // pequeno de propósito (pace ~ ±2..4 no extremo)
-// Casa cheia (interesse do evento). Neutro mais baixo que o título (0.55) → palco =
-// oportunidade, a maioria rende. GAIN leva stakes×forma a uma intensidade ~0..3
-// comparável à do título. Reaproveita as magnitudes PRESS_* acima.
+                              // Casa cheia (interesse do evento). Neutro mais baixo que o título (0.55) → palco =
+                              // oportunidade, a maioria rende. GAIN leva stakes×forma a uma intensidade ~0..3
+                              // comparável à do título. Reaproveita as magnitudes PRESS_* acima.
 const EVENT_PRESS_NEUTRAL: f64 = 0.42;
 const EVENT_PRESS_GAIN: f64 = 1.9;
 const CRUISE_AGG: f64 = 10.0;
@@ -155,8 +155,8 @@ pub fn track_affinity(k: &TrackKnowledge) -> Signal {
     // Domínio = pódio aqui, OU experiente (≥4 largadas) COM um resultado ao menos
     // decente (≤P8). Experiência sem resultado não é mais domínio — abre espaço p/ a
     // pista-fantasma (bogey_track) tratar o experiente-mas-ruim.
-    let masters =
-        k.best_finish.is_some_and(|b| b <= 3) || (k.starts >= 4 && k.best_finish.is_some_and(|b| b <= 8));
+    let masters = k.best_finish.is_some_and(|b| b <= 3)
+        || (k.starts >= 4 && k.best_finish.is_some_and(|b| b <= 8));
     if masters {
         return fav(Nudge {
             aggression: AFF_AGG,

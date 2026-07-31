@@ -117,6 +117,13 @@ pub struct GlobalTeamHistoryPayload {
     /// years into the future.  Falls back to `max_year` when no active season
     /// exists (e.g. pre-game or historical draft).
     pub current_year: i32,
+    /// True when `current_year` is a season that STARTED but has not finished —
+    /// its column is provisional (partial points, no decided title). The frontend
+    /// uses this to draw the live column differently from the archived ones.
+    pub in_progress: bool,
+    /// Last season already archived. While `in_progress`, this is the year that
+    /// still owns the crown — the running season has no champion yet.
+    pub last_completed_year: i32,
     pub families: Vec<GlobalTeamHistoryFamily>,
     pub bands: Vec<GlobalTeamHistoryBand>,
 }
@@ -158,6 +165,48 @@ pub struct TeamTitleCount {
     pub band_key: String,
     pub band_label: String,
     pub count: i32,
+}
+
+/// Salão dos campeões de uma faixa: um título de construtores por linha, do mais
+/// recente para o mais antigo, mais o agregado por equipe que abre o painel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandChampionsPayload {
+    pub band_key: String,
+    pub band_label: String,
+    /// Equipes ordenadas por número de títulos (desempate: título mais recente).
+    pub dynasties: Vec<BandDynasty>,
+    pub seasons: Vec<BandChampionSeason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandDynasty {
+    pub team_id: String,
+    pub nome: String,
+    pub cor_primaria: String,
+    pub titles: i32,
+    pub last_year: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandChampionSeason {
+    pub year: i32,
+    pub team_id: String,
+    pub nome: String,
+    pub cor_primaria: String,
+    pub wins: i32,
+    /// A dupla da equipe naquela temporada — quem de fato ganhou o título COM ela.
+    /// Vazia quando o arquivo daquele ano não registrou pilotos.
+    pub drivers: Vec<BandChampionDriver>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandChampionDriver {
+    pub driver_id: String,
+    pub nome: String,
+    /// True quando esse piloto também foi o campeão de pilotos da categoria naquele
+    /// ano. Os dois títulos são independentes: uma equipe pode ser campeã de
+    /// construtores sem ter o campeão de pilotos, e é isso que a marca distingue.
+    pub is_season_champion: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

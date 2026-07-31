@@ -36,7 +36,9 @@ pub(super) fn push_team_title_stat(
         .push((event_key, title_stats));
 }
 
-pub(super) fn load_all_team_champion_title_stats(conn: &Connection) -> Result<TeamTitleStatsByDriver, String> {
+pub(super) fn load_all_team_champion_title_stats(
+    conn: &Connection,
+) -> Result<TeamTitleStatsByDriver, String> {
     let mut stats_by_driver = load_all_special_class_champion_title_stats(conn)?;
 
     if !table_exists(conn, "team_season_archive")? {
@@ -290,7 +292,11 @@ pub(super) fn compare_special_team_title_candidates(
         .then_with(|| left.team_id.cmp(&right.team_id))
 }
 
-pub(super) fn title_event_key(season_number: i32, category: &str, class_name: Option<&str>) -> TitleEventKey {
+pub(super) fn title_event_key(
+    season_number: i32,
+    category: &str,
+    class_name: Option<&str>,
+) -> TitleEventKey {
     (
         season_number,
         category.trim().to_string(),

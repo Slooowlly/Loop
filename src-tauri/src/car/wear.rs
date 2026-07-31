@@ -221,8 +221,8 @@ fn apply_action_then_race(
     // da unidade (individual × tenda de nível × confiabilidade do time) — peça durável/nível-5/de
     // time confiável gasta devagar; limão/nível-extremo/time fraco, rápido. Dessincroniza peças de
     // mesma durabilidade, cria o tradeoff de nível E a variedade de confiabilidade por time.
-    part.wear +=
-        wear_per_race(part.part_type) * wear_mult / (part_effective_life(part, apply_tent) * rel_mult);
+    part.wear += wear_per_race(part.part_type) * wear_mult
+        / (part_effective_life(part, apply_tent) * rel_mult);
 
     // Peça esticada esgota o bônus ao fim da sua corrida extra.
     if action == PartAction::Stretch {
@@ -255,7 +255,13 @@ pub fn advance_race_scaled(
             .get(&part.part_type)
             .copied()
             .unwrap_or(PartAction::Keep);
-        apply_action_then_race(part, action, wear_mult(part.part_type), apply_tent, rel_mult);
+        apply_action_then_race(
+            part,
+            action,
+            wear_mult(part.part_type),
+            apply_tent,
+            rel_mult,
+        );
     }
 }
 
@@ -334,7 +340,8 @@ mod tests {
                 < 1e-12
         );
         assert!(
-            (freios.wear - wear_per_race(PartType::Brakes) / part_effective_life(freios, true)).abs()
+            (freios.wear - wear_per_race(PartType::Brakes) / part_effective_life(freios, true))
+                .abs()
                 < 1e-12
         );
     }
@@ -343,7 +350,10 @@ mod tests {
 
     #[test]
     fn confiabilidade_escala_com_o_pit_crew() {
-        assert!((reliability_life_mult(50.0) - 1.0).abs() < 1e-9, "neutro em 50");
+        assert!(
+            (reliability_life_mult(50.0) - 1.0).abs() < 1e-9,
+            "neutro em 50"
+        );
         assert!(reliability_life_mult(100.0) > 1.0, "box top → mais vida");
         assert!(reliability_life_mult(0.0) < 1.0, "box fraco → menos vida");
         assert!(reliability_life_mult(0.0) < reliability_life_mult(100.0));
@@ -355,10 +365,27 @@ mod tests {
         let decisions: HashMap<PartType, PartAction> = HashMap::new();
         let mut bom = Car::uniform(5);
         let mut fraco = Car::uniform(5);
-        advance_race_scaled(&mut bom, &decisions, |_| 1.0, true, reliability_life_mult(100.0));
-        advance_race_scaled(&mut fraco, &decisions, |_| 1.0, true, reliability_life_mult(0.0));
+        advance_race_scaled(
+            &mut bom,
+            &decisions,
+            |_| 1.0,
+            true,
+            reliability_life_mult(100.0),
+        );
+        advance_race_scaled(
+            &mut fraco,
+            &decisions,
+            |_| 1.0,
+            true,
+            reliability_life_mult(0.0),
+        );
         let soma = |c: &Car| c.parts.iter().map(|p| p.wear).sum::<f64>();
-        assert!(soma(&bom) < soma(&fraco), "box top ({}) deveria gastar menos que fraco ({})", soma(&bom), soma(&fraco));
+        assert!(
+            soma(&bom) < soma(&fraco),
+            "box top ({}) deveria gastar menos que fraco ({})",
+            soma(&bom),
+            soma(&fraco)
+        );
     }
 
     // -------- Fundação da escala unificada (Fase 1 do Sistema de Quebra) --------
@@ -410,7 +437,7 @@ mod tests {
     fn desgaste_sobe_conforme_a_durabilidade() {
         let mut car = Car::uniform(5);
         advance_race(&mut car, &HashMap::new()); // tudo Keep
-        // Motor dura 3 corridas → +1/3 por corrida; Eletrônica dura 6 → +1/6.
+                                                 // Motor dura 3 corridas → +1/3 por corrida; Eletrônica dura 6 → +1/6.
         let eng = car.part(PartType::Engine).unwrap();
         let ele = car.part(PartType::Electronics).unwrap();
         assert!((eng.wear - (1.0 / 3.0) / part_effective_life(eng, true)).abs() < 1e-9);
@@ -419,9 +446,27 @@ mod tests {
 
     #[test]
     fn esticar_so_habilita_ate_95_por_cento() {
-        let ok = CarPart { part_type: PartType::Engine, level: 5, wear: 0.90, spent: false, unit_seed: 0 };
-        let alto = CarPart { part_type: PartType::Engine, level: 5, wear: 0.96, spent: false, unit_seed: 0 };
-        let esgotada = CarPart { part_type: PartType::Engine, level: 5, wear: 0.5, spent: true, unit_seed: 0 };
+        let ok = CarPart {
+            part_type: PartType::Engine,
+            level: 5,
+            wear: 0.90,
+            spent: false,
+            unit_seed: 0,
+        };
+        let alto = CarPart {
+            part_type: PartType::Engine,
+            level: 5,
+            wear: 0.96,
+            spent: false,
+            unit_seed: 0,
+        };
+        let esgotada = CarPart {
+            part_type: PartType::Engine,
+            level: 5,
+            wear: 0.5,
+            spent: true,
+            unit_seed: 0,
+        };
         assert!(can_stretch(&ok));
         assert!(!can_stretch(&alto));
         assert!(!can_stretch(&esgotada));
@@ -429,7 +474,13 @@ mod tests {
 
     #[test]
     fn esticar_custa_40_por_cento_de_uma_nova() {
-        let part = CarPart { part_type: PartType::Engine, level: 5, wear: 0.9, spent: false, unit_seed: 0 };
+        let part = CarPart {
+            part_type: PartType::Engine,
+            level: 5,
+            wear: 0.9,
+            spent: false,
+            unit_seed: 0,
+        };
         let full = replace_cost("gt3", &part);
         assert!((stretch_cost("gt3", &part) - 0.40 * full).abs() < 1e-6);
     }
@@ -451,7 +502,10 @@ mod tests {
         let magnitude_antes = car.magnitude();
         advance_race(&mut car, &only(PartType::Engine, PartAction::Degrade));
         assert_eq!(car.part(PartType::Engine).unwrap().level, 5);
-        assert!(car.magnitude() < magnitude_antes, "PHA deveria cair com a degradação");
+        assert!(
+            car.magnitude() < magnitude_antes,
+            "PHA deveria cair com a degradação"
+        );
     }
 
     #[test]
@@ -459,7 +513,11 @@ mod tests {
         let mut car = Car::uniform(6);
         car.set_wear(PartType::Engine, 0.5); // ainda dentro da vida
         advance_race(&mut car, &only(PartType::Engine, PartAction::Degrade));
-        assert_eq!(car.part(PartType::Engine).unwrap().level, 6, "não deveria degradar dentro da vida");
+        assert_eq!(
+            car.part(PartType::Engine).unwrap().level,
+            6,
+            "não deveria degradar dentro da vida"
+        );
     }
 
     #[test]
@@ -473,7 +531,10 @@ mod tests {
         // Troca obrigatória da peça esticada → cai pra nível 3 (a punição).
         advance_race(&mut car, &only(PartType::Engine, PartAction::Replace));
         let engine = car.part(PartType::Engine).unwrap();
-        assert_eq!(engine.level, 3, "peça esticada deve ser reposta um nível abaixo");
+        assert_eq!(
+            engine.level, 3,
+            "peça esticada deve ser reposta um nível abaixo"
+        );
         assert!(!engine.spent);
     }
 
@@ -487,17 +548,36 @@ mod tests {
 
     #[test]
     fn custo_de_repor_peca_esticada_e_de_nivel_abaixo() {
-        let spent = CarPart { part_type: PartType::Engine, level: 4, wear: 1.1, spent: true, unit_seed: 0 };
-        let fresh = CarPart { part_type: PartType::Engine, level: 4, wear: 1.1, spent: false, unit_seed: 0 };
+        let spent = CarPart {
+            part_type: PartType::Engine,
+            level: 4,
+            wear: 1.1,
+            spent: true,
+            unit_seed: 0,
+        };
+        let fresh = CarPart {
+            part_type: PartType::Engine,
+            level: 4,
+            wear: 1.1,
+            spent: false,
+            unit_seed: 0,
+        };
         assert!(replace_cost("gt3", &spent) < replace_cost("gt3", &fresh));
-        assert!((replace_cost("gt3", &spent) - cost::part_cost("gt3", PartType::Engine, 3)).abs() < 1e-6);
+        assert!(
+            (replace_cost("gt3", &spent) - cost::part_cost("gt3", PartType::Engine, 3)).abs()
+                < 1e-6
+        );
     }
 
     #[test]
     fn trocar_zera_o_desgaste_e_limpa_spent() {
         let mut car = Car::uniform(5);
         car.set_wear(PartType::Engine, 1.2);
-        if let Some(p) = car.parts.iter_mut().find(|p| p.part_type == PartType::Engine) {
+        if let Some(p) = car
+            .parts
+            .iter_mut()
+            .find(|p| p.part_type == PartType::Engine)
+        {
             p.spent = true;
         }
         advance_race(&mut car, &only(PartType::Engine, PartAction::Replace));

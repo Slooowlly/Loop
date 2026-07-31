@@ -62,6 +62,10 @@ winapi = { version = "0.3", features = [
     # administrador, "acesso negado" à memória do SDK fica sem explicação.
     "securitybaseapi",
     "winnt",
+    # Camada de VR (`commands/vr_layer.rs`): detecta o runtime de VR ativo por evento
+    # nomeado (synchapi) e lê o caminho de instalação do registro (winreg).
+    "synchapi",
+    "winreg",
     "combaseapi",
     "knownfolders",
     "shlobj",

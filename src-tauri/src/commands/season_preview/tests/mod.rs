@@ -103,7 +103,11 @@ fn fallback_nao_repete_a_mesma_forma_por_piloto() {
         .map(|s| s.split(' ').next().unwrap_or(""))
         .collect();
     let unicas: std::collections::HashSet<&&str> = aberturas.iter().collect();
-    assert_eq!(unicas.len(), aberturas.len(), "frases repetem a abertura:\n{body}");
+    assert_eq!(
+        unicas.len(),
+        aberturas.len(),
+        "frases repetem a abertura:\n{body}"
+    );
 }
 
 #[test]
@@ -120,4 +124,47 @@ fn tese_de_estreantes_vence_quando_grid_e_novato() {
         select_thesis(0.1, &Material::Uniform, false),
         Thesis::OpenOnTalent
     ));
+}
+
+// ── Cache e backoff da matéria ───────────────────────────────────────────────────
+
+use super::comando::{cached_teams, recent_attempt, RETRY_BACKOFF_SECS};
+
+fn linha_de_cache(created_at: &str) -> ai_story::AiStoryRow {
+    ai_story::AiStoryRow {
+        facts: String::new(),
+        story: None,
+        teams_json: None,
+        created_at: created_at.to_string(),
+    }
+}
+
+/// O template não é cacheado de propósito, então é o carimbo da tentativa que impede a
+/// revista de disparar uma requisição de rede a cada abertura num save em cooldown.
+#[test]
+fn backoff_segura_so_a_tentativa_recente() {
+    let agora = chrono::Local::now().timestamp();
+    assert!(recent_attempt(&linha_de_cache(&(agora - 60).to_string())));
+    assert!(!recent_attempt(&linha_de_cache(
+        &(agora - RETRY_BACKOFF_SECS - 1).to_string()
+    )));
+    // Carimbo ilegível (linha gravada antes da coluna existir) conta como antiga.
+    assert!(!recent_attempt(&linha_de_cache("")));
+}
+
+/// Um mapa vazio de cores tem que virar `None` — senão o front tenta colorir com nada.
+#[test]
+fn cores_do_cache_caem_para_none_quando_nao_ha_mapa() {
+    let com_cores = ai_story::AiStoryRow {
+        teams_json: Some(r##"{"Petrolhead United":"#ff0000"}"##.to_string()),
+        ..linha_de_cache("0")
+    };
+    assert!(cached_teams(&com_cores).is_some());
+
+    let vazio = ai_story::AiStoryRow {
+        teams_json: Some("{}".to_string()),
+        ..linha_de_cache("0")
+    };
+    assert!(cached_teams(&vazio).is_none());
+    assert!(cached_teams(&linha_de_cache("0")).is_none());
 }

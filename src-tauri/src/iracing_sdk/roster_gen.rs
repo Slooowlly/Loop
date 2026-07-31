@@ -503,9 +503,7 @@ pub fn build_roster(
                         // calculados — não recomputamos fama/bond/lesão aqui.
                         fame: a.midia,
                         bond_level: dctx.map(|d| d.bond_level).unwrap_or(1),
-                        injury_active_penalty: dctx
-                            .map(|d| d.injury_active_penalty)
-                            .unwrap_or(0.0),
+                        injury_active_penalty: dctx.map(|d| d.injury_active_penalty).unwrap_or(0.0),
                         seed: bc.seed_base ^ fnv1a(&driver.id),
                     };
                     let out = crate::iracing_sdk::behavior::compute(&inputs);
@@ -526,17 +524,9 @@ pub fn build_roster(
                     // carro desta IA desvia da média do campo na pista. Zero-mean, cavalga o
                     // roster como o re-rank de chuva; o delta da BANDA (você vs campo) já foi
                     // aplicado no `ai_sweet_spot`. Carro ausente → 0.
-                    let car_spread = bc
-                        .car_spread_nudge
-                        .get(&driver.id)
-                        .copied()
-                        .unwrap_or(0.0);
+                    let car_spread = bc.car_spread_nudge.get(&driver.id).copied().unwrap_or(0.0);
                     // Pressão de Duelo (export): o rival do jogador rende mais contra ele.
-                    let rival_bonus = bc
-                        .rival_skill_bonus
-                        .get(&driver.id)
-                        .copied()
-                        .unwrap_or(0.0);
+                    let rival_bonus = bc.rival_skill_bonus.get(&driver.id).copied().unwrap_or(0.0);
                     (
                         out.skill + wet_rerank + car_spread + rival_bonus,
                         out.aggression,
@@ -655,7 +645,9 @@ mod tests {
     #[test]
     fn curva_de_skill_topo_fiel_e_cauda_esticada() {
         // Grid rookie real: apertado (30..49). Ancorado no sweet spot 82.
-        let ai = [49.0, 45.0, 43.0, 43.0, 40.0, 40.0, 38.0, 36.0, 35.0, 32.0, 30.0];
+        let ai = [
+            49.0, 45.0, 43.0, 43.0, 40.0, 40.0, 38.0, 36.0, 35.0, 32.0, 30.0,
+        ];
         let c = skill_curve_from(&ai, 82.0);
         assert_eq!(c.hi, 49.0);
         assert_eq!(c.boundary, 43.0); // top-4 fiel (round(11*0.36)=4)
@@ -689,7 +681,10 @@ mod tests {
         assert!(c.k_bottom > 0.0);
         // Pior piloto (59) NÃO cai abaixo do skill real dele.
         let pior = skill_curve(59.0, &c);
-        assert!((pior - 59.0).abs() < 0.5, "pior efetivo {pior} deveria ~= 59");
+        assert!(
+            (pior - 59.0).abs() < 0.5,
+            "pior efetivo {pior} deveria ~= 59"
+        );
         // Melhor → sweet spot; grid fica ~fiel (não afunda como no rookie).
         assert!((skill_curve(96.0, &c) - 95.0).abs() < 1e-9);
     }
@@ -703,7 +698,10 @@ mod tests {
         assert!(c.k_top < 1.0, "k_top {} deveria comprimir", c.k_top);
         assert!((skill_curve(98.0, &c) - 80.0).abs() < 1e-9); // melhor → sweet
         let p90 = skill_curve(90.0, &c);
-        assert!((p90 - 77.0).abs() < 0.6, "90 deveria virar ~77, virou {p90}");
+        assert!(
+            (p90 - 77.0).abs() < 0.6,
+            "90 deveria virar ~77, virou {p90}"
+        );
         // Pior (68) nunca abaixo do próprio skill real.
         assert!(skill_curve(68.0, &c) >= 68.0 - 0.5);
     }

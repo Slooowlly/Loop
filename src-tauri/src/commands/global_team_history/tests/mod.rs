@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 
+use super::campeoes::build_band_champions;
 use super::*;
 
 fn setup_conn() -> Connection {
@@ -90,6 +91,23 @@ fn setup_conn_with_live_season() -> Connection {
             ano INTEGER NOT NULL,
             status TEXT NOT NULL
         );
+        -- Calendario e resultados sao a fonte real das categorias multiclasse:
+        -- sem eles nao da para testar a divergencia com stats_pontos.
+        CREATE TABLE calendar (
+            id TEXT PRIMARY KEY,
+            season_id TEXT,
+            temporada_id TEXT,
+            categoria TEXT NOT NULL
+        );
+        CREATE TABLE race_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            race_id TEXT NOT NULL,
+            piloto_id TEXT NOT NULL DEFAULT '',
+            equipe_id TEXT NOT NULL DEFAULT '',
+            posicao_final INTEGER NOT NULL DEFAULT 0,
+            dnf INTEGER NOT NULL DEFAULT 0,
+            pontos REAL NOT NULL DEFAULT 0.0
+        );
         CREATE TABLE team_season_archive (
             team_id TEXT NOT NULL,
             season_number INTEGER NOT NULL,
@@ -142,7 +160,10 @@ fn in_progress_season_injects_current_division_and_keeps_last_champion_crown() {
     .expect("seed live-season world");
 
     let payload = build_global_team_history(&conn, "mazda", 2024, 4).expect("payload");
-    assert_eq!(payload.max_year, 2025, "timeline extends into the active season");
+    assert_eq!(
+        payload.max_year, 2025,
+        "timeline extends into the active season"
+    );
     assert_eq!(payload.current_year, 2025);
 
     let rookie = payload
@@ -186,6 +207,159 @@ fn in_progress_season_injects_current_division_and_keeps_last_champion_crown() {
         stay.is_reigning_champion,
         "the 2024 champion keeps the crown while 2025 is still running"
     );
+    assert!(payload.in_progress, "2025 is running, not archived");
+    assert_eq!(
+        payload.last_completed_year, 2024,
+        "the crown still belongs to the last archived season"
+    );
+}
+
+// Regressao: o status realmente gravado por uma temporada em curso e
+// 'EmAndamento' — 'Ativa' e so o alias legado que o enum ainda aceita. A consulta
+// que so olhava 'Ativa' nunca achava a temporada viva num save de verdade, e o
+// Atlas parava na ultima temporada arquivada.
+#[test]
+fn temporada_em_andamento_tambem_conta_como_temporada_viva() {
+    let conn = setup_conn_with_live_season();
+    conn.execute_batch(
+        "
+        INSERT INTO seasons (id, numero, ano, status) VALUES
+            ('S4', 4, 2024, 'Finalizada'),
+            ('S5', 5, 2025, 'EmAndamento');
+
+        INSERT INTO teams (id, nome, nome_curto, categoria, classe, ativa) VALUES
+            ('T_LIVE', 'Live Racing', 'LIV', 'mazda_rookie', NULL, 1);
+
+        INSERT INTO team_season_archive (
+            team_id, season_number, ano, categoria, classe, posicao_campeonato,
+            pontos, vitorias, titulos_construtores
+        ) VALUES
+            ('T_LIVE', 4, 2024, 'mazda_rookie', NULL, 3, 90, 1, 0);
+        ",
+    )
+    .expect("seed em-andamento world");
+
+    let payload = build_global_team_history(&conn, "mazda", 2024, 4).expect("payload");
+    assert_eq!(payload.current_year, 2025);
+    assert!(payload.in_progress);
+    assert_eq!(payload.last_completed_year, 2024);
+
+    let rookie = payload
+        .bands
+        .iter()
+        .find(|band| band.key == "mazda_rookie")
+        .expect("rookie band");
+    let live = rookie
+        .rows
+        .iter()
+        .find(|row| row.team_id == "T_LIVE")
+        .expect("T_LIVE na rookie");
+    assert!(
+        live.points.iter().any(|point| point.year == 2025),
+        "a temporada em andamento entra como coluna viva"
+    );
+}
+
+// Regressao: categoria multiclasse pontua pelos RESULTADOS de corrida, nao por
+// `teams.stats_pontos` — que nem chega a ser alimentado la. O Atlas rankeava por
+// stats_pontos e por isso mostrava uma ordem que nao existia na tela de
+// construtores: a lider aparecia em quarto.
+#[test]
+fn multiclasse_ao_vivo_rankeia_pelos_resultados_e_nao_por_stats_pontos() {
+    let conn = setup_conn_with_live_season();
+    conn.execute_batch(
+        "
+        INSERT INTO seasons (id, numero, ano, status) VALUES
+            ('S4', 4, 2024, 'Finalizada'),
+            ('S5', 5, 2025, 'EmAndamento');
+
+        -- stats_pontos diz o contrario do que aconteceu na pista: a lider real
+        -- esta zerada ali, e quem nao pontuou tem o numero alto.
+        INSERT INTO teams (id, nome, nome_curto, categoria, classe, ativa, stats_pontos, stats_vitorias)
+        VALUES
+            ('T_LIDER', 'Kestrel', 'KST', 'production_challenger', 'mazda', 1, 0, 0),
+            ('T_FUNDO', 'Northgate', 'NGT', 'production_challenger', 'mazda', 1, 999, 9);
+
+        INSERT INTO calendar (id, season_id, temporada_id, categoria) VALUES
+            ('R1', 'S5', 'S5', 'production_challenger');
+
+        INSERT INTO race_results (race_id, equipe_id, posicao_final, dnf, pontos) VALUES
+            ('R1', 'T_LIDER', 1, 0, 120.0),
+            ('R1', 'T_FUNDO', 5, 0, 30.0);
+        ",
+    )
+    .expect("seed multiclasse ao vivo");
+
+    let payload = build_global_team_history(&conn, "mazda", 2024, 4).expect("payload");
+    let production = payload
+        .bands
+        .iter()
+        .find(|band| band.key == "production_mazda")
+        .expect("faixa production");
+    let position_of = |team_id: &str| {
+        production
+            .rows
+            .iter()
+            .find(|row| row.team_id == team_id)
+            .and_then(|row| row.points.iter().find(|point| point.year == 2025))
+            .map(|point| point.position)
+    };
+
+    assert_eq!(
+        position_of("T_LIDER"),
+        Some(1),
+        "quem pontuou na pista lidera"
+    );
+    assert_eq!(
+        position_of("T_FUNDO"),
+        Some(2),
+        "stats_pontos nao manda aqui"
+    );
+}
+
+// Comeco de temporada: ninguem pontuou ainda. A ordem que vale e a do ano passado —
+// um empate de zeros resolvido pelo alfabeto se leria como classificacao real.
+#[test]
+fn temporada_recem_comecada_herda_a_ordem_do_ano_passado() {
+    let conn = setup_conn_with_live_season();
+    conn.execute_batch(
+        "
+        INSERT INTO seasons (id, numero, ano, status) VALUES
+            ('S4', 4, 2024, 'Finalizada'),
+            ('S5', 5, 2025, 'EmAndamento');
+
+        -- Ordem alfabetica poria ZEBRA na frente; a de 2024 poe ALFA em segundo.
+        INSERT INTO teams (id, nome, nome_curto, categoria, classe, ativa) VALUES
+            ('T_ALFA', 'Alfa Racing', 'ALF', 'mazda_rookie', NULL, 1),
+            ('T_ZEBRA', 'Zebra Racing', 'ZBR', 'mazda_rookie', NULL, 1);
+
+        INSERT INTO team_season_archive (
+            team_id, season_number, ano, categoria, classe, posicao_campeonato,
+            pontos, vitorias, titulos_construtores
+        ) VALUES
+            ('T_ZEBRA', 4, 2024, 'mazda_rookie', NULL, 1, 150, 6, 1),
+            ('T_ALFA', 4, 2024, 'mazda_rookie', NULL, 2, 120, 3, 0);
+        ",
+    )
+    .expect("seed temporada recem comecada");
+
+    let payload = build_global_team_history(&conn, "mazda", 2024, 4).expect("payload");
+    let rookie = payload
+        .bands
+        .iter()
+        .find(|band| band.key == "mazda_rookie")
+        .expect("faixa rookie");
+    let position_of = |team_id: &str| {
+        rookie
+            .rows
+            .iter()
+            .find(|row| row.team_id == team_id)
+            .and_then(|row| row.points.iter().find(|point| point.year == 2025))
+            .map(|point| point.position)
+    };
+
+    assert_eq!(position_of("T_ZEBRA"), Some(1));
+    assert_eq!(position_of("T_ALFA"), Some(2));
 }
 
 #[test]
@@ -556,4 +730,163 @@ fn build_global_team_history_collapses_duplicate_team_year_band_snapshots() {
 
     assert_eq!(points_2020, 1);
     assert_eq!(dual.points[0].position, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Salao dos campeoes
+// ---------------------------------------------------------------------------
+
+fn setup_champions_conn() -> Connection {
+    let conn = setup_conn();
+    conn.execute_batch(
+        "
+        CREATE TABLE drivers (
+            id TEXT PRIMARY KEY,
+            nome TEXT NOT NULL
+        );
+        CREATE TABLE driver_season_archive (
+            piloto_id TEXT NOT NULL,
+            season_number INTEGER NOT NULL,
+            ano INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            categoria TEXT NOT NULL DEFAULT '',
+            posicao_campeonato INTEGER,
+            -- A classe do piloto so existe dentro do snapshot: a tabela nao tem coluna
+            -- propria para ela, e e dai que o salao dos campeoes tem que le-la.
+            snapshot_json TEXT
+        );
+        ",
+    )
+    .expect("schema de campeoes");
+    conn
+}
+
+fn seed_champions(conn: &Connection) {
+    conn.execute_batch(
+        "
+        INSERT INTO teams (id, nome, nome_curto, categoria, classe, cor_primaria, cor_secundaria)
+        VALUES
+            ('T_KESTREL', 'Kestrel', 'KES', 'production_challenger', 'mazda', '#ff4d4d', '#3d0d0d'),
+            ('T_APERTURE', 'Aperture', 'APE', 'production_challenger', 'mazda', '#38bdf8', '#08304a');
+
+        INSERT INTO drivers (id, nome) VALUES
+            ('D_MOREAU', 'Lucien Moreau'),
+            ('D_OKAFOR', 'Rui Okafor');
+
+        -- Fischer se aposentou: nao esta mais em `drivers`, so no arquivo da temporada.
+        INSERT INTO driver_season_archive (piloto_id, season_number, ano, nome, categoria, posicao_campeonato, snapshot_json)
+        VALUES
+            -- Campea da classe toyota de 2025, arquivada ANTES do campeao da mazda: e ela
+            -- que um LIMIT 1 sem filtro de classe pegaria.
+            ('D_SATO', 6, 2025, 'Aiko Sato', 'production_challenger', 1, '{\"classe\":\"toyota\"}'),
+            ('D_MOREAU', 6, 2025, 'Lucien Moreau', 'production_challenger', 1, '{\"classe\":\"mazda\"}'),
+            ('D_FISCHER', 5, 2024, 'Tomas Fischer', 'production_challenger', 4, '{\"classe\":\"mazda\"}'),
+            ('D_ORTEGA', 5, 2024, 'Ines Ortega', 'production_challenger', 1, '{\"classe\":\"mazda\"}');
+
+        INSERT INTO team_season_archive (
+            team_id, season_number, ano, categoria, classe, posicao_campeonato,
+            pontos, vitorias, podios, poles, corridas, titulos_construtores,
+            piloto_1_id, piloto_2_id
+        ) VALUES
+            ('T_KESTREL', 6, 2025, 'production_challenger', 'mazda', 1, 210, 9, 14, 5, 18, 1, 'D_MOREAU', 'D_OKAFOR'),
+            ('T_APERTURE', 5, 2024, 'production_challenger', 'mazda', 1, 190, 6, 12, 4, 18, 1, 'D_FISCHER', NULL),
+            ('T_KESTREL', 4, 2023, 'production_challenger', 'mazda', 1, 205, 7, 13, 6, 18, 1, 'D_MOREAU', NULL),
+            -- Vice-campea: nao pode aparecer no salao.
+            ('T_APERTURE', 4, 2023, 'production_challenger', 'mazda', 2, 180, 5, 10, 3, 18, 0, 'D_FISCHER', NULL),
+            -- Mesma categoria, OUTRA classe: pertence a outra faixa.
+            ('T_KESTREL', 4, 2023, 'production_challenger', 'toyota', 1, 150, 4, 9, 2, 18, 1, 'D_OKAFOR', NULL);
+        ",
+    )
+    .expect("seed de campeoes");
+}
+
+#[test]
+fn campeoes_listam_so_os_titulos_da_propria_faixa() {
+    let conn = setup_champions_conn();
+    seed_champions(&conn);
+
+    let payload = build_band_champions(&conn, "production_mazda").expect("payload");
+
+    // A classe separa as faixas: o titulo de 2023 da classe toyota nao entra aqui,
+    // ainda que a categoria seja a mesma.
+    let years: Vec<i32> = payload.seasons.iter().map(|season| season.year).collect();
+    assert_eq!(years, vec![2025, 2024, 2023]);
+    assert_eq!(payload.band_label, "Mazda Production");
+}
+
+#[test]
+fn campeoes_trazem_a_dupla_do_ano_e_marcam_o_campeao_de_pilotos() {
+    let conn = setup_champions_conn();
+    seed_champions(&conn);
+
+    let payload = build_band_champions(&conn, "production_mazda").expect("payload");
+    let dois_mil_e_vinte_cinco = &payload.seasons[0];
+
+    // A dupla inteira aparece — e o titulo de pilotos e de UM deles.
+    let nomes: Vec<&str> = dois_mil_e_vinte_cinco
+        .drivers
+        .iter()
+        .map(|driver| driver.nome.as_str())
+        .collect();
+    assert_eq!(nomes, vec!["Lucien Moreau", "Rui Okafor"]);
+    assert!(dois_mil_e_vinte_cinco.drivers[0].is_season_champion);
+    assert!(!dois_mil_e_vinte_cinco.drivers[1].is_season_champion);
+
+    // 2024: a equipe foi campea de construtores, mas o campeao de pilotos correu por
+    // outra. Ninguem da dupla leva a marca, e o nome vem do arquivo porque o piloto
+    // ja nao existe mais em `drivers`.
+    let dois_mil_e_vinte_quatro = &payload.seasons[1];
+    assert_eq!(dois_mil_e_vinte_quatro.drivers.len(), 1);
+    assert_eq!(dois_mil_e_vinte_quatro.drivers[0].nome, "Tomas Fischer");
+    assert!(!dois_mil_e_vinte_quatro.drivers[0].is_season_champion);
+}
+
+/// Regressao: `production_challenger` e `endurance` tem tres classes na mesma categoria,
+/// entao ha tres campeoes de pilotos por temporada. Sem filtrar pela classe, o `LIMIT 1`
+/// escolhia um deles a esmo — e a faixa inteira aparecia sem campeao marcado, mesmo com o
+/// campeao sentado na equipe campea de construtores.
+#[test]
+fn campeao_de_pilotos_de_classe_irma_nao_rouba_a_marca_da_faixa() {
+    let conn = setup_champions_conn();
+    seed_champions(&conn);
+
+    let mazda = build_band_champions(&conn, "production_mazda").expect("payload");
+    let campeao_2025 = mazda.seasons[0]
+        .drivers
+        .iter()
+        .find(|driver| driver.is_season_champion)
+        .expect("2025 tem campeao de pilotos na mazda");
+    assert_eq!(campeao_2025.nome, "Lucien Moreau");
+
+    // Aiko Sato foi campea da toyota no mesmo ano e nao pode contaminar a faixa da mazda.
+    assert!(!mazda.seasons[0]
+        .drivers
+        .iter()
+        .any(|driver| driver.nome == "Aiko Sato"));
+}
+
+#[test]
+fn dinastias_ordenam_por_titulos_e_desempatam_pelo_mais_recente() {
+    let conn = setup_champions_conn();
+    seed_champions(&conn);
+
+    let payload = build_band_champions(&conn, "production_mazda").expect("payload");
+
+    assert_eq!(payload.dynasties.len(), 2);
+    assert_eq!(payload.dynasties[0].team_id, "T_KESTREL");
+    assert_eq!(payload.dynasties[0].titles, 2);
+    assert_eq!(payload.dynasties[0].last_year, 2025);
+    assert_eq!(payload.dynasties[1].titles, 1);
+}
+
+#[test]
+fn faixa_desconhecida_e_erro_e_faixa_sem_titulo_e_payload_vazio() {
+    let conn = setup_champions_conn();
+    seed_champions(&conn);
+
+    assert!(build_band_champions(&conn, "faixa_que_nao_existe").is_err());
+
+    let vazio = build_band_champions(&conn, "mazda_rookie").expect("payload");
+    assert!(vazio.seasons.is_empty());
+    assert!(vazio.dynasties.is_empty());
 }

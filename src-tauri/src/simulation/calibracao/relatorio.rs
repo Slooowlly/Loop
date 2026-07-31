@@ -165,8 +165,8 @@ pub fn tabela_variancia(o: &OrcamentoVariancia) -> String {
     for (nome, frac) in [
         ("Piloto (permanente)", o.frac_piloto),
         ("Equipe / carro (permanente)", o.frac_carro),
-        ("Evento — pista", o.frac_evento_pista),
-        ("Evento — clima / temperatura", o.frac_evento_clima),
+        ("Evento — pista (afinidade)", o.frac_evento_pista),
+        ("Evento — clima + forma + acerto", o.frac_evento_clima),
         ("Corrida (ruído puro)", o.frac_corrida),
     ] {
         saida.push_str(&format!("| {nome:<40} | {:>8.1}% |\n", frac * 100.0));
@@ -175,7 +175,9 @@ pub fn tabela_variancia(o: &OrcamentoVariancia) -> String {
     saida.push_str(
         "\nA divisão piloto:carro dentro do permanente é medida num grid de encaixe INDEPENDENTE\n\
          (bom piloto NÃO vai preferencialmente para o bom carro). No grid realista os dois são\n\
-         correlacionados e nenhum congelamento isolado separa a covariância.\n",
+         correlacionados e nenhum congelamento isolado separa a covariância.\n\
+         A linha `clima + forma + acerto` é o que SOBRA ao fixar a pista, e é um agregado de três\n\
+         fontes — quebrá-lo exige que as escalas de `simulation::forma` sejam injetáveis.\n",
     );
 
     saida.push_str(&format!(
@@ -332,28 +334,42 @@ pub fn matriz_de_alavanca(varreduras: &[Varredura]) -> String {
 }
 
 /// Tabela consolidada: um knob por linha, com a amplitude que ele consegue percorrer.
+///
+/// A coluna **Onde** existe porque sem ela a tabela mente por omissão: o `incident_rate_multiplier`
+/// aparece com Δρ = 0,022 ao lado de um veredito `ALAVANCA`, e quem lê não tem como saber que o
+/// veredito foi ganho em `SC/etapa` e `DNF/etapa`, não em ρ. O veredito é consolidado sobre as seis
+/// saídas; a amplitude mostrada é de UMA. Dizer em qual coluna ele vive fecha a lacuna.
 pub fn tabela_varreduras(varreduras: &[Varredura]) -> String {
     let mut saida = String::from("\n### Alavanca dos knobs existentes\n\n");
-    saida.push_str(&cabecalho(
-        ["Knob", "Faixa", "Δρ(N,N+1)", "Veredito"],
-        [36, 13, 10, 8],
+    // Cabeçalho escrito à mão: o `cabecalho` é de aridade fixa em 4 e esta tabela tem 5 colunas.
+    saida.push_str(&format!(
+        "| {:<36} | {:>13} | {:>10} | {:<8} | {:<34} |\n|{:-<38}|{:-<15}|{:-<12}|{:-<10}|{:-<36}|\n",
+        "Knob", "Faixa", "Δρ(N,N+1)", "Veredito", "Onde", "", "", "", "", ""
     ));
 
     for v in varreduras {
         let primeiro = v.pontos.first().map(|p| p.valor).unwrap_or(f64::NAN);
         let ultimo = v.pontos.last().map(|p| p.valor).unwrap_or(f64::NAN);
+        let onde: Vec<&str> = v.saidas_com_alavanca().iter().map(|s| s.nome()).collect();
+        let onde = if onde.is_empty() {
+            "—".to_string()
+        } else {
+            onde.join(", ")
+        };
         saida.push_str(&format!(
-            "| {:<36} | {:>13} | {:>10.4} | {:<8} |\n",
+            "| {:<36} | {:>13} | {:>10.4} | {:<8} | {:<34} |\n",
             v.knob.nome(),
             format!("{primeiro:.2}–{ultimo:.2}"),
             v.alavanca_consecutivas(),
-            v.veredito()
+            v.veredito(),
+            onde
         ));
     }
     saida.push_str(
         "\nΔρ(N,N+1) = amplitude percorrida pela correlação entre etapas consecutivas ao longo de \
-         toda a faixa varrida.\nMORTO = < 0,02 de amplitude E < 0,30 posição de desvio: \
-         invisível para o jogador em qualquer valor.\n",
+         toda a faixa varrida — UMA das seis saídas.\nO veredito é consolidado sobre TODAS elas, e \
+         `Onde` lista em quais ele é `ALAVANCA`. `MORTO` = abaixo do limiar nas seis: invisível \
+         para o jogador em qualquer valor, em qualquer saída medida.\n",
     );
     saida
 }

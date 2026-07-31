@@ -443,11 +443,7 @@ fn templates_for_class(category: &str, class_name: &str) -> Vec<&'static TeamTem
         .collect()
 }
 
-fn assert_named_color_roster(
-    category: &str,
-    class_name: &str,
-    expected: &[(&str, &str, &str)],
-) {
+fn assert_named_color_roster(category: &str, class_name: &str, expected: &[(&str, &str, &str)]) {
     let actual: Vec<_> = templates_for_class(category, class_name)
         .into_iter()
         .map(|team| (team.nome, team.nome_curto, team.cor_primaria))

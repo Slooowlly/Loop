@@ -249,7 +249,12 @@ pub(super) fn assign_seasonal_team_attributes(
                 &plan_type,
                 hard_event,
             )
-            .map_err(|e| format!("Falha ao atualizar foco da equipe {}: {e}", updated_team.nome))?;
+            .map_err(|e| {
+                format!(
+                    "Falha ao atualizar foco da equipe {}: {e}",
+                    updated_team.nome
+                )
+            })?;
         }
     }
 

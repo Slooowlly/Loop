@@ -1136,12 +1136,13 @@ describe("StandingsTab", () => {
     vi.useRealTimers();
 
     const drawer = await screen.findByRole("dialog", { name: /Vector Racing/i });
-    expect(within(drawer).getByText(/Records históricos/i)).toBeInTheDocument();
+    // O v2 nomeia a seção na coluna lateral — o título repetido dentro do conteúdo saiu.
+    expect(within(drawer).getByRole("tab", { name: /Records/i })).toHaveAttribute("aria-selected", "true");
     expect(within(drawer).getByRole("tab", { name: /Identidade/i })).toBeInTheDocument();
-    expect(drawer).toHaveClass("left-0");
-    expect(drawer).toHaveClass("border-r");
+    // Centralizado: o dossiê é tela de leitura, não painel de borda.
+    expect(drawer).toHaveClass("w-[min(94vw,1180px)]");
+    expect(drawer).not.toHaveClass("left-0");
     expect(drawer).not.toHaveClass("right-0");
-    expect(drawer).not.toHaveClass("border-l");
 
     fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
 

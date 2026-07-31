@@ -36,10 +36,10 @@ mod validacao;
 // (e o re-export em `convocation/mod.rs`) continua resolvendo igual.
 pub use comum::*;
 pub use fases::*;
-pub use pos_especial::*;
 use grid::*;
 use ofertas::*;
 use persistencia::*;
+pub use pos_especial::*;
 use validacao::*;
 
 // ── Pipeline principal ────────────────────────────────────────────────────────

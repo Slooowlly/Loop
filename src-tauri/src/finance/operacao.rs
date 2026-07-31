@@ -120,16 +120,47 @@ impl OperationInputs {
 /// não está no mapa — nesse caso a etapa é tratada como continental (fator neutro).
 fn continent(pais: &str) -> Option<&'static str> {
     const EUROPA: &[&str] = &[
-        "Áustria", "Austria", "Bélgica", "Belgica", "Alemanha", "Espanha", "França", "Franca",
-        "Reino Unido", "Hungria", "Itália", "Italia", "Holanda", "Noruega", "Portugal", "Suíça",
-        "Suica", "Finlândia", "Finlandia", "Suécia", "Suecia", "Dinamarca", "Polônia", "Polonia",
-        "Irlanda", "República Tcheca", "Republica Tcheca",
+        "Áustria",
+        "Austria",
+        "Bélgica",
+        "Belgica",
+        "Alemanha",
+        "Espanha",
+        "França",
+        "Franca",
+        "Reino Unido",
+        "Hungria",
+        "Itália",
+        "Italia",
+        "Holanda",
+        "Noruega",
+        "Portugal",
+        "Suíça",
+        "Suica",
+        "Finlândia",
+        "Finlandia",
+        "Suécia",
+        "Suecia",
+        "Dinamarca",
+        "Polônia",
+        "Polonia",
+        "Irlanda",
+        "República Tcheca",
+        "Republica Tcheca",
     ];
     const AMERICA_NORTE: &[&str] = &["EUA", "Canadá", "Canada", "México", "Mexico"];
     const AMERICA_SUL: &[&str] = &["Brasil", "Argentina"];
     const ASIA: &[&str] = &[
-        "Japão", "Japao", "Taiwan", "China", "Coreia do Sul", "Emirados", "Bahrein", "Catar",
-        "Índia", "India",
+        "Japão",
+        "Japao",
+        "Taiwan",
+        "China",
+        "Coreia do Sul",
+        "Emirados",
+        "Bahrein",
+        "Catar",
+        "Índia",
+        "India",
     ];
     const OCEANIA: &[&str] = &["Austrália", "Australia", "Nova Zelândia", "Nova Zelandia"];
     const AFRICA: &[&str] = &["África do Sul", "Africa do Sul"];
@@ -261,7 +292,10 @@ mod tests {
     #[test]
     fn nenhuma_linha_domina_a_fatura() {
         for facilities in [0.0, 50.0, 100.0] {
-            let i = OperationInputs { facilities, ..inputs() };
+            let i = OperationInputs {
+                facilities,
+                ..inputs()
+            };
             let total = compute_operation_cost(&i);
             for linha in compute_operation_lines(&i) {
                 let fatia = linha.cost / total;
@@ -281,7 +315,10 @@ mod tests {
     #[test]
     fn escala_por_instalacoes_bate_com_a_formula_antiga() {
         for facilities in [0.0, 25.0, 50.0, 75.0, 100.0] {
-            let i = OperationInputs { facilities, ..inputs() };
+            let i = OperationInputs {
+                facilities,
+                ..inputs()
+            };
             let antigo = i.round_operating_base * (0.42 + 0.004 * facilities);
             let novo = compute_operation_cost(&i);
             let desvio = (novo - antigo).abs() / antigo;
@@ -296,20 +333,34 @@ mod tests {
     /// A rodada deixa de custar igual toda vez: casa < continental < intercontinental.
     #[test]
     fn distancia_da_etapa_move_o_custo() {
-        let casa = compute_operation_cost(&OperationInputs { travel_factor: TRAVEL_HOME, ..inputs() });
+        let casa = compute_operation_cost(&OperationInputs {
+            travel_factor: TRAVEL_HOME,
+            ..inputs()
+        });
         let cont = compute_operation_cost(&inputs());
         let longe = compute_operation_cost(&OperationInputs {
             travel_factor: TRAVEL_INTERCONTINENTAL,
             ..inputs()
         });
-        assert!(casa < cont && cont < longe, "casa {casa:.0} / cont {cont:.0} / longe {longe:.0}");
+        assert!(
+            casa < cont && cont < longe,
+            "casa {casa:.0} / cont {cont:.0} / longe {longe:.0}"
+        );
     }
 
     /// Abandonar cedo com pneu novo custa menos combustível e menos borracha.
     #[test]
     fn corrida_curta_queima_menos() {
-        let inteira = compute_operation_cost(&OperationInputs { laps_ratio: 1.0, tire_wear: 0.9, ..inputs() });
-        let abandono = compute_operation_cost(&OperationInputs { laps_ratio: 0.1, tire_wear: 0.1, ..inputs() });
+        let inteira = compute_operation_cost(&OperationInputs {
+            laps_ratio: 1.0,
+            tire_wear: 0.9,
+            ..inputs()
+        });
+        let abandono = compute_operation_cost(&OperationInputs {
+            laps_ratio: 0.1,
+            tire_wear: 0.1,
+            ..inputs()
+        });
         assert!(abandono < inteira);
     }
 

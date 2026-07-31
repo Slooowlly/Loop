@@ -150,16 +150,16 @@ enum Severity {
 fn severity_weights(pt: PartType) -> (f64, f64) {
     // Suavizado: menos peças terminam em DNF; a maioria vira penalidade (leve/grave).
     match pt {
-        PartType::Engine => (0.20, 0.42),      // resto 0.38 DNF (o mais terminal)
-        PartType::Gearbox => (0.22, 0.44),     // 0.34
-        PartType::Suspension => (0.28, 0.47),  // 0.25
-        PartType::Chassis => (0.25, 0.45),     // 0.30
-        PartType::Brakes => (0.45, 0.45),      // 0.10
-        PartType::Cooling => (0.50, 0.42),     // 0.08
-        PartType::FrontWing => (0.60, 0.35),   // 0.05
-        PartType::RearWing => (0.60, 0.35),    // 0.05
-        PartType::Underbody => (0.72, 0.25),   // 0.03
-        PartType::Sidepods => (0.78, 0.20),    // 0.02
+        PartType::Engine => (0.20, 0.42), // resto 0.38 DNF (o mais terminal)
+        PartType::Gearbox => (0.22, 0.44), // 0.34
+        PartType::Suspension => (0.28, 0.47), // 0.25
+        PartType::Chassis => (0.25, 0.45), // 0.30
+        PartType::Brakes => (0.45, 0.45), // 0.10
+        PartType::Cooling => (0.50, 0.42), // 0.08
+        PartType::FrontWing => (0.60, 0.35), // 0.05
+        PartType::RearWing => (0.60, 0.35), // 0.05
+        PartType::Underbody => (0.72, 0.25), // 0.03
+        PartType::Sidepods => (0.78, 0.20), // 0.02
         PartType::Electronics => (0.72, 0.25), // 0.03
     }
 }
@@ -284,8 +284,8 @@ fn run_race(
                 // A peça que quebrou é trocada para a próxima corrida.
                 wear[i] = 0.0;
                 let _ = car_num; // (o nº do carro só é usado nos exemplos de comando)
-                // Um DNF (!dq) ENCERRA a corrida do carro — ele está fora, as demais
-                // peças não importam mais. Falha leve/grave: pita, resolve e segue.
+                                 // Um DNF (!dq) ENCERRA a corrida do carro — ele está fora, as demais
+                                 // peças não importam mais. Falha leve/grave: pita, resolve e segue.
                 if severity == Severity::Dnf {
                     return failures;
                 }
@@ -368,7 +368,14 @@ impl Stats {
 }
 
 /// Roda uma temporada por carro, acumulando estatísticas do tier.
-fn simulate_tier(tier: Tier, cars: u32, races: u32, sprint: bool, p: &Params, rng: &mut StdRng) -> Stats {
+fn simulate_tier(
+    tier: Tier,
+    cars: u32,
+    races: u32,
+    sprint: bool,
+    p: &Params,
+    rng: &mut StdRng,
+) -> Stats {
     let mut stats = Stats::default();
     for car in 0..cars {
         let mut wear = [0.0_f64; 11];
@@ -405,7 +412,10 @@ fn report() {
     println!("── 1) TAXA DE QUEBRA POR TIER ─────────────────────────────────────────");
     println!("Alvos DNF/corr: Rico 2-3% · Médio 5-7% · Pobre 15-30% · Jogador-em-time-pobre 5-7%");
     println!("(jogador em time rico/médio = IDÊNTICO à IA daquele tier)");
-    println!("{:<15} {:>12} {:>12} {:>14} {:>12}", "Tier", "quebra/corr", "DNF/corr", "falhas/corr", "n corr");
+    println!(
+        "{:<15} {:>12} {:>12} {:>14} {:>12}",
+        "Tier", "quebra/corr", "DNF/corr", "falhas/corr", "n corr"
+    );
     let tiers = [Tier::Rich, Tier::Mid, Tier::Poor, Tier::Player];
     let mut mid_stats = None;
     for &tier in &tiers {
@@ -439,7 +449,14 @@ fn report() {
     }
 
     println!("\n── 3) CONDIÇÃO DA PEÇA NA FALHA (tier Pobre) ──────────────────────────");
-    let labels = ["<95% (não deveria)", "95-97%", "97-100%", "100-103%", "103-105%", "=105% (parede)"];
+    let labels = [
+        "<95% (não deveria)",
+        "95-97%",
+        "97-100%",
+        "100-103%",
+        "103-105%",
+        "=105% (parede)",
+    ];
     for (i, lbl) in labels.iter().enumerate() {
         let pct = poor.wear_bucket[i] as f64 / poor.total_failures.max(1) as f64 * 100.0;
         let bar = "█".repeat((pct / 2.0).round() as usize);
@@ -453,9 +470,18 @@ fn report() {
 
     println!("\n── 4) SEVERIDADE (tier Pobre) ─────────────────────────────────────────");
     let tot = poor.total_failures.max(1) as f64;
-    println!("Leve (penalidade curta): {:.1}%", poor.sev_light as f64 / tot * 100.0);
-    println!("Grave (penalidade longa): {:.1}%", poor.sev_heavy as f64 / tot * 100.0);
-    println!("DNF (!dq):                {:.1}%", poor.sev_dnf as f64 / tot * 100.0);
+    println!(
+        "Leve (penalidade curta): {:.1}%",
+        poor.sev_light as f64 / tot * 100.0
+    );
+    println!(
+        "Grave (penalidade longa): {:.1}%",
+        poor.sev_heavy as f64 / tot * 100.0
+    );
+    println!(
+        "DNF (!dq):                {:.1}%",
+        poor.sev_dnf as f64 / tot * 100.0
+    );
 
     // ── 5) PORQUÊ: rastros de exemplo ──
     println!("\n── 5) PORQUÊ / COMO ACONTECEU (10 exemplos, tier Pobre) ───────────────");
@@ -469,15 +495,28 @@ fn report() {
         let mut pg = p;
         pg.global = g;
         let s = rebuild(Tier::Poor, 1000, races, true, &pg);
-        println!("{:>8.1} {:>13.1}% {:>11.1}%", g, s.break_rate() * 100.0, s.dnf_rate() * 100.0);
+        println!(
+            "{:>8.1} {:>13.1}% {:>11.1}%",
+            g,
+            s.break_rate() * 100.0,
+            s.dnf_rate() * 100.0
+        );
     }
 
     // ── 7) Efeito do tamanho da corrida ──
     println!("\n── 7) EFEITO DO TAMANHO DA CORRIDA (tier Médio) ───────────────────────");
     let sprint = rebuild_scenario(Tier::Mid, 2000, races, true, &p);
     let enduro = rebuild_scenario(Tier::Mid, 2000, races, false, &p);
-    println!("Sprint (14-22 voltas):  quebra/corr {:.1}%  |  DNF/corr {:.1}%", sprint.break_rate() * 100.0, sprint.dnf_rate() * 100.0);
-    println!("Enduro (40-60 voltas):  quebra/corr {:.1}%  |  DNF/corr {:.1}%", enduro.break_rate() * 100.0, enduro.dnf_rate() * 100.0);
+    println!(
+        "Sprint (14-22 voltas):  quebra/corr {:.1}%  |  DNF/corr {:.1}%",
+        sprint.break_rate() * 100.0,
+        sprint.dnf_rate() * 100.0
+    );
+    println!(
+        "Enduro (40-60 voltas):  quebra/corr {:.1}%  |  DNF/corr {:.1}%",
+        enduro.break_rate() * 100.0,
+        enduro.dnf_rate() * 100.0
+    );
 
     let _ = mid_stats;
     println!("\n(experimento reproduzível; ajuste os Params e rode de novo para recalibrar)\n");

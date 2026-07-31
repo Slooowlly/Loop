@@ -1,4 +1,4 @@
-﻿//! Dinheiro e fama do fim de semana: contexto financeiro da rodada, impacto do resultado no interesse do evento e repasse de fama para patrocinio e bilheteria.
+//! Dinheiro e fama do fim de semana: contexto financeiro da rodada, impacto do resultado no interesse do evento e repasse de fama para patrocinio e bilheteria.
 
 use super::*;
 
@@ -41,7 +41,11 @@ pub(crate) fn round_operation_context(
         .filter(|r| r.team_id == team_id)
         .collect();
     if carros.is_empty() {
-        return RoundOperationContext { track_id, laps_ratio: 1.0, tire_wear: 0.6 };
+        return RoundOperationContext {
+            track_id,
+            laps_ratio: 1.0,
+            tire_wear: 0.6,
+        };
     }
     let n = carros.len() as f64;
     RoundOperationContext {
@@ -438,8 +442,11 @@ pub(crate) fn apply_post_race_fame(
         .filter(|r| r.is_jogador || r.pilot_id == result.winner_id)
     {
         if !r.is_dnf && r.grid_position - r.finish_position >= crate::fame::COMEBACK_MIN_POSITIONS {
-            let _ =
-                driver_queries::bump_driver_carisma(conn, &r.pilot_id, crate::fame::CARISMA_DRIFT_COMEBACK);
+            let _ = driver_queries::bump_driver_carisma(
+                conn,
+                &r.pilot_id,
+                crate::fame::CARISMA_DRIFT_COMEBACK,
+            );
         }
     }
 

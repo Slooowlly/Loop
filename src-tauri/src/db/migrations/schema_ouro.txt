@@ -262,19 +262,37 @@ tabela race_results
   coluna dnf_reason | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna dnf_segment | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna equipe_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna estrategia_id | tipo=TEXT | notnull=1 | default='' | pk=0
   coluna fastest_lap | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna final_tire_wear | tipo=REAL | notnull=1 | default=1.0 | pk=0
   coluna gap_to_winner_ms | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna id | tipo=INTEGER | notnull=0 | default=- | pk=1
   coluna incidents_count | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  coluna leitura_fds_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
+  coluna maior_sequencia_preso | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  coluna paradas_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
   coluna piloto_id | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna pontos | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna posicao_final | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna posicao_largada | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna race_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna segmentos_em_ar_sujo | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna tempo_total | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna tentativas_sofridas | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  coluna tentativas_ultrapassagem | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  coluna trafego_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
+  coluna ultrapassagens_concluidas | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna voltas_completadas | tipo=INTEGER | notnull=1 | default=0 | pk=0
   indice idx_race_results_unique_race_pilot | unique=1 | origem=c | parcial=0 | colunas=race_id,piloto_id
+tabela race_safety_cars
+  coluna grid_json | tipo=TEXT | notnull=1 | default='[]' | pk=0
+  coluna ordem | tipo=INTEGER | notnull=1 | default=- | pk=2
+  coluna race_id | tipo=TEXT | notnull=1 | default=- | pk=1
+  coluna volta | tipo=INTEGER | notnull=1 | default=- | pk=0
+tabela race_weekend_readings
+  coluna driver_id | tipo=TEXT | notnull=1 | default=- | pk=2
+  coluna leitura_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
+  coluna race_id | tipo=TEXT | notnull=1 | default=- | pk=1
 tabela races
   coluna calendar_id | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna clima | tipo=TEXT | notnull=1 | default='Seco' | pk=0

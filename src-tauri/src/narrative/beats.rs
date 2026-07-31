@@ -295,7 +295,11 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
             weight += 8.0;
         }
         let status = if p.is_dnf {
-            rust_i18n::t!("narrative.beat.player_dnf_status", reason = dnf_reason_of(p)).to_string()
+            rust_i18n::t!(
+                "narrative.beat.player_dnf_status",
+                reason = dnf_reason_of(p)
+            )
+            .to_string()
         } else {
             rust_i18n::t!(
                 "narrative.beat.player_status",
@@ -329,7 +333,11 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
 /// consequência da corrida: morna → poucos beats; caótica → muitos.
 pub fn select(mut beats: Vec<Beat>) -> Vec<Beat> {
     beats.retain(|b| b.passes());
-    beats.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    beats.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     beats.truncate(MAX_BEATS);
     beats
 }

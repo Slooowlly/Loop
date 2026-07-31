@@ -61,10 +61,7 @@ fn race_frame(session_num: i32, leader_lap: i32) -> IracingTelemetry {
         session_state: STATE_RACING,
         session_time: 100.0,
         player_car_idx: 0,
-        cars: vec![
-            on_track(0, 2, leader_lap - 1),
-            on_track(1, 1, leader_lap),
-        ],
+        cars: vec![on_track(0, 2, leader_lap - 1), on_track(1, 1, leader_lap)],
         ..Default::default()
     }
 }
@@ -117,19 +114,83 @@ fn monitor_com_historico() -> RaceMonitor {
     m.session_car_name = Some("Global Mazda MX-5 Cup".to_string());
     m.history.player_car_idx = 0;
     m.history.cars_meta = vec![
-        CarMeta { idx: 0, is_ai: false, is_pace: false, class_id: 10, class_position: 4, car_number: 64, grid_class_position: 9 },
-        CarMeta { idx: 1, is_ai: true, is_pace: false, class_id: 10, class_position: 1, car_number: 1, grid_class_position: 1 },
-        CarMeta { idx: 2, is_ai: true, is_pace: false, class_id: 10, class_position: 2, car_number: 2, grid_class_position: 2 },
-        CarMeta { idx: 3, is_ai: true, is_pace: false, class_id: 99, class_position: 1, car_number: 3, grid_class_position: 1 },
-        CarMeta { idx: 4, is_ai: true, is_pace: true, class_id: 10, class_position: 0, car_number: 0, grid_class_position: 0 },
+        CarMeta {
+            idx: 0,
+            is_ai: false,
+            is_pace: false,
+            class_id: 10,
+            class_position: 4,
+            car_number: 64,
+            grid_class_position: 9,
+        },
+        CarMeta {
+            idx: 1,
+            is_ai: true,
+            is_pace: false,
+            class_id: 10,
+            class_position: 1,
+            car_number: 1,
+            grid_class_position: 1,
+        },
+        CarMeta {
+            idx: 2,
+            is_ai: true,
+            is_pace: false,
+            class_id: 10,
+            class_position: 2,
+            car_number: 2,
+            grid_class_position: 2,
+        },
+        CarMeta {
+            idx: 3,
+            is_ai: true,
+            is_pace: false,
+            class_id: 99,
+            class_position: 1,
+            car_number: 3,
+            grid_class_position: 1,
+        },
+        CarMeta {
+            idx: 4,
+            is_ai: true,
+            is_pace: true,
+            class_id: 10,
+            class_position: 0,
+            car_number: 0,
+            grid_class_position: 0,
+        },
     ];
     m.history.car_laps = vec![
-        CarLap { car_idx: 0, lap: 1, time: 95.5 },
-        CarLap { car_idx: 0, lap: 2, time: 94.2 }, // melhor do jogador
-        CarLap { car_idx: 1, lap: 1, time: 92.0 }, // melhor da classe
-        CarLap { car_idx: 2, lap: 1, time: 93.1 },
-        CarLap { car_idx: 3, lap: 1, time: 80.0 }, // outra classe: não conta
-        CarLap { car_idx: 0, lap: 3, time: -1.0 }, // volta inválida: ignorada
+        CarLap {
+            car_idx: 0,
+            lap: 1,
+            time: 95.5,
+        },
+        CarLap {
+            car_idx: 0,
+            lap: 2,
+            time: 94.2,
+        }, // melhor do jogador
+        CarLap {
+            car_idx: 1,
+            lap: 1,
+            time: 92.0,
+        }, // melhor da classe
+        CarLap {
+            car_idx: 2,
+            lap: 1,
+            time: 93.1,
+        },
+        CarLap {
+            car_idx: 3,
+            lap: 1,
+            time: 80.0,
+        }, // outra classe: não conta
+        CarLap {
+            car_idx: 0,
+            lap: 3,
+            time: -1.0,
+        }, // volta inválida: ignorada
     ];
     m
 }
@@ -137,7 +198,12 @@ fn monitor_com_historico() -> RaceMonitor {
 #[test]
 fn desfecho_sai_do_historico_com_as_tres_pecas_da_posicao() {
     let m = monitor_com_historico();
-    let ev = AttemptEvidence { raced: true, incident_points: 4, off_track: true, ..Default::default() };
+    let ev = AttemptEvidence {
+        raced: true,
+        incident_points: 4,
+        off_track: true,
+        ..Default::default()
+    };
 
     let o = m.build_race_outcome(&ev, 12, 3, Some("leve".to_string()));
 
@@ -198,7 +264,7 @@ fn clima_vivo_sobrepoe_canais_presentes() {
     let baseline = crate::car::breakdown::Weather::NEUTRAL;
     let t = IracingTelemetry {
         air_temp: 31.0,
-        track_wetness: 7, // ExtremelyWet → 1.0
+        track_wetness: 7,       // ExtremelyWet → 1.0
         relative_humidity: 0.8, // 80%
         wind_ms: 10.0,          // 36 km/h
         ..Default::default()
@@ -233,7 +299,7 @@ fn monitor_com_quebra_do_jogador() -> (RaceMonitor, IracingTelemetry) {
         session_state: STATE_RACING,
         player_car_idx: 0,
         lap_completed: 1,
-        track_wetness: 7,       // ExtremelyWet → chuva castiga a eletrônica (§3.5)
+        track_wetness: 7, // ExtremelyWet → chuva castiga a eletrônica (§3.5)
         air_temp: 31.0,
         relative_humidity: 0.8,
         cars: vec![on_track(0, 1, 1)],
@@ -304,7 +370,10 @@ fn clima_vivo_pista_seca_zera_o_molhado() {
         humidity: 60.0,
         wind_kmh: 20.0,
     };
-    let t = IracingTelemetry { track_wetness: 1, ..Default::default() };
+    let t = IracingTelemetry {
+        track_wetness: 1,
+        ..Default::default()
+    };
     let w = effective_weather(&t, baseline);
     assert!((w.wetness - 0.0).abs() < 1e-9);
     // Canais não lidos seguem no baseline.
@@ -351,7 +420,10 @@ fn troca_do_numero_da_quali_reseta_estado_e_captura_a_sessao_nova() {
     assert_eq!(m.qualy_laps_snapshot().len(), 1);
 
     m.set_qualy_session_num(2);
-    assert!(!m.prev_in_qualy, "a nova sessão precisa rearmar a borda de entrada");
+    assert!(
+        !m.prev_in_qualy,
+        "a nova sessão precisa rearmar a borda de entrada"
+    );
     assert!(
         m.qualy_laps_snapshot().is_empty(),
         "as voltas antigas devem sumir imediatamente"
@@ -445,7 +517,10 @@ fn quali_nao_entra_no_historico_da_corrida() {
 
     // Tick da CORRIDA (outro session_num) grava normalmente.
     m.record_history(&race_frame(2, 3));
-    assert!(!m.history.laps.is_empty(), "a corrida deve gravar snapshots");
+    assert!(
+        !m.history.laps.is_empty(),
+        "a corrida deve gravar snapshots"
+    );
     assert_eq!(m.hist_session_num, 2);
 }
 
@@ -496,7 +571,10 @@ fn troca_de_posicao_gera_snapshot_na_hora() {
     );
     let last = m.history.laps.last().unwrap();
     assert_eq!(last.lap, 3);
-    assert!((last.progress - 0.4).abs() < 1e-5, "progresso do líder na volta");
+    assert!(
+        (last.progress - 0.4).abs() < 1e-5,
+        "progresso do líder na volta"
+    );
     assert_eq!(
         last.cars.iter().find(|c| c.idx == 0).unwrap().position,
         2,
@@ -533,7 +611,10 @@ fn setores_do_jogador_sao_cronometrados() {
     assert!(secs.contains(&(2, 8.0)), "S2 cronometrado: {secs:?}");
     assert!(secs.contains(&(3, 8.0)), "S3 cronometrado: {secs:?}");
     // O S1 inicial era parcial (entramos no meio) → não pode ter sido gravado.
-    assert!(!secs.iter().any(|(s, _)| *s == 1), "S1 parcial não grava: {secs:?}");
+    assert!(
+        !secs.iter().any(|(s, _)| *s == 1),
+        "S1 parcial não grava: {secs:?}"
+    );
 }
 
 #[test]
@@ -580,7 +661,8 @@ fn parser_acha_o_numero_da_sessao_de_corrida() {
 #[test]
 fn parser_da_corrida_nao_confunde_quali_nem_inventa_sessao() {
     // "Lone Qualify" e "Warmup" não podem passar por corrida.
-    let so_quali = "SessionNum: 0\nSessionType: Practice\nSessionNum: 1\nSessionType: Lone Qualify\n\
+    let so_quali =
+        "SessionNum: 0\nSessionType: Practice\nSessionNum: 1\nSessionType: Lone Qualify\n\
                     SessionNum: 2\nSessionType: Warmup\n";
     assert_eq!(parse_race_session_num(so_quali), -1);
 

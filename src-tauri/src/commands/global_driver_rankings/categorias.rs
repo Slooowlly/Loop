@@ -66,7 +66,10 @@ pub(super) fn category_stats_parts(category: &str) -> (String, Option<String>) {
     (category.to_string(), None)
 }
 
-pub(super) fn load_contract_categories(conn: &Connection, driver_id: &str) -> Result<Vec<String>, String> {
+pub(super) fn load_contract_categories(
+    conn: &Connection,
+    driver_id: &str,
+) -> Result<Vec<String>, String> {
     let contracts = contract_queries::get_contracts_for_pilot(conn, driver_id)
         .map_err(|e| format!("Falha ao carregar historico de contratos do piloto: {e}"))?;
     let mut categories = Vec::new();

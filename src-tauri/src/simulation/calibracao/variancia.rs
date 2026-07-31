@@ -116,7 +116,25 @@ pub struct OrcamentoVariancia {
     pub frac_evento: f64,
     pub frac_corrida: f64,
 
-    /// Quebra da camada de evento entre pista e clima (soma = `frac_evento`).
+    /// Quebra da camada de evento entre o que a PISTA carrega e o que sobra quando ela é fixada
+    /// (soma = `frac_evento`).
+    ///
+    /// **O nome `frac_evento_clima` ficou estreito depois do pacote B, e é honesto registrar
+    /// isso.** A medição é "o que sobrevive a fixar a pista" — quando ela foi escrita, a única
+    /// coisa nessa condição era clima/temperatura. Hoje o `simulation::forma` acrescentou duas: a
+    /// FORMA do momento (AR(1) por piloto e etapa) e o ACERTO de fim de semana (sorteio por equipe
+    /// e evento). Nenhuma das duas depende de qual pista é, então as duas caem aqui.
+    ///
+    /// Leitura correta dos dois campos, portanto:
+    ///
+    /// - `frac_evento_pista` — o que desaparece ao fixar a pista. Isola a **afinidade
+    ///   piloto × pista** de forma limpa, porque é a única camada indexada por `track_id`.
+    /// - `frac_evento_clima` — clima **+ forma + acerto**. É um agregado, não uma fonte.
+    ///
+    /// Separar forma de acerto dentro desse agregado exige congelar uma delas, e congelar exige
+    /// que a magnitude seja injetável — o que hoje ela não é (as escalas são `const`). Quando for,
+    /// a repartição da seção 7.5 do [CAMPANHA.md](CAMPANHA.md) passa a ser medível em vez de
+    /// arbitrada, e este campo deve ser quebrado em três.
     pub frac_evento_pista: f64,
     pub frac_evento_clima: f64,
 
@@ -320,7 +338,26 @@ fn rodar_grade(
 
     let indice_do_piloto = |id: &str| grid.iter().position(|d| d.id == id);
 
+    // A esteira de forma é aplicada por EVENTO, não por réplica: afinidade, forma e acerto não são
+    // ruído de corrida, então as réplicas de um mesmo evento têm que compartilhá-las — senão a
+    // decomposição as classificaria como residual e a medição diria o contrário do que é.
+    let mut estado = arena::estado_de_forma_inicial(grid);
+
     for (e, evento) in eventos.iter().enumerate() {
+        let grid_do_evento = if config.base.esteira_de_forma {
+            Some(arena::aplicar_esteira_com_escalas(
+                grid,
+                1,
+                e as i32 + 1,
+                evento.pista.track_id,
+                &mut estado,
+                &config.base.escalas_da_previa.unwrap_or_default(),
+            ))
+        } else {
+            None
+        };
+        let grid = grid_do_evento.as_deref().unwrap_or(grid);
+
         let mut do_evento = Vec::with_capacity(config.replicas);
         for r in 0..config.replicas {
             let s = semente

@@ -140,7 +140,10 @@ mod tests {
         let ds = dispositivos_conectados();
         println!("dispositivos de jogo conectados: {ds:?}");
         for d in &ds {
-            println!("  dispositivo {d}: pressionado agora = {:?}", botao_pressionado());
+            println!(
+                "  dispositivo {d}: pressionado agora = {:?}",
+                botao_pressionado()
+            );
         }
         assert!(ds.len() <= 16);
     }
@@ -149,7 +152,13 @@ mod tests {
     fn botao_invalido_nunca_conta_como_pressionado() {
         // Botão acima do teto da API e dispositivo que não existe: os dois têm de
         // responder "solto", nunca entrar em pânico.
-        assert!(!esta_pressionado(BotaoVolante { dispositivo: 0, botao: 99 }));
-        assert!(!esta_pressionado(BotaoVolante { dispositivo: 15, botao: 0 }));
+        assert!(!esta_pressionado(BotaoVolante {
+            dispositivo: 0,
+            botao: 99
+        }));
+        assert!(!esta_pressionado(BotaoVolante {
+            dispositivo: 15,
+            botao: 0
+        }));
     }
 }

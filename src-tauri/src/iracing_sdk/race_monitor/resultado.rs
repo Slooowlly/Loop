@@ -7,7 +7,10 @@ use super::*;
 /// que a camada adaptativa consome (a ponte Fase A → Fase B). `track_id` vem de
 /// quem chama (o export sabe a pista). As voltas de TODOS os carros já estão em
 /// `car_laps`; aqui só agrupamos por carro e marcamos jogador/DNF.
-pub fn build_adaptive_result(history: &RaceHistory, track_id: i64) -> crate::iracing_sdk::adaptive::RaceResult {
+pub fn build_adaptive_result(
+    history: &RaceHistory,
+    track_id: i64,
+) -> crate::iracing_sdk::adaptive::RaceResult {
     use crate::iracing_sdk::adaptive::{DriverData, Lap, RaceResult};
     let player_idx = history.player_car_idx;
     let player_dnf = history.outcome.to_lowercase().contains("dnf");

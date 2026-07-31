@@ -98,7 +98,10 @@ mod tests {
 
     #[test]
     fn from_str_desconhecido_cai_em_campeonato() {
-        assert_eq!(TeamRivalryType::from_str("qualquer"), TeamRivalryType::Campeonato);
+        assert_eq!(
+            TeamRivalryType::from_str("qualquer"),
+            TeamRivalryType::Campeonato
+        );
     }
 
     #[test]

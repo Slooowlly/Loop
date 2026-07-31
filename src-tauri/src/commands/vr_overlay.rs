@@ -12,6 +12,83 @@
 //! Os bytes chegam como corpo RAW da IPC (ArrayBuffer no JS) — nada de JSON, que
 //! transformaria MBs em milhões de números.
 
+// ─────────────────── Chaves do pipeline de overlay ───────────────────
+//
+// Espelho VOLÁTIL dos campos de `AppConfig` (persistidos em config.json), pra o front
+// consultar num poll baratinho sem reler o arquivo. O boot semeia a partir do config e
+// `update_config` reescreve na hora — os toggles das Configurações valem imediatamente,
+// sem restart.
+//
+// Existe porque o custo do pipeline mora do lado do JS: com o VR desligado o front não
+// desenha nem faz `getImageData`, e é ISSO que economiza os ~80 MB/s de alocação. Barrar
+// só a escrita aqui no Rust não resolveria nada.
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+// Modo do overlay de VR, como inteiro pra caber num atômico: 0=auto, 1=on, 2=off.
+// "auto" segue a DETECÇÃO (a layer avisa quando o iRacing abre em VR); "on"/"off"
+// forçam, e existem porque a detecção depende da layer estar instalada e viva.
+const MODO_AUTO: u8 = 0;
+const MODO_ON: u8 = 1;
+const MODO_OFF: u8 = 2;
+static VR_MODE: AtomicU8 = AtomicU8::new(MODO_AUTO);
+static MONITOR_IN_VR: AtomicBool = AtomicBool::new(false);
+
+/// Semeia/atualiza o modo do VR (boot e `update_config`). Valor desconhecido cai em auto.
+pub fn set_vr_mode(modo: &str) {
+    let v = match modo {
+        "on" => MODO_ON,
+        "off" => MODO_OFF,
+        _ => MODO_AUTO,
+    };
+    VR_MODE.store(v, Ordering::Relaxed);
+}
+
+fn modo_texto(v: u8) -> &'static str {
+    match v {
+        MODO_ON => "on",
+        MODO_OFF => "off",
+        _ => "auto",
+    }
+}
+
+/// Semeia/atualiza o override "overlay de monitor mesmo em VR" (live/gravação).
+pub fn set_monitor_in_vr(on: bool) {
+    MONITOR_IN_VR.store(on, Ordering::Relaxed);
+}
+
+/// Tudo de uma vez. Um comando só (em vez de um por flag) porque o front pergunta tudo no
+/// MESMO poll — e o ponto do poll único é justamente não multiplicar travessias da ponte.
+#[derive(serde::Serialize)]
+pub struct OverlayPipelineFlags {
+    /// Decisão EFETIVA: desenhar os painéis de VR agora? (modo + detecção resolvidos aqui,
+    /// pra o front não reimplementar a regra.)
+    pub vr_overlay: bool,
+    /// Abrir as janelas de overlay de MONITOR mesmo com o VR ativo.
+    pub monitor_in_vr: bool,
+    /// O iRacing está em VR agora, segundo a API layer. Diagnóstico pras Configurações —
+    /// e é o que "auto" segue.
+    pub sim_in_vr: bool,
+    /// "auto" | "on" | "off" — o que está configurado (não a decisão).
+    pub vr_mode: &'static str,
+}
+
+/// Chaves do pipeline de overlay (o front lê por poll ralo).
+#[tauri::command]
+pub fn overlay_pipeline_flags() -> OverlayPipelineFlags {
+    let modo = VR_MODE.load(Ordering::Relaxed);
+    let sim_in_vr = crate::commands::vr_layer::sim_em_vr();
+    OverlayPipelineFlags {
+        vr_overlay: match modo {
+            MODO_ON => true,
+            MODO_OFF => false,
+            _ => sim_in_vr,
+        },
+        monitor_in_vr: MONITOR_IN_VR.load(Ordering::Relaxed),
+        sim_in_vr,
+        vr_mode: modo_texto(modo),
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use std::sync::{Mutex, OnceLock};
@@ -21,9 +98,9 @@ mod imp {
     use winapi::um::memoryapi::{CreateFileMappingW, MapViewOfFile, FILE_MAP_WRITE};
 
     const MAGIC: u32 = 0x5241_4352; // 'RACR'
-    // Versão do LAYOUT do cabeçalho — DEVE bater com IRACER_SHM_VERSION em shared_frame.h.
-    // A layer rejeita o mapeamento se não bater (evita ler offsets errados quando DLL e app
-    // foram compilados contra layouts diferentes). BUMP ao mudar qualquer campo abaixo.
+                                    // Versão do LAYOUT do cabeçalho — DEVE bater com IRACER_SHM_VERSION em shared_frame.h.
+                                    // A layer rejeita o mapeamento se não bater (evita ler offsets errados quando DLL e app
+                                    // foram compilados contra layouts diferentes). BUMP ao mudar qualquer campo abaixo.
     const VERSION: u32 = 2;
     // Cabeçalho estendido (casa com IracerFrameHeader em shared_frame.h). `magic`+`version`
     // são o prefixo FIXO (words 0 e 1) e nunca mudam de posição:
@@ -378,7 +455,17 @@ pub fn vr_engineer_set_pose(
     scale: f32,
     visible: bool,
 ) -> Result<(), String> {
-    imp::write_pose(&imp::ENGINEER, lock_mode, x, y, z, yaw, pitch, scale, visible)
+    imp::write_pose(
+        &imp::ENGINEER,
+        lock_mode,
+        x,
+        y,
+        z,
+        yaw,
+        pitch,
+        scale,
+        visible,
+    )
 }
 
 #[cfg(windows)]

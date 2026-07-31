@@ -14,7 +14,9 @@ pub(super) fn imprimir(t: &Totals) {
     }
 
     println!("\n■ NÍVEL DO CARRO (1–10) por categoria — Sistema de Nível do Carro");
-    println!("    Alvo: a média deveria convergir perto do TETO da categoria, com spread (min<max).");
+    println!(
+        "    Alvo: a média deveria convergir perto do TETO da categoria, com spread (min<max)."
+    );
     println!("    categoria             | teto | média | min | max | nº");
     println!("    ----------------------+------+-------+-----+-----+-----");
     for (cat, a) in &t.car_level_by_category {
@@ -24,7 +26,12 @@ pub(super) fn imprimir(t: &Totals) {
         let ceiling = crate::car::cost::category_ceiling(cat);
         println!(
             "    {:<21} | {:>4} | {:>5.1} | {:>3.0} | {:>3.0} | {:.0}",
-            cat, ceiling, a[0] / a[1], a[2], a[3], a[1]
+            cat,
+            ceiling,
+            a[0] / a[1],
+            a[2],
+            a[3],
+            a[1]
         );
     }
 
@@ -130,7 +137,10 @@ pub(super) fn imprimir(t: &Totals) {
         let cars = [
             ("potência", mk(&[Engine, Gearbox, Cooling, Electronics])),
             ("handling", mk(&[FrontWing, RearWing, Brakes, Suspension])),
-            ("aceleração", mk(&[Gearbox, Chassis, Suspension, Electronics])),
+            (
+                "aceleração",
+                mk(&[Gearbox, Chassis, Suspension, Electronics]),
+            ),
             ("balanceado", crate::car::Car::uniform(6)),
         ];
         let tracks = [

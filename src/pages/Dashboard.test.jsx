@@ -54,9 +54,15 @@ vi.mock("./tabs/CalendarTabRedesign", () => ({
 }));
 
 vi.mock("./tabs/StandingsTab", () => ({
-  default: ({ onOpenGlobalDrivers, onOpenGlobalTeams }) => (
+  default: ({ onOpenGlobalDrivers, onOpenGlobalTeams, onOpenTeamRecords }) => (
     <div>
       <div>Classificacao de pilotos</div>
+      <button
+        type="button"
+        onClick={() => onOpenTeamRecords?.({ metric: "wins", category: "gt3", teamId: "T001" })}
+      >
+        Abrir recordes pela classificacao
+      </button>
       <button type="button" onClick={() => onOpenGlobalDrivers?.("D001")}>
         Abrir panorama
       </button>
@@ -81,14 +87,45 @@ vi.mock("./tabs/GlobalDriversTab", () => ({
   ),
 }));
 
-vi.mock("./tabs/GlobalTeamsTab", () => ({
-  default: ({ selectedTeamId, selectedTeamCategory, selectedTeamClassName, onBack }) => (
+vi.mock("./tabs/atlas", () => ({
+  default: ({ selectedTeamId, selectedTeamCategory, selectedTeamClassName, onBack, onOpenTeamRecords }) => (
     <div>
       <div>
         Equipes mundiais {selectedTeamId} {selectedTeamCategory} {selectedTeamClassName}
       </div>
       <button type="button" onClick={onBack}>
         Voltar equipes
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenTeamRecords?.({ metric: "titles", category: "mazda_rookie", teamId: "T009" })}
+      >
+        Abrir recordes pelo atlas
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("./tabs/MyTeamTab", () => ({
+  default: ({ onOpenTeamRecords }) => (
+    <div>
+      <div>Minha equipe</div>
+      <button
+        type="button"
+        onClick={() => onOpenTeamRecords?.({ metric: "wins", category: "gt3", teamId: "T001" })}
+      >
+        Abrir recordes pelo card
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("./tabs/TeamRecordsTab", () => ({
+  default: ({ category, metric, highlightTeamId, onBack }) => (
+    <div>
+      <div data-testid="records-args">{[metric, category, highlightTeamId].join("|")}</div>
+      <button type="button" onClick={onBack}>
+        Voltar recordes
       </button>
     </div>
   ),
@@ -278,5 +315,51 @@ describe("Dashboard", () => {
 
     expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "news");
     expect(mockState.dismissResult).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A navegação dos cards de record. É o trecho que não tinha teste: o dossiê já
+// prova que o clique dispara com métrica e recorte, e a aba já prova que ordena
+// pelo que recebe — faltava provar que o Dashboard liga um no outro.
+describe("Dashboard — recordes de equipes", () => {
+  beforeEach(() => {
+    mockState = {
+      isLoaded: true,
+      showRaceBriefing: false,
+      showResult: false,
+      lastRaceResult: null,
+      dismissResult: vi.fn(),
+      showEndOfSeason: false,
+      endOfSeasonResult: null,
+      showPreseason: false,
+      showConvocation: false,
+      lastRaceWasFinale: false,
+      resultIsFresh: false,
+      season: { numero: 1, ano: 2026 },
+      careerId: "career-1",
+    };
+  });
+
+  it("abre a aba de recordes com a métrica e o recorte do card clicado", () => {
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByText("Abrir recordes pela classificacao"));
+
+    expect(screen.getByTestId("main-layout").dataset.activeTab).toBe("team-records");
+    expect(screen.getByTestId("records-args").textContent).toBe("wins|gt3|T001");
+  });
+
+  // A tela não está no menu, então o "Voltar" é a única saída — e tem de devolver
+  // o jogador para onde ele clicou. Um destino fixo estaria certo para uma aba e
+  // errado para as outras.
+  it("volta para a aba de onde o clique partiu", () => {
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByText("Abrir equipes mundiais"));
+    fireEvent.click(screen.getByText("Abrir recordes pelo atlas"));
+    expect(screen.getByTestId("records-args").textContent).toBe("titles|mazda_rookie|T009");
+
+    fireEvent.click(screen.getByText("Voltar recordes"));
+    expect(screen.getByTestId("main-layout").dataset.activeTab).toBe("global-teams");
   });
 });

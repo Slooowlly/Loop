@@ -253,6 +253,8 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
                 &market_contexts,
                 &license_levels,
                 required_license,
+                // Escada regular: mérito de verdade, e mérito exige ter largado.
+                true,
             );
             // Recrutamento profundo (demanda de time + aceite): para uma vaga de topo
             // mal servida pelo feeder, o time busca o craque preso nas categorias
@@ -337,13 +339,91 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
-            if let Some(candidate) = best_feeder_promotion_candidate(
-                &vacancy,
-                &current_by_id,
-                &market_contexts,
-                &license_levels,
-                None,
-            ) {
+            // ORDEM DA ESCASSEZ: nascer é na base, subir é por resultado.
+            //
+            // Antes de aceitar um estreante neste assento, procura o piloto PROVADO mais
+            // próximo abaixo na escada INTEIRA (não só no feeder imediato). É o que impede
+            // que a ordem de preenchimento — vagas por tier decrescente — decida o desfecho:
+            // o gt3 resolvia a escassez dele ANTES de o gt4 ser reabastecido e, chegada a
+            // vez, o alimentador só tinha recém-nascidos, então ele levava o que havia.
+            // Alcançando a escada toda, o assento de cima é sempre pago com quem já largou,
+            // e o buraco desce (via o `break`/re-scan abaixo) até a categoria de estreia.
+            //
+            // A ordenação das vagas fica INTOCADA de propósito: reordenar disparava re-scans
+            // em cascata e travava o sim multi-temporada (ver o comentário na `sort_by`).
+            let proven_candidate =
+                best_proven_promotion_candidate(&vacancy, &current_by_id, &market_contexts);
+
+            // Escada de baixo seca (só recém-nascidos abaixo desta vaga): antes de aceitar
+            // um estreante, resgata um FREE AGENT que já correu. O pool de resgate lá em
+            // cima recusou-o pelo PISO DE SKILL (`pool_fallback_skill_floor`), que existe
+            // para não enfiar um lanterna no topo — mas aqui o concorrente dele não é um
+            // craque, é alguém que nunca largou, então o piso cai.
+            //
+            // É também o preenchimento mais barato da escassez: o free agent não ocupa
+            // assento nenhum, logo não abre buraco embaixo e não dispara cascata (por isso
+            // `continue`, e não o `break`/re-scan da promoção).
+            if proven_candidate.is_none() {
+                let rescue_index = available
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.driver.categoria_atual.is_none()
+                            && candidate.driver.stats_carreira.corridas > 0
+                    })
+                    .max_by(|(_, a), (_, b)| {
+                        a.driver
+                            .atributos
+                            .skill
+                            .total_cmp(&b.driver.atributos.skill)
+                    })
+                    .map(|(index, _)| index);
+                if let Some(index) = rescue_index {
+                    let candidate = available.remove(index);
+                    grant_driver_license_for_division_if_needed(
+                        conn,
+                        &candidate.driver.id,
+                        &vacancy.categoria,
+                        vacancy.classe.as_deref(),
+                    )?;
+                    sign_driver_to_team(
+                        conn,
+                        &candidate.driver,
+                        &vacancy,
+                        new_season_number,
+                        calculate_offer_salary(&vacancy, &candidate.driver, rng),
+                        1,
+                        vacancy.papel_necessario.clone(),
+                    )?;
+                    report.new_signings.push(SigningInfo {
+                        driver_id: candidate.driver.id.clone(),
+                        driver_name: candidate.driver.nome.clone(),
+                        team_id: vacancy.team_id.clone(),
+                        team_name: vacancy.team_name.clone(),
+                        categoria: vacancy.categoria.clone(),
+                        papel: vacancy.papel_necessario.as_str().to_string(),
+                        tipo: "resgate_escassez".to_string(),
+                    });
+                    filled_any = true;
+                    continue;
+                }
+            }
+
+            let promoveu_provado = proven_candidate.is_some();
+            let scarcity_candidate = proven_candidate.or_else(|| {
+                best_feeder_promotion_candidate(
+                    &vacancy,
+                    &current_by_id,
+                    &market_contexts,
+                    &license_levels,
+                    None,
+                    // Válvula FINAL: sem exigência de experiência. Só chega aqui quando não
+                    // existe UM piloto provado em toda a escada abaixo — e assento vazio
+                    // aborta a temporada, então ali vale quem houver. É a válvula, não a regra.
+                    false,
+                )
+            });
+            if let Some(candidate) = scarcity_candidate {
                 for contract in contract_queries::get_all_active_regular_contracts(conn)
                     .map_err(|e| {
                         format!("Falha ao carregar contrato do promovido (emergencia): {e}")
@@ -382,7 +462,12 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
                     team_name: vacancy.team_name.clone(),
                     categoria: vacancy.categoria.clone(),
                     papel: vacancy.papel_necessario.as_str().to_string(),
-                    tipo: "promocao_emergencia".to_string(),
+                    tipo: if promoveu_provado {
+                        "promocao_escassez"
+                    } else {
+                        "promocao_emergencia"
+                    }
+                    .to_string(),
                 });
                 EMERGENCY_PROMOTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let from_tier = candidate
@@ -615,11 +700,14 @@ pub(super) fn guarantee_rookie_champion_promotions(
     let mut swapped_any = false;
     for rookie_cat in rookie_cats {
         // Alvo regular ativo (Amador) para onde o Rookie alimenta.
-        let Some(target_cat) = get_target_categories(rookie_cat).into_iter().find(|target| {
-            uses_regular_contracts(target)
-                && !runs_in_special_phase(target)
-                && is_category_active_in_year(target, debut_year)
-        }) else {
+        let Some(target_cat) = get_target_categories(rookie_cat)
+            .into_iter()
+            .find(|target| {
+                uses_regular_contracts(target)
+                    && !runs_in_special_phase(target)
+                    && is_category_active_in_year(target, debut_year)
+            })
+        else {
             continue;
         };
         let Some(required) = required_license_for_division(target_cat, None) else {
@@ -734,6 +822,7 @@ pub(super) fn best_feeder_promotion_candidate(
     contexts: &HashMap<String, DriverMarketContext>,
     license_levels: &HashMap<String, u8>,
     required_license: Option<u8>,
+    exigir_experiencia: bool,
 ) -> Option<Driver> {
     let feeders = get_feeder_categories(&vacancy.categoria);
     if feeders.is_empty() {
@@ -745,6 +834,20 @@ pub(super) fn best_feeder_promotion_candidate(
         .filter(|driver| {
             !driver.is_jogador
                 && driver.status == DriverStatus::Ativo
+                // Promoção por MÉRITO exige ter largado: quem nunca correu entra no `score` abaixo
+                // com `posicao_campeonato` no padrão 99 e sobe só pelo skill bruto.
+                //
+                // O caso concreto: no preenchimento da primeira temporada jogável nascem rookies
+                // em `mazda_rookie`/`toyota_rookie` com zero corridas (legítimo — a temporada ainda
+                // não rodou), e a cascata promovia esses recém-nascidos para amador/bmw_m2 **na
+                // mesma passada**, antes da primeira largada.
+                //
+                // **Só vale para o caminho de mérito.** A chamada de EMERGÊNCIA passa `false` de
+                // propósito: ali o assento vazio não é opção — `validate_and_normalize_team_
+                // hierarchies` aborta a temporada —, então a última instância tem que poder
+                // promover quem houver. Aplicar a exigência nos dois lugares mata o processo por
+                // grid inválido, e foi o que aconteceu na primeira tentativa deste conserto.
+                && (!exigir_experiencia || driver.stats_carreira.corridas > 0)
                 && driver
                     .categoria_atual
                     .as_deref()
@@ -767,7 +870,87 @@ pub(super) fn best_feeder_promotion_candidate(
                     .unwrap_or(99);
                 feeder_promotion_score(driver.atributos.skill, pos)
             };
-            score(a).total_cmp(&score(b))
+            // QUEM JÁ CORREU VEM PRIMEIRO, sempre — antes de qualquer comparação de score.
+            //
+            // Sem este degrau, um estreante de skill alto ganhava de um piloto provado: quem
+            // nunca largou entra com `posicao_campeonato = 99`, o que apenas ZERA o bônus de
+            // campeonato (`feeder_promotion_score` vai de +7,2 no 1º a 0 do 10º em diante) em vez
+            // de desclassificar. Um recém-gerado de skill 75 passava na frente do campeão da
+            // categoria de baixo com skill 70.
+            //
+            // Com o degrau, a escada faz o que tem que fazer mesmo na emergência: sobem os
+            // primeiros colocados da temporada anterior, e gente nova só entra pela base. É o que
+            // torna compatíveis as duas invariantes que colidiam — grid sempre cheio E ninguém em
+            // pista sem ter corrido —, porque o assento de cima passa a ser sempre pago com um
+            // piloto provado, e o buraco que ele deixa desce até a categoria de estreia, onde
+            // nascer é legítimo.
+            let correu = |driver: &Driver| driver.stats_carreira.corridas > 0;
+            correu(a)
+                .cmp(&correu(b))
+                .then_with(|| score(a).total_cmp(&score(b)))
+        })
+        .cloned()
+}
+
+/// Melhor candidato PROVADO para uma vaga em ESCASSEZ (escada regular, sem
+/// candidato meritório no feeder imediato).
+///
+/// A regra do mundo é "nascer é na base; subir é por resultado": o assento de cima
+/// tem que ser pago com piloto que já largou, e o buraco que ele deixa desce a
+/// escada até a categoria de estreia, onde nascer é legítimo. Esta função é o "subir
+/// é por resultado" — a busca que enxerga a escada INTEIRA abaixo da vaga, e não só
+/// o feeder imediato de `best_feeder_promotion_candidate`.
+///
+/// Diferenças em relação à promoção por mérito:
+///  - **não exige licença** (a vaga vazia aborta a temporada; o assinar concede),
+///  - **não se limita ao feeder** — se o gt4 só tem recém-nascidos, ela alcança o
+///    bmw_m2/amador atrás de alguém que correu,
+///  - **exige ter largado**, sempre. É isso que a distingue da válvula final.
+///
+/// Ordem de escolha: o degrau mais PRÓXIMO abaixo primeiro (a escada sobe um degrau
+/// por vez, não esvazia a base), depois o PÓDIO da temporada anterior (1º/2º/3º) e,
+/// por fim, o mesmo `feeder_promotion_score` da promoção normal.
+pub(super) fn best_proven_promotion_candidate(
+    vacancy: &Vacancy,
+    drivers_by_id: &HashMap<String, Driver>,
+    contexts: &HashMap<String, DriverMarketContext>,
+) -> Option<Driver> {
+    let tier_of = |driver: &Driver| {
+        driver
+            .categoria_atual
+            .as_deref()
+            .and_then(get_category_config)
+            .map(|config| config.tier)
+            .unwrap_or(0)
+    };
+    let position_of = |driver: &Driver| {
+        contexts
+            .get(&driver.id)
+            .map(|context| context.posicao_campeonato)
+            .unwrap_or(99)
+    };
+
+    drivers_by_id
+        .values()
+        .filter(|driver| {
+            !driver.is_jogador
+                && driver.status == DriverStatus::Ativo
+                // O ponto da regra: só sobe quem já correu.
+                && driver.stats_carreira.corridas > 0
+                && driver.categoria_atual.as_deref().is_some_and(|categoria| {
+                    uses_regular_contracts(categoria)
+                        && get_category_config(categoria)
+                            .is_some_and(|config| config.tier < vacancy.category_tier)
+                })
+        })
+        .max_by(|a, b| {
+            tier_of(a)
+                .cmp(&tier_of(b))
+                .then_with(|| (position_of(a) <= 3).cmp(&(position_of(b) <= 3)))
+                .then_with(|| {
+                    feeder_promotion_score(a.atributos.skill, position_of(a))
+                        .total_cmp(&feeder_promotion_score(b.atributos.skill, position_of(b)))
+                })
         })
         .cloned()
 }
@@ -861,7 +1044,11 @@ pub(super) fn deep_recruitment_candidate(
                 .get(&driver.id)
                 .map(|context| context.posicao_campeonato)
                 .unwrap_or(99);
-            (driver, wants_this, feeder_promotion_score(driver.atributos.skill, pos))
+            (
+                driver,
+                wants_this,
+                feeder_promotion_score(driver.atributos.skill, pos),
+            )
         })
         .collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.total_cmp(&a.2)));
@@ -1031,7 +1218,10 @@ pub(super) fn is_pool_fallback_candidate(candidate: &AvailableDriver, vacancy: &
         && candidate.driver.atributos.skill >= pool_fallback_skill_floor(vacancy.category_tier)
 }
 
-pub(super) fn pool_fallback_candidate_rank(candidate: &AvailableDriver, vacancy: &Vacancy) -> (u8, u8, u8) {
+pub(super) fn pool_fallback_candidate_rank(
+    candidate: &AvailableDriver,
+    vacancy: &Vacancy,
+) -> (u8, u8, u8) {
     let preferred_experience = if is_real_career_debut_category(&vacancy.categoria) {
         if candidate.driver.stats_carreira.corridas == 0
             && candidate.driver.stats_carreira.temporadas == 0

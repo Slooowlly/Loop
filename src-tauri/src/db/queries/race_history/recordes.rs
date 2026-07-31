@@ -162,18 +162,26 @@ pub fn get_category_comeback_record(
 
 /// Maior número de títulos na categoria entre TODOS os pilotos EXCETO um (para saber se
 /// o campeão da temporada passou a ser dono isolado do recorde). 0 se ninguém mais tem.
+///
+/// `classe` restringe o recorde a uma classe da categoria — nas multiclasse cada classe
+/// tem seu campeonato, então o campeão da Mazda não disputa recorde com o da BMW. Tem que
+/// casar com o filtro de [`super::get_pilot_category_titles`], senão a comparação mistura
+/// um lado por classe com o outro por categoria. `None` nas categorias de classe única.
 pub fn get_category_titles_leader_excluding(
     conn: &Connection,
     categoria: &str,
     exclude_pilot: &str,
+    classe: Option<&str>,
 ) -> Result<i32, DbError> {
     let n: i32 = conn.query_row(
         "SELECT COALESCE(MAX(cnt), 0) FROM (
             SELECT piloto_id, COUNT(*) AS cnt FROM driver_season_archive
             WHERE categoria = ?1 AND posicao_campeonato = 1 AND piloto_id <> ?2
+              AND (?3 IS NULL
+                   OR COALESCE(NULLIF(TRIM(json_extract(snapshot_json, '$.classe')), ''), '') = ?3)
             GROUP BY piloto_id
          )",
-        rusqlite::params![categoria, exclude_pilot],
+        rusqlite::params![categoria, exclude_pilot, classe],
         |r| r.get(0),
     )?;
     Ok(n)
@@ -194,7 +202,13 @@ pub fn get_category_most_starts_no_win(
              HAVING SUM(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END) = 0
              ORDER BY starts DESC LIMIT 1",
             rusqlite::params![categoria],
-            |r| Ok(CategoryRecord { pilot_id: r.get(0)?, pilot_name: r.get(1)?, value: r.get(2)? }),
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
         )
         .optional()?;
     Ok(row)
@@ -215,7 +229,13 @@ pub fn get_category_most_career_dnfs(
              HAVING dnfs > 0
              ORDER BY dnfs DESC LIMIT 1",
             rusqlite::params![categoria],
-            |r| Ok(CategoryRecord { pilot_id: r.get(0)?, pilot_name: r.get(1)?, value: r.get(2)? }),
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
         )
         .optional()?;
     Ok(row)
@@ -235,7 +255,13 @@ pub fn get_category_most_career_points(
              GROUP BY r.piloto_id
              ORDER BY pts DESC LIMIT 1",
             rusqlite::params![categoria],
-            |r| Ok(CategoryRecord { pilot_id: r.get(0)?, pilot_name: r.get(1)?, value: r.get(2)? }),
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
         )
         .optional()?;
     Ok(row)
@@ -260,7 +286,13 @@ pub fn get_category_most_poles_no_title(
              ) = 0
              ORDER BY poles DESC LIMIT 1",
             rusqlite::params![categoria],
-            |r| Ok(CategoryRecord { pilot_id: r.get(0)?, pilot_name: r.get(1)?, value: r.get(2)? }),
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
         )
         .optional()?;
     Ok(row)
@@ -280,7 +312,13 @@ pub fn get_category_longest_pairing(
              WHERE t.categoria = ?1
              ORDER BY b.temporadas DESC LIMIT 1",
             rusqlite::params![categoria],
-            |r| Ok(CategoryRecord { pilot_id: r.get(0)?, pilot_name: r.get(1)?, value: r.get(2)? }),
+            |r| {
+                Ok(CategoryRecord {
+                    pilot_id: r.get(0)?,
+                    pilot_name: r.get(1)?,
+                    value: r.get(2)?,
+                })
+            },
         )
         .optional()?;
     Ok(row)

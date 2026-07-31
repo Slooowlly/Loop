@@ -280,12 +280,10 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
                                 .map(|(_, (_, _, cp))| *cp)
                                 .collect();
                             if !others.is_empty() {
-                                let worst =
-                                    others.iter().copied().fold(f64::INFINITY, f64::min);
+                                let worst = others.iter().copied().fold(f64::INFINITY, f64::min);
                                 t.promo_landing_gap_sum += car - worst;
                                 t.promo_landing_n += 1;
-                                let rank_from_bottom =
-                                    others.iter().filter(|&&c| c < *car).count();
+                                let rank_from_bottom = others.iter().filter(|&&c| c < *car).count();
                                 match rank_from_bottom {
                                     0 => t.promo_landing_rank_worst += 1,
                                     1..=2 => t.promo_landing_rank_near += 1,

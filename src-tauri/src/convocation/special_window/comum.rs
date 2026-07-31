@@ -115,7 +115,12 @@ pub(super) fn insert_log(
     Ok(())
 }
 
-pub(super) fn schedule_reveal_day(rank_index: usize, total: usize, team_strength: f64, team_id: &str) -> i32 {
+pub(super) fn schedule_reveal_day(
+    rank_index: usize,
+    total: usize,
+    team_strength: f64,
+    team_id: &str,
+) -> i32 {
     let base_day = if total <= 1 {
         1
     } else {

@@ -16,6 +16,19 @@
       "off": "Off — nothing is sent."
     },
     "raceSection": "Race",
+    "vrOverlay": {
+      "label": "VR overlay",
+      "modeAuto": "Automatic",
+      "modeOn": "Always on",
+      "modeOff": "Off",
+      "detected": "iRacing running in VR — the headset panels are active.",
+      "notDetected": "iRacing is not in VR right now. On automatic, the panels turn on by themselves when it launches in a headset."
+    },
+    "monitorOverlayInVr": {
+      "label": "Monitor overlay while in VR",
+      "on": "On — the tower also shows on the monitor, for streaming or recording.",
+      "off": "Off — in VR the monitor does not draw the tower (you would not see it from inside the headset)."
+    },
     "autoYellow": {
       "label": "Automatic yellow flag",
       "notFound": "iRacing not found on this PC.",
@@ -518,7 +531,8 @@
     "buildingWorldTeamHistory": "Building the world team history",
     "bandNotStarted": "{{band}} did not exist yet",
     "legendEntry": "Championship entry",
-    "footerUpdated": "Data updated",    "legendOutside": "Outside the series",
+    "footerUpdated": "Data updated",
+    "legendOutside": "Outside the series",
     "legendTitles": "Championships won",
     "legendLive": "Season in progress",
     "liveBadge": "In progress",
@@ -1109,6 +1123,27 @@
     }
   },
   "nextRaceTab": {
+    "weekendReading": {
+      "title": "weekend read",
+      "layers": {
+        "track": "the track",
+        "form": "your form",
+        "setup": "this weekend"
+      },
+      "bands": {
+        "against": "against you",
+        "below": "below par",
+        "neutral": "neutral",
+        "favor": "in your favour",
+        "strongFavor": "strongly in your favour"
+      },
+      "trends": {
+        "falling": "sliding over recent rounds",
+        "steady": "steady",
+        "rising": "climbing over recent rounds"
+      },
+      "qualifyingSplit": "in qualifying: {{band}}"
+    },
     "status": {
       "noTeamHeading": "No team this season",
       "preseasonOpenHeading": "Preseason open",
@@ -1777,7 +1812,7 @@
       "records": {
         "title": "Historical records",
         "compareIntro": "Compared within ",
-        "compareOutro": ". Equivalent groups are counted together to avoid comparing cars from different worlds.",
+        "compareOutro": ". Only races in this category are counted — the team's full history stays in the other tabs.",
         "milestones": "History milestones",
         "titleGallery": "Title gallery",
         "titleCampaign": "{{points}} pts · {{wins}} wins",
@@ -1808,7 +1843,8 @@
           "empty": "No top 5 finish",
           "absent": "{{year}}\nThe team did not race this season",
           "elsewhere": "{{year}} · {{category}}\nThe team raced outside this category scope"
-        }
+        },
+        "openRanking": "See every team by {{metric}}"
       },
       "sport": {
         "title": "Sporting summary",
@@ -1829,6 +1865,7 @@
         "curveTooltip": "{{year}} · {{category}} — P{{position}} in the championship",
         "resultSpread": "Result signature",
         "spreadRaces": "{{value}} races",
+        "spreadValue": "{{value}} ({{percent}}%)",
         "spread": {
           "first": "1st",
           "podium": "2nd-3rd",
@@ -1843,7 +1880,49 @@
           "wins": "W",
           "podiums": "P",
           "points": "Pts"
-        }
+        },
+        "reliability": "Reliability",
+        "reliabilityRaces": "{{value}} starts",
+        "finishRate": "finished",
+        "finishRateVs": "group at {{value}}%",
+        "relFinished": "Made the finish",
+        "relMechanical": "Car failure",
+        "relOther": "Cause not recorded",
+        "relWorstPart": "Most frequent failure: {{part}}",
+        "alumni": "Drivers who raced here",
+        "alumniYears": "{{first}}–{{last}}",
+        "alumniOneYear": "{{first}}",
+        "alumniRaces": "{{value}} races",
+        "alumniNoRaces": "yet to race",
+        "alumniYou": "You",
+        "relDriverError": "Driver error",
+        "alumniBest": "best P{{value}}",
+        "lineupSlot1": "Driver 1",
+        "lineupSlot2": "Driver 2",
+        "lineupSlotOther": "Other spells",
+        "lineupCount": "{{value}} spells",
+        "lineupCurrent": "Current",
+        "alumniWins": "{{value}}x",
+        "layoutToClassic": "Classic layout",
+        "layoutToArranged": "Tidy layout",
+        "groupFinish": "How the team finishes",
+        "groupTrajectory": "How the team evolves",
+        "groupPeople": "Who drove for it",
+        "championshipRun": "Championship points",
+        "runScope": "{{year}} · {{category}}",
+        "runLive": "in progress",
+        "runStanding": "P{{position}} · {{points}} pts",
+        "runPointsAxis": "PTS",
+        "runRound": "R{{value}}",
+        "runTooltip": "{{team}} — P{{position}} · {{points}} pts",
+        "runFieldNote": "The other {{value}} teams in the championship, in grey.",
+        "runLeaderRef": "leader",
+        "runMode": {
+          "posicao": "Standing",
+          "pontos": "Points"
+        },
+        "runPositionAxis": "POS",
+        "runFieldNotePosition": "Championship standing after each round — the line rises when the team gains places. The other {{value}} teams in grey."
       },
       "loading": "Loading the team's real history...",
       "identity": {
@@ -2091,6 +2170,26 @@
     }
   },
   "raceResult": {
+    "course": {
+      "title": "how the race unfolded",
+      "strategy": "strategy: {{strategy}}",
+      "started": "Started P{{pos}}",
+      "pit": "pit L{{lap}} (P{{before}} → P{{after}})",
+      "pitBare": "pit L{{lap}}",
+      "finished": "finished P{{pos}}",
+      "finishedDnf": "retired",
+      "overtakes": "overtakes",
+      "overtakesTip": "Overtakes completed out of attempted. Trying and failing costs time — that is what traffic does to your result.",
+      "defended": "attacks faced",
+      "stuck": "segments held up",
+      "stuckTip": "Longest run of consecutive segments stuck behind a slower car.",
+      "dirtyAir": "segments in dirty air",
+      "dirtyAirTip": "Segments you ended inside another car's wake, with less grip.",
+      "safetyCar": "safety car",
+      "safetyCarLap": "L{{lap}}",
+      "safetyCarTip": "Safety car on lap {{lap}}: you were P{{before}} when it came out and finished P{{after}}.",
+      "safetyCarTipBare": "Safety car on lap {{lap}}."
+    },
     "header": {
       "finalClassification": "final classification",
       "raceFallback": "Race",
@@ -2219,7 +2318,6 @@
       "titleLine": "What to expect",
       "seasonLine": "Season {{year}} · the year ahead",
       "articleHead": "Season expectations",
-      "favoritesHead": "The grid by potential",
       "caption": "{{track}} — season opener",
       "captionGeneric": "The season opens here.",
       "foot": "Pre-season edition",
@@ -2230,7 +2328,7 @@
         "comingSoon": "✦ AI preview · coming soon"
       },
       "generating": "Writing the season preview…",
-      "placeholder": "The season preview is not available yet. Alongside, the category grid ordered by potential."
+      "placeholder": "The season preview is not available yet. Alongside, the category teams with the championship still at zero."
     },
     "mailbox": {
       "inbox": "Inbox",
@@ -3365,5 +3463,46 @@
     "betaLabel": "beta",
     "betaHint": "Tap 5× to check for beta builds",
     "close": "Close"
+  },
+  "globalTeamRecords": {
+    "title": "Team records",
+    "subtitle": "Every team that has raced in this scope.",
+    "loading": "Adding up team history…",
+    "empty": "No team has raced in this scope yet.",
+    "back": "Back",
+    "inactive": "Folded",
+    "tableAria": "Team records",
+    "col": {
+      "team": "Team",
+      "titles": "Titles",
+      "wins": "Wins",
+      "podiums": "Podiums",
+      "races": "Races",
+      "podiumRate": "Podium rate",
+      "winRate": "Win rate",
+      "span": "Span"
+    },
+    "heading": "{{scope}} · {{count}} teams",
+    "currentlyIn": "Now in {{category}}",
+    "scopeNote": {
+      "category": "Only {{scope}} races. The team against whoever was on track with it.",
+      "group": "The numbers cover all of {{scope}}. Equivalent ladders are grouped together to avoid comparing cars from different worlds — a team may have won its titles in one category and race in another today.",
+      "world": "Every team in the save, across all categories. A Rookie title and a GT3 title weigh the same here — this compares size, not merit."
+    },
+    "categoryFilter": "Category",
+    "scopeKind": {
+      "category": "Category only",
+      "group": "Group",
+      "world": "World"
+    },
+    "totalTitle": "{{value}} across the whole career, all categories",
+    "totalHint": "The smaller number beside it is the career total, across all categories.",
+    "scopeMembers": "Counting {{count}} categories: {{list}}.",
+    "scopeFamily": "In multiclass categories only the {{family}} class counts — the other makes race separate championships within the same category.",
+    "family": {
+      "mazda": "Mazda",
+      "toyota": "Toyota",
+      "bmw": "BMW"
+    }
   }
 }

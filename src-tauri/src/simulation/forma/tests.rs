@@ -11,6 +11,131 @@ fn estilo_neutro() -> EstiloPiloto {
 
 // ─────────────────────────── Camada 1: afinidade ───────────────────────────
 
+// ─────────────── Pacote H: injetabilidade com equivalência ───────────────
+
+#[test]
+fn injetabilidade_com_default_reproduz_os_numeros_de_hoje() {
+    // O critério de aceitação do H: valor-padrão reproduz o de hoje, BIT A BIT. Eu não escolho
+    // valor nenhum — só torno escolhível.
+    let e = EscalasDeForma::default();
+    assert_eq!(e.afinidade, AFINIDADE_ESCALA_PONTOS);
+    assert_eq!(e.forma, FORMA_ESCALA_PONTOS);
+    assert_eq!(e.acerto, ACERTO_ESCALA_PONTOS);
+    assert_eq!(e.rho, FORMA_RHO);
+    assert_eq!(e.peso_animo, FORMA_PESO_ANIMO);
+
+    let estilo = EstiloPiloto {
+        smoothness: 62.0,
+        consistencia: 71.0,
+        adaptabilidade: 48.0,
+        aggression: 55.0,
+    };
+    for i in 0..200 {
+        let id = format!("DRV-{i:04}");
+        for track in [523, 166, 413, 249, 554] {
+            assert_eq!(
+                afinidade_pista(&id, track, &estilo),
+                afinidade_pista_com_escala(&id, track, &estilo, e.afinidade)
+            );
+        }
+        for rodada in 1..=6 {
+            assert_eq!(
+                acerto_fim_de_semana(2, rodada, "TEAM-X", &id),
+                acerto_fim_de_semana_com_escala(2, rodada, "TEAM-X", &id, e.acerto)
+            );
+            let s = semente_forma(2, rodada, &id);
+            assert_eq!(
+                proxima_forma(0.4, s, 63.0, 71.0),
+                proxima_forma_com_escalas(0.4, s, 63.0, 71.0, e.rho, e.peso_animo)
+            );
+        }
+        assert_eq!(
+            ajuste_fim_de_semana("D", "T", 523, 1, 1, &estilo, 0.7).corrida,
+            ajuste_fim_de_semana_com_escalas("D", "T", 523, 1, 1, &estilo, 0.7, &e).corrida
+        );
+    }
+    for estado in [-2.5, -1.0, 0.0, 0.33, 1.0, 2.5] {
+        assert_eq!(
+            forma_em_pontos(estado),
+            forma_em_pontos_com_escala(estado, e.forma)
+        );
+    }
+}
+
+#[test]
+fn injetabilidade_escala_realmente_escala() {
+    // E o outro lado: mexer no parâmetro tem que MOVER o número, senão a busca não tem alavanca.
+    let estilo = EstiloPiloto {
+        smoothness: 50.0,
+        consistencia: 50.0,
+        adaptabilidade: 50.0,
+        aggression: 50.0,
+    };
+    let a1 = afinidade_pista_com_escala("D", 523, &estilo, 3.0);
+    let a2 = afinidade_pista_com_escala("D", 523, &estilo, 6.0);
+    assert!(
+        (a2 - a1 * 2.0).abs() < 1e-9,
+        "a escala é linear: {a1} → {a2}"
+    );
+
+    assert_eq!(forma_em_pontos_com_escala(1.0, 7.5), 7.5);
+    let c1 = acerto_fim_de_semana_com_escala(1, 1, "T", "D", 2.5);
+    let c2 = acerto_fim_de_semana_com_escala(1, 1, "T", "D", 5.0);
+    assert!((c2 - c1 * 2.0).abs() < 1e-9);
+
+    // `peso_animo = 0` desliga o deslocamento por qualidade do piloto: com ânimo neutro os dois
+    // coincidem, e com ânimo alto eles divergem. É esse par que separa serial de permanente.
+    let s = semente_forma(1, 1, "D");
+    // O ânimo só é zero em 50, que é onde `normalizar_atributo` centra.
+    assert_eq!(
+        proxima_forma_com_escalas(0.0, s, 50.0, 50.0, 0.65, 0.0),
+        proxima_forma_com_escalas(0.0, s, 50.0, 50.0, 0.65, 0.20),
+        "em 50 o ânimo é zero, então o peso não muda nada"
+    );
+    // **E em 70 NÃO é** — este é o descasamento que motivou zerar o peso. O neutro declarado da
+    // motivação é `MOTIVATION_REF = 70` (com teste próprio afirmando efeito zero ali), mas
+    // `normalizar_atributo` centra em 50, então no ponto que o outro módulo chama de neutro o
+    // ânimo vale 0,4. Constante dentro do AR(1) vira média estacionária `c/(1−ρ)`, e era daí que
+    // saía o deslocamento permanente dentro de uma camada declarada serial.
+    assert_ne!(
+        proxima_forma_com_escalas(0.0, s, 70.0, 70.0, 0.65, 0.0),
+        proxima_forma_com_escalas(0.0, s, 70.0, 70.0, 0.65, 0.20),
+        "em 70 o ânimo NÃO é zero — é este o descasamento que o item 2 removeu"
+    );
+    assert_ne!(
+        proxima_forma_com_escalas(0.0, s, 100.0, 100.0, 0.65, 0.0),
+        proxima_forma_com_escalas(0.0, s, 100.0, 100.0, 0.65, 0.20),
+        "com ânimo alto, o peso tem que aparecer"
+    );
+}
+
+#[test]
+fn injetabilidade_de_rho_preserva_a_variancia_estacionaria() {
+    // Varrer ρ não pode mexer na amplitude junto, senão a busca mede dois efeitos de uma vez.
+    // O `√(1 − ρ²)` acompanha o ρ ESCOLHIDO, e não o `const`.
+    for rho in [0.0, 0.3, 0.5, 0.65, 0.85] {
+        let mut f = 0.0;
+        let mut v = Vec::new();
+        for rodada in 0..4000 {
+            f = proxima_forma_com_escalas(
+                f,
+                semente_forma(1, rodada, "DRV-RHO"),
+                50.0,
+                50.0,
+                rho,
+                0.0,
+            );
+            v.push(f);
+        }
+        let m: f64 = v.iter().sum::<f64>() / v.len() as f64;
+        let sigma = (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt();
+        assert!(
+            (0.8..=1.2).contains(&sigma),
+            "ρ = {rho} deu σ = {sigma}, e σ tem que ficar em 1 para qualquer ρ"
+        );
+    }
+}
+
 #[test]
 fn afinidade_e_permanente_e_reprodutivel() {
     // Mesmo par (piloto, pista) → mesmo número, sempre. É o ponto do hash.
@@ -172,20 +297,105 @@ fn forma_relaxa_para_o_centro_sem_ruido_novo() {
 }
 
 #[test]
-fn animo_desloca_a_media_da_forma() {
-    // Piloto animado passa mais tempo em fase boa; desanimado, o contrário.
-    let media = |mot: f64, conf: f64| {
+fn animo_esta_desligado_por_padrao_mas_o_mecanismo_existe() {
+    // O termo de ânimo foi ZERADO por default: ele era um terceiro caminho para motivação e
+    // confiança, que já entram no resultado por `motivation_pace_delta` (elo próprio da
+    // esteira) e pelo peso 0,20 da confiança no trecho `Finish`. Ver a doc de
+    // `FORMA_PESO_ANIMO`.
+    let media = |mot: f64, conf: f64, peso: f64| {
         let mut f = 0.0;
         let mut soma = 0.0;
         for rodada in 0..400 {
-            f = proxima_forma(f, semente_forma(9, rodada, "DRV-ANIMO"), mot, conf);
+            f = proxima_forma_com_escalas(
+                f,
+                semente_forma(9, rodada, "DRV-ANIMO"),
+                mot,
+                conf,
+                FORMA_RHO,
+                peso,
+            );
             soma += f;
         }
         soma / 400.0
     };
-    let alto = media(95.0, 95.0);
-    let baixo = media(10.0, 10.0);
-    assert!(alto > baixo, "alto={alto} baixo={baixo}");
+
+    // Com o default (0,0), motivação não desloca a forma — é o conserto da contagem dupla.
+    assert_eq!(FORMA_PESO_ANIMO, 0.0);
+    assert!(
+        (media(95.0, 95.0, FORMA_PESO_ANIMO) - media(10.0, 10.0, FORMA_PESO_ANIMO)).abs() < 1e-9,
+        "com o peso zerado a motivação não pode mais deslocar a forma"
+    );
+
+    // Mas o mecanismo continua parametrizado, porque o harness precisa medir a contaminação
+    // (0,20 contra 0,0) antes do recongelamento do baseline.
+    assert!(
+        media(95.0, 95.0, 0.20) > media(10.0, 10.0, 0.20),
+        "com peso explícito o deslocamento tem que voltar a existir"
+    );
+}
+
+/// **Guarda contra a componente permanente voltando por qualquer caminho.**
+///
+/// Não existe campo `sigma_permanente` de propósito: com o ânimo zerado ele seria sempre zero,
+/// e campo sempre-zero convida uso errado depois. No lugar dele, este teste — que pega uma
+/// componente permanente reentrando por um caminho que ninguém previu, o que um campo não
+/// pegaria. Tornar o erro inexprimível em vez de documentá-lo.
+#[test]
+fn sigma_realizado_da_forma_bate_com_o_nominal() {
+    // Dois pilotos em extremos opostos de motivação/confiança. Se houver QUALQUER termo
+    // constante dentro do AR(1), as médias das duas séries divergem e o σ da população
+    // (as duas juntas) estoura o nominal.
+    let serie = |mot: f64, conf: f64, id: &str| -> Vec<f64> {
+        let mut f = 0.0;
+        (0..3000)
+            .map(|rodada| {
+                f = proxima_forma(f, semente_forma(11, rodada, id), mot, conf);
+                forma_em_pontos(f)
+            })
+            .collect()
+    };
+    let mut amostras = serie(98.0, 98.0, "DRV-ALTO");
+    amostras.extend(serie(8.0, 8.0, "DRV-BAIXO"));
+
+    let media: f64 = amostras.iter().sum::<f64>() / amostras.len() as f64;
+    let sigma =
+        (amostras.iter().map(|v| (v - media).powi(2)).sum::<f64>() / amostras.len() as f64).sqrt();
+
+    // O nominal é `FORMA_ESCALA_PONTOS` (o estado tem σ = 1 por construção). O clamp em
+    // TETO_SIGMAS encolhe um pouco, então a tolerância é assimétrica para baixo.
+    assert!(
+        sigma <= FORMA_ESCALA_PONTOS * 1.05,
+        "σ realizado {sigma:.3} passou do nominal {FORMA_ESCALA_PONTOS:.3} — voltou componente \
+         permanente para dentro da forma"
+    );
+    assert!(
+        sigma >= FORMA_ESCALA_PONTOS * 0.85,
+        "σ realizado {sigma:.3} ficou muito abaixo do nominal {FORMA_ESCALA_PONTOS:.3}"
+    );
+
+    // E as duas médias têm que coincidir: é aí que um termo constante apareceria primeiro.
+    //
+    // Comparadas em unidades NORMALIZADAS (divididas pela escala), como as duas asserções de σ
+    // acima já fazem. A primeira versão comparava em pontos contra um limite absoluto, e passou
+    // por acidente enquanto a escala valia 2,0 — quando ela subiu para 3,6 na calibração, o
+    // mesmo desvio relativo estourou o limite e o teste acusou deslocamento onde só havia
+    // mudança de unidade.
+    //
+    // O tamanho da tolerância vem do ruído de amostragem, não de gosto. Um AR(1) com ρ = 0,65
+    // tem tamanho efetivo de amostra `n(1−ρ)/(1+ρ)` ≈ 636, não 3000; o erro-padrão da diferença
+    // entre as duas médias é `√2/√636` ≈ 0,056. A 0,20 (≈ 3,5 σ) o teste não acusa por ruído.
+    //
+    // E ele continua enxergando o que existe para enxergar: com `peso_animo` = 0,20, os dois
+    // extremos de ânimo diferem em ~1,8 depois de normalizados, o termo constante vira
+    // `0,20 × 1,8 / (1 − 0,65)` ≈ **1,03** de deslocamento — dezoito vezes a tolerância.
+    const TOLERANCIA_RELATIVA: f64 = 0.20;
+    let m_alto: f64 = amostras[..3000].iter().sum::<f64>() / 3000.0 / FORMA_ESCALA_PONTOS;
+    let m_baixo: f64 = amostras[3000..].iter().sum::<f64>() / 3000.0 / FORMA_ESCALA_PONTOS;
+    assert!(
+        (m_alto - m_baixo).abs() < TOLERANCIA_RELATIVA,
+        "as médias divergiram ({m_alto:.3} vs {m_baixo:.3}, normalizadas) — há deslocamento por \
+         qualidade do piloto dentro de uma camada que a análise trata como serial"
+    );
 }
 
 #[test]
@@ -288,10 +498,37 @@ fn ajuste_pesa_mais_a_afinidade_na_classificacao() {
     let estilo = estilo_neutro();
     let a = ajuste_fim_de_semana("DRV-001", "TEAM-A", 523, 1, 3, &estilo, 0.0);
     let afinidade = afinidade_pista("DRV-001", 523, &estilo);
+
+    // O delta entre canais tem DUAS parcelas desde que o acerto passou a ser por trim. Antes só
+    // existia a primeira, e o teste comparava contra ela sozinha.
+    let trim = |t| {
+        acerto_fim_de_semana_por_canal(1, 3, "TEAM-A", "DRV-001", ACERTO_ESCALA_PONTOS, t)
+    };
+    let delta_acerto = trim(TrimDeAcerto::Classificacao) - trim(TrimDeAcerto::Corrida);
     let delta = a.classificacao - a.corrida;
     assert!(
-        (delta - afinidade * (MULT_AFINIDADE_QUALI - 1.0)).abs() < 1e-9,
-        "delta={delta} afinidade={afinidade}"
+        (delta - (afinidade * (MULT_AFINIDADE_QUALI - 1.0) + delta_acerto)).abs() < 1e-9,
+        "delta={delta} afinidade={afinidade} delta_acerto={delta_acerto}"
+    );
+
+    // E a parcela da afinidade continua sendo a que domina — é ela que carrega a intenção de
+    // design "a volta perfeita é onde o casamento com a pista aparece inteiro".
+    //
+    // Afirmação de POPULAÇÃO, e não de amostra: num piloto isolado a afinidade dele pode ser
+    // quase nula por acaso e o trim ganhar, sem que nada esteja errado. A primeira versão deste
+    // assert olhava um piloto só e reprovava por isso.
+    let (mut soma_af, mut soma_trim) = (0.0, 0.0);
+    for i in 0..200 {
+        let id = format!("DRV-{i:03}");
+        let pista = 400 + (i as u32 % 30);
+        soma_af += (afinidade_pista(&id, pista, &estilo) * (MULT_AFINIDADE_QUALI - 1.0)).abs();
+        let t = |x| acerto_fim_de_semana_por_canal(1, 3, "TEAM-A", &id, ACERTO_ESCALA_PONTOS, x);
+        soma_trim += (t(TrimDeAcerto::Classificacao) - t(TrimDeAcerto::Corrida)).abs();
+    }
+    assert!(
+        soma_af > soma_trim * 0.5,
+        "a assimetria de canal virou majoritariamente ruído de trim ({soma_trim:.1}) e não \
+         afinidade ({soma_af:.1})"
     );
 }
 

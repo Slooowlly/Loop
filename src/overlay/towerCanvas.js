@@ -229,13 +229,28 @@ const TIRE_DRY_SRC = `${TX}Pneu%20Seco.webp`;
 const TIRE_WET_SRC = `${TX}Pneu%20Molhado.webp`;
 const FUEL_SRC = `${TX}Fuel.webp`;
 
+// CACHE por src, e obrigatório: `preloadAssets` é chamado a CADA tick de dados
+// (2x/s durante a corrida). Sem cache, cada tick criava um `new Image()` por equipe
+// do grid — ~30-60 bitmaps decodificados por meio segundo, retidos até o GC dar
+// conta. Numa corrida longa isso estoura a memória do WebView2 ("Esta página está
+// com problemas · Out of Memory"). Os arquivos são um conjunto FIXO: uma decodifi-
+// cação por src basta pra vida do processo. Guarda a Promise (não a imagem) pra
+// duas chamadas concorrentes do mesmo src compartilharem o mesmo carregamento.
+const _imgCache = new Map();
 function loadImage(src) {
-  return new Promise((resolve) => {
+  const hit = _imgCache.get(src);
+  if (hit) return hit;
+  const p = new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      _imgCache.delete(src); // falhou: não fixa o erro pra sempre
+      resolve(null);
+    };
     img.src = src;
   });
+  _imgCache.set(src, p);
+  return p;
 }
 
 // Caixa útil de uma imagem — aparando margens/lixo pra todo selo preencher a
@@ -301,10 +316,23 @@ function trimTransparent(img, key) {
   return box;
 }
 
+// Memo do RESULTADO, além do cache de imagens: o pacote só muda quando o conjunto de
+// equipes no grid (ou a categoria) muda — o que acontece uma vez por sessão, não 2x/s.
+let _assetsMemo = { key: null, promise: null };
+
 export async function preloadAssets(data) {
   const teams = new Set();
   data.classes.forEach((c) => c.cars.forEach((car) => teams.add(car.team)));
 
+  const memoKey = `${data.session?.category ?? ""}|${[...teams].sort().join("")}`;
+  if (_assetsMemo.key === memoKey) return _assetsMemo.promise;
+
+  const promise = buildAssets(data, teams);
+  _assetsMemo = { key: memoKey, promise };
+  return promise;
+}
+
+async function buildAssets(data, teams) {
   const logos = new Map();
   await Promise.all(
     [...teams].map(async (team) => {

@@ -214,8 +214,7 @@ pub fn report_pre_race_engagement(
         .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
     let config = AppConfig::load_or_default(&base_dir);
     let db_path = config.saves_dir().join(&career_id).join("career.db");
-    let db =
-        Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
     let streak = meta::get_meta_value(&db.conn, PRE_RACE_STREAK_KEY)
         .ok()
@@ -328,8 +327,7 @@ pub fn player_race_news_id(
         .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
     let config = AppConfig::load_or_default(&base_dir);
     let db_path = config.saves_dir().join(&career_id).join("career.db");
-    let db =
-        Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
     // Se a tabela ai_race_story ainda não existe (save sem nenhum boletim), a query
     // falha — tratamos como "sem boletim" em vez de erro.

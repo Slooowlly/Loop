@@ -82,7 +82,10 @@ pub(super) fn read_archive_category_stats(
 /// Fama (`atributos.midia`) registrada no snapshot MAIS RECENTE do archive de
 /// temporadas — a base pra medir "quanto a fama subiu" nesta temporada. `None`
 /// quando não há archive/tabela/snapshot com o campo (ex.: 1ª temporada).
-pub(super) fn latest_archived_media(conn: &Connection, driver_id: &str) -> Result<Option<f64>, String> {
+pub(super) fn latest_archived_media(
+    conn: &Connection,
+    driver_id: &str,
+) -> Result<Option<f64>, String> {
     if !table_exists(conn, "driver_season_archive")? {
         return Ok(None);
     }
@@ -235,4 +238,3 @@ pub(super) fn has_competitive_archive_participation(snapshot: &Value) -> bool {
         || json_i32(snapshot, "poles") > 0
         || json_i32(snapshot, "titulos") > 0
 }
-

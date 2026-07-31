@@ -70,7 +70,12 @@ pub(crate) fn parse_race_session_num(yaml: &str) -> i32 {
         if let Some(rest) = t.strip_prefix("SessionNum:") {
             cur_num = rest.trim().parse::<i32>().unwrap_or(-1);
         } else if let Some(rest) = t.strip_prefix("SessionType:") {
-            if rest.trim().trim_matches('"').trim().eq_ignore_ascii_case("race") {
+            if rest
+                .trim()
+                .trim_matches('"')
+                .trim()
+                .eq_ignore_ascii_case("race")
+            {
                 return cur_num;
             }
         }

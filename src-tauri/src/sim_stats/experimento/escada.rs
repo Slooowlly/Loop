@@ -73,14 +73,21 @@ pub(super) fn imprimir(t: &Totals) {
     for (len, n) in &t.ladder_chain_hist {
         println!("    {:<11} | {}", len, n);
     }
-    println!("    Maior cadeia observada (qualquer run): {}", t.max_ladder_chain);
+    println!(
+        "    Maior cadeia observada (qualquer run): {}",
+        t.max_ladder_chain
+    );
     {
         let total: u64 = t.rookie_champ_names.values().sum();
         let mut ranked: Vec<(&String, &u64)> = t.rookie_champ_names.iter().collect();
         ranked.sort_by(|a, b| b.1.cmp(a.1));
         println!("\n  IDENTIDADE — campeões da ROOKIE (nome, nº de títulos, % do total={total}):");
         for (name, n) in ranked.iter().take(10) {
-            let pct = if total > 0 { 100.0 * **n as f64 / total as f64 } else { 0.0 };
+            let pct = if total > 0 {
+                100.0 * **n as f64 / total as f64
+            } else {
+                0.0
+            };
             println!("    {:<28} | {:>3} | {:>4.1}%", name, n, pct);
         }
         let mut climbers: Vec<(&String, &u64)> = t.climber_names.iter().collect();

@@ -249,17 +249,37 @@ pub fn compute_fast_update(r: &FastResult, current: &Deltas) -> AdaptiveUpdate {
     // limpo, um erro pontual (que só afundou a posição) não conta.
     let pc = g * 100.0;
     let p = r.finish_pos; // só pro texto (debug); a decisão é 100% por ritmo.
-    // Cada patamar move o global (passo cheio) E o track (passo ~40%, mesma direção).
+                          // Cada patamar move o global (passo cheio) E o track (passo ~40%, mesma direção).
     let (d, dt, verdict) = if g <= -FAST_DOMINATE_PCT {
-        (FAST_UP_DOMINATE, TRACK_UP_DOMINATE, format!("Dominou a frente (P{p}, {pc:+.1}%/volta) → sobe forte"))
+        (
+            FAST_UP_DOMINATE,
+            TRACK_UP_DOMINATE,
+            format!("Dominou a frente (P{p}, {pc:+.1}%/volta) → sobe forte"),
+        )
     } else if g <= -FAST_CLEAR_PCT {
-        (FAST_UP_CLEAR, TRACK_UP_CLEAR, format!("Mais rápido que a frente (P{p}, {pc:+.1}%/volta) → sobe"))
+        (
+            FAST_UP_CLEAR,
+            TRACK_UP_CLEAR,
+            format!("Mais rápido que a frente (P{p}, {pc:+.1}%/volta) → sobe"),
+        )
     } else if g <= FAST_SHIELD_PCT {
-        (0, 0, format!("Brigando com a frente (P{p}, {pc:+.1}%/volta) → mantém"))
+        (
+            0,
+            0,
+            format!("Brigando com a frente (P{p}, {pc:+.1}%/volta) → mantém"),
+        )
     } else if g <= FAST_BEHIND_PCT {
-        (-FAST_DOWN, -TRACK_DOWN, format!("Fora do ritmo da frente (P{p}, {pc:+.1}%/volta) → desce"))
+        (
+            -FAST_DOWN,
+            -TRACK_DOWN,
+            format!("Fora do ritmo da frente (P{p}, {pc:+.1}%/volta) → desce"),
+        )
     } else {
-        (-FAST_DOWN_HARD, -TRACK_DOWN_HARD, format!("Sem ritmo pra frente (P{p}, {pc:+.1}%/volta) → desce forte"))
+        (
+            -FAST_DOWN_HARD,
+            -TRACK_DOWN_HARD,
+            format!("Sem ritmo pra frente (P{p}, {pc:+.1}%/volta) → desce forte"),
+        )
     };
     let new_global = (current.global + d).clamp(GLOBAL_MIN, GLOBAL_MAX);
     let new_track = (current.track + dt).clamp(TRACK_MIN, TRACK_MAX);
@@ -342,7 +362,10 @@ mod tests {
 
     #[test]
     fn ritmo_vs_frente_decide_os_5_patamares() {
-        let cur = Deltas { global: 0, track: 0 };
+        let cur = Deltas {
+            global: 0,
+            track: 0,
+        };
         let d = |g: f64| compute_fast_update(&fast(g), &cur).d_global;
         assert_eq!(d(-0.015), FAST_UP_DOMINATE); // 1,5% mais rápido → domina → +5
         assert_eq!(d(-0.006), FAST_UP_CLEAR); //     0,6% mais rápido → folgado → +3
@@ -354,12 +377,18 @@ mod tests {
 
     #[test]
     fn braco_por_pista_aprende_mais_devagar_que_o_global() {
-        let cur = Deltas { global: 0, track: 0 };
+        let cur = Deltas {
+            global: 0,
+            track: 0,
+        };
         // Mesma direção do global, mas passo menor (aprendizado lento por pista).
         let dom = compute_fast_update(&fast(-0.015), &cur);
         assert_eq!(dom.d_global, FAST_UP_DOMINATE);
         assert_eq!(dom.d_track, TRACK_UP_DOMINATE);
-        assert!(dom.d_track < dom.d_global, "track sobe mais devagar que o global");
+        assert!(
+            dom.d_track < dom.d_global,
+            "track sobe mais devagar que o global"
+        );
         let down = compute_fast_update(&fast(0.02), &cur);
         assert_eq!(down.d_track, -TRACK_DOWN_HARD);
         // Escudo → nem global nem track mexem.
@@ -367,13 +396,22 @@ mod tests {
         assert_eq!((hold.d_global, hold.d_track), (0, 0));
         assert!(!hold.applied);
         // O track tem faixa PRÓPRIA: no topo dele, para de subir mesmo com o global livre.
-        let track_topo = Deltas { global: 0, track: TRACK_MAX };
+        let track_topo = Deltas {
+            global: 0,
+            track: TRACK_MAX,
+        };
         let u = compute_fast_update(&fast(-0.02), &track_topo);
         assert_eq!(u.new.track, TRACK_MAX);
         assert_eq!(u.d_track, 0);
         assert!(u.d_global > 0, "global ainda sobe (faixa própria)");
         // Só o track mexendo (global no teto) já conta como aplicado → persiste a pista.
-        let so_track = compute_fast_update(&fast(-0.02), &Deltas { global: GLOBAL_MAX, track: 0 });
+        let so_track = compute_fast_update(
+            &fast(-0.02),
+            &Deltas {
+                global: GLOBAL_MAX,
+                track: 0,
+            },
+        );
         assert_eq!(so_track.d_global, 0);
         assert!(so_track.d_track > 0 && so_track.applied);
     }
@@ -383,14 +421,31 @@ mod tests {
         // Caso real do molde: rodou, terminou P7, MAS o ritmo LIMPO vs a frente era
         // competitivo (0,3%, dentro do escudo). Filosofia A + ritmo limpo → mantém, NÃO
         // baixa. A posição P7 (custo do erro) é ignorada pela decisão.
-        let cur = Deltas { global: 30, track: 0 };
+        let cur = Deltas {
+            global: 30,
+            track: 0,
+        };
         assert_eq!(
-            compute_fast_update(&FastResult { finish_pos: 7, ..fast(0.003) }, &cur).d_global,
+            compute_fast_update(
+                &FastResult {
+                    finish_pos: 7,
+                    ..fast(0.003)
+                },
+                &cur
+            )
+            .d_global,
             0
         );
         // Contraste: genuinamente sem ritmo pra frente (1,8%) → desce forte, mesmo em P4.
         assert_eq!(
-            compute_fast_update(&FastResult { finish_pos: 4, ..fast(0.018) }, &cur).d_global,
+            compute_fast_update(
+                &FastResult {
+                    finish_pos: 4,
+                    ..fast(0.018)
+                },
+                &cur
+            )
+            .d_global,
             -FAST_DOWN_HARD
         );
     }
@@ -417,7 +472,17 @@ mod tests {
         let g = r.pace_vs_front.unwrap();
         assert!((g - 0.00285).abs() < 0.001, "déficit vs frente {g} (~0,3%)");
         // Competitivo (< escudo) → não desce, apesar do P7.
-        assert_eq!(compute_fast_update(&r, &Deltas { global: 30, track: 0 }).d_global, 0);
+        assert_eq!(
+            compute_fast_update(
+                &r,
+                &Deltas {
+                    global: 30,
+                    track: 0
+                }
+            )
+            .d_global,
+            0
+        );
     }
 
     #[test]
@@ -444,25 +509,52 @@ mod tests {
         let mut by_idx = std::collections::HashMap::new();
         by_idx.insert(1, 2.0);
         by_idx.insert(2, 2.0);
-        let car = CarContext { player_advantage: 14.0, by_idx };
+        let car = CarContext {
+            player_advantage: 14.0,
+            by_idx,
+        };
         let com = fast_result_from(&race, Some(&car)).pace_vs_front.unwrap();
-        assert!(com > sem, "o crédito do carro deveria PIORAR o ritmo aparente: {com} > {sem}");
-        assert!(com > 0.0, "carro melhor + só empatou → resíduo positivo (mãos atrás)");
+        assert!(
+            com > sem,
+            "o crédito do carro deveria PIORAR o ritmo aparente: {com} > {sem}"
+        );
+        assert!(
+            com > 0.0,
+            "carro melhor + só empatou → resíduo positivo (mãos atrás)"
+        );
     }
 
     #[test]
     fn fast_dnf_e_sem_dados_e_teto() {
-        let cur = Deltas { global: 0, track: 0 };
-        assert!(!compute_fast_update(&FastResult { player_dnf: true, ..fast(-0.02) }, &cur).applied);
+        let cur = Deltas {
+            global: 0,
+            track: 0,
+        };
         assert!(
             !compute_fast_update(
-                &FastResult { pace_vs_front: None, ..fast(0.0) },
+                &FastResult {
+                    player_dnf: true,
+                    ..fast(-0.02)
+                },
+                &cur
+            )
+            .applied
+        );
+        assert!(
+            !compute_fast_update(
+                &FastResult {
+                    pace_vs_front: None,
+                    ..fast(0.0)
+                },
                 &cur
             )
             .applied
         );
         // No teto global (+40), domínio não passa do limite.
-        let topo = Deltas { global: GLOBAL_MAX, track: 0 };
+        let topo = Deltas {
+            global: GLOBAL_MAX,
+            track: 0,
+        };
         let u = compute_fast_update(&fast(-0.02), &topo);
         assert_eq!(u.new.global, GLOBAL_MAX);
         assert_eq!(u.d_global, 0);
@@ -490,5 +582,4 @@ mod tests {
             laps: laps(times),
         }
     }
-
 }

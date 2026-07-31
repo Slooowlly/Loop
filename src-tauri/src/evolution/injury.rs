@@ -234,7 +234,10 @@ mod tests {
         let rem: i32 = tx
             .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rem, 4, "piloto com assento não deve ser tocado pelo tick de órfãos");
+        assert_eq!(
+            rem, 4,
+            "piloto com assento não deve ser tocado pelo tick de órfãos"
+        );
     }
 
     #[test]
@@ -246,8 +249,11 @@ mod tests {
         let tx = conn.transaction().unwrap();
 
         update_driver_status(&tx, "P001", &DriverStatus::Lesionado).unwrap();
-        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
-            .unwrap();
+        tx.execute(
+            "UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'",
+            [],
+        )
+        .unwrap();
         let injury = crate::models::injury::Injury {
             id: "INJ-ORF".to_string(),
             pilot_id: "P001".to_string(),
@@ -268,7 +274,10 @@ mod tests {
         let rem_after_race_tick: i32 = tx
             .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rem_after_race_tick, 2, "tick por corrida não deve ver o órfão");
+        assert_eq!(
+            rem_after_race_tick, 2,
+            "tick por corrida não deve ver o órfão"
+        );
 
         // Tick de órfãos: uma temporada fora cura totalmente e reativa.
         process_injury_recovery_without_seat(&tx).unwrap();
@@ -280,9 +289,14 @@ mod tests {
         assert_eq!(rem, 0);
         assert!(!act);
         let status: String = tx
-            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
-        assert_eq!(status, "Ativo", "recuperado deve voltar a Ativo para o mercado");
+        assert_eq!(
+            status, "Ativo",
+            "recuperado deve voltar a Ativo para o mercado"
+        );
     }
 
     #[test]
@@ -293,8 +307,11 @@ mod tests {
         let tx = conn.transaction().unwrap();
 
         update_driver_status(&tx, "P001", &DriverStatus::Lesionado).unwrap();
-        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
-            .unwrap();
+        tx.execute(
+            "UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'",
+            [],
+        )
+        .unwrap();
         let injury = crate::models::injury::Injury {
             id: "INJ-GRAVE".to_string(),
             pilot_id: "P001".to_string(),
@@ -315,9 +332,14 @@ mod tests {
         let act: bool = tx
             .query_row("SELECT active FROM injuries", [], |r| r.get(0))
             .unwrap();
-        assert!(!act, "lesão grave de órfão deve cicatrizar em uma temporada");
+        assert!(
+            !act,
+            "lesão grave de órfão deve cicatrizar em uma temporada"
+        );
         let status: String = tx
-            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(status, "Ativo");
     }
@@ -330,8 +352,11 @@ mod tests {
         let tx = conn.transaction().unwrap();
 
         update_driver_status(&tx, "P001", &DriverStatus::Aposentado).unwrap();
-        tx.execute("UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'", [])
-            .unwrap();
+        tx.execute(
+            "UPDATE drivers SET categoria_atual = NULL WHERE id = 'P001'",
+            [],
+        )
+        .unwrap();
         let injury = crate::models::injury::Injury {
             id: "INJ-RET".to_string(),
             pilot_id: "P001".to_string(),
@@ -350,9 +375,14 @@ mod tests {
         process_injury_recovery_without_seat(&tx).unwrap();
 
         let status: String = tx
-            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| r.get(0))
+            .query_row("SELECT status FROM drivers WHERE id = 'P001'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
-        assert_eq!(status, "Aposentado", "aposentado não pode ser reativado por lesão");
+        assert_eq!(
+            status, "Aposentado",
+            "aposentado não pode ser reativado por lesão"
+        );
         let rem: i32 = tx
             .query_row("SELECT races_remaining FROM injuries", [], |r| r.get(0))
             .unwrap();

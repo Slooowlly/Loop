@@ -50,8 +50,60 @@ pub fn audit_historical_world(
     audit_active_contracts(conn, playable_year, &mut report)?;
     audit_retired_snapshots(conn, &mut report)?;
     audit_meta_counters(conn, &mut report)?;
+    audit_team_cars(conn, &mut report)?;
 
     Ok(report)
+}
+
+/// Toda equipe ativa precisa ter carro no Sistema de Nível do Carro.
+///
+/// Sem esta regra, uma categoria inteira podia rodar sem nunca criar linha em `team_car`
+/// e cair no fallback da coluna legada `car_performance` — que o sistema de peças não
+/// atualiza e que não tem teto. Foi o que aconteceu com `endurance` e
+/// `production_challenger`: o cérebro de manutenção morava depois de um `return` que
+/// essas categorias tomavam, e o campeonato de topo ficou sendo decidido por um número
+/// fora de escala, sem que teste nenhum reclamasse.
+fn audit_team_cars(conn: &Connection, report: &mut WorldAuditReport) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.categoria
+               FROM teams t
+              WHERE t.ativa = 1
+                AND NOT EXISTS (SELECT 1 FROM team_car c WHERE c.team_id = t.id)
+              ORDER BY t.id
+              LIMIT 5",
+        )
+        .map_err(|e| format!("Falha ao preparar auditoria de carros: {e}"))?;
+    let samples: Vec<String> = stmt
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let categoria: String = row.get(1)?;
+            Ok(format!("{id}/{categoria}"))
+        })
+        .map_err(|e| format!("Falha ao consultar equipes sem carro: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Falha ao ler equipes sem carro: {e}"))?;
+
+    if samples.is_empty() {
+        return Ok(());
+    }
+
+    let total = count(
+        conn,
+        "SELECT COUNT(*)
+           FROM teams t
+          WHERE t.ativa = 1
+            AND NOT EXISTS (SELECT 1 FROM team_car c WHERE c.team_id = t.id)",
+        [],
+    )?;
+    report.error(
+        "active_team_without_car",
+        format!(
+            "{total} equipe(s) ativa(s) sem carro em team_car. Exemplos: {}.",
+            samples.join(", ")
+        ),
+    );
+    Ok(())
 }
 
 fn audit_active_season(
@@ -662,6 +714,23 @@ mod tests {
                 'T001', 'Equipe Um', 'E1', 'mazda_rookie', 1, 'P001', 'P002',
                 'P001', 'P002', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
+
+            -- Toda equipe ativa tem carro (Sistema de Nível do Carro). É o que
+            -- `audit_team_cars` exige: um mundo sem `team_car` cai no fallback da
+            -- coluna legada e deixa de ser simulado pelo sistema vigente.
+            INSERT INTO team_car (team_id, part_type, level, wear)
+            VALUES
+                ('T001', 'engine', 1, 0.0),
+                ('T001', 'gearbox', 1, 0.0),
+                ('T001', 'chassis', 1, 0.0),
+                ('T001', 'suspension', 1, 0.0),
+                ('T001', 'brakes', 1, 0.0),
+                ('T001', 'front_wing', 1, 0.0),
+                ('T001', 'rear_wing', 1, 0.0),
+                ('T001', 'underbody', 1, 0.0),
+                ('T001', 'sidepods', 1, 0.0),
+                ('T001', 'cooling', 1, 0.0),
+                ('T001', 'electronics', 1, 0.0);
 
             INSERT INTO contracts (
                 id, piloto_id, piloto_nome, equipe_id, equipe_nome, status, papel,

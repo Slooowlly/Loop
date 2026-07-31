@@ -34,11 +34,38 @@ pub(super) fn track_difficulty_for(track_id: u32) -> f64 {
     }
 }
 
+/// Calibre da dificuldade de ultrapassagem, medido e não escolhido.
+///
+/// Os valores por caráter nasceram numa escala em que o knob era **morto por inexistência** —
+/// ninguém lia o campo, então qualquer número servia. Depois que o pacote D ligou o fio e as
+/// camadas de evento passaram a tirar carro de posição, ele virou a alavanca mais forte da
+/// varredura inteira: Δρ = 0,176 na gt3 e 0,183 na rookie, contra 0,046 do segundo colocado.
+///
+/// A varredura em cima da árvore calibrada, na rookie:
+///
+/// | valor | ρ(N,N+1) | desvio | vencedores |
+/// |-------|----------|--------|------------|
+/// | 1,00  | 0,569    | 3,62   | 4,47       |
+/// | 2,50  | **0,503**| **3,90**| 4,80      |
+/// | 5,00  | 0,483    | 3,99   | 4,80       |
+///
+/// 2,2 fica no joelho: pega quase todo o efeito (de 5,0 em diante o retorno some) sem empurrar
+/// o knob para uma borda, que é o sinal de alerta nº 1 da máquina de busca.
+///
+/// **O preço é real e está declarado**: atrito maior faz a posição de largada persistir mais,
+/// então ρ(grid × chegada) e vitórias do pole SOBEM. As métricas que faltam puxam para lados
+/// opostos, e nenhum valor deste knob resolve as duas — isso é limite de mecanismo, não de
+/// calibração.
+const CALIBRE_DE_ULTRAPASSAGEM: f64 = 2.2;
+
 pub(super) fn overtaking_difficulty_for(character: TrackCharacter) -> f64 {
-    match character {
-        TrackCharacter::Roval => 0.80,
-        TrackCharacter::Flowing => 0.90,
-        TrackCharacter::Technical => 1.00,
-        TrackCharacter::Tight => 1.15,
-    }
+    // As razões entre caráteres são design (Roval passa fácil, Tight é fechada) e sobrevivem
+    // intactas ao calibre — o que mudou foi a escala da família, não a ordem dentro dela.
+    CALIBRE_DE_ULTRAPASSAGEM
+        * match character {
+            TrackCharacter::Roval => 0.80,
+            TrackCharacter::Flowing => 0.90,
+            TrackCharacter::Technical => 1.00,
+            TrackCharacter::Tight => 1.15,
+        }
 }

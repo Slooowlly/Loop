@@ -327,11 +327,17 @@ mod tests {
     fn breakdown_scenario_resolve_nos_dois_locales() {
         rust_i18n::set_locale("pt-BR");
         let pt = rust_i18n::t!("breakdown.SB_S_MEC_01.dnf").to_string();
-        assert!(pt.contains("{driver}") && pt.contains("câmbio") && !pt.contains("%{"), "{pt}");
+        assert!(
+            pt.contains("{driver}") && pt.contains("câmbio") && !pt.contains("%{"),
+            "{pt}"
+        );
 
         rust_i18n::set_locale("en-US");
         let en = rust_i18n::t!("breakdown.SB_S_MEC_01.dnf").to_string();
-        assert!(en.contains("{driver}") && en.contains("gearbox") && !en.contains("%{"), "{en}");
+        assert!(
+            en.contains("{driver}") && en.contains("gearbox") && !en.contains("%{"),
+            "{en}"
+        );
         assert_ne!(pt, en);
 
         rust_i18n::set_locale("pt-BR"); // restaura

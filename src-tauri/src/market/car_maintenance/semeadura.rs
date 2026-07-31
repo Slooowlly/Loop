@@ -5,14 +5,27 @@ use super::*;
 
 // ===================== Seed inicial dos carros =====================
 
-/// Qualidade relativa (0..1) de cada time DENTRO da sua categoria, medida pelo
+/// Qualidade relativa (0..1) de cada time DENTRO da sua CLASSE, medida pelo
 /// `car_performance` (o escalar legado que já reflete orçamento/prestígio no seed).
+///
+/// O agrupamento é por `(categoria, classe)`, não por categoria: no Endurance as três
+/// classes (GT4, GT3, LMP2) dividem a mesma categoria com escalas de carro diferentes, e
+/// medir todas contra um min/max único fazia a melhor equipe de GT4 parecer medíocre
+/// porque o topo da escala era o LMP2.
 pub(super) fn category_quality(teams: &[Team]) -> HashMap<String, f64> {
-    // Min/max de car_performance por categoria.
-    let mut bounds: HashMap<&str, (f64, f64)> = HashMap::new();
+    type ClassKey<'a> = (&'a str, Option<&'a str>);
+
+    fn class_key(team: &Team) -> ClassKey<'_> {
+        (
+            team.categoria.as_str(),
+            team.classe.as_deref().filter(|classe| !classe.is_empty()),
+        )
+    }
+
+    let mut bounds: HashMap<ClassKey<'_>, (f64, f64)> = HashMap::new();
     for team in teams {
         let entry = bounds
-            .entry(team.categoria.as_str())
+            .entry(class_key(team))
             .or_insert((f64::INFINITY, f64::NEG_INFINITY));
         entry.0 = entry.0.min(team.car_performance);
         entry.1 = entry.1.max(team.car_performance);
@@ -20,10 +33,7 @@ pub(super) fn category_quality(teams: &[Team]) -> HashMap<String, f64> {
 
     let mut quality = HashMap::new();
     for team in teams {
-        let (min, max) = bounds
-            .get(team.categoria.as_str())
-            .copied()
-            .unwrap_or((0.0, 0.0));
+        let (min, max) = bounds.get(&class_key(team)).copied().unwrap_or((0.0, 0.0));
         let spread = max - min;
         let q = if spread.abs() < f64::EPSILON {
             0.5
@@ -36,13 +46,14 @@ pub(super) fn category_quality(teams: &[Team]) -> HashMap<String, f64> {
 }
 
 /// Semeia e persiste o carro inicial de cada time (correlacionado com a qualidade na
-/// categoria; rookie = spec). Chamado uma vez na criação da carreira, logo após inserir
-/// os times.
+/// classe; rookie = spec). Chamado uma vez na criação da carreira — clássica ou draft
+/// histórico —, logo após inserir os times.
 pub fn seed_and_persist_team_cars(conn: &Connection, teams: &[Team]) -> Result<(), DbError> {
     let quality = category_quality(teams);
     for team in teams {
         let q = quality.get(&team.id).copied().unwrap_or(0.5);
-        let car = seed_car(&team.categoria, q);
+        // Chave com classe: o teto do carro é o da classe (`"endurance:gt3"`).
+        let car = seed_car(&team.car_category_key(), q);
         team_car::upsert_team_car(conn, &team.id, &car)?;
     }
     Ok(())

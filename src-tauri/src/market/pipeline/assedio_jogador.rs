@@ -102,8 +102,7 @@ pub(super) fn build_player_display_bids(
     poacher_best: f64,
     holder_best: f64,
 ) -> Vec<PoachBid> {
-    let both_fought =
-        poacher_best > current_salary + 1.0 && holder_best > current_salary + 1.0;
+    let both_fought = poacher_best > current_salary + 1.0 && holder_best > current_salary + 1.0;
     if real.len() >= PLAYER_MIN_DISPLAY_BIDS || !both_fought {
         return real.to_vec();
     }
@@ -217,11 +216,18 @@ pub(super) fn compute_player_poach_offer_inner(
             crate::finance::planning::derive_budget_index_from_money(t),
             t.reputacao,
         );
-        let player_value =
-            crate::market::poaching::poach_target_value(player.atributos.skill, player.atributos.midia, need);
+        let player_value = crate::market::poaching::poach_target_value(
+            player.atributos.skill,
+            player.atributos.midia,
+            need,
+        );
         let mut occ: Vec<(String, f64)> = [p1, p2]
             .into_iter()
-            .filter_map(|id| drivers_by_id.get(&id).map(|d| (id, driver_poach_value(d, need))))
+            .filter_map(|id| {
+                drivers_by_id
+                    .get(&id)
+                    .map(|d| (id, driver_poach_value(d, need)))
+            })
             .collect();
         occ.sort_by(|a, b| a.1.total_cmp(&b.1));
         let Some((weak_id, weak_value)) = occ.first().cloned() else {
@@ -345,9 +351,7 @@ pub(super) fn compute_player_poach_offer_inner(
         holder_best,
         suitor_name: suitor.nome.clone(),
         suitor_color: suitor.cor_primaria.clone(),
-        suitor_car_rating: suitor.car_strength()
-            .round()
-            .clamp(0.0, 100.0) as u8,
+        suitor_car_rating: suitor.car_strength().round().clamp(0.0, 100.0) as u8,
         current_team_name: current_team.nome.clone(),
         current_team_color: current_team.cor_primaria.clone(),
         category_label: crate::constants::categories::get_category_config(&suitor.categoria)
@@ -378,7 +382,10 @@ pub(crate) fn resolve_player_poach(
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let current = contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?;
-    if current.as_ref().is_none_or(|c| c.id != offer.current_contract_id) {
+    if current
+        .as_ref()
+        .is_none_or(|c| c.id != offer.current_contract_id)
+    {
         return Ok(PlayerPoachOutcome {
             applied: false,
             left: false,
@@ -400,8 +407,11 @@ pub(crate) fn resolve_player_poach(
             left: false,
             salary: offer.holder_best.max(current.salario_anual),
             team_name: offer.current_team_name.clone(),
-            note: rust_i18n::t!("market.poach_outcome.stayed", team = offer.current_team_name.as_str())
-                .to_string(),
+            note: rust_i18n::t!(
+                "market.poach_outcome.stayed",
+                team = offer.current_team_name.as_str()
+            )
+            .to_string(),
         });
     }
 
@@ -423,30 +433,29 @@ pub(crate) fn resolve_player_poach(
 
     // Assento no pretendente: usa vaga aberta se houver; senão desloca o mais fraco
     // (recomputado AGORA, não o do momento da oferta — a escada pode ter mexido).
-    let (papel, displaced_id): (TeamRole, Option<String>) =
-        if suitor.piloto_1_id.is_none() {
-            (TeamRole::Numero1, None)
-        } else if suitor.piloto_2_id.is_none() {
-            (TeamRole::Numero2, None)
-        } else {
-            let a = suitor.piloto_1_id.clone().unwrap();
-            let b = suitor.piloto_2_id.clone().unwrap();
-            let need = crate::fame::team_need_factor(
-                crate::finance::planning::derive_budget_index_from_money(&suitor),
-                suitor.reputacao,
-            );
-            let value_of = |id: &str| {
-                driver_queries::get_driver(conn, id)
-                    .ok()
-                    .map(|d| driver_poach_value(&d, need))
-                    .unwrap_or(f64::MAX)
-            };
-            if value_of(&a) <= value_of(&b) {
-                (TeamRole::Numero1, Some(a))
-            } else {
-                (TeamRole::Numero2, Some(b))
-            }
+    let (papel, displaced_id): (TeamRole, Option<String>) = if suitor.piloto_1_id.is_none() {
+        (TeamRole::Numero1, None)
+    } else if suitor.piloto_2_id.is_none() {
+        (TeamRole::Numero2, None)
+    } else {
+        let a = suitor.piloto_1_id.clone().unwrap();
+        let b = suitor.piloto_2_id.clone().unwrap();
+        let need = crate::fame::team_need_factor(
+            crate::finance::planning::derive_budget_index_from_money(&suitor),
+            suitor.reputacao,
+        );
+        let value_of = |id: &str| {
+            driver_queries::get_driver(conn, id)
+                .ok()
+                .map(|d| driver_poach_value(&d, need))
+                .unwrap_or(f64::MAX)
         };
+        if value_of(&a) <= value_of(&b) {
+            (TeamRole::Numero1, Some(a))
+        } else {
+            (TeamRole::Numero2, Some(b))
+        }
+    };
 
     if let Some(did) = displaced_id.as_ref() {
         if let Some(dc) = contract_queries::get_active_regular_contract_for_pilot(conn, did)
@@ -487,8 +496,8 @@ pub(crate) fn resolve_player_poach(
     // A multa: pretendente → time atual (o time que perde o jogador é indenizado).
     transfer_between_teams(conn, &suitor.id, &offer.current_team_id, offer.buyout)?;
 
-    let teams = team_queries::get_all_teams(conn)
-        .map_err(|e| format!("Falha ao recarregar times: {e}"))?;
+    let teams =
+        team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao recarregar times: {e}"))?;
     let refreshed: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
         .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?
         .into_iter()

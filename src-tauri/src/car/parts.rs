@@ -187,13 +187,19 @@ mod tests {
     fn cambio_da_mais_acceleration_que_o_motor() {
         let (_, _, gearbox_a) = PartType::Gearbox.pha_per_level();
         let (_, _, engine_a) = PartType::Engine.pha_per_level();
-        assert!(gearbox_a > engine_a, "câmbio deveria dar mais Accel que o motor");
+        assert!(
+            gearbox_a > engine_a,
+            "câmbio deveria dar mais Accel que o motor"
+        );
     }
 
     #[test]
     fn freios_sao_handling_puro() {
         let (p, h, a) = PartType::Brakes.pha_per_level();
-        assert!(h > 0.0 && p == 0.0 && a == 0.0, "freios deveriam ser H puro: P={p} H={h} A={a}");
+        assert!(
+            h > 0.0 && p == 0.0 && a == 0.0,
+            "freios deveriam ser H puro: P={p} H={h} A={a}"
+        );
     }
 
     #[test]
@@ -207,9 +213,15 @@ mod tests {
     #[serial_test::serial]
     fn nome_da_peca_adapta_ao_carro() {
         rust_i18n::set_locale("pt-BR"); // display_name resolve no locale ativo.
-        // Mazda não tem asa → parachoque.
-        assert_eq!(PartType::RearWing.display_name("mazda_rookie"), "Parachoque traseiro");
-        assert_eq!(PartType::FrontWing.display_name("mazda_amador"), "Parachoque dianteiro");
+                                        // Mazda não tem asa → parachoque.
+        assert_eq!(
+            PartType::RearWing.display_name("mazda_rookie"),
+            "Parachoque traseiro"
+        );
+        assert_eq!(
+            PartType::FrontWing.display_name("mazda_amador"),
+            "Parachoque dianteiro"
+        );
         // GT/BMW/Toyota têm asa traseira e splitter dianteiro.
         assert_eq!(PartType::RearWing.display_name("gt3"), "Asa traseira");
         assert_eq!(PartType::RearWing.display_name("bmw_m2"), "Asa traseira");

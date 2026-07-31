@@ -31,9 +31,18 @@ pub(crate) fn player_warning_msg(part_key: &str, id: usize) -> BreakdownMessage 
     let onde = part_com_seu(part_key);
     // (abertura, alerta) — a peça (`onde`) é encaixada na abertura.
     let variants: [(&str, &str); 3] = [
-        ("Estou ouvindo algo estranho", "pode dar problema a qualquer momento"),
-        ("Não gostei de um barulho", "fica de olho — pode falhar a qualquer hora"),
-        ("Tem algo esquisito acontecendo", "risco de pane a qualquer momento"),
+        (
+            "Estou ouvindo algo estranho",
+            "pode dar problema a qualquer momento",
+        ),
+        (
+            "Não gostei de um barulho",
+            "fica de olho — pode falhar a qualquer hora",
+        ),
+        (
+            "Tem algo esquisito acontecendo",
+            "risco de pane a qualquer momento",
+        ),
     ];
     let (open, detail) = variants[id % variants.len()];
     BreakdownMessage {

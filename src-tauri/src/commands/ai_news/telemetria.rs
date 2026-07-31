@@ -20,12 +20,7 @@ fn tire_deg_ms_per_lap(tel: &serde_json::Value) -> Option<f64> {
     let laps = tel.get("charts")?.get("lap_times")?.as_array()?;
     let pts: Vec<(f64, f64)> = laps
         .iter()
-        .filter_map(|p| {
-            Some((
-                p.get("lap")?.as_f64()?,
-                p.get("time_s")?.as_f64()? * 1000.0,
-            ))
-        })
+        .filter_map(|p| Some((p.get("lap")?.as_f64()?, p.get("time_s")?.as_f64()? * 1000.0)))
         .collect();
     if pts.len() < 4 {
         return None;
@@ -72,7 +67,10 @@ impl Overtake {
 /// É a régua do desfecho: quem passou quem no meio da corrida não decide nada.
 fn final_position_by_name(tel: &serde_json::Value) -> std::collections::HashMap<String, i64> {
     let mut out = std::collections::HashMap::new();
-    let Some(cars) = tel.get("charts").and_then(|c| c.get("cars")).and_then(|c| c.as_array())
+    let Some(cars) = tel
+        .get("charts")
+        .and_then(|c| c.get("cars"))
+        .and_then(|c| c.as_array())
     else {
         return out;
     };
@@ -111,7 +109,10 @@ fn player_final_position(tel: &serde_json::Value) -> Option<i64> {
 /// posição ANTIGA do jogador naquele mesmo instante.
 fn overtake_feed(tel: &serde_json::Value) -> Vec<Overtake> {
     let mut out = Vec::new();
-    let Some(cars) = tel.get("charts").and_then(|c| c.get("cars")).and_then(|c| c.as_array())
+    let Some(cars) = tel
+        .get("charts")
+        .and_then(|c| c.get("cars"))
+        .and_then(|c| c.as_array())
     else {
         return out;
     };
@@ -224,23 +225,41 @@ pub(crate) fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i3
         }
         let good = pace.get("good_laps").and_then(|x| x.as_i64()).unwrap_or(0);
         if good > 0 {
-            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.good_laps", n = good));
+            let _ = writeln!(
+                f,
+                "{}",
+                rust_i18n::t!("ai_news.telemetry.good_laps", n = good)
+            );
         }
     }
 
     if let Some(deg) = tire_deg_ms_per_lap(tel) {
         if deg >= 40.0 {
             let secs = format!("{:.2}", deg / 1000.0);
-            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.deg_up", secs = secs));
+            let _ = writeln!(
+                f,
+                "{}",
+                rust_i18n::t!("ai_news.telemetry.deg_up", secs = secs)
+            );
         } else if deg <= -40.0 {
             let secs = format!("{:.2}", deg.abs() / 1000.0);
-            let _ = writeln!(f, "{}", rust_i18n::t!("ai_news.telemetry.deg_down", secs = secs));
+            let _ = writeln!(
+                f,
+                "{}",
+                rust_i18n::t!("ai_news.telemetry.deg_down", secs = secs)
+            );
         }
     }
 
     if let Some(pf) = tel.get("position_flow") {
-        let gained = pf.get("gained_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
-        let lost = pf.get("lost_on_track").and_then(|x| x.as_i64()).unwrap_or(0);
+        let gained = pf
+            .get("gained_on_track")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
+        let lost = pf
+            .get("lost_on_track")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
         if gained > 0 || lost > 0 {
             let _ = writeln!(
                 f,
@@ -288,8 +307,15 @@ pub(crate) fn telemetry_facts(tel: Option<&serde_json::Value>, grid_position: i3
                 );
             }
         }
-        let weak = sec.get("weakest_sector").and_then(|x| x.as_i64()).unwrap_or(0);
-        let loss = sec.get("weakest_loss_ms").and_then(|x| x.as_f64()).unwrap_or(0.0) / 1000.0;
+        let weak = sec
+            .get("weakest_sector")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
+        let loss = sec
+            .get("weakest_loss_ms")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0)
+            / 1000.0;
         if weak >= 1 && loss >= 0.1 {
             let _ = writeln!(
                 f,

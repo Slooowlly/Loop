@@ -123,8 +123,8 @@ mod semeadura;
 
 // `janela` expõe a API pública (`convocation::special_window::…`); os demais só
 // re-entram no namespace da fachada para que os módulos-irmãos se enxerguem.
-pub use janela::*;
 use comum::*;
+pub use janela::*;
 use leitura::*;
 use revelacao::*;
 use semeadura::*;

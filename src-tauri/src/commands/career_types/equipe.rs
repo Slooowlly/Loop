@@ -217,6 +217,15 @@ pub struct TeamHistoryDossier {
     /// em Records diz quanto; isto diz a forma — separa a equipe que vence ou
     /// abandona da que vive em quarto, que têm a mesma taxa.
     pub result_spread: TeamHistoryResultSpread,
+    /// A sucessão de pilotos nas DUAS vagas da equipe, uma entrada por passagem
+    /// contínua. É o único recorte do dossiê que fala de GENTE — todo o resto
+    /// trata a equipe como um carro só — e, repartido por vaga, também responde
+    /// quanto essa casa troca de piloto.
+    pub lineup: Vec<TeamHistoryLineupTerm>,
+    /// Quantas largadas viraram chegada e o que levou o resto para o box. Sem
+    /// isso, a equipe que abandona metade das corridas e a que termina todas em
+    /// décimo caem na mesma faixa da assinatura de resultados.
+    pub reliability: TeamHistoryReliability,
     /// Anos em que a equipe correu fora do recorte de categorias deste dossiê.
     /// A faixa temporada a temporada precisa deles para não marcar como
     /// "não disputou" um ano em que a equipe estava em outra escada.
@@ -230,6 +239,142 @@ pub struct TeamHistoryDossier {
     /// Zero quando o save ainda não tem temporada alguma.
     pub world_first_year: i32,
     pub world_last_year: i32,
+    /// A campanha da temporada MAIS RECENTE em que a equipe correu, rodada a
+    /// rodada, com a linha de todas as outras equipes do mesmo campeonato.
+    ///
+    /// É a leitura que a curva de posição final por temporada não dá: a posição
+    /// no campeonato é o resultado, isto é a disputa. Vinte pontos de vantagem
+    /// construídos na primeira metade e defendidos, ou uma virada na última
+    /// rodada, terminam os dois em "P1" — e desenham completamente diferente.
+    ///
+    /// `None` quando a equipe não tem nenhuma corrida no recorte.
+    pub championship_run: Option<TeamHistoryChampionshipRun>,
+}
+
+/// A tabela de recordes de TODAS as equipes de um grupo de categorias.
+///
+/// É o mesmo agregado que alimenta os cards de record do dossiê — o "9º de 19"
+/// de um card e a posição da equipe nesta lista têm de ser o mesmo número, então
+/// os dois saem do mesmo recorte e da mesma contagem.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamRecordsRanking {
+    /// Rótulo do recorte ("Grupo GT3"), o mesmo que o rodapé do dossiê mostra.
+    pub scope: String,
+    /// Categoria pedida, crua — o frontend usa para manter o filtro coerente.
+    pub category: String,
+    /// Amplitude aplicada: "category", "group" ou "world". Volta ecoada porque um
+    /// valor desconhecido cai em "group", e a tela precisa marcar o que de fato
+    /// aconteceu, não o que foi pedido.
+    pub scope_kind: String,
+    /// Os rótulos das categorias que ENTRARAM na conta.
+    ///
+    /// A tela nomeia esta lista porque "grupo" não tem tamanho fixo: o Grupo
+    /// Mazda são duas categorias (Rookie e Championship) e o Grupo Production são
+    /// seis — a Production é onde as três escadas de entrada convergem, e a
+    /// história de uma equipe dela inclui os anos de Mazda, Toyota e BMW. Sem a
+    /// lista à vista, alargar o recorte a partir da Mazda parece deixar coisa de
+    /// fora, quando na verdade os dois grupos são de tamanhos diferentes.
+    pub scope_categories: Vec<String>,
+    /// A marca que recorta as categorias multiclasse deste escopo ("mazda",
+    /// "toyota", "bmw"), ou vazio. Na Production, o Grupo Mazda conta só as
+    /// equipes de classe Mazda — e a tela precisa dizer isso, senão a Production
+    /// aparece na lista de categorias e parece que Toyota e BMW entraram junto.
+    pub scope_family: String,
+    /// A escada de categorias que o seletor oferece, em ordem. Vem do backend
+    /// porque é regra de domínio: duplicá-la no frontend criaria uma segunda
+    /// fonte de verdade para quem compara com quem.
+    pub categories: Vec<TeamRecordsCategory>,
+    pub rows: Vec<TeamRecordsRow>,
+}
+
+/// Uma categoria da escada, como o seletor a mostra.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamRecordsCategory {
+    /// Chave única da entrada. Igual ao `id` nas monomarca; `"categoria:classe"`
+    /// nas multiclasse, onde a mesma categoria vira três entradas.
+    pub key: String,
+    pub id: String,
+    /// Classe desta entrada ("mazda", "gt3"...), vazia nas monomarca.
+    pub class: String,
+    pub label: String,
+    /// Rótulo do grupo a que ela pertence ("Grupo Mazda"). A tela mostra isto na
+    /// opção de amplitude, para o jogador ver o que "grupo" significa NESTA
+    /// categoria antes de escolher.
+    pub group_label: String,
+}
+
+/// Uma equipe na tabela de recordes. Sem pontos: eles não se comparam entre
+/// calendários e categorias, pelo mesmo motivo que os tiraram da faixa de
+/// Records do dossiê.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamRecordsRow {
+    pub team_id: String,
+    pub team: String,
+    pub color: String,
+    /// Categoria em que a equipe corre HOJE — pode não ser a do recorte, porque
+    /// o grupo junta escadas vizinhas e a equipe pode ter subido.
+    pub category: String,
+    pub category_id: String,
+    pub active: bool,
+    pub titles: i32,
+    pub wins: i32,
+    pub podiums: i32,
+    pub races: i32,
+    pub podium_rate: i32,
+    pub win_rate: i32,
+    /// Os mesmos quatro números, agora da CARREIRA inteira — todas as categorias,
+    /// todos os anos.
+    ///
+    /// Existem para o filtro ser visível no próprio dado: "5 de 87 corridas" diz
+    /// sozinho que o recorte está agindo, enquanto um "5" solto se parece com uma
+    /// equipe que mal correu. Taxas não têm par porque proporção não se lê como
+    /// fração de outra proporção.
+    pub total_titles: i32,
+    pub total_wins: i32,
+    pub total_podiums: i32,
+    pub total_races: i32,
+    /// Primeiro e último ano da equipe DENTRO do recorte.
+    ///
+    /// É o que dá sentido à contagem: "5 corridas" sozinho não diz se a equipe é
+    /// nova, se passou correndo ou se está lá há uma década. Com "2024–2025" ao
+    /// lado, uma linha de 5 corridas na Mazda Rookie deixa de parecer uma
+    /// carreira inteira e vira o que é — uma passagem curta antes da promoção.
+    pub first_year: String,
+    pub last_year: String,
+}
+
+/// Uma campanha de campeonato: o eixo de rodadas e uma linha por equipe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryChampionshipRun {
+    pub year: String,
+    pub category: String,
+    pub category_id: String,
+    /// Rodadas em ordem — o eixo horizontal do desenho.
+    pub rounds: Vec<i32>,
+    /// Uma linha por equipe, já ordenada da primeira à última colocada.
+    pub lines: Vec<TeamHistoryChampionshipLine>,
+    /// Se o campeonato ainda está em andamento (a temporada mais recente do save
+    /// é esta e ela tem rodadas por correr). Muda a leitura da ponta da linha.
+    pub live: bool,
+}
+
+/// A linha de uma equipe: pontuação ACUMULADA ao fim de cada rodada.
+///
+/// O acumulado, e não os pontos da corrida, é o que faz o desenho responder
+/// "quem está ganhando" — pontos soltos por corrida desenham serrote em todo
+/// mundo e não somam visualmente.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryChampionshipLine {
+    pub team_id: String,
+    pub team: String,
+    /// Se é a equipe do dossiê — a única que o desenho acende.
+    pub selected: bool,
+    /// Colocação no campeonato ao fim das rodadas disputadas.
+    pub position: i32,
+    pub total: String,
+    /// Um valor por rodada de `rounds`, na mesma ordem. Equipe que entrou depois
+    /// carrega o acumulado anterior (zero) — a linha nunca tem buraco.
+    pub points: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -276,6 +421,65 @@ pub struct TeamHistoryFormRace {
     /// Melhor colocação da equipe na corrida. `None` quando o resultado não
     /// registrou posição — o quadrado aparece vazio, e não como abandono.
     pub position: Option<i32>,
+}
+
+/// Uma passagem contínua de um piloto por uma vaga da equipe, com o que ele fez
+/// lá e onde está hoje.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TeamHistoryLineupTerm {
+    /// 1 ou 2 conforme a vaga; 0 para quem correu pela equipe sem constar como
+    /// titular de uma temporada arquivada (substituto, ou save sem arquivo).
+    pub slot: i32,
+    pub driver_id: String,
+    pub name: String,
+    /// Nacionalidade como está em `drivers` — a galeria a desenha como bandeira.
+    /// Vazia para quem só existe em `retired` (a tabela não guarda o país) ou
+    /// para id herdado de save antigo: aí a galeria mostra o piloto sem bandeira.
+    pub nationality: String,
+    pub first_year: String,
+    pub last_year: String,
+    /// Números da PASSAGEM, não da carreira: quem saiu e voltou tem duas
+    /// entradas, e somar tudo nas duas contaria a mesma corrida duas vezes.
+    pub races: i32,
+    pub wins: i32,
+    pub podiums: i32,
+    /// Melhor colocação que o piloto tirou nesta passagem. Zero quando nenhuma
+    /// corrida dele teve classificação.
+    pub best_position: i32,
+    /// O piloto do save. A galeria o destaca: é a única linha em que o jogador
+    /// se vê dentro da história da equipe.
+    pub is_player: bool,
+    /// Continua na equipe hoje — a galeria separa quem está de quem passou.
+    pub still_here: bool,
+    /// Equipe onde o piloto corre HOJE, quando é outra. Vazio para quem ficou,
+    /// aposentou ou sumiu — repetir o brasão da própria equipe não distingue
+    /// nada, e é justamente o destino de quem saiu que interessa.
+    pub current_team_name: String,
+    pub current_team_color: String,
+    /// Onde o piloto está agora, já em prosa traduzida: na equipe, em outra
+    /// categoria, ou aposentado (com o ano, quando registrado).
+    pub current_label: String,
+}
+
+/// Largadas, chegadas e a repartição dos abandonos por causa.
+///
+/// `mechanical + driver_error + other` soma os abandonos; `finished + abandonos`
+/// soma `races`. `other` é abandono sem incidente catalogado — não é uma terceira
+/// causa, é a admissão de que a causa não foi registrada.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TeamHistoryReliability {
+    pub races: i32,
+    pub finished: i32,
+    pub finish_rate: i32,
+    /// Média do GRUPO de categorias. Uma taxa de 88% não diz nada sozinha: em
+    /// endurance ela pode ser excelente e em sprint, medíocre.
+    pub group_finish_rate: i32,
+    pub mechanical: i32,
+    pub driver_error: i32,
+    pub other: i32,
+    /// A peça que mais tirou a equipe da corrida, vinda de `race_breakdowns`.
+    /// Vazio quando o save não tem quebra registrada.
+    pub worst_part: String,
 }
 
 /// Corridas repartidas por faixa de colocação. As faixas são exclusivas e somam

@@ -17,6 +17,14 @@ pub(super) struct TeamRaceFact {
     /// os carros dela). É o que separa um pódio de prata de um de bronze — com
     /// dois carros, a equipe leva o degrau mais alto que conseguiu.
     pub(super) best_position: Option<i32>,
+    /// Classe do carro naquela temporada ("mazda", "toyota", "bmw"), vazia nas
+    /// categorias monomarca.
+    ///
+    /// A Production e a Endurance são multiclasse: três marcas disputam a mesma
+    /// categoria em campeonatos separados. Sem a classe, o Grupo Mazda arrastaria
+    /// para dentro as equipes de Toyota e BMW que correm na Production — que
+    /// nunca dividiram a pista com uma Mazda.
+    pub(super) class: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -37,6 +45,8 @@ pub(super) struct TeamTitleFact {
     /// dizer COMO o título foi ganho em vez de só que foi.
     pub(super) points: f64,
     pub(super) wins: i32,
+    /// Classe do campeonato em que o título foi ganho. Vazia nas monomarca.
+    pub(super) class: String,
 }
 
 /// Campeão de pilotos de uma temporada numa categoria.
@@ -66,10 +76,24 @@ pub(super) fn load_team_race_facts(
             SUM(r.pontos) AS team_points,
             MAX(CASE WHEN r.posicao_final = 1 THEN 1 ELSE 0 END) AS has_win,
             MAX(CASE WHEN r.posicao_final BETWEEN 1 AND 3 THEN 1 ELSE 0 END) AS has_podium,
-            MIN(r.posicao_final) AS best_position
+            MIN(r.posicao_final) AS best_position,
+            -- Classe do carro naquela temporada. O arquivo é a fonte histórica; a
+            -- coluna da equipe cobre a temporada corrente, que ainda não foi
+            -- arquivada. Sem o fallback, o ano em curso sairia sem classe e
+            -- escaparia do recorte por marca justamente na tela que fala do agora.
+            COALESCE(
+                NULLIF(TRIM(a.classe), ''),
+                NULLIF(TRIM(t.classe), ''),
+                ''
+            ) AS classe
          FROM race_results r
          JOIN calendar c ON c.id = r.race_id
          JOIN seasons s ON s.id = c.temporada_id
+         LEFT JOIN team_season_archive a
+                ON a.team_id = r.equipe_id
+               AND a.season_number = s.numero
+               AND a.categoria = c.categoria
+         LEFT JOIN teams t ON t.id = r.equipe_id
          WHERE c.categoria IN ({placeholders})
          GROUP BY r.equipe_id, s.numero, c.categoria, c.rodada, r.race_id
          ORDER BY s.numero ASC, c.rodada ASC, r.race_id ASC, r.equipe_id ASC"
@@ -89,6 +113,7 @@ pub(super) fn load_team_race_facts(
                 win: row.get::<_, i32>(7)? > 0,
                 podium: row.get::<_, i32>(8)? > 0,
                 best_position: row.get::<_, Option<i32>>(9)?,
+                class: row.get::<_, String>(10)?.to_lowercase(),
             })
         })
         .map_err(|e| format!("Falha ao consultar histórico real da equipe: {e}"))?;
@@ -134,12 +159,13 @@ pub(super) fn load_constructor_titles_by_team(
             st.equipe_id,
             st.categoria,
             SUM(st.pontos) AS team_points,
-            SUM(st.vitorias) AS team_wins
+            SUM(st.vitorias) AS team_wins,
+            COALESCE(NULLIF(TRIM(st.classe), ''), '') AS classe
          FROM standings st
          JOIN seasons s ON s.id = st.temporada_id
          WHERE st.equipe_id IS NOT NULL
            AND st.categoria IN ({placeholders})
-         GROUP BY st.temporada_id, s.numero, s.ano, st.equipe_id, st.categoria
+         GROUP BY st.temporada_id, s.numero, s.ano, st.equipe_id, st.categoria, classe
          ORDER BY s.numero ASC, team_points DESC, team_wins DESC, st.equipe_id ASC"
     );
     let mut stmt = conn
@@ -155,19 +181,24 @@ pub(super) fn load_constructor_titles_by_team(
                 row.get::<_, String>(4)?,
                 row.get::<_, f64>(5)?,
                 row.get::<_, i32>(6)?,
+                row.get::<_, String>(7)?.to_lowercase(),
             ))
         })
         .map_err(|e| format!("Falha ao consultar títulos reais de equipes: {e}"))?;
 
-    let mut best_by_season_category: BTreeMap<String, (i32, i32, String, String, f64, i32)> =
+    let mut best_by_season_category: BTreeMap<String, (i32, i32, String, String, f64, i32, String)> =
         BTreeMap::new();
     for row in rows {
-        let (season_id, season_number, season_year, team_id, category, points, wins) =
+        let (season_id, season_number, season_year, team_id, category, points, wins, class) =
             row.map_err(|e| format!("Falha ao ler títulos reais de equipes: {e}"))?;
-        let key = format!("{season_id}:{category}");
+        // A chave inclui a CLASSE: numa Production há três campeões, um por
+        // marca. Sem ela o `LIMIT 1` por categoria dava o título da Production
+        // inteira a quem fez mais pontos entre as três classes, e as outras duas
+        // taças simplesmente não existiam.
+        let key = format!("{season_id}:{category}:{class}");
         let replace = best_by_season_category
             .get(&key)
-            .map(|(_, _, current_team, _, current_points, current_wins)| {
+            .map(|(_, _, current_team, _, current_points, current_wins, _)| {
                 points > *current_points
                     || ((points - *current_points).abs() < f64::EPSILON
                         && (wins > *current_wins
@@ -177,13 +208,13 @@ pub(super) fn load_constructor_titles_by_team(
         if replace {
             best_by_season_category.insert(
                 key,
-                (season_number, season_year, team_id, category, points, wins),
+                (season_number, season_year, team_id, category, points, wins, class),
             );
         }
     }
 
     let mut titles: HashMap<String, Vec<TeamTitleFact>> = HashMap::new();
-    for (key, (_season_number, season_year, team_id, category, points, wins)) in
+    for (key, (_season_number, season_year, team_id, category, points, wins, class)) in
         best_by_season_category
     {
         let season_id = key.split(':').next().unwrap_or_default().to_string();
@@ -193,6 +224,7 @@ pub(super) fn load_constructor_titles_by_team(
             category,
             points,
             wins,
+            class,
         });
     }
     Ok(titles)
@@ -279,6 +311,71 @@ pub(super) fn load_team_season_positions(
         }
     }
     positions
+}
+
+/// Identidade de exibição de uma equipe, para telas que listam o campo inteiro.
+#[derive(Debug, Clone, Default)]
+pub(super) struct TeamCard {
+    pub(super) name: String,
+    pub(super) color: String,
+    pub(super) category_id: String,
+    pub(super) active: bool,
+}
+
+/// Nome, cor e categoria atual de cada equipe. A tabela de recordes lista todas
+/// as equipes do grupo, e sem isso cada linha seria um id.
+pub(super) fn load_team_cards(conn: &rusqlite::Connection) -> HashMap<String, TeamCard> {
+    let mut cards = HashMap::new();
+    let mut stmt = match conn.prepare("SELECT id, nome, cor_primaria, categoria, ativa FROM teams") {
+        Ok(stmt) => stmt,
+        Err(_) => return cards,
+    };
+    if let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            TeamCard {
+                name: row.get::<_, String>(1)?,
+                color: row.get::<_, String>(2)?,
+                category_id: row.get::<_, String>(3)?,
+                active: row.get::<_, i32>(4)? != 0,
+            },
+        ))
+    }) {
+        for (id, card) in rows.flatten() {
+            cards.insert(id, card);
+        }
+    }
+    cards
+}
+
+/// Nome de cada equipe, por id. A campanha do campeonato desenha o campo
+/// inteiro, e uma linha sem nome não pode nem ser identificada no tooltip.
+/// Equipe ausente da tabela (dissolvida e removida) degrada para id vazio no
+/// mapa — quem consome cai no rótulo genérico.
+pub(super) fn load_team_names(conn: &rusqlite::Connection) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    let mut stmt = match conn.prepare("SELECT id, nome FROM teams") {
+        Ok(stmt) => stmt,
+        Err(_) => return names,
+    };
+    if let Ok(rows) = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        for (id, nome) in rows.flatten() {
+            names.insert(id, nome);
+        }
+    }
+    names
+}
+
+/// Número da temporada mais recente do save. A campanha só se anuncia "em
+/// andamento" quando é ESTA — em qualquer temporada anterior o campeonato já
+/// fechou, e a ponta da linha é resultado, não parcial.
+pub(super) fn load_current_season_number(conn: &rusqlite::Connection) -> i32 {
+    conn.query_row("SELECT COALESCE(MAX(numero), 0) FROM seasons", [], |row| {
+        row.get::<_, i32>(0)
+    })
+    .unwrap_or(0)
 }
 
 /// Primeiro e último ano com temporada no save. É o eixo do mundo, não o da

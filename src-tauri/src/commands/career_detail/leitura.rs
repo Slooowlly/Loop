@@ -100,7 +100,11 @@ pub(super) fn stardom_reading(fama: f64, carisma: f64) -> String {
     rust_i18n::t!(&full).to_string()
 }
 
-pub(super) fn build_technical_read_item(chave: &str, label: &str, value: f64) -> DriverTechnicalReadItem {
+pub(super) fn build_technical_read_item(
+    chave: &str,
+    label: &str,
+    value: f64,
+) -> DriverTechnicalReadItem {
     let (nivel, tom) = technical_level_for_value(value);
 
     DriverTechnicalReadItem {
@@ -218,4 +222,3 @@ pub(super) fn expected_position_from_grid(mine: f64, grid: &[(f64, i32)]) -> Opt
     }
     Some(seats_ahead + (seats_tied + 1) / 2)
 }
-

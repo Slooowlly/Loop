@@ -579,7 +579,10 @@ mod tests {
         rust_i18n::set_locale("pt-BR"); // os labels resolvem no locale ativo.
         let vitoria = realized_with("gt3", 1, 8, true, true, false, false);
         let resumo = to_repercussion_summary(&vitoria);
-        assert_eq!(resumo.expected_display_value, vitoria.expected_display_value);
+        assert_eq!(
+            resumo.expected_display_value,
+            vitoria.expected_display_value
+        );
         assert_eq!(resumo.final_display_value, vitoria.final_display_value);
         assert_eq!(
             resumo.delta_display_value,
@@ -671,7 +674,10 @@ mod tests {
     #[serial_test::serial]
     fn labels_de_tier_e_manchete_traduzem_pelo_locale() {
         rust_i18n::set_locale("pt-BR");
-        assert_eq!(tier_label(&InterestTier::EventoPrincipal), "Evento principal");
+        assert_eq!(
+            tier_label(&InterestTier::EventoPrincipal),
+            "Evento principal"
+        );
         assert_eq!(
             headline_strength_label(&HeadlineStrength::Principal),
             "Manchete principal"

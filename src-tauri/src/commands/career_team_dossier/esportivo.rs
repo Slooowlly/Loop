@@ -165,6 +165,137 @@ pub(super) fn build_team_season_results(
         .collect()
 }
 
+/// A campanha da temporada mais recente da equipe, rodada a rodada, com TODAS as
+/// equipes que correram o mesmo campeonato.
+///
+/// A curva de posição final por temporada responde onde a equipe terminou; esta
+/// responde COMO. São perguntas diferentes e a segunda é a que conversa com a
+/// forma recente: as mesmas corridas, agora somadas contra os adversários que
+/// realmente estavam na pista.
+///
+/// O recorte é uma temporada e UMA categoria. O dossiê compara dentro de um
+/// grupo ("Grupo Mazda"), que pode conter mais de um campeonato — somar pontos de
+/// campeonatos distintos daria um total que não existe em lugar nenhum.
+pub(super) fn build_team_championship_run(
+    all_facts: &[TeamRaceFact],
+    team_id: &str,
+    names: &HashMap<String, String>,
+    current_season: i32,
+) -> Option<TeamHistoryChampionshipRun> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // A temporada é a última em que a EQUIPE correu, não a última do save: numa
+    // equipe dissolvida há três anos, a temporada corrente não tem linha nenhuma
+    // dela e o gráfico ficaria sem o único fio que importa.
+    let season = all_facts
+        .iter()
+        .filter(|fact| fact.team_id == team_id)
+        .map(|fact| fact.season_number)
+        .max()?;
+
+    // Dentro da temporada, a categoria em que a equipe mais correu. Uma equipe
+    // promovida no meio do ano aparece nas duas; a que vale é onde ela disputou
+    // o campeonato de fato.
+    let mut por_categoria: HashMap<&str, i32> = HashMap::new();
+    for fact in all_facts
+        .iter()
+        .filter(|fact| fact.season_number == season && fact.team_id == team_id)
+    {
+        *por_categoria.entry(fact.category.as_str()).or_insert(0) += 1;
+    }
+    // Desempate por nome da categoria para o resultado não depender da ordem do
+    // HashMap — dois campeonatos com o mesmo número de corridas existem.
+    let category_id = por_categoria
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(cat, _)| cat.to_string())?;
+
+    let recorte: Vec<&TeamRaceFact> = all_facts
+        .iter()
+        .filter(|fact| fact.season_number == season && fact.category == category_id)
+        .collect();
+    if recorte.is_empty() {
+        return None;
+    }
+
+    let rounds: Vec<i32> = recorte
+        .iter()
+        .map(|fact| fact.round)
+        .collect::<BTreeSet<i32>>()
+        .into_iter()
+        .collect();
+    // Uma rodada só não é campanha: não há disputa para desenhar, e a fita de
+    // forma recente já conta essa corrida melhor.
+    if rounds.len() < 2 {
+        return None;
+    }
+
+    // Pontos por equipe e rodada. BTreeMap para a ordem das equipes ser estável
+    // entre execuções — o desenho de vinte linhas cinzas não pode piscar de
+    // ordem a cada abertura.
+    let mut por_equipe: BTreeMap<&str, HashMap<i32, f64>> = BTreeMap::new();
+    for fact in &recorte {
+        *por_equipe
+            .entry(fact.team_id.as_str())
+            .or_default()
+            .entry(fact.round)
+            .or_insert(0.0) += fact.points;
+    }
+
+    let year = recorte
+        .first()
+        .map(|fact| fact.season_year)
+        .unwrap_or_default();
+
+    let mut lines: Vec<TeamHistoryChampionshipLine> = por_equipe
+        .into_iter()
+        .map(|(id, por_rodada)| {
+            // O acumulado carrega adiante em rodada sem pontuação: a linha da
+            // equipe que abandonou anda reta, não cai. Cair significaria perder
+            // pontos, o que não acontece em campeonato nenhum.
+            let mut acumulado = 0.0;
+            let points: Vec<f64> = rounds
+                .iter()
+                .map(|round| {
+                    acumulado += por_rodada.get(round).copied().unwrap_or(0.0);
+                    (acumulado * 100.0).round() / 100.0
+                })
+                .collect();
+            TeamHistoryChampionshipLine {
+                team_id: id.to_string(),
+                team: names.get(id).cloned().unwrap_or_default(),
+                selected: id == team_id,
+                position: 0,
+                total: format!("{}", acumulado.round() as i64),
+                points,
+            }
+        })
+        .collect();
+
+    // Ordena pela pontuação final e numera. O empate cai para o id, que é
+    // arbitrário mas estável — a alternativa (deixar a ordem do mapa decidir)
+    // muda a colocação exibida entre aberturas da mesma tela.
+    lines.sort_by(|a, b| {
+        let fim = |line: &TeamHistoryChampionshipLine| line.points.last().copied().unwrap_or(0.0);
+        fim(b)
+            .partial_cmp(&fim(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.team_id.cmp(&b.team_id))
+    });
+    for (index, line) in lines.iter_mut().enumerate() {
+        line.position = index as i32 + 1;
+    }
+
+    Some(TeamHistoryChampionshipRun {
+        year: year.to_string(),
+        category: team_history_category_label(&category_id),
+        category_id,
+        rounds,
+        lines,
+        live: season == current_season && current_season > 0,
+    })
+}
+
 /// Superlativos da equipe a partir do histórico real: melhor temporada (vitórias),
 /// pico de pódios numa temporada e maior sequência de títulos consecutivos.
 pub(super) fn build_team_highlights(

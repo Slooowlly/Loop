@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 
 use super::pontuacao::{
-    driver_offer_score, eligible, filter_brand, passes_dignity, shortlist_size, team_candidate_score,
+    driver_offer_score, eligible, filter_brand, passes_dignity, shortlist_size,
+    team_candidate_score,
 };
 use super::tipos::{Candidate, Seat, Signing, WindowConfig};
 

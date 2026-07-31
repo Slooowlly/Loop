@@ -100,4 +100,3 @@ pub(super) fn find_teammate(
         .map(Some)
         .map_err(|e| format!("Falha ao carregar companheiro de equipe: {e}"))
 }
-

@@ -54,6 +54,20 @@ pub const CLASSIFICACAO: &[(&str, bool)] = &[
     // varredura, medindo alavanca. Fica declarado `true` de propósito — mentir aqui para
     // "sinalizar" o problema estragaria a guarda que funciona.
     ("track_difficulty_multiplier", true),
+    // --- O TERCEIRO órfão por inexistência, e o mais caro de todos ---
+    //
+    // `EscalasDeForma::peso_animo` foi adicionado ao struct, documentado com a razão certa ("rodar
+    // com `peso_animo = 0` e comparar é o que separa as duas partes"), e **nunca ligado**: a
+    // esteira chama `forma::proxima_forma_com_rho`, que usa a const `FORMA_PESO_ANIMO`, em vez de
+    // `proxima_forma_com_escalas`, que recebe o parâmetro.
+    //
+    // Por que é o mais caro: os outros dois órfãos só desperdiçavam um knob. Este faz uma MEDIÇÃO
+    // devolver o resultado errado sem parecer errada. Rodei a decomposição pareada com
+    // `peso_animo` no padrão e em 0, e as quatro tabelas saíram idênticas até a primeira decimal —
+    // o que se leria como "a contaminação do ânimo é zero" quando o certo é "o parâmetro não
+    // chegou". Um knob órfão numa varredura dá alavanca 0,000 e denuncia a si mesmo; num
+    // instrumento de medição pareada ele produz um zero que parece resposta.
+    ("peso_animo", true),
 ];
 
 /// Knobs que são LIDOS mas cuja alavanca medida é nula — morte por magnitude, o defeito que a
@@ -74,6 +88,13 @@ fn arquivos_de_simulacao() -> Vec<PathBuf> {
             && !s.ends_with("/simulation/profile.rs")
             && !s.ends_with("/simulation/context.rs")
             && !s.contains("/simulation/calibracao")
+            // ARQUIVOS DE TESTE NÃO CONTAM COMO CONSUMIDOR. Furo encontrado com o
+            // `peso_animo`: ele é lido por `forma/tests.rs` (o teste de equivalência da própria
+            // injetabilidade) e por mais ninguém, e a guarda o dava como vivo. Um parâmetro que só
+            // o próprio teste consome é exatamente o caso que esta guarda existe para pegar — o
+            // teste prova que a função sabe usá-lo, não que alguém a chama assim.
+            && !s.contains("/tests/")
+            && !s.ends_with("/tests.rs")
     });
     saida
 }

@@ -189,12 +189,7 @@ fn test_get_free_agents_for_preseason_ignores_special_contract_history() {
     assert_eq!(driver.last_championship_total_drivers, Some(20));
 }
 
-fn sample_contract(
-    id: &str,
-    piloto_id: &str,
-    equipe_id: &str,
-    status: ContractStatus,
-) -> Contract {
+fn sample_contract(id: &str, piloto_id: &str, equipe_id: &str, status: ContractStatus) -> Contract {
     Contract {
         id: id.to_string(),
         piloto_id: piloto_id.to_string(),
@@ -430,7 +425,10 @@ fn test_get_former_teammates_requires_same_team_and_season_overlap() {
 
     let mates = get_former_teammates(&conn, "P001").unwrap();
     let ids: Vec<&str> = mates.iter().map(|(id, _)| id.as_str()).collect();
-    assert!(ids.contains(&"P002"), "P002 dividiu a Team A na temporada 3");
+    assert!(
+        ids.contains(&"P002"),
+        "P002 dividiu a Team A na temporada 3"
+    );
     assert!(!ids.contains(&"P003"), "P003 não sobrepôs com o jogador");
     assert!(!ids.contains(&"P001"), "não inclui o próprio piloto");
     // Distinto: P002 aparece uma única vez apesar de dois contratos.

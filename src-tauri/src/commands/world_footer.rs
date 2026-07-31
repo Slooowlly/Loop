@@ -36,13 +36,13 @@ mod rotulos;
 mod tipos;
 
 // Comandos e DTOs seguem públicos nos MESMOS caminhos de antes; o resto é interno.
-pub use comandos::*;
-pub use tipos::*;
 use astro::*;
 use coleta::*;
+pub use comandos::*;
 use equipes::*;
 use recordes::*;
 use rotulos::*;
+pub use tipos::*;
 
 /// Quantas notas tentar reunir antes de recorrer aos recordes, e o teto duro.
 const TARGET_NOTES: usize = 4;

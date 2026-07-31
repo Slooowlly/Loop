@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-
 // INTEGRACAO FUTURA:
 // driver.rs::generate_for_category() deve chamar generate_pilot_identity()
 // para obter nome, nacionalidade e genero realistas.

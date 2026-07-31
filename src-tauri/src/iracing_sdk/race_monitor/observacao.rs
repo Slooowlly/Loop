@@ -161,15 +161,17 @@ impl RaceMonitor {
         if t.track_surface == 3 && t.session_state == 4 {
             let redline = self.car_redline.unwrap_or(0.0);
             if let Some(attempt) = self.attempts.last_mut() {
-                attempt.style.ingest(crate::car::driving_style::StyleSample {
-                    throttle: t.throttle,
-                    brake: t.brake,
-                    rpm: t.rpm,
-                    redline,
-                    gear: t.gear,
-                    steering_rad: t.steering_angle_rad,
-                    vert_accel: t.vert_accel,
-                });
+                attempt
+                    .style
+                    .ingest(crate::car::driving_style::StyleSample {
+                        throttle: t.throttle,
+                        brake: t.brake,
+                        rpm: t.rpm,
+                        redline,
+                        gear: t.gear,
+                        steering_rad: t.steering_angle_rad,
+                        vert_accel: t.vert_accel,
+                    });
             }
             // 1.6) Disparo de quebra AO VIVO: avalia o carro do jogador nesta volta e enfileira
             // os comandos (só correndo na pista). O diretor deduplica por volta.
@@ -334,8 +336,7 @@ impl RaceMonitor {
                     points: delta,
                     off_track: t.track_surface == SURFACE_OFF_TRACK,
                 });
-            } else if t.track_surface == SURFACE_OFF_TRACK
-                && self.prev_surface != SURFACE_OFF_TRACK
+            } else if t.track_surface == SURFACE_OFF_TRACK && self.prev_surface != SURFACE_OFF_TRACK
             {
                 // Excursão de pista sem ponto de incidente (0x).
                 self.player_incidents.push(PlayerIncidentMark {
@@ -439,7 +440,8 @@ impl RaceMonitor {
             // pits normais virava falso acidente coletivo. Carros que PARAM na pista por
             // batida (sem sair dela) seguem cobertos pela detecção por setor (caminho 4).
             let went_off = car.track_surface == SURFACE_OFF_TRACK;
-            if cm.has_raced && ref_pace > 0.0 && cm.pace < SLOW_PACE_FRACTION * ref_pace && went_off {
+            if cm.has_raced && ref_pace > 0.0 && cm.pace < SLOW_PACE_FRACTION * ref_pace && went_off
+            {
                 cm.last_slow_time = now;
             }
             // Pit de incidente: entrou no pit logo após ter ficado lento na pista.

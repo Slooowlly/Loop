@@ -43,7 +43,12 @@ pub(super) fn history_year_bounds(conn: &Connection) -> Result<HistoryYearBounds
         .flatten();
     let active_year = conn
         .query_row(
-            "SELECT ano FROM seasons WHERE status = 'Ativa' ORDER BY numero DESC LIMIT 1",
+            // 'EmAndamento' e o status realmente persistido pelas temporadas em
+            // curso; 'Ativa' e o alias legado que `SeasonStatus::from_str` ainda
+            // aceita. Consultar so um dos dois deixava a coluna viva de fora dos
+            // saves reais — o Atlas parava na ultima temporada arquivada.
+            "SELECT ano FROM seasons WHERE status IN ('EmAndamento', 'Ativa') \
+             ORDER BY numero DESC LIMIT 1",
             [],
             |row| row.get::<_, i32>(0),
         )
@@ -74,6 +79,76 @@ pub(super) fn history_year_bounds(conn: &Connection) -> Result<HistoryYearBounds
     })
 }
 
+/// Pontos e vitorias AO VIVO das categorias multiclasse, tirados dos resultados de
+/// corrida da temporada ativa.
+///
+/// `teams.stats_pontos` nao e alimentado para essas categorias — quem manda ali sao
+/// os resultados por classe (ver `promotion::block2`). Era exatamente essa a fonte
+/// que a tela de construtores usava e o Atlas nao: por isso a ordem das duas
+/// divergia numa Production ou numa Endurance.
+fn load_live_multiclass_scores(conn: &Connection) -> Result<HashMap<String, (i32, i32)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                r.equipe_id,
+                COALESCE(SUM(r.pontos), 0.0) AS total_points,
+                SUM(CASE WHEN r.posicao_final = 1 AND r.dnf = 0 THEN 1 ELSE 0 END) AS total_wins
+             FROM race_results r
+             INNER JOIN calendar c ON c.id = r.race_id
+             INNER JOIN seasons s
+                ON s.id = COALESCE(c.season_id, c.temporada_id)
+             WHERE s.status IN ('EmAndamento', 'Ativa')
+               AND r.equipe_id IS NOT NULL
+               AND TRIM(r.equipe_id) <> ''
+             GROUP BY r.equipe_id",
+        )
+        .map_err(|e| format!("Falha ao preparar placar ao vivo das equipes: {e}"))?;
+    let mapped = stmt
+        .query_map([], |row| {
+            let team_id: String = row.get(0)?;
+            let points: f64 = row.get(1)?;
+            let wins: i32 = row.get(2)?;
+            Ok((team_id, (points.round() as i32, wins)))
+        })
+        .map_err(|e| format!("Falha ao consultar placar ao vivo das equipes: {e}"))?;
+    let mut scores = HashMap::new();
+    for entry in mapped {
+        let (team_id, score) =
+            entry.map_err(|e| format!("Falha ao ler placar ao vivo das equipes: {e}"))?;
+        scores.insert(team_id, score);
+    }
+    Ok(scores)
+}
+
+/// Posicao de cada equipe na ULTIMA temporada arquivada, por divisao. Serve de
+/// desempate no comeco de temporada, quando ninguem pontuou ainda: sem isso a
+/// divisao inteira empataria em zero e cairia na ordem alfabetica, que se leria
+/// como classificacao. E a mesma regra da tela de construtores.
+fn load_previous_positions(
+    conn: &Connection,
+    last_completed_year: i32,
+) -> Result<HashMap<String, i32>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT team_id, COALESCE(posicao_campeonato, 999)
+             FROM team_season_archive
+             WHERE ano = ?1",
+        )
+        .map_err(|e| format!("Falha ao preparar ranking anterior do Atlas: {e}"))?;
+    let mapped = stmt
+        .query_map(rusqlite::params![last_completed_year], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+        })
+        .map_err(|e| format!("Falha ao consultar ranking anterior do Atlas: {e}"))?;
+    let mut positions = HashMap::new();
+    for entry in mapped {
+        let (team_id, position) =
+            entry.map_err(|e| format!("Falha ao ler ranking anterior do Atlas: {e}"))?;
+        positions.insert(team_id, position);
+    }
+    Ok(positions)
+}
+
 /// Synthesizes one archive-shaped row per ACTIVE team for the in-progress season,
 /// so the Atlas can plot where each team sits RIGHT NOW (its live division), not
 /// only where it finished last completed season. Positions are provisional: teams
@@ -81,10 +156,19 @@ pub(super) fn history_year_bounds(conn: &Connection) -> Result<HistoryYearBounds
 /// relegation logic (points, wins, best result, name). Constructor titles are 0 —
 /// the season is not decided. Rows for every family are returned; the per-family
 /// dedupe/band-match downstream keeps only the ones that belong to the shown family.
+///
+/// A pontuacao tem DUAS fontes, e e obrigatorio respeitar as duas: categoria
+/// multiclasse pontua pelos resultados de corrida, categoria regular pontua por
+/// `teams.stats_pontos`. E a mesma bifurcacao de `get_teams_standings_in_base_dir`
+/// — se o Atlas escolher sozinho, ele mostra uma classificacao que nao existe em
+/// nenhuma outra tela.
 pub(super) fn load_current_season_rows(
     conn: &Connection,
     current_year: i32,
+    last_completed_year: i32,
 ) -> Result<Vec<TeamArchiveRow>, String> {
+    let live_scores = load_live_multiclass_scores(conn)?;
+    let previous_positions = load_previous_positions(conn, last_completed_year)?;
     let mut stmt = conn
         .prepare(
             "SELECT
@@ -109,11 +193,21 @@ pub(super) fn load_current_season_rows(
             let class_name: Option<String> = row.get(6)?;
             let best_result: i32 = row.get(9)?;
             let group = current_ranking_group_key(&category, class_name.as_deref());
+            let team_id: String = row.get(0)?;
+            // A bifurcacao das fontes. Categoria multiclasse sem resultado ainda
+            // fica zerada de proposito — e o que ela vale, nao o que sobrou em
+            // `stats_pontos` de outra fase.
+            let (points, wins) = if crate::constants::categories::is_multiclass_category(&category)
+            {
+                live_scores.get(&team_id).copied().unwrap_or((0, 0))
+            } else {
+                (row.get(7)?, row.get(8)?)
+            };
             Ok((
                 group,
                 best_result,
                 TeamArchiveRow {
-                    team_id: row.get(0)?,
+                    team_id,
                     nome: row.get(1)?,
                     nome_curto: row.get(2)?,
                     cor_primaria: row.get(3)?,
@@ -122,8 +216,8 @@ pub(super) fn load_current_season_rows(
                     category,
                     class_name,
                     position: 0,
-                    points: row.get(7)?,
-                    wins: row.get(8)?,
+                    points,
+                    wins,
                     titles: 0,
                 },
             ))
@@ -138,9 +232,27 @@ pub(super) fn load_current_season_rows(
         by_group.entry(group.clone()).or_default().push(index);
     }
     for indices in by_group.values_mut() {
+        // Temporada que ainda nao comecou a pontuar: a ordem que vale e a do ano
+        // passado, nao um empate de zeros resolvido pelo alfabeto.
+        let nothing_scored_yet = indices
+            .iter()
+            .all(|&index| entries[index].2.points == 0 && entries[index].2.wins == 0);
         indices.sort_by(|&left, &right| {
             let (_, left_best, left_row) = &entries[left];
             let (_, right_best, right_row) = &entries[right];
+            if nothing_scored_yet {
+                let left_previous = previous_positions
+                    .get(&left_row.team_id)
+                    .copied()
+                    .unwrap_or(i32::MAX);
+                let right_previous = previous_positions
+                    .get(&right_row.team_id)
+                    .copied()
+                    .unwrap_or(i32::MAX);
+                return left_previous
+                    .cmp(&right_previous)
+                    .then_with(|| left_row.nome.cmp(&right_row.nome));
+            }
             right_row
                 .points
                 .cmp(&left_row.points)

@@ -53,11 +53,13 @@
 pub mod alvos;
 pub mod ancora;
 pub mod arena;
+pub mod assinatura;
 pub mod atrito;
 pub mod busca;
 pub mod campo;
 pub mod consumo;
 pub mod metricas;
+pub mod previa;
 pub mod processo;
 pub mod relatorio;
 pub mod seguranca;

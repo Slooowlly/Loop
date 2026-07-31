@@ -1,4 +1,4 @@
-import GlobalTeamsTab from "../../../pages/tabs/GlobalTeamsTab";
+import GlobalTeamsTab from "../../../pages/tabs/atlas";
 
 // Histórico mundial de equipes (atlas, duplo clique no card do grid).
 export default function TeamHistoryOverlay({ team, onClose }) {

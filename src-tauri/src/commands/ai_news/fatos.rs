@@ -12,6 +12,50 @@ fn weather_label(w: &str) -> String {
     rust_i18n::t!(key).to_string()
 }
 
+/// Escolhe a frase de fechamento do fim de semana: o que a equipe ANUNCIOU no sábado
+/// contra o que o piloto ENTREGOU no domingo.
+///
+/// `soma` é a favorabilidade geral anunciada (as três faixas somadas, em [-6, 6]);
+/// `assessment` é o veredito do cérebro pós-corrida.
+///
+/// **O eixo do tom é um só: quem leva a conta.** Quando anunciado e entregue CONCORDAM, o
+/// fim de semana explica o resultado; quando DIVERGEM, quem explica é o piloto. Os dois
+/// casos de divergência são os informativos — previsão que falha ensina que a leitura é
+/// probabilística e não promessa; previsão que acerta apenas confirma.
+///
+/// | anunciado | entregue | quem leva a conta | tom |
+/// |---|---|---|---|
+/// | a favor | acima | condições | rodapé, confirma e sai |
+/// | a favor | abaixo | **piloto** | o mais duro — as condições não explicam |
+/// | contra | abaixo | condições | contexto, sem absolver |
+/// | contra | acima | **piloto** | crédito — tirou o que não estava lá |
+///
+/// O caso "a favor × abaixo" é o que impede a leitura de virar álibi automático: sem ele,
+/// anunciar o fim de semana só serviria para desculpar resultado ruim.
+///
+/// `None` quando não há o que fechar — anúncio neutro (`soma == 0`) ou resultado dentro do
+/// esperado. Nem toda corrida rende uma frase, e forçar uma seria ruído; é o mesmo
+/// princípio da regra do vazio.
+// `pub(crate)` e não `pub(super)`: `ai_news.rs` reexporta este módulo com
+// `pub(crate) use fatos::*`, e um glob não reexporta item MENOS visível que ele — o
+// `pub(super)` sumia em silêncio antes de chegar ao módulo de testes.
+pub(crate) fn caso_do_anuncio(
+    soma: i32,
+    assessment: crate::race_eval::Assessment,
+) -> Option<&'static str> {
+    use crate::race_eval::Assessment;
+    let acima = matches!(assessment, Assessment::MuitoAcima | Assessment::Acima);
+    let abaixo = matches!(assessment, Assessment::Abaixo | Assessment::MuitoAbaixo);
+
+    match (soma.signum(), acima, abaixo) {
+        (1, true, _) => Some("ai_news.facts.forecast_good_delivered"),
+        (1, _, true) => Some("ai_news.facts.forecast_good_missed"),
+        (-1, _, true) => Some("ai_news.facts.forecast_bad_confirmed"),
+        (-1, true, _) => Some("ai_news.facts.forecast_bad_beaten"),
+        _ => None,
+    }
+}
+
 /// Monta o "fact bundle" do pós-corrida a partir da tela salva (resultado +
 /// manutenção + avaliação) cruzada com o banco (companheiro, rival de campeonato,
 /// últimas 3 corridas, contexto da pré-corrida). Organizado em torno de uma TESE
@@ -27,7 +71,9 @@ pub(crate) fn build_post_race_facts(
     use crate::simulation::race::RaceResult;
     use std::fmt::Write;
 
-    let path = career_dir.join("race_screens").join(format!("{race_id}.json"));
+    let path = career_dir
+        .join("race_screens")
+        .join(format!("{race_id}.json"));
     let Ok(raw) = std::fs::read_to_string(&path) else {
         return String::new();
     };
@@ -81,7 +127,10 @@ pub(crate) fn build_post_race_facts(
         let _ = write!(
             cenario,
             "{}",
-            rust_i18n::t!("ai_news.facts.scenario_category", category = categoria.as_str())
+            rust_i18n::t!(
+                "ai_news.facts.scenario_category",
+                category = categoria.as_str()
+            )
         );
     }
     if let Some(entry) = &calendar_entry {
@@ -160,7 +209,11 @@ pub(crate) fn build_post_race_facts(
     } else {
         rust_i18n::t!("ai_news.facts.held").to_string()
     };
-    let _ = writeln!(res_b, "{}", rust_i18n::t!("ai_news.facts.balance", txt = saldo_txt));
+    let _ = writeln!(
+        res_b,
+        "{}",
+        rust_i18n::t!("ai_news.facts.balance", txt = saldo_txt)
+    );
     if !player.is_dnf && player.finish_position > 1 {
         let gap = player.gap_to_winner_ms / 1000.0;
         if gap > 0.0 {
@@ -200,6 +253,125 @@ pub(crate) fn build_post_race_facts(
         "{}",
         rust_i18n::t!("ai_news.facts.incidents", n = player.incidents_count)
     );
+
+    // ---- Bloco: o CURSO da corrida (trânsito, box, safety car) ----
+    //
+    // O motor calcula isto desde a reforma da simulação e nada disso chegava ao texto: o
+    // debrief falava de P8 sem nunca falar do que produziu o P8. É a diferença entre
+    // "você foi mal" e "você ficou 3 trechos atrás do Braun, tentou duas vezes e não
+    // passou" — a segunda é a mesma corrida, contada de um jeito que não parece dado.
+    //
+    // Só entra quando há de fato o que contar. Corrida gravada antes da v55, e import do
+    // iRacing (que não tem trecho nenhum), deixam o bloco vazio e ele nem aparece.
+    let mut curso_b = String::new();
+    {
+        let tentou = player.tentativas_ultrapassagem;
+        let passou = player.ultrapassagens_concluidas;
+        let preso = player.maior_sequencia_preso;
+        let ar_sujo = player.segmentos_em_ar_sujo;
+        let tem_transito = tentou > 0 || preso > 0 || ar_sujo > 0;
+        let tem_parada = !player.volta_da_parada.is_empty();
+        let tem_sc = !result.safety_cars.is_empty();
+
+        if tem_transito || tem_parada || tem_sc {
+            let _ = writeln!(curso_b, "{}", rust_i18n::t!("ai_news.facts.course_head"));
+        }
+
+        if tem_transito {
+            // Tentativa que não vira ultrapassagem é o mecanismo mais novo do motor e o
+            // mais invisível: antes da reforma a taxa de conversão era 100% implícita.
+            let _ = writeln!(
+                curso_b,
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.facts.course_traffic",
+                    tried = tentou,
+                    done = passou,
+                    suffered = player.tentativas_sofridas
+                )
+            );
+            if preso > 0 {
+                let _ = writeln!(
+                    curso_b,
+                    "{}",
+                    rust_i18n::t!("ai_news.facts.course_stuck", n = preso, dirty = ar_sujo)
+                );
+            }
+        }
+
+        // Custo do box: "largou P4, parou na volta 12, voltou P9, terminou P6" é uma
+        // história completa em quatro números — e é o que faz o jogador perceber que
+        // estratégia existe. Os três vetores da parada são paralelos por contrato.
+        for (idx, volta) in player.volta_da_parada.iter().enumerate() {
+            let antes = player.posicao_antes_da_parada.get(idx).copied();
+            let depois = player.posicao_depois.get(idx).copied();
+            match (antes, depois) {
+                (Some(a), Some(d)) => {
+                    let _ = writeln!(
+                        curso_b,
+                        "{}",
+                        rust_i18n::t!(
+                            "ai_news.facts.course_pit",
+                            lap = volta,
+                            before = a,
+                            after = d,
+                            delta = d - a
+                        )
+                    );
+                }
+                // Parada gravada sem o par de posições ainda é fato ("parou na volta 12").
+                _ => {
+                    let _ = writeln!(
+                        curso_b,
+                        "{}",
+                        rust_i18n::t!("ai_news.facts.course_pit_bare", lap = volta)
+                    );
+                }
+            }
+        }
+        if !player.estrategia_id.is_empty() {
+            let _ = writeln!(
+                curso_b,
+                "{}",
+                rust_i18n::t!(
+                    "ai_news.facts.course_strategy",
+                    strategy = player.estrategia_id.as_str()
+                )
+            );
+        }
+
+        // Safety car: o do jogo troca o vencedor com frequência e o jogador hoje não tem
+        // como saber que foi ele. A posição do piloto ANTES da amarela é o número que
+        // transforma "perdi posições" em "a amarela me custou posições".
+        for (idx, volta) in result.safety_cars.iter().enumerate() {
+            let antes = result
+                .ordem_pre_safety_car
+                .get(idx)
+                .and_then(|ordem| ordem.iter().position(|id| id == &player.pilot_id))
+                .map(|i| i as i32 + 1);
+            match antes {
+                Some(pos) if !player.is_dnf => {
+                    let _ = writeln!(
+                        curso_b,
+                        "{}",
+                        rust_i18n::t!(
+                            "ai_news.facts.course_safety_car",
+                            lap = volta,
+                            before = pos,
+                            after = player.finish_position
+                        )
+                    );
+                }
+                _ => {
+                    let _ = writeln!(
+                        curso_b,
+                        "{}",
+                        rust_i18n::t!("ai_news.facts.course_safety_car_bare", lap = volta)
+                    );
+                }
+            }
+        }
+    }
 
     // ---- Bloco: companheiro de equipe ----
     let mut mate_b = String::new();
@@ -295,10 +467,8 @@ pub(crate) fn build_post_race_facts(
     let mut duel: Option<PostRaceDuel> = None;
     {
         use std::cmp::Ordering;
-        let current =
-            crate::db::queries::player_nemesis::get_current_nemesis(conn).unwrap_or(None);
-        let interests =
-            crate::commands::career::select_player_interests(conn, current.as_deref());
+        let current = crate::db::queries::player_nemesis::get_current_nemesis(conn).unwrap_or(None);
+        let interests = crate::commands::career::select_player_interests(conn, current.as_deref());
         let mut rows: Vec<(&str, crate::commands::career::RivalInterest)> = Vec::new();
         if let Some(n) = interests.nemesis {
             rows.push(("NEMESIS", n));
@@ -310,7 +480,11 @@ pub(crate) fn build_post_race_facts(
             // O 1º duelo DECIDIDO (nemesis vem primeiro, então tem prioridade) vira sinal
             // para a tese `DuelDecided` quando o resultado em si foi morno.
             if duel.is_none() && !player.is_dnf {
-                if let Some(rr) = result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
+                if let Some(rr) = result
+                    .race_results
+                    .iter()
+                    .find(|d| d.pilot_id == ri.driver_id)
+                {
                     if !rr.is_dnf && rr.finish_position != player.finish_position {
                         duel = Some(PostRaceDuel {
                             name: ri.driver_name.clone(),
@@ -325,7 +499,11 @@ pub(crate) fn build_post_race_facts(
                     }
                 }
             }
-            let today = match result.race_results.iter().find(|d| d.pilot_id == ri.driver_id) {
+            let today = match result
+                .race_results
+                .iter()
+                .find(|d| d.pilot_id == ri.driver_id)
+            {
                 Some(rr) => {
                     let pos = if rr.is_dnf {
                         rust_i18n::t!("ai_news.facts.dnf_short").to_string()
@@ -441,7 +619,11 @@ pub(crate) fn build_post_race_facts(
             let _ = write!(
                 fame_b,
                 "{}",
-                rust_i18n::t!("ai_news.facts.fame", level = level, value = midia.round() as i64)
+                rust_i18n::t!(
+                    "ai_news.facts.fame",
+                    level = level,
+                    value = midia.round() as i64
+                )
             );
         }
     }
@@ -461,11 +643,13 @@ pub(crate) fn build_post_race_facts(
         let cat_drivers =
             crate::db::queries::drivers::get_drivers_by_active_category(conn, &categoria)
                 .unwrap_or_default();
-        let all_points: Vec<f64> = cat_drivers.iter().map(|d| d.stats_temporada.pontos).collect();
-        let max_race_points = (crate::constants::scoring::get_points_for_position(
-            1,
-            categoria == "endurance",
-        ) + crate::constants::scoring::BONUS_FASTEST_LAP) as f64;
+        let all_points: Vec<f64> = cat_drivers
+            .iter()
+            .map(|d| d.stats_temporada.pontos)
+            .collect();
+        let max_race_points =
+            (crate::constants::scoring::get_points_for_position(1, categoria == "endurance")
+                + crate::constants::scoring::BONUS_FASTEST_LAP) as f64;
         let ctx = crate::simulation::pressure::title_context(
             pd.stats_temporada.pontos,
             &all_points,
@@ -596,6 +780,53 @@ pub(crate) fn build_post_race_facts(
         }
     }
 
+    // ---- Bloco: o ANÚNCIO do fim de semana × o que foi entregue ----
+    //
+    // O fechamento do loop da fase 3. A regra é que o pós REFERENCIE a previsão, nunca
+    // repita o estado: "o acerto estava ruim" lido depois é desculpa; "a equipe te avisou
+    // no sábado, e não veio" é mecanismo se cumprindo. O que licencia o pós é o pré.
+    //
+    // O eixo do tom é UM só: **quem leva a conta — as condições ou o piloto.** Quando o
+    // anunciado e o entregue CONCORDAM, o fim de semana explica o resultado; quando
+    // DIVERGEM, quem explica é o piloto. Os dois casos de divergência são os informativos,
+    // e é por isso que eles ganham o tom forte: previsão que falha ensina que a leitura é
+    // probabilística, previsão que acerta só confirma.
+    //
+    // O caso 2 (anunciado a favor × entregue abaixo) é o que impede a leitura de virar
+    // álibi automático — sem ele, anunciar o fim de semana só serviria para desculpar.
+    //
+    // Lê a faixa ANUNCIADA do banco (v56), nunca recomputa: recomputar faria uma
+    // recalibração do σ mudar retroativamente o que foi dito no sábado.
+    let mut anuncio_b = String::new();
+    if let Some(ev) = evaluation.as_ref() {
+        // Da tabela própria da v57 — a MESMA linha que a Sala de Estratégia leu no sábado,
+        // não uma recomputação. É isso que garante que o pós não contradiga o pré.
+        let anunciado: Option<i32> =
+            crate::db::queries::races::get_race_weekend_reading(conn, race_id, &player.pilot_id)
+                .ok()
+                .flatten()
+                .and_then(|json| {
+                    serde_json::from_str::<crate::commands::career_types::WeekendReading>(&json)
+                        .ok()
+                })
+                .filter(|r| r.available)
+                // A soma das três camadas é a favorabilidade GERAL do fim de semana — é disso
+                // que a frase de fechamento fala. A decomposição em três continua sendo da
+                // tela; aqui a pergunta é "o fim de semana estava a favor ou contra?".
+                .map(|r| (r.track_affinity.band + r.driver_form.band + r.car_setup.band) as i32);
+
+        if let Some(soma) = anunciado {
+            if let Some(chave) = caso_do_anuncio(soma, ev.assessment) {
+                let _ = writeln!(
+                    anuncio_b,
+                    "{}",
+                    rust_i18n::t!("ai_news.facts.forecast_head")
+                );
+                let _ = write!(anuncio_b, "{}", rust_i18n::t!(chave));
+            }
+        }
+    }
+
     // ---- Bloco: pré-corrida (FECHA o loop do que foi prometido) ----
     let mut pre_b = String::new();
     if let Ok(Some(pre)) = crate::db::queries::ai_pre_race::get_pre_race(conn, race_id) {
@@ -604,14 +835,20 @@ pub(crate) fn build_post_race_facts(
             let _ = writeln!(
                 pre_b,
                 "{}",
-                rust_i18n::t!("ai_news.facts.pre_headline", headline = pre.headline.as_str())
+                rust_i18n::t!(
+                    "ai_news.facts.pre_headline",
+                    headline = pre.headline.as_str()
+                )
             );
         }
         if !pre.narrative.is_empty() {
             let _ = write!(
                 pre_b,
                 "{}",
-                rust_i18n::t!("ai_news.facts.pre_briefing", narrative = pre.narrative.as_str())
+                rust_i18n::t!(
+                    "ai_news.facts.pre_briefing",
+                    narrative = pre.narrative.as_str()
+                )
             );
         }
     }
@@ -642,7 +879,16 @@ pub(crate) fn build_post_race_facts(
     // Núcleo sempre promovido: o resultado (o que aconteceu) e o pré-corrida (fecha o loop).
     // Lesão e pressão de título entram no APOIO quando existem — são beats raros e de peso
     // (físico e mental) que a narrativa não pode tratar como rodapé.
-    for id in ["resultado", "pre_race", "injury", "pressure"] {
+    // "curso" entra no núcleo promovido junto com o resultado: sem ele o APOIO descreve o
+    // que aconteceu e cala sobre o porquê, que é exatamente o buraco que este pacote fecha.
+    for id in [
+        "resultado",
+        "curso",
+        "anuncio",
+        "pre_race",
+        "injury",
+        "pressure",
+    ] {
         if !support.contains(&id) {
             support.push(id);
         }
@@ -653,6 +899,8 @@ pub(crate) fn build_post_race_facts(
         match id {
             "eval" => eval_b.as_str(),
             "resultado" => res_b.as_str(),
+            "curso" => curso_b.as_str(),
+            "anuncio" => anuncio_b.as_str(),
             "injury" => inj_b.as_str(),
             "pressure" => prs_b.as_str(),
             "telemetry" => tel_b.as_str(),
@@ -670,6 +918,12 @@ pub(crate) fn build_post_race_facts(
     let order = [
         "eval",
         "resultado",
+        // Vem logo depois do resultado porque é a CAUSA dele: o texto precisa ler "P6" e
+        // já ter na mão o box e o trânsito que produziram o P6.
+        "curso",
+        // Logo depois do curso: o curso diz o que aconteceu na corrida, o anúncio diz se
+        // o fim de semana tinha avisado. Juntos formam a atribuição completa.
+        "anuncio",
         "injury",
         "pressure",
         "telemetry",

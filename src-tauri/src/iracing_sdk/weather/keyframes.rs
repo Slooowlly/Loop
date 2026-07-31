@@ -83,7 +83,12 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     let iet = intensity_event_type(story.race_intensity);
     use WeatherScenario::*;
     let (skies, humidity, water, kf): (i64, i64, i64, Vec<(i64, i64)>) = match story.scenario {
-        ClearDry => (1, 45, 0, vec![(1, QUALI), (1, at(0.0)), (0, at(0.4)), (1, rend)]),
+        ClearDry => (
+            1,
+            45,
+            0,
+            vec![(1, QUALI), (1, at(0.0)), (0, at(0.4)), (1, rend)],
+        ),
         // O susto: céu FECHA durante a corrida (encoberto) e fica, mas NÃO chove.
         Scare => (
             2,
@@ -102,7 +107,13 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             1,
             50,
             1,
-            vec![(1, QUALI), (1, at(0.0)), (1, at(0.6)), (6, at(0.92)), (6, rend)],
+            vec![
+                (1, QUALI),
+                (1, at(0.0)),
+                (1, at(0.6)),
+                (6, at(0.92)),
+                (6, rend),
+            ],
         ),
         // Garoa passageira no meio da corrida, volta a abrir.
         PassingDrizzle => (
@@ -144,7 +155,12 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             ],
         ),
         // Molhadas — ficam molhadas o tempo todo da CORRIDA (nunca seca).
-        SteadyRain => (3, 88, iw, vec![(3, QUALI), (start_iet, at(0.0)), (iet, rend)]),
+        SteadyRain => (
+            3,
+            88,
+            iw,
+            vec![(3, QUALI), (start_iet, at(0.0)), (iet, rend)],
+        ),
         Improving => (
             3,
             90,
@@ -191,7 +207,12 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             3,
             85,
             iw,
-            vec![(6, QUALI), (start_iet.max(7), at(0.0)), (7, at(0.5)), (iet.max(7), rend)],
+            vec![
+                (6, QUALI),
+                (start_iet.max(7), at(0.0)),
+                (7, at(0.5)),
+                (iet.max(7), rend),
+            ],
         ),
         // 1ª corrida: largada LIMPA → céu fecha no MEIO (frente entrando) → garoa leve
         // CAINDO na 2ª metade (vento forte global ajuda a frente a chegar de verdade).

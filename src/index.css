@@ -1039,6 +1039,28 @@ select option {
   .calendar-glow-layer { animation: none; opacity: 0.85; }
 }
 
+/* Luz de DESCOBERTA: puxa o olho para um alvo clicável que o jogador ainda não
+   abriu, e apaga assim que ele abre. Mesma técnica da camada do calendário — a
+   sombra é estática e só a opacidade anima, então não há repintura por frame.
+   Genérica de propósito: a cor vem de --discovery-glow e o raio é herdado do
+   elemento pai, então qualquer card do app pode acender sem CSS novo. */
+@keyframes discoveryGlowPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+.discovery-glow-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 16px 3px var(--discovery-glow, #58a6ff);
+  animation: discoveryGlowPulse 3s ease-in-out infinite;
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery-glow-layer { animation: none; opacity: 0.8; }
+}
+
 .mm-link-arrow {
   color: rgba(255, 255, 255, 0.4);
   font-size: 16px;
@@ -1309,6 +1331,76 @@ select option {
 
 .animate-scale-in {
   animation: scaleIn 250ms ease-out;
+}
+
+/* Troca de equipe no dossiê: o conteúdo entra no sentido da seta clicada — ↑
+   traz a equipe de cima deslizando do topo, ↓ traz a de baixo. Sem isso a
+   ficha inteira trocava num piscar e não dava para saber se o clique pegou. */
+@keyframes teamStepInUp {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes teamStepInDown {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-team-step-up {
+  animation: teamStepInUp 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-team-step-down {
+  animation: teamStepInDown 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-team-step-up,
+  .animate-team-step-down {
+    animation: fadeIn 160ms ease-out;
+  }
+}
+
+/* As setas de trocar de equipe começam ESCONDIDAS ATRÁS da ficha (o painel é
+   opaco e pinta por cima) e só saem para a calha depois que a abertura do
+   dossiê terminou. O `-100%` é a própria largura da coluna e o `0.75rem` é a
+   folga do `ml-3`: juntos, colocam a coluna exatamente sob a borda direita do
+   painel. O `-50%` em Y repete o `-translate-y-1/2` do container, que a
+   animação sobrescreveria. `both` segura o estado inicial durante o atraso —
+   sem ele as setas apareceriam no lugar final e só depois recuariam. */
+@keyframes teamStepRailOut {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% - 0.75rem), -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
+/* O atraso só precisa cobrir a abertura do painel (`animate-scale-in`, 250ms) e
+   dar um respiro; mais que isso vira espera. */
+.animate-team-rail-out {
+  animation: teamStepRailOut 380ms cubic-bezier(0.22, 1, 0.36, 1) 320ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-team-rail-out {
+    animation: fadeIn 180ms ease-out 320ms both;
+  }
 }
 
 .animate-drawer-in {

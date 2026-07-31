@@ -515,11 +515,7 @@ fn count_teams_by_category(world: &WorldData, category: &str) -> usize {
         .count()
 }
 
-fn count_teams_by_category_and_class(
-    world: &WorldData,
-    category: &str,
-    class_name: &str,
-) -> usize {
+fn count_teams_by_category_and_class(world: &WorldData, category: &str, class_name: &str) -> usize {
     world
         .teams
         .iter()

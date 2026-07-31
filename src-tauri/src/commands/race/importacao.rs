@@ -1,4 +1,4 @@
-﻿//! Entrada de uma corrida real do iRacing na carreira: resumo para a UI, avaliacao do desempenho e reaproveitamento do mesmo caminho de persistencia da simulacao.
+//! Entrada de uma corrida real do iRacing na carreira: resumo para a UI, avaliacao do desempenho e reaproveitamento do mesmo caminho de persistencia da simulacao.
 
 use super::*;
 
@@ -114,8 +114,12 @@ pub(crate) fn import_iracing_race_result(
         .map(|r| r.pilot_id.clone())
         .collect();
     let total_before = result.race_results.len();
-    result.race_results.retain(|r| valid_ids.contains(&r.pilot_id));
-    result.qualifying_results.retain(|r| valid_ids.contains(&r.pilot_id));
+    result
+        .race_results
+        .retain(|r| valid_ids.contains(&r.pilot_id));
+    result
+        .qualifying_results
+        .retain(|r| valid_ids.contains(&r.pilot_id));
     let dropped = total_before - result.race_results.len();
     if result.race_results.is_empty() {
         return Err("Nenhum piloto da sessao casou com a carreira — nada a importar.".to_string());
@@ -160,8 +164,7 @@ pub(crate) fn import_iracing_race_result(
         if let Some(label) = player_break_label {
             if let Some(player) = result.race_results.iter_mut().find(|d| d.is_jogador) {
                 player.is_dnf = true;
-                player.classification_status =
-                    crate::simulation::race::ClassificationStatus::Dnf;
+                player.classification_status = crate::simulation::race::ClassificationStatus::Dnf;
                 player.dnf_reason = Some(label);
             }
             // Mantém a contagem de abandonos coerente (narrativa "corrida mais caótica" etc.).
@@ -214,7 +217,9 @@ pub(crate) fn import_iracing_race_result(
     let player_pits = history
         .pit_stops
         .iter()
-        .filter(|s| s.car_idx == history.player_car_idx && s.stationary_secs >= GENUINE_PIT_MIN_SECS)
+        .filter(|s| {
+            s.car_idx == history.player_car_idx && s.stationary_secs >= GENUINE_PIT_MIN_SECS
+        })
         .count() as u32;
 
     // Feedback físico da quebra (§4.6): agrupa as peças que largaram por TIME (resolve driver→time
@@ -354,12 +359,7 @@ pub(crate) fn import_iracing_race_result(
                     let mut cfg = AppConfig::load_or_default(base_dir);
                     let install_id = cfg.get_or_create_install_id();
                     let lang = cfg.language.clone();
-                    spawn_prewarm_boletim(
-                        career_dir.join("career.db"),
-                        news_id,
-                        lang,
-                        install_id,
-                    );
+                    spawn_prewarm_boletim(career_dir.join("career.db"), news_id, lang, install_id);
                 }
             }
             Ok(None) => {}

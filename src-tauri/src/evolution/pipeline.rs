@@ -61,10 +61,10 @@ mod transicao;
 
 // O glob é `pub` onde há caminho público a preservar: `evolution::pipeline::…`
 // continua resolvendo igual.
-pub use orquestracao::*;
-pub(crate) use pilotos::*;
 use contexto::*;
 use financas::*;
+pub use orquestracao::*;
+pub(crate) use pilotos::*;
 use transicao::*;
 
 #[cfg(test)]
