@@ -57,7 +57,12 @@ test("cada traço do piloto aponta para um eixo que existe", async () => {
   // Só o corpo do CareerArc: `key:` é palavra comum demais no arquivo inteiro, e
   // um alvo do arco casando com o `key` de outro componente deixaria o guard
   // frouxo justamente onde ele precisa apertar.
-  const corpoDoArco = ficha.match(/function CareerArc\(\{ arco \}\)[\s\S]*?\n\}\n/);
+  // `\r?\n`, e não `\n`. O fim de linha do arquivo no disco depende de quem o
+  // escreveu por último: recém-criado pelo editor vem em LF, materializado por um
+  // `git checkout` no Windows vem em CRLF. Com `\n\}\n` cru este guard passava na
+  // máquina de quem escreveu o componente e falhava em todo clone — o pior tipo de
+  // guard, porque a falha não fala do defeito que ele existe para pegar.
+  const corpoDoArco = ficha.match(/function CareerArc\(\{ arco \}\)[\s\S]*?\r?\n\}\r?\n/);
   assert.ok(corpoDoArco, "expected CareerArc in DriverDetailModalV2.jsx");
   const alvosDoArco = new Set(
     [...corpoDoArco[0].matchAll(/\{\s*key:\s*"([a-z_]+)"/g)].map((m) => `arco:${m[1]}`),

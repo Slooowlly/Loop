@@ -40,19 +40,49 @@ node scripts/release.mjs --bump minor --notes-file notas.txt
 Sem `--notes`, as notas viram `Loop <versão>` — funcional, mas é o que o jogador
 lê na tela de update. Escreva algo de verdade.
 
-## O que o script faz (6 etapas)
+## O que o script faz (7 etapas)
 
 1. **Bump** — calcula a versão nova e sincroniza os três arquivos.
-2. **Build assinado** — leva ~6-8 min. É a etapa longa; não interrompa achando
+2. **API layer do OpenXR** — falha em segundos se o toolchain de C++ não estiver
+   de pé, em vez de depois do build inteiro.
+3. **Build assinado** — leva ~6-8 min. É a etapa longa; não interrompa achando
    que travou.
-3. **Confere a assinatura** — valida o `.sig` do setup.
-4. **Gera o manifesto** — o JSON que o updater consome.
-5. **Publica no bucket.**
-6. **Verifica no ar** — confirma que o que subiu está acessível.
+4. **Confere a assinatura** — e a RECUPERA se o bundler não a gerou (ver abaixo).
+5. **Gera o manifesto** — o JSON que o updater consome.
+6. **Publica no bucket.**
+7. **Verifica no ar** — confirma que o que subiu está acessível.
 
 Se falhar no meio, o estado fica parcial: a versão já foi bumpada nos arquivos
 mas o artefato pode não ter subido. Antes de rodar de novo, olhe em que etapa
 parou e o que já foi commitado — rodar cego pode bumpar duas vezes.
+
+**E "rodar de novo" não devolve a mesma versão.** O script recusa publicar a
+versão que já está nos arquivos, então um segundo `--bump patch` depois de uma
+falha pula para a seguinte. Para repetir a MESMA versão, devolva os três arquivos
+à anterior e chame com `--version <a que você queria>`.
+
+## A assinatura que o Tauri pula em silêncio
+
+O bundler às vezes gera o instalador e **não** gera o `.sig`, sem erro nenhum.
+Já quebrou três releases (0.13.0, 0.13.3 e 0.14.0). Sem `.sig` o auto-update não
+funciona: o updater baixa e recusa.
+
+Uma causa foi encontrada e corrigida — uma variável de ambiente
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` definida e **vazia** passava pela checagem
+antiga (`== null`), o arquivo de senha nunca era lido, e a senha vazia seguia
+para o build. Hoje os segredos são validados antes do build.
+
+Mas em 0.14.0 a falha aconteceu com chave e senha sadias: o mesmo comando, no
+mesmo disco, assinou normalmente vinte minutos depois. **É intermitente e não
+tem causa raiz conhecida.** Por isso a etapa 4 não morre mais — ela assina o
+instalador já construído com `tauri signer sign` (segundos, sem rebuild; a
+assinatura é do arquivo, não do processo que a pediu) e avisa alto. Se esse aviso
+aparecer, não é rotina: é a intermitência, e vale registrar quando aconteceu.
+
+A etapa 4 também recusa um `.sig` mais VELHO que o instalador. O diretório de
+bundle guarda os artefatos de todas as versões, e já houve um `.sig` órfão sem o
+`.exe` correspondente — publicar contra ele daria um manifesto que o updater
+rejeita.
 
 ## Antes de rodar
 
