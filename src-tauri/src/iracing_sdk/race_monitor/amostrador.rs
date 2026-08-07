@@ -39,6 +39,13 @@ pub(super) fn start_sampler() {
                                 let numbers = parse_car_numbers(&session.session_yaml);
                                 let redline = crate::iracing_sdk::parse_car_redline(&session.session_yaml);
                                 let car_name = parse_player_car_name(&session.session_yaml);
+                                // Escala do spotter de obstáculo: sem o comprimento da
+                                // pista, `CarIdxLapDistPct` não vira metro nenhum.
+                                if let Some(m) =
+                                    crate::iracing_sdk::parse_track_length_m(&session.session_yaml)
+                                {
+                                    crate::iracing_sdk::spotter_frente::definir_comprimento_m(m);
+                                }
                                 {
                                     let mut m = lock();
                                     m.set_car_classes(&classes);
@@ -55,10 +62,20 @@ pub(super) fn start_sampler() {
                                 // Captura o custid do jogador automaticamente (uma vez).
                                 crate::iracing_sdk::note_session_custid(&session.session_yaml);
                                 // DEBUG: se a gravação de corrida está ligada, salva o YAML.
+                                // Regrava a cada MUDANÇA — o último traz os resultados, com o
+                                // motivo de abandono de cada carro.
                                 crate::iracing_sdk::race_capture::record_session(&session.session_yaml);
+                                // E, uma vez por captura, o que o SDK publica nesta build.
+                                if let Ok(vars) = crate::iracing_sdk::read_var_inventory() {
+                                    crate::iracing_sdk::race_capture::record_vars(&vars);
+                                }
                             }
                         }
                         lock().observe(&t);
+                        // Spotter: a vizinhança lateral precisa ser vista a 60 Hz.
+                        // A 2 Hz do overlay, um carro que entra e sai do seu lado
+                        // numa freada simplesmente não teria acontecido.
+                        crate::iracing_sdk::spotter::observar(&t);
                         // Gravador SEMPRE LIGADO: abre a captura na borda de conexão (no-op
                         // se já há uma gravando) e despeja o frame. Custa ~24 µs por frame.
                         crate::iracing_sdk::race_capture::ensure_started();

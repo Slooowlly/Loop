@@ -320,6 +320,8 @@ market:
     window_closed_desc: "The market is closed."
     departure_headline: "%{driver} leaves %{team}"
     contract_ended: "Contract ended without renewal."
+    renewed: "Renewed and stays with the team."
+    retired: "Hung up the helmet."
 
 # Rivalries (db/queries/rivalry_episodes.rs). Deterministic rivalry name (display + AI
 # fact), derived from the first chapter. `interaction` is a token, stays out.
@@ -344,6 +346,7 @@ rivalry:
       origin_track: "on-track duels"
       title: "%{a} x %{b}: %{level}"
       text: "%{a} and %{b} raised the tension of their rivalry after %{origin} in round %{round}."
+      text_season: "%{a} and %{b} raised the tension of their rivalry — %{origin}, across the whole season."
 
 # Team rivalries (rivalry/team.rs). "Derby" headline in the magazine, 3rd-person voice.
 team_rivalry:
@@ -449,6 +452,60 @@ driver_read:
     forte: "Strong"
     muito_forte: "Very Strong"
     elite: "Elite"
+  axis:
+    ritmo: "Pace"
+    classificacao: "Qualifying"
+    consistencia: "Consistency"
+    racecraft: "Racecraft"
+    defesa: "Defence"
+    largada: "Starts"
+    agressividade: "Aggression"
+    suavidade: "Smoothness"
+    chuva: "Wet"
+    pneus: "Tyres"
+    adaptabilidade: "Adaptability"
+    preparo: "Fitness"
+    mentalidade: "Under pressure"
+    confianca: "Confidence"
+  group:
+    volta_seca: "Speed"
+    corrida: "Race"
+    condicoes: "Conditions"
+    estilo: "Style"
+  style:
+    calculista: "Calculating"
+    agressivo: "Aggressive"
+    bruto: "Rough"
+    suave: "Smooth"
+    cauteloso: "Cautious"
+    confiante: "Confident"
+  experience:
+    baixo: "Raw"
+    medio: "Seasoned"
+    alto: "Experienced"
+    maximo: "Veteran"
+  development:
+    baixo: "Slow"
+    medio: "Steady"
+    alto: "Fast"
+    maximo: "Rapid"
+  margin:
+    no_teto: "At the ceiling"
+    curta: "Short"
+    boa: "Solid"
+    larga: "Wide"
+  arc:
+    formacao: "Developing"
+    ascensao: "On the rise"
+    auge: "At his peak"
+    plato: "On the plateau"
+    crepusculo: "Winding down"
+  arc_summary:
+    formacao: "Too early to judge — what's on this page hasn't finished happening yet."
+    ascensao: "Still road left to the ceiling, and the years to cover it."
+    auge: "This is it: the best years are now, not three from here."
+    plato: "No longer growing, still delivering — craft holding what age starts to charge for."
+    crepusculo: "Age charges every season now; what's left is craft, not speed."
   stardom:
     idol_consolidated: "An established idol — the crowd responds to every appearance and the fame holds through the dips."
     powder_keg: "Easy to like, just needs a stage: one good run and the fame takes off — and it's slow to fade."
@@ -474,7 +531,11 @@ team_dossier:
   ownership:
     sale_title: "New ownership"
     change_title: "Management change"
+    collapse_warning_title: "Insolvency warning"
     financial_note: "%{cleared} of debt cleared · %{injected} injected"
+    debt_note: "%{debt} of accumulated debt"
+    sale_detail: "New ownership takes over after chronic financial collapse. The team loses structure and car performance."
+    collapse_warning_detail: "The team closes the season insolvent. Without a recovery, control will be sold."
   state:
     healthy: "Healthy"
     stable: "Stable"
@@ -488,6 +549,11 @@ team_dossier:
     podium_rate: "Podium rate"
     win_rate: "Win rate"
     world_scope: "Whole world"
+  ladder:
+    start: "Team's debut category."
+    promotion: "Promotion: moved up a category."
+    relegation: "Relegation: dropped a category."
+    same: "Stayed at the same level."
   first_milestone:
     podium: "First podium"
     win: "First win"
@@ -516,14 +582,24 @@ team_dossier:
   management:
     worst_crisis_debt: "%{debt} in debt"
     worst_crisis_none: "No real debt on record"
-    healthy_years: "%{count} seasons"
+    healthy_years_one: "1 season"
+    healthy_years_other: "%{count} seasons"
     efficiency: "%{value} pts/season"
     biggest_investment: "Level %{level} - current technical package"
     summary: "%{state}: operating with %{cash} in cash, %{debt} in debt and %{points} real points in the sample."
     peak_cash_detail: "The most financial breathing room on record in the team's current snapshot."
+    peak_cash_detail_season: "Peak reached in season %{season}, round %{round}."
     worst_crisis_detail_debt: "Real liabilities still weigh on operations in the current cycle."
     worst_crisis_detail_none: "No debt crisis recorded in the available real sample."
+    worst_crisis_detail_season: "Rock bottom in season %{season}."
+    worst_crisis_detail_clean_one: "The team never closed in debt in the single recorded round."
+    worst_crisis_detail_clean_other: "The team never closed a round in debt across %{count} recorded."
     healthy_years_detail: "Real seasons in which the team operated without relevant debt."
+    healthy_years_detail_season_one: "The only measured season closed %{outcome}."
+    healthy_years_detail_season_other: "%{healthy} of %{total} seasons closed debt-free."
+    healthy_years_outcome_clean: "debt-free"
+    healthy_years_outcome_debt: "in debt"
+    flow_note_unplayed: "No season played yet. The seasons before the career record only the constructors' prize, with no per-round income or cost."
     efficiency_detail: "%{points} real points in the sample; sporting average of %{avg} per season."
     investment_detail: "A read on the current technical package from the car's performance."
   highlight:
@@ -536,7 +612,7 @@ team_dossier:
     best_campaign: "Best campaign"
     champion_value: "Champion"
     detail_year_category: "In %{year}, in %{category}."
-    detail_until: "Through %{year}."
+    detail_span: "From %{first} to %{last}."
     detail_year: "In %{year}."
   season_count:
     none: "No seasons on record"
@@ -557,7 +633,22 @@ team_dossier:
     now_at: "Now in %{category}"
     unknown: "Whereabouts unknown"
   rival_none: "No established rival"
+  rival_none_note: "Real history still lacks repeated clashes strong enough to form a rivalry."
+  rival_origin:
+    campeonato: "Born in the standings"
+    mercado: "Born in the market"
+    pista: "Born on track"
+    herdada: "Inherited from the drivers"
+  rival_note_shared_one: "%{count} head-to-head race in %{scope}."
+  rival_note_shared_other: "%{count} head-to-head races in %{scope}."
+  rival_note_no_shared: "Rivalry on the world's books — no direct clash in %{scope} yet."
+  recruitment:
+    school: "Academy"
+    market: "Market"
+    mixed: "Mixed"
   symbol_none: "No symbol driver"
+  symbol_none_no_races: "The team has no races recorded in this scope yet."
+  symbol_none_no_results: "The team has no driver with recorded results in this scope yet."
 
 # Car maintenance invoice (commands/race.rs): label per item by `key`.
 # The `key` is the token (fuel/tires/part); the label is display.
@@ -650,6 +741,18 @@ race:
     news_title: "%{name} retires at %{age}"
     news_text: "%{injury} in round %{round} left damage too serious to race on. %{name} hangs up the helmet in %{category} with %{races} starts, %{wins} wins and %{podiums} podiums. The %{team} seat opens up mid-season."
     news_text_no_team: "%{injury} in round %{round} left damage too serious to race on. %{name} hangs up the helmet in %{category} with %{races} starts, %{wins} wins and %{podiums} podiums."
+
+# Team bankruptcy (evolution/pipeline/financas.rs). Two beats: the warning at the end of
+# the first insolvent season and the sale at the end of the second. Without this copy the
+# collapse only existed in a database row no screen ever showed.
+bankruptcy:
+  warning_title: "%{team} ends the season insolvent"
+  warning_text: "%{team} closed the %{season} season without the cash to fund its %{category} operation. If it does not recover, control of the team will be sold at the end of next year."
+  sale_title: "%{team} changes hands after financial collapse"
+  sale_text: "After two insolvent seasons, %{team} has been sold. The new ownership took on %{cleared} of debt but comes in to run a bare operation: the structure has been cut and the %{category} car has lost performance."
+  sale_text_released: "After two insolvent seasons, %{team} has been sold. The new ownership took on %{cleared} of debt and cut the payroll: %{driver}'s contract will not be renewed. The structure shrank and the %{category} car lost performance."
+  player_team_title: "Your team has been sold"
+  player_team_text: "%{team} was sold after two years of insolvency. The car you will find in preseason is worse, and so is the structure around it. There is a way out — check your offers — or you stay and race with what is left."
 
 # Injury names (simulation/injuries.rs). The per-severity pool selects a KEY; the
 # name is persisted in the save (Option A). Key order in the pool must not change

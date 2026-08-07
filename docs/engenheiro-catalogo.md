@@ -1,0 +1,4001 @@
+# Catálogo de falas do engenheiro
+
+Gerado por `engenheiro::catalogo()`. **3943 peças, 109429 caracteres.**
+
+Cada linha vira um `.wav` gravado pela Cloud TTS com a voz do engenheiro. A chave é o nome do arquivo; o texto é o que será falado.
+
+Revise o TEXTO, não a chave — é o que o jogador ouve.
+
+## AVULSAS — 2884 peças
+
+- `lidera` — Você está na liderança.
+- `ultimo` — Você é o último na pista.
+- `frente_no_box` — O carro da frente entrou no box.
+- `atras_no_box` — O carro de trás entrou no box.
+- `frente_colado` — Ele está colado em você.
+- `atras_colado` — Ele está colado atrás.
+- `nao_sei` — Não consegui ver isso agora.
+- `nao_ouvi` — Não te ouvi... repete.
+- `sem_telemetria` — Estou sem dados do carro.
+- `espera` — Deixa eu ver aqui.
+- `espera_2` — Só um segundo.
+- `espera_3` — Deixa eu conferir.
+- `foco` — Depois a gente conversa. Olha a pista.
+- `foco_2` — Foca na corrida que o que importar eu te aviso.
+- `foco_3` — Menos rádio e mais volante.
+- `radio_ruim` — Estou com problema no rádio, não vou te responder agora.
+- `conj_e` — e,
+- `meu_engine_0` — Estou ouvindo algo estranho no seu motor.
+- `meu_engine_1` — Não gostei de um barulho no seu motor.
+- `meu_engine_2` — Tem algo esquisito acontecendo no seu motor.
+- `meu_gearbox_0` — Estou ouvindo algo estranho no seu câmbio.
+- `meu_gearbox_1` — Não gostei de um barulho no seu câmbio.
+- `meu_gearbox_2` — Tem algo esquisito acontecendo no seu câmbio.
+- `meu_brakes_0` — Estou ouvindo algo estranho nos seus freios.
+- `meu_brakes_1` — Não gostei de um barulho nos seus freios.
+- `meu_brakes_2` — Tem algo esquisito acontecendo nos seus freios.
+- `meu_suspension_0` — Estou ouvindo algo estranho na sua suspensão.
+- `meu_suspension_1` — Não gostei de um barulho na sua suspensão.
+- `meu_suspension_2` — Tem algo esquisito acontecendo na sua suspensão.
+- `meu_cooling_0` — Estou ouvindo algo estranho no seu arrefecimento.
+- `meu_cooling_1` — Não gostei de um barulho no seu arrefecimento.
+- `meu_cooling_2` — Tem algo esquisito acontecendo no seu arrefecimento.
+- `meu_front_wing_0` — Estou ouvindo algo estranho na sua asa dianteira.
+- `meu_front_wing_1` — Não gostei de um barulho na sua asa dianteira.
+- `meu_front_wing_2` — Tem algo esquisito acontecendo na sua asa dianteira.
+- `meu_rear_wing_0` — Estou ouvindo algo estranho na sua asa traseira.
+- `meu_rear_wing_1` — Não gostei de um barulho na sua asa traseira.
+- `meu_rear_wing_2` — Tem algo esquisito acontecendo na sua asa traseira.
+- `meu_sidepods_0` — Estou ouvindo algo estranho nas suas laterais.
+- `meu_sidepods_1` — Não gostei de um barulho nas suas laterais.
+- `meu_sidepods_2` — Tem algo esquisito acontecendo nas suas laterais.
+- `meu_underbody_0` — Estou ouvindo algo estranho no seu assoalho.
+- `meu_underbody_1` — Não gostei de um barulho no seu assoalho.
+- `meu_underbody_2` — Tem algo esquisito acontecendo no seu assoalho.
+- `meu_chassis_0` — Estou ouvindo algo estranho no seu chassi.
+- `meu_chassis_1` — Não gostei de um barulho no seu chassi.
+- `meu_chassis_2` — Tem algo esquisito acontecendo no seu chassi.
+- `meu_electronics_0` — Estou ouvindo algo estranho na sua parte elétrica.
+- `meu_electronics_1` — Não gostei de um barulho na sua parte elétrica.
+- `meu_electronics_2` — Tem algo esquisito acontecendo na sua parte elétrica.
+- `meu_outra_0` — Estou ouvindo algo estranho no seu carro.
+- `meu_outra_1` — Não gostei de um barulho no seu carro.
+- `meu_outra_2` — Tem algo esquisito acontecendo no seu carro.
+- `meu_light_engine_0` — Perdemos alguma coisa no seu motor mas dá pra seguir.
+- `meu_light_engine_1` — Deu uma avaria no seu motor e vamos andar assim mesmo.
+- `meu_light_engine_2` — Tem coisa solta no seu motor mas o carro anda.
+- `meu_light_gearbox_0` — Perdemos alguma coisa no seu câmbio mas dá pra seguir.
+- `meu_light_gearbox_1` — Deu uma avaria no seu câmbio e vamos andar assim mesmo.
+- `meu_light_gearbox_2` — Tem coisa solta no seu câmbio mas o carro anda.
+- `meu_light_brakes_0` — Perdemos alguma coisa nos seus freios mas dá pra seguir.
+- `meu_light_brakes_1` — Deu uma avaria nos seus freios e vamos andar assim mesmo.
+- `meu_light_brakes_2` — Tem coisa solta nos seus freios mas o carro anda.
+- `meu_light_suspension_0` — Perdemos alguma coisa na sua suspensão mas dá pra seguir.
+- `meu_light_suspension_1` — Deu uma avaria na sua suspensão e vamos andar assim mesmo.
+- `meu_light_suspension_2` — Tem coisa solta na sua suspensão mas o carro anda.
+- `meu_light_cooling_0` — Perdemos alguma coisa no seu arrefecimento mas dá pra seguir.
+- `meu_light_cooling_1` — Deu uma avaria no seu arrefecimento e vamos andar assim mesmo.
+- `meu_light_cooling_2` — Tem coisa solta no seu arrefecimento mas o carro anda.
+- `meu_light_front_wing_0` — Perdemos alguma coisa na sua asa dianteira mas dá pra seguir.
+- `meu_light_front_wing_1` — Deu uma avaria na sua asa dianteira e vamos andar assim mesmo.
+- `meu_light_front_wing_2` — Tem coisa solta na sua asa dianteira mas o carro anda.
+- `meu_light_rear_wing_0` — Perdemos alguma coisa na sua asa traseira mas dá pra seguir.
+- `meu_light_rear_wing_1` — Deu uma avaria na sua asa traseira e vamos andar assim mesmo.
+- `meu_light_rear_wing_2` — Tem coisa solta na sua asa traseira mas o carro anda.
+- `meu_light_sidepods_0` — Perdemos alguma coisa nas suas laterais mas dá pra seguir.
+- `meu_light_sidepods_1` — Deu uma avaria nas suas laterais e vamos andar assim mesmo.
+- `meu_light_sidepods_2` — Tem coisa solta nas suas laterais mas o carro anda.
+- `meu_light_underbody_0` — Perdemos alguma coisa no seu assoalho mas dá pra seguir.
+- `meu_light_underbody_1` — Deu uma avaria no seu assoalho e vamos andar assim mesmo.
+- `meu_light_underbody_2` — Tem coisa solta no seu assoalho mas o carro anda.
+- `meu_light_chassis_0` — Perdemos alguma coisa no seu chassi mas dá pra seguir.
+- `meu_light_chassis_1` — Deu uma avaria no seu chassi e vamos andar assim mesmo.
+- `meu_light_chassis_2` — Tem coisa solta no seu chassi mas o carro anda.
+- `meu_light_electronics_0` — Perdemos alguma coisa na sua parte elétrica mas dá pra seguir.
+- `meu_light_electronics_1` — Deu uma avaria na sua parte elétrica e vamos andar assim mesmo.
+- `meu_light_electronics_2` — Tem coisa solta na sua parte elétrica mas o carro anda.
+- `meu_light_outra_0` — Perdemos alguma coisa no seu carro mas dá pra seguir.
+- `meu_light_outra_1` — Deu uma avaria no seu carro e vamos andar assim mesmo.
+- `meu_light_outra_2` — Tem coisa solta no seu carro mas o carro anda.
+- `meu_heavy_engine_0` — Deu problema sério no seu motor e vamos ter que parar.
+- `meu_heavy_engine_1` — Entra no box agora com essa quebra no seu motor.
+- `meu_heavy_engine_2` — Temos avaria grave no seu motor então entra no box.
+- `meu_heavy_gearbox_0` — Deu problema sério no seu câmbio e vamos ter que parar.
+- `meu_heavy_gearbox_1` — Entra no box agora com essa quebra no seu câmbio.
+- `meu_heavy_gearbox_2` — Temos avaria grave no seu câmbio então entra no box.
+- `meu_heavy_brakes_0` — Deu problema sério nos seus freios e vamos ter que parar.
+- `meu_heavy_brakes_1` — Entra no box agora com essa quebra nos seus freios.
+- `meu_heavy_brakes_2` — Temos avaria grave nos seus freios então entra no box.
+- `meu_heavy_suspension_0` — Deu problema sério na sua suspensão e vamos ter que parar.
+- `meu_heavy_suspension_1` — Entra no box agora com essa quebra na sua suspensão.
+- `meu_heavy_suspension_2` — Temos avaria grave na sua suspensão então entra no box.
+- `meu_heavy_cooling_0` — Deu problema sério no seu arrefecimento e vamos ter que parar.
+- `meu_heavy_cooling_1` — Entra no box agora com essa quebra no seu arrefecimento.
+- `meu_heavy_cooling_2` — Temos avaria grave no seu arrefecimento então entra no box.
+- `meu_heavy_front_wing_0` — Deu problema sério na sua asa dianteira e vamos ter que parar.
+- `meu_heavy_front_wing_1` — Entra no box agora com essa quebra na sua asa dianteira.
+- `meu_heavy_front_wing_2` — Temos avaria grave na sua asa dianteira então entra no box.
+- `meu_heavy_rear_wing_0` — Deu problema sério na sua asa traseira e vamos ter que parar.
+- `meu_heavy_rear_wing_1` — Entra no box agora com essa quebra na sua asa traseira.
+- `meu_heavy_rear_wing_2` — Temos avaria grave na sua asa traseira então entra no box.
+- `meu_heavy_sidepods_0` — Deu problema sério nas suas laterais e vamos ter que parar.
+- `meu_heavy_sidepods_1` — Entra no box agora com essa quebra nas suas laterais.
+- `meu_heavy_sidepods_2` — Temos avaria grave nas suas laterais então entra no box.
+- `meu_heavy_underbody_0` — Deu problema sério no seu assoalho e vamos ter que parar.
+- `meu_heavy_underbody_1` — Entra no box agora com essa quebra no seu assoalho.
+- `meu_heavy_underbody_2` — Temos avaria grave no seu assoalho então entra no box.
+- `meu_heavy_chassis_0` — Deu problema sério no seu chassi e vamos ter que parar.
+- `meu_heavy_chassis_1` — Entra no box agora com essa quebra no seu chassi.
+- `meu_heavy_chassis_2` — Temos avaria grave no seu chassi então entra no box.
+- `meu_heavy_electronics_0` — Deu problema sério na sua parte elétrica e vamos ter que parar.
+- `meu_heavy_electronics_1` — Entra no box agora com essa quebra na sua parte elétrica.
+- `meu_heavy_electronics_2` — Temos avaria grave na sua parte elétrica então entra no box.
+- `meu_heavy_outra_0` — Deu problema sério no seu carro e vamos ter que parar.
+- `meu_heavy_outra_1` — Entra no box agora com essa quebra no seu carro.
+- `meu_heavy_outra_2` — Temos avaria grave no seu carro então entra no box.
+- `meu_dnf_engine_0` — Acabou por hoje com problema no seu motor.
+- `meu_dnf_engine_1` — Fim de prova com pane no seu motor.
+- `meu_dnf_engine_2` — Não dá mais pra seguir com esse problema no seu motor.
+- `meu_dnf_gearbox_0` — Acabou por hoje com problema no seu câmbio.
+- `meu_dnf_gearbox_1` — Fim de prova com pane no seu câmbio.
+- `meu_dnf_gearbox_2` — Não dá mais pra seguir com esse problema no seu câmbio.
+- `meu_dnf_brakes_0` — Acabou por hoje com problema nos seus freios.
+- `meu_dnf_brakes_1` — Fim de prova com pane nos seus freios.
+- `meu_dnf_brakes_2` — Não dá mais pra seguir com esse problema nos seus freios.
+- `meu_dnf_suspension_0` — Acabou por hoje com problema na sua suspensão.
+- `meu_dnf_suspension_1` — Fim de prova com pane na sua suspensão.
+- `meu_dnf_suspension_2` — Não dá mais pra seguir com esse problema na sua suspensão.
+- `meu_dnf_cooling_0` — Acabou por hoje com problema no seu arrefecimento.
+- `meu_dnf_cooling_1` — Fim de prova com pane no seu arrefecimento.
+- `meu_dnf_cooling_2` — Não dá mais pra seguir com esse problema no seu arrefecimento.
+- `meu_dnf_front_wing_0` — Acabou por hoje com problema na sua asa dianteira.
+- `meu_dnf_front_wing_1` — Fim de prova com pane na sua asa dianteira.
+- `meu_dnf_front_wing_2` — Não dá mais pra seguir com esse problema na sua asa dianteira.
+- `meu_dnf_rear_wing_0` — Acabou por hoje com problema na sua asa traseira.
+- `meu_dnf_rear_wing_1` — Fim de prova com pane na sua asa traseira.
+- `meu_dnf_rear_wing_2` — Não dá mais pra seguir com esse problema na sua asa traseira.
+- `meu_dnf_sidepods_0` — Acabou por hoje com problema nas suas laterais.
+- `meu_dnf_sidepods_1` — Fim de prova com pane nas suas laterais.
+- `meu_dnf_sidepods_2` — Não dá mais pra seguir com esse problema nas suas laterais.
+- `meu_dnf_underbody_0` — Acabou por hoje com problema no seu assoalho.
+- `meu_dnf_underbody_1` — Fim de prova com pane no seu assoalho.
+- `meu_dnf_underbody_2` — Não dá mais pra seguir com esse problema no seu assoalho.
+- `meu_dnf_chassis_0` — Acabou por hoje com problema no seu chassi.
+- `meu_dnf_chassis_1` — Fim de prova com pane no seu chassi.
+- `meu_dnf_chassis_2` — Não dá mais pra seguir com esse problema no seu chassi.
+- `meu_dnf_electronics_0` — Acabou por hoje com problema na sua parte elétrica.
+- `meu_dnf_electronics_1` — Fim de prova com pane na sua parte elétrica.
+- `meu_dnf_electronics_2` — Não dá mais pra seguir com esse problema na sua parte elétrica.
+- `meu_dnf_outra_0` — Acabou por hoje com problema no seu carro.
+- `meu_dnf_outra_1` — Fim de prova com pane no seu carro.
+- `meu_dnf_outra_2` — Não dá mais pra seguir com esse problema no seu carro.
+- `meu_poupar` — A pista está comendo os carros hoje. Pega mais leve.
+- `meu_poupar_2` — Muita gente quebrando. Force menos o carro.
+- `meu_poupar_3` — Esse traçado destrói peça. Alivia pra chegar ao fim.
+- `t_300` — trinta e zero.
+- `t_301` — trinta e um.
+- `t_302` — trinta e dois.
+- `t_303` — trinta e três.
+- `t_304` — trinta e quatro.
+- `t_305` — trinta e cinco.
+- `t_306` — trinta e seis.
+- `t_307` — trinta e sete.
+- `t_308` — trinta e oito.
+- `t_309` — trinta e nove.
+- `t_310` — trinta e um e zero.
+- `t_311` — trinta e um e um.
+- `t_312` — trinta e um e dois.
+- `t_313` — trinta e um e três.
+- `t_314` — trinta e um e quatro.
+- `t_315` — trinta e um e cinco.
+- `t_316` — trinta e um e seis.
+- `t_317` — trinta e um e sete.
+- `t_318` — trinta e um e oito.
+- `t_319` — trinta e um e nove.
+- `t_320` — trinta e dois e zero.
+- `t_321` — trinta e dois e um.
+- `t_322` — trinta e dois e dois.
+- `t_323` — trinta e dois e três.
+- `t_324` — trinta e dois e quatro.
+- `t_325` — trinta e dois e cinco.
+- `t_326` — trinta e dois e seis.
+- `t_327` — trinta e dois e sete.
+- `t_328` — trinta e dois e oito.
+- `t_329` — trinta e dois e nove.
+- `t_330` — trinta e três e zero.
+- `t_331` — trinta e três e um.
+- `t_332` — trinta e três e dois.
+- `t_333` — trinta e três e três.
+- `t_334` — trinta e três e quatro.
+- `t_335` — trinta e três e cinco.
+- `t_336` — trinta e três e seis.
+- `t_337` — trinta e três e sete.
+- `t_338` — trinta e três e oito.
+- `t_339` — trinta e três e nove.
+- `t_340` — trinta e quatro e zero.
+- `t_341` — trinta e quatro e um.
+- `t_342` — trinta e quatro e dois.
+- `t_343` — trinta e quatro e três.
+- `t_344` — trinta e quatro e quatro.
+- `t_345` — trinta e quatro e cinco.
+- `t_346` — trinta e quatro e seis.
+- `t_347` — trinta e quatro e sete.
+- `t_348` — trinta e quatro e oito.
+- `t_349` — trinta e quatro e nove.
+- `t_350` — trinta e cinco e zero.
+- `t_351` — trinta e cinco e um.
+- `t_352` — trinta e cinco e dois.
+- `t_353` — trinta e cinco e três.
+- `t_354` — trinta e cinco e quatro.
+- `t_355` — trinta e cinco e cinco.
+- `t_356` — trinta e cinco e seis.
+- `t_357` — trinta e cinco e sete.
+- `t_358` — trinta e cinco e oito.
+- `t_359` — trinta e cinco e nove.
+- `t_360` — trinta e seis e zero.
+- `t_361` — trinta e seis e um.
+- `t_362` — trinta e seis e dois.
+- `t_363` — trinta e seis e três.
+- `t_364` — trinta e seis e quatro.
+- `t_365` — trinta e seis e cinco.
+- `t_366` — trinta e seis e seis.
+- `t_367` — trinta e seis e sete.
+- `t_368` — trinta e seis e oito.
+- `t_369` — trinta e seis e nove.
+- `t_370` — trinta e sete e zero.
+- `t_371` — trinta e sete e um.
+- `t_372` — trinta e sete e dois.
+- `t_373` — trinta e sete e três.
+- `t_374` — trinta e sete e quatro.
+- `t_375` — trinta e sete e cinco.
+- `t_376` — trinta e sete e seis.
+- `t_377` — trinta e sete e sete.
+- `t_378` — trinta e sete e oito.
+- `t_379` — trinta e sete e nove.
+- `t_380` — trinta e oito e zero.
+- `t_381` — trinta e oito e um.
+- `t_382` — trinta e oito e dois.
+- `t_383` — trinta e oito e três.
+- `t_384` — trinta e oito e quatro.
+- `t_385` — trinta e oito e cinco.
+- `t_386` — trinta e oito e seis.
+- `t_387` — trinta e oito e sete.
+- `t_388` — trinta e oito e oito.
+- `t_389` — trinta e oito e nove.
+- `t_390` — trinta e nove e zero.
+- `t_391` — trinta e nove e um.
+- `t_392` — trinta e nove e dois.
+- `t_393` — trinta e nove e três.
+- `t_394` — trinta e nove e quatro.
+- `t_395` — trinta e nove e cinco.
+- `t_396` — trinta e nove e seis.
+- `t_397` — trinta e nove e sete.
+- `t_398` — trinta e nove e oito.
+- `t_399` — trinta e nove e nove.
+- `t_400` — quarenta e zero.
+- `t_401` — quarenta e um.
+- `t_402` — quarenta e dois.
+- `t_403` — quarenta e três.
+- `t_404` — quarenta e quatro.
+- `t_405` — quarenta e cinco.
+- `t_406` — quarenta e seis.
+- `t_407` — quarenta e sete.
+- `t_408` — quarenta e oito.
+- `t_409` — quarenta e nove.
+- `t_410` — quarenta e um e zero.
+- `t_411` — quarenta e um e um.
+- `t_412` — quarenta e um e dois.
+- `t_413` — quarenta e um e três.
+- `t_414` — quarenta e um e quatro.
+- `t_415` — quarenta e um e cinco.
+- `t_416` — quarenta e um e seis.
+- `t_417` — quarenta e um e sete.
+- `t_418` — quarenta e um e oito.
+- `t_419` — quarenta e um e nove.
+- `t_420` — quarenta e dois e zero.
+- `t_421` — quarenta e dois e um.
+- `t_422` — quarenta e dois e dois.
+- `t_423` — quarenta e dois e três.
+- `t_424` — quarenta e dois e quatro.
+- `t_425` — quarenta e dois e cinco.
+- `t_426` — quarenta e dois e seis.
+- `t_427` — quarenta e dois e sete.
+- `t_428` — quarenta e dois e oito.
+- `t_429` — quarenta e dois e nove.
+- `t_430` — quarenta e três e zero.
+- `t_431` — quarenta e três e um.
+- `t_432` — quarenta e três e dois.
+- `t_433` — quarenta e três e três.
+- `t_434` — quarenta e três e quatro.
+- `t_435` — quarenta e três e cinco.
+- `t_436` — quarenta e três e seis.
+- `t_437` — quarenta e três e sete.
+- `t_438` — quarenta e três e oito.
+- `t_439` — quarenta e três e nove.
+- `t_440` — quarenta e quatro e zero.
+- `t_441` — quarenta e quatro e um.
+- `t_442` — quarenta e quatro e dois.
+- `t_443` — quarenta e quatro e três.
+- `t_444` — quarenta e quatro e quatro.
+- `t_445` — quarenta e quatro e cinco.
+- `t_446` — quarenta e quatro e seis.
+- `t_447` — quarenta e quatro e sete.
+- `t_448` — quarenta e quatro e oito.
+- `t_449` — quarenta e quatro e nove.
+- `t_450` — quarenta e cinco e zero.
+- `t_451` — quarenta e cinco e um.
+- `t_452` — quarenta e cinco e dois.
+- `t_453` — quarenta e cinco e três.
+- `t_454` — quarenta e cinco e quatro.
+- `t_455` — quarenta e cinco e cinco.
+- `t_456` — quarenta e cinco e seis.
+- `t_457` — quarenta e cinco e sete.
+- `t_458` — quarenta e cinco e oito.
+- `t_459` — quarenta e cinco e nove.
+- `t_460` — quarenta e seis e zero.
+- `t_461` — quarenta e seis e um.
+- `t_462` — quarenta e seis e dois.
+- `t_463` — quarenta e seis e três.
+- `t_464` — quarenta e seis e quatro.
+- `t_465` — quarenta e seis e cinco.
+- `t_466` — quarenta e seis e seis.
+- `t_467` — quarenta e seis e sete.
+- `t_468` — quarenta e seis e oito.
+- `t_469` — quarenta e seis e nove.
+- `t_470` — quarenta e sete e zero.
+- `t_471` — quarenta e sete e um.
+- `t_472` — quarenta e sete e dois.
+- `t_473` — quarenta e sete e três.
+- `t_474` — quarenta e sete e quatro.
+- `t_475` — quarenta e sete e cinco.
+- `t_476` — quarenta e sete e seis.
+- `t_477` — quarenta e sete e sete.
+- `t_478` — quarenta e sete e oito.
+- `t_479` — quarenta e sete e nove.
+- `t_480` — quarenta e oito e zero.
+- `t_481` — quarenta e oito e um.
+- `t_482` — quarenta e oito e dois.
+- `t_483` — quarenta e oito e três.
+- `t_484` — quarenta e oito e quatro.
+- `t_485` — quarenta e oito e cinco.
+- `t_486` — quarenta e oito e seis.
+- `t_487` — quarenta e oito e sete.
+- `t_488` — quarenta e oito e oito.
+- `t_489` — quarenta e oito e nove.
+- `t_490` — quarenta e nove e zero.
+- `t_491` — quarenta e nove e um.
+- `t_492` — quarenta e nove e dois.
+- `t_493` — quarenta e nove e três.
+- `t_494` — quarenta e nove e quatro.
+- `t_495` — quarenta e nove e cinco.
+- `t_496` — quarenta e nove e seis.
+- `t_497` — quarenta e nove e sete.
+- `t_498` — quarenta e nove e oito.
+- `t_499` — quarenta e nove e nove.
+- `t_500` — cinquenta e zero.
+- `t_501` — cinquenta e um.
+- `t_502` — cinquenta e dois.
+- `t_503` — cinquenta e três.
+- `t_504` — cinquenta e quatro.
+- `t_505` — cinquenta e cinco.
+- `t_506` — cinquenta e seis.
+- `t_507` — cinquenta e sete.
+- `t_508` — cinquenta e oito.
+- `t_509` — cinquenta e nove.
+- `t_510` — cinquenta e um e zero.
+- `t_511` — cinquenta e um e um.
+- `t_512` — cinquenta e um e dois.
+- `t_513` — cinquenta e um e três.
+- `t_514` — cinquenta e um e quatro.
+- `t_515` — cinquenta e um e cinco.
+- `t_516` — cinquenta e um e seis.
+- `t_517` — cinquenta e um e sete.
+- `t_518` — cinquenta e um e oito.
+- `t_519` — cinquenta e um e nove.
+- `t_520` — cinquenta e dois e zero.
+- `t_521` — cinquenta e dois e um.
+- `t_522` — cinquenta e dois e dois.
+- `t_523` — cinquenta e dois e três.
+- `t_524` — cinquenta e dois e quatro.
+- `t_525` — cinquenta e dois e cinco.
+- `t_526` — cinquenta e dois e seis.
+- `t_527` — cinquenta e dois e sete.
+- `t_528` — cinquenta e dois e oito.
+- `t_529` — cinquenta e dois e nove.
+- `t_530` — cinquenta e três e zero.
+- `t_531` — cinquenta e três e um.
+- `t_532` — cinquenta e três e dois.
+- `t_533` — cinquenta e três e três.
+- `t_534` — cinquenta e três e quatro.
+- `t_535` — cinquenta e três e cinco.
+- `t_536` — cinquenta e três e seis.
+- `t_537` — cinquenta e três e sete.
+- `t_538` — cinquenta e três e oito.
+- `t_539` — cinquenta e três e nove.
+- `t_540` — cinquenta e quatro e zero.
+- `t_541` — cinquenta e quatro e um.
+- `t_542` — cinquenta e quatro e dois.
+- `t_543` — cinquenta e quatro e três.
+- `t_544` — cinquenta e quatro e quatro.
+- `t_545` — cinquenta e quatro e cinco.
+- `t_546` — cinquenta e quatro e seis.
+- `t_547` — cinquenta e quatro e sete.
+- `t_548` — cinquenta e quatro e oito.
+- `t_549` — cinquenta e quatro e nove.
+- `t_550` — cinquenta e cinco e zero.
+- `t_551` — cinquenta e cinco e um.
+- `t_552` — cinquenta e cinco e dois.
+- `t_553` — cinquenta e cinco e três.
+- `t_554` — cinquenta e cinco e quatro.
+- `t_555` — cinquenta e cinco e cinco.
+- `t_556` — cinquenta e cinco e seis.
+- `t_557` — cinquenta e cinco e sete.
+- `t_558` — cinquenta e cinco e oito.
+- `t_559` — cinquenta e cinco e nove.
+- `t_560` — cinquenta e seis e zero.
+- `t_561` — cinquenta e seis e um.
+- `t_562` — cinquenta e seis e dois.
+- `t_563` — cinquenta e seis e três.
+- `t_564` — cinquenta e seis e quatro.
+- `t_565` — cinquenta e seis e cinco.
+- `t_566` — cinquenta e seis e seis.
+- `t_567` — cinquenta e seis e sete.
+- `t_568` — cinquenta e seis e oito.
+- `t_569` — cinquenta e seis e nove.
+- `t_570` — cinquenta e sete e zero.
+- `t_571` — cinquenta e sete e um.
+- `t_572` — cinquenta e sete e dois.
+- `t_573` — cinquenta e sete e três.
+- `t_574` — cinquenta e sete e quatro.
+- `t_575` — cinquenta e sete e cinco.
+- `t_576` — cinquenta e sete e seis.
+- `t_577` — cinquenta e sete e sete.
+- `t_578` — cinquenta e sete e oito.
+- `t_579` — cinquenta e sete e nove.
+- `t_580` — cinquenta e oito e zero.
+- `t_581` — cinquenta e oito e um.
+- `t_582` — cinquenta e oito e dois.
+- `t_583` — cinquenta e oito e três.
+- `t_584` — cinquenta e oito e quatro.
+- `t_585` — cinquenta e oito e cinco.
+- `t_586` — cinquenta e oito e seis.
+- `t_587` — cinquenta e oito e sete.
+- `t_588` — cinquenta e oito e oito.
+- `t_589` — cinquenta e oito e nove.
+- `t_590` — cinquenta e nove e zero.
+- `t_591` — cinquenta e nove e um.
+- `t_592` — cinquenta e nove e dois.
+- `t_593` — cinquenta e nove e três.
+- `t_594` — cinquenta e nove e quatro.
+- `t_595` — cinquenta e nove e cinco.
+- `t_596` — cinquenta e nove e seis.
+- `t_597` — cinquenta e nove e sete.
+- `t_598` — cinquenta e nove e oito.
+- `t_599` — cinquenta e nove e nove.
+- `t_600` — um zero zero e zero.
+- `t_601` — um zero zero e um.
+- `t_602` — um zero zero e dois.
+- `t_603` — um zero zero e três.
+- `t_604` — um zero zero e quatro.
+- `t_605` — um zero zero e cinco.
+- `t_606` — um zero zero e seis.
+- `t_607` — um zero zero e sete.
+- `t_608` — um zero zero e oito.
+- `t_609` — um zero zero e nove.
+- `t_610` — um zero um e zero.
+- `t_611` — um zero um e um.
+- `t_612` — um zero um e dois.
+- `t_613` — um zero um e três.
+- `t_614` — um zero um e quatro.
+- `t_615` — um zero um e cinco.
+- `t_616` — um zero um e seis.
+- `t_617` — um zero um e sete.
+- `t_618` — um zero um e oito.
+- `t_619` — um zero um e nove.
+- `t_620` — um zero dois e zero.
+- `t_621` — um zero dois e um.
+- `t_622` — um zero dois e dois.
+- `t_623` — um zero dois e três.
+- `t_624` — um zero dois e quatro.
+- `t_625` — um zero dois e cinco.
+- `t_626` — um zero dois e seis.
+- `t_627` — um zero dois e sete.
+- `t_628` — um zero dois e oito.
+- `t_629` — um zero dois e nove.
+- `t_630` — um zero três e zero.
+- `t_631` — um zero três e um.
+- `t_632` — um zero três e dois.
+- `t_633` — um zero três e três.
+- `t_634` — um zero três e quatro.
+- `t_635` — um zero três e cinco.
+- `t_636` — um zero três e seis.
+- `t_637` — um zero três e sete.
+- `t_638` — um zero três e oito.
+- `t_639` — um zero três e nove.
+- `t_640` — um zero quatro e zero.
+- `t_641` — um zero quatro e um.
+- `t_642` — um zero quatro e dois.
+- `t_643` — um zero quatro e três.
+- `t_644` — um zero quatro e quatro.
+- `t_645` — um zero quatro e cinco.
+- `t_646` — um zero quatro e seis.
+- `t_647` — um zero quatro e sete.
+- `t_648` — um zero quatro e oito.
+- `t_649` — um zero quatro e nove.
+- `t_650` — um zero cinco e zero.
+- `t_651` — um zero cinco e um.
+- `t_652` — um zero cinco e dois.
+- `t_653` — um zero cinco e três.
+- `t_654` — um zero cinco e quatro.
+- `t_655` — um zero cinco e cinco.
+- `t_656` — um zero cinco e seis.
+- `t_657` — um zero cinco e sete.
+- `t_658` — um zero cinco e oito.
+- `t_659` — um zero cinco e nove.
+- `t_660` — um zero seis e zero.
+- `t_661` — um zero seis e um.
+- `t_662` — um zero seis e dois.
+- `t_663` — um zero seis e três.
+- `t_664` — um zero seis e quatro.
+- `t_665` — um zero seis e cinco.
+- `t_666` — um zero seis e seis.
+- `t_667` — um zero seis e sete.
+- `t_668` — um zero seis e oito.
+- `t_669` — um zero seis e nove.
+- `t_670` — um zero sete e zero.
+- `t_671` — um zero sete e um.
+- `t_672` — um zero sete e dois.
+- `t_673` — um zero sete e três.
+- `t_674` — um zero sete e quatro.
+- `t_675` — um zero sete e cinco.
+- `t_676` — um zero sete e seis.
+- `t_677` — um zero sete e sete.
+- `t_678` — um zero sete e oito.
+- `t_679` — um zero sete e nove.
+- `t_680` — um zero oito e zero.
+- `t_681` — um zero oito e um.
+- `t_682` — um zero oito e dois.
+- `t_683` — um zero oito e três.
+- `t_684` — um zero oito e quatro.
+- `t_685` — um zero oito e cinco.
+- `t_686` — um zero oito e seis.
+- `t_687` — um zero oito e sete.
+- `t_688` — um zero oito e oito.
+- `t_689` — um zero oito e nove.
+- `t_690` — um zero nove e zero.
+- `t_691` — um zero nove e um.
+- `t_692` — um zero nove e dois.
+- `t_693` — um zero nove e três.
+- `t_694` — um zero nove e quatro.
+- `t_695` — um zero nove e cinco.
+- `t_696` — um zero nove e seis.
+- `t_697` — um zero nove e sete.
+- `t_698` — um zero nove e oito.
+- `t_699` — um zero nove e nove.
+- `t_700` — um dez e zero.
+- `t_701` — um dez e um.
+- `t_702` — um dez e dois.
+- `t_703` — um dez e três.
+- `t_704` — um dez e quatro.
+- `t_705` — um dez e cinco.
+- `t_706` — um dez e seis.
+- `t_707` — um dez e sete.
+- `t_708` — um dez e oito.
+- `t_709` — um dez e nove.
+- `t_710` — um onze e zero.
+- `t_711` — um onze e um.
+- `t_712` — um onze e dois.
+- `t_713` — um onze e três.
+- `t_714` — um onze e quatro.
+- `t_715` — um onze e cinco.
+- `t_716` — um onze e seis.
+- `t_717` — um onze e sete.
+- `t_718` — um onze e oito.
+- `t_719` — um onze e nove.
+- `t_720` — um doze e zero.
+- `t_721` — um doze e um.
+- `t_722` — um doze e dois.
+- `t_723` — um doze e três.
+- `t_724` — um doze e quatro.
+- `t_725` — um doze e cinco.
+- `t_726` — um doze e seis.
+- `t_727` — um doze e sete.
+- `t_728` — um doze e oito.
+- `t_729` — um doze e nove.
+- `t_730` — um treze e zero.
+- `t_731` — um treze e um.
+- `t_732` — um treze e dois.
+- `t_733` — um treze e três.
+- `t_734` — um treze e quatro.
+- `t_735` — um treze e cinco.
+- `t_736` — um treze e seis.
+- `t_737` — um treze e sete.
+- `t_738` — um treze e oito.
+- `t_739` — um treze e nove.
+- `t_740` — um catorze e zero.
+- `t_741` — um catorze e um.
+- `t_742` — um catorze e dois.
+- `t_743` — um catorze e três.
+- `t_744` — um catorze e quatro.
+- `t_745` — um catorze e cinco.
+- `t_746` — um catorze e seis.
+- `t_747` — um catorze e sete.
+- `t_748` — um catorze e oito.
+- `t_749` — um catorze e nove.
+- `t_750` — um quinze e zero.
+- `t_751` — um quinze e um.
+- `t_752` — um quinze e dois.
+- `t_753` — um quinze e três.
+- `t_754` — um quinze e quatro.
+- `t_755` — um quinze e cinco.
+- `t_756` — um quinze e seis.
+- `t_757` — um quinze e sete.
+- `t_758` — um quinze e oito.
+- `t_759` — um quinze e nove.
+- `t_760` — um dezesseis e zero.
+- `t_761` — um dezesseis e um.
+- `t_762` — um dezesseis e dois.
+- `t_763` — um dezesseis e três.
+- `t_764` — um dezesseis e quatro.
+- `t_765` — um dezesseis e cinco.
+- `t_766` — um dezesseis e seis.
+- `t_767` — um dezesseis e sete.
+- `t_768` — um dezesseis e oito.
+- `t_769` — um dezesseis e nove.
+- `t_770` — um dezessete e zero.
+- `t_771` — um dezessete e um.
+- `t_772` — um dezessete e dois.
+- `t_773` — um dezessete e três.
+- `t_774` — um dezessete e quatro.
+- `t_775` — um dezessete e cinco.
+- `t_776` — um dezessete e seis.
+- `t_777` — um dezessete e sete.
+- `t_778` — um dezessete e oito.
+- `t_779` — um dezessete e nove.
+- `t_780` — um dezoito e zero.
+- `t_781` — um dezoito e um.
+- `t_782` — um dezoito e dois.
+- `t_783` — um dezoito e três.
+- `t_784` — um dezoito e quatro.
+- `t_785` — um dezoito e cinco.
+- `t_786` — um dezoito e seis.
+- `t_787` — um dezoito e sete.
+- `t_788` — um dezoito e oito.
+- `t_789` — um dezoito e nove.
+- `t_790` — um dezenove e zero.
+- `t_791` — um dezenove e um.
+- `t_792` — um dezenove e dois.
+- `t_793` — um dezenove e três.
+- `t_794` — um dezenove e quatro.
+- `t_795` — um dezenove e cinco.
+- `t_796` — um dezenove e seis.
+- `t_797` — um dezenove e sete.
+- `t_798` — um dezenove e oito.
+- `t_799` — um dezenove e nove.
+- `t_800` — um vinte e zero.
+- `t_801` — um vinte e um.
+- `t_802` — um vinte e dois.
+- `t_803` — um vinte e três.
+- `t_804` — um vinte e quatro.
+- `t_805` — um vinte e cinco.
+- `t_806` — um vinte e seis.
+- `t_807` — um vinte e sete.
+- `t_808` — um vinte e oito.
+- `t_809` — um vinte e nove.
+- `t_810` — um vinte e um e zero.
+- `t_811` — um vinte e um e um.
+- `t_812` — um vinte e um e dois.
+- `t_813` — um vinte e um e três.
+- `t_814` — um vinte e um e quatro.
+- `t_815` — um vinte e um e cinco.
+- `t_816` — um vinte e um e seis.
+- `t_817` — um vinte e um e sete.
+- `t_818` — um vinte e um e oito.
+- `t_819` — um vinte e um e nove.
+- `t_820` — um vinte e dois e zero.
+- `t_821` — um vinte e dois e um.
+- `t_822` — um vinte e dois e dois.
+- `t_823` — um vinte e dois e três.
+- `t_824` — um vinte e dois e quatro.
+- `t_825` — um vinte e dois e cinco.
+- `t_826` — um vinte e dois e seis.
+- `t_827` — um vinte e dois e sete.
+- `t_828` — um vinte e dois e oito.
+- `t_829` — um vinte e dois e nove.
+- `t_830` — um vinte e três e zero.
+- `t_831` — um vinte e três e um.
+- `t_832` — um vinte e três e dois.
+- `t_833` — um vinte e três e três.
+- `t_834` — um vinte e três e quatro.
+- `t_835` — um vinte e três e cinco.
+- `t_836` — um vinte e três e seis.
+- `t_837` — um vinte e três e sete.
+- `t_838` — um vinte e três e oito.
+- `t_839` — um vinte e três e nove.
+- `t_840` — um vinte e quatro e zero.
+- `t_841` — um vinte e quatro e um.
+- `t_842` — um vinte e quatro e dois.
+- `t_843` — um vinte e quatro e três.
+- `t_844` — um vinte e quatro e quatro.
+- `t_845` — um vinte e quatro e cinco.
+- `t_846` — um vinte e quatro e seis.
+- `t_847` — um vinte e quatro e sete.
+- `t_848` — um vinte e quatro e oito.
+- `t_849` — um vinte e quatro e nove.
+- `t_850` — um vinte e cinco e zero.
+- `t_851` — um vinte e cinco e um.
+- `t_852` — um vinte e cinco e dois.
+- `t_853` — um vinte e cinco e três.
+- `t_854` — um vinte e cinco e quatro.
+- `t_855` — um vinte e cinco e cinco.
+- `t_856` — um vinte e cinco e seis.
+- `t_857` — um vinte e cinco e sete.
+- `t_858` — um vinte e cinco e oito.
+- `t_859` — um vinte e cinco e nove.
+- `t_860` — um vinte e seis e zero.
+- `t_861` — um vinte e seis e um.
+- `t_862` — um vinte e seis e dois.
+- `t_863` — um vinte e seis e três.
+- `t_864` — um vinte e seis e quatro.
+- `t_865` — um vinte e seis e cinco.
+- `t_866` — um vinte e seis e seis.
+- `t_867` — um vinte e seis e sete.
+- `t_868` — um vinte e seis e oito.
+- `t_869` — um vinte e seis e nove.
+- `t_870` — um vinte e sete e zero.
+- `t_871` — um vinte e sete e um.
+- `t_872` — um vinte e sete e dois.
+- `t_873` — um vinte e sete e três.
+- `t_874` — um vinte e sete e quatro.
+- `t_875` — um vinte e sete e cinco.
+- `t_876` — um vinte e sete e seis.
+- `t_877` — um vinte e sete e sete.
+- `t_878` — um vinte e sete e oito.
+- `t_879` — um vinte e sete e nove.
+- `t_880` — um vinte e oito e zero.
+- `t_881` — um vinte e oito e um.
+- `t_882` — um vinte e oito e dois.
+- `t_883` — um vinte e oito e três.
+- `t_884` — um vinte e oito e quatro.
+- `t_885` — um vinte e oito e cinco.
+- `t_886` — um vinte e oito e seis.
+- `t_887` — um vinte e oito e sete.
+- `t_888` — um vinte e oito e oito.
+- `t_889` — um vinte e oito e nove.
+- `t_890` — um vinte e nove e zero.
+- `t_891` — um vinte e nove e um.
+- `t_892` — um vinte e nove e dois.
+- `t_893` — um vinte e nove e três.
+- `t_894` — um vinte e nove e quatro.
+- `t_895` — um vinte e nove e cinco.
+- `t_896` — um vinte e nove e seis.
+- `t_897` — um vinte e nove e sete.
+- `t_898` — um vinte e nove e oito.
+- `t_899` — um vinte e nove e nove.
+- `t_900` — um trinta e zero.
+- `t_901` — um trinta e um.
+- `t_902` — um trinta e dois.
+- `t_903` — um trinta e três.
+- `t_904` — um trinta e quatro.
+- `t_905` — um trinta e cinco.
+- `t_906` — um trinta e seis.
+- `t_907` — um trinta e sete.
+- `t_908` — um trinta e oito.
+- `t_909` — um trinta e nove.
+- `t_910` — um trinta e um e zero.
+- `t_911` — um trinta e um e um.
+- `t_912` — um trinta e um e dois.
+- `t_913` — um trinta e um e três.
+- `t_914` — um trinta e um e quatro.
+- `t_915` — um trinta e um e cinco.
+- `t_916` — um trinta e um e seis.
+- `t_917` — um trinta e um e sete.
+- `t_918` — um trinta e um e oito.
+- `t_919` — um trinta e um e nove.
+- `t_920` — um trinta e dois e zero.
+- `t_921` — um trinta e dois e um.
+- `t_922` — um trinta e dois e dois.
+- `t_923` — um trinta e dois e três.
+- `t_924` — um trinta e dois e quatro.
+- `t_925` — um trinta e dois e cinco.
+- `t_926` — um trinta e dois e seis.
+- `t_927` — um trinta e dois e sete.
+- `t_928` — um trinta e dois e oito.
+- `t_929` — um trinta e dois e nove.
+- `t_930` — um trinta e três e zero.
+- `t_931` — um trinta e três e um.
+- `t_932` — um trinta e três e dois.
+- `t_933` — um trinta e três e três.
+- `t_934` — um trinta e três e quatro.
+- `t_935` — um trinta e três e cinco.
+- `t_936` — um trinta e três e seis.
+- `t_937` — um trinta e três e sete.
+- `t_938` — um trinta e três e oito.
+- `t_939` — um trinta e três e nove.
+- `t_940` — um trinta e quatro e zero.
+- `t_941` — um trinta e quatro e um.
+- `t_942` — um trinta e quatro e dois.
+- `t_943` — um trinta e quatro e três.
+- `t_944` — um trinta e quatro e quatro.
+- `t_945` — um trinta e quatro e cinco.
+- `t_946` — um trinta e quatro e seis.
+- `t_947` — um trinta e quatro e sete.
+- `t_948` — um trinta e quatro e oito.
+- `t_949` — um trinta e quatro e nove.
+- `t_950` — um trinta e cinco e zero.
+- `t_951` — um trinta e cinco e um.
+- `t_952` — um trinta e cinco e dois.
+- `t_953` — um trinta e cinco e três.
+- `t_954` — um trinta e cinco e quatro.
+- `t_955` — um trinta e cinco e cinco.
+- `t_956` — um trinta e cinco e seis.
+- `t_957` — um trinta e cinco e sete.
+- `t_958` — um trinta e cinco e oito.
+- `t_959` — um trinta e cinco e nove.
+- `t_960` — um trinta e seis e zero.
+- `t_961` — um trinta e seis e um.
+- `t_962` — um trinta e seis e dois.
+- `t_963` — um trinta e seis e três.
+- `t_964` — um trinta e seis e quatro.
+- `t_965` — um trinta e seis e cinco.
+- `t_966` — um trinta e seis e seis.
+- `t_967` — um trinta e seis e sete.
+- `t_968` — um trinta e seis e oito.
+- `t_969` — um trinta e seis e nove.
+- `t_970` — um trinta e sete e zero.
+- `t_971` — um trinta e sete e um.
+- `t_972` — um trinta e sete e dois.
+- `t_973` — um trinta e sete e três.
+- `t_974` — um trinta e sete e quatro.
+- `t_975` — um trinta e sete e cinco.
+- `t_976` — um trinta e sete e seis.
+- `t_977` — um trinta e sete e sete.
+- `t_978` — um trinta e sete e oito.
+- `t_979` — um trinta e sete e nove.
+- `t_980` — um trinta e oito e zero.
+- `t_981` — um trinta e oito e um.
+- `t_982` — um trinta e oito e dois.
+- `t_983` — um trinta e oito e três.
+- `t_984` — um trinta e oito e quatro.
+- `t_985` — um trinta e oito e cinco.
+- `t_986` — um trinta e oito e seis.
+- `t_987` — um trinta e oito e sete.
+- `t_988` — um trinta e oito e oito.
+- `t_989` — um trinta e oito e nove.
+- `t_990` — um trinta e nove e zero.
+- `t_991` — um trinta e nove e um.
+- `t_992` — um trinta e nove e dois.
+- `t_993` — um trinta e nove e três.
+- `t_994` — um trinta e nove e quatro.
+- `t_995` — um trinta e nove e cinco.
+- `t_996` — um trinta e nove e seis.
+- `t_997` — um trinta e nove e sete.
+- `t_998` — um trinta e nove e oito.
+- `t_999` — um trinta e nove e nove.
+- `t_1000` — um quarenta e zero.
+- `t_1001` — um quarenta e um.
+- `t_1002` — um quarenta e dois.
+- `t_1003` — um quarenta e três.
+- `t_1004` — um quarenta e quatro.
+- `t_1005` — um quarenta e cinco.
+- `t_1006` — um quarenta e seis.
+- `t_1007` — um quarenta e sete.
+- `t_1008` — um quarenta e oito.
+- `t_1009` — um quarenta e nove.
+- `t_1010` — um quarenta e um e zero.
+- `t_1011` — um quarenta e um e um.
+- `t_1012` — um quarenta e um e dois.
+- `t_1013` — um quarenta e um e três.
+- `t_1014` — um quarenta e um e quatro.
+- `t_1015` — um quarenta e um e cinco.
+- `t_1016` — um quarenta e um e seis.
+- `t_1017` — um quarenta e um e sete.
+- `t_1018` — um quarenta e um e oito.
+- `t_1019` — um quarenta e um e nove.
+- `t_1020` — um quarenta e dois e zero.
+- `t_1021` — um quarenta e dois e um.
+- `t_1022` — um quarenta e dois e dois.
+- `t_1023` — um quarenta e dois e três.
+- `t_1024` — um quarenta e dois e quatro.
+- `t_1025` — um quarenta e dois e cinco.
+- `t_1026` — um quarenta e dois e seis.
+- `t_1027` — um quarenta e dois e sete.
+- `t_1028` — um quarenta e dois e oito.
+- `t_1029` — um quarenta e dois e nove.
+- `t_1030` — um quarenta e três e zero.
+- `t_1031` — um quarenta e três e um.
+- `t_1032` — um quarenta e três e dois.
+- `t_1033` — um quarenta e três e três.
+- `t_1034` — um quarenta e três e quatro.
+- `t_1035` — um quarenta e três e cinco.
+- `t_1036` — um quarenta e três e seis.
+- `t_1037` — um quarenta e três e sete.
+- `t_1038` — um quarenta e três e oito.
+- `t_1039` — um quarenta e três e nove.
+- `t_1040` — um quarenta e quatro e zero.
+- `t_1041` — um quarenta e quatro e um.
+- `t_1042` — um quarenta e quatro e dois.
+- `t_1043` — um quarenta e quatro e três.
+- `t_1044` — um quarenta e quatro e quatro.
+- `t_1045` — um quarenta e quatro e cinco.
+- `t_1046` — um quarenta e quatro e seis.
+- `t_1047` — um quarenta e quatro e sete.
+- `t_1048` — um quarenta e quatro e oito.
+- `t_1049` — um quarenta e quatro e nove.
+- `t_1050` — um quarenta e cinco e zero.
+- `t_1051` — um quarenta e cinco e um.
+- `t_1052` — um quarenta e cinco e dois.
+- `t_1053` — um quarenta e cinco e três.
+- `t_1054` — um quarenta e cinco e quatro.
+- `t_1055` — um quarenta e cinco e cinco.
+- `t_1056` — um quarenta e cinco e seis.
+- `t_1057` — um quarenta e cinco e sete.
+- `t_1058` — um quarenta e cinco e oito.
+- `t_1059` — um quarenta e cinco e nove.
+- `t_1060` — um quarenta e seis e zero.
+- `t_1061` — um quarenta e seis e um.
+- `t_1062` — um quarenta e seis e dois.
+- `t_1063` — um quarenta e seis e três.
+- `t_1064` — um quarenta e seis e quatro.
+- `t_1065` — um quarenta e seis e cinco.
+- `t_1066` — um quarenta e seis e seis.
+- `t_1067` — um quarenta e seis e sete.
+- `t_1068` — um quarenta e seis e oito.
+- `t_1069` — um quarenta e seis e nove.
+- `t_1070` — um quarenta e sete e zero.
+- `t_1071` — um quarenta e sete e um.
+- `t_1072` — um quarenta e sete e dois.
+- `t_1073` — um quarenta e sete e três.
+- `t_1074` — um quarenta e sete e quatro.
+- `t_1075` — um quarenta e sete e cinco.
+- `t_1076` — um quarenta e sete e seis.
+- `t_1077` — um quarenta e sete e sete.
+- `t_1078` — um quarenta e sete e oito.
+- `t_1079` — um quarenta e sete e nove.
+- `t_1080` — um quarenta e oito e zero.
+- `t_1081` — um quarenta e oito e um.
+- `t_1082` — um quarenta e oito e dois.
+- `t_1083` — um quarenta e oito e três.
+- `t_1084` — um quarenta e oito e quatro.
+- `t_1085` — um quarenta e oito e cinco.
+- `t_1086` — um quarenta e oito e seis.
+- `t_1087` — um quarenta e oito e sete.
+- `t_1088` — um quarenta e oito e oito.
+- `t_1089` — um quarenta e oito e nove.
+- `t_1090` — um quarenta e nove e zero.
+- `t_1091` — um quarenta e nove e um.
+- `t_1092` — um quarenta e nove e dois.
+- `t_1093` — um quarenta e nove e três.
+- `t_1094` — um quarenta e nove e quatro.
+- `t_1095` — um quarenta e nove e cinco.
+- `t_1096` — um quarenta e nove e seis.
+- `t_1097` — um quarenta e nove e sete.
+- `t_1098` — um quarenta e nove e oito.
+- `t_1099` — um quarenta e nove e nove.
+- `t_1100` — um cinquenta e zero.
+- `t_1101` — um cinquenta e um.
+- `t_1102` — um cinquenta e dois.
+- `t_1103` — um cinquenta e três.
+- `t_1104` — um cinquenta e quatro.
+- `t_1105` — um cinquenta e cinco.
+- `t_1106` — um cinquenta e seis.
+- `t_1107` — um cinquenta e sete.
+- `t_1108` — um cinquenta e oito.
+- `t_1109` — um cinquenta e nove.
+- `t_1110` — um cinquenta e um e zero.
+- `t_1111` — um cinquenta e um e um.
+- `t_1112` — um cinquenta e um e dois.
+- `t_1113` — um cinquenta e um e três.
+- `t_1114` — um cinquenta e um e quatro.
+- `t_1115` — um cinquenta e um e cinco.
+- `t_1116` — um cinquenta e um e seis.
+- `t_1117` — um cinquenta e um e sete.
+- `t_1118` — um cinquenta e um e oito.
+- `t_1119` — um cinquenta e um e nove.
+- `t_1120` — um cinquenta e dois e zero.
+- `t_1121` — um cinquenta e dois e um.
+- `t_1122` — um cinquenta e dois e dois.
+- `t_1123` — um cinquenta e dois e três.
+- `t_1124` — um cinquenta e dois e quatro.
+- `t_1125` — um cinquenta e dois e cinco.
+- `t_1126` — um cinquenta e dois e seis.
+- `t_1127` — um cinquenta e dois e sete.
+- `t_1128` — um cinquenta e dois e oito.
+- `t_1129` — um cinquenta e dois e nove.
+- `t_1130` — um cinquenta e três e zero.
+- `t_1131` — um cinquenta e três e um.
+- `t_1132` — um cinquenta e três e dois.
+- `t_1133` — um cinquenta e três e três.
+- `t_1134` — um cinquenta e três e quatro.
+- `t_1135` — um cinquenta e três e cinco.
+- `t_1136` — um cinquenta e três e seis.
+- `t_1137` — um cinquenta e três e sete.
+- `t_1138` — um cinquenta e três e oito.
+- `t_1139` — um cinquenta e três e nove.
+- `t_1140` — um cinquenta e quatro e zero.
+- `t_1141` — um cinquenta e quatro e um.
+- `t_1142` — um cinquenta e quatro e dois.
+- `t_1143` — um cinquenta e quatro e três.
+- `t_1144` — um cinquenta e quatro e quatro.
+- `t_1145` — um cinquenta e quatro e cinco.
+- `t_1146` — um cinquenta e quatro e seis.
+- `t_1147` — um cinquenta e quatro e sete.
+- `t_1148` — um cinquenta e quatro e oito.
+- `t_1149` — um cinquenta e quatro e nove.
+- `t_1150` — um cinquenta e cinco e zero.
+- `t_1151` — um cinquenta e cinco e um.
+- `t_1152` — um cinquenta e cinco e dois.
+- `t_1153` — um cinquenta e cinco e três.
+- `t_1154` — um cinquenta e cinco e quatro.
+- `t_1155` — um cinquenta e cinco e cinco.
+- `t_1156` — um cinquenta e cinco e seis.
+- `t_1157` — um cinquenta e cinco e sete.
+- `t_1158` — um cinquenta e cinco e oito.
+- `t_1159` — um cinquenta e cinco e nove.
+- `t_1160` — um cinquenta e seis e zero.
+- `t_1161` — um cinquenta e seis e um.
+- `t_1162` — um cinquenta e seis e dois.
+- `t_1163` — um cinquenta e seis e três.
+- `t_1164` — um cinquenta e seis e quatro.
+- `t_1165` — um cinquenta e seis e cinco.
+- `t_1166` — um cinquenta e seis e seis.
+- `t_1167` — um cinquenta e seis e sete.
+- `t_1168` — um cinquenta e seis e oito.
+- `t_1169` — um cinquenta e seis e nove.
+- `t_1170` — um cinquenta e sete e zero.
+- `t_1171` — um cinquenta e sete e um.
+- `t_1172` — um cinquenta e sete e dois.
+- `t_1173` — um cinquenta e sete e três.
+- `t_1174` — um cinquenta e sete e quatro.
+- `t_1175` — um cinquenta e sete e cinco.
+- `t_1176` — um cinquenta e sete e seis.
+- `t_1177` — um cinquenta e sete e sete.
+- `t_1178` — um cinquenta e sete e oito.
+- `t_1179` — um cinquenta e sete e nove.
+- `t_1180` — um cinquenta e oito e zero.
+- `t_1181` — um cinquenta e oito e um.
+- `t_1182` — um cinquenta e oito e dois.
+- `t_1183` — um cinquenta e oito e três.
+- `t_1184` — um cinquenta e oito e quatro.
+- `t_1185` — um cinquenta e oito e cinco.
+- `t_1186` — um cinquenta e oito e seis.
+- `t_1187` — um cinquenta e oito e sete.
+- `t_1188` — um cinquenta e oito e oito.
+- `t_1189` — um cinquenta e oito e nove.
+- `t_1190` — um cinquenta e nove e zero.
+- `t_1191` — um cinquenta e nove e um.
+- `t_1192` — um cinquenta e nove e dois.
+- `t_1193` — um cinquenta e nove e três.
+- `t_1194` — um cinquenta e nove e quatro.
+- `t_1195` — um cinquenta e nove e cinco.
+- `t_1196` — um cinquenta e nove e seis.
+- `t_1197` — um cinquenta e nove e sete.
+- `t_1198` — um cinquenta e nove e oito.
+- `t_1199` — um cinquenta e nove e nove.
+- `t_1200` — dois zero zero e zero.
+- `t_1201` — dois zero zero e um.
+- `t_1202` — dois zero zero e dois.
+- `t_1203` — dois zero zero e três.
+- `t_1204` — dois zero zero e quatro.
+- `t_1205` — dois zero zero e cinco.
+- `t_1206` — dois zero zero e seis.
+- `t_1207` — dois zero zero e sete.
+- `t_1208` — dois zero zero e oito.
+- `t_1209` — dois zero zero e nove.
+- `t_1210` — dois zero um e zero.
+- `t_1211` — dois zero um e um.
+- `t_1212` — dois zero um e dois.
+- `t_1213` — dois zero um e três.
+- `t_1214` — dois zero um e quatro.
+- `t_1215` — dois zero um e cinco.
+- `t_1216` — dois zero um e seis.
+- `t_1217` — dois zero um e sete.
+- `t_1218` — dois zero um e oito.
+- `t_1219` — dois zero um e nove.
+- `t_1220` — dois zero dois e zero.
+- `t_1221` — dois zero dois e um.
+- `t_1222` — dois zero dois e dois.
+- `t_1223` — dois zero dois e três.
+- `t_1224` — dois zero dois e quatro.
+- `t_1225` — dois zero dois e cinco.
+- `t_1226` — dois zero dois e seis.
+- `t_1227` — dois zero dois e sete.
+- `t_1228` — dois zero dois e oito.
+- `t_1229` — dois zero dois e nove.
+- `t_1230` — dois zero três e zero.
+- `t_1231` — dois zero três e um.
+- `t_1232` — dois zero três e dois.
+- `t_1233` — dois zero três e três.
+- `t_1234` — dois zero três e quatro.
+- `t_1235` — dois zero três e cinco.
+- `t_1236` — dois zero três e seis.
+- `t_1237` — dois zero três e sete.
+- `t_1238` — dois zero três e oito.
+- `t_1239` — dois zero três e nove.
+- `t_1240` — dois zero quatro e zero.
+- `t_1241` — dois zero quatro e um.
+- `t_1242` — dois zero quatro e dois.
+- `t_1243` — dois zero quatro e três.
+- `t_1244` — dois zero quatro e quatro.
+- `t_1245` — dois zero quatro e cinco.
+- `t_1246` — dois zero quatro e seis.
+- `t_1247` — dois zero quatro e sete.
+- `t_1248` — dois zero quatro e oito.
+- `t_1249` — dois zero quatro e nove.
+- `t_1250` — dois zero cinco e zero.
+- `t_1251` — dois zero cinco e um.
+- `t_1252` — dois zero cinco e dois.
+- `t_1253` — dois zero cinco e três.
+- `t_1254` — dois zero cinco e quatro.
+- `t_1255` — dois zero cinco e cinco.
+- `t_1256` — dois zero cinco e seis.
+- `t_1257` — dois zero cinco e sete.
+- `t_1258` — dois zero cinco e oito.
+- `t_1259` — dois zero cinco e nove.
+- `t_1260` — dois zero seis e zero.
+- `t_1261` — dois zero seis e um.
+- `t_1262` — dois zero seis e dois.
+- `t_1263` — dois zero seis e três.
+- `t_1264` — dois zero seis e quatro.
+- `t_1265` — dois zero seis e cinco.
+- `t_1266` — dois zero seis e seis.
+- `t_1267` — dois zero seis e sete.
+- `t_1268` — dois zero seis e oito.
+- `t_1269` — dois zero seis e nove.
+- `t_1270` — dois zero sete e zero.
+- `t_1271` — dois zero sete e um.
+- `t_1272` — dois zero sete e dois.
+- `t_1273` — dois zero sete e três.
+- `t_1274` — dois zero sete e quatro.
+- `t_1275` — dois zero sete e cinco.
+- `t_1276` — dois zero sete e seis.
+- `t_1277` — dois zero sete e sete.
+- `t_1278` — dois zero sete e oito.
+- `t_1279` — dois zero sete e nove.
+- `t_1280` — dois zero oito e zero.
+- `t_1281` — dois zero oito e um.
+- `t_1282` — dois zero oito e dois.
+- `t_1283` — dois zero oito e três.
+- `t_1284` — dois zero oito e quatro.
+- `t_1285` — dois zero oito e cinco.
+- `t_1286` — dois zero oito e seis.
+- `t_1287` — dois zero oito e sete.
+- `t_1288` — dois zero oito e oito.
+- `t_1289` — dois zero oito e nove.
+- `t_1290` — dois zero nove e zero.
+- `t_1291` — dois zero nove e um.
+- `t_1292` — dois zero nove e dois.
+- `t_1293` — dois zero nove e três.
+- `t_1294` — dois zero nove e quatro.
+- `t_1295` — dois zero nove e cinco.
+- `t_1296` — dois zero nove e seis.
+- `t_1297` — dois zero nove e sete.
+- `t_1298` — dois zero nove e oito.
+- `t_1299` — dois zero nove e nove.
+- `t_1300` — dois dez e zero.
+- `t_1301` — dois dez e um.
+- `t_1302` — dois dez e dois.
+- `t_1303` — dois dez e três.
+- `t_1304` — dois dez e quatro.
+- `t_1305` — dois dez e cinco.
+- `t_1306` — dois dez e seis.
+- `t_1307` — dois dez e sete.
+- `t_1308` — dois dez e oito.
+- `t_1309` — dois dez e nove.
+- `t_1310` — dois onze e zero.
+- `t_1311` — dois onze e um.
+- `t_1312` — dois onze e dois.
+- `t_1313` — dois onze e três.
+- `t_1314` — dois onze e quatro.
+- `t_1315` — dois onze e cinco.
+- `t_1316` — dois onze e seis.
+- `t_1317` — dois onze e sete.
+- `t_1318` — dois onze e oito.
+- `t_1319` — dois onze e nove.
+- `t_1320` — dois doze e zero.
+- `t_1321` — dois doze e um.
+- `t_1322` — dois doze e dois.
+- `t_1323` — dois doze e três.
+- `t_1324` — dois doze e quatro.
+- `t_1325` — dois doze e cinco.
+- `t_1326` — dois doze e seis.
+- `t_1327` — dois doze e sete.
+- `t_1328` — dois doze e oito.
+- `t_1329` — dois doze e nove.
+- `t_1330` — dois treze e zero.
+- `t_1331` — dois treze e um.
+- `t_1332` — dois treze e dois.
+- `t_1333` — dois treze e três.
+- `t_1334` — dois treze e quatro.
+- `t_1335` — dois treze e cinco.
+- `t_1336` — dois treze e seis.
+- `t_1337` — dois treze e sete.
+- `t_1338` — dois treze e oito.
+- `t_1339` — dois treze e nove.
+- `t_1340` — dois catorze e zero.
+- `t_1341` — dois catorze e um.
+- `t_1342` — dois catorze e dois.
+- `t_1343` — dois catorze e três.
+- `t_1344` — dois catorze e quatro.
+- `t_1345` — dois catorze e cinco.
+- `t_1346` — dois catorze e seis.
+- `t_1347` — dois catorze e sete.
+- `t_1348` — dois catorze e oito.
+- `t_1349` — dois catorze e nove.
+- `t_1350` — dois quinze e zero.
+- `t_1351` — dois quinze e um.
+- `t_1352` — dois quinze e dois.
+- `t_1353` — dois quinze e três.
+- `t_1354` — dois quinze e quatro.
+- `t_1355` — dois quinze e cinco.
+- `t_1356` — dois quinze e seis.
+- `t_1357` — dois quinze e sete.
+- `t_1358` — dois quinze e oito.
+- `t_1359` — dois quinze e nove.
+- `t_1360` — dois dezesseis e zero.
+- `t_1361` — dois dezesseis e um.
+- `t_1362` — dois dezesseis e dois.
+- `t_1363` — dois dezesseis e três.
+- `t_1364` — dois dezesseis e quatro.
+- `t_1365` — dois dezesseis e cinco.
+- `t_1366` — dois dezesseis e seis.
+- `t_1367` — dois dezesseis e sete.
+- `t_1368` — dois dezesseis e oito.
+- `t_1369` — dois dezesseis e nove.
+- `t_1370` — dois dezessete e zero.
+- `t_1371` — dois dezessete e um.
+- `t_1372` — dois dezessete e dois.
+- `t_1373` — dois dezessete e três.
+- `t_1374` — dois dezessete e quatro.
+- `t_1375` — dois dezessete e cinco.
+- `t_1376` — dois dezessete e seis.
+- `t_1377` — dois dezessete e sete.
+- `t_1378` — dois dezessete e oito.
+- `t_1379` — dois dezessete e nove.
+- `t_1380` — dois dezoito e zero.
+- `t_1381` — dois dezoito e um.
+- `t_1382` — dois dezoito e dois.
+- `t_1383` — dois dezoito e três.
+- `t_1384` — dois dezoito e quatro.
+- `t_1385` — dois dezoito e cinco.
+- `t_1386` — dois dezoito e seis.
+- `t_1387` — dois dezoito e sete.
+- `t_1388` — dois dezoito e oito.
+- `t_1389` — dois dezoito e nove.
+- `t_1390` — dois dezenove e zero.
+- `t_1391` — dois dezenove e um.
+- `t_1392` — dois dezenove e dois.
+- `t_1393` — dois dezenove e três.
+- `t_1394` — dois dezenove e quatro.
+- `t_1395` — dois dezenove e cinco.
+- `t_1396` — dois dezenove e seis.
+- `t_1397` — dois dezenove e sete.
+- `t_1398` — dois dezenove e oito.
+- `t_1399` — dois dezenove e nove.
+- `t_1400` — dois vinte e zero.
+- `t_1401` — dois vinte e um.
+- `t_1402` — dois vinte e dois.
+- `t_1403` — dois vinte e três.
+- `t_1404` — dois vinte e quatro.
+- `t_1405` — dois vinte e cinco.
+- `t_1406` — dois vinte e seis.
+- `t_1407` — dois vinte e sete.
+- `t_1408` — dois vinte e oito.
+- `t_1409` — dois vinte e nove.
+- `t_1410` — dois vinte e um e zero.
+- `t_1411` — dois vinte e um e um.
+- `t_1412` — dois vinte e um e dois.
+- `t_1413` — dois vinte e um e três.
+- `t_1414` — dois vinte e um e quatro.
+- `t_1415` — dois vinte e um e cinco.
+- `t_1416` — dois vinte e um e seis.
+- `t_1417` — dois vinte e um e sete.
+- `t_1418` — dois vinte e um e oito.
+- `t_1419` — dois vinte e um e nove.
+- `t_1420` — dois vinte e dois e zero.
+- `t_1421` — dois vinte e dois e um.
+- `t_1422` — dois vinte e dois e dois.
+- `t_1423` — dois vinte e dois e três.
+- `t_1424` — dois vinte e dois e quatro.
+- `t_1425` — dois vinte e dois e cinco.
+- `t_1426` — dois vinte e dois e seis.
+- `t_1427` — dois vinte e dois e sete.
+- `t_1428` — dois vinte e dois e oito.
+- `t_1429` — dois vinte e dois e nove.
+- `t_1430` — dois vinte e três e zero.
+- `t_1431` — dois vinte e três e um.
+- `t_1432` — dois vinte e três e dois.
+- `t_1433` — dois vinte e três e três.
+- `t_1434` — dois vinte e três e quatro.
+- `t_1435` — dois vinte e três e cinco.
+- `t_1436` — dois vinte e três e seis.
+- `t_1437` — dois vinte e três e sete.
+- `t_1438` — dois vinte e três e oito.
+- `t_1439` — dois vinte e três e nove.
+- `t_1440` — dois vinte e quatro e zero.
+- `t_1441` — dois vinte e quatro e um.
+- `t_1442` — dois vinte e quatro e dois.
+- `t_1443` — dois vinte e quatro e três.
+- `t_1444` — dois vinte e quatro e quatro.
+- `t_1445` — dois vinte e quatro e cinco.
+- `t_1446` — dois vinte e quatro e seis.
+- `t_1447` — dois vinte e quatro e sete.
+- `t_1448` — dois vinte e quatro e oito.
+- `t_1449` — dois vinte e quatro e nove.
+- `t_1450` — dois vinte e cinco e zero.
+- `t_1451` — dois vinte e cinco e um.
+- `t_1452` — dois vinte e cinco e dois.
+- `t_1453` — dois vinte e cinco e três.
+- `t_1454` — dois vinte e cinco e quatro.
+- `t_1455` — dois vinte e cinco e cinco.
+- `t_1456` — dois vinte e cinco e seis.
+- `t_1457` — dois vinte e cinco e sete.
+- `t_1458` — dois vinte e cinco e oito.
+- `t_1459` — dois vinte e cinco e nove.
+- `t_1460` — dois vinte e seis e zero.
+- `t_1461` — dois vinte e seis e um.
+- `t_1462` — dois vinte e seis e dois.
+- `t_1463` — dois vinte e seis e três.
+- `t_1464` — dois vinte e seis e quatro.
+- `t_1465` — dois vinte e seis e cinco.
+- `t_1466` — dois vinte e seis e seis.
+- `t_1467` — dois vinte e seis e sete.
+- `t_1468` — dois vinte e seis e oito.
+- `t_1469` — dois vinte e seis e nove.
+- `t_1470` — dois vinte e sete e zero.
+- `t_1471` — dois vinte e sete e um.
+- `t_1472` — dois vinte e sete e dois.
+- `t_1473` — dois vinte e sete e três.
+- `t_1474` — dois vinte e sete e quatro.
+- `t_1475` — dois vinte e sete e cinco.
+- `t_1476` — dois vinte e sete e seis.
+- `t_1477` — dois vinte e sete e sete.
+- `t_1478` — dois vinte e sete e oito.
+- `t_1479` — dois vinte e sete e nove.
+- `t_1480` — dois vinte e oito e zero.
+- `t_1481` — dois vinte e oito e um.
+- `t_1482` — dois vinte e oito e dois.
+- `t_1483` — dois vinte e oito e três.
+- `t_1484` — dois vinte e oito e quatro.
+- `t_1485` — dois vinte e oito e cinco.
+- `t_1486` — dois vinte e oito e seis.
+- `t_1487` — dois vinte e oito e sete.
+- `t_1488` — dois vinte e oito e oito.
+- `t_1489` — dois vinte e oito e nove.
+- `t_1490` — dois vinte e nove e zero.
+- `t_1491` — dois vinte e nove e um.
+- `t_1492` — dois vinte e nove e dois.
+- `t_1493` — dois vinte e nove e três.
+- `t_1494` — dois vinte e nove e quatro.
+- `t_1495` — dois vinte e nove e cinco.
+- `t_1496` — dois vinte e nove e seis.
+- `t_1497` — dois vinte e nove e sete.
+- `t_1498` — dois vinte e nove e oito.
+- `t_1499` — dois vinte e nove e nove.
+- `t_1500` — dois trinta e zero.
+- `t_1501` — dois trinta e um.
+- `t_1502` — dois trinta e dois.
+- `t_1503` — dois trinta e três.
+- `t_1504` — dois trinta e quatro.
+- `t_1505` — dois trinta e cinco.
+- `t_1506` — dois trinta e seis.
+- `t_1507` — dois trinta e sete.
+- `t_1508` — dois trinta e oito.
+- `t_1509` — dois trinta e nove.
+- `t_1510` — dois trinta e um e zero.
+- `t_1511` — dois trinta e um e um.
+- `t_1512` — dois trinta e um e dois.
+- `t_1513` — dois trinta e um e três.
+- `t_1514` — dois trinta e um e quatro.
+- `t_1515` — dois trinta e um e cinco.
+- `t_1516` — dois trinta e um e seis.
+- `t_1517` — dois trinta e um e sete.
+- `t_1518` — dois trinta e um e oito.
+- `t_1519` — dois trinta e um e nove.
+- `t_1520` — dois trinta e dois e zero.
+- `t_1521` — dois trinta e dois e um.
+- `t_1522` — dois trinta e dois e dois.
+- `t_1523` — dois trinta e dois e três.
+- `t_1524` — dois trinta e dois e quatro.
+- `t_1525` — dois trinta e dois e cinco.
+- `t_1526` — dois trinta e dois e seis.
+- `t_1527` — dois trinta e dois e sete.
+- `t_1528` — dois trinta e dois e oito.
+- `t_1529` — dois trinta e dois e nove.
+- `t_1530` — dois trinta e três e zero.
+- `t_1531` — dois trinta e três e um.
+- `t_1532` — dois trinta e três e dois.
+- `t_1533` — dois trinta e três e três.
+- `t_1534` — dois trinta e três e quatro.
+- `t_1535` — dois trinta e três e cinco.
+- `t_1536` — dois trinta e três e seis.
+- `t_1537` — dois trinta e três e sete.
+- `t_1538` — dois trinta e três e oito.
+- `t_1539` — dois trinta e três e nove.
+- `t_1540` — dois trinta e quatro e zero.
+- `t_1541` — dois trinta e quatro e um.
+- `t_1542` — dois trinta e quatro e dois.
+- `t_1543` — dois trinta e quatro e três.
+- `t_1544` — dois trinta e quatro e quatro.
+- `t_1545` — dois trinta e quatro e cinco.
+- `t_1546` — dois trinta e quatro e seis.
+- `t_1547` — dois trinta e quatro e sete.
+- `t_1548` — dois trinta e quatro e oito.
+- `t_1549` — dois trinta e quatro e nove.
+- `t_1550` — dois trinta e cinco e zero.
+- `t_1551` — dois trinta e cinco e um.
+- `t_1552` — dois trinta e cinco e dois.
+- `t_1553` — dois trinta e cinco e três.
+- `t_1554` — dois trinta e cinco e quatro.
+- `t_1555` — dois trinta e cinco e cinco.
+- `t_1556` — dois trinta e cinco e seis.
+- `t_1557` — dois trinta e cinco e sete.
+- `t_1558` — dois trinta e cinco e oito.
+- `t_1559` — dois trinta e cinco e nove.
+- `t_1560` — dois trinta e seis e zero.
+- `t_1561` — dois trinta e seis e um.
+- `t_1562` — dois trinta e seis e dois.
+- `t_1563` — dois trinta e seis e três.
+- `t_1564` — dois trinta e seis e quatro.
+- `t_1565` — dois trinta e seis e cinco.
+- `t_1566` — dois trinta e seis e seis.
+- `t_1567` — dois trinta e seis e sete.
+- `t_1568` — dois trinta e seis e oito.
+- `t_1569` — dois trinta e seis e nove.
+- `t_1570` — dois trinta e sete e zero.
+- `t_1571` — dois trinta e sete e um.
+- `t_1572` — dois trinta e sete e dois.
+- `t_1573` — dois trinta e sete e três.
+- `t_1574` — dois trinta e sete e quatro.
+- `t_1575` — dois trinta e sete e cinco.
+- `t_1576` — dois trinta e sete e seis.
+- `t_1577` — dois trinta e sete e sete.
+- `t_1578` — dois trinta e sete e oito.
+- `t_1579` — dois trinta e sete e nove.
+- `t_1580` — dois trinta e oito e zero.
+- `t_1581` — dois trinta e oito e um.
+- `t_1582` — dois trinta e oito e dois.
+- `t_1583` — dois trinta e oito e três.
+- `t_1584` — dois trinta e oito e quatro.
+- `t_1585` — dois trinta e oito e cinco.
+- `t_1586` — dois trinta e oito e seis.
+- `t_1587` — dois trinta e oito e sete.
+- `t_1588` — dois trinta e oito e oito.
+- `t_1589` — dois trinta e oito e nove.
+- `t_1590` — dois trinta e nove e zero.
+- `t_1591` — dois trinta e nove e um.
+- `t_1592` — dois trinta e nove e dois.
+- `t_1593` — dois trinta e nove e três.
+- `t_1594` — dois trinta e nove e quatro.
+- `t_1595` — dois trinta e nove e cinco.
+- `t_1596` — dois trinta e nove e seis.
+- `t_1597` — dois trinta e nove e sete.
+- `t_1598` — dois trinta e nove e oito.
+- `t_1599` — dois trinta e nove e nove.
+- `t_1600` — dois quarenta e zero.
+- `t_1601` — dois quarenta e um.
+- `t_1602` — dois quarenta e dois.
+- `t_1603` — dois quarenta e três.
+- `t_1604` — dois quarenta e quatro.
+- `t_1605` — dois quarenta e cinco.
+- `t_1606` — dois quarenta e seis.
+- `t_1607` — dois quarenta e sete.
+- `t_1608` — dois quarenta e oito.
+- `t_1609` — dois quarenta e nove.
+- `t_1610` — dois quarenta e um e zero.
+- `t_1611` — dois quarenta e um e um.
+- `t_1612` — dois quarenta e um e dois.
+- `t_1613` — dois quarenta e um e três.
+- `t_1614` — dois quarenta e um e quatro.
+- `t_1615` — dois quarenta e um e cinco.
+- `t_1616` — dois quarenta e um e seis.
+- `t_1617` — dois quarenta e um e sete.
+- `t_1618` — dois quarenta e um e oito.
+- `t_1619` — dois quarenta e um e nove.
+- `t_1620` — dois quarenta e dois e zero.
+- `t_1621` — dois quarenta e dois e um.
+- `t_1622` — dois quarenta e dois e dois.
+- `t_1623` — dois quarenta e dois e três.
+- `t_1624` — dois quarenta e dois e quatro.
+- `t_1625` — dois quarenta e dois e cinco.
+- `t_1626` — dois quarenta e dois e seis.
+- `t_1627` — dois quarenta e dois e sete.
+- `t_1628` — dois quarenta e dois e oito.
+- `t_1629` — dois quarenta e dois e nove.
+- `t_1630` — dois quarenta e três e zero.
+- `t_1631` — dois quarenta e três e um.
+- `t_1632` — dois quarenta e três e dois.
+- `t_1633` — dois quarenta e três e três.
+- `t_1634` — dois quarenta e três e quatro.
+- `t_1635` — dois quarenta e três e cinco.
+- `t_1636` — dois quarenta e três e seis.
+- `t_1637` — dois quarenta e três e sete.
+- `t_1638` — dois quarenta e três e oito.
+- `t_1639` — dois quarenta e três e nove.
+- `t_1640` — dois quarenta e quatro e zero.
+- `t_1641` — dois quarenta e quatro e um.
+- `t_1642` — dois quarenta e quatro e dois.
+- `t_1643` — dois quarenta e quatro e três.
+- `t_1644` — dois quarenta e quatro e quatro.
+- `t_1645` — dois quarenta e quatro e cinco.
+- `t_1646` — dois quarenta e quatro e seis.
+- `t_1647` — dois quarenta e quatro e sete.
+- `t_1648` — dois quarenta e quatro e oito.
+- `t_1649` — dois quarenta e quatro e nove.
+- `t_1650` — dois quarenta e cinco e zero.
+- `t_1651` — dois quarenta e cinco e um.
+- `t_1652` — dois quarenta e cinco e dois.
+- `t_1653` — dois quarenta e cinco e três.
+- `t_1654` — dois quarenta e cinco e quatro.
+- `t_1655` — dois quarenta e cinco e cinco.
+- `t_1656` — dois quarenta e cinco e seis.
+- `t_1657` — dois quarenta e cinco e sete.
+- `t_1658` — dois quarenta e cinco e oito.
+- `t_1659` — dois quarenta e cinco e nove.
+- `t_1660` — dois quarenta e seis e zero.
+- `t_1661` — dois quarenta e seis e um.
+- `t_1662` — dois quarenta e seis e dois.
+- `t_1663` — dois quarenta e seis e três.
+- `t_1664` — dois quarenta e seis e quatro.
+- `t_1665` — dois quarenta e seis e cinco.
+- `t_1666` — dois quarenta e seis e seis.
+- `t_1667` — dois quarenta e seis e sete.
+- `t_1668` — dois quarenta e seis e oito.
+- `t_1669` — dois quarenta e seis e nove.
+- `t_1670` — dois quarenta e sete e zero.
+- `t_1671` — dois quarenta e sete e um.
+- `t_1672` — dois quarenta e sete e dois.
+- `t_1673` — dois quarenta e sete e três.
+- `t_1674` — dois quarenta e sete e quatro.
+- `t_1675` — dois quarenta e sete e cinco.
+- `t_1676` — dois quarenta e sete e seis.
+- `t_1677` — dois quarenta e sete e sete.
+- `t_1678` — dois quarenta e sete e oito.
+- `t_1679` — dois quarenta e sete e nove.
+- `t_1680` — dois quarenta e oito e zero.
+- `t_1681` — dois quarenta e oito e um.
+- `t_1682` — dois quarenta e oito e dois.
+- `t_1683` — dois quarenta e oito e três.
+- `t_1684` — dois quarenta e oito e quatro.
+- `t_1685` — dois quarenta e oito e cinco.
+- `t_1686` — dois quarenta e oito e seis.
+- `t_1687` — dois quarenta e oito e sete.
+- `t_1688` — dois quarenta e oito e oito.
+- `t_1689` — dois quarenta e oito e nove.
+- `t_1690` — dois quarenta e nove e zero.
+- `t_1691` — dois quarenta e nove e um.
+- `t_1692` — dois quarenta e nove e dois.
+- `t_1693` — dois quarenta e nove e três.
+- `t_1694` — dois quarenta e nove e quatro.
+- `t_1695` — dois quarenta e nove e cinco.
+- `t_1696` — dois quarenta e nove e seis.
+- `t_1697` — dois quarenta e nove e sete.
+- `t_1698` — dois quarenta e nove e oito.
+- `t_1699` — dois quarenta e nove e nove.
+- `t_1700` — dois cinquenta e zero.
+- `t_1701` — dois cinquenta e um.
+- `t_1702` — dois cinquenta e dois.
+- `t_1703` — dois cinquenta e três.
+- `t_1704` — dois cinquenta e quatro.
+- `t_1705` — dois cinquenta e cinco.
+- `t_1706` — dois cinquenta e seis.
+- `t_1707` — dois cinquenta e sete.
+- `t_1708` — dois cinquenta e oito.
+- `t_1709` — dois cinquenta e nove.
+- `t_1710` — dois cinquenta e um e zero.
+- `t_1711` — dois cinquenta e um e um.
+- `t_1712` — dois cinquenta e um e dois.
+- `t_1713` — dois cinquenta e um e três.
+- `t_1714` — dois cinquenta e um e quatro.
+- `t_1715` — dois cinquenta e um e cinco.
+- `t_1716` — dois cinquenta e um e seis.
+- `t_1717` — dois cinquenta e um e sete.
+- `t_1718` — dois cinquenta e um e oito.
+- `t_1719` — dois cinquenta e um e nove.
+- `t_1720` — dois cinquenta e dois e zero.
+- `t_1721` — dois cinquenta e dois e um.
+- `t_1722` — dois cinquenta e dois e dois.
+- `t_1723` — dois cinquenta e dois e três.
+- `t_1724` — dois cinquenta e dois e quatro.
+- `t_1725` — dois cinquenta e dois e cinco.
+- `t_1726` — dois cinquenta e dois e seis.
+- `t_1727` — dois cinquenta e dois e sete.
+- `t_1728` — dois cinquenta e dois e oito.
+- `t_1729` — dois cinquenta e dois e nove.
+- `t_1730` — dois cinquenta e três e zero.
+- `t_1731` — dois cinquenta e três e um.
+- `t_1732` — dois cinquenta e três e dois.
+- `t_1733` — dois cinquenta e três e três.
+- `t_1734` — dois cinquenta e três e quatro.
+- `t_1735` — dois cinquenta e três e cinco.
+- `t_1736` — dois cinquenta e três e seis.
+- `t_1737` — dois cinquenta e três e sete.
+- `t_1738` — dois cinquenta e três e oito.
+- `t_1739` — dois cinquenta e três e nove.
+- `t_1740` — dois cinquenta e quatro e zero.
+- `t_1741` — dois cinquenta e quatro e um.
+- `t_1742` — dois cinquenta e quatro e dois.
+- `t_1743` — dois cinquenta e quatro e três.
+- `t_1744` — dois cinquenta e quatro e quatro.
+- `t_1745` — dois cinquenta e quatro e cinco.
+- `t_1746` — dois cinquenta e quatro e seis.
+- `t_1747` — dois cinquenta e quatro e sete.
+- `t_1748` — dois cinquenta e quatro e oito.
+- `t_1749` — dois cinquenta e quatro e nove.
+- `t_1750` — dois cinquenta e cinco e zero.
+- `t_1751` — dois cinquenta e cinco e um.
+- `t_1752` — dois cinquenta e cinco e dois.
+- `t_1753` — dois cinquenta e cinco e três.
+- `t_1754` — dois cinquenta e cinco e quatro.
+- `t_1755` — dois cinquenta e cinco e cinco.
+- `t_1756` — dois cinquenta e cinco e seis.
+- `t_1757` — dois cinquenta e cinco e sete.
+- `t_1758` — dois cinquenta e cinco e oito.
+- `t_1759` — dois cinquenta e cinco e nove.
+- `t_1760` — dois cinquenta e seis e zero.
+- `t_1761` — dois cinquenta e seis e um.
+- `t_1762` — dois cinquenta e seis e dois.
+- `t_1763` — dois cinquenta e seis e três.
+- `t_1764` — dois cinquenta e seis e quatro.
+- `t_1765` — dois cinquenta e seis e cinco.
+- `t_1766` — dois cinquenta e seis e seis.
+- `t_1767` — dois cinquenta e seis e sete.
+- `t_1768` — dois cinquenta e seis e oito.
+- `t_1769` — dois cinquenta e seis e nove.
+- `t_1770` — dois cinquenta e sete e zero.
+- `t_1771` — dois cinquenta e sete e um.
+- `t_1772` — dois cinquenta e sete e dois.
+- `t_1773` — dois cinquenta e sete e três.
+- `t_1774` — dois cinquenta e sete e quatro.
+- `t_1775` — dois cinquenta e sete e cinco.
+- `t_1776` — dois cinquenta e sete e seis.
+- `t_1777` — dois cinquenta e sete e sete.
+- `t_1778` — dois cinquenta e sete e oito.
+- `t_1779` — dois cinquenta e sete e nove.
+- `t_1780` — dois cinquenta e oito e zero.
+- `t_1781` — dois cinquenta e oito e um.
+- `t_1782` — dois cinquenta e oito e dois.
+- `t_1783` — dois cinquenta e oito e três.
+- `t_1784` — dois cinquenta e oito e quatro.
+- `t_1785` — dois cinquenta e oito e cinco.
+- `t_1786` — dois cinquenta e oito e seis.
+- `t_1787` — dois cinquenta e oito e sete.
+- `t_1788` — dois cinquenta e oito e oito.
+- `t_1789` — dois cinquenta e oito e nove.
+- `t_1790` — dois cinquenta e nove e zero.
+- `t_1791` — dois cinquenta e nove e um.
+- `t_1792` — dois cinquenta e nove e dois.
+- `t_1793` — dois cinquenta e nove e três.
+- `t_1794` — dois cinquenta e nove e quatro.
+- `t_1795` — dois cinquenta e nove e cinco.
+- `t_1796` — dois cinquenta e nove e seis.
+- `t_1797` — dois cinquenta e nove e sete.
+- `t_1798` — dois cinquenta e nove e oito.
+- `t_1799` — dois cinquenta e nove e nove.
+- `t_1800` — três zero zero e zero.
+- `t_1801` — três zero zero e um.
+- `t_1802` — três zero zero e dois.
+- `t_1803` — três zero zero e três.
+- `t_1804` — três zero zero e quatro.
+- `t_1805` — três zero zero e cinco.
+- `t_1806` — três zero zero e seis.
+- `t_1807` — três zero zero e sete.
+- `t_1808` — três zero zero e oito.
+- `t_1809` — três zero zero e nove.
+- `t_1810` — três zero um e zero.
+- `t_1811` — três zero um e um.
+- `t_1812` — três zero um e dois.
+- `t_1813` — três zero um e três.
+- `t_1814` — três zero um e quatro.
+- `t_1815` — três zero um e cinco.
+- `t_1816` — três zero um e seis.
+- `t_1817` — três zero um e sete.
+- `t_1818` — três zero um e oito.
+- `t_1819` — três zero um e nove.
+- `t_1820` — três zero dois e zero.
+- `t_1821` — três zero dois e um.
+- `t_1822` — três zero dois e dois.
+- `t_1823` — três zero dois e três.
+- `t_1824` — três zero dois e quatro.
+- `t_1825` — três zero dois e cinco.
+- `t_1826` — três zero dois e seis.
+- `t_1827` — três zero dois e sete.
+- `t_1828` — três zero dois e oito.
+- `t_1829` — três zero dois e nove.
+- `t_1830` — três zero três e zero.
+- `t_1831` — três zero três e um.
+- `t_1832` — três zero três e dois.
+- `t_1833` — três zero três e três.
+- `t_1834` — três zero três e quatro.
+- `t_1835` — três zero três e cinco.
+- `t_1836` — três zero três e seis.
+- `t_1837` — três zero três e sete.
+- `t_1838` — três zero três e oito.
+- `t_1839` — três zero três e nove.
+- `t_1840` — três zero quatro e zero.
+- `t_1841` — três zero quatro e um.
+- `t_1842` — três zero quatro e dois.
+- `t_1843` — três zero quatro e três.
+- `t_1844` — três zero quatro e quatro.
+- `t_1845` — três zero quatro e cinco.
+- `t_1846` — três zero quatro e seis.
+- `t_1847` — três zero quatro e sete.
+- `t_1848` — três zero quatro e oito.
+- `t_1849` — três zero quatro e nove.
+- `t_1850` — três zero cinco e zero.
+- `t_1851` — três zero cinco e um.
+- `t_1852` — três zero cinco e dois.
+- `t_1853` — três zero cinco e três.
+- `t_1854` — três zero cinco e quatro.
+- `t_1855` — três zero cinco e cinco.
+- `t_1856` — três zero cinco e seis.
+- `t_1857` — três zero cinco e sete.
+- `t_1858` — três zero cinco e oito.
+- `t_1859` — três zero cinco e nove.
+- `t_1860` — três zero seis e zero.
+- `t_1861` — três zero seis e um.
+- `t_1862` — três zero seis e dois.
+- `t_1863` — três zero seis e três.
+- `t_1864` — três zero seis e quatro.
+- `t_1865` — três zero seis e cinco.
+- `t_1866` — três zero seis e seis.
+- `t_1867` — três zero seis e sete.
+- `t_1868` — três zero seis e oito.
+- `t_1869` — três zero seis e nove.
+- `t_1870` — três zero sete e zero.
+- `t_1871` — três zero sete e um.
+- `t_1872` — três zero sete e dois.
+- `t_1873` — três zero sete e três.
+- `t_1874` — três zero sete e quatro.
+- `t_1875` — três zero sete e cinco.
+- `t_1876` — três zero sete e seis.
+- `t_1877` — três zero sete e sete.
+- `t_1878` — três zero sete e oito.
+- `t_1879` — três zero sete e nove.
+- `t_1880` — três zero oito e zero.
+- `t_1881` — três zero oito e um.
+- `t_1882` — três zero oito e dois.
+- `t_1883` — três zero oito e três.
+- `t_1884` — três zero oito e quatro.
+- `t_1885` — três zero oito e cinco.
+- `t_1886` — três zero oito e seis.
+- `t_1887` — três zero oito e sete.
+- `t_1888` — três zero oito e oito.
+- `t_1889` — três zero oito e nove.
+- `t_1890` — três zero nove e zero.
+- `t_1891` — três zero nove e um.
+- `t_1892` — três zero nove e dois.
+- `t_1893` — três zero nove e três.
+- `t_1894` — três zero nove e quatro.
+- `t_1895` — três zero nove e cinco.
+- `t_1896` — três zero nove e seis.
+- `t_1897` — três zero nove e sete.
+- `t_1898` — três zero nove e oito.
+- `t_1899` — três zero nove e nove.
+- `t_1900` — três dez e zero.
+- `t_1901` — três dez e um.
+- `t_1902` — três dez e dois.
+- `t_1903` — três dez e três.
+- `t_1904` — três dez e quatro.
+- `t_1905` — três dez e cinco.
+- `t_1906` — três dez e seis.
+- `t_1907` — três dez e sete.
+- `t_1908` — três dez e oito.
+- `t_1909` — três dez e nove.
+- `t_1910` — três onze e zero.
+- `t_1911` — três onze e um.
+- `t_1912` — três onze e dois.
+- `t_1913` — três onze e três.
+- `t_1914` — três onze e quatro.
+- `t_1915` — três onze e cinco.
+- `t_1916` — três onze e seis.
+- `t_1917` — três onze e sete.
+- `t_1918` — três onze e oito.
+- `t_1919` — três onze e nove.
+- `t_1920` — três doze e zero.
+- `t_1921` — três doze e um.
+- `t_1922` — três doze e dois.
+- `t_1923` — três doze e três.
+- `t_1924` — três doze e quatro.
+- `t_1925` — três doze e cinco.
+- `t_1926` — três doze e seis.
+- `t_1927` — três doze e sete.
+- `t_1928` — três doze e oito.
+- `t_1929` — três doze e nove.
+- `t_1930` — três treze e zero.
+- `t_1931` — três treze e um.
+- `t_1932` — três treze e dois.
+- `t_1933` — três treze e três.
+- `t_1934` — três treze e quatro.
+- `t_1935` — três treze e cinco.
+- `t_1936` — três treze e seis.
+- `t_1937` — três treze e sete.
+- `t_1938` — três treze e oito.
+- `t_1939` — três treze e nove.
+- `t_1940` — três catorze e zero.
+- `t_1941` — três catorze e um.
+- `t_1942` — três catorze e dois.
+- `t_1943` — três catorze e três.
+- `t_1944` — três catorze e quatro.
+- `t_1945` — três catorze e cinco.
+- `t_1946` — três catorze e seis.
+- `t_1947` — três catorze e sete.
+- `t_1948` — três catorze e oito.
+- `t_1949` — três catorze e nove.
+- `t_1950` — três quinze e zero.
+- `t_1951` — três quinze e um.
+- `t_1952` — três quinze e dois.
+- `t_1953` — três quinze e três.
+- `t_1954` — três quinze e quatro.
+- `t_1955` — três quinze e cinco.
+- `t_1956` — três quinze e seis.
+- `t_1957` — três quinze e sete.
+- `t_1958` — três quinze e oito.
+- `t_1959` — três quinze e nove.
+- `t_1960` — três dezesseis e zero.
+- `t_1961` — três dezesseis e um.
+- `t_1962` — três dezesseis e dois.
+- `t_1963` — três dezesseis e três.
+- `t_1964` — três dezesseis e quatro.
+- `t_1965` — três dezesseis e cinco.
+- `t_1966` — três dezesseis e seis.
+- `t_1967` — três dezesseis e sete.
+- `t_1968` — três dezesseis e oito.
+- `t_1969` — três dezesseis e nove.
+- `t_1970` — três dezessete e zero.
+- `t_1971` — três dezessete e um.
+- `t_1972` — três dezessete e dois.
+- `t_1973` — três dezessete e três.
+- `t_1974` — três dezessete e quatro.
+- `t_1975` — três dezessete e cinco.
+- `t_1976` — três dezessete e seis.
+- `t_1977` — três dezessete e sete.
+- `t_1978` — três dezessete e oito.
+- `t_1979` — três dezessete e nove.
+- `t_1980` — três dezoito e zero.
+- `t_1981` — três dezoito e um.
+- `t_1982` — três dezoito e dois.
+- `t_1983` — três dezoito e três.
+- `t_1984` — três dezoito e quatro.
+- `t_1985` — três dezoito e cinco.
+- `t_1986` — três dezoito e seis.
+- `t_1987` — três dezoito e sete.
+- `t_1988` — três dezoito e oito.
+- `t_1989` — três dezoito e nove.
+- `t_1990` — três dezenove e zero.
+- `t_1991` — três dezenove e um.
+- `t_1992` — três dezenove e dois.
+- `t_1993` — três dezenove e três.
+- `t_1994` — três dezenove e quatro.
+- `t_1995` — três dezenove e cinco.
+- `t_1996` — três dezenove e seis.
+- `t_1997` — três dezenove e sete.
+- `t_1998` — três dezenove e oito.
+- `t_1999` — três dezenove e nove.
+- `t_2000` — três vinte e zero.
+- `t_2001` — três vinte e um.
+- `t_2002` — três vinte e dois.
+- `t_2003` — três vinte e três.
+- `t_2004` — três vinte e quatro.
+- `t_2005` — três vinte e cinco.
+- `t_2006` — três vinte e seis.
+- `t_2007` — três vinte e sete.
+- `t_2008` — três vinte e oito.
+- `t_2009` — três vinte e nove.
+- `t_2010` — três vinte e um e zero.
+- `t_2011` — três vinte e um e um.
+- `t_2012` — três vinte e um e dois.
+- `t_2013` — três vinte e um e três.
+- `t_2014` — três vinte e um e quatro.
+- `t_2015` — três vinte e um e cinco.
+- `t_2016` — três vinte e um e seis.
+- `t_2017` — três vinte e um e sete.
+- `t_2018` — três vinte e um e oito.
+- `t_2019` — três vinte e um e nove.
+- `t_2020` — três vinte e dois e zero.
+- `t_2021` — três vinte e dois e um.
+- `t_2022` — três vinte e dois e dois.
+- `t_2023` — três vinte e dois e três.
+- `t_2024` — três vinte e dois e quatro.
+- `t_2025` — três vinte e dois e cinco.
+- `t_2026` — três vinte e dois e seis.
+- `t_2027` — três vinte e dois e sete.
+- `t_2028` — três vinte e dois e oito.
+- `t_2029` — três vinte e dois e nove.
+- `t_2030` — três vinte e três e zero.
+- `t_2031` — três vinte e três e um.
+- `t_2032` — três vinte e três e dois.
+- `t_2033` — três vinte e três e três.
+- `t_2034` — três vinte e três e quatro.
+- `t_2035` — três vinte e três e cinco.
+- `t_2036` — três vinte e três e seis.
+- `t_2037` — três vinte e três e sete.
+- `t_2038` — três vinte e três e oito.
+- `t_2039` — três vinte e três e nove.
+- `t_2040` — três vinte e quatro e zero.
+- `t_2041` — três vinte e quatro e um.
+- `t_2042` — três vinte e quatro e dois.
+- `t_2043` — três vinte e quatro e três.
+- `t_2044` — três vinte e quatro e quatro.
+- `t_2045` — três vinte e quatro e cinco.
+- `t_2046` — três vinte e quatro e seis.
+- `t_2047` — três vinte e quatro e sete.
+- `t_2048` — três vinte e quatro e oito.
+- `t_2049` — três vinte e quatro e nove.
+- `t_2050` — três vinte e cinco e zero.
+- `t_2051` — três vinte e cinco e um.
+- `t_2052` — três vinte e cinco e dois.
+- `t_2053` — três vinte e cinco e três.
+- `t_2054` — três vinte e cinco e quatro.
+- `t_2055` — três vinte e cinco e cinco.
+- `t_2056` — três vinte e cinco e seis.
+- `t_2057` — três vinte e cinco e sete.
+- `t_2058` — três vinte e cinco e oito.
+- `t_2059` — três vinte e cinco e nove.
+- `t_2060` — três vinte e seis e zero.
+- `t_2061` — três vinte e seis e um.
+- `t_2062` — três vinte e seis e dois.
+- `t_2063` — três vinte e seis e três.
+- `t_2064` — três vinte e seis e quatro.
+- `t_2065` — três vinte e seis e cinco.
+- `t_2066` — três vinte e seis e seis.
+- `t_2067` — três vinte e seis e sete.
+- `t_2068` — três vinte e seis e oito.
+- `t_2069` — três vinte e seis e nove.
+- `t_2070` — três vinte e sete e zero.
+- `t_2071` — três vinte e sete e um.
+- `t_2072` — três vinte e sete e dois.
+- `t_2073` — três vinte e sete e três.
+- `t_2074` — três vinte e sete e quatro.
+- `t_2075` — três vinte e sete e cinco.
+- `t_2076` — três vinte e sete e seis.
+- `t_2077` — três vinte e sete e sete.
+- `t_2078` — três vinte e sete e oito.
+- `t_2079` — três vinte e sete e nove.
+- `t_2080` — três vinte e oito e zero.
+- `t_2081` — três vinte e oito e um.
+- `t_2082` — três vinte e oito e dois.
+- `t_2083` — três vinte e oito e três.
+- `t_2084` — três vinte e oito e quatro.
+- `t_2085` — três vinte e oito e cinco.
+- `t_2086` — três vinte e oito e seis.
+- `t_2087` — três vinte e oito e sete.
+- `t_2088` — três vinte e oito e oito.
+- `t_2089` — três vinte e oito e nove.
+- `t_2090` — três vinte e nove e zero.
+- `t_2091` — três vinte e nove e um.
+- `t_2092` — três vinte e nove e dois.
+- `t_2093` — três vinte e nove e três.
+- `t_2094` — três vinte e nove e quatro.
+- `t_2095` — três vinte e nove e cinco.
+- `t_2096` — três vinte e nove e seis.
+- `t_2097` — três vinte e nove e sete.
+- `t_2098` — três vinte e nove e oito.
+- `t_2099` — três vinte e nove e nove.
+- `t_2100` — três trinta e zero.
+- `t_2101` — três trinta e um.
+- `t_2102` — três trinta e dois.
+- `t_2103` — três trinta e três.
+- `t_2104` — três trinta e quatro.
+- `t_2105` — três trinta e cinco.
+- `t_2106` — três trinta e seis.
+- `t_2107` — três trinta e sete.
+- `t_2108` — três trinta e oito.
+- `t_2109` — três trinta e nove.
+- `t_2110` — três trinta e um e zero.
+- `t_2111` — três trinta e um e um.
+- `t_2112` — três trinta e um e dois.
+- `t_2113` — três trinta e um e três.
+- `t_2114` — três trinta e um e quatro.
+- `t_2115` — três trinta e um e cinco.
+- `t_2116` — três trinta e um e seis.
+- `t_2117` — três trinta e um e sete.
+- `t_2118` — três trinta e um e oito.
+- `t_2119` — três trinta e um e nove.
+- `t_2120` — três trinta e dois e zero.
+- `t_2121` — três trinta e dois e um.
+- `t_2122` — três trinta e dois e dois.
+- `t_2123` — três trinta e dois e três.
+- `t_2124` — três trinta e dois e quatro.
+- `t_2125` — três trinta e dois e cinco.
+- `t_2126` — três trinta e dois e seis.
+- `t_2127` — três trinta e dois e sete.
+- `t_2128` — três trinta e dois e oito.
+- `t_2129` — três trinta e dois e nove.
+- `t_2130` — três trinta e três e zero.
+- `t_2131` — três trinta e três e um.
+- `t_2132` — três trinta e três e dois.
+- `t_2133` — três trinta e três e três.
+- `t_2134` — três trinta e três e quatro.
+- `t_2135` — três trinta e três e cinco.
+- `t_2136` — três trinta e três e seis.
+- `t_2137` — três trinta e três e sete.
+- `t_2138` — três trinta e três e oito.
+- `t_2139` — três trinta e três e nove.
+- `t_2140` — três trinta e quatro e zero.
+- `t_2141` — três trinta e quatro e um.
+- `t_2142` — três trinta e quatro e dois.
+- `t_2143` — três trinta e quatro e três.
+- `t_2144` — três trinta e quatro e quatro.
+- `t_2145` — três trinta e quatro e cinco.
+- `t_2146` — três trinta e quatro e seis.
+- `t_2147` — três trinta e quatro e sete.
+- `t_2148` — três trinta e quatro e oito.
+- `t_2149` — três trinta e quatro e nove.
+- `t_2150` — três trinta e cinco e zero.
+- `t_2151` — três trinta e cinco e um.
+- `t_2152` — três trinta e cinco e dois.
+- `t_2153` — três trinta e cinco e três.
+- `t_2154` — três trinta e cinco e quatro.
+- `t_2155` — três trinta e cinco e cinco.
+- `t_2156` — três trinta e cinco e seis.
+- `t_2157` — três trinta e cinco e sete.
+- `t_2158` — três trinta e cinco e oito.
+- `t_2159` — três trinta e cinco e nove.
+- `t_2160` — três trinta e seis e zero.
+- `t_2161` — três trinta e seis e um.
+- `t_2162` — três trinta e seis e dois.
+- `t_2163` — três trinta e seis e três.
+- `t_2164` — três trinta e seis e quatro.
+- `t_2165` — três trinta e seis e cinco.
+- `t_2166` — três trinta e seis e seis.
+- `t_2167` — três trinta e seis e sete.
+- `t_2168` — três trinta e seis e oito.
+- `t_2169` — três trinta e seis e nove.
+- `t_2170` — três trinta e sete e zero.
+- `t_2171` — três trinta e sete e um.
+- `t_2172` — três trinta e sete e dois.
+- `t_2173` — três trinta e sete e três.
+- `t_2174` — três trinta e sete e quatro.
+- `t_2175` — três trinta e sete e cinco.
+- `t_2176` — três trinta e sete e seis.
+- `t_2177` — três trinta e sete e sete.
+- `t_2178` — três trinta e sete e oito.
+- `t_2179` — três trinta e sete e nove.
+- `t_2180` — três trinta e oito e zero.
+- `t_2181` — três trinta e oito e um.
+- `t_2182` — três trinta e oito e dois.
+- `t_2183` — três trinta e oito e três.
+- `t_2184` — três trinta e oito e quatro.
+- `t_2185` — três trinta e oito e cinco.
+- `t_2186` — três trinta e oito e seis.
+- `t_2187` — três trinta e oito e sete.
+- `t_2188` — três trinta e oito e oito.
+- `t_2189` — três trinta e oito e nove.
+- `t_2190` — três trinta e nove e zero.
+- `t_2191` — três trinta e nove e um.
+- `t_2192` — três trinta e nove e dois.
+- `t_2193` — três trinta e nove e três.
+- `t_2194` — três trinta e nove e quatro.
+- `t_2195` — três trinta e nove e cinco.
+- `t_2196` — três trinta e nove e seis.
+- `t_2197` — três trinta e nove e sete.
+- `t_2198` — três trinta e nove e oito.
+- `t_2199` — três trinta e nove e nove.
+- `t_2200` — três quarenta e zero.
+- `t_2201` — três quarenta e um.
+- `t_2202` — três quarenta e dois.
+- `t_2203` — três quarenta e três.
+- `t_2204` — três quarenta e quatro.
+- `t_2205` — três quarenta e cinco.
+- `t_2206` — três quarenta e seis.
+- `t_2207` — três quarenta e sete.
+- `t_2208` — três quarenta e oito.
+- `t_2209` — três quarenta e nove.
+- `t_2210` — três quarenta e um e zero.
+- `t_2211` — três quarenta e um e um.
+- `t_2212` — três quarenta e um e dois.
+- `t_2213` — três quarenta e um e três.
+- `t_2214` — três quarenta e um e quatro.
+- `t_2215` — três quarenta e um e cinco.
+- `t_2216` — três quarenta e um e seis.
+- `t_2217` — três quarenta e um e sete.
+- `t_2218` — três quarenta e um e oito.
+- `t_2219` — três quarenta e um e nove.
+- `t_2220` — três quarenta e dois e zero.
+- `t_2221` — três quarenta e dois e um.
+- `t_2222` — três quarenta e dois e dois.
+- `t_2223` — três quarenta e dois e três.
+- `t_2224` — três quarenta e dois e quatro.
+- `t_2225` — três quarenta e dois e cinco.
+- `t_2226` — três quarenta e dois e seis.
+- `t_2227` — três quarenta e dois e sete.
+- `t_2228` — três quarenta e dois e oito.
+- `t_2229` — três quarenta e dois e nove.
+- `t_2230` — três quarenta e três e zero.
+- `t_2231` — três quarenta e três e um.
+- `t_2232` — três quarenta e três e dois.
+- `t_2233` — três quarenta e três e três.
+- `t_2234` — três quarenta e três e quatro.
+- `t_2235` — três quarenta e três e cinco.
+- `t_2236` — três quarenta e três e seis.
+- `t_2237` — três quarenta e três e sete.
+- `t_2238` — três quarenta e três e oito.
+- `t_2239` — três quarenta e três e nove.
+- `t_2240` — três quarenta e quatro e zero.
+- `t_2241` — três quarenta e quatro e um.
+- `t_2242` — três quarenta e quatro e dois.
+- `t_2243` — três quarenta e quatro e três.
+- `t_2244` — três quarenta e quatro e quatro.
+- `t_2245` — três quarenta e quatro e cinco.
+- `t_2246` — três quarenta e quatro e seis.
+- `t_2247` — três quarenta e quatro e sete.
+- `t_2248` — três quarenta e quatro e oito.
+- `t_2249` — três quarenta e quatro e nove.
+- `t_2250` — três quarenta e cinco e zero.
+- `t_2251` — três quarenta e cinco e um.
+- `t_2252` — três quarenta e cinco e dois.
+- `t_2253` — três quarenta e cinco e três.
+- `t_2254` — três quarenta e cinco e quatro.
+- `t_2255` — três quarenta e cinco e cinco.
+- `t_2256` — três quarenta e cinco e seis.
+- `t_2257` — três quarenta e cinco e sete.
+- `t_2258` — três quarenta e cinco e oito.
+- `t_2259` — três quarenta e cinco e nove.
+- `t_2260` — três quarenta e seis e zero.
+- `t_2261` — três quarenta e seis e um.
+- `t_2262` — três quarenta e seis e dois.
+- `t_2263` — três quarenta e seis e três.
+- `t_2264` — três quarenta e seis e quatro.
+- `t_2265` — três quarenta e seis e cinco.
+- `t_2266` — três quarenta e seis e seis.
+- `t_2267` — três quarenta e seis e sete.
+- `t_2268` — três quarenta e seis e oito.
+- `t_2269` — três quarenta e seis e nove.
+- `t_2270` — três quarenta e sete e zero.
+- `t_2271` — três quarenta e sete e um.
+- `t_2272` — três quarenta e sete e dois.
+- `t_2273` — três quarenta e sete e três.
+- `t_2274` — três quarenta e sete e quatro.
+- `t_2275` — três quarenta e sete e cinco.
+- `t_2276` — três quarenta e sete e seis.
+- `t_2277` — três quarenta e sete e sete.
+- `t_2278` — três quarenta e sete e oito.
+- `t_2279` — três quarenta e sete e nove.
+- `t_2280` — três quarenta e oito e zero.
+- `t_2281` — três quarenta e oito e um.
+- `t_2282` — três quarenta e oito e dois.
+- `t_2283` — três quarenta e oito e três.
+- `t_2284` — três quarenta e oito e quatro.
+- `t_2285` — três quarenta e oito e cinco.
+- `t_2286` — três quarenta e oito e seis.
+- `t_2287` — três quarenta e oito e sete.
+- `t_2288` — três quarenta e oito e oito.
+- `t_2289` — três quarenta e oito e nove.
+- `t_2290` — três quarenta e nove e zero.
+- `t_2291` — três quarenta e nove e um.
+- `t_2292` — três quarenta e nove e dois.
+- `t_2293` — três quarenta e nove e três.
+- `t_2294` — três quarenta e nove e quatro.
+- `t_2295` — três quarenta e nove e cinco.
+- `t_2296` — três quarenta e nove e seis.
+- `t_2297` — três quarenta e nove e sete.
+- `t_2298` — três quarenta e nove e oito.
+- `t_2299` — três quarenta e nove e nove.
+- `t_2300` — três cinquenta e zero.
+- `t_2301` — três cinquenta e um.
+- `t_2302` — três cinquenta e dois.
+- `t_2303` — três cinquenta e três.
+- `t_2304` — três cinquenta e quatro.
+- `t_2305` — três cinquenta e cinco.
+- `t_2306` — três cinquenta e seis.
+- `t_2307` — três cinquenta e sete.
+- `t_2308` — três cinquenta e oito.
+- `t_2309` — três cinquenta e nove.
+- `t_2310` — três cinquenta e um e zero.
+- `t_2311` — três cinquenta e um e um.
+- `t_2312` — três cinquenta e um e dois.
+- `t_2313` — três cinquenta e um e três.
+- `t_2314` — três cinquenta e um e quatro.
+- `t_2315` — três cinquenta e um e cinco.
+- `t_2316` — três cinquenta e um e seis.
+- `t_2317` — três cinquenta e um e sete.
+- `t_2318` — três cinquenta e um e oito.
+- `t_2319` — três cinquenta e um e nove.
+- `t_2320` — três cinquenta e dois e zero.
+- `t_2321` — três cinquenta e dois e um.
+- `t_2322` — três cinquenta e dois e dois.
+- `t_2323` — três cinquenta e dois e três.
+- `t_2324` — três cinquenta e dois e quatro.
+- `t_2325` — três cinquenta e dois e cinco.
+- `t_2326` — três cinquenta e dois e seis.
+- `t_2327` — três cinquenta e dois e sete.
+- `t_2328` — três cinquenta e dois e oito.
+- `t_2329` — três cinquenta e dois e nove.
+- `t_2330` — três cinquenta e três e zero.
+- `t_2331` — três cinquenta e três e um.
+- `t_2332` — três cinquenta e três e dois.
+- `t_2333` — três cinquenta e três e três.
+- `t_2334` — três cinquenta e três e quatro.
+- `t_2335` — três cinquenta e três e cinco.
+- `t_2336` — três cinquenta e três e seis.
+- `t_2337` — três cinquenta e três e sete.
+- `t_2338` — três cinquenta e três e oito.
+- `t_2339` — três cinquenta e três e nove.
+- `t_2340` — três cinquenta e quatro e zero.
+- `t_2341` — três cinquenta e quatro e um.
+- `t_2342` — três cinquenta e quatro e dois.
+- `t_2343` — três cinquenta e quatro e três.
+- `t_2344` — três cinquenta e quatro e quatro.
+- `t_2345` — três cinquenta e quatro e cinco.
+- `t_2346` — três cinquenta e quatro e seis.
+- `t_2347` — três cinquenta e quatro e sete.
+- `t_2348` — três cinquenta e quatro e oito.
+- `t_2349` — três cinquenta e quatro e nove.
+- `t_2350` — três cinquenta e cinco e zero.
+- `t_2351` — três cinquenta e cinco e um.
+- `t_2352` — três cinquenta e cinco e dois.
+- `t_2353` — três cinquenta e cinco e três.
+- `t_2354` — três cinquenta e cinco e quatro.
+- `t_2355` — três cinquenta e cinco e cinco.
+- `t_2356` — três cinquenta e cinco e seis.
+- `t_2357` — três cinquenta e cinco e sete.
+- `t_2358` — três cinquenta e cinco e oito.
+- `t_2359` — três cinquenta e cinco e nove.
+- `t_2360` — três cinquenta e seis e zero.
+- `t_2361` — três cinquenta e seis e um.
+- `t_2362` — três cinquenta e seis e dois.
+- `t_2363` — três cinquenta e seis e três.
+- `t_2364` — três cinquenta e seis e quatro.
+- `t_2365` — três cinquenta e seis e cinco.
+- `t_2366` — três cinquenta e seis e seis.
+- `t_2367` — três cinquenta e seis e sete.
+- `t_2368` — três cinquenta e seis e oito.
+- `t_2369` — três cinquenta e seis e nove.
+- `t_2370` — três cinquenta e sete e zero.
+- `t_2371` — três cinquenta e sete e um.
+- `t_2372` — três cinquenta e sete e dois.
+- `t_2373` — três cinquenta e sete e três.
+- `t_2374` — três cinquenta e sete e quatro.
+- `t_2375` — três cinquenta e sete e cinco.
+- `t_2376` — três cinquenta e sete e seis.
+- `t_2377` — três cinquenta e sete e sete.
+- `t_2378` — três cinquenta e sete e oito.
+- `t_2379` — três cinquenta e sete e nove.
+- `t_2380` — três cinquenta e oito e zero.
+- `t_2381` — três cinquenta e oito e um.
+- `t_2382` — três cinquenta e oito e dois.
+- `t_2383` — três cinquenta e oito e três.
+- `t_2384` — três cinquenta e oito e quatro.
+- `t_2385` — três cinquenta e oito e cinco.
+- `t_2386` — três cinquenta e oito e seis.
+- `t_2387` — três cinquenta e oito e sete.
+- `t_2388` — três cinquenta e oito e oito.
+- `t_2389` — três cinquenta e oito e nove.
+- `t_2390` — três cinquenta e nove e zero.
+- `t_2391` — três cinquenta e nove e um.
+- `t_2392` — três cinquenta e nove e dois.
+- `t_2393` — três cinquenta e nove e três.
+- `t_2394` — três cinquenta e nove e quatro.
+- `t_2395` — três cinquenta e nove e cinco.
+- `t_2396` — três cinquenta e nove e seis.
+- `t_2397` — três cinquenta e nove e sete.
+- `t_2398` — três cinquenta e nove e oito.
+- `t_2399` — três cinquenta e nove e nove.
+- `t_2400` — quatro zero zero e zero.
+- `tv_volta_em` — Volta em,
+- `tv_melhor_e_do` — A volta mais rápida da corrida é do
+- `tv_faltam_1` — Falta um décimo para a melhor volta.
+- `tv_faltam_2` — Faltam dois décimos para a melhor volta.
+- `tv_faltam_3` — Faltam três décimos para a melhor volta.
+- `tv_faltam_4` — Faltam quatro décimos para a melhor volta.
+- `tv_faltam_5` — Faltam cinco décimos para a melhor volta.
+- `tv_faltam_6` — Faltam seis décimos para a melhor volta.
+- `tv_faltam_7` — Faltam sete décimos para a melhor volta.
+- `tv_faltam_8` — Faltam oito décimos para a melhor volta.
+- `tv_faltam_9` — Faltam nove décimos para a melhor volta.
+- `tv_tomamos` — Essa foi a volta mais rápida da corrida!
+- `tv_tomamos_2` — Volta mais rápida da corrida, muito bem!
+- `tv_tomamos_3` — Ninguém fez melhor que isso hoje!
+- `cl_despedida_0` — Vamos lá. Sei que você consegue um bom tempo pra nós.
+- `cl_despedida_1` — A equipe espera muito de você. Essa é a sua hora.
+- `cl_despedida_2` — É agora. Capricha nessa.
+- `cl_despedida_3` — Confio em você. Traz um tempo bom.
+- `cl_despedida_4` — A equipe inteira está olhando. Manda ver.
+- `cl_despedida_5` — Essa é a volta. Faz valer.
+- `cl_perdeu_0` — Perdeu essa.
+- `cl_perdeu_1` — Essa foi embora.
+- `cl_perdeu_2` — Deixa essa pra lá.
+- `cl_restam_1` — Ainda dá pra mais uma.
+- `cl_restam_2` — Ainda dá pra mais duas.
+- `cl_restam_3` — Ainda dá pra mais três.
+- `cl_restam_4` — Ainda dá pra mais quatro.
+- `cl_restam_muitas` — Ainda temos bastante tempo.
+- `cl_acabou_0` — Era essa. Volta pro box.
+- `cl_acabou_1` — Acabou o nosso tempo aqui. Traz ele de volta.
+- `cl_acabou_2` — Não dá pra outra. Pode encerrar.
+- `camp_lidera` — Você lidera o campeonato.
+- `camp_pos_2` — No campeonato, você está em segundo.
+- `camp_pos_3` — No campeonato, você está em terceiro.
+- `camp_pos_4` — No campeonato, você está em quarto.
+- `camp_pos_5` — No campeonato, você está em quinto.
+- `camp_pos_6` — No campeonato, você está em sexto.
+- `camp_pos_7` — No campeonato, você está em sétimo.
+- `camp_pos_8` — No campeonato, você está em oitavo.
+- `camp_pos_9` — No campeonato, você está em nono.
+- `camp_pos_10` — No campeonato, você está em décimo.
+- `camp_pos_11` — No campeonato, você está em décimo primeiro.
+- `camp_pos_12` — No campeonato, você está em décimo segundo.
+- `camp_pos_13` — No campeonato, você está em décimo terceiro.
+- `camp_pos_14` — No campeonato, você está em décimo quarto.
+- `camp_pos_15` — No campeonato, você está em décimo quinto.
+- `camp_pos_16` — No campeonato, você está em décimo sexto.
+- `camp_pos_17` — No campeonato, você está em décimo sétimo.
+- `camp_pos_18` — No campeonato, você está em décimo oitavo.
+- `camp_pos_19` — No campeonato, você está em décimo nono.
+- `camp_pos_20` — No campeonato, você está em vigésimo.
+- `camp_pos_21` — No campeonato, você está em vigésimo primeiro.
+- `camp_pos_22` — No campeonato, você está em vigésimo segundo.
+- `camp_pos_23` — No campeonato, você está em vigésimo terceiro.
+- `camp_pos_24` — No campeonato, você está em vigésimo quarto.
+- `camp_pos_25` — No campeonato, você está em vigésimo quinto.
+- `camp_pos_26` — No campeonato, você está em vigésimo sexto.
+- `camp_pos_27` — No campeonato, você está em vigésimo sétimo.
+- `camp_pos_28` — No campeonato, você está em vigésimo oitavo.
+- `camp_pos_29` — No campeonato, você está em vigésimo nono.
+- `camp_pos_30` — No campeonato, você está em trigésimo.
+- `camp_pos_31` — No campeonato, você está em trigésimo primeiro.
+- `camp_pos_32` — No campeonato, você está em trigésimo segundo.
+- `camp_pos_33` — No campeonato, você está em trigésimo terceiro.
+- `camp_pos_34` — No campeonato, você está em trigésimo quarto.
+- `camp_pos_35` — No campeonato, você está em trigésimo quinto.
+- `camp_pos_36` — No campeonato, você está em trigésimo sexto.
+- `camp_pos_37` — No campeonato, você está em trigésimo sétimo.
+- `camp_pos_38` — No campeonato, você está em trigésimo oitavo.
+- `camp_pos_39` — No campeonato, você está em trigésimo nono.
+- `camp_pos_40` — No campeonato, você está em quadragésimo.
+- `camp_para_1` — Você está a um ponto do próximo.
+- `camp_folga_1` — Você tem um ponto de folga.
+- `camp_para_2` — Você está a dois pontos do próximo.
+- `camp_folga_2` — Você tem dois pontos de folga.
+- `camp_para_3` — Você está a três pontos do próximo.
+- `camp_folga_3` — Você tem três pontos de folga.
+- `camp_para_4` — Você está a quatro pontos do próximo.
+- `camp_folga_4` — Você tem quatro pontos de folga.
+- `camp_para_5` — Você está a cinco pontos do próximo.
+- `camp_folga_5` — Você tem cinco pontos de folga.
+- `camp_para_6` — Você está a seis pontos do próximo.
+- `camp_folga_6` — Você tem seis pontos de folga.
+- `camp_para_7` — Você está a sete pontos do próximo.
+- `camp_folga_7` — Você tem sete pontos de folga.
+- `camp_para_8` — Você está a oito pontos do próximo.
+- `camp_folga_8` — Você tem oito pontos de folga.
+- `camp_para_9` — Você está a nove pontos do próximo.
+- `camp_folga_9` — Você tem nove pontos de folga.
+- `camp_para_10` — Você está a dez pontos do próximo.
+- `camp_folga_10` — Você tem dez pontos de folga.
+- `camp_para_11` — Você está a onze pontos do próximo.
+- `camp_folga_11` — Você tem onze pontos de folga.
+- `camp_para_12` — Você está a doze pontos do próximo.
+- `camp_folga_12` — Você tem doze pontos de folga.
+- `camp_para_13` — Você está a treze pontos do próximo.
+- `camp_folga_13` — Você tem treze pontos de folga.
+- `camp_para_14` — Você está a catorze pontos do próximo.
+- `camp_folga_14` — Você tem catorze pontos de folga.
+- `camp_para_15` — Você está a quinze pontos do próximo.
+- `camp_folga_15` — Você tem quinze pontos de folga.
+- `camp_para_16` — Você está a dezesseis pontos do próximo.
+- `camp_folga_16` — Você tem dezesseis pontos de folga.
+- `camp_para_17` — Você está a dezessete pontos do próximo.
+- `camp_folga_17` — Você tem dezessete pontos de folga.
+- `camp_para_18` — Você está a dezoito pontos do próximo.
+- `camp_folga_18` — Você tem dezoito pontos de folga.
+- `camp_para_19` — Você está a dezenove pontos do próximo.
+- `camp_folga_19` — Você tem dezenove pontos de folga.
+- `camp_para_20` — Você está a vinte pontos do próximo.
+- `camp_folga_20` — Você tem vinte pontos de folga.
+- `camp_para_21` — Você está a vinte e um pontos do próximo.
+- `camp_folga_21` — Você tem vinte e um pontos de folga.
+- `camp_para_22` — Você está a vinte e dois pontos do próximo.
+- `camp_folga_22` — Você tem vinte e dois pontos de folga.
+- `camp_para_23` — Você está a vinte e três pontos do próximo.
+- `camp_folga_23` — Você tem vinte e três pontos de folga.
+- `camp_para_24` — Você está a vinte e quatro pontos do próximo.
+- `camp_folga_24` — Você tem vinte e quatro pontos de folga.
+- `camp_para_25` — Você está a vinte e cinco pontos do próximo.
+- `camp_folga_25` — Você tem vinte e cinco pontos de folga.
+- `camp_para_26` — Você está a vinte e seis pontos do próximo.
+- `camp_folga_26` — Você tem vinte e seis pontos de folga.
+- `camp_para_27` — Você está a vinte e sete pontos do próximo.
+- `camp_folga_27` — Você tem vinte e sete pontos de folga.
+- `camp_para_28` — Você está a vinte e oito pontos do próximo.
+- `camp_folga_28` — Você tem vinte e oito pontos de folga.
+- `camp_para_29` — Você está a vinte e nove pontos do próximo.
+- `camp_folga_29` — Você tem vinte e nove pontos de folga.
+- `camp_para_30` — Você está a trinta pontos do próximo.
+- `camp_folga_30` — Você tem trinta pontos de folga.
+- `camp_para_31` — Você está a trinta e um pontos do próximo.
+- `camp_folga_31` — Você tem trinta e um pontos de folga.
+- `camp_para_32` — Você está a trinta e dois pontos do próximo.
+- `camp_folga_32` — Você tem trinta e dois pontos de folga.
+- `camp_para_33` — Você está a trinta e três pontos do próximo.
+- `camp_folga_33` — Você tem trinta e três pontos de folga.
+- `camp_para_34` — Você está a trinta e quatro pontos do próximo.
+- `camp_folga_34` — Você tem trinta e quatro pontos de folga.
+- `camp_para_35` — Você está a trinta e cinco pontos do próximo.
+- `camp_folga_35` — Você tem trinta e cinco pontos de folga.
+- `camp_para_36` — Você está a trinta e seis pontos do próximo.
+- `camp_folga_36` — Você tem trinta e seis pontos de folga.
+- `camp_para_37` — Você está a trinta e sete pontos do próximo.
+- `camp_folga_37` — Você tem trinta e sete pontos de folga.
+- `camp_para_38` — Você está a trinta e oito pontos do próximo.
+- `camp_folga_38` — Você tem trinta e oito pontos de folga.
+- `camp_para_39` — Você está a trinta e nove pontos do próximo.
+- `camp_folga_39` — Você tem trinta e nove pontos de folga.
+- `camp_para_40` — Você está a quarenta pontos do próximo.
+- `camp_folga_40` — Você tem quarenta pontos de folga.
+- `camp_para_41` — Você está a quarenta e um pontos do próximo.
+- `camp_folga_41` — Você tem quarenta e um pontos de folga.
+- `camp_para_42` — Você está a quarenta e dois pontos do próximo.
+- `camp_folga_42` — Você tem quarenta e dois pontos de folga.
+- `camp_para_43` — Você está a quarenta e três pontos do próximo.
+- `camp_folga_43` — Você tem quarenta e três pontos de folga.
+- `camp_para_44` — Você está a quarenta e quatro pontos do próximo.
+- `camp_folga_44` — Você tem quarenta e quatro pontos de folga.
+- `camp_para_45` — Você está a quarenta e cinco pontos do próximo.
+- `camp_folga_45` — Você tem quarenta e cinco pontos de folga.
+- `camp_para_46` — Você está a quarenta e seis pontos do próximo.
+- `camp_folga_46` — Você tem quarenta e seis pontos de folga.
+- `camp_para_47` — Você está a quarenta e sete pontos do próximo.
+- `camp_folga_47` — Você tem quarenta e sete pontos de folga.
+- `camp_para_48` — Você está a quarenta e oito pontos do próximo.
+- `camp_folga_48` — Você tem quarenta e oito pontos de folga.
+- `camp_para_49` — Você está a quarenta e nove pontos do próximo.
+- `camp_folga_49` — Você tem quarenta e nove pontos de folga.
+- `camp_para_50` — Você está a cinquenta pontos do próximo.
+- `camp_folga_50` — Você tem cinquenta pontos de folga.
+- `camp_para_51` — Você está a cinquenta e um pontos do próximo.
+- `camp_folga_51` — Você tem cinquenta e um pontos de folga.
+- `camp_para_52` — Você está a cinquenta e dois pontos do próximo.
+- `camp_folga_52` — Você tem cinquenta e dois pontos de folga.
+- `camp_para_53` — Você está a cinquenta e três pontos do próximo.
+- `camp_folga_53` — Você tem cinquenta e três pontos de folga.
+- `camp_para_54` — Você está a cinquenta e quatro pontos do próximo.
+- `camp_folga_54` — Você tem cinquenta e quatro pontos de folga.
+- `camp_para_55` — Você está a cinquenta e cinco pontos do próximo.
+- `camp_folga_55` — Você tem cinquenta e cinco pontos de folga.
+- `camp_para_56` — Você está a cinquenta e seis pontos do próximo.
+- `camp_folga_56` — Você tem cinquenta e seis pontos de folga.
+- `camp_para_57` — Você está a cinquenta e sete pontos do próximo.
+- `camp_folga_57` — Você tem cinquenta e sete pontos de folga.
+- `camp_para_58` — Você está a cinquenta e oito pontos do próximo.
+- `camp_folga_58` — Você tem cinquenta e oito pontos de folga.
+- `camp_para_59` — Você está a cinquenta e nove pontos do próximo.
+- `camp_folga_59` — Você tem cinquenta e nove pontos de folga.
+- `camp_para_60` — Você está a sessenta pontos do próximo.
+- `camp_folga_60` — Você tem sessenta pontos de folga.
+- `camp_proj_lidera` — Terminando assim, você assume a liderança.
+- `camp_proj_sobe_2` — Terminando assim, você sobe para segundo.
+- `camp_proj_cai_2` — Terminando assim, você cai para segundo.
+- `camp_proj_sobe_3` — Terminando assim, você sobe para terceiro.
+- `camp_proj_cai_3` — Terminando assim, você cai para terceiro.
+- `camp_proj_sobe_4` — Terminando assim, você sobe para quarto.
+- `camp_proj_cai_4` — Terminando assim, você cai para quarto.
+- `camp_proj_sobe_5` — Terminando assim, você sobe para quinto.
+- `camp_proj_cai_5` — Terminando assim, você cai para quinto.
+- `camp_proj_sobe_6` — Terminando assim, você sobe para sexto.
+- `camp_proj_cai_6` — Terminando assim, você cai para sexto.
+- `camp_proj_sobe_7` — Terminando assim, você sobe para sétimo.
+- `camp_proj_cai_7` — Terminando assim, você cai para sétimo.
+- `camp_proj_sobe_8` — Terminando assim, você sobe para oitavo.
+- `camp_proj_cai_8` — Terminando assim, você cai para oitavo.
+- `camp_proj_sobe_9` — Terminando assim, você sobe para nono.
+- `camp_proj_cai_9` — Terminando assim, você cai para nono.
+- `camp_proj_sobe_10` — Terminando assim, você sobe para décimo.
+- `camp_proj_cai_10` — Terminando assim, você cai para décimo.
+- `camp_proj_sobe_11` — Terminando assim, você sobe para décimo primeiro.
+- `camp_proj_cai_11` — Terminando assim, você cai para décimo primeiro.
+- `camp_proj_sobe_12` — Terminando assim, você sobe para décimo segundo.
+- `camp_proj_cai_12` — Terminando assim, você cai para décimo segundo.
+- `camp_proj_sobe_13` — Terminando assim, você sobe para décimo terceiro.
+- `camp_proj_cai_13` — Terminando assim, você cai para décimo terceiro.
+- `camp_proj_sobe_14` — Terminando assim, você sobe para décimo quarto.
+- `camp_proj_cai_14` — Terminando assim, você cai para décimo quarto.
+- `camp_proj_sobe_15` — Terminando assim, você sobe para décimo quinto.
+- `camp_proj_cai_15` — Terminando assim, você cai para décimo quinto.
+- `camp_proj_sobe_16` — Terminando assim, você sobe para décimo sexto.
+- `camp_proj_cai_16` — Terminando assim, você cai para décimo sexto.
+- `camp_proj_sobe_17` — Terminando assim, você sobe para décimo sétimo.
+- `camp_proj_cai_17` — Terminando assim, você cai para décimo sétimo.
+- `camp_proj_sobe_18` — Terminando assim, você sobe para décimo oitavo.
+- `camp_proj_cai_18` — Terminando assim, você cai para décimo oitavo.
+- `camp_proj_sobe_19` — Terminando assim, você sobe para décimo nono.
+- `camp_proj_cai_19` — Terminando assim, você cai para décimo nono.
+- `camp_proj_sobe_20` — Terminando assim, você sobe para vigésimo.
+- `camp_proj_cai_20` — Terminando assim, você cai para vigésimo.
+- `camp_proj_sobe_21` — Terminando assim, você sobe para vigésimo primeiro.
+- `camp_proj_cai_21` — Terminando assim, você cai para vigésimo primeiro.
+- `camp_proj_sobe_22` — Terminando assim, você sobe para vigésimo segundo.
+- `camp_proj_cai_22` — Terminando assim, você cai para vigésimo segundo.
+- `camp_proj_sobe_23` — Terminando assim, você sobe para vigésimo terceiro.
+- `camp_proj_cai_23` — Terminando assim, você cai para vigésimo terceiro.
+- `camp_proj_sobe_24` — Terminando assim, você sobe para vigésimo quarto.
+- `camp_proj_cai_24` — Terminando assim, você cai para vigésimo quarto.
+- `camp_proj_sobe_25` — Terminando assim, você sobe para vigésimo quinto.
+- `camp_proj_cai_25` — Terminando assim, você cai para vigésimo quinto.
+- `camp_proj_sobe_26` — Terminando assim, você sobe para vigésimo sexto.
+- `camp_proj_cai_26` — Terminando assim, você cai para vigésimo sexto.
+- `camp_proj_sobe_27` — Terminando assim, você sobe para vigésimo sétimo.
+- `camp_proj_cai_27` — Terminando assim, você cai para vigésimo sétimo.
+- `camp_proj_sobe_28` — Terminando assim, você sobe para vigésimo oitavo.
+- `camp_proj_cai_28` — Terminando assim, você cai para vigésimo oitavo.
+- `camp_proj_sobe_29` — Terminando assim, você sobe para vigésimo nono.
+- `camp_proj_cai_29` — Terminando assim, você cai para vigésimo nono.
+- `camp_proj_sobe_30` — Terminando assim, você sobe para trigésimo.
+- `camp_proj_cai_30` — Terminando assim, você cai para trigésimo.
+- `camp_proj_sobe_31` — Terminando assim, você sobe para trigésimo primeiro.
+- `camp_proj_cai_31` — Terminando assim, você cai para trigésimo primeiro.
+- `camp_proj_sobe_32` — Terminando assim, você sobe para trigésimo segundo.
+- `camp_proj_cai_32` — Terminando assim, você cai para trigésimo segundo.
+- `camp_proj_sobe_33` — Terminando assim, você sobe para trigésimo terceiro.
+- `camp_proj_cai_33` — Terminando assim, você cai para trigésimo terceiro.
+- `camp_proj_sobe_34` — Terminando assim, você sobe para trigésimo quarto.
+- `camp_proj_cai_34` — Terminando assim, você cai para trigésimo quarto.
+- `camp_proj_sobe_35` — Terminando assim, você sobe para trigésimo quinto.
+- `camp_proj_cai_35` — Terminando assim, você cai para trigésimo quinto.
+- `camp_proj_sobe_36` — Terminando assim, você sobe para trigésimo sexto.
+- `camp_proj_cai_36` — Terminando assim, você cai para trigésimo sexto.
+- `camp_proj_sobe_37` — Terminando assim, você sobe para trigésimo sétimo.
+- `camp_proj_cai_37` — Terminando assim, você cai para trigésimo sétimo.
+- `camp_proj_sobe_38` — Terminando assim, você sobe para trigésimo oitavo.
+- `camp_proj_cai_38` — Terminando assim, você cai para trigésimo oitavo.
+- `camp_proj_sobe_39` — Terminando assim, você sobe para trigésimo nono.
+- `camp_proj_cai_39` — Terminando assim, você cai para trigésimo nono.
+- `camp_proj_cai_40` — Terminando assim, você cai para quadragésimo.
+- `viz_frente_gap_0_1` — está a um décimo na sua frente.
+- `viz_atras_gap_0_1` — está a um décimo atrás de você.
+- `viz_frente_gap_0_2` — está a dois décimos na sua frente.
+- `viz_atras_gap_0_2` — está a dois décimos atrás de você.
+- `viz_frente_gap_0_3` — está a três décimos na sua frente.
+- `viz_atras_gap_0_3` — está a três décimos atrás de você.
+- `viz_frente_gap_0_4` — está a quatro décimos na sua frente.
+- `viz_atras_gap_0_4` — está a quatro décimos atrás de você.
+- `viz_frente_gap_0_5` — está a cinco décimos na sua frente.
+- `viz_atras_gap_0_5` — está a cinco décimos atrás de você.
+- `viz_frente_gap_0_6` — está a seis décimos na sua frente.
+- `viz_atras_gap_0_6` — está a seis décimos atrás de você.
+- `viz_frente_gap_0_7` — está a sete décimos na sua frente.
+- `viz_atras_gap_0_7` — está a sete décimos atrás de você.
+- `viz_frente_gap_0_8` — está a oito décimos na sua frente.
+- `viz_atras_gap_0_8` — está a oito décimos atrás de você.
+- `viz_frente_gap_0_9` — está a nove décimos na sua frente.
+- `viz_atras_gap_0_9` — está a nove décimos atrás de você.
+- `viz_frente_gap_1_0` — está a um segundo na sua frente.
+- `viz_atras_gap_1_0` — está a um segundo atrás de você.
+- `viz_frente_gap_1_1` — está a um e um na sua frente.
+- `viz_atras_gap_1_1` — está a um e um atrás de você.
+- `viz_frente_gap_1_2` — está a um e dois na sua frente.
+- `viz_atras_gap_1_2` — está a um e dois atrás de você.
+- `viz_frente_gap_1_3` — está a um e três na sua frente.
+- `viz_atras_gap_1_3` — está a um e três atrás de você.
+- `viz_frente_gap_1_4` — está a um e quatro na sua frente.
+- `viz_atras_gap_1_4` — está a um e quatro atrás de você.
+- `viz_frente_gap_1_5` — está a um e cinco na sua frente.
+- `viz_atras_gap_1_5` — está a um e cinco atrás de você.
+- `viz_frente_gap_1_6` — está a um e seis na sua frente.
+- `viz_atras_gap_1_6` — está a um e seis atrás de você.
+- `viz_frente_gap_1_7` — está a um e sete na sua frente.
+- `viz_atras_gap_1_7` — está a um e sete atrás de você.
+- `viz_frente_gap_1_8` — está a um e oito na sua frente.
+- `viz_atras_gap_1_8` — está a um e oito atrás de você.
+- `viz_frente_gap_1_9` — está a um e nove na sua frente.
+- `viz_atras_gap_1_9` — está a um e nove atrás de você.
+- `viz_frente_gap_2_0` — está a dois segundos na sua frente.
+- `viz_atras_gap_2_0` — está a dois segundos atrás de você.
+- `viz_frente_gap_2_5` — está a dois segundos e meio na sua frente.
+- `viz_atras_gap_2_5` — está a dois segundos e meio atrás de você.
+- `viz_frente_gap_3_0` — está a três segundos na sua frente.
+- `viz_atras_gap_3_0` — está a três segundos atrás de você.
+- `viz_frente_gap_3_5` — está a três segundos e meio na sua frente.
+- `viz_atras_gap_3_5` — está a três segundos e meio atrás de você.
+- `viz_frente_gap_4_0` — está a quatro segundos na sua frente.
+- `viz_atras_gap_4_0` — está a quatro segundos atrás de você.
+- `viz_frente_gap_4_5` — está a quatro segundos e meio na sua frente.
+- `viz_atras_gap_4_5` — está a quatro segundos e meio atrás de você.
+- `viz_frente_gap_5_0` — está a cinco segundos na sua frente.
+- `viz_atras_gap_5_0` — está a cinco segundos atrás de você.
+- `viz_frente_gap_5_5` — está a cinco segundos e meio na sua frente.
+- `viz_atras_gap_5_5` — está a cinco segundos e meio atrás de você.
+- `viz_frente_gap_6_0` — está a seis segundos na sua frente.
+- `viz_atras_gap_6_0` — está a seis segundos atrás de você.
+- `viz_frente_gap_6_5` — está a seis segundos e meio na sua frente.
+- `viz_atras_gap_6_5` — está a seis segundos e meio atrás de você.
+- `viz_frente_gap_7_0` — está a sete segundos na sua frente.
+- `viz_atras_gap_7_0` — está a sete segundos atrás de você.
+- `viz_frente_gap_7_5` — está a sete segundos e meio na sua frente.
+- `viz_atras_gap_7_5` — está a sete segundos e meio atrás de você.
+- `viz_frente_gap_8_0` — está a oito segundos na sua frente.
+- `viz_atras_gap_8_0` — está a oito segundos atrás de você.
+- `viz_frente_gap_8_5` — está a oito segundos e meio na sua frente.
+- `viz_atras_gap_8_5` — está a oito segundos e meio atrás de você.
+- `viz_frente_gap_9_0` — está a nove segundos na sua frente.
+- `viz_atras_gap_9_0` — está a nove segundos atrás de você.
+- `viz_frente_gap_9_5` — está a nove segundos e meio na sua frente.
+- `viz_atras_gap_9_5` — está a nove segundos e meio atrás de você.
+- `viz_frente_gap_10` — está a dez segundos na sua frente.
+- `viz_atras_gap_10` — está a dez segundos atrás de você.
+- `viz_frente_gap_11` — está a onze segundos na sua frente.
+- `viz_atras_gap_11` — está a onze segundos atrás de você.
+- `viz_frente_gap_12` — está a doze segundos na sua frente.
+- `viz_atras_gap_12` — está a doze segundos atrás de você.
+- `viz_frente_gap_13` — está a treze segundos na sua frente.
+- `viz_atras_gap_13` — está a treze segundos atrás de você.
+- `viz_frente_gap_14` — está a catorze segundos na sua frente.
+- `viz_atras_gap_14` — está a catorze segundos atrás de você.
+- `viz_frente_gap_15` — está a quinze segundos na sua frente.
+- `viz_atras_gap_15` — está a quinze segundos atrás de você.
+- `viz_frente_gap_16` — está a dezesseis segundos na sua frente.
+- `viz_atras_gap_16` — está a dezesseis segundos atrás de você.
+- `viz_frente_gap_17` — está a dezessete segundos na sua frente.
+- `viz_atras_gap_17` — está a dezessete segundos atrás de você.
+- `viz_frente_gap_18` — está a dezoito segundos na sua frente.
+- `viz_atras_gap_18` — está a dezoito segundos atrás de você.
+- `viz_frente_gap_19` — está a dezenove segundos na sua frente.
+- `viz_atras_gap_19` — está a dezenove segundos atrás de você.
+- `viz_frente_gap_20` — está a vinte segundos na sua frente.
+- `viz_atras_gap_20` — está a vinte segundos atrás de você.
+- `viz_frente_gap_21` — está a vinte e um segundos na sua frente.
+- `viz_atras_gap_21` — está a vinte e um segundos atrás de você.
+- `viz_frente_gap_22` — está a vinte e dois segundos na sua frente.
+- `viz_atras_gap_22` — está a vinte e dois segundos atrás de você.
+- `viz_frente_gap_23` — está a vinte e três segundos na sua frente.
+- `viz_atras_gap_23` — está a vinte e três segundos atrás de você.
+- `viz_frente_gap_24` — está a vinte e quatro segundos na sua frente.
+- `viz_atras_gap_24` — está a vinte e quatro segundos atrás de você.
+- `viz_frente_gap_25` — está a vinte e cinco segundos na sua frente.
+- `viz_atras_gap_25` — está a vinte e cinco segundos atrás de você.
+- `viz_frente_gap_26` — está a vinte e seis segundos na sua frente.
+- `viz_atras_gap_26` — está a vinte e seis segundos atrás de você.
+- `viz_frente_gap_27` — está a vinte e sete segundos na sua frente.
+- `viz_atras_gap_27` — está a vinte e sete segundos atrás de você.
+- `viz_frente_gap_28` — está a vinte e oito segundos na sua frente.
+- `viz_atras_gap_28` — está a vinte e oito segundos atrás de você.
+- `viz_frente_gap_29` — está a vinte e nove segundos na sua frente.
+- `viz_atras_gap_29` — está a vinte e nove segundos atrás de você.
+- `viz_frente_gap_30` — está a trinta segundos na sua frente.
+- `viz_atras_gap_30` — está a trinta segundos atrás de você.
+- `viz_frente_gap_31` — está a trinta e um segundos na sua frente.
+- `viz_atras_gap_31` — está a trinta e um segundos atrás de você.
+- `viz_frente_gap_32` — está a trinta e dois segundos na sua frente.
+- `viz_atras_gap_32` — está a trinta e dois segundos atrás de você.
+- `viz_frente_gap_33` — está a trinta e três segundos na sua frente.
+- `viz_atras_gap_33` — está a trinta e três segundos atrás de você.
+- `viz_frente_gap_34` — está a trinta e quatro segundos na sua frente.
+- `viz_atras_gap_34` — está a trinta e quatro segundos atrás de você.
+- `viz_frente_gap_35` — está a trinta e cinco segundos na sua frente.
+- `viz_atras_gap_35` — está a trinta e cinco segundos atrás de você.
+- `viz_frente_gap_36` — está a trinta e seis segundos na sua frente.
+- `viz_atras_gap_36` — está a trinta e seis segundos atrás de você.
+- `viz_frente_gap_37` — está a trinta e sete segundos na sua frente.
+- `viz_atras_gap_37` — está a trinta e sete segundos atrás de você.
+- `viz_frente_gap_38` — está a trinta e oito segundos na sua frente.
+- `viz_atras_gap_38` — está a trinta e oito segundos atrás de você.
+- `viz_frente_gap_39` — está a trinta e nove segundos na sua frente.
+- `viz_atras_gap_39` — está a trinta e nove segundos atrás de você.
+- `viz_frente_gap_40` — está a quarenta segundos na sua frente.
+- `viz_atras_gap_40` — está a quarenta segundos atrás de você.
+- `viz_frente_gap_41` — está a quarenta e um segundos na sua frente.
+- `viz_atras_gap_41` — está a quarenta e um segundos atrás de você.
+- `viz_frente_gap_42` — está a quarenta e dois segundos na sua frente.
+- `viz_atras_gap_42` — está a quarenta e dois segundos atrás de você.
+- `viz_frente_gap_43` — está a quarenta e três segundos na sua frente.
+- `viz_atras_gap_43` — está a quarenta e três segundos atrás de você.
+- `viz_frente_gap_44` — está a quarenta e quatro segundos na sua frente.
+- `viz_atras_gap_44` — está a quarenta e quatro segundos atrás de você.
+- `viz_frente_gap_45` — está a quarenta e cinco segundos na sua frente.
+- `viz_atras_gap_45` — está a quarenta e cinco segundos atrás de você.
+- `viz_frente_gap_46` — está a quarenta e seis segundos na sua frente.
+- `viz_atras_gap_46` — está a quarenta e seis segundos atrás de você.
+- `viz_frente_gap_47` — está a quarenta e sete segundos na sua frente.
+- `viz_atras_gap_47` — está a quarenta e sete segundos atrás de você.
+- `viz_frente_gap_48` — está a quarenta e oito segundos na sua frente.
+- `viz_atras_gap_48` — está a quarenta e oito segundos atrás de você.
+- `viz_frente_gap_49` — está a quarenta e nove segundos na sua frente.
+- `viz_atras_gap_49` — está a quarenta e nove segundos atrás de você.
+- `viz_frente_gap_50` — está a cinquenta segundos na sua frente.
+- `viz_atras_gap_50` — está a cinquenta segundos atrás de você.
+- `viz_frente_gap_51` — está a cinquenta e um segundos na sua frente.
+- `viz_atras_gap_51` — está a cinquenta e um segundos atrás de você.
+- `viz_frente_gap_52` — está a cinquenta e dois segundos na sua frente.
+- `viz_atras_gap_52` — está a cinquenta e dois segundos atrás de você.
+- `viz_frente_gap_53` — está a cinquenta e três segundos na sua frente.
+- `viz_atras_gap_53` — está a cinquenta e três segundos atrás de você.
+- `viz_frente_gap_54` — está a cinquenta e quatro segundos na sua frente.
+- `viz_atras_gap_54` — está a cinquenta e quatro segundos atrás de você.
+- `viz_frente_gap_55` — está a cinquenta e cinco segundos na sua frente.
+- `viz_atras_gap_55` — está a cinquenta e cinco segundos atrás de você.
+- `viz_frente_gap_56` — está a cinquenta e seis segundos na sua frente.
+- `viz_atras_gap_56` — está a cinquenta e seis segundos atrás de você.
+- `viz_frente_gap_57` — está a cinquenta e sete segundos na sua frente.
+- `viz_atras_gap_57` — está a cinquenta e sete segundos atrás de você.
+- `viz_frente_gap_58` — está a cinquenta e oito segundos na sua frente.
+- `viz_atras_gap_58` — está a cinquenta e oito segundos atrás de você.
+- `viz_frente_gap_59` — está a cinquenta e nove segundos na sua frente.
+- `viz_atras_gap_59` — está a cinquenta e nove segundos atrás de você.
+- `viz_frente_gap_60` — está a sessenta segundos na sua frente.
+- `viz_atras_gap_60` — está a sessenta segundos atrás de você.
+- `viz_frente_colado` — está colado em você.
+- `viz_atras_colado` — está colado atrás de você.
+- `viz_no_box` — entrou no box.
+- `mem_menos_gap_0_1` — São um décimo a menos que da última vez.
+- `mem_mais_gap_0_1` — São um décimo a mais que da última vez.
+- `mem_menos_gap_0_2` — São dois décimos a menos que da última vez.
+- `mem_mais_gap_0_2` — São dois décimos a mais que da última vez.
+- `mem_menos_gap_0_3` — São três décimos a menos que da última vez.
+- `mem_mais_gap_0_3` — São três décimos a mais que da última vez.
+- `mem_menos_gap_0_4` — São quatro décimos a menos que da última vez.
+- `mem_mais_gap_0_4` — São quatro décimos a mais que da última vez.
+- `mem_menos_gap_0_5` — São cinco décimos a menos que da última vez.
+- `mem_mais_gap_0_5` — São cinco décimos a mais que da última vez.
+- `mem_menos_gap_0_6` — São seis décimos a menos que da última vez.
+- `mem_mais_gap_0_6` — São seis décimos a mais que da última vez.
+- `mem_menos_gap_0_7` — São sete décimos a menos que da última vez.
+- `mem_mais_gap_0_7` — São sete décimos a mais que da última vez.
+- `mem_menos_gap_0_8` — São oito décimos a menos que da última vez.
+- `mem_mais_gap_0_8` — São oito décimos a mais que da última vez.
+- `mem_menos_gap_0_9` — São nove décimos a menos que da última vez.
+- `mem_mais_gap_0_9` — São nove décimos a mais que da última vez.
+- `mem_menos_gap_1_0` — São um segundo a menos que da última vez.
+- `mem_mais_gap_1_0` — São um segundo a mais que da última vez.
+- `mem_menos_gap_1_1` — São um e um a menos que da última vez.
+- `mem_mais_gap_1_1` — São um e um a mais que da última vez.
+- `mem_menos_gap_1_2` — São um e dois a menos que da última vez.
+- `mem_mais_gap_1_2` — São um e dois a mais que da última vez.
+- `mem_menos_gap_1_3` — São um e três a menos que da última vez.
+- `mem_mais_gap_1_3` — São um e três a mais que da última vez.
+- `mem_menos_gap_1_4` — São um e quatro a menos que da última vez.
+- `mem_mais_gap_1_4` — São um e quatro a mais que da última vez.
+- `mem_menos_gap_1_5` — São um e cinco a menos que da última vez.
+- `mem_mais_gap_1_5` — São um e cinco a mais que da última vez.
+- `mem_menos_gap_1_6` — São um e seis a menos que da última vez.
+- `mem_mais_gap_1_6` — São um e seis a mais que da última vez.
+- `mem_menos_gap_1_7` — São um e sete a menos que da última vez.
+- `mem_mais_gap_1_7` — São um e sete a mais que da última vez.
+- `mem_menos_gap_1_8` — São um e oito a menos que da última vez.
+- `mem_mais_gap_1_8` — São um e oito a mais que da última vez.
+- `mem_menos_gap_1_9` — São um e nove a menos que da última vez.
+- `mem_mais_gap_1_9` — São um e nove a mais que da última vez.
+- `mem_menos_gap_2_0` — São dois segundos a menos que da última vez.
+- `mem_mais_gap_2_0` — São dois segundos a mais que da última vez.
+- `mem_menos_gap_2_5` — São dois segundos e meio a menos que da última vez.
+- `mem_mais_gap_2_5` — São dois segundos e meio a mais que da última vez.
+- `mem_menos_gap_3_0` — São três segundos a menos que da última vez.
+- `mem_mais_gap_3_0` — São três segundos a mais que da última vez.
+- `mem_menos_gap_3_5` — São três segundos e meio a menos que da última vez.
+- `mem_mais_gap_3_5` — São três segundos e meio a mais que da última vez.
+- `mem_menos_gap_4_0` — São quatro segundos a menos que da última vez.
+- `mem_mais_gap_4_0` — São quatro segundos a mais que da última vez.
+- `mem_menos_gap_4_5` — São quatro segundos e meio a menos que da última vez.
+- `mem_mais_gap_4_5` — São quatro segundos e meio a mais que da última vez.
+- `mem_menos_gap_5_0` — São cinco segundos a menos que da última vez.
+- `mem_mais_gap_5_0` — São cinco segundos a mais que da última vez.
+- `mem_menos_gap_5_5` — São cinco segundos e meio a menos que da última vez.
+- `mem_mais_gap_5_5` — São cinco segundos e meio a mais que da última vez.
+- `mem_menos_gap_6_0` — São seis segundos a menos que da última vez.
+- `mem_mais_gap_6_0` — São seis segundos a mais que da última vez.
+- `mem_menos_gap_6_5` — São seis segundos e meio a menos que da última vez.
+- `mem_mais_gap_6_5` — São seis segundos e meio a mais que da última vez.
+- `mem_menos_gap_7_0` — São sete segundos a menos que da última vez.
+- `mem_mais_gap_7_0` — São sete segundos a mais que da última vez.
+- `mem_menos_gap_7_5` — São sete segundos e meio a menos que da última vez.
+- `mem_mais_gap_7_5` — São sete segundos e meio a mais que da última vez.
+- `mem_menos_gap_8_0` — São oito segundos a menos que da última vez.
+- `mem_mais_gap_8_0` — São oito segundos a mais que da última vez.
+- `mem_menos_gap_8_5` — São oito segundos e meio a menos que da última vez.
+- `mem_mais_gap_8_5` — São oito segundos e meio a mais que da última vez.
+- `mem_menos_gap_9_0` — São nove segundos a menos que da última vez.
+- `mem_mais_gap_9_0` — São nove segundos a mais que da última vez.
+- `mem_menos_gap_9_5` — São nove segundos e meio a menos que da última vez.
+- `mem_mais_gap_9_5` — São nove segundos e meio a mais que da última vez.
+- `mem_menos_gap_10` — São dez segundos a menos que da última vez.
+- `mem_mais_gap_10` — São dez segundos a mais que da última vez.
+- `mem_menos_gap_11` — São onze segundos a menos que da última vez.
+- `mem_mais_gap_11` — São onze segundos a mais que da última vez.
+- `mem_menos_gap_12` — São doze segundos a menos que da última vez.
+- `mem_mais_gap_12` — São doze segundos a mais que da última vez.
+- `mem_menos_gap_13` — São treze segundos a menos que da última vez.
+- `mem_mais_gap_13` — São treze segundos a mais que da última vez.
+- `mem_menos_gap_14` — São catorze segundos a menos que da última vez.
+- `mem_mais_gap_14` — São catorze segundos a mais que da última vez.
+- `mem_menos_gap_15` — São quinze segundos a menos que da última vez.
+- `mem_mais_gap_15` — São quinze segundos a mais que da última vez.
+- `mem_menos_gap_16` — São dezesseis segundos a menos que da última vez.
+- `mem_mais_gap_16` — São dezesseis segundos a mais que da última vez.
+- `mem_menos_gap_17` — São dezessete segundos a menos que da última vez.
+- `mem_mais_gap_17` — São dezessete segundos a mais que da última vez.
+- `mem_menos_gap_18` — São dezoito segundos a menos que da última vez.
+- `mem_mais_gap_18` — São dezoito segundos a mais que da última vez.
+- `mem_menos_gap_19` — São dezenove segundos a menos que da última vez.
+- `mem_mais_gap_19` — São dezenove segundos a mais que da última vez.
+- `mem_menos_gap_20` — São vinte segundos a menos que da última vez.
+- `mem_mais_gap_20` — São vinte segundos a mais que da última vez.
+- `mem_menos_gap_21` — São vinte e um segundos a menos que da última vez.
+- `mem_mais_gap_21` — São vinte e um segundos a mais que da última vez.
+- `mem_menos_gap_22` — São vinte e dois segundos a menos que da última vez.
+- `mem_mais_gap_22` — São vinte e dois segundos a mais que da última vez.
+- `mem_menos_gap_23` — São vinte e três segundos a menos que da última vez.
+- `mem_mais_gap_23` — São vinte e três segundos a mais que da última vez.
+- `mem_menos_gap_24` — São vinte e quatro segundos a menos que da última vez.
+- `mem_mais_gap_24` — São vinte e quatro segundos a mais que da última vez.
+- `mem_menos_gap_25` — São vinte e cinco segundos a menos que da última vez.
+- `mem_mais_gap_25` — São vinte e cinco segundos a mais que da última vez.
+- `mem_menos_gap_26` — São vinte e seis segundos a menos que da última vez.
+- `mem_mais_gap_26` — São vinte e seis segundos a mais que da última vez.
+- `mem_menos_gap_27` — São vinte e sete segundos a menos que da última vez.
+- `mem_mais_gap_27` — São vinte e sete segundos a mais que da última vez.
+- `mem_menos_gap_28` — São vinte e oito segundos a menos que da última vez.
+- `mem_mais_gap_28` — São vinte e oito segundos a mais que da última vez.
+- `mem_menos_gap_29` — São vinte e nove segundos a menos que da última vez.
+- `mem_mais_gap_29` — São vinte e nove segundos a mais que da última vez.
+- `mem_menos_gap_30` — São trinta segundos a menos que da última vez.
+- `mem_mais_gap_30` — São trinta segundos a mais que da última vez.
+- `mem_menos_gap_31` — São trinta e um segundos a menos que da última vez.
+- `mem_mais_gap_31` — São trinta e um segundos a mais que da última vez.
+- `mem_menos_gap_32` — São trinta e dois segundos a menos que da última vez.
+- `mem_mais_gap_32` — São trinta e dois segundos a mais que da última vez.
+- `mem_menos_gap_33` — São trinta e três segundos a menos que da última vez.
+- `mem_mais_gap_33` — São trinta e três segundos a mais que da última vez.
+- `mem_menos_gap_34` — São trinta e quatro segundos a menos que da última vez.
+- `mem_mais_gap_34` — São trinta e quatro segundos a mais que da última vez.
+- `mem_menos_gap_35` — São trinta e cinco segundos a menos que da última vez.
+- `mem_mais_gap_35` — São trinta e cinco segundos a mais que da última vez.
+- `mem_menos_gap_36` — São trinta e seis segundos a menos que da última vez.
+- `mem_mais_gap_36` — São trinta e seis segundos a mais que da última vez.
+- `mem_menos_gap_37` — São trinta e sete segundos a menos que da última vez.
+- `mem_mais_gap_37` — São trinta e sete segundos a mais que da última vez.
+- `mem_menos_gap_38` — São trinta e oito segundos a menos que da última vez.
+- `mem_mais_gap_38` — São trinta e oito segundos a mais que da última vez.
+- `mem_menos_gap_39` — São trinta e nove segundos a menos que da última vez.
+- `mem_mais_gap_39` — São trinta e nove segundos a mais que da última vez.
+- `mem_menos_gap_40` — São quarenta segundos a menos que da última vez.
+- `mem_mais_gap_40` — São quarenta segundos a mais que da última vez.
+- `mem_menos_gap_41` — São quarenta e um segundos a menos que da última vez.
+- `mem_mais_gap_41` — São quarenta e um segundos a mais que da última vez.
+- `mem_menos_gap_42` — São quarenta e dois segundos a menos que da última vez.
+- `mem_mais_gap_42` — São quarenta e dois segundos a mais que da última vez.
+- `mem_menos_gap_43` — São quarenta e três segundos a menos que da última vez.
+- `mem_mais_gap_43` — São quarenta e três segundos a mais que da última vez.
+- `mem_menos_gap_44` — São quarenta e quatro segundos a menos que da última vez.
+- `mem_mais_gap_44` — São quarenta e quatro segundos a mais que da última vez.
+- `mem_menos_gap_45` — São quarenta e cinco segundos a menos que da última vez.
+- `mem_mais_gap_45` — São quarenta e cinco segundos a mais que da última vez.
+- `mem_menos_gap_46` — São quarenta e seis segundos a menos que da última vez.
+- `mem_mais_gap_46` — São quarenta e seis segundos a mais que da última vez.
+- `mem_menos_gap_47` — São quarenta e sete segundos a menos que da última vez.
+- `mem_mais_gap_47` — São quarenta e sete segundos a mais que da última vez.
+- `mem_menos_gap_48` — São quarenta e oito segundos a menos que da última vez.
+- `mem_mais_gap_48` — São quarenta e oito segundos a mais que da última vez.
+- `mem_menos_gap_49` — São quarenta e nove segundos a menos que da última vez.
+- `mem_mais_gap_49` — São quarenta e nove segundos a mais que da última vez.
+- `mem_menos_gap_50` — São cinquenta segundos a menos que da última vez.
+- `mem_mais_gap_50` — São cinquenta segundos a mais que da última vez.
+- `mem_menos_gap_51` — São cinquenta e um segundos a menos que da última vez.
+- `mem_mais_gap_51` — São cinquenta e um segundos a mais que da última vez.
+- `mem_menos_gap_52` — São cinquenta e dois segundos a menos que da última vez.
+- `mem_mais_gap_52` — São cinquenta e dois segundos a mais que da última vez.
+- `mem_menos_gap_53` — São cinquenta e três segundos a menos que da última vez.
+- `mem_mais_gap_53` — São cinquenta e três segundos a mais que da última vez.
+- `mem_menos_gap_54` — São cinquenta e quatro segundos a menos que da última vez.
+- `mem_mais_gap_54` — São cinquenta e quatro segundos a mais que da última vez.
+- `mem_menos_gap_55` — São cinquenta e cinco segundos a menos que da última vez.
+- `mem_mais_gap_55` — São cinquenta e cinco segundos a mais que da última vez.
+- `mem_menos_gap_56` — São cinquenta e seis segundos a menos que da última vez.
+- `mem_mais_gap_56` — São cinquenta e seis segundos a mais que da última vez.
+- `mem_menos_gap_57` — São cinquenta e sete segundos a menos que da última vez.
+- `mem_mais_gap_57` — São cinquenta e sete segundos a mais que da última vez.
+- `mem_menos_gap_58` — São cinquenta e oito segundos a menos que da última vez.
+- `mem_mais_gap_58` — São cinquenta e oito segundos a mais que da última vez.
+- `mem_menos_gap_59` — São cinquenta e nove segundos a menos que da última vez.
+- `mem_mais_gap_59` — São cinquenta e nove segundos a mais que da última vez.
+- `mem_menos_gap_60` — São sessenta segundos a menos que da última vez.
+- `mem_mais_gap_60` — São sessenta segundos a mais que da última vez.
+- `voc_novato` — Novato,
+- `voc_novato_2` — Ei, novato,
+- `voc_novato_3` — Olha, novato,
+
+## BANDEIRAS — 5 peças
+
+- `band_nenhuma` — Sem bandeira. Pista livre.
+- `band_vermelha` — Bandeira vermelha. Corrida parada.
+- `band_azul` — Bandeira azul. Deixa passar.
+- `band_dq` — Você foi desclassificado.
+- `band_bandeirada` — Bandeirada. Corrida encerrada.
+
+## COMBUSTÍVEL — 23 peças
+
+- `comb_sobra` — O combustível dá até o fim.
+- `comb_no_limite` — O combustível está no limite. Vai dar justo.
+- `comb_falta_muito` — O combustível não dá nem perto. Você vai ter que parar.
+- `comb_falta_1` — Vai faltar combustível para uma volta.
+- `comb_falta_2` — Vai faltar combustível para duas voltas.
+- `comb_falta_3` — Vai faltar combustível para três voltas.
+- `comb_falta_4` — Vai faltar combustível para quatro voltas.
+- `comb_falta_5` — Vai faltar combustível para cinco voltas.
+- `comb_falta_6` — Vai faltar combustível para seis voltas.
+- `comb_falta_7` — Vai faltar combustível para sete voltas.
+- `comb_falta_8` — Vai faltar combustível para oito voltas.
+- `comb_falta_9` — Vai faltar combustível para nove voltas.
+- `comb_falta_10` — Vai faltar combustível para dez voltas.
+- `comb_falta_11` — Vai faltar combustível para onze voltas.
+- `comb_falta_12` — Vai faltar combustível para doze voltas.
+- `comb_falta_13` — Vai faltar combustível para treze voltas.
+- `comb_falta_14` — Vai faltar combustível para catorze voltas.
+- `comb_falta_15` — Vai faltar combustível para quinze voltas.
+- `comb_falta_16` — Vai faltar combustível para dezesseis voltas.
+- `comb_falta_17` — Vai faltar combustível para dezessete voltas.
+- `comb_falta_18` — Vai faltar combustível para dezoito voltas.
+- `comb_falta_19` — Vai faltar combustível para dezenove voltas.
+- `comb_falta_20` — Vai faltar combustível para vinte voltas.
+
+## GAP — carro da frente — 86 peças
+
+- `frente_gap_0_1` — O carro da frente está a um décimo.
+- `frente_gap_0_2` — O carro da frente está a dois décimos.
+- `frente_gap_0_3` — O carro da frente está a três décimos.
+- `frente_gap_0_4` — O carro da frente está a quatro décimos.
+- `frente_gap_0_5` — O carro da frente está a cinco décimos.
+- `frente_gap_0_6` — O carro da frente está a seis décimos.
+- `frente_gap_0_7` — O carro da frente está a sete décimos.
+- `frente_gap_0_8` — O carro da frente está a oito décimos.
+- `frente_gap_0_9` — O carro da frente está a nove décimos.
+- `frente_gap_1_0` — O carro da frente está a um segundo.
+- `frente_gap_1_1` — O carro da frente está a um e um.
+- `frente_gap_1_2` — O carro da frente está a um e dois.
+- `frente_gap_1_3` — O carro da frente está a um e três.
+- `frente_gap_1_4` — O carro da frente está a um e quatro.
+- `frente_gap_1_5` — O carro da frente está a um e cinco.
+- `frente_gap_1_6` — O carro da frente está a um e seis.
+- `frente_gap_1_7` — O carro da frente está a um e sete.
+- `frente_gap_1_8` — O carro da frente está a um e oito.
+- `frente_gap_1_9` — O carro da frente está a um e nove.
+- `frente_gap_2_0` — O carro da frente está a dois segundos.
+- `frente_gap_2_5` — O carro da frente está a dois segundos e meio.
+- `frente_gap_3_0` — O carro da frente está a três segundos.
+- `frente_gap_3_5` — O carro da frente está a três segundos e meio.
+- `frente_gap_4_0` — O carro da frente está a quatro segundos.
+- `frente_gap_4_5` — O carro da frente está a quatro segundos e meio.
+- `frente_gap_5_0` — O carro da frente está a cinco segundos.
+- `frente_gap_5_5` — O carro da frente está a cinco segundos e meio.
+- `frente_gap_6_0` — O carro da frente está a seis segundos.
+- `frente_gap_6_5` — O carro da frente está a seis segundos e meio.
+- `frente_gap_7_0` — O carro da frente está a sete segundos.
+- `frente_gap_7_5` — O carro da frente está a sete segundos e meio.
+- `frente_gap_8_0` — O carro da frente está a oito segundos.
+- `frente_gap_8_5` — O carro da frente está a oito segundos e meio.
+- `frente_gap_9_0` — O carro da frente está a nove segundos.
+- `frente_gap_9_5` — O carro da frente está a nove segundos e meio.
+- `frente_gap_10` — O carro da frente está a dez segundos.
+- `frente_gap_11` — O carro da frente está a onze segundos.
+- `frente_gap_12` — O carro da frente está a doze segundos.
+- `frente_gap_13` — O carro da frente está a treze segundos.
+- `frente_gap_14` — O carro da frente está a catorze segundos.
+- `frente_gap_15` — O carro da frente está a quinze segundos.
+- `frente_gap_16` — O carro da frente está a dezesseis segundos.
+- `frente_gap_17` — O carro da frente está a dezessete segundos.
+- `frente_gap_18` — O carro da frente está a dezoito segundos.
+- `frente_gap_19` — O carro da frente está a dezenove segundos.
+- `frente_gap_20` — O carro da frente está a vinte segundos.
+- `frente_gap_21` — O carro da frente está a vinte e um segundos.
+- `frente_gap_22` — O carro da frente está a vinte e dois segundos.
+- `frente_gap_23` — O carro da frente está a vinte e três segundos.
+- `frente_gap_24` — O carro da frente está a vinte e quatro segundos.
+- `frente_gap_25` — O carro da frente está a vinte e cinco segundos.
+- `frente_gap_26` — O carro da frente está a vinte e seis segundos.
+- `frente_gap_27` — O carro da frente está a vinte e sete segundos.
+- `frente_gap_28` — O carro da frente está a vinte e oito segundos.
+- `frente_gap_29` — O carro da frente está a vinte e nove segundos.
+- `frente_gap_30` — O carro da frente está a trinta segundos.
+- `frente_gap_31` — O carro da frente está a trinta e um segundos.
+- `frente_gap_32` — O carro da frente está a trinta e dois segundos.
+- `frente_gap_33` — O carro da frente está a trinta e três segundos.
+- `frente_gap_34` — O carro da frente está a trinta e quatro segundos.
+- `frente_gap_35` — O carro da frente está a trinta e cinco segundos.
+- `frente_gap_36` — O carro da frente está a trinta e seis segundos.
+- `frente_gap_37` — O carro da frente está a trinta e sete segundos.
+- `frente_gap_38` — O carro da frente está a trinta e oito segundos.
+- `frente_gap_39` — O carro da frente está a trinta e nove segundos.
+- `frente_gap_40` — O carro da frente está a quarenta segundos.
+- `frente_gap_41` — O carro da frente está a quarenta e um segundos.
+- `frente_gap_42` — O carro da frente está a quarenta e dois segundos.
+- `frente_gap_43` — O carro da frente está a quarenta e três segundos.
+- `frente_gap_44` — O carro da frente está a quarenta e quatro segundos.
+- `frente_gap_45` — O carro da frente está a quarenta e cinco segundos.
+- `frente_gap_46` — O carro da frente está a quarenta e seis segundos.
+- `frente_gap_47` — O carro da frente está a quarenta e sete segundos.
+- `frente_gap_48` — O carro da frente está a quarenta e oito segundos.
+- `frente_gap_49` — O carro da frente está a quarenta e nove segundos.
+- `frente_gap_50` — O carro da frente está a cinquenta segundos.
+- `frente_gap_51` — O carro da frente está a cinquenta e um segundos.
+- `frente_gap_52` — O carro da frente está a cinquenta e dois segundos.
+- `frente_gap_53` — O carro da frente está a cinquenta e três segundos.
+- `frente_gap_54` — O carro da frente está a cinquenta e quatro segundos.
+- `frente_gap_55` — O carro da frente está a cinquenta e cinco segundos.
+- `frente_gap_56` — O carro da frente está a cinquenta e seis segundos.
+- `frente_gap_57` — O carro da frente está a cinquenta e sete segundos.
+- `frente_gap_58` — O carro da frente está a cinquenta e oito segundos.
+- `frente_gap_59` — O carro da frente está a cinquenta e nove segundos.
+- `frente_gap_60` — O carro da frente está a sessenta segundos.
+
+## GAP — carro de trás — 86 peças
+
+- `atras_gap_0_1` — O carro de trás está a um décimo.
+- `atras_gap_0_2` — O carro de trás está a dois décimos.
+- `atras_gap_0_3` — O carro de trás está a três décimos.
+- `atras_gap_0_4` — O carro de trás está a quatro décimos.
+- `atras_gap_0_5` — O carro de trás está a cinco décimos.
+- `atras_gap_0_6` — O carro de trás está a seis décimos.
+- `atras_gap_0_7` — O carro de trás está a sete décimos.
+- `atras_gap_0_8` — O carro de trás está a oito décimos.
+- `atras_gap_0_9` — O carro de trás está a nove décimos.
+- `atras_gap_1_0` — O carro de trás está a um segundo.
+- `atras_gap_1_1` — O carro de trás está a um e um.
+- `atras_gap_1_2` — O carro de trás está a um e dois.
+- `atras_gap_1_3` — O carro de trás está a um e três.
+- `atras_gap_1_4` — O carro de trás está a um e quatro.
+- `atras_gap_1_5` — O carro de trás está a um e cinco.
+- `atras_gap_1_6` — O carro de trás está a um e seis.
+- `atras_gap_1_7` — O carro de trás está a um e sete.
+- `atras_gap_1_8` — O carro de trás está a um e oito.
+- `atras_gap_1_9` — O carro de trás está a um e nove.
+- `atras_gap_2_0` — O carro de trás está a dois segundos.
+- `atras_gap_2_5` — O carro de trás está a dois segundos e meio.
+- `atras_gap_3_0` — O carro de trás está a três segundos.
+- `atras_gap_3_5` — O carro de trás está a três segundos e meio.
+- `atras_gap_4_0` — O carro de trás está a quatro segundos.
+- `atras_gap_4_5` — O carro de trás está a quatro segundos e meio.
+- `atras_gap_5_0` — O carro de trás está a cinco segundos.
+- `atras_gap_5_5` — O carro de trás está a cinco segundos e meio.
+- `atras_gap_6_0` — O carro de trás está a seis segundos.
+- `atras_gap_6_5` — O carro de trás está a seis segundos e meio.
+- `atras_gap_7_0` — O carro de trás está a sete segundos.
+- `atras_gap_7_5` — O carro de trás está a sete segundos e meio.
+- `atras_gap_8_0` — O carro de trás está a oito segundos.
+- `atras_gap_8_5` — O carro de trás está a oito segundos e meio.
+- `atras_gap_9_0` — O carro de trás está a nove segundos.
+- `atras_gap_9_5` — O carro de trás está a nove segundos e meio.
+- `atras_gap_10` — O carro de trás está a dez segundos.
+- `atras_gap_11` — O carro de trás está a onze segundos.
+- `atras_gap_12` — O carro de trás está a doze segundos.
+- `atras_gap_13` — O carro de trás está a treze segundos.
+- `atras_gap_14` — O carro de trás está a catorze segundos.
+- `atras_gap_15` — O carro de trás está a quinze segundos.
+- `atras_gap_16` — O carro de trás está a dezesseis segundos.
+- `atras_gap_17` — O carro de trás está a dezessete segundos.
+- `atras_gap_18` — O carro de trás está a dezoito segundos.
+- `atras_gap_19` — O carro de trás está a dezenove segundos.
+- `atras_gap_20` — O carro de trás está a vinte segundos.
+- `atras_gap_21` — O carro de trás está a vinte e um segundos.
+- `atras_gap_22` — O carro de trás está a vinte e dois segundos.
+- `atras_gap_23` — O carro de trás está a vinte e três segundos.
+- `atras_gap_24` — O carro de trás está a vinte e quatro segundos.
+- `atras_gap_25` — O carro de trás está a vinte e cinco segundos.
+- `atras_gap_26` — O carro de trás está a vinte e seis segundos.
+- `atras_gap_27` — O carro de trás está a vinte e sete segundos.
+- `atras_gap_28` — O carro de trás está a vinte e oito segundos.
+- `atras_gap_29` — O carro de trás está a vinte e nove segundos.
+- `atras_gap_30` — O carro de trás está a trinta segundos.
+- `atras_gap_31` — O carro de trás está a trinta e um segundos.
+- `atras_gap_32` — O carro de trás está a trinta e dois segundos.
+- `atras_gap_33` — O carro de trás está a trinta e três segundos.
+- `atras_gap_34` — O carro de trás está a trinta e quatro segundos.
+- `atras_gap_35` — O carro de trás está a trinta e cinco segundos.
+- `atras_gap_36` — O carro de trás está a trinta e seis segundos.
+- `atras_gap_37` — O carro de trás está a trinta e sete segundos.
+- `atras_gap_38` — O carro de trás está a trinta e oito segundos.
+- `atras_gap_39` — O carro de trás está a trinta e nove segundos.
+- `atras_gap_40` — O carro de trás está a quarenta segundos.
+- `atras_gap_41` — O carro de trás está a quarenta e um segundos.
+- `atras_gap_42` — O carro de trás está a quarenta e dois segundos.
+- `atras_gap_43` — O carro de trás está a quarenta e três segundos.
+- `atras_gap_44` — O carro de trás está a quarenta e quatro segundos.
+- `atras_gap_45` — O carro de trás está a quarenta e cinco segundos.
+- `atras_gap_46` — O carro de trás está a quarenta e seis segundos.
+- `atras_gap_47` — O carro de trás está a quarenta e sete segundos.
+- `atras_gap_48` — O carro de trás está a quarenta e oito segundos.
+- `atras_gap_49` — O carro de trás está a quarenta e nove segundos.
+- `atras_gap_50` — O carro de trás está a cinquenta segundos.
+- `atras_gap_51` — O carro de trás está a cinquenta e um segundos.
+- `atras_gap_52` — O carro de trás está a cinquenta e dois segundos.
+- `atras_gap_53` — O carro de trás está a cinquenta e três segundos.
+- `atras_gap_54` — O carro de trás está a cinquenta e quatro segundos.
+- `atras_gap_55` — O carro de trás está a cinquenta e cinco segundos.
+- `atras_gap_56` — O carro de trás está a cinquenta e seis segundos.
+- `atras_gap_57` — O carro de trás está a cinquenta e sete segundos.
+- `atras_gap_58` — O carro de trás está a cinquenta e oito segundos.
+- `atras_gap_59` — O carro de trás está a cinquenta e nove segundos.
+- `atras_gap_60` — O carro de trás está a sessenta segundos.
+
+## PISTA — 3 peças
+
+- `pista_seca` — A pista está seca.
+- `pista_molhada` — A pista está molhada.
+- `pista_chovendo` — Está chovendo agora.
+
+## PNEU — comparação com o vizinho — 43 peças
+
+- `pneu_dele_mesma_idade` — O pneu dele tem a mesma idade do seu.
+- `pneu_dele_velho_1` — O pneu dele é uma volta mais velho que o seu.
+- `pneu_dele_novo_1` — O pneu dele é uma volta mais novo que o seu.
+- `pneu_dele_velho_2` — O pneu dele é duas voltas mais velho que o seu.
+- `pneu_dele_novo_2` — O pneu dele é duas voltas mais novo que o seu.
+- `pneu_dele_velho_3` — O pneu dele é três voltas mais velho que o seu.
+- `pneu_dele_novo_3` — O pneu dele é três voltas mais novo que o seu.
+- `pneu_dele_velho_4` — O pneu dele é quatro voltas mais velho que o seu.
+- `pneu_dele_novo_4` — O pneu dele é quatro voltas mais novo que o seu.
+- `pneu_dele_velho_5` — O pneu dele é cinco voltas mais velho que o seu.
+- `pneu_dele_novo_5` — O pneu dele é cinco voltas mais novo que o seu.
+- `pneu_dele_velho_6` — O pneu dele é seis voltas mais velho que o seu.
+- `pneu_dele_novo_6` — O pneu dele é seis voltas mais novo que o seu.
+- `pneu_dele_velho_7` — O pneu dele é sete voltas mais velho que o seu.
+- `pneu_dele_novo_7` — O pneu dele é sete voltas mais novo que o seu.
+- `pneu_dele_velho_8` — O pneu dele é oito voltas mais velho que o seu.
+- `pneu_dele_novo_8` — O pneu dele é oito voltas mais novo que o seu.
+- `pneu_dele_velho_9` — O pneu dele é nove voltas mais velho que o seu.
+- `pneu_dele_novo_9` — O pneu dele é nove voltas mais novo que o seu.
+- `pneu_dele_velho_10` — O pneu dele é dez voltas mais velho que o seu.
+- `pneu_dele_novo_10` — O pneu dele é dez voltas mais novo que o seu.
+- `pneu_dele_velho_11` — O pneu dele é onze voltas mais velho que o seu.
+- `pneu_dele_novo_11` — O pneu dele é onze voltas mais novo que o seu.
+- `pneu_dele_velho_12` — O pneu dele é doze voltas mais velho que o seu.
+- `pneu_dele_novo_12` — O pneu dele é doze voltas mais novo que o seu.
+- `pneu_dele_velho_13` — O pneu dele é treze voltas mais velho que o seu.
+- `pneu_dele_novo_13` — O pneu dele é treze voltas mais novo que o seu.
+- `pneu_dele_velho_14` — O pneu dele é catorze voltas mais velho que o seu.
+- `pneu_dele_novo_14` — O pneu dele é catorze voltas mais novo que o seu.
+- `pneu_dele_velho_15` — O pneu dele é quinze voltas mais velho que o seu.
+- `pneu_dele_novo_15` — O pneu dele é quinze voltas mais novo que o seu.
+- `pneu_dele_velho_16` — O pneu dele é dezesseis voltas mais velho que o seu.
+- `pneu_dele_novo_16` — O pneu dele é dezesseis voltas mais novo que o seu.
+- `pneu_dele_velho_17` — O pneu dele é dezessete voltas mais velho que o seu.
+- `pneu_dele_novo_17` — O pneu dele é dezessete voltas mais novo que o seu.
+- `pneu_dele_velho_18` — O pneu dele é dezoito voltas mais velho que o seu.
+- `pneu_dele_novo_18` — O pneu dele é dezoito voltas mais novo que o seu.
+- `pneu_dele_velho_19` — O pneu dele é dezenove voltas mais velho que o seu.
+- `pneu_dele_novo_19` — O pneu dele é dezenove voltas mais novo que o seu.
+- `pneu_dele_velho_20` — O pneu dele é vinte voltas mais velho que o seu.
+- `pneu_dele_novo_20` — O pneu dele é vinte voltas mais novo que o seu.
+- `pneu_dele_muito_velho` — O pneu dele está muito mais velho que o seu.
+- `pneu_dele_muito_novo` — O pneu dele está muito mais novo que o seu.
+
+## PNEU — composto e descasamento — 6 peças
+
+- `pneu_seco` — Você está de pneu seco.
+- `pneu_chuva` — Você está de pneu de chuva.
+- `pneu_frente_seco_pista_molhada` — O carro da frente ainda está de seco com a pista molhada. Vai ter que parar.
+- `pneu_frente_chuva_pista_seca` — O carro da frente está de chuva com a pista seca. Vai perder ritmo.
+- `pneu_voce_seco_pista_molhada` — Você está de seco com a pista molhada.
+- `pneu_voce_chuva_pista_seca` — Você está de chuva com a pista seca.
+
+## PNEU — idade do seu — 61 peças
+
+- `pneu_idade_0` — Seu pneu é novo.
+- `pneu_idade_1` — Seu pneu tem uma volta.
+- `pneu_idade_2` — Seu pneu tem duas voltas.
+- `pneu_idade_3` — Seu pneu tem três voltas.
+- `pneu_idade_4` — Seu pneu tem quatro voltas.
+- `pneu_idade_5` — Seu pneu tem cinco voltas.
+- `pneu_idade_6` — Seu pneu tem seis voltas.
+- `pneu_idade_7` — Seu pneu tem sete voltas.
+- `pneu_idade_8` — Seu pneu tem oito voltas.
+- `pneu_idade_9` — Seu pneu tem nove voltas.
+- `pneu_idade_10` — Seu pneu tem dez voltas.
+- `pneu_idade_11` — Seu pneu tem onze voltas.
+- `pneu_idade_12` — Seu pneu tem doze voltas.
+- `pneu_idade_13` — Seu pneu tem treze voltas.
+- `pneu_idade_14` — Seu pneu tem catorze voltas.
+- `pneu_idade_15` — Seu pneu tem quinze voltas.
+- `pneu_idade_16` — Seu pneu tem dezesseis voltas.
+- `pneu_idade_17` — Seu pneu tem dezessete voltas.
+- `pneu_idade_18` — Seu pneu tem dezoito voltas.
+- `pneu_idade_19` — Seu pneu tem dezenove voltas.
+- `pneu_idade_20` — Seu pneu tem vinte voltas.
+- `pneu_idade_21` — Seu pneu tem vinte e uma voltas.
+- `pneu_idade_22` — Seu pneu tem vinte e duas voltas.
+- `pneu_idade_23` — Seu pneu tem vinte e três voltas.
+- `pneu_idade_24` — Seu pneu tem vinte e quatro voltas.
+- `pneu_idade_25` — Seu pneu tem vinte e cinco voltas.
+- `pneu_idade_26` — Seu pneu tem vinte e seis voltas.
+- `pneu_idade_27` — Seu pneu tem vinte e sete voltas.
+- `pneu_idade_28` — Seu pneu tem vinte e oito voltas.
+- `pneu_idade_29` — Seu pneu tem vinte e nove voltas.
+- `pneu_idade_30` — Seu pneu tem trinta voltas.
+- `pneu_idade_31` — Seu pneu tem trinta e uma voltas.
+- `pneu_idade_32` — Seu pneu tem trinta e duas voltas.
+- `pneu_idade_33` — Seu pneu tem trinta e três voltas.
+- `pneu_idade_34` — Seu pneu tem trinta e quatro voltas.
+- `pneu_idade_35` — Seu pneu tem trinta e cinco voltas.
+- `pneu_idade_36` — Seu pneu tem trinta e seis voltas.
+- `pneu_idade_37` — Seu pneu tem trinta e sete voltas.
+- `pneu_idade_38` — Seu pneu tem trinta e oito voltas.
+- `pneu_idade_39` — Seu pneu tem trinta e nove voltas.
+- `pneu_idade_40` — Seu pneu tem quarenta voltas.
+- `pneu_idade_41` — Seu pneu tem quarenta e uma voltas.
+- `pneu_idade_42` — Seu pneu tem quarenta e duas voltas.
+- `pneu_idade_43` — Seu pneu tem quarenta e três voltas.
+- `pneu_idade_44` — Seu pneu tem quarenta e quatro voltas.
+- `pneu_idade_45` — Seu pneu tem quarenta e cinco voltas.
+- `pneu_idade_46` — Seu pneu tem quarenta e seis voltas.
+- `pneu_idade_47` — Seu pneu tem quarenta e sete voltas.
+- `pneu_idade_48` — Seu pneu tem quarenta e oito voltas.
+- `pneu_idade_49` — Seu pneu tem quarenta e nove voltas.
+- `pneu_idade_50` — Seu pneu tem cinquenta voltas.
+- `pneu_idade_51` — Seu pneu tem cinquenta e uma voltas.
+- `pneu_idade_52` — Seu pneu tem cinquenta e duas voltas.
+- `pneu_idade_53` — Seu pneu tem cinquenta e três voltas.
+- `pneu_idade_54` — Seu pneu tem cinquenta e quatro voltas.
+- `pneu_idade_55` — Seu pneu tem cinquenta e cinco voltas.
+- `pneu_idade_56` — Seu pneu tem cinquenta e seis voltas.
+- `pneu_idade_57` — Seu pneu tem cinquenta e sete voltas.
+- `pneu_idade_58` — Seu pneu tem cinquenta e oito voltas.
+- `pneu_idade_59` — Seu pneu tem cinquenta e nove voltas.
+- `pneu_idade_60` — Seu pneu tem sessenta voltas.
+
+## POSIÇÃO — 39 peças
+
+- `pos_2` — Você está em segundo.
+- `pos_3` — Você está em terceiro.
+- `pos_4` — Você está em quarto.
+- `pos_5` — Você está em quinto.
+- `pos_6` — Você está em sexto.
+- `pos_7` — Você está em sétimo.
+- `pos_8` — Você está em oitavo.
+- `pos_9` — Você está em nono.
+- `pos_10` — Você está em décimo.
+- `pos_11` — Você está em décimo primeiro.
+- `pos_12` — Você está em décimo segundo.
+- `pos_13` — Você está em décimo terceiro.
+- `pos_14` — Você está em décimo quarto.
+- `pos_15` — Você está em décimo quinto.
+- `pos_16` — Você está em décimo sexto.
+- `pos_17` — Você está em décimo sétimo.
+- `pos_18` — Você está em décimo oitavo.
+- `pos_19` — Você está em décimo nono.
+- `pos_20` — Você está em vigésimo.
+- `pos_21` — Você está em vigésimo primeiro.
+- `pos_22` — Você está em vigésimo segundo.
+- `pos_23` — Você está em vigésimo terceiro.
+- `pos_24` — Você está em vigésimo quarto.
+- `pos_25` — Você está em vigésimo quinto.
+- `pos_26` — Você está em vigésimo sexto.
+- `pos_27` — Você está em vigésimo sétimo.
+- `pos_28` — Você está em vigésimo oitavo.
+- `pos_29` — Você está em vigésimo nono.
+- `pos_30` — Você está em trigésimo.
+- `pos_31` — Você está em trigésimo primeiro.
+- `pos_32` — Você está em trigésimo segundo.
+- `pos_33` — Você está em trigésimo terceiro.
+- `pos_34` — Você está em trigésimo quarto.
+- `pos_35` — Você está em trigésimo quinto.
+- `pos_36` — Você está em trigésimo sexto.
+- `pos_37` — Você está em trigésimo sétimo.
+- `pos_38` — Você está em trigésimo oitavo.
+- `pos_39` — Você está em trigésimo nono.
+- `pos_40` — Você está em quadragésimo.
+
+## QUEBRA — abandono — 36 peças
+
+- `qb_dnf_engine_0` — abandona a corrida com problemas no motor.
+- `qb_dnf_engine_1` — está fora da corrida com problemas no motor.
+- `qb_dnf_engine_2` — foi retirado da corrida com problemas no motor.
+- `qb_dnf_gearbox_0` — abandona a corrida com problemas no câmbio.
+- `qb_dnf_gearbox_1` — está fora da corrida com problemas no câmbio.
+- `qb_dnf_gearbox_2` — foi retirado da corrida com problemas no câmbio.
+- `qb_dnf_brakes_0` — abandona a corrida com problemas nos freios.
+- `qb_dnf_brakes_1` — está fora da corrida com problemas nos freios.
+- `qb_dnf_brakes_2` — foi retirado da corrida com problemas nos freios.
+- `qb_dnf_suspension_0` — abandona a corrida com problemas na suspensão.
+- `qb_dnf_suspension_1` — está fora da corrida com problemas na suspensão.
+- `qb_dnf_suspension_2` — foi retirado da corrida com problemas na suspensão.
+- `qb_dnf_cooling_0` — abandona a corrida com problemas no arrefecimento.
+- `qb_dnf_cooling_1` — está fora da corrida com problemas no arrefecimento.
+- `qb_dnf_cooling_2` — foi retirado da corrida com problemas no arrefecimento.
+- `qb_dnf_front_wing_0` — abandona a corrida com problemas na asa dianteira.
+- `qb_dnf_front_wing_1` — está fora da corrida com problemas na asa dianteira.
+- `qb_dnf_front_wing_2` — foi retirado da corrida com problemas na asa dianteira.
+- `qb_dnf_rear_wing_0` — abandona a corrida com problemas na asa traseira.
+- `qb_dnf_rear_wing_1` — está fora da corrida com problemas na asa traseira.
+- `qb_dnf_rear_wing_2` — foi retirado da corrida com problemas na asa traseira.
+- `qb_dnf_sidepods_0` — abandona a corrida com problemas nas laterais.
+- `qb_dnf_sidepods_1` — está fora da corrida com problemas nas laterais.
+- `qb_dnf_sidepods_2` — foi retirado da corrida com problemas nas laterais.
+- `qb_dnf_underbody_0` — abandona a corrida com problemas no assoalho.
+- `qb_dnf_underbody_1` — está fora da corrida com problemas no assoalho.
+- `qb_dnf_underbody_2` — foi retirado da corrida com problemas no assoalho.
+- `qb_dnf_chassis_0` — abandona a corrida com problemas no chassi.
+- `qb_dnf_chassis_1` — está fora da corrida com problemas no chassi.
+- `qb_dnf_chassis_2` — foi retirado da corrida com problemas no chassi.
+- `qb_dnf_electronics_0` — abandona a corrida com problemas na parte elétrica.
+- `qb_dnf_electronics_1` — está fora da corrida com problemas na parte elétrica.
+- `qb_dnf_electronics_2` — foi retirado da corrida com problemas na parte elétrica.
+- `qb_dnf_outra_0` — abandona a corrida com problemas no carro.
+- `qb_dnf_outra_1` — está fora da corrida com problemas no carro.
+- `qb_dnf_outra_2` — foi retirado da corrida com problemas no carro.
+
+## QUEBRA — enquadramento — 14 peças
+
+- `ab_nemesis` — Seu maior rival,
+- `ab_rival` — Seu rival,
+- `ab_companheiro` — Seu companheiro,
+- `ab_piloto1` — O piloto um da
+- `ab_piloto2` — O piloto dois da
+- `ap_lider` — que lidera o campeonato,
+- `ap_frente` — que está alguns pontos à sua frente,
+- `ap_atras` — que está alguns pontos atrás de você,
+- `co_otima` — Ótima notícia pra nós.
+- `co_ummenos` — Um a menos na nossa frente.
+- `co_ajuda` — Isso ajuda a gente.
+- `co_atrito` — A prova está devorando carros hoje.
+- `co_atrito_2` — Já são muitos abandonos nesta corrida.
+- `co_atrito_3` — Está caindo gente demais aqui.
+
+## QUEBRA — equipes — 102 peças
+
+- `eq_racing_academy_red` — Racing Academy Red,
+- `eq_thunderline` — Thunderline,
+- `eq_grid_start` — Grid Start,
+- `eq_first_gear` — First Gear,
+- `eq_apex` — Apex,
+- `eq_velocity_prep` — Velocity Prep,
+- `eq_sakura` — Sakura,
+- `eq_kanzen` — Kanzen,
+- `eq_open_road` — Open Road,
+- `eq_speed_lab` — Speed Lab,
+- `eq_rising_stars` — Rising Stars,
+- `eq_fresh_start` — Fresh Start,
+- `eq_roadster` — Roadster,
+- `eq_weekend_warriors` — Weekend Warriors,
+- `eq_club_racer` — Club Racer,
+- `eq_dual_exit` — Dual Exit,
+- `eq_sunday_speed` — Sunday Speed,
+- `eq_grassroots` — Grassroots,
+- `eq_petrolhead_united` — Petrolhead United,
+- `eq_track_day_heroes` — Track Day Heroes,
+- `eq_late_apex_contenders` — Late Apex Contenders,
+- `eq_amateur_hour` — Amateur Hour,
+- `eq_eastline` — Eastline,
+- `eq_street_to_track` — Street to Track,
+- `eq_flat_six` — Flat Six,
+- `eq_gentleman_driver` — Gentleman Driver,
+- `eq_akagi` — Akagi,
+- `eq_rev_happy` — Rev Happy,
+- `eq_corner_workers` — Corner Workers,
+- `eq_daily_driver` — Daily Driver,
+- `eq_smooth_line` — Smooth Line,
+- `eq_over_the_limit` — Over the Limit,
+- `eq_bayern` — Bayern,
+- `eq_m_power` — M Power,
+- `eq_blue_propeller` — Blue Propeller,
+- `eq_munich_speed` — Munich Speed,
+- `eq_isar` — Isar,
+- `eq_eifel_sprint` — Eifel Sprint,
+- `eq_corporate_express` — Corporate Express,
+- `eq_roundel` — Roundel,
+- `eq_southern_cross` — Southern Cross,
+- `eq_black_forest` — Black Forest,
+- `eq_aperture` — Aperture,
+- `eq_backmesa` — Backmesa,
+- `eq_northgate` — Northgate,
+- `eq_kestrel` — Kestrel,
+- `eq_overland` — Overland,
+- `eq_rookfield` — Rookfield,
+- `eq_komorebi` — Komorebi,
+- `eq_nakatomi` — Nakatomi,
+- `eq_hikari` — Hikari,
+- `eq_redwell` — Redwell,
+- `eq_ashford` — Ashford,
+- `eq_tetsu` — Tetsu,
+- `eq_nachtwerk` — Nachtwerk,
+- `eq_adler` — Adler,
+- `eq_eisen` — Eisen,
+- `eq_kronstadt` — Kronstadt,
+- `eq_vektor` — Vektor,
+- `eq_lindenhaus` — Lindenhaus,
+- `eq_rahal_letterman` — Rahal Letterman,
+- `eq_toksport` — Toksport,
+- `eq_stuttgart` — Stuttgart,
+- `eq_grove_drive` — Grove Drive,
+- `eq_formosa_corsa` — Formosa Corsa,
+- `eq_silver_peak` — Silver Peak,
+- `eq_heart_of_racing` — Heart of Racing,
+- `eq_north_sea` — North Sea,
+- `eq_aures` — Aures,
+- `eq_aichi` — Aichi,
+- `eq_waypoint` — Waypoint,
+- `eq_farpoint` — Farpoint,
+- `eq_northstar` — Northstar,
+- `eq_mammoth` — Mammoth,
+- `eq_atlas` — Atlas,
+- `eq_outpost` — Outpost,
+- `eq_mercedes_amg` — Mercedes-AMG,
+- `eq_porsche` — Porsche,
+- `eq_ferrari` — Ferrari,
+- `eq_mclaren` — McLaren,
+- `eq_lamborghini` — Lamborghini,
+- `eq_bmw` — BMW,
+- `eq_audi` — Audi,
+- `eq_aston_martin` — Aston Martin,
+- `eq_chevrolet` — Chevrolet,
+- `eq_ford_mustang` — Ford Mustang,
+- `eq_acura` — Acura,
+- `eq_obsidian` — Obsidian,
+- `eq_kitsune` — Kitsune,
+- `eq_valkyrie` — Valkyrie,
+- `eq_solaris` — Solaris,
+- `eq_peregrine` — Peregrine,
+- `eq_arclight` — Arclight,
+- `eq_blackwell` — Blackwell,
+- `eq_stratos` — Stratos,
+- `eq_helion` — Helion,
+- `eq_united` — United,
+- `eq_jota` — Jota,
+- `eq_belgian_racing` — Belgian Racing,
+- `eq_prema` — Prema,
+- `eq_cool_racing` — Cool Racing,
+- `eq_meridian` — Meridian,
+
+## QUEBRA — sobrenomes — 355 peças
+
+- `nm_acosta` — Acosta,
+- `nm_allen` — Allen,
+- `nm_almeida` — Almeida,
+- `nm_alvarez` — Alvarez,
+- `nm_ammann` — Ammann,
+- `nm_andersen` — Andersen,
+- `nm_anderson` — Anderson,
+- `nm_andersson` — Andersson,
+- `nm_andre` — Andre,
+- `nm_araujo` — Araujo,
+- `nm_baker` — Baker,
+- `nm_bakker` — Bakker,
+- `nm_barbieri` — Barbieri,
+- `nm_barbosa` — Barbosa,
+- `nm_bauer` — Bauer,
+- `nm_baumann` — Baumann,
+- `nm_becker` — Becker,
+- `nm_benitez` — Benitez,
+- `nm_berg` — Berg,
+- `nm_bergstrom` — Bergstrom,
+- `nm_bernard` — Bernard,
+- `nm_bertrand` — Bertrand,
+- `nm_bianchi` — Bianchi,
+- `nm_blanco` — Blanco,
+- `nm_bonnet` — Bonnet,
+- `nm_bos` — Bos,
+- `nm_bouchard` — Bouchard,
+- `nm_braun` — Braun,
+- `nm_brown` — Brown,
+- `nm_brunner` — Brunner,
+- `nm_bruno` — Bruno,
+- `nm_campbell` — Campbell,
+- `nm_cardoso` — Cardoso,
+- `nm_caruso` — Caruso,
+- `nm_carvalho` — Carvalho,
+- `nm_castro` — Castro,
+- `nm_cavalcanti` — Cavalcanti,
+- `nm_chen` — Chen,
+- `nm_christensen` — Christensen,
+- `nm_claes` — Claes,
+- `nm_clark` — Clark,
+- `nm_clarke` — Clarke,
+- `nm_colombo` — Colombo,
+- `nm_conti` — Conti,
+- `nm_cooper` — Cooper,
+- `nm_correia` — Correia,
+- `nm_costa` — Costa,
+- `nm_cote` — Cote,
+- `nm_cruz` — Cruz,
+- `nm_dabrowski` — Dabrowski,
+- `nm_dahl` — Dahl,
+- `nm_david` — David,
+- `nm_davies` — Davies,
+- `nm_davis` — Davis,
+- `nm_deluca` — DeLuca,
+- `nm_desmet` — DeSmet,
+- `nm_dekker` — Dekker,
+- `nm_diaz` — Diaz,
+- `nm_dominguez` — Dominguez,
+- `nm_dubois` — Dubois,
+- `nm_dupont` — Dupont,
+- `nm_durand` — Durand,
+- `nm_eder` — Eder,
+- `nm_edwards` — Edwards,
+- `nm_eriksen` — Eriksen,
+- `nm_eriksson` — Eriksson,
+- `nm_esposito` — Esposito,
+- `nm_evans` — Evans,
+- `nm_fernandes` — Fernandes,
+- `nm_fernandez` — Fernandez,
+- `nm_ferraro` — Ferraro,
+- `nm_ferreira` — Ferreira,
+- `nm_fischer` — Fischer,
+- `nm_flores` — Flores,
+- `nm_fontana` — Fontana,
+- `nm_fortin` — Fortin,
+- `nm_fournier` — Fournier,
+- `nm_fraser` — Fraser,
+- `nm_frei` — Frei,
+- `nm_fuchs` — Fuchs,
+- `nm_gagne` — Gagne,
+- `nm_gallo` — Gallo,
+- `nm_garcia` — Garcia,
+- `nm_gauthier` — Gauthier,
+- `nm_gerber` — Gerber,
+- `nm_gil` — Gil,
+- `nm_giordano` — Giordano,
+- `nm_girard` — Girard,
+- `nm_gomes` — Gomes,
+- `nm_gomez` — Gomez,
+- `nm_goncalves` — Goncalves,
+- `nm_gonzalez` — Gonzalez,
+- `nm_goossens` — Goossens,
+- `nm_graf` — Graf,
+- `nm_greco` — Greco,
+- `nm_green` — Green,
+- `nm_gruber` — Gruber,
+- `nm_gustafsson` — Gustafsson,
+- `nm_gutierrez` — Gutierrez,
+- `nm_hall` — Hall,
+- `nm_hamalainen` — Hamalainen,
+- `nm_hansen` — Hansen,
+- `nm_hansson` — Hansson,
+- `nm_harris` — Harris,
+- `nm_harrison` — Harrison,
+- `nm_hartmann` — Hartmann,
+- `nm_hayashi` — Hayashi,
+- `nm_heikkinen` — Heikkinen,
+- `nm_hendriks` — Hendriks,
+- `nm_hernandez` — Hernandez,
+- `nm_herrera` — Herrera,
+- `nm_herrmann` — Herrmann,
+- `nm_hill` — Hill,
+- `nm_hofer` — Hofer,
+- `nm_hoffmann` — Hoffmann,
+- `nm_hu` — Hu,
+- `nm_huang` — Huang,
+- `nm_huber` — Huber,
+- `nm_ikeda` — Ikeda,
+- `nm_inoue` — Inoue,
+- `nm_ito` — Ito,
+- `nm_jackson` — Jackson,
+- `nm_jacobs` — Jacobs,
+- `nm_jankowski` — Jankowski,
+- `nm_jansen` — Jansen,
+- `nm_janssen` — Janssen,
+- `nm_janssens` — Janssens,
+- `nm_jansson` — Jansson,
+- `nm_jarvinen` — Jarvinen,
+- `nm_jensen` — Jensen,
+- `nm_jesus` — Jesus,
+- `nm_jimenez` — Jimenez,
+- `nm_johansen` — Johansen,
+- `nm_johansson` — Johansson,
+- `nm_johnsen` — Johnsen,
+- `nm_johnson` — Johnson,
+- `nm_jones` — Jones,
+- `nm_jonsson` — Jonsson,
+- `nm_jorgensen` — Jorgensen,
+- `nm_kaminski` — Kaminski,
+- `nm_karjalainen` — Karjalainen,
+- `nm_karlsen` — Karlsen,
+- `nm_karlsson` — Karlsson,
+- `nm_kato` — Kato,
+- `nm_keller` — Keller,
+- `nm_kimura` — Kimura,
+- `nm_king` — King,
+- `nm_klein` — Klein,
+- `nm_kobayashi` — Kobayashi,
+- `nm_koch` — Koch,
+- `nm_kohler` — Kohler,
+- `nm_konig` — Konig,
+- `nm_korhonen` — Korhonen,
+- `nm_koskinen` — Koskinen,
+- `nm_kowalczyk` — Kowalczyk,
+- `nm_kowalski` — Kowalski,
+- `nm_kozlowski` — Kozlowski,
+- `nm_kramer` — Kramer,
+- `nm_krause` — Krause,
+- `nm_krawczyk` — Krawczyk,
+- `nm_kristensen` — Kristensen,
+- `nm_kristiansen` — Kristiansen,
+- `nm_kunz` — Kunz,
+- `nm_laine` — Laine,
+- `nm_lambert` — Lambert,
+- `nm_larsen` — Larsen,
+- `nm_larsson` — Larsson,
+- `nm_laurent` — Laurent,
+- `nm_lavoie` — Lavoie,
+- `nm_lee` — Lee,
+- `nm_lefebvre` — Lefebvre,
+- `nm_lehmann` — Lehmann,
+- `nm_lehtonen` — Lehtonen,
+- `nm_leitner` — Leitner,
+- `nm_leone` — Leone,
+- `nm_leppanen` — Leppanen,
+- `nm_leroy` — Leroy,
+- `nm_lewandowski` — Lewandowski,
+- `nm_li` — Li,
+- `nm_lima` — Lima,
+- `nm_liu` — Liu,
+- `nm_lombardi` — Lombardi,
+- `nm_lopes` — Lopes,
+- `nm_lopez` — Lopez,
+- `nm_ma` — Ma,
+- `nm_madsen` — Madsen,
+- `nm_maes` — Maes,
+- `nm_maier` — Maier,
+- `nm_maki` — Maki,
+- `nm_makinen` — Makinen,
+- `nm_mancini` — Mancini,
+- `nm_marino` — Marino,
+- `nm_marques` — Marques,
+- `nm_martin` — Martin,
+- `nm_martinez` — Martinez,
+- `nm_martins` — Martins,
+- `nm_matsumoto` — Matsumoto,
+- `nm_mayer` — Mayer,
+- `nm_mazur` — Mazur,
+- `nm_meier` — Meier,
+- `nm_meijer` — Meijer,
+- `nm_mendes` — Mendes,
+- `nm_mercier` — Mercier,
+- `nm_mertens` — Mertens,
+- `nm_meyer` — Meyer,
+- `nm_michel` — Michel,
+- `nm_miller` — Miller,
+- `nm_mitchell` — Mitchell,
+- `nm_monteiro` — Monteiro,
+- `nm_moore` — Moore,
+- `nm_morales` — Morales,
+- `nm_moreau` — Moreau,
+- `nm_moreira` — Moreira,
+- `nm_morel` — Morel,
+- `nm_moreno` — Moreno,
+- `nm_moretti` — Moretti,
+- `nm_mori` — Mori,
+- `nm_morin` — Morin,
+- `nm_morris` — Morris,
+- `nm_mortensen` — Mortensen,
+- `nm_moser` — Moser,
+- `nm_mulder` — Mulder,
+- `nm_muller` — Muller,
+- `nm_munoz` — Munoz,
+- `nm_murray` — Murray,
+- `nm_nakamura` — Nakamura,
+- `nm_navarro` — Navarro,
+- `nm_neumann` — Neumann,
+- `nm_nielsen` — Nielsen,
+- `nm_nieminen` — Nieminen,
+- `nm_nilsen` — Nilsen,
+- `nm_nilsson` — Nilsson,
+- `nm_noel` — Noel,
+- `nm_nowak` — Nowak,
+- `nm_nunes` — Nunes,
+- `nm_oliveira` — Oliveira,
+- `nm_olsen` — Olsen,
+- `nm_olsson` — Olsson,
+- `nm_pedersen` — Pedersen,
+- `nm_peeters` — Peeters,
+- `nm_pereira` — Pereira,
+- `nm_perez` — Perez,
+- `nm_persson` — Persson,
+- `nm_peters` — Peters,
+- `nm_petit` — Petit,
+- `nm_pettersen` — Pettersen,
+- `nm_pettersson` — Pettersson,
+- `nm_pichler` — Pichler,
+- `nm_ramirez` — Ramirez,
+- `nm_ramos` — Ramos,
+- `nm_rantanen` — Rantanen,
+- `nm_rasmussen` — Rasmussen,
+- `nm_reyes` — Reyes,
+- `nm_ribeiro` — Ribeiro,
+- `nm_ricci` — Ricci,
+- `nm_richard` — Richard,
+- `nm_richter` — Richter,
+- `nm_rinaldi` — Rinaldi,
+- `nm_robert` — Robert,
+- `nm_roberts` — Roberts,
+- `nm_rocha` — Rocha,
+- `nm_rodrigues` — Rodrigues,
+- `nm_rodriguez` — Rodriguez,
+- `nm_romano` — Romano,
+- `nm_romero` — Romero,
+- `nm_roux` — Roux,
+- `nm_roy` — Roy,
+- `nm_ruiz` — Ruiz,
+- `nm_russo` — Russo,
+- `nm_saito` — Saito,
+- `nm_salonen` — Salonen,
+- `nm_sanchez` — Sanchez,
+- `nm_santoro` — Santoro,
+- `nm_santos` — Santos,
+- `nm_sasaki` — Sasaki,
+- `nm_schmid` — Schmid,
+- `nm_schmidt` — Schmidt,
+- `nm_schneider` — Schneider,
+- `nm_schouten` — Schouten,
+- `nm_schroder` — Schroder,
+- `nm_schulz` — Schulz,
+- `nm_schulze` — Schulze,
+- `nm_scott` — Scott,
+- `nm_seidl` — Seidl,
+- `nm_serrano` — Serrano,
+- `nm_shimizu` — Shimizu,
+- `nm_silva` — Silva,
+- `nm_simon` — Simon,
+- `nm_smit` — Smit,
+- `nm_smith` — Smith,
+- `nm_sorensen` — Sorensen,
+- `nm_sosa` — Sosa,
+- `nm_sousa` — Sousa,
+- `nm_souza` — Souza,
+- `nm_steiner` — Steiner,
+- `nm_suarez` — Suarez,
+- `nm_sun` — Sun,
+- `nm_suzuki` — Suzuki,
+- `nm_svensson` — Svensson,
+- `nm_szymanski` — Szymanski,
+- `nm_takahashi` — Takahashi,
+- `nm_tanaka` — Tanaka,
+- `nm_taylor` — Taylor,
+- `nm_teixeira` — Teixeira,
+- `nm_thomas` — Thomas,
+- `nm_thompson` — Thompson,
+- `nm_thomsen` — Thomsen,
+- `nm_torres` — Torres,
+- `nm_tremblay` — Tremblay,
+- `nm_turner` — Turner,
+- `nm_vazquez` — Vazquez,
+- `nm_vermeulen` — Vermeulen,
+- `nm_villa` — Villa,
+- `nm_virtanen` — Virtanen,
+- `nm_visser` — Visser,
+- `nm_vos` — Vos,
+- `nm_wagner` — Wagner,
+- `nm_walker` — Walker,
+- `nm_walter` — Walter,
+- `nm_wang` — Wang,
+- `nm_ward` — Ward,
+- `nm_watanabe` — Watanabe,
+- `nm_weber` — Weber,
+- `nm_werner` — Werner,
+- `nm_white` — White,
+- `nm_willems` — Willems,
+- `nm_williams` — Williams,
+- `nm_wilson` — Wilson,
+- `nm_winter` — Winter,
+- `nm_wisniewski` — Wisniewski,
+- `nm_wojcik` — Wojcik,
+- `nm_wolf` — Wolf,
+- `nm_wood` — Wood,
+- `nm_wouters` — Wouters,
+- `nm_wozniak` — Wozniak,
+- `nm_wright` — Wright,
+- `nm_wu` — Wu,
+- `nm_xu` — Xu,
+- `nm_yamada` — Yamada,
+- `nm_yamamoto` — Yamamoto,
+- `nm_yang` — Yang,
+- `nm_yoshida` — Yoshida,
+- `nm_young` — Young,
+- `nm_zhang` — Zhang,
+- `nm_zhao` — Zhao,
+- `nm_zhou` — Zhou,
+- `nm_zhu` — Zhu,
+- `nm_zielinski` — Zielinski,
+- `nm_zimmermann` — Zimmermann,
+- `nm_deboer` — deBoer,
+- `nm_degroot` — deGroot,
+- `nm_dejong` — deJong,
+- `nm_devries` — deVries,
+- `nm_vandijk` — vanDijk,
+- `nm_vanleeuwen` — vanLeeuwen,
+
+## QUEBRA — trechos por peça — 81 peças
+
+- `qb_dupla_light_0` — tiveram problemas no carro.
+- `qb_dupla_light_1` — relatam algo estranho no carro.
+- `qb_dupla_light_2` — avisaram de problemas no carro.
+- `qb_dupla_heavy_0` — estão com problemas graves no carro.
+- `qb_dupla_heavy_1` — relatam panes no carro.
+- `qb_dupla_heavy_2` — tiveram problemas sérios no carro.
+- `qb_dupla_dnf_0` — abandonaram a corrida com problemas no carro.
+- `qb_dupla_dnf_1` — estão fora da corrida com problemas no carro.
+- `qb_dupla_dnf_2` — foram retirados da corrida com problemas no carro.
+- `qb_light_engine_0` — sente o motor perdendo fôlego.
+- `qb_light_engine_1` — relata o motor engasgando.
+- `qb_light_engine_2` — avisa que o motor não está redondo.
+- `qb_heavy_engine_0` — está com o motor em pane.
+- `qb_heavy_engine_1` — perdeu potência e o motor pode não aguentar.
+- `qb_heavy_engine_2` — relata o motor no limite da quebra.
+- `qb_light_gearbox_0` — está com o câmbio arisco nas trocas.
+- `qb_light_gearbox_1` — relata engates falhando no câmbio.
+- `qb_light_gearbox_2` — sente o câmbio embolando as marchas.
+- `qb_heavy_gearbox_0` — está com o câmbio travando.
+- `qb_heavy_gearbox_1` — perdeu marchas e o câmbio está indo embora.
+- `qb_heavy_gearbox_2` — relata o câmbio prestes a parar.
+- `qb_light_brakes_0` — sente o pedal de freio amolecendo.
+- `qb_light_brakes_1` — relata os freios pedindo água.
+- `qb_light_brakes_2` — avisa que os freios estão longos.
+- `qb_heavy_brakes_0` — está praticamente sem freio.
+- `qb_heavy_brakes_1` — relata os freios cozinhando.
+- `qb_heavy_brakes_2` — perdeu o pedal e está com os freios em pane.
+- `qb_light_suspension_0` — sente a suspensão reclamando nas zebras.
+- `qb_light_suspension_1` — relata o carro batendo demais atrás.
+- `qb_light_suspension_2` — avisa de uma folga na suspensão.
+- `qb_heavy_suspension_0` — está com a suspensão comprometida.
+- `qb_heavy_suspension_1` — relata algo quebrado na suspensão.
+- `qb_heavy_suspension_2` — perdeu firmeza com a suspensão em pane.
+- `qb_light_cooling_0` — vê a temperatura subindo aos poucos.
+- `qb_light_cooling_1` — relata o arrefecimento no limite.
+- `qb_light_cooling_2` — avisa que a água está esquentando.
+- `qb_heavy_cooling_0` — está com o arrefecimento estourando.
+- `qb_heavy_cooling_1` — relata superaquecimento crítico.
+- `qb_heavy_cooling_2` — está com a temperatura no vermelho.
+- `qb_light_front_wing_0` — relata a asa dianteira leve.
+- `qb_light_front_wing_1` — sente o bico perdendo apoio.
+- `qb_light_front_wing_2` — avisa de dano na asa dianteira.
+- `qb_heavy_front_wing_0` — está com a asa dianteira danificada.
+- `qb_heavy_front_wing_1` — perdeu apoio na frente com a asa comprometida.
+- `qb_heavy_front_wing_2` — relata a asa dianteira se soltando.
+- `qb_light_rear_wing_0` — sente a traseira solta na reta.
+- `qb_light_rear_wing_1` — relata a asa traseira leve.
+- `qb_light_rear_wing_2` — avisa de dano na asa traseira.
+- `qb_heavy_rear_wing_0` — está com a asa traseira danificada.
+- `qb_heavy_rear_wing_1` — perdeu apoio atrás e a traseira está nervosa.
+- `qb_heavy_rear_wing_2` — relata a asa traseira cedendo.
+- `qb_light_sidepods_0` — relata dano nas laterais.
+- `qb_light_sidepods_1` — sente o carro puxando de lado.
+- `qb_light_sidepods_2` — avisa de um amassado nas laterais.
+- `qb_heavy_sidepods_0` — está com as laterais abertas.
+- `qb_heavy_sidepods_1` — perdeu parte da lateral do carro.
+- `qb_heavy_sidepods_2` — relata dano sério nas laterais.
+- `qb_light_underbody_0` — sente o assoalho raspando.
+- `qb_light_underbody_1` — relata perda de apoio no assoalho.
+- `qb_light_underbody_2` — avisa de dano no assoalho.
+- `qb_heavy_underbody_0` — está com o assoalho comprometido.
+- `qb_heavy_underbody_1` — perdeu downforce com o assoalho ferido.
+- `qb_heavy_underbody_2` — relata o assoalho arrastando forte.
+- `qb_light_chassis_0` — sente o chassi estranho.
+- `qb_light_chassis_1` — relata o carro desalinhado.
+- `qb_light_chassis_2` — avisa de algo torto no chassi.
+- `qb_heavy_chassis_0` — está com o chassi comprometido.
+- `qb_heavy_chassis_1` — relata dano estrutural no chassi.
+- `qb_heavy_chassis_2` — perdeu rigidez com o chassi ferido.
+- `qb_light_electronics_0` — relata oscilações na parte elétrica.
+- `qb_light_electronics_1` — sente o painel piscando.
+- `qb_light_electronics_2` — avisa de falha elétrica intermitente.
+- `qb_heavy_electronics_0` — está com pane elétrica.
+- `qb_heavy_electronics_1` — perdeu comandos com a parte elétrica em pane.
+- `qb_heavy_electronics_2` — relata o carro cortando por falha elétrica.
+- `qb_light_outra_0` — apresenta um problema no carro.
+- `qb_light_outra_1` — relata algo estranho no carro.
+- `qb_light_outra_2` — avisa de um problema no carro.
+- `qb_heavy_outra_0` — está com um problema grave no carro.
+- `qb_heavy_outra_1` — relata um problema sério no carro.
+- `qb_heavy_outra_2` — perdeu desempenho por algo grave no carro.
+
+## VOLTAS RESTANTES — prova por tempo (estimativa) — 59 peças
+
+- `restam_aprox_2` — Faltam umas duas voltas.
+- `restam_aprox_3` — Faltam umas três voltas.
+- `restam_aprox_4` — Faltam umas quatro voltas.
+- `restam_aprox_5` — Faltam umas cinco voltas.
+- `restam_aprox_6` — Faltam umas seis voltas.
+- `restam_aprox_7` — Faltam umas sete voltas.
+- `restam_aprox_8` — Faltam umas oito voltas.
+- `restam_aprox_9` — Faltam umas nove voltas.
+- `restam_aprox_10` — Faltam umas dez voltas.
+- `restam_aprox_11` — Faltam umas onze voltas.
+- `restam_aprox_12` — Faltam umas doze voltas.
+- `restam_aprox_13` — Faltam umas treze voltas.
+- `restam_aprox_14` — Faltam umas catorze voltas.
+- `restam_aprox_15` — Faltam umas quinze voltas.
+- `restam_aprox_16` — Faltam umas dezesseis voltas.
+- `restam_aprox_17` — Faltam umas dezessete voltas.
+- `restam_aprox_18` — Faltam umas dezoito voltas.
+- `restam_aprox_19` — Faltam umas dezenove voltas.
+- `restam_aprox_20` — Faltam umas vinte voltas.
+- `restam_aprox_21` — Faltam umas vinte e uma voltas.
+- `restam_aprox_22` — Faltam umas vinte e duas voltas.
+- `restam_aprox_23` — Faltam umas vinte e três voltas.
+- `restam_aprox_24` — Faltam umas vinte e quatro voltas.
+- `restam_aprox_25` — Faltam umas vinte e cinco voltas.
+- `restam_aprox_26` — Faltam umas vinte e seis voltas.
+- `restam_aprox_27` — Faltam umas vinte e sete voltas.
+- `restam_aprox_28` — Faltam umas vinte e oito voltas.
+- `restam_aprox_29` — Faltam umas vinte e nove voltas.
+- `restam_aprox_30` — Faltam umas trinta voltas.
+- `restam_aprox_31` — Faltam umas trinta e uma voltas.
+- `restam_aprox_32` — Faltam umas trinta e duas voltas.
+- `restam_aprox_33` — Faltam umas trinta e três voltas.
+- `restam_aprox_34` — Faltam umas trinta e quatro voltas.
+- `restam_aprox_35` — Faltam umas trinta e cinco voltas.
+- `restam_aprox_36` — Faltam umas trinta e seis voltas.
+- `restam_aprox_37` — Faltam umas trinta e sete voltas.
+- `restam_aprox_38` — Faltam umas trinta e oito voltas.
+- `restam_aprox_39` — Faltam umas trinta e nove voltas.
+- `restam_aprox_40` — Faltam umas quarenta voltas.
+- `restam_aprox_41` — Faltam umas quarenta e uma voltas.
+- `restam_aprox_42` — Faltam umas quarenta e duas voltas.
+- `restam_aprox_43` — Faltam umas quarenta e três voltas.
+- `restam_aprox_44` — Faltam umas quarenta e quatro voltas.
+- `restam_aprox_45` — Faltam umas quarenta e cinco voltas.
+- `restam_aprox_46` — Faltam umas quarenta e seis voltas.
+- `restam_aprox_47` — Faltam umas quarenta e sete voltas.
+- `restam_aprox_48` — Faltam umas quarenta e oito voltas.
+- `restam_aprox_49` — Faltam umas quarenta e nove voltas.
+- `restam_aprox_50` — Faltam umas cinquenta voltas.
+- `restam_aprox_51` — Faltam umas cinquenta e uma voltas.
+- `restam_aprox_52` — Faltam umas cinquenta e duas voltas.
+- `restam_aprox_53` — Faltam umas cinquenta e três voltas.
+- `restam_aprox_54` — Faltam umas cinquenta e quatro voltas.
+- `restam_aprox_55` — Faltam umas cinquenta e cinco voltas.
+- `restam_aprox_56` — Faltam umas cinquenta e seis voltas.
+- `restam_aprox_57` — Faltam umas cinquenta e sete voltas.
+- `restam_aprox_58` — Faltam umas cinquenta e oito voltas.
+- `restam_aprox_59` — Faltam umas cinquenta e nove voltas.
+- `restam_aprox_60` — Faltam umas sessenta voltas.
+
+## VOLTAS RESTANTES — prova por voltas — 60 peças
+
+- `restam_1` — Falta uma volta.
+- `restam_2` — Faltam duas voltas.
+- `restam_3` — Faltam três voltas.
+- `restam_4` — Faltam quatro voltas.
+- `restam_5` — Faltam cinco voltas.
+- `restam_6` — Faltam seis voltas.
+- `restam_7` — Faltam sete voltas.
+- `restam_8` — Faltam oito voltas.
+- `restam_9` — Faltam nove voltas.
+- `restam_10` — Faltam dez voltas.
+- `restam_11` — Faltam onze voltas.
+- `restam_12` — Faltam doze voltas.
+- `restam_13` — Faltam treze voltas.
+- `restam_14` — Faltam catorze voltas.
+- `restam_15` — Faltam quinze voltas.
+- `restam_16` — Faltam dezesseis voltas.
+- `restam_17` — Faltam dezessete voltas.
+- `restam_18` — Faltam dezoito voltas.
+- `restam_19` — Faltam dezenove voltas.
+- `restam_20` — Faltam vinte voltas.
+- `restam_21` — Faltam vinte e uma voltas.
+- `restam_22` — Faltam vinte e duas voltas.
+- `restam_23` — Faltam vinte e três voltas.
+- `restam_24` — Faltam vinte e quatro voltas.
+- `restam_25` — Faltam vinte e cinco voltas.
+- `restam_26` — Faltam vinte e seis voltas.
+- `restam_27` — Faltam vinte e sete voltas.
+- `restam_28` — Faltam vinte e oito voltas.
+- `restam_29` — Faltam vinte e nove voltas.
+- `restam_30` — Faltam trinta voltas.
+- `restam_31` — Faltam trinta e uma voltas.
+- `restam_32` — Faltam trinta e duas voltas.
+- `restam_33` — Faltam trinta e três voltas.
+- `restam_34` — Faltam trinta e quatro voltas.
+- `restam_35` — Faltam trinta e cinco voltas.
+- `restam_36` — Faltam trinta e seis voltas.
+- `restam_37` — Faltam trinta e sete voltas.
+- `restam_38` — Faltam trinta e oito voltas.
+- `restam_39` — Faltam trinta e nove voltas.
+- `restam_40` — Faltam quarenta voltas.
+- `restam_41` — Faltam quarenta e uma voltas.
+- `restam_42` — Faltam quarenta e duas voltas.
+- `restam_43` — Faltam quarenta e três voltas.
+- `restam_44` — Faltam quarenta e quatro voltas.
+- `restam_45` — Faltam quarenta e cinco voltas.
+- `restam_46` — Faltam quarenta e seis voltas.
+- `restam_47` — Faltam quarenta e sete voltas.
+- `restam_48` — Faltam quarenta e oito voltas.
+- `restam_49` — Faltam quarenta e nove voltas.
+- `restam_50` — Faltam cinquenta voltas.
+- `restam_51` — Faltam cinquenta e uma voltas.
+- `restam_52` — Faltam cinquenta e duas voltas.
+- `restam_53` — Faltam cinquenta e três voltas.
+- `restam_54` — Faltam cinquenta e quatro voltas.
+- `restam_55` — Faltam cinquenta e cinco voltas.
+- `restam_56` — Faltam cinquenta e seis voltas.
+- `restam_57` — Faltam cinquenta e sete voltas.
+- `restam_58` — Faltam cinquenta e oito voltas.
+- `restam_59` — Faltam cinquenta e nove voltas.
+- `restam_60` — Faltam sessenta voltas.

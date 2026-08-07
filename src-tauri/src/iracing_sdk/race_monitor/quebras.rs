@@ -29,6 +29,10 @@ impl RaceMonitor {
         self.breakdown_log.clear(); // corrida nova → zera o log de desfechos (Peça 3)
         self.player_risk_warned = [false; 11]; // corrida nova → rearma os avisos pessoais
         self.player_warning_log.clear();
+        self.poupar_avisado = false;
+        self.ritmo.reiniciar();
+        self.ritmo_log.clear();
+        self.ritmo_ultima_volta = -1;
         self.chat_send_warned = false; // corrida nova → rearma o aviso de comando não-entregue
     }
 
@@ -101,6 +105,16 @@ impl RaceMonitor {
                     entered_pit_since: false,
                 });
             }
+            // O DESFECHO, no canal do jogador. A linha continua entrando no `breakdown_log` (é
+            // ela que manda o `!black`/`!dq` e alimenta o resultado), mas o rádio da GRADE agora
+            // a ignora — ver `get_breakdown_feed`. Sem este par, ou o jogador ouve falarem dele
+            // em 3ª pessoa, ou não ouve nada no momento em que o carro dele morre.
+            self.player_warning_log.push(PlayerWarning {
+                tipo: TipoAvisoProprio::Quebra,
+                part: ev.part.as_str(),
+                wear_pct: 0,
+                severidade: ev.severity.key(),
+            });
         }
 
         // AVISO pessoal: peças do jogador que ENTRARAM na zona de risco (≥ 95%). Avisa cada
@@ -116,8 +130,10 @@ impl RaceMonitor {
             if !self.player_risk_warned[*i] {
                 self.player_risk_warned[*i] = true;
                 self.player_warning_log.push(PlayerWarning {
+                    tipo: TipoAvisoProprio::Peca,
                     part: pt.as_str(),
                     wear_pct: (wear * 100.0).round().clamp(0.0, 255.0) as u8,
+                    severidade: "",
                 });
             }
         }
@@ -126,6 +142,86 @@ impl RaceMonitor {
                 self.player_risk_warned[i] = false;
             }
         }
+
+        // POUPAR O CARRO: o cruzamento de dois sinais, e só o cruzamento.
+        //
+        // Peça nossa no limite, sozinha, é o desgaste normal de fim de stint — mandar poupar
+        // ali seria mandar poupar em toda corrida. Grid quebrando, sozinho, é problema dos
+        // outros. Juntos, dizem que a pista está cobrando mais caro do que o previsto, e aí
+        // aliviar é a decisão certa e vale interromper o piloto para dizê-la.
+        //
+        // Uma vez por corrida, latch. Ela pede uma MUDANÇA DE PILOTAGEM; repetida vira ruído,
+        // e ruído é o que faz o piloto desligar o rádio.
+        if !self.poupar_avisado && !danger.is_empty() {
+            let abandonos = self
+                .breakdown_log
+                .iter()
+                .filter(|o| o.severity == "dnf")
+                .count() as u32;
+            if abandonos > crate::engenheiro::quebra::ABANDONOS_PARA_COMENTAR {
+                self.poupar_avisado = true;
+                self.player_warning_log.push(PlayerWarning {
+                    tipo: TipoAvisoProprio::Poupar,
+                    part: "",
+                    wear_pct: 0,
+                    severidade: "",
+                });
+            }
+        }
+    }
+
+    /// O RÁDIO DE RITMO, uma vez por volta cruzada.
+    ///
+    /// Roda no mesmo lugar do tick de quebra e pelo mesmo motivo: os dois são eventos DE VOLTA
+    /// num laço que roda a 60 Hz. A trava de volta fica aqui, e não dentro do observador, para
+    /// ele continuar puro — um observador que precisa saber a taxa de amostragem do chamador
+    /// deixa de ser testável sem o SDK.
+    pub(super) fn tick_ritmo(&mut self, t: &IracingTelemetry) {
+        if t.session_state != STATE_RACING {
+            return;
+        }
+        let volta = t.lap_completed;
+        if volta <= 0 || volta == self.ritmo_ultima_volta {
+            return;
+        }
+        self.ritmo_ultima_volta = volta;
+
+        // O estado montado, e não os campos crus: a melhor da corrida com dono já é derivada
+        // lá, e recalculá-la aqui abriria a chance de as duas leituras discordarem.
+        let e = self.montar_estado_agora();
+        let fala = self.ritmo.observar(crate::engenheiro::ritmo::Passagem {
+            volta,
+            minha_volta_s: e.ultima_volta_s,
+            melhor_da_corrida_s: e.melhor_da_corrida_s,
+            dono_idx: e.melhor_da_corrida_idx,
+            e_minha: e.melhor_da_corrida_e_minha,
+        });
+        let Some(fala) = fala else { return };
+
+        use crate::engenheiro::ritmo::Fala;
+        let pronta = match fala {
+            Fala::Tomamos(c) => FalaDeRitmo::Tomamos(c),
+            Fala::Aproximando(c) => FalaDeRitmo::Aproximando(c),
+            Fala::DeOutro { lead, tempo, dono_idx } => {
+                // Sem número resolvido não há quem nomear, e a fala perderia o sujeito. Melhor
+                // engolir esta e deixar a próxima troca falar.
+                let num = self
+                    .car_number
+                    .get(dono_idx.max(0) as usize)
+                    .copied()
+                    .unwrap_or(0);
+                if dono_idx < 0 || num <= 0 {
+                    return;
+                }
+                FalaDeRitmo::MelhorDeOutro {
+                    lead,
+                    car_number: num as u32,
+                    tempo,
+                    decimos: crate::engenheiro::tempo_volta::decimos_de(e.melhor_da_corrida_s),
+                }
+            }
+        };
+        self.ritmo_log.push(pronta);
     }
 
     /// DEBUG: pede armar a GRADE TODA (montada no próximo tick com `t.cars`).

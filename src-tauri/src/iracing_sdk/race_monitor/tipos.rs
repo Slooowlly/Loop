@@ -204,11 +204,13 @@ pub struct PlayerTrackPoint {
     pub speed_kmh: f64,
     /// Índice do carro à frente (-1 = ninguém / é líder).
     pub ahead_idx: i32,
-    /// Gap para o carro à frente, em segundos.
+    /// Gap para o carro à frente, em segundos — de `est_time`, fechando o círculo
+    /// da volta. **-1 = desconhecido**: sem vizinho, ou ainda sem tempo de volta de
+    /// referência. Quem lê tem de barrar o negativo, não repassá-lo como gap.
     pub gap_ahead: f64,
     /// Índice do carro atrás (-1 = ninguém / é último).
     pub behind_idx: i32,
-    /// Gap para o carro atrás, em segundos.
+    /// Gap para o carro atrás, em segundos. Mesma regra do `gap_ahead`.
     pub gap_behind: f64,
 }
 
@@ -364,13 +366,58 @@ impl BreakdownOutcome {
     }
 }
 
+/// Uma fala do RÁDIO DE RITMO já pronta para o comando resolver.
+///
+/// Espelha [`engenheiro::ritmo::Fala`](crate::engenheiro::ritmo::Fala) com uma diferença: o
+/// `car_idx` virou NÚMERO do carro. O observador não conhece números (ele é puro e testável
+/// sem SDK), e o comando resolve nome pelo número — traduzir aqui, uma vez, evita o comando
+/// ter de conhecer o mapa de índices do monitor.
+#[derive(Clone, Debug)]
+pub enum FalaDeRitmo {
+    /// O jogador cravou a volta mais rápida. Uma peça, frase inteira.
+    Tomamos(String),
+    /// Estamos a menos de um segundo da melhor. Uma peça, frase inteira.
+    Aproximando(String),
+    /// A volta mais rápida é de outro. O SOBRENOME entra entre o lead e o tempo.
+    MelhorDeOutro {
+        lead: String,
+        car_number: u32,
+        tempo: String,
+        /// Décimos, para o comando redigir o texto do card sem refazer a conta.
+        decimos: i32,
+    },
+}
+
+/// O que este aviso pessoal está dizendo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TipoAvisoProprio {
+    /// Uma peça sua entrou na janela de risco.
+    Peca,
+    /// Peça sua no limite E a corrida já derrubando gente: conselho de poupar o carro.
+    ///
+    /// Vive no MESMO fluxo dos avisos de peça, e não num canal próprio, porque o overlay
+    /// mostra o mais NOVO por id. Num canal separado, os dois competiriam pela mesma faixa da
+    /// tela sem ninguém arbitrando; aqui, a ordem de chegada arbitra sozinha.
+    Poupar,
+    /// A peça sua LARGOU — o desfecho, não mais o aviso.
+    ///
+    /// Vem por aqui e não pelo rádio da grade porque o carro é NOSSO. No fluxo da grade a fala
+    /// sairia em 3ª pessoa ("o piloto um da tal equipe abandonou"), que é o jogador ouvindo
+    /// falarem dele como de um estranho. Ver [`crate::engenheiro::peca_propria::desfecho_frase`].
+    Quebra,
+}
+
 /// Aviso pessoal ao jogador: uma peça DELE entrou na janela de risco (já pode falhar).
 #[derive(Clone)]
 pub struct PlayerWarning {
-    /// Chave da peça (`PartType::as_str`, ex.: "engine").
+    pub tipo: TipoAvisoProprio,
+    /// Chave da peça (`PartType::as_str`, ex.: "engine"). Vazia no aviso de poupar.
     pub part: &'static str,
-    /// Desgaste no momento do aviso, em % (≥ 95).
+    /// Desgaste no momento do aviso, em % (≥ 95). Zero no aviso de poupar.
     pub wear_pct: u8,
+    /// `"light"`, `"heavy"` ou `"dnf"` — só no desfecho ([`TipoAvisoProprio::Quebra`]). Vazia
+    /// nos outros: é ela que escolhe entre "dá pra seguir" e "acabou por hoje".
+    pub severidade: &'static str,
 }
 
 /// Versão ENXUTA do histórico para o overlay "iRacing Conectado": só o que os

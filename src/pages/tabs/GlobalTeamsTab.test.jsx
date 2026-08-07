@@ -732,11 +732,11 @@ describe("GlobalTeamsTab", () => {
 
     // T002 is is_reigning_champion: true in mazda_amador
     const dualRow = screen.getByTestId("world-team-row-T002-mazda_amador");
-    expect(within(dualRow).getByTitle("Campeão vigente")).toBeInTheDocument();
+    expect(within(dualRow).getByText("★")).toHaveAttribute("data-tooltip", "Campeão vigente");
 
     // T001 is is_reigning_champion: false in mazda_amador
     const sundayRow = screen.getByTestId("world-team-row-T001-mazda_amador");
-    expect(within(sundayRow).queryByTitle("Campeão vigente")).not.toBeInTheDocument();
+    expect(within(sundayRow).queryByText("★")).not.toBeInTheDocument();
   });
 
   it("does not show a count badge when a team won only once (count == 1)", async () => {

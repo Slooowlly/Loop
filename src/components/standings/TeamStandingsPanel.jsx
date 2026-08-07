@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "../../i18n/index.js";
 import TeamLogoMarkShared from "../team/TeamLogoMark";
 import GlassCard from "../ui/GlassCard";
+import Tooltip from "../ui/Tooltip";
 import TrophyBadge from "./TrophyBadge";
 import { SpecialClassHeader, SpecialPendingTeamsNotice } from "./SpecialStandingNotices";
 import { getReadableTeamColor, formatTeamDriverPair, podiumClass } from "./standingsFormatting";
@@ -12,12 +13,11 @@ function TeamDriverLine({ team }) {
   const driverNames = formatTeamDriverPair(team);
 
   return (
-    <p
-      className="block truncate whitespace-nowrap text-xs text-text-secondary"
-      title={driverNames}
-    >
-      {driverNames}
-    </p>
+    <Tooltip texto={driverNames} soSeCortado>
+      <p className="block truncate whitespace-nowrap text-xs text-text-secondary">
+        {driverNames}
+      </p>
+    </Tooltip>
   );
 }
 
@@ -35,15 +35,32 @@ function ZoneDivider({ label, variant }) {
   );
 }
 
+// O realce da equipe em foco, na COR DELA — o mesmo tratamento que a dupla dela
+// recebe na tabela de pilotos (ver `rowStyle` em DriverStandingsTable). Cor da
+// equipe e não uma cor de estado porque o elo entre as duas tabelas é a
+// identidade da equipe: o olho salta de um lado para o outro pela cor.
+//
+// Só entra quando a equipe não está em nenhum dos dois estados que já pintam a
+// linha — o amarelo do dossiê aberto e o vermelho da zona de rebaixamento. Um
+// realce de passagem não pode apagar um estado que persiste.
+function focoDaEquipe(ativo, cor) {
+  if (!ativo || !cor) return undefined;
+  return { backgroundColor: `${cor}22`, boxShadow: `inset 3px 0 0 0 ${cor}` };
+}
+
 function TeamStandingCard({
   team,
   position,
   index,
   isRelegationZone = false,
   isHistoryActive = false,
+  isHighlighted = false,
+  highlightColor = null,
+  onTeamHover,
   onTeamDossierOpen,
   onTeamGlobalHistoryOpen,
 }) {
+  const foco = focoDaEquipe(isHighlighted && !isHistoryActive && !isRelegationZone, highlightColor);
   const cardClassName = [
     "flex items-center justify-between rounded-2xl border px-4 py-3 transition-glass",
     isHistoryActive
@@ -52,7 +69,7 @@ function TeamStandingCard({
     isRelegationZone
       ? "border-status-red/35 bg-status-red/[0.12] shadow-[inset_3px_0_0_0_rgba(248,81,73,0.75)] hover:bg-status-red/[0.18]"
       : !isHistoryActive
-        ? "border-white/6 bg-white/[0.03] hover:bg-white/[0.05]"
+        ? `border-white/6 ${foco ? "" : "bg-white/[0.03] hover:bg-white/[0.05]"}`
         : "",
   ].join(" ");
 
@@ -60,7 +77,12 @@ function TeamStandingCard({
     <div
       onClick={() => onTeamDossierOpen?.(team)}
       onDoubleClick={() => onTeamGlobalHistoryOpen?.(team)}
+      onMouseEnter={() => onTeamHover?.(team.id)}
+      onMouseLeave={() => onTeamHover?.(null)}
       className={cardClassName}
+      style={foco}
+      data-team-id={team.id}
+      data-highlighted={isHighlighted ? "true" : undefined}
       data-relegation-zone={isRelegationZone ? "true" : undefined}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -105,6 +127,12 @@ function TeamStandingsPanel({
   specialClassGroups,
   showSpecialPendingNotice,
   selectedHistoryTeamId,
+  // A equipe em foco vem de fora porque o foco é COMPARTILHADO com a tabela de
+  // pilotos: apontar um piloto acende a equipe dele aqui, e apontar uma equipe
+  // aqui acende os dois carros dela lá. Ver StandingsTab.
+  highlightedTeamId = null,
+  highlightedTeamColor = null,
+  onTeamHover = null,
   onTeamDossierOpen,
   onTeamGlobalHistoryOpen,
 }) {
@@ -122,17 +150,26 @@ function TeamStandingsPanel({
       if (relegationCount > 0 && index === total - relegationCount) {
         items.push(<ZoneDivider key="divider-relego" label={i18n.t("standings.zone.relegation")} variant="red" />);
       }
+      const isHistoryActive = selectedHistoryTeamId === team.id;
+      const isHighlighted = highlightedTeamId === team.id;
+      const foco = focoDaEquipe(isHighlighted && !isHistoryActive, highlightedTeamColor);
       items.push(
         <div
           key={team.id}
           onClick={() => onTeamDossierOpen(team)}
           onDoubleClick={() => onTeamGlobalHistoryOpen(team)}
+          onMouseEnter={() => onTeamHover?.(team.id)}
+          onMouseLeave={() => onTeamHover?.(null)}
+          data-team-id={team.id}
+          data-highlighted={isHighlighted ? "true" : undefined}
           className={[
-            "flex items-center justify-between rounded-2xl border px-4 py-3 transition-glass hover:bg-white/[0.05]",
-            selectedHistoryTeamId === team.id
+            "flex items-center justify-between rounded-2xl border px-4 py-3 transition-glass",
+            foco ? "" : "hover:bg-white/[0.05]",
+            isHistoryActive
               ? "border-status-yellow/45 bg-status-yellow/10 shadow-[inset_4px_0_0_rgba(242,196,109,0.95)]"
-              : "border-white/6 bg-white/[0.03]",
+              : `border-white/6 ${foco ? "" : "bg-white/[0.03]"}`,
           ].join(" ")}
+          style={foco}
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <span className={["w-7 text-center text-sm font-semibold", podiumClass(index)].join(" ")}>
@@ -200,6 +237,9 @@ function TeamStandingsPanel({
                       index={index}
                       isRelegationZone={isRelegationZone}
                       isHistoryActive={selectedHistoryTeamId === team.id}
+                      isHighlighted={highlightedTeamId === team.id}
+                      highlightColor={highlightedTeamColor}
+                      onTeamHover={onTeamHover}
                       onTeamDossierOpen={onTeamDossierOpen}
                       onTeamGlobalHistoryOpen={onTeamGlobalHistoryOpen}
                     />

@@ -901,7 +901,7 @@ describe("useCareerStore champion overlay", () => {
   });
 
   it("stores the requested payload and clears it on close", () => {
-    const overlay = { demo: true };
+    const overlay = { category_id: "gt3", drivers: [{ id: "D1" }] };
 
     useCareerStore.getState().showChampionOverlay(overlay);
     expect(useCareerStore.getState().championOverlay).toEqual(overlay);
@@ -910,10 +910,63 @@ describe("useCareerStore champion overlay", () => {
     expect(useCareerStore.getState().championOverlay).toBe(null);
   });
 
-  it("uses the demo sentinel when no payload is provided", () => {
+  it("stays closed when no payload is provided", () => {
     useCareerStore.getState().showChampionOverlay();
 
-    expect(useCareerStore.getState().championOverlay).toEqual({ demo: true });
+    expect(useCareerStore.getState().championOverlay).toBe(null);
+  });
+});
+
+describe("useCareerStore debugShowLastSeasonChampion", () => {
+  const payload = { category_id: "gt3", drivers: [{ id: "D1" }] };
+
+  beforeEach(() => {
+    invoke.mockReset();
+    useCareerStore.setState({ careerId: "career-1", championOverlay: null, season: { numero: 4 } });
+  });
+
+  afterEach(() => {
+    useCareerStore.setState({ championOverlay: null, season: null });
+  });
+
+  it("pede o ANO ANTERIOR e abre o pop-up com ele", async () => {
+    invoke.mockResolvedValue(payload);
+
+    await useCareerStore.getState().debugShowLastSeasonChampion();
+
+    expect(invoke).toHaveBeenCalledWith("get_season_champion_payload", {
+      careerId: "career-1",
+      category: null,
+      seasonNumber: 3,
+    });
+    expect(useCareerStore.getState().championOverlay).toEqual(payload);
+  });
+
+  it("cai na temporada ativa quando o ano anterior não tem corrida", async () => {
+    invoke.mockResolvedValueOnce(null).mockResolvedValueOnce(payload);
+
+    await useCareerStore.getState().debugShowLastSeasonChampion();
+
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_season_champion_payload", {
+      careerId: "career-1",
+      category: null,
+      seasonNumber: null,
+    });
+    expect(useCareerStore.getState().championOverlay).toEqual(payload);
+  });
+
+  it("na primeira temporada vai direto para a ativa, sem pedir ano zero", async () => {
+    useCareerStore.setState({ season: { numero: 1 } });
+    invoke.mockResolvedValue(payload);
+
+    await useCareerStore.getState().debugShowLastSeasonChampion();
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("get_season_champion_payload", {
+      careerId: "career-1",
+      category: null,
+      seasonNumber: null,
+    });
   });
 });
 

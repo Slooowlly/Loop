@@ -199,12 +199,14 @@ pub(crate) fn historical_index_for_driver(
     let category = regular_category(driver.categoria_atual.as_deref(), None);
     // Um piloto só: filtra o agregado de `race_results` em vez de varrer a tabela.
     let real_career = RealCareerIndex::for_driver(conn, &driver.id)?;
+    let arquivo = Arquivo::carregar_piloto(conn, &driver.id)?;
     let stats = load_driver_category_stats(
         conn,
         driver,
         category.as_deref(),
         &TeamTitleStatsByDriver::new(),
         &real_career,
+        &arquivo,
     )?;
     Ok(compute_historical_index(&stats))
 }

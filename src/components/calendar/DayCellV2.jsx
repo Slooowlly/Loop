@@ -19,6 +19,7 @@ function DayCellV2({
   currentDateParts,
   seasonYear,
   raceArrivalFeedbackActive,
+  highlighted = false,
   onHover,
 }) {
   if (day == null) return <div className="h-full min-h-[62px]" />;
@@ -81,6 +82,16 @@ function DayCellV2({
     />
   ) : null;
 
+  // Anel de foco: clicar numa etapa em "Próximos eventos" abre o mês dela e pisca o
+  // dia — sem isso o clique trocava o mês em silêncio e parecia não ter feito nada.
+  const focusRing = highlighted ? (
+    <span
+      aria-hidden="true"
+      data-testid="calendar-day-focus-ring"
+      className="pointer-events-none absolute inset-0 z-30 animate-pulse shadow-[inset_0_0_0_2px_rgba(255,255,255,0.92)]"
+    />
+  ) : null;
+
   const todayPill = isCurrentDay ? (
     <span className="absolute right-1.5 top-1.5 z-[11] rounded bg-accent-hover px-1 py-[1px] text-[7.5px] font-extrabold uppercase leading-none tracking-[0.06em] text-[#04121f]">
       {i18n.t("calendar.v2.today")}
@@ -114,6 +125,7 @@ function DayCellV2({
           {day}
         </span>
         {pastHatch}
+        {focusRing}
       </div>
     );
   }
@@ -178,6 +190,7 @@ function DayCellV2({
       )}
       {currentRail}
       {pastHatch}
+      {focusRing}
     </div>
   );
 }

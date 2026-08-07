@@ -76,10 +76,15 @@ pub(super) fn maintenance_label(key: &str) -> String {
 /// Monta a fatura do fim de semana do time do jogador.
 ///
 /// As linhas de operação (carro / logística / equipe) são a MESMA conta que produziu o
-/// `event_operations_cost` desta rodada — ver [`crate::finance::operacao`]. Para não
-/// depender de os dois cálculos coincidirem, o total real é lido do histórico financeiro
+/// `event_operations_cost` desta rodada — hoje a fatura física de [`super::despesa`]. Para
+/// não depender de os dois cálculos coincidirem, o total real é lido do histórico financeiro
 /// já gravado e as linhas são normalizadas até somarem exatamente ele. Se houve batida,
 /// o conserto entra num bloco à parte, porque é o único débito que responde à pilotagem.
+///
+/// Os rótulos continuam sendo os de `maintenance.*`: as chaves do modelo físico
+/// (`combustivel`, `revisao`) descrevem as mesmas coisas que `gasolina` e `pecas`
+/// descreviam, e `despesa::rotulo_da_linha` faz a tradução. O que mudou é que agora o
+/// número atrás do rótulo É a conta que o rótulo nomeia.
 ///
 /// A âncora é a linha de `(season_number, round)` DESTA rodada, nunca "a mais recente":
 /// numa corrida de fase especial não existe linha (o caixa não se move) e a linha mais
@@ -91,6 +96,9 @@ pub(crate) fn compute_maintenance_breakdown(
     team: &Team,
     result: &RaceResult,
     track_id: u32,
+    // Duração REAL da prova (`CalendarEntry::duracao_corrida_min`) — a mesma que dimensionou
+    // o débito. `0` cai na duração de referência da divisão.
+    race_duration_min: i32,
     rounds_in_season: f64,
     economic_health: GlobalEconomicHealth,
     repair_cost: f64,
@@ -106,13 +114,15 @@ pub(crate) fn compute_maintenance_breakdown(
 
     let mut items: Vec<MaintenanceItem> = match debitado {
         Some(debitado) => {
-            let inputs = operation_inputs(
+            let lines = despesa_da_rodada(
                 team,
-                round_operating_base(&team.categoria, rounds_in_season),
+                round_operating_base(&team.categoria, team.classe.as_deref(), rounds_in_season),
                 economy_cost_modifier(economic_health),
+                rounds_in_season,
                 round_operation_context(result, &team.id, track_id),
-            );
-            let lines = crate::finance::operacao::compute_operation_lines(&inputs);
+                EtapaFisica::da_corrida(result, team, race_duration_min),
+            )
+            .linhas;
             let bruto: f64 = lines.iter().map(|l| l.cost).sum();
             let ajuste = if bruto > 0.0 { debitado / bruto } else { 0.0 };
             lines
@@ -170,6 +180,7 @@ pub(super) fn repair_cost_fraction(severity: &str) -> f64 {
 pub(super) fn compute_repair_cost(
     severity: &str,
     category: &str,
+    classe: Option<&str>,
     car_performance: f64,
     rng: &mut impl rand::Rng,
 ) -> f64 {
@@ -177,7 +188,7 @@ pub(super) fn compute_repair_cost(
     if frac <= 0.0 {
         return 0.0;
     }
-    let operating = category_finance_scale(category).operating_cost_midpoint();
+    let operating = category_finance_scale_for(category, classe).operating_cost_midpoint();
     let car_factor =
         1.0 + crate::simulation::math::normalize_car_performance(car_performance) / 100.0 * 0.5;
     let variance = 0.65 + rng.gen::<f64>() * 0.70; // 0.65..1.35

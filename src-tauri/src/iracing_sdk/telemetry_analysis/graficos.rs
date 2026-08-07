@@ -84,9 +84,11 @@ pub(super) fn build_charts(
     let (rival_gap, rival_name) = if let Some((ridx, _, _)) = find_rival(history) {
         let mut by_lap: std::collections::BTreeMap<i32, f64> = std::collections::BTreeMap::new();
         for p in &history.player_track {
-            if p.ahead_idx == ridx && p.gap_ahead.is_finite() {
+            // O gap negativo aqui é SINAL (rival atrás), não valor: um -1 de "não sei"
+            // vindo da amostra entraria como um segundo de vantagem inventado.
+            if p.ahead_idx == ridx && p.gap_ahead.is_finite() && p.gap_ahead >= 0.0 {
                 by_lap.insert(p.lap, p.gap_ahead);
-            } else if p.behind_idx == ridx && p.gap_behind.is_finite() {
+            } else if p.behind_idx == ridx && p.gap_behind.is_finite() && p.gap_behind >= 0.0 {
                 by_lap.insert(p.lap, -p.gap_behind);
             }
         }

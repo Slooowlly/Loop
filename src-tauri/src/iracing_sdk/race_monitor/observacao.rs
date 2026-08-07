@@ -57,6 +57,11 @@ impl RaceMonitor {
             self.car_monitors = [CarMonitor::DEFAULT; 64];
             self.prev = None;
             self.race_green_time = None; // novo cooldown após o salto
+            // A tendência de gap é a diferença entre duas amostras no tempo; atravessar um
+            // salto de replay com o histórico intacto produziria "ele ganhou quarenta
+            // segundos numa volta" a partir de dois instantes que nunca foram vizinhos.
+            self.gap_hist.clear();
+            self.estado_ultimo_refresh = f64::NEG_INFINITY;
         }
 
         // Marca o momento do verde (largada) para o cooldown de início. Reseta
@@ -130,6 +135,10 @@ impl RaceMonitor {
         self.live_incident = t.incident_count;
         self.live_session_time = now;
         self.live_cars_count = t.cars.len() as i32;
+
+        // O retrato narrado, estrangulado a ~4 Hz. Vem POR ÚLTIMO de propósito: ele lê
+        // `live_is_green` e o histórico de voltas, que os passos acima acabaram de escrever.
+        self.guardar_estado_agora(t);
     }
 
     /// Lógica do jogador AO VIVO: restart, evidências da tentativa, pontuação de
@@ -177,6 +186,15 @@ impl RaceMonitor {
             // os comandos (só correndo na pista). O diretor deduplica por volta.
             self.tick_breakdown_player(t);
         }
+
+        // 1.7) Rádio de RITMO: a volta mais rápida da corrida. FORA do gate de pista acima de
+        // propósito — o jogador no box continua querendo saber quem cravou a melhor.
+        self.tick_ritmo(t);
+
+        // 1.8) O engenheiro na CLASSIFICAÇÃO. Canal próprio e sessão própria: ele sai cedo em
+        // tudo que não for a sessão de quali, e é o único do rádio que fala numa volta em que o
+        // jogador não está correndo contra ninguém.
+        self.tick_classificacao(t);
 
         // 2) Evidências da tentativa.
         self.accumulate_evidence(t);

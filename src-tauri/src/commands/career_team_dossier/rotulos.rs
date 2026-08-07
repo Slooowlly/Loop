@@ -213,7 +213,10 @@ pub(super) fn team_history_group_family(category: &str) -> Option<&'static str> 
 ///
 /// Só morde nas multiclasse: numa monomarca a classe é vazia e todo mundo do
 /// campeonato é do grupo por definição.
-pub(super) fn keep_family_facts(facts: Vec<TeamRaceFact>, family: Option<&str>) -> Vec<TeamRaceFact> {
+pub(super) fn keep_family_facts(
+    facts: Vec<TeamRaceFact>,
+    family: Option<&str>,
+) -> Vec<TeamRaceFact> {
     let Some(family) = family else {
         return facts;
     };
@@ -342,10 +345,7 @@ impl RecordScopeKind {
             // O mundo é o mundo: nenhuma marca recorta nada aqui.
             // A escada inteira, explícita: passar uma lista vazia significaria
             // "nenhuma" para quem lê os fatos, não "todas".
-            Self::World => TEAM_RECORD_LADDER
-                .iter()
-                .map(|id| id.to_string())
-                .collect(),
+            Self::World => TEAM_RECORD_LADDER.iter().map(|id| id.to_string()).collect(),
         }
     }
 

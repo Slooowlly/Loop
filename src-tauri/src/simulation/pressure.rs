@@ -328,7 +328,12 @@ pub fn rivalry_pressure_for(
 // o teto do talento, mas desânimo claramente pesa).
 
 /// Motivação "neutra" (default do piloto, sem efeito). Acima dá um empurrãozinho, abaixo pesa.
-const MOTIVATION_REF: f64 = 70.0;
+///
+/// É também a linha de base para onde a motivação DECAI a cada virada
+/// ([`crate::evolution::motivation`]). Os dois modelos precisam concordar sobre o
+/// que é "neutro": se o pace considera 70 o zero e a evolução puxasse para outro
+/// número, o grid inteiro viveria de um lado só da régua.
+pub(crate) const MOTIVATION_REF: f64 = 70.0;
 /// Pace (pontos de skill) PERDIDO na motivação mínima (0).
 const MOTIVATION_DEFICIT_SPAN: f64 = 2.5;
 /// Pace (pontos de skill) GANHO na motivação máxima (100). Bem menor que o déficit.

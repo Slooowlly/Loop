@@ -53,15 +53,27 @@ pub struct Rivalry {
 
 impl Rivalry {
     /// Intensidade percebida: combinação ponderada dos dois eixos.
-    /// Recente tem peso 60% (atividade atual); histórico tem 40% (memória).
+    /// Histórico tem peso 60% (memória); recente tem 40% (calor atual).
     pub fn perceived_intensity(&self) -> f64 {
         perceived_intensity(self.historical_intensity, self.recent_activity)
     }
 }
 
 /// Calcula intensidade percebida a partir dos dois eixos (0.0–100.0).
+///
+/// A MEMÓRIA PESA MAIS QUE O CALOR, e por muito tempo foi o contrário (0.4 histórico
+/// + 0.6 recente). A inversão veio de uma observação simples sobre os dois eixos: o
+/// recente é o que cai pela metade todo fim de temporada, o histórico é o que acumula.
+/// Dar 60% ao eixo volátil fazia a fórmula pesar mais o que ela mesma apaga — uma dupla
+/// com doze anos de história e uma temporada quieta lia mais baixo que dois pilotos que
+/// se tocaram duas vezes no mês passado. Para uma coisa chamada rivalidade, isso está
+/// de costas: rivalidade é justamente o que sobra depois que o calor passa.
+///
+/// Os limiares semânticos (`rivalry::intensity_level`) e os portões que dependem deles
+/// (Nemesis em 40, transbordo para equipe em 60) não mudaram — o que mudou é qual eixo
+/// leva a rivalidade até lá.
 pub fn perceived_intensity(historical: f64, recent: f64) -> f64 {
-    (historical * 0.4 + recent * 0.6).clamp(0.0, 100.0)
+    (historical * 0.6 + recent * 0.4).clamp(0.0, 100.0)
 }
 
 // ── Ciclo de vida ─────────────────────────────────────────────────────────────
@@ -154,9 +166,9 @@ mod tests {
 
     #[test]
     fn perceived_intensity_formula() {
-        // 0.4 * 10 + 0.6 * 20 = 4.0 + 12.0 = 16.0
+        // 0.6 * 10 + 0.4 * 20 = 6.0 + 8.0 = 14.0
         let p = perceived_intensity(10.0, 20.0);
-        assert!((p - 16.0).abs() < 1e-9);
+        assert!((p - 14.0).abs() < 1e-9);
     }
 
     #[test]
@@ -172,27 +184,27 @@ mod tests {
 
     #[test]
     fn lifecycle_viva_por_perceived() {
-        // h=30, r=20 → perceived = 0.4*30 + 0.6*20 = 12 + 12 = 24 >= 20
+        // h=30, r=20 → perceived = 0.6*30 + 0.4*20 = 18 + 8 = 26 >= 20
         assert_eq!(rivalry_lifecycle(30.0, 20.0), RivalryLifecycle::Viva);
     }
 
     #[test]
     fn lifecycle_adormecida_por_historical() {
-        // r=0, h=10 → perceived = 4 < 5 mas historical >= 10
+        // r=0, h=10 → perceived = 6 < 20 (nao e Viva); historical >= 10 → Adormecida
         assert_eq!(rivalry_lifecycle(10.0, 0.0), RivalryLifecycle::Adormecida);
     }
 
     #[test]
     fn lifecycle_adormecida_por_perceived() {
-        // h=8, r=0 → perceived = 3.2 < 5; mas h < 10. → Extinta
-        // h=10, r=2 → perceived = 0.4*10+0.6*2 = 4+1.2 = 5.2 >= 5 → Adormecida
+        // h=8, r=0 → perceived = 4.8 < 5; e h < 10 → Extinta
+        // h=10, r=2 → perceived = 0.6*10+0.4*2 = 6+0.8 = 6.8 >= 5 → Adormecida
         assert_eq!(rivalry_lifecycle(10.0, 2.0), RivalryLifecycle::Adormecida);
     }
 
     #[test]
     fn lifecycle_extinta_ambos_baixos() {
         assert_eq!(rivalry_lifecycle(0.0, 0.0), RivalryLifecycle::Extinta);
-        // h=5, r=0 → perceived=2 < 5, h < 10 → Extinta
+        // h=5, r=0 → perceived=3 < 5, h < 10 → Extinta
         assert_eq!(rivalry_lifecycle(5.0, 0.0), RivalryLifecycle::Extinta);
     }
 }

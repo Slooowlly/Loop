@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import GlassCard from "../../ui/GlassCard";
+import Tooltip from "../../ui/Tooltip";
 import { formatMoney, formatSignedMoney } from "../../../utils/formatters";
 import {
   EXPENSE_LINES,
@@ -129,28 +130,31 @@ function FinanceDossier({ team, drivers, report }) {
           <div className="mt-6 flex h-56 items-end gap-2 rounded-[22px] border border-white/6 bg-white/[0.02] px-4 pb-4 pt-8">
             {timeline.map((point, index) => (
               <div key={index} className="flex h-full flex-1 flex-col justify-end gap-2">
-                <div
-                  className={`min-h-3 rounded-t-xl bg-gradient-to-t ${
-                    point.isSeasonClose
-                      ? "from-status-yellow/70 to-status-yellow"
-                      : point.value < 0
-                        ? "from-status-red to-status-red"
-                        : "from-accent-primary/70 to-accent-hover"
-                  }`}
-                  data-testid={
-                    point.isSeasonClose
-                      ? "cash-timeline-season-close"
-                      : point.value < 0
-                        ? "cash-timeline-negative"
-                        : undefined
-                  }
-                  style={{ height: `${point.height}%` }}
-                  title={
+                <Tooltip
+                  texto={
                     point.isSeasonClose
                       ? t("myTeamTab.cash.seasonCloseTitle", { value: formatMoney(point.value) })
                       : t("myTeamTab.cash.barTitle", { label: point.label, value: formatMoney(point.value) })
                   }
-                />
+                >
+                  <div
+                    className={`min-h-3 rounded-t-xl bg-gradient-to-t ${
+                      point.isSeasonClose
+                        ? "from-status-yellow/70 to-status-yellow"
+                        : point.value < 0
+                          ? "from-status-red to-status-red"
+                          : "from-accent-primary/70 to-accent-hover"
+                    }`}
+                    data-testid={
+                      point.isSeasonClose
+                        ? "cash-timeline-season-close"
+                        : point.value < 0
+                          ? "cash-timeline-negative"
+                          : undefined
+                    }
+                    style={{ height: `${point.height}%` }}
+                  />
+                </Tooltip>
                 <span className="text-center font-mono text-[10px] text-text-muted">{point.label}</span>
               </div>
             ))}

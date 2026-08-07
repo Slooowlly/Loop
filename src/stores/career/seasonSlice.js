@@ -73,6 +73,65 @@ export const createSeasonSlice = (set, get) => ({
     return get().advanceSeason();
   },
 
+  // DEBUG: simula tudo menos a última corrida da categoria do jogador, deixando o
+  // save a um "Avançar calendário" da final — o atalho para ver a tela de Campeão
+  // da Temporada sem correr o ano inteiro. Só o Ctrl+L do Dashboard chama.
+  debugSkipToSeasonFinale: async () => {
+    const { careerId, loadCareer } = get();
+    if (!careerId) throw new Error(i18n.t("storeErrors.careerNotLoaded"));
+
+    set({ isAdvancing: true, error: null });
+    try {
+      await invoke("debug_skip_to_season_finale", { careerId });
+      await loadCareer(careerId);
+      set({ isAdvancing: false, isDirty: true });
+    } catch (error) {
+      set({
+        isAdvancing: false,
+        error: getErrorMessage(error, i18n.t("storeErrors.skipRaces")),
+      });
+      throw error;
+    }
+  },
+
+  // Busca o payload real do pop-up "Campeão da Temporada" e o abre. Sem `seasonNumber`
+  // é a temporada ativa; com ele, um ano já encerrado. Sem etapa disputada o backend
+  // devolve null e nada acontece — a tela nunca aparece vazia. Best-effort: falhar
+  // aqui não pode derrubar o pós-corrida.
+  loadSeasonChampionOverlay: async ({ category = null, seasonNumber = null } = {}) => {
+    const { careerId } = get();
+    if (!careerId) return null;
+
+    try {
+      const payload = await invoke("get_season_champion_payload", {
+        careerId,
+        category,
+        seasonNumber,
+      });
+      if (!payload?.drivers?.length) return null;
+      set({ championOverlay: payload });
+      return payload;
+    } catch (error) {
+      console.error("Erro ao carregar o campeão da temporada:", error);
+      return null;
+    }
+  },
+
+  // DEBUG: abre o pop-up de Campeão da Temporada na hora, com o ANO ANTERIOR — uma
+  // temporada fechada, com o calendário inteiro e todos os recordes preenchidos. É o
+  // atalho para trabalhar na tela sem correr nada. Se não houver ano anterior (ou ele
+  // não tiver corrida do jogador), cai na temporada ativa.
+  debugShowLastSeasonChampion: async () => {
+    const { season, loadSeasonChampionOverlay } = get();
+    const current = Number(season?.numero) || 0;
+
+    if (current > 1) {
+      const previous = await loadSeasonChampionOverlay({ seasonNumber: current - 1 });
+      if (previous) return previous;
+    }
+    return loadSeasonChampionOverlay();
+  },
+
   // ── Bloco Especial ───────────────────────────────────────────────────────────
   // LEGADO 9D: comandos especiais ficam acessíveis apenas para saves pré-v33 em voo.
 

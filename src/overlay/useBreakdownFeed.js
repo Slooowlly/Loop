@@ -33,9 +33,17 @@ export function useBreakdownFeed(careerId, { intervalMs = 700 } = {}) {
           seenRef.current = newest.id;
           return;
         }
-        if (newest.id > seenRef.current) {
-          seenRef.current = newest.id;
-          setMessage(newest);
+        // A MAIS ANTIGA ainda não vista, uma por tick — não a mais nova.
+        //
+        // Pular direto para o fim descartava quebras: duas caindo entre dois polls e a
+        // primeira sumia, sem card e sem áudio, contra a regra de que toda quebra fala. O
+        // Rust já FUNDE as simultâneas da mesma volta, então o que sobra para drenar aqui é
+        // raro — e drenar de uma em uma mantém card e fala na mesma ordem, com a fila de
+        // anúncios serializando o áudio atrás.
+        const proxima = feed.find((m) => m.id > seenRef.current);
+        if (proxima) {
+          seenRef.current = proxima.id;
+          setMessage(proxima);
         }
       } catch {
         /* sem sessão / sem save — silencioso */
@@ -47,6 +55,51 @@ export function useBreakdownFeed(careerId, { intervalMs = 700 } = {}) {
     return () => {
       stopped = true;
       if (timer) clearInterval(timer);
+    };
+  }, [careerId, intervalMs]);
+
+  return message;
+}
+
+// RÁDIO DE RITMO (`get_pace_feed`) — a volta mais rápida da corrida e a nossa aproximação
+// dela. Mesmo mecanismo do feed de quebras, canal SEPARADO: os dois crescem em ritmos próprios
+// e um id só embaralharia os cursores. Quem junta os dois é quem desenha o card.
+export function usePaceFeed(careerId, { intervalMs = 900 } = {}) {
+  const [message, setMessage] = useState(null);
+  const seenRef = useRef(-1);
+  const primedRef = useRef(false);
+
+  useEffect(() => {
+    if (!estaNoTauri() || !careerId) return undefined;
+    seenRef.current = -1;
+    primedRef.current = false;
+
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const feed = await invoke("get_pace_feed", { careerId });
+        if (stopped || !Array.isArray(feed) || feed.length === 0) return;
+        const newest = feed[feed.length - 1];
+        if (!primedRef.current) {
+          // 1ª leitura ancora sem exibir. O observador do Rust já faz o mesmo por conta
+          // própria; aqui é a segunda defesa, para o caso de o overlay abrir no meio.
+          primedRef.current = true;
+          seenRef.current = newest.id;
+          return;
+        }
+        if (newest.id > seenRef.current) {
+          seenRef.current = newest.id;
+          setMessage(newest);
+        }
+      } catch {
+        /* sem sessão / sem save — silencioso */
+      }
+    };
+    tick();
+    const timer = setInterval(tick, intervalMs);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
     };
   }, [careerId, intervalMs]);
 

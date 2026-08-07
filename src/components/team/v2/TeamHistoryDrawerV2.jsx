@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
@@ -11,11 +11,9 @@ import {
   ChevronUp,
   Crown,
   Fingerprint,
-  Flag,
   Layers,
-  LayoutGrid,
   Medal,
-  Rows3,
+  Swords,
   TrendingUp,
   Trophy,
   X,
@@ -24,20 +22,27 @@ import {
 import goldTrophy from "../../../assets/utilities/trophies/ouro.png";
 import TeamLogoMark from "../TeamLogoMark";
 import FlagIcon from "../../ui/FlagIcon";
+import Tooltip from "../../ui/Tooltip";
 import {
   buildTeamHistoryDossier,
   operationHealthTone,
   orderTeamsForHistoryNavigation,
 } from "../TeamHistoryDrawer";
-import {
-  SPORT_LAYOUT_ARRANGED,
-  SPORT_LAYOUT_CLASSIC,
-  readSportLayout,
-  writeSportLayout,
-} from "./sportLayoutPreference";
 import i18n from "../../../i18n/index.js";
 import { getCategoryColor } from "../../../utils/categoryColors";
 import { getVividTeamColor } from "../../../utils/teamColors";
+import { formatMoney, formatMoneyCompact } from "../../../utils/formatters";
+import { pisoDeAbertura } from "../../ui/aberturaDePainel.js";
+import {
+  EVOLUTION_VIEW_RUN,
+  EVOLUTION_VIEW_SEASONS,
+  RUN_MODE_POINTS,
+  RUN_MODE_POSITION,
+  guardarModoEvolucao,
+  guardarVistaEvolucao,
+  lerModoEvolucao,
+  lerVistaEvolucao,
+} from "./evolutionPreferences.js";
 
 // Dossiê de equipe v2.
 //
@@ -57,10 +62,15 @@ import { getVividTeamColor } from "../../../utils/teamColors";
 // Ícones vêm do lucide-react: traço de 1.5px numa grade de 24, igual para os
 // onze. Os SVGs desenhados à mão que estavam aqui variavam de espessura entre si
 // e ficavam sujos a 12px, que é o tamanho em que a maioria aparece.
+// Os IDs divergem dos rótulos de propósito. `sport` é a aba que hoje se chama
+// "Identidade" (o retrato esportivo virou o retrato da equipe) e `identity` é a
+// que se chama "Rival". Renomear os ids arrastaria o v1, o estado persistido de
+// aba e os testes por uma troca que é só de vocabulário — o rótulo mora no i18n,
+// que é onde ele deve morar.
 const TEAM_HISTORY_SECTIONS = [
   { id: "records", Icon: Trophy },
-  { id: "sport", Icon: Flag },
-  { id: "identity", Icon: Fingerprint },
+  { id: "sport", Icon: Fingerprint },
+  { id: "identity", Icon: Swords },
   { id: "management", Icon: Briefcase },
   { id: "categories", Icon: Layers },
 ];
@@ -98,6 +108,18 @@ export function TeamHistoryDrawerV2({
   // nova entra. Fica aqui em cima porque quem clica é a seta e quem anima é o
   // conteúdo, dois pontos distantes da árvore.
   const [stepDirection, setStepDirection] = useState("down");
+  // Só a primeira carga é uma ABERTURA. Passar de equipe para equipe com o
+  // dossiê já na tela é navegação, e navegação não espera.
+  const primeiraCargaRef = useRef(true);
+  // Se já existe dossiê desenhado. Separado de `primeiraCargaRef` porque as duas
+  // perguntas são diferentes: aquela decide o compasso de abertura e é gasta na
+  // primeira ENTREGA; esta decide se o miolo pode ficar vazio.
+  const temDossieRef = useRef(false);
+  // A ABERTURA esconde o dossiê inteiro, e não só o miolo. O drawer monta a
+  // moldura na hora — a equipe já vem no `prop`, então o cabeçalho e as abas
+  // desenham antes do `invoke` —, e por isso ele abria de estalo enquanto a
+  // ficha do piloto, que depende do payload para tudo, tinha a sequência.
+  const [abrindo, setAbrindo] = useState(true);
   const [historyDossier, setHistoryDossier] = useState(null);
   const [historyStatus, setHistoryStatus] = useState("loading");
   const [historyError, setHistoryError] = useState("");
@@ -125,23 +147,44 @@ export function TeamHistoryDrawerV2({
       return undefined;
     }
 
-    setHistoryStatus("loading");
     setHistoryError("");
-    setHistoryDossier(null);
-    invoke("get_team_history_dossier", {
-      careerId,
-      teamId: team.id,
-      category: activeCategory ?? playerTeam?.categoria ?? team?.categoria ?? "",
-    })
-      .then((payload) => {
+    // Esvaziar o dossiê só na ABERTURA — mesma regra da ficha do piloto. Trocar
+    // de equipe com o painel na tela é navegação: sem isto, `historyStatus` volta
+    // a "loading", o payload some, e as seções caem no aviso de carga e nos
+    // números-placeholder. O painel não fecha, mas o miolo inteiro pisca — o que
+    // se vê é uma tela fechando e abrindo.
+    if (!temDossieRef.current) {
+      setHistoryStatus("loading");
+      setHistoryDossier(null);
+    }
+    const piso = pisoDeAbertura(primeiraCargaRef.current);
+
+    Promise.all([
+      invoke("get_team_history_dossier", {
+        careerId,
+        teamId: team.id,
+        category: activeCategory ?? playerTeam?.categoria ?? team?.categoria ?? "",
+      }),
+      piso,
+    ])
+      .then(([payload]) => {
         if (!mounted) return;
+        // A abertura só é gasta por quem CHEGA a entregar — ver o mesmo ponto na
+        // ficha do piloto. Em dev o StrictMode monta, desmonta e remonta o
+        // efeito; consumir a bandeira lá em cima entregava o piso à passagem
+        // descartada e o dossiê abria de estalo, imune ao valor de ABERTURA_MS.
+        primeiraCargaRef.current = false;
+        temDossieRef.current = true;
         setHistoryDossier(payload);
         setHistoryStatus("ready");
+        setAbrindo(false);
       })
       .catch((invokeError) => {
         if (!mounted) return;
+        primeiraCargaRef.current = false;
         setHistoryError(typeof invokeError === "string" ? invokeError : i18n.t("myTeamTab.history.loadError"));
         setHistoryStatus("error");
+        setAbrindo(false);
       });
 
     return () => {
@@ -200,7 +243,16 @@ export function TeamHistoryDrawerV2({
         aria-modal="true"
         aria-labelledby="team-history-title"
         data-testid="team-history-drawer"
-        className="animate-scale-in relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-[28px] border border-white/15 bg-[#07101d] shadow-[0_30px_90px_rgba(0,0,0,0.72)]"
+        // O teto em pixels é o que mantém as abas do mesmo tamanho. Só com `vh`,
+        // a ficha crescia até quase a tela inteira na aba mais longa e voltava a
+        // uns 700px nas curtas — trocar de aba mexia a moldura, o cabeçalho subia
+        // e descia, e o painel dava a impressão de ser outra tela a cada clique.
+        // 780px é onde Records e Rival já param sozinhas; a partir daí a aba longa
+        // rola por dentro em vez de esticar o quadro.
+        //
+        // O `vh` continua como piso de segurança para janela baixa, onde 780px não
+        // caberiam.
+        className="animate-scale-in relative flex max-h-[min(88vh,780px)] w-full flex-col overflow-hidden rounded-[28px] border border-white/15 bg-[#07101d] shadow-[0_30px_90px_rgba(0,0,0,0.72)]"
         style={{
           // `--team` é a cor da equipe JÁ LEGÍVEL sobre o fundo escuro do dossiê, e não a
           // cor crua. Toda a identidade visual do drawer sai desta variável — a faixa do
@@ -224,6 +276,16 @@ export function TeamHistoryDrawerV2({
       >
         <div className="h-1 shrink-0 bg-[color:var(--team)]" />
 
+        {abrindo ? (
+          <div
+            className="flex min-h-[260px] flex-1 flex-col items-center justify-center gap-3"
+            data-testid="team-history-loading"
+          >
+            <span className="animate-pulse text-4xl">🏁</span>
+            <p className="text-sm text-text-secondary">{t("myTeamTab.history.loading")}</p>
+          </div>
+        ) : (
+          <>
         {/* `key` na equipe é o gatilho da animação: ao trocar de ficha o React
             monta um bloco novo e a CSS toca do zero. A moldura do drawer fica de
             fora do wrapper de propósito — ela não pisca, só o conteúdo desliza. */}
@@ -307,6 +369,8 @@ export function TeamHistoryDrawerV2({
           </span>
         </footer>
         </div>
+          </>
+        )}
         </aside>
       </div>
     </div>
@@ -364,23 +428,26 @@ function TeamHistoryHero({ dossier, onClose }) {
           // ao bloco é o TEXTO — rótulo e ícone em text-secondary, não no
           // text-muted que os deixava ilegíveis.
           return (
-            <div
+            <Tooltip
               key={anchor.key}
-              data-anchor={anchor.key}
-              data-highlighted={highlighted ? "true" : undefined}
-              title={highlighted ? t("myTeamTab.history.records.bestRankAria", { rank: anchor.rankPosition }) : undefined}
-              className={`min-w-[86px] rounded-xl border px-3 py-2 text-center ${
-                highlighted
-                  ? "border-[color-mix(in_srgb,var(--team)_55%,transparent)] bg-[color-mix(in_srgb,var(--team)_12%,#0f1c2b)]"
-                  : "border-transparent bg-[#0f1c2b]"
-              }`}
+              texto={highlighted ? t("myTeamTab.history.records.bestRankAria", { rank: anchor.rankPosition }) : undefined}
             >
-              <span className="flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-text-secondary">
-                <MetricIcon name={anchor.icon} />
-                <span className="truncate">{anchor.label}</span>
-              </span>
-              <AnchorValue value={anchor.value} />
-            </div>
+              <div
+                data-anchor={anchor.key}
+                data-highlighted={highlighted ? "true" : undefined}
+                className={`min-w-[86px] rounded-xl border px-3 py-2 text-center ${
+                  highlighted
+                    ? "border-[color-mix(in_srgb,var(--team)_55%,transparent)] bg-[color-mix(in_srgb,var(--team)_12%,#0f1c2b)]"
+                    : "border-transparent bg-[#0f1c2b]"
+                }`}
+              >
+                <span className="flex items-center justify-center gap-1.5 text-[10px] text-text-secondary">
+                  <MetricIcon name={anchor.icon} />
+                  <span className="truncate">{anchor.label}</span>
+                </span>
+                <AnchorValue value={anchor.value} />
+              </div>
+            </Tooltip>
           );
         })}
       </div>
@@ -419,6 +486,16 @@ function HeroBadge({ children }) {
 }
 
 function RecordsSection({ dossier, onOpenRecord = null }) {
+  // O ano sob o cursor, compartilhado pela faixa de top 5 e pela régua de
+  // títulos. Os dois desenham o MESMO eixo de anos em escalas diferentes, e sem
+  // o elo era preciso contar coluna com o dedo para descobrir qual ano da régua
+  // corresponde àquele pico — que é justamente a pergunta que as duas juntas
+  // deveriam responder de graça.
+  //
+  // O estado mora aqui porque este é o pai comum mais próximo; guardado dentro
+  // de qualquer um dos dois, o outro não teria como saber.
+  const [anoAceso, setAnoAceso] = useState(null);
+
   return (
     <section>
       {dossier.historyStatus !== "ready" ? <HistoryStateMessage dossier={dossier} /> : null}
@@ -440,8 +517,19 @@ function RecordsSection({ dossier, onOpenRecord = null }) {
         </div>
       )}
 
+      {/* O backend já corta em 3 (ou 6): quatro cards deixavam um órfão sozinho na
+          linha de baixo. Aqui só resta o caso de quem tem HISTÓRIA de menos para
+          três — a grade encolhe junto em vez de abrir buraco. */}
       {dossier.highlights?.length > 0 && (
-        <div className="mt-2.5 grid gap-2.5 sm:grid-cols-3">
+        <div
+          className={`mt-2.5 grid gap-2.5 ${
+            dossier.highlights.length === 1
+              ? ""
+              : dossier.highlights.length === 2
+                ? "sm:grid-cols-2"
+                : "sm:grid-cols-3"
+          }`}
+        >
           {dossier.highlights.map((item) => (
             <div
               key={item.label}
@@ -451,7 +539,7 @@ function RecordsSection({ dossier, onOpenRecord = null }) {
                   borda do card, e é o que separa "destaque" de "mais um card". */}
               <HighlightTrophy />
               <div className="relative">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.13em] text-status-yellow/80">{item.label}</span>
+                <span className="block text-[11px] font-semibold text-status-yellow">{item.label}</span>
                 <strong className="mt-1.5 block text-base font-semibold text-status-yellow">{item.value}</strong>
                 <p className="mt-1 text-[11px] leading-4 text-text-secondary">{item.detail}</p>
               </div>
@@ -465,9 +553,16 @@ function RecordsSection({ dossier, onOpenRecord = null }) {
         worldFirstYear={dossier.worldFirstYear}
         worldLastYear={dossier.worldLastYear}
         outsideSeasons={dossier.outsideScopeSeasons}
+        anoAceso={anoAceso}
+        onAcenderAno={setAnoAceso}
       />
 
-      <TitleGallery titles={dossier.titleCategories} seasons={dossier.seasonResults} />
+      <TitleGallery
+        titles={dossier.titleCategories}
+        seasons={dossier.seasonResults}
+        anoAceso={anoAceso}
+        onAcenderAno={setAnoAceso}
+      />
     </section>
   );
 }
@@ -484,7 +579,7 @@ function RecordsSection({ dossier, onOpenRecord = null }) {
 // reinado) e o que varia virou coluna. Repetição é ilegível espalhada em cards e
 // legível empilhada numa coluna: a de pontos passa a mostrar a equipe ganhando
 // por menos a cada ano, que nos cards era impossível de ver.
-function TitleGallery({ titles, seasons }) {
+function TitleGallery({ titles, seasons, anoAceso = null, onAcenderAno = null }) {
   const { t } = useTranslation();
   const dados = useMemo(() => {
     const lista = (Array.isArray(titles) ? titles : []).filter((item) => item.year);
@@ -542,27 +637,38 @@ function TitleGallery({ titles, seasons }) {
           const cor = celula.title
             ? getCategoryColor(celula.title.categoryId) || celula.title.color
             : null;
+          const ano = String(celula.year);
+          const aceso = anoAceso === ano;
+          // Os dois anéis convivem numa propriedade só: o dourado por DENTRO
+          // continua sendo a dobradinha, o branco por fora é o ano aceso. Como
+          // o de fora não ocupa espaço de layout, a régua não se mexe ao acender.
+          const aneis = [
+            celula.title?.championIsTeam ? `inset 0 0 0 1.5px ${MEDAL_COLORS.first}` : null,
+            aceso ? "0 0 0 1px rgba(255,255,255,0.55)" : null,
+          ].filter(Boolean);
           return (
-            <span
+            <Tooltip
               key={celula.year}
-              data-year={celula.year}
-              data-title={celula.title ? "true" : undefined}
-              data-double={celula.title?.championIsTeam ? "true" : undefined}
-              title={
+              texto={
                 celula.title
                   ? `${celula.year} · ${celula.title.category}`
                   : t("myTeamTab.history.records.titleRailEmpty", { year: celula.year })
               }
-              className="h-5 min-w-[10px] flex-1 rounded"
-              style={{
-                backgroundColor: cor || "#141f2c",
-                // O anel dourado é a dobradinha. Como ele fica DENTRO da célula,
-                // não empurra as vizinhas nem desalinha os rótulos de ano.
-                boxShadow: celula.title?.championIsTeam
-                  ? `inset 0 0 0 1.5px ${MEDAL_COLORS.first}`
-                  : undefined,
-              }}
-            />
+            >
+              <span
+                data-year={celula.year}
+                data-title={celula.title ? "true" : undefined}
+                data-double={celula.title?.championIsTeam ? "true" : undefined}
+                data-aceso={aceso ? "true" : undefined}
+                onMouseEnter={() => onAcenderAno?.(ano)}
+                onMouseLeave={() => onAcenderAno?.(null)}
+                className="h-5 min-w-[10px] flex-1 rounded transition-[box-shadow]"
+                style={{
+                  backgroundColor: cor || "#141f2c",
+                  boxShadow: aneis.length ? aneis.join(", ") : undefined,
+                }}
+              />
+            </Tooltip>
           );
         })}
       </div>
@@ -594,7 +700,7 @@ function TitleRailYears({ years }) {
   return (
     <div className="mt-1 flex gap-1">
       {years.map((year, index) => (
-        <span key={year} className="min-w-[10px] flex-1 text-center font-mono text-[9px] text-text-muted">
+        <span key={year} className="min-w-[10px] flex-1 text-center font-mono text-[10px] text-text-muted">
           {index % passo === 0 ? year : ""}
         </span>
       ))}
@@ -622,7 +728,7 @@ function TitleGroup({ grupo }) {
         </span>
       </div>
       <div className="mt-2 overflow-hidden rounded-lg border border-white/10">
-        <div className="grid grid-cols-[52px_60px_34px_minmax(0,1fr)] gap-x-3 bg-[#0f1c2b] px-3.5 py-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+        <div className="grid grid-cols-[52px_60px_34px_minmax(0,1fr)] gap-x-3 bg-[#0f1c2b] px-3.5 py-1.5 text-[10px] font-semibold text-text-secondary">
           <span>{t("myTeamTab.history.sport.cols.year")}</span>
           <span className="text-right">{t("myTeamTab.history.sport.cols.points")}</span>
           <span className="text-right">{t("myTeamTab.history.sport.cols.wins")}</span>
@@ -717,7 +823,7 @@ function RecordCard({ record, onOpen = null }) {
       <span className="pointer-events-none absolute right-3 top-3 text-white/15">
         <MetricIcon name={record.id} size={24} />
       </span>
-      <span className="block truncate pr-7 text-[10px] font-semibold uppercase tracking-[0.13em] text-text-muted">{record.label}</span>
+      <span className="block truncate pr-7 text-[11px] font-semibold text-text-secondary">{record.label}</span>
       <div className="mt-1 flex items-baseline gap-2">
         <strong className="font-mono text-xl leading-none text-text-primary">{record.value}</strong>
         {record.groupAverage ? (
@@ -746,14 +852,21 @@ function RecordCard({ record, onOpen = null }) {
 // para vitória; prata e bronze são novos e existem só aqui — são metal, não
 // estado, e por isso não entram na paleta semântica do app.
 //
-// O 4º-5º é cinza-azulado apagado de propósito: precisa ficar VISÍVEL sem
-// competir com os metais, e não pode ser a cor da equipe — há equipes amarelas,
-// e uma barra amarela ao lado do ouro viraria adivinhação.
+// O 4º e o 5º são UMA faixa só, no mesmo cinza-azulado apagado. Separá-los em
+// dois tons foi um erro de leitura: quem olha a coluna não precisa saber se
+// aquele fim de semana terminou em 4º ou em 5º, precisa saber quantas vezes a
+// equipe chegou PERTO. Dois azuis vizinhos só devolveram a dúvida de qual bloco
+// era qual — e a resposta não mudava nada.
+//
+// O abandono é o único VERMELHO da faixa, e é o vermelho de estado que o app já
+// usa para erro. Ele não é uma colocação — é o oposto de uma — e por isso é a
+// única entrada que não tem parentesco com as outras.
 const MEDAL_COLORS = {
   first: "#f2c46d",
   second: "#c2ccd8",
   third: "#c07f4a",
   nearMiss: "#46586d",
+  dnf: "#ef4444",
 };
 
 // Altura da área de plotagem da faixa e as marcas do eixo Y, em % do top 5.
@@ -787,32 +900,176 @@ const TRAJECTORY_WINDOW_YEARS = 15;
 // colocações zeradas ("0× 2º") — ilegível justamente onde o jogador para o mouse
 // para entender a barra. Aqui cada coisa tem sua linha, e só aparece o que
 // aconteceu: a lista de colocações espelha os blocos desenhados, de cima para
-// baixo, na mesma ordem. O `title` nativo quebra linha no \n.
-function seasonTooltip(t, { row, races, topFive, steps }) {
+// baixo, na mesma ordem — com a mesma cor do bloco ao lado do texto.
+//
+// Sai estruturado, e não como string de `\n`, porque quem desenha é o balão do
+// app (`TrajectoryTooltip`) e não o `title` do sistema. O `texto` continua
+// existindo por baixo: é o nome acessível da coluna, para quem lê por leitor de
+// tela e para o teste.
+function seasonTooltip(t, { row, races, topFive, steps, dnfs }) {
   const base = "myTeamTab.history.records.seasonTooltip";
   const header = row.category ? `${row.year} · ${row.category}` : String(row.year);
   const hasPosition = row.position && row.position !== "—";
-  const lines = [
-    header,
-    hasPosition
-      ? t(`${base}.meta`, { position: row.position, races, topFive })
-      : t(`${base}.metaNoPosition`, { races, topFive }),
-    "",
-  ];
-  if (steps.length) {
-    for (const step of steps) {
-      // `value` e não `count`: `count` é palavra reservada do i18next e ligaria
-      // a máquina de plural, mandando procurar chaves `..._one`/`..._other`.
-      lines.push(t(`${base}.count`, { value: step.count, label: t(`myTeamTab.history.records.medals.${step.id}`) }));
-    }
-  } else {
-    lines.push(t(`${base}.empty`));
+  const meta = hasPosition
+    ? t(`${base}.meta`, { position: row.position, races, topFive })
+    : t(`${base}.metaNoPosition`, { races, topFive });
+  const linhas = steps.length
+    ? steps.map((step) => ({
+        id: step.id,
+        color: step.color,
+        // Na tela, só a contagem: o quadradinho ao lado JÁ é a colocação, na
+        // mesma cor do bloco da barra e da legenda embaixo do gráfico. Repetir
+        // "1º" ao lado do ouro é dizer duas vezes a mesma coisa num balão que
+        // tem quatro linhas.
+        //
+        // `value` e não `count`: `count` é palavra reservada do i18next e ligaria
+        // a máquina de plural, mandando procurar chaves `..._one`/`..._other`.
+        texto: t(`${base}.countShort`, { value: step.count }),
+        // Para o leitor de tela a cor não existe — ali a colocação continua
+        // escrita por extenso.
+        textoAcessivel: t(`${base}.count`, {
+          value: step.count,
+          label: t(`myTeamTab.history.records.medals.${step.id}`),
+        }),
+      }))
+    : [{ id: "empty", color: null, texto: t(`${base}.empty`) }];
+  // O abandono entra por último e SÓ quando existe. Ele guarda o rótulo "DNF"
+  // porque não é uma colocação: as linhas de cima contam onde a equipe terminou,
+  // esta conta o fim de semana em que ela não terminou — e a unidade é CARRO,
+  // não corrida (os dois carros podem abandonar no mesmo domingo).
+  if (dnfs > 0) {
+    linhas.push({
+      id: "dnf",
+      color: MEDAL_COLORS.dnf,
+      texto: t(`${base}.count`, { value: dnfs, label: t("myTeamTab.history.records.medals.dnf") }),
+    });
   }
-  return lines.join("\n");
+  return montarDica(header, meta, linhas);
 }
 
-function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeasons }) {
+// O par header/meta das temporadas fora do recorte vem colado num só valor de
+// i18n, separado por "\n" — herança de quando o balão era o do sistema. Separar
+// aqui evita duplicar a chave só para mudar quem desenha.
+function dicaDeTexto(texto) {
+  const [header, ...resto] = String(texto).split("\n");
+  return montarDica(header, resto.join(" ").trim(), []);
+}
+
+function montarDica(header, meta, linhas) {
+  return {
+    header,
+    meta,
+    linhas,
+    texto: [
+      header,
+      meta,
+      ...(linhas.length ? ["", ...linhas.map((linha) => linha.textoAcessivel ?? linha.texto)] : []),
+    ].join("\n"),
+  };
+}
+
+// O balão da coluna, no estilo do app.
+//
+// O `title` nativo desenhava a caixa BRANCA do Windows no meio de um gráfico
+// escuro, com a fonte do sistema e o atraso do sistema — meio segundo em que a
+// informação simplesmente não existe. Aqui é a mesma casca dos balões dos
+// gráficos de corrida: borda clara, fundo quase preto, blur e sombra.
+//
+// Vai num portal porque a faixa rola no eixo X (`overflow-x-auto`): um painel
+// absoluto dentro dela seria recortado na borda da calha.
+const TOOLTIP_MARGEM = 12;
+const TOOLTIP_FOLGA = 8;
+
+function TrajectoryTooltip({ rect, dica }) {
+  const painelRef = useRef(null);
+  const [medida, setMedida] = useState({ width: 0, height: 0 });
+
+  // Mede depois de montar para saber se cabe acima da coluna. Enquanto a medida
+  // não existe o painel fica invisível — um quadro pulando de posição no
+  // primeiro frame se lê como falha de desenho.
+  useLayoutEffect(() => {
+    if (!painelRef.current) return;
+    const next = { width: painelRef.current.offsetWidth, height: painelRef.current.offsetHeight };
+    setMedida((atual) => (atual.width === next.width && atual.height === next.height ? atual : next));
+  }, [dica]);
+
+  if (!rect || !dica) return null;
+
+  // Abre para cima por padrão — é de onde a coluna cresce e onde o cursor não
+  // está. Vira para baixo quando o topo da janela não dá espaço.
+  const cabeAcima = rect.top - medida.height - TOOLTIP_FOLGA >= TOOLTIP_MARGEM;
+  const topo = cabeAcima ? rect.top - medida.height - TOOLTIP_FOLGA : rect.bottom + TOOLTIP_FOLGA;
+  const esquerda = Math.min(
+    Math.max(TOOLTIP_MARGEM, rect.left + rect.width / 2 - medida.width / 2),
+    Math.max(TOOLTIP_MARGEM, window.innerWidth - medida.width - TOOLTIP_MARGEM),
+  );
+
+  return createPortal(
+    <div
+      ref={painelRef}
+      data-testid="team-history-trajectory-tooltip"
+      style={{
+        position: "fixed",
+        top: topo,
+        left: esquerda,
+        zIndex: 95,
+        opacity: medida.height ? 1 : 0,
+      }}
+      className="pointer-events-none w-max max-w-[280px] rounded-lg border border-white/15 bg-[#0a0f16]/95 px-3 py-2 text-[11px] shadow-[0_12px_32px_rgba(0,0,0,0.55)] backdrop-blur"
+    >
+      <span className="block font-semibold leading-tight text-text-primary">{dica.header}</span>
+      {dica.meta ? <span className="mt-1 block leading-snug text-text-secondary">{dica.meta}</span> : null}
+      {dica.linhas.length ? (
+        <ul className="mt-1.5 space-y-1 border-t border-white/[0.08] pt-1.5">
+          {dica.linhas.map((linha) => (
+            <li
+              key={linha.id}
+              // Sem o rótulo, a linha é só um número — e número em fonte de
+              // número, para as contagens ficarem uma embaixo da outra.
+              className={`flex items-center gap-1.5 leading-none ${
+                linha.color ? "font-mono text-text-primary" : "text-text-muted"
+              }`}
+            >
+              {linha.color ? (
+                // O mesmo quadradinho da legenda embaixo do gráfico, na cor do
+                // bloco — é o que liga a linha do balão à fatia da barra.
+                <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: linha.color }} />
+              ) : null}
+              {linha.texto}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+function SeasonTrajectory({
+  seasons,
+  worldFirstYear,
+  worldLastYear,
+  outsideSeasons,
+  anoAceso = null,
+  onAcenderAno = null,
+}) {
   const { t } = useTranslation();
+  // A coluna sob o cursor, com o retângulo dela medido na hora do hover: o balão
+  // vive num portal e não tem como se posicionar pelo pai.
+  const [dicaAberta, setDicaAberta] = useState(null);
+
+  const abrirDica = useCallback(
+    (event, bar) => {
+      setDicaAberta({ rect: event.currentTarget.getBoundingClientRect(), dica: bar.dica });
+      onAcenderAno?.(bar.year);
+    },
+    [onAcenderAno],
+  );
+  const fecharDica = useCallback(() => {
+    setDicaAberta(null);
+    onAcenderAno?.(null);
+  }, [onAcenderAno]);
+
   const bars = useMemo(() => {
     // Anos em que a equipe correu, mas em outra escada de categorias. O dossiê
     // recorta os fatos ao grupo comparável ("Grupo GT3"), então esses anos não
@@ -832,20 +1089,34 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
       const nearMiss = (Number(row.fourths) || 0) + (Number(row.fifths) || 0);
       const topFive = wins + seconds + thirds + nearMiss;
       // De cima para baixo, como um pódio se lê: 1º no alto, o "quase" na base.
+      // 4º e 5º entram somados: a pergunta que a faixa responde é quantas vezes
+      // a equipe chegou perto de pontuar alto, não em qual das duas casas.
       const steps = [
         { id: "first", count: wins, color: MEDAL_COLORS.first },
         { id: "second", count: seconds, color: MEDAL_COLORS.second },
         { id: "third", count: thirds, color: MEDAL_COLORS.third },
         { id: "nearMiss", count: nearMiss, color: MEDAL_COLORS.nearMiss },
       ].filter((step) => step.count > 0);
+      const topFiveRate = (topFive / races) * 100;
+      const dnfs = Number(row.dnfs) || 0;
+      // O vermelho desce do TETO da coluna, enquanto o top 5 sobe do chão: são
+      // as duas pontas do ano, e o meio vazio é o que sobrou — as corridas em
+      // que a equipe terminou sem chegar perto.
+      //
+      // O teto é o espaço livre acima do top 5. A conta do abandono é por CARRO
+      // sobre corridas, então em tese ela passa de 100% (dois carros, uma
+      // corrida) — e nesse caso o bloco para onde o top 5 começa em vez de
+      // invadi-lo. O número exato continua no balão, que é onde ele é lido.
+      const dnfRate = Math.min((dnfs / races) * 100, 100 - topFiveRate);
       raced.set(Number(row.year), {
         year: String(row.year),
         raced: true,
-        topFiveRate: (topFive / races) * 100,
+        topFiveRate,
+        dnfRate,
         steps,
         categoryId: row.categoryId || "",
         categoryLabel: row.category || "",
-        title: seasonTooltip(t, { row, races, topFive, steps }),
+        dica: seasonTooltip(t, { row, races, topFive, steps, dnfs }),
       });
     }
 
@@ -880,12 +1151,14 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
         steps: [],
         categoryId: outra?.categoryId || "",
         categoryLabel: outra?.category || "",
-        title: outra
-          ? t("myTeamTab.history.records.seasonTooltip.elsewhere", {
-              year,
-              category: outra.category,
-            })
-          : t("myTeamTab.history.records.seasonTooltip.absent", { year }),
+        dica: dicaDeTexto(
+          outra
+            ? t("myTeamTab.history.records.seasonTooltip.elsewhere", {
+                year,
+                category: outra.category,
+              })
+            : t("myTeamTab.history.records.seasonTooltip.absent", { year }),
+        ),
       });
     }
     return colunas;
@@ -924,14 +1197,17 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
           {AXIS_TICKS.map((tick) => (
             <span
               key={tick}
-              className="absolute right-0 -translate-y-1/2 font-mono text-[9px] text-text-muted"
+              className="absolute right-0 -translate-y-1/2 font-mono text-[10px] text-text-muted"
               style={{ top: `${100 - tick}%` }}
             >
               {`${tick}%`}
             </span>
           ))}
         </div>
-        <div className="relative min-w-0 flex-1 overflow-x-auto">
+        {/* Rolar com o balão aberto deslocaria a coluna por baixo dele — o
+            retângulo foi medido antes do scroll. Fecha, e o próximo hover mede
+            de novo. */}
+        <div className="relative min-w-0 flex-1 overflow-x-auto" onScroll={fecharDica}>
           {/* Linhas de grade tracejadas atrás das colunas — é o que transforma
               "a barra é alta" em "a barra é 70%". Não capturam o mouse para não
               roubar o tooltip da coluna. */}
@@ -955,8 +1231,16 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
                 key={bar.year}
                 data-year={bar.year}
                 data-absent={bar.raced ? undefined : "true"}
-                className="relative h-full min-w-[24px] max-w-[64px] flex-1"
-                title={bar.title}
+                data-aceso={anoAceso === bar.year ? "true" : undefined}
+                // Anel branco fino, e não mudança de cor: as cores da coluna são
+                // a informação, e acender apagando-as seria trocar o que se
+                // quer ler pelo destaque de onde ler.
+                className={`relative h-full min-w-[24px] max-w-[64px] flex-1 rounded-md transition-[box-shadow] ${
+                  anoAceso === bar.year ? "ring-1 ring-white/45" : ""
+                }`}
+                aria-label={bar.dica.texto}
+                onMouseEnter={(event) => abrirDica(event, bar)}
+                onMouseLeave={fecharDica}
               >
                 {/* Trilho: a coluna VAZIA, sempre desenhada, de 0 a 100%.
                     Sem ele, uma temporada sem nenhum top 5 não tinha pixel
@@ -1007,7 +1291,7 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
                     className="absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-md"
                     style={{ height: `${bar.topFiveRate}%`, minHeight: "4px" }}
                   >
-                    {bar.steps.map((step) => (
+                    {bar.steps.map((step, index) => (
                       <div
                         key={step.id}
                         data-step={step.id}
@@ -1016,13 +1300,34 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
                           flexGrow: step.count,
                           flexBasis: 0,
                           minHeight: "3px",
-                          // Gradiente sutil: dá volume à barra sem apagar a cor
-                          // da colocação, que é o que precisa ser reconhecida.
-                          backgroundImage: `linear-gradient(180deg, ${step.color}, color-mix(in srgb, ${step.color} 72%, #0b1524))`,
+                          // Gradiente quase reto: ele dá volume à barra, mas o
+                          // que era 28% de escurecimento fazia o pé de um bloco
+                          // chegar na cor do topo do bloco de baixo — e era
+                          // metade do motivo de não dar para dizer se aquilo era
+                          // 2º, 4º ou 5º. Volume é enfeite; a cor é a leitura.
+                          backgroundImage: `linear-gradient(180deg, ${step.color}, color-mix(in srgb, ${step.color} 88%, #0b1524))`,
+                          // Fio escuro entre os blocos: sem ele, dois vizinhos de
+                          // brilho parecido encostam e viram uma faixa só.
+                          borderTop: index > 0 ? "1px solid rgba(8,15,25,0.65)" : undefined,
                         }}
                       />
                     ))}
                   </div>
+                ) : null}
+                {/* Abandonos, pendurados no teto da coluna. Piso de 3px pelo
+                    mesmo motivo dos degraus: um abandono solo numa temporada
+                    longa vale menos de um pixel, e "quase invisível" se lê como
+                    "não teve". */}
+                {bar.dnfRate > 0 ? (
+                  <div
+                    data-dnf={bar.year}
+                    className="absolute inset-x-0 top-0 rounded-md"
+                    style={{
+                      height: `${bar.dnfRate}%`,
+                      minHeight: "3px",
+                      backgroundImage: `linear-gradient(180deg, ${MEDAL_COLORS.dnf}, color-mix(in srgb, ${MEDAL_COLORS.dnf} 88%, #0b1524))`,
+                    }}
+                  />
                 ) : null}
               </div>
             ))}
@@ -1037,7 +1342,10 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
               <span
                 key={bar.year}
                 data-category={bar.categoryId || undefined}
-                title={bar.categoryLabel || undefined}
+                // Sem `title`: a categoria já é o segundo termo do cabeçalho do
+                // balão da coluna, e um segundo balão do sistema no mesmo
+                // gráfico era a caixa branca de volta, 3px abaixo.
+                aria-label={bar.categoryLabel || undefined}
                 className="mt-1.5 h-[3px] min-w-[24px] max-w-[64px] flex-1 rounded-full"
                 style={{ backgroundColor: bar.categoryId ? getCategoryColor(bar.categoryId) : "transparent" }}
               />
@@ -1059,11 +1367,12 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
         <MedalKey color={MEDAL_COLORS.second} label={t("myTeamTab.history.records.medals.second")} />
         <MedalKey color={MEDAL_COLORS.third} label={t("myTeamTab.history.records.medals.third")} />
         <MedalKey color={MEDAL_COLORS.nearMiss} label={t("myTeamTab.history.records.medals.nearMiss")} />
+        <MedalKey color={MEDAL_COLORS.dnf} label={t("myTeamTab.history.records.medals.dnf")} />
         <span>{t("myTeamTab.history.records.topFivePerRaceLegend")}</span>
       </div>
       {categorias.length > 0 && (
         <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[10px] text-text-muted" data-testid="team-history-trajectory-legend">
-          <span className="uppercase tracking-[0.12em] text-text-muted/80">
+          <span className="text-text-muted/80">
             {t("myTeamTab.history.records.categoryBand")}
           </span>
           {categorias.map((cat) => (
@@ -1071,85 +1380,15 @@ function SeasonTrajectory({ seasons, worldFirstYear, worldLastYear, outsideSeaso
           ))}
         </div>
       )}
+      <TrajectoryTooltip rect={dicaAberta?.rect} dica={dicaAberta?.dica} />
     </div>
   );
 }
 
-// Ordem de leitura quando dois fatos caem no mesmo ano — a estreia vem antes do
-// primeiro pódio, que vem antes da primeira vitória, e assim por diante.
-const HISTORY_KIND_ORDER = ["first_race", "first_podium", "first_win", "first_title", "last_record"];
-
-// Marcos e linha do tempo eram DOIS blocos, e os dois contavam a primeira
-// vitória — um como "Primeira vitória / 2017", o outro como "Primeira vitória
-// real em Mazda Championship, rodada 1". Aqui viram uma linha do tempo só, em
-// ordem cronológica, e o fato repetido fica com a versão que traz categoria e
-// rodada. A fusão é por `kind` e não por texto: prosa traduzida não é chave.
-//
-// A linha é VERTICAL: na horizontal o rótulo comprido tinha que ser truncado
-// para caber na coluna, e o fio entre os pontos não existia — eram marcos
-// soltos, sem a leitura de sequência que é o assunto do bloco.
-function HistoryRail({ milestones, timeline, espacado = true }) {
-  const { t } = useTranslation();
-  const eventos = useMemo(() => {
-    const daLinha = Array.isArray(timeline) ? timeline : [];
-    const kinds = new Set(daLinha.map((item) => item.kind).filter(Boolean));
-    const itens = [
-      ...daLinha.map((item) => ({
-        kind: item.kind || "",
-        year: String(item.year ?? ""),
-        text: item.text ?? "",
-      })),
-      ...(Array.isArray(milestones) ? milestones : [])
-        .filter((item) => !item.kind || !kinds.has(item.kind))
-        .map((item) => ({
-          kind: item.kind || "",
-          year: String(item.year ?? ""),
-          text: item.label ?? "",
-        })),
-    ];
-    return itens.sort((a, b) => {
-      const anos = Number(a.year) - Number(b.year);
-      if (anos) return anos;
-      return HISTORY_KIND_ORDER.indexOf(a.kind) - HISTORY_KIND_ORDER.indexOf(b.kind);
-    });
-  }, [milestones, timeline]);
-
-  if (!eventos.length) return null;
-  return (
-    <div className={espacado ? "mt-5" : ""}>
-      <BlockLabel>{t("myTeamTab.history.timeline.title")}</BlockLabel>
-      {/* A trilha corre para o LADO, na direção em que o tempo já corre no resto
-          da aba — a forma recente e a curva de campeonato leem da esquerda para a
-          direita, e a cronologia lia de cima para baixo. Empilhada ela ainda
-          custava uma linha por marco e esticava o dossiê conforme a equipe
-          tivesse dois ou cinco.
-
-          O texto QUEBRA na coluna, não é truncado: foi por truncar que a versão
-          horizontal antiga foi abandonada — "Primeira vitória real em Mazda
-          Rookie, rodada 1." vira "Primeira vitória re…" e deixa de ser um fato.
-          Colunas de no mínimo 150px numa faixa que rola de lado quando a janela
-          é estreita demais para todas. */}
-      <ol
-        className="mt-3 grid auto-cols-[minmax(150px,1fr)] grid-flow-col gap-x-4 overflow-x-auto pb-1"
-        data-testid="team-history-milestones"
-      >
-        {eventos.map((evento, index) => (
-          <li key={`${evento.kind}-${evento.year}-${index}`} className="relative min-w-0 pt-[15px]">
-            {/* O fio só segue até o PRÓXIMO ponto: no último ele viraria uma
-                ponta solta apontando para nada. Ele atravessa o vão entre as
-                colunas, então soma o gap à largura. */}
-            {index < eventos.length - 1 ? (
-              <span className="absolute left-[5px] top-[4px] h-px w-[calc(100%+16px-5px)] bg-white/15" />
-            ) : null}
-            <span className="absolute left-0 top-0 h-2.5 w-2.5 rounded-full bg-[color:var(--team)]" />
-            <strong className="block font-mono text-xs leading-none text-[color:var(--team)]">{evento.year}</strong>
-            <span className="mt-1.5 block text-[11px] leading-[15px] text-text-secondary">{evento.text}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
+// A cronologia de marcos ("Momentos-chave") viveu aqui e saiu: cinco linhas de
+// prosa que diziam o ano da estreia, do primeiro pódio e do último registro —
+// datas de cartório, nenhuma delas sobre QUEM correu. O espaço é do ranking de
+// pilotos abaixo, que responde a pergunta que o grupo faz no título.
 
 // Cor de uma colocação, na mesma paleta dos degraus da faixa de Records: ouro,
 // prata, bronze, o "quase" apagado e dois tons de fundo para o resto. Um número
@@ -1184,7 +1423,7 @@ function placementInk(position) {
 // agregada, e agregado de 87 corridas não mostra que a equipe subiu de categoria
 // no ano passado e não anda mais perto do pódio — que é exatamente a pergunta de
 // quem abre o dossiê numa janela de transferências.
-function RecentForm({ races, espacado = true }) {
+function RecentForm({ races, rodadaAcesa = null, onAcenderRodada = null }) {
   const { t } = useTranslation();
   if (!races?.length) return null;
   const primeira = races[0];
@@ -1193,16 +1432,17 @@ function RecentForm({ races, espacado = true }) {
   // se leria como perda de forma.
   const trocou = primeira.categoryId && ultima.categoryId && primeira.categoryId !== ultima.categoryId;
   return (
-    <div className={espacado ? "mt-5" : ""}>
+    <div>
       <BlockLabel>{t("myTeamTab.history.sport.recentForm")}</BlockLabel>
       <div className="mt-2.5 flex gap-1.5" data-testid="team-history-recent-form">
         {races.map((race, index) => {
           const pos = Number(race.position) || 0;
+          const chave = chaveDaRodada(race.year, race.round);
+          const aceso = chave != null && chave === rodadaAcesa;
           return (
-            <span
+            <Tooltip
               key={`${race.year}-${race.round}-${index}`}
-              data-position={pos || undefined}
-              title={
+              texto={
                 pos
                   ? t("myTeamTab.history.sport.formTooltip", {
                       year: race.year,
@@ -1216,11 +1456,23 @@ function RecentForm({ races, espacado = true }) {
                       category: race.category,
                     })
               }
-              className="grid h-9 flex-1 place-items-center rounded-md font-mono text-[11px]"
-              style={{ backgroundColor: placementTone(pos || 99), color: placementInk(pos || 99) }}
             >
-              {pos || "—"}
-            </span>
+              <span
+                data-position={pos || undefined}
+                data-round={chave || undefined}
+                data-aceso={aceso ? "true" : undefined}
+                onMouseEnter={() => onAcenderRodada?.(chave)}
+                onMouseLeave={() => onAcenderRodada?.(null)}
+                // Anel branco, igual ao da faixa de top 5: o quadrado já é
+                // colorido pela colocação, e trocar a cor apagaria o dado.
+                className={`grid h-9 flex-1 place-items-center rounded-md font-mono text-[11px] transition-[box-shadow] ${
+                  aceso ? "ring-1 ring-white/60" : ""
+                }`}
+                style={{ backgroundColor: placementTone(pos || 99), color: placementInk(pos || 99) }}
+              >
+                {pos || "—"}
+              </span>
+            </Tooltip>
           );
         })}
       </div>
@@ -1250,12 +1502,17 @@ const RUN_BOTTOM = 132;
 const RUN_AXIS = 146;
 const RUN_ROUND_Y = 166;
 const RUN_SURFACE = "#0f1c2b";
-const RUN_MODE_POSITION = "posicao";
-const RUN_MODE_POINTS = "pontos";
 // Cinza das outras equipes. Elas precisam existir — sem o campo, a linha da
 // equipe é só um traço subindo, e subir é o que toda linha acumulada faz — mas
 // não podem competir: um fio fino, sem marcador e sem etiqueta.
 const RUN_FIELD_STROKE = "#3a4d63";
+
+// Se há campanha para desenhar. Mora fora do componente porque o seletor de
+// vistas precisa saber disso ANTES de escolher o que renderizar — e uma segunda
+// cópia da regra derivaria da primeira no primeiro save antigo que aparecesse.
+function campanhaTemDados(run) {
+  return (Array.isArray(run?.rounds) ? run.rounds.length : 0) >= 2 && Boolean(run?.lines?.length);
+}
 
 // Campanha do campeonato: a pontuação ACUMULADA rodada a rodada, da equipe do
 // dossiê contra todas as outras do mesmo campeonato.
@@ -1268,11 +1525,20 @@ const RUN_FIELD_STROKE = "#3a4d63";
 //
 // É também o bloco que conversa com a fita de forma recente logo abaixo: as
 // mesmas corridas, agora somadas contra quem estava de fato na pista.
-function ChampionshipRun({ run, espacado = true }) {
+function ChampionshipRun({
+  run,
+  seletor = null,
+  seletorModo = null,
+  modo = RUN_MODE_POSITION,
+  rodadaAcesa = null,
+  onAcenderRodada = null,
+}) {
   const { t } = useTranslation();
   const uid = useId().replace(/:/g, "");
   // O modo é o que o eixo MEDE, e é a diferença entre um gráfico com nuance e um
-  // feixe de retas paralelas.
+  // feixe de retas paralelas. Ele vem de fora porque é a métrica do BLOCO, não
+  // deste gráfico: a curva entre campeonatos mede as mesmas duas coisas, e a
+  // escolha atravessa a troca de vista.
   //
   // Em pontos acumulados todo mundo sobe — é o que acumulado faz — e a subida
   // comum a todas as linhas domina o desenho. Pior é o alcance: o eixo tem de
@@ -1288,11 +1554,10 @@ function ChampionshipRun({ run, espacado = true }) {
   // altura, por construção — nenhum outlier pode espremer ninguém. E é onde a
   // temporada acontece: as linhas se cruzam quando uma equipe passa a outra, que
   // é o evento que o acumulado esconde atrás de dois traços quase paralelos.
-  const [modo, setModo] = useState(RUN_MODE_POSITION);
   const dados = useMemo(() => {
-    const rounds = Array.isArray(run?.rounds) ? run.rounds : [];
-    const lines = Array.isArray(run?.lines) ? run.lines : [];
-    if (rounds.length < 2 || !lines.length) return null;
+    if (!campanhaTemDados(run)) return null;
+    const rounds = run.rounds;
+    const lines = run.lines;
     const porPosicao = modo === RUN_MODE_POSITION;
     const pontosEm = (line, index) => Number(line.points?.[index] ?? 0);
     // A classificação RODADA A RODADA, refeita a cada uma: é a colocação de
@@ -1351,20 +1616,31 @@ function ChampionshipRun({ run, espacado = true }) {
   const ticks = [...new Set([dados.alto, Math.round((dados.alto + dados.baixo) / 2), dados.baixo])];
   const rotuloTick = (tick) => (dados.porPosicao ? `P${tick}` : `${tick}`);
   const ultima = dados.pontosSelecionada[dados.pontosSelecionada.length - 1];
+  // A rodada acesa, traduzida para índice do eixo. Rodada de OUTRO ano (a fita
+  // recente atravessa temporadas) simplesmente não acha índice aqui — e não
+  // acender é a resposta certa: aquela corrida não está neste gráfico.
+  const indiceAceso = rodadaAcesa
+    ? dados.rounds.findIndex((round) => chaveDaRodada(run.year, round) === rodadaAcesa)
+    : -1;
+  const pontoAceso = indiceAceso >= 0 ? dados.pontosSelecionada[indiceAceso] : null;
+  // Meia distância entre rodadas: é a largura da faixa invisível que captura o
+  // mouse. Menos que isso deixaria vãos mortos entre as rodadas.
+  const meiaFaixa = dados.rounds.length > 1 ? (RUN_RIGHT - RUN_LEFT) / (dados.rounds.length - 1) / 2 : 12;
   // A mancha desce até a base do eixo nos dois modos — é o corpo da linha, não
   // uma medida por si.
   const baseArea = dados.y(dados.baixo);
 
   return (
-    <div className={espacado ? "mt-5" : ""}>
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-        <div className="flex items-baseline gap-2">
-          <BlockLabel>{t("myTeamTab.history.sport.championshipRun")}</BlockLabel>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <BlockLabel>{t("myTeamTab.history.sport.championshipTitle")}</BlockLabel>
+          {seletor}
           <span className="font-mono text-[10px] text-text-muted">
             {t("myTeamTab.history.sport.runScope", { year: run.year, category: run.category })}
           </span>
           {run.live ? (
-            <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-text-muted">
+            <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[10px] font-semibold text-text-muted">
               {t("myTeamTab.history.sport.runLive")}
             </span>
           ) : null}
@@ -1373,28 +1649,13 @@ function ChampionshipRun({ run, espacado = true }) {
           {/* Os dois modos ficam à vista, e não num menu: o eixo muda de
               significado entre eles, e um gráfico que mede outra coisa sem
               anunciar é um gráfico que mente. */}
-          <div className="flex overflow-hidden rounded-lg border border-white/10" data-testid="team-history-run-mode">
-            {[RUN_MODE_POSITION, RUN_MODE_POINTS].map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setModo(id)}
-                data-mode={id}
-                data-active={modo === id ? "true" : undefined}
-                className={`px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] transition-glass ${
-                  modo === id ? "bg-white/[0.09] text-text-primary" : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {t(`myTeamTab.history.sport.runMode.${id}`)}
-              </button>
-            ))}
-          </div>
+          {seletorModo}
           {/* A colocação vira pílula na cor da equipe: é o veredito do gráfico, e
               procurá-lo contando linhas de cima para baixo seria trabalho. */}
           {selecionada ? (
             <span
               data-testid="team-history-run-position"
-              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em]"
+              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
               style={{
                 borderColor: "color-mix(in srgb, var(--team) 45%, transparent)",
                 backgroundColor: "color-mix(in srgb, var(--team) 10%, transparent)",
@@ -1474,6 +1735,29 @@ function ChampionshipRun({ run, espacado = true }) {
 
           <line x1={RUN_LEFT} y1={RUN_TOP - 6} x2={RUN_LEFT} y2={RUN_AXIS} stroke="#ffffff" strokeOpacity="0.12" />
           <line x1={RUN_LEFT} y1={RUN_AXIS} x2={RUN_WIDTH - 8} y2={RUN_AXIS} stroke="#ffffff" strokeOpacity="0.08" />
+
+          {/* Faixas invisíveis, uma por rodada, para o mouse ter onde pousar: os
+              únicos alvos do gráfico eram as linhas, e mirar um traço de 1px
+              para achar uma rodada não é um alvo.
+
+              Vêm ANTES das linhas de propósito. O que é pintado depois fica por
+              cima e continua capturando o mouse — então a linha do campo mantém
+              o balão dela, e a faixa pega todo o resto da coluna. */}
+          {onAcenderRodada
+            ? dados.rounds.map((round, index) => (
+                <rect
+                  key={`faixa-${round}`}
+                  data-round-band={chaveDaRodada(run.year, round) || undefined}
+                  x={dados.x(index) - meiaFaixa}
+                  y={RUN_TOP - 6}
+                  width={meiaFaixa * 2}
+                  height={RUN_AXIS - (RUN_TOP - 6)}
+                  fill="transparent"
+                  onMouseEnter={() => onAcenderRodada(chaveDaRodada(run.year, round))}
+                  onMouseLeave={() => onAcenderRodada(null)}
+                />
+              ))
+            : null}
 
           {/* O campo primeiro, para a linha da equipe passar POR CIMA de todas
               elas — é a única que não pode ser cruzada e escondida. */}
@@ -1556,17 +1840,45 @@ function ChampionshipRun({ run, espacado = true }) {
             </>
           ) : null}
 
+          {/* A rodada acesa: um fio vertical atravessando o desenho e, sobre a
+              linha da equipe, o marcador cheio. O fio é quem faz a ponte com a
+              fita lá embaixo — ele diz ONDE no eixo aquela corrida caiu, que é
+              o que uma fita de quadradinhos não tem como dizer.
+
+              Vem depois das linhas para não ficar por baixo do campo, e é
+              `pointer-events-none` para não roubar o mouse das faixas. */}
+          {indiceAceso >= 0 ? (
+            <g data-testid="team-history-run-round-mark" className="pointer-events-none">
+              <line
+                x1={dados.x(indiceAceso)}
+                y1={RUN_TOP - 6}
+                x2={dados.x(indiceAceso)}
+                y2={RUN_AXIS}
+                stroke="#ffffff"
+                strokeOpacity="0.28"
+                strokeDasharray="3 3"
+              />
+              {pontoAceso ? (
+                <circle cx={pontoAceso.cx} cy={pontoAceso.cy} r="4.2" fill="var(--team)" />
+              ) : null}
+            </g>
+          ) : null}
+
           {/* Régua de rodadas embaixo da linha do eixo: acima é pontuação,
               abaixo é quando. */}
           {dados.rounds.map((round, index) =>
-            index % dados.saltoRotulo === 0 || index === dados.rounds.length - 1 ? (
+            // A régua é esparsa quando as rodadas não cabem — e a acesa aparece
+            // mesmo fora do salto: perguntaram por ela, esconder o número dela
+            // seria acender sem responder.
+            index % dados.saltoRotulo === 0 || index === dados.rounds.length - 1 || index === indiceAceso ? (
               <text
                 key={`rodada-${round}`}
                 x={dados.x(index)}
                 y={RUN_ROUND_Y}
                 textAnchor="middle"
                 fontSize="9.5"
-                fill="#66788d"
+                fill={index === indiceAceso ? "#e3ebf3" : "#66788d"}
+                fontWeight={index === indiceAceso ? "700" : undefined}
               >
                 {t("myTeamTab.history.sport.runRound", { value: round })}
               </text>
@@ -1591,7 +1903,10 @@ function ChampionshipRun({ run, espacado = true }) {
 // contraria a leitura antes de qualquer rótulo.
 const CURVE_WIDTH = 640;
 const CURVE_HEIGHT = 178;
-const CURVE_LEFT = 44;
+// A calha da esquerda tem que caber o rótulo do eixo E o chip da primeira
+// temporada, que é centrado no ponto e portanto invade meia largura de chip para
+// fora do desenho. Com a calha estreita, "P4" ficava atrás do chip "P5".
+const CURVE_LEFT = 54;
 const CURVE_RIGHT = 622;
 // O topo reserva a altura de um chip de posição: o ponto de P1 encosta em
 // CURVE_TOP, e a etiqueta dele fica acima sem sair do quadro.
@@ -1618,38 +1933,66 @@ function chipWidth(texto) {
 // última temporada fechada continuam rotulados.
 const CHIP_MIN_STEP = 52;
 
+function temporadasDisputadas(seasons) {
+  return (Array.isArray(seasons) ? seasons : []).filter((row) => Number(row.races) > 0);
+}
+
+// Se há curva para desenhar: duas temporadas disputadas, e pelo menos uma com
+// colocação conhecida. Mesmo papel do `campanhaTemDados` — o seletor de vistas
+// pergunta antes de desenhar.
+function curvaTemDados(seasons) {
+  const rows = temporadasDisputadas(seasons);
+  return rows.length >= 2 && rows.some((row) => /\d/.test(String(row.position ?? "")));
+}
+
 // Curva de campeonato: a posição FINAL por temporada.
 //
 // Não repete a faixa de top 5 de Records: aquela mede corrida a corrida, esta
 // mede o campeonato. Uma equipe regular pode ter poucos top 5 e ainda terminar
 // em P3 — quando os dois gráficos discordam, a discordância É a informação.
-function ChampionshipCurve({ seasons, espacado = true }) {
+function ChampionshipCurve({ seasons, seletor = null, seletorModo = null, modo = RUN_MODE_POSITION }) {
   const { t } = useTranslation();
   const uid = useId().replace(/:/g, "");
   const dados = useMemo(() => {
-    const rows = (Array.isArray(seasons) ? seasons : []).filter((row) => Number(row.races) > 0);
-    if (rows.length < 2) return null;
+    if (!curvaTemDados(seasons)) return null;
+    const porPosicao = modo === RUN_MODE_POSITION;
+    const rows = temporadasDisputadas(seasons);
     const pontos = rows.map((row, index) => {
       const digitos = String(row.position ?? "").match(/\d+/);
+      const somados = Number(String(row.points ?? "").replace(/[^\d.-]/g, ""));
       return {
         index,
         year: String(row.year ?? ""),
         category: row.category || "",
         categoryId: row.categoryId || "",
         position: digitos ? Number(digitos[0]) : null,
+        points: Number.isFinite(somados) ? somados : null,
       };
     });
-    const conhecidas = pontos.map((p) => p.position).filter((p) => p !== null);
-    if (!conhecidas.length) return null;
-    // O fundo da escala nunca sobe acima de P6: numa equipe que só terminou em
-    // P1 e P2, esticar o eixo entre as duas transformaria um degrau em abismo.
-    const pior = Math.max(6, ...conhecidas);
+    // O valor que o eixo desenha. Em colocação é a posição final; em pontos, o
+    // total somado no ano. Pontos de temporadas diferentes NÃO são comparáveis
+    // entre categorias — a régua de categorias embaixo do gráfico é o que diz
+    // isso, e é por ela que a colocação continua sendo o padrão.
+    const valor = (p) => (porPosicao ? p.position : p.points);
+    const conhecidos = pontos.map(valor).filter((v) => v !== null && Number.isFinite(v));
+    if (!conhecidos.length) return null;
+
+    // `alto` é o topo do desenho e `baixo` o fundo — em colocação o eixo é
+    // invertido (P1 no alto), em pontos não. O resto da geometria não precisa
+    // saber qual dos dois está em jogo.
+    //
+    // Em colocação o fundo nunca sobe acima de P6: numa equipe que só terminou
+    // em P1 e P2, esticar o eixo entre as duas transformaria um degrau em abismo.
+    const pior = Math.max(6, ...conhecidos);
+    const alto = porPosicao ? 1 : Math.max(1, ...conhecidos);
+    const baixo = porPosicao ? pior : 0;
     const passo = pontos.length > 1 ? (CURVE_RIGHT - CURVE_LEFT) / (pontos.length - 1) : 0;
-    const y = (pos) => CURVE_TOP + ((pos - 1) / (pior - 1)) * (CURVE_BOTTOM - CURVE_TOP);
+    const y = (v) => CURVE_TOP + ((v - alto) / (baixo - alto)) * (CURVE_BOTTOM - CURVE_TOP);
     const comXY = pontos.map((p) => ({
       ...p,
+      valor: valor(p),
       x: CURVE_LEFT + p.index * passo,
-      y: p.position === null ? null : y(p.position),
+      y: valor(p) === null || !Number.isFinite(valor(p)) ? null : y(valor(p)),
     }));
     // A linha quebra em cada temporada sem posição conhecida (campeonato em
     // andamento, arquivo incompleto): ligar por cima do buraco inventaria um
@@ -1665,16 +2008,23 @@ function ChampionshipCurve({ seasons, espacado = true }) {
       }
     }
     if (atual.length > 1) trechos.push(atual);
-    return { pontos: comXY, trechos, pior, passo, y, meio: y(3) };
-  }, [seasons]);
+    return { pontos: comXY, trechos, porPosicao, alto, baixo, pior, passo, y };
+  }, [seasons, modo]);
 
   if (!dados) return null;
-  const { pontos, trechos, pior, passo, y, meio } = dados;
+  const { pontos, trechos, porPosicao, alto, baixo, passo, y } = dados;
+  // As três marcas da régua, no mesmo lugar nos dois modos: topo, meio e fundo
+  // da escala. `Set` porque numa escala curta o meio pode coincidir com a ponta.
+  const marcas = [...new Set([alto, Math.round((alto + baixo) / 2), baixo])];
+  const rotuloMarca = (marca) => (porPosicao ? `P${marca}` : String(Math.round(marca)));
+  // O veredito do gráfico, na mesma pílula da campanha: a última temporada
+  // fechada. Sem ela, trocar de vista fazia a pílula sumir junto com o resto do
+  // cabeçalho, e as duas vistas pareciam blocos diferentes.
+  const fechada = [...pontos].reverse().find((ponto) => ponto.position !== null);
   const rotulos = pontos.length > 8 ? 2 : 1;
   // Ids de gradiente precisam ser únicos no documento: o dossiê pode estar aberto
   // ao lado de outro gráfico com os mesmos nomes, e o `url(#...)` pega o primeiro.
   const areaId = `${uid}-area`;
-  const podiumId = `${uid}-podium`;
   const glowId = `${uid}-glow`;
   // O chip por temporada só cabe quando as colunas são largas. Numa carreira
   // longa sobram os que carregam informação sozinhos: os títulos e a última
@@ -1682,16 +2032,47 @@ function ChampionshipCurve({ seasons, espacado = true }) {
   const ultimoFechado = [...pontos].reverse().find((ponto) => ponto.y !== null);
   const chipEmTodos = passo >= CHIP_MIN_STEP;
   return (
-    <div className={espacado ? "mt-5" : ""}>
-      <div className="flex items-center justify-between gap-3">
-        <BlockLabel>{t("myTeamTab.history.sport.championshipCurve")}</BlockLabel>
-        {/* A legenda do pódio é uma pílula, não um texto solto dentro do desenho:
-            lá dentro ela disputava espaço com a curva justamente nas temporadas
-            boas, que são as que sobem até a faixa. Aqui em cima nunca colide. */}
-        <span className="flex items-center gap-1.5 rounded-full border border-[#3fbf7f]/35 bg-[#3fbf7f]/[0.07] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#63c795]">
-          <Trophy size={11} strokeWidth={2.4} className="text-status-yellow" />
-          {t("myTeamTab.history.sport.championshipPodium")}
-        </span>
+    <div>
+      {/* O cabeçalho é o MESMO da campanha, slot a slot: rótulo, seletor de
+          escala, recorte, e à direita o seletor de métrica com a pílula do
+          veredito. Antes cada vista trazia o seu, então trocar de vista renomeava
+          o bloco e fazia chrome aparecer do nada — duas telas em vez de duas
+          vistas. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <BlockLabel>{t("myTeamTab.history.sport.championshipTitle")}</BlockLabel>
+          {seletor}
+          <span className="font-mono text-[10px] text-text-muted">
+            {t("myTeamTab.history.sport.curveScope", {
+              from: pontos[0]?.year ?? "",
+              to: pontos[pontos.length - 1]?.year ?? "",
+            })}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {seletorModo}
+          {/* A pílula verde do pódio saiu junto com a faixa que ela legendava. Era
+              uma terceira cor num gráfico que já tem duas — a da equipe e o ouro
+              do título — para marcar uma zona que o eixo com P1 no topo já
+              entrega. Esta é outra coisa: o mesmo veredito que a campanha mostra,
+              na mesma pílula, aqui referido à última temporada fechada. */}
+          {fechada ? (
+            <span
+              data-testid="team-history-curve-standing"
+              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+              style={{
+                borderColor: "color-mix(in srgb, var(--team) 45%, transparent)",
+                backgroundColor: "color-mix(in srgb, var(--team) 10%, transparent)",
+                color: "var(--team)",
+              }}
+            >
+              {t("myTeamTab.history.sport.curveStanding", {
+                position: fechada.position,
+                year: fechada.year,
+              })}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="mt-2.5 rounded-xl border border-white/[0.06] bg-[#0f1c2b] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
         <svg
@@ -1709,14 +2090,6 @@ function ChampionshipCurve({ seasons, espacado = true }) {
               <stop offset="60%" stopColor="var(--team)" stopOpacity="0.12" />
               <stop offset="100%" stopColor="var(--team)" stopOpacity="0.01" />
             </linearGradient>
-            {/* O pódio era um bloco verde chapado com aresta dura no meio da tela —
-                lia como um segundo gráfico. Agora ele desbota de cima para baixo e
-                é fechado por uma divisa em P3: continua sendo uma zona, e não uma
-                peça sobreposta. */}
-            <linearGradient id={podiumId} x1="0" y1={CURVE_TOP} x2="0" y2={meio} gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#3fbf7f" stopOpacity="0.13" />
-              <stop offset="100%" stopColor="#3fbf7f" stopOpacity="0.02" />
-            </linearGradient>
             {/* Brilho da linha. A cor da equipe é o assunto do gráfico, e um traço
                 de 2px chapado num fundo escuro não sustenta esse papel. */}
             <filter id={glowId} x="-25%" y="-25%" width="150%" height="150%">
@@ -1727,26 +2100,6 @@ function ChampionshipCurve({ seasons, espacado = true }) {
               </feMerge>
             </filter>
           </defs>
-
-          {/* Faixa do pódio do campeonato: P1 a P3. É a régua que diz se a
-              temporada foi boa sem o leitor ter que ler o eixo. */}
-          <rect
-            x={CURVE_LEFT}
-            y={CURVE_TOP}
-            width={CURVE_RIGHT - CURVE_LEFT}
-            height={meio - CURVE_TOP}
-            fill={`url(#${podiumId})`}
-            rx="3"
-          />
-          <line
-            x1={CURVE_LEFT}
-            y1={meio}
-            x2={CURVE_RIGHT}
-            y2={meio}
-            stroke="#3fbf7f"
-            strokeOpacity="0.24"
-            strokeDasharray="4 4"
-          />
 
           {/* Uma guia vertical por temporada. É o que transforma o vazio entre os
               pontos em colunas legíveis — sem elas o olho não sabe a qual ano
@@ -1790,7 +2143,7 @@ function ChampionshipCurve({ seasons, espacado = true }) {
             ) : null,
           )}
 
-          {[1, Math.ceil((pior + 1) / 2), pior].map((tick) => (
+          {marcas.map((tick) => (
             <g key={tick}>
               <line
                 x1={CURVE_LEFT}
@@ -1798,24 +2151,26 @@ function ChampionshipCurve({ seasons, espacado = true }) {
                 x2={CURVE_RIGHT}
                 y2={y(tick)}
                 stroke="#ffffff"
-                strokeOpacity={tick === 1 ? 0.1 : 0.05}
-                strokeDasharray={tick === 1 ? undefined : "2 5"}
+                strokeOpacity={tick === alto ? 0.1 : 0.05}
+                strokeDasharray={tick === alto ? undefined : "2 5"}
               />
+              {/* O rótulo recua o suficiente para o chip da primeira temporada
+                  passar por fora dele. Todos com o mesmo peso: isto é a régua do
+                  desenho, e régua não disputa atenção com a linha. O troféu que
+                  ficava ao lado do P1 saiu — ele anunciava um marco onde só há
+                  escala, e o título de verdade já é o ponto dourado na curva. */}
               <text
-                x={CURVE_LEFT - 9}
+                x={CURVE_LEFT - 17}
                 y={y(tick) + 3.4}
                 textAnchor="end"
                 fontSize="10"
-                fontWeight={tick === 1 ? 700 : 500}
-                fill={tick === 1 ? "#c2d2e2" : "#66788d"}
+                fontWeight="500"
+                fill="#7c8ea3"
               >
-                {`P${tick}`}
+                {rotuloMarca(tick)}
               </text>
             </g>
           ))}
-          {/* O troféu marca P1 no eixo. Sem ele, o topo da escala é só mais um
-              número — e o topo da escala é o objetivo do jogo inteiro. */}
-          <image href={goldTrophy} x={CURVE_LEFT - 40} y={y(1) - 6.5} width="13" height="13" opacity="0.9" />
 
           {/* Eixo vertical: fecha o desenho à esquerda e separa a escala da área
               de dados. */}
@@ -1867,11 +2222,15 @@ function ChampionshipCurve({ seasons, espacado = true }) {
                   strokeOpacity="0.4"
                   strokeWidth="2"
                 >
+                  {/* O balão traz as DUAS leituras em qualquer modo: a métrica
+                      escolhida manda no eixo, não no que se pode perguntar de um
+                      ponto. */}
                   <title>
                     {t("myTeamTab.history.sport.curveTooltip", {
                       year: ponto.year,
                       category: ponto.category,
-                      position: ponto.position,
+                      position: ponto.position ?? "—",
+                      points: ponto.points ?? 0,
                     })}
                   </title>
                 </circle>
@@ -1886,7 +2245,7 @@ function ChampionshipCurve({ seasons, espacado = true }) {
             if (ponto.y === null) return null;
             const campeao = ponto.position === 1;
             if (!chipEmTodos && !campeao && ponto !== ultimoFechado) return null;
-            const texto = `P${ponto.position}`;
+            const texto = porPosicao ? `P${ponto.position}` : String(Math.round(ponto.points ?? 0));
             const largura = chipWidth(texto);
             // O chip fica acima do ponto; onde não há teto — P1 encosta no topo —
             // ele desce para baixo do marcador em vez de sair do quadro.
@@ -1996,7 +2355,7 @@ function corDeTextoSobre(hex) {
   return luminancia > 0.6 ? "#0d1622" : "#eaf1f8";
 }
 
-function ResultSpread({ spread, espacado = true }) {
+function ResultSpread({ spread }) {
   const { t } = useTranslation();
   if (!spread || spread.races <= 0) return null;
   const faixas = [
@@ -2016,7 +2375,7 @@ function ResultSpread({ spread, espacado = true }) {
     });
   if (!faixas.length) return null;
   return (
-    <div className={espacado ? "mt-5" : ""}>
+    <div>
       <div className="flex items-baseline gap-2">
         <BlockLabel>{t("myTeamTab.history.sport.resultSpread")}</BlockLabel>
         <span className="font-mono text-[10px] text-text-muted">
@@ -2025,23 +2384,26 @@ function ResultSpread({ spread, espacado = true }) {
       </div>
       <div className="mt-2.5 flex h-7 overflow-hidden rounded-md" data-testid="team-history-spread">
         {faixas.map((faixa) => (
-          <span
+          <Tooltip
             key={faixa.id}
-            data-band={faixa.id}
-            title={`${t(`myTeamTab.history.sport.spread.${faixa.id}`)} · ${rotuloFaixa(t, faixa)}`}
-            className="flex items-center justify-center overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] font-semibold"
-            style={{
-              flexGrow: faixa.value,
-              flexBasis: 0,
-              backgroundColor: faixa.color,
-              color: corDeTextoSobre(faixa.color),
-            }}
+            texto={`${t(`myTeamTab.history.sport.spread.${faixa.id}`)} · ${rotuloFaixa(t, faixa)}`}
           >
-            {/* Faixa estreita demais recorta o número no meio e vira sujeira.
-                Abaixo do limite ela fica só como cor, e a contagem aparece na
-                legenda — nenhum dado se perde por não caber na barra. */}
-            {faixa.cabeNaBarra ? rotuloFaixa(t, faixa) : null}
-          </span>
+            <span
+              data-band={faixa.id}
+              className="flex items-center justify-center overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] font-semibold"
+              style={{
+                flexGrow: faixa.value,
+                flexBasis: 0,
+                backgroundColor: faixa.color,
+                color: corDeTextoSobre(faixa.color),
+              }}
+            >
+              {/* Faixa estreita demais recorta o número no meio e vira sujeira.
+                  Abaixo do limite ela fica só como cor, e a contagem aparece na
+                  legenda — nenhum dado se perde por não caber na barra. */}
+              {faixa.cabeNaBarra ? rotuloFaixa(t, faixa) : null}
+            </span>
+          </Tooltip>
         ))}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-text-muted">
@@ -2076,7 +2438,7 @@ const RELIABILITY_COLORS = {
 // É o buraco que a assinatura de resultados deixa. Lá, abandonar na volta 2 e
 // terminar em 14º caem os dois em "fora do top 10" — e são coisas opostas: uma é
 // o carro quebrando, a outra é o carro andando devagar.
-function ReliabilityPanel({ reliability, espacado = true, compacto = false }) {
+function ReliabilityPanel({ reliability, compacto = false }) {
   const { t } = useTranslation();
   if (!reliability || reliability.races <= 0) return null;
   const faixas = [
@@ -2119,22 +2481,22 @@ function ReliabilityPanel({ reliability, espacado = true, compacto = false }) {
           {faixas.map((faixa) => {
             const share = (faixa.value / reliability.races) * 100;
             return (
-              <span
-                key={faixa.id}
-                data-band={faixa.id}
-                title={rotulo(faixa)}
-                className="flex items-center justify-center overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] font-semibold"
-                style={{
-                  flexGrow: faixa.value,
-                  flexBasis: 0,
-                  backgroundColor: RELIABILITY_COLORS[faixa.id],
-                  color: corDeTextoSobre(RELIABILITY_COLORS[faixa.id]),
-                }}
-              >
-                {/* Só a faixa que cabe mostra o número, pela mesma regra da
-                    assinatura: recortado no meio ele vira sujeira. */}
-                {share >= FAIXA_MIN_ROTULO ? faixa.value : null}
-              </span>
+              <Tooltip key={faixa.id} texto={rotulo(faixa)}>
+                <span
+                  data-band={faixa.id}
+                  className="flex items-center justify-center overflow-hidden whitespace-nowrap px-1 font-mono text-[10px] font-semibold"
+                  style={{
+                    flexGrow: faixa.value,
+                    flexBasis: 0,
+                    backgroundColor: RELIABILITY_COLORS[faixa.id],
+                    color: corDeTextoSobre(RELIABILITY_COLORS[faixa.id]),
+                  }}
+                >
+                  {/* Só a faixa que cabe mostra o número, pela mesma regra da
+                      assinatura: recortado no meio ele vira sujeira. */}
+                  {share >= FAIXA_MIN_ROTULO ? faixa.value : null}
+                </span>
+              </Tooltip>
             );
           })}
         </div>
@@ -2159,7 +2521,7 @@ function ReliabilityPanel({ reliability, espacado = true, compacto = false }) {
   }
 
   return (
-    <div className={espacado ? "mt-5" : ""} data-testid="team-history-reliability">
+    <div data-testid="team-history-reliability">
       <div className="flex items-baseline gap-2">
         <BlockLabel>{t("myTeamTab.history.sport.reliability")}</BlockLabel>
         <span className="font-mono text-[10px] text-text-muted">
@@ -2175,19 +2537,22 @@ function ReliabilityPanel({ reliability, espacado = true, compacto = false }) {
           >
             {`${reliability.finishRate}%`}
           </strong>
-          <span className="mt-1 block text-[10px] uppercase tracking-[0.12em] text-text-muted">
+          <span className="mt-1 block text-[10px] text-text-muted">
             {t("myTeamTab.history.sport.finishRate")}
           </span>
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex h-5 overflow-hidden rounded-md">
             {faixas.map((faixa) => (
-              <span
+              <Tooltip
                 key={faixa.id}
-                data-band={faixa.id}
-                title={`${t(`myTeamTab.history.sport.rel${faixa.id[0].toUpperCase()}${faixa.id.slice(1)}`)} · ${faixa.value}`}
-                style={{ flexGrow: faixa.value, flexBasis: 0, backgroundColor: RELIABILITY_COLORS[faixa.id] }}
-              />
+                texto={`${t(`myTeamTab.history.sport.rel${faixa.id[0].toUpperCase()}${faixa.id.slice(1)}`)} · ${faixa.value}`}
+              >
+                <span
+                  data-band={faixa.id}
+                  style={{ flexGrow: faixa.value, flexBasis: 0, backgroundColor: RELIABILITY_COLORS[faixa.id] }}
+                />
+              </Tooltip>
             ))}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-text-muted">
@@ -2219,12 +2584,24 @@ function ReliabilityPanel({ reliability, espacado = true, compacto = false }) {
   );
 }
 
+// O elo entre a galeria de pilotos e o ranking dos melhores.
+//
+// Os dois blocos listam as MESMAS pessoas por critérios diferentes: a galeria em
+// ordem de ano e por vaga, o ranking por currículo. Achar num o nome que está no
+// outro é o gesto mais repetido dessa seção — e o mais caro, porque uma equipe
+// antiga tem quinze passagens e o ranking corta em dez.
+//
+// O elo ACENDE e só. Uma versão anterior rolava a página até o par quando ele
+// estava fora do quadro, para garantir que o realce fosse visto; a tela se
+// mexendo sozinha sob o cursor é pior do que o problema que resolve — quem está
+// lendo perde o lugar, e o gesto de passar o mouse deixa de ser inofensivo.
+
 // Pilotos que passaram pela equipe, repartidos pelas DUAS vagas. É o único bloco
 // do dossiê que fala de gente — todo o resto trata a equipe como um carro só — e,
 // em duas colunas, também responde quanto essa casa troca de piloto: uma que
 // manteve o mesmo titular por seis anos e outra que troca todo ano desenham
 // diferente antes de qualquer número ser lido.
-function TeamLineup({ lineup, espacado = true }) {
+function TeamLineup({ lineup, pilotoAceso = null, onAcenderPiloto = null }) {
   const { t } = useTranslation();
   if (!lineup?.length) return null;
   // Vagas 1 e 2 sempre lado a lado; a faixa de "outras passagens" só existe
@@ -2234,7 +2611,7 @@ function TeamLineup({ lineup, espacado = true }) {
     .filter((coluna) => coluna.itens.length > 0);
   const avulsos = lineup.filter((item) => item.slot !== 1 && item.slot !== 2);
   return (
-    <div className={espacado ? "mt-5" : ""} data-testid="team-history-lineup">
+    <div data-testid="team-history-lineup">
       <div className="flex items-baseline gap-2">
         <BlockLabel>{t("myTeamTab.history.sport.alumni")}</BlockLabel>
         <span className="font-mono text-[10px] text-text-muted">
@@ -2244,18 +2621,18 @@ function TeamLineup({ lineup, espacado = true }) {
       <div className="mt-2.5 grid gap-x-3 gap-y-3 sm:grid-cols-2">
         {colunas.map((coluna) => (
           <div key={coluna.slot} data-slot={coluna.slot}>
-            <span className="block text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">
+            <span className="block text-[10px] font-semibold text-text-muted">
               {t(`myTeamTab.history.sport.lineupSlot${coluna.slot}`)}
             </span>
-            <LineupColumn itens={coluna.itens} />
+            <LineupColumn itens={coluna.itens} pilotoAceso={pilotoAceso} onAcenderPiloto={onAcenderPiloto} />
           </div>
         ))}
         {avulsos.length ? (
           <div data-slot="0" className="sm:col-span-2">
-            <span className="block text-[9px] font-bold uppercase tracking-[0.14em] text-text-muted">
+            <span className="block text-[10px] font-semibold text-text-muted">
               {t("myTeamTab.history.sport.lineupSlotOther")}
             </span>
-            <LineupColumn itens={avulsos} />
+            <LineupColumn itens={avulsos} pilotoAceso={pilotoAceso} onAcenderPiloto={onAcenderPiloto} />
           </div>
         ) : null}
       </div>
@@ -2265,7 +2642,7 @@ function TeamLineup({ lineup, espacado = true }) {
 
 // Uma coluna da galeria. As passagens vêm em ordem cronológica do backend, e a
 // coluna só se lê como sucessão se essa ordem sobreviver ao desenho.
-function LineupColumn({ itens }) {
+function LineupColumn({ itens, pilotoAceso = null, onAcenderPiloto = null }) {
   const { t } = useTranslation();
   return (
     <ul className="mt-1.5 grid gap-1.5">
@@ -2296,39 +2673,43 @@ function LineupColumn({ itens }) {
               data-driver={piloto.driverId}
               data-player={piloto.isPlayer ? "true" : undefined}
               data-current={piloto.stillHere ? "true" : undefined}
+              data-aceso={pilotoAceso === piloto.driverId ? "true" : undefined}
+              onMouseEnter={() => onAcenderPiloto?.(piloto.driverId)}
+              onMouseLeave={() => onAcenderPiloto?.(null)}
               // Quem está na equipe HOJE é o fim da coluna e o começo da leitura:
               // ganha faixa lateral e fundo na cor da casa. Passagem encerrada
               // fica em cinza — a diferença entre as duas é a informação, e
               // "ainda na equipe" escrito em texto era fácil demais de perder no
               // meio de oito linhas iguais.
-              className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-lg border px-3 py-2 ${
+              className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-lg border px-3 py-2 transition-[box-shadow] ${
                 piloto.stillHere
                   ? "border-l-2 border-[color-mix(in_srgb,var(--team)_50%,transparent)] border-l-[color:var(--team)] bg-[color-mix(in_srgb,var(--team)_10%,#0f1c2b)]"
                   : piloto.isPlayer
                     ? "border-[color-mix(in_srgb,var(--team)_45%,transparent)] bg-[color-mix(in_srgb,var(--team)_12%,#0f1c2b)]"
                     : "border-white/[0.06] bg-[#0f1c2b]"
-              }`}
+              } ${pilotoAceso === piloto.driverId ? "ring-1 ring-white/45" : ""}`}
             >
               {/* A bandeira ocupa as duas linhas do cartão, à esquerda de tudo:
                   é o retrato do piloto que a galeria não tem. Vem do país porque
                   é o único traço visual que o save guarda dele — e é ele que faz
                   a coluna se ler como gente, e não como oito linhas de texto. */}
-              <span
-                className="row-span-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-inset ring-white/[0.07]"
-                data-nationality={piloto.nationality || undefined}
-                title={piloto.nationality || undefined}
-              >
-                <FlagIcon nacionalidade={piloto.nationality} />
-              </span>
+              <Tooltip texto={piloto.nationality || undefined}>
+                <span
+                  className="row-span-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-inset ring-white/[0.07]"
+                  data-nationality={piloto.nationality || undefined}
+                >
+                  <FlagIcon nacionalidade={piloto.nationality} />
+                </span>
+              </Tooltip>
               <span className="flex min-w-0 items-center gap-1.5">
                 <strong className="truncate text-xs font-semibold text-text-primary">{piloto.name}</strong>
                 {piloto.isPlayer ? (
-                  <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase tracking-[0.1em] text-[color:var(--team)] ring-1 ring-[color:var(--team)]/50">
+                  <span className="shrink-0 rounded px-1 py-px text-[10px] font-semibold text-[color:var(--team)] ring-1 ring-[color:var(--team)]/50">
                     {t("myTeamTab.history.sport.alumniYou")}
                   </span>
                 ) : null}
                 {piloto.stillHere ? (
-                  <span className="shrink-0 rounded bg-[color:var(--team)] px-1 py-px text-[9px] font-bold uppercase tracking-[0.1em] text-[#07101d]">
+                  <span className="shrink-0 rounded bg-[color:var(--team)] px-1 py-px text-[10px] font-semibold text-[#07101d]">
                     {t("myTeamTab.history.sport.lineupCurrent")}
                   </span>
                 ) : null}
@@ -2368,41 +2749,332 @@ function LineupColumn({ itens }) {
   );
 }
 
-// A seção Esportivo desenha em dois arranjos. O "arrumado" é o padrão; o
-// "clássico" é o empilhamento original, a um clique de distância. Os dois leem os
-// mesmos campos do dossiê — trocar de layout nunca esconde nem inventa dado.
-function SportSection({ dossier }) {
-  const { t } = useTranslation();
-  const [layout, setLayout] = useState(readSportLayout);
-  const arrumado = layout !== SPORT_LAYOUT_CLASSIC;
+// Quantos nomes o pódio da casa aguenta. Dez é o corte clássico de tabela de
+// recordes, e numa equipe antiga ele alcança quem correu na década anterior — a
+// galeria acima lista todo mundo, mas em ordem de ano, onde ninguém compara.
+const BEST_DRIVERS_LIMIT = 10;
 
-  function alternar() {
-    const proximo = arrumado ? SPORT_LAYOUT_CLASSIC : SPORT_LAYOUT_ARRANGED;
-    setLayout(proximo);
-    writeSportLayout(proximo);
+// Cor da posição no ranking: as três primeiras na mesma paleta de medalha que os
+// degraus de Records usam, o resto apagado. Um número só muda de significado
+// entre as telas se mudar de cor — então não muda.
+const BEST_RANK_COLORS = [MEDAL_COLORS.first, MEDAL_COLORS.second, MEDAL_COLORS.third];
+
+// O ranking dos pilotos que vestiram a equipe.
+//
+// A galeria logo acima conta a SUCESSÃO — quem veio depois de quem, em duas
+// colunas. Ela não responde quem foi o melhor: os números estão lá, espalhados
+// por oito linhas em ordem de ano, e comparar dois deles é trabalho do leitor.
+// Aqui a ordem é a resposta.
+//
+// A conta é por PILOTO, e não por passagem: quem saiu e voltou tem dois mandatos
+// na galeria (é assim que a sucessão se lê), mas um só currículo pela casa —
+// somar os dois é o que impede a mesma pessoa de aparecer duas vezes no pódio,
+// cada metade abaixo de quem ela na verdade supera.
+function bestDriversRanking(lineup) {
+  const porPiloto = new Map();
+  for (const term of lineup) {
+    // Contrato anunciado que nunca virou pista não entra: o titular de hoje sem
+    // corrida aparece na galeria (é onde se confere quem está no carro), mas um
+    // ranking de quem correu não tem o que fazer com quem não correu.
+    if (!(term.races > 0)) continue;
+    const acumulado = porPiloto.get(term.driverId);
+    if (!acumulado) {
+      porPiloto.set(term.driverId, {
+        driverId: term.driverId,
+        name: term.name,
+        nationality: term.nationality,
+        isPlayer: term.isPlayer,
+        stillHere: term.stillHere,
+        races: term.races,
+        titles: term.titles,
+        wins: term.wins,
+        podiums: term.podiums,
+        bestPosition: term.bestPosition,
+        firstYear: term.firstYear,
+        lastYear: term.lastYear,
+      });
+      continue;
+    }
+    acumulado.races += term.races;
+    acumulado.titles += term.titles;
+    acumulado.wins += term.wins;
+    acumulado.podiums += term.podiums;
+    // Zero é "nunca teve colocação", e não a melhor delas.
+    if (term.bestPosition > 0 && (acumulado.bestPosition === 0 || term.bestPosition < acumulado.bestPosition)) {
+      acumulado.bestPosition = term.bestPosition;
+    }
+    acumulado.stillHere = acumulado.stillHere || term.stillHere;
+    acumulado.nationality = acumulado.nationality || term.nationality;
+    if (term.firstYear && term.firstYear < acumulado.firstYear) acumulado.firstYear = term.firstYear;
+    if (term.lastYear && term.lastYear > acumulado.lastYear) acumulado.lastYear = term.lastYear;
   }
 
+  // TÍTULO primeiro, e não vitória. Vencer domingo e vencer o ano não são a
+  // mesma moeda em escala diferente: um campeão da casa com seis vitórias vale
+  // mais para a história dela que um piloto de quinze vitórias que nunca levou
+  // o campeonato — e era exatamente isso que a lista dizia ao contrário.
+  // Nenhum peso relativo resolveria: quantas vitórias valem um título é uma
+  // pergunta sem resposta, e a ordem lexicográfica não precisa dela.
+  return [...porPiloto.values()].sort((a, b) => {
+    if (b.titles !== a.titles) return b.titles - a.titles;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.podiums !== a.podiums) return b.podiums - a.podiums;
+    // A melhor colocação não é mais coluna, mas continua desempatando: entre dois
+    // pilotos sem pódio, quem chegou em quarto fez mais que quem nunca passou de
+    // décimo, e sem isso o fundo da tabela sairia em ordem alfabética.
+    const melhorA = a.bestPosition > 0 ? a.bestPosition : Number.POSITIVE_INFINITY;
+    const melhorB = b.bestPosition > 0 ? b.bestPosition : Number.POSITIVE_INFINITY;
+    if (melhorA !== melhorB) return melhorA - melhorB;
+    if (b.races !== a.races) return b.races - a.races;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+// As três colunas de números do ranking, na ordem em que desempatam a lista.
+// Largura fixa e conteúdo alinhado à direita: é o que faz a coluna se ler de
+// cima para baixo, que é a leitura que o bloco existe para dar.
+// O título abre a fila porque é o primeiro critério de ordem, e leva a taça
+// junto do número: as duas colunas de ouro seguidas (título e vitória) seriam
+// indistinguíveis de relance, e a diferença entre elas é o assunto do bloco.
+//
+// A melhor colocação saiu: ela era redundante com as colunas à esquerda — quem
+// tem pódio nunca terá "melhor" pior que P3, e quem tem vitória sempre marca P1.
+// Só dizia algo de quem não subiu no pódio, e continua dizendo, como critério de
+// desempate invisível. No lugar dela entram as CORRIDAS, que dão a escala das
+// outras três (seis títulos em quarenta corridas não é seis em duzentas) e, por
+// serem o filtro de entrada do ranking, garantem que nenhuma linha fique só com
+// travessões.
+const BEST_COLUMNS = [
+  { id: "titles", label: "bestColTitles", width: "w-9", color: MEDAL_COLORS.first, trophy: true, value: (p) => p.titles },
+  { id: "wins", label: "bestColWins", width: "w-8", color: MEDAL_COLORS.first, value: (p) => p.wins },
+  { id: "podiums", label: "bestColPodiums", width: "w-8", color: MEDAL_COLORS.second, value: (p) => p.podiums },
+  { id: "races", label: "bestColRaces", width: "w-10", color: null, value: (p) => p.races },
+];
+
+function BestDrivers({ lineup, pilotoAceso = null, onAcenderPiloto = null }) {
+  const { t } = useTranslation();
+  const ranking = useMemo(() => bestDriversRanking(lineup ?? []), [lineup]);
+  // Um nome sozinho não é ranking: a galeria acima já o mostra, com mais dado.
+  if (ranking.length < 2) return null;
+  const primeiros = ranking.slice(0, BEST_DRIVERS_LIMIT);
+
+  return (
+    <div data-testid="team-history-best-drivers">
+      <div className="flex items-baseline gap-2">
+        <BlockLabel>{t("myTeamTab.history.sport.bestDrivers")}</BlockLabel>
+        <span className="text-[10px] text-text-muted">{t("myTeamTab.history.sport.bestDriversScope")}</span>
+      </div>
+      {/* O cabeçalho das colunas paga uma linha e devolve o que a prosa
+          "1 vitória · 2 pódios" custava em cada uma das cinco: com ele, os
+          números viram três colunas comparáveis de cima para baixo, e a ordem
+          da lista fica visível em vez de precisar ser acreditada.
+          `pr-[13px]` = o padding da linha mais a borda de 1px dela. */}
+      <div className="mt-2.5 flex justify-end gap-3 pr-[13px] text-[9px] uppercase tracking-[0.08em] text-text-muted">
+        {BEST_COLUMNS.map((coluna) => (
+          <span key={coluna.id} className={`${coluna.width} text-right`}>
+            {t(`myTeamTab.history.sport.${coluna.label}`)}
+          </span>
+        ))}
+      </div>
+      <ol className="mt-1 grid gap-1.5">
+        {primeiros.map((piloto, index) => {
+          const cor = BEST_RANK_COLORS[index] || MEDAL_COLORS.nearMiss;
+          return (
+            <li
+              key={piloto.driverId}
+              data-driver={piloto.driverId}
+              data-rank={index + 1}
+              data-player={piloto.isPlayer ? "true" : undefined}
+              data-aceso={pilotoAceso === piloto.driverId ? "true" : undefined}
+              onMouseEnter={() => onAcenderPiloto?.(piloto.driverId)}
+              onMouseLeave={() => onAcenderPiloto?.(null)}
+              className={`grid grid-cols-[18px_auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg border px-3 py-2 transition-[box-shadow] ${
+                piloto.isPlayer
+                  ? "border-[color-mix(in_srgb,var(--team)_45%,transparent)] bg-[color-mix(in_srgb,var(--team)_12%,#0f1c2b)]"
+                  : "border-white/[0.06] bg-[#0f1c2b]"
+              } ${pilotoAceso === piloto.driverId ? "ring-1 ring-white/45" : ""}`}
+            >
+              <strong className="text-center font-mono text-sm leading-none" style={{ color: cor }}>
+                {index + 1}
+              </strong>
+              <FlagIcon nacionalidade={piloto.nationality} />
+              <span className="flex min-w-0 items-center gap-1.5">
+                <strong className="truncate text-xs font-semibold text-text-primary">{piloto.name}</strong>
+                {piloto.isPlayer ? (
+                  <span className="shrink-0 rounded px-1 py-px text-[10px] font-semibold text-[color:var(--team)] ring-1 ring-[color:var(--team)]/50">
+                    {t("myTeamTab.history.sport.alumniYou")}
+                  </span>
+                ) : null}
+                {piloto.stillHere ? (
+                  <span className="shrink-0 rounded bg-[color:var(--team)] px-1 py-px text-[10px] font-semibold text-[#07101d]">
+                    {t("myTeamTab.history.sport.lineupCurrent")}
+                  </span>
+                ) : null}
+                <span className="shrink-0 font-mono text-[10px] text-text-muted">
+                  {piloto.firstYear === piloto.lastYear
+                    ? t("myTeamTab.history.sport.alumniOneYear", { first: piloto.firstYear })
+                    : t("myTeamTab.history.sport.alumniYears", { first: piloto.firstYear, last: piloto.lastYear })}
+                </span>
+              </span>
+              {/* Números em coluna, e não em prosa. A barra que morava aqui
+                  media PÓDIOS, mas a lista ordena por título e vitória antes
+                  disso: o 3º colocado, com quatro pódios e nada mais, ganhava a
+                  barra mais longa e a figura desmentia a ordem que ela deveria
+                  explicar. Nenhum comprimento resolve isso — o que ordena são
+                  quatro critérios, e barra tem um eixo só. */}
+              <span className="flex justify-self-end gap-3 font-mono text-[11px] text-text-secondary">
+                {BEST_COLUMNS.map((coluna) => {
+                  const valor = coluna.value(piloto);
+                  if (!(valor > 0)) {
+                    // Zero vira travessão apagado: "0" alinhado com os outros
+                    // números pesa como dado e é ausência de dado.
+                    return (
+                      <span key={coluna.id} data-col={coluna.id} className={`${coluna.width} text-right text-text-muted/50`}>
+                        {t("myTeamTab.history.defaults.dash")}
+                      </span>
+                    );
+                  }
+                  return (
+                    <span
+                      key={coluna.id}
+                      data-col={coluna.id}
+                      className={`${coluna.width} flex items-center justify-end gap-1`}
+                      style={{ color: coluna.color || undefined }}
+                    >
+                      {coluna.trophy ? <Trophy size={10} strokeWidth={2} aria-hidden="true" /> : null}
+                      {valor}
+                    </span>
+                  );
+                })}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+// A seção Esportivo tem UM arranjo. O empilhamento original — seis blocos irmãos
+// com o mesmo peso — viveu um tempo atrás de um botão "Layout clássico" no canto
+// superior, e o botão custava uma faixa inteira no topo da seção para oferecer
+// uma tela pior. Os grupos abaixo têm o mesmo conteúdo, item por item.
+//
+// O que a seção NÃO desenha, e por quê: temporadas disputadas é âncora do
+// cabeçalho, visível em qualquer aba; taxa de pódio e de vitória são cards de
+// Records, e lá vêm com a média do grupo e a posição no ranking; a tabela
+// temporada a temporada era a faixa de top 5 de Records em números, com POS
+// virando a curva de campeonato e PTS sendo incomparável entre calendários.
+function SportSection({ dossier }) {
   return (
     <section>
-      {/* O botão fica acima de tudo e à direita, fora da coluna de leitura: é
-          controle da tela, não conteúdo dela. O rótulo diz para ONDE o clique
-          leva, nunca onde você está — "Layout clássico" num botão que já está no
-          clássico é a ambiguidade clássica dos alternadores. */}
-      <div className="mb-1 flex justify-end">
-        <button
-          type="button"
-          onClick={alternar}
-          data-testid="team-history-sport-layout"
-          data-layout={arrumado ? SPORT_LAYOUT_ARRANGED : SPORT_LAYOUT_CLASSIC}
-          className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted transition-glass hover:border-white/20 hover:bg-white/[0.05] hover:text-text-secondary"
-        >
-          {arrumado ? <Rows3 size={12} strokeWidth={2} aria-hidden="true" /> : <LayoutGrid size={12} strokeWidth={2} aria-hidden="true" />}
-          {arrumado ? t("myTeamTab.history.sport.layoutToClassic") : t("myTeamTab.history.sport.layoutToArranged")}
-        </button>
-      </div>
       {dossier.historyStatus !== "ready" ? <HistoryStateMessage dossier={dossier} /> : null}
-      {arrumado ? <SportArranged dossier={dossier} /> : <SportClassic dossier={dossier} />}
+      <SportArranged dossier={dossier} />
     </section>
+  );
+}
+
+// As duas vistas do mesmo assunto — onde a equipe TERMINOU cada campeonato, e
+// COMO o campeonato de agora está sendo disputado.
+//
+// O panorama entre temporadas é o padrão porque é a pergunta que o dossiê de uma
+// equipe responde primeiro: quem é essa equipe ao longo dos anos. A campanha é o
+// zoom no ano corrente, e zoom vem depois do panorama — a mesma ordem que a fita
+// de forma recente segue logo abaixo.
+//
+// O seletor entra no cabeçalho do gráfico, à esquerda, colado no rótulo: é ali
+// que ele fica no MESMO lugar nas duas vistas. À direita cada vista tem o que é
+// dela (a pílula do pódio, o modo do eixo), e o seletor pularia de posição a cada
+// troca.
+function ChampionshipEvolution({ run, seasons, rodadaAcesa = null, onAcenderRodada = null }) {
+  const { t } = useTranslation();
+  // As duas escolhas sobrevivem ao desmonte do bloco — ver evolutionPreferences.js.
+  // Comparar equipes é o uso principal do gráfico, e o caminho até a próxima
+  // equipe passa por trocar de aba ou fechar o dossiê: sem persistir, o gráfico
+  // voltava para "entre campeonatos" bem no meio da comparação.
+  const [vista, setVistaState] = useState(lerVistaEvolucao);
+  // A métrica é escolhida UMA vez e vale nas duas escalas de tempo. Ela morava
+  // dentro da campanha, então trocar de vista fazia aparecer um segundo seletor
+  // e uma pílula do nada — e o toggle parecia levar a dois blocos diferentes em
+  // vez de a duas vistas do mesmo. São dois eixos de escolha independentes:
+  // QUANDO (entre campeonatos · campeonato atual) e O QUÊ (colocação · pontos).
+  const [modo, setModoState] = useState(lerModoEvolucao);
+  // Só o CLIQUE grava. A vista efetiva pode divergir da escolhida quando a
+  // equipe da vez não tem campanha (abaixo), e essa queda é circunstância da
+  // equipe — não deve reescrever o que o jogador pediu.
+  const setVista = (id) => {
+    guardarVistaEvolucao(id);
+    setVistaState(id);
+  };
+  const setModo = (id) => {
+    guardarModoEvolucao(id);
+    setModoState(id);
+  };
+  const temCampanha = campanhaTemDados(run);
+  const temTemporadas = curvaTemDados(seasons);
+  if (!temCampanha && !temTemporadas) return null;
+
+  // A vista escolhida pode ficar sem dado sem que ninguém clique em nada: as
+  // setas do dossiê trocam de equipe sem desmontar a tela, e a próxima pode não
+  // ter campanha. Derivar em vez de guardar em efeito evita o quadro em branco
+  // de um frame.
+  const efetiva = temCampanha && temTemporadas ? vista : temCampanha ? EVOLUTION_VIEW_RUN : EVOLUTION_VIEW_SEASONS;
+
+  // Com uma vista só o seletor não aparece: um segmentado de um botão é ruído
+  // que promete uma escolha inexistente.
+  const seletor =
+    temCampanha && temTemporadas ? (
+      <div className="flex overflow-hidden rounded-lg border border-white/10" data-testid="team-history-evolution-view">
+        {[EVOLUTION_VIEW_SEASONS, EVOLUTION_VIEW_RUN].map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setVista(id)}
+            data-view={id}
+            data-active={efetiva === id ? "true" : undefined}
+            className={`px-2 py-1 text-[10px] font-semibold transition-glass ${
+              efetiva === id ? "bg-white/[0.09] text-text-primary" : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            {t(`myTeamTab.history.sport.evolutionView.${id}`)}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  // O seletor de métrica é o MESMO objeto nas duas vistas — mesma posição, mesmo
+  // desenho, mesma escolha preservada ao trocar de escala. É o que faz as duas
+  // vistas lerem como um sistema, e não como dois blocos que se substituem.
+  const seletorModo = (
+    <div className="flex overflow-hidden rounded-lg border border-white/10" data-testid="team-history-run-mode">
+      {[RUN_MODE_POSITION, RUN_MODE_POINTS].map((id) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setModo(id)}
+          data-mode={id}
+          data-active={modo === id ? "true" : undefined}
+          className={`px-2 py-1 text-[10px] font-semibold transition-colors duration-150 ${
+            modo === id ? "bg-white/[0.09] text-text-primary" : "text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          {t(`myTeamTab.history.sport.runMode.${id}`)}
+        </button>
+      ))}
+    </div>
+  );
+
+  return efetiva === EVOLUTION_VIEW_RUN ? (
+    <ChampionshipRun
+      run={run}
+      seletor={seletor}
+      seletorModo={seletorModo}
+      modo={modo}
+      rodadaAcesa={rodadaAcesa}
+      onAcenderRodada={onAcenderRodada}
+    />
+  ) : (
+    <ChampionshipCurve seasons={seasons} seletor={seletor} seletorModo={seletorModo} modo={modo} />
   );
 }
 
@@ -2421,20 +3093,37 @@ function SportSection({ dossier }) {
 //   • Como a equipe evolui — a curva de campeonato com a fita de forma recente
 //     ancorada logo abaixo. As duas leem tempo da esquerda para a direita, a
 //     curva por temporada e a fita por corrida: é o mesmo eixo em dois zooms.
-//   • Quem correu por ela — a galeria de pilotos e a cronologia dos marcos.
+//   • Quem correu por ela — a galeria de pilotos e o ranking dos melhores.
 //
 // Os títulos de grupo são o nível que faltava. Os rótulos de bloco continuam
 // exatamente onde estavam, agora lendo como subtítulo do grupo em vez de
 // competirem entre si.
+// Chave do elo entre a campanha e a fita: ano + rodada. As duas desenham as
+// MESMAS corridas — a campanha somadas contra o grid, a fita uma a uma — e a
+// rodada é o que elas têm em comum. O ano entra junto porque a fita atravessa
+// temporadas e a campanha é de uma só; sem ele, a rodada 3 do ano passado
+// acenderia a rodada 3 deste.
+function chaveDaRodada(year, round) {
+  const ano = Number(year);
+  const rodada = Number(round);
+  if (!Number.isFinite(ano) || !Number.isFinite(rodada)) return null;
+  return `${ano}-${rodada}`;
+}
+
 function SportArranged({ dossier }) {
   const { t } = useTranslation();
+  // A rodada sob o cursor, compartilhada pelo gráfico da campanha e pela fita de
+  // forma recente. O grupo "Como a equipe evolui" é o pai comum dos dois.
+  const [rodadaAcesa, setRodadaAcesa] = useState(null);
+  // O piloto sob o cursor, compartilhado pela galeria de passagens e pelo
+  // ranking dos melhores.
+  const [pilotoAceso, setPilotoAceso] = useState(null);
   const temTermino = dossier.reliability?.races > 0 || dossier.resultSpread?.races > 0;
   const temEvolucao =
-    Boolean(dossier.championshipRun) ||
-    (Array.isArray(dossier.seasonResults) ? dossier.seasonResults : []).filter((row) => Number(row.races) > 0).length >= 2 ||
+    campanhaTemDados(dossier.championshipRun) ||
+    curvaTemDados(dossier.seasonResults) ||
     dossier.recentForm?.length > 0;
-  const temGente =
-    dossier.lineup?.length > 0 || dossier.timeline?.length > 0 || dossier.milestones?.length > 0;
+  const temGente = dossier.lineup?.length > 0;
 
   return (
     <div className="grid gap-6">
@@ -2451,10 +3140,10 @@ function SportArranged({ dossier }) {
               mesma altura sozinhas, sem altura fixa nem alinhamento manual. */}
           <div className="flex flex-wrap items-start gap-x-6 gap-y-5">
             <div className="min-w-0 flex-1 basis-[300px] empty:hidden">
-              <ReliabilityPanel reliability={dossier.reliability} espacado={false} compacto />
+              <ReliabilityPanel reliability={dossier.reliability} compacto />
             </div>
             <div className="min-w-0 flex-1 basis-[300px] empty:hidden">
-              <ResultSpread spread={dossier.resultSpread} espacado={false} />
+              <ResultSpread spread={dossier.resultSpread} />
             </div>
           </div>
         </SportGroup>
@@ -2462,21 +3151,21 @@ function SportArranged({ dossier }) {
 
       {temEvolucao ? (
         <SportGroup title={t("myTeamTab.history.sport.groupTrajectory")}>
-          {/* A campanha do campeonato no lugar da curva de posição por
-              temporada. As duas respondem coisas diferentes — a curva diz ONDE a
-              equipe terminou cada ano, a campanha diz COMO a última foi
-              disputada — e é a segunda que conversa com a fita logo abaixo: as
-              mesmas corridas, agora contra o campo.
+          {/* Um bloco com duas vistas, e não uma escolha nossa entre as duas: a
+              curva diz ONDE a equipe terminou cada campeonato, a campanha diz
+              COMO o campeonato de agora está sendo disputado. Nenhuma das duas é
+              recorte da outra, e qual delas interessa depende da pergunta de
+              quem abriu o dossiê.
 
-              A curva sobrevive como reserva, para quando não há campanha para
-              desenhar: equipe com uma corrida só na última temporada, ou save
-              antigo cujo backend ainda não manda o recorte. Ela também continua
-              inteira no arranjo clássico. */}
-          {dossier.championshipRun ? (
-            <ChampionshipRun run={dossier.championshipRun} espacado={false} />
-          ) : (
-            <ChampionshipCurve seasons={dossier.seasonResults} espacado={false} />
-          )}
+              A curva abre por padrão — é o panorama, e o panorama vem antes do
+              zoom. Quando só uma das duas tem dado, ela aparece sozinha e sem
+              seletor. O arranjo clássico continua com a curva fixa. */}
+          <ChampionshipEvolution
+            run={dossier.championshipRun}
+            seasons={dossier.seasonResults}
+            rodadaAcesa={rodadaAcesa}
+            onAcenderRodada={setRodadaAcesa}
+          />
           {/* A fita entra DEPOIS do gráfico aqui, invertendo a ordem do clássico:
               lá ela vinha antes porque era o bloco do presente e abria a seção;
               aqui ela é o zoom final do mesmo eixo, e o zoom vem depois do
@@ -2485,16 +3174,32 @@ function SportArranged({ dossier }) {
               temporadas fechadas: aí a fita vira o primeiro filho do cartão e o
               respiro de cima seria um vão sem nada acima dele. */}
           <div className="mt-4 first:mt-0">
-            <RecentForm races={dossier.recentForm} espacado={false} />
+            <RecentForm
+              races={dossier.recentForm}
+              rodadaAcesa={rodadaAcesa}
+              onAcenderRodada={setRodadaAcesa}
+            />
           </div>
         </SportGroup>
       ) : null}
 
       {temGente ? (
         <SportGroup title={t("myTeamTab.history.sport.groupPeople")}>
-          <TeamLineup lineup={dossier.lineup} espacado={false} />
+          <TeamLineup
+            lineup={dossier.lineup}
+            pilotoAceso={pilotoAceso}
+            onAcenderPiloto={setPilotoAceso}
+          />
+          {/* O ranking vem DEPOIS da galeria porque depende dela para se ler: a
+              galeria apresenta os nomes e a sucessão, o ranking ordena os mesmos
+              nomes por currículo. Invertido, ele abriria o grupo com cinco
+              pessoas que o leitor ainda não conhece. */}
           <div className="mt-5 empty:hidden first:mt-0">
-            <HistoryRail milestones={dossier.milestones} timeline={dossier.timeline} espacado={false} />
+            <BestDrivers
+              lineup={dossier.lineup}
+              pilotoAceso={pilotoAceso}
+              onAcenderPiloto={setPilotoAceso}
+            />
           </div>
         </SportGroup>
       ) : null}
@@ -2522,95 +3227,130 @@ function SportGroup({ title, children }) {
   );
 }
 
-function SportClassic({ dossier }) {
-  return (
-    <>
-
-      {/* Nem temporadas disputadas nem taxa de pódio/vitória se repetem aqui.
-          Temporadas é âncora do cabeçalho, visível em qualquer seção; as taxas
-          são dois dos cinco cards de Records, e lá vêm com a média do grupo e a
-          posição no ranking. Repetir o número cru aqui era a versão pior do
-          mesmo dado.
-
-          As duas sequências (atual e melhor) saíram pelo mesmo motivo, com um
-          agravante: elas ocupavam a primeira dobra inteira da seção com prosa
-          que os três gráficos abaixo já contam melhor. "7 temporadas seguidas no
-          nível Rookie" é a tira de categoria da curva; "2 pódios consecutivos" é
-          a fita de forma recente — e nas duas dá para ver QUANDO aconteceu. */}
-
-      {/* A tabela temporada a temporada saiu daqui. Depois que Records ganhou a
-          faixa de top 5 por corrida com a tira de categoria, ela era o mesmo
-          conteúdo em números — ano, categoria, V e P já estão desenhados lá. Só
-          duas colunas eram exclusivas: POS, que virou a curva de campeonato
-          abaixo, e PTS, que é incomparável entre calendários e categorias (o
-          mesmo motivo que tirou os pontos da faixa de Records).
-
-          O que ficou no lugar responde o que agregado nenhum responde: como a
-          equipe corre AGORA, onde ela termina o campeonato, e qual é a forma da
-          distribuição por trás da taxa de pódio. */}
-      {/* Confiabilidade abre a seção: é a pergunta anterior a todas as outras.
-          Colocação, forma e curva só querem dizer alguma coisa depois de saber
-          se o carro chega ao fim — 14º com o carro inteiro e abandono na volta 2
-          são histórias opostas que todos os outros blocos contam igual. */}
-      <ReliabilityPanel reliability={dossier.reliability} />
-
-      <RecentForm races={dossier.recentForm} />
-      <ChampionshipCurve seasons={dossier.seasonResults} />
-      <ResultSpread spread={dossier.resultSpread} />
-
-      {/* Os pilotos fecham a leitura esportiva: a seção sobe de "como o carro
-          andou" para "quem estava dentro dele". */}
-      <TeamLineup lineup={dossier.lineup} />
-
-      {/* A cronologia fecha a seção, e não em Records: ela tem de zero a cinco
-          itens conforme a equipe, então a altura de Records mudava a cada equipe
-          e a tela pulava ao navegar com as setas. Aqui embaixo a variação não
-          desloca nada — e a leitura da seção fica do agora para o sempre. */}
-      <HistoryRail milestones={dossier.milestones} timeline={dossier.timeline} />
-
-      {/* A linha do tempo não se repete no fim da seção: ela é o HistoryRail lá
-          em cima, agora fundido com os marcos. */}
-    </>
-  );
-}
-
 function IdentitySection({ dossier }) {
   const { t } = useTranslation();
+  const identity = dossier.identity;
+  // Origem e atual eram dois cards com a mesma palavra na maioria das equipes —
+  // metade da aba gasta para dizer "Mazda Rookie" duas vezes. Viraram um card só,
+  // e o caso "nunca saiu" passou a ser afirmação de identidade em vez de repetição.
+  const rooted = identity.origin === identity.current;
+  const steps = dossier.categoryPath?.length ?? 0;
+  const podiumRate = identity.profileRaces
+    ? Math.round(((identity.profilePodiums ?? 0) / identity.profileRaces) * 100)
+    : null;
+
   return (
     <section className="grid gap-2.5">
-      <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_38%,transparent)] bg-[#0c1626] p-4">
+      {/* O duelo abre a aba porque é o assunto dela. Os fatos da equipe descem
+          para a faixa de apoio: aqui eles existem para dar contexto a quem está
+          do outro lado, não para retratar a casa — isso é papel da aba vizinha. */}
+      <DuelPanel dossier={dossier} />
+
+      {/* Perfil ocupa a largura toda: é o único bloco com prosa de verdade, e a
+          meia-largura quebrava a frase em quatro linhas enquanto o vizinho tinha
+          duas. Os números sobem para a mesma linha do rótulo. */}
+      <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_38%,transparent)] bg-[#0c1626] px-4 py-3.5">
         <BlockLabel>{t("myTeamTab.history.identity.profileLabel")}</BlockLabel>
-        <strong className="mt-1.5 block text-xl font-semibold leading-none tracking-[-0.02em] text-text-primary">
-          {dossier.identity.profile}
+        <strong className="mt-1 block text-lg font-semibold leading-tight tracking-[-0.01em] text-text-primary">
+          {identity.profile}
         </strong>
-        <p className="mt-2 text-[11px] leading-5 text-text-secondary">{dossier.identity.summary}</p>
+        <p className="mt-1 text-xs leading-5 text-text-secondary">{identity.summary}</p>
+        {/* Os números que sustentam o rótulo viram métricas, não uma linha de mono
+            solta: cada um ganha rótulo próprio e alinha em coluna com os vizinhos.
+            Corridas é o denominador, e sem ele "33% de pódio" não quer dizer nada. */}
+        {identity.profileRaces ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            <FactTile label={t("myTeamTab.history.identity.tile.races")} value={identity.profileRaces} />
+            <FactTile label={t("myTeamTab.history.identity.tile.wins")} value={identity.profileWins ?? 0} />
+            <FactTile label={t("myTeamTab.history.identity.tile.podiums")} value={identity.profilePodiums ?? 0} />
+            <FactTile label={t("myTeamTab.history.identity.tile.podiumRate")} value={`${podiumRate}%`} />
+          </div>
+        ) : null}
+        {/* Mesma barra de proporção que Records usa em cada card: é ela que põe a
+            cor da equipe na tela e dá ao rótulo uma medida em vez de só prosa.
+            Aqui enche com a taxa de pódio, que é o número que sustenta o perfil. */}
+        {podiumRate != null ? <TeamShareBar value={podiumRate} /> : null}
       </div>
-      <div className="grid gap-2.5 md:grid-cols-2">
-        <InfoCard
-          label={t("myTeamTab.history.identity.originLabel")}
-          value={dossier.identity.origin}
-          detail={t("myTeamTab.history.identity.originDetail")}
-        />
-        <InfoCard
-          label={t("myTeamTab.history.identity.currentLabel")}
-          value={dossier.identity.current}
-          detail={t("myTeamTab.history.identity.currentDetail")}
-        />
-      </div>
-      <div className="grid gap-2.5 md:grid-cols-2">
-        <div className="rounded-xl border border-status-yellow/25 bg-[#201a0b]/95 p-4">
-          <BlockLabel>{t("myTeamTab.history.identity.rivalLabel")}</BlockLabel>
-          <strong className="mt-1.5 block text-sm font-semibold text-status-yellow">{dossier.identity.rival.name}</strong>
-          <p className="mt-1.5 text-[11px] leading-5 text-text-secondary">
-            {t("myTeamTab.history.identity.rivalToday", { category: dossier.identity.rival.currentCategory })} {dossier.identity.rival.note}
-          </p>
+
+      {/* Três cards do mesmo peso numa linha só. Antes a trajetória dividia a
+          fileira com a pilha de duas pistas e esticava até a altura delas — um
+          card gigante com duas linhas de texto dentro. */}
+      <div className="grid gap-2.5 md:grid-cols-3">
+        <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_32%,transparent)] bg-[#0c1626]/95 px-4 py-3.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <BlockLabel>{t("myTeamTab.history.identity.symbolLabel")}</BlockLabel>
+            {identity.symbolDriverYears ? (
+              <span className="shrink-0 font-mono text-[11px] font-semibold text-text-secondary">
+                {identity.symbolDriverYears}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {identity.symbolDriverNationality ? (
+              <FlagIcon nacionalidade={identity.symbolDriverNationality} />
+            ) : null}
+            <strong className="text-[15px] font-semibold leading-tight text-text-primary">
+              {identity.symbolDriver}
+            </strong>
+            {/* Um símbolo que ficou e um que foi embora contam histórias opostas —
+                o card dizia a mesma coisa nos dois casos. */}
+            {identity.symbolDriverYears ? (
+              <span
+                className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                  identity.symbolDriverActive
+                    ? "bg-status-green/15 text-status-green"
+                    : "bg-white/10 text-text-secondary"
+                }`}
+              >
+                {identity.symbolDriverActive
+                  ? t("myTeamTab.history.identity.symbolStillHere")
+                  : t("myTeamTab.history.identity.symbolGone")}
+              </span>
+            ) : null}
+          </div>
+          {/* A prosa "5 corridas, 1 vitória, 2 pódios" virou métrica: os três
+              cards da fileira passam a ter a mesma anatomia, e era a falta disso
+              que fazia dois deles sobrarem espaço enquanto o terceiro enchia. */}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <FactTile label={t("myTeamTab.history.identity.tile.races")} value={identity.symbolDriverRaces ?? 0} />
+            <FactTile label={t("myTeamTab.history.identity.tile.wins")} value={identity.symbolDriverWins ?? 0} />
+            <FactTile label={t("myTeamTab.history.identity.tile.podiums")} value={identity.symbolDriverPodiums ?? 0} />
+          </div>
         </div>
-        <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_32%,transparent)] bg-[#0c1626]/95 p-4">
-          <BlockLabel>{t("myTeamTab.history.identity.symbolLabel")}</BlockLabel>
-          <strong className="mt-1.5 block text-sm font-semibold text-text-primary">{dossier.identity.symbolDriver}</strong>
-          <p className="mt-1.5 text-[11px] leading-5 text-text-secondary">{dossier.identity.symbolDriverDetail}</p>
+
+        <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_32%,transparent)] bg-[#0c1626]/95 px-4 py-3.5">
+          <BlockLabel>{t("myTeamTab.history.identity.trajectoryLabel")}</BlockLabel>
+          {/* O degrau ATUAL vai na cor da equipe e a origem fica apagada: é a cor
+              dizendo onde a equipe está, não enfeitando a linha. */}
+          <strong className="mt-1.5 block text-[15px] font-semibold leading-tight text-text-primary">
+            {rooted ? null : (
+              <>
+                <span className="text-text-muted">{identity.origin}</span>
+                <span className="px-1.5 text-text-muted">→</span>
+              </>
+            )}
+            <span className="text-[color:var(--team)]">{identity.current}</span>
+          </strong>
+          {/* Contagem de temporadas vem de `seasonResults`, que é lista:
+              `sport.seasons` já chega formatado como prosa ("4 Temporadas"). */}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <FactTile
+              label={t("myTeamTab.history.identity.tile.seasons")}
+              value={dossier.seasonResults?.length ?? 0}
+            />
+            <FactTile label={t("myTeamTab.history.identity.tile.steps")} value={steps} />
+          </div>
         </div>
+
+        {identity.recruitment ? <RecruitmentCard recruitment={identity.recruitment} /> : null}
       </div>
+
+      {identity.bestTrack && identity.worstTrack ? (
+        <div className="grid gap-2.5 md:grid-cols-2">
+          <TrackAffinityCard affinity={identity.bestTrack} favourite />
+          <TrackAffinityCard affinity={identity.worstTrack} />
+        </div>
+      ) : null}
       {dossier.ownershipEvents?.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-[#0c1626]/95 p-4">
           <BlockLabel>{t("myTeamTab.history.identity.erasLabel")}</BlockLabel>
@@ -2631,19 +3371,732 @@ function IdentitySection({ dossier }) {
   );
 }
 
+// Idade do último encontro em linguagem de calendário. A fonte é em SEMANAS
+// porque é assim que o mundo do Loop marca o tempo (`week_of_year`), e a escada
+// sobe conforme a distância: semanas viram meses, meses viram anos. `null` só
+// acontece em payload antigo, e aí o card cala em vez de inventar "há 0 semanas".
+function formatMeetingAge(t, weeksAgo) {
+  if (weeksAgo == null) return t("myTeamTab.history.identity.rivalAgeUnknown");
+  if (weeksAgo <= 1) return t("myTeamTab.history.identity.rivalAgeNow");
+  if (weeksAgo < 9) return t("myTeamTab.history.identity.rivalAgeWeeks", { count: weeksAgo });
+  if (weeksAgo < 52) {
+    return t("myTeamTab.history.identity.rivalAgeMonths", { count: Math.round(weeksAgo / 4.33) });
+  }
+  return t("myTeamTab.history.identity.rivalAgeYears", { count: Math.floor(weeksAgo / 52) });
+}
+
+// Métrica de card: rótulo em cima, número em mono embaixo. É a mesma anatomia do
+// `MiniMetric` do cabeçalho, em corpo menor — e é ela que dá aos cards da fileira
+// uma altura comum, porque prosa não alinha em coluna e número alinha.
+function FactTile({ label, value }) {
+  return (
+    <div className="rounded-lg bg-[#0f1c2b] px-2.5 py-2">
+      {/* Rótulo QUEBRA em vez de truncar: numa coluna estreita "Anos na chegada"
+          virava "Anos na c…", e rótulo cortado não informa nada. Como os tiles
+          vivem num grid, a segunda linha estica todos juntos e o alinhamento
+          entre eles se mantém. */}
+      <span className="block text-[11px] font-semibold leading-tight text-text-secondary">{label}</span>
+      <strong className="mt-1 block font-mono text-base leading-none text-text-primary">{value}</strong>
+    </div>
+  );
+}
+
+// O duelo: as duas equipes se encarando, com o placar do confronto direto no meio.
+//
+// A aba antes empilhava seis cards do mesmo tamanho e nenhum era o assunto. Aqui o
+// olho cai no centro, e cada lado carrega a cor de quem representa — a casa em
+// `--team`, o adversário em `--rival`. Sem rival consolidado o painel desce para
+// um estado enxuto em vez de desenhar um duelo que não existe.
+function DuelPanel({ dossier }) {
+  const { t } = useTranslation();
+  const rival = dossier.identity.rival;
+  const hasRival = Boolean(rival.color);
+  const hasAxes = rival.historicalIntensity != null && rival.recentActivity != null;
+  const clashes = rival.headToHeadWins + rival.headToHeadLosses;
+  const rivalColor = hasRival ? getVividTeamColor(rival.color) : "var(--team)";
+
+  if (!hasRival) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-[#0c1626]/95 p-4">
+        <BlockLabel>{t("myTeamTab.history.identity.rivalLabel")}</BlockLabel>
+        <strong className="mt-1.5 block text-sm font-semibold text-text-primary">{rival.name}</strong>
+        <p className="mt-1.5 text-[11px] leading-5 text-text-secondary">{rival.note}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-xl border border-white/10 bg-[#0c1626] p-4"
+      style={{
+        "--rival": rivalColor,
+        // O painel é dividido ao meio: a metade da casa puxa `--team`, a do
+        // adversário puxa `--rival`, e as duas se encontram no centro — onde fica
+        // o placar. Antes o fundo inteiro era da cor do rival, então o painel
+        // parecia território dele em vez de terreno dividido.
+        backgroundImage:
+          "linear-gradient(90deg, color-mix(in srgb, var(--team) 20%, transparent) 0%, transparent 46%, transparent 54%, color-mix(in srgb, var(--rival) 20%, transparent) 100%)",
+      }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <BlockLabel>{t("myTeamTab.history.identity.rivalLabel")}</BlockLabel>
+        <span className="rounded-md border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
+          {rival.originKind ?? t("myTeamTab.history.identity.rivalHeuristic")}
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <TeamLogoMark teamName={dossier.name} color={dossier.color} size="md" testId="team-history-duel-home" />
+        <div className="min-w-0 flex-1">
+          <strong className="block truncate text-base font-semibold leading-tight text-[color:var(--team)]">
+            {dossier.name}
+          </strong>
+          {/* Categoria dos dois lados, e não o perfil da casa: o perfil já está
+              no card logo abaixo, e simétrico o painel lê como confronto. */}
+          <span className="block truncate text-xs text-text-secondary">{dossier.identity.current}</span>
+        </div>
+        {/* O placar é a informação que uma rivalidade existe para dar. Fica no
+            centro geométrico do painel porque é o centro do assunto, e grande o
+            bastante para ser a primeira coisa que o olho encontra. */}
+        <div className="shrink-0 px-2 text-center">
+          <div className="flex items-baseline justify-center gap-2.5 font-mono text-[32px] font-semibold leading-none tracking-[-0.03em]">
+            <span className="text-[color:var(--team)]">{rival.headToHeadWins}</span>
+            <span className="text-base text-text-muted">×</span>
+            <span className="text-[color:var(--rival)]">{rival.headToHeadLosses}</span>
+          </div>
+          <span className="mt-2 block text-[11px] font-semibold text-text-secondary">
+            {clashes > 0
+              ? t("myTeamTab.history.identity.rivalHeadToHead")
+              : t("myTeamTab.history.identity.rivalNoClash")}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1 text-right">
+          <strong className="block truncate text-base font-semibold leading-tight text-[color:var(--rival)]">
+            {rival.name}
+          </strong>
+          <span className="block truncate text-xs text-text-secondary">{rival.currentCategory}</span>
+        </div>
+        <TeamLogoMark teamName={rival.name} color={rival.color} size="md" testId="team-history-rival-logo" />
+      </div>
+
+      {/* Faixa de rodapé em flex, não em grid: quando o motor não registrou os
+          eixos sobrava um item só, e o grid de três colunas o esticava por toda a
+          largura como se fosse um bloco. */}
+      <div className="mt-3.5 flex flex-wrap items-end gap-x-8 gap-y-3 border-t border-white/5 pt-3">
+        <div className="min-w-[13rem] flex-1">
+          <BlockLabel>
+            {rival.lastMeeting
+              ? t("myTeamTab.history.identity.rivalLastMeeting")
+              : t("myTeamTab.history.identity.rivalScopeNote")}
+          </BlockLabel>
+          <p className="mt-1 text-xs leading-5 text-text-secondary">
+            {/* "Temporada 3, rodada 5" não diz se foi ontem ou há três anos. O
+                tempo decorrido diz, e é ele que faz a rivalidade parecer viva ou
+                arquivada — o resultado do encontro segue junto. */}
+            {rival.lastMeeting
+              ? `${formatMeetingAge(t, rival.lastMeeting.weeksAgo)} — ${t(
+                  "myTeamTab.history.identity.rivalLastMeetingResult",
+                  {
+                    position: rival.lastMeeting.position,
+                    rivalPosition: rival.lastMeeting.rivalPosition,
+                  },
+                )}`
+              : rival.note}
+          </p>
+        </div>
+        {hasAxes ? (
+          <>
+            <IntensityBar
+              label={t("myTeamTab.history.identity.rivalAxisHistorical")}
+              value={rival.historicalIntensity}
+            />
+            <IntensityBar label={t("myTeamTab.history.identity.rivalAxisRecent")} value={rival.recentActivity} />
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// Escola ou mercado: os rótulos de desempenho não separam a equipe que forma
+// gente da que compra pronto, e as duas podem ganhar igual. Aqui separam.
+function RecruitmentCard({ recruitment }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-xl border border-[color-mix(in_srgb,var(--team)_32%,transparent)] bg-[#0c1626]/95 px-4 py-3.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <BlockLabel>{t("myTeamTab.history.identity.recruitmentLabel")}</BlockLabel>
+        <span className="shrink-0 font-mono text-[11px] font-semibold text-text-secondary">
+          {t("myTeamTab.history.identity.recruitmentRatio", {
+            rookies: recruitment.rookies,
+            drivers: recruitment.drivers,
+          })}
+        </span>
+      </div>
+      <strong className="mt-1.5 block text-[15px] font-semibold leading-tight text-[color:var(--team)]">
+        {recruitment.profile}
+      </strong>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <FactTile
+          label={t("myTeamTab.history.identity.tile.rookies")}
+          value={`${Math.round(recruitment.rookieShare)}%`}
+        />
+        <FactTile
+          label={t("myTeamTab.history.identity.tile.grid")}
+          value={`${Math.round(recruitment.fieldRookieShare)}%`}
+        />
+        <FactTile
+          label={t("myTeamTab.history.identity.tile.onArrival")}
+          value={recruitment.averageExperience.toFixed(1)}
+        />
+      </div>
+      {/* A comparação com o grid vira geometria: a barra é a fatia da equipe, o
+          traço é a do grid. O rótulo "Escola" ou "Mercado" passa a ser a leitura
+          de uma distância que dá para ver, e não uma afirmação para acreditar. */}
+      <TeamShareBar value={recruitment.rookieShare} marker={recruitment.fieldRookieShare} />
+    </div>
+  );
+}
+
+// A barra de proporção que Records usa em cada card, trazida para cá — é ela que
+// põe a cor da equipe na aba. `marker` desenha a régua de comparação por cima.
+function TeamShareBar({ value, marker = null }) {
+  const pct = Math.max(0, Math.min(100, Math.round(value)));
+  const markerPct = marker == null ? null : Math.max(0, Math.min(100, Math.round(marker)));
+  return (
+    <div className="relative mt-2.5 h-[3px] overflow-hidden rounded-full bg-white/10">
+      <div className="h-full rounded-full bg-[color:var(--team)]" style={{ width: `${pct}%` }} />
+      {markerPct == null ? null : (
+        <span className="absolute inset-y-0 w-[2px] bg-white/55" style={{ left: `calc(${markerPct}% - 1px)` }} />
+      )}
+    </div>
+  );
+}
+
+// Onde a equipe historicamente vai bem e onde apanha. É identidade barata de
+// obter e cara de esquecer: o jogador aprende a temer o calendário.
+function TrackAffinityCard({ affinity, favourite = false }) {
+  const { t } = useTranslation();
+  const tone = favourite
+    ? "border-status-green/25 bg-[#0b1d19]/95"
+    : "border-status-red/25 bg-[#241014]/95";
+  const accent = favourite ? "text-status-green" : "text-status-red";
+  return (
+    <div className={`flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border px-4 py-3 ${tone}`}>
+      <div className="min-w-0">
+        <BlockLabel>
+          {favourite
+            ? t("myTeamTab.history.identity.trackFavouriteLabel")
+            : t("myTeamTab.history.identity.trackBogeyLabel")}
+        </BlockLabel>
+        <strong className={`mt-1 block truncate text-[15px] font-semibold leading-tight ${accent}`}>
+          {affinity.track}
+        </strong>
+      </div>
+      <span className="shrink-0 font-mono text-[11px] font-semibold text-text-secondary">
+        {t("myTeamTab.history.identity.trackDetail", {
+          count: affinity.races,
+          average: affinity.averagePosition.toFixed(1),
+          best: affinity.bestPosition,
+        })}
+      </span>
+    </div>
+  );
+}
+
+// Vive dentro do card do rival, então lê `--rival` do pai — as barras são da cor
+// de quem a rivalidade descreve, não de um amarelo qualquer.
+function IntensityBar({ label, value }) {
+  const pct = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div className="w-[10rem]">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-semibold text-text-secondary">{label}</span>
+        <span className="font-mono text-[11px] font-semibold text-[color:var(--rival)]">{pct}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#0f1c2b]">
+        <div
+          className="h-full rounded-full bg-[color-mix(in_srgb,var(--rival)_78%,transparent)]"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const CASH_WIDTH = 640;
+const CASH_HEIGHT = 156;
+const CASH_LEFT = 8;
+const CASH_RIGHT = 632;
+const CASH_TOP = 12;
+// Fundo da área de dados. Abaixo dele sobra a faixa da régua do tempo, que os
+// rótulos de temporada ocupam sem invadir o desenho.
+const CASH_FLOOR = 122;
+const CASH_AXIS = 138;
+
+// Curva de caixa da carreira inteira, com a dívida pendurada abaixo da linha do
+// zero. São duas séries de propósito: caixa e dívida coexistem (dá para ter $1M em
+// caixa e $2M de passivo), e um único traço do líquido esconderia justamente a
+// equipe que opera alavancada. A leitura fica imediata — o que está acima do zero
+// é dinheiro, o que está abaixo é buraco.
+function CashCurve({ ledger }) {
+  const { t } = useTranslation();
+  const uid = useId().replace(/:/g, "");
+  const dados = useMemo(() => {
+    const pontos = ledger?.cashCurve ?? [];
+    // Dois pontos é o mínimo para existir uma curva. Com um, o desenho seria um
+    // ponto solto anunciando uma trajetória que ainda não aconteceu.
+    if (pontos.length < 2) return null;
+    const teto = Math.max(0, ...pontos.map((p) => p.cashBalance));
+    const piso = Math.max(0, ...pontos.map((p) => p.debtBalance));
+    const amplitude = teto + piso;
+    if (amplitude <= 0) return null;
+    const passo = (CASH_RIGHT - CASH_LEFT) / (pontos.length - 1);
+    const y = (valor) => CASH_TOP + ((teto - valor) / amplitude) * (CASH_FLOOR - CASH_TOP);
+    const comXY = pontos.map((ponto, index) => ({
+      ...ponto,
+      x: CASH_LEFT + index * passo,
+      yCaixa: y(ponto.cashBalance),
+      yDivida: y(-ponto.debtBalance),
+    }));
+    // Uma guia por virada de temporada — é o que dá escala de tempo ao eixo sem
+    // um rótulo por rodada. A primeira coluna também entra: sem ela a carreira
+    // começaria sem ano.
+    const viradas = comXY.filter(
+      (ponto, index) => index === 0 || ponto.seasonNumber !== comXY[index - 1].seasonNumber,
+    );
+    return { pontos: comXY, viradas, teto, piso, zero: y(0), temDivida: piso > 0 };
+  }, [ledger]);
+
+  if (!dados) return null;
+  const { pontos, viradas, teto, piso, zero, temDivida } = dados;
+  const areaId = `${uid}-caixa`;
+  const dividaId = `${uid}-divida`;
+  const linha = pontos.map((p) => `${p.x},${p.yCaixa}`).join(" ");
+  const areaCaixa = `M ${pontos[0].x},${zero} ${pontos
+    .map((p) => `L ${p.x},${p.yCaixa}`)
+    .join(" ")} L ${pontos[pontos.length - 1].x},${zero} Z`;
+  const areaDivida = `M ${pontos[0].x},${zero} ${pontos
+    .map((p) => `L ${p.x},${p.yDivida}`)
+    .join(" ")} L ${pontos[pontos.length - 1].x},${zero} Z`;
+  // Só as viradas que cabem ganham rótulo: numa carreira longa os anos colariam
+  // um no outro e a régua viraria uma mancha.
+  const espacoPorVirada = (CASH_RIGHT - CASH_LEFT) / Math.max(viradas.length, 1);
+  const rotulaTodas = espacoPorVirada >= 42;
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <BlockLabel>{t("myTeamTab.history.management.cashCurve")}</BlockLabel>
+        <span className="font-mono text-[11px] text-text-secondary">
+          {t("myTeamTab.history.management.cashCurveScale", {
+            peak: formatMoneyCompact(teto),
+            debt: formatMoneyCompact(piso),
+          })}
+        </span>
+      </div>
+      <div className="mt-2 rounded-xl border border-white/[0.06] bg-[#0b1524] px-3 py-2.5">
+        <svg
+          viewBox={`0 0 ${CASH_WIDTH} ${CASH_HEIGHT}`}
+          className="h-auto w-full"
+          data-testid="team-history-cash-curve"
+        >
+          <defs>
+            <linearGradient id={areaId} x1="0" y1={CASH_TOP} x2="0" y2={zero} gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="var(--team)" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="var(--team)" stopOpacity="0.03" />
+            </linearGradient>
+            <linearGradient id={dividaId} x1="0" y1={zero} x2="0" y2={CASH_FLOOR} gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="var(--status-red)" stopOpacity="0.06" />
+              <stop offset="100%" stopColor="var(--status-red)" stopOpacity="0.5" />
+            </linearGradient>
+          </defs>
+
+          {/* Guia por temporada. É o que transforma uma linha contínua de rodadas
+              em anos legíveis. */}
+          {viradas.map((ponto) => (
+            <line
+              key={`guia-${ponto.seasonNumber}`}
+              x1={ponto.x}
+              y1={CASH_TOP}
+              x2={ponto.x}
+              y2={CASH_FLOOR}
+              stroke="#ffffff"
+              strokeOpacity="0.06"
+              strokeDasharray="3 5"
+            />
+          ))}
+
+          <path d={areaCaixa} fill={`url(#${areaId})`} />
+          {temDivida ? <path d={areaDivida} fill={`url(#${dividaId})`} /> : null}
+
+          {/* A linha do zero é a régua moral do gráfico: acima dela é caixa, abaixo
+              é dívida. Fica mais forte que as guias porque é o que separa os dois
+              lados da história. */}
+          <line
+            x1={CASH_LEFT}
+            y1={zero}
+            x2={CASH_RIGHT}
+            y2={zero}
+            stroke="#ffffff"
+            strokeOpacity="0.22"
+          />
+
+          <polyline
+            points={linha}
+            fill="none"
+            stroke="var(--team)"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {temDivida ? (
+            <polyline
+              points={pontos.map((p) => `${p.x},${p.yDivida}`).join(" ")}
+              fill="none"
+              stroke="var(--status-red)"
+              strokeWidth="1.6"
+              strokeOpacity="0.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : null}
+
+          {/* Fechamento de temporada: é onde o prêmio de construtores cai no caixa,
+              o degrau mais informativo do desenho. Marcado no ponto, não numa
+              legenda que ninguém lê. */}
+          {pontos
+            .filter((ponto) => ponto.isSeasonClose)
+            .map((ponto) => (
+              <circle
+                key={`fecha-${ponto.seasonNumber}-${ponto.round}`}
+                cx={ponto.x}
+                cy={ponto.yCaixa}
+                r="3"
+                fill="var(--team)"
+                stroke="#0b1524"
+                strokeWidth="1.6"
+              />
+            ))}
+
+          {viradas.map((ponto, index) =>
+            rotulaTodas || index === 0 || index === viradas.length - 1 ? (
+              <text
+                key={`ano-${ponto.seasonNumber}`}
+                x={Math.min(Math.max(ponto.x, CASH_LEFT + 10), CASH_RIGHT - 10)}
+                y={CASH_AXIS}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="500"
+                fill="#8ea0b4"
+              >
+                {t("myTeamTab.history.management.seasonShort", { season: ponto.seasonNumber })}
+              </text>
+            ) : null,
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// O viewBox é largo de propósito: escalado para a largura do painel, ele fica perto
+// de 1:1 e o texto do gráfico sai do mesmo tamanho do texto do resto do dossiê. Num
+// viewBox estreito o mesmo `fontSize` chegaria esticado e o gráfico gritaria.
+const FLOW_WIDTH = 1040;
+const FLOW_PAD_Y = 24;
+// Folga vertical entre dois nós do mesmo lado. É o que abre espaço para o rótulo de
+// cada fita — sem ela, duas fitas finas vizinhas teriam os rótulos colados.
+const FLOW_GAP = 30;
+const FLOW_MIN_BAND = 3;
+const FLOW_PILL_W = 5;
+// As pontas encostam nas BORDAS do viewBox. Antes sobrava um vão morto de ~130
+// unidades à direita — herança de reservar espaço para os rótulos, que na verdade
+// flutuam ACIMA das fitas e não precisam de coluna própria. O desenho é a coisa mais
+// larga da aba; deixá-lo parar no meio do caminho encolhia justamente as diferenças
+// de largura que ele existe para mostrar.
+const FLOW_LEFT_X = 0;
+const FLOW_RIGHT_X = FLOW_WIDTH - FLOW_PILL_W;
+const FLOW_TRUNK_W = 13;
+const FLOW_TRUNK_X = (FLOW_WIDTH - FLOW_TRUNK_W) / 2;
+
+// Fluxo de dinheiro da carreira inteira: as linhas de receita convergem no tronco e
+// saem repartidas em custos e saldo.
+//
+// Um Sankey e não dois gráficos separados porque a pergunta é uma só — o dinheiro
+// que entrou é o mesmo que saiu, e são as LARGURAS relativas que contam a história:
+// a folha salarial como metade do tronco diz mais do que "$6,3M" numa lista.
+//
+// A conta fecha dos dois lados por construção. Quando a equipe gasta mais do que
+// arrecada, a diferença entra como um nó próprio à esquerda — o dinheiro veio de
+// algum lugar (reservas ou dívida nova), e o desenho não pode fingir que apareceu.
+function MoneyFlow({ ledger }) {
+  const { t } = useTranslation();
+  const uid = useId().replace(/:/g, "");
+  const dados = useMemo(() => {
+    const receita = ledger?.incomeLines ?? [];
+    const custos = ledger?.expenseLines ?? [];
+    if (!receita.length && !custos.length) return null;
+    const saldo = (ledger.incomeTotal ?? 0) - (ledger.expensesTotal ?? 0);
+    const cobertura = Math.max(0, -saldo);
+    const tronco = (ledger.incomeTotal ?? 0) + cobertura;
+    if (tronco <= 0) return null;
+
+    const esquerda = receita.map((line, index) => ({
+      key: line.id,
+      label: t(`myTeamTab.finance.lines.${line.id}`),
+      value: line.value,
+      hue: "var(--status-green)",
+      fade: Math.max(0.3, 1 - index * 0.15),
+    }));
+    if (cobertura > 0) {
+      esquerda.push({
+        key: "coverage",
+        label: t("myTeamTab.history.management.flowCoverage"),
+        value: cobertura,
+        hue: "var(--status-red)",
+        fade: 1,
+      });
+    }
+    const direita = custos.map((line, index) => ({
+      key: line.id,
+      label: t(`myTeamTab.finance.lines.${line.id}`),
+      value: line.value,
+      hue: "var(--status-yellow)",
+      fade: Math.max(0.3, 1 - index * 0.15),
+    }));
+    if (saldo > 0) {
+      direita.push({
+        key: "balance",
+        label: t("myTeamTab.history.management.flowBalance"),
+        value: saldo,
+        hue: "var(--status-green)",
+        fade: 1,
+      });
+    }
+
+    // A altura do desenho é derivada, não fixa: o lado com mais nós define quantas
+    // folgas cabem, e o tronco fica com o que sobra. Assim o gráfico cresce com o
+    // dado em vez de espremer oito fitas numa caixa de altura fixa.
+    const folgas = Math.max(esquerda.length, direita.length) - 1;
+    const corpo = Math.max(120, 26 * (folgas + 1));
+    const altura = FLOW_PAD_Y * 2 + corpo + folgas * FLOW_GAP;
+    const banda = (valor) => Math.max(FLOW_MIN_BAND, (valor / tronco) * corpo);
+
+    const empilha = (nos) => {
+      const total = nos.reduce((soma, no) => soma + banda(no.value), 0) + (nos.length - 1) * FLOW_GAP;
+      let cursor = (altura - total) / 2;
+      return nos.map((no) => {
+        const h = banda(no.value);
+        const topo = cursor;
+        cursor += h + FLOW_GAP;
+        return { ...no, topo, base: topo + h, share: (no.value / tronco) * 100 };
+      });
+    };
+
+    const nosEsquerda = empilha(esquerda);
+    const nosDireita = empilha(direita);
+    // As fitas chegam ao tronco na MESMA ordem em que saem dos nós, empilhadas sem
+    // folga: o tronco é contínuo, é o total.
+    const troncoTopo = (altura - corpo) / 2;
+    let cursorEsq = troncoTopo;
+    const fitasEsquerda = nosEsquerda.map((no) => {
+      const h = no.base - no.topo;
+      const ancora = cursorEsq;
+      cursorEsq += h;
+      return { ...no, ancoraTopo: ancora, ancoraBase: ancora + h };
+    });
+    let cursorDir = troncoTopo;
+    const fitasDireita = nosDireita.map((no) => {
+      const h = no.base - no.topo;
+      const ancora = cursorDir;
+      cursorDir += h;
+      return { ...no, ancoraTopo: ancora, ancoraBase: ancora + h };
+    });
+
+    return { fitasEsquerda, fitasDireita, altura, corpo, troncoTopo, tronco };
+  }, [ledger, t]);
+
+  // Sem repartição o bloco NÃO some — ele explica. Sumir era o pior estado: o
+  // jogador não distinguia "esta equipe não tem economia de rodada" de "o gráfico
+  // quebrou", e a frase vem pronta do backend, que é quem sabe a causa.
+  if (!dados) {
+    if (!ledger?.flowNote) return null;
+    return (
+      <div className="rounded-xl border border-white/10 bg-[#0c1626]/95 p-4" data-testid="team-history-money-flow">
+        <BlockLabel>{t("myTeamTab.history.management.moneyFlow")}</BlockLabel>
+        <p className="mt-2 text-[11px] leading-5 text-text-secondary">{ledger.flowNote}</p>
+      </div>
+    );
+  }
+  const { fitasEsquerda, fitasDireita, altura, corpo, troncoTopo, tronco } = dados;
+  const janela =
+    ledger.flowFirstSeason === ledger.flowLastSeason
+      ? t("myTeamTab.history.management.flowWindowOne", { season: ledger.flowLastSeason })
+      : t("myTeamTab.history.management.flowWindowRange", {
+          first: ledger.flowFirstSeason,
+          last: ledger.flowLastSeason,
+        });
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#0c1626]/95 p-4" data-testid="team-history-money-flow">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <BlockLabel>{t("myTeamTab.history.management.moneyFlow")}</BlockLabel>
+        {/* A legenda diz a JANELA, não "da fundação até aqui". O livro-caixa rodada
+            a rodada existe só nas temporadas jogadas; as de backstory registram só
+            o prêmio de construtores, e prometer a carreira inteira aqui seria
+            vender uma soma que a tabela não tem. */}
+        <span className="text-[11px] text-text-secondary">{janela}</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${FLOW_WIDTH} ${altura}`}
+        className="mt-2 h-auto w-full"
+        data-testid="team-history-money-flow-chart"
+      >
+        <defs>
+          {/* Uma fita degrada da cor do NÓ para a cor da equipe no tronco. É o que
+              faz o meio do desenho virar uma massa só — a receita da equipe — em
+              vez de doze fios coloridos atravessando a tela. */}
+          {fitasEsquerda.map((no) => (
+            <linearGradient
+              key={`ge-${no.key}`}
+              id={`${uid}-e-${no.key}`}
+              x1={FLOW_LEFT_X}
+              x2={FLOW_TRUNK_X}
+              y1="0"
+              y2="0"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stopColor={no.hue} stopOpacity={0.6 * no.fade} />
+              <stop offset="100%" stopColor="var(--team)" stopOpacity="0.42" />
+            </linearGradient>
+          ))}
+          {fitasDireita.map((no) => (
+            <linearGradient
+              key={`gd-${no.key}`}
+              id={`${uid}-d-${no.key}`}
+              x1={FLOW_TRUNK_X + FLOW_TRUNK_W}
+              x2={FLOW_RIGHT_X}
+              y1="0"
+              y2="0"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stopColor="var(--team)" stopOpacity="0.42" />
+              <stop offset="100%" stopColor={no.hue} stopOpacity={0.6 * no.fade} />
+            </linearGradient>
+          ))}
+        </defs>
+
+        {fitasEsquerda.map((no) => (
+          <g key={`fe-${no.key}`}>
+            <path
+              d={ribbonPath(FLOW_LEFT_X + FLOW_PILL_W, no.topo, no.base, FLOW_TRUNK_X, no.ancoraTopo, no.ancoraBase)}
+              fill={`url(#${uid}-e-${no.key})`}
+            />
+            <rect
+              x={FLOW_LEFT_X}
+              y={no.topo}
+              width={FLOW_PILL_W}
+              height={no.base - no.topo}
+              rx={FLOW_PILL_W / 2}
+              fill={no.hue}
+              fillOpacity={no.fade}
+            />
+            <FlowLabel x={FLOW_LEFT_X + FLOW_PILL_W + 8} y={no.topo - 7} anchor="start" node={no} />
+          </g>
+        ))}
+
+        {fitasDireita.map((no) => (
+          <g key={`fd-${no.key}`}>
+            <path
+              d={ribbonPath(
+                FLOW_TRUNK_X + FLOW_TRUNK_W,
+                no.ancoraTopo,
+                no.ancoraBase,
+                FLOW_RIGHT_X,
+                no.topo,
+                no.base,
+              )}
+              fill={`url(#${uid}-d-${no.key})`}
+            />
+            <rect
+              x={FLOW_RIGHT_X}
+              y={no.topo}
+              width={FLOW_PILL_W}
+              height={no.base - no.topo}
+              rx={FLOW_PILL_W / 2}
+              fill={no.hue}
+              fillOpacity={no.fade}
+            />
+            <FlowLabel x={FLOW_RIGHT_X - 8} y={no.topo - 7} anchor="end" node={no} />
+          </g>
+        ))}
+
+        {/* O tronco por cima das fitas: é ele que fecha a conta, e as pontas das
+            fitas não devem vazar por dentro dele. */}
+        <rect
+          x={FLOW_TRUNK_X}
+          y={troncoTopo}
+          width={FLOW_TRUNK_W}
+          height={corpo}
+          rx={FLOW_TRUNK_W / 2}
+          fill="var(--team)"
+        />
+        <text
+          x={FLOW_TRUNK_X + FLOW_TRUNK_W / 2}
+          y={troncoTopo - 9}
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="600"
+          fill="#e6edf3"
+        >
+          {t("myTeamTab.history.management.flowTrunk", { value: formatMoney(tronco) })}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+// Rótulo de um nó do fluxo: nome, valor e fatia numa linha só, como as etiquetas
+// que flutuam ao lado das fitas. `textLength` fica de fora — deixar o SVG espremer
+// o texto para caber quebraria a régua tipográfica do resto do dossiê.
+function FlowLabel({ x, y, anchor, node }) {
+  return (
+    <text x={x} y={y} textAnchor={anchor} fontSize="11" fill="#8ea0b4">
+      <tspan fill="#e6edf3">{node.label}</tspan>
+      <tspan dx="7">{formatMoneyCompact(node.value)}</tspan>
+      <tspan dx="7">{`${Math.round(node.share)}%`}</tspan>
+    </text>
+  );
+}
+
+// Fita do Sankey: duas cúbicas espelhadas com os controles no meio do vão, que é o
+// que dá a curva em S sem depender de biblioteca.
+function ribbonPath(x0, topo0, base0, x1, topo1, base1) {
+  const meio = (x0 + x1) / 2;
+  return [
+    `M ${x0},${topo0}`,
+    `C ${meio},${topo0} ${meio},${topo1} ${x1},${topo1}`,
+    `L ${x1},${base1}`,
+    `C ${meio},${base1} ${meio},${base0} ${x0},${base0}`,
+    "Z",
+  ].join(" ");
+}
+
 function ManagementSection({ dossier }) {
   const { t } = useTranslation();
   // A saúde da operação é o único bloco que muda de cor por conteúdo — vermelho
   // para pressionada/crise, amarelo para estável, verde para saudável. A regra é
   // a mesma do v1, importada em vez de recopiada.
   const tone = operationHealthTone(dossier.management.operationHealth);
+  const ledger = dossier.management.ledger;
   return (
     <section className="grid gap-2.5">
-      <div className={`rounded-xl border p-4 ${tone.card}`}>
-        <BlockLabel>{t("myTeamTab.history.management.operationHealth")}</BlockLabel>
-        <strong className={`mt-1.5 block text-xl font-semibold ${tone.text}`}>{dossier.management.operationHealth}</strong>
-        <p className="mt-2 text-[11px] leading-5 text-text-secondary">{dossier.management.summary}</p>
-      </div>
+      {/* O fluxo abre a aba: é o desenho que responde "de onde vem e para onde vai"
+          antes de qualquer rótulo, e a largura das fitas carrega a leitura sozinha.
+          Saúde e curva descem para depois dos extremos — a frase da saúde é um
+          RESUMO, e resumo depois do dado lê melhor do que antes. */}
+      {ledger ? <MoneyFlow ledger={ledger} /> : null}
       <div className="grid gap-2.5 md:grid-cols-2">
         <div className="rounded-xl border border-status-green/25 bg-[#0b1d19]/95 p-4">
           <BlockLabel>{t("myTeamTab.history.management.peakCash")}</BlockLabel>
@@ -2655,6 +4108,15 @@ function ManagementSection({ dossier }) {
           <strong className="mt-1.5 block font-mono text-sm text-status-red">{dossier.management.worstCrisis}</strong>
           <p className="mt-1.5 text-[11px] leading-5 text-text-secondary">{dossier.management.worstCrisisDetail}</p>
         </div>
+      </div>
+      {/* Saúde e curva seguem no MESMO painel: a frase é a leitura do momento e a
+          curva é a prova dela. Separadas, o jogador lia "Monitorada" sem nada que
+          dissesse se a equipe está subindo ou afundando. */}
+      <div className={`rounded-xl border p-4 ${tone.card}`}>
+        <BlockLabel>{t("myTeamTab.history.management.operationHealth")}</BlockLabel>
+        <strong className={`mt-1.5 block text-xl font-semibold ${tone.text}`}>{dossier.management.operationHealth}</strong>
+        <p className="mt-2 text-[11px] leading-5 text-text-secondary">{dossier.management.summary}</p>
+        {ledger ? <CashCurve ledger={ledger} /> : null}
       </div>
       <div className="grid gap-2.5 md:grid-cols-2">
         <InfoCard
@@ -2690,56 +4152,265 @@ function ManagementSection({ dossier }) {
 
 function CategoriesSection({ dossier }) {
   const { t } = useTranslation();
+  const movement = dossier.movement ?? {};
   return (
     <section>
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        <MiniMetric label={t("myTeamTab.history.categories.promotions")} value={dossier.movement.promotions} />
-        <MiniMetric label={t("myTeamTab.history.categories.relegations")} value={dossier.movement.relegations} />
-        <MiniMetric label={t("myTeamTab.history.categories.bestCategory")} value={dossier.movement.bestCategory} />
-        <MiniMetric label={t("myTeamTab.history.categories.hardestCategory")} value={dossier.movement.hardestCategory} />
+        <MiniMetric label={t("myTeamTab.history.categories.promotions")} value={movement.promotions} />
+        <MiniMetric label={t("myTeamTab.history.categories.relegations")} value={movement.relegations} />
+        <MiniMetric label={t("myTeamTab.history.categories.peakCategory")} value={movement.peakCategory} />
+        <MiniMetric label={t("myTeamTab.history.categories.homeCategory")} value={movement.homeCategory} />
       </div>
-      <div className="mt-2.5">
-        <InfoCard label={t("myTeamTab.history.categories.timeByCategory")} value={dossier.movement.timeByCategory} />
-      </div>
-      <div className="mt-5">
-        <BlockLabel>{t("myTeamTab.history.categories.ladder")}</BlockLabel>
-        <div className="mt-2.5 grid gap-2 md:grid-cols-2">
-          {dossier.categoryPath.map((step, index) => {
-            const move = categoryMovementBadge(step.movement);
-            return (
-              <div
-                key={`${step.category}-${index}`}
-                className="rounded-lg border-l-4 bg-[#0c1626]/95 px-3.5 py-3"
-                style={{ borderLeftColor: step.color }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className={`font-mono text-xs font-bold ${move.tone}`} title={move.label}>{move.icon}</span>
-                    <strong className="truncate text-xs text-text-primary">{step.category}</strong>
-                  </div>
-                  <span className="shrink-0 font-mono text-[11px] font-semibold" style={{ color: step.color }}>{step.years}</span>
-                </div>
-                <p className="mt-1.5 text-[11px] leading-5 text-text-secondary">{step.detail}</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <CategoryPyramid ladder={movement.ladder} />
+      <CategoryTrajectory dossier={dossier} ladder={movement.ladder} />
+      <CategoryTimeBars lines={movement.timeLines} fallback={movement.timeByCategory} />
     </section>
   );
 }
 
-function categoryMovementBadge(movement) {
-  switch (movement) {
-    case "promotion":
-      return { icon: "▲", tone: "text-status-green", label: i18n.t("myTeamTab.history.categories.movement.promotion") };
-    case "relegation":
-      return { icon: "▼", tone: "text-status-red", label: i18n.t("myTeamTab.history.categories.movement.relegation") };
-    case "start":
-      return { icon: "●", tone: "text-[color:var(--team)]", label: i18n.t("myTeamTab.history.categories.movement.start") };
-    default:
-      return { icon: "—", tone: "text-text-muted", label: i18n.t("myTeamTab.history.categories.movement.same") };
+// A escada INTEIRA do recorte, com os degraus nunca pisados apagados.
+//
+// A lista de passagens sozinha respondia "onde ela esteve" e escondia a pergunta
+// que o jogo levanta o tempo todo: quanto falta para o topo. Uma estreante virava
+// um card solitário — sem os dois degraus acima dele, não dava para ver que ela
+// está no primeiro. A largura cresce para baixo porque a base é a categoria de
+// entrada: o desenho é a pirâmide, não uma lista com título de pirâmide.
+function CategoryPyramid({ ladder }) {
+  const { t } = useTranslation();
+  const degraus = Array.isArray(ladder) ? ladder : [];
+  if (degraus.length === 0) return null;
+
+  const doTopo = [...degraus].sort((a, b) => b.tier - a.tier);
+  const passo = doTopo.length > 1 ? 42 / (doTopo.length - 1) : 0;
+
+  return (
+    <div className="mt-5" data-testid="team-history-category-pyramid">
+      <BlockLabel>{t("myTeamTab.history.categories.ladder")}</BlockLabel>
+      <div className="mt-2.5 flex flex-col items-center gap-1.5">
+        {doTopo.map((degrau, index) => {
+          const cor = getCategoryColor(degrau.categoryId) || "#58a6ff";
+          const largura = 58 + passo * index;
+          return (
+            <div
+              key={degrau.categoryId || degrau.category}
+              data-category={degrau.categoryId || undefined}
+              data-visited={degrau.visited ? "1" : "0"}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg px-3.5 py-2 ${
+                degrau.visited ? "border-l-4" : "border border-dashed border-white/[0.08]"
+              }`}
+              style={{
+                maxWidth: `${largura}%`,
+                borderLeftColor: degrau.visited ? cor : undefined,
+                backgroundColor: degrau.visited
+                  ? `color-mix(in srgb, ${cor} 18%, transparent)`
+                  : "transparent",
+              }}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <strong
+                  className={`truncate text-xs ${degrau.visited ? "text-text-primary" : "text-text-muted"}`}
+                >
+                  {degrau.category}
+                </strong>
+                {degrau.isCurrent ? (
+                  <span
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em]"
+                    style={{ backgroundColor: cor, color: "#06101c" }}
+                  >
+                    {t("myTeamTab.history.categories.rungCurrent")}
+                  </span>
+                ) : null}
+                {degrau.isPeak && !degrau.isCurrent ? (
+                  <span className="shrink-0 font-mono text-[10px] text-accent-primary">
+                    {t("myTeamTab.history.categories.rungPeak")}
+                  </span>
+                ) : null}
+              </div>
+              <span
+                className={`shrink-0 font-mono text-[10px] ${degrau.visited ? "" : "text-text-muted"}`}
+                style={degrau.visited ? { color: cor } : undefined}
+              >
+                {degrau.visited
+                  ? `${t("myTeamTab.history.categories.rungSeasons", { count: degrau.seasons })} · ${degrau.years}`
+                  : t("myTeamTab.history.categories.rungNever")}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Faixa ano a ano com ALTURA igual ao degrau. A pirâmide diz onde a equipe
+// esteve; esta diz quando, e no mesmo gesto separa quem subiu degrau a degrau de
+// quem passou dez anos parada na entrada — que na lista de passagens saíam iguais.
+function CategoryTrajectory({ dossier, ladder }) {
+  const { t } = useTranslation();
+  const dados = useMemo(() => {
+    const passagens = (dossier.categoryPath ?? []).filter((step) => step.startYear > 0);
+    if (passagens.length === 0) return null;
+    const foraDoRecorte = new Map(
+      (dossier.outsideScopeSeasons ?? []).map((item) => [Number(item.year), item]),
+    );
+
+    const anos = passagens.flatMap((step) => [step.startYear, step.endYear]);
+    const mundoInicio = Number(dossier.worldFirstYear ?? 0);
+    const mundoFim = Number(dossier.worldLastYear ?? 0);
+    const inicio = Math.min(...anos, ...(mundoInicio > 0 ? [mundoInicio] : []));
+    const fim = Math.max(...anos, ...(mundoFim > 0 ? [mundoFim] : []));
+    if (fim < inicio) return null;
+
+    // A régua da altura é a ESCADA do recorte, não os degraus que esta equipe
+    // pisou. Normalizar pela própria equipe punha a estreante de tier 0 na altura
+    // máxima — desenhando "no topo" justamente quem está na base.
+    const degraus = (Array.isArray(ladder) ? ladder : []).map((rung) => rung.tier);
+    const tiers = degraus.length > 0 ? degraus : passagens.map((step) => step.tier);
+    const tierMin = Math.min(...tiers);
+    const tierMax = Math.max(...tiers);
+    const faixa = Math.max(1, tierMax - tierMin + 1);
+
+    const celulas = [];
+    for (let ano = inicio; ano <= fim; ano += 1) {
+      // A passagem MAIS RECENTE do ano ganha a célula: no ano da troca, pintar a
+      // que estava saindo esconderia a subida.
+      const passagem = [...passagens]
+        .reverse()
+        .find((step) => step.startYear <= ano && ano <= step.endYear);
+      const fora = passagem ? null : foraDoRecorte.get(ano);
+      celulas.push({
+        year: ano,
+        categoryId: passagem?.categoryId ?? null,
+        label: passagem?.category ?? fora?.category ?? null,
+        outside: Boolean(fora),
+        // Altura proporcional ao degrau. O tier de quem está fora do recorte não
+        // é conhecido aqui — a célula fica baixa e neutra, e o rótulo diz por quê.
+        altura: passagem ? 12 + ((passagem.tier - tierMin + 1) / faixa) * 26 : 10,
+      });
+    }
+    return { celulas };
+  }, [dossier.categoryPath, dossier.outsideScopeSeasons, dossier.worldFirstYear, dossier.worldLastYear, ladder]);
+
+  if (!dados) return null;
+  const passo = Math.max(1, Math.ceil(dados.celulas.length / 10));
+
+  return (
+    <div className="mt-5" data-testid="team-history-category-trajectory">
+      <BlockLabel>{t("myTeamTab.history.categories.trajectory")}</BlockLabel>
+      <div className="mt-2.5 rounded-xl bg-[#0f1c2b] px-4 py-3.5">
+        <div className="flex h-[38px] items-end gap-1">
+          {dados.celulas.map((celula) => (
+            <Tooltip
+              key={celula.year}
+              texto={
+                celula.outside
+                  ? t("myTeamTab.history.categories.trajectoryOutside", {
+                      year: celula.year,
+                      category: celula.label,
+                    })
+                  : celula.label
+                    ? t("myTeamTab.history.categories.trajectoryYear", {
+                        year: celula.year,
+                        category: celula.label,
+                      })
+                    : t("myTeamTab.history.categories.trajectoryEmpty", { year: celula.year })
+              }
+            >
+              <span
+                data-year={celula.year}
+                data-category={celula.categoryId || undefined}
+                className="min-w-[8px] flex-1 rounded-t"
+                style={{
+                  height: `${celula.altura}px`,
+                  backgroundColor: celula.categoryId
+                    ? getCategoryColor(celula.categoryId)
+                    : celula.outside
+                      ? "#2c3a4c"
+                      : "#141f2c",
+                }}
+              />
+            </Tooltip>
+          ))}
+        </div>
+        <div className="mt-1 flex gap-1">
+          {dados.celulas.map((celula, index) => (
+            <span
+              key={`ano-${celula.year}`}
+              className="min-w-[8px] flex-1 text-center font-mono text-[10px] text-text-muted"
+            >
+              {index % passo === 0 ? celula.year : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Uma linha por categoria: quanto tempo e o que a equipe fez lá.
+//
+// Era uma string concatenada com "·" — numa equipe de quinze anos e seis
+// categorias, uma linha que ninguém lê, e ninguém compara "4 anos" com "9 anos"
+// em texto tão rápido quanto em largura. O saldo veio para cá dos cards de
+// passagem, que gastavam três linhas cada para repetir o que a pirâmide e a faixa
+// ano a ano já desenham. Duas idas ao GT4 são UMA linha, somadas: a viagem é
+// assunto da escada; aqui a pergunta é o que ela ganhou em cada degrau.
+function CategoryTimeBars({ lines, fallback }) {
+  const { t } = useTranslation();
+  const linhas = Array.isArray(lines) ? lines : [];
+  if (linhas.length === 0) {
+    return fallback ? (
+      <div className="mt-5">
+        <InfoCard label={t("myTeamTab.history.categories.timeByCategory")} value={fallback} />
+      </div>
+    ) : null;
   }
+  const maior = Math.max(...linhas.map((linha) => linha.seasons), 1);
+
+  return (
+    <div className="mt-5" data-testid="team-history-category-time">
+      <BlockLabel>{t("myTeamTab.history.categories.byCategory")}</BlockLabel>
+      <div className="mt-2.5 grid gap-2">
+        {linhas.map((linha) => {
+          const cor = getCategoryColor(linha.categoryId) || "#58a6ff";
+          return (
+            <Tooltip
+              key={linha.categoryId || linha.category}
+              texto={t("myTeamTab.history.categories.timeBarDetail", {
+                count: linha.seasons,
+                races: linha.races,
+              })}
+            >
+              <div className="flex items-center gap-3">
+                <span className="w-[34%] shrink-0 truncate text-[11px] text-text-secondary">
+                  {linha.category}
+                </span>
+                <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                  <span
+                    className="block h-full rounded-full"
+                    data-category={linha.categoryId || undefined}
+                    style={{ width: `${(linha.seasons / maior) * 100}%`, backgroundColor: cor }}
+                  />
+                </span>
+                <span
+                  className="shrink-0 font-mono text-[10px] tabular-nums"
+                  data-tally={linha.categoryId || undefined}
+                >
+                  <span style={{ color: cor }}>
+                    {t("myTeamTab.history.categories.tallyWins", { count: linha.wins })}
+                  </span>
+                  <span className="text-text-muted">
+                    {" · "}
+                    {t("myTeamTab.history.categories.tallyPodiums", { count: linha.podiums })}
+                  </span>
+                </span>
+              </div>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function HistoryStateMessage({ dossier }) {
@@ -2756,14 +4427,29 @@ function MedalKey({ color, label }) {
   );
 }
 
+// Rótulo de bloco — a receita vale para TODO rótulo do dossiê.
+//
+// Era `text-[10px] uppercase tracking-[0.15em] text-text-muted`, e essa
+// combinação é o pior caso possível de legibilidade: a caixa alta apaga a
+// silhueta da palavra (sem ascendente nem descendente o olho perde a forma que
+// usa para reconhecê-la), o espaçamento largo desmancha o que sobrou em letras
+// soltas, e o cinza apagado num corpo pequeno não tem contraste para compensar.
+// Cada um sozinho passaria; os quatro juntos obrigavam a soletrar.
+//
+// As chaves de i18n já vêm em caixa de frase, então parar de forçar `uppercase`
+// devolve a capitalização certa de graça. A hierarquia não depende disso — o
+// rótulo continua menor e cinza contra um valor branco e maior.
+//
+// NÃO reintroduza caixa alta em rótulo pequeno aqui. Se precisar de mais
+// separação entre rótulo e valor, mexa no peso ou no espaçamento vertical.
 function BlockLabel({ children }) {
-  return <span className="block text-[10px] font-semibold uppercase tracking-[0.15em] text-text-muted">{children}</span>;
+  return <span className="block text-[11px] font-semibold text-text-secondary">{children}</span>;
 }
 
 function MiniMetric({ label, value }) {
   return (
     <div className="rounded-xl bg-[#0f1c2b] px-3.5 py-3">
-      <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.13em] text-text-muted">{label}</span>
+      <span className="block truncate text-[11px] font-semibold text-text-secondary">{label}</span>
       <strong className="mt-1 block font-mono text-lg leading-none text-text-primary">{value}</strong>
     </div>
   );
@@ -2789,25 +4475,26 @@ function InfoCard({ label, value, detail = "" }) {
 function TeamStepButton({ label, direction, team, onSelectTeam, onStep }) {
   const Chevron = direction === "up" ? ChevronUp : ChevronDown;
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={team?.nome ?? label}
-      disabled={!team}
-      onClick={() => {
-        if (!team) return;
-        onStep?.(direction);
-        onSelectTeam(team);
-      }}
-      data-testid={`team-history-step-${direction}`}
-      className={`grid h-[92px] w-[92px] place-items-center rounded-2xl border backdrop-blur-sm transition-glass max-lg:h-16 max-lg:w-16 ${
-        team
-          ? "border-white/15 bg-[#0d1727]/90 text-text-secondary hover:border-white/30 hover:bg-[#14233a] hover:text-text-primary"
-          : "cursor-not-allowed border-white/[0.06] bg-[#0b111a]/70 text-[#4a525d]"
-      }`}
-    >
-      <Chevron size={34} strokeWidth={1.6} aria-hidden="true" className="max-lg:h-6 max-lg:w-6" />
-    </button>
+    <Tooltip texto={team?.nome ?? label}>
+      <button
+        type="button"
+        aria-label={label}
+        disabled={!team}
+        onClick={() => {
+          if (!team) return;
+          onStep?.(direction);
+          onSelectTeam(team);
+        }}
+        data-testid={`team-history-step-${direction}`}
+        className={`grid h-[92px] w-[92px] place-items-center rounded-2xl border backdrop-blur-sm transition-glass max-lg:h-16 max-lg:w-16 ${
+          team
+            ? "border-white/15 bg-[#0d1727]/90 text-text-secondary hover:border-white/30 hover:bg-[#14233a] hover:text-text-primary"
+            : "cursor-not-allowed border-white/[0.06] bg-[#0b111a]/70 text-[#4a525d]"
+        }`}
+      >
+        <Chevron size={34} strokeWidth={1.6} aria-hidden="true" className="max-lg:h-6 max-lg:w-6" />
+      </button>
+    </Tooltip>
   );
 }
 

@@ -55,6 +55,22 @@ pub async fn enrich_race_news_ai(
             });
         }
 
+        // Cache vazio na 1ª leitura NÃO quer dizer que ninguém está gerando: o
+        // pré-aquecimento do fim da corrida pode estar no servidor agora mesmo com esta
+        // notícia. Espera a vez e RELÊ — ver `narrative::em_voo`.
+        let _passe = crate::narrative::em_voo::aguardar_vez(
+            crate::narrative::em_voo::chave_boletim(&career_id, &news_id),
+        );
+        if let Ok(Some(recente)) = ai_story::get_story(&db.conn, &news_id) {
+            if let Some(story) = recente.story {
+                return Ok(AiNewsResult {
+                    story: Some(story),
+                    status: "cached".to_string(),
+                    teams,
+                });
+            }
+        }
+
         // 1ª vez: gera no servidor e cacheia.
         match client::fetch_story(&row.facts, &lang, &install_id, reading_seconds) {
             Ok(story) => {
@@ -136,6 +152,24 @@ pub async fn pre_race_briefing_ai(
                     narrative: None,
                     team_voice: None,
                     status: "engagement_template".to_string(),
+                });
+            }
+        }
+
+        // O prefetch da animação de avanço e a Sala de Estratégia pedem esta MESMA etapa,
+        // e a Sala dispara justamente quando o prefetch ainda não voltou (servidor frio).
+        // Espera a vez e relê — ver `narrative::em_voo`. No reroll (`force`) o passe só
+        // serializa: regenerar é o pedido, então não relemos o cache.
+        let _passe = crate::narrative::em_voo::aguardar_vez(
+            crate::narrative::em_voo::chave_pre_corrida(&career_id, &race_id),
+        );
+        if !force {
+            if let Ok(Some(row)) = ai_pre_race::get_pre_race(&db.conn, &race_id) {
+                return Ok(PreRaceAiResult {
+                    headline: Some(row.headline),
+                    narrative: Some(row.narrative),
+                    team_voice: Some(row.team_voice),
+                    status: "cached".to_string(),
                 });
             }
         }
@@ -258,6 +292,21 @@ pub async fn post_race_debrief_ai(
         let db =
             Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
 
+        if !force {
+            if let Ok(Some(row)) = ai_post_race::get_post_race(&db.conn, &race_id) {
+                return Ok(PostRaceAiResult {
+                    headline: Some(row.headline),
+                    body: Some(row.body),
+                    status: "cached".to_string(),
+                });
+            }
+        }
+
+        // Antes de montar os fatos (que varrem o resultado inteiro): espera uma geração
+        // desta etapa que já esteja em voo e relê — ver `narrative::em_voo`.
+        let _passe = crate::narrative::em_voo::aguardar_vez(
+            crate::narrative::em_voo::chave_pos_corrida(&career_id, &race_id),
+        );
         if !force {
             if let Ok(Some(row)) = ai_post_race::get_post_race(&db.conn, &race_id) {
                 return Ok(PostRaceAiResult {

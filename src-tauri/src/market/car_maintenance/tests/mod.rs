@@ -179,9 +179,7 @@ fn a_cadencia_da_tres_a_quatro_janelas_por_temporada() {
     for etapas in 12..=16 {
         for team_id in ["T001", "T042", "MA3"] {
             let janelas: u32 = (0..etapas)
-                .map(|rodada| {
-                    upgrades_permitidos_nesta_corrida(team_id, etapas - 1 - rodada)
-                })
+                .map(|rodada| upgrades_permitidos_nesta_corrida(team_id, etapas - 1 - rodada))
                 .sum();
             assert!(
                 (3..=4).contains(&janelas),
@@ -360,7 +358,12 @@ fn carro_acima_do_teto_regride_ao_entrar_na_categoria() {
     team_car::upsert_team_car(&conn, "T1", &high).unwrap();
     team.car = Some(high);
 
-    // Amador tem teto 2 → o carro deve regredir a ≤ 2.
+    // Amador tem teto natural 2 e teto de DESENVOLVIMENTO 4 (a parede: dois níveis acima, ao
+    // preço que o design §6 chama de inviável). O carro de nível 6 tem de cair ao que a
+    // categoria admite — não ao teto natural, porque acima dele existe território legítimo de
+    // quem sangra dinheiro, e sim ao topo da parede. O que o teste guarda é que o carro
+    // herdado NÃO atravessa a categoria intacto.
+    let teto_da_parede = crate::car::cost::development_ceiling(team.car_ceiling());
     maintain_team_car(
         &conn,
         &team,
@@ -373,9 +376,15 @@ fn carro_acima_do_teto_regride_ao_entrar_na_categoria() {
     .unwrap();
 
     let after = team_car::get_team_car(&conn, "T1").unwrap().unwrap();
+    assert_eq!(teto_da_parede, 4, "amador: teto natural 2 + dois da parede");
     assert!(
-        after.display_level() <= 2,
-        "carro deveria regredir ao teto do amador, ficou {}",
+        after.display_level() <= teto_da_parede,
+        "carro deveria regredir ao teto da parede do amador ({teto_da_parede}), ficou {}",
+        after.display_level()
+    );
+    assert!(
+        after.display_level() < 6,
+        "o carro herdado não pode atravessar a categoria intacto, ficou {}",
         after.display_level()
     );
 }
@@ -647,7 +656,10 @@ fn contato_em_peca_acabada_forca_troca_a_debito() {
         "a asa destruída tem de voltar NOVA, não seguir acabada; wear={}",
         asa.wear
     );
-    assert!(!asa.spent, "peça reposta não pode nascer marcada como esgotada");
+    assert!(
+        !asa.spent,
+        "peça reposta não pode nascer marcada como esgotada"
+    );
 }
 
 #[test]
@@ -736,7 +748,7 @@ fn grave_forca_troca_ate_sem_caixa() {
 #[test]
 fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
     use crate::models::team::placeholder_team_from_db;
-    let total_wear = |duracao_min: u8, pits: u32| -> f64 {
+    let total_wear = |duracao_min: u16, pits: u32| -> f64 {
         let conn = Connection::open_in_memory().unwrap();
         let mut team = placeholder_team_from_db(
             "T".to_string(),
@@ -795,7 +807,7 @@ fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
 #[test]
 fn ia_recebe_alivio_modelado_no_enduro() {
     use crate::models::team::placeholder_team_from_db;
-    let ai_wear = |duracao_min: u8| -> f64 {
+    let ai_wear = |duracao_min: u16| -> f64 {
         let conn = Connection::open_in_memory().unwrap();
         let mut team = placeholder_team_from_db(
             "T".to_string(),

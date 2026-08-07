@@ -3,6 +3,7 @@ import { ordinal } from "../../../i18n/format.js";
 import { formatSalaryAnnual, extractNationalityLabel } from "../../../utils/formatters";
 import TeamLogoMark from "../../team/TeamLogoMark";
 import FlagIcon from "../../ui/FlagIcon";
+import Tooltip from "../../ui/Tooltip";
 import {
   PIP_COUNT,
   tierBucket,
@@ -223,16 +224,17 @@ export default function OfferCardRich({ offer, isAdvancingWeek, onViewContract }
                 {offer.teammate_fama != null && (
                   <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
                     <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.fame")}</span>
-                    <span
-                      title={
+                    <Tooltip
+                      texto={
                         offer.teammate_carisma != null
                           ? t("preSeason.offers.card.fameCharismaTooltip", { fama: offer.teammate_fama, carisma: offer.teammate_carisma })
                           : t("preSeason.offers.card.fameTooltip", { fama: offer.teammate_fama })
                       }
-                      className="num-medium text-[12px] font-bold text-[color:var(--accent-secondary)]"
                     >
-                      {famaTierLabel(offer.teammate_fama)}
-                    </span>
+                      <span className="num-medium text-[12px] font-bold text-[color:var(--accent-secondary)]">
+                        {famaTierLabel(offer.teammate_fama)}
+                      </span>
+                    </Tooltip>
                   </div>
                 )}
                 <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">

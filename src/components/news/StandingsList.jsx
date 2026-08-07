@@ -4,10 +4,13 @@ import { getTeamGlow } from "../../utils/teamColors";
 // Lista de classificação da página direita da revista (construtores, pilotos ou
 // favoritos). `hoveredId` acende a linha correspondente ao nome que o boletim
 // está destacando; `onHover` só é passado nas listas em que a linha também
-// realça de volta o nome no texto.
-function StandingsList({ rows, hoveredId, onHover, logoTestId }) {
+// realça de volta o nome no texto. `split` força as duas colunas em grid menor —
+// sem ele, só grid grande demais para a página quebra sozinho.
+function StandingsList({ rows, hoveredId, onHover, split, logoTestId }) {
+  // `split` só ADICIONA a quebra: grid grande continua quebrando por conta própria.
+  const duasColunas = split || rows.length > 12;
   return (
-    <div className={`res-list${rows.length > 12 ? " res-list--split" : ""}`}>
+    <div className={`res-list${duasColunas ? " res-list--split" : ""}`}>
       {rows.map((r) => {
         const glow = hoveredId != null && r.id === hoveredId;
         const tone = glow ? getTeamGlow(r.color) : null;

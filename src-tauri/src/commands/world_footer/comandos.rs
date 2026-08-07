@@ -94,6 +94,23 @@ pub async fn enrich_world_footer_ai(
             }
         }
 
+        // Antes de reconstruir as notas (varredura do grid): espera uma geração desta
+        // rodada que já esteja em voo e relê — ver `narrative::em_voo`. A revista dispara
+        // isto a cada abertura, então duas aberturas seguidas colidiam.
+        let _passe = crate::narrative::em_voo::aguardar_vez(
+            crate::narrative::em_voo::chave_rodape(&career_id, &cache_key),
+        );
+        if let Ok(Some(json)) = crate::db::queries::ai_world_notes::get_cached(&db.conn, &cache_key)
+        {
+            if let Ok(notes) = serde_json::from_str::<Vec<WorldNote>>(&json) {
+                return Ok(WorldFooterAiResult {
+                    notes: Some(notes),
+                    source: "ai".to_string(),
+                    status: "cached".to_string(),
+                });
+            }
+        }
+
         // Reconstrói as notas determinísticas + os fatos (MESMA ordem do get_world_footer).
         let notes = collect_world_notes(&db.conn);
         if notes.is_empty() {

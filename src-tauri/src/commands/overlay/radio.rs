@@ -1,4 +1,9 @@
 //! RÁDIO DA EQUIPE: as quebras da corrida viram frases do engenheiro.
+//!
+//! A REDAÇÃO não mora aqui. Ela mora em [`crate::engenheiro::quebra`], junto com a decisão de
+//! como o piloto é nomeado e com o catálogo de peças a gravar — porque a mesma frase tem que
+//! sair idêntica no card e no áudio, e manter as duas em arquivos diferentes é garantir que
+//! elas divirjam. Aqui ficam só a resolução do carro para o nosso elenco e a leitura do log.
 
 use std::collections::HashMap;
 
@@ -7,168 +12,134 @@ use super::tipos::BreakdownMessage;
 use crate::config::app_config::AppConfig;
 use crate::db::connection::Database;
 use crate::db::queries::drivers as dq;
+use crate::engenheiro::quebra;
 use crate::iracing_sdk::race_monitor;
 
-/// Peça com preposição/artigo pra frase do engenheiro ("no motor", "na suspensão").
-pub(crate) fn part_com_artigo(part_key: &str) -> &'static str {
-    match part_key {
-        "engine" => "no motor",
-        "gearbox" => "no câmbio",
-        "brakes" => "nos freios",
-        "suspension" => "na suspensão",
-        "cooling" => "no arrefecimento",
-        "front_wing" => "na asa dianteira",
-        "rear_wing" => "na asa traseira",
-        "sidepods" => "nas laterais",
-        "underbody" => "no assoalho",
-        "chassis" => "no chassi",
-        "electronics" => "na parte elétrica",
-        _ => "no carro",
+// O `#[path]` explícito é herdado: `overlay.rs` declara este arquivo com `#[path]`, e aí os
+// submódulos daqui resolvem relativos à pasta DELE, não à de `radio.rs`.
+#[path = "radio/contexto.rs"]
+mod contexto;
+
+// A fonte única das redações mudou de casa; estes nomes seguem valendo para quem já os usava
+// (o tour do demo), sem uma segunda cópia do texto.
+pub(crate) use quebra::{breakdown_frases, part_com_artigo};
+
+/// Feed do RÁDIO DE RITMO: a volta mais rápida da corrida e a nossa aproximação dela.
+///
+/// Canal SEPARADO do feed de quebras, e não uma mistura, porque os dois crescem em ritmos
+/// próprios: intercalá-los num só stream faria os ids de um embaralharem os do outro, e o
+/// overlay — que mostra o de maior id — passaria a engolir mensagens conforme a ordem de
+/// chegada. Dois streams, cada um com o próprio cursor; quem arbitra a tela é o front.
+#[tauri::command]
+pub fn get_pace_feed(
+    app: tauri::AppHandle,
+    career_id: String,
+) -> Result<Vec<BreakdownMessage>, String> {
+    use crate::engenheiro::{nomes, tempo_volta as tv};
+    use crate::iracing_sdk::race_monitor::FalaDeRitmo;
+    use tauri::Manager;
+
+    let log = race_monitor::peek_ritmo_log();
+    if log.is_empty() {
+        return Ok(Vec::new());
     }
+
+    // O nome só é preciso na fala que nomeia alguém. Abrir o banco para "Essa foi a volta mais
+    // rápida da corrida!" seria pagar I/O por nada, num caminho de polling.
+    let precisa_nome = log
+        .iter()
+        .any(|f| matches!(f, FalaDeRitmo::MelhorDeOutro { .. }));
+    let elenco = precisa_nome
+        .then(|| {
+            let base_dir = app.path().app_data_dir().ok()?;
+            let config = AppConfig::load_or_default(&base_dir);
+            let db = Database::open_existing(
+                &config.saves_dir().join(&career_id).join("career.db"),
+            )
+            .ok()?;
+            let numbers: HashMap<String, i64> = std::fs::read_to_string(
+                crate::commands::iracing::numbers_path(&base_dir, &career_id),
+            )
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+            let by_number: HashMap<i64, String> =
+                numbers.into_iter().map(|(id, n)| (n, id)).collect();
+            Some((db, by_number))
+        })
+        .flatten();
+
+    let out = log
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let (text, pecas) = match f {
+                FalaDeRitmo::Tomamos(chave) => (
+                    tv::tomamos_frase(i).1.to_string(),
+                    vec![chave.clone()],
+                ),
+                FalaDeRitmo::Aproximando(chave) => {
+                    // O texto do card sai da MESMA função que gerou a chave, pelo número que a
+                    // chave carrega — reescrevê-lo aqui seria a segunda redação da mesma frase.
+                    let decimos = chave
+                        .rsplit('_')
+                        .next()
+                        .and_then(|n| n.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    let texto = tv::aproximacao_frase(decimos)
+                        .map(|(_, t)| t)
+                        .unwrap_or_else(|| "Estamos perto da melhor volta.".to_string());
+                    (texto, vec![chave.clone()])
+                }
+                FalaDeRitmo::MelhorDeOutro {
+                    lead,
+                    car_number,
+                    tempo,
+                    decimos,
+                } => {
+                    let nome = elenco
+                        .as_ref()
+                        .and_then(|(db, by_number)| {
+                            by_number
+                                .get(&(*car_number as i64))
+                                .and_then(|id| dq::get_driver(&db.conn, id).ok())
+                        })
+                        .map(|d| nomes::sobrenome_de(&d.nome).to_string());
+                    let tempo_txt = tv::tempo_falado(*decimos).unwrap_or_default();
+                    match nome.as_deref().and_then(|s| {
+                        nomes::chave_sobrenome(s).map(|chave| (s.to_string(), chave))
+                    }) {
+                        Some((sobrenome, chave_nome)) => (
+                            format!("{} {sobrenome}, {tempo_txt}.", tv::LEAD_MELHOR.1),
+                            vec![lead.clone(), chave_nome, tempo.clone()],
+                        ),
+                        // Sem gravação do sobrenome (o jogador, ou piloto de save antigo): o
+                        // card conta com o número do carro e o áudio cala. Anunciar sem sujeito
+                        // — "A volta mais rápida da corrida é do, um trinta e dois" — seria pior
+                        // que o silêncio.
+                        None => (
+                            format!("Volta mais rápida da corrida: carro {car_number}, {tempo_txt}."),
+                            Vec::new(),
+                        ),
+                    }
+                }
+            };
+            BreakdownMessage {
+                id: i,
+                severity: "pace".to_string(),
+                text,
+                detail: String::new(),
+                pecas,
+            }
+        })
+        .collect();
+
+    Ok(out)
 }
 
-/// FONTE ÚNICA das redações do rádio: 3 opções por (peça, severidade), voz do engenheiro,
-/// 3ª pessoa. Devolve o TRECHO depois do nome (a peça já vem escrita no texto). A causa
-/// concreta (`detail`) é anexada pelo card na mesma linha. Peça/severidade desconhecida cai
-/// num genérico. O DNF é tratado à parte (`dnf_frase`), pois a redação é diferente.
-pub(crate) fn breakdown_frases(part_key: &str, severity: &str) -> [&'static str; 3] {
-    match (severity, part_key) {
-        // ── MOTOR ──
-        ("light", "engine") => [
-            "sente o motor perdendo fôlego",
-            "relata o motor engasgando",
-            "avisa que o motor não está redondo",
-        ],
-        ("heavy", "engine") => [
-            "está com o motor em pane",
-            "perdeu potência e o motor pode não aguentar",
-            "relata o motor no limite — situação séria",
-        ],
-        // ── CÂMBIO ──
-        ("light", "gearbox") => [
-            "está com o câmbio arisco nas trocas",
-            "relata engates falhando no câmbio",
-            "sente o câmbio embolando as marchas",
-        ],
-        ("heavy", "gearbox") => [
-            "está com o câmbio travando",
-            "perdeu marchas — o câmbio está indo embora",
-            "relata o câmbio prestes a parar",
-        ],
-        // ── FREIOS ──
-        ("light", "brakes") => [
-            "sente o pedal de freio amolecendo",
-            "relata os freios pedindo água",
-            "avisa que os freios estão longos",
-        ],
-        ("heavy", "brakes") => [
-            "está praticamente sem freio",
-            "relata os freios cozinhando",
-            "perdeu o pedal — freios em pane",
-        ],
-        // ── SUSPENSÃO ──
-        ("light", "suspension") => [
-            "sente a suspensão reclamando nas zebras",
-            "relata o carro batendo demais atrás",
-            "avisa de uma folga na suspensão",
-        ],
-        ("heavy", "suspension") => [
-            "está com a suspensão comprometida",
-            "relata algo quebrado na suspensão",
-            "perdeu firmeza — suspensão em pane",
-        ],
-        // ── ARREFECIMENTO ──
-        ("light", "cooling") => [
-            "vê a temperatura subindo aos poucos",
-            "relata o arrefecimento no limite",
-            "avisa que a água está esquentando",
-        ],
-        ("heavy", "cooling") => [
-            "está com o arrefecimento estourando",
-            "relata superaquecimento crítico",
-            "perdeu o arrefecimento — temperatura no vermelho",
-        ],
-        // ── ASA DIANTEIRA ──
-        ("light", "front_wing") => [
-            "relata a asa dianteira leve",
-            "sente o bico perdendo apoio",
-            "avisa de dano na asa dianteira",
-        ],
-        ("heavy", "front_wing") => [
-            "está com a asa dianteira danificada",
-            "perdeu apoio na frente — asa comprometida",
-            "relata a asa dianteira se soltando",
-        ],
-        // ── ASA TRASEIRA ──
-        ("light", "rear_wing") => [
-            "sente a traseira solta na reta",
-            "relata a asa traseira leve",
-            "avisa de dano na asa traseira",
-        ],
-        ("heavy", "rear_wing") => [
-            "está com a asa traseira danificada",
-            "perdeu apoio atrás — traseira nervosa",
-            "relata a asa traseira cedendo",
-        ],
-        // ── LATERAIS ──
-        ("light", "sidepods") => [
-            "relata dano nas laterais",
-            "sente o carro puxando de lado",
-            "avisa de um amassado nas laterais",
-        ],
-        ("heavy", "sidepods") => [
-            "está com as laterais abertas",
-            "perdeu parte da lateral — carro ferido",
-            "relata dano sério nas laterais",
-        ],
-        // ── ASSOALHO ──
-        ("light", "underbody") => [
-            "sente o assoalho raspando",
-            "relata perda de apoio no assoalho",
-            "avisa de dano no assoalho",
-        ],
-        ("heavy", "underbody") => [
-            "está com o assoalho comprometido",
-            "perdeu downforce — assoalho ferido",
-            "relata o assoalho arrastando forte",
-        ],
-        // ── CHASSI ──
-        ("light", "chassis") => [
-            "sente o chassi estranho",
-            "relata o carro desalinhado",
-            "avisa de algo torto no chassi",
-        ],
-        ("heavy", "chassis") => [
-            "está com o chassi comprometido",
-            "relata dano estrutural no chassi",
-            "perdeu rigidez — chassi ferido",
-        ],
-        // ── PARTE ELÉTRICA ──
-        ("light", "electronics") => [
-            "relata oscilações na parte elétrica",
-            "sente o painel piscando",
-            "avisa de falha elétrica intermitente",
-        ],
-        ("heavy", "electronics") => [
-            "está com pane elétrica",
-            "perdeu comandos — parte elétrica em pane",
-            "relata o carro cortando — falha elétrica",
-        ],
-        // ── genérico ──
-        ("heavy", _) => [
-            "está com um problema grave no carro",
-            "relata um problema sério no carro",
-            "perdeu desempenho — algo grave no carro",
-        ],
-        _ => [
-            "apresenta um problema no carro",
-            "relata algo estranho no carro",
-            "avisa de um problema no carro",
-        ],
-    }
-}
-
-/// Redação de ABANDONO (DNF) — 3 opções. Usa a peça com preposição (`part_com_artigo`).
+/// Redação de ABANDONO com o nome embutido, para o tour do demo — que mostra a frase pronta e
+/// não monta peça nenhuma. O caminho de corrida usa [`quebra::montar`], que separa o nome do
+/// trecho porque o áudio é colado.
 pub(crate) fn dnf_frase(name: &str, part: &str, variant: usize) -> String {
     match variant % 3 {
         0 => format!("{name} está fora — problemas {part}"),
@@ -193,7 +164,16 @@ pub fn get_breakdown_feed(
         return Ok(demo_breakdown_feed(&session_driver_names(&app, &career_id)));
     }
 
-    let log = race_monitor::peek_breakdown_log();
+    // O carro do JOGADOR fora do feed da grade. A linha dele continua no log (é ela que manda o
+    // comando ao sim e alimenta o resultado), mas aqui ela sairia em 3ª pessoa: como o nome do
+    // jogador não sai de pool nenhum, a fala caía na forma pela equipe — "o piloto um da tal
+    // equipe abandonou" — sobre ele mesmo, 1,3 vez por corrida (medido em `radio-carga.md`). O
+    // desfecho dele vive em `get_player_warnings`, na 2ª pessoa.
+    let eu = race_monitor::player_car_number();
+    let log: Vec<_> = race_monitor::peek_breakdown_log()
+        .into_iter()
+        .filter(|o| Some(o.car_number) != eu)
+        .collect();
     if log.is_empty() {
         return Ok(Vec::new());
     }
@@ -214,32 +194,93 @@ pub fn get_breakdown_feed(
     .unwrap_or_default();
     let by_number: HashMap<i64, String> = numbers.into_iter().map(|(id, n)| (n, id)).collect();
 
-    let out = log
+    // Uma leitura do save por chamada do feed, não por quebra: rivalidade, nêmesis, elenco das
+    // equipes e tabela do campeonato saem todos daqui.
+    let mundo = contexto::Mundo::carregar(&db.conn);
+
+    // Abandonos ACUMULADOS até cada linha, contando ela. O comentário de atrito sai no
+    // cruzamento exato do limiar, então a conta tem que ser a do momento da quebra — e não a
+    // do fim da corrida, que faria a fala aparecer retroativamente na primeira leitura.
+    let mut acumulado = 0u32;
+    let abandonos_ate: Vec<u32> = log
+        .iter()
+        .map(|o| {
+            if o.severity == "dnf" {
+                acumulado += 1;
+            }
+            acumulado
+        })
+        .collect();
+
+    // O contexto de cada linha, resolvido uma vez. A fusão precisa olhar o PAR, então não dá
+    // para montar a fala no mesmo passo que resolve o piloto.
+    let contextos: Vec<quebra::Contexto> = log
         .iter()
         .enumerate()
         .map(|(i, o)| {
-            let name = by_number
-                .get(&(o.car_number as i64))
+            let piloto_id = by_number.get(&(o.car_number as i64)).cloned();
+            let name = piloto_id
+                .as_deref()
                 .and_then(|id| dq::get_driver(&db.conn, id).ok())
                 .map(|d| d.nome)
                 .unwrap_or_else(|| format!("Carro #{}", o.car_number));
-            // Redação DIRETA a partir da fonte única (`breakdown_frases`): 3 opções por
-            // (peça, severidade). Variante ESTÁVEL por carro+ordem (mesma quebra → mesma
-            // frase; a grade varia). A causa (`detail`) segue na mesma linha no card.
+            // Variante ESTÁVEL por carro+ordem: a mesma quebra dá sempre a mesma frase, e a
+            // grade varia.
             let variant = (o.car_number as usize).wrapping_add(i) % 3;
-            let text = if o.severity == "dnf" {
-                dnf_frase(&name, part_com_artigo(&o.part), variant)
-            } else {
-                format!("{name} {}", breakdown_frases(&o.part, &o.severity)[variant])
-            };
-            BreakdownMessage {
-                id: i,
-                severity: o.severity.clone(),
-                text,
-                detail: o.label.clone(),
-            }
+            mundo.contexto(
+                piloto_id.as_deref(),
+                &name,
+                &o.part,
+                &o.severity,
+                variant,
+                abandonos_ate[i],
+            )
         })
         .collect();
+
+    // FUSÃO de quebras simultâneas.
+    //
+    // Duas na mesma VOLTA são o mesmo instante para o modelo: o tick da grade avalia cada carro
+    // no cruzamento da linha, e o `on_lap_at` resolve a volta inteira de uma vez. Sem juntar,
+    // elas viram duas mensagens — e o overlay, que mostra a de maior `id`, engoliria a primeira
+    // sem card e sem áudio. A fusão conserta isso pela raiz, em vez de enfileirar duas falas de
+    // sete segundos.
+    //
+    // O `id` de uma fala fundida é o da ÚLTIMA linha que ela cobre. Assim ele continua
+    // crescendo monotonicamente e — porque o agrupamento é determinístico sobre um log que só
+    // cresce no fim — continua o mesmo a cada leitura, que é do que o cursor do front depende.
+    let mut out: Vec<BreakdownMessage> = Vec::new();
+    let mut i = 0usize;
+    while i < log.len() {
+        let par = (i + 1 < log.len() && log[i].lap == log[i + 1].lap)
+            .then(|| quebra::montar_duplo(&contextos[i], &contextos[i + 1]))
+            .flatten();
+        match par {
+            Some(fala) => {
+                out.push(BreakdownMessage {
+                    id: i + 1,
+                    severity: log[i].severity.clone(),
+                    // O detalhe some na fusão: são duas causas concretas, e escolher uma seria
+                    // dizer que a outra não houve.
+                    detail: String::new(),
+                    text: fala.texto,
+                    pecas: fala.pecas,
+                });
+                i += 2;
+            }
+            None => {
+                let fala = quebra::montar(&contextos[i]);
+                out.push(BreakdownMessage {
+                    id: i,
+                    severity: log[i].severity.clone(),
+                    text: fala.texto,
+                    detail: log[i].label.clone(),
+                    pecas: fala.pecas,
+                });
+                i += 1;
+            }
+        }
+    }
 
     Ok(out)
 }

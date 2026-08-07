@@ -108,11 +108,27 @@ function buildHistoryDossier(teamId = "T010") {
         note: isVector
           ? "20 disputas diretas reais contra Falcon Motorsport."
           : "16 disputas diretas reais contra Vector Racing.",
+        // Cor do rival é o que liga o painel de duelo: sem ela o dossiê cai no
+        // estado "sem rival consolidado", que é o caminho errado para este mock.
+        color: isVector ? "#c81d2e" : "#1d7ac8",
+        origin_kind: "Nasceu na pista",
+        historical_intensity: 62,
+        recent_activity: 41,
+        perceived_intensity: 49.4,
+        head_to_head_wins: isVector ? 12 : 9,
+        head_to_head_losses: isVector ? 8 : 11,
+        last_meeting: { year: 2026, round: 7, position: 3, rival_position: 5, weeks_ago: 30 },
       },
       symbol_driver: isVector ? "Piloto Símbolo Vector" : "Piloto Símbolo Real",
       symbol_driver_detail: isVector
         ? "20 corridas, 9 vitórias, 16 pódios pela equipe."
         : "16 corridas, 7 vitórias, 12 pódios pela equipe.",
+      symbol_driver_races: isVector ? 20 : 16,
+      symbol_driver_wins: isVector ? 9 : 7,
+      symbol_driver_podiums: isVector ? 16 : 12,
+      profile_races: isVector ? 44 : 38,
+      profile_wins: isVector ? 11 : 8,
+      profile_podiums: isVector ? 22 : 14,
     },
     management: {
       operation_health: isVector ? "Saudável real" : "Pressionada real",
@@ -139,16 +155,162 @@ function buildHistoryDossier(teamId = "T010") {
       investment_detail: isVector
         ? "Investimento real da Vector."
         : "Investimento real da Falcon.",
+      // Livro-caixa agregado: é o que a aba Gestão usa para desenhar a curva e a
+      // repartição. Só a Vector traz — a Falcon fica como o caso sem histórico
+      // gravado, que precisa continuar renderizando os cards de prosa sem quebrar.
+      ledger: isVector
+        ? {
+            seasons: 2,
+            rounds: 4,
+            first_season: 1,
+            last_season: 2,
+            peak_cash: 8800000,
+            peak_cash_season: 2,
+            peak_cash_round: 2,
+            worst_debt: 1500000,
+            worst_debt_season: 1,
+            worst_debt_round: 2,
+            healthy_seasons: 1,
+            // A repartição cobre só a temporada 2 — a 1 é backstory, com prêmio de
+            // construtores e mais nada. É o caso real de todo save: 26 temporadas
+            // sorteadas antes da carreira contra as jogadas de verdade.
+            flow_seasons: 1,
+            flow_first_season: 2,
+            flow_last_season: 2,
+            flow_note: "",
+            income_total: 12000000,
+            expenses_total: 9000000,
+            income_lines: [
+              { id: "sponsorship_income", value: 7200000 },
+              { id: "constructor_prize_income", value: 3600000 },
+              { id: "gate_income", value: 1200000 },
+            ],
+            expense_lines: [
+              { id: "salary_expense", value: 6300000 },
+              { id: "technical_investment_cost", value: 2700000 },
+            ],
+            cash_curve: [
+              { season_number: 1, round: 1, cash_balance: 400000, debt_balance: 0, is_season_close: false },
+              { season_number: 1, round: 2, cash_balance: 0, debt_balance: 1500000, is_season_close: true },
+              { season_number: 2, round: 1, cash_balance: 3200000, debt_balance: 0, is_season_close: false },
+              { season_number: 2, round: 2, cash_balance: 8800000, debt_balance: 0, is_season_close: true },
+            ],
+          }
+        : {
+            // Carreira sem temporada jogada: tem história de caixa (as temporadas de
+            // backstory gravam o saldo em cada fechamento) mas NENHUMA repartição —
+            // o sorteio histórico não simula economia. É o caso real
+            // que a aba precisa explicar em vez de esconder.
+            seasons: 3,
+            rounds: 3,
+            first_season: 1,
+            last_season: 3,
+            peak_cash: 9900000,
+            peak_cash_season: 3,
+            peak_cash_round: 1000,
+            worst_debt: 1200000,
+            worst_debt_season: 1,
+            worst_debt_round: 1000,
+            healthy_seasons: 2,
+            flow_seasons: 0,
+            flow_first_season: 0,
+            flow_last_season: 0,
+            flow_note: "Nenhuma temporada jogada ainda.",
+            income_total: 0,
+            expenses_total: 0,
+            income_lines: [],
+            expense_lines: [],
+            cash_curve: [
+              { season_number: 1, round: 1000, cash_balance: 0, debt_balance: 1200000, is_season_close: true },
+              { season_number: 2, round: 1000, cash_balance: 4100000, debt_balance: 0, is_season_close: true },
+              { season_number: 3, round: 1000, cash_balance: 9900000, debt_balance: 0, is_season_close: true },
+            ],
+          },
     },
     title_categories: isVector
       ? []
       : [{ category: "GT4", year: "2025", color: "#f2c46d" }],
+    // Subiu ao GT3 e voltou: é o caso que a agregação antiga colapsava num "GT4
+    // 2024-2026" só, escondendo o rebaixamento. As duas passagens de GT4 têm de
+    // sobreviver até a tela.
+    movement: {
+      promotions: 1,
+      relegations: 1,
+      time_by_category: "GT4: 2 anos · GT3: 1 ano",
+      peak_category: "GT3",
+      home_category: "GT4",
+      // Uma linha por categoria, com as duas idas ao GT4 já somadas, do degrau
+      // mais alto para o mais baixo — a mesma direção da pirâmide.
+      time_lines: [
+        { category: "GT3", category_id: "gt3", tier: 4, seasons: 1, races: 12, wins: 0, podiums: 1 },
+        { category: "GT4", category_id: "gt4", tier: 3, seasons: 2, races: 24, wins: 3, podiums: 10 },
+      ],
+      ladder: [
+        {
+          category: "GT4",
+          category_id: "gt4",
+          tier: 3,
+          visited: true,
+          is_peak: false,
+          is_current: true,
+          seasons: 2,
+          years: "2024-2026",
+        },
+        {
+          category: "GT3",
+          category_id: "gt3",
+          tier: 4,
+          visited: true,
+          is_peak: true,
+          is_current: false,
+          seasons: 1,
+          years: "2025",
+        },
+        {
+          category: "Endurance",
+          category_id: "endurance",
+          tier: 6,
+          visited: false,
+          is_peak: false,
+          is_current: false,
+          seasons: 0,
+          years: "",
+        },
+      ],
+    },
     category_path: [
       {
         category: "GT4",
-        years: isVector ? "2023-2026" : "2024-2026",
-        detail: "Resultados reais registrados nesse recorte.",
+        category_id: "gt4",
+        years: "2024",
+        start_year: 2024,
+        end_year: 2024,
+        detail: "Categoria de estreia da equipe.",
         color: "#58a6ff",
+        movement: "start",
+        tier: 3,
+      },
+      {
+        category: "GT3",
+        category_id: "gt3",
+        years: "2025",
+        start_year: 2025,
+        end_year: 2025,
+        detail: "Promoção: subiu de categoria.",
+        color: "#f2c46d",
+        movement: "promotion",
+        tier: 4,
+      },
+      {
+        category: "GT4",
+        category_id: "gt4",
+        years: "2026",
+        start_year: 2026,
+        end_year: 2026,
+        detail: "Rebaixamento: caiu de categoria.",
+        color: "#58a6ff",
+        movement: "relegation",
+        tier: 3,
       },
     ],
   };
@@ -686,15 +848,19 @@ describe("MyTeamTab", () => {
     expect(within(drawer).getByText("Fundada em 2002")).toBeInTheDocument();
     expect(within(ranking).getByText("Falcon Motorsport").closest("tr")).toHaveClass("ring-1");
     expect(drawer.closest("[data-testid='team-history-layer']")).toHaveClass("z-[90]");
-    // O dossiê abre centralizado, ocupando a tela — não colado numa borda.
-    expect(drawer).toHaveClass("w-[min(94vw,1180px)]");
+    // O dossiê abre centralizado, ocupando a tela — não colado numa borda. A
+    // largura mora no wrapper que ancora a calha de setas; o painel ocupa ela toda.
+    expect(drawer.parentElement).toHaveClass("w-[min(100%,1180px)]");
+    expect(drawer).toHaveClass("w-full");
     expect(drawer).not.toHaveClass("right-0");
     expect(drawer).not.toHaveClass("left-0");
     expect(drawer).toHaveClass("bg-[#07101d]");
     expect(screen.getByLabelText(/Fechar histórico da equipe/i)).toHaveClass("bg-black/70");
     expect(within(drawer).getByRole("tab", { name: /Records/i })).toBeInTheDocument();
-    expect(within(drawer).getByRole("tab", { name: /Esportivo/i })).toBeInTheDocument();
+    // O retrato esportivo virou a aba "Identidade"; a antiga Identidade virou
+    // "Rival", com o duelo no lugar da pilha de cards.
     expect(within(drawer).getByRole("tab", { name: /Identidade/i })).toBeInTheDocument();
+    expect(within(drawer).getByRole("tab", { name: /Rival/i })).toBeInTheDocument();
     expect(within(drawer).getByRole("tab", { name: /Gestão/i })).toBeInTheDocument();
     expect(within(drawer).getByRole("tab", { name: /Categorias/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Equipe anterior/i })).toBeDisabled();
@@ -718,7 +884,7 @@ describe("MyTeamTab", () => {
     expect(within(drawer).queryByText("22,1 pts/R$ mi real")).not.toBeInTheDocument();
     expect(within(drawer).queryByText("Eficiência real da Falcon.")).not.toBeInTheDocument();
 
-    fireEvent.click(within(drawer).getByRole("tab", { name: /Esportivo/i }));
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
 
     // Temporadas disputadas vive no âncora do cabeçalho, com o número em fonte
     // grande e a unidade em fonte pequena — dois nós de texto, não um.
@@ -746,20 +912,37 @@ describe("MyTeamTab", () => {
     expect(within(ranking).getByText("Vector Racing").closest("tr")).toHaveClass("ring-1");
     expect(screen.getByRole("button", { name: /Equipe anterior/i })).toBeEnabled();
 
-    fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Rival/i }));
 
+    // O duelo abre a aba: as duas equipes de frente uma para a outra e o placar
+    // do confronto direto no meio, cada número na cor de quem representa.
+    expect(within(drawer).getByText(/Maior rival histórico/i)).toBeInTheDocument();
+    expect(within(drawer).getByText("Falcon Motorsport")).toBeInTheDocument();
+    expect(within(drawer).getByText("Nasceu na pista")).toBeInTheDocument();
+    expect(within(drawer).getByText("12")).toBeInTheDocument();
+    expect(within(drawer).getByText("8")).toBeInTheDocument();
+    expect(within(drawer).getByText(/Confronto direto/i)).toBeInTheDocument();
+    // O encontro é datado em tempo decorrido, não em "temporada X, rodada Y": 30
+    // semanas viram "Há 7 meses", que é o que diz se a rivalidade está viva.
+    expect(within(drawer).getByText(/Há 7 meses — 3º contra 5º/i)).toBeInTheDocument();
+    // Os fatos da casa descem para a faixa de apoio, mas continuam na aba.
     expect(within(drawer).getByText(/Perfil histórico/i)).toBeInTheDocument();
     expect(within(drawer).getByText("Especialista Real")).toBeInTheDocument();
     expect(within(drawer).getByText("Resumo real da Vector calculado no backend.")).toBeInTheDocument();
-    expect(within(drawer).getByText("GT4 Origem Vector")).toBeInTheDocument();
-    expect(within(drawer).getByText("GT4 Atual Real")).toBeInTheDocument();
-    expect(within(drawer).getByText(/Categoria de origem/i)).toBeInTheDocument();
-    expect(within(drawer).getByText(/Maior rival histórico/i)).toBeInTheDocument();
-    expect(within(drawer).getByText("Falcon Motorsport")).toBeInTheDocument();
-    expect(within(drawer).getByText(/20 disputas diretas reais contra Falcon Motorsport/i)).toBeInTheDocument();
+    // Origem e atual viraram uma linha só de trajetória em vez de dois cards, e
+    // o degrau ATUAL sai na cor da equipe — daí serem dois nós de texto.
+    const trajetoria = within(drawer).getByText(/Trajetória/i).parentElement;
+    expect(within(trajetoria).getByText("GT4 Origem Vector")).toHaveClass("text-text-muted");
+    expect(within(trajetoria).getByText("GT4 Atual Real")).toHaveClass("text-[color:var(--team)]");
+    expect(within(drawer).queryByText(/Categoria de origem/i)).not.toBeInTheDocument();
     expect(within(drawer).getByText("Piloto símbolo", { selector: "span" })).toBeInTheDocument();
     expect(within(drawer).getByText("Piloto Símbolo Vector")).toBeInTheDocument();
-    expect(within(drawer).getByText(/20 corridas, 9 vitórias, 16 pódios pela equipe/i)).toBeInTheDocument();
+    // Os números do símbolo viraram métricas em vez de prosa — é o que dá aos
+    // três cards da fileira a mesma anatomia e a mesma altura.
+    const simbolo = within(drawer).getByText("Piloto Símbolo Vector").closest("div").parentElement;
+    expect(within(simbolo).getByText("20")).toBeInTheDocument();
+    expect(within(simbolo).getByText("9")).toBeInTheDocument();
+    expect(within(simbolo).getByText("16")).toBeInTheDocument();
 
     fireEvent.click(within(drawer).getByRole("tab", { name: /Gestão/i }));
 
@@ -775,9 +958,99 @@ describe("MyTeamTab", () => {
     expect(within(drawer).getByText("Crise real da Vector vinda do backend.")).toBeInTheDocument();
     expect(within(drawer).getByText("3 Temporadas")).toBeInTheDocument();
     expect(within(drawer).queryByText("Eficiência real da Vector.")).not.toBeInTheDocument();
-    expect(within(drawer).getByText(/Maior investimento técnico/i)).toBeInTheDocument();
+    // "Maior investimento técnico" saiu do rótulo: o valor é o pacote de HOJE, e o
+    // superlativo prometia uma série histórica que o card não tem.
+    expect(within(drawer).queryByText(/Maior investimento técnico/i)).not.toBeInTheDocument();
+    expect(within(drawer).getByText(/Pacote técnico/i)).toBeInTheDocument();
     expect(within(drawer).getByText("Nível 8 - pacote real")).toBeInTheDocument();
     expect(within(drawer).getByText("Investimento real da Vector.")).toBeInTheDocument();
+
+    // A curva de caixa é o que transforma a aba de retrato em história — sem ela o
+    // jogador lia "Monitorada" sem saber se a equipe sobe ou afunda.
+    expect(within(drawer).getByTestId("team-history-cash-curve")).toBeInTheDocument();
+    expect(within(drawer).getByText("pico $8.8M · dívida $1.5M")).toBeInTheDocument();
+    // Sankey: receita converge no tronco e sai repartida. Os rótulos das linhas vêm
+    // das MESMAS chaves que a aba My Team usa, não de uma segunda tabela de nomes.
+    const fluxo = within(drawer).getByTestId("team-history-money-flow");
+    expect(within(fluxo).getByText("Patrocínios")).toBeInTheDocument();
+    expect(within(fluxo).getByText("Salários")).toBeInTheDocument();
+    // O tronco é a receita total; o saldo ($3M sobre $12M = 25%) entra como nó à
+    // direita, ao lado dos custos — é o que faz a conta fechar dos dois lados.
+    expect(within(fluxo).getByText("Receita total $12,000,000")).toBeInTheDocument();
+    expect(within(fluxo).getByText("Saldo")).toBeInTheDocument();
+    expect(within(fluxo).getByText("25%")).toBeInTheDocument();
+    expect(within(fluxo).queryByText("Reservas e dívida")).not.toBeInTheDocument();
+    // A legenda anuncia a JANELA medida, não a carreira inteira: as temporadas de
+    // backstory não têm repartição para somar.
+    expect(within(fluxo).getByText("temporada 2")).toBeInTheDocument();
+  });
+
+  it("explains the missing money flow instead of hiding the block", async () => {
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    fireEvent.doubleClick(within(ranking).getByText("Falcon Motorsport"));
+
+    const drawer = await screen.findByRole("dialog", { name: /Falcon Motorsport/i });
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Gestão/i }));
+
+    // A curva CONTINUA: o saldo de cada fechamento é registro real, mesmo nas
+    // temporadas que não têm repartição.
+    expect(within(drawer).getByTestId("team-history-cash-curve")).toBeInTheDocument();
+    // Já o Sankey não tem o que desenhar — e em vez de sumir, diz por quê. Sumir era
+    // o pior estado: o jogador não distinguia "não tem economia de rodada" de
+    // "quebrou".
+    const fluxo = within(drawer).getByTestId("team-history-money-flow");
+    expect(within(fluxo).queryByTestId("team-history-money-flow-chart")).not.toBeInTheDocument();
+    expect(
+      within(fluxo).getByText("Nenhuma temporada jogada ainda."),
+    ).toBeInTheDocument();
+    expect(within(drawer).getByText("Gestão real da Falcon calculada no backend.")).toBeInTheDocument();
+    expect(within(drawer).getByText("$9,900,000")).toBeInTheDocument();
+  });
+
+  it("draws the whole ladder, not only the rungs the team stepped on", async () => {
+    render(<MyTeamTab />);
+
+    const ranking = await screen.findByRole("table", { name: /Ranking da categoria/i });
+    fireEvent.doubleClick(within(ranking).getByText("Falcon Motorsport"));
+
+    const drawer = await screen.findByRole("dialog", { name: /Falcon Motorsport/i });
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Categorias/i }));
+
+    // A pirâmide traz o degrau NUNCA pisado: é ele que diz quanto falta para o
+    // topo, e a lista de passagens sozinha nunca dizia.
+    const piramide = within(drawer).getByTestId("team-history-category-pyramid");
+    const naoPisado = within(piramide).getByText("Endurance").closest("[data-visited]");
+    expect(naoPisado).toHaveAttribute("data-visited", "0");
+    expect(within(piramide).getByText("Nunca correu")).toBeInTheDocument();
+    expect(within(piramide).getByText("Agora")).toBeInTheDocument();
+    expect(within(piramide).getByText("Teto")).toBeInTheDocument();
+
+    // Teto e casa no lugar de "melhor / mais difícil categoria", que empatavam
+    // entre si em quem correu numa categoria só.
+    expect(within(drawer).getByText("Teto alcançado")).toBeInTheDocument();
+    expect(within(drawer).getByText("Degrau de casa")).toBeInTheDocument();
+    expect(within(drawer).queryByText("Categoria mais difícil")).not.toBeInTheDocument();
+
+    // O saldo é por CATEGORIA, somando as duas idas ao GT4 numa linha só — os
+    // cards por passagem gastavam três linhas cada para repetir a pirâmide.
+    const porCategoria = within(drawer).getByTestId("team-history-category-time");
+    const gt4 = porCategoria.querySelector('[data-tally="gt4"]');
+    expect(gt4).toHaveTextContent("3 vitórias · 10 pódios");
+    // Do topo para a base, como a pirâmide logo acima — os dois blocos desenham
+    // a mesma escada e precisam concordar sobre onde fica o alto.
+    expect(
+      [...porCategoria.querySelectorAll("[data-tally]")].map((no) => no.dataset.tally),
+    ).toEqual(["gt3", "gt4"]);
+    expect(porCategoria.querySelector('[data-tally="gt3"]')).toHaveTextContent("0 vitórias · 1 pódio");
+    expect(within(drawer).queryByText("Passagens")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Rebaixamento: caiu de categoria.")).not.toBeInTheDocument();
+
+    // A faixa ano a ano existe e marca o ano da subida com a cor do GT3.
+    const faixa = within(drawer).getByTestId("team-history-category-trajectory");
+    expect(faixa.querySelector('[data-year="2025"][data-category="gt3"]')).not.toBeNull();
+    expect(faixa.querySelector('[data-year="2026"][data-category="gt4"]')).not.toBeNull();
   });
 
   it("uses real GT3 heritage dates instead of generated founding years", async () => {

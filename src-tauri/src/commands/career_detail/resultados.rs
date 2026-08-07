@@ -108,6 +108,75 @@ pub(super) fn build_archived_recent_results_for_driver(
     })
 }
 
+/// A temporada anterior INTEIRA e a atual ate aqui, corrida a corrida.
+///
+/// Vem de `race_results` e nao do snapshot de arquivo: o snapshot guarda um
+/// recorte das ultimas corridas, que e justamente o que a faixa de forma parou
+/// de querer. A tabela tem uma linha por corrida disputada e sobrevive a virada
+/// de temporada (e a mesma fonte de onde o dossie de equipe tira a trajetoria
+/// ano a ano), entao o calendario passado sai completo.
+///
+/// Duas temporadas e nao tres: a faixa existe para responder "como ele esta
+/// agora", e o ano retrasado ja e historico — esse mora na aba Historico.
+pub(super) fn build_form_seasons_for_driver(
+    conn: &Connection,
+    driver_id: &str,
+    current_season_number: i32,
+) -> Result<Vec<FormSeasonBlock>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                COALESCE(s.numero, 0) AS season_number,
+                COALESCE(s.ano, 0) AS ano,
+                c.rodada,
+                r.posicao_final,
+                r.dnf
+             FROM race_results r
+             INNER JOIN calendar c ON c.id = r.race_id
+             LEFT JOIN seasons s ON s.id = COALESCE(c.season_id, c.temporada_id)
+             WHERE r.piloto_id = ?1 AND COALESCE(s.numero, 0) >= ?2
+             ORDER BY season_number ASC, c.rodada ASC, r.id ASC",
+        )
+        .map_err(|e| format!("Falha ao preparar forma por temporada: {e}"))?;
+
+    let mapped = stmt
+        .query_map(
+            rusqlite::params![driver_id, current_season_number - 1],
+            |row| {
+                Ok((
+                    row.get::<_, i32>(0)?,
+                    row.get::<_, i32>(1)?,
+                    row.get::<_, i32>(2)?,
+                    row.get::<_, i32>(3)?,
+                    row.get::<_, i32>(4)? != 0,
+                ))
+            },
+        )
+        .map_err(|e| format!("Falha ao consultar forma por temporada: {e}"))?;
+
+    let mut seasons: Vec<FormSeasonBlock> = Vec::new();
+    for row in mapped {
+        let (season_number, ano, rodada, position, is_dnf) =
+            row.map_err(|e| format!("Falha ao ler forma por temporada: {e}"))?;
+        let entry = FormResultEntry {
+            rodada,
+            chegada: (!is_dnf).then_some(position),
+            dnf: is_dnf,
+        };
+        match seasons.last_mut() {
+            Some(last) if last.season_number == season_number => last.resultados.push(entry),
+            _ => seasons.push(FormSeasonBlock {
+                season_number,
+                ano,
+                atual: season_number == current_season_number,
+                resultados: vec![entry],
+            }),
+        }
+    }
+
+    Ok(seasons)
+}
+
 pub(super) fn archived_form_context_for_empty_results(
     archive_category: &str,
     snapshot: &serde_json::Value,

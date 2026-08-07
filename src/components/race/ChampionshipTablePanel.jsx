@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import RivalMarker from "../driver/RivalMarker";
 import TeamLogoMark from "../team/TeamLogoMark";
+import Tooltip from "../ui/Tooltip";
+import WeekendModifiersTip, { LARGURA as LARGURA_MODIFICADORES } from "./WeekendModifiersTip";
 import { getTeamGlow } from "../../utils/teamColors";
 import { getReadableTeamColor } from "./raceGridContext";
 
@@ -14,6 +16,7 @@ function ChampionshipTablePanel({
   constructorsTable,
   playerTeamId,
   breakdownRiskTeams,
+  weekendModifiers,
   hoveredDriverId,
 }) {
   const { t } = useTranslation();
@@ -65,69 +68,89 @@ function ChampionshipTablePanel({
                     const isHoveredTeam = hoveredTeamId != null && driver.equipe_id === hoveredTeamId;
                     const isMentionHovered = hoveredDriverId != null && driver.id === hoveredDriverId;
                     const teamColor = getReadableTeamColor(driver.equipe_cor);
+                    // O balão explica o DIA deste piloto (forma, lesão, pressão…). Sem dado da
+                    // esteira ele nem abre — melhor nenhum balão que um balão vazio.
+                    const modifiers = weekendModifiers?.get?.(driver.id) ?? null;
                     return (
-                      <tr
+                      <Tooltip
                         key={driver.id}
-                        onMouseEnter={() => setHoveredTeamId(driver.equipe_id ?? null)}
-                        onMouseLeave={() => setHoveredTeamId(null)}
-                        className={`border-b transition-glass ${
-                          isMentionHovered || isHoveredTeam
-                            ? "border-transparent"
-                            : isPlayer
-                              ? "border-[#58a6ff]/40 bg-[#58a6ff]/10"
-                              : "border-white/5 hover:bg-white/5"
-                        }`}
-                        style={
-                          isMentionHovered
-                            ? (() => {
-                                const tone = getTeamGlow(driver.equipe_cor);
-                                return { backgroundColor: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` };
-                              })()
-                            : isHoveredTeam
-                              ? (() => {
-                                  const tone = getTeamGlow(driver.equipe_cor);
-                                  return { backgroundColor: tone.soft, boxShadow: `inset 3px 0 0 0 ${tone.solid}` };
-                                })()
-                              : undefined
+                        // Ao lado, e não em cima: a linha ocupa a coluna inteira, então um
+                        // balão centrado nela cobre a própria tabela que se está lendo.
+                        lado="esquerda"
+                        largura={LARGURA_MODIFICADORES}
+                        desabilitado={!modifiers}
+                        conteudo={
+                          modifiers ? (
+                            <WeekendModifiersTip
+                              driverName={driver.nome_completo ?? driver.nome}
+                              modifiers={modifiers}
+                            />
+                          ) : null
                         }
                       >
-                        <td className={`py-3 px-3 text-center ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                          {driver.posicao_campeonato}
-                        </td>
-                        <td className="py-3 px-1">
-                          <div className="flex items-center gap-2">
-                            <TeamLogoMark
-                              teamName={driver.equipe_nome}
-                              color={driver.equipe_cor}
-                              size="xs"
-                            />
-                            <div className="min-w-0">
-                              <p className={`flex items-center gap-1 leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
-                                <span className="truncate">{driver.nome_completo ?? driver.nome}</span>
-                                <RivalMarker driverId={driver.id} />
-                                {breakdownRiskTeams.has(driver.equipe_id) ? (
-                                  <span
-                                    className="shrink-0 text-[11px] leading-none"
-                                    title={t("nextRaceTab.labels.breakdownRiskDriverTip")}
-                                    aria-label={t("nextRaceTab.labels.breakdownRiskDriverTip")}
-                                  >
-                                    🔧
-                                  </span>
-                                ) : null}
-                              </p>
-                              <p
-                                className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
-                                style={{ color: teamColor }}
-                              >
-                                {driver.equipe_nome_curto ?? driver.equipe_nome ?? "—"}
-                              </p>
+                        <tr
+                          onMouseEnter={() => setHoveredTeamId(driver.equipe_id ?? null)}
+                          onMouseLeave={() => setHoveredTeamId(null)}
+                          className={`border-b transition-glass ${
+                            isMentionHovered || isHoveredTeam
+                              ? "border-transparent"
+                              : isPlayer
+                                ? "border-[#58a6ff]/40 bg-[#58a6ff]/10"
+                                : "border-white/5 hover:bg-white/5"
+                          }`}
+                          style={
+                            isMentionHovered
+                              ? (() => {
+                                  const tone = getTeamGlow(driver.equipe_cor);
+                                  return { backgroundColor: tone.soft, boxShadow: `inset 0 0 0 1.5px ${tone.solid}` };
+                                })()
+                              : isHoveredTeam
+                                ? (() => {
+                                    const tone = getTeamGlow(driver.equipe_cor);
+                                    return { backgroundColor: tone.soft, boxShadow: `inset 3px 0 0 0 ${tone.solid}` };
+                                  })()
+                                : undefined
+                          }
+                        >
+                          <td className={`py-3 px-3 text-center ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                            {driver.posicao_campeonato}
+                          </td>
+                          <td className="py-3 px-1">
+                            <div className="flex items-center gap-2">
+                              <TeamLogoMark
+                                teamName={driver.equipe_nome}
+                                color={driver.equipe_cor}
+                                size="xs"
+                              />
+                              <div className="min-w-0">
+                                <p className={`flex items-center gap-1 leading-tight ${isPlayer ? "text-white font-bold" : "text-white font-medium"}`}>
+                                  <span className="truncate">{driver.nome_completo ?? driver.nome}</span>
+                                  <RivalMarker driverId={driver.id} />
+                                  {breakdownRiskTeams.has(driver.equipe_id) ? (
+                                    <Tooltip texto={t("nextRaceTab.labels.breakdownRiskDriverTip")}>
+                                      <span
+                                        className="shrink-0 text-[11px] leading-none"
+                                        aria-label={t("nextRaceTab.labels.breakdownRiskDriverTip")}
+                                      >
+                                        🔧
+                                      </span>
+                                    </Tooltip>
+                                  ) : null}
+                                </p>
+                                <p
+                                  className="truncate text-[10px] font-semibold uppercase tracking-[0.04em] leading-tight"
+                                  style={{ color: teamColor }}
+                                >
+                                  {driver.equipe_nome_curto ?? driver.equipe_nome ?? "—"}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className={`py-3 px-3 text-right align-top ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
-                          {driver.pontos}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className={`py-3 px-3 text-right align-top ${isPlayer ? "font-extrabold text-[#58a6ff]" : "font-bold text-white"}`}>
+                            {driver.pontos}
+                          </td>
+                        </tr>
+                      </Tooltip>
                     );
                   })}
                 </tbody>

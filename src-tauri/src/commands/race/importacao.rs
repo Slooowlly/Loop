@@ -442,6 +442,7 @@ pub(crate) fn import_iracing_race_result(
                 &team,
                 &result,
                 race_entry.track_id,
+                race_entry.duracao_corrida_min,
                 get_category_config(&race_entry.categoria)
                     .map(|c| c.corridas_por_temporada as f64)
                     .unwrap_or(12.0),

@@ -29,6 +29,22 @@
       "on": "Ligado — a torre também aparece no monitor, para live ou gravação.",
       "off": "Desligado — no VR o monitor não desenha a torre (você não a veria de dentro do headset)."
     },
+    "spotter": {
+      "label": "Spotter do Loop",
+      "on": "Ligado — o spotter do iRacing fica calado enquanto o Loop está aberto, e volta ao normal quando você fecha.",
+      "off": "Desligado — o spotter do iRacing fala normalmente.",
+      "semAppIni": "O app.ini do iRacing não foi encontrado."
+    },
+    "spotterVoz": {
+      "label": "Voz do spotter",
+      "on": "Ligada — o spotter se apresenta quando você senta no carro e avisa dos carros ao lado.",
+      "off": "Desligada — os avisos só aparecem na faixa do overlay.",
+      "testar": "Ouvir"
+    },
+    "volumeRadio": {
+      "label": "Volume do rádio",
+      "hint": "Vale para o spotter e para o engenheiro — os dois são a mesma pessoa."
+    },
     "autoYellow": {
       "label": "Bandeira amarela automática",
       "notFound": "iRacing não encontrado neste PC.",
@@ -121,6 +137,53 @@
       "calendarLegacy": "Legado",
       "calendarV2": "V2",
       "calendarV3": "V3"
+    },
+    "engenheiroPtt": {
+      "label": "Engenheiro por rádio",
+      "on": "Ligado — segure o botão e pergunte; o engenheiro responde por voz.",
+      "off": "Desligado — o engenheiro não responde a perguntas.",
+      "ouvir": "Ouvir",
+      "gatilhoLabel": "Botão para falar",
+      "gatilhoAtual": "Segure {{gatilho}} para perguntar.",
+      "semGatilho": "Nenhum botão associado — o engenheiro não tem como ser chamado.",
+      "pressioneTecla": "Pressione a tecla que quer usar. Escape cancela.",
+      "pressioneBotao": "Aperte o botão no volante. {{n}} dispositivo(s) de jogo encontrado(s).",
+      "capturarTecla": "Tecla",
+      "capturarBotao": "Volante",
+      "limpar": "Limpar",
+      "microfoneLabel": "Microfone",
+      "microfonePadrao": "Padrão do Windows",
+      "teste": {
+        "label": "Testar o rádio",
+        "desc": "Confere o volante, o microfone e os dois juntos — sem precisar do iRacing aberto.",
+        "abrir": "Abrir",
+        "fechar": "Fechar",
+        "volanteTitulo": "Botões do volante",
+        "microfoneTitulo": "Nível do microfone",
+        "juntosTitulo": "Botão e microfone juntos",
+        "procurando": "Procurando dispositivos de jogo…",
+        "semDispositivo": "O Windows não vê nenhum dispositivo de jogo. Ligue o volante antes de abrir o Loop.",
+        "dispositivos": "{{n}} dispositivo(s)",
+        "nenhumBotao": "Aperte qualquer botão do volante.",
+        "botaoAgora": "Dispositivo {{d}} · botão {{b}} apertado agora.",
+        "abrindo": "Abrindo o microfone…",
+        "pico": "Pico: {{v}}",
+        "segureEFale": "Segure o botão associado e fale. Ao soltar, o que foi gravado toca aqui.",
+        "gravando": "Gravando — solte o botão.",
+        "capturou": "Capturou {{s}}s · {{kb}} KB. Ouça abaixo.",
+        "curta": "Curto demais para valer como pergunta — segure o botão enquanto fala.",
+        "modo_eco": "Eco",
+        "modo_cadeia": "Cadeia",
+        "modo_eco_desc": "Grava e toca de volta. Prova o hardware, sem servidor nenhum.",
+        "modo_cadeia_desc": "O encanamento de verdade, passo a passo. A pergunta escrita pula só a transcrição — com ela dá para testar o acervo sem o servidor no ar.",
+        "escrevaPergunta": "Em que posição eu estou?",
+        "perguntar": "Perguntar",
+        "semRastro": "Escreva uma pergunta acima, ou segure o botão e fale.",
+        "forcarModelo": "Forçar o modelo — ignora o acervo e vai ao servidor, mesmo sem corrida aberta (usa fatos de demonstração).",
+        "avisoSemTelemetria": "Sem corrida aberta o acervo responde sempre \"Estou sem dados do carro\" — é o comportamento correto, não uma falha. Marque \"Forçar o modelo\" acima para ir ao servidor com fatos de demonstração."
+      },
+      "microfoneSumiu": "O microfone escolhido não respondeu. Gravando por {{rotulo}}.",
+      "microfoneNaoAberto": "Ainda não aberto — abre ao entrar na sessão ou ao testar o rádio."
     }
   },
   "iracingSemDados": {
@@ -211,6 +274,7 @@
       "toCallup": "Avançar para convocação",
       "skipSpecial": "Pular bloco especial",
       "endSeason": "Encerrar temporada",
+      "seasonNews": "Ver o fechamento do ano",
       "toPreseason": "Avançar para pré-temporada",
       "openMarket": "Abrir mercado",
       "advanceSeason": "Avançar temporada"
@@ -293,6 +357,7 @@
       "raceNumber": "Corrida {{n}}",
       "next": "Próxima",
       "race": "Corrida",
+      "special": "Especial",
       "nextRaceLabel": "Próxima corrida",
       "inDays": "em {{n}} dias",
       "inOneDay": "amanhã"
@@ -391,7 +456,16 @@
       "specialOpen": "O bloco especial já foi aberto, mas ainda não existe resultado registrado. A classificação aparece quando a primeira corrida for simulada.",
       "afterRegular": "Esta competição acontece depois da temporada regular e da janela de convocação. Os resultados aparecem aqui quando o bloco especial for simulado."
     },
-    "fastestLap": "Volta mais rápida"
+    "fastestLap": "Volta mais rápida",
+    "trophy": {
+      "type": {
+        "ouro": "ouro",
+        "prata": "prata",
+        "bronze": "bronze"
+      },
+      "title": "Troféu de {{type}}",
+      "titleDefending": "Troféu de {{type}} · campeão defensor"
+    }
   },
   "globalDrivers": {
     "notLoaded": "Carreira não carregada.",
@@ -499,6 +573,7 @@
       "close": "Fechar titulos"
     },
     "retiredYears": "Há {{count}} anos",
+    "retiredIn": "Aposentado em {{year}}",
     "retired": "Aposentado",
     "specialEvents": "Eventos especiais",
     "backToStandings": "Voltar para Classificacao",
@@ -1216,6 +1291,29 @@
       "breakdownLevelLow": "Baixo",
       "breakdownSpareHint": "Poupar o carro tira {{part}} da zona de abandono — custa um pouco de ritmo.",
       "breakdownRiskDriverTip": "Carro com risco de quebra nesta corrida",
+      "modifiersTitle": "Modificadores do fim de semana",
+      "modifiersEmpty": "Nada fora do normal — chega à etapa no próprio nível.",
+      "modifiersBalance": "Saldo do dia",
+      "modifiersColumnRace": "Corrida",
+      "modifiersColumnQualifying": "Quali",
+      "modifiersFootnote": "Em pontos de skill, antes da largada.",
+      "modifiersTrackKnowledge": "Conhecimento da pista",
+      "modifiersCategoryAdaptation": "Adaptação à categoria",
+      "modifiersInjury": "Lesão",
+      "modifiersTrackAffinity": "Afinidade com o traçado",
+      "modifiersForm": "Forma do momento",
+      "modifiersSetup": "Acerto do fim de semana",
+      "modifiersMotivation": "Motivação",
+      "modifiersPressure": "Pressão",
+      "modifiersRainTitle": "Se molhar",
+      "modifiersRainSkill": "Fator chuva",
+      "modifiersRainLoses": "Perde",
+      "modifiersRainVsField": "Contra o pelotão",
+      "modifiersRainDry": "Etapa seca — a chuva não entra na conta.",
+      "modifiersRainNote": "Na chuva o grid inteiro cai. O que vale é cair menos.",
+      "modifiersWeatherDamp": "Pista úmida",
+      "modifiersWeatherWet": "Chuva",
+      "modifiersWeatherHeavy": "Chuva forte",
       "trackEngineer": "Engenheiro de Pista",
       "teamVoice": "Voz da Equipe",
       "toPress": "· à imprensa",
@@ -1247,6 +1345,15 @@
       "toastPainted": "🎨 Carro pintado na cor {{color}} na sua garagem do iRacing.",
       "teamColorFallback": "do time"
     },
+    "windowMode": {
+      "eyebrow": "Modo janela",
+      "promptTitle": "O Loop precisa do iRacing em modo janela",
+      "promptBody": "O painel não aparece por cima de tela cheia.",
+      "adjust": "Ajustar",
+      "adjusting": "Ajustando…",
+      "notNow": "Agora não",
+      "toastDone": "🖥️ iRacing em modo janela."
+    },
     "toast": {
       "exportedTitle": "Dados exportados",
       "exportedMsg": "Roster e temporada enviados ao iRacing.",
@@ -1268,6 +1375,7 @@
       "advancePreseason": "Não foi possível avançar para a pré-temporada.",
       "noCareerCategory": "Sem carreira ou categoria para exportar.",
       "export": "Não foi possível exportar para o iRacing.",
+      "windowMode": "Não foi possível ajustar o modo janela do iRacing.",
       "skipSeason": "Erro ao pular temporada."
     }
   },
@@ -1293,7 +1401,9 @@
       "back": "Voltar"
     },
     "errors": {
-      "startSeason": "Erro ao iniciar a temporada."
+      "startSeason": "Erro ao iniciar a temporada.",
+      "signOffer": "Não foi possível assinar com esta equipe.",
+      "respondProposal": "Não foi possível responder à proposta."
     },
     "bands": {
       "elite": "Elite",
@@ -1315,7 +1425,8 @@
       "proposal": "Proposta recebida",
       "departure": "Saiu da equipe",
       "promotion": "Promoção",
-      "relegation": "Rebaixamento"
+      "relegation": "Rebaixamento",
+      "retirement": "Aposentadoria"
     },
     "relation": {
       "favorite": "Favorito",
@@ -1351,7 +1462,9 @@
     "roster": {
       "openSlot": "Vaga aberta",
       "tenureNew": "New",
-      "tenureYears": "{{count}} anos"
+      "tenureYears": "{{count}} anos",
+      "contractExpiring": "Contrato vence nesta virada",
+      "retiring": "Aposenta-se no fim desta temporada"
     },
     "grid": {
       "title": "Mapeamento das equipes",
@@ -1508,12 +1621,24 @@
     },
     "displaced": {
       "eyebrow": "Fim da pré-temporada",
-      "title": "Pilotos sem vaga",
-      "subtitle_one": "Este piloto encerrou a pré-temporada sem equipe.",
-      "subtitle_other": "Estes {{count}} pilotos encerraram a pré-temporada sem equipe.",
-      "formerTeam": "Ex-equipe",
-      "seasons_one": "{{count}} temporada",
-      "seasons_other": "{{count}} temporadas"
+      "title_one": "Um piloto ficou sem vaga",
+      "title_other": "{{count}} pilotos ficaram sem vaga",
+      "lead_one": "O grid fechou cheio e ele sobrou. Não corre esta temporada — sai da escada e volta ao mercado só na próxima janela.",
+      "lead_other": "O grid fechou cheio e eles sobraram. Nenhum corre esta temporada — saem da escada e voltam ao mercado só na próxima janela.",
+      "yourTeam_one": "{{drivers}} perdeu a vaga na {{team}} — a sua equipe.",
+      "yourTeam_other": "{{drivers}} perderam a vaga na {{team}} — a sua equipe.",
+      "yourTeamBadge": "Sua equipe",
+      "groupCount_one": "{{count}} piloto",
+      "groupCount_other": "{{count}} pilotos",
+      "seasonsAtTeam_one": "{{count}} temporada na equipe",
+      "seasonsAtTeam_other": "{{count}} temporadas na equipe",
+      "headToHead": "{{player}}–{{rival}}",
+      "headToHeadTooltip_one": "{{count}} corrida ao seu lado — você terminou à frente {{player}}x, ele {{rival}}x",
+      "headToHeadTooltip_other": "{{count}} corridas ao seu lado — você terminou à frente {{player}}x, ele {{rival}}x",
+      "role": {
+        "nemesis": "Nêmesis",
+        "rival": "Rival"
+      }
     },
     "transferDetail": {
       "stayed": "Permaneceu",
@@ -1541,7 +1666,287 @@
       "paintUpdated": "🎨 Cor do carro atualizada para a {{team}}.",
       "newTeamFallback": "nova equipe"
     },
-    "teamHistoryDblClick": "Duplo clique: histórico mundial de equipes"
+    "teamHistoryDblClick": "Duplo clique: histórico mundial de equipes",
+    "stage": {
+      "snapshot": {
+        "title": "O Grid Como Ele Terminou",
+        "subtitle": "Ninguém saiu ainda. Esta é a foto do fim da temporada — o marcador de contrato mostra quais assentos podem abrir.",
+        "action": "Ver Quem Sai"
+      },
+      "departures": {
+        "title": "Quem Perdeu a Vaga",
+        "subtitle": "Os contratos foram encerrados. Nenhuma contratação ainda: o mercado abre na próxima semana.",
+        "action": "Abrir o Mercado"
+      }
+    },
+    "forecast": {
+      "title": "Expectativa",
+      "caption": "Equipes que devem procurar você quando o mercado abrir",
+      "range": "{{min}} a {{max}} equipes de olho em você",
+      "notInMarket": "Você não vai ao mercado nesta janela.",
+      "seatCount_one": "Vaga ao seu alcance quando o mercado abrir",
+      "seatCount_other": "Vagas ao seu alcance quando o mercado abrir",
+      "exact_one": "{{count}} equipe de olho em você",
+      "exact_other": "{{count}} equipes de olho em você"
+    },
+    "v2": {
+      "layout": {
+        "badgeNew": "Layout Novo",
+        "badgeOld": "Layout Antigo",
+        "tryNew": "Ver o layout novo da janela de transferências",
+        "backToOld": "Voltar ao layout antigo"
+      },
+      "header": {
+        "windowLabel": "Janela de Transferências",
+        "weekShort": "S{{week}}",
+        "gateLegend": "S1–S{{until}} Fotografia",
+        "signingsOpenAt": "Contratações abrem na semana {{week}}",
+        "signingsOpenNow": "Contratações liberadas"
+      },
+      "filters": {
+        "openTooltip_one": "{{count}} assento livre nesta categoria",
+        "openTooltip_other": "{{count}} assentos livres nesta categoria",
+        "riskTooltip_one": "{{count}} assento pode abrir nesta categoria",
+        "riskTooltip_other": "{{count}} assentos podem abrir nesta categoria"
+      },
+      "market": {
+        "hoverHint": "Passe o mouse para acender as equipes",
+        "debut": "Estreante",
+        "record_one": "{{result}} · {{count}} temporada",
+        "record_other": "{{result}} · {{count}} temporadas",
+        "countFreeLabel": "Livres",
+        "countEligibleLabel": "Elegíveis",
+        "noRecord": "Sem resultado"
+      },
+      "grid": {
+        "seatsFilled": "{{filled}} de {{total}} assentos ocupados",
+        "atRiskCount_one": "{{count}} pode abrir",
+        "atRiskCount_other": "{{count}} podem abrir",
+        "founded": "Desde {{year}}",
+        "titles_one": "{{count}} título",
+        "titles_other": "{{count}} títulos",
+        "wins_one": "{{count}} vitória",
+        "wins_other": "{{count}} vitórias",
+        "noRecord": "Sem título nesta categoria",
+        "mayOpenTooltip_one": "{{count}} assento pode abrir: fim de contrato ou aposentadoria",
+        "mayOpenTooltip_other": "{{count}} assentos podem abrir: fim de contrato ou aposentadoria",
+        "noVacancy": "Sem vaga"
+      },
+      "window": {
+        "title": "Sua Janela",
+        "statusWaiting": "Aguardando",
+        "statusOpen": "Mercado Aberto",
+        "statusSigned": "Assinado",
+        "unknownDriver": "Piloto",
+        "lastPosition": "{{position}}º na temporada passada",
+        "underContract": "Sob Contrato",
+        "noContract": "Sem Contrato",
+        "formerTeam": "Ex-{{team}}",
+        "forecastTitle": "Expectativa de Procura",
+        "forecastCaption": "Convites prováveis quando o mercado abrir",
+        "reachTitle": "Assentos No Seu Alcance",
+        "reachCaption": "Vagas do grid ao lado cujo nível bate com o seu. As fichas abrem quando o mercado abre.",
+        "reachPromotion": "Promoção",
+        "reachLateral": "Lateral",
+        "reachOpen": "Vaga",
+        "reachLikely": "Pode Abrir",
+        "diaryTitle": "Diário Da Janela",
+        "diaryWeek": "Semana {{week}}",
+        "diaryWeekRange": "Semanas {{from}}–{{to}}",
+        "diaryNow": "Agora",
+        "diary": {
+          "snapshot": "A foto do fim da temporada. Ninguém saiu ainda.",
+          "departures": "Aposentadorias e contratos vencidos liberam os assentos.",
+          "marketOpen": "Os convites chegam e você já pode assinar.",
+          "aiFills": "A IA preenche o grid. Quem espera demais escolhe menos.",
+          "closing": "Última chamada: quem sobrar fica de fora da temporada."
+        },
+        "diaryHide": "Ocultar",
+        "diaryShow": "Como funciona a janela"
+      }
+    }
+  },
+  "myTeamTabV2": {
+    "team": {
+      "fallbackName": "Sua equipe"
+    },
+    "command": {
+      "standing": "{{position}} de {{grid}}",
+      "standingUnknown": "Posição ainda não definida",
+      "points": "{{count}} pontos",
+      "points_one": "{{count}} ponto",
+      "points_other": "{{count}} pontos",
+      "cashRank": "{{position}} maior caixa de {{grid}}",
+      "lastRound": "{{value}} na rodada",
+      "projectionLine": "Ano projetado em {{value}}",
+      "runwayLine": "Fôlego {{value}}",
+      "debtChip": "Dívida {{value}}",
+      "payrollChip": "Folha {{percent}} de {{ceiling}}"
+    },
+    "sections": {
+      "money": "Dinheiro",
+      "team": "A equipe",
+      "grid": "O grid"
+    },
+    "horizons": {
+      "round": "Esta rodada",
+      "season": "Esta temporada",
+      "income": "Entradas",
+      "expenses": "Saídas",
+      "result": "Resultado",
+      "toDate": "Acumulado",
+      "prize": "Prêmio estimado",
+      "projection": "Projeção",
+      "noProjection": "Sem posição de campeonato ainda — a projeção do fim do ano aparece depois da primeira corrida."
+    },
+    "flow": {
+      "title": "Para onde foi o dinheiro desta rodada",
+      "empty": "Sem rodada registrada ainda. O fluxo aparece depois da primeira corrida.",
+      "income": "Entradas",
+      "net": "Sobra",
+      "coverage": "Tirado do caixa",
+      "totalIncome": "Receita da rodada {{value}}"
+    },
+    "ledger": {
+      "title": "O que cada rodada deixou",
+      "legend": "Rodada · Projetado · Prêmio",
+      "empty": "O balanço aparece depois da primeira rodada registrada.",
+      "roundLabel": "R{{round}}",
+      "prize": "Prêmio",
+      "tooltipReal": "Rodada {{round}}: {{value}} · caixa {{cash}}",
+      "tooltipProjected": "Rodada {{round}} (projetada): {{value}} · caixa {{cash}}",
+      "tooltipPrize": "Prêmio de construtores estimado: {{value}}",
+      "readingBreach": "No ritmo atual o caixa fura a reserva de {{reserve}} na rodada {{round}} — e o prêmio de construtores só chega no encerramento.",
+      "readingSafe": "Média de {{average}} por rodada. No ritmo atual você fecha a temporada com {{value}}, contando o prêmio de construtores.",
+      "prizeNote": "A coluna verde é o prêmio de construtores: {{value}} pela {{position}} posição atual entre {{grid}} equipes. Ele só cai no caixa no encerramento da temporada — e a posição ainda pode mudar até lá.",
+      "prizeNoteNoPosition": "A coluna verde é o prêmio de construtores estimado ({{value}}), creditado só no encerramento da temporada."
+    },
+    "lineup": {
+      "title": "A dupla",
+      "payroll": "Folha sobre o teto",
+      "payrollValue": "{{percent}} de {{ceiling}}",
+      "payrollCaption": "Soma dos dois contratos contra o teto salarial da equipe.",
+      "presence": "Presença pública",
+      "presenceCaption": "Multiplica o patrocínio de cada rodada. Sai da mídia da dupla ativa.",
+      "climate": "Clima da garagem",
+      "climateValue": "{{label}} · tensão {{tension}}",
+      "age": "{{count}} anos",
+      "age_one": "{{count}} ano",
+      "age_other": "{{count}} anos",
+      "championshipLabel": "No campeonato",
+      "championshipPending": "Sem posição no campeonato ainda",
+      "salary": "Salário",
+      "payrollShare": "{{percent}} da folha",
+      "tenureFirst": "1ª temporada na equipe",
+      "tenureSeasons": "{{count}} temporadas na equipe",
+      "tenureSeasons_one": "{{count}} temporada na equipe",
+      "tenureSeasons_other": "{{count}} temporadas na equipe",
+      "skill": "Habilidade",
+      "media": "Mídia",
+      "mediaCaption": "Alimenta a presença pública da equipe, que multiplica o patrocínio.",
+      "points": "Pontos",
+      "wins": "Vitórias",
+      "podiums": "Pódios",
+      "costPerPoint": "Custo por ponto",
+      "noPoints": "Sem pontos ainda",
+      "rookie": "Estreante",
+      "injured": "Lesionado",
+      "noDetail": "Assento vazio ou piloto fora da lista da categoria.",
+      "bestOfCategory": "Melhor da categoria.",
+      "rankInCategory": "{{rank}} de {{pool}} na categoria.",
+      "presenceShareTop": "É o rosto da equipe: 70% da presença pública sai da mídia dele.",
+      "presenceShareSecond": "Entra com 30% da presença pública da equipe."
+    },
+    "car": {
+      "title": "O carro",
+      "rulerLegend": "Régua: média do grid",
+      "strategyRisk": "Risco de estratégia no pit",
+      "levelValue": "Nível {{level}}",
+      "meters": {
+        "car_level": "Pacote do carro",
+        "confiabilidade": "Confiabilidade",
+        "pit_crew_quality": "Qualidade do pit crew"
+      },
+      "captions": {
+        "untouched": "Ninguém no grid investiu aqui ainda.",
+        "best": "Melhor do grid.",
+        "worst": "Último do grid.",
+        "rank": "{{rank}}º de {{grid}} no grid."
+      }
+    },
+    "parts": {
+      "title": "O carro, área por área",
+      "empty": "Nenhuma equipe da categoria tem carro registrado ainda.",
+      "youMark": "· Você",
+      "axisReading": "{{level}}/{{max}}",
+      "groupTooltip": "{{group}}: {{parts}}",
+      "readingWeak": "Sua área mais atrasada é {{part}}, {{count}} níveis atrás do melhor do grid.",
+      "readingWeak_one": "Sua área mais atrasada é {{part}}, {{count}} nível atrás do melhor do grid.",
+      "readingWeak_other": "Sua área mais atrasada é {{part}}, {{count}} níveis atrás do melhor do grid.",
+      "readingBest": "Nenhuma área sua está atrás do melhor do grid.",
+      "groups": {
+        "structure": "Estrutura",
+        "aero": "Aerodinâmica",
+        "powertrain": "Motorização",
+        "running_gear": "Rodagem",
+        "systems": "Sistemas"
+      },
+      "names": {
+        "chassis": "Chassi",
+        "engine": "Motor",
+        "front_wing": "Asa dianteira",
+        "rear_wing": "Asa traseira",
+        "underbody": "Assoalho",
+        "sidepods": "Pontoons",
+        "cooling": "Refrigeração",
+        "gearbox": "Câmbio",
+        "brakes": "Freios",
+        "suspension": "Suspensão",
+        "electronics": "Eletrônica"
+      }
+    },
+    "scatter": {
+      "title": "Quem transforma dinheiro em resultado",
+      "legendAbove": "Acima do esperado",
+      "legendBelow": "Abaixo do esperado",
+      "legendBand": "Dentro da faixa",
+      "axisPoints": "Pontos",
+      "empty": "A dispersão precisa de pelo menos três equipes na categoria.",
+      "emptyNoPoints": "A comparação começa quando a categoria pontuar. Com o grid inteiro no zero, não há conversão de caixa em resultado para medir.",
+      "pointTooltip": "{{team}} · {{cash}} · {{points}} pontos · {{residual}} vs. o esperado",
+      "readingAbove": "Pontos acima do que o seu caixa explica.",
+      "readingBelow": "Pontos abaixo do que o seu caixa explica.",
+      "readingOnPar": "Dentro do que o seu caixa explica — a diferença cabe no ruído do grid.",
+      "rankLabel": "Conversão",
+      "rankValue": "{{position}}º de {{grid}}",
+      "bestLabel": "Melhor do grid",
+      "worstLabel": "Pior do grid",
+      "toleranceLabel": "Faixa do grid"
+    },
+    "comparative": {
+      "eyebrow": "Comparativo de gestão e performance",
+      "title": "Ranking da categoria",
+      "columns": {
+        "team": "Equipe",
+        "points": "Pontos",
+        "car": "Carro",
+        "reliability": "Confiab.",
+        "pitCrew": "Pit crew",
+        "cash": "Caixa"
+      }
+    },
+    "garage": {
+      "title": "A garagem",
+      "tensionCaption": "Acima de 50 a tensão começa a derrubar a moral da equipe."
+    },
+    "bond": {
+      "inversions": "{{count}} inversões de hierarquia nesta temporada.",
+      "inversions_one": "{{count}} inversão de hierarquia nesta temporada.",
+      "inversions_other": "{{count}} inversões de hierarquia nesta temporada.",
+      "presenceReturn": "Na última rodada rendeu {{sponsorship}} de patrocínio.",
+      "presenceReturnWithGate": "Na última rodada rendeu {{sponsorship}} de patrocínio e {{gate}} de bilheteria.",
+      "tensionCaption": "Acima de 50 a tensão começa a derrubar a moral da equipe."
+    }
   },
   "myTeamTab": {
     "errors": {
@@ -1804,8 +2209,8 @@
       "tablistAria": "Abas do arquivo compacto",
       "tabs": {
         "records": "Records",
-        "sport": "Esportivo",
-        "identity": "Identidade",
+        "sport": "Identidade",
+        "identity": "Rival",
         "management": "Gestão",
         "categories": "Categorias"
       },
@@ -1828,18 +2233,20 @@
         "rankOf": "{{rank}} de {{total}}",
         "bestRankAria": "Melhor colocação da equipe no grupo: {{rank}}º",
         "topFivePerRace": "Top 5 por corrida",
-        "topFivePerRaceLegend": "Cada coluna é a fatia das corridas do ano que terminaram no top 5.",
+        "topFivePerRaceLegend": "Cada coluna é a fatia das corridas do ano que terminaram no top 5; o vermelho desce do teto com os abandonos.",
         "categoryBand": "Categoria",
         "medals": {
           "first": "1º",
           "second": "2º",
           "third": "3º",
-          "nearMiss": "4º-5º"
+          "nearMiss": "4º-5º",
+          "dnf": "DNF"
         },
         "seasonTooltip": {
           "meta": "{{position}} no campeonato · {{topFive}} de {{races}} corridas no top 5",
           "metaNoPosition": "{{topFive}} de {{races}} corridas no top 5",
           "count": "{{value}}× {{label}}",
+          "countShort": "{{value}}×",
           "empty": "Nenhum resultado no top 5",
           "absent": "{{year}}\nA equipe não disputou esta temporada",
           "elsewhere": "{{year}} · {{category}}\nA equipe correu fora deste recorte de categorias"
@@ -1862,7 +2269,7 @@
         "formTooltipNoPosition": "{{year}} · R{{round}} · {{category}} — sem posição registrada",
         "championshipCurve": "Curva de campeonato",
         "championshipPodium": "pódio do campeonato",
-        "curveTooltip": "{{year}} · {{category}} — P{{position}} no campeonato",
+        "curveTooltip": "{{year}} · {{category}} — P{{position}} no campeonato · {{points}} pts",
         "resultSpread": "Assinatura de resultados",
         "spreadRaces": "{{value}} corridas",
         "spreadValue": "{{value}} ({{percent}}%)",
@@ -1903,6 +2310,12 @@
         "lineupCount": "{{value}} passagens",
         "lineupCurrent": "Atual",
         "alumniWins": "{{value}}x",
+        "bestDrivers": "Melhores pilotos",
+        "bestDriversScope": "Por títulos, vitórias e pódios vestindo a equipe",
+        "bestColTitles": "Tít",
+        "bestColWins": "Vit",
+        "bestColPodiums": "Pód",
+        "bestColRaces": "Corr",
         "layoutToClassic": "Layout clássico",
         "layoutToArranged": "Layout arrumado",
         "groupFinish": "Como a equipe termina",
@@ -1922,7 +2335,14 @@
           "pontos": "Pontos"
         },
         "runPositionAxis": "POS",
-        "runFieldNotePosition": "Colocação no campeonato ao fim de cada rodada — a linha sobe quando a equipe ganha posições. As outras {{value}} equipes em cinza."
+        "runFieldNotePosition": "Colocação no campeonato ao fim de cada rodada — a linha sobe quando a equipe ganha posições. As outras {{value}} equipes em cinza.",
+        "evolutionView": {
+          "temporadas": "Entre campeonatos",
+          "campanha": "Campeonato atual"
+        },
+        "championshipTitle": "Campeonato",
+        "curveScope": "{{from}}–{{to}}",
+        "curveStanding": "P{{position}} · {{year}}"
       },
       "loading": "Carregando histórico real da equipe...",
       "identity": {
@@ -1935,7 +2355,48 @@
         "rivalLabel": "Maior rival histórico",
         "rivalToday": "Hoje em {{category}}.",
         "symbolLabel": "Piloto símbolo",
-        "erasLabel": "Eras da equipe"
+        "erasLabel": "Eras da equipe",
+        "tile": {
+          "races": "Corridas",
+          "wins": "Vitórias",
+          "podiums": "Pódios",
+          "podiumRate": "Taxa de pódio",
+          "seasons": "Temporadas",
+          "steps": "Degraus",
+          "rookies": "Estreantes",
+          "grid": "Média do grid",
+          "onArrival": "Anos na chegada"
+        },
+        "trajectoryLabel": "Trajetória",
+        "trajectoryRooted_one": "Nunca mudou de degrau em {{count}} temporada.",
+        "trajectoryRooted_other": "Nunca mudou de degrau em {{count}} temporadas.",
+        "trajectoryMoved_one": "{{count}} degrau da escada até chegar aqui.",
+        "trajectoryMoved_other": "{{count}} degraus da escada até chegar aqui.",
+        "rivalHeuristic": "Leitura por tabela",
+        "rivalHeadToHead": "Confronto direto",
+        "rivalNoClash": "Ainda sem confronto",
+        "rivalScopeNote": "Onde se cruzam",
+        "rivalLastMeeting": "Último encontro",
+        "rivalLastMeetingResult": "{{position}}º contra {{rivalPosition}}º",
+        "rivalAgeNow": "Nesta rodada",
+        "rivalAgeWeeks_one": "Há {{count}} semana",
+        "rivalAgeWeeks_other": "Há {{count}} semanas",
+        "rivalAgeMonths_one": "Há {{count}} mês",
+        "rivalAgeMonths_other": "Há {{count}} meses",
+        "rivalAgeYears_one": "Há {{count}} ano",
+        "rivalAgeYears_other": "Há {{count}} anos",
+        "rivalAgeUnknown": "Data desconhecida",
+        "rivalAxisHistorical": "Peso histórico",
+        "rivalAxisRecent": "Calor recente",
+        "symbolStillHere": "Ainda na equipe",
+        "symbolGone": "Já saiu",
+        "recruitmentLabel": "DNA de recrutamento",
+        "recruitmentRatio": "{{rookies}}/{{drivers}}",
+        "recruitmentSummary": "{{share}}% de estreantes contra {{field}}% do grid · {{average}} anos de carreira na chegada.",
+        "trackFavouriteLabel": "Pista favorita",
+        "trackBogeyLabel": "Pista indigesta",
+        "trackDetail_one": "{{count}} corrida · média {{average}}º · melhor {{best}}º",
+        "trackDetail_other": "{{count}} corridas · média {{average}}º · melhor {{best}}º"
       },
       "management": {
         "title": "Gestão e dinheiro",
@@ -1945,8 +2406,17 @@
         "healthyYears": "Temporadas saudáveis",
         "recordBalance": "Saldo recorde",
         "recordBalanceDetail": "Melhor folga já registrada pela operação.",
-        "biggestInvestment": "Maior investimento técnico",
-        "boardChanges": "Mudanças de diretoria"
+        "biggestInvestment": "Pacote técnico",
+        "boardChanges": "Mudanças de diretoria",
+        "cashCurve": "Curva de caixa",
+        "cashCurveScale": "pico {{peak}} · dívida {{debt}}",
+        "seasonShort": "T{{season}}",
+        "moneyFlow": "Fluxo de dinheiro",
+        "flowWindowOne": "temporada {{season}}",
+        "flowWindowRange": "temporadas {{first}}–{{last}}",
+        "flowTrunk": "Receita total {{value}}",
+        "flowBalance": "Saldo",
+        "flowCoverage": "Reservas e dívida"
       },
       "categories": {
         "title": "Movimento por categorias",
@@ -1961,7 +2431,27 @@
           "relegation": "Rebaixamento",
           "start": "Estreia",
           "same": "Manteve o nível"
-        }
+        },
+        "peakCategory": "Teto alcançado",
+        "homeCategory": "Degrau de casa",
+        "trajectory": "Trajetória ano a ano",
+        "byCategory": "Por categoria",
+        "rungNever": "Nunca correu",
+        "rungCurrent": "Agora",
+        "rungPeak": "Teto",
+        "rungSeasons_one": "{{count}} ano",
+        "rungSeasons_other": "{{count}} anos",
+        "tallyWins_zero": "{{count}} vitórias",
+        "tallyWins_one": "{{count}} vitória",
+        "tallyWins_other": "{{count}} vitórias",
+        "tallyPodiums_zero": "{{count}} pódios",
+        "tallyPodiums_one": "{{count}} pódio",
+        "tallyPodiums_other": "{{count}} pódios",
+        "timeBarDetail_one": "{{count}} ano · {{races}} corridas",
+        "timeBarDetail_other": "{{count}} anos · {{races}} corridas",
+        "trajectoryYear": "{{year}} · {{category}}",
+        "trajectoryOutside": "{{year}} · {{category}} — fora deste recorte",
+        "trajectoryEmpty": "{{year}} — sem corrida"
       },
       "timeline": {
         "title": "Momentos-chave"
@@ -2269,6 +2759,65 @@
         "equipe": "Equipe",
         "reparo": "Reparo"
       }
+    },
+    "invoice": {
+      "expense": "Despesa da etapa",
+      "income": "Receita da etapa",
+      "result": "Saldo",
+      "fixedCost": "Custo fixo do ano",
+      "fixedCostNote": "Folha, sede e frota não variam por corrida — entram no fechamento da temporada. Sua fatia por etapa: {{share}}.",
+      "blocks": {
+        "corrida": "Corrida",
+        "logistica": "Logística",
+        "equipe": "Equipe",
+        "receita": "Receita",
+        "reparo": "Reparo"
+      },
+      "lines": {
+        "combustivel": "Combustível",
+        "pneus": "Pneus",
+        "revisao_mecanica": "Revisão mecânica",
+        "peca_de_reposicao": "Peça de reposição",
+        "revisao": "Revisão mecânica",
+        "frete": "Frete",
+        "viagem_e_estadia": "Viagem e estadia",
+        "inscricao": "Inscrição",
+        "diarias": "Diárias da equipe",
+        "custo_fixo_do_ano": "Custo fixo do ano",
+        "premio_da_etapa": "Prêmio da etapa",
+        "bonus_por_resultado": "Bônus por resultado",
+        "bilheteria": "Bilheteria",
+        "patrocinio": "Patrocínio",
+        "viagem": "Passagens",
+        "estadia": "Hospedagem",
+        "folha_tecnica": "Folha técnica",
+        "folha_de_pilotos": "Folha de pilotos",
+        "sede": "Sede",
+        "frota": "Frota",
+        "seguro_e_licenca": "Seguro e licença",
+        "suporte_de_fabrica": "Suporte de fábrica",
+        "simulador": "Simulador",
+        "aquisicao_de_dados": "Aquisição de dados",
+        "carroceria": "Carroceria",
+        "suspensao": "Suspensão",
+        "freio": "Freio",
+        "embreagem": "Embreagem",
+        "motor": "Motor",
+        "cambio": "Câmbio"
+      },
+      "units": {
+        "litro": "L",
+        "jogo_de_pneu": "jogos",
+        "km": "km",
+        "km_de_frete": "km",
+        "pessoa": "pessoas",
+        "pessoa_noite": "diárias",
+        "pessoa_dia": "pessoas/dia",
+        "carro": "carros",
+        "pessoa_ano": "pessoas/ano",
+        "ano": "ano",
+        "valor": "valor"
+      }
     }
   },
   "newsMagazine": {
@@ -2328,7 +2877,8 @@
         "comingSoon": "✦ Prévia por IA · em breve"
       },
       "generating": "Escrevendo a prévia da temporada…",
-      "placeholder": "A prévia da temporada ainda não está disponível. Ao lado, as equipes da categoria com o campeonato ainda zerado."
+      "placeholder": "A prévia da temporada ainda não está disponível. Ao lado, as equipes da categoria com o campeonato ainda zerado.",
+      "articleCont": "A matéria continua"
     },
     "mailbox": {
       "inbox": "Caixa de entrada",
@@ -2388,17 +2938,17 @@
     "moment": {
       "title": "Momento Atual",
       "recentForm": "Forma recente",
-      "recentAverage": "Media recente",
+      "recentAverage": "Média recente",
       "formStatus": "Status de forma",
       "trend": "Tendência",
-      "contractStatus": "Situacao contratual",
+      "contractStatus": "Situação contratual",
       "team": "Equipe",
-      "role": "Funcao",
+      "role": "Função",
       "salary": "Salário",
       "expiresIn": "Expira em",
       "expiresValue_one": "{{count}} ano",
       "expiresValue_other": "{{count}} anos",
-      "term": "Vigencia",
+      "term": "Vigência",
       "noContract": "Sem contrato ativo no momento."
     },
     "attributes": {
@@ -2411,14 +2961,14 @@
       "habilidade_largada": "Largada",
       "adaptabilidade": "Adaptabilidade",
       "fator_chuva": "Chuva",
-      "fitness": "Forma Fisica",
-      "experiencia": "Experiencia",
+      "fitness": "Forma Física",
+      "experiencia": "Experiência",
       "desenvolvimento": "Desenvolvimento",
       "aggression": "Agressividade",
       "smoothness": "Suavidade",
-      "midia": "Midia",
+      "midia": "Mídia",
       "mentalidade": "Mentalidade",
-      "confianca": "Confianca"
+      "confianca": "Confiança"
     },
     "momentBuilder": {
       "forte": "Em alta",
@@ -2462,7 +3012,18 @@
       "unknownExpectation": "Expectativa desconhecida",
       "noCompetitivePast": "Sem passado competitivo para comparar.",
       "unavailableForRookie": "Indisponível para estreante",
-      "noCompetitivePastRead": "Sem passado competitivo para sustentar esta leitura."
+      "noCompetitivePastRead": "Sem passado competitivo para sustentar esta leitura.",
+      "pointsShort_one": "{{count}} ponto",
+      "pointsShort_other": "{{count}} pontos",
+      "gapToLeader_one": "{{count}} ponto do líder",
+      "gapToLeader_other": "{{count}} pontos do líder",
+      "leadingChampionship": "líder do campeonato",
+      "gapToNext": "+{{gap}} sobre o P{{position}}",
+      "winsCount_one": "{{count}} vitória",
+      "winsCount_other": "{{count}} vitórias",
+      "podiumsCount_one": "{{count}} pódio",
+      "podiumsCount_other": "{{count}} pódios",
+      "driverProfile": "Perfil do piloto"
     },
     "quality": {
       "title": "Mapa de Qualidade",
@@ -2483,7 +3044,66 @@
       "carTeam": "Carro/equipe",
       "internalCompare": "Comparativo interno",
       "teammate": "Companheiro",
-      "noComparisonContext": "Sem contexto suficiente para comparar o desempenho."
+      "noComparisonContext": "Sem contexto suficiente para comparar o desempenho.",
+      "deliveredShort": "P{{position}} entregue",
+      "expectedShort": "P{{position}} esperado",
+      "duelAhead_one": "Abre {{count}} ponto de vantagem",
+      "duelAhead_other": "Abre {{count}} pontos de vantagem",
+      "duelBehind_one": "Fica {{count}} ponto atrás",
+      "duelBehind_other": "Fica {{count}} pontos atrás",
+      "duelTied": "Empatados"
+    },
+    "v2": {
+      "tablistAria": "Seções da ficha do piloto",
+      "sections": {
+        "historico": "Histórico",
+        "temporada": "Temporada atual",
+        "rivais": "Rivais",
+        "mercado": "Mercado",
+        "habilidade": "Habilidade",
+        "perfil": "Perfil"
+      },
+      "rankOf": "{{rank}} de {{total}}",
+      "openRanking": "Ver todos os pilotos por {{label}}",
+      "rankTitle": "{{rank}} do mundo",
+      "worldScope_one": "Comparado com {{count}} piloto do mundo.",
+      "worldScope_other": "Comparado com {{count}} pilotos do mundo.",
+      "scope": {
+        "world": "Mundial",
+        "grid": "Grid atual",
+        "aria": "Base de comparação dos números de carreira"
+      },
+      "worldScopeUnknown": "Sem base de comparação para as posições de carreira.",
+      "medals": {
+        "first": "Vitória",
+        "second": "2º",
+        "third": "3º",
+        "rest": "Demais"
+      },
+      "form": {
+        "tooltip": "Rodada {{round}} · P{{position}}",
+        "tooltipDnf": "Rodada {{round}} · abandono",
+        "seasonCurrent": "{{year}} · atual",
+        "seasonAverage": "média P{{value}}",
+        "seasonDnfs_one": "{{count}} DNF",
+        "seasonDnfs_other": "{{count}} DNFs"
+      },
+      "milestonesTitle": "Marcos da carreira",
+      "transferChance": "Chance de troca",
+      "highlightChampionship": "P{{position}} no campeonato.",
+      "highlightSeasonTally": "{{wins}} vitórias, {{podiums}} pódios.",
+      "highlightStreak_one": "{{count}} vitória seguida",
+      "highlightStreak_other": "{{count}} vitórias seguidas",
+      "highlightTitles_one": "{{count}} título conquistado.",
+      "highlightTitles_other": "{{count}} títulos conquistados.",
+      "titleBadge_one": "campeão",
+      "titleBadge_other": "{{count}}× campeão",
+      "worldRankTitle": "Ranking mundial — {{total}} pilotos na conta",
+      "worldRankIndex": "índice {{value}}",
+      "highlightStreakYear": "Em {{year}}.",
+      "highlightStreakRange": "Entre {{start}} e {{end}}.",
+      "titlesMoreTeams_one": "e mais {{count}} título em outras equipes",
+      "titlesMoreTeams_other": "e mais {{count}} títulos em outras equipes"
     },
     "history": {
       "title": "Histórico de Carreira",
@@ -2503,6 +3123,8 @@
       "groupPresence": "PRESENÇA",
       "groupFirstMarks": "PRIMEIROS MARCOS",
       "groupPeak": "AUGE",
+      "groupDrought": "QUEDA",
+      "groupReliability": "CONFIABILIDADE",
       "groupMobility": "MOBILIDADE",
       "groupInjuries": "LESÕES",
       "groupSpecialEvents": "EVENTOS ESPECIAIS",
@@ -2510,12 +3132,21 @@
       "seasonsPlayed": "Temporadas disputadas",
       "yearsUnemployed": "Anos desempregado",
       "categoriesContested": "Categorias disputadas",
-      "firstPodium": "Primeiro pódio",
+      "firstTitle": "Primeiro título",
       "firstWin": "Primeira vitória",
+      "firstPodium": "Primeiro pódio",
       "firstDnf": "Primeiro DNF",
       "bestSeason": "Melhor temporada",
       "bestChampionship": "Melhor campeonato",
       "longestWinStreak": "Maior sequência de vitórias",
+      "longestWinless": "Maior jejum de vitórias",
+      "longestPodiumless": "Maior jejum de pódios",
+      "worstSeason": "Pior temporada",
+      "seasonsWithoutPodium": "Temporadas sem pódio",
+      "retirements": "Abandonos",
+      "retirementRate": "Taxa de abandono",
+      "longestFinishStreak": "Maior sequência de chegadas",
+      "streakWithPeriod": "{{count}} ({{period}})",
       "promotions": "Promoções",
       "relegations": "Rebaixamentos",
       "teamsDefended": "Equipes defendidas",
@@ -2531,7 +3162,69 @@
       "milestoneNever": "Nunca",
       "milestoneRace": "{{value}}ª corrida",
       "yearsAverage_one": "{{value}} ano",
-      "yearsAverage_other": "{{value}} anos"
+      "yearsAverage_other": "{{value}} anos",
+      "groupQualifying": "SÁBADO",
+      "groupTeammates": "DUELOS",
+      "poles": "Poles",
+      "polesConverted": "Poles convertidas",
+      "averageGrid": "Grid médio",
+      "fastestLaps": "Voltas rápidas",
+      "teammatesFaced": "Companheiros enfrentados",
+      "duelSeasonsWon": "Temporadas vencidas",
+      "toughestTeammate": "Mais duro",
+      "duelRecord": "{{wins}}-{{losses}}",
+      "duelSeasonsOf": "{{won}} de {{total}}",
+      "longestPodiumStreak": "Maior sequência de pódios",
+      "seasonsInTop3": "Temporadas no pódio do campeonato",
+      "worldAverage": "média {{value}}",
+      "tooltipRaces_one": "{{count}} corrida",
+      "tooltipRaces_other": "{{count}} corridas",
+      "tooltipSeasons_one": "{{count}} temporada",
+      "tooltipSeasons_other": "{{count}} temporadas",
+      "tooltipAge": "{{count}} anos",
+      "tooltipRound": "Rodada {{round}}",
+      "tooltipRaceNumber": "{{count}}ª corrida da carreira",
+      "tooltipNoTeam": "sem equipe registrada",
+      "tooltipHint": "passe o mouse para ver",
+      "tooltipPinHint": "pare o mouse para prender · botão do meio",
+      "tooltipPinned": "preso · Esc, × ou clique fora solta",
+      "tooltipRelease": "Soltar o painel",
+      "tooltipBestFinish": "melhor: P{{position}}",
+      "recordsToggle": "Recordes",
+      "rankGrid": "{{rank}} de {{total}} no grid",
+      "rankWorld": "{{rank}} de {{total}} no mundo",
+      "rankScopeGrid": "Grid de {{count}}",
+      "rankScopeWorld": "mundo de {{count}}",
+      "tooltipDebutTeam": "Equipe de estreia",
+      "tooltipCurrentTeam": "Equipe atual",
+      "tooltipLastTeam": "Última equipe",
+      "championshipCurve": {
+        "blockLabel": "Onde ele terminou",
+        "title": "Posição no campeonato, ano a ano",
+        "finish": "Posição final",
+        "ofGrid": "{{position}} de {{count}}",
+        "noStandings": "Sem classificação",
+        "sameCar": "Monomarca: carro igual para todos",
+        "tally": "{{races}}C · {{wins}}V · {{podiums}}P",
+        "tallyHeader": "Corridas · V · P",
+        "champion": "Campeão da temporada",
+        "stillRunning": "Campeonato em disputa",
+        "ongoing": "Em disputa",
+        "gained_one": "Ganhou 1 posição na troca",
+        "gained_other": "Ganhou {{count}} posições na troca",
+        "lost_one": "Perdeu 1 posição na troca",
+        "lost_other": "Perdeu {{count}} posições na troca",
+        "sameFinish": "Mesma posição na casa nova",
+        "missing_one": "Em 1 temporada corrida o arquivo não guardou a classificação — a linha se parte ali.",
+        "missing_other": "Em {{count}} temporadas corridas o arquivo não guardou a classificação — a linha se parte ali.",
+        "expected": "Esperado pelo carro",
+        "noExpected": "Sem referência",
+        "above_one": "1 posição acima do que o carro dava",
+        "above_other": "{{count}} posições acima do que o carro dava",
+        "below_one": "1 posição abaixo do que o carro dava",
+        "below_other": "{{count}} posições abaixo do que o carro dava",
+        "onPar": "Exatamente onde o carro dava"
+      }
     },
     "rivals": {
       "title": "Rivais",
@@ -2541,7 +3234,41 @@
       "type": "Tipo",
       "historyLabel": "Histórico",
       "recent": "Recente",
-      "noMainRival": "Ainda não há rival principal para comparar."
+      "noMainRival": "Ainda não há rival principal para comparar.",
+      "memory": "Memória",
+      "heat": "Calor agora",
+      "levels": {
+        "atrito_leve": "Atrito leve",
+        "inicial": "Rivalidade inicial",
+        "clara": "Rivalidade clara",
+        "forte": "Rivalidade forte",
+        "intensa": "Rivalidade intensa"
+      },
+      "origins": {
+        "colisao": "Nasceu de um toque na pista.",
+        "companheiros": "Nasceu dividindo o mesmo box.",
+        "campeonato": "Nasceu de uma briga por título.",
+        "pista": "Nasceu de disputas repetidas na pista."
+      },
+      "sharedRaces_one": "{{count}} corrida juntos",
+      "sharedRaces_other": "{{count}} corridas juntos",
+      "noSharedRaces": "Ainda não dividiram um grid.",
+      "meetingStamp": "{{track}} · {{year}}",
+      "noWinner": "sem duelo",
+      "openProfile": "Ver ficha",
+      "lastRaces": "Últimas {{count}}",
+      "streak": "Sequência",
+      "streakValue_one": "{{count}} p/ {{name}}",
+      "streakValue_other": "{{count}} p/ {{name}}",
+      "qualifying": "Classificação",
+      "averageGap": "Gap médio",
+      "gapValue": "{{value}}s",
+      "teammateSpell": "Dividiram box na {{team}} em {{years}}.",
+      "teammateNoTeam": "mesma equipe",
+      "teammateScore": "Mesmo carro: {{wins}} a {{losses}} para {{driver}} sobre {{rival}}.",
+      "awayCategory": "Corre na {{category}} — não dividem mais o grid.",
+      "emptyTitle": "Ainda ninguém",
+      "emptyBody": "Rivalidade nasce de um toque na pista, de uma briga por título ou de dividir o mesmo box."
     },
     "stardom": {
       "title": "Estrelato",
@@ -2561,7 +3288,64 @@
       "marketValue": "Valor: {{value}}",
       "salaryRange": "Faixa salarial: {{value}}",
       "transferChance": "Chance de troca: {{value}}%",
-      "noMarketSignals": "Sem sinais fortes de mercado no momento."
+      "noMarketSignals": "Sem sinais fortes de mercado no momento.",
+      "freeAgent": "Sem contrato ativo — está livre para assinar com qualquer equipe na próxima janela.",
+      "transferMeter": "Chance de troca",
+      "marketValueLabel": "Valor de mercado",
+      "wouldPay": "O mercado pagaria",
+      "gap": "{{value}} vs. contrato",
+      "expiresNow": "Expira nesta janela",
+      "lastYear": "Último ano",
+      "forces": {
+        "contrato": "Fim de contrato",
+        "motivacao": "Desmotivação",
+        "mercado": "Interesse de fora"
+      },
+      "forceHints": {
+        "contrato": "O prazo em si: contrato acabando empurra o piloto para o mercado, contrato longo o segura no lugar.",
+        "motivacao": "O quanto ele está insatisfeito onde está. Piloto contente não pesa nada aqui.",
+        "mercado": "Talento cobiçado: acima de certo nível, outras equipes vêm atrás dele mesmo satisfeito."
+      },
+      "priceTag": {
+        "pechincha": "Pechincha",
+        "faixa": "Na faixa",
+        "inflado": "Acima do mercado"
+      },
+      "curve": {
+        "title": "O que ganhou × o que valia",
+        "paid": "Salário contratado",
+        "worth": "O mercado pagaria",
+        "season": "Ano",
+        "category": "Categoria",
+        "team": "Equipe",
+        "teamChange": "Troca de equipe",
+        "leftTeam": "Saiu",
+        "joinedTeam": "Assinou",
+        "salaryDelta": "{{value}} no salário",
+        "noTeam": "Sem contrato",
+        "gapValue": "{{value}} de diferença",
+        "showTable": "Ver tabela",
+        "showChart": "Ver gráfico",
+        "noArchive": "Sem arquivo",
+        "noContract": "Sem contrato",
+        "notYet": "Ainda não corrida",
+        "today": "Hoje",
+        "contracted": "Já contratado",
+        "missing_one": "Em {{count}} temporada o arquivo não permite reconstruir o valor — a linha laranja se parte ali.",
+        "missing_other": "Em {{count}} temporadas o arquivo não permite reconstruir o valor — a linha laranja se parte ali."
+      },
+      "annualCost": "Custo anual",
+      "paidShort": "Contratado",
+      "worthShort": "Mercado",
+      "rankInGrid": "{{rank}} de {{total}} em {{category}}",
+      "trendAgainst": "Em {{year}} valia {{value}}",
+      "overpaid": "A equipe paga {{value}} a mais do que ele vale hoje.",
+      "underpaid": "Ele corre por {{value}} a menos do que vale hoje.",
+      "fairPaid": "O salário está na faixa que o mercado pagaria por ele.",
+      "noEstimate": "Sem avaliação de mercado para comparar com o salário.",
+      "freeAgentCost": "Sem contrato: não há salário para comparar com a avaliação.",
+      "remainingYears_one": "{{count}} ano restante",
+      "remainingYears_other": "{{count}} anos restantes"
     },
     "playerSkill": {
       "title": "Dossiê de Habilidade",
@@ -2593,7 +3377,72 @@
       "seasonsBase_one": "{{count}} temporada de base",
       "seasonsBase_other": "{{count}} temporadas de base",
       "noHistory": "Sem histórico suficiente para montar o dossiê ainda."
+    },
+    "profileTab": {
+      "technicalTitle": "Leitura técnica",
+      "groups": {
+        "volta_seca": "Velocidade",
+        "corrida": "Corrida",
+        "condicoes": "Condições"
+      },
+      "styleTitle": "Estilo",
+      "tooltipMedian": "Mediana do grid",
+      "sinceLastSeason": "Desde a temporada passada",
+      "phases": {
+        "formacao": "Formação",
+        "ascensao": "Ascensão",
+        "auge": "Auge",
+        "plato": "Platô",
+        "crepusculo": "Fim"
+      },
+      "ceiling": "Teto",
+      "development": "Evolução",
+      "experience": "Experiência"
     }
+  },
+  "driverMiniCard": {
+    "loading": "Carregando...",
+    "loadError": "Não foi possível carregar a ficha do piloto.",
+    "close": "Fechar ficha",
+    "age_one": "{{count}} ano",
+    "age_other": "{{count}} anos",
+    "noTeam": "Sem equipe",
+    "contract_one": "{{salary}} · {{count}} temporada de contrato",
+    "contract_other": "{{salary}} · {{count}} temporadas de contrato",
+    "contractFinalYear": "{{salary}} · Último ano de contrato",
+    "noContract": "Sem contrato",
+    "career": "Carreira",
+    "titles": "Títulos",
+    "races": "Corridas",
+    "wins": "Vitórias",
+    "podiums": "Pódios",
+    "poles": "Poles",
+    "thisTeam": "Nesta Equipe",
+    "notRacedYet": "Ainda não largou por eles",
+    "seasons": "Temp.",
+    "season": "Temporada",
+    "seasonLine": "{{races}} corridas · {{wins}} vitórias · {{podiums}} pódios",
+    "form": "Últimas Corridas",
+    "dnfShort": "AB",
+    "average": "Média {{value}}",
+    "traits": "Pontos Fortes"
+  },
+  "teamMiniCard": {
+    "close": "Fechar ficha",
+    "founded": "Desde {{year}}",
+    "noFoundedYear": "Fundação desconhecida",
+    "season": "Temporada",
+    "position": "Posição",
+    "points": "Pontos",
+    "wins": "Vitórias",
+    "structure": "Estrutura",
+    "cash": "Caixa",
+    "inCategory": "Nesta Categoria",
+    "titles_one": "{{count}} título",
+    "titles_other": "{{count}} títulos",
+    "categoryWins_one": "{{count}} vitória",
+    "categoryWins_other": "{{count}} vitórias",
+    "noRecord": "Sem título nem vitória nesta categoria"
   },
   "poachAuction": {
     "header": {
@@ -2955,8 +3804,7 @@
     "chart": {
       "ariaLabel": "Evolução dos pontos por etapa",
       "stageTick": "E{{n}}",
-      "title": "Pontos ao longo da temporada",
-      "hint": "acumulado · {{rounds}} etapas"
+      "title": "Pontos ao longo da temporada"
     },
     "dialogLabel": "Campeão da Temporada",
     "head": {
@@ -2965,34 +3813,160 @@
       "subtitleOther": "A {{series}} tem um novo campeão."
     },
     "close": "Fechar (Esc)",
+    "points": "{{count}} pts",
     "hero": {
       "pointsLabel": "pontos",
       "kicker": "Campeão da Temporada",
       "forTeam": "pela",
       "youExclaim": "É você!",
-      "clinchPre": "Título garantido por",
+      "stats": {
+        "wins": "Vitórias",
+        "podiums": "Pódios",
+        "poles": "Poles",
+        "fastestLaps": "V. rápidas",
+        "rounds": "Etapas"
+      },
+      "clinchPre": "Título fechado com",
       "clinchPoints": "{{count}} pontos",
       "clinchPoints_one": "{{count}} ponto",
       "clinchPoints_other": "{{count}} pontos",
-      "clinchPost": "na última etapa da temporada."
+      "clinchPost": "de vantagem sobre o vice."
     },
-    "reward": {
-      "title": "Sua recompensa"
-    },
-    "youParen": "(você)",
     "podium": {
       "title": "Pódio final"
     },
+    "tabs": {
+      "label": "Campeonato em exibição",
+      "drivers": "Pilotos",
+      "constructors": "Construtores"
+    },
+    "constructors": {
+      "title": "Classificação de construtores",
+      "kicker": "Equipe campeã",
+      "chartTitle": "Pontos das equipes ao longo da temporada",
+      "chartAria": "Evolução dos pontos das equipes por etapa",
+      "lineup": "Formação",
+      "yourTeam": "Sua equipe!",
+      "clinchPre": "Título de construtores fechado com",
+      "clinchPost": "de vantagem sobre a vice.",
+      "stats": {
+        "wins": "Vit.",
+        "podiums": "Pód.",
+        "poles": "Poles",
+        "fastestLaps": "V. rápidas"
+      },
+      "wins": "{{count}} vitórias",
+      "wins_one": "{{count}} vitória",
+      "wins_other": "{{count}} vitórias",
+      "noWins": "Sem vitórias"
+    },
     "awards": {
       "title": "Prêmios da temporada",
-      "hint": "menções especiais"
+      "context": "{{team}} · {{position}}º no campeonato",
+      "contextNoTeam": "{{position}}º no campeonato",
+      "items": {
+        "grand_chelem": {
+          "title": "Grand Chelem",
+          "detail": "Em {{track}}: pole, vitória e volta mais rápida na mesma etapa."
+        },
+        "duelo": {
+          "title": "Duelo da temporada",
+          "detail": "{{count}} chegadas em posições vizinhas ao longo do ano.",
+          "detail_one": "{{count}} chegada em posições vizinhas ao longo do ano.",
+          "detail_other": "{{count}} chegadas em posições vizinhas ao longo do ano."
+        },
+        "revelacao": {
+          "title": "Revelação do ano",
+          "detail": "Estreante na categoria: {{position}}º no campeonato, com {{count}} pódios.",
+          "detail_one": "Estreante na categoria: {{position}}º no campeonato, com {{count}} pódio.",
+          "detail_other": "Estreante na categoria: {{position}}º no campeonato, com {{count}} pódios."
+        },
+        "virada": {
+          "title": "Virada da temporada",
+          "detail": "Da etapa {{round}} ({{track}}) em diante, assumiu a ponta e não largou mais."
+        },
+        "etapa_do_ano": {
+          "title": "Etapa do ano",
+          "detail": "Na etapa {{round}}, {{count}} posições trocaram de dono entre a largada e a bandeirada.",
+          "detail_one": "Na etapa {{round}}, {{count}} posição trocou de dono entre a largada e a bandeirada.",
+          "detail_other": "Na etapa {{round}}, {{count}} posições trocaram de dono entre a largada e a bandeirada."
+        },
+        "zebra": {
+          "title": "Zebra do ano",
+          "detail": "Venceu em {{track}} largando do {{grid}}º."
+        },
+        "regularidade": {
+          "title": "Regularidade do ano",
+          "detail": "{{count}} chegadas, todas entre o {{best}}º e o {{worst}}º lugar.",
+          "detail_one": "{{count}} chegada, no {{best}}º lugar.",
+          "detail_other": "{{count}} chegadas, todas entre o {{best}}º e o {{worst}}º lugar."
+        },
+        "equipe_do_ano": {
+          "title": "Equipe do ano",
+          "detail": "{{count}} pontos somados pelos seus pilotos ao longo da temporada.",
+          "detail_one": "{{count}} ponto somado pelos seus pilotos ao longo da temporada.",
+          "detail_other": "{{count}} pontos somados pelos seus pilotos ao longo da temporada."
+        }
+      }
     },
     "records": {
       "title": "Recordes da temporada",
-      "hint": "telemetria iRacing · sua categoria"
+      "items": {
+        "vitorias": {
+          "label": "Mais vitórias"
+        },
+        "poles": {
+          "label": "Mais pole positions"
+        },
+        "podios": {
+          "label": "Mais pódios"
+        },
+        "voltas_rapidas": {
+          "label": "Mais voltas rápidas"
+        },
+        "posicoes_ganhas": {
+          "label": "Mais posições ganhas"
+        },
+        "posicoes_perdidas": {
+          "label": "Mais posições perdidas"
+        },
+        "rei_da_chuva": {
+          "label": "Rei da chuva",
+          "unit": "vit."
+        },
+        "abandonos": {
+          "label": "Mais abandonos",
+          "unit": "DNF"
+        },
+        "mais_chegadas": {
+          "label": "Mais chegadas"
+        },
+        "vitorias_da_pole": {
+          "label": "Mais vitórias saindo da pole"
+        },
+        "sequencia_vitorias": {
+          "label": "Maior sequência de vitórias"
+        },
+        "etapas_na_lideranca": {
+          "label": "Mais etapas na liderança"
+        },
+        "maior_recuperacao": {
+          "label": "Maior recuperação"
+        },
+        "melhor_etapa": {
+          "label": "Maior colheita numa etapa"
+        },
+        "melhor_media_chegada": {
+          "label": "Melhor média de chegada"
+        },
+        "melhor_media_grid": {
+          "label": "Melhor média de grid"
+        }
+      }
     },
     "footer": {
-      "note": "Recordes calculados a partir da telemetria real do iRacing — só para a categoria em que você correu.",
+      "note": "Recordes e prêmios apurados a partir dos resultados de todas as etapas da categoria em que você correu.",
+      "noteTeams": "Cada etapa credita os pontos à equipe do dia — quem se transferiu no meio do ano deixa o que fez onde fez.",
       "continue": "Continuar"
     }
   },
@@ -3257,12 +4231,6 @@
     "noOneBehind": "sem ninguém atrás"
   },
   "overlay": {
-    "weatherArc": {
-      "raining": "Chovendo na pista",
-      "incoming": "Chuva a caminho",
-      "clearing": "Pista secando",
-      "now": "Você está aqui"
-    },
     "radio": {
       "tagDnf": "Abandono",
       "tagTeam": "Rádio da equipe",

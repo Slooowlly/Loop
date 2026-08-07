@@ -22,7 +22,54 @@ pub struct RoundCashflowSummary {
     pub net: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// As OITO linhas de despesa que ficam gravadas no ledger.
+///
+/// É a mesma forma que a fatura visível (`economia::fatura`) trava por decisão de design:
+/// sete linhas físicas da etapa mais o rateio da estrutura do ano. Elas não são um resumo
+/// do que saiu do caixa — elas **são** o que saiu do caixa, e é por isso que moram dentro
+/// de [`TeamRoundFinanceContext`] em vez de serem recalculadas na hora de gravar. Um
+/// segundo cálculo é um segundo lugar onde a conta pode divergir, e o defeito que este
+/// redesign existe para corrigir era exatamente esse.
+///
+/// `viagem` e `estadia` do modelo interno entram somadas porque são a mesma decisão —
+/// mandar N pessoas para longe por M noites — e a tela as mostra como uma linha só.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LinhasDaDespesa {
+    pub combustivel: f64,
+    pub pneus: f64,
+    /// Revisão mecânica amortizada por quilômetro. **Não** é a compra de peça de
+    /// reposição, que é decisão do cérebro de manutenção e vive em
+    /// `technical_investment_cost`.
+    pub desgaste_de_peca: f64,
+    pub frete: f64,
+    pub viagem_e_estadia: f64,
+    pub inscricao: f64,
+    pub diarias: f64,
+    /// A fatia desta rodada nos recorrentes do ano — folha técnica, sede, frota, seguro e
+    /// os contratos categóricos. **Sem** a folha de pilotos: ela sai do caixa como
+    /// `salary_expense`, e somá-la aqui pagaria piloto duas vezes.
+    pub estrutura: f64,
+}
+
+impl LinhasDaDespesa {
+    /// As sete linhas da ETAPA. É o `event_operations_cost`.
+    pub fn total_da_etapa(&self) -> f64 {
+        self.combustivel
+            + self.pneus
+            + self.desgaste_de_peca
+            + self.frete
+            + self.viagem_e_estadia
+            + self.inscricao
+            + self.diarias
+    }
+
+    /// As oito linhas.
+    pub fn total(&self) -> f64 {
+        self.total_da_etapa() + self.estrutura
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct TeamRoundFinanceContext {
     pub sponsorship_income: f64,
     /// Bilheteria/portão da rodada (Fase 3 do Estrelato): público que a fama do
@@ -37,6 +84,11 @@ pub struct TeamRoundFinanceContext {
     pub structural_maintenance_cost: f64,
     pub technical_investment_cost: f64,
     pub debt_service_cost: f64,
+    /// A decomposição de `event_operations_cost` + `structural_maintenance_cost` em linhas
+    /// nomeadas. Os dois agregados acima continuam existindo porque o resto do jogo os lê,
+    /// mas são a SOMA destas linhas, escrita de uma origem só — ver
+    /// `commands::race::despesa`.
+    pub linhas: LinhasDaDespesa,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -58,7 +110,7 @@ const DEFAULT_GATE_POT_COEFF: f64 = 0.12;
 /// partes iguais entre os times) vs. o PRÊMIO de estrela (dividido por cota de fama).
 /// 0.5 = metade piso, metade estrela. Garante que um time sem astro não zere a
 /// bilheteria, e que o estrelato seja um prêmio SOBRE um piso, não tudo-ou-nada.
-const GATE_FLOOR_WEIGHT: f64 = 0.5;
+pub(crate) const GATE_FLOOR_WEIGHT: f64 = 0.5;
 
 pub(crate) fn gate_pot_coeff() -> f64 {
     static COEFF: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|| {
@@ -91,13 +143,30 @@ pub(crate) fn gate_pot_coeff() -> f64 {
 /// prévia da Sala de Estratégia ("sua estrela puxa Y% do público"). Se o grid é anônimo
 /// (`grid_total_presence == 0`), cai para cota igual (só o piso).
 pub fn team_gate_share(team_presence: f64, grid_total_presence: f64, n_teams: f64) -> f64 {
+    team_gate_share_with(
+        team_presence,
+        grid_total_presence,
+        n_teams,
+        GATE_FLOOR_WEIGHT,
+    )
+}
+
+/// Igual a [`team_gate_share`], com o peso do piso explícito. Existe para o harness de
+/// calibração varrer o quanto do portão é piso igualitário e o quanto é prêmio de estrela.
+pub fn team_gate_share_with(
+    team_presence: f64,
+    grid_total_presence: f64,
+    n_teams: f64,
+    floor_weight: f64,
+) -> f64 {
     let n = n_teams.max(1.0);
+    let piso = floor_weight.clamp(0.0, 1.0);
     let fame_share = if grid_total_presence > 0.0 {
         (team_presence / grid_total_presence).clamp(0.0, 1.0)
     } else {
         1.0 / n
     };
-    (GATE_FLOOR_WEIGHT / n + (1.0 - GATE_FLOOR_WEIGHT) * fame_share).clamp(0.0, 1.0)
+    (piso / n + (1.0 - piso) * fame_share).clamp(0.0, 1.0)
 }
 
 pub fn calculate_gate_income(
@@ -108,11 +177,41 @@ pub fn calculate_gate_income(
     n_teams: f64,
     income_modifier: f64,
 ) -> f64 {
+    calculate_gate_income_with(
+        event_prestige_score,
+        round_operating_base,
+        team_presence,
+        grid_total_presence,
+        n_teams,
+        income_modifier,
+        gate_pot_coeff(),
+        GATE_FLOOR_WEIGHT,
+    )
+}
+
+/// Igual a [`calculate_gate_income`], com o coeficiente do bolo e o peso do piso explícitos.
+///
+/// Existe porque `gate_pot_coeff()` é um `LazyLock` — lê a env UMA vez por processo, o que
+/// serve para uma varredura de fora mas não para o harness comparar dez valores no mesmo
+/// processo. Produção segue na constante.
+#[allow(clippy::too_many_arguments)]
+pub fn calculate_gate_income_with(
+    event_prestige_score: f64,
+    round_operating_base: f64,
+    team_presence: f64,
+    grid_total_presence: f64,
+    n_teams: f64,
+    income_modifier: f64,
+    pot_coeff: f64,
+    floor_weight: f64,
+) -> f64 {
     // 60 ≈ evento GT3 médio → fator 1.0; clamp evita bolo negativo/absurdo.
     let prestige_factor = (event_prestige_score / 60.0).clamp(0.3, 2.2);
-    let gate_pot = round_operating_base * gate_pot_coeff() * prestige_factor * income_modifier;
+    let gate_pot = round_operating_base * pot_coeff * prestige_factor * income_modifier;
 
-    (gate_pot * team_gate_share(team_presence, grid_total_presence, n_teams)).max(0.0)
+    (gate_pot
+        * team_gate_share_with(team_presence, grid_total_presence, n_teams, floor_weight))
+    .max(0.0)
 }
 
 pub fn calculate_round_income(
@@ -648,6 +747,7 @@ mod tests {
         let summary = apply_round_cashflow(
             &mut team,
             TeamRoundFinanceContext {
+                linhas: Default::default(),
                 sponsorship_income: 120_000.0,
                 gate_income: 0.0,
                 result_bonus: 25_000.0,
@@ -658,6 +758,7 @@ mod tests {
                 structural_maintenance_cost: 15_000.0,
                 technical_investment_cost: 18_000.0,
                 debt_service_cost: 2_500.0,
+                ..Default::default()
             },
         );
 
@@ -682,6 +783,7 @@ mod tests {
         apply_round_cashflow(
             &mut team,
             TeamRoundFinanceContext {
+                linhas: Default::default(),
                 sponsorship_income: 100_000.0,
                 gate_income: 0.0,
                 result_bonus: 0.0,
@@ -692,6 +794,7 @@ mod tests {
                 structural_maintenance_cost: 0.0,
                 technical_investment_cost: 0.0,
                 debt_service_cost: 0.0,
+                ..Default::default()
             },
         );
 
@@ -720,6 +823,7 @@ mod tests {
         apply_round_cashflow(
             &mut team,
             TeamRoundFinanceContext {
+                linhas: Default::default(),
                 sponsorship_income: 50_000.0,
                 gate_income: 0.0,
                 result_bonus: 0.0,
@@ -730,6 +834,7 @@ mod tests {
                 structural_maintenance_cost: 0.0,
                 technical_investment_cost: 0.0,
                 debt_service_cost: 0.0,
+                ..Default::default()
             },
         );
 

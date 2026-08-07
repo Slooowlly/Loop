@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../../ui/Tooltip";
 import TeamLogoMark from "../TeamLogoMark";
 import { teamHighlight } from "../worldTeamChartGeometry";
 import { bandAccent } from "./atlasV2Geometry";
@@ -120,35 +121,36 @@ function RankingCard({ card, division, vertical, showConnector, focusedTeamId, p
           toda responde ao clique, e o chevron na ponta direita é o que anuncia
           isso em repouso. É um destino diferente do que as linhas abaixo abrem,
           por isso o troféu continua ao lado do chevron: ele diz PARA ONDE vai. */}
-      <button
-        type="button"
-        data-testid={`atlas-v2-champions-open-${card.key}`}
-        onClick={() => onOpenChampions?.(card.band)}
-        title={t("globalTeams.championsOpen", { band: card.label })}
-        aria-label={t("globalTeams.championsOpen", { band: card.label })}
-        className="group flex w-full cursor-pointer items-center gap-3 border-b border-[#2b4266] px-3.5 text-left transition-colors hover:bg-white/[0.05]"
-        style={{
-          height: division.headerHeight,
-          background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 11%, transparent) 0%, color-mix(in srgb, ${accent} 2%, transparent) 100%)`,
-        }}
-      >
-        <CategoryLogo category={card.band.category} accent={accent} />
-        <span
-          data-testid={`atlas-v2-ranking-title-${card.key}`}
-          className="min-w-0 flex-1 truncate text-[14.5px] font-bold uppercase tracking-[0.08em]"
-          style={{ color: accent }}
+      <Tooltip texto={t("globalTeams.championsOpen", { band: card.label })}>
+        <button
+          type="button"
+          data-testid={`atlas-v2-champions-open-${card.key}`}
+          onClick={() => onOpenChampions?.(card.band)}
+          aria-label={t("globalTeams.championsOpen", { band: card.label })}
+          className="group flex w-full cursor-pointer items-center gap-3 border-b border-[#2b4266] px-3.5 text-left transition-colors hover:bg-white/[0.05]"
+          style={{
+            height: division.headerHeight,
+            background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 11%, transparent) 0%, color-mix(in srgb, ${accent} 2%, transparent) 100%)`,
+          }}
         >
-          {title}
-        </span>
-        <span
-          aria-hidden="true"
-          data-testid={`atlas-v2-champions-chevron-${card.key}`}
-          className="shrink-0 text-[15px] leading-none opacity-45 transition-opacity group-hover:opacity-100"
-          style={{ color: accent }}
-        >
-          ›
-        </span>
-      </button>
+          <CategoryLogo category={card.band.category} accent={accent} />
+          <span
+            data-testid={`atlas-v2-ranking-title-${card.key}`}
+            className="min-w-0 flex-1 truncate text-[14.5px] font-bold uppercase tracking-[0.08em]"
+            style={{ color: accent }}
+          >
+            {title}
+          </span>
+          <span
+            aria-hidden="true"
+            data-testid={`atlas-v2-champions-chevron-${card.key}`}
+            className="shrink-0 text-[15px] leading-none opacity-45 transition-opacity group-hover:opacity-100"
+            style={{ color: accent }}
+          >
+            ›
+          </span>
+        </button>
+      </Tooltip>
 
       {card.rows.length === 0 ? (
         <p className="px-3 pt-3 text-center text-[11px] text-slate-500">
@@ -236,12 +238,11 @@ function LiveScore({ entry }) {
   const { t } = useTranslation();
   if (!Number.isFinite(entry.points)) return <span aria-hidden="true" />;
   return (
-    <span
-      className="text-right font-mono text-[12px] font-bold tabular-nums text-slate-300"
-      title={t("globalTeams.liveScoreTitle", { points: entry.points, wins: entry.wins ?? 0 })}
-    >
-      {entry.points}
-    </span>
+    <Tooltip texto={t("globalTeams.liveScoreTitle", { points: entry.points, wins: entry.wins ?? 0 })}>
+      <span className="text-right font-mono text-[12px] font-bold tabular-nums text-slate-300">
+        {entry.points}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -252,37 +253,34 @@ function DeltaGlyph({ entry, baselineYear, referenceYear }) {
   const { t } = useTranslation();
   if (entry.isNewInBand) {
     return (
-      <span
-        className="text-center text-[10px] leading-none text-slate-400"
-        title={t("globalTeams.liveNewInBandTitle", { year: referenceYear })}
-      >
-        ○
-      </span>
+      <Tooltip texto={t("globalTeams.liveNewInBandTitle", { year: referenceYear })}>
+        <span className="text-center text-[10px] leading-none text-slate-400">○</span>
+      </Tooltip>
     );
   }
   if (!Number.isFinite(entry.delta)) return <span aria-hidden="true" />;
   if (entry.delta === 0) {
     return (
-      <span
-        className="text-center text-[10px] leading-none text-slate-600"
-        title={t("globalTeams.liveDeltaSameTitle", { year: baselineYear })}
-      >
-        –
-      </span>
+      <Tooltip texto={t("globalTeams.liveDeltaSameTitle", { year: baselineYear })}>
+        <span className="text-center text-[10px] leading-none text-slate-600">–</span>
+      </Tooltip>
     );
   }
   const up = entry.delta > 0;
   return (
-    <span
-      data-testid={`atlas-v2-delta-${entry.team_id}`}
-      className={`text-center text-[9px] leading-none ${up ? "text-status-green" : "text-status-red"}`}
-      title={t(up ? "globalTeams.liveDeltaUpTitle" : "globalTeams.liveDeltaDownTitle", {
+    <Tooltip
+      texto={t(up ? "globalTeams.liveDeltaUpTitle" : "globalTeams.liveDeltaDownTitle", {
         count: Math.abs(entry.delta),
         year: baselineYear,
       })}
     >
-      {up ? "▲" : "▼"}
-    </span>
+      <span
+        data-testid={`atlas-v2-delta-${entry.team_id}`}
+        className={`text-center text-[9px] leading-none ${up ? "text-status-green" : "text-status-red"}`}
+      >
+        {up ? "▲" : "▼"}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -293,13 +291,12 @@ function BandTitles({ titles, band }) {
   const { t } = useTranslation();
   if (!titles) return <span aria-hidden="true" />;
   return (
-    <span
-      className="flex items-center justify-end gap-1 text-[11.5px] font-bold text-[#f2c46d]"
-      title={t("globalTeams.bandTitlesCount", { count: titles, band })}
-    >
-      <img src={goldTrophy} alt="" draggable={false} className="h-3.5 w-3.5 object-contain drop-shadow-[0_0_8px_rgba(242,196,109,0.35)]" />
-      {titles}
-    </span>
+    <Tooltip texto={t("globalTeams.bandTitlesCount", { count: titles, band })}>
+      <span className="flex items-center justify-end gap-1 text-[11.5px] font-bold text-[#f2c46d]">
+        <img src={goldTrophy} alt="" draggable={false} className="h-3.5 w-3.5 object-contain drop-shadow-[0_0_8px_rgba(242,196,109,0.35)]" />
+        {titles}
+      </span>
+    </Tooltip>
   );
 }
 

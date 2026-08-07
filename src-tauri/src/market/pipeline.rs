@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{Datelike, Local};
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::constants::categories::{
@@ -87,25 +88,64 @@ pub fn run_market(
     new_season_number: i32,
     rng: &mut impl Rng,
 ) -> Result<MarketReport, String> {
-    run_market_inner(conn, new_season_number, rng, true)
+    run_market_inner(conn, new_season_number, rng, MarketStage::Completo)
 }
 
-/// Apenas as PRÉ-PASSES aplicadas DE VERDADE (expira contratos, renova slam-aware,
-/// rebaixa por mérito) — NÃO resolve o mercado. A pré-temporada interativa usa isto
-/// e inicia a Janela de Transferências no lugar do mercado instantâneo.
+/// O que uma passada do mercado tem permissão de fazer. O corte existe por causa das
+/// semanas de ABERTURA da janela interativa: nelas o único destino possível de um piloto
+/// é perder o contrato ou renovar. Ninguém troca de equipe — nem por mérito, nem por
+/// assédio. Misturar as duas coisas numa passada só faria o grid da semana 2 mostrar
+/// transferências que o jogador ainda não deveria ver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarketStage {
+    /// Só o futuro de quem já tem assento: expira contratos vencidos, rescinde os de
+    /// aposentados e renova quem a equipe segura. Nenhum piloto muda de equipe.
+    Contratos,
+    /// Os movimentos entre equipes que a IA resolve antes da escada: rebaixamento por
+    /// mérito, assédio e a subida garantida do campeão do rookie. Só a partir da semana
+    /// em que o mercado abre.
+    Movimentos,
+    /// As duas acima mais a resolução completa do mercado num passo só (janela IA,
+    /// propostas e rookies) — o caminho não-interativo.
+    Completo,
+}
+
+impl MarketStage {
+    fn faz_contratos(self) -> bool {
+        matches!(self, Self::Contratos | Self::Completo)
+    }
+    fn faz_movimentos(self) -> bool {
+        matches!(self, Self::Movimentos | Self::Completo)
+    }
+}
+
+/// A passada de CONTRATOS das semanas de abertura: expira, rescinde e renova. Não move
+/// ninguém de equipe — ver [`MarketStage`]. A pré-temporada interativa chama isto ao
+/// sair da semana 1 e depois `run_market_movements` quando o mercado abre.
 pub(crate) fn run_market_prepasses(
     conn: &Connection,
     new_season_number: i32,
     rng: &mut impl Rng,
 ) -> Result<MarketReport, String> {
-    run_market_inner(conn, new_season_number, rng, false)
+    run_market_inner(conn, new_season_number, rng, MarketStage::Contratos)
+}
+
+/// A passada de MOVIMENTOS, adiada até a semana em que o mercado abre: rebaixamento por
+/// mérito, assédio e a subida do campeão do rookie. As assinaturas caem no report do
+/// chamador, então aparecem no feed da semana junto das da escada.
+pub(crate) fn run_market_movements(
+    conn: &Connection,
+    new_season_number: i32,
+    rng: &mut impl Rng,
+) -> Result<MarketReport, String> {
+    run_market_inner(conn, new_season_number, rng, MarketStage::Movimentos)
 }
 
 fn run_market_inner(
     conn: &Connection,
     new_season_number: i32,
     rng: &mut impl Rng,
-    resolve_market: bool,
+    stage: MarketStage,
 ) -> Result<MarketReport, String> {
     with_savepoint(conn, "market_run", || {
         let new_season = get_season_by_number(conn, new_season_number)?
@@ -113,7 +153,11 @@ fn run_market_inner(
         let previous_season = get_season_by_number(conn, new_season_number - 1)?;
 
         let mut report = MarketReport::default();
-        reset_market_state(conn, &new_season.id)?;
+        // A passada de movimentos roda DENTRO de uma janela já aberta: zerar o estado do
+        // mercado aqui apagaria as propostas vivas do jogador.
+        if stage != MarketStage::Movimentos {
+            reset_market_state(conn, &new_season.id)?;
+        }
         repair_missing_licenses_for_current_categories(conn)?;
         // Modelo fechado: o pool de agentes livres NÃO é reabastecido. As vagas são
         // preenchidas pela escada (promoção da categoria de baixo) com rookies gerados
@@ -146,28 +190,30 @@ fn run_market_inner(
             .map(|contract| (contract.piloto_id.clone(), contract))
             .collect();
 
-        report.contracts_expired =
-            contract_queries::expire_ending_contracts(conn, new_season_number - 1)
-                .map_err(|e| format!("Falha ao expirar contratos: {e}"))?;
+        if stage.faz_contratos() {
+            report.contracts_expired =
+                contract_queries::expire_ending_contracts(conn, new_season_number - 1)
+                    .map_err(|e| format!("Falha ao expirar contratos: {e}"))?;
 
-        let retired_contract_ids: Vec<String> = active_contracts_before
-            .iter()
-            .filter(|contract| {
-                drivers_by_id
-                    .get(&contract.piloto_id)
-                    .is_some_and(|driver| driver.status == DriverStatus::Aposentado)
-            })
-            .map(|contract| contract.id.clone())
-            .collect();
-        for contract_id in &retired_contract_ids {
-            contract_queries::update_contract_status(
-                conn,
-                contract_id,
-                &ContractStatus::Rescindido,
-            )
-            .map_err(|e| format!("Falha ao rescindir contrato de aposentado: {e}"))?;
+            let retired_contract_ids: Vec<String> = active_contracts_before
+                .iter()
+                .filter(|contract| {
+                    drivers_by_id
+                        .get(&contract.piloto_id)
+                        .is_some_and(|driver| driver.status == DriverStatus::Aposentado)
+                })
+                .map(|contract| contract.id.clone())
+                .collect();
+            for contract_id in &retired_contract_ids {
+                contract_queries::update_contract_status(
+                    conn,
+                    contract_id,
+                    &ContractStatus::Rescindido,
+                )
+                .map_err(|e| format!("Falha ao rescindir contrato de aposentado: {e}"))?;
+            }
+            report.retirements_replaced = retired_contract_ids.len() as i32;
         }
-        report.retirements_replaced = retired_contract_ids.len() as i32;
 
         let standings_by_driver = load_market_contexts(
             conn,
@@ -177,7 +223,14 @@ fn run_market_inner(
         )?;
         let mut player_was_expiring = false;
 
-        for contract in &expiring_contracts {
+        // Na passada de movimentos os contratos já foram resolvidos na semana anterior —
+        // nada a renovar aqui.
+        let renovaveis: &[Contract] = if stage.faz_contratos() {
+            &expiring_contracts
+        } else {
+            &[]
+        };
+        for contract in renovaveis {
             let Some(driver) = drivers_by_id.get(&contract.piloto_id) else {
                 continue;
             };
@@ -266,37 +319,42 @@ fn run_market_inner(
             });
         }
 
-        // Rebaixamento por mérito (troca conservadora) antes de preencher vagas.
-        apply_merit_relegations(
-            conn,
-            &teams,
-            new_season_number,
-            &standings_by_driver,
-            &mut report,
-        )?;
+        // ── Daqui pra baixo, tudo TIRA um piloto da equipe dele e o põe em outra. Fica
+        // fora das semanas de abertura da janela interativa: lá o grid só pode encolher
+        // por fim de contrato, nunca por transferência. ──
+        if stage.faz_movimentos() {
+            // Rebaixamento por mérito (troca conservadora) antes de preencher vagas.
+            apply_merit_relegations(
+                conn,
+                &teams,
+                new_season_number,
+                &standings_by_driver,
+                &mut report,
+            )?;
 
-        // Poaching / quebra de contrato (Fase 2b.1, só IA): times com caixa arrancam
-        // astros contratados da mesma categoria pagando a multa. Abre vagas que a
-        // escada preenche depois.
-        run_poaching_pass(
-            conn,
-            &teams,
-            new_season_number,
-            rng,
-            &mut report,
-            &mut Vec::new(),
-        )?;
+            // Poaching / quebra de contrato (Fase 2b.1, só IA): times com caixa arrancam
+            // astros contratados da mesma categoria pagando a multa. Abre vagas que a
+            // escada preenche depois.
+            run_poaching_pass(
+                conn,
+                &teams,
+                new_season_number,
+                rng,
+                &mut report,
+                &mut Vec::new(),
+            )?;
 
-        // (Flag IRACER_ROOKIE_MERIT) Subida garantida do campeão do Rookie: cobre o
-        // caso "Amador cheio" forçando a troca com o pior do Amador. Sem a flag é
-        // no-op; com vaga natural no Amador, o fluxo normal já promove o campeão.
-        guarantee_rookie_champion_promotions(
-            conn,
-            &teams,
-            new_season_number,
-            &standings_by_driver,
-            &mut report,
-        )?;
+            // (Flag IRACER_ROOKIE_MERIT) Subida garantida do campeão do Rookie: cobre o
+            // caso "Amador cheio" forçando a troca com o pior do Amador. Sem a flag é
+            // no-op; com vaga natural no Amador, o fluxo normal já promove o campeão.
+            guarantee_rookie_champion_promotions(
+                conn,
+                &teams,
+                new_season_number,
+                &standings_by_driver,
+                &mut report,
+            )?;
+        }
 
         let mut refreshed_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
@@ -306,7 +364,7 @@ fn run_market_inner(
             .map(|driver| (driver.id.clone(), driver))
             .collect();
         sync_team_slots(conn, &teams, &refreshed_by_id)?;
-        if resolve_market {
+        if stage == MarketStage::Completo {
             let initial_vacancies = find_vacancies(conn)?;
             let mut available = find_available_drivers(conn, &standings_by_driver)?;
 
@@ -363,7 +421,11 @@ fn run_market_inner(
             report.unresolved_vacancies = find_vacancies(conn)?.len() as i32;
         }
 
-        persist_market_state(conn, &new_season.id)?;
+        // A janela interativa é dona do estado do mercado enquanto está aberta; a passada
+        // de movimentos roda dentro dela e não pode carimbar uma linha nova por cima.
+        if stage != MarketStage::Movimentos {
+            persist_market_state(conn, &new_season.id)?;
+        }
         Ok(report)
     })
 }

@@ -6,7 +6,7 @@
 //! [`crate::lib`] espera.
 
 use crate::iracing_sdk::race_control::{self, YellowMacroStatus};
-use crate::iracing_sdk::race_monitor::{self, RaceHistory, RaceStatus};
+use crate::iracing_sdk::race_monitor::{self, EstadoAgora, RaceHistory, RaceStatus};
 use crate::iracing_sdk::{self, IracingSession, IracingTelemetry};
 
 #[path = "iracing/adaptativo.rs"]
@@ -21,6 +21,8 @@ mod corridas_salvas;
 mod diagnostico;
 #[path = "iracing/importacao.rs"]
 mod importacao;
+#[path = "iracing/modo_janela.rs"]
+mod modo_janela;
 #[path = "iracing/pintura.rs"]
 mod pintura;
 #[path = "iracing/previsao_quebras.rs"]
@@ -31,6 +33,8 @@ mod resultado;
 mod roster;
 #[path = "iracing/sessao.rs"]
 mod sessao;
+#[path = "iracing/spotter.rs"]
+mod spotter;
 #[path = "iracing/temporada.rs"]
 mod temporada;
 #[path = "iracing/teste_chuva.rs"]
@@ -42,10 +46,12 @@ pub use controle_corrida::*;
 pub use corridas_salvas::*;
 pub use diagnostico::*;
 pub use importacao::*;
+pub use modo_janela::*;
 pub use pintura::*;
 pub use previsao_quebras::*;
 pub use resultado::*;
 pub use roster::*;
 pub use sessao::*;
+pub use spotter::*;
 pub use temporada::*;
 pub use teste_chuva::*;

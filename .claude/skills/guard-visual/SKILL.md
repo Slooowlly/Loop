@@ -23,7 +23,7 @@ caminho mais curto para resolver.
 | `wizard-panel-color-balance` | equilíbrio de cor nos painéis do wizard |
 | `team-palette-distribution` | distribuição de cores de equipe por faixa de categoria |
 | `result-badge-fastest-lap` | badge de volta mais rápida no resultado |
-| `season-champion-disabled` | estado desabilitado do campeão da temporada |
+| `season-champion-wiring` | pop-up do campeão da temporada montado e ligado aos dados reais |
 | `driver-detail-modal` | estrutura do modal de detalhe do piloto |
 | `window-controls-contract` | contrato dos controles de janela (React ↔ `commands/window.rs`) |
 | `window-controls-sizing` | dimensões dos controles de janela |

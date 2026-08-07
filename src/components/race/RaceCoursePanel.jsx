@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import Tooltip from "../ui/Tooltip";
 import RaceTraceChart from "./RaceTraceChart";
 
 // O CURSO DA CORRIDA — o painel que faz o resultado explicar o resultado.
@@ -34,18 +35,19 @@ function posicaoNaOrdem(ordem, pilotId) {
 // Chip compacto: um número grande e um rótulo miúdo. É o formato do resto da tela.
 function Chip({ label, value, tone, title }) {
   return (
-    <div
-      title={title}
-      className="flex min-w-[92px] flex-col gap-1 rounded-xl px-3 py-2"
-      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
-    >
-      <span style={{ color: "#6e7681" }} className="text-[9px] uppercase tracking-[0.14em] leading-none">
-        {label}
-      </span>
-      <span style={{ color: tone || "#e6edf3" }} className="text-[15px] font-semibold leading-none tabular-nums">
-        {value}
-      </span>
-    </div>
+    <Tooltip texto={title}>
+      <div
+        className="flex min-w-[92px] flex-col gap-1 rounded-xl px-3 py-2"
+        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+      >
+        <span style={{ color: "#6e7681" }} className="text-[9px] uppercase tracking-[0.14em] leading-none">
+          {label}
+        </span>
+        <span style={{ color: tone || "#e6edf3" }} className="text-[15px] font-semibold leading-none tabular-nums">
+          {value}
+        </span>
+      </div>
+    </Tooltip>
   );
 }
 

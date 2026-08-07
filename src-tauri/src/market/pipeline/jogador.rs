@@ -113,6 +113,33 @@ pub(super) fn place_player_in_natural_vacancy(
     Ok(true)
 }
 
+/// A equipe do jogador foi VENDIDA por falência no offseason que está rodando agora?
+/// Devolve o id dela.
+///
+/// A venda é registrada em `team_ownership_events` no fim da temporada que acabou —
+/// isto é, `new_season_number − 1` — por `evolution::pipeline::financas`. É a única
+/// coisa que o mercado precisa saber sobre a quebra: que existe um jogador preso a um
+/// projeto que acabou de ruir e que ele merece uma porta de saída.
+pub(super) fn player_team_sold_in_offseason(
+    conn: &Connection,
+    player: &Driver,
+    new_season_number: i32,
+) -> Result<Option<String>, String> {
+    let Some(contract) = contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
+        .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
+    else {
+        return Ok(None); // Sem time não há de onde fugir.
+    };
+    let evento = team_queries::get_latest_ownership_event(conn, &contract.equipe_id)
+        .map_err(|e| format!("Falha ao ler eventos de propriedade da equipe: {e}"))?;
+    match evento {
+        Some((tipo, temporada)) if tipo == "sale" && temporada == new_season_number - 1 => {
+            Ok(Some(contract.equipe_id))
+        }
+        _ => Ok(None),
+    }
+}
+
 pub(super) fn generate_player_proposals(
     conn: &Connection,
     season_id: &str,
@@ -135,7 +162,13 @@ pub(super) fn generate_player_proposals(
         contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
             .map_err(|e| format!("Falha ao buscar contrato regular do jogador: {e}"))?;
     let player_is_free = player_active_contract.is_none();
-    if !player_is_free && !player_was_expiring {
+    // FUGA DA FALÊNCIA: se a equipe do jogador acabou de ser vendida por colapso, ele
+    // recebe propostas mesmo estando sob contrato. A quebra não pode ser só uma
+    // notícia — precisa vir com uma porta. Aceitar rescinde o contrato atual
+    // (`accept_player_proposal_tx` já faz isso); ignorar é a escolha de ficar e correr
+    // com o que sobrou.
+    let equipe_falida = player_team_sold_in_offseason(conn, &player, new_season_number)?;
+    if !player_is_free && !player_was_expiring && equipe_falida.is_none() {
         return Ok(Vec::new());
     }
 
@@ -174,6 +207,10 @@ pub(super) fn generate_player_proposals(
 
     let mut proposals = Vec::new();
     for vacancy in vacancies {
+        // A equipe que acabou de quebrar não oferta a fuga dela mesma.
+        if equipe_falida.as_deref() == Some(vacancy.team_id.as_str()) {
+            continue;
+        }
         let team_proposals = generate_team_proposals(
             vacancy,
             std::slice::from_ref(&player_available),
@@ -202,7 +239,10 @@ pub(super) fn generate_player_proposals(
     // quanto quem acabou de ter o contrato encerrado.
     // Tenta: 1) equipe anterior na mesma categoria, 2) pior equipe da mesma categoria,
     // 3) melhor equipe de categoria inferior (salário menor naturalmente).
-    if proposals.is_empty() && player_is_free {
+    // A garantia vale também para quem está fugindo da falência: se nenhuma vaga do
+    // mercado gerou proposta, ele ainda tem que ver UMA porta — senão "há como sair"
+    // vira promessa vazia e a única opção é ficar.
+    if proposals.is_empty() && (player_is_free || equipe_falida.is_some()) {
         // Categoria do jogador: contexto dos standings ou último contrato no DB.
         let player_category = if !context.categoria.is_empty() {
             context.categoria.clone()
@@ -216,6 +256,7 @@ pub(super) fn generate_player_proposals(
             let category_teams: Vec<&crate::models::team::Team> = all_teams
                 .iter()
                 .filter(|team| team.categoria == player_category)
+                .filter(|team| equipe_falida.as_deref() != Some(team.id.as_str()))
                 .collect();
 
             // Tenta primeiro a equipe anterior, depois a pior equipe da mesma categoria.
@@ -411,56 +452,41 @@ pub(super) fn pedigree_boost(conn: &Connection, driver: &Driver) -> Result<f64, 
     Ok(pedigree_boost_from_index(index))
 }
 
-/// FASE A das propostas formais ("Proposta recebida"): durante a janela semanal, gera
-/// propostas nominais de MÉRITO pro jogador AGENTE LIVRE. Para cada vaga do mesmo tier,
-/// roda a MESMA seleção da IA com o pool completo (jogador + agentes livres da IA); se a
-/// equipe escolheria o jogador (ele entra no top-3 da shortlist dela), cria a proposta
-/// formal. Isso é o que diferencia "Proposta recebida" (a equipe TE QUER) de "Suas
-/// ofertas" (vaga aberta qualquer). Dedup por ID determinístico: não recria proposta já
-/// criada e não reoferece assento recusado. Devolve os assentos das propostas PENDENTES,
-/// pra a escada segurá-los. Sem fallback de piso — os assentos reservados já cobrem isso.
+/// O material com que o mercado avalia o jogador numa semana: o pool completo (agentes
+/// livres da IA + ele, todos com o pedigree aplicado) e as vagas do tier dele.
 ///
-/// FASE B: propostas expiram após `PROPOSAL_TTL_WEEKS` semanas (varredura no início) e o
-/// número de propostas simultâneas é limitado por PRESTÍGIO (`prestige_proposal_cap`).
-pub(crate) fn generate_player_window_proposals(
+/// Existe pra a expectativa mostrada nas semanas de abertura e as propostas da semana em
+/// que o mercado abre saírem da MESMA conta. Se cada uma montasse o seu pool, o número
+/// que o jogador leu como promessa não bateria com o que ele recebe — e a expectativa
+/// viraria enfeite.
+pub(super) struct PlayerMarketScan {
+    pub player: Driver,
+    pub pool: Vec<AvailableDriver>,
+    pub vacancies: Vec<Vacancy>,
+    pub player_index: f64,
+}
+
+/// Monta o [`PlayerMarketScan`], ou `None` quando não há o que avaliar: jogador inativo
+/// ou já contratado (só agente livre recebe proposta formal nesta fase — poaching
+/// mid-contrato é Fase D).
+pub(super) fn build_player_market_scan(
     conn: &Connection,
     season: i32,
-    week: i32,
-    rng: &mut impl Rng,
-) -> Result<Vec<String>, String> {
+) -> Result<Option<PlayerMarketScan>, String> {
     let Ok(player) = driver_queries::get_player_driver(conn) else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     if player.status != DriverStatus::Ativo {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
         .is_some()
     {
-        // Só agente livre recebe proposta formal nesta fase (poaching mid-contrato é Fase D).
-        return Ok(Vec::new());
+        return Ok(None);
     }
 
-    let season_row = get_season_by_number(conn, season)?
-        .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
     let previous_season = get_season_by_number(conn, season - 1)?;
-
-    // EXPIRAÇÃO (Fase B): propostas cujo prazo venceu deixam de ser pendentes → o assento
-    // delas não é mais segurado e volta pra IA.
-    conn.execute(
-        "UPDATE market_proposals SET status = ?1
-         WHERE temporada_id = ?2 AND piloto_id = ?3 AND status = ?4
-           AND semana_limite IS NOT NULL AND semana_limite <= ?5",
-        params![
-            crate::market::proposals::ProposalStatus::Expirada.as_str(),
-            season_row.id,
-            player.id,
-            crate::market::proposals::ProposalStatus::Pendente.as_str(),
-            week,
-        ],
-    )
-    .map_err(|e| format!("Falha ao expirar propostas do jogador: {e}"))?;
 
     // Contexto de visibilidade (mesmos dados usados pela IA).
     let drivers_by_id: HashMap<String, Driver> = driver_queries::get_all_drivers(conn)
@@ -497,23 +523,6 @@ pub(crate) fn generate_player_window_proposals(
         crate::commands::global_driver_rankings::historical_index_for_driver(conn, &player)?;
     let visibility = visibility * (1.0 + pedigree_boost_from_index(player_index));
 
-    // Teto de propostas simultâneas por prestígio (Fase B): conta as que já estão de pé
-    // e só cria novas até o teto.
-    let cap = prestige_proposal_cap(player_index);
-    let pending_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM market_proposals
-             WHERE temporada_id = ?1 AND piloto_id = ?2 AND status = ?3",
-            params![
-                season_row.id,
-                player.id,
-                crate::market::proposals::ProposalStatus::Pendente.as_str()
-            ],
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(|e| format!("Falha ao contar propostas pendentes: {e}"))?;
-    let mut new_slots = cap.saturating_sub(pending_count as usize);
-
     // Jogador entra no pool com is_jogador=false pra ser avaliado como qualquer piloto.
     let license_levels = load_max_license_levels(conn)?;
     let mut player_as_driver = player.clone();
@@ -542,6 +551,109 @@ pub(crate) fn generate_player_window_proposals(
         .filter(is_regular_vacancy)
         .filter(|v| v.category_tier == player_tier)
         .collect();
+
+    Ok(Some(PlayerMarketScan {
+        player,
+        pool,
+        vacancies,
+        player_index,
+    }))
+}
+
+/// Quantas equipes colocariam o jogador na shortlist AGORA, com as vagas que existem
+/// neste instante. É a resposta exata que as propostas dariam — usada pela expectativa
+/// mostrada antes de o mercado abrir. Não escreve nada e não consome o `rng` da janela.
+///
+/// `None` quando não há o que contar (jogador inativo ou já contratado), que é diferente
+/// de `Some(0)` — "ninguém te quer" é notícia, "você não está no mercado" não é.
+pub(crate) fn count_interested_teams(conn: &Connection, season: i32) -> Result<Option<i32>, String> {
+    let Some(scan) = build_player_market_scan(conn, season)? else {
+        return Ok(None);
+    };
+    // Semente própria: a contagem não pode deslocar o fluxo de aleatoriedade que a
+    // escada da semana usa depois — senão só de olhar a expectativa o mercado mudaria.
+    let mut rng = StdRng::seed_from_u64(season as u64 ^ 0x5EED_C0FF_EE15_6A11);
+    let count = scan
+        .vacancies
+        .iter()
+        .filter(|vacancy| {
+            generate_team_proposals(vacancy, &scan.pool, season, &mut rng)
+                .iter()
+                .any(|p| p.piloto_id == scan.player.id)
+        })
+        .count();
+    Ok(Some(count as i32))
+}
+
+/// FASE A das propostas formais ("Proposta recebida"): durante a janela semanal, gera
+/// propostas nominais de MÉRITO pro jogador AGENTE LIVRE. Para cada vaga do mesmo tier,
+/// roda a MESMA seleção da IA com o pool completo (jogador + agentes livres da IA); se a
+/// equipe escolheria o jogador (ele entra no top-3 da shortlist dela), cria a proposta
+/// formal. Isso é o que diferencia "Proposta recebida" (a equipe TE QUER) de "Suas
+/// ofertas" (vaga aberta qualquer). Dedup por ID determinístico: não recria proposta já
+/// criada e não reoferece assento recusado. Devolve os assentos das propostas PENDENTES,
+/// pra a escada segurá-los. Sem fallback de piso — os assentos reservados já cobrem isso.
+///
+/// FASE B: propostas expiram após `PROPOSAL_TTL_WEEKS` semanas (varredura no início) e o
+/// número de propostas simultâneas é limitado por PRESTÍGIO (`prestige_proposal_cap`).
+///
+/// Só é chamada da `signings_start_week` em diante: nas semanas de abertura o jogador vê
+/// a expectativa (`count_interested_teams`), não propostas.
+pub(crate) fn generate_player_window_proposals(
+    conn: &Connection,
+    season: i32,
+    week: i32,
+    rng: &mut impl Rng,
+) -> Result<Vec<String>, String> {
+    let season_row = get_season_by_number(conn, season)?
+        .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
+
+    // EXPIRAÇÃO (Fase B): propostas cujo prazo venceu deixam de ser pendentes → o assento
+    // delas não é mais segurado e volta pra IA. Roda antes do scan, e mesmo quando o
+    // jogador já assinou — proposta vencida não pode ficar pendente pra sempre.
+    let Ok(player_id) = driver_queries::get_player_driver(conn).map(|p| p.id) else {
+        return Ok(Vec::new());
+    };
+    conn.execute(
+        "UPDATE market_proposals SET status = ?1
+         WHERE temporada_id = ?2 AND piloto_id = ?3 AND status = ?4
+           AND semana_limite IS NOT NULL AND semana_limite <= ?5",
+        params![
+            crate::market::proposals::ProposalStatus::Expirada.as_str(),
+            season_row.id,
+            player_id,
+            crate::market::proposals::ProposalStatus::Pendente.as_str(),
+            week,
+        ],
+    )
+    .map_err(|e| format!("Falha ao expirar propostas do jogador: {e}"))?;
+
+    let Some(scan) = build_player_market_scan(conn, season)? else {
+        return Ok(Vec::new());
+    };
+    let PlayerMarketScan {
+        player,
+        pool,
+        vacancies,
+        player_index,
+    } = scan;
+
+    // Teto de propostas simultâneas por prestígio (Fase B): conta as que já estão de pé
+    // e só cria novas até o teto.
+    let cap = prestige_proposal_cap(player_index);
+    let pending_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM market_proposals
+             WHERE temporada_id = ?1 AND piloto_id = ?2 AND status = ?3",
+            params![
+                season_row.id,
+                player.id,
+                crate::market::proposals::ProposalStatus::Pendente.as_str()
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| format!("Falha ao contar propostas pendentes: {e}"))?;
+    let mut new_slots = cap.saturating_sub(pending_count as usize);
 
     let mut held = Vec::new();
     for vacancy in &vacancies {

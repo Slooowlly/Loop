@@ -10,10 +10,10 @@
 .champ-ov{
   --gold:#F4C752; --gold-deep:#c89a2f; --cyan:#12E0E0; --cat:#12E0E0;
   --co-text:#e9eef5; --co-sec:#aeb9c6; --co-muted:#6f7c8b; --co-border:rgba(255,255,255,0.09);
-  --hero:var(--gold); --rw:var(--gold);
+  --hero:var(--gold);
   --f-disp:'Anton','Impact',sans-serif;
   --f-cond:'OswaldCO','Bahnschrift','Segoe UI',sans-serif;
-  position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:22px;
+  position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:clamp(12px,1.6vw,26px);
   color:var(--co-text);font-variant-numeric:tabular-nums;
   background:radial-gradient(ellipse 70% 60% at 50% 0%, color-mix(in srgb,var(--hero) 12%,transparent), transparent 60%), rgba(6,9,14,0.72);
   backdrop-filter:blur(7px);animation:co-fade .3s ease both;
@@ -22,7 +22,9 @@
 
 .champ-ov *{box-sizing:border-box}
 
-.champ-ov .co-modal{width:min(980px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden;border-radius:26px;
+/* A tela é a cena do fim do ano — ocupa a largura que tiver. O teto de 1560px é
+   para o gráfico e o grid de recordes não virarem uma faixa esticada em ultrawide. */
+.champ-ov .co-modal{width:min(1560px,100%);max-height:96vh;display:flex;flex-direction:column;overflow:hidden;border-radius:26px;
   border:1px solid color-mix(in srgb,var(--hero) 22%,var(--co-border));background:#0b0f16f5;
   box-shadow:0 40px 100px rgba(0,0,0,.72), inset 0 1px 0 rgba(255,255,255,.05);animation:co-pop .42s cubic-bezier(.2,.8,.2,1) both}
 @keyframes co-pop{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
@@ -38,44 +40,53 @@
 .champ-ov .co-head .sub{font-size:11px;color:var(--co-sec)}
 .champ-ov .co-catpill{font-family:var(--f-cond);font-weight:700;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--cat);
   padding:6px 12px;border-radius:999px;border:1px solid color-mix(in srgb,var(--cat) 34%,transparent);background:color-mix(in srgb,var(--cat) 12%,transparent)}
+.champ-ov .co-headright{display:flex;align-items:center;gap:12px}
 .champ-ov .co-x{font-family:var(--f-cond);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--co-sec);background:transparent;border:0;cursor:pointer;padding:7px 12px;border-radius:9px}
 .champ-ov .co-x:hover{background:rgba(255,255,255,.08);color:var(--co-text)}
 
 .champ-ov .co-body{overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:18px}
 
-.champ-ov .co-hero{display:grid;grid-template-columns:1.25fr .95fr;gap:20px}
-@media(max-width:820px){.champ-ov .co-hero{grid-template-columns:1fr}}
-.champ-ov .co-champ{position:relative;padding:22px 24px;border-radius:20px;overflow:hidden;
+/* Uma coluna só: o painel de recompensas saiu (o piloto não tem carteira no
+   modelo), então o cartão do campeão ocupa a faixa inteira. */
+.champ-ov .co-hero{display:grid;grid-template-columns:1fr;gap:20px}
+/* Duas colunas: identidade à esquerda, campanha à direita. Empilhado numa coluna só,
+   o nome deixava metade da faixa vazia e os pontos flutuavam soltos no canto. */
+.champ-ov .co-champ{position:relative;padding:22px 26px;border-radius:20px;overflow:hidden;
+  display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:26px;
   border:1px solid color-mix(in srgb,var(--hero) 26%,transparent);
   background:radial-gradient(ellipse 80% 90% at 12% 0%, color-mix(in srgb,var(--hero) 16%,transparent), transparent 60%), rgba(255,255,255,.02)}
-.champ-ov .co-kicker{font-family:var(--f-cond);font-weight:700;letter-spacing:.24em;text-transform:uppercase;font-size:12px;color:var(--hero);display:flex;align-items:center;gap:10px}
-.champ-ov .co-kicker::before{content:"";width:26px;height:2px;background:var(--hero)}
-.champ-ov .co-laurel{font-size:46px;line-height:1;margin:10px 0 2px;filter:drop-shadow(0 8px 18px color-mix(in srgb,var(--hero) 50%,transparent))}
-.champ-ov .co-cname{font-family:var(--f-disp);font-size:clamp(44px,6vw,80px);line-height:.86;text-transform:uppercase;letter-spacing:.01em;
+@media(max-width:900px){.champ-ov .co-champ{grid-template-columns:1fr;gap:18px}}
+.champ-ov .co-champid{min-width:0}
+.champ-ov .co-kicker{font-family:var(--f-cond);font-weight:700;letter-spacing:.24em;text-transform:uppercase;font-size:12px;color:var(--hero);display:flex;align-items:center;gap:9px}
+.champ-ov .co-cname{font-family:var(--f-disp);font-size:clamp(40px,5.4vw,80px);line-height:.9;text-transform:uppercase;letter-spacing:.01em;margin-top:10px;
   background:linear-gradient(180deg,#fff 30%,var(--hero));-webkit-background-clip:text;background-clip:text;color:transparent;
   text-shadow:0 12px 44px color-mix(in srgb,var(--hero) 26%,transparent)}
-.champ-ov .co-meta{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
-.champ-ov .co-flag{font-size:24px}
-.champ-ov .co-num{font-family:var(--f-disp);font-size:18px;color:#0a0a0a;background:#fff;border-radius:6px;padding:5px 10px}
+.champ-ov .co-meta{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+/* A caixa do FlagIcon é `h-4 w-6` (Tailwind); aqui a bandeira é do CAMPEÃO e pede
+   mais presença, então a caixa cresce sem recortar o desenho (`object-contain`). */
+.champ-ov .co-flag{height:20px;width:30px;border-radius:3px;box-shadow:0 0 0 1px rgba(255,255,255,.14)}
+.champ-ov .co-nat{font-size:14px;color:var(--co-sec)}
 .champ-ov .co-team{font-size:15px;color:var(--co-sec)}
 .champ-ov .co-team b{color:var(--co-text);font-weight:600}
 .champ-ov .co-youbadge{font-family:var(--f-cond);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#0a0a0a;background:var(--gold);border-radius:6px;padding:5px 9px}
-.champ-ov .co-clinch{margin-top:15px;font-size:13.5px;color:var(--co-sec)}
+.champ-ov .co-clinch{margin-top:14px;font-size:13.5px;color:var(--co-sec)}
 .champ-ov .co-clinch b{color:var(--hero)}
-.champ-ov .co-bigpts{position:absolute;top:20px;right:24px;text-align:right}
-.champ-ov .co-bigpts .v{font-family:var(--f-disp);font-size:52px;line-height:.9;color:#fff}
-.champ-ov .co-bigpts .l{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--co-muted)}
 
-.champ-ov .co-reward{padding:18px 20px;border-radius:20px;border:1px solid color-mix(in srgb,var(--rw) 30%,transparent);
-  background:linear-gradient(180deg, color-mix(in srgb,var(--rw) 10%,transparent), rgba(255,255,255,.015));display:flex;flex-direction:column}
-.champ-ov .co-reward h4{font-family:var(--f-cond);font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--rw);margin:0 0 12px;display:flex;align-items:center;gap:8px}
-.champ-ov .co-rrow{display:flex;align-items:center;gap:13px;padding:9px 0}
-.champ-ov .co-rrow + .co-rrow{border-top:1px solid rgba(255,255,255,.06)}
-.champ-ov .co-rrow .ic{font-size:20px;width:26px;text-align:center}
-.champ-ov .co-rrow .tx{flex:1}
-.champ-ov .co-rrow .tx .t{font-size:13px;color:var(--co-sec)}
-.champ-ov .co-rrow .tx .v{font-family:var(--f-disp);font-size:21px;color:#fff;letter-spacing:.02em;line-height:1.08}
-.champ-ov .co-rrow .tx .v small{font-size:11px;color:var(--rw);font-weight:600}
+/* O escudo da equipe do campeão, entre o nome e os números. */
+.champ-ov .co-crest{flex:none;display:flex;align-items:center;justify-content:center;padding-right:4px}
+@media(max-width:1100px){.champ-ov .co-crest{display:none}}
+
+/* A campanha: o total de pontos e como ele foi feito. */
+.champ-ov .co-champrun{display:flex;align-items:center;gap:24px;flex:none}
+.champ-ov .co-bigpts{text-align:right;flex:none}
+.champ-ov .co-bigpts .v{font-family:var(--f-disp);font-size:64px;line-height:.86;color:#fff}
+.champ-ov .co-bigpts .l{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--co-muted);margin-top:4px}
+.champ-ov .co-runstats{display:flex;gap:2px;border-left:1px solid var(--co-border);padding-left:22px}
+.champ-ov .co-runstat{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:62px;padding:0 6px}
+.champ-ov .co-runstat .n{font-family:var(--f-disp);font-size:26px;line-height:.9;color:var(--hero)}
+.champ-ov .co-runstat .k{font-family:var(--f-cond);font-weight:600;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--co-muted);white-space:nowrap}
+@media(max-width:760px){.champ-ov .co-champrun{flex-wrap:wrap;gap:16px}
+  .champ-ov .co-runstats{border-left:0;padding-left:0}}
 
 .champ-ov .co-card{border:1px solid var(--co-border);background:rgba(255,255,255,.025);border-radius:18px;padding:16px 18px}
 .champ-ov .co-card h4{font-family:var(--f-cond);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--co-muted);margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -86,41 +97,179 @@
 .champ-ov .co-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
 .champ-ov .co-legend span{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--co-sec)}
 .champ-ov .co-legend i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.champ-ov .co-legend-crown{color:var(--gold);margin-left:2px}
 
-.champ-ov .co-lower{display:grid;grid-template-columns:.85fr 1.15fr;gap:18px;align-items:start}
+/* As duas colunas terminam no mesmo ponto (`stretch`) e o conteúdo de cada uma
+   cresce para ocupar o que sobrar — senão a mais curta deixa um bloco morto embaixo
+   até a altura da outra. Quem estica por dentro é o pódio e o grid de prêmios. */
+.champ-ov .co-lower{display:grid;grid-template-columns:.85fr 1.15fr;gap:18px;align-items:stretch}
+.champ-ov .co-lower>.co-card{display:flex;flex-direction:column}
 @media(max-width:820px){.champ-ov .co-lower{grid-template-columns:1fr}}
 
-.champ-ov .co-podium{display:flex;align-items:flex-end;justify-content:center;gap:12px;padding-top:8px;min-height:210px}
-.champ-ov .co-step{display:flex;flex-direction:column;align-items:center;gap:8px;width:33%}
+/* Grid de três colunas iguais, todas esticadas à mesma altura: o disco e o nome
+   ficam ancorados no TOPO (uma linha só de nomes, alinhada), e só as barras variam
+   de altura, empurradas para o chão pelo `margin-top:auto`. Empilhar tudo por baixo
+   da barra deixava os três nomes em alturas diferentes, cada um seguindo o degrau. */
+.champ-ov .co-podium{display:grid;grid-template-columns:repeat(3,1fr);align-items:stretch;gap:10px;padding-top:4px;min-height:224px;flex:1}
+.champ-ov .co-step{display:flex;flex-direction:column;align-items:center;gap:7px;padding:8px 4px 0}
 .champ-ov .co-step.you .co-who{color:var(--cyan)}
 .champ-ov .co-disc{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--f-disp);font-size:19px;color:#0a0a0a}
 .champ-ov .co-step.you .co-disc{box-shadow:0 0 0 2px #0b0f16,0 0 0 4px var(--cyan)}
-.champ-ov .co-who{font-size:12px;font-weight:600;text-align:center;line-height:1.2}
-.champ-ov .co-who small{display:block;color:var(--co-muted);font-weight:400;font-size:10.5px}
-.champ-ov .co-bar{width:100%;border-radius:10px 10px 0 0;display:flex;align-items:flex-start;justify-content:center;padding-top:9px}
+/* Altura reservada para duas linhas de nome: nome curto não sobe a barra dele. */
+.champ-ov .co-who{font-size:12px;font-weight:600;text-align:center;line-height:1.25;min-height:38px}
+.champ-ov .co-who small{display:block;color:var(--co-muted);font-weight:400;font-size:10.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.champ-ov .co-bar{width:100%;margin-top:auto;border-radius:10px 10px 0 0;display:flex;align-items:flex-start;justify-content:center;padding-top:9px}
 .champ-ov .co-rankn{font-family:var(--f-disp);font-size:15px;color:#0a0a0a;opacity:.75}
-.champ-ov .co-b1{height:120px;background:linear-gradient(180deg,var(--gold),var(--gold-deep));box-shadow:0 0 24px color-mix(in srgb,var(--gold) 40%,transparent)}
-.champ-ov .co-b2{height:86px;background:linear-gradient(180deg,#d7dee8,#9aa6b4)}
-.champ-ov .co-b3{height:62px;background:linear-gradient(180deg,#c8895a,#9c6535)}
+/* Realce por menção: o degrau acende quando o mouse passa no nome do piloto lá nos
+   prêmios/recordes (e vice-versa). Ver utils/driverMentions. */
+.champ-ov .co-step{border-radius:12px;transition:background .16s ease}
+.champ-ov .co-step.lit{background:color-mix(in srgb,var(--cyan) 10%,transparent)}
+.champ-ov .co-step.lit .co-who{color:var(--cyan)}
+/* Degraus em PORCENTAGEM do degrau, não em pixels: quando o cartão estica para
+   acompanhar o dos prêmios, o pódio cresce junto em vez de abrir um vão entre o
+   nome e a barra. As porcentagens reproduzem os 120/86/62px na altura mínima. */
+.champ-ov .co-b1{height:56%;min-height:96px;background:linear-gradient(180deg,var(--gold),var(--gold-deep));box-shadow:0 0 24px color-mix(in srgb,var(--gold) 40%,transparent)}
+.champ-ov .co-b2{height:40%;min-height:70px;background:linear-gradient(180deg,#d7dee8,#9aa6b4)}
+.champ-ov .co-b3{height:29%;min-height:50px;background:linear-gradient(180deg,#c8895a,#9c6535)}
 
-.champ-ov .co-awards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* Classificação do 4º para baixo — miúda de propósito: ela existe para dar um lugar
+   onde acender o piloto citado nos prêmios, não para ser lida linha a linha. Em
+   colunas de jornal (`columns`, não grid) porque só assim a leitura é vertical:
+   4,5,6… descendo a primeira coluna, e não serpenteando de lado. */
+/* `columns` por LARGURA, não por quantidade: o número de colunas cai sozinho de 3
+   para 1 conforme o cartão encolhe, sem media query para cada tamanho de tela. */
+.champ-ov .co-rest{columns:168px;column-gap:16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--co-border)}
+.champ-ov .co-restrow{display:flex;align-items:center;gap:6px;padding:1px 5px;border-radius:5px;break-inside:avoid;
+  font-size:10px;line-height:1.7;color:var(--co-sec);white-space:nowrap;transition:background .16s ease,color .16s ease}
+.champ-ov .co-restrow b{font-family:var(--f-cond);font-weight:700;font-size:9.5px;color:var(--co-muted);min-width:13px;text-align:right;flex:none}
+/* Traço da cor da equipe: dá coluna e identidade sem gastar uma linha de texto. */
+.champ-ov .co-restrow .cor{width:2px;height:9px;border-radius:1px;flex:none;opacity:.85}
+.champ-ov .co-restrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.champ-ov .co-restrow .pts{font-style:normal;color:var(--co-muted);flex:none;font-size:9.5px}
+.champ-ov .co-restrow.you{color:var(--cyan)}
+.champ-ov .co-restrow.you b{color:var(--cyan)}
+.champ-ov .co-restrow.lit{background:color-mix(in srgb,var(--cyan) 16%,transparent);color:var(--cyan)}
+.champ-ov .co-restrow.lit b,.champ-ov .co-restrow.lit .pts{color:var(--cyan)}
+
+/* Os quatro prêmios em destaque. São a carga emocional da tela — ganham cartão
+   grande, brasão de verdade e o contexto do piloto (equipe e posição no ano), que
+   os recordes não têm. O do jogador acende em ciano, como o resto da tela. */
+.champ-ov .co-awards{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:12px;flex:1;min-height:0}
 @media(max-width:520px){.champ-ov .co-awards{grid-template-columns:1fr}}
-.champ-ov .co-award{display:flex;gap:11px;padding:13px 14px;border-radius:14px;border:1px solid var(--co-border);background:rgba(255,255,255,.022)}
-.champ-ov .co-award .ic{font-size:19px;width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:10px;background:rgba(255,255,255,.05)}
-.champ-ov .co-award .t{font-family:var(--f-cond);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold)}
-.champ-ov .co-award .who{font-size:13px;font-weight:600;margin:2px 0 4px;color:var(--co-text)}
-.champ-ov .co-award .who em{font-style:normal;color:var(--cyan)}
-.champ-ov .co-award .d{font-size:11.5px;color:var(--co-sec);line-height:1.4}
+/* `align-items:center` porque o cartão estica com a coluna: o brasão e o texto ficam
+   centrados na altura que sobrar, em vez de grudados no topo com um vão embaixo. */
+.champ-ov .co-award{display:flex;align-items:center;gap:14px;padding:16px 17px;border-radius:16px;border:1px solid color-mix(in srgb,var(--gold) 16%,var(--co-border));
+  background:radial-gradient(ellipse 90% 120% at 0% 0%, color-mix(in srgb,var(--gold) 7%,transparent), transparent 62%), rgba(255,255,255,.022)}
+.champ-ov .co-award.you{border-color:color-mix(in srgb,var(--cyan) 38%,transparent);
+  background:radial-gradient(ellipse 90% 120% at 0% 0%, color-mix(in srgb,var(--cyan) 10%,transparent), transparent 62%), color-mix(in srgb,var(--cyan) 5%,transparent)}
+.champ-ov .co-award .ic{width:48px;height:48px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:14px;
+  border:1px solid color-mix(in srgb,var(--gold) 22%,transparent);background:color-mix(in srgb,var(--gold) 10%,transparent);color:var(--gold)}
+.champ-ov .co-award.you .ic{border-color:color-mix(in srgb,var(--cyan) 30%,transparent);background:color-mix(in srgb,var(--cyan) 12%,transparent);color:var(--cyan)}
+.champ-ov .co-award .txt{min-width:0;flex:1}
+.champ-ov .co-award .t{font-family:var(--f-cond);font-weight:700;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.champ-ov .co-award.you .t{color:var(--cyan)}
+.champ-ov .co-award .who{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:4px 0 2px;color:var(--co-text);line-height:1.18}
+/* Equipe e posição no campeonato: o dado que faz o nome virar alguém. */
+.champ-ov .co-award .ctx{font-size:12px;color:var(--co-muted);margin-bottom:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.champ-ov .co-award .d{font-size:14px;color:var(--co-sec);line-height:1.45}
 
-.champ-ov .co-supers{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
-.champ-ov .co-super{flex:0 1 218px;min-width:200px;display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:14px;border:1px solid var(--co-border);background:rgba(255,255,255,.022)}
+/* Os prêmios fora do destaque: uma linha cada, sem esconder nada da temporada. */
+.champ-ov .co-awardrest{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;padding-top:11px;border-top:1px solid var(--co-border)}
+.champ-ov .co-awardmini{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--co-muted);min-width:0}
+.champ-ov .co-awardmini svg{color:var(--gold);opacity:.8;flex:none}
+.champ-ov .co-awardmini b{font-family:var(--f-cond);font-weight:700;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);opacity:.85}
+.champ-ov .co-awardmini .w{color:var(--co-sec);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.champ-ov .co-awardmini.you svg,.champ-ov .co-awardmini.you b{color:var(--cyan)}
+.champ-ov .co-awardmini.you .w{color:var(--cyan)}
+
+/* Alternador dos dois campeonatos. Segmentado e centrado: são dois quadros irmãos,
+   não uma navegação hierárquica, então nenhum dos dois manda no outro. */
+.champ-ov .co-switch{display:flex;align-self:center;gap:4px;padding:4px;border-radius:999px;
+  border:1px solid var(--co-border);background:rgba(255,255,255,.03)}
+.champ-ov .co-switch button{display:flex;align-items:center;gap:8px;cursor:pointer;border:0;border-radius:999px;
+  padding:8px 20px;background:transparent;color:var(--co-sec);
+  font-family:var(--f-cond);font-weight:700;font-size:12.5px;letter-spacing:.13em;text-transform:uppercase}
+.champ-ov .co-switch button:hover{color:var(--co-text);background:rgba(255,255,255,.05)}
+.champ-ov .co-switch button.on{color:#0a0a0a;background:var(--hero);
+  box-shadow:0 6px 20px color-mix(in srgb,var(--hero) 32%,transparent)}
+.champ-ov .co-switch button.on:hover{background:var(--hero);filter:brightness(1.05)}
+.champ-ov .co-switch button:focus-visible{outline:2px solid var(--hero);outline-offset:2px}
+
+/* A formação da equipe campeã, no lugar em que o quadro de pilotos põe bandeira e
+   gentílico. Chips e não texto corrido: são nomes, e cada um se lê inteiro. */
+.champ-ov .co-lineuplabel{font-family:var(--f-cond);font-weight:600;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--co-muted)}
+.champ-ov .co-lineup{font-size:13px;color:var(--co-text);padding:5px 11px;border-radius:999px;
+  border:1px solid var(--co-border);background:rgba(255,255,255,.04)}
+.champ-ov .co-lineup.you{color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 42%,transparent);background:color-mix(in srgb,var(--cyan) 10%,transparent)}
+
+/* Classificação de construtores: uma equipe por linha larga, e não cartões em grade.
+   Em grade, o campeonato inteiro cabia num rodapé de duas linhas por equipe e não
+   sobrava lugar para dizer QUEM pontuou nem COMO. O líder recebe a borda dourada e
+   a equipe do jogador o ciano, como em todo o resto do pop-up. */
+.champ-ov .co-ctable{display:flex;flex-direction:column;gap:8px}
+.champ-ov .co-crow{display:grid;grid-template-columns:26px auto minmax(0,1fr) auto auto;align-items:center;gap:14px;
+  padding:11px 16px;border-radius:14px;border:1px solid var(--co-border);background:rgba(255,255,255,.022)}
+.champ-ov .co-crow.lead{border-color:color-mix(in srgb,var(--gold) 34%,transparent);background:color-mix(in srgb,var(--gold) 7%,transparent)}
+.champ-ov .co-crow.you{border-color:color-mix(in srgb,var(--cyan) 40%,transparent);background:color-mix(in srgb,var(--cyan) 8%,transparent)}
+.champ-ov .co-crow .pos{font-family:var(--f-disp);font-size:20px;line-height:1;color:var(--co-muted);text-align:right}
+.champ-ov .co-crow.lead .pos{color:var(--gold)}
+.champ-ov .co-crow.you .pos{color:var(--cyan)}
+.champ-ov .co-crow .who{min-width:0}
+.champ-ov .co-crow .nm{font-size:14px;font-weight:600;color:var(--co-text);display:flex;align-items:baseline;gap:9px;min-width:0}
+.champ-ov .co-crow .nm small{font-weight:400;font-size:10.5px;color:var(--co-muted);letter-spacing:.02em;white-space:nowrap}
+
+/* A barra dá a distância entre as equipes de relance — a tabela de números sozinha
+   não diz se o 2º ficou colado ou a um campeonato de distância. */
+.champ-ov .co-cbar{height:4px;border-radius:3px;background:rgba(255,255,255,.06);margin:7px 0 8px;overflow:hidden}
+.champ-ov .co-cbar i{display:block;height:100%;border-radius:3px;opacity:.85}
+
+/* Quem pontuou pela equipe, com o que somou COM essa camisa. */
+.champ-ov .co-cdrv{display:flex;flex-wrap:wrap;gap:6px}
+.champ-ov .co-cdrv span{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--co-sec);
+  padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.045)}
+.champ-ov .co-cdrv span.you{color:var(--cyan);background:color-mix(in srgb,var(--cyan) 12%,transparent)}
+.champ-ov .co-cdrv i{font-style:normal;font-family:var(--f-disp);font-size:12px;color:var(--co-text)}
+.champ-ov .co-cdrv span.you i{color:var(--cyan)}
+
+.champ-ov .co-cstats{display:flex;gap:2px;flex:none}
+.champ-ov .co-cstat{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:52px}
+.champ-ov .co-cstat b{font-family:var(--f-disp);font-weight:400;font-size:18px;line-height:1;color:var(--co-text)}
+.champ-ov .co-crow.lead .co-cstat b{color:var(--gold)}
+.champ-ov .co-crow.you .co-cstat b{color:var(--cyan)}
+.champ-ov .co-cstat small{font-family:var(--f-cond);font-weight:600;font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--co-muted);white-space:nowrap}
+
+.champ-ov .co-cpts{text-align:right;flex:none;min-width:64px;border-left:1px solid var(--co-border);padding-left:16px}
+.champ-ov .co-cpts .v{font-family:var(--f-disp);font-size:26px;line-height:1;color:var(--co-text);display:block}
+.champ-ov .co-crow.lead .co-cpts .v{color:var(--gold)}
+.champ-ov .co-crow.you .co-cpts .v{color:var(--cyan)}
+.champ-ov .co-cpts small{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--co-muted)}
+
+/* Estreito: a campanha em números e o total descem para baixo do nome em vez de
+   espremer o escudo e a formação até virarem reticências. */
+@media(max-width:900px){
+  .champ-ov .co-crow{grid-template-columns:24px auto minmax(0,1fr);row-gap:10px}
+  .champ-ov .co-cstats{grid-column:2 / -1}
+  .champ-ov .co-cpts{grid-column:2 / -1;text-align:left;border-left:0;padding-left:0}
+}
+
+/* Grid em vez de flex-wrap: os cartões de recorde ficam todos da mesma largura e a
+   última linha não fica centralizada e órfã. `minmax(0,1fr)` é o que permite o
+   texto interno truncar em vez de esticar a coluna. */
+.champ-ov .co-supers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.champ-ov .co-super{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:14px;border:1px solid var(--co-border);background:rgba(255,255,255,.022);min-width:0}
 .champ-ov .co-super.you{border-color:color-mix(in srgb,var(--cyan) 40%,transparent);background:color-mix(in srgb,var(--cyan) 8%,transparent)}
-.champ-ov .co-super .ic{font-size:19px;width:30px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:9px;background:rgba(255,255,255,.05)}
+/* Ícone monocromático (lucide): a variedade vem do desenho, não da cor. O cartão do
+   jogador acende em ciano, como o resto da tela. */
+.champ-ov .co-super .ic{width:30px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:9px;background:rgba(255,255,255,.05);color:var(--co-sec)}
+.champ-ov .co-super.you .ic{color:var(--cyan)}
 .champ-ov .co-super .txt{min-width:0;flex:1}
-.champ-ov .co-super .lab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--co-muted)}
+.champ-ov .co-super .lab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--co-muted);line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .champ-ov .co-super .nm{font-size:13px;font-weight:600;color:var(--co-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.champ-ov .co-super .nm em{font-style:normal;color:var(--cyan)}
-.champ-ov .co-super .val{font-family:var(--f-disp);font-size:20px;color:var(--gold);letter-spacing:.02em;line-height:1;white-space:nowrap}
+/* Onde o recorde aconteceu — nome de pista é longo, então trunca em vez de empurrar. */
+.champ-ov .co-super .ctx{font-size:10.5px;color:var(--co-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.champ-ov .co-super .val{font-family:var(--f-disp);font-size:20px;color:var(--gold);letter-spacing:.02em;line-height:1;white-space:nowrap;flex:none}
 .champ-ov .co-super .val small{font-size:10px;color:var(--co-muted);font-weight:500;margin-left:2px}
 
 .champ-ov .co-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 22px;border-top:1px solid var(--co-border);background:rgba(0,0,0,.25)}

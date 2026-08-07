@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import GlassCard from "../ui/GlassCard";
 import GlassButton from "../ui/GlassButton";
+import Tooltip from "../ui/Tooltip";
 
 const CARS = [
   { key: "mx5", label: "Mazda MX-5" },
@@ -265,23 +266,24 @@ function RosterGenPanel() {
             </p>
           </div>
         </div>
-        <span
-          className={[
-            "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold",
-            connected
-              ? "bg-status-green/15 text-status-green"
-              : "bg-white/5 text-text-muted",
-          ].join(" ")}
-          title={t("rosterGen.connectionTitle")}
-        >
+        <Tooltip texto={t("rosterGen.connectionTitle")}>
           <span
             className={[
-              "inline-block h-1.5 w-1.5 rounded-full",
-              connected ? "animate-pulse bg-status-green" : "bg-text-muted",
+              "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold",
+              connected
+                ? "bg-status-green/15 text-status-green"
+                : "bg-white/5 text-text-muted",
             ].join(" ")}
-          />
-          {connected ? t("rosterGen.connected") : t("rosterGen.disconnected")}
-        </span>
+          >
+            <span
+              className={[
+                "inline-block h-1.5 w-1.5 rounded-full",
+                connected ? "animate-pulse bg-status-green" : "bg-text-muted",
+              ].join(" ")}
+            />
+            {connected ? t("rosterGen.connected") : t("rosterGen.disconnected")}
+          </span>
+        </Tooltip>
       </div>
 
       {saves.length === 0 ? (
@@ -390,13 +392,14 @@ function RosterGenPanel() {
         >
           {t("rosterGen.dumpYamlBtn")}
         </GlassButton>
-        <input
-          value={targetTrackId}
-          onChange={(e) => setTargetTrackId(e.target.value.replace(/[^0-9]/g, ""))}
-          placeholder={t("rosterGen.trackOverridePlaceholder")}
-          title={t("rosterGen.trackOverrideTitle")}
-          className="w-40 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
-        />
+        <Tooltip texto={t("rosterGen.trackOverrideTitle")}>
+          <input
+            value={targetTrackId}
+            onChange={(e) => setTargetTrackId(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder={t("rosterGen.trackOverridePlaceholder")}
+            className="w-40 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-text-primary outline-none"
+          />
+        </Tooltip>
         {selected && (
           <span className="text-[10px] text-text-muted">
             {t("rosterGen.defaultCategory")} <span className="font-mono">{selected.category}</span>

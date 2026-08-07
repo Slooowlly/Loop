@@ -32,6 +32,38 @@ fn category_class(category_id: &str) -> Option<&str> {
         .filter(|classe| !classe.is_empty())
 }
 
+/// Alcance global de nível de peça (design §6: "alcance global 1–10"). É o ÚNICO limite
+/// duro do sistema — existe para o custo não escalar sem fim, não para conter equipe rica.
+pub const MAX_LEVEL_GLOBAL: u8 = 10;
+
+/// Quantos níveis acima do teto da categoria a parede admite subir. O design §6 é explícito:
+/// "o teto do LMP2 (8) deixa 9–10 só pros ultra-ricos que decidirem sangrar dinheiro" — ou
+/// seja, dois. O que segura não é este número, é o preço: cada nível acima do teto custa
+/// +59%, +94%, +129%… compondo, tanto para SUBIR quanto para REPOR depois, todo fim de vida.
+pub const NIVEIS_ACIMA_DO_TETO: u8 = 2;
+
+/// **Teto de DESENVOLVIMENTO**: até onde uma peça pode ser levada por quem aceita sangrar,
+/// distinto do teto *natural* da categoria ([`category_ceiling`]), que é onde o custo para
+/// de ser manso.
+///
+/// Por que existe: a parede de [`part_cost`] estava documentada como "não é cap rígido — é
+/// dor crescente", e o design reserva os níveis 9–10 aos ultra-ricos. Mas o passe de upgrade
+/// e o clamp do tick pós-corrida cortavam no teto natural, então a parede era código morto e
+/// o superávit das equipes ricas não tinha para onde ir — caixa acumulava sem limite e
+/// `elite` virava estado absorvente (medido em `commands::race::tests::medicao_financeira`).
+///
+/// Categoria **spec** (teto 1, os rookies) não desenvolve nada: lá o teto natural é o limite,
+/// porque carro igual para todos é a definição da categoria, não uma questão de orçamento.
+pub fn development_ceiling(ceiling: u8) -> u8 {
+    if ceiling <= 1 {
+        ceiling
+    } else {
+        ceiling
+            .saturating_add(NIVEIS_ACIMA_DO_TETO)
+            .min(MAX_LEVEL_GLOBAL)
+    }
+}
+
 /// Teto suave de nível por categoria: o nível "natural" da categoria; acima dele o
 /// custo dispara. Não é cap rígido — é onde a parede começa.
 ///
@@ -63,22 +95,34 @@ pub fn category_ceiling_for(category_id: &str, class_id: Option<&str>) -> u8 {
     }
 }
 
-/// Escala de custo por categoria. PRIMEIRA-PASSADA ancorada na economia de cada categoria
-/// (`operating_cost_midpoint × ~0,00065`), pra que a manutenção recorrente fique numa
-/// fração sustentável do orçamento (design §6) e o acoplamento orçamento↔custo funcione.
-/// O Monte Carlo do chunk 8 refina esses números. Mantém as proporções relativas entre
-/// peças (o custo relativo e a parede não mudam).
+/// Fração do custo operacional ANUAL da divisão que vale uma unidade da peça de referência
+/// (`relative_cost` 1,0) no nível 1.
+///
+/// Este coeficiente É a escala de peça. Antes existia uma tabela de sete números escrita à
+/// mão (120 / 280 / 715 / 1.800 / 5.200 / 8.800 / 10.700) que, medida, era exatamente
+/// `operating_cost_midpoint × 0,00065` — ou seja, nunca foi uma segunda âncora, era uma
+/// CÓPIA CONGELADA da primeira. Congelada é o problema: quando o custo operacional deixou
+/// de ser tabela e virou conta física, a cópia continuaria apontando para os números
+/// velhos, e a peça ficaria relativamente 2,4× mais cara na GT3 e **10,5×** no GT4 do
+/// Endurance da noite para o dia. Como comprar peça é o único débito que escala com riqueza,
+/// isso seria o ralo entupindo sozinho.
+///
+/// Agora a escala é derivada ao vivo. O coeficiente é o mesmo 0,00065 que a tabela velha
+/// embutia — o que muda é o número em que ele incide.
+pub const PART_SCALE_OF_OPERATING: f64 = 0.00065;
+
+/// Escala de custo de peça da divisão, derivada da âncora econômica em vez de copiada dela.
+///
+/// Aceita a chave com classe (`"endurance:gt3"`), e é por isso que as três classes do
+/// Endurance deixam de dividir um preço de peça só — o mesmo motivo que já valia para
+/// [`category_ceiling_for`].
 fn category_cost_scale(category_id: &str) -> f64 {
-    match category_base(category_id) {
-        "mazda_rookie" | "toyota_rookie" => 120.0,
-        "mazda_amador" | "toyota_amador" => 280.0,
-        "bmw_m2" | "production_challenger" => 715.0,
-        "gt4" => 1_800.0,
-        "gt3" => 5_200.0,
-        "lmp2" => 8_800.0,
-        "endurance" => 10_700.0,
-        _ => 715.0,
-    }
+    crate::finance::planning::category_finance_scale_for(
+        category_base(category_id),
+        category_class(category_id),
+    )
+    .operating_cost_midpoint()
+        * PART_SCALE_OF_OPERATING
 }
 
 /// Custo da peça no nível 1 para a categoria.
@@ -137,14 +181,31 @@ pub fn full_build_base_cost(category_id: &str) -> f64 {
 /// inteiro custe [`UPGRADE_BUDGET_FRACTION`] do custo operacional de uma temporada.
 ///
 /// Nunca desce de `1.0`: desenvolver jamais sai mais barato que repor a mesma peça.
+///
+/// ## Por que este multiplicador escondia um bug
+///
+/// Ele lê o custo operacional AO VIVO, enquanto [`category_cost_scale`] era uma cópia
+/// congelada do mesmo número. O resultado é que o preço de UPGRADE se autocorrigia quando a
+/// âncora mudasse — `alvo` acompanhava — e o preço de REPOSIÇÃO não, porque saía da cópia.
+/// O caminho que se conserta sozinho mascarava o que não se conserta, e reposição de peça é
+/// o único débito que escala com riqueza no jogo inteiro: o sintoma apareceria como "peça
+/// impagável no Endurance" sem nenhum sinal do lado do desenvolvimento.
+///
+/// Com a escala de peça derivada, os dois lados andam juntos e este multiplicador passa a
+/// depender só da FORMA da escada (o teto da categoria e o custo relativo das peças), não do
+/// nível da âncora — `alvo` e `base` carregam o mesmo `operating_cost_midpoint` e ele
+/// cancela. `upgrade_multiplier_independe_do_nivel_da_ancora` trava essa invariante.
 pub fn upgrade_price_multiplier(category_id: &str) -> f64 {
     let base = full_build_base_cost(category_id);
     if base <= 0.0 {
         return 1.0;
     }
     let alvo = UPGRADE_BUDGET_FRACTION
-        * crate::finance::planning::category_finance_scale(category_base(category_id))
-            .operating_cost_midpoint();
+        * crate::finance::planning::category_finance_scale_for(
+            category_base(category_id),
+            category_class(category_id),
+        )
+        .operating_cost_midpoint();
     (alvo / base).max(1.0)
 }
 
@@ -280,10 +341,22 @@ mod tests {
                     .sum::<f64>()
             })
             .sum();
-        let caixa_tipico = 3_000_000.0;
+        // O caixa típico vem da ÂNCORA DE ESTOQUE, não de um literal. Antes eram
+        // 3.000.000 escritos à mão — um número que valia ~1,26× o caixa-médio real da
+        // categoria e, principalmente, não sabia de que âncora tinha nascido. Quando o
+        // custo operacional virou conta física e caiu, a escada caiu junto (ela é
+        // `UPGRADE_BUDGET_FRACTION` do operacional) e o literal ficou parado: o teste
+        // acusou uma regressão que era só ele comparando fluxo contra constante.
+        //
+        // Ligado à âncora certa, ele volta a medir o que quer medir — se construir o carro
+        // inteiro pesa no caixa de quem chega na categoria — e vai apertar sozinho quando o
+        // caixa esperado também virar consequência (seção 3.2).
+        let caixa_tipico =
+            crate::finance::planning::category_finance_scale("production_challenger")
+                .expected_cash_midpoint();
         assert!(
             escada / caixa_tipico > 0.15,
-            "escada da Production custa só {:.1}% de um caixa de 3M",
+            "escada da Production custa só {:.1}% do caixa-médio da categoria ({caixa_tipico:.0})",
             escada / caixa_tipico * 100.0
         );
     }

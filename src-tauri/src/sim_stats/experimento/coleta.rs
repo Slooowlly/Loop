@@ -41,6 +41,8 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
         // bounce-down (promovida cai logo) e ricochete (rebaixada volta logo).
         let mut promoted_at: Vec<(String, usize)> = Vec::new();
         let mut relegated_seasons: HashMap<String, Vec<usize>> = HashMap::new();
+        // Há quantas temporadas consecutivas cada piloto está sem assento.
+        let mut livre_ha: HashMap<String, u32> = HashMap::new();
 
         for season in 0..seasons {
             // Snapshot ANTES da temporada
@@ -93,6 +95,26 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
                         seasons_seen: 1,
                     });
             }
+            // ── Agentes livres: Ativo e sem contrato no INÍCIO da temporada. Perder o
+            //    assento não aposenta ninguém — o piloto fica livre e disputa a janela.
+            //    A regra do órfão ocioso só age depois de uma temporada inteira sem correr,
+            //    e existe para o mundo não acumular agente livre eterno. Estas contagens
+            //    dizem se esse acúmulo é real hoje.
+            let com_assento = snapshot_seats(&db_path);
+            for (id, snap) in &before {
+                if com_assento.contains_key(id) {
+                    livre_ha.remove(id);
+                    continue;
+                }
+                let streak = livre_ha.entry(id.clone()).or_insert(0);
+                *streak += 1;
+                let e = t.free_agents_by_season.entry(season).or_insert([0.0; 3]);
+                e[0] += 1.0;
+                e[1] += snap.age.max(0) as f64;
+                e[2] += snap.overall;
+                *t.free_streak_hist.entry((*streak).min(6)).or_insert(0) += 1;
+            }
+
             let inj_before: HashSet<String> = snapshot_injuries(&db_path).into_keys().collect();
             let active_at_start = before.len() as u64;
             t.driver_seasons += active_at_start;
@@ -134,11 +156,62 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
                 if p.motivacao < 20.0 {
                     t.motiv_lt20 += 1;
                 }
+                // Mesma leitura, mas guardada POR TEMPORADA — ver `motiv_by_season`.
+                let e = t.motiv_by_season.entry(season).or_insert([0.0; 4]);
+                e[0] += p.motivacao;
+                e[1] += 1.0;
+                if p.motivacao >= 99.5 {
+                    e[2] += 1.0;
+                }
+                if p.motivacao < 20.0 {
+                    e[3] += 1.0;
+                }
+            }
+
+            // Assentos ANTES da virada, com a motivação que cada piloto levou para
+            // a decisão (a evolução só mexe nela dentro do advance, logo abaixo).
+            // O par depois/antes cobre a janela do OFFSEASON — mercado de
+            // pré-temporada e promoção/rebaixamento. Trocas feitas pela janela
+            // semanal no meio da temporada ficam fora desta medida.
+            let seats_before = snapshot_seats(&db_path);
+
+            // Fama e público da ÚLTIMA temporada, lidos ANTES do advance. A virada
+            // chama `reset_team_season_stats`, que zera `stats_pontos` — e é dos pontos
+            // que sai a classificação viva de construtores. Medir depois do advance
+            // daria um grid inteiro sem campeonato e mataria justamente o termo de
+            // competitividade que se quer medir.
+            if season + 1 == seasons {
+                super::fama::coletar_fama(&db_path, t);
+                super::fama::coletar_atracao(&db_path, t);
             }
 
             // Fecha a temporada (aplica growth/decline/lesão/aposentadoria/promoção)
             let result =
                 advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+
+            // ── O ânimo mexeu a agulha do mercado? ──
+            let seats_after = snapshot_seats(&db_path);
+            for (id, antes) in &seats_before {
+                let Some(depois) = seats_after.get(id) else {
+                    continue;
+                };
+                let e = t
+                    .mercado_by_motiv
+                    .entry(motiv_band(antes.motivacao))
+                    .or_insert([0.0; 4]);
+                e[0] += 1.0;
+                if depois.team_id != antes.team_id {
+                    e[1] += 1.0;
+                }
+                // Tier 99 é categoria desconhecida — comparar degraus com ele
+                // inventaria quedas que não existiram.
+                if antes.tier != 99 && depois.tier != 99 && depois.tier < antes.tier {
+                    e[2] += 1.0;
+                }
+                if antes.salary > 0.0 {
+                    e[3] += (depois.salary - antes.salary) / antes.salary * 100.0;
+                }
+            }
 
             // ── KPI anti-deflação: correlação carro↔skill por tier ──
             for (car, skill, categoria) in snapshot_grid_pairs(&db_path) {
@@ -410,6 +483,13 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
                         }
                     }
                 }
+                // Idade de quem larga POR DESMOTIVAÇÃO. O ramo de desistência em
+                // `check_retirement` compra paciência só com skill — não há termo
+                // de idade nenhum —, então um piloto de 22 anos desiste no mesmo
+                // prazo de um de 38. Esta faixa mede o tamanho real do problema.
+                if r.reason.contains("falta de motivacao") {
+                    *t.motiv_retire_by_age.entry(age_bucket(r.age)).or_insert(0) += 1;
+                }
             }
             t.retire_rate_samples
                 .push(pct(retired_this_season, active_at_start));
@@ -586,9 +666,14 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
             let db = Database::open_existing(&db_path).expect("db");
             let n: i64 = db
                 .conn
-                .query_row("SELECT COUNT(*) FROM team_ownership_events", [], |r| {
-                    r.get(0)
-                })
+                // Só as VENDAS: o contador existe para conferir com `episodes_sold`.
+                // A tabela também guarda o alerta de insolvência do 1º ano em colapso
+                // (`collapse_warning`), que não é venda e inflaria a verificação.
+                .query_row(
+                    "SELECT COUNT(*) FROM team_ownership_events WHERE event_type = 'sale'",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap_or(0);
             t.ownership_events_recorded += n as u64;
         }

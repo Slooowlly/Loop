@@ -67,6 +67,22 @@ pub(crate) fn get_news_in_base_dir(
     Ok(items)
 }
 
+/// Os recordes do dossie de carreira — onde cada numero coloca o piloto no grid
+/// atual e no mundo.
+///
+/// Comando a parte pelo mesmo motivo de `get_driver_world_rank`: montar isto
+/// exige varrer o mundo inteiro (503ms num save de 27 mil resultados, medido em
+/// debug) e so serve ao toggle de Recordes, que nasce desligado. Dentro da ficha
+/// ele cobrava esse tempo de toda abertura e de toda troca de piloto.
+pub(crate) fn get_driver_dossier_ranks_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    driver_id: &str,
+) -> Result<HashMap<String, DriverCareerRankEntry>, String> {
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
+    crate::commands::career_detail::build_dossier_ranks(&db.conn, driver_id)
+}
+
 pub(crate) fn get_driver_detail_in_base_dir(
     base_dir: &Path,
     career_id: &str,
@@ -224,22 +240,57 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
     Ok(standings)
 }
 
+/// Quem ocupa um assento da equipe, para o card do grid.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DriverSlotInfo {
+    /// Id do ocupante — a alça que a ficha rápida do grid usa para pedir o dossiê.
+    /// Só existe quando o piloto foi encontrado no banco: um id de assento que
+    /// aponta para um piloto apagado abriria uma ficha vazia.
+    pub id: Option<String>,
+    pub nome: Option<String>,
+    pub tenure_seasons: Option<i32>,
+    /// Contrato que TERMINA nesta virada — o piloto ainda ocupa o assento, mas vai ao
+    /// mercado. É o que a semana 1 da janela marca no grid: a foto mostra o elenco
+    /// inteiro, e este sinal é o que diz quais assentos podem sumir na semana 2.
+    pub contrato_vence: bool,
+    /// Piloto APOSENTADO ainda sentado. Só acontece nas semanas de abertura da janela,
+    /// onde o reparo de integridade poupa o contrato dele de propósito para a foto ficar
+    /// completa (ver `repair_regular_contract_consistency`). Sem este sinal o assento
+    /// simplesmente esvaziaria entre uma tela e outra, sem o jogador saber por quê.
+    pub aposentado: bool,
+}
+
 pub(crate) fn get_driver_slot_info(
     db: &Database,
     driver_id: Option<&String>,
     team_id: &str,
     active_season_number: i32,
-) -> (Option<String>, Option<i32>) {
+) -> DriverSlotInfo {
     let Some(driver_id) = driver_id else {
-        return (None, None);
+        return DriverSlotInfo::default();
     };
 
-    let driver_name = driver_queries::get_driver(&db.conn, driver_id)
-        .ok()
-        .map(|driver| driver.nome);
+    let driver = driver_queries::get_driver(&db.conn, driver_id).ok();
+    let aposentado = driver
+        .as_ref()
+        .is_some_and(|d| d.status == crate::models::enums::DriverStatus::Aposentado);
+    let id = driver.as_ref().map(|_| driver_id.clone());
+    let nome = driver.map(|driver| driver.nome);
     let tenure_seasons =
         calculate_consecutive_team_tenure(&db.conn, driver_id, team_id, active_season_number);
-    (driver_name, tenure_seasons)
+    // `temporada_fim < ativa` = já venceu e ainda não foi expirado (a foto da semana 1).
+    let contrato_vence =
+        contract_queries::get_active_regular_contract_for_pilot(&db.conn, driver_id)
+            .ok()
+            .flatten()
+            .is_some_and(|contract| contract.temporada_fim < active_season_number);
+    DriverSlotInfo {
+        id,
+        nome,
+        tenure_seasons,
+        contrato_vence,
+        aposentado,
+    }
 }
 
 pub(crate) fn calculate_consecutive_team_tenure(
@@ -704,4 +755,133 @@ pub(crate) fn get_race_reading_in_base_dir(
             })
             .collect(),
     })
+}
+
+/// Contexto do jogador com cada piloto de uma lista — usado pelo fim da
+/// pré-temporada, onde ele precisa saber quais dos pilotos que ficaram sem vaga
+/// significam alguma coisa para ele.
+///
+/// Uma consulta agregada para o histórico inteiro, não uma por piloto: a lista
+/// tem dezenas de nomes em categorias cheias, e `race_results` é a tabela mais
+/// pesada do save.
+pub(crate) fn get_displaced_driver_context_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    driver_ids: &[String],
+) -> Result<Vec<crate::commands::career_types::DisplacedDriverContext>, String> {
+    use crate::commands::career_types::DisplacedDriverContext;
+
+    if driver_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let (db, _career_dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
+    let conn = &db.conn;
+
+    let player = driver_queries::get_player_driver(conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+
+    let mut por_piloto: HashMap<String, DisplacedDriverContext> = driver_ids
+        .iter()
+        .map(|id| {
+            (
+                id.clone(),
+                DisplacedDriverContext {
+                    driver_id: id.clone(),
+                    ..Default::default()
+                },
+            )
+        })
+        .collect();
+
+    // Saves antigos podem não ter as tabelas de corrida ainda. Sem elas não há
+    // confronto nenhum para contar, e isso não é erro — é carreira sem história.
+    if tabela_existe(conn, "race_results")? && tabela_existe(conn, "calendar")? {
+        let marcadores = vec!["?"; driver_ids.len()].join(",");
+        let sql = format!(
+            "SELECT dele.piloto_id,
+                    COUNT(*),
+                    SUM(CASE WHEN meu.dnf = 0 AND dele.dnf = 0
+                              AND meu.posicao_final > 0 AND dele.posicao_final > 0
+                              AND meu.posicao_final < dele.posicao_final THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN meu.dnf = 0 AND dele.dnf = 0
+                              AND meu.posicao_final > 0 AND dele.posicao_final > 0
+                              AND dele.posicao_final < meu.posicao_final THEN 1 ELSE 0 END),
+                    MAX(COALESCE(s.numero, 0))
+               FROM race_results meu
+               INNER JOIN race_results dele
+                       ON dele.race_id = meu.race_id AND dele.piloto_id IN ({marcadores})
+               INNER JOIN calendar c ON c.id = meu.race_id
+               LEFT JOIN seasons s ON s.id = COALESCE(c.season_id, c.temporada_id)
+              WHERE meu.piloto_id = ?{}
+              GROUP BY dele.piloto_id",
+            driver_ids.len() + 1
+        );
+
+        let mut params: Vec<&dyn rusqlite::ToSql> =
+            driver_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        params.push(&player.id);
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("Falha ao preparar confrontos do jogador: {e}"))?;
+        let linhas = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i32>(1)?,
+                    row.get::<_, i32>(2)?,
+                    row.get::<_, i32>(3)?,
+                    row.get::<_, i32>(4)?,
+                ))
+            })
+            .map_err(|e| format!("Falha ao consultar confrontos do jogador: {e}"))?;
+
+        for linha in linhas {
+            let (rival_id, corridas, jogador_na_frente, ele_na_frente, ultima_temporada) =
+                linha.map_err(|e| format!("Falha ao ler confronto do jogador: {e}"))?;
+            if let Some(entrada) = por_piloto.get_mut(&rival_id) {
+                entrada.shared_races = corridas;
+                entrada.player_ahead = jogador_na_frente;
+                entrada.driver_ahead = ele_na_frente;
+                entrada.last_shared_season =
+                    if ultima_temporada > 0 { Some(ultima_temporada) } else { None };
+            }
+        }
+    }
+
+    // Nêmesis e rivais saem do MESMO seletor que decora os nomes no resto do jogo
+    // (`RivalMarker`), com os mesmos limiares e a mesma histerese. Um limiar próprio
+    // aqui daria dois "quem é rival" que divergem na primeira vez que um deles muda.
+    // Só leitura: quem persiste a troca de nêmesis é `get_player_interests`.
+    let nemesis_atual =
+        crate::db::queries::player_nemesis::get_current_nemesis(conn).unwrap_or(None);
+    let interesses = super::interests::select_player_interests(conn, nemesis_atual.as_deref());
+    if let Some(nemesis) = interesses.nemesis {
+        if let Some(entrada) = por_piloto.get_mut(&nemesis.driver_id) {
+            entrada.rival_role = Some("nemesis".to_string());
+        }
+    }
+    for rival in interesses.rivais {
+        if let Some(entrada) = por_piloto.get_mut(&rival.driver_id) {
+            entrada.rival_role = Some("rival".to_string());
+        }
+    }
+
+    // Devolve na ordem em que a UI pediu, para ela não ter que reordenar nada.
+    Ok(driver_ids
+        .iter()
+        .filter_map(|id| por_piloto.remove(id))
+        .collect())
+}
+
+fn tabela_existe(conn: &rusqlite::Connection, nome: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        rusqlite::params![nome],
+        |_| Ok(true),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+    .map_err(|e| format!("Falha ao verificar a tabela '{nome}': {e}"))
 }

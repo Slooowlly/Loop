@@ -1,4 +1,5 @@
 import FlagIcon from "../ui/FlagIcon";
+import Tooltip from "../ui/Tooltip";
 import TeamLogoMark from "../team/TeamLogoMark";
 import i18n from "../../i18n/index.js";
 import { formatMoneyCompact } from "../../utils/formatters";
@@ -41,11 +42,15 @@ export function CategorySectionRow({ label }) {
   );
 }
 
-export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId, onFocus, onOpenDriverDetail, onOpenTitles, onToggleFavorite }) {
+export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDriverId, glowing = false, onFocus, onOpenDriverDetail, onOpenTitles, onToggleFavorite }) {
   const isDetailDriver = row.id === detailDriverId;
   const isReranked = relativeEntry != null;
   return (
     <tr
+      // Âncora para a tabela rolar até o piloto que chegou em foco vindo da
+      // ficha — a linha certa está a 200 posições do topo em ranking de 610.
+      data-driver-id={row.id}
+      data-testid={glowing ? "driver-row-glow" : undefined}
       onClick={() => onFocus(row.id)}
       onDoubleClick={() => {
         onFocus(row.id);
@@ -53,6 +58,10 @@ export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDr
       }}
       className={[
         "cursor-pointer border-b border-white/6 last:border-0 transition-glass hover:bg-white/[0.04]",
+        // O halo da chegada vem ANTES dos realces de estado na lista de classes
+        // só por leitura; quem decide é a animação, que sobrepõe o `bg` das
+        // outras enquanto corre e devolve a linha ao normal quando acaba.
+        glowing ? "animate-driver-row-glow" : "",
         row.id === focusedDriverId ? "bg-accent-primary/12 ring-1 ring-accent-primary/40" : "",
         isDetailDriver ? "bg-accent-secondary/12 ring-2 ring-accent-secondary/60 shadow-[inset_4px_0_0_rgba(242,196,109,0.95)]" : "",
         row.is_jogador ? "border-l-2 border-l-accent-primary/70" : "",
@@ -86,33 +95,37 @@ export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDr
             </span>
           ) : null}
           {row.is_lesionado ? (
-            <span
-              title={row.lesao_ativa_tipo ? i18n.t("globalDrivers.row.injuredType", { type: row.lesao_ativa_tipo }) : i18n.t("globalDrivers.row.injured")}
-              className="rounded-full border border-status-red/25 bg-status-red/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-status-red"
+            <Tooltip
+              texto={row.lesao_ativa_tipo ? i18n.t("globalDrivers.row.injuredType", { type: row.lesao_ativa_tipo }) : i18n.t("globalDrivers.row.injured")}
             >
-              Lesionado
-            </span>
+              <span className="rounded-full border border-status-red/25 bg-status-red/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-status-red">
+                Lesionado
+              </span>
+            </Tooltip>
           ) : null}
           {row.is_jogador ? null : (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleFavorite?.(row.id);
-              }}
-              onDoubleClick={(event) => event.stopPropagation()}
-              aria-pressed={Boolean(row.is_favorito)}
-              title={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
-              aria-label={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
-              className={[
-                "ml-auto text-[15px] leading-none transition-colors",
-                row.is_favorito
-                  ? "text-[#fbbf24] drop-shadow-[0_0_4px_rgba(251,191,36,0.5)]"
-                  : "text-text-muted/50 hover:text-[#fbbf24]",
-              ].join(" ")}
+            <Tooltip
+              texto={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
             >
-              {row.is_favorito ? "★" : "☆"}
-            </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleFavorite?.(row.id);
+                }}
+                onDoubleClick={(event) => event.stopPropagation()}
+                aria-pressed={Boolean(row.is_favorito)}
+                aria-label={row.is_favorito ? i18n.t("globalDrivers.row.removeFavorite") : i18n.t("globalDrivers.row.addFavorite")}
+                className={[
+                  "ml-auto text-[15px] leading-none transition-colors",
+                  row.is_favorito
+                    ? "text-[#fbbf24] drop-shadow-[0_0_4px_rgba(251,191,36,0.5)]"
+                    : "text-text-muted/50 hover:text-[#fbbf24]",
+                ].join(" ")}
+              >
+                {row.is_favorito ? "★" : "☆"}
+              </button>
+            </Tooltip>
           )}
         </div>
       </td>
@@ -126,9 +139,9 @@ export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDr
           {row.equipe_nome ? (
             <TeamLogoMark teamName={row.equipe_nome} color={row.equipe_cor_primaria} size="xs" />
           ) : null}
-          <span className="truncate text-text-secondary" title={statusTitle(row)}>
-            {teamCategoryLabel(row)}
-          </span>
+          <Tooltip texto={statusTitle(row)}>
+            <span className="truncate text-text-secondary">{teamCategoryLabel(row)}</span>
+          </Tooltip>
         </div>
       </td>
       <MetricCell value={row.idade || "-"} />
@@ -181,12 +194,11 @@ function PodiumMetricCell({ row }) {
     return <td className="px-4 py-3 font-mono text-text-primary">0</td>;
   }
   return (
-    <td
-      className="px-4 py-3 font-mono text-text-primary cursor-help underline decoration-dotted decoration-white/25 underline-offset-4"
-      title={podiumBreakdownTitle(row)}
-    >
-      {podios}
-    </td>
+    <Tooltip texto={podiumBreakdownTitle(row)}>
+      <td className="px-4 py-3 font-mono text-text-primary cursor-help underline decoration-dotted decoration-white/25 underline-offset-4">
+        {podios}
+      </td>
+    </Tooltip>
   );
 }
 
@@ -204,9 +216,9 @@ function FamaCell({ row }) {
 
   if (!delta) {
     return (
-      <td className="px-4 py-3 font-mono text-text-primary" title={i18n.t("globalDrivers.fame.title", { fama, charisma: carismaTitle })}>
-        {fama}
-      </td>
+      <Tooltip texto={i18n.t("globalDrivers.fame.title", { fama, charisma: carismaTitle })}>
+        <td className="px-4 py-3 font-mono text-text-primary">{fama}</td>
+      </Tooltip>
     );
   }
 
@@ -220,19 +232,21 @@ function FamaCell({ row }) {
 
   return (
     <td className="px-4 py-3 font-mono text-text-primary">
-      <span className="inline-flex items-center gap-1.5" title={deltaTitle}>
-        <span>{fama}</span>
-        <span
-          className={[
-            "whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-            gained
-              ? "border-status-green/25 bg-status-green/10 text-status-green"
-              : "border-status-red/25 bg-status-red/10 text-status-red",
-          ].join(" ")}
-        >
-          {`${gained ? "▲" : "▼"}${amount}`}
+      <Tooltip texto={deltaTitle}>
+        <span className="inline-flex items-center gap-1.5">
+          <span>{fama}</span>
+          <span
+            className={[
+              "whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+              gained
+                ? "border-status-green/25 bg-status-green/10 text-status-green"
+                : "border-status-red/25 bg-status-red/10 text-status-red",
+            ].join(" ")}
+          >
+            {`${gained ? "▲" : "▼"}${amount}`}
+          </span>
         </span>
-      </span>
+      </Tooltip>
     </td>
   );
 }
@@ -242,7 +256,11 @@ function RankCell({ rank, delta, globalRank = null, scoped = false }) {
   const globalTitle = globalRank != null ? i18n.t("globalDrivers.rank.globalTitle", { rank: formatRank(globalRank) }) : undefined;
 
   if (!numericDelta) {
-    return <span title={globalTitle}>{formatRank(rank)}</span>;
+    return (
+      <Tooltip texto={globalTitle}>
+        <span>{formatRank(rank)}</span>
+      </Tooltip>
+    );
   }
 
   const gained = numericDelta > 0;
@@ -257,20 +275,25 @@ function RankCell({ rank, delta, globalRank = null, scoped = false }) {
   const title = globalTitle ? `${deltaTitle}. ${globalTitle}` : deltaTitle;
 
   return (
-    <span className="inline-flex items-center gap-2" title={globalTitle}>
-      <span>{formatRank(rank)}</span>
-      <span
-        title={title}
-        className={[
-          "whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-          gained
-            ? "border-status-green/25 bg-status-green/10 text-status-green"
-            : "border-status-red/25 bg-status-red/10 text-status-red",
-        ].join(" ")}
-      >
-        {label}
+    <Tooltip texto={globalTitle}>
+      <span className="inline-flex items-center gap-2">
+        <span>{formatRank(rank)}</span>
+        {/* O balão da variação ganha do balão da linha: quem mira a pílula quer
+            saber quanto subiu, e o texto dela já carrega a posição global. */}
+        <Tooltip texto={title}>
+          <span
+            className={[
+              "whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+              gained
+                ? "border-status-green/25 bg-status-green/10 text-status-green"
+                : "border-status-red/25 bg-status-red/10 text-status-red",
+            ].join(" ")}
+          >
+            {label}
+          </span>
+        </Tooltip>
       </span>
-    </span>
+    </Tooltip>
   );
 }
 

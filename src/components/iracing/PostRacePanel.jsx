@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import GlassCard from "../ui/GlassCard";
 import GlassButton from "../ui/GlassButton";
+import Tooltip from "../ui/Tooltip";
 import { AXIS_TICK, GRID, PALETTE, PLAYER_COLOR, YELLOW } from "../../utils/chartTheme";
 import { formatLapSeconds } from "../../utils/formatters";
 
@@ -307,25 +308,26 @@ function PostRacePanel() {
             </GlassButton>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => setAuto((a) => !a)}
-                className={[
-                  "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-glass",
-                  auto
-                    ? "bg-status-green/15 text-status-green"
-                    : "bg-white/5 text-text-secondary hover:text-text-primary",
-                ].join(" ")}
-                title={auto ? t("postRacePanel.autoOnTitle") : t("postRacePanel.autoOffTitle")}
-              >
-                <span
+              <Tooltip texto={auto ? t("postRacePanel.autoOnTitle") : t("postRacePanel.autoOffTitle")}>
+                <button
+                  type="button"
+                  onClick={() => setAuto((a) => !a)}
                   className={[
-                    "inline-block h-1.5 w-1.5 rounded-full",
-                    auto ? "animate-pulse bg-status-green" : "bg-text-muted",
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-glass",
+                    auto
+                      ? "bg-status-green/15 text-status-green"
+                      : "bg-white/5 text-text-secondary hover:text-text-primary",
                   ].join(" ")}
-                />
-                {auto ? t("postRacePanel.live") : t("postRacePanel.paused")}
-              </button>
+                >
+                  <span
+                    className={[
+                      "inline-block h-1.5 w-1.5 rounded-full",
+                      auto ? "animate-pulse bg-status-green" : "bg-text-muted",
+                    ].join(" ")}
+                  />
+                  {auto ? t("postRacePanel.live") : t("postRacePanel.paused")}
+                </button>
+              </Tooltip>
               {hasData && (
                 <GlassButton
                   variant="secondary"

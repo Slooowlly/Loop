@@ -2,7 +2,7 @@
 //! continuar compilando em qualquer SO.
 
 use crate::iracing_sdk::{
-    DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry, Veredito,
+    DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry, VarDoSdk, Veredito,
 };
 
 /// Fora do Windows não há SDK — o diagnóstico diz isso sem fingir que mediu algo.
@@ -31,6 +31,10 @@ pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
     Err(IracingError::Unsupported)
 }
 
+pub fn read_var_inventory() -> Result<Vec<VarDoSdk>, IracingError> {
+    Err(IracingError::Unsupported)
+}
+
 pub fn send_chat_macro(_macro_num: i32) -> Result<(), IracingError> {
     Err(IracingError::Unsupported)
 }
@@ -46,5 +50,9 @@ pub fn focus_iracing_window() -> Result<bool, IracingError> {
 pub fn force_foreground_window(_hwnd_raw: isize) {}
 
 pub fn foreground_is_iracing() -> bool {
+    false
+}
+
+pub fn simulador_aberto() -> bool {
     false
 }

@@ -38,7 +38,7 @@ test("career driver-detail helpers live in a dedicated sibling module", async ()
   );
   assert.match(
     careerDetailSource,
-    /leitura_tecnica:\s*build_driver_technical_read_block\(driver\)/,
+    /leitura_tecnica:\s*build_driver_technical_read_block\(\s*conn,\s*driver,\s*category_id\.as_deref\(\),\s*team,\s*\)/,
     "expected driver detail payload to provide backend-owned technical readings",
   );
   assert.match(

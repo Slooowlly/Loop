@@ -25,6 +25,38 @@ pub fn iracing_dir() -> Option<PathBuf> {
     documents_dir().map(|d| d.join("iRacing"))
 }
 
+/// Caminhos candidatos do `app.ini`, em ordem de preferência: primeiro o resolvido
+/// pela Known Folder API (robusto a OneDrive/idioma/relocação), depois heurísticas
+/// por variável de ambiente como rede de segurança.
+///
+/// Devolve candidatos, não um caminho pronto, de propósito: [`documents_dir`] pode
+/// resolver uma pasta Documentos que existe mas NÃO é a que tem o `iRacing/` dentro
+/// (perfil com OneDrive parcialmente migrado). Quem escolhe é [`app_ini_path`], que
+/// fica com o primeiro candidato que é arquivo de verdade.
+pub fn app_ini_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(iracing) = iracing_dir() {
+        out.push(iracing.join("app.ini"));
+    }
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        let base = PathBuf::from(&up);
+        for docs in [
+            "Documents",
+            "OneDrive/Documents",
+            "OneDrive/Documentos",
+            "Documentos",
+        ] {
+            out.push(base.join(docs).join("iRacing").join("app.ini"));
+        }
+    }
+    out
+}
+
+/// O `app.ini` do iRacing, se existir em algum dos candidatos.
+pub fn app_ini_path() -> Option<PathBuf> {
+    app_ini_candidates().into_iter().find(|p| p.is_file())
+}
+
 /// `Documentos/iRacing/airosters` (rosters de IA).
 #[allow(dead_code)] // consumido pela futura geração de roster
 pub fn airosters_dir() -> Option<PathBuf> {

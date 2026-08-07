@@ -1,4 +1,5 @@
 import TeamLogoMark from "./TeamLogoMark";
+import Tooltip from "../ui/Tooltip";
 import i18n from "../../i18n/index.js";
 import goldTrophy from "../../assets/utilities/trophies/ouro.png";
 import {
@@ -468,38 +469,36 @@ function TeamTrophies({ titles, isReigning }) {
     // queries that look for the family-filter buttons by name.
     <span aria-hidden="true" className="flex items-center gap-0.5">
       {isReigning && (
-        <span
-          className="text-[9px] font-black leading-none text-yellow-400"
-          title={i18n.t("globalTeams.currentChampion")}
-        >
-          ★
-        </span>
+        <Tooltip texto={i18n.t("globalTeams.currentChampion")}>
+          <span className="text-[9px] font-black leading-none text-yellow-400">★</span>
+        </Tooltip>
       )}
       {titles.map((tc) => {
         const src = BAND_TROPHY_IMAGES[tc.band_key] ?? goldTrophy;
         return (
-          <span
+          <Tooltip
             key={tc.band_key}
-            className="inline-flex items-center gap-px"
-            title={`${tc.band_label}: ${tc.count}× campeão`}
+            texto={i18n.t("globalTeams.bandTitlesCount", { count: tc.count, band: tc.band_label })}
           >
-            <img
-              src={src}
-              alt={tc.band_label}
-              className="h-3 w-3 object-contain drop-shadow-[0_0_4px_rgba(255,215,0,0.4)]"
-              onError={(e) => {
-                e.currentTarget.src = goldTrophy;
-              }}
-            />
-            {tc.count > 1 && (
-              <span
-                data-testid="team-trophy-count"
-                className="font-mono text-[9px] font-black leading-none text-text-secondary"
-              >
-                {tc.count}
-              </span>
-            )}
-          </span>
+            <span className="inline-flex items-center gap-px">
+              <img
+                src={src}
+                alt={tc.band_label}
+                className="h-3 w-3 object-contain drop-shadow-[0_0_4px_rgba(255,215,0,0.4)]"
+                onError={(e) => {
+                  e.currentTarget.src = goldTrophy;
+                }}
+              />
+              {tc.count > 1 && (
+                <span
+                  data-testid="team-trophy-count"
+                  className="font-mono text-[9px] font-black leading-none text-text-secondary"
+                >
+                  {tc.count}
+                </span>
+              )}
+            </span>
+          </Tooltip>
         );
       })}
     </span>

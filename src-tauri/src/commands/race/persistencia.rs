@@ -86,11 +86,20 @@ pub(crate) fn persist_race_result_tx(
             humidity,
             wind_kmh,
         };
-        // Duração da corrida (min) da categoria — acima do gate de enduro, o desgaste de peça
-        // sobe pra grade toda. Fonte de verdade = config da categoria (mesma que a sim usa em
-        // context.rs); categoria não resolvida → 30 (sprint/neutro).
-        let duracao_min = crate::constants::categories::get_category_config(&race_entry.categoria)
-            .map(|c| c.duracao_corrida_min)
+        // Duração da corrida (min) — acima do gate de enduro, o desgaste de peça sobe pra grade
+        // toda. Fonte de verdade = a duração REAL desta etapa (`CalendarEntry`), não a constante
+        // da categoria: no Endurance ela vale 0 e quem sorteia entre 120/180/240/360 por etapa é
+        // `resolve_race_duration`. Com a constante, `is_enduro_duration(0)` dava falso e a ÚNICA
+        // categoria que deveria disparar o enduro nunca disparava. Etapa sem duração gravada
+        // (save antigo) → cai na constante da categoria; sem categoria → 30 (sprint/neutro).
+        let duracao_min: u16 = u16::try_from(race_entry.duracao_corrida_min)
+            .ok()
+            .filter(|&d| d > 0)
+            .or_else(|| {
+                crate::constants::categories::get_category_config(&race_entry.categoria)
+                    .map(|c| c.duracao_corrida_min)
+                    .filter(|&d| d > 0)
+            })
             .unwrap_or(30);
         let wear_conditions = crate::market::car_maintenance::WearConditions::from_race(
             race_entry.track_id,
@@ -146,6 +155,10 @@ pub(crate) fn persist_race_result_tx(
             &race_entry.categoria,
             persistence_mode,
             race_entry.track_id,
+            // Duração REAL desta prova, não a da config da categoria: no Endurance a
+            // constante vale 0 e quem sorteia entre 120/180/240/360 é o calendário. É por
+            // aqui que a prova de 6 horas passa a custar mais que a de 2.
+            race_entry.duracao_corrida_min,
             active_season.numero as i32,
             race_entry.rodada,
             &upcoming_track_ids,
@@ -229,8 +242,10 @@ pub(crate) fn persist_race_result_tx(
         crate::rivalry::process_collisions_rivalry(
             tx,
             &flat_incidents,
+            &result.race_results,
             &race_entry.categoria,
             race_entry.rodada,
+            category.corridas_por_temporada as i32,
             active_season.numero,
         )?;
 
@@ -515,6 +530,9 @@ pub(super) fn apply_race_result_to_database(
     race_category: &str,
     persistence_mode: RacePersistenceMode,
     track_id: u32,
+    // Duração REAL da prova, em minutos (`CalendarEntry::duracao_corrida_min`). Dimensiona a
+    // fatura física da etapa; `0` cai na duração de referência da divisão.
+    race_duration_min: i32,
     season_number: i32,
     round: i32,
     upcoming_track_ids: &[u32],
@@ -602,9 +620,31 @@ pub(super) fn apply_race_result_to_database(
     // `simulation::math::normalize_car_performance`), o Endurance era o único campeonato do
     // jogo decidido por um número que cresce sem limite — uma equipe chegava a 5× o topo do
     // domínio e nenhuma outra alcançava. O carro é da EQUIPE e se desgasta em qualquer prova
-    // que ela dispute; só a ECONOMIA DE RODADA (contrato, bilheteria, patrocínio) é que não
-    // se aplica ao calendário especial.
-    if runs_in_special_phase(race_category) {
+    // que ela dispute.
+    //
+    // A ECONOMIA DE RODADA no calendário especial depende de QUEM é a equipe:
+    //
+    //   • CONVIDADA (categoria-mãe é outra, veio pelo bloco de convocação): só o carro.
+    //     A folha, o patrocínio e a operação dela já são cobrados no campeonato de
+    //     origem — cobrar de novo aqui seria dobrar a fatura da mesma semana.
+    //
+    //   • DA CASA (`categoria` é a própria categoria especial): fatura completa. Este
+    //     é o campeonato DELA, o único que ela disputa. Antes o `return` abaixo era
+    //     incondicional, e o efeito é que um TERÇO do grid — 36 equipes de Endurance e
+    //     Production — vivia numa economia de mão única: recebia prêmio de fim de
+    //     temporada e nunca pagava nada. Uma equipe de Production com $122 mil de folha
+    //     anual acumulava caixa temporada após temporada sem uma única queda, e esse
+    //     caixa fantasma vazava para o índice de orçamento, o mercado e a capacidade de
+    //     contratar.
+    // O CARRO segue exatamente como antes: `maintain_special_phase_cars` roda para o
+    // grid INTEIRO e debita a peça direto do caixa. Não mexer nisso é deliberado — é
+    // o caminho que garante `team_car` para as categorias especiais, e trocá-lo por
+    // uma variante que depende do laço abaixo arriscaria deixar alguém sem manutenção.
+    // A mudança aqui é ADITIVA: as equipes da casa passam a receber, além do carro, a
+    // fatura da rodada.
+    let special_phase = runs_in_special_phase(race_category);
+    let home_teams: Vec<Team>;
+    let economy_teams: &[Team] = if special_phase {
         maintain_special_phase_cars(
             tx,
             teams,
@@ -618,8 +658,23 @@ pub(super) fn apply_race_result_to_database(
             team_breakdowns,
             &count_team_contacts(result),
         )?;
-        return Ok(());
-    }
+        home_teams = teams
+            .iter()
+            .filter(|team| charges_round_economy(&team.categoria, race_category))
+            // O caixa mudou no passo acima (a peça foi debitada); reler o time evita
+            // faturar sobre um saldo velho.
+            .map(|team| {
+                team_queries::get_team_by_id(tx, &team.id)
+                    .map(|found| found.unwrap_or_else(|| team.clone()))
+            })
+            .collect::<Result<Vec<Team>, _>>()?;
+        if home_teams.is_empty() {
+            return Ok(());
+        }
+        &home_teams
+    } else {
+        teams
+    };
 
     let active_contracts = if persistence_mode == RacePersistenceMode::Playable {
         Some(contract_queries::get_all_active_regular_contracts(tx)?)
@@ -627,7 +682,7 @@ pub(super) fn apply_race_result_to_database(
         None
     };
     let race_results_by_team = group_results_by_team(result);
-    let category_id = teams
+    let category_id = economy_teams
         .first()
         .map(|team| team.categoria.as_str())
         .unwrap_or("");
@@ -637,19 +692,48 @@ pub(super) fn apply_race_result_to_database(
     // Bilheteria (Fase 3 do Estrelato): presença pública (fama do lineup) de cada time do
     // grid, pré-computada 1× por rodada. A soma é o denominador da cota competitiva de
     // bilheteria; o loop abaixo reusa a presença por time (evita 2ª consulta ao lineup).
-    let team_presences: std::collections::HashMap<String, f64> = teams
-        .iter()
-        .map(|team| {
-            let medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
-            let presence = crate::public_presence::team::derive_team_public_presence(&medias);
-            (team.id.clone(), presence)
-        })
-        .collect();
-    let grid_total_presence: f64 = team_presences.values().sum();
+    // ATRAÇÃO DE PÚBLICO (a grandeza que a bilheteria consome) é computada no mesmo
+    // laço: fama do lineup × competitividade + vínculo local + história. Separada da
+    // presença de propósito — o PATROCÍNIO continua lendo a presença (é a fama do
+    // rosto que capta patrocinador), enquanto o PORTÃO lê a atração (é a corrida que
+    // enche arquibancada). Fundir as duas devolveria a bilheteria ao problema que ela
+    // tinha: cota de fama comprimida pagando igual para todo o grid.
+    let pais_da_pista = crate::constants::tracks::get_track(track_id)
+        .map(|t| t.pais)
+        .unwrap_or("");
+    let equipes_na_categoria = teams.len().max(1) as u32;
+    // Classificação VIVA do campeonato de construtores: `temp_posicao` só é escrito no
+    // arquivamento do fim da temporada, então durante o ano a posição sai dos pontos.
+    let posicoes = crate::public_presence::atracao::posicoes_por_pontos(teams);
+    let mut team_presences: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
+    let mut team_appeals: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
+    for team in teams.iter() {
+        let medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
+        team_presences.insert(
+            team.id.clone(),
+            crate::public_presence::team::derive_team_public_presence(&medias),
+        );
+        team_appeals.insert(
+            team.id.clone(),
+            crate::public_presence::atracao::team_audience_appeal_in_round(
+                team,
+                &medias,
+                posicoes.get(&team.id).copied().unwrap_or(0),
+                equipes_na_categoria,
+                pais_da_pista,
+            ),
+        );
+    }
+    let grid_total_appeal: f64 = team_appeals.values().sum();
+    // O denominador da bilheteria é o grid INTEIRO, convidadas incluídas: elas ocupam
+    // vaga e atraem público, mesmo sem faturar por esta etapa. Só a fatura é que se
+    // restringe às equipes da casa.
     let grid_team_count = teams.len().max(1) as f64;
     // Contatos de disputa por time nesta corrida — vira desgaste de peça lá embaixo.
     let team_contacts = count_team_contacts(result);
-    for team in teams {
+    for team in economy_teams {
         let Some(team_results) = race_results_by_team.get(&team.id) else {
             continue;
         };
@@ -720,23 +804,31 @@ pub(super) fn apply_race_result_to_database(
                 .get(team.id.as_str())
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
-        let car_maintenance_cost = crate::market::car_maintenance::maintain_team_car_pits(
-            tx,
-            team,
-            category_id,
-            season_number,
-            upcoming_track_ids,
-            wear_conditions,
-            team_style,
-            is_player_car,
-            player_pits,
-            this_team_breakdowns,
-            team_contacts.get(team.id.as_str()).copied().unwrap_or(0),
-        )?;
+        // No calendário especial a peça JÁ foi decidida e debitada acima, para o grid
+        // inteiro. Entra na fatura como zero para não sair do caixa duas vezes — ela
+        // continua sendo um débito direto, fora do `technical_investment_cost`.
+        let car_maintenance_cost = if special_phase {
+            0.0
+        } else {
+            crate::market::car_maintenance::maintain_team_car_pits(
+                tx,
+                team,
+                category_id,
+                season_number,
+                upcoming_track_ids,
+                wear_conditions,
+                team_style,
+                is_player_car,
+                player_pits,
+                this_team_breakdowns,
+                team_contacts.get(team.id.as_str()).copied().unwrap_or(0),
+            )?
+        };
 
         let finance_context = calculate_team_round_finance_context(
             team,
             lineup_public_presence,
+            team_appeals.get(&team.id).copied().unwrap_or(0.0),
             added_points,
             added_victories,
             added_podiums,
@@ -746,8 +838,9 @@ pub(super) fn apply_race_result_to_database(
             economic_health,
             car_maintenance_cost,
             round_operation_context(result, &team.id, track_id),
+            EtapaFisica::da_corrida(result, team, race_duration_min),
             event_prestige_score,
-            grid_total_presence,
+            grid_total_appeal,
             grid_team_count,
         );
 
@@ -783,6 +876,19 @@ pub(super) fn apply_race_result_to_database(
 ///
 /// [`maintain_team_car_pits`]: crate::market::car_maintenance::maintain_team_car_pits
 #[allow(clippy::too_many_arguments)]
+/// Esta equipe paga a fatura da rodada NESTA corrida?
+///
+/// Fora do calendário especial, sempre — a corrida é do campeonato dela. Dentro dele,
+/// só quem tem o bloco especial como categoria-mãe: a convidada veio pela convocação e
+/// já paga folha, patrocínio e operação no campeonato de origem, e cobrar de novo aqui
+/// dobraria a fatura da mesma semana.
+///
+/// O carro é outra história e não passa por aqui: ele se desgasta em qualquer prova, de
+/// convidada ou não.
+pub(super) fn charges_round_economy(team_category: &str, race_category: &str) -> bool {
+    !runs_in_special_phase(race_category) || team_category == race_category
+}
+
 fn maintain_special_phase_cars(
     tx: &rusqlite::Transaction<'_>,
     teams: &[Team],

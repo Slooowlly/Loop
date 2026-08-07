@@ -25,7 +25,8 @@ use super::pontuacao::{
 use super::resultados::{build_race_results, derive_caution_segments};
 use super::tipos::{MechanicalOutcome, RaceResult, RaceSegment, RaceState};
 use super::trafego::{
-    fracao_do_trecho_na_janela, perda_por_ar_sujo, tentar_ultrapassagem, DesfechoDaTentativa,
+    fator_de_rivalidade_do_par, fracao_do_trecho_na_janela, margem_de_ataque_por_rivalidade,
+    perda_por_ar_sujo, tentar_ultrapassagem, DesfechoDaTentativa,
     CUSTO_TENTATIVA_FALHA_ATACANTE_MS, CUSTO_TENTATIVA_FALHA_DEFENSOR_MS,
     GAP_MINIMO_ENTRE_CARROS_MS, JANELA_AR_SUJO_MS, JANELA_DE_ATAQUE_MS,
 };
@@ -52,7 +53,8 @@ fn empurrar_contato(
     rng: &mut impl Rng,
 ) {
     // Carro frágil se avaria mais fácil — a mesma modulação de `maybe_add_pending_damage`.
-    let chance = (CHANCE_DE_DANO_NO_CONTATO * (1.0 - (car_reliability / 100.0 * 0.40))).clamp(0.05, 0.80);
+    let chance =
+        (CHANCE_DE_DANO_NO_CONTATO * (1.0 - (car_reliability / 100.0 * 0.40))).clamp(0.05, 0.80);
     if rng.gen::<f64>() < chance {
         state.pending_damage.push(PendingDamage {
             catalog_id: String::new(),
@@ -567,22 +569,27 @@ pub fn simulate_race_com_modo(
                     fechamento_no_trecho[pos_entrada],
                     JANELA_DE_ATAQUE_MS,
                 ) > 0.0;
-                let mais_rapido = delta_de_ritmo > 0.0;
+                // O par precisa ser resolvido ANTES do gate: contra o rival o piloto
+                // ataca mesmo sem ritmo para isso, e é justamente esse gate que o
+                // impedia de tentar.
+                let (Some(atacante), Some(defensor)) = (
+                    drivers.iter().find(|d| d.id == states[atras].driver_id),
+                    drivers.iter().find(|d| d.id == states[frente].driver_id),
+                ) else {
+                    continue;
+                };
+                let rivalidade = fator_de_rivalidade_do_par(atacante, defensor);
+                let mais_rapido = delta_de_ritmo > margem_de_ataque_por_rivalidade(rivalidade);
                 let mut passou = false;
 
                 if na_janela && mais_rapido {
-                    let (Some(atacante), Some(defensor)) = (
-                        drivers.iter().find(|d| d.id == states[atras].driver_id),
-                        drivers.iter().find(|d| d.id == states[frente].driver_id),
-                    ) else {
-                        continue;
-                    };
                     let desfecho = tentar_ultrapassagem(
                         atacante,
                         defensor,
                         delta_de_ritmo,
                         ctx.overtaking_difficulty_multiplier,
                         ctx.incidents_enabled,
+                        rivalidade,
                         rng,
                     );
                     states[atras].trafego.tentativas_ultrapassagem += 1;

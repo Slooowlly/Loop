@@ -6,8 +6,14 @@
 //! quando o jogador manda o log pelo botão de diagnóstico.
 //!
 //! **Por que sempre ligado**: medido em release, gravar custa 23,7 µs por frame — 0,14% de um
-//! núcleo a 60 Hz — e ~0,8 MB por corrida depois da compressão. Uma captura que só liga quando
-//! alguém lembra de ligar nunca pega o bug que aconteceu ontem no PC do jogador.
+//! núcleo a 60 Hz. Uma captura que só liga quando alguém lembra de ligar nunca pega o bug que
+//! aconteceu ontem no PC do jogador.
+//!
+//! **Tamanho, medido no acervo real**: ~1,1 MB por minuto comprimido — 19 a 20 MB para uma
+//! corrida de 17 min com 40 carros, e ~45 MB para uma de 40 min. Com [`MAX_CAPTURAS`], a pasta
+//! de depuração chega a meio giga. O número de ~0,8 MB por corrida que este comentário trazia
+//! era de quando [`CARS_HZ`] valia 4 e não sobreviveu à subida para 20; ficou aqui por meses
+//! subestimando o custo em 20×.
 //!
 //! Guardamos as [`MAX_CAPTURAS`] mais recentes; a partir daí a mais antiga é apagada a cada
 //! gravação nova, então o teto de disco é fixo.
@@ -23,16 +29,21 @@
 //!   1. **gzip** — o JSONL cru passava de 200 MB em 15 min. Reduz ~11× sem perda alguma.
 //!   2. **`cars[]` a [`CARS_HZ`]** — os campos que importam nos outros carros (posição, volta
 //!      completa, melhor volta, gap ao líder, box) só mudam na passagem pela linha; o único
-//!      que anda a 60 Hz é o `lap_dist_pct`, e 4 Hz já dá resolução de ~4 m. Era 74% dos bytes.
+//!      que anda a 60 Hz é o `lap_dist_pct`. Era 74% dos bytes. **Os escalares do jogador
+//!      seguem a 60 Hz; só o `cars[]` é afinado** — quem ler a captura precisa saber disso,
+//!      porque medir duração de estado de OUTRO carro tem resolução de 50 ms, não de 16 ms.
 //!   3. **arredondamento** — `roll_rate: 1.1829563391074771e-6` são 22 bytes pra um número
 //!      cuja quarta casa já é ruído de sensor. Ver [`CASAS_PADRAO`].
 //!
 //! Formato: uma linha JSON por registro, com `kind`:
 //!   • `header`  — versão + timestamp de início + os parâmetros de subamostragem, pra quem lê
 //!                 saber a que taxa os `cars[]` foram gravados.
-//!   • `session` — o `session_yaml` inteiro (uma vez): pista, elenco, carro, redline, composto…
-//!   • `frame`   — `{ kind, tele }` com a `IracingTelemetry`. **O campo `cars` só aparece em
-//!                 ~1 de cada 15 frames**: quem lê deve carregar o último `cars` visto adiante.
+//!   • `vars`    — uma vez: o inventário do que o SDK publica NESTA build (nome, tipo,
+//!                 quantidade, unidade, descrição). Ver [`record_vars`].
+//!   • `session` — o `session_yaml` inteiro, REGRAVADO a cada mudança, com `n` crescente.
+//!                 O último traz os resultados. Ver [`record_session`].
+//!   • `frame`   — `{ kind, tele }` com a `IracingTelemetry`. **O campo `cars` só aparece a
+//!                 [`CARS_HZ`]**: quem lê deve carregar o último `cars` visto adiante.
 //!   • `history` — no fim, o `RaceHistory` (voltas, paradas, posições, clima, incidentes).
 
 use std::fs::{self, File};
@@ -51,15 +62,24 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static FRAMES: AtomicU64 = AtomicU64::new(0);
 
 /// Versão do formato. 1 = JSONL cru com `cars` em todo frame. 2 = gzip + `cars` subamostrado
-/// + floats arredondados.
-const FORMAT_VERSION: u32 = 2;
+/// + floats arredondados. 3 = inventário de variáveis do SDK, `session` repetido a cada
+/// mudança do YAML, contexto de obstáculo por carro (material da superfície, RPM, bandeiras,
+/// formação) e de sessão (tick, `PaceMode`, boxes, chuva, câmera/replay).
+const FORMAT_VERSION: u32 = 3;
 
 /// A cada quantos frames dar flush no disco (segurança contra crash/fechar o sim sem parar).
 /// A ~60 Hz, 60 = ~1 flush/s.
 const FLUSH_EVERY: u64 = 60;
 
 /// Taxa de gravação do array `cars[]` (os OUTROS carros). O frame do jogador continua cheio.
-const CARS_HZ: f64 = 4.0;
+///
+/// Era 4 Hz, medido como suficiente para saber SE um carro está parado (o erro da
+/// velocidade derivada contra a `Speed` real ficou em 2,0 km/h). Subiu para 20 quando a
+/// pergunta mudou de "está parado?" para "QUANDO parou, e por quanto tempo ficou fora":
+/// a 4 Hz toda fronteira de estado tem ±250 ms de incerteza, e é justamente uma duração
+/// de fronteira que precisa ser calibrada. A 20 Hz a incerteza cai para ±50 ms, e o
+/// arquivo continua na casa de poucos MB por corrida depois do gzip.
+const CARS_HZ: f64 = 20.0;
 
 /// Intervalo mínimo de tempo de SESSÃO entre dois `cars[]` gravados.
 const CARS_INTERVALO_S: f64 = 1.0 / CARS_HZ;
@@ -87,7 +107,11 @@ struct Capture {
     last_t: f64,
     /// Tempo de sessão do último frame em que `cars[]` foi gravado (-1 = nenhum ainda).
     last_cars_t: f64,
-    yaml_written: bool,
+    /// Impressão digital do último YAML gravado, e quantos já saíram.
+    yaml_hash: u64,
+    yaml_n: u32,
+    /// O inventário de variáveis do SDK já foi gravado.
+    vars_written: bool,
 }
 
 /// Arredonda todo float da árvore, por campo. Inteiros passam intactos (o `fract() != 0`
@@ -221,7 +245,9 @@ pub fn start(dir: PathBuf) -> Result<PathBuf, String> {
         path: path.clone(),
         last_t: -1.0,
         last_cars_t: -1.0,
-        yaml_written: false,
+        yaml_hash: 0,
+        yaml_n: 0,
+        vars_written: false,
     };
     let _ = writeln!(
         cap.writer,
@@ -241,20 +267,60 @@ pub fn start(dir: PathBuf) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Grava o YAML da sessão (uma vez): pista, elenco, carro, redline, composto etc.
+/// Grava o YAML da sessão SEMPRE QUE ELE MUDA: pista, elenco, carro, redline, composto,
+/// e — a razão de não bastar gravar uma vez — o `ResultsPositions` com o `ReasonOutStr`
+/// de cada carro.
+///
+/// A string de sessão não é estática. Ela é reescrita quando a sessão avança, quando um
+/// piloto entra ou sai, e sobretudo quando os resultados são publicados. Guardar só a
+/// primeira versão significa guardar a corrida sem o desfecho: quem abandonou, quem foi
+/// desclassificado, quem simplesmente parou. Como a comparação é por hash e o YAML só é
+/// consultado a cada poucos segundos, o custo de acompanhar as mudanças é nada.
 pub fn record_session(yaml: &str) {
     if !ENABLED.load(Ordering::Relaxed) || yaml.is_empty() {
         return;
     }
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        yaml.hash(&mut h);
+        h.finish()
+    };
     if let Ok(mut g) = state().lock() {
         if let Some(cap) = g.as_mut() {
-            if !cap.yaml_written {
+            if cap.yaml_hash != hash {
+                cap.yaml_hash = hash;
+                cap.yaml_n += 1;
                 let _ = writeln!(
                     cap.writer,
                     "{}",
-                    serde_json::json!({ "kind": "session", "yaml": yaml })
+                    serde_json::json!({ "kind": "session", "n": cap.yaml_n, "yaml": yaml })
                 );
-                cap.yaml_written = true;
+            }
+        }
+    }
+}
+
+/// Grava, uma vez por captura, TUDO que o SDK publica nesta build — nome, tipo,
+/// quantidade, unidade e descrição de cada variável.
+///
+/// É o que separa "o canal não existe" de "o canal existe e vem zerado". A leitura casa
+/// nomes num `match`; um nome errado ou um canal que a build não publica caem no mesmo
+/// silêncio, e olhando só a telemetria os dois são idênticos. Com o inventário, dá para
+/// saber o que se poderia ter lido sem sequer abrir o sim de novo.
+pub fn record_vars(vars: &[crate::iracing_sdk::VarDoSdk]) {
+    if !ENABLED.load(Ordering::Relaxed) || vars.is_empty() {
+        return;
+    }
+    if let Ok(mut g) = state().lock() {
+        if let Some(cap) = g.as_mut() {
+            if !cap.vars_written {
+                cap.vars_written = true;
+                let _ = writeln!(
+                    cap.writer,
+                    "{}",
+                    serde_json::json!({ "kind": "vars", "vars": vars })
+                );
             }
         }
     }

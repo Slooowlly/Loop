@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Pré-Temporada v2 — Mockup</title>
+<style>
+:root{
+  --app-bg:#0e0e10; --text-primary:#e6edf3; --text-secondary:#b6c2cf; --text-muted:#96a5b3;
+  --accent:#58a6ff; --green:#3fb950; --red:#f85149; --yellow:#d29922; --purple:#bc8cff;
+}
+*{box-sizing:border-box;margin:0;padding:0;user-select:none}
+html,body{height:100%}
+body{
+  font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+  color:var(--text-primary); overflow:hidden;
+  background:
+    radial-gradient(circle at top, rgba(111,212,255,.14), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(73,154,255,.10), transparent 24%),
+    radial-gradient(circle at bottom, rgba(56,111,214,.08), transparent 24%),
+    linear-gradient(180deg,#040812 0%,#08111d 48%,#050910 100%);
+}
+.glass{background:rgba(10,15,28,.25);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.11)}
+.glass-light{background:rgba(10,15,28,.18);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08)}
+.lbl{font-size:9px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted)}
+.num{font-variant-numeric:tabular-nums}
+.scroll{overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent}
+.scroll::-webkit-scrollbar{width:6px}
+.scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:3px}
+
+/* ───── shell ───── */
+.shell{height:100vh;display:flex;flex-direction:column;padding:10px 14px 12px;gap:10px;max-width:1920px;margin:0 auto}
+
+/* ───── header ───── */
+.hdr{border-radius:16px;padding:10px 16px;display:flex;align-items:center;gap:22px}
+.hdr h1{font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.1}
+.hdr .sub{font-size:11px;color:var(--text-secondary);margin-top:3px;max-width:430px;line-height:1.35}
+.pill{border-radius:999px;padding:4px 10px;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+
+/* trilho de semanas */
+.rail{display:flex;align-items:flex-end;gap:3px}
+.wk{width:34px;display:flex;flex-direction:column;align-items:center;gap:5px}
+.wk .bar{height:5px;width:100%;border-radius:2px;background:rgba(255,255,255,.10)}
+.wk .cap{font-size:8.5px;font-weight:700;color:rgba(255,255,255,.28);letter-spacing:.06em}
+.wk.gate .bar{background:repeating-linear-gradient(90deg,rgba(210,153,34,.55) 0 4px,transparent 4px 8px)}
+.wk.gate .cap{color:rgba(210,153,34,.75)}
+.wk.done .bar{background:rgba(88,166,255,.45)}
+.wk.done .cap{color:rgba(182,194,207,.7)}
+.wk.now .bar{background:var(--accent);box-shadow:0 0 12px rgba(88,166,255,.85)}
+.wk.now .cap{color:var(--accent);font-weight:900}
+.railwrap{display:flex;flex-direction:column;gap:6px}
+.railmeta{display:flex;justify-content:space-between;align-items:baseline}
+
+.cta{border-radius:11px;padding:10px 20px;font-size:12px;font-weight:800;letter-spacing:.05em;
+  background:linear-gradient(180deg,#5aa9ff,#2b7de0);color:#06121f;border:none;box-shadow:0 8px 24px -8px rgba(88,166,255,.8)}
+.ghost{border-radius:11px;padding:10px 16px;font-size:12px;font-weight:700;color:var(--text-secondary);
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12)}
+
+/* chips de filtro */
+.chips{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:7px;border-radius:9px;padding:5px 10px;font-size:10.5px;font-weight:700;
+  border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);color:var(--text-secondary)}
+.chip .dot{width:6px;height:6px;border-radius:50%}
+.chip .cnt{font-size:9px;font-weight:900;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.07);color:var(--text-muted)}
+.chip.on{color:var(--text-primary);border-color:rgba(255,255,255,.26);background:rgba(255,255,255,.09)}
+.chip .cnt.hot{background:rgba(63,185,80,.16);color:var(--green)}
+
+/* ───── grid 3 colunas ───── */
+.cols{flex:1;min-height:0;display:grid;grid-template-columns:19% 1fr 20%;gap:10px}
+.panel{border-radius:16px;min-height:0;display:flex;flex-direction:column}
+.panel > .head{padding:12px 14px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07)}
+.panel > .body{flex:1;min-height:0;padding:10px 12px 14px}
+
+/* ───── coluna esquerda: agentes livres ───── */
+.band{margin-bottom:12px}
+.bandhdr{display:flex;align-items:center;gap:7px;margin-bottom:6px;padding:0 2px}
+.bandhdr .nm{font-size:9.5px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}
+.bandhdr .ln{flex:1;height:1px;background:rgba(255,255,255,.09)}
+.bandhdr .n{font-size:9.5px;font-weight:800;color:var(--text-muted)}
+.fa{border-radius:11px;padding:7px 9px;margin-bottom:5px;background:rgba(10,15,28,.18);border:1px solid rgba(255,255,255,.07);
+  display:flex;flex-direction:column;gap:5px}
+.fa.hot{border-color:rgba(63,185,80,.34);background:linear-gradient(135deg,rgba(63,185,80,.09),rgba(10,15,28,.2))}
+.fa .r1{display:flex;align-items:center;gap:7px}
+.fa .logo{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:8px;font-weight:900;flex:0 0 auto}
+.fa .nm{flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lic{font-size:8.5px;font-weight:900;padding:1.5px 5px;border-radius:4px;letter-spacing:.04em}
+.fa .r2{display:flex;align-items:center;gap:6px;padding-left:27px}
+.meta{font-size:9.5px;font-weight:600;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.tag{font-size:8.5px;font-weight:800;padding:1.5px 5px;border-radius:4px;letter-spacing:.08em;text-transform:uppercase}
+.fa.idle{opacity:.5}
+
+/* ───── centro ───── */
+.catstrip{border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:16px;margin-bottom:10px;
+  border:1px solid rgba(255,255,255,.09);position:relative;overflow:hidden}
+.catstrip .mark{width:52px;height:34px;border-radius:8px;display:grid;place-items:center;font-size:10px;font-weight:900;flex:0 0 auto}
+.catstrip h2{font-size:17px;font-weight:900;letter-spacing:.13em}
+.catstrip .cs{font-size:9.5px;color:var(--text-muted);margin-top:2px;letter-spacing:.05em}
+.seatbar{flex:1;max-width:280px;display:flex;flex-direction:column;gap:5px}
+.seatbar .track{height:7px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;display:flex}
+.seatbar .fill{background:linear-gradient(90deg,rgba(255,255,255,.34),rgba(255,255,255,.18))}
+.seatbar .free{background:repeating-linear-gradient(90deg,rgba(63,185,80,.75) 0 3px,rgba(63,185,80,.28) 3px 6px)}
+.seatbar .legend{display:flex;justify-content:space-between;font-size:9px;font-weight:700;color:var(--text-muted)}
+.kpis{display:flex;gap:18px;margin-left:auto}
+.kpi{text-align:right}
+.kpi .v{font-size:19px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+.kpi .k{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-top:3px}
+
+.teams{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}
+.tc{border-radius:13px;padding:10px 11px 9px;position:relative;overflow:hidden;
+  background:rgba(10,15,28,.25);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.11)}
+.tc .glow{position:absolute;inset:0;pointer-events:none}
+.tc .t1{display:flex;align-items:center;gap:9px;position:relative}
+.pos{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:11px;font-weight:900;flex:0 0 auto;font-variant-numeric:tabular-nums}
+.tlogo{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:9.5px;font-weight:900;flex:0 0 auto}
+.tc .tnm{font-size:15.5px;font-weight:800;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc .tsub{font-size:9px;color:var(--text-muted);margin-top:2px;letter-spacing:.04em;display:flex;gap:6px;align-items:center}
+
+/* medidores */
+.meters{display:flex;gap:7px;margin:9px 0 8px;position:relative}
+.mt{flex:1}
+.mt .mk{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);display:flex;justify-content:space-between}
+.mt .mtrack{height:3px;border-radius:2px;background:rgba(255,255,255,.08);margin-top:3px;overflow:hidden}
+.mt .mfill{height:100%;border-radius:2px}
+
+/* assentos */
+.seat{display:flex;align-items:center;gap:8px;padding:5px 2px;border-top:1px solid rgba(255,255,255,.07);position:relative}
+.seat .sn{flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seat .yrs{font-size:9.5px;color:var(--text-muted);font-variant-numeric:tabular-nums;font-weight:700}
+.pips{display:flex;gap:2px}
+.pip{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.16)}
+.seat.open{border-top:1px dashed rgba(63,185,80,.4);background:linear-gradient(90deg,rgba(63,185,80,.10),transparent)}
+.seat.open .sn{color:var(--green);font-weight:800;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase}
+.seat.exp{background:linear-gradient(90deg,rgba(210,153,34,.09),transparent)}
+.slot{font-size:8.5px;font-weight:900;padding:1.5px 5px;border-radius:4px;letter-spacing:.08em}
+
+/* ───── coluna direita ───── */
+.card{border-radius:13px;padding:11px 12px;margin-bottom:9px;background:rgba(10,15,28,.18);border:1px solid rgba(255,255,255,.08)}
+.card .ch{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.card .ch .t{font-size:9px;font-weight:900;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
+.you{display:flex;align-items:center;gap:9px}
+.you .av{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:11px;font-weight:900;
+  background:linear-gradient(135deg,#2b7de0,#1b4b8a);color:#dff0ff}
+.you .nm{font-size:13.5px;font-weight:800;line-height:1.1}
+.you .sub{font-size:9.5px;color:var(--text-muted);margin-top:2px}
+.gauge{margin-top:9px}
+.gauge .g{height:6px;border-radius:3px;background:rgba(255,255,255,.07);position:relative;overflow:hidden}
+.gauge .grange{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(88,166,255,.35),rgba(88,166,255,.75));border-radius:3px}
+.gauge .glegend{display:flex;justify-content:space-between;font-size:9px;font-weight:700;color:var(--text-muted);margin-top:4px}
+
+/* linha do tempo */
+.tl{position:relative;padding-left:16px}
+.tl:before{content:"";position:absolute;left:4px;top:4px;bottom:4px;width:1px;background:rgba(255,255,255,.10)}
+.tli{position:relative;padding-bottom:10px}
+.tli:last-child{padding-bottom:0}
+.tli .d{position:absolute;left:-15px;top:3px;width:9px;height:9px;border-radius:50%;background:#0b1420;border:2px solid rgba(255,255,255,.18)}
+.tli.now .d{border-color:var(--accent);background:var(--accent);box-shadow:0 0 10px rgba(88,166,255,.9)}
+.tli.gate .d{border-color:rgba(210,153,34,.7)}
+.tli .wk{font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+.tli.now .wk{color:var(--accent)}
+.tli .tx{font-size:10.5px;color:var(--text-secondary);line-height:1.35;margin-top:2px}
+.tli .ev{font-size:10.5px;line-height:1.4;margin-top:3px;display:flex;gap:5px;align-items:baseline}
+.tli .ev .b{width:3px;height:3px;border-radius:50%;margin-top:5px;flex:0 0 auto}
+.tli.fut{opacity:.42}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ══════════ HEADER ══════════ -->
+  <header class="glass hdr">
+    <div style="min-width:0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="pill" style="background:rgba(88,166,255,.14);color:#79b8ff;border:1px solid rgba(88,166,255,.3)">Pré-Temporada</span>
+        <span class="pill" style="background:rgba(63,185,80,.13);color:var(--green);border:1px solid rgba(63,185,80,.32)">Mercado Aberto</span>
+      </div>
+      <h1 style="margin-top:6px">O Grid Como Ele Terminou</h1>
+      <p class="sub">Ninguém saiu ainda. Esta é a foto do fim da temporada — o marcador de contrato mostra quais assentos podem abrir.</p>
+    </div>
+
+    <div class="railwrap" style="flex:1;max-width:520px;margin:0 8px">
+      <div class="railmeta">
+        <span class="lbl">Janela de Transferências</span>
+        <span style="font-size:11px;font-weight:800;color:var(--text-secondary)" class="num">8 de dezembro</span>
+      </div>
+      <div class="rail">
+        <div class="wk gate now"><div class="bar"></div><div class="cap">S1</div></div>
+        <div class="wk gate"><div class="bar"></div><div class="cap">S2</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S3</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S4</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S5</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S6</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S7</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S8</div></div>
+        <div class="wk"><div class="bar"></div><div class="cap">S9</div></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:rgba(210,153,34,.85)">S1–S2 Fotografia</span>
+        <span style="font-size:9px;color:var(--text-muted)">·</span>
+        <span style="font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)">Contratações abrem na semana 3</span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="ghost">Ver Quem Sai</button>
+      <button class="cta">Avançar Semana →</button>
+    </div>
+  </header>
+
+  <!-- ══════════ CHIPS ══════════ -->
+  <div class="chips">
+    <div class="chip on"><span class="dot" style="background:#8b949e"></span>Todas<span class="cnt hot">14 vagas</span></div>
+    <div class="chip"><span class="dot" style="background:#f85149"></span>Mazda<span class="cnt">2</span></div>
+    <div class="chip"><span class="dot" style="background:#f85149"></span>Toyota<span class="cnt">3</span></div>
+    <div class="chip"><span class="dot" style="background:#f85149"></span>BMW<span class="cnt">1</span></div>
+    <div class="chip"><span class="dot" style="background:#bc8cff"></span>Production<span class="cnt hot">4</span></div>
+    <div class="chip"><span class="dot" style="background:#58a6ff"></span>GT4<span class="cnt">1</span></div>
+    <div class="chip"><span class="dot" style="background:#3fb950"></span>GT3<span class="cnt hot">2</span></div>
+    <div class="chip"><span class="dot" style="background:#3fb950"></span>Endurance<span class="cnt">1</span></div>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <span class="lbl">Ordenar Grid</span>
+      <div class="chip on">Classificação Anterior</div>
+      <div class="chip">Vagas Abertas</div>
+      <div class="chip">Nível do Carro</div>
+    </div>
+  </div>
+
+  <!-- ══════════ 3 COLUNAS ══════════ -->
+  <div class="cols">
+
+    <!-- ─── ESQUERDA ─── -->
+    <aside class="glass panel">
+      <div class="head">
+        <div>
+          <p class="lbl" style="color:var(--text-secondary)">Mercado de Pilotos</p>
+          <p style="font-size:9.5px;color:var(--text-muted);margin-top:3px">Passe o mouse para acender as equipes</p>
+        </div>
+        <span style="font-size:16px;font-weight:900" class="num">12<span style="font-size:9px;font-weight:800;color:var(--text-muted);margin-left:3px">Livres</span></span>
+      </div>
+      <div class="body scroll">
+
+        <div class="band">
+          <div class="bandhdr"><span class="dot" style="width:6px;height:6px;border-radius:50%;background:#3fb950"></span>
+            <span class="nm" style="color:#3fb950">Elite</span><span class="ln"></span><span class="n">1</span></div>
+          <div class="fa hot">
+            <div class="r1">
+              <span class="logo" style="background:#f8514922;color:#f85149">AW</span>
+              <span class="nm">Joel Brunner</span>
+              <span class="lic" style="background:rgba(63,185,80,.16);color:#3fb950">A</span>
+            </div>
+            <div class="r2">
+              <span class="meta">2º / 22 · 11 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(63,185,80,.16);color:#3fb950">Endurance</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="bandhdr"><span style="width:6px;height:6px;border-radius:50%;background:#39d3d3"></span>
+            <span class="nm" style="color:#39d3d3">Master</span><span class="ln"></span><span class="n">1</span></div>
+          <div class="fa">
+            <div class="r1">
+              <span class="logo" style="background:#ffffff14;color:#e6edf3">AC</span>
+              <span class="nm">Ren Kimura</span>
+              <span class="lic" style="background:rgba(63,185,80,.16);color:#3fb950">A</span>
+            </div>
+            <div class="r2">
+              <span class="meta">7º / 18 · 8 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(63,185,80,.16);color:#3fb950">GT3</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="bandhdr"><span style="width:6px;height:6px;border-radius:50%;background:#58a6ff"></span>
+            <span class="nm" style="color:#58a6ff">Super Pro</span><span class="ln"></span><span class="n">1</span></div>
+          <div class="fa">
+            <div class="r1">
+              <span class="logo" style="background:#58a6ff22;color:#58a6ff">NOR</span>
+              <span class="nm">Sem deGroot</span>
+              <span class="lic" style="background:rgba(88,166,255,.16);color:#58a6ff">B</span>
+            </div>
+            <div class="r2">
+              <span class="meta">4º / 20 · 6 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(88,166,255,.16);color:#58a6ff">GT4</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="bandhdr"><span style="width:6px;height:6px;border-radius:50%;background:#bc8cff"></span>
+            <span class="nm" style="color:#bc8cff">Pro</span><span class="ln"></span><span class="n">3</span></div>
+          <div class="fa">
+            <div class="r1"><span class="logo" style="background:#bc8cff22;color:#bc8cff">PZ</span>
+              <span class="nm">Eli Green</span><span class="lic" style="background:rgba(88,166,255,.16);color:#58a6ff">B</span></div>
+            <div class="r2"><span class="meta">3º / 16 · 5 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(188,140,255,.16);color:#bc8cff">Production</span></div>
+          </div>
+          <div class="fa">
+            <div class="r1"><span class="logo" style="background:#f8514922;color:#f85149">RR</span>
+              <span class="nm">Ethan Thomas</span><span class="lic" style="background:rgba(88,166,255,.16);color:#58a6ff">B</span></div>
+            <div class="r2"><span class="meta">9º / 16 · 4 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(188,140,255,.16);color:#bc8cff">Production</span></div>
+          </div>
+          <div class="fa idle">
+            <div class="r1"><span class="logo" style="background:#58a6ff22;color:#58a6ff">TG</span>
+              <span class="nm">Matteo Giordano</span><span class="lic" style="background:rgba(210,153,34,.16);color:#d29922">C</span></div>
+            <div class="r2"><span class="meta">12º / 16 · 7 temporadas</span>
+              <span class="tag" style="background:rgba(255,255,255,.06);color:var(--text-muted)">Parado 2</span>
+              <span class="tag" style="margin-left:auto;background:rgba(188,140,255,.16);color:#bc8cff">Production</span></div>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="bandhdr"><span style="width:6px;height:6px;border-radius:50%;background:#f85149"></span>
+            <span class="nm" style="color:#f85149">Amador</span><span class="ln"></span><span class="n">4</span></div>
+          <div class="fa">
+            <div class="r1"><span class="logo" style="background:#f8514922;color:#f85149">VLT</span>
+              <span class="nm">Carolina Souza</span><span class="lic" style="background:rgba(210,153,34,.16);color:#d29922">C</span></div>
+            <div class="r2"><span class="meta">1º / 24 · 3 temporadas</span>
+              <span class="tag" style="background:rgba(63,185,80,.16);color:#3fb950">Subindo</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Toyota Cup</span></div>
+          </div>
+          <div class="fa">
+            <div class="r1"><span class="logo" style="background:#ffffff14;color:#e6edf3">KY</span>
+              <span class="nm">Kota Yamamoto</span><span class="lic" style="background:rgba(210,153,34,.16);color:#d29922">C</span></div>
+            <div class="r2"><span class="meta">6º / 24 · 2 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Toyota Cup</span></div>
+          </div>
+          <div class="fa">
+            <div class="r1"><span class="logo" style="background:#d2992222;color:#d29922">MF</span>
+              <span class="nm">Mitchell Fortin</span><span class="lic" style="background:rgba(210,153,34,.16);color:#d29922">C</span></div>
+            <div class="r2"><span class="meta">4º / 24 · 4 temporadas</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Mazda Cup</span></div>
+          </div>
+          <div class="fa idle">
+            <div class="r1"><span class="logo" style="background:#bc8cff22;color:#bc8cff">ZS</span>
+              <span class="nm">Zachary Scott</span><span class="lic" style="background:rgba(210,153,34,.16);color:#d29922">D</span></div>
+            <div class="r2"><span class="meta">18º / 24 · 5 temporadas</span>
+              <span class="tag" style="background:rgba(255,255,255,.06);color:var(--text-muted)">Parado 1</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Mazda Cup</span></div>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="bandhdr"><span style="width:6px;height:6px;border-radius:50%;background:#d29922"></span>
+            <span class="nm" style="color:#d29922">Rookie</span><span class="ln"></span><span class="n">2</span></div>
+          <div class="fa">
+            <div class="r1"><span class="tag" style="background:rgba(188,140,255,.16);color:#bc8cff">Novo</span>
+              <span class="nm">Niels Kramer</span><span class="lic" style="background:rgba(150,165,179,.16);color:var(--text-muted)">R</span></div>
+            <div class="r2" style="padding-left:8px"><span class="meta">Estreante · Potencial alto</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Toyota Rookie</span></div>
+          </div>
+          <div class="fa">
+            <div class="r1"><span class="tag" style="background:rgba(188,140,255,.16);color:#bc8cff">Novo</span>
+              <span class="nm">Rasmus Kristensen</span><span class="lic" style="background:rgba(150,165,179,.16);color:var(--text-muted)">R</span></div>
+            <div class="r2" style="padding-left:8px"><span class="meta">Estreante · Potencial médio</span>
+              <span class="tag" style="margin-left:auto;background:rgba(248,81,73,.16);color:#f85149">Toyota Rookie</span></div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- ─── CENTRO ─── -->
+    <main class="glass panel">
+      <div class="head">
+        <div>
+          <p class="lbl" style="color:var(--text-secondary)">Mapeamento das Equipes</p>
+          <p style="font-size:9.5px;color:var(--text-muted);margin-top:3px">Duplo clique abre o histórico mundial da equipe</p>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center">
+          <span style="font-size:9.5px;font-weight:800;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase">Legenda</span>
+          <span class="slot" style="background:rgba(63,185,80,.14);color:#3fb950">Assento Livre</span>
+          <span class="slot" style="background:rgba(210,153,34,.14);color:#d29922">Contrato Vence</span>
+          <span class="slot" style="background:rgba(248,81,73,.14);color:#f85149">Aposenta</span>
+        </div>
+      </div>
+      <div class="body scroll">
+
+        <!-- ENDURANCE -->
+        <div class="catstrip" style="background:linear-gradient(100deg,rgba(63,185,80,.14),rgba(10,15,28,.3) 55%)">
+          <div class="mark" style="background:rgba(63,185,80,.18);color:#3fb950;border:1px solid rgba(63,185,80,.35)">GET</div>
+          <div>
+            <h2 style="color:#3fb950">ENDURANCE</h2>
+            <p class="cs">Global Endurance Tour · Nível 6</p>
+          </div>
+          <div class="seatbar">
+            <div class="track">
+              <div class="fill" style="width:92%"></div><div class="free" style="width:8%"></div>
+            </div>
+            <div class="legend"><span>11 de 12 assentos ocupados</span><span style="color:#3fb950">1 vaga</span></div>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="v">6</div><div class="k">Equipes</div></div>
+            <div class="kpi"><div class="v" style="color:#3fb950">1</div><div class="k">Vaga</div></div>
+            <div class="kpi"><div class="v" style="color:#d29922">3</div><div class="k">Vencendo</div></div>
+          </div>
+        </div>
+
+        <!-- LMP2 -->
+        <div class="catstrip" style="background:linear-gradient(100deg,rgba(88,166,255,.12),rgba(10,15,28,.3) 55%);padding:8px 14px">
+          <div class="mark" style="background:rgba(88,166,255,.16);color:#58a6ff;border:1px solid rgba(88,166,255,.3);width:44px;height:28px;font-size:9px">LMP2</div>
+          <div><h2 style="font-size:14px;color:#58a6ff">LMP2</h2><p class="cs">Classe protótipo</p></div>
+          <div class="seatbar" style="max-width:220px">
+            <div class="track"><div class="fill" style="width:100%"></div></div>
+            <div class="legend"><span>12 de 12 assentos ocupados</span><span>Sem vaga</span></div>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="v">6</div><div class="k">Equipes</div></div>
+            <div class="kpi"><div class="v" style="color:#d29922">2</div><div class="k">Vencendo</div></div>
+          </div>
+        </div>
+
+        <div class="teams">
+
+          <!-- card 1 -->
+          <article class="tc" style="border-color:rgba(255,215,0,.35)">
+            <div class="glow" style="background:radial-gradient(circle at 94% 10%, rgba(255,215,0,.13) 0%, transparent 62%)"></div>
+            <div class="t1">
+              <span class="pos" style="background:rgba(255,215,0,.16);color:#ffd700;border:1px solid rgba(255,215,0,.35)">1</span>
+              <span class="tlogo" style="background:#58a6ff22;color:#58a6ff">BRT</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">Belgian Racing Team</p>
+                <p class="tsub"><span>Desde 1998</span><span>·</span><span style="color:#ffd700">🏆 3 títulos</span><span>·</span><span>84 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(63,185,80,.13);color:#3fb950">Orçamento Alto</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">9</span></div><div class="mtrack"><div class="mfill" style="width:90%;background:#3fb950"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">88</span></div><div class="mtrack"><div class="mfill" style="width:88%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">91</span></div><div class="mtrack"><div class="mfill" style="width:91%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Wei Zhang</span><span class="yrs">10 anos</span>
+            </div>
+            <div class="seat exp">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Luis Cruz</span>
+              <span class="slot" style="background:rgba(210,153,34,.14);color:#d29922">Contrato Vence</span>
+              <span class="yrs">2 anos</span>
+            </div>
+          </article>
+
+          <!-- card 2 -->
+          <article class="tc">
+            <div class="glow" style="background:radial-gradient(circle at 94% 10%, rgba(192,192,192,.10) 0%, transparent 62%)"></div>
+            <div class="t1">
+              <span class="pos" style="background:rgba(192,192,192,.14);color:#d8dee4;border:1px solid rgba(192,192,192,.3)">2</span>
+              <span class="tlogo" style="background:#39d3d322;color:#39d3d3">CR</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">Cool Racing</p>
+                <p class="tsub"><span>Desde 2012</span><span>·</span><span style="color:#ffd700">🏆 1 título</span><span>·</span><span>41 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(88,166,255,.13);color:#58a6ff">Orçamento Médio</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">8</span></div><div class="mtrack"><div class="mfill" style="width:80%;background:#3fb950"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">74</span></div><div class="mtrack"><div class="mfill" style="width:74%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">69</span></div><div class="mtrack"><div class="mfill" style="width:69%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat exp">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Marvin Meyer</span>
+              <span class="slot" style="background:rgba(210,153,34,.14);color:#d29922">Contrato Vence</span>
+              <span class="yrs">6 anos</span>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Owen Fortin</span><span class="yrs">3 anos</span>
+            </div>
+          </article>
+
+          <!-- card 3 — com vaga aberta -->
+          <article class="tc" style="border-color:rgba(63,185,80,.4);box-shadow:0 0 0 1px rgba(63,185,80,.18),0 12px 36px -18px rgba(63,185,80,.7)">
+            <div class="glow" style="background:radial-gradient(circle at 94% 10%, rgba(63,185,80,.14) 0%, transparent 62%)"></div>
+            <div class="t1">
+              <span class="pos" style="background:rgba(255,255,255,.07);color:var(--text-secondary)">3</span>
+              <span class="tlogo" style="background:#d2992222;color:#d29922">JS</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">Jota Sport</p>
+                <p class="tsub"><span>Desde 2000</span><span>·</span><span style="color:#ffd700">🏆 2 títulos</span><span>·</span><span>57 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(63,185,80,.13);color:#3fb950">Orçamento Alto</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">8</span></div><div class="mtrack"><div class="mfill" style="width:82%;background:#3fb950"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">81</span></div><div class="mtrack"><div class="mfill" style="width:81%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">77</span></div><div class="mtrack"><div class="mfill" style="width:77%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Victor Dubois</span><span class="yrs">11 anos</span>
+            </div>
+            <div class="seat open">
+              <span class="pips"><i class="pip"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Assento Livre</span>
+              <span class="slot" style="background:rgba(248,81,73,.14);color:#f85149">Antoine Leroy Aposenta</span>
+            </div>
+          </article>
+
+          <!-- card 4 -->
+          <article class="tc">
+            <div class="t1">
+              <span class="pos" style="background:rgba(255,255,255,.07);color:var(--text-secondary)">4</span>
+              <span class="tlogo" style="background:#bc8cff22;color:#bc8cff">MRD</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">Meridian</p>
+                <p class="tsub"><span>Desde 2019</span><span>·</span><span>Sem títulos</span><span>·</span><span>9 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(210,153,34,.13);color:#d29922">Orçamento Baixo</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">6</span></div><div class="mtrack"><div class="mfill" style="width:60%;background:#d29922"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">58</span></div><div class="mtrack"><div class="mfill" style="width:58%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">52</span></div><div class="mtrack"><div class="mfill" style="width:52%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat exp">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Riccardo DeLuca</span>
+              <span class="slot" style="background:rgba(210,153,34,.14);color:#d29922">Contrato Vence</span>
+              <span class="yrs">12 anos</span>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Axel Jonsson</span><span class="yrs">12 anos</span>
+            </div>
+          </article>
+
+          <!-- card 5 -->
+          <article class="tc">
+            <div class="t1">
+              <span class="pos" style="background:rgba(255,255,255,.07);color:var(--text-secondary)">5</span>
+              <span class="tlogo" style="background:#f8514922;color:#f85149">PP</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">Prema Powerteam</p>
+                <p class="tsub"><span>Desde 1983</span><span>·</span><span style="color:#ffd700">🏆 5 títulos</span><span>·</span><span>112 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(88,166,255,.13);color:#58a6ff">Orçamento Médio</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">7</span></div><div class="mtrack"><div class="mfill" style="width:70%;background:#3fb950"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">83</span></div><div class="mtrack"><div class="mfill" style="width:83%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">86</span></div><div class="mtrack"><div class="mfill" style="width:86%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Sven deVries</span><span class="yrs">17 anos</span>
+            </div>
+            <div class="seat exp">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Romain Durand</span>
+              <span class="slot" style="background:rgba(210,153,34,.14);color:#d29922">Contrato Vence</span>
+              <span class="yrs">4 anos</span>
+            </div>
+          </article>
+
+          <!-- card 6 -->
+          <article class="tc">
+            <div class="t1">
+              <span class="pos" style="background:rgba(255,255,255,.07);color:var(--text-secondary)">6</span>
+              <span class="tlogo" style="background:#39d3d322;color:#39d3d3">UA</span>
+              <div style="flex:1;min-width:0">
+                <p class="tnm">United Autosports</p>
+                <p class="tsub"><span>Desde 2009</span><span>·</span><span style="color:#ffd700">🏆 1 título</span><span>·</span><span>33 vitórias</span></p>
+              </div>
+              <span class="slot" style="background:rgba(88,166,255,.13);color:#58a6ff">Orçamento Médio</span>
+            </div>
+            <div class="meters">
+              <div class="mt"><div class="mk"><span>Carro</span><span style="color:#e6edf3">7</span></div><div class="mtrack"><div class="mfill" style="width:72%;background:#3fb950"></div></div></div>
+              <div class="mt"><div class="mk"><span>Confiab.</span><span style="color:#e6edf3">66</span></div><div class="mtrack"><div class="mfill" style="width:66%;background:#58a6ff"></div></div></div>
+              <div class="mt"><div class="mk"><span>Pit</span><span style="color:#e6edf3">71</span></div><div class="mtrack"><div class="mfill" style="width:71%;background:#bc8cff"></div></div></div>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i></span>
+              <span class="sn">Tomas Herrera</span><span class="yrs">15 anos</span>
+            </div>
+            <div class="seat">
+              <span class="pips"><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip" style="background:#58a6ff"></i><i class="pip"></i><i class="pip"></i></span>
+              <span class="sn">Luuk Bakker</span><span class="yrs">4 anos</span>
+            </div>
+          </article>
+
+        </div>
+
+        <!-- GT3 -->
+        <div class="catstrip" style="background:linear-gradient(100deg,rgba(63,185,80,.14),rgba(10,15,28,.3) 55%)">
+          <div class="mark" style="background:rgba(63,185,80,.18);color:#3fb950;border:1px solid rgba(63,185,80,.35)">GT3</div>
+          <div><h2 style="color:#3fb950">GT3</h2><p class="cs">Nível 5 · Escada fechada</p></div>
+          <div class="seatbar">
+            <div class="track"><div class="fill" style="width:83%"></div><div class="free" style="width:17%"></div></div>
+            <div class="legend"><span>10 de 12 assentos ocupados</span><span style="color:#3fb950">2 vagas</span></div>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="v">6</div><div class="k">Equipes</div></div>
+            <div class="kpi"><div class="v" style="color:#3fb950">2</div><div class="k">Vagas</div></div>
+            <div class="kpi"><div class="v" style="color:#d29922">4</div><div class="k">Vencendo</div></div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ─── DIREITA ─── -->
+    <aside class="glass panel">
+      <div class="head">
+        <p class="lbl" style="color:var(--text-secondary)">Sua Janela</p>
+        <span class="pill" style="background:rgba(210,153,34,.13);color:#d29922;border:1px solid rgba(210,153,34,.3)">Aguardando</span>
+      </div>
+      <div class="body scroll">
+
+        <!-- quem é você -->
+        <div class="card" style="border-color:rgba(88,166,255,.24);background:linear-gradient(140deg,rgba(88,166,255,.10),rgba(10,15,28,.2))">
+          <div class="you">
+            <div class="av">RS</div>
+            <div style="flex:1;min-width:0">
+              <p class="nm">Rodrigo Silva</p>
+              <p class="sub">GT4 · Licença B · 3ª temporada</p>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:9px">
+            <span class="slot" style="background:rgba(248,81,73,.13);color:#f85149">Sem Contrato</span>
+            <span class="slot" style="background:rgba(255,255,255,.05);color:var(--text-muted)">Ex-Nordwand · 2 anos</span>
+          </div>
+        </div>
+
+        <!-- expectativa -->
+        <div class="card">
+          <div class="ch"><span style="width:6px;height:6px;border-radius:50%;background:#58a6ff"></span><span class="t">Expectativa de Procura</span></div>
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-size:30px;font-weight:900;line-height:1" class="num">3–5</span>
+            <span style="font-size:10.5px;color:var(--text-secondary);line-height:1.3">Convites prováveis<br>quando o mercado abrir</span>
+          </div>
+          <div class="gauge">
+            <div class="g"><div class="grange" style="left:22%;width:34%"></div></div>
+            <div class="glegend"><span>Nenhum</span><span>Disputado</span></div>
+          </div>
+          <p style="font-size:10px;color:var(--text-muted);margin-top:8px;line-height:1.4">
+            Sua 4ª colocação no GT4 e a licença B mantêm você no radar de GT3. Vagas de promoção aparecem primeiro.
+          </p>
+        </div>
+
+        <!-- alvos -->
+        <div class="card">
+          <div class="ch"><span style="width:6px;height:6px;border-radius:50%;background:#3fb950"></span><span class="t">Assentos No Seu Alcance</span></div>
+          <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px;line-height:1.35">Vagas cujo nível e licença batem com o seu. Fichas completas abrem na semana 3.</p>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;background:rgba(63,185,80,.09);border:1px solid rgba(63,185,80,.22)">
+              <span class="tlogo" style="width:24px;height:24px;font-size:8px;background:#d2992222;color:#d29922">JS</span>
+              <div style="flex:1;min-width:0">
+                <p style="font-size:11.5px;font-weight:700">Jota Sport</p>
+                <p style="font-size:9px;color:var(--text-muted)">Endurance · Promoção</p>
+              </div>
+              <span class="slot" style="background:rgba(63,185,80,.16);color:#3fb950">⭐ Alvo</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+              <span class="tlogo" style="width:24px;height:24px;font-size:8px;background:#58a6ff22;color:#58a6ff">AKK</span>
+              <div style="flex:1;min-width:0">
+                <p style="font-size:11.5px;font-weight:700">Akkodis ASP</p>
+                <p style="font-size:9px;color:var(--text-muted)">GT3 · Promoção</p>
+              </div>
+              <span class="slot" style="background:rgba(255,255,255,.06);color:var(--text-muted)">Provável</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+              <span class="tlogo" style="width:24px;height:24px;font-size:8px;background:#bc8cff22;color:#bc8cff">PZ</span>
+              <div style="flex:1;min-width:0">
+                <p style="font-size:11.5px;font-weight:700">Phoenix Zone</p>
+                <p style="font-size:9px;color:var(--text-muted)">GT4 · Lateral</p>
+              </div>
+              <span class="slot" style="background:rgba(255,255,255,.06);color:var(--text-muted)">Provável</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- linha do tempo -->
+        <div class="card" style="padding-bottom:13px">
+          <div class="ch"><span style="width:6px;height:6px;border-radius:50%;background:#96a5b3"></span><span class="t">Diário Da Janela</span></div>
+          <div class="tl">
+            <div class="tli now gate">
+              <div class="d"></div>
+              <p class="wk">Semana 1 · Agora</p>
+              <p class="tx">A foto do fim da temporada. Ninguém saiu ainda.</p>
+            </div>
+            <div class="tli gate fut">
+              <div class="d"></div>
+              <p class="wk">Semana 2 · Saídas</p>
+              <p class="tx">Aposentadorias e contratos vencidos liberam os assentos.</p>
+            </div>
+            <div class="tli fut">
+              <div class="d"></div>
+              <p class="wk">Semana 3 · Mercado Abre</p>
+              <p class="tx">Convites chegam. Você pode assinar.</p>
+            </div>
+            <div class="tli fut">
+              <div class="d"></div>
+              <p class="wk">Semanas 4–8</p>
+              <p class="tx">A IA preenche o grid. Quem espera demais escolhe menos.</p>
+            </div>
+            <div class="tli fut">
+              <div class="d"></div>
+              <p class="wk">Semana 9 · Fechamento</p>
+              <p class="tx">Quem sobrar fica de fora da temporada.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+</div>
+</body>
+</html>

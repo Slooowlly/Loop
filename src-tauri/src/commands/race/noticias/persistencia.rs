@@ -115,6 +115,15 @@ pub(crate) fn spawn_prewarm_boletim(
             Ok(d) => d,
             Err(_) => return,
         };
+        // MESMA chave do caminho lazy (`enrich_race_news_ai`): se o jogador abriu a
+        // revista antes de este pré-aquecimento voltar, um dos dois espera e sai pelo
+        // cache em vez de pagar a segunda geração. Ver `narrative::em_voo`.
+        let _passe =
+            crate::narrative::em_voo::aguardar_vez(crate::narrative::em_voo::chave_boletim(
+                &crate::narrative::em_voo::carreira_do_banco(&db_path),
+                &news_id,
+            ));
+        // Leitura DEPOIS do passe — é ela que fecha a corrida entre os dois caminhos.
         let row = match crate::db::queries::ai_story::get_story(&db.conn, &news_id) {
             Ok(Some(r)) => r,
             _ => return,

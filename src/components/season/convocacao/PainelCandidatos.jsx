@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import GlassButton from "../../ui/GlassButton";
+import Tooltip from "../../ui/Tooltip";
 import { CATEGORY_COLORS, CATEGORY_LABELS, LICENSE_COLORS } from "./constantes.js";
 import { formatChampionshipPosition, roleLabel } from "./agrupamentos.js";
 
@@ -75,16 +76,17 @@ export default function PainelCandidatos({
                         <p className="min-w-0 flex-1 truncate text-[15px] font-extrabold leading-[1.05] text-[color:var(--text-primary)]">
                           {candidate.driver_name}
                         </p>
-                        <span
-                          className="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em]"
-                          style={{
-                            background: licenseColors.bg,
-                            color: licenseColors.text,
-                          }}
-                          title={candidate.license_nivel}
-                        >
-                          {candidate.license_sigla}
-                        </span>
+                        <Tooltip texto={candidate.license_nivel}>
+                          <span
+                            className="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em]"
+                            style={{
+                              background: licenseColors.bg,
+                              color: licenseColors.text,
+                            }}
+                          >
+                            {candidate.license_sigla}
+                          </span>
+                        </Tooltip>
                       </div>
                     </article>
                     );

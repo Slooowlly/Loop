@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "../../i18n/index.js";
 import GlassCard from "../../components/ui/GlassCard";
+import Tooltip from "../../components/ui/Tooltip";
 import TeamLogoMark from "../../components/team/TeamLogoMark";
 import useCareerStore from "../../stores/useCareerStore";
 import { getCategoryColor } from "../../utils/categoryColors";
@@ -407,13 +408,11 @@ function RecordsRow({ row, position, sortKey, highlighted, onOpenTeam }) {
                 lado de "87" em toda a tabela — ruído que ensina a ignorar
                 justamente o número que existe para chamar atenção. */}
             {total > valor ? (
-              <span
-                className="ml-1 text-text-muted"
-                title={t("globalTeamRecords.totalTitle", { value: total })}
-                data-total={total}
-              >
-                {`/${total}`}
-              </span>
+              <Tooltip texto={t("globalTeamRecords.totalTitle", { value: total })}>
+                <span className="ml-1 text-text-muted" data-total={total}>
+                  {`/${total}`}
+                </span>
+              </Tooltip>
             ) : null}
           </td>
         );

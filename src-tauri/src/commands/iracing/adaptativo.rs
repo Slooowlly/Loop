@@ -174,6 +174,46 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
         });
     let summary = adaptive::fast_result_from(&race, car_ctx.as_ref());
     let update = adaptive::compute_fast_update(&summary, &current);
+    // Rastro no log de diagnóstico. O jogador não vê o ajuste (é de propósito), então sem
+    // esta linha não há COMO saber se ele rodou, o que mediu e por que decidiu — o perfil só
+    // é gravado quando a agulha se move, e "arquivo ausente" é ambíguo entre "nunca rodou" e
+    // "rodou e ficou no escudo". Registra também o recorte de CLASSE, que é o que responde
+    // se o multiclasse comparou os carros certos.
+    let classe = race
+        .race
+        .iter()
+        .find(|d| d.is_player)
+        .map(|d| d.car_class_id)
+        .unwrap_or(0);
+    let ias_na_classe = race
+        .race
+        .iter()
+        .filter(|d| d.is_ai && d.car_class_id == classe)
+        .count();
+    let ritmo = match summary.pace_vs_front {
+        Some(g) => format!("{:+.2}%/volta", g * 100.0),
+        None => "sem amostra".to_string(),
+    };
+    crate::diagnostico::linha(
+        "adaptativo",
+        &format!(
+            "Pista {track_id} · classe {classe}: {ias_na_classe} IA de {} carros · carro {} · ritmo vs frente {ritmo} · {} · global {}{:+}={} · pista {}{:+}={} · {}",
+            race.race.len(),
+            if car_ctx.is_some() { "sim" } else { "não" },
+            update.verdict,
+            current.global,
+            update.d_global,
+            update.new.global,
+            current.track,
+            update.d_track,
+            update.new.track,
+            if update.applied {
+                "gravado"
+            } else {
+                "sem mudança"
+            }
+        ),
+    );
     if update.applied {
         profile.global = update.new.global;
         profile

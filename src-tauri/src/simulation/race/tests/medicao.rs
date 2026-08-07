@@ -160,7 +160,8 @@ fn medir_lesoes_e_pecas() {
                 p.wear += wear_per_race(p.part_type);
                 if p.wear >= 1.0 {
                     // Equipe de meio de grid: troca quando a peça acaba, e paga por isso.
-                    custo_de_manutencao += crate::car::cost::part_cost(CATEGORIA, p.part_type, p.level);
+                    custo_de_manutencao +=
+                        crate::car::cost::part_cost(CATEGORIA, p.part_type, p.level);
                     p.wear = 0.0;
                     p.spent = false;
                     trocas_por_fim_de_vida += 1;
@@ -177,7 +178,10 @@ fn medir_lesoes_e_pecas() {
     let asa_por_corrida = wear_per_race(PartType::FrontWing);
     let contato_por_carro_corrida = desgaste_de_contato / largadas as f64;
 
-    println!("\n═══ {corridas} corridas · {largadas} largadas · grid de {} ═══", grid.len());
+    println!(
+        "\n═══ {corridas} corridas · {largadas} largadas · grid de {} ═══",
+        grid.len()
+    );
 
     println!("\nLESÕES");
     println!(
@@ -204,7 +208,10 @@ fn medir_lesoes_e_pecas() {
     );
 
     println!("\nPEÇAS — calibração atual ({CONTATO_ATUAL:.2} de wear por contato)");
-    println!("  vida de uma asa ............. {:.0} corridas", 1.0 / asa_por_corrida);
+    println!(
+        "  vida de uma asa ............. {:.0} corridas",
+        1.0 / asa_por_corrida
+    );
     println!("  a asa gasta sozinha ......... {asa_por_corrida:.3}/corrida");
     println!(
         "  um contato custa ............ {:.0}% de uma corrida de vida de peça",
@@ -220,8 +227,10 @@ fn medir_lesoes_e_pecas() {
         trocas_por_fim_de_vida as f64 / (equipes * TEMPORADAS as f64)
     );
 
-    println!("\nORÇAMENTO — o canal que decidimos usar ({:.0}% do preço da peça por contato)",
-        100.0 * crate::car::crash::CONTACT_COST_FRACTION);
+    println!(
+        "\nORÇAMENTO — o canal que decidimos usar ({:.0}% do preço da peça por contato)",
+        100.0 * crate::car::crash::CONTACT_COST_FRACTION
+    );
     let temporadas_equipe = equipes * TEMPORADAS as f64;
     println!(
         "  manutenção normal ........... {:>12.0} por equipe/temporada",
@@ -244,10 +253,16 @@ fn medir_lesoes_e_pecas() {
     // ── Varredura: o mesmo fluxo de contatos, com castigos diferentes. É o que responde
     // "esse número é pouco ou muito?" olhando consequência em vez de intuição.
     println!("\nVARREDURA (mesmo fluxo de {contatos} contatos)");
-    println!("  desgaste  destruídas/eq/temp   trocas a mais   |  fração  reparo/eq/temp   % da conta");
+    println!(
+        "  desgaste  destruídas/eq/temp   trocas a mais   |  fração  reparo/eq/temp   % da conta"
+    );
     for &w in &[0.06, 0.25, 0.50] {
         let (destruidas, trocas, _) = replay_pecas(&grid, &historico_de_pancadas, w, 0.10);
-        let marca = if (w - CONTATO_ATUAL).abs() < 1e-9 { " ← atual" } else { "" };
+        let marca = if (w - CONTATO_ATUAL).abs() < 1e-9 {
+            " ← atual"
+        } else {
+            ""
+        };
         print!(
             "    {w:.2}         {:>6.2}            {:>+6.1}",
             destruidas as f64 / temporadas_equipe,
@@ -288,12 +303,8 @@ fn replay_pecas(
     for pancadas in historico {
         for (team_id, car) in carros.iter_mut() {
             let hits = pancadas.get(team_id.as_str()).copied().unwrap_or(0);
-            let dano = crate::car::crash::apply_contact_wear_with(
-                car,
-                CATEGORIA,
-                hits,
-                wear_por_contato,
-            );
+            let dano =
+                crate::car::crash::apply_contact_wear_with(car, CATEGORIA, hits, wear_por_contato);
             destruidas += dano.destroyed.len() as u64;
             // O custo sai proporcional: a função cobra com a constante de produção, e aqui a
             // reescalamos para a fração sob teste.

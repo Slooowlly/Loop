@@ -26,6 +26,30 @@ pub struct PreSeasonState {
     pub player_has_team: bool,
     #[serde(default)]
     pub current_display_date: Option<String>,
+    /// Primeira semana que contrata alguém. Antes dela a janela é foto (1) e saídas (2),
+    /// e o jogador não recebe proposta nenhuma — só a expectativa abaixo. Vem do estado
+    /// (e não de uma constante repetida no front) pra a UI não duplicar o número.
+    #[serde(default = "default_signings_start_week")]
+    pub signings_start_week: i32,
+    /// Quantas equipes devem cortejar o jogador quando o mercado abrir. Só existe
+    /// enquanto ele é agente livre e o mercado ainda não contrata; some na semana em
+    /// que as propostas de verdade começam. Ver [`PlayerInterestForecast`].
+    #[serde(default)]
+    pub player_interest_forecast: Option<PlayerInterestForecast>,
+}
+
+/// Expectativa de procura pelo jogador nas semanas de abertura: uma FAIXA, não um
+/// número — na semana 1 ainda nem se sabe quais assentos vão abrir, então a estimativa
+/// sai dos contratos que vencem e aperta na semana 2, quando as vagas já são reais.
+/// O número da semana 3 é o que vira proposta, então a faixa tem que conter a verdade.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlayerInterestForecast {
+    pub min: i32,
+    pub max: i32,
+}
+
+pub(super) fn default_signings_start_week() -> i32 {
+    i32::from(crate::constants::timeline::MARKET_SIGNINGS_START_WEEK)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,10 +108,30 @@ pub struct PreSeasonPlan {
     pub state: PreSeasonState,
     pub planned_events: Vec<PlannedEvent>,
     pub executed_weeks: Vec<WeekResult>,
-    /// Dispensas (contratos que terminaram sem renovação) capturadas no início —
-    /// emitidas no feed na 1ª semana avançada ("quem perdeu a vaga").
+    /// Dispensas capturadas no início da janela. Hoje as pré-passes rodam ao SAIR da
+    /// semana 1 e as dispensas saem no feed na mesma hora, então este campo nasce vazio;
+    /// ele fica porque saves de janelas antigas (que capturavam na abertura) ainda
+    /// carregam eventos aqui, e perdê-los apagaria o feed da semana deles.
     #[serde(default)]
     pub pending_departures: Vec<MarketEvent>,
+    /// Renovações confirmadas pelas pré-passes, emitidas ao sair da semana 2. Ficam
+    /// separadas das dispensas de propósito: dispensa MOVE o piloto (o grid muda entre a
+    /// semana 1 e a 2, e o feed tem que explicar a mudança), renovação não move ninguém
+    /// — é a confirmação de quem ficou, e cabe na semana em que nada se mexe.
+    #[serde(default)]
+    pub pending_renewals: Vec<MarketEvent>,
+    /// Se as pré-passes (expiração, renovação, mérito, assédio) já caíram nesta janela.
+    /// Default `true` de propósito: save de uma janela anterior já as teve aplicadas na
+    /// abertura, e um default `false` as rodaria de novo — dispensando meio grid duas vezes.
+    #[serde(default = "verdadeiro")]
+    pub prepasses_applied: bool,
+    /// Se a passada de MOVIMENTOS (rebaixamento por mérito, assédio, campeão do rookie)
+    /// já caiu. Ela é adiada até a semana em que o mercado abre, porque tira o piloto de
+    /// uma equipe e o põe em outra — coisa que as semanas de abertura não podem mostrar.
+    /// Mesmo default `true` das pré-passes, e pelo mesmo motivo: save de janela antiga já
+    /// as teve aplicadas, e rodá-las de novo transferiria gente duas vezes.
+    #[serde(default = "verdadeiro")]
+    pub movements_applied: bool,
     /// Categoria de cada piloto no INÍCIO da pré-temporada (antes das pré-passes, que
     /// limpam o `categoria_atual` dos dispensados) — origem p/ promovido/rebaixado.
     #[serde(default)]
@@ -183,4 +227,8 @@ pub enum PendingAction {
 
 pub(super) fn default_estavel() -> String {
     "estavel".to_string()
+}
+
+pub(super) fn verdadeiro() -> bool {
+    true
 }

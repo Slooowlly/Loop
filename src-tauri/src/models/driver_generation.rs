@@ -94,18 +94,35 @@ where
         let racecraft = correlated_stat(rng, skill, 8);
         let defesa = correlated_stat(rng, skill, 8);
         let ritmo_classificacao = correlated_stat(rng, skill, 12);
-        let gestao_pneus = roll_stat(rng, 40, 70);
-        let habilidade_largada = roll_stat(rng, 40, 70);
-        let adaptabilidade = roll_stat(rng, 40, 70);
-        let fator_chuva = roll_stat(rng, 30, 70);
+        // Os EIXOS LIVRES nascem largos pela mesma razao que os de estilo, e por
+        // uma a mais. Eles sao os unicos que NAO acompanham a escada — a
+        // calibracao exige |rho| < 0,15 contra o talento —, entao numa categoria
+        // de base eles sao a unica fonte possivel de diferenca entre um piloto e
+        // o vizinho: os eixos correlacionados a skill vivem todos amontoados na
+        // faixa do tier. Em 40–70 a mediana do grid ficava a menos de dez pontos
+        // de todo mundo, e um grid inteiro de rookies saia sem um traco sequer.
+        let gestao_pneus = roll_stat(rng, 34, 78);
+        let habilidade_largada = roll_stat(rng, 34, 78);
+        let adaptabilidade = roll_stat(rng, 34, 78);
+        let fator_chuva = roll_stat(rng, 26, 78);
         let fitness = fitness_for_age(rng, idade);
         let experiencia = experience_for_profile(rng, idade, normalized_tier, rookie_prodigy);
         let desenvolvimento = development_for_profile(rng, idade, skill, rookie_prodigy);
-        let aggression = roll_stat(rng, 30, 70);
+        // Os EIXOS DE ESTILO nascem largos de proposito. Eles nao tem lado bom —
+        // agressivo ganha na largada e paga em pneu e em incidente —, entao a
+        // unica coisa que os torna interessantes e o piloto do lado ocupar outro
+        // ponto da regua. Em 30–70 todo mundo saia calculista-morno e a ficha
+        // desenhava trinta marcadores no mesmo lugar; `confianca` em 50–70 era
+        // pior ainda: nenhum piloto gerado conseguia ser cauteloso, e metade do
+        // eixo nunca existia. `smoothness` acompanha por ser o inverso.
+        let aggression = roll_stat(rng, 20, 85);
         let smoothness = inverse_correlated_stat(rng, aggression);
-        let midia = roll_stat(rng, 30, 70);
-        let mentalidade = roll_stat(rng, 40, 70);
-        let confianca = roll_stat(rng, 50, 70);
+        // `midia` para em 74 de proposito: 85 e o piso do tier `Elite` de
+        // visibilidade de mercado ([`crate::market::visibility`]), e alargar ate
+        // la mexeria em salario e patrocinio sem ninguem ter pedido.
+        let midia = roll_stat(rng, 26, 74);
+        let mentalidade = roll_stat(rng, 34, 78);
+        let confianca = roll_stat(rng, 30, 80);
         let potencial = (skill as f64
             + potential_headroom(desenvolvimento as f64, idade) * rng.gen_range(0.85..=1.15))
         .min(POTENTIAL_HARD_MAX);
@@ -315,6 +332,17 @@ fn apply_rookie_profile(
     }
 }
 
+/// O piso existe para o defeito do rookie ser o ARQUETIPO e nao ruido: sem ele,
+/// um sorteio azarado num eixo qualquer competiria com a fraqueza que o perfil
+/// escolheu de proposito. Ele roda ANTES do arquetipo, entao nao levanta o
+/// defeito depois de aplicado.
+///
+/// `experiencia` esta FORA dele, e essa e a excecao com nome. O valor bruto de um
+/// novato e 8..30 — ele e inexperiente, e isso e o que o define —, e levantar
+/// para 36 apagava a unica tag que todo rookie deveria ter. Pior: o OUTRO gerador
+/// de rookie, o de vaga em temporada ([`crate::evolution::rookies`]), nao tem
+/// piso e sorteia `U{5..=25}`. Dois novatos no mesmo grid, feitos por codigo
+/// diferente, e so um se chamava "Calouro".
 fn normalize_rookie_baseline(atributos: &mut DriverAttributes) {
     atributos.consistencia = atributos.consistencia.max(36.0);
     atributos.racecraft = atributos.racecraft.max(36.0);
@@ -325,7 +353,6 @@ fn normalize_rookie_baseline(atributos: &mut DriverAttributes) {
     atributos.adaptabilidade = atributos.adaptabilidade.max(36.0);
     atributos.fator_chuva = atributos.fator_chuva.max(36.0);
     atributos.fitness = atributos.fitness.max(36.0);
-    atributos.experiencia = atributos.experiencia.max(36.0);
     atributos.desenvolvimento = atributos.desenvolvimento.max(36.0);
     atributos.aggression = atributos.aggression.max(36.0);
     atributos.smoothness = atributos.smoothness.max(36.0);

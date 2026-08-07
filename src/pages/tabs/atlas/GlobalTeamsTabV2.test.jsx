@@ -316,7 +316,10 @@ describe("GlobalTeamsTabV2", () => {
 
     // T001 tem 8 titulos na propria Production → trofeu com a contagem.
     const champion = screen.getByTestId("atlas-v2-ranking-row-T001");
-    expect(within(champion).getByTitle(/8 t.tulos na Mazda Production/i)).toHaveTextContent("8");
+    expect(within(champion).getByText("8")).toHaveAttribute(
+      "data-tooltip",
+      expect.stringMatching(/8 t.tulos na Mazda Production/i),
+    );
 
     // T005 corre na Rookie e seus 2 titulos sao da Production: nada ao lado do
     // nome. Se for promovida, o trofeu aparece la — e some se voltar.
@@ -493,7 +496,8 @@ describe("GlobalTeamsTabV2", () => {
     const painel = await screen.findByTestId("atlas-v2-champions");
     expect(within(painel).getByTestId("atlas-v2-champion-2025")).toHaveTextContent("Lucien Moreau");
     // A estrela distingue o campeao de pilotos do resto da dupla.
-    expect(within(screen.getByTestId("atlas-v2-champion-2025")).getByTitle(/campe/i)).toBeInTheDocument();
+    const trofeuDoPiloto = screen.getByTestId("atlas-v2-champion-2025").querySelector("[data-tooltip]");
+    expect(trofeuDoPiloto?.getAttribute("data-tooltip")).toMatch(/campe/i);
     // Sem dupla registrada, a celula do piloto fica com o travessao.
     expect(screen.getByTestId("atlas-v2-champion-2024")).toHaveTextContent("—");
     // E o podio de dinastias resume quem manda na categoria.

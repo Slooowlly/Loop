@@ -1,0 +1,242 @@
+[
+  {
+    "chave": "posicao",
+    "sujeira": "limpo",
+    "esperado": "Em que posição eu estou?",
+    "transcrito": "Em que posição eu estou?",
+    "intencao_esperada": "Posicao",
+    "ms": 791
+  },
+  {
+    "chave": "posicao",
+    "sujeira": "rádio",
+    "esperado": "Em que posição eu estou?",
+    "transcrito": "Em que posição eu estou?",
+    "intencao_esperada": "Posicao",
+    "ms": 552
+  },
+  {
+    "chave": "frente",
+    "sujeira": "limpo",
+    "esperado": "Qual o gap pro carro da frente?",
+    "transcrito": "Qual o gap pro carro da frente?",
+    "intencao_esperada": "Frente",
+    "ms": 561
+  },
+  {
+    "chave": "frente",
+    "sujeira": "rádio",
+    "esperado": "Qual o gap pro carro da frente?",
+    "transcrito": "Qual o gap pro carro da frente?",
+    "intencao_esperada": "Frente",
+    "ms": 509
+  },
+  {
+    "chave": "atras",
+    "sujeira": "limpo",
+    "esperado": "Quem está atrás de mim?",
+    "transcrito": "Quem está atrás de mim?",
+    "intencao_esperada": "Atras",
+    "ms": 604
+  },
+  {
+    "chave": "atras",
+    "sujeira": "rádio",
+    "esperado": "Quem está atrás de mim?",
+    "transcrito": "Quem está atrás de mim?",
+    "intencao_esperada": "Atras",
+    "ms": 522
+  },
+  {
+    "chave": "restante",
+    "sujeira": "limpo",
+    "esperado": "Quantas voltas ainda faltam?",
+    "transcrito": "Quantas voltas ainda faltam?",
+    "intencao_esperada": "Restante",
+    "ms": 826
+  },
+  {
+    "chave": "restante",
+    "sujeira": "rádio",
+    "esperado": "Quantas voltas ainda faltam?",
+    "transcrito": "Quantas voltas ainda faltam?",
+    "intencao_esperada": "Restante",
+    "ms": 499
+  },
+  {
+    "chave": "combustivel",
+    "sujeira": "limpo",
+    "esperado": "Como está o combustível?",
+    "transcrito": "Como está o combustível?",
+    "intencao_esperada": "Combustivel",
+    "ms": 1188
+  },
+  {
+    "chave": "combustivel",
+    "sujeira": "rádio",
+    "esperado": "Como está o combustível?",
+    "transcrito": "Como está o combustível?",
+    "intencao_esperada": "Combustivel",
+    "ms": 580
+  },
+  {
+    "chave": "ritmo",
+    "sujeira": "limpo",
+    "esperado": "Como está o meu ritmo?",
+    "transcrito": "Como está o meu ritmo?",
+    "intencao_esperada": "Ritmo",
+    "ms": 1053
+  },
+  {
+    "chave": "ritmo",
+    "sujeira": "rádio",
+    "esperado": "Como está o meu ritmo?",
+    "transcrito": "Como está o meu ritmo?",
+    "intencao_esperada": "Ritmo",
+    "ms": 1207
+  },
+  {
+    "chave": "carro",
+    "sujeira": "limpo",
+    "esperado": "O carro aguenta até o fim?",
+    "transcrito": "O carro aguenta até o fim?",
+    "intencao_esperada": "Carro",
+    "ms": 1210
+  },
+  {
+    "chave": "carro",
+    "sujeira": "rádio",
+    "esperado": "O carro aguenta até o fim?",
+    "transcrito": "O carro aguenta até o fim?",
+    "intencao_esperada": "Carro",
+    "ms": 634
+  },
+  {
+    "chave": "bandeira",
+    "sujeira": "limpo",
+    "esperado": "Tem bandeira amarela na pista?",
+    "transcrito": "Tem bandeira amarela na pista?",
+    "intencao_esperada": "Bandeira",
+    "ms": 848
+  },
+  {
+    "chave": "bandeira",
+    "sujeira": "rádio",
+    "esperado": "Tem bandeira amarela na pista?",
+    "transcrito": "Tem bandeira amarela na pista?",
+    "intencao_esperada": "Bandeira",
+    "ms": 850
+  },
+  {
+    "chave": "pista",
+    "sujeira": "limpo",
+    "esperado": "Vai chover nessa corrida?",
+    "transcrito": "Vai chover nessa corrida?",
+    "intencao_esperada": "Pista",
+    "ms": 475
+  },
+  {
+    "chave": "pista",
+    "sujeira": "rádio",
+    "esperado": "Vai chover nessa corrida?",
+    "transcrito": "Vai chover nessa corrida?",
+    "intencao_esperada": "Pista",
+    "ms": 612
+  },
+  {
+    "chave": "pneu",
+    "sujeira": "limpo",
+    "esperado": "Que pneu eu estou usando?",
+    "transcrito": "Que pneu eu estou usando?",
+    "intencao_esperada": "Pneu",
+    "ms": 954
+  },
+  {
+    "chave": "pneu",
+    "sujeira": "rádio",
+    "esperado": "Que pneu eu estou usando?",
+    "transcrito": "Que pneu eu estou usando?",
+    "intencao_esperada": "Pneu",
+    "ms": 1156
+  },
+  {
+    "chave": "geral",
+    "sujeira": "limpo",
+    "esperado": "E aí, como estamos?",
+    "transcrito": "E aí, como estamos?",
+    "intencao_esperada": "Geral",
+    "ms": 735
+  },
+  {
+    "chave": "geral",
+    "sujeira": "rádio",
+    "esperado": "E aí, como estamos?",
+    "transcrito": "E aí, como estamos?",
+    "intencao_esperada": "Geral",
+    "ms": 1194
+  },
+  {
+    "chave": "pneu_do_vizinho",
+    "sujeira": "limpo",
+    "esperado": "O carro da frente ainda está com pneu de seco?",
+    "transcrito": "O carro da frente ainda está com pneu de seco?",
+    "intencao_esperada": "Pneu",
+    "ms": 561
+  },
+  {
+    "chave": "pneu_do_vizinho",
+    "sujeira": "rádio",
+    "esperado": "O carro da frente ainda está com pneu de seco?",
+    "transcrito": "O carro da frente ainda está com pneu de seco?",
+    "intencao_esperada": "Pneu",
+    "ms": 1371
+  },
+  {
+    "chave": "combustivel_com_voltas",
+    "sujeira": "limpo",
+    "esperado": "Quantas voltas ainda dá o combustível?",
+    "transcrito": "Quantas voltas ainda dá o combustível?",
+    "intencao_esperada": "Combustivel",
+    "ms": 613
+  },
+  {
+    "chave": "combustivel_com_voltas",
+    "sujeira": "rádio",
+    "esperado": "Quantas voltas ainda dá o combustível?",
+    "transcrito": "Quantas voltas ainda dá o combustível?",
+    "intencao_esperada": "Combustivel",
+    "ms": 596
+  },
+  {
+    "chave": "frente_longa",
+    "sujeira": "limpo",
+    "esperado": "Quanto tempo eu tenho pro carro da frente e dá pra alcançar ele?",
+    "transcrito": "Quanto tempo eu tenho pro carro da frente e dá pra alcançar ele?",
+    "intencao_esperada": "Frente",
+    "ms": 1301
+  },
+  {
+    "chave": "frente_longa",
+    "sujeira": "rádio",
+    "esperado": "Quanto tempo eu tenho pro carro da frente e dá pra alcançar ele?",
+    "transcrito": "Quanto tempo eu tenho pro carro da frente dá pra alcançar ele?",
+    "intencao_esperada": "Frente",
+    "ms": 907
+  },
+  {
+    "chave": "restante_longa",
+    "sujeira": "limpo",
+    "esperado": "Me fala quantas voltas ainda faltam pro fim dessa corrida por favor.",
+    "transcrito": "Me fala quantas voltas ainda faltam pro fim dessa corrida, por favor",
+    "intencao_esperada": "Restante",
+    "ms": 603
+  },
+  {
+    "chave": "restante_longa",
+    "sujeira": "rádio",
+    "esperado": "Me fala quantas voltas ainda faltam pro fim dessa corrida por favor.",
+    "transcrito": "Me fala quantas voltas ainda faltam pro fim dessa corrida, por favor",
+    "intencao_esperada": "Restante",
+    "ms": 652
+  }
+]

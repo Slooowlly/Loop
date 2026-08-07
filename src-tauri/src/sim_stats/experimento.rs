@@ -17,6 +17,8 @@ mod coleta;
 mod equipes;
 #[path = "experimento/escada.rs"]
 mod escada;
+#[path = "experimento/fama.rs"]
+mod fama;
 #[path = "experimento/funil.rs"]
 mod funil;
 #[path = "experimento/pilotos.rs"]
@@ -67,6 +69,7 @@ pub(super) fn monte_carlo() {
     println!("└─────────────────────────────────────────────────────────────┘");
 
     pilotos::imprimir(&t);
+    fama::imprimir(&t);
     equipes::imprimir(&t);
     carros::imprimir(&t);
     escada::imprimir(&t);

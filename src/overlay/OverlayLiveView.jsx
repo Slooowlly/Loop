@@ -18,7 +18,6 @@ import {
 import { createTowerAnimator } from "./towerAnimation";
 import { createTowerWindow } from "./towerRows";
 import { useOverlayData, useOverlayDataRelay } from "./useOverlayData";
-import OverlayWeatherArc from "./OverlayWeatherArc";
 import { estaNoTauri } from "../lib/tauri";
 
 // Vista AO VIVO do overlay de MONITOR (a janela transparente por cima do iRacing).
@@ -93,6 +92,15 @@ export default function OverlayLiveView() {
     if (!estaNoTauri()) return undefined;
     const w = getCurrentWindow();
     const cleanups = [];
+    // `listen` é assíncrono e esta limpeza é síncrona: sem a bandeira, uma desmontagem
+    // que aconteça antes de a promessa resolver deixa `cleanups` vazio e o ouvinte órfão.
+    // Aqui o efeito é benigno (dois `setHover` idênticos), mas o padrão é o mesmo que fez
+    // cada toque no botão do push-to-talk virar duas perguntas.
+    let morto = false;
+    const registrar = (fn) => {
+      if (morto) fn();
+      else cleanups.push(fn);
+    };
     (async () => {
       try {
         const raw = localStorage.getItem(POS_KEY);
@@ -119,13 +127,16 @@ export default function OverlayLiveView() {
         /* onMoved indisponível */
       }
       try {
-        cleanups.push(await listen("overlay-enabled", (e) => setMode(payloadToMode(e.payload))));
-        cleanups.push(await listen("overlay-hover", (e) => setHover(Boolean(e.payload))));
+        registrar(await listen("overlay-enabled", (e) => setMode(payloadToMode(e.payload))));
+        registrar(await listen("overlay-hover", (e) => setHover(Boolean(e.payload))));
       } catch {
         /* listen indisponível */
       }
     })();
-    return () => cleanups.forEach((fn) => fn && fn());
+    return () => {
+      morto = true;
+      cleanups.forEach((fn) => fn && fn());
+    };
   }, []);
 
   // Esta janela não consulta o backend: a principal faz o único poll (500 ms) e repassa
@@ -277,23 +288,6 @@ export default function OverlayLiveView() {
           >
             👁
           </button>
-
-          {/* Arco de chuva (previsão determinística da corrida) logo abaixo da torre — só
-              renderiza quando há chuva a antecipar (rainArc não-vazio). Display-only. */}
-          {data.session?.weather?.rainArc?.length > 0 && (
-            <div
-              style={{
-                position: "fixed",
-                top: towerH + 4,
-                left: 0,
-                width: panelW,
-                zIndex: 8,
-                pointerEvents: "none",
-              }}
-            >
-              <OverlayWeatherArc weather={data.session.weather} width={panelW} />
-            </div>
-          )}
         </>
       )}
 

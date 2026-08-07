@@ -2452,6 +2452,145 @@ fn sample_team(category: &str, id: &str, rng: &mut StdRng) -> crate::models::tea
     crate::models::team::Team::from_template_with_rng(template, category, id.to_string(), 2025, rng)
 }
 
+// ── Porta de saída da falência ────────────────────────────────────────────────
+
+/// Mundo mínimo para a fuga: o jogador SOB CONTRATO numa gt3 que acabou de ser
+/// vendida por colapso, mais uma segunda equipe da mesma categoria com vaga.
+/// Devolve a conexão, a temporada NOVA e o id da equipe quebrada.
+fn fixture_fuga_da_falencia(vendida: bool) -> (Connection, Season, String) {
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+
+    // Só a temporada NOVA entra no banco: `seasons.status` é único por ativa, e a
+    // anterior só existe aqui como número (é dela que a venda é datada).
+    let temporada_anterior = Season::new("S001".to_string(), 4, 2027);
+    let nova = Season::new("S002".to_string(), 5, 2028);
+    season_queries::insert_season(&conn, &nova).expect("season nova");
+
+    let mut rng = StdRng::seed_from_u64(4242);
+    let quebrada = sample_team("gt3", "TQUEBRA", &mut rng);
+    let vizinha = sample_team("gt3", "TVIZINHA", &mut rng);
+    team_queries::insert_team(&conn, &quebrada).expect("equipe quebrada");
+    team_queries::insert_team(&conn, &vizinha).expect("equipe vizinha");
+
+    let mut player = sample_driver("PLAYER", "Jogador", Some("gt3"), 72.0, DriverStatus::Ativo);
+    player.is_jogador = true;
+    driver_queries::insert_driver(&conn, &player).expect("jogador");
+
+    let contrato = Contract::new(
+        "CPLAYER".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        quebrada.id.clone(),
+        quebrada.nome.clone(),
+        temporada_anterior.numero,
+        3, // contrato longo: sem a falência ele não estaria no mercado
+        400_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
+    );
+    contract_queries::insert_contract(&conn, &contrato).expect("contrato do jogador");
+
+    if vendida {
+        team_queries::insert_team_ownership_event(
+            &conn,
+            &quebrada.id,
+            temporada_anterior.numero,
+            temporada_anterior.ano,
+            "sale",
+            24_600_000.0,
+            2_800_000.0,
+            "venda por colapso",
+        )
+        .expect("evento de venda");
+    }
+
+    (conn, nova, quebrada.id)
+}
+
+#[test]
+fn jogador_de_equipe_vendida_recebe_porta_de_saida() {
+    // A falência não pode ser só manchete: o jogador preso a um projeto que ruiu
+    // precisa de uma saída. Ele está SOB CONTRATO e não expirando — sem a
+    // falência, `generate_player_proposals` devolveria vazio.
+    let (conn, nova, quebrada_id) = fixture_fuga_da_falencia(true);
+    let mut rng = StdRng::seed_from_u64(7);
+
+    let propostas = generate_player_proposals(
+        &conn,
+        &nova.id,
+        nova.numero,
+        &find_vacancies(&conn).expect("vagas"),
+        false, // não estava expirando
+        &HashMap::new(),
+        &mut rng,
+    )
+    .expect("propostas");
+
+    assert!(
+        !propostas.is_empty(),
+        "quem perdeu a equipe para a falência tem que ver ao menos uma porta"
+    );
+    assert!(
+        propostas.iter().all(|p| p.equipe_id != quebrada_id),
+        "a equipe que quebrou não oferta a fuga dela mesma"
+    );
+    // E a proposta fica pendente no banco — é assim que a tela do jogador a lê.
+    let pendentes: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM market_proposals WHERE piloto_id = 'PLAYER' AND status = 'Pendente'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("contagem");
+    assert!(pendentes > 0);
+}
+
+#[test]
+fn jogador_sob_contrato_sem_falencia_nao_recebe_proposta() {
+    // O contrapositivo: sem a venda, um jogador com contrato de 3 anos continua
+    // fora do mercado. A porta é da falência, não um portão sempre aberto.
+    let (conn, nova, _) = fixture_fuga_da_falencia(false);
+    let mut rng = StdRng::seed_from_u64(7);
+
+    let propostas = generate_player_proposals(
+        &conn,
+        &nova.id,
+        nova.numero,
+        &find_vacancies(&conn).expect("vagas"),
+        false,
+        &HashMap::new(),
+        &mut rng,
+    )
+    .expect("propostas");
+
+    assert!(
+        propostas.is_empty(),
+        "sem falência o jogador sob contrato não é abordado: {propostas:?}"
+    );
+}
+
+#[test]
+fn venda_de_temporada_antiga_nao_reabre_a_porta() {
+    // A porta é do offseason DESTA virada. Uma venda de anos atrás não pode
+    // deixar o jogador permanentemente no mercado.
+    let (conn, nova, _) = fixture_fuga_da_falencia(true);
+    let mut rng = StdRng::seed_from_u64(7);
+
+    let propostas = generate_player_proposals(
+        &conn,
+        &nova.id,
+        nova.numero + 3, // três temporadas depois da venda
+        &find_vacancies(&conn).expect("vagas"),
+        false,
+        &HashMap::new(),
+        &mut rng,
+    )
+    .expect("propostas");
+
+    assert!(propostas.is_empty(), "venda velha não reabre o mercado");
+}
+
 fn sample_driver(
     id: &str,
     name: &str,

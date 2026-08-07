@@ -178,6 +178,15 @@ pub struct SimDriver {
     /// Multiplicador da taxa de erro por pressão de campeonato (1.0 = neutro,
     /// <1 clutch, >1 choke). Calculado no setup da corrida (ver simulation::pressure).
     pub pressure_error_mult: f64,
+    /// **Duelo de pista desta corrida**: com quem, e quanto a rivalidade pesa (percebida
+    /// 0–100). Preenchido no setup a partir do mesmo mapa que alimenta a Pressão de Duelo
+    /// (`commands::race::simulacao`), então cobre o par do jogador — que é onde a
+    /// rivalidade é vivida.
+    ///
+    /// A pressão já mexia no RITMO dos dois; isto muda como eles se ENFRENTAM: contra o
+    /// rival o piloto ataca sem ter ritmo para tanto e cede menos ao ser atacado. Ver
+    /// `race::trafego::fator_de_rivalidade`.
+    pub duelo_de_pista: Option<(String, f64)>,
 }
 
 impl SimDriver {
@@ -218,6 +227,7 @@ impl SimDriver {
             team_name: team.nome.clone(),
             corridas_na_categoria: driver.corridas_na_categoria as i32,
             pressure_error_mult: 1.0,
+            duelo_de_pista: None,
         }
     }
 

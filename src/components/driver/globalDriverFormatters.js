@@ -35,7 +35,7 @@ export function statusClass(status) {
 
 export function statusTitle(row) {
   if (row.status === "Aposentado" && row.temporada_aposentadoria) {
-    return `Aposentado em ${row.temporada_aposentadoria}`;
+    return i18n.t("globalDrivers.retiredIn", { year: row.temporada_aposentadoria });
   }
   return undefined;
 }

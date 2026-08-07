@@ -16,12 +16,14 @@ use crate::commands::career::{
     open_career_resources_read_only,
 };
 use crate::commands::career_types::{
-    TeamFinanceCashPoint, TeamFinanceReport, TeamFinanceRound, TeamHistoryCategoryStep,
-    TeamHistoryChampionshipLine, TeamHistoryChampionshipRun, TeamHistoryDossier,
-    TeamHistoryFormRace, TeamHistoryHighlight, TeamHistoryIdentity,
+    TeamFinanceCashPoint, TeamFinanceReport, TeamFinanceRound, TeamHistoryCashPoint,
+    TeamHistoryCategoryStep, TeamHistoryCategoryTime, TeamHistoryChampionshipLine,
+    TeamHistoryChampionshipRun, TeamHistoryDossier, TeamHistoryFormRace, TeamHistoryHighlight,
+    TeamHistoryIdentity, TeamHistoryLadderRung, TeamHistoryLedger, TeamHistoryLedgerLine,
     TeamHistoryManagement, TeamHistoryMilestone, TeamHistoryMovement, TeamHistoryOutsideSeason,
-    TeamHistoryOwnershipEvent, TeamHistoryRecord, TeamHistoryResultSpread, TeamHistoryRival,
-    TeamHistorySeasonResult, TeamHistorySport, TeamHistoryTimelineItem, TeamHistoryTitleCategory,
+    TeamHistoryOwnershipEvent, TeamHistoryRecord, TeamHistoryRecruitment, TeamHistoryResultSpread,
+    TeamHistoryRival, TeamHistoryRivalMeeting, TeamHistorySeasonResult, TeamHistorySport,
+    TeamHistoryTimelineItem, TeamHistoryTitleCategory, TeamHistoryTrackAffinity,
     TeamRecordsCategory, TeamRecordsRanking, TeamRecordsRow,
 };
 use crate::constants::categories;
@@ -131,10 +133,7 @@ pub(crate) fn get_team_records_ranking_in_base_dir(
             let wins = entry.wins.max(0);
             let podiums = entry.podiums.max(0);
             let card = cards.get(&team_id).cloned().unwrap_or_default();
-            let (primeiro, ultimo) = janelas
-                .get(team_id.as_str())
-                .copied()
-                .unwrap_or((0, 0));
+            let (primeiro, ultimo) = janelas.get(team_id.as_str()).copied().unwrap_or((0, 0));
             let carreira = world_aggregates.get(&team_id).cloned().unwrap_or_default();
             TeamRecordsRow {
                 total_titles: world_titles
@@ -144,8 +143,16 @@ pub(crate) fn get_team_records_ranking_in_base_dir(
                 total_wins: carreira.wins.max(0),
                 total_podiums: carreira.podiums.max(0),
                 total_races: carreira.races.max(0),
-                first_year: if primeiro > 0 { primeiro.to_string() } else { String::new() },
-                last_year: if ultimo > 0 { ultimo.to_string() } else { String::new() },
+                first_year: if primeiro > 0 {
+                    primeiro.to_string()
+                } else {
+                    String::new()
+                },
+                last_year: if ultimo > 0 {
+                    ultimo.to_string()
+                } else {
+                    String::new()
+                },
                 team: card.name,
                 color: card.color,
                 category: if card.category_id.is_empty() {
@@ -244,8 +251,10 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
         .filter(|fact| fact.team_id == team_id)
         .cloned()
         .collect();
-    let group_titles =
-        keep_family_titles(load_constructor_titles_by_team(&db.conn, &category_ids)?, family);
+    let group_titles = keep_family_titles(
+        load_constructor_titles_by_team(&db.conn, &category_ids)?,
+        family,
+    );
     let drivers_champions = load_drivers_champions(&db.conn, &category_ids);
 
     // Os RECORDS comparam dentro da CATEGORIA, não do grupo.
@@ -459,7 +468,7 @@ pub(crate) fn get_team_history_dossier_in_base_dir(
                 category_id,
             })
             .collect(),
-        movement: build_team_movement(&selected_facts),
+        movement: build_team_movement(&selected_facts, &category_ids),
         world_first_year,
         world_last_year,
         // Recebe `all_facts`, e não `selected_facts`: o gráfico é a equipe CONTRA

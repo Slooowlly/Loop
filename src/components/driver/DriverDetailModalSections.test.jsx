@@ -179,7 +179,7 @@ describe("HistorySection", () => {
     expect(screen.getByText("Primeira vitória")).toBeInTheDocument();
     expect(screen.getByText("7ª corrida")).toBeInTheDocument();
     expect(screen.getByText("AUGE")).toBeInTheDocument();
-    expect(screen.getByText("2024, BMW Cup")).toBeInTheDocument();
+    expect(screen.getByText("2024, BMW")).toBeInTheDocument();
     expect(screen.getByText("MOBILIDADE")).toBeInTheDocument();
     expect(screen.getByText("Promoções")).toBeInTheDocument();
     expect(screen.getByText("LESÕES")).toBeInTheDocument();

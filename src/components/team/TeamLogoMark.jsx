@@ -163,7 +163,29 @@ export function getTeamLogoSrc(teamName) {
   return TEAM_LOGO_SRC[canonicalName] ?? null;
 }
 
-export default function TeamLogoMark({ teamName, color, size = "md", testId = "standings-team-logo" }) {
+// Halo de contraste para logo escura sobre fundo escuro.
+//
+// As 102 artes são webp com canal alfa, e várias são desenhadas em preto ou
+// grafite — pensadas para fundo claro. Sobre o painel do jogo elas somem: sobra
+// o recorte da parte clara e o resto vira buraco. O `drop-shadow` segue o ALFA
+// (não a caixa), então ele contorna o desenho de verdade; duas passadas curtas
+// em vez de uma larga para o contorno não virar borrão.
+//
+// É opt-in porque para logo clara o halo não faz falta, e as telas que já estão
+// resolvidas não deveriam mudar de aparência por causa desta correção.
+// Exportado porque a fita de equipes da curva de mercado desenha a arte como
+// `<image>` dentro do SVG, fora deste componente — e um halo diferente ali seria
+// a mesma logo com dois contornos no mesmo modal.
+export const HALO_FILTER =
+  "drop-shadow(0 0 1px rgba(255,255,255,0.55)) drop-shadow(0 0 3px rgba(255,255,255,0.28))";
+
+export default function TeamLogoMark({
+  teamName,
+  color,
+  size = "md",
+  halo = false,
+  testId = "standings-team-logo",
+}) {
   const logoSrc = getTeamLogoSrc(teamName);
   const sizeClass =
     size === "hero"
@@ -204,6 +226,7 @@ export default function TeamLogoMark({ teamName, color, size = "md", testId = "s
         src={logoSrc}
         alt={label}
         className="h-full w-full object-contain"
+        style={halo ? { filter: HALO_FILTER } : undefined}
         draggable={false}
       />
     </span>

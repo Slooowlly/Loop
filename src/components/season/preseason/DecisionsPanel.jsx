@@ -4,6 +4,43 @@ import OfferCategoryRow from "./OfferCategoryRow";
 import WeeklyClosingMovement from "./WeeklyClosingMovement";
 import { CLASS_LABELS } from "../preSeasonFormatters.js";
 
+// O que a coluna mostra enquanto o mercado não contrata: SÓ O NÚMERO.
+//
+// Nenhuma ficha, nenhuma categoria, nada clicável. Ver quais equipes têm vaga já na
+// semana 1 entrega a janela inteira de graça — o jogador decidiria antes de o mercado
+// existir. O que ele leva das semanas de abertura é o tamanho da oportunidade, não o
+// mapa dela. As fichas voltam na semana em que dá pra assinar.
+function OpeningWeekCount({ totalOffers, forecast, playerSignedThisWindow, t }) {
+  // Contrato em dia: não vai ao mercado, e aí não há número nenhum a dar.
+  if (playerSignedThisWindow && !forecast) {
+    return (
+      <div className="glass-light rounded-xl border-dashed p-6 text-center text-body text-[color:var(--text-secondary)]">
+        {t("preSeason.forecast.notInMarket")}
+      </div>
+    );
+  }
+  const forecastLabel = forecast
+    ? forecast.min === forecast.max
+      ? t("preSeason.forecast.exact", { count: forecast.max })
+      : t("preSeason.forecast.range", { min: forecast.min, max: forecast.max })
+    : null;
+  return (
+    <div className="glass-light rounded-xl border-dashed p-6 text-center">
+      <p className="text-title-lg font-black tabular-nums text-[color:var(--text-primary)]">
+        {totalOffers}
+      </p>
+      <p className="mt-1 text-body-sm text-[color:var(--text-secondary)]">
+        {t("preSeason.forecast.seatCount", { count: totalOffers })}
+      </p>
+      {forecastLabel && (
+        <p className="mt-3 border-t border-white/8 pt-3 text-body-sm text-[color:var(--text-secondary)]">
+          {forecastLabel}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Coluna DIREITA: Decisões Pendentes.
 // min-h-0 + overflow-y-auto (igual às outras 2 colunas): fica preso à altura
 // da linha do grid e rola até o fim. NÃO usar self-start + max-h fixo, senão
@@ -15,6 +52,8 @@ export default function DecisionsPanel({
   playerBrand,
   isComplete,
   isAdvancingWeek,
+  isOpeningWeek,
+  interestForecast,
   totalOffers,
   promoOfferGroups,
   brandOfferGroups,
@@ -57,17 +96,34 @@ export default function DecisionsPanel({
 
       <div className="mb-4 flex h-6 items-center gap-2">
         <span className="relative inline-flex h-2.5 w-2.5">
-          {playerOffers.length > 0 && (
+          {playerOffers.length > 0 && !isOpeningWeek && (
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#58a6ff]/80" />
           )}
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[color:var(--accent-primary)]" />
+          <span
+            className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+              isOpeningWeek ? "bg-[color:var(--text-muted)]" : "bg-[color:var(--accent-primary)]"
+            }`}
+          />
         </span>
-        <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
-          {t("preSeason.offers.title")}
+        <p
+          className={`text-body-sm font-bold uppercase tracking-[0.22em] ${
+            isOpeningWeek ? "text-[color:var(--text-secondary)]" : "text-[color:var(--accent-primary)]"
+          }`}
+        >
+          {isOpeningWeek ? t("preSeason.forecast.title") : t("preSeason.offers.title")}
         </p>
       </div>
 
-      {playerOffers.length === 0 ? (
+      {/* Semanas de abertura: só o número, antes de qualquer ramo de listagem — as vagas
+          podem existir no banco, mas as fichas delas não são da conta do jogador ainda. */}
+      {isOpeningWeek ? (
+        <OpeningWeekCount
+          totalOffers={totalOffers}
+          forecast={interestForecast}
+          playerSignedThisWindow={playerSignedThisWindow}
+          t={t}
+        />
+      ) : playerOffers.length === 0 ? (
         <div className="glass-light rounded-xl border-dashed p-6 text-center text-body text-[color:var(--text-secondary)]">
           {playerSignedThisWindow
             ? t("preSeason.offers.emptySigned")

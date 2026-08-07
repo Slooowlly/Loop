@@ -128,6 +128,61 @@ pub(crate) fn debug_prepare_market_scenario_in_base_dir(
     Ok(())
 }
 
+/// DEBUG: simula todas as corridas pendentes da temporada MENOS a última da categoria
+/// do jogador, deixando o save a um "Avançar calendário" da final. É o atalho para ver
+/// a tela de Campeão da Temporada sem correr o ano inteiro.
+///
+/// As etapas da categoria do jogador avançam a rodada da temporada (como no fluxo real,
+/// em que ele corre cada uma); as das outras categorias, não. A ordem é cronológica pela
+/// régua 9D, senão a classificação sai montada fora de ordem.
+pub(crate) fn debug_skip_to_season_finale_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<(), String> {
+    let config = AppConfig::load_or_default(base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let mut db = Database::open_existing(&db_path)
+        .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
+
+    let season = season_queries::get_active_season(&db.conn)
+        .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
+        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+    let player = driver_queries::get_player_driver(&db.conn)
+        .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
+    let player_category = player
+        .categoria_atual
+        .clone()
+        .ok_or_else(|| "O jogador nao esta em nenhuma categoria.".to_string())?;
+
+    let mut pending = calendar_queries::get_pending_races(&db.conn, &season.id)
+        .map_err(|e| format!("Falha ao buscar corridas pendentes: {e}"))?;
+    pending.sort_by_key(|entry| {
+        (
+            entry
+                .season_week
+                .map(|week| week as i32)
+                .unwrap_or(entry.week_of_year + 4),
+            entry.rodada,
+        )
+    });
+
+    let finale_id = pending
+        .iter()
+        .filter(|entry| entry.categoria == player_category)
+        .next_back()
+        .map(|entry| entry.id.clone())
+        .ok_or_else(|| {
+            format!("Nao ha corrida pendente na categoria do jogador ('{player_category}').")
+        })?;
+
+    for race in pending.iter().filter(|entry| entry.id != finale_id) {
+        let advance_player_round = race.categoria == player_category;
+        crate::commands::race::simulate_category_race(&mut db, race, advance_player_round)?;
+    }
+
+    Ok(())
+}
+
 /// DEBUG: roda o passe de poaching **de verdade** e desfaz tudo (transação com
 /// rollback), devolvendo o raio-x de cada leilão. O leilão só acontece entre IAs e
 /// não tem tela até o 2b.3 — isto é a janela pra vê-lo. Não altera o save.

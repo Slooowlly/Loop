@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../../ui/Tooltip";
 import { formatAttributeName } from "./formatadores.js";
 
 export function nationalityForFlag(perfil, detail) {
@@ -38,23 +39,24 @@ export function FavoriteStarButton({ active, disabled, onClick }) {
   const { t } = useTranslation();
   const favoriteLabel = active ? t("driverDetail.favorite.remove") : t("driverDetail.favorite.add");
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      title={favoriteLabel}
-      aria-label={favoriteLabel}
-      className={[
-        "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-all",
-        active
-          ? "border-[#fbbf24]/50 bg-[#fbbf24]/15 text-[#fbbf24] shadow-[0_0_10px_-3px_#fbbf24]"
-          : "border-white/10 bg-white/[0.04] text-[#7d8590] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]",
-        disabled ? "cursor-not-allowed opacity-60" : "",
-      ].join(" ")}
-    >
-      {active ? "★" : "☆"}
-    </button>
+    <Tooltip texto={favoriteLabel}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-pressed={active}
+        aria-label={favoriteLabel}
+        className={[
+          "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-all",
+          active
+            ? "border-[#fbbf24]/50 bg-[#fbbf24]/15 text-[#fbbf24] shadow-[0_0_10px_-3px_#fbbf24]"
+            : "border-white/10 bg-white/[0.04] text-[#7d8590] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]",
+          disabled ? "cursor-not-allowed opacity-60" : "",
+        ].join(" ")}
+      >
+        {active ? "★" : "☆"}
+      </button>
+    </Tooltip>
   );
 }
 

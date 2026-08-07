@@ -26,3 +26,28 @@ pub struct FreeAgentPreview {
     /// tier ±1 + licença exigida, com +1 de promoção liberado). Usado pelo filtro do topo.
     pub eligible_categories: Vec<String>,
 }
+
+/// O que o JOGADOR já viveu com um piloto que ficou sem vaga.
+///
+/// A lista de deslocados sozinha é uma lista de estranhos: seis nomes que o
+/// jogador nunca ouviu falar, e no meio deles um que ele bateu na última volta
+/// de Interlagos. Este DTO é o que separa os dois casos.
+///
+/// Só vem preenchido para quem realmente dividiu grid com o jogador — quem nunca
+/// cruzou com ele fica com tudo em zero, e a UI não desenha nada.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DisplacedDriverContext {
+    pub driver_id: String,
+    /// Corridas em que os dois têm resultado: dividiram o grid.
+    pub shared_races: i32,
+    /// Dessas, quantas o jogador terminou à frente. Abandono dos dois lados fica
+    /// de fora do placar — quebrar o motor não é perder um duelo.
+    pub player_ahead: i32,
+    pub driver_ahead: i32,
+    /// Número da última temporada em que se encontraram.
+    pub last_shared_season: Option<i32>,
+    /// `"nemesis"` | `"rival"` | `None`, com o MESMO critério das outras telas —
+    /// sai de `select_player_interests`, não de um limiar próprio. Duas definições
+    /// de "quem é rival" no mesmo jogo divergem na primeira vez que uma muda.
+    pub rival_role: Option<String>,
+}

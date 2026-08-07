@@ -283,6 +283,7 @@ tabela race_results
   coluna trafego_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
   coluna ultrapassagens_concluidas | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna voltas_completadas | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  indice idx_race_results_piloto | unique=0 | origem=c | parcial=0 | colunas=piloto_id
   indice idx_race_results_unique_race_pilot | unique=1 | origem=c | parcial=0 | colunas=race_id,piloto_id
 tabela race_safety_cars
   coluna grid_json | tipo=TEXT | notnull=1 | default='[]' | pk=0
@@ -419,6 +420,14 @@ tabela team_finance_history
   coluna category | tipo=TEXT | notnull=1 | default='' | pk=0
   coluna constructor_prize_income | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna created_at | tipo=TEXT | notnull=1 | default=datetime('now') | pk=0
+  coluna custo_combustivel | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_desgaste_de_peca | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_diarias | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_estrutura | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_frete | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_inscricao | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_pneus | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna custo_viagem_e_estadia | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna debt_balance | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna debt_service_cost | tipo=REAL | notnull=1 | default=0.0 | pk=0
   coluna event_operations_cost | tipo=REAL | notnull=1 | default=0.0 | pk=0

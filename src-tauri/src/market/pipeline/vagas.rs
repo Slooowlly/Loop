@@ -31,9 +31,9 @@ pub(super) fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> 
         if !uses_regular_contracts(&team.categoria) {
             continue;
         }
-        if ano_corrente
-            .is_some_and(|ano| !crate::constants::historical_timeline::is_team_active_in_year(&team, ano))
-        {
+        if ano_corrente.is_some_and(|ano| {
+            !crate::constants::historical_timeline::is_team_active_in_year(&team, ano)
+        }) {
             continue;
         }
         let category_tier = get_category_config(&team.categoria)

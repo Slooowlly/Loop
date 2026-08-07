@@ -73,7 +73,13 @@ pub(super) fn run_end_of_season_with_mode(
     crate::evolution::injury::process_injury_recovery_without_seat(&tx)
         .map_err(|e| format!("Falha ao recuperar lesões de pilotos sem assento: {e}"))?;
 
-    let (growth_reports, motivation_reports, retirements, _existing_names) =
+    // Onde cada piloto estava ANTES da virada. É a referência do segundo passe da
+    // motivação, lá embaixo: promoção e mercado ainda não rodaram nesta altura,
+    // então "promovido/rebaixado/renovado/dispensado" só se conhece comparando
+    // este retrato com o de depois da pré-temporada.
+    let seats_before = seat_map(&tx)?;
+
+    let (growth_reports, mut motivation_reports, retirements, _existing_names) =
         process_driver_evolution(
             &tx,
             season,
@@ -149,6 +155,27 @@ pub(super) fn run_end_of_season_with_mode(
     apply_season_end_rivalry_decay(&tx, season.numero)
         .map_err(|e| format!("Erro no decaimento de rivalidades: {e}"))?;
 
+    // OS DOIS VEREDITOS DE TEMPORADA VÊM DEPOIS DO DECAIMENTO, e a ordem não é detalhe.
+    // O decaimento esfria o que a temporada acumulou corrida a corrida; estes dois
+    // gatilhos são o RESUMO dessa mesma temporada, calculado de uma vez no fim. Passá-los
+    // pelo decaimento seria contar o resfriamento duas vezes — e não é teoria: com eles
+    // rodando antes, a rivalidade de pista da faixa de entrada nascia em percebida 6.6,
+    // saía do decaimento em 3.9 e era APAGADA no mesmo instante (o limiar de extinção é
+    // 5.0). O harness mostrou `pista = 0` em dez das doze temporadas por causa disso.
+    //
+    // Companheiros: placar do duelo interno N1/N2 do ano, lido dos contadores de
+    // hierarquia antes da pré-temporada zerá-los. É o caminho que de fato produz treta de
+    // dupla — o eixo de tensão mora no piso, porque o N2 leva ~29% dos duelos e o eixo
+    // exige 40% só para parar de cair.
+    crate::rivalry::process_teammate_season_rivalry(&tx, season.numero)
+        .map_err(|e| format!("Falha na rivalidade entre companheiros de equipe: {e}"))?;
+
+    // Pista: placar de chegadas coladas do ano, lido de `race_results`. Mesmo motivo do
+    // gatilho acima — o tipo `Pista` só era aplicado na importação de corrida real do
+    // iRacing, então em mundo simulado ele nunca existia.
+    crate::rivalry::process_track_season_rivalry(&tx, season.numero)
+        .map_err(|e| format!("Falha na rivalidade de pista: {e}"))?;
+
     // Decaimento anual das rivalidades entre EQUIPES (mesma regra do piloto): clássicos
     // ativos persistem e crescem no histórico; brigas pontuais esfriam e somem sozinhas.
     crate::rivalry::team::apply_season_end_team_rivalry_decay(&tx, season.numero)
@@ -168,6 +195,14 @@ pub(super) fn run_end_of_season_with_mode(
     // vem como agente livre `Ativo` e a janela de transferências semanal o recontrata.
     crate::evolution::injury::process_injury_recovery_without_seat(&tx)
         .map_err(|e| format!("Falha ao recuperar lesões de pilotos recém-liberados: {e}"))?;
+
+    // SEGUNDO PASSE DA MOTIVAÇÃO — a última coisa antes do commit, porque só aqui
+    // o offseason inteiro já aconteceu: promoção/rebaixamento (acima) e o mercado
+    // de pré-temporada (dentro de `initialize_preseason_phase`). É o passe que faz
+    // "perdeu a vaga" e "foi rebaixado" existirem de fato; antes disso os dois
+    // chegavam ao modelo como `false` fixo e nunca puxavam a motivação para baixo.
+    let offseason_reports = apply_offseason_motivation(&tx, &seats_before)?;
+    merge_motivation_reports(&mut motivation_reports, offseason_reports);
 
     tx.commit().map_err(|e| {
         let _ = std::fs::remove_file(save_path.join("preseason_plan.json"));

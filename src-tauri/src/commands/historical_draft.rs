@@ -18,7 +18,7 @@ use crate::db::queries::meta as meta_queries;
 use crate::db::queries::seasons as season_queries;
 use crate::db::queries::teams as team_queries;
 use crate::evolution::pipeline::run_historical_end_of_season;
-use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
+use crate::finance::planning::{category_finance_scale_for, derive_budget_index_from_money};
 use crate::finance::state::{choose_season_strategy, refresh_team_financial_state};
 use crate::generators::ids::{next_id, IdType};
 use crate::generators::nationality::format_nationality;
@@ -932,7 +932,7 @@ fn reset_historical_finance_for_playable_start(conn: &rusqlite::Connection) -> R
 }
 
 fn playable_start_cash_balance(team: &Team) -> f64 {
-    let scale = category_finance_scale(&team.categoria);
+    let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
     let category_window = (scale.cash_max - scale.cash_min).max(1.0);
     let reputation_weight = (team.reputacao / 100.0).clamp(0.0, 1.0);
     let performance_weight = ((team.car_performance + 5.0) / 21.0).clamp(0.0, 1.0);

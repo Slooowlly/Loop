@@ -21,6 +21,16 @@ import PreSeasonHeader from "./preseason/PreSeasonHeader";
 import FreeAgentsPanel from "./preseason/FreeAgentsPanel";
 import TeamsGridPanel from "./preseason/TeamsGridPanel";
 import DecisionsPanel from "./preseason/DecisionsPanel";
+import PreSeasonHeaderV2 from "./preseason/v2/PreSeasonHeaderV2";
+import FreeAgentsPanelV2 from "./preseason/v2/FreeAgentsPanelV2";
+import TeamsGridPanelV2 from "./preseason/v2/TeamsGridPanelV2";
+import PlayerWindowPanel from "./preseason/v2/PlayerWindowPanel";
+import LayoutSwitch, { usePreSeasonLayout } from "./preseason/v2/LayoutSwitch";
+import {
+  filterGridTeamsByCategory,
+  buildCategoryCounters,
+  buildReachableSeats,
+} from "./preseason/v2/seatSelectors.js";
 
 import {
   LEVEL_BANDS,
@@ -54,6 +64,11 @@ export default function PreSeasonView() {
   const advanceMarketWeek    = useCareerStore((s) => s.advanceMarketWeek);
   const finalizePreseason    = useCareerStore((s) => s.finalizePreseason);
   const playerTeam           = useCareerStore((s) => s.playerTeam);
+  const player               = useCareerStore((s) => s.player);
+
+  // Layout v2 (padrão) com o v1 preservado atrás do interruptor do canto.
+  const { layout, toggle: toggleLayout } = usePreSeasonLayout();
+  const isV2 = layout === "v2";
 
   const [selectedCat, setSelectedCat]           = useState(() => playerCatToFilter(playerTeam?.categoria));
   const [gridData, setGridData]                 = useState([]);
@@ -71,6 +86,9 @@ export default function PreSeasonView() {
   // Animação de assinatura: enquanto true, o nome do piloto é "escrito" na linha
   // antes de a oferta ser efetivada.
   const [isSigning, setIsSigning] = useState(false);
+  // Recusa do backend à assinatura (vaga tomada, semana errada) — mostrada NA folha,
+  // que continua aberta pra ele escolher outra coisa ainda nesta semana.
+  const [signError, setSignError] = useState("");
   // Equipe do grid cujo Histórico mundial de equipes (atlas) está aberto — duplo clique no card.
   const [historyTeam, setHistoryTeam] = useState(null);
   // Categoria do piloto livre sob o cursor → acende as equipes dela no grid central.
@@ -91,6 +109,19 @@ export default function PreSeasonView() {
   const isComplete  = preseasonState?.is_complete ?? false;
   const isMarketOpen = !isComplete;
   const weekProgress = Math.min(100, (currentWeek / totalWeeks) * 100);
+
+  // Semanas de abertura: a 1 é a foto do grid como a temporada terminou e a 2 mostra
+  // como ele ficou depois das saídas. Nenhuma das duas contrata — o painel de decisões
+  // não tem o que oferecer nelas, e no lugar dele o jogador vê a expectativa de procura.
+  // O número vem do backend (e não de uma constante repetida aqui) de propósito.
+  //
+  // O default 1 desliga o portão, e isso é deliberado: o campo só falta quando o backend
+  // é ANTERIOR às semanas de abertura, e nesse caso a IA contrata desde a semana 1. Segurar
+  // a lista contra um backend que está assinando gente seria pior — o jogador veria um
+  // número parado enquanto as vagas somem. Se o portão não fechar, o binário está velho.
+  const signingsStartWeek = preseasonState?.signings_start_week ?? 1;
+  const isOpeningWeek = currentWeek < signingsStartWeek;
+  const interestForecast = preseasonState?.player_interest_forecast ?? null;
 
   // Ofertas que a Janela de Transferências mandou ao jogador nesta semana.
   const playerOffers = transferWindow?.player_offers ?? [];
@@ -121,17 +152,31 @@ export default function PreSeasonView() {
   const openOffersFor = (cat) => { setOffersModalCat(cat); setShowOffersModal(true); };
 
   // Abre a ficha de contrato de uma oferta (assinatura sempre começa zerada).
-  const handleViewContract = (offer) => { setIsSigning(false); setContractOffer(offer); };
+  const handleViewContract = (offer) => {
+    setIsSigning(false);
+    setSignError("");
+    setContractOffer(offer);
+  };
 
   // Assinar: escreve a assinatura (~1.25s) e só então efetiva a oferta.
-  const handleSignContract = (offer) => {
+  //
+  // A folha só fecha quando o backend CONFIRMA. Fechar junto com a animação fazia a
+  // assinatura valer como recibo: se a vaga tivesse sumido no meio do caminho, o jogador
+  // saía dali convencido de que tinha time, e só descobria no fim da janela — jogado
+  // numa equipe que nunca escolheu.
+  const handleSignContract = async (offer) => {
     if (isSigning) return;
     setIsSigning(true);
-    setTimeout(() => {
-      setContractOffer(null);
-      setShowOffersModal(false);
-      handleAcceptOffer(offer);
-    }, 1550);
+    setSignError("");
+    await new Promise((resolve) => setTimeout(resolve, 1550));
+    const erro = await handleAcceptOffer(offer);
+    setIsSigning(false);
+    if (erro) {
+      setSignError(erro);
+      return;
+    }
+    setContractOffer(null);
+    setShowOffersModal(false);
   };
 
   const currentDateLabel = useMemo(
@@ -148,6 +193,10 @@ export default function PreSeasonView() {
   );
 
   // ── Fetch grid ──────────────────────────────────────────────────────────────
+  // O v2 busca o grid INTEIRO uma vez por semana e recorta localmente: é o que
+  // permite contar vagas por categoria nos chips do topo sem uma segunda leva de
+  // invokes, e ainda tira o refetch de cada clique de filtro. O v1 segue como era.
+  const fetchCat = isV2 ? "all" : selectedCat;
   useEffect(() => {
     if (!careerId) return;
     let mounted = true;
@@ -155,7 +204,7 @@ export default function PreSeasonView() {
     async function fetchGrid() {
       setLoadingGrid(true);
       try {
-        const final = await fetchGridTeams(careerId, selectedCat);
+        const final = await fetchGridTeams(careerId, fetchCat);
         if (mounted) setGridData(final);
       } finally {
         if (mounted) setLoadingGrid(false);
@@ -166,10 +215,30 @@ export default function PreSeasonView() {
     return () => { mounted = false; };
     // Semana CRUA (não clampada) + resultado da semana → o grid reflete as
     // assinaturas aplicadas a cada avanço, inclusive além do teto de exibição.
-  }, [careerId, selectedCat, preseasonState?.current_week, lastMarketWeekResult]);
+  }, [careerId, fetchCat, preseasonState?.current_week, lastMarketWeekResult]);
+
+  // Grid efetivamente desenhado: no v2 é o recorte local do conjunto completo.
+  const visibleGrid = useMemo(
+    () => (isV2 ? filterGridTeamsByCategory(gridData, selectedCat) : gridData),
+    [isV2, gridData, selectedCat],
+  );
+
+  // Contadores dos chips e alvos do jogador só existem no v2, que tem o grid todo.
+  const categoryCounters = useMemo(
+    () => (isV2 ? buildCategoryCounters(gridData) : {}),
+    [isV2, gridData],
+  );
+
+  // Assentos ao alcance: recorte do que a coluna central já mostra, filtrado pelo
+  // tier do jogador. Não antecipa nada da janela — só evita que ele tenha que
+  // varrer nove categorias pra achar as três que o cabem.
+  const reachableSeats = useMemo(
+    () => (isV2 ? buildReachableSeats(gridData, playerTier) : []),
+    [isV2, gridData, playerTier],
+  );
 
   // ── Agrupamento e ordenação ─────────────────────────────────────────────────
-  const groupedTeams = useMemo(() => groupTeamsByClass(gridData), [gridData]);
+  const groupedTeams = useMemo(() => groupTeamsByClass(visibleGrid), [visibleGrid]);
 
   const sortedClasses = useMemo(() => sortTeamClasses(groupedTeams), [groupedTeams]);
 
@@ -291,16 +360,17 @@ export default function PreSeasonView() {
   // Janela de Transferências: aceitar uma oferta fecha a semana do jogador e assina.
   // Ao assinar com a equipe nova, repinta o carro do jogador na cor dela (o ID do
   // iRacing já foi capturado/vinculado) — silencioso, só com um toast discreto.
+  // Devolve a mensagem de recusa (ou "" quando assinou) — quem chamou decide onde mostrar.
   const handleAcceptOffer = async (offer) => {
-    if (isAdvancingWeek) return;
+    if (isAdvancingWeek) return "";
     setStartError("");
     try {
       await advanceMarketWeek(offer?.seat_id);
     } catch (e) {
       console.error(e);
-      return;
+      return typeof e === "string" ? e : e?.message ?? t("preSeason.errors.signOffer");
     }
-    if (!offer?.team_color) return;
+    if (!offer?.team_color) return "";
     try {
       const res = await invoke("iracing_apply_market_paint", {
         careerId,
@@ -314,6 +384,7 @@ export default function PreSeasonView() {
     } catch (e) {
       console.error("[paint] falha ao repintar no mercado:", e);
     }
+    return "";
   };
 
   // Propostas formais ("Proposta recebida"): aceitar assina (respond_to_proposal);
@@ -324,7 +395,9 @@ export default function PreSeasonView() {
     try {
       await respondToProposal(proposalId, accept);
     } catch (e) {
+      // Mesma regra da ficha de contrato: uma resposta que não pegou tem que aparecer.
       console.error(e);
+      setStartError(typeof e === "string" ? e : e?.message ?? t("preSeason.errors.respondProposal"));
       return;
     }
     if (!accept || !teamColor) return;
@@ -356,6 +429,77 @@ export default function PreSeasonView() {
       )}
 
 
+      <LayoutSwitch layout={layout} onToggle={toggleLayout} />
+
+      {isV2 ? (
+        <div className="relative z-10 mx-auto flex h-full max-w-[1920px] flex-col px-3 pb-3 pt-3 sm:px-4 lg:px-5">
+          <PreSeasonHeaderV2
+            isComplete={isComplete}
+            isMarketOpen={isMarketOpen}
+            playerOffers={playerOffers}
+            playerProposals={playerProposals}
+            selectedCat={selectedCat}
+            setSelectedCat={setSelectedCat}
+            currentWeek={currentWeek}
+            totalWeeks={totalWeeks}
+            signingsStartWeek={signingsStartWeek}
+            currentDateLabel={currentDateLabel}
+            isAdvancingWeek={isAdvancingWeek}
+            handleAdvanceWeek={handleAdvanceWeek}
+            startError={startError}
+            categoryCounters={categoryCounters}
+          />
+
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 xl:grid-cols-[19%_1fr_20%]">
+            <FreeAgentsPanelV2
+              freeAgentContainerRef={freeAgentContainerRef}
+              freeAgentSectionRefs={freeAgentSectionRefs}
+              preseasonFreeAgents={preseasonFreeAgents}
+              selectedCat={selectedCat}
+              visibleFreeAgentCount={visibleFreeAgentCount}
+              freeAgentBandOrder={freeAgentBandOrder}
+              freeAgentsByBand={freeAgentsByBand}
+              setHoveredFreeAgentCat={setHoveredFreeAgentCat}
+            />
+
+            <TeamsGridPanelV2
+              mainGridRef={mainGridRef}
+              loadingGrid={loadingGrid}
+              gridData={visibleGrid}
+              sortedClasses={sortedClasses}
+              groupedTeams={groupedTeams}
+              hoveredFreeAgentCat={hoveredFreeAgentCat}
+              setHistoryTeam={setHistoryTeam}
+            />
+
+            <PlayerWindowPanel
+              player={player}
+              playerTeam={playerTeam}
+              playerCategory={playerCategory}
+              playerProposals={playerProposals}
+              playerOffers={playerOffers}
+              playerSignedThisWindow={playerSignedThisWindow}
+              playerBrand={playerBrand}
+              isComplete={isComplete}
+              isAdvancingWeek={isAdvancingWeek}
+              isOpeningWeek={isOpeningWeek}
+              interestForecast={interestForecast}
+              totalOffers={totalOffers}
+              promoOfferGroups={promoOfferGroups}
+              brandOfferGroups={brandOfferGroups}
+              otherOfferGroups={otherOfferGroups}
+              weeklyClosingGroups={weeklyClosingGroups}
+              reachableSeats={reachableSeats}
+              currentWeek={currentWeek}
+              totalWeeks={totalWeeks}
+              signingsStartWeek={signingsStartWeek}
+              handleRespondProposal={handleRespondProposal}
+              openOffersFor={openOffersFor}
+              setTransferDetail={setTransferDetail}
+            />
+          </div>
+        </div>
+      ) : (
       <div className="relative z-10 mx-auto flex h-full max-w-[1680px] flex-col px-3 pb-3 pt-3 sm:px-4 lg:px-5 xl:px-6">
 
         {/* ══ HEADER ══ */}
@@ -368,6 +512,8 @@ export default function PreSeasonView() {
           setSelectedCat={setSelectedCat}
           currentWeek={currentWeek}
           totalWeeks={totalWeeks}
+          signingsStartWeek={signingsStartWeek}
+          interestForecast={interestForecast}
           weekProgress={weekProgress}
           currentDateLabel={currentDateLabel}
           isAdvancingWeek={isAdvancingWeek}
@@ -394,7 +540,7 @@ export default function PreSeasonView() {
           <TeamsGridPanel
             mainGridRef={mainGridRef}
             loadingGrid={loadingGrid}
-            gridData={gridData}
+            gridData={visibleGrid}
             sortedClasses={sortedClasses}
             groupedTeams={groupedTeams}
             hoveredFreeAgentCat={hoveredFreeAgentCat}
@@ -409,6 +555,8 @@ export default function PreSeasonView() {
             playerBrand={playerBrand}
             isComplete={isComplete}
             isAdvancingWeek={isAdvancingWeek}
+            isOpeningWeek={isOpeningWeek}
+            interestForecast={interestForecast}
             totalOffers={totalOffers}
             promoOfferGroups={promoOfferGroups}
             brandOfferGroups={brandOfferGroups}
@@ -421,9 +569,12 @@ export default function PreSeasonView() {
 
         </div>
       </div>
+      )}
 
       {/* ══ MODAL: Suas ofertas (fichas das equipes) ══ */}
-      {showOffersModal && totalOffers > 0 && (
+      {/* Trancado nas semanas de abertura: lá o painel não tem botão que o abra, e a
+          trava garante que um estado antigo de `showOffersModal` não escancare as fichas. */}
+      {showOffersModal && totalOffers > 0 && !isOpeningWeek && (
         <OffersModal
           offersByCategory={offersByCategory}
           offersModalCat={offersModalCat}
@@ -443,7 +594,8 @@ export default function PreSeasonView() {
           playerName={playerName}
           isSigning={isSigning}
           isAdvancingWeek={isAdvancingWeek}
-          onClose={() => setContractOffer(null)}
+          signError={signError}
+          onClose={() => { setSignError(""); setContractOffer(null); }}
           onSign={handleSignContract}
         />
       )}
@@ -458,6 +610,8 @@ export default function PreSeasonView() {
         <DisplacedDriversModal
           groups={displacedVeteransByCategory}
           totalCount={displacedVeterans.length}
+          playerTeamName={playerTeam?.nome ?? null}
+          careerId={careerId}
           onClose={() => setShowDisplacedModal(false)}
           onConfirm={handleConfirmStartSeason}
         />

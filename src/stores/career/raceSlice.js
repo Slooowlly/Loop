@@ -130,13 +130,16 @@ export const createRaceSlice = (set, get) => ({
       resultIsFresh: false,
     });
 
-    if (!careerId) return;
+    if (!careerId) return null;
 
     try {
-      await loadCareer(careerId);
-      // Ao fechar o resultado da última corrida regular, aciona a janela de convocação.
+      // Devolve a carreira recarregada: quem fecha o resultado precisa do estado
+      // JÁ atualizado (ex.: o Dashboard checa se sobrou corrida na temporada para
+      // decidir se abre o pop-up de Campeão da Temporada).
+      return await loadCareer(careerId);
     } catch (error) {
       console.error("Erro ao recarregar carreira:", error);
+      return null;
     }
   },
 

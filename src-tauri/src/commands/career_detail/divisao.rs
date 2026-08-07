@@ -15,6 +15,17 @@ pub(super) fn resolve_driver_category(
         .or_else(|| regular_category(driver.categoria_atual.as_deref()))
 }
 
+/// A categoria BASE de uma chave de divisao: "endurance:lmp2" -> "endurance".
+///
+/// A chave com classe so vale onde a classe separa o campeonato (classificacao,
+/// rotulo). O calendario e os arquivos de resultado sao da categoria inteira —
+/// o endurance corre uma prova so, com as tres classes dentro — e consultados
+/// pela chave composta nao devolviam nada: a aba "temporada atual" caia no
+/// arquivo da temporada PASSADA sem dizer que tinha caido.
+pub(super) fn base_category_of(category: &str) -> &str {
+    category.split_once(':').map_or(category, |(base, _)| base)
+}
+
 pub(super) fn regular_category(category: Option<&str>) -> Option<String> {
     let category = category?.trim();
     if category.is_empty() {

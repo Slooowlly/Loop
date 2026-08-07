@@ -152,11 +152,19 @@ function useCalendarData(activeTab) {
     [displayedCalendar, nextRace?.id],
   );
 
+  // "Próximos" é do HOJE em diante, não "tudo que não foi concluído": uma etapa
+  // pendente cuja data já passou (pulada, cancelada, save antigo) não é futura e
+  // não pode encabeçar a lista. Sem a data atual, não filtra — melhor listar demais
+  // do que esconder a temporada inteira.
   const upcoming = useMemo(() => {
+    const today = currentDateParts
+      ? formatIsoDateKey(currentDateParts.year, currentDateParts.month, currentDateParts.day)
+      : null;
     return [...displayedCalendar]
       .filter((race) => race.display_date && race.status !== "Concluida")
+      .filter((race) => today == null || race.display_date.slice(0, 10) >= today)
       .sort((a, b) => a.display_date.localeCompare(b.display_date));
-  }, [displayedCalendar]);
+  }, [displayedCalendar, currentDateParts]);
 
   const stats = useMemo(() => {
     const total = displayedCalendar.length;

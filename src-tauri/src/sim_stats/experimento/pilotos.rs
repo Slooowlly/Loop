@@ -116,6 +116,106 @@ pub(super) fn imprimir(t: &Totals) {
         );
     }
 
+    if !t.motiv_by_season.is_empty() {
+        println!("\n■ MOTIVAÇÃO — TRAJETÓRIA POR TEMPORADA");
+        println!("  A média de todas as temporadas juntas esconde catraca. Se a coluna 'média'");
+        println!("  sobe monotonicamente e 'no teto' engorda, a motivação não é um eixo vivo —");
+        println!("  é um crédito que só acumula.");
+        println!("    temporada | média | no teto (100) | em risco (<20) |     n");
+        println!("    ----------+-------+---------------+----------------+-------");
+        for (season, e) in &t.motiv_by_season {
+            let n = e[1];
+            if n <= 0.0 {
+                continue;
+            }
+            println!(
+                "    {:>9} | {:>5.1} | {:>12.1}% | {:>13.1}% | {:>5.0}",
+                season + 1,
+                e[0] / n,
+                e[2] / n * 100.0,
+                e[3] / n * 100.0,
+                n
+            );
+        }
+    }
+
+    if !t.free_agents_by_season.is_empty() {
+        println!("\n■ AGENTES LIVRES (Ativo e sem contrato no início da temporada)");
+        println!("  Perder o assento não aposenta: o piloto fica livre e disputa a janela. A");
+        println!("  regra do órfão ocioso só age depois de uma temporada inteira sem correr, e");
+        println!("  existe para o mundo não acumular agente livre eterno.");
+        println!("    temporada | livres | idade média | overall médio");
+        println!("    ----------+--------+-------------+--------------");
+        for (season, e) in &t.free_agents_by_season {
+            let n = e[0];
+            if n <= 0.0 {
+                continue;
+            }
+            println!(
+                "    {:>9} | {:>6.0} | {:>11.1} | {:>13.1}",
+                season + 1,
+                n,
+                e[1] / n,
+                e[2] / n
+            );
+        }
+        let total: u64 = t.free_streak_hist.values().sum();
+        println!("\n  Temporadas CONSECUTIVAS como agente livre (o teste do 'eterno'):");
+        println!("  Quase tudo na 1ª = o mercado recicla e a regra do órfão sobra. Cauda gorda");
+        println!("  em 3+ = acúmulo real, e afrouxar a regra traz o problema de volta.");
+        for (streak, n) in &t.free_streak_hist {
+            let rotulo = if *streak >= 6 {
+                "6+".to_string()
+            } else {
+                format!("{streak}ª")
+            };
+            println!(
+                "    {:>4} | {:>5} ({:>4.1}%)",
+                rotulo,
+                n,
+                pct(*n, total.max(1))
+            );
+        }
+    }
+
+    if !t.motiv_retire_by_age.is_empty() {
+        let total: u64 = t.motiv_retire_by_age.values().sum();
+        println!("\n■ QUEM LARGA POR DESMOTIVAÇÃO — POR IDADE ({total} pilotos)");
+        println!("  Veterano desistir fecha; jovem desistir não. O ramo de desmotivação em");
+        println!("  `check_retirement` compra paciência só com skill, sem termo de idade.");
+        for (faixa, n) in &t.motiv_retire_by_age {
+            println!(
+                "    {:>6} | {:>4} ({:>4.1}%)",
+                faixa,
+                n,
+                pct(*n, total.max(1))
+            );
+        }
+    }
+
+    if !t.mercado_by_motiv.is_empty() {
+        println!("\n■ MOTIVAÇÃO × DECISÃO DE MERCADO (janela do offseason)");
+        println!("  A ficha do piloto diz ao jogador que a desmotivação empurra pra troca.");
+        println!("  Se as linhas de baixo não se distinguirem das de cima, ela está mentindo:");
+        println!("  `src/market/` não lê `motivacao` em lugar nenhum.");
+        println!("    motivação | trocou de equipe | desceu de tier | Δ salário médio |     n");
+        println!("    ----------+------------------+----------------+-----------------+-------");
+        for (band, e) in &t.mercado_by_motiv {
+            let n = e[0];
+            if n <= 0.0 {
+                continue;
+            }
+            println!(
+                "    {:>9} | {:>15.1}% | {:>13.1}% | {:>+14.1}% | {:>5.0}",
+                motiv_band_label(*band),
+                e[1] / n * 100.0,
+                e[2] / n * 100.0,
+                e[3] / n,
+                n
+            );
+        }
+    }
+
     println!(
         "\n■ TRAJETÓRIA DE CARREIRA ({} pilotos vistos em ≥2 temporadas; threshold ±{CAREER_THRESHOLD} pt)",
         t.traj_count

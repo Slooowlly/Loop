@@ -60,6 +60,53 @@ pub fn update_contract_status(
             "Contrato '{id}' nao encontrado para atualizar status"
         )));
     }
+    if matches!(status, ContractStatus::Rescindido) {
+        encurtar_vigencia_ao_rescindir(conn, id)?;
+    }
+    Ok(())
+}
+
+/// Rescindir é ENCURTAR a vigência, não só carimbar o status.
+///
+/// A rescisão trocava o status e deixava `temporada_fim` no ano que fora
+/// assinado, então o contrato continuava valendo no banco por temporadas que o
+/// piloto nunca cumpriu por aquela equipe. Quem lê contrato por vigência —
+/// a curva de mercado da ficha, a categoria do agente livre, o mapa de
+/// piloto→categoria do mercado — via um vínculo que já não existia, e no gráfico
+/// isso virava salário e logo de uma equipe que ele tinha deixado.
+///
+/// O corte é na temporada corrente e nunca antes do início: um contrato ainda
+/// não começado (assinado para o ano que vem e desfeito antes) fica intacto, e
+/// quem lê por vigência já o ignora por outros caminhos.
+///
+/// Fica aqui dentro, e não nos ~20 pontos que rescindem, porque rescisão é uma
+/// operação só: espalhada, a próxima chamada nova nasceria sem o encurtamento.
+///
+/// Precisão de um ano: o mercado da pré-temporada roda DEPOIS de a meta virar
+/// para a temporada seguinte, então uma dispensa ali corta em N+1 e não em N. A
+/// curva não depende disso — ela corta pelo que o arquivo diz que foi cumprido
+/// ([`crate::commands::career_detail`]) — mas quem só olha a vigência vê um ano
+/// a mais nesse caso.
+fn encurtar_vigencia_ao_rescindir(conn: &Connection, id: &str) -> Result<(), DbError> {
+    // Sem `meta` legivel nao ha onde cortar, e o corte e um extra: a rescisao em
+    // si ja aconteceu. Erro na leitura vira "nao sei a temporada" em vez de
+    // derrubar a operacao — vale para o save meio migrado e para os fixtures de
+    // teste que montam meia dúzia de tabelas.
+    let Some(corrente) = crate::db::queries::meta::get_meta_value(conn, "current_season")
+        .unwrap_or(None)
+        .and_then(|valor| valor.trim().parse::<i32>().ok())
+    else {
+        return Ok(());
+    };
+
+    conn.execute(
+        "UPDATE contracts
+            SET temporada_fim = ?1
+          WHERE id = ?2
+            AND CAST(temporada_inicio AS INTEGER) <= ?1
+            AND CAST(temporada_fim AS INTEGER) > ?1",
+        params![corrente, id],
+    )?;
     Ok(())
 }
 

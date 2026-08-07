@@ -577,25 +577,42 @@ impl RaceMonitor {
             if let Some(me) = t.cars.iter().find(|c| c.idx == t.player_car_idx) {
                 if me.position >= 1 {
                     self.hist_last_neighbor_time = now;
-                    let ahead = t.cars.iter().find(|c| c.position == me.position - 1);
+                    // O `position >= 1` no candidato NÃO é redundante com o do jogador:
+                    // com o jogador em P1, `me.position - 1` vale 0, e 0 é o sentinela do
+                    // iRacing para "sem posição atribuída" — carro na garagem, fora do
+                    // mundo, ou a sessão inteira num quali. Sem a guarda, o líder ganha um
+                    // vizinho FABRICADO: o primeiro carro sentinelado do vetor, com o gap
+                    // saindo do `est_time` dele. Medido em captura real
+                    // (race_1785889561.jsonl.gz): 29% das amostras com vizinho apontavam
+                    // para um carro de position 0. O de trás não precisa da guarda —
+                    // `me.position + 1` nunca é 0 com `me.position >= 1`.
+                    let ahead = t
+                        .cars
+                        .iter()
+                        .find(|c| c.position >= 1 && c.position == me.position - 1);
                     let behind = t.cars.iter().find(|c| c.position == me.position + 1);
-                    let gap_to = |other: &CarSnapshot| {
-                        let d = (other.f2_time - me.f2_time).abs();
-                        if d.is_finite() {
-                            d
-                        } else {
-                            0.0
-                        }
-                    };
+                    // O gap sai do `est_time` — NÃO do `f2_time`, que é o gap ao LÍDER e
+                    // só é reescrito na passagem pela linha. Medido numa captura real de
+                    // corrida de IA: com o carro da frente a 40 s de pista, a diferença
+                    // dos `f2_time` dizia 0,165 s (os dois estavam a ~98 s do líder), e
+                    // divergia do gap real em mais de um segundo em 60% das amostras. Um
+                    // "briga de 0,1 s" fabricado assim vira card de rival e série do
+                    // gráfico. Mesma conta circular do `EstadoAgora`, e pelo mesmo motivo:
+                    // quem está à frente pode já ter cruzado a linha.
+                    let volta_ref = self.volta_referencia(t, me);
                     self.history.player_track.push(PlayerTrackPoint {
                         session_time: now,
                         lap: me.lap_completed,
                         position: me.position,
                         speed_kmh: t.speed_kmh,
                         ahead_idx: ahead.map(|c| c.idx).unwrap_or(-1),
-                        gap_ahead: ahead.map(gap_to).unwrap_or(0.0),
+                        gap_ahead: ahead
+                            .map(|c| gap_circular(me.est_time, c.est_time, volta_ref))
+                            .unwrap_or(-1.0),
                         behind_idx: behind.map(|c| c.idx).unwrap_or(-1),
-                        gap_behind: behind.map(gap_to).unwrap_or(0.0),
+                        gap_behind: behind
+                            .map(|c| gap_circular(c.est_time, me.est_time, volta_ref))
+                            .unwrap_or(-1.0),
                     });
                     if self.history.player_track.len() > MAX_TRACK_POINTS {
                         self.history.player_track.remove(0);

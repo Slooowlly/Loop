@@ -7,6 +7,7 @@ import RaceTraceChart from "./RaceTraceChart";
 import PaceDeltaChart from "./PaceDeltaChart";
 import WeatherTimelineChart from "./WeatherTimelineChart";
 import TeamLogoMark from "../team/TeamLogoMark";
+import Tooltip from "../ui/Tooltip";
 import IracingSemDadosAviso from "../iracing/IracingSemDadosAviso";
 import { capitalizar, formatLapSeconds } from "../../utils/formatters";
 import { AXIS_TICK, GRID, PALETTE, PLAYER_COLOR } from "../../utils/chartTheme";
@@ -16,7 +17,9 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  // O balão do gráfico é outro mecanismo: quem o desenha é o recharts, a partir
+  // do ponto sob o cursor. `Tooltip` sozinho é o do app, aqui e no resto.
+  Tooltip as ChartTooltip,
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
@@ -380,7 +383,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                     label={{ value: t("telemetryCockpit.lap"), position: "insideBottom", offset: -6, fill: AXIS_TICK, fontSize: 10 }} />
                   <YAxis tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID} width={40}
                     tickFormatter={(v) => `${Math.abs(v).toFixed(1)}s`} />
-                  <Tooltip content={<RivalTooltip rivalName={activeGapName} />} />
+                  <ChartTooltip content={<RivalTooltip rivalName={activeGapName} />} />
                   <ReferenceLine y={0} stroke={PLAYER_COLOR} strokeOpacity={0.7} />
                   <Line type="monotone" dataKey="gap_s" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }}
                     connectNulls isAnimationActive={false} />
@@ -592,22 +595,22 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                     ? t("telemetryCockpit.refuel", { lap: p.lap, secs: p.box_secs.toFixed(1) })
                     : t("telemetryCockpit.tireChange", { compound: compLabel(compoundAt(p.lap)), lap: p.lap, secs: p.box_secs.toFixed(1) });
                   return (
-                    <span
-                      key={`m${i}`}
-                      className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center leading-none"
-                      style={{ left: `${sepLeft(p.lap)}%` }}
-                      title={label}
-                    >
+                    <Tooltip key={`m${i}`} texto={label}>
                       <span
-                        style={{ background: "rgba(13,19,30,0.95)", border: "1px solid rgba(255,255,255,0.18)" }}
-                        className="rounded-md p-[3px] flex items-center"
+                        className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center leading-none"
+                        style={{ left: `${sepLeft(p.lap)}%` }}
                       >
-                        <img src={icon} alt="" className="h-[18px] w-[18px] object-contain block" />
+                        <span
+                          style={{ background: "rgba(13,19,30,0.95)", border: "1px solid rgba(255,255,255,0.18)" }}
+                          className="rounded-md p-[3px] flex items-center"
+                        >
+                          <img src={icon} alt="" className="h-[18px] w-[18px] object-contain block" />
+                        </span>
+                        <span
+                          style={{ width: 0, height: 0, borderLeft: "3px solid transparent", borderRight: "3px solid transparent", borderTop: "4px solid rgba(255,255,255,0.45)" }}
+                        />
                       </span>
-                      <span
-                        style={{ width: 0, height: 0, borderLeft: "3px solid transparent", borderRight: "3px solid transparent", borderTop: "4px solid rgba(255,255,255,0.45)" }}
-                      />
-                    </span>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -617,34 +620,40 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                   const width = ((seg.end - seg.start) / Math.max(1, maxLap)) * 100;
                   const comp = compoundOf(seg.compound);
                   return (
-                    <div
+                    <Tooltip
                       key={i}
-                      className="absolute top-0 bottom-0 flex items-center justify-center"
-                      style={{ left: `${left}%`, width: `${width}%`, background: comp.color, opacity: 0.85 }}
-                      title={t("telemetryCockpit.segment", { n: i + 1, compound: compLabel(seg.compound), range: `${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}` })}
+                      texto={t("telemetryCockpit.segment", { n: i + 1, compound: compLabel(seg.compound), range: `${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}` })}
                     >
-                      {width > 4 && (
-                        <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[12px] font-bold">{i + 1}</span>
-                      )}
-                    </div>
+                      <div
+                        className="absolute top-0 bottom-0 flex items-center justify-center"
+                        style={{ left: `${left}%`, width: `${width}%`, background: comp.color, opacity: 0.85 }}
+                      >
+                        {width > 4 && (
+                          <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[12px] font-bold">{i + 1}</span>
+                        )}
+                      </div>
+                    </Tooltip>
                   );
                 })}
                 {/* Separador PRETO em TODA parada (troca ou só combustível) — bem visível */}
                 {(s.stops || []).map((p, i) => (
-                  <span
+                  <Tooltip
                     key={`sep${i}`}
-                    className="absolute top-0 bottom-0 z-10"
-                    style={{
-                      left: `${sepLeft(p.lap)}%`,
-                      width: "4px",
-                      transform: "translateX(-2px)",
-                      background: "#000",
-                      boxShadow: "inset 1px 0 0 rgba(255,255,255,0.3), inset -1px 0 0 rgba(255,255,255,0.3)",
-                    }}
-                    title={p.tire_change
+                    texto={p.tire_change
                       ? t("telemetryCockpit.pitSeparatorTireChange", { lap: p.lap, secs: p.box_secs.toFixed(1) })
                       : t("telemetryCockpit.pitSeparatorFuelOnly", { lap: p.lap, secs: p.box_secs.toFixed(1) })}
-                  />
+                  >
+                    <span
+                      className="absolute top-0 bottom-0 z-10"
+                      style={{
+                        left: `${sepLeft(p.lap)}%`,
+                        width: "4px",
+                        transform: "translateX(-2px)",
+                        background: "#000",
+                        boxShadow: "inset 1px 0 0 rgba(255,255,255,0.3), inset -1px 0 0 rgba(255,255,255,0.3)",
+                      }}
+                    />
+                  </Tooltip>
                 ))}
               </div>
             </div>
@@ -736,7 +745,11 @@ function PitTimesTable({ strategies, playerCarIdx, colorFor, nameByIdx }) {
               <td className="py-2.5 px-2 text-[12.5px] truncate" style={{ color: r.isPlayer ? "#58a6ff" : "#9aa5b1" }}>
                 <span className="flex items-center gap-1.5">
                   {r.pilot_name}
-                  {r.track_wet && <img src={TIRE_WET_ICON} alt="" title={t("telemetryCockpit.trackWet")} className="h-3.5 w-3.5 object-contain" />}
+                  {r.track_wet && (
+                    <Tooltip texto={t("telemetryCockpit.trackWet")}>
+                      <img src={TIRE_WET_ICON} alt="" className="h-3.5 w-3.5 object-contain" />
+                    </Tooltip>
+                  )}
                 </span>
               </td>
               <td className="py-2.5 px-2 text-right text-[13px] font-semibold" style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>

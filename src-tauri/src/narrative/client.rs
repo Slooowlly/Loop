@@ -1,9 +1,22 @@
-//! Cliente do servidor de boletins (proxy do Gemini).
+//! Cliente do servidor de boletins.
 //!
-//! O app NUNCA fala com o Gemini direto — só com o NOSSO servidor (Cloud Run),
-//! que guarda a chave. O segredo abaixo é embutido por design (client-side): ele
-//! vai no binário e serve só como "porta de entrada" do servidor; a defesa real
-//! contra abuso é o cooldown por install_id + o teto global de gasto.
+//! O app NUNCA fala com um provedor de IA direto — só com o NOSSO servidor (Cloud Run
+//! `iracer-news`), que guarda as chaves e ESCOLHE quem redige. O segredo abaixo é
+//! embutido por design (client-side): ele vai no binário e serve só como "porta de
+//! entrada" do servidor; a defesa real contra abuso é o cooldown por install_id + o
+//! teto global de gasto.
+//!
+//! **Quem redige é decisão do servidor, não daqui.** São DOIS provedores atrás da mesma
+//! interface: DeepSeek (`deepseek-v4-flash`) é o principal por ser mais barato, e Gemini
+//! (`gemini-2.5-flash-lite`) assume no HORÁRIO DE PICO do DeepSeek — que cobra 2x em
+//! UTC 01:00–04:00 e 06:00–10:00 — e também como FALLBACK sempre que o primário falha.
+//! A ordem sai do relógio UTC do servidor, nunca do relógio do jogador.
+//!
+//! Consequência para quem for investigar custo ou consumo: o gasto de um dia fica
+//! DIVIDIDO entre os dois consoles, e nenhum dos dois mostra o total sozinho. O servidor
+//! contabiliza os dois no Firestore (`usage/<AAAA-MM-DD>` e `usage/<dia>:<provedor>`),
+//! que é a única fonte com o número fechado — `GET /usage` devolve só totais e o dia
+//! corrente. Código do servidor fora deste repo (projeto `iracer-news-server`).
 
 use serde::Deserialize;
 use std::time::Duration;
@@ -29,10 +42,13 @@ const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (700, 900);
 /// MESMA porta do servidor — um segredo só, um lugar só pra trocar.
 pub(crate) const APP_SECRET: &str =
     "827119cc235cdea25c04545cd283749e673917d2d424340fb1059925738efcef";
-// 45s e não 20s: o servidor (Cloud Run) faz scale-to-zero quando ocioso, e a 1ª
-// chamada após um período parado paga um cold start (subir o container + init do
-// Firestore) ANTES de gerar. Quente, gera em ~3s; frio pode passar de 20s. 45s dá
-// folga pra um cold start caber sem o cliente desistir e cair no template.
+// 45s e não 20s, por DOIS motivos que se somam. (1) O servidor (Cloud Run) faz
+// scale-to-zero quando ocioso, e a 1ª chamada após um período parado paga um cold start
+// (subir o container + init do Firestore) ANTES de gerar; quente, gera em ~3s, frio pode
+// passar de 20s. (2) O servidor dá 30s POR PROVEDOR, mas limita a CADEIA inteira a 42s
+// (`ORCAMENTO_CADEIA_MS`) — o fallback só recebe o que sobrou — justamente para caber
+// aqui dentro. Cortar este teto faria o cliente desistir justo quando o segundo provedor
+// ia salvar; aumentá-lo permite soltar o orçamento da cadeia lá do outro lado.
 const TIMEOUT_SECS: u64 = 45;
 /// Raiz do serviço — usada só pelo aquecimento (`spawn_warmup`), que não pede geração.
 const BASE_URL: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/";
@@ -83,7 +99,8 @@ pub enum StoryError {
     RateLimited,
     /// 401 — segredo inválido (não deveria acontecer em produção).
     Unauthorized,
-    /// Erro do servidor / Gemini (5xx) ou resposta inesperada.
+    /// Erro do servidor (5xx) ou resposta inesperada. Um 5xx aqui já significa que os
+    /// DOIS provedores falharam — o servidor só devolve erro depois de esgotar a cadeia.
     Server(String),
     /// Falha de rede / sem internet.
     Network(String),

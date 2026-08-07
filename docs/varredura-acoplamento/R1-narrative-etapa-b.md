@@ -5,8 +5,8 @@
 ## O que foi encontrado
 
 Este é o ponto de maior valor da varredura. O módulo `narrative/` é o motor que
-transforma o resultado de uma corrida no **contexto curado** enviado ao servidor →
-Gemini. Ele decide o que é interessante; a IA só redige em cima.
+transforma o resultado de uma corrida no **contexto curado** enviado ao servidor, que
+escolhe o provedor que redige. Ele decide o que é interessante; a IA só redige em cima.
 
 E ele só enxerga a simulação. Nada mais.
 
@@ -58,7 +58,8 @@ carregados no mesmo ponto do fluxo.
 
 ## Armadilhas conhecidas
 
-1. **Custo por token.** O contexto vai para um servidor → Gemini. Encher
+1. **Custo por token.** O contexto vai para um servidor, que reparte as chamadas entre
+   DeepSeek (principal) e Gemini (pico e fallback) — ver `narrative/client.rs`. Encher
    `context_facts` sem critério aumenta o payload de toda corrida. `narrative/` tem
    um limiar de relevância e `beat_count` como proxy de densidade — a ligação
    precisa respeitar essa curadoria, não furá-la.

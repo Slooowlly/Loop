@@ -506,7 +506,7 @@ pub fn conditions_wear_mults(
 // ───────────────────────── Enduro: rampa de fim + economia ─────────────────────────
 
 /// A corrida é ENDURO pela duração (min)? Gate único usado no risco ao vivo E na economia.
-pub fn is_enduro_duration(duracao_min: u8) -> bool {
+pub fn is_enduro_duration(duracao_min: u16) -> bool {
     duracao_min as f64 > ENDURO_DURATION_GATE_MIN
 }
 
@@ -521,7 +521,7 @@ fn enduro_late_ramp(progress: f64) -> f64 {
 
 /// Sobrecusto de desgaste de peça do enduro pela duração (acima do gate), ANTES do alívio de
 /// parada. Contínuo no gate (40 min → 0). Ex.: 60 min → 1.0 (over 0.5 × K 2.0); 80 min → 3.0.
-fn enduro_surcharge(duracao_min: u8) -> f64 {
+fn enduro_surcharge(duracao_min: u16) -> f64 {
     let over =
         ((duracao_min as f64) - ENDURO_DURATION_GATE_MIN).max(0.0) / ENDURO_DURATION_GATE_MIN;
     ENDURO_COST_K * over
@@ -534,7 +534,7 @@ pub fn enduro_pit_relief(genuine_pits: u32) -> f64 {
 
 /// Paradas MODELADAS da IA pela duração (o jogador usa o pit REAL do SDK). Um stint dura
 /// ~[`ENDURO_STINT_MIN`] min → uma corrida de 60 min ≈ 2 paradas. 0 fora do enduro.
-pub fn modeled_ai_pits(duracao_min: u8) -> u32 {
+pub fn modeled_ai_pits(duracao_min: u16) -> u32 {
     if !is_enduro_duration(duracao_min) {
         return 0;
     }
@@ -546,7 +546,7 @@ pub fn modeled_ai_pits(duracao_min: u8) -> u32 {
 /// ([`enduro_pit_relief`]). O sobrecusto persiste no desgaste → as peças chegam ao fim da vida
 /// mais cedo → mais trocas ao longo da temporada de enduro (a conta que o usuário pediu). Uma
 /// parada nunca leva abaixo de 1.0 (o alívio só corta o sobrecusto, não o desgaste-base).
-pub fn enduro_economy_wear_mult(duracao_min: u8, genuine_pits: u32) -> f64 {
+pub fn enduro_economy_wear_mult(duracao_min: u16, genuine_pits: u32) -> f64 {
     if !is_enduro_duration(duracao_min) {
         return 1.0;
     }
@@ -1207,3 +1207,7 @@ impl BreakdownDirector {
 #[cfg(test)]
 #[path = "breakdown/tests/mod.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "breakdown/medicao.rs"]
+mod medicao;

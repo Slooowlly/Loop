@@ -117,7 +117,7 @@ mod tests {
             ultima_atualizacao: String::new(),
             temporada_update: 1,
         };
-        // 0.4*10 + 0.6*20 = 16.0
-        assert!((r.perceived_intensity() - 16.0).abs() < 1e-9);
+        // 0.6*10 + 0.4*20 = 14.0
+        assert!((r.perceived_intensity() - 14.0).abs() < 1e-9);
     }
 }

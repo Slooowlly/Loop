@@ -44,9 +44,16 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
     new_season_number: i32,
     report: &mut MarketReport,
     rng: &mut impl Rng,
-    limit: Option<usize>,
+    limit: Option<&HashMap<String, usize>>,
     reserved: &HashSet<String>,
 ) -> Result<(), String> {
+    // Assinaturas que já estavam no relatório antes desta passada (a semana pode ter
+    // corrido os movimentos da IA no mesmo report). Só o que vier daqui pra frente conta
+    // contra a cota — senão o mercado da semana já nasceria com a cota gasta.
+    let assinaturas_antes = report.new_signings.len();
+    // Cópia mutável das cotas: a cascata as REABASTECE ao longo da passada (ver a
+    // promoção, mais abaixo).
+    let mut cotas = limit.cloned();
     let debut_year = get_season_by_number(conn, new_season_number)?
         .map(|season| season.ano)
         .unwrap_or_else(|| Local::now().year());
@@ -147,11 +154,19 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
         let license_levels = load_max_license_levels(conn)?;
         let mut filled_any = false;
         for vacancy in vacancies {
-            // Pacing: o chamador paginado passa um report novo, logo a contagem de
-            // assinaturas deste relatório == as feitas nesta chamada. Ao atingir o
-            // limite, encerra (as vagas restantes ficam pra próxima semana/fecho).
-            if limit.is_some_and(|l| report.new_signings.len() >= l) {
-                return Ok(());
+            // Pacing POR CATEGORIA: a cota estourada pula esta vaga em vez de encerrar a
+            // passada. Encerrar seria fatal — as vagas vêm ordenadas de cima para baixo,
+            // então parar no topo deixaria as categorias de baixo sem assinar nada.
+            // Categoria sem cota (nasceu no meio da semana, pela cascata) espera a
+            // próxima, quando a recontagem lhe dá uma.
+            if let Some(cotas) = cotas.as_ref() {
+                let feitas = report.new_signings[assinaturas_antes..]
+                    .iter()
+                    .filter(|signing| signing.categoria == vacancy.categoria)
+                    .count();
+                if feitas >= cotas.get(&vacancy.categoria).copied().unwrap_or(0) {
+                    continue;
+                }
             }
             let need_factor = team_need_by_id
                 .get(&vacancy.team_id)
@@ -210,6 +225,16 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
                 continue;
             }
 
+            // NASCER é a última coisa que se faz. Um estreante gerado é gente nova num
+            // mundo de assentos fixos: ele empurra alguém para fora do grid. Durante as
+            // semanas com cota o assento de estreia se preenche com quem já existe (o
+            // pool acima) e, se não houver ninguém, ele espera — a cascata ainda vai
+            // esvaziar assentos até o fechamento, e é lá, com a fila resolvida, que se
+            // sabe quantos estreantes o mundo de fato precisa. Sem cota (o fechamento e a
+            // pré-temporada não-interativa) o comportamento é o de sempre.
+            if is_debut_vacancy && cotas.is_some() {
+                continue;
+            }
             if is_debut_vacancy {
                 let rookie = generate_and_sign_rookie_for_vacancy(
                     conn,
@@ -288,6 +313,13 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
                         &ContractStatus::Rescindido,
                     )
                     .map_err(|e| format!("Falha ao rescindir contrato do promovido: {e}"))?;
+                    // A cascata não gasta cota: o assento que acabou de abrir lá embaixo
+                    // é a MESMA movimentação, não um segundo negócio da categoria. Sem
+                    // este reabastecimento a reposição espera a semana seguinte, e a
+                    // fila de esperas se acumula até desabar toda no fechamento.
+                    if let Some(cotas) = cotas.as_mut() {
+                        *cotas.entry(contract.categoria.clone()).or_default() += 1;
+                    }
                 }
                 if is_special_vacancy {
                     // Especiais: concede a licença da divisão ao assinar.
@@ -519,13 +551,13 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
 }
 
 /// Wrapper paginado da escada (ladder fill): carrega as equipes e chama
-/// `fill_remaining_vacancies_with_rookies` com um teto de assinaturas (`limit`) e um
+/// `fill_remaining_vacancies_with_rookies` com a cota semanal POR CATEGORIA (`limit`) e um
 /// conjunto de assentos reservados (não preenche). Usado pela Janela ao vivo —
 /// `preseason.rs` não precisa carregar `teams`.
 pub(crate) fn fill_vacancies_paced(
     conn: &Connection,
     season: i32,
-    limit: Option<usize>,
+    limit: Option<&HashMap<String, usize>>,
     reserved: &HashSet<String>,
     report: &mut MarketReport,
     rng: &mut impl Rng,

@@ -12,8 +12,16 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+// Esta suíte cobre o layout v1 da pré-temporada, que segue disponível pelo
+// interruptor do canto. O v2 é o padrão da tela e tem marcação própria — fixar o
+// layout aqui mantém estes guards apontando para o que eles de fato descrevem.
+function pinLegacyLayout() {
+  window.localStorage.setItem("loop.preseason.layout", "v1");
+}
+
 describe("PreSeasonView", () => {
   beforeEach(() => {
+    pinLegacyLayout();
     invoke.mockReset();
     invoke.mockResolvedValue([]);
     mockState = {
@@ -790,7 +798,9 @@ describe("PreSeasonView", () => {
     expect(weeklyClosing.getByText(/fechamento da semana/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/gt3 championship/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/mazda rookie/i)).toBeInTheDocument();
-    expect(weeklyClosing.getByText(/bmw cup/i)).toBeInTheDocument();
+    // O rotulo do degrau e so "BMW": "Cup" nao distingue nada (a categoria e a
+    // unica BMW da piramide) e colidia com a classe BMW da Production.
+    expect(weeklyClosing.getByText(/\bbmw\b/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^1\\u00ba$"))).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^4\\u00ba$"))).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^3\\u00ba$"))).toBeInTheDocument();
@@ -801,13 +811,13 @@ describe("PreSeasonView", () => {
     expect(weeklyClosing.getByText(/nicolas meyer/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/lucas prado/i)).toBeInTheDocument();
     expect(weeklyClosing.getByText(/rodrigo vieira/i)).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Promoção")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Troca lateral")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Estreia")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Contratação")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Saiu da equipe")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Rebaixamento")).toBeInTheDocument();
-    expect(weeklyClosing.getByTitle("Proposta recebida")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Promoção")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Troca lateral")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Estreia")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Contratação")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Saiu da equipe")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Rebaixamento")).toBeInTheDocument();
+    expect(weeklyClosing.getByLabelText("Proposta recebida")).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^6\\u00ba$"))).toBeInTheDocument();
     expect(weeklyClosing.getByText(new RegExp("^11\\u00ba$"))).toBeInTheDocument();
     expect(screen.getByTestId("weekly-closing-market").textContent).not.toContain("Ã");
@@ -876,32 +886,300 @@ describe("PreSeasonView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /iniciar temporada/i }));
 
-    const modalTitle = await screen.findByText("Pilotos sem vaga");
+    const modalTitle = await screen.findByText("3 pilotos ficaram sem vaga");
     const modal = modalTitle.closest("div");
 
-    expect(modalTitle).toBeInTheDocument();
+    // A consequência é o que a tela precisa dizer: eles saem da escada. Sem essa
+    // frase o modal lista nomes e deixa o jogador sem saber o que aconteceu.
+    expect(within(modal).getByText(/não corre esta temporada|Nenhum corre esta temporada/i))
+      .toBeInTheDocument();
+
     expect(within(modal).getAllByText("GT3 Championship")).toHaveLength(1);
     expect(within(modal).getAllByText("GT4 Championship")).toHaveLength(1);
-    expect(within(modal).getAllByText("Ex-equipe").length).toBeGreaterThan(0);
-    const displacedDriver = within(modal).getByText("Luca Bianchi");
-    expect(displacedDriver).toHaveClass("text-[17px]");
-    const previousTeamLine = within(modal).getByText("Mercedes-AMG").closest("div");
-    expect(within(previousTeamLine).getByAltText("Mercedes-AMG logo")).toHaveAttribute("src", expect.stringContaining("TimesNormalized"));
-    expect(within(previousTeamLine).getByText("Mercedes-AMG")).toHaveStyle({ color: "#00d2be" });
-    expect(within(previousTeamLine).getByText("Mercedes-AMG")).toHaveClass("text-[14px]", "font-semibold");
-    expect(within(previousTeamLine).getByText(/12º\/20/)).toBeInTheDocument();
-    expect(within(modal).getByText("3 temporadas")).toBeInTheDocument();
-    expect(within(modal).getByText(/7º\/18/)).toBeInTheDocument();
+
+    // Uma linha por piloto: sem rótulo "Ex-equipe" repetido e sem selo de licença.
+    expect(within(modal).queryByText("Ex-equipe")).not.toBeInTheDocument();
+    expect(within(modal).queryByText("SP")).not.toBeInTheDocument();
+    expect(within(modal).queryByText("A")).not.toBeInTheDocument();
+
+    expect(within(modal).getByText("Mercedes-AMG")).toHaveStyle({ color: "#00d2be" });
+    expect(within(modal).getByAltText("Mercedes-AMG logo")).toHaveAttribute(
+      "src",
+      expect.stringContaining("TimesNormalized"),
+    );
+    expect(within(modal).getByText("12º/20")).toBeInTheDocument();
+    expect(within(modal).getByText(/3 temporadas na equipe/)).toBeInTheDocument();
+    expect(within(modal).getByText("7º/18")).toBeInTheDocument();
     expect(within(modal).getByText("Racing Spirit")).toHaveStyle({ color: "#58a6ff" });
-    expect(within(modal).getByText("2 temporadas")).toBeInTheDocument();
-    expect(within(modal).getByText(/14º\/20/)).toBeInTheDocument();
+    expect(within(modal).getByText(/2 temporadas na equipe/)).toBeInTheDocument();
+    expect(within(modal).getByText("14º/20")).toBeInTheDocument();
     expect(within(modal).getByText("Wolf Racing Team")).toHaveStyle({ color: "#3fb950" });
-    expect(within(modal).getByText("1 temporada")).toBeInTheDocument();
-    expect(within(modal).getByText("SP")).toHaveClass("min-w-[3.25rem]", "text-[11px]");
-    expect(within(modal).queryByText(/Correu pela equipe/i)).not.toBeInTheDocument();
-    expect(within(modal).queryByText(/Categoria:/i)).not.toBeInTheDocument();
-    expect(within(modal).queryByText(/Carreira:/i)).not.toBeInTheDocument();
+    expect(within(modal).getByText(/1 temporada na equipe/)).toBeInTheDocument();
+
     expect(within(modal).queryByText("AMG")).not.toBeInTheDocument();
     expect(modal).toHaveClass("max-w-4xl");
+  });
+
+  // Dentro da categoria, do melhor colocado para o pior. A ordem que o backend
+  // devolve não tem leitura nenhuma de cima para baixo.
+  it("orders displaced drivers by championship result inside each category", async () => {
+    mockState = {
+      ...mockState,
+      preseasonState: {
+        current_week: 4,
+        total_weeks: 4,
+        is_complete: true,
+        current_display_date: "2026-03-28",
+      },
+      preseasonFreeAgents: [
+        {
+          driver_id: "driver-last",
+          driver_name: "Rasmus Kristensen",
+          categoria: "gt3",
+          previous_team_name: "Wolf Racing Team",
+          previous_team_color: "#3fb950",
+          seasons_at_last_team: 3,
+          license_sigla: "A",
+          last_championship_position: 11,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+        {
+          driver_id: "driver-first",
+          driver_name: "Guillermo Torres",
+          categoria: "gt3",
+          previous_team_name: "Mercedes-AMG",
+          previous_team_color: "#00d2be",
+          seasons_at_last_team: 6,
+          license_sigla: "A",
+          last_championship_position: 6,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+      ],
+    };
+
+    render(<PreSeasonView />);
+    fireEvent.click(screen.getByRole("button", { name: /iniciar temporada/i }));
+    await screen.findByText("2 pilotos ficaram sem vaga");
+
+    const rows = screen.getAllByTestId("displaced-driver-row");
+    expect(rows[0]).toHaveTextContent("Guillermo Torres");
+    expect(rows[1]).toHaveTextContent("Rasmus Kristensen");
+  });
+
+  // Seis nomes desconhecidos e, no meio deles, um que o jogador enfrentou 14 vezes.
+  // Sem o retrospecto a lista não distingue os dois casos.
+  it("shows the head-to-head record and the rival marker for drivers the player has raced", async () => {
+    mockState = {
+      ...mockState,
+      preseasonState: {
+        current_week: 4,
+        total_weeks: 4,
+        is_complete: true,
+        current_display_date: "2026-03-28",
+      },
+      preseasonFreeAgents: [
+        {
+          driver_id: "driver-known",
+          driver_name: "Guillermo Torres",
+          categoria: "gt3",
+          previous_team_name: "Mercedes-AMG",
+          previous_team_color: "#00d2be",
+          seasons_at_last_team: 6,
+          license_sigla: "A",
+          last_championship_position: 6,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+        {
+          driver_id: "driver-unknown",
+          driver_name: "Niels Kramer",
+          categoria: "gt3",
+          previous_team_name: "Wolf Racing Team",
+          previous_team_color: "#3fb950",
+          seasons_at_last_team: 2,
+          license_sigla: "A",
+          last_championship_position: 7,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+      ],
+    };
+
+    invoke.mockImplementation((command) => {
+      if (command === "get_displaced_driver_context") {
+        return Promise.resolve([
+          {
+            driver_id: "driver-known",
+            shared_races: 14,
+            player_ahead: 9,
+            driver_ahead: 5,
+            last_shared_season: 3,
+            rival_role: "nemesis",
+          },
+          {
+            driver_id: "driver-unknown",
+            shared_races: 0,
+            player_ahead: 0,
+            driver_ahead: 0,
+            last_shared_season: null,
+            rival_role: null,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<PreSeasonView />);
+    fireEvent.click(screen.getByRole("button", { name: /iniciar temporada/i }));
+    await screen.findByText("2 pilotos ficaram sem vaga");
+
+    const placar = await screen.findByTestId("displaced-driver-head-to-head");
+    expect(placar).toHaveTextContent("9–5");
+    // Quem nunca cruzou com o jogador não ganha marcador nenhum.
+    expect(screen.getAllByTestId("displaced-driver-head-to-head")).toHaveLength(1);
+
+    const marcador = screen.getByTestId("displaced-driver-rival-role");
+    expect(marcador).toHaveAttribute("aria-label", "Nêmesis");
+    expect(screen.getAllByTestId("displaced-driver-rival-role")).toHaveLength(1);
+  });
+
+  // Dos pilotos que sobraram, os que saíram da equipe do jogador são os únicos que
+  // mudam alguma coisa para ele — no meio da lista não tinham destaque nenhum.
+  it("raises the displaced drivers who came from the player's own team", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: { id: "T001", nome: "Mercedes-AMG", categoria: "gt3" },
+      preseasonState: {
+        current_week: 4,
+        total_weeks: 4,
+        is_complete: true,
+        current_display_date: "2026-03-28",
+      },
+      preseasonFreeAgents: [
+        {
+          driver_id: "driver-mine",
+          driver_name: "Marcos Mendes",
+          categoria: "gt3",
+          previous_team_name: "Mercedes-AMG",
+          previous_team_color: "#00d2be",
+          seasons_at_last_team: 1,
+          license_sigla: "A",
+          last_championship_position: 5,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+        {
+          driver_id: "driver-other",
+          driver_name: "Bruno Costa",
+          categoria: "gt3",
+          previous_team_name: "Wolf Racing Team",
+          previous_team_color: "#3fb950",
+          seasons_at_last_team: 1,
+          license_sigla: "A",
+          last_championship_position: 9,
+          last_championship_total_drivers: 12,
+          is_rookie: false,
+        },
+      ],
+    };
+
+    render(<PreSeasonView />);
+    fireEvent.click(screen.getByRole("button", { name: /iniciar temporada/i }));
+    await screen.findByText("2 pilotos ficaram sem vaga");
+
+    const flag = screen.getByTestId("displaced-player-team-flag");
+    expect(flag).toHaveTextContent("Marcos Mendes");
+    expect(flag).toHaveTextContent("Mercedes-AMG");
+    expect(flag).not.toHaveTextContent("Bruno Costa");
+
+    const rows = screen.getAllByTestId("displaced-driver-row");
+    expect(rows[0]).toHaveTextContent("Sua equipe");
+    expect(rows[1]).not.toHaveTextContent("Sua equipe");
+  });
+});
+
+// A ficha de contrato é o único lugar onde o jogador está olhando no instante em que
+// acha que assinou. Se o backend recusar a vaga e a folha fechar mesmo assim, ele sai
+// dali convencido de que tem equipe — e só descobre no fim da janela, jogado num time
+// que nunca escolheu. Foi exatamente o que aconteceu no save "TEST 3".
+describe("PreSeasonView — assinatura recusada", () => {
+  const oferta = {
+    seat_id: "T005#Numero2",
+    team_id: "T005",
+    team_name: "Apex Academy Racing",
+    team_color: "#58a6ff",
+    category: "mazda_amador",
+    category_label: "Mazda Cup",
+    category_tier: 1,
+    role: "N2",
+    salary: 90000,
+    car_performance_rating: 70,
+    offer_duration: 1,
+  };
+
+  function montarEstado(advanceMarketWeek) {
+    return {
+      careerId: "career-1",
+      preseasonState: {
+        current_week: 3,
+        total_weeks: 9,
+        signings_start_week: 3,
+        is_complete: false,
+        current_display_date: "2026-03-07",
+        player_has_team: false,
+      },
+      preseasonWeeks: [],
+      lastMarketWeekResult: null,
+      playerProposals: [],
+      preseasonFreeAgents: [],
+      transferWindow: { player_offers: [oferta], player_tier: 1, player_name: "TEST 3" },
+      isAdvancingWeek: false,
+      isRespondingProposal: false,
+      advanceMarketWeek,
+      respondToProposal: vi.fn(),
+      finalizePreseason: vi.fn(),
+      playerTeam: null,
+    };
+  }
+
+  async function abrirEAssinar() {
+    fireEvent.click(await screen.findByText("Ver ofertas (1)"));
+    fireEvent.click(await screen.findByText("Ver contrato"));
+    fireEvent.click(await screen.findByText("Assinar contrato"));
+    // A assinatura é escrita por ~1,55 s antes de a oferta ir ao backend.
+    await vi.advanceTimersByTimeAsync(1600);
+  }
+
+  beforeEach(() => {
+    pinLegacyLayout();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("mantem a folha aberta e mostra o motivo quando o backend recusa", async () => {
+    mockState = montarEstado(vi.fn().mockRejectedValue("Vaga 'T005#Numero2' nao encontrada."));
+    render(<PreSeasonView />);
+
+    await abrirEAssinar();
+
+    expect(await screen.findByTestId("contract-sign-error")).toHaveTextContent(
+      "Vaga 'T005#Numero2' nao encontrada.",
+    );
+    expect(screen.getByText("Assinar contrato")).toBeInTheDocument();
+  });
+
+  it("fecha a folha quando a assinatura passa", async () => {
+    mockState = montarEstado(vi.fn().mockResolvedValue({}));
+    render(<PreSeasonView />);
+
+    await abrirEAssinar();
+
+    await waitFor(() => expect(screen.queryByTestId("contract-sign-error")).toBeNull());
+    expect(screen.queryByText("Assinar contrato")).toBeNull();
   });
 });

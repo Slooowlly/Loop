@@ -1,6 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { CATEGORIES } from "../preSeasonFormatters.js";
 
+// As duas semanas de abertura têm nome próprio: a janela não é uma fila de nove
+// semanas iguais, e o jogador precisa saber por que a 1 e a 2 não contratam ninguém.
+function openingStageKey(currentWeek, signingsStartWeek) {
+  if (currentWeek >= signingsStartWeek) return null;
+  return currentWeek <= 1 ? "snapshot" : "departures";
+}
+
 export default function PreSeasonHeader({
   isComplete,
   isMarketOpen,
@@ -10,6 +17,8 @@ export default function PreSeasonHeader({
   setSelectedCat,
   currentWeek,
   totalWeeks,
+  signingsStartWeek,
+  interestForecast,
   weekProgress,
   currentDateLabel,
   isAdvancingWeek,
@@ -17,6 +26,16 @@ export default function PreSeasonHeader({
   startError,
 }) {
   const { t } = useTranslation();
+  const stageKey = openingStageKey(currentWeek, signingsStartWeek);
+  // A faixa da expectativa vira uma frase só quando os dois extremos coincidem.
+  const forecastLabel = interestForecast
+    ? interestForecast.min === interestForecast.max
+      ? t("preSeason.forecast.exact", { count: interestForecast.max })
+      : t("preSeason.forecast.range", {
+          min: interestForecast.min,
+          max: interestForecast.max,
+        })
+    : null;
   return (
     <header className="glass-strong animate-fade-in mb-3 rounded-2xl px-5 py-2 lg:px-6">
       <div className="grid items-start gap-3 lg:grid-cols-[1fr_auto]">
@@ -27,15 +46,31 @@ export default function PreSeasonHeader({
             <p className="text-body-sm font-bold uppercase tracking-[0.28em] text-[color:var(--accent-primary)]">
               {t("preSeason.header.eyebrow")}
             </p>
-            {playerOffers.length > 0 && (
+            {/* O contador é um atalho para a lista, então some junto com ela nas semanas
+                de abertura — lá o número mora no painel, sem levar a ficha nenhuma. */}
+            {playerOffers.length > 0 && !stageKey && (
               <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-bold tracking-[0.14em] text-[color:var(--accent-primary)]">
                 {t("preSeason.header.offerCount", { count: playerOffers.length })}
               </span>
             )}
+            {stageKey && forecastLabel && (
+              <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-semibold text-[color:var(--text-secondary)]">
+                {forecastLabel}
+              </span>
+            )}
           </div>
           <h1 className="mt-1 text-[20px] font-bold leading-[1.05] tracking-[-0.02em] text-[color:var(--text-primary)] lg:text-[26px]">
-            {isComplete ? t("preSeason.header.titleClosed") : t("preSeason.header.titleOpen")}
+            {isComplete
+              ? t("preSeason.header.titleClosed")
+              : stageKey
+                ? t(`preSeason.stage.${stageKey}.title`)
+                : t("preSeason.header.titleOpen")}
           </h1>
+          {stageKey && !isComplete && (
+            <p className="mt-1 text-body-sm text-[color:var(--text-secondary)]">
+              {t(`preSeason.stage.${stageKey}.subtitle`)}
+            </p>
+          )}
 
           {/* Filtros de categoria */}
           <div className="mt-2 max-w-full overflow-x-auto">
@@ -109,7 +144,9 @@ export default function PreSeasonHeader({
               ? t("preSeason.actions.processing")
               : isComplete
                 ? t("preSeason.actions.startSeason")
-                : t("preSeason.actions.advanceWeek")}
+                : stageKey
+                  ? t(`preSeason.stage.${stageKey}.action`)
+                  : t("preSeason.actions.advanceWeek")}
           </button>
         </div>
       </div>

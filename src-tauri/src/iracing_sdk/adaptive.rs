@@ -486,6 +486,58 @@ mod tests {
     }
 
     #[test]
+    fn multiclasse_so_compara_com_a_propria_classe() {
+        // Grid multiclasse: o jogador na classe 10 (~70,3s) com duas IA da mesma classe a
+        // 70,0 e 70,2 → frente = 70,1 → déficit ~0,3% (escudo, mantém). Duas IA de uma
+        // classe MAIS RÁPIDA (99, ~60s) estão na pista; se entrassem na conta, a frente
+        // viraria 60,0 e o déficit ~17% baixaria a dificuldade sem motivo.
+        let outra_classe = |idx: i32, t: &[f64]| DriverData {
+            car_class_id: 99,
+            ..driver(false, idx, t)
+        };
+        let race = RaceResult {
+            track_id: 1,
+            yellow_laps: vec![],
+            race: vec![
+                outra_classe(1, &[60.0, 60.0, 60.0, 60.0]), // LMP2 imaginário
+                outra_classe(2, &[60.2, 60.2, 60.2, 60.2]),
+                DriverData {
+                    car_class_id: 10,
+                    ..driver(false, 3, &[70.0, 70.0, 70.0, 70.0]) // frente DA classe
+                },
+                DriverData {
+                    car_class_id: 10,
+                    ..driver(false, 4, &[70.2, 70.2, 70.2, 70.2])
+                },
+                DriverData {
+                    car_class_id: 10,
+                    finish_pos_in_class: 3,
+                    ..driver(true, 5, &[70.3, 70.3, 70.3, 70.3])
+                },
+            ],
+            qualy: None,
+        };
+        let r = fast_result_from(&race, None);
+        let g = r.pace_vs_front.unwrap();
+        assert!(
+            (g - 0.00285).abs() < 0.001,
+            "a frente tem que ser a da classe do jogador, veio {g}"
+        );
+        assert_eq!(
+            compute_fast_update(
+                &r,
+                &Deltas {
+                    global: 20,
+                    track: 0
+                }
+            )
+            .d_global,
+            0,
+            "classe mais rápida na pista não pode baixar a dificuldade"
+        );
+    }
+
+    #[test]
     fn mecanismo_2_carro_desconta_o_ritmo_da_frente() {
         // Jogador anda NO ritmo da frente (empate ~0), mas com um CARRO melhor que a frente.
         // Cego ao carro: o crédito soma de volta a vantagem do carro → ritmo corrigido fica

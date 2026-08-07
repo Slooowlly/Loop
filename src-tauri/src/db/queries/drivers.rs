@@ -438,6 +438,95 @@ pub fn decay_driver_fame(
     Ok(())
 }
 
+/// Pedigree de carreira que sustenta o PISO PESSOAL da fama
+/// ([`crate::fame::personal_fame_floor`]). Só os três números que entram na conta —
+/// leitura barata, feita uma vez por corrida para o grid inteiro.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FamePedigree {
+    pub titulos: u32,
+    pub vitorias: u32,
+    /// Temporadas disputadas em categoria de tier ≥ [`crate::fame::FAME_ELITE_TIER_MIN`].
+    pub temporadas_elite: u32,
+}
+
+/// Pedigree de fama de vários pilotos de uma vez. Duas leituras: os totais de carreira
+/// em `drivers` e a contagem de temporadas na elite em `standings` (uma linha por
+/// piloto/temporada/categoria — o tier vem do catálogo, não do SQL).
+///
+/// Quem não existir no banco simplesmente não aparece no mapa; o call site cai no piso
+/// base. Lista vazia devolve mapa vazio sem tocar no banco.
+pub fn get_fame_pedigrees(
+    conn: &Connection,
+    ids: &[&str],
+) -> Result<std::collections::HashMap<String, FamePedigree>, DbError> {
+    use std::collections::HashMap;
+
+    let mut unicos: Vec<&str> = ids.iter().copied().filter(|id| !id.is_empty()).collect();
+    unicos.sort_unstable();
+    unicos.dedup();
+    if unicos.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let placeholders = vec!["?"; unicos.len()].join(",");
+    let params: Vec<&dyn rusqlite::ToSql> =
+        unicos.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+    let mut mapa: HashMap<String, FamePedigree> = HashMap::new();
+    let sql = format!(
+        "SELECT id, carreira_titulos, carreira_vitorias FROM drivers WHERE id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (id, titulos, vitorias) = row?;
+        mapa.insert(
+            id,
+            FamePedigree {
+                titulos: titulos.max(0) as u32,
+                vitorias: vitorias.max(0) as u32,
+                temporadas_elite: 0,
+            },
+        );
+    }
+
+    // Temporadas na elite: pares (piloto, temporada) distintos em categoria de tier alto.
+    // A tabela pode não existir em bancos de teste enxutos — nesse caso o termo é 0.
+    let sql = format!(
+        "SELECT piloto_id, categoria, COUNT(DISTINCT temporada_id)
+         FROM standings WHERE piloto_id IN ({placeholders}) GROUP BY piloto_id, categoria"
+    );
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for row in rows.flatten() {
+                let (piloto_id, categoria, temporadas) = row;
+                let tier = crate::constants::categories::get_category_config(&categoria)
+                    .map(|c| c.tier)
+                    .unwrap_or(0);
+                if tier < crate::fame::FAME_ELITE_TIER_MIN {
+                    continue;
+                }
+                mapa.entry(piloto_id).or_default().temporadas_elite += temporadas.max(0) as u32;
+            }
+        }
+    }
+
+    Ok(mapa)
+}
+
 /// Ajusta o carisma de um piloto por um delta (deriva de carreira), preso a 0–100.
 pub fn bump_driver_carisma(conn: &Connection, id: &str, delta: f64) -> Result<(), DbError> {
     conn.execute(
@@ -459,10 +548,29 @@ pub fn get_driver_carisma(conn: &Connection, id: &str) -> Result<Option<f64>, Db
     Ok(v)
 }
 
+/// Soma um delta de fama, passando pelo retorno decrescente do topo
+/// ([`crate::fame::apply_fame_gain`]).
+///
+/// Era um `UPDATE ... midia + ?1` puro em SQL. Deixou de ser possível quando o ganho
+/// passou a depender da fama ATUAL: a alternativa seria reescrever a curva em SQL, que é
+/// a mesma classe de defeito que o resto desta rodada removeu — duas cópias da mesma
+/// regra em linguagens diferentes, discordando na primeira vez que uma delas mudar.
 pub fn update_driver_midia_delta(conn: &Connection, id: &str, delta: f64) -> Result<(), DbError> {
+    // Piloto inexistente é NO-OP, como era no `UPDATE ... WHERE id = ?` puro. Transformar
+    // isso em erro mudaria o contrato de uma função chamada de dentro do laço de fama.
+    let Some(atual) = conn
+        .query_row(
+            "SELECT midia FROM drivers WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?
+    else {
+        return Ok(());
+    };
     conn.execute(
-        "UPDATE drivers SET midia = MAX(0.0, MIN(100.0, midia + ?1)) WHERE id = ?2",
-        rusqlite::params![delta, id],
+        "UPDATE drivers SET midia = ?1 WHERE id = ?2",
+        rusqlite::params![crate::fame::apply_fame_gain(atual, delta), id],
     )?;
     Ok(())
 }

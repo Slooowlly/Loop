@@ -6,6 +6,12 @@ pub const MARKET_START_WEEK_OF_YEAR: u8 = 49;
 /// Duração total do mercado em semanas: 49, 50, 51, 52, 1, 2, 3, 4, 5 → 9 semanas.
 pub const MARKET_DURATION_WEEKS: u8 = 9;
 
+/// Primeira semana em que o mercado CONTRATA (escada da IA e propostas ao jogador).
+/// As anteriores são de abertura e não movem contrato nenhum: a semana 1 é a foto do
+/// grid como a temporada terminou, e é ao sair dela que as pré-passes caem (dispensas,
+/// mérito, assédio); a semana 2 mostra o grid já sem quem saiu e confirma quem renovou.
+pub const MARKET_SIGNINGS_START_WEEK: u8 = 3;
+
 /// Primeira semana de corrida no ano civil (início de fevereiro).
 pub const SEASON_FIRST_RACE_WEEK_OF_YEAR: u8 = 6;
 

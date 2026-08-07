@@ -279,6 +279,47 @@ fn test_end_of_season_rolls_back_when_preseason_plan_save_fails() {
     let _ = std::fs::remove_dir_all(blocked_path.parent().expect("parent"));
 }
 
+#[test]
+fn champion_who_ends_the_year_injured_still_gets_the_title_credited() {
+    let (mut conn, season) = setup_pipeline_fixture();
+    let save_path = unique_test_dir("eos_titulo_lesionado");
+
+    // P001 lidera a pontuação da fixture (120 x 90) e vai fechar campeão — mas
+    // chega na virada lesionado, que é o caso que o crédito de título perdia:
+    // o arquivo grava a linha de campeão de todo mundo, e o contador de carreira
+    // parava no filtro `status != Ativo`.
+    conn.execute(
+        "UPDATE drivers SET status = 'Lesionado' WHERE id = 'P001'",
+        [],
+    )
+    .expect("lesiona o campeao");
+
+    run_end_of_season(&mut conn, &season, &save_path).expect("pipeline should run");
+
+    let titulos: i64 = conn
+        .query_row(
+            "SELECT carreira_titulos FROM drivers WHERE id = 'P001'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("contador de titulos");
+    let arquivo_campeao: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM driver_season_archive
+              WHERE piloto_id = 'P001' AND posicao_campeonato = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("linhas campeas no arquivo");
+
+    assert_eq!(arquivo_campeao, 1, "o arquivo registra o campeao");
+    assert_eq!(
+        titulos, arquivo_campeao,
+        "contador de carreira e arquivo tem que contar o mesmo titulo"
+    );
+    let _ = std::fs::remove_dir_all(save_path);
+}
+
 fn setup_pipeline_fixture() -> (Connection, Season) {
     let conn = Connection::open_in_memory().expect("in-memory db");
     migrations::run_all(&conn).expect("schema");
@@ -539,6 +580,255 @@ fn sample_named_team(category: &str, id: &str, name: &str, class: Option<&str>, 
     team.nome_curto = name.to_string();
     team.classe = class.map(str::to_string);
     team
+}
+
+// ── Falência: o ciclo colapso → alerta → venda ────────────────────────────────
+
+/// Equipe GT3 insolvente com dupla completa, para medir o que a venda tira.
+/// `salario_n1` > `salario_n2` para o corte de folha ter um alvo determinado.
+fn falencia_fixture() -> (Connection, Season, Team) {
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+
+    let season = Season::new("S001".to_string(), 4, 2027);
+    season_queries::insert_season(&conn, &season).expect("season insert");
+
+    let mut team = sample_named_team("gt3", "GT3F", "Escuderia Falida", None, 909);
+    team.cash_balance = -250_000.0;
+    team.debt_balance = 24_600_000.0; // o passivo medido no save real (T101)
+    team.financial_state = "collapse".to_string();
+    team.engineering = 62.0;
+    team.facilities = 58.0;
+    team.pit_crew_quality = 55.0;
+    team.reputacao = 50.0;
+    team.car_performance = 6.0;
+    team_queries::insert_team(&conn, &team).expect("insert team");
+
+    for (id, nome, salario, papel) in [
+        ("PN1", "Piloto Caro", 900_000.0, TeamRole::Numero1),
+        ("PN2", "Piloto Barato", 300_000.0, TeamRole::Numero2),
+    ] {
+        let driver = sample_driver(id, nome, "gt3", 50.0, 0, 10, 0);
+        driver_queries::insert_driver(&conn, &driver).expect("insert driver");
+        let contract = Contract::new(
+            format!("C{id}"),
+            driver.id.clone(),
+            driver.nome.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            season.numero,
+            2,
+            salario,
+            papel,
+            "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insert contract");
+    }
+
+    (conn, season, team)
+}
+
+fn eventos_de_propriedade(conn: &Connection, team_id: &str) -> Vec<String> {
+    let mut stmt = conn
+        .prepare("SELECT event_type FROM team_ownership_events WHERE team_id = ?1 ORDER BY id")
+        .expect("prepare");
+    let rows = stmt
+        .query_map([team_id], |r| r.get::<_, String>(0))
+        .expect("query");
+    rows.map(|r| r.expect("row")).collect()
+}
+
+fn contar_noticias(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM news", [], |r| r.get(0))
+        .expect("count news")
+}
+
+#[test]
+fn primeiro_ano_insolvente_publica_alerta_e_registra_na_ficha() {
+    // A quebra tem dois tempos. O primeiro é o alerta: sem ele a venda do ano
+    // seguinte aparece do nada, e hoje ela não aparecia em lugar nenhum.
+    let (conn, season, team) = falencia_fixture();
+    let mut rng = StdRng::seed_from_u64(1);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    assert_eq!(
+        eventos_de_propriedade(&conn, &team.id),
+        vec!["collapse_warning".to_string()],
+        "o alerta tem que ficar na ficha da equipe"
+    );
+    assert_eq!(contar_noticias(&conn), 1, "o alerta tem que virar notícia");
+    // Ninguém foi vendido ainda: a equipe segue com o passivo e com a dupla.
+    let atual = team_queries::get_team_by_id(&conn, &team.id)
+        .expect("team")
+        .expect("existe");
+    assert!(atual.debt_balance > 0.0, "no alerta a dívida continua");
+    assert_eq!(
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id)
+            .expect("contratos")
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn venda_corta_a_folha_e_publica_a_manchete() {
+    // Segundo ano insolvente: venda. O piloto mais caro sai (a nova diretoria não
+    // paga aquela folha) e o mundo fica sabendo.
+    let (conn, season, team) = falencia_fixture();
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(2);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    assert_eq!(
+        eventos_de_propriedade(&conn, &team.id),
+        vec!["sale".to_string()],
+        "a venda tem que ficar na ficha"
+    );
+    assert_eq!(contar_noticias(&conn), 1, "a venda tem que virar notícia");
+
+    // O corte é NÃO RENOVAR: o contrato caro passa a terminar nesta temporada e
+    // expira pela via normal do mercado. O assento não fica vazio no meio do
+    // caminho — quem repõe é o leilão da pré-temporada.
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    assert_eq!(contratos.len(), 2, "ninguém é rescindido no ato");
+    let caro = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN1")
+        .expect("contrato do caro");
+    let barato = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN2")
+        .expect("contrato do barato");
+    assert_eq!(
+        caro.temporada_fim, season.numero,
+        "o mais caro não é renovado"
+    );
+    assert!(
+        barato.temporada_fim > season.numero,
+        "o mais barato segue sob contrato"
+    );
+
+    // E a equipe REGRIDE: carro e estrutura piores do que antes da quebra.
+    let atual = team_queries::get_team_by_id(&conn, &team.id)
+        .expect("team")
+        .expect("existe");
+    assert!(
+        atual.car_performance < team.car_performance,
+        "carro tinha que regredir: {} → {}",
+        team.car_performance,
+        atual.car_performance
+    );
+    assert!(atual.engineering < team.engineering);
+    assert!(atual.reputacao < team.reputacao);
+    assert_eq!(atual.debt_balance, 0.0, "o passivo é assumido na venda");
+}
+
+#[test]
+fn venda_nunca_dispensa_o_jogador() {
+    // Tirar o assento do jogador por evento do mundo seria decidir a carreira por
+    // ele. Mesmo sendo o mais caro do elenco, quem sai é o companheiro.
+    let (conn, season, team) = falencia_fixture();
+    conn.execute("UPDATE drivers SET is_jogador = 1 WHERE id = 'PN1'", [])
+        .expect("marca jogador");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(3);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    let jogador = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN1")
+        .expect("contrato do jogador");
+    let companheiro = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN2")
+        .expect("contrato do companheiro");
+    assert!(
+        jogador.temporada_fim > season.numero,
+        "o contrato do jogador não é tocado"
+    );
+    assert_eq!(
+        companheiro.temporada_fim, season.numero,
+        "quem perde o assento é o companheiro"
+    );
+    // E a manchete dele existe além da notícia geral da venda.
+    assert_eq!(
+        contar_noticias(&conn),
+        2,
+        "a equipe do jogador rende manchete própria"
+    );
+}
+
+#[test]
+fn equipe_com_um_piloto_so_nao_perde_o_ultimo() {
+    // Corte de folha não pode esvaziar o grid: com um contrato só, não há folha a
+    // cortar e a vigência dele fica intacta.
+    let (conn, season, team) = falencia_fixture();
+    conn.execute("DELETE FROM contracts WHERE piloto_id = 'PN2'", [])
+        .expect("remove segundo contrato");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(4);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    assert_eq!(contratos.len(), 1);
+    assert!(
+        contratos[0].temporada_fim > season.numero,
+        "o único piloto não é cortado"
+    );
+}
+
+#[test]
+fn contrato_que_ja_terminava_nao_conta_como_corte() {
+    // Se o caro já estava no último ano, não há consequência nova a anunciar — o
+    // mercado ia decidir sobre ele de qualquer jeito. O corte cai no outro, ou em
+    // ninguém.
+    let (conn, season, team) = falencia_fixture();
+    conn.execute(
+        "UPDATE contracts SET temporada_fim = ?1",
+        [&season.numero.to_string()],
+    )
+    .expect("todos terminando");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(6);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    // A venda acontece; o que não acontece é um corte de folha inventado.
+    assert_eq!(eventos_de_propriedade(&conn, &team.id), vec!["sale"]);
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    assert!(contratos.iter().all(|c| c.temporada_fim == season.numero));
+}
+
+#[test]
+fn equipe_recuperada_nao_gera_nem_alerta_nem_venda() {
+    // O caminho feliz continua mudo: quem se salva sozinha no ano de all-in não
+    // vira notícia de falência nem evento na ficha.
+    let (conn, season, team) = falencia_fixture();
+    conn.execute(
+        "UPDATE teams SET financial_state = 'stable' WHERE id = ?1",
+        [&team.id],
+    )
+    .expect("recupera");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(5);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    assert!(eventos_de_propriedade(&conn, &team.id).is_empty());
+    assert_eq!(contar_noticias(&conn), 0);
+    assert_eq!(
+        team_queries::get_collapse_streak(&conn, &team.id).expect("streak"),
+        0
+    );
 }
 
 fn retention_fixture() -> (Connection, Season, Team, Driver, Contract) {

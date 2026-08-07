@@ -501,9 +501,8 @@ fn ajuste_pesa_mais_a_afinidade_na_classificacao() {
 
     // O delta entre canais tem DUAS parcelas desde que o acerto passou a ser por trim. Antes só
     // existia a primeira, e o teste comparava contra ela sozinha.
-    let trim = |t| {
-        acerto_fim_de_semana_por_canal(1, 3, "TEAM-A", "DRV-001", ACERTO_ESCALA_PONTOS, t)
-    };
+    let trim =
+        |t| acerto_fim_de_semana_por_canal(1, 3, "TEAM-A", "DRV-001", ACERTO_ESCALA_PONTOS, t);
     let delta_acerto = trim(TrimDeAcerto::Classificacao) - trim(TrimDeAcerto::Corrida);
     let delta = a.classificacao - a.corrida;
     assert!(
@@ -613,6 +612,7 @@ mod demonstracao {
                     team_name: format!("Equipe {}", equipe + 1),
                     corridas_na_categoria: 40,
                     pressure_error_mult: 1.0,
+                    duelo_de_pista: None,
                 }
             })
             .collect()

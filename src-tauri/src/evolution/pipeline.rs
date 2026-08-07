@@ -16,7 +16,8 @@ use crate::evolution::decline::apply_age_decline;
 use crate::evolution::growth::{calculate_growth, GrowthReport};
 use crate::evolution::licenses::persist_licenses;
 use crate::evolution::motivation::{
-    adjust_end_of_season_motivation, MotivationContext, MotivationReport,
+    adjust_end_of_season_motivation, adjust_offseason_motivation, MotivationContext,
+    MotivationReport, OffseasonContext,
 };
 use crate::evolution::retirement::{
     check_retirement, idle_orphan_retirement_chance, process_retirement,

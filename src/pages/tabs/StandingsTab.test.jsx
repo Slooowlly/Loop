@@ -12,7 +12,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("../../components/driver/DriverDetailModal", () => ({
+vi.mock("../../components/driver", () => ({
   default: ({ driverId, onClose }) => (
     <div role="dialog" aria-label={`Ficha ${driverId}`}>
       <button type="button" onClick={onClose}>
@@ -132,7 +132,7 @@ describe("StandingsTab", () => {
     );
 
     // O seletor de linha fica travado no Bloco Especial; clicar não abre o menu.
-    const seriesTrigger = screen.getByTitle("Trocar de linha");
+    const seriesTrigger = screen.getByTestId("series-trigger");
     expect(seriesTrigger).toBeDisabled();
     fireEvent.click(seriesTrigger);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
@@ -249,14 +249,17 @@ describe("StandingsTab", () => {
     const driverTable = screen.getByRole("table");
     const classHeader = (label) =>
       within(driverTable)
-        .getAllByText(label)
+        .queryAllByText(label)
         .find((element) => element.className.includes("font-black"));
     const lmp2Header = classHeader("LMP2");
     const gt3Header = classHeader("GT3");
-    const gt4Header = classHeader("GT4");
 
     // Linha GT4: a classe do jogador (GT4) encabeça; o resto segue na ordem padrão.
-    expect(gt4Header.compareDocumentPosition(lmp2Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // A classe da própria linha abre a tabela SEM faixa — o cabeçalho do painel já
+    // diz "GT4 · Endurance", a faixa só repetiria o óbvio.
+    expect(classHeader("GT4")).toBeUndefined();
+    const gt4Row = screen.getByText("Gui GT4").closest("tr");
+    expect(gt4Row.compareDocumentPosition(lmp2Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(lmp2Header.compareDocumentPosition(gt3Header)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(within(driverTable).queryByText("Outros")).not.toBeInTheDocument();
     expect(within(screen.getByText("Lia Prototype").closest("tr")).getByText("1")).toBeInTheDocument();
@@ -288,7 +291,7 @@ describe("StandingsTab", () => {
     await screen.findByText("Solo GT3");
 
     // ▲ sobe da GT3 para a categoria multiclasse Endurance (topo da linha GT3).
-    fireEvent.click(screen.getByTitle("Tier superior"));
+    fireEvent.click(screen.getByLabelText("Tier superior"));
     await screen.findByText("Gabi GT3");
     expect(invoke).toHaveBeenCalledWith("get_drivers_by_category", {
       careerId: "career-1",
@@ -297,13 +300,17 @@ describe("StandingsTab", () => {
 
     const driverTable = screen.getByRole("table");
     const classHeader = (label) =>
-      within(driverTable).getAllByText(label).find((el) => el.className.includes("font-black"));
+      within(driverTable).queryAllByText(label).find((el) => el.className.includes("font-black"));
 
-    // Chegando pela linha GT3, a classe GT3 encabeça a formação.
-    expect(classHeader("GT3").compareDocumentPosition(classHeader("LMP2"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // Chegando pela linha GT3, a classe GT3 encabeça a formação — e por encabeçar,
+    // sem faixa própria: quem ganha faixa são as classes visitantes.
+    expect(classHeader("GT3")).toBeUndefined();
+    expect(
+      screen.getByText("Gabi GT3").closest("tr").compareDocumentPosition(classHeader("LMP2")),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     // Dropdown → LMP2 (mesma Endurance) volta à ordem padrão LMP2→GT3→GT4.
-    fireEvent.click(screen.getByTitle("Trocar de linha"));
+    fireEvent.click(screen.getByTestId("series-trigger"));
     const seriesMenu = screen.getByRole("listbox");
     // O menu separa fisicamente os grupos por licença (Elite em cima, Pro embaixo).
     const eliteLabel = within(seriesMenu).getByText("Elite");
@@ -313,9 +320,12 @@ describe("StandingsTab", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     fireEvent.click(within(seriesMenu).getByText("LMP2"));
-    await waitFor(() =>
-      expect(classHeader("LMP2").compareDocumentPosition(classHeader("GT3"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING),
-    );
+    // Trocando de linha troca quem encabeça: agora LMP2 é que perde a faixa e a GT3
+    // ganha a dela.
+    await waitFor(() => expect(classHeader("LMP2")).toBeUndefined());
+    expect(
+      screen.getByText("Lia Proto").closest("tr").compareDocumentPosition(classHeader("GT3")),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("groups special driver and team standings by car class", async () => {
@@ -456,19 +466,22 @@ describe("StandingsTab", () => {
 
     await screen.findByText("Bianca Rossi");
     const driverTable = screen.getByRole("table");
-    expect(within(driverTable).getByText("BMW")).toBeInTheDocument();
+    // A BMW é a classe da linha do jogador: encabeça a tabela sem faixa. Toyota e
+    // Mazda, que vêm depois, seguem separadas.
+    expect(within(driverTable).queryByText("BMW")).not.toBeInTheDocument();
     expect(within(driverTable).getByText("Toyota")).toBeInTheDocument();
     expect(within(driverTable).getByText("Mazda")).toBeInTheDocument();
-    expect(within(driverTable).getByText("BMW").closest("div")).toHaveClass("sticky", "left-0", "justify-center");
-    expect(within(driverTable).getByText("BMW").closest("div")).not.toHaveClass("rounded-xl", "border");
-    expect(within(driverTable).getByText("BMW")).toHaveClass("text-[17px]", "text-center");
+    expect(within(driverTable).getByText("Toyota").closest("div")).toHaveClass("sticky", "left-0", "justify-center");
+    expect(within(driverTable).getByText("Toyota").closest("div")).not.toHaveClass("rounded-xl", "border");
+    expect(within(driverTable).getByText("Toyota")).toHaveClass("text-[17px]", "text-center");
     expect(within(driverTable).queryByText(/inscrito/i)).not.toBeInTheDocument();
     expect(within(screen.getByText("Bianca Rossi").closest("tr")).getByText("1")).toBeInTheDocument();
     expect(within(screen.getByText("Taro Sato").closest("tr")).getByText("1")).toBeInTheDocument();
     expect(within(screen.getByText("Marta Vega").closest("tr")).getByText("1")).toBeInTheDocument();
 
-    // BMW aparece 3×: rótulo da série (cabeçalho) + grupos de pilotos e equipes.
-    expect(screen.getAllByText("BMW")).toHaveLength(3);
+    // BMW aparece 2×: rótulo da série (cabeçalho) + grupo de equipes. Na tabela de
+    // pilotos a faixa da classe que encabeça não é desenhada.
+    expect(screen.getAllByText("BMW")).toHaveLength(2);
     expect(screen.getAllByText("Toyota")).toHaveLength(2);
     expect(screen.getAllByText("Mazda")).toHaveLength(2);
     expect(screen.getByText("Bianca Rossi / Luca Neri")).toHaveClass("whitespace-nowrap");
@@ -562,7 +575,8 @@ describe("StandingsTab", () => {
     await screen.findByText("GT4 Atlas");
     const driverLine = screen.getByText("Alex Stone / -");
     expect(driverLine).toHaveClass("whitespace-nowrap");
-    expect(driverLine).toHaveAttribute("title", "Alex Stone / -");
+    // O balão guarda o par completo, mas só abre se a linha estiver cortada.
+    expect(driverLine).toHaveAttribute("data-tooltip", "Alex Stone / -");
     expect(screen.queryByText(/Ã/)).not.toBeInTheDocument();
   });
 
@@ -722,6 +736,87 @@ describe("StandingsTab", () => {
     expect(mercedesLogos[0].parentElement.className).not.toContain("border");
   });
 
+  // As duas tabelas falam do mesmo campeonato por chaves diferentes: uma lista
+  // pilotos, a outra equipes. Sem o elo, "quais são os dois carros desta
+  // equipe?" obrigava a varrer 20 linhas de pilotos com o dedo.
+  it("acende a equipe e a dupla dela nas duas tabelas, nos dois sentidos", async () => {
+    mockState = {
+      ...mockState,
+      playerTeam: { categoria: "gt3" },
+      season: { ano: 2025, rodada_atual: 2, total_rodadas: 8, fase: "BlocoRegular" },
+    };
+
+    function piloto(id, nome, teamId, cor, posicao) {
+      return {
+        id,
+        nome,
+        nacionalidade: "br",
+        idade: 25,
+        equipe_id: teamId,
+        equipe_nome: teamId,
+        equipe_nome_curto: teamId,
+        equipe_cor: cor,
+        pontos: 30 - posicao,
+        vitorias: 0,
+        podios: 0,
+        posicao_campeonato: posicao,
+        results: [],
+      };
+    }
+
+    invoke.mockImplementation(async (command) => {
+      if (command === "get_drivers_by_category") {
+        return [
+          piloto("D1", "Ana Vega", "TAUR", "#58a6ff", 1),
+          piloto("D2", "Beto Cruz", "TFAL", "#f2cc60", 2),
+          // A dupla da Aurora não é vizinha na tabela: é justamente esse caso
+          // que o elo resolve.
+          piloto("D3", "Caio Melo", "TAUR", "#58a6ff", 3),
+        ];
+      }
+      if (command === "get_teams_standings") {
+        return [
+          { id: "TAUR", nome: "Aurora", nome_curto: "AUR", cor_primaria: "#58a6ff", pontos: 56, vitorias: 1, posicao: 1, piloto_1_nome: "Ana Vega", piloto_2_nome: "Caio Melo" },
+          { id: "TFAL", nome: "Falcon", nome_curto: "FAL", cor_primaria: "#f2cc60", pontos: 28, vitorias: 0, posicao: 2, piloto_1_nome: "Beto Cruz", piloto_2_nome: "Duda Reis" },
+        ];
+      }
+      if (command === "get_previous_champions") {
+        return { driver_champion_id: null, constructor_champions: [] };
+      }
+      return [];
+    });
+
+    render(<StandingsTab />);
+
+    await screen.findByText("Ana Vega");
+    const linhaAna = screen.getByText("Ana Vega").closest("tr");
+    const linhaBeto = screen.getByText("Beto Cruz").closest("tr");
+    const linhaCaio = screen.getByText("Caio Melo").closest("tr");
+    const cardAurora = document.querySelector('[data-team-id="TAUR"]');
+    const cardFalcon = document.querySelector('[data-team-id="TFAL"]');
+
+    // Painel de equipes → tabela de pilotos: a equipe acende os DOIS carros
+    // dela, mesmo separados por uma linha de outra equipe.
+    fireEvent.mouseEnter(cardAurora);
+    expect(cardAurora).toHaveAttribute("data-highlighted", "true");
+    expect(cardFalcon).not.toHaveAttribute("data-highlighted");
+    expect(linhaAna).toHaveStyle({ backgroundColor: "#58a6ff22" });
+    expect(linhaCaio).toHaveStyle({ backgroundColor: "#58a6ff22" });
+    expect(linhaBeto.getAttribute("style")).toBeFalsy();
+
+    fireEvent.mouseLeave(cardAurora);
+    expect(cardAurora).not.toHaveAttribute("data-highlighted");
+
+    // Tabela de pilotos → painel de equipes, na cor da equipe do piloto.
+    fireEvent.mouseEnter(linhaBeto);
+    expect(cardFalcon).toHaveAttribute("data-highlighted", "true");
+    expect(cardFalcon).toHaveStyle({ backgroundColor: "#f2cc6022" });
+    expect(cardAurora).not.toHaveAttribute("data-highlighted");
+
+    fireEvent.mouseLeave(linhaBeto);
+    expect(cardFalcon).not.toHaveAttribute("data-highlighted");
+  });
+
   it("shows driver status markers beside driver names", async () => {
     mockState = {
       ...mockState,
@@ -791,11 +886,13 @@ describe("StandingsTab", () => {
     const rookieRow = (await screen.findByText("Rafa Rookie")).closest("tr");
     const veteranRow = screen.getByText("Vera Veteran").closest("tr");
 
-    expect(within(rookieRow).getByTitle("Estreante da vida")).toBeInTheDocument();
-    expect(within(rookieRow).queryByTitle("Estreante")).not.toBeInTheDocument();
-    expect(within(rookieRow).getByTitle("Lesão ativa")).toBeInTheDocument();
-    expect(within(veteranRow).queryByTitle("Estreante")).not.toBeInTheDocument();
-    expect(within(veteranRow).getByTitle("Lesão grave")).toBeInTheDocument();
+    // Os marcadores passaram do `title=` nativo para o tooltip do app; o nome
+    // acessível continua no `aria-label`, que é o que a fileira sempre teve.
+    expect(within(rookieRow).getByLabelText("Estreante da vida")).toBeInTheDocument();
+    expect(within(rookieRow).queryByLabelText("Estreante")).not.toBeInTheDocument();
+    expect(within(rookieRow).getByLabelText("Lesão ativa")).toBeInTheDocument();
+    expect(within(veteranRow).queryByLabelText("Estreante")).not.toBeInTheDocument();
+    expect(within(veteranRow).getByLabelText("Lesão grave")).toBeInTheDocument();
   });
 
   it("distinguishes career debut from category debut", async () => {
@@ -867,10 +964,10 @@ describe("StandingsTab", () => {
     const lifeDebutRow = (await screen.findByText("Lia Seed")).closest("tr");
     const categoryDebutRow = screen.getByText("Nuno Switch").closest("tr");
 
-    expect(within(lifeDebutRow).getByTitle("Estreante da vida")).toBeInTheDocument();
-    expect(within(lifeDebutRow).queryByTitle("Estreante")).not.toBeInTheDocument();
-    expect(within(categoryDebutRow).queryByTitle("Estreante da vida")).not.toBeInTheDocument();
-    expect(within(categoryDebutRow).getByTitle("Estreante")).toBeInTheDocument();
+    expect(within(lifeDebutRow).getByLabelText("Estreante da vida")).toBeInTheDocument();
+    expect(within(lifeDebutRow).queryByLabelText("Estreante")).not.toBeInTheDocument();
+    expect(within(categoryDebutRow).queryByLabelText("Estreante da vida")).not.toBeInTheDocument();
+    expect(within(categoryDebutRow).getByLabelText("Estreante")).toBeInTheDocument();
   });
 
   it("shows team logos for previous BMW and GT3 team names stored in existing saves", async () => {
@@ -1139,12 +1236,14 @@ describe("StandingsTab", () => {
     // O v2 nomeia a seção na coluna lateral — o título repetido dentro do conteúdo saiu.
     expect(within(drawer).getByRole("tab", { name: /Records/i })).toHaveAttribute("aria-selected", "true");
     expect(within(drawer).getByRole("tab", { name: /Identidade/i })).toBeInTheDocument();
-    // Centralizado: o dossiê é tela de leitura, não painel de borda.
-    expect(drawer).toHaveClass("w-[min(94vw,1180px)]");
+    // Centralizado: o dossiê é tela de leitura, não painel de borda. A largura
+    // mora no wrapper que ancora a calha de setas; o painel ocupa ela toda.
+    expect(drawer.parentElement).toHaveClass("w-[min(100%,1180px)]");
+    expect(drawer).toHaveClass("w-full");
     expect(drawer).not.toHaveClass("left-0");
     expect(drawer).not.toHaveClass("right-0");
 
-    fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Rival/i }));
 
     expect(within(drawer).getByText("Especialista Real")).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("get_team_history_dossier", {
@@ -1500,7 +1599,7 @@ describe("StandingsTab", () => {
     render(<StandingsTab />);
 
     await screen.findByText("GT4 Atlas");
-    fireEvent.click(screen.getByTitle("Trocar de linha"));
+    fireEvent.click(screen.getByTestId("series-trigger"));
     fireEvent.click(within(screen.getByRole("listbox")).getByText("GT3"));
 
     const gt3Team = await screen.findByText("GT3 Titan");
@@ -1510,7 +1609,7 @@ describe("StandingsTab", () => {
     vi.useRealTimers();
 
     const drawer = await screen.findByRole("dialog", { name: /GT3 Titan/i });
-    fireEvent.click(within(drawer).getByRole("tab", { name: /Identidade/i }));
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Rival/i }));
 
     expect(await within(drawer).findByText("Resumo real da Titan calculado no backend.")).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("get_team_history_dossier", {

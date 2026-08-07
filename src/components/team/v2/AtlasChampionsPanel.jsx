@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../../ui/Tooltip";
 import TeamLogoMark from "../TeamLogoMark";
 import { bandAccent, ensureMinimumLuminance } from "./atlasV2Geometry";
 import { getReadableWorldTeamColor } from "../worldTeamChartGeometry";
@@ -243,13 +244,14 @@ function ChampionDrivers({ drivers }) {
         >
           <span className="truncate">{driver.nome}</span>
           {driver.is_season_champion ? (
-            <img
-              src={goldTrophy}
-              alt=""
-              draggable={false}
-              className="h-3.5 w-3.5 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(242,196,109,0.35)]"
-              title={t("globalTeams.championsDriverTitle")}
-            />
+            <Tooltip texto={t("globalTeams.championsDriverTitle")}>
+              <img
+                src={goldTrophy}
+                alt=""
+                draggable={false}
+                className="h-3.5 w-3.5 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(242,196,109,0.35)]"
+              />
+            </Tooltip>
           ) : null}
         </span>
       ))}

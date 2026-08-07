@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import GlassCard from "../ui/GlassCard";
+import Tooltip from "../ui/Tooltip";
 import i18n from "../../i18n/index.js";
 import {
   formatIndex,
@@ -90,14 +91,13 @@ function UserDriverFocusCard({ row, ranks }) {
 
 function FocusStat({ label, value, rank, title }) {
   return (
-    <div
-      className={`min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3${title ? " cursor-help" : ""}`}
-      title={title || undefined}
-    >
-      <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</p>
-      <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value ?? 0}</p>
-      <p className="mt-1 text-xs text-accent-primary">Top #{rank || "--"}</p>
-    </div>
+    <Tooltip texto={title || undefined}>
+      <div className={`min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3${title ? " cursor-help" : ""}`}>
+        <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</p>
+        <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value ?? 0}</p>
+        <p className="mt-1 text-xs text-accent-primary">Top #{rank || "--"}</p>
+      </div>
+    </Tooltip>
   );
 }
 

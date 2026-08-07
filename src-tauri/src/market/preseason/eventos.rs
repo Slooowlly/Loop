@@ -65,52 +65,42 @@ pub(super) fn tag_player_relations(conn: &Connection, events: &mut [MarketEvent]
     }
 }
 
-/// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
-/// NÃO tem contrato ativo após as pré-passes (não renovou nem foi reaproveitado);
-/// exclui o jogador. Narrativa "quem perdeu a vaga" pro feed da 1ª semana.
-/// Eventos de PROMOÇÃO/REBAIXAMENTO por mérito (das pré-passes) pro feed — antes
-/// aconteciam de forma invisível. Lê o report das pré-passes pelos tipos
-/// `promocao_merito` (↑) e `rebaixamento` (↓).
-pub(super) fn merit_move_events(
+/// Eventos de RENOVAÇÃO das pré-passes: quem a equipe decidiu segurar. Não movem
+/// ninguém de lugar — por isso saem na semana em que o grid não muda, como confirmação
+/// de quem ficou, e não junto das dispensas.
+pub(super) fn renewal_events(
     report: &crate::market::proposals::MarketReport,
     previous_team: &std::collections::HashMap<String, (String, i32)>,
 ) -> Vec<MarketEvent> {
     report
         .new_signings
         .iter()
-        .filter_map(|s| {
-            let movement_kind = match s.tipo.as_str() {
-                "promocao_merito" => "promotion",
-                "rebaixamento" => "relegation",
-                _ => return None,
-            };
-            let prev = previous_team.get(s.driver_id.as_str()).cloned();
-            let (from_team, seasons_at_previous) = match prev {
-                Some((team, tenure)) => (Some(team), Some(tenure)),
-                None => (None, None),
-            };
-            Some(MarketEvent {
-                event_type: MarketEventType::TransferCompleted,
-                headline: format!("{} -> {}", s.driver_name, s.team_name),
-                description: rust_i18n::t!("market.event.deal", category = s.categoria.as_str())
-                    .to_string(),
-                driver_id: Some(s.driver_id.clone()),
-                driver_name: Some(s.driver_name.clone()),
-                team_id: Some(s.team_id.clone()),
-                team_name: Some(s.team_name.clone()),
-                from_team,
-                to_team: Some(s.team_name.clone()),
-                categoria: Some(s.categoria.clone()),
-                from_categoria: None,
-                movement_kind: Some(movement_kind.to_string()),
-                championship_position: None,
-                seasons_at_previous,
-                relation: None,
-            })
+        .filter(|s| s.tipo == "renovacao")
+        .map(|s| MarketEvent {
+            event_type: MarketEventType::ContractRenewed,
+            headline: format!("{} -> {}", s.driver_name, s.team_name),
+            description: rust_i18n::t!("market.event.renewed").to_string(),
+            driver_id: Some(s.driver_id.clone()),
+            driver_name: Some(s.driver_name.clone()),
+            team_id: Some(s.team_id.clone()),
+            team_name: Some(s.team_name.clone()),
+            from_team: Some(s.team_name.clone()),
+            to_team: Some(s.team_name.clone()),
+            categoria: Some(s.categoria.clone()),
+            from_categoria: Some(s.categoria.clone()),
+            movement_kind: Some("renewal".to_string()),
+            championship_position: None,
+            seasons_at_previous: previous_team
+                .get(s.driver_id.as_str())
+                .map(|(_, tenure)| *tenure),
+            relation: None,
         })
         .collect()
 }
 
+/// Eventos de DISPENSA: contratos que terminaram (temporada_fim < season) cujo piloto
+/// NÃO tem contrato ativo após a passada de contratos (não renovou nem foi
+/// reaproveitado); exclui o jogador. É o "quem perdeu a vaga" da semana das saídas.
 pub(super) fn build_departure_events(
     conn: &Connection,
     season_number: i32,
@@ -129,9 +119,19 @@ pub(super) fn build_departure_events(
         .filter(|d| d.is_jogador)
         .map(|d| d.id.as_str())
         .collect();
+    // Quem se aposentou: o contrato pode estar longe de vencer (veterano com plurianual),
+    // então a regra do fim de contrato não o alcança. Ele sai por outro motivo, e o feed
+    // precisa dizer qual — senão o assento que a semana 1 mostrava ocupado só evapora.
+    let aposentados: std::collections::HashSet<&str> = drivers
+        .iter()
+        .filter(|d| d.status == crate::models::enums::DriverStatus::Aposentado)
+        .map(|d| d.id.as_str())
+        .collect();
+
     let mut events = Vec::new();
     for c in contracts_before {
-        if c.temporada_fim >= season_number
+        let aposentou = aposentados.contains(c.piloto_id.as_str());
+        if (c.temporada_fim >= season_number && !aposentou)
             || active_after.contains(&c.piloto_id)
             || is_player.contains(c.piloto_id.as_str())
         {
@@ -145,7 +145,11 @@ pub(super) fn build_departure_events(
                 team = c.equipe_nome.as_str()
             )
             .to_string(),
-            description: rust_i18n::t!("market.event.contract_ended").to_string(),
+            description: if aposentou {
+                rust_i18n::t!("market.event.retired").to_string()
+            } else {
+                rust_i18n::t!("market.event.contract_ended").to_string()
+            },
             driver_id: Some(c.piloto_id.clone()),
             driver_name: Some(c.piloto_nome.clone()),
             team_id: Some(c.equipe_id.clone()),
@@ -154,7 +158,7 @@ pub(super) fn build_departure_events(
             to_team: None,
             categoria: Some(c.categoria.clone()),
             from_categoria: Some(c.categoria.clone()),
-            movement_kind: Some("departure".to_string()),
+            movement_kind: Some(if aposentou { "retirement" } else { "departure" }.to_string()),
             championship_position: None,
             seasons_at_previous: previous_team
                 .get(c.piloto_id.as_str())

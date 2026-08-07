@@ -99,6 +99,7 @@ pub(super) fn build_team_season_results(
         thirds: i32,
         fourths: i32,
         fifths: i32,
+        dnfs: i32,
         podiums: i32,
         points: f64,
         races: i32,
@@ -124,6 +125,9 @@ pub(super) fn build_team_season_results(
             Some(5) => entry.fifths += 1,
             _ => {}
         }
+        // Fora do `match` das colocações porque não é uma colocação: o abandono
+        // de um carro convive com o pódio do outro na mesma corrida.
+        entry.dnfs += fact.dnfs;
         entry.points += fact.points;
         entry.races += 1;
         *entry.categories.entry(fact.category.clone()).or_insert(0) += 1;
@@ -160,6 +164,7 @@ pub(super) fn build_team_season_results(
                 thirds: season.thirds,
                 fourths: season.fourths,
                 fifths: season.fifths,
+                dnfs: season.dnfs,
             }
         })
         .collect()
@@ -184,51 +189,70 @@ pub(super) fn build_team_championship_run(
 ) -> Option<TeamHistoryChampionshipRun> {
     use std::collections::{BTreeMap, BTreeSet};
 
-    // A temporada é a última em que a EQUIPE correu, não a última do save: numa
-    // equipe dissolvida há três anos, a temporada corrente não tem linha nenhuma
-    // dela e o gráfico ficaria sem o único fio que importa.
-    let season = all_facts
+    // As temporadas da EQUIPE, da mais recente para a mais antiga — e não a
+    // última do save: numa equipe dissolvida há três anos, a temporada corrente
+    // não tem linha nenhuma dela e o gráfico ficaria sem o único fio que importa.
+    //
+    // Anda para trás porque uma rodada só não é campanha: no comeco de temporada
+    // a mais recente tem uma corrida ou nenhuma, e parar ali fazia o bloco
+    // inteiro sumir — junto com o seletor entre as duas vistas, que so aparece
+    // quando as duas tem dado. Recuar mostra a ultima disputa que existiu, e ela
+    // se identifica sozinha: o cabecalho do grafico traz o ano e a categoria, e
+    // `live` fica falso.
+    let temporadas: Vec<i32> = all_facts
         .iter()
         .filter(|fact| fact.team_id == team_id)
         .map(|fact| fact.season_number)
-        .max()?;
-
-    // Dentro da temporada, a categoria em que a equipe mais correu. Uma equipe
-    // promovida no meio do ano aparece nas duas; a que vale é onde ela disputou
-    // o campeonato de fato.
-    let mut por_categoria: HashMap<&str, i32> = HashMap::new();
-    for fact in all_facts
-        .iter()
-        .filter(|fact| fact.season_number == season && fact.team_id == team_id)
-    {
-        *por_categoria.entry(fact.category.as_str()).or_insert(0) += 1;
-    }
-    // Desempate por nome da categoria para o resultado não depender da ordem do
-    // HashMap — dois campeonatos com o mesmo número de corridas existem.
-    let category_id = por_categoria
-        .into_iter()
-        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
-        .map(|(cat, _)| cat.to_string())?;
-
-    let recorte: Vec<&TeamRaceFact> = all_facts
-        .iter()
-        .filter(|fact| fact.season_number == season && fact.category == category_id)
-        .collect();
-    if recorte.is_empty() {
-        return None;
-    }
-
-    let rounds: Vec<i32> = recorte
-        .iter()
-        .map(|fact| fact.round)
         .collect::<BTreeSet<i32>>()
         .into_iter()
+        .rev()
         .collect();
-    // Uma rodada só não é campanha: não há disputa para desenhar, e a fita de
-    // forma recente já conta essa corrida melhor.
-    if rounds.len() < 2 {
-        return None;
+
+    let mut escolhido: Option<(i32, String, Vec<&TeamRaceFact>, Vec<i32>)> = None;
+    for season in temporadas {
+        // Dentro da temporada, a categoria em que a equipe mais correu. Uma
+        // equipe promovida no meio do ano aparece nas duas; a que vale é onde ela
+        // disputou o campeonato de fato.
+        let mut por_categoria: HashMap<&str, i32> = HashMap::new();
+        for fact in all_facts
+            .iter()
+            .filter(|fact| fact.season_number == season && fact.team_id == team_id)
+        {
+            *por_categoria.entry(fact.category.as_str()).or_insert(0) += 1;
+        }
+        // Desempate por nome da categoria para o resultado não depender da ordem
+        // do HashMap — dois campeonatos com o mesmo número de corridas existem.
+        let Some(category_id) = por_categoria
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+            .map(|(cat, _)| cat.to_string())
+        else {
+            continue;
+        };
+
+        let recorte: Vec<&TeamRaceFact> = all_facts
+            .iter()
+            .filter(|fact| fact.season_number == season && fact.category == category_id)
+            .collect();
+        if recorte.is_empty() {
+            continue;
+        }
+
+        let rounds: Vec<i32> = recorte
+            .iter()
+            .map(|fact| fact.round)
+            .collect::<BTreeSet<i32>>()
+            .into_iter()
+            .collect();
+        if rounds.len() < 2 {
+            continue;
+        }
+
+        escolhido = Some((season, category_id, recorte, rounds));
+        break;
     }
+
+    let (season, category_id, recorte, rounds) = escolhido?;
 
     // Pontos por equipe e rodada. BTreeMap para a ordem das equipes ser estável
     // entre execuções — o desenho de vinte linhas cinzas não pode piscar de
@@ -328,7 +352,46 @@ pub(super) fn build_team_highlights(
             .unwrap_or_default()
     };
 
+    // Os candidatos entram em ordem de IMPORTÂNCIA, não de conveniência de
+    // cálculo: o corte lá embaixo é por cima da lista, e quem fica de fora é o
+    // superlativo mais fraco.
     let mut highlights = Vec::new();
+
+    // Maior sequência de títulos consecutivos. Abre a fileira: é o único aqui que
+    // fala de domínio sustentado, e não de um ano bom isolado.
+    let mut years: Vec<i32> = titles.iter().map(|title| title.season_year).collect();
+    years.sort_unstable();
+    years.dedup();
+    let mut best_run = 0;
+    let mut best_run_end = 0;
+    let mut run = 0;
+    let mut prev: Option<i32> = None;
+    for year in &years {
+        run = if prev == Some(year - 1) { run + 1 } else { 1 };
+        if run > best_run {
+            best_run = run;
+            best_run_end = *year;
+        }
+        prev = Some(*year);
+    }
+    if best_run >= 2 {
+        highlights.push(TeamHistoryHighlight {
+            label: rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string(),
+            value: rust_i18n::t!(
+                "team_dossier.highlight.biggest_dynasty_value",
+                count = best_run
+            )
+            .to_string(),
+            // O intervalo INTEIRO, não só o fim. "Até 2019" obrigava a subtrair de
+            // cabeça a sequência do card ao lado para saber quando começou.
+            detail: rust_i18n::t!(
+                "team_dossier.highlight.detail_span",
+                first = best_run_end - best_run + 1,
+                last = best_run_end
+            )
+            .to_string(),
+        });
+    }
 
     // Melhor temporada por vitórias.
     if let Some((_, (year, wins, _, cats))) = by_season.iter().max_by_key(|(_, v)| v.1) {
@@ -364,36 +427,10 @@ pub(super) fn build_team_highlights(
         }
     }
 
-    // Maior sequência de títulos consecutivos.
-    let mut years: Vec<i32> = titles.iter().map(|title| title.season_year).collect();
-    years.sort_unstable();
-    years.dedup();
-    let mut best_run = 0;
-    let mut best_run_end = 0;
-    let mut run = 0;
-    let mut prev: Option<i32> = None;
-    for year in &years {
-        run = if prev == Some(year - 1) { run + 1 } else { 1 };
-        if run > best_run {
-            best_run = run;
-            best_run_end = *year;
-        }
-        prev = Some(*year);
-    }
-    if best_run >= 2 {
-        highlights.push(TeamHistoryHighlight {
-            label: rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string(),
-            value: rust_i18n::t!(
-                "team_dossier.highlight.biggest_dynasty_value",
-                count = best_run
-            )
-            .to_string(),
-            detail: rust_i18n::t!("team_dossier.highlight.detail_until", year = best_run_end)
-                .to_string(),
-        });
-    }
-
-    // Melhor campanha (menor posição final no campeonato).
+    // Melhor campanha (menor posição final no campeonato). Fecha a fila: numa
+    // equipe que já foi campeã nove vezes, "Campeão, em 2008" repete um número
+    // que o cabeçalho do dossiê já mostra. Só sobrevive ao corte em quem tem
+    // pouco mais a contar — e aí é o teto dela, que não aparece em outro lugar.
     if let Some((season, position)) = positions.iter().min_by_key(|(_, pos)| **pos) {
         let year = by_season.get(season).map(|entry| entry.0).unwrap_or(0);
         let value = if *position == 1 {
@@ -408,6 +445,10 @@ pub(super) fn build_team_highlights(
         });
     }
 
+    // A fileira é de TRÊS colunas: quatro cards deixam um órfão sozinho na linha
+    // de baixo, e cinco deixam um buraco. Só 3 ou 6 fecham a grade — e como o
+    // caldo aqui nunca chega a seis, na prática o corte é em três.
+    highlights.truncate(if highlights.len() >= 6 { 6 } else { 3 });
     highlights
 }
 
@@ -575,5 +616,148 @@ pub(super) fn best_real_streak_label(facts: &[TeamRaceFact]) -> String {
         }
     } else {
         rust_i18n::t!("team_dossier.streak.none").to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fato(season: i32, year: i32, win: bool, podium: bool) -> TeamRaceFact {
+        TeamRaceFact {
+            team_id: "t1".to_string(),
+            season_number: season,
+            season_year: year,
+            category: "gt3".to_string(),
+            round: 1,
+            points: 10.0,
+            win,
+            podium,
+            best_position: Some(if win { 1 } else { 3 }),
+            week_of_year: 1,
+            dnfs: 0,
+            class: String::new(),
+        }
+    }
+
+    fn titulo(season_year: i32) -> TeamTitleFact {
+        TeamTitleFact {
+            season_id: format!("s{season_year}"),
+            season_year,
+            category: "gt3".to_string(),
+            points: 300.0,
+            wins: 4,
+            class: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_fileira_de_destaques_nunca_fecha_em_quatro() {
+        // Equipe com tudo: dinastia, temporada boa, pico de pódios E uma campanha
+        // de campeã. São quatro candidatos, e quatro deixam um órfão sozinho na
+        // linha de baixo de uma grade de três colunas.
+        let facts = vec![
+            fato(1, 2020, true, true),
+            fato(2, 2021, true, true),
+            fato(3, 2022, true, true),
+        ];
+        let titles = vec![titulo(2020), titulo(2021), titulo(2022)];
+        let positions: HashMap<i32, i32> = [(1, 1), (2, 1), (3, 1)].into_iter().collect();
+
+        let highlights = build_team_highlights(&facts, &titles, &positions);
+        assert_eq!(highlights.len(), 3);
+        // O que cai é a campanha: numa equipe que já foi campeã, ela repete um
+        // número que o cabeçalho do dossiê mostra.
+        assert_eq!(
+            highlights[0].label,
+            rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string(),
+            "a dinastia abre a fileira"
+        );
+        assert!(!highlights
+            .iter()
+            .any(|item| item.label
+                == rust_i18n::t!("team_dossier.highlight.best_campaign").to_string()));
+    }
+
+    #[test]
+    fn a_dinastia_mostra_o_intervalo_inteiro() {
+        let facts = vec![fato(1, 2017, true, true)];
+        let titles = vec![titulo(2017), titulo(2018), titulo(2019)];
+        let highlights = build_team_highlights(&facts, &titles, &HashMap::new());
+        let dinastia = highlights
+            .iter()
+            .find(|item| {
+                item.label == rust_i18n::t!("team_dossier.highlight.biggest_dynasty").to_string()
+            })
+            .expect("a dinastia entra na fileira");
+        // "Até 2019" obrigava a subtrair a sequência de cabeça para saber o começo.
+        assert!(
+            dinastia.detail.contains("2017") && dinastia.detail.contains("2019"),
+            "o detalhe traz o intervalo: {}",
+            dinastia.detail
+        );
+    }
+
+    #[test]
+    fn quem_nunca_foi_campea_mantem_a_melhor_campanha() {
+        let facts = vec![fato(1, 2020, true, true), fato(2, 2021, false, true)];
+        let positions: HashMap<i32, i32> = [(1, 4), (2, 2)].into_iter().collect();
+        let highlights = build_team_highlights(&facts, &[], &positions);
+        assert_eq!(highlights.len(), 3);
+        assert!(
+            highlights.iter().any(|item| item.value == "P2"),
+            "o teto dela não aparece em outro lugar"
+        );
+    }
+    fn fato_rodada(season: i32, year: i32, round: i32, team: &str) -> TeamRaceFact {
+        TeamRaceFact {
+            team_id: team.to_string(),
+            season_number: season,
+            season_year: year,
+            category: "gt3".to_string(),
+            round,
+            points: 10.0,
+            win: false,
+            podium: false,
+            best_position: Some(4),
+            week_of_year: round,
+            dnfs: 0,
+            class: String::new(),
+        }
+    }
+
+    #[test]
+    fn campanha_recua_para_a_ultima_temporada_que_teve_disputa() {
+        // A temporada corrente mal comecou: uma rodada. Parar nela fazia a
+        // campanha sumir — e, com ela, o seletor entre as duas vistas de "como a
+        // equipe evolui", que so aparece quando as duas tem dado.
+        let mut facts = vec![
+            fato_rodada(1, 2025, 1, "t1"),
+            fato_rodada(1, 2025, 2, "t1"),
+            fato_rodada(1, 2025, 3, "t1"),
+            fato_rodada(1, 2025, 1, "t2"),
+            fato_rodada(1, 2025, 2, "t2"),
+            fato_rodada(1, 2025, 3, "t2"),
+        ];
+        facts.push(fato_rodada(2, 2026, 1, "t1"));
+        facts.push(fato_rodada(2, 2026, 1, "t2"));
+
+        let mut names = HashMap::new();
+        names.insert("t1".to_string(), "Equipe Um".to_string());
+        names.insert("t2".to_string(), "Equipe Dois".to_string());
+
+        let run = build_team_championship_run(&facts, "t1", &names, 2)
+            .expect("a campanha de 2025 continua desenhavel");
+        assert_eq!(run.year, "2025");
+        assert_eq!(run.rounds.len(), 3);
+        // Recuada, ela nao e o campeonato em andamento — e o grafico diz isso.
+        assert!(!run.live);
+    }
+
+    #[test]
+    fn sem_nenhuma_temporada_com_duas_rodadas_nao_ha_campanha() {
+        let facts = vec![fato_rodada(2, 2026, 1, "t1"), fato_rodada(2, 2026, 1, "t2")];
+        let names = HashMap::new();
+        assert!(build_team_championship_run(&facts, "t1", &names, 2).is_none());
     }
 }

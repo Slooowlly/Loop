@@ -164,6 +164,7 @@ fn round_finance_context_uses_real_money_instead_of_raw_budget() {
     let rich_context = calculate_team_round_finance_context(
         &rich,
         0.0,
+        0.0,
         4,
         0,
         0,
@@ -173,6 +174,7 @@ fn round_finance_context_uses_real_money_instead_of_raw_budget() {
         GlobalEconomicHealth::Neutral,
         0.0,
         RoundOperationContext::default(),
+        EtapaFisica::de_referencia("gt4", None),
         0.0,
         0.0,
         1.0,
@@ -180,6 +182,7 @@ fn round_finance_context_uses_real_money_instead_of_raw_budget() {
     let poor_context = calculate_team_round_finance_context(
         &poor,
         0.0,
+        0.0,
         4,
         0,
         0,
@@ -189,6 +192,7 @@ fn round_finance_context_uses_real_money_instead_of_raw_budget() {
         GlobalEconomicHealth::Neutral,
         0.0,
         RoundOperationContext::default(),
+        EtapaFisica::de_referencia("gt4", None),
         0.0,
         0.0,
         1.0,
@@ -212,6 +216,7 @@ fn fama_do_lineup_sobe_o_patrocinio() {
     let sem_fama = calculate_team_round_finance_context(
         &team,
         0.0,
+        0.0,
         4,
         0,
         0,
@@ -221,6 +226,7 @@ fn fama_do_lineup_sobe_o_patrocinio() {
         GlobalEconomicHealth::Neutral,
         0.0,
         RoundOperationContext::default(),
+        EtapaFisica::de_referencia("gt4", None),
         0.0,
         0.0,
         1.0,
@@ -228,6 +234,7 @@ fn fama_do_lineup_sobe_o_patrocinio() {
     let com_estrela = calculate_team_round_finance_context(
         &team,
         85.0,
+        0.0,
         4,
         0,
         0,
@@ -237,6 +244,7 @@ fn fama_do_lineup_sobe_o_patrocinio() {
         GlobalEconomicHealth::Neutral,
         0.0,
         RoundOperationContext::default(),
+        EtapaFisica::de_referencia("gt4", None),
         0.0,
         0.0,
         1.0,
@@ -250,9 +258,12 @@ fn fama_do_lineup_sobe_o_patrocinio() {
 }
 
 #[test]
-fn fama_do_lineup_sobe_a_bilheteria() {
-    // Mesmo evento e mesmo grid: um lineup famoso leva uma fatia MAIOR da bilheteria
-    // que um anônimo (cota competitiva por fama). É a 2ª receita de fama da Fase 3.
+fn atracao_de_publico_sobe_a_bilheteria() {
+    // Mesmo evento e mesmo grid: a equipe que ATRAI mais público leva uma fatia maior
+    // da bilheteria. A grandeza da cota deixou de ser a presença do lineup e passou a
+    // ser a atração (`public_presence::atracao`) — fama × competitividade + vínculo
+    // local + história. A presença é mantida IGUAL nos dois casos justamente para o
+    // teste medir o canal novo e não o antigo.
     let mut team = placeholder_team_from_db(
         "TGATE".to_string(),
         "Gate Team".to_string(),
@@ -260,48 +271,44 @@ fn fama_do_lineup_sobe_a_bilheteria() {
         "2026-01-01".to_string(),
     );
     team.reputacao = 50.0;
-    // Evento de prestígio 60, grid com presença total 300 e 8 times.
-    let anonimo = calculate_team_round_finance_context(
-        &team,
-        30.0,
-        0,
-        0,
-        0,
-        8,
-        35_000.0,
-        8.0,
-        GlobalEconomicHealth::Neutral,
-        0.0,
-        RoundOperationContext::default(),
-        60.0,
-        300.0,
-        8.0,
-    );
-    let estrela = calculate_team_round_finance_context(
-        &team,
-        150.0,
-        0,
-        0,
-        0,
-        8,
-        35_000.0,
-        8.0,
-        GlobalEconomicHealth::Neutral,
-        0.0,
-        RoundOperationContext::default(),
-        60.0,
-        300.0,
-        8.0,
+    // Evento de prestígio 60, grid com atração total 300 e 8 times.
+    let contexto = |atracao: f64| {
+        calculate_team_round_finance_context(
+            &team,
+            40.0,
+            atracao,
+            0,
+            0,
+            0,
+            8,
+            35_000.0,
+            8.0,
+            GlobalEconomicHealth::Neutral,
+            0.0,
+            RoundOperationContext::default(),
+            EtapaFisica::de_referencia("gt4", None),
+            60.0,
+            300.0,
+            8.0,
+        )
+    };
+    let sem_apelo = contexto(15.0);
+    let com_apelo = contexto(90.0);
+
+    assert!(
+        com_apelo.gate_income > sem_apelo.gate_income,
+        "quem atrai mais público deve levar mais bilheteria: {} vs {}",
+        com_apelo.gate_income,
+        sem_apelo.gate_income
     );
     assert!(
-        estrela.gate_income > anonimo.gate_income,
-        "lineup famoso deve puxar mais bilheteria: {} vs {}",
-        estrela.gate_income,
-        anonimo.gate_income
-    );
-    assert!(
-        anonimo.gate_income > 0.0,
+        sem_apelo.gate_income > 0.0,
         "piso de público garante bilheteria > 0"
+    );
+    // O patrocínio NÃO se move com a atração: ele lê a presença, que foi mantida igual.
+    assert!(
+        (com_apelo.sponsorship_income - sem_apelo.sponsorship_income).abs() < 1e-9,
+        "patrocínio e bilheteria são canais separados"
     );
 }
 
@@ -442,6 +449,7 @@ fn fatura_de_teste(
         &team,
         &result,
         1,
+        50,
         12.0,
         global_economic_health_for_season(1),
         repair_cost,
@@ -475,8 +483,9 @@ fn fatura_ancora_na_rodada_corrente_e_nao_na_linha_mais_recente() {
     );
 }
 
-/// Corrida de fase especial não movimenta o caixa (`apply_race_result_to_database`
-/// sai antes do bloco financeiro), então não existe linha da rodada. A fatura não
+/// Rodada sem linha no histórico financeiro — o caso da equipe CONVIDADA numa etapa
+/// do calendário especial, que só passa pelo conserto do carro (a fatura de rodada
+/// dela corre no campeonato de origem; ver `charges_round_economy`). A fatura não
 /// pode inventar as linhas de operação a partir da última rodada REGULAR: só o
 /// conserto, que é debitado à parte, tem direito de aparecer.
 #[test]
@@ -813,6 +822,123 @@ fn endurance_special_race_uses_regular_contract_grid_with_lmp2_class_teams() {
             contract.classe
         );
     }
+
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+/// Etapa do calendário especial emite a fatura da rodada para as equipes DA CASA.
+///
+/// Regressão: `apply_race_result_to_database` saía antes do bloco financeiro em toda
+/// corrida especial, sem distinguir quem estava ali. Para a equipe convidada isso é
+/// correto — ela paga no campeonato de origem. Para a equipe cuja categoria-mãe É o
+/// bloco especial, era a economia inteira que não existia: 36 equipes entre Endurance
+/// e Production recebiam prêmio de fim de temporada e nunca pagavam folha, operação
+/// nem serviço de dívida. O caixa só subia, e esse excedente fantasma vazava para o
+/// índice de orçamento e para a disputa por pilotos no mercado.
+#[test]
+fn corrida_do_bloco_especial_fatura_as_equipes_da_casa() {
+    let base_dir = unique_test_dir("endurance_fatura_da_casa");
+    fs::create_dir_all(&base_dir).expect("base dir");
+
+    create_career_in_base_dir(
+        &base_dir,
+        CreateCareerInput {
+            player_name: "Joao Silva".to_string(),
+            player_nationality: "br".to_string(),
+            player_age: Some(20),
+            category: "mazda_rookie".to_string(),
+            team_index: 0,
+            difficulty: "medio".to_string(),
+        },
+    )
+    .expect("career");
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let mut db = Database::open_existing(&db_path).expect("db");
+    force_legacy_blocoregular_state(&db);
+    mark_regular_races_completed(&db);
+    crate::convocation::advance_to_convocation_window(&db.conn).expect("advance convocation");
+    crate::convocation::iniciar_bloco_especial(&db.conn).expect("start special block");
+
+    let season = season_queries::get_active_season(&db.conn)
+        .expect("season")
+        .expect("active season");
+    let next_race = get_next_race(&db.conn, &season.id, "endurance")
+        .expect("next endurance race")
+        .expect("pending endurance race");
+    let rodada = next_race.rodada;
+    let temporada = season.numero as i32;
+
+    let caixa_antes: std::collections::HashMap<String, f64> =
+        team_queries::get_teams_by_category(&db.conn, "endurance")
+            .expect("endurance teams")
+            .into_iter()
+            .map(|team| (team.id, team.cash_balance))
+            .collect();
+    assert!(
+        !caixa_antes.is_empty(),
+        "o grid do Endurance não pode estar vazio"
+    );
+
+    simulate_category_race(&mut db, &next_race, false).expect("simulate endurance special race");
+
+    let mut faturadas = 0;
+    for (team_id, antes) in &caixa_antes {
+        let linha = db
+            .conn
+            .query_row(
+                "SELECT salary_expense, event_operations_cost, income_total, expenses_total
+                   FROM team_finance_history
+                  WHERE team_id = ?1 AND season_number = ?2 AND round = ?3",
+                rusqlite::params![team_id, temporada, rodada],
+                |row| {
+                    Ok((
+                        row.get::<_, f64>(0)?,
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, f64>(2)?,
+                        row.get::<_, f64>(3)?,
+                    ))
+                },
+            )
+            .ok();
+        let Some((salario, operacao, receita, custo)) = linha else {
+            continue;
+        };
+        faturadas += 1;
+        assert!(
+            salario > 0.0,
+            "a equipe da casa tem folha e ela precisa ser cobrada, veio {salario}"
+        );
+        assert!(
+            operacao > 0.0,
+            "operar a etapa custa dinheiro, veio {operacao}"
+        );
+        assert!(receita > 0.0 && custo > 0.0, "a fatura tem os dois lados");
+        let _ = antes;
+    }
+
+    assert!(
+        faturadas > 0,
+        "nenhuma equipe do Endurance recebeu fatura — a economia do bloco especial \
+         continua sem existir"
+    );
+
+    // A convidada NÃO é faturada aqui: a fatura dela corre na categoria-mãe.
+    let convidadas_faturadas: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM team_finance_history f
+               JOIN teams t ON t.id = f.team_id
+              WHERE f.season_number = ?1 AND f.round = ?2 AND t.categoria <> 'endurance'",
+            rusqlite::params![temporada, rodada],
+            |row| row.get(0),
+        )
+        .expect("contagem de convidadas faturadas");
+    assert_eq!(
+        convidadas_faturadas, 0,
+        "equipe convidada não pode ser cobrada duas vezes na mesma semana"
+    );
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -1993,11 +2119,58 @@ fn aposentadoria_por_lesao_vira_noticia_de_destaque() {
         manchete.texto
     );
     assert!(
-        manchete.texto.contains("120") && manchete.texto.contains('7') && manchete.texto.contains("22"),
+        manchete.texto.contains("120")
+            && manchete.texto.contains('7')
+            && manchete.texto.contains("22"),
         "o texto tem que trazer o saldo da carreira (corridas/vitórias/pódios): {}",
         manchete.texto
     );
-    assert_eq!(manchete.rodada, Some(7), "a notícia se ancora na rodada da corrida");
+    assert_eq!(
+        manchete.rodada,
+        Some(7),
+        "a notícia se ancora na rodada da corrida"
+    );
 
     let _ = fs::remove_dir_all(base_dir);
 }
+
+/// Quem paga a fatura da rodada numa etapa do calendário especial.
+///
+/// Regressão: o `return` que tirava as corridas especiais do bloco financeiro era
+/// INCONDICIONAL. As equipes cuja categoria-mãe É o bloco especial — 36 delas, um
+/// terço do grid entre Endurance e Production — nunca pagavam nada. Recebiam prêmio
+/// de fim de temporada e acumulavam caixa temporada após temporada, com folha
+/// salarial registrada no banco e jamais cobrada. Esse caixa fantasma não ficava no
+/// dossiê: alimentava o índice de orçamento e a capacidade de contratar no mercado.
+#[test]
+fn fatura_da_rodada_cobra_a_casa_e_poupa_a_convidada_no_bloco_especial() {
+    // Campeonato regular: todo mundo paga, inclusive quem não é da categoria (caso
+    // que não acontece, mas a regra não pode depender disso).
+    assert!(super::persistencia::charges_round_economy("gt3", "gt3"));
+    assert!(super::persistencia::charges_round_economy("gt4", "gt3"));
+
+    // Bloco especial: só a casa.
+    assert!(super::persistencia::charges_round_economy(
+        "production_challenger",
+        "production_challenger"
+    ));
+    assert!(super::persistencia::charges_round_economy(
+        "endurance",
+        "endurance"
+    ));
+    // A equipe de GT4 convocada para o Endurance já paga a fatura dela no GT4.
+    assert!(!super::persistencia::charges_round_economy(
+        "gt4",
+        "endurance"
+    ));
+    assert!(!super::persistencia::charges_round_economy(
+        "mazda_rookie",
+        "production_challenger"
+    ));
+}
+
+/// O modelo de despesa ANTIGO, congelado. Não é produção — é a régua contra a qual a troca
+/// foi medida, e ela precisa continuar alcançável para o comparador ter dois lados.
+/// `pub(crate)` porque os testes de `race::despesa` também comparam contra ele.
+pub(crate) mod despesa_legada;
+mod medicao_financeira;

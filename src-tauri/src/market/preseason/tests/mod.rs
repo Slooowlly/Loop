@@ -127,7 +127,18 @@ fn test_initialize_preseason_recalculates_pit_and_strategy() {
         .expect("team b exists");
     team_b.car_performance = 4.0;
     team_b.budget = 18.0;
-    team_b.cash_balance = 2_500_000.0;
+    // Caixa de lanterna: dois meses de operação da categoria.
+    //
+    // Era `2_500_000` escrito à mão — um número que, na escala antiga do gt4 (caixa de 2 a
+    // 9 milhões), era de fato abaixo da média. Quando o caixa esperado virou consequência
+    // (1 a 11 meses de operação), esses mesmos 2,5 milhões passaram a ser vinte meses de
+    // fôlego: o literal transformou a equipe "fraca" na mais rica do grid, e o teste passou
+    // a cobrar que a equipe pobre tivesse pit crew pior que a rica sendo que os papéis
+    // tinham se invertido.
+    //
+    // Derivado da escala, o fixture volta a dizer o que queria dizer e acompanha a âncora.
+    team_b.cash_balance =
+        crate::economia::temporada::caixa_para_meses(&team_b.categoria, None, 2.0);
     team_b.engineering = 35.0;
     team_b.facilities = 30.0;
     team_queries::update_team(&conn, &team_b).expect("update team b");
@@ -249,8 +260,11 @@ fn test_advance_week_phase_transitions() {
     assert_eq!(plan.state.phase, PreSeasonPhase::Complete);
 }
 
+/// A semana 1 é a FOTO: quem terminou a temporada com contrato ainda aparece nela, mesmo
+/// que o contrato tenha vencido. A expiração cai ao SAIR da semana 1 — é isso que faz o
+/// jogador ver o grid inteiro antes de ele se desmanchar.
 #[test]
-fn test_initialize_preseason_expires_ending_contracts_immediately() {
+fn test_semana_1_e_a_foto_e_expira_ao_sair_dela() {
     let conn = setup_market_fixture();
     let mut rng = StdRng::seed_from_u64(5061);
 
@@ -259,13 +273,28 @@ fn test_initialize_preseason_expires_ending_contracts_immediately() {
         .expect("player should start with active contract");
     assert_eq!(active_before.id, "C004");
 
-    let plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+    assert_eq!(plan.state.current_week, 1);
+    assert!(
+        !plan.prepasses_applied,
+        "a janela abre na foto: as pre-passes nao podem ter rodado ainda"
+    );
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "P007")
+            .expect("active contract query on week 1")
+            .is_some(),
+        "na foto (semana 1) o contrato vencido ainda ocupa o assento"
+    );
 
+    advance_week(&conn, &mut plan, None).expect("week 1 should advance");
+
+    assert_eq!(plan.state.current_week, 2);
+    assert!(plan.prepasses_applied);
     let active_after = contract_queries::get_active_regular_contract_for_pilot(&conn, "P007")
-        .expect("active contract query after preseason");
+        .expect("active contract query after week 1");
     assert!(
         active_after.is_none(),
-        "piloto com contrato encerrado na temporada anterior deve entrar na pre-temporada sem contrato ativo"
+        "ao sair da semana 1 o contrato encerrado deve estar expirado"
     );
 
     let player_contract_status: String = conn
@@ -279,10 +308,99 @@ fn test_initialize_preseason_expires_ending_contracts_immediately() {
 
     assert!(
         !plan.planned_events.iter().any(|event| {
-            event.week > 1
-                && matches!(event.event, PendingAction::ExpireContract { .. })
+            event.week > 1 && matches!(event.event, PendingAction::ExpireContract { .. })
         }),
-        "expiracoes de contrato nao devem ficar adiadas para semanas posteriores ao inicio da janela"
+        "expiracoes de contrato nao devem ficar adiadas para semanas posteriores"
+    );
+}
+
+/// Nas semanas de abertura o único destino possível de um piloto é perder o contrato ou
+/// renovar. Ninguém troca de equipe — nem por contratação, nem por rebaixamento de
+/// mérito, nem por assédio. O teste olha o feed E o banco: um movimento silencioso
+/// (assédio, que nunca gerou evento) passaria batido se só olhasse o feed.
+#[test]
+fn test_semanas_de_abertura_nao_movem_ninguem_de_equipe() {
+    let conn = setup_market_fixture();
+    let mut rng = StdRng::seed_from_u64(5062);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    let start = plan.state.signings_start_week;
+    assert!(
+        start >= 2,
+        "a janela precisa de ao menos uma semana de foto"
+    );
+
+    // Assento de cada piloto na foto: driver_id -> equipe_id.
+    let assento_na_foto: std::collections::HashMap<String, String> =
+        contract_queries::get_all_active_regular_contracts(&conn)
+            .expect("contratos da foto")
+            .into_iter()
+            .map(|c| (c.piloto_id, c.equipe_id))
+            .collect();
+
+    while plan.state.current_week < start {
+        let result = advance_week(&conn, &mut plan, None).expect("opening week should advance");
+        assert!(
+            !result.is_last_week,
+            "a janela nao pode fechar antes de contratar ninguem"
+        );
+        // Só saída (dispensa ou aposentadoria) e renovação têm lugar aqui.
+        for evento in &result.events {
+            assert!(
+                matches!(
+                    evento.movement_kind.as_deref(),
+                    Some("departure") | Some("retirement") | Some("renewal") | None
+                ),
+                "semana de abertura {} trouxe um movimento de equipe: {:?}",
+                result.week_number,
+                evento.movement_kind
+            );
+        }
+    }
+    assert_eq!(plan.state.current_week, start);
+
+    // No banco: quem ainda tem contrato ativo tem que estar na MESMA equipe da foto.
+    for contrato in contract_queries::get_all_active_regular_contracts(&conn)
+        .expect("contratos apos as semanas de abertura")
+    {
+        if let Some(equipe_na_foto) = assento_na_foto.get(&contrato.piloto_id) {
+            assert_eq!(
+                &contrato.equipe_id, equipe_na_foto,
+                "piloto {} trocou de equipe antes de o mercado abrir",
+                contrato.piloto_id
+            );
+        }
+    }
+}
+
+/// As renovações não saem junto das dispensas: a saída MOVE o piloto e explica a mudança
+/// do grid entre a semana 1 e a 2; a renovação não move ninguém e fecha a semana 2.
+#[test]
+fn test_renovacoes_saem_na_semana_seguinte_as_dispensas() {
+    let conn = setup_market_fixture();
+    let mut rng = StdRng::seed_from_u64(5063);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    let semana_1 = advance_week(&conn, &mut plan, None).expect("week 1 should advance");
+    assert!(
+        !semana_1
+            .events
+            .iter()
+            .any(|e| e.movement_kind.as_deref() == Some("renewal")),
+        "a semana das saidas nao pode carregar renovacao"
+    );
+
+    let semana_2 = advance_week(&conn, &mut plan, None).expect("week 2 should advance");
+    assert!(
+        !semana_2
+            .events
+            .iter()
+            .any(|e| e.movement_kind.as_deref() == Some("departure")),
+        "as dispensas ja sairam na semana anterior"
+    );
+    assert!(
+        plan.pending_renewals.is_empty(),
+        "as renovacoes guardadas devem ter sido drenadas na semana 2"
     );
 }
 
@@ -742,4 +860,114 @@ fn unique_test_dir(label: &str) -> PathBuf {
         .expect("time")
         .as_nanos();
     std::env::temp_dir().join(format!("iracerapp_{label}_{nanos}"))
+}
+
+/// Aposentadoria no meio de contrato: o piloto correu a temporada inteira, então a foto
+/// da semana 1 tem que mostrá-lo no assento. Ele sai na virada, e o feed diz que foi
+/// aposentadoria — a regra de fim de contrato não o alcança (contrato ainda vigente),
+/// e sem este caminho o assento simplesmente evaporaria entre uma tela e outra.
+#[test]
+fn test_aposentado_fica_na_foto_e_sai_na_semana_2_com_evento() {
+    let conn = setup_market_fixture();
+
+    // P003 tem contrato até a temporada 2 (a que vai abrir) — não vence, então só a
+    // aposentadoria pode tirá-lo do assento.
+    let mut veterano = driver_queries::get_driver(&conn, "P003").expect("piloto P003");
+    veterano.status = DriverStatus::Aposentado;
+    driver_queries::update_driver(&conn, &veterano).expect("aposentar P003");
+
+    let mut rng = StdRng::seed_from_u64(5064);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    // Semana 1 — a foto: ele continua ocupando o assento.
+    let contrato_na_foto =
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "P003").expect("contrato");
+    assert!(
+        contrato_na_foto.is_some(),
+        "aposentado deve seguir no assento na foto da semana 1"
+    );
+
+    let semana_1 = advance_week(&conn, &mut plan, None).expect("semana 1 deve avancar");
+
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, "P003")
+            .expect("contrato apos a semana 1")
+            .is_none(),
+        "ao sair da semana 1 o contrato do aposentado deve ter sido rescindido"
+    );
+    let evento = semana_1
+        .events
+        .iter()
+        .find(|e| e.driver_id.as_deref() == Some("P003"))
+        .expect("a saida do aposentado precisa aparecer no feed");
+    assert_eq!(
+        evento.movement_kind.as_deref(),
+        Some("retirement"),
+        "a saida tem que ser rotulada como aposentadoria, nao como dispensa"
+    );
+}
+
+/// A escolha do jogador vale na semana em que ele a fez.
+///
+/// O jogador escolhe um assento olhando o grid da semana ANTERIOR. Se o mercado mexer no
+/// grid antes de honrar a escolha, o assento pode já ter dono quando a assinatura chega —
+/// e aí ele fica sem nada, sem que a tela tenha dito que a escolha caiu.
+#[test]
+fn test_escolha_do_jogador_na_primeira_semana_de_contratacao_vira_contrato() {
+    let conn = setup_market_fixture();
+    let mut rng = StdRng::seed_from_u64(5065);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    while plan.state.current_week < plan.state.signings_start_week {
+        advance_week(&conn, &mut plan, None).expect("opening week should advance");
+    }
+
+    // As ofertas COMO A TELA AS VÊ, no fim da última semana de abertura.
+    let ofertas = crate::market::pipeline::player_market_offers(&conn, 2).expect("ofertas");
+    assert!(
+        !ofertas.is_empty(),
+        "o jogador virou agente livre na semana 1 e precisa ter oferta pra escolher"
+    );
+    let escolhido = ofertas[0].clone();
+
+    advance_week(&conn, &mut plan, Some(&escolhido.seat_id))
+        .expect("a semana com a escolha do jogador deve avancar");
+
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(&conn, "P007")
+        .expect("contrato do jogador apos assinar")
+        .expect("o jogador escolheu um assento: tem que sair contrato");
+    assert_eq!(
+        contrato.equipe_id, escolhido.team_id,
+        "o contrato saiu com outra equipe que nao a escolhida"
+    );
+}
+
+/// Nas semanas de abertura ninguém assina — nem o jogador. Se a tela deixar ele escolher
+/// assim mesmo, o avanço tem que RECLAMAR: engolir a escolha em silêncio faz a tela dizer
+/// "assinado" enquanto o banco segue sem contrato, e o assento é preenchido por outro.
+#[test]
+fn test_escolha_do_jogador_na_semana_de_abertura_nao_e_engolida() {
+    let conn = setup_market_fixture();
+    let mut rng = StdRng::seed_from_u64(5066);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    // Semana 1 é a foto; o jogador só vira agente livre ao sair dela.
+    advance_week(&conn, &mut plan, None).expect("semana 1 deve avancar");
+    assert!(plan.state.current_week < plan.state.signings_start_week);
+
+    let ofertas = crate::market::pipeline::player_market_offers(&conn, 2).expect("ofertas");
+    assert!(!ofertas.is_empty());
+    let seat = ofertas[0].seat_id.clone();
+
+    let semana = plan.state.current_week;
+    let resultado = advance_week(&conn, &mut plan, Some(&seat));
+
+    assert!(
+        resultado.is_err(),
+        "a escolha na semana {semana} avancou a semana sem assinar nada"
+    );
+    assert_eq!(
+        plan.state.current_week, semana,
+        "a semana nao pode avancar quando a escolha nao pode ser honrada"
+    );
 }

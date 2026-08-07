@@ -18,4 +18,25 @@ describe("categoryColors", () => {
     expect(getCategoryColor("lmp2")).toBe("#F2CC60");
     expect(getCategoryColor("endurance")).toBe("#3fb950");
   });
+
+  it("distingue as classes da Endurance, que sao divisoes que o piloto troca", () => {
+    expect(getCategoryColor("endurance:gt3")).toBe("#3fb950");
+    expect(getCategoryColor("endurance:lmp2")).toBe("#F2CC60");
+    expect(getCategoryColor("endurance:lmp2")).not.toBe(getCategoryColor("endurance:gt3"));
+    // A GT3 da Endurance NAO pode ser a mesma cor da GT3 solo: sao degraus
+    // diferentes da piramide, e a escada existe justamente para mostrar a subida.
+    expect(getCategoryColor("endurance:gt3")).not.toBe(getCategoryColor("gt3"));
+  });
+
+  it("cai na categoria-base quando a classe nao tem cor propria", () => {
+    expect(getCategoryColor("production_challenger:mazda")).toBe("#8020D0");
+    expect(getCategoryColor("production_challenger:bmw")).toBe("#8020D0");
+  });
+
+  it("devolve o fallback para chave vazia ou desconhecida", () => {
+    expect(getCategoryColor("")).toBe("#58a6ff");
+    expect(getCategoryColor(null)).toBe("#58a6ff");
+    expect(getCategoryColor("categoria_que_nao_existe")).toBe("#58a6ff");
+    expect(getCategoryColor("nada:nenhuma", "#123456")).toBe("#123456");
+  });
 });

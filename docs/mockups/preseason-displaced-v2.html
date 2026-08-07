@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Fim da Pré-Temporada — Pilotos Sem Vaga (mockup)</title>
+<style>
+:root{
+  --text-primary:#e6edf3; --text-secondary:#b6c2cf; --text-muted:#96a5b3;
+  --accent:#58a6ff; --green:#3fb950; --red:#f85149; --yellow:#d29922;
+}
+*{box-sizing:border-box;margin:0;padding:0;user-select:none}
+html,body{height:100%}
+body{
+  font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+  color:var(--text-primary);
+  background:
+    radial-gradient(circle at top, rgba(111,212,255,.10), transparent 34%),
+    linear-gradient(180deg,#040812 0%,#08111d 48%,#050910 100%);
+  padding:26px 20px 60px;
+}
+.num{font-variant-numeric:tabular-nums}
+.lbl{font-size:9px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
+
+/* ── palco: o modal sobre a tela escurecida, como na vida real ── */
+.stage{max-width:900px;margin:0 auto}
+.note{max-width:900px;margin:0 auto 22px;font-size:12.5px;line-height:1.5;color:var(--text-secondary)}
+.note b{color:var(--text-primary);font-weight:700}
+
+.modal{
+  border-radius:18px;padding:22px 24px 20px;
+  background:rgba(10,15,28,.62);backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.11);
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.9);
+}
+
+/* ── cabeçalho: a consequência, não o rótulo ── */
+.eyebrow{font-size:9px;font-weight:900;letter-spacing:.22em;text-transform:uppercase;color:var(--red)}
+.modal h2{font-size:23px;font-weight:800;line-height:1.12;margin-top:5px;letter-spacing:-.015em}
+.lead{margin-top:7px;font-size:12.5px;line-height:1.5;color:var(--text-secondary);max-width:560px}
+.lead b{color:var(--text-primary);font-weight:700}
+
+/* ── faixa de destaque: a única linha que muda algo para o jogador ── */
+.flag{
+  margin-top:14px;display:flex;align-items:center;gap:11px;
+  border-radius:12px;padding:10px 13px;
+  background:linear-gradient(120deg,rgba(88,166,255,.14),rgba(88,166,255,.04));
+  border:1px solid rgba(88,166,255,.3);
+}
+.flag .ico{font-size:15px;line-height:1}
+.flag .txt{font-size:12px;line-height:1.4;color:var(--text-secondary)}
+.flag .txt b{color:var(--text-primary);font-weight:700}
+
+/* ── grupos: espinha colorida, sem caixa nem barra de gradiente ── */
+.groups{margin-top:18px;display:flex;flex-direction:column;gap:16px}
+.group{padding-left:13px;border-left:3px solid var(--c);border-radius:2px}
+.ghead{display:flex;align-items:baseline;gap:9px;margin-bottom:7px}
+.ghead .name{font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--c)}
+.ghead .n{font-size:10.5px;color:var(--text-muted);font-weight:600}
+
+/* ── linhas: um piloto = uma linha ── */
+.rows{display:flex;flex-direction:column}
+.row{
+  display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:11px;
+  padding:8px 10px 8px 4px;border-radius:9px;
+}
+.row + .row{border-top:1px solid rgba(255,255,255,.055)}
+.row.mine{background:rgba(88,166,255,.075);box-shadow:inset 2px 0 0 var(--accent);padding-left:9px}
+.logo{width:34px;height:23px;border-radius:5px;display:grid;place-items:center;
+  font-size:8px;font-weight:900;letter-spacing:.02em;color:#0a0f18;overflow:hidden}
+.who{min-width:0}
+.who .nm{font-size:14.5px;font-weight:700;line-height:1.15;letter-spacing:-.005em}
+.who .meta{margin-top:2px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .meta .tm{font-weight:600}
+.who .meta .sep{opacity:.4;margin:0 5px}
+.tag{font-size:9px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 7px;border-radius:6px;white-space:nowrap}
+.tag.teammate{background:rgba(88,166,255,.18);color:var(--accent)}
+.tag.top{background:rgba(210,153,34,.16);color:var(--yellow)}
+.pos{font-size:13px;font-weight:800;text-align:right;line-height:1.1}
+.pos .tot{font-size:10px;font-weight:600;color:var(--text-muted)}
+.pos .yrs{margin-top:2px;font-size:10px;font-weight:500;color:var(--text-muted)}
+
+/* ── ações ── */
+.acts{margin-top:20px;display:flex;gap:11px}
+.btn{flex:1;border-radius:12px;padding:11px 16px;font-size:13px;font-weight:700;border:1px solid;cursor:pointer}
+.btn.ghost{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.14);color:var(--text-secondary)}
+.btn.go{flex:1.8;background:#3fb950;border-color:rgba(63,185,80,.6);color:#06101f;font-weight:800;
+  box-shadow:0 10px 28px -12px rgba(63,185,80,.9)}
+
+/* ── anotações de projeto ── */
+.why{max-width:900px;margin:26px auto 0;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.card{border-radius:13px;padding:14px 15px;background:rgba(255,255,255,.026);border:1px solid rgba(255,255,255,.08)}
+.card h3{font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;margin-bottom:9px}
+.card.out h3{color:var(--red)} .card.in h3{color:var(--green)}
+.card ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.card li{font-size:11.5px;line-height:1.45;color:var(--text-secondary);padding-left:13px;position:relative}
+.card li::before{content:"";position:absolute;left:0;top:6px;width:5px;height:5px;border-radius:50%}
+.card.out li::before{background:var(--red)} .card.in li::before{background:var(--green)}
+.card li b{color:var(--text-primary);font-weight:700}
+@media(max-width:820px){.why{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<p class="note">
+  <b>Fim da pré-temporada — Pilotos sem vaga.</b> Mesmo conteúdo da tela atual, mesma fonte de dados
+  (<span class="num">FreeAgentPreview</span> + a equipe do jogador, ambos já em escopo). O que muda é o que a tela
+  escolhe dizer.
+</p>
+
+<div class="stage">
+<div class="modal">
+
+  <div class="eyebrow">Fim da pré-temporada</div>
+  <h2>6 pilotos ficaram sem vaga</h2>
+  <p class="lead">
+    O grid fechou cheio e eles sobraram. <b>Nenhum corre esta temporada</b> — saem da escada e voltam
+    ao mercado só na próxima janela.
+  </p>
+
+  <div class="flag">
+    <span class="ico">◆</span>
+    <span class="txt">
+      <b>Marcos Mendes</b> perdeu a vaga na <b>Grid Start Racing School</b> — a sua equipe.
+      Você entra no lugar dele.
+    </span>
+  </div>
+
+  <div class="groups">
+
+    <!-- ─────────── Toyota Rookie ─────────── -->
+    <section class="group" style="--c:#FFE000">
+      <div class="ghead">
+        <span class="name">Toyota Rookie</span>
+        <span class="n num">4 pilotos</span>
+      </div>
+      <div class="rows">
+
+        <div class="row">
+          <span class="logo" style="background:#e8552f">FSM</span>
+          <span class="who">
+            <span class="nm">Guillermo Torres</span>
+            <span class="meta">
+              <span class="tm" style="color:#e8552f">Flat Six Motorsport</span>
+              <span class="sep">·</span>6 temporadas na equipe
+            </span>
+          </span>
+          <span class="pos num">6º<span class="tot">/12</span></span>
+        </div>
+
+        <div class="row">
+          <span class="logo" style="background:#cfd6de">CWR</span>
+          <span class="who">
+            <span class="nm">Niels Kramer</span>
+            <span class="meta">
+              <span class="tm" style="color:#cfd6de">Corner Workers Racing</span>
+              <span class="sep">·</span>2 temporadas na equipe
+            </span>
+          </span>
+          <span class="pos num">7º<span class="tot">/12</span></span>
+        </div>
+
+        <div class="row">
+          <span class="logo" style="background:#4a90d9">STT</span>
+          <span class="who">
+            <span class="nm">Sergio Gomez</span>
+            <span class="meta">
+              <span class="tm" style="color:#4a90d9">Street to Track Team</span>
+              <span class="sep">·</span>7 temporadas na equipe
+            </span>
+          </span>
+          <span class="pos num">11º<span class="tot">/12</span></span>
+        </div>
+
+        <div class="row">
+          <span class="logo" style="background:#d33b3b">OTL</span>
+          <span class="who">
+            <span class="nm">Rasmus Kristensen</span>
+            <span class="meta">
+              <span class="tm" style="color:#d33b3b">Over the Limit Racing</span>
+              <span class="sep">·</span>3 temporadas na equipe
+            </span>
+          </span>
+          <span class="pos num">11º<span class="tot">/12</span></span>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─────────── Mazda Cup ─────────── -->
+    <section class="group" style="--c:#F01010">
+      <div class="ghead">
+        <span class="name">Mazda Cup</span>
+        <span class="n num">1 piloto</span>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <span class="logo" style="background:#e9eef3">AHR</span>
+          <span class="who">
+            <span class="nm">Bruno Costa</span>
+            <span class="meta">
+              <span class="tm" style="color:#e9eef3">Amateur Hour Racing</span>
+              <span class="sep">·</span>1ª temporada na equipe
+            </span>
+          </span>
+          <span class="pos num">16º<span class="tot">/20</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── Mazda Rookie ─────────── -->
+    <section class="group" style="--c:#FFE000">
+      <div class="ghead">
+        <span class="name">Mazda Rookie</span>
+        <span class="n num">1 piloto</span>
+      </div>
+      <div class="rows">
+        <div class="row mine">
+          <span class="logo" style="background:#f5c518">GSR</span>
+          <span class="who">
+            <span class="nm">Marcos Mendes</span>
+            <span class="meta">
+              <span class="tm" style="color:#f5c518">Grid Start Racing School</span>
+              <span class="sep">·</span>1ª temporada na equipe
+            </span>
+          </span>
+          <span class="tag teammate">Sua equipe</span>
+          <span class="pos num" style="margin-left:11px">5º<span class="tot">/12</span></span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="acts">
+    <button class="btn ghost">Voltar</button>
+    <button class="btn go">Iniciar Temporada</button>
+  </div>
+
+</div>
+</div>
+
+<div class="why">
+  <div class="card out">
+    <h3>O que saiu</h3>
+    <ul>
+      <li><b>"EX-EQUIPE"</b> — seis vezes o mesmo rótulo para uma relação que a logo e a cor já contam.
+        Era a única palavra em cada ficha, e não dizia nada que a linha abaixo não dissesse.</li>
+      <li><b>Selo de licença (R / A)</b> — quatro "R" iguais empilhados. É a mesma remoção já feita nas
+        fichas do mercado, pelo mesmo motivo: um dado que quase nunca varia não merece o canto do cartão.</li>
+      <li><b>A ficha</b> — cada piloto ocupava um cartão com borda, sombra e três linhas para dizer nome,
+        equipe, resultado e tempo de casa. Cabe em uma linha.</li>
+      <li><b>A barra de categoria</b> — caixa, gradiente, régua e contador solto. Vira uma espinha colorida
+        de 3px com o nome ao lado; a cor continua fazendo o trabalho.</li>
+      <li><b>O contador repetido</b> — "6" no subtítulo e depois 4 + 1 + 1 nos cabeçalhos. Ficou no título,
+        que é onde ele significa alguma coisa.</li>
+    </ul>
+  </div>
+  <div class="card in">
+    <h3>O que entrou</h3>
+    <ul>
+      <li><b>A consequência, escrita.</b> Hoje a tela lista seis nomes e não diz o que acontece com eles.
+        O backend limpa a <span class="num">categoria_atual</span> desses pilotos: eles saem da escada e não
+        correm a temporada. Essa é a frase que faltava.</li>
+      <li><b>A linha que é sua.</b> Marcos Mendes perdeu a vaga na equipe do jogador — é o único dos seis
+        que muda alguma coisa para ele. Comparar <span class="num">previous_team_name</span> com a equipe do
+        jogador já é possível na tela; hoje esse nome fica no meio da lista sem destaque nenhum.</li>
+      <li><b>Ordem por resultado.</b> Dentro da categoria, do melhor colocado para o pior — 6º, 7º, 11º, 11º.
+        Hoje a ordem é arbitrária e um 6º/12 aparece depois de um 11º/12.</li>
+      <li><b>O resultado alinhado à direita.</b> Em coluna e tabular, dá para varrer os seis de cima a baixo
+        sem ler o resto.</li>
+      <li><b>"Iniciar Temporada" maior que "Voltar".</b> São a ação e a saída, não duas opções iguais.</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

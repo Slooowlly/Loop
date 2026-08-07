@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../ui/Tooltip";
 import MagazineCredits from "./MagazineCredits";
 import StandingsList from "./StandingsList";
 import WorldNotes from "./WorldNotes";
@@ -188,26 +189,28 @@ function RaceEditionSpread({
             GRID<span>·</span>MAGAZINE
           </div>
           <div className="mag-nav">
-            <button
-              type="button"
-              className="navbtn"
-              onClick={() => onGoEdition(1)}
-              disabled={!canGoPrev}
-              title={t("newsMagazine.foot.prevEdition")}
-              aria-label={t("newsMagazine.foot.prevEdition")}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className="navbtn"
-              onClick={() => onGoEdition(-1)}
-              disabled={!canGoNext}
-              title={t("newsMagazine.foot.nextEdition")}
-              aria-label={t("newsMagazine.foot.nextEdition")}
-            >
-              ›
-            </button>
+            <Tooltip texto={t("newsMagazine.foot.prevEdition")}>
+              <button
+                type="button"
+                className="navbtn"
+                onClick={() => onGoEdition(1)}
+                disabled={!canGoPrev}
+                aria-label={t("newsMagazine.foot.prevEdition")}
+              >
+                ‹
+              </button>
+            </Tooltip>
+            <Tooltip texto={t("newsMagazine.foot.nextEdition")}>
+              <button
+                type="button"
+                className="navbtn"
+                onClick={() => onGoEdition(-1)}
+                disabled={!canGoNext}
+                aria-label={t("newsMagazine.foot.nextEdition")}
+              >
+                ›
+              </button>
+            </Tooltip>
           </div>
         </div>
         <div className="foot-meta">{footMeta}</div>

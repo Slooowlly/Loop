@@ -93,7 +93,7 @@ pub(super) fn build_title_year_teams(
     (ordered, anos_equipes)
 }
 
-pub(super) fn valid_archived_title_count(
+pub(crate) fn valid_archived_title_count(
     snapshot_titles: Option<i32>,
     championship_position: Option<i32>,
     points: f64,

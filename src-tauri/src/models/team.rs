@@ -3,7 +3,7 @@
 use rand::Rng;
 
 use crate::common::time::current_timestamp;
-use crate::finance::planning::{category_finance_scale, derive_budget_index_from_money};
+use crate::finance::planning::{category_finance_scale_for, derive_budget_index_from_money};
 use crate::market::pit_strategy::{
     seed_pit_crew_quality_from_team, seed_pit_strategy_risk_from_team,
 };
@@ -261,8 +261,20 @@ impl Team {
             -5.0,
             16.0,
         );
+        // `budget_seed` NÃO é um `budget_index`, apesar dos dois irem de 0 a 100. Ele é a
+        // posição da equipe DENTRO da faixa de caixa declarada da divisão — 1 a 11 meses de
+        // operação —, e é só isso que ele semeia. O `team.budget` que sai lá embaixo é
+        // derivado do dinheiro pela escada de estados e não volta para cá: o caminho é
+        // `budget_seed → caixa → índice`, mão única, sem ciclo.
+        //
+        // Os dois não coincidem, e não deveriam: um seed de 100 põe a equipe em 11 meses de
+        // caixa, que a escada lê como ~60 pontos. É o modelo dizendo que o grid NASCE pobre
+        // e enriquece correndo — o mundo em regime da 4.7 roda a 10,9–22,1 meses de mediana,
+        // acima do teto da faixa de nascimento.
         let budget_seed = clamp_f64(template.budget_base + rng.gen_range(-5.0..=5.0), 0.0, 100.0);
-        let finance_scale = category_finance_scale(category_id);
+        // Classe EXPLÍCITA: a faixa de caixa de um LMP2 do Endurance não é a de um GT4 do
+        // Endurance, e depender da chave composta chegar montada aqui é frágil.
+        let finance_scale = category_finance_scale_for(category_id, template.classe);
         let cash_balance = finance_scale.cash_min
             + (finance_scale.cash_max - finance_scale.cash_min) * (budget_seed / 100.0);
         let facilities = clamp_f64(50.0 + rng.gen_range(-10.0..=15.0), 0.0, 100.0);
@@ -336,6 +348,11 @@ impl Team {
             temp_posicao: 0,
             categoria_anterior: None,
         };
+        // Duas passadas, e a segunda não é redundância. `seed_pit_crew_quality_from_team` lê
+        // o índice, e `pit_crew_quality` entra em `calculate_committed_costs`, que entra no
+        // índice de volta — a única realimentação de verdade nesta função. Duas passadas
+        // fecham o ponto fixo com folga (o peso do pit crew no custo comprometido é 1/550) e
+        // deixam `team.budget` consistente com o `Team` que sai daqui.
         team.budget = derive_budget_index_from_money(&team);
         team.pit_strategy_risk = seed_pit_strategy_risk_from_team(&team);
         team.pit_crew_quality = seed_pit_crew_quality_from_team(&team);

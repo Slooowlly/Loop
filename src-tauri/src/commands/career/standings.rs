@@ -272,17 +272,23 @@ pub(crate) fn get_teams_standings_in_base_dir(
     }
     .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
 
+    // Recordes DA CATEGORIA, em duas consultas agregadas (não uma por equipe).
+    let category_titles = team_queries::get_category_constructor_titles_by_team(&db.conn, &category)
+        .unwrap_or_default();
+    let category_wins =
+        team_queries::get_category_wins_by_team(&db.conn, &category).unwrap_or_default();
+
     let mut standings: Vec<TeamStanding> = teams
         .into_iter()
         .map(|team| {
             let team_id = team.id.clone();
-            let (piloto_1_nome, piloto_1_tenure_seasons) = get_driver_slot_info(
+            let slot_1 = get_driver_slot_info(
                 &db,
                 team.piloto_1_id.as_ref(),
                 &team_id,
                 active_season_number,
             );
-            let (piloto_2_nome, piloto_2_tenure_seasons) = get_driver_slot_info(
+            let slot_2 = get_driver_slot_info(
                 &db,
                 team.piloto_2_id.as_ref(),
                 &team_id,
@@ -307,10 +313,16 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 founded_year,
                 pontos: team.stats_pontos,
                 vitorias: team.stats_vitorias,
-                piloto_1_nome,
-                piloto_1_tenure_seasons,
-                piloto_2_nome,
-                piloto_2_tenure_seasons,
+                piloto_1_id: slot_1.id,
+                piloto_1_nome: slot_1.nome,
+                piloto_1_tenure_seasons: slot_1.tenure_seasons,
+                piloto_1_contrato_vence: slot_1.contrato_vence,
+                piloto_1_aposentado: slot_1.aposentado,
+                piloto_2_id: slot_2.id,
+                piloto_2_nome: slot_2.nome,
+                piloto_2_tenure_seasons: slot_2.tenure_seasons,
+                piloto_2_contrato_vence: slot_2.contrato_vence,
+                piloto_2_aposentado: slot_2.aposentado,
                 trofeus: previous_champions
                     .constructor_champions
                     .iter()
@@ -329,6 +341,8 @@ pub(crate) fn get_teams_standings_in_base_dir(
                 historico_vitorias: team.historico_vitorias,
                 historico_podios: team.historico_podios,
                 historico_titulos_construtores: team.historico_titulos_construtores,
+                categoria_titulos: category_titles.get(&team_id).copied().unwrap_or(0),
+                categoria_vitorias: category_wins.get(&team_id).copied().unwrap_or(0),
             }
         })
         .collect();
@@ -427,6 +441,10 @@ pub(crate) fn get_special_team_standings_from_results(
         return Ok(Vec::new());
     }
 
+    let category_titles =
+        team_queries::get_category_constructor_titles_by_team(conn, category).unwrap_or_default();
+    let category_wins = team_queries::get_category_wins_by_team(conn, category).unwrap_or_default();
+
     rows.into_iter()
         .enumerate()
         .map(|(index, row)| {
@@ -453,10 +471,17 @@ pub(crate) fn get_special_team_standings_from_results(
                 founded_year,
                 pontos: row.points.round() as i32,
                 vitorias: row.wins,
-                piloto_1_nome: driver_names.first().cloned(),
+                piloto_1_id: driver_names.first().map(|(id, _)| id.clone()),
+                piloto_1_nome: driver_names.first().map(|(_, nome)| nome.clone()),
                 piloto_1_tenure_seasons: None,
-                piloto_2_nome: driver_names.get(1).cloned(),
+                // Grid de fase especial: sem contrato regular por trás, nada a vencer.
+                piloto_1_contrato_vence: false,
+                piloto_1_aposentado: false,
+                piloto_2_id: driver_names.get(1).map(|(id, _)| id.clone()),
+                piloto_2_nome: driver_names.get(1).map(|(_, nome)| nome.clone()),
                 piloto_2_tenure_seasons: None,
+                piloto_2_contrato_vence: false,
+                piloto_2_aposentado: false,
                 trofeus: previous_champions
                     .constructor_champions
                     .iter()
@@ -475,6 +500,8 @@ pub(crate) fn get_special_team_standings_from_results(
                 historico_vitorias: team.historico_vitorias,
                 historico_podios: team.historico_podios,
                 historico_titulos_construtores: team.historico_titulos_construtores,
+                categoria_titulos: category_titles.get(&team_id).copied().unwrap_or(0),
+                categoria_vitorias: category_wins.get(&team_id).copied().unwrap_or(0),
             })
         })
         .collect()
@@ -525,15 +552,20 @@ pub(crate) fn query_special_team_standing_rows(
     Ok(rows)
 }
 
+/// Os dois pilotos que mais correram pela equipe na fase especial, em `(id, nome)`.
+///
+/// O id vem junto porque o grid do mercado abre a ficha do piloto por id — sem ele
+/// as categorias de fase especial seriam as únicas em que clicar num nome do grid
+/// não faz nada.
 pub(crate) fn query_special_team_driver_names(
     conn: &rusqlite::Connection,
     season_id: &str,
     category: &str,
     team_id: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<(String, String)>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT d.nome
+            "SELECT r.piloto_id, d.nome
              FROM race_results r
              INNER JOIN calendar c ON c.id = r.race_id
              INNER JOIN drivers d ON d.id = r.piloto_id
@@ -548,7 +580,7 @@ pub(crate) fn query_special_team_driver_names(
 
     let mapped = stmt
         .query_map(rusqlite::params![season_id, category, team_id], |row| {
-            row.get::<_, String>(0)
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(|e| format!("Falha ao consultar pilotos da equipe especial: {e}"))?;
 
@@ -557,4 +589,54 @@ pub(crate) fn query_special_team_driver_names(
         names.push(row.map_err(|e| format!("Falha ao ler piloto da equipe especial: {e}"))?);
     }
     Ok(names)
+}
+
+/// Níveis das 11 peças do carro de cada equipe da categoria.
+///
+/// O comparativo da aba Minha Equipe mostrava `car_level`, que é a MÉDIA das onze —
+/// e média esconde justamente o que a comparação precisa: duas equipes em "Nível 4"
+/// podem ter chassis 9 / motor 1 e chassis 4 / motor 4. São investimentos opostos
+/// com a mesma etiqueta.
+///
+/// Equipe sem carro persistido (save antigo, categoria spec recém-criada) sai da
+/// lista em vez de entrar com onze zeros: um polígono colapsado no centro afirmaria
+/// que a equipe tem o pior carro do grid, e o que se sabe é que ela não tem carro
+/// gravado.
+pub(crate) fn get_teams_car_parts_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    category: &str,
+) -> Result<Vec<TeamCarParts>, String> {
+    let category = category.trim().to_lowercase();
+    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+    let teams = team_queries::get_teams_by_category(&db.conn, &category)
+        .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
+
+    let mut result = Vec::with_capacity(teams.len());
+    for team in teams {
+        let Some(car) = team_car_queries::get_team_car(&db.conn, &team.id)
+            .map_err(|e| format!("Falha ao carregar carro da equipe: {e}"))?
+        else {
+            continue;
+        };
+
+        let parts = car
+            .parts
+            .iter()
+            .map(|part| TeamCarPartLevel {
+                key: part.part_type.as_str().to_string(),
+                level: part.level,
+            })
+            .collect();
+
+        result.push(TeamCarParts {
+            team_id: team.id,
+            nome: team.nome,
+            nome_curto: team.nome_curto,
+            cor_primaria: team.cor_primaria,
+            parts,
+        });
+    }
+
+    Ok(result)
 }

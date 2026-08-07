@@ -18,7 +18,7 @@ use crate::db::connection::Database;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::{calendar as calendar_queries, seasons as season_queries};
 use crate::db::queries::{contracts as contract_queries, teams as team_queries};
-use crate::finance::planning::category_finance_scale;
+use crate::finance::planning::{category_finance_scale, category_finance_scale_for};
 use crate::models::enums::{RaceStatus, SeasonPhase};
 use std::collections::HashMap;
 
@@ -201,12 +201,16 @@ fn endurance_teams_race_on_the_car_level_system_with_class_ceilings() {
         .expect("read class ceilings");
     assert!(!rows.is_empty(), "o Endurance deve ter equipes com carro");
 
+    // O limite por classe é o teto de DESENVOLVIMENTO (teto natural + a parede), não o teto
+    // natural: acima dele o custo explode, mas é território legítimo de quem sangra dinheiro
+    // (design §6, "9–10 só pros ultra-ricos"). O que o teste guarda é que a classe manda —
+    // um GT4 do Endurance não pode andar na faixa do LMP2 só por dividir a categoria.
     for (classe, max_level) in rows {
-        let expected =
-            crate::car::cost::category_ceiling_for("endurance", Some(classe.as_str())) as i64;
+        let natural = crate::car::cost::category_ceiling_for("endurance", Some(classe.as_str()));
+        let expected = crate::car::cost::development_ceiling(natural) as i64;
         assert!(
             max_level <= expected,
-            "classe '{classe}': nivel maximo {max_level} passou do teto {expected}"
+            "classe '{classe}': nivel maximo {max_level} passou do teto de desenvolvimento {expected} (natural {natural})"
         );
     }
 
@@ -250,8 +254,13 @@ fn gt3_privateer_ceiling_stays_below_the_factory_ceiling() {
         .into_iter()
         .find(|template| template.marca.is_none() && template.classe == Some("gt4"))
         .expect("endurance/gt4 deve ter equipe ficticia");
-    let endurance_gt4_team =
-        Team::from_template_with_rng(endurance_gt4, "endurance", "T003".to_string(), 2026, &mut rng);
+    let endurance_gt4_team = Team::from_template_with_rng(
+        endurance_gt4,
+        "endurance",
+        "T003".to_string(),
+        2026,
+        &mut rng,
+    );
     assert_eq!(
         endurance_gt4_team.car_ceiling(),
         crate::car::cost::category_ceiling("gt4"),
@@ -528,9 +537,7 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
 #[test]
 #[ignore = "harness de medição de deflação da escada (lento); rodar sob demanda"]
 fn grid_skill_ladder_over_time() {
-    use super::{
-        clear_historical_news, simulate_current_historical_season,
-    };
+    use super::{clear_historical_news, simulate_current_historical_season};
     use crate::constants::categories::get_category_config;
     use crate::evolution::pipeline::run_historical_end_of_season;
     use crate::market::pipeline::{fill_all_remaining_vacancies, read_slam_history};
@@ -774,9 +781,7 @@ fn grid_skill_ladder_over_time() {
 #[test]
 #[ignore = "harness de medição de absorção de lesionados (lento); rodar sob demanda"]
 fn injured_orphans_are_reabsorbed_by_market_over_time() {
-    use super::{
-        clear_historical_news, simulate_current_historical_season,
-    };
+    use super::{clear_historical_news, simulate_current_historical_season};
     use crate::evolution::pipeline::run_historical_end_of_season;
     use crate::market::pipeline::fill_all_remaining_vacancies;
 
@@ -874,6 +879,142 @@ fn injured_orphans_are_reabsorbed_by_market_over_time() {
             alive_end < alive_start + 60,
             "população viva inflando (piloto extra por lesão não reabsorvido): {alive_start} → {alive_end}"
         );
+}
+
+// Harness de MEDIÇÃO da rivalidade entre COMPANHEIROS de equipe.
+//
+// A pergunta que ele responde: a tensão interna das equipes sobe, e as
+// rivalidades de companheiros passam a existir?
+//
+// O baseline não é hipótese, é observação. Num save real de 27 temporadas com a
+// regra antiga — o -1 de decaimento incidindo até nas corridas disputadas — o
+// mundo tinha 101 de 102 equipes em "estável" com tensão média 0,1, a maior
+// sequência do N2 travada em 3, e ZERO rivalidades do tipo `Companheiros` em
+// 140 registradas. O gatilho existia e nunca disparava.
+//
+// Marcado #[ignore] porque gera um mundo maduro e simula temporadas inteiras
+// (lento); rodar com `--ignored --nocapture`.
+#[test]
+#[ignore = "harness de medição de rivalidade entre companheiros (lento); rodar sob demanda"]
+fn teammate_tension_climbs_and_finally_creates_rivalries() {
+    use super::{clear_historical_news, simulate_current_historical_season};
+    use crate::evolution::pipeline::run_historical_end_of_season;
+    use crate::market::pipeline::fill_all_remaining_vacancies;
+
+    let base_dir = unique_test_dir("teammate_tension");
+    let input = sample_draft_input();
+    let state =
+        create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2024, 2025)
+            .expect("historical generation should finish");
+    let career_id = state
+        .career_id
+        .as_deref()
+        .expect("draft career id")
+        .to_string();
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join(&career_id);
+    let mut db = open_draft_db(&base_dir, &career_id);
+
+    let count = |db: &Database, sql: &str| -> i64 {
+        db.conn.query_row(sql, [], |row| row.get(0)).expect(sql)
+    };
+    let media = |db: &Database, sql: &str| -> f64 {
+        db.conn.query_row(sql, [], |row| row.get(0)).expect(sql)
+    };
+
+    const Q_TENSAO_MEDIA: &str = "SELECT COALESCE(AVG(hierarquia_tensao), 0) FROM teams";
+    const Q_TENSAO_MAX: &str = "SELECT COALESCE(MAX(hierarquia_tensao), 0) FROM teams";
+    // Equipes que saíram do chão: "estável" é tudo abaixo de 20.
+    const Q_ACIMA_DE_ESTAVEL: &str = "SELECT COUNT(*) FROM teams WHERE hierarquia_tensao >= 20";
+    // A porta de entrada nova.
+    const Q_EM_TENSAO: &str = "SELECT COUNT(*) FROM teams WHERE hierarquia_tensao >= 40";
+    const Q_COMPANHEIROS: &str = "SELECT COUNT(*) FROM rivalries WHERE tipo = 'Companheiros'";
+    const Q_PISTA: &str = "SELECT COUNT(*) FROM rivalries WHERE tipo = 'Pista'";
+    // Quantas saíram do piso: `atrito_leve` é tudo abaixo de percebida 20, e num
+    // save real de 27 temporadas eram 139 de 140. É o número que diz se o mundo
+    // tem alguma história ou só ruído.
+    const Q_ACIMA_DO_PISO: &str = "SELECT COUNT(*) FROM rivalries
+         WHERE 0.4 * historical_intensity + 0.6 * recent_activity >= 20";
+    const Q_RIVALIDADES: &str = "SELECT COUNT(*) FROM rivalries";
+    // O NÚMERO QUE DECIDE TUDO. A tensão sobe +3 quando o N2 vence e cai -2
+    // quando o N1 vence, então a deriva por corrida é `5p - 2` com `p` = fração
+    // de duelos que o N2 leva. Abaixo de p = 0,40 ela é negativa e a tensão,
+    // que tem piso em zero, mora no chão independentemente de qualquer outro
+    // ajuste. Medir `p` é medir se este eixo pode existir.
+    const Q_TAXA_N2: &str = "SELECT CASE WHEN SUM(hierarquia_duelos_total) > 0
+             THEN CAST(SUM(hierarquia_duelos_n2_vencidos) AS REAL) / SUM(hierarquia_duelos_total)
+             ELSE 0 END FROM teams WHERE ativa = 1";
+
+    // DUAS MEDIÇÕES POR TEMPORADA, e não uma.
+    //
+    // A primeira versão deste harness media só depois do fim de temporada e viu
+    // a tensão congelada em 0,07 nas doze — o que parecia "a mudança não fez
+    // efeito" era o instante errado: a transição de temporada dá `FullReset` na
+    // tensão de toda equipe que trocou de dupla, e quase todas trocam. Medir ali
+    // é medir o zero recém-escrito, não o que a temporada produziu.
+    let mut trajetoria: Vec<(i32, f64, f64, i64, i64, f64, i64, i64, i64, i64)> = Vec::new();
+    for _ in 0..12 {
+        simulate_current_historical_season(&mut db).expect("simulate season");
+
+        // PICO: fim da temporada corrida, antes de qualquer reset.
+        let pico_media = media(&db, Q_TENSAO_MEDIA);
+        let pico_max = media(&db, Q_TENSAO_MAX);
+        let pico_acima = count(&db, Q_ACIMA_DE_ESTAVEL);
+        let pico_tensao = count(&db, Q_EM_TENSAO);
+        let taxa_n2 = media(&db, Q_TAXA_N2);
+
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("active season query")
+            .expect("active season exists");
+        run_historical_end_of_season(&mut db.conn, &season, &career_dir).expect("eos");
+        let next = season_queries::get_active_season(&db.conn)
+            .expect("next season query")
+            .expect("next season exists");
+        fill_all_remaining_vacancies(&db.conn, next.numero, &mut rand::thread_rng())
+            .expect("fill vacancies");
+        clear_historical_news(&db.conn).expect("clear news");
+
+        trajetoria.push((
+            next.ano,
+            pico_media,
+            pico_max,
+            pico_acima,
+            pico_tensao,
+            taxa_n2,
+            count(&db, Q_COMPANHEIROS),
+            count(&db, Q_PISTA),
+            count(&db, Q_ACIMA_DO_PISO),
+            count(&db, Q_RIVALIDADES),
+        ));
+    }
+
+    eprintln!(
+        "ano  | pico_medio | pico_max | eq>=20 | eq>=40 | taxa_n2 | comp | pista | >piso | total"
+    );
+    for (ano, m, mx, acima, tensao, taxa, comp, pista, forte, total) in &trajetoria {
+        eprintln!(
+            "{ano} |   {m:6.1}   |  {mx:6.1}  |  {acima:4}  |  {tensao:4}  |  {taxa:5.3}  | {comp:4} | {pista:5} | {forte:5} | {total:5}"
+        );
+    }
+
+    let taxa_media = trajetoria.iter().map(|t| t.5).sum::<f64>() / trajetoria.len().max(1) as f64;
+    eprintln!(
+        "[TAXA DO N2] média={taxa_media:.3} — equilíbrio da tensão em 0.400, \
+         abaixo disso o eixo mora no piso"
+    );
+
+    // O harness é de MEDIÇÃO, e a única coisa que ele exige é ter medido: mundo
+    // gerado, temporadas simuladas, duelos internos contados. Os números acima
+    // são o retrato, não a meta — travar uma meta aqui transformaria uma régua
+    // em alarme, e a decisão do que fazer com a leitura é de balanceamento.
+    let duelos: i64 = count(
+        &db,
+        "SELECT SUM(hierarquia_duelos_total) FROM teams WHERE ativa = 1",
+    );
+    assert!(
+        duelos > 0,
+        "nenhum duelo interno registrado — o pipeline de hierarquia não rodou\n{trajetoria:?}"
+    );
 }
 
 #[test]
@@ -1104,8 +1245,11 @@ fn historical_simulation_starts_playable_year_with_clean_team_finances() {
     assert!(teams.iter().all(|team| team.last_round_income == 0.0));
     assert!(teams.iter().all(|team| team.last_round_expenses == 0.0));
     assert!(teams.iter().all(|team| team.last_round_net == 0.0));
+    // Ciente da CLASSE: a faixa de caixa de um LMP2 do Endurance não é a de um GT4 do
+    // Endurance. Com a forma de um argumento só, os seis times de LMP2 eram medidos contra a
+    // faixa do GT3 (a classe representativa) e caíam fora por construção.
     assert!(teams.iter().all(|team| {
-        let scale = category_finance_scale(&team.categoria);
+        let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
         team.cash_balance >= scale.cash_min && team.cash_balance <= scale.cash_max
     }));
 

@@ -69,7 +69,28 @@ pub(super) fn process_driver_evolution(
     };
 
     for driver in &mut all_drivers {
+        // O TÍTULO é creditado ANTES do filtro de status; o resto da evolução,
+        // não. Envelhecer, crescer e perder motivação são coisas de quem está na
+        // ativa. Ter vencido o campeonato é um fato da tabela final: se o piloto
+        // chegou em dezembro lesionado ou suspenso, o campeonato ainda foi dele.
+        //
+        // Com o crédito lá embaixo, depois do `continue`, o arquivo
+        // (`archive_driver_season`, que grava a linha de TODO MUNDO) registrava o
+        // P1 e o contador de carreira não subia. O piloto ficava com um título a
+        // menos do que a própria ficha lista ano a ano.
+        let titles_won = titles_by_driver.get(&driver.id).copied().unwrap_or(0);
+        if titles_won > 0 {
+            driver.stats_carreira.titulos += titles_won as u32;
+        }
+
         if driver.status != DriverStatus::Ativo {
+            // O `update_driver` do fim do laço não é alcançado daqui, então o
+            // crédito precisa ser gravado na saída — e só ele, para não escrever
+            // linha de piloto que não mudou em nada.
+            if titles_won > 0 {
+                driver_queries::update_driver(conn, driver)
+                    .map_err(|e| format!("Falha ao creditar titulo de '{}': {e}", driver.nome))?;
+            }
             continue;
         }
 
@@ -110,12 +131,12 @@ pub(super) fn process_driver_evolution(
                 .count() as i32;
             let expected_position = cars_ahead * 2 + 1;
             let outperformed_machinery = standing.stats.posicao_campeonato + 3 <= expected_position;
+            // Só os sinais da TEMPORADA entram aqui. Os do offseason (promovido,
+            // rebaixado, renovado, dispensado) não existem nesta altura do
+            // pipeline e chegam no segundo passe — `apply_offseason_motivation`,
+            // depois da promoção e do mercado.
             let motivation_ctx = MotivationContext {
                 was_champion: standing.position == 1,
-                was_promoted: false,
-                was_relegated: false,
-                contract_renewed: false,
-                lost_seat: false,
                 seasons_in_category,
                 outperformed_machinery,
             };
@@ -135,9 +156,6 @@ pub(super) fn process_driver_evolution(
         }
 
         driver.close_career_season();
-        if let Some(titles) = titles_by_driver.get(&driver.id) {
-            driver.stats_carreira.titulos += *titles as u32;
-        }
 
         let mut retirement =
             check_retirement(driver, driver.temporadas_motivacao_baixa as i32, false, rng);
@@ -198,6 +216,96 @@ pub(super) fn process_driver_evolution(
         retirements,
         existing_names,
     ))
+}
+
+/// O assento de cada piloto: `piloto_id -> (equipe, tier)`. Tier é `None` quando
+/// a categoria do contrato não bate com nenhuma config conhecida — comparar
+/// degraus com um palpite inventaria promoções e rebaixamentos que não houve.
+pub(super) fn seat_map(conn: &Connection) -> Result<HashMap<String, (String, Option<u8>)>, String> {
+    let contracts = contract_queries::get_all_active_regular_contracts(conn)
+        .map_err(|e| format!("Falha ao buscar contratos ativos: {e}"))?;
+    Ok(contracts
+        .into_iter()
+        .map(|contract| {
+            // Categoria multiclasse chega como "endurance:lmp2"; a config mora na base.
+            let base = contract
+                .categoria
+                .split_once(':')
+                .map_or(contract.categoria.as_str(), |(base, _)| base);
+            let tier = get_category_config(base).map(|config| config.tier);
+            (contract.piloto_id, (contract.equipe_id, tier))
+        })
+        .collect())
+}
+
+/// SEGUNDO PASSE da motivação: o desfecho do offseason.
+///
+/// Compara o assento de antes da virada com o de depois do mercado de
+/// pré-temporada. Derivar do antes/depois — em vez de consumir o
+/// `PromotionResult` — captura o desfecho como o piloto o VIVEU: terminar um
+/// degrau abaixo é rebaixamento para ele, tenha a equipe caído ou tenha ele sido
+/// negociado para baixo. E cobre de uma vez os quatro sinais que o primeiro
+/// passe não tem como conhecer.
+pub(super) fn apply_offseason_motivation(
+    conn: &Connection,
+    seats_before: &HashMap<String, (String, Option<u8>)>,
+) -> Result<Vec<MotivationReport>, String> {
+    let seats_after = seat_map(conn)?;
+    let mut drivers = driver_queries::get_all_drivers(conn)
+        .map_err(|e| format!("Falha ao buscar pilotos para o passe de offseason: {e}"))?;
+    let mut reports = Vec::new();
+
+    for driver in &mut drivers {
+        if driver.is_jogador || driver.status == DriverStatus::Aposentado {
+            continue;
+        }
+        // Sem assento ANTES não há desfecho a julgar: quem entrou no offseason
+        // como agente livre não "perdeu a vaga" nem "renovou".
+        let Some((team_before, tier_before)) = seats_before.get(&driver.id) else {
+            continue;
+        };
+        let depois = seats_after.get(&driver.id);
+        let degrau = match (tier_before, depois.and_then(|(_, tier)| *tier)) {
+            (Some(antes), Some(agora)) => Some(agora.cmp(antes)),
+            _ => None,
+        };
+        let ctx = OffseasonContext {
+            was_promoted: degrau == Some(std::cmp::Ordering::Greater),
+            was_relegated: degrau == Some(std::cmp::Ordering::Less),
+            contract_renewed: depois.is_some_and(|(team, _)| team == team_before),
+            lost_seat: depois.is_none(),
+        };
+        // Trocar de equipe no mesmo degrau não é nenhum dos quatro sinais; sem
+        // isso o ambicioso frustrado dispararia sozinho e o passe viraria um
+        // imposto anual em cima de quem só mudou de endereço.
+        if !ctx.was_promoted && !ctx.was_relegated && !ctx.contract_renewed && !ctx.lost_seat {
+            continue;
+        }
+        reports.push(adjust_offseason_motivation(driver, &ctx));
+        driver_queries::update_driver_motivation(conn, &driver.id, driver.motivacao)
+            .map_err(|e| format!("Falha ao gravar motivacao de '{}': {e}", driver.nome))?;
+    }
+
+    Ok(reports)
+}
+
+/// Funde os relatórios do segundo passe nos do primeiro, um por piloto: a tela de
+/// fim de temporada mostra uma linha por piloto, e duas entradas para o mesmo
+/// nome leriam como bug.
+pub(super) fn merge_motivation_reports(
+    base: &mut Vec<MotivationReport>,
+    extra: Vec<MotivationReport>,
+) {
+    for novo in extra {
+        match base.iter_mut().find(|r| r.driver_id == novo.driver_id) {
+            Some(existente) => {
+                existente.reasons.extend(novo.reasons);
+                existente.new_motivation = novo.new_motivation;
+                existente.delta = existente.new_motivation as i8 - existente.old_motivation as i8;
+            }
+            None => base.push(novo),
+        }
+    }
 }
 
 /// Tenta reter um veterano que quer se aposentar mas é INSUBSTITUÍVEL: nenhum piloto

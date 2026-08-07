@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
 
+import { todosPorTooltip } from "../../test/tooltip";
+
 import WeekendReadingPanel from "./WeekendReadingPanel";
 
 // Dados FABRICADOS de propósito: a fase 3 está bloqueada no motor (a função pura sai de
@@ -95,9 +97,9 @@ describe("WeekendReadingPanel", () => {
         })}
       />,
     );
-    const setas = screen.getAllByTitle(/weekendReading\.trends\./);
+    const setas = todosPorTooltip(/weekendReading\.trends\./);
     expect(setas).toHaveLength(1);
-    expect(setas[0].getAttribute("title")).toBe("nextRaceTab.weekendReading.trends.falling");
+    expect(setas[0].getAttribute("data-tooltip")).toBe("nextRaceTab.weekendReading.trends.falling");
   });
 
   it("cita o canal de classificação só quando ele diverge do ritmo", () => {

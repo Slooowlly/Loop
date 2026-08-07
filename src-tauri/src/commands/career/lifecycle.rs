@@ -647,7 +647,13 @@ pub(crate) fn open_career_resources_with_repair(
         return Err("Banco da carreira nao encontrado.".to_string());
     }
 
-    let preseason_active = load_preseason_plan(&career_dir)?.is_some();
+    let preseason_plan = load_preseason_plan(&career_dir)?;
+    let preseason_active = preseason_plan.is_some();
+    // Semanas de abertura da janela (as pré-passes ainda não caíram): o piloto que se
+    // aposentou no fim da temporada continua no assento, porque a semana 1 é a foto de
+    // como a temporada TERMINOU e ele a correu inteira. Quem tira o contrato dele são as
+    // pré-passes, na virada da semana 1 — com evento no feed explicando a saída.
+    let keep_retired_seated = preseason_plan.is_some_and(|plan| !plan.prepasses_applied);
     let meta = read_save_meta(&meta_path)?;
     let db = if repair_contracts {
         let _repair_guard = match CAREER_OPEN_REPAIR_LOCK
@@ -659,7 +665,7 @@ pub(crate) fn open_career_resources_with_repair(
         };
         let db = Database::open_existing(&db_path)
             .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
-        repair_regular_contract_consistency(&db.conn, !preseason_active)?;
+        repair_regular_contract_consistency(&db.conn, !preseason_active, keep_retired_seated)?;
         db
     } else {
         Database::open_existing(&db_path)
@@ -669,9 +675,15 @@ pub(crate) fn open_career_resources_with_repair(
     Ok((db, career_dir, meta))
 }
 
+/// `keep_retired_seated`: não rescinde o contrato de quem se aposentou, deixando o
+/// piloto no assento. Ligado só nas semanas de abertura da janela de mercado, onde o
+/// grid é a foto do fim da temporada — ver `open_career_resources_with_repair`. Fora
+/// disso a rescisão continua sendo parte do reparo: aposentado com contrato ativo é
+/// estado inválido, e as pré-passes da janela são quem o resolve no fluxo normal.
 pub(crate) fn repair_regular_contract_consistency(
     conn: &rusqlite::Connection,
     allow_regular_vacancy_fill: bool,
+    keep_retired_seated: bool,
 ) -> Result<(), String> {
     let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
         .map_err(|e| format!("Falha ao iniciar reparo de contratos: {e}"))?;
@@ -775,7 +787,7 @@ pub(crate) fn repair_regular_contract_consistency(
         let Some(driver) = drivers_by_id.get(&contract.piloto_id) else {
             continue;
         };
-        if driver.status == DriverStatus::Aposentado {
+        if driver.status == DriverStatus::Aposentado && !keep_retired_seated {
             contract_queries::update_contract_status(
                 &tx,
                 &contract.id,

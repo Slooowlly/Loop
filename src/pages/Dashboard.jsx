@@ -16,7 +16,7 @@ import {
   resolvePostRaceLanding,
 } from "../utils/postRaceLanding";
 import CalendarTabRedesign from "./tabs/CalendarTabRedesign";
-import MyTeamTab from "./tabs/MyTeamTab";
+import MyTeamTab from "./tabs/myteam";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
 import StandingsTab from "./tabs/StandingsTab";
@@ -39,6 +39,7 @@ function Dashboard() {
   const dismissResult = useCareerStore((state) => state.dismissResult);
   const lastRaceWasFinale = useCareerStore((state) => state.lastRaceWasFinale);
   const resultIsFresh = useCareerStore((state) => state.resultIsFresh);
+  const loadSeasonChampionOverlay = useCareerStore((state) => state.loadSeasonChampionOverlay);
   const season = useCareerStore((state) => state.season);
   const careerId = useCareerStore((state) => state.careerId);
   const pollIracingResult = useCareerStore((state) => state.pollIracingResult);
@@ -51,6 +52,12 @@ function Dashboard() {
   const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
   const [activeTab, setActiveTab] = useState("standings");
   const [globalDriversSelectedId, setGlobalDriversSelectedId] = useState(null);
+  // Métrica de carreira pedida pelos cards de recorde da ficha do piloto — a
+  // tela global abre ordenada por ela. Nulo quando a entrada foi pela lista.
+  const [globalDriversMetric, setGlobalDriversMetric] = useState(null);
+  // A categoria vem junto quando a ficha estava comparando o piloto com o grid
+  // atual, e não com o mundo — a lista global abre filtrada por ela.
+  const [globalDriversCategory, setGlobalDriversCategory] = useState(null);
   const [globalTeamsSelection, setGlobalTeamsSelection] = useState(null);
   // Pedido em aberto da tela de recordes de equipes (métrica, recorte, equipe de
   // origem) e a aba de onde o clique partiu, para o "Voltar".
@@ -177,10 +184,80 @@ function Dashboard() {
     return () => window.removeEventListener("keydown", handleDebugSkip);
   }, []);
 
+  // DEBUG hotkey — Ctrl+L (ou Cmd+L): simula tudo MENOS a última corrida da categoria
+  // do jogador, deixando o save a um "Avançar calendário" da final da temporada — o
+  // atalho para ver a tela de Campeão da Temporada sem correr o ano inteiro. Mesmos
+  // portões do Ctrl+M, lendo o estado fresco do store.
+  useEffect(() => {
+    function handleDebugFinale(event) {
+      const isMod = event.ctrlKey || event.metaKey;
+      if (!isMod || (event.key !== "l" && event.key !== "L")) return;
+
+      const s = useCareerStore.getState();
+      if (!s.isLoaded || !s.careerId) return;
+      if (
+        s.isAdvancing ||
+        s.isSimulating ||
+        s.isConvocating ||
+        s.isEnteringPreseason ||
+        s.showResult ||
+        s.showEndOfSeason ||
+        s.showPreseason ||
+        s.showConvocation
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setDebugSkipFlash("⏭️ DEBUG: pulando até a última corrida…");
+      Promise.resolve(s.debugSkipToSeasonFinale?.())
+        .then(() => setDebugSkipFlash(""))
+        .catch((err) => {
+          console.error("[debug] Ctrl+L (pular até a final) falhou:", err);
+          setDebugSkipFlash("");
+        });
+    }
+
+    window.addEventListener("keydown", handleDebugFinale);
+    return () => window.removeEventListener("keydown", handleDebugFinale);
+  }, []);
+
+  // DEBUG hotkey — Ctrl+K (ou Cmd+K): abre o pop-up de Campeão da Temporada na hora,
+  // com o ano ANTERIOR (temporada fechada, calendário e recordes completos). Serve
+  // para trabalhar na tela sem correr nada, então é de propósito o atalho mais
+  // permissivo dos três: basta a carreira estar carregada. Reabrir por cima do pop-up
+  // já aberto é inofensivo — só recarrega o payload.
+  useEffect(() => {
+    function handleDebugChampion(event) {
+      const isMod = event.ctrlKey || event.metaKey;
+      if (!isMod || (event.key !== "k" && event.key !== "K")) return;
+
+      const s = useCareerStore.getState();
+      if (!s.isLoaded || !s.careerId) return;
+
+      event.preventDefault();
+      Promise.resolve(s.debugShowLastSeasonChampion?.())
+        .then((payload) => {
+          if (payload) return;
+          setDebugSkipFlash("🏆 DEBUG: nenhuma temporada com corridas para mostrar");
+          setTimeout(() => setDebugSkipFlash(""), 2500);
+        })
+        .catch((err) => {
+          console.error("[debug] Ctrl+K (tela de campeão) falhou:", err);
+        });
+    }
+
+    window.addEventListener("keydown", handleDebugChampion);
+    return () => window.removeEventListener("keydown", handleDebugChampion);
+  }, []);
+
   // "Continuar" no pós-corrida: decide a aba de destino (Notícias por padrão; Home
   // depois de 3 pulos; sempre Notícias no final de campeonato) e, quando cai em
   // Notícias, arma a medição de leitura. Só corridas recém-terminadas contam.
   function handleDismissResult() {
+    // Corrida recém-terminada? Lido ANTES do dismiss, que zera `resultIsFresh`.
+    const justRaced = resultIsFresh;
+
     if (resultIsFresh) {
       const seasonKey = season?.numero ?? season?.ano ?? null;
       const { tab, evaluate } = resolvePostRaceLanding(careerId, seasonKey, lastRaceWasFinale);
@@ -197,7 +274,23 @@ function Dashboard() {
         };
       }
     }
-    dismissResult();
+
+    const dismissed = Promise.resolve(dismissResult());
+    if (justRaced) {
+      // Fim de campeonato → entra o pop-up de Campeão da Temporada, por cima da aba
+      // de destino. Só DEPOIS do recarregamento da carreira: aí os resultados da
+      // final já estão gravados e o payload fecha com a classificação.
+      //
+      // O slot narrativo `FinalDaTemporada` é o sinal principal, mas ele depende da
+      // geração do calendário ter reservado uma pista forte para a última etapa —
+      // por isso "o jogador não tem mais corrida nesta temporada" vale como rede.
+      void dismissed.then((reloaded) => {
+        const seasonIsOver = reloaded ? !reloaded.next_race : false;
+        if (lastRaceWasFinale || seasonIsOver) {
+          void loadSeasonChampionOverlay?.();
+        }
+      });
+    }
   }
 
   if (!isLoaded) {
@@ -218,6 +311,8 @@ function Dashboard() {
         return (
           <GlobalDriversTab
             selectedDriverId={globalDriversSelectedId}
+            initialMetric={globalDriversMetric}
+            initialCategory={globalDriversCategory}
             onBack={() => setActiveTab("standings")}
           />
         );
@@ -264,8 +359,13 @@ function Dashboard() {
     }
   }
 
-  function openGlobalDrivers(driverId) {
+  // Entrada única da tela global de pilotos. `metric` só vem dos cards de
+  // recorde da ficha; entrar pela lista limpa a métrica de propósito, senão a
+  // ordem pedida numa visita anterior sobreviveria à visita seguinte.
+  function openGlobalDrivers(driverId, { metric = null, category = null } = {}) {
     setGlobalDriversSelectedId(driverId);
+    setGlobalDriversMetric(metric);
+    setGlobalDriversCategory(category);
     setActiveTab("global-drivers");
   }
 

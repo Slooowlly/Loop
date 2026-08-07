@@ -1489,7 +1489,7 @@ fn gate_de_enduro_por_duracao() {
 
 #[test]
 fn sprint_nao_tem_sobrecusto_de_peca() {
-    for d in [0u8, 15, 25, 30, 40] {
+    for d in [0u16, 15, 25, 30, 40] {
         assert!(
             (enduro_economy_wear_mult(d, 0) - 1.0).abs() < 1e-9,
             "sprint {d}min deveria ser 1.0"

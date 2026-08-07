@@ -3,7 +3,6 @@ use rusqlite::Connection;
 
 use crate::db::queries::teams as team_queries;
 use crate::finance::events::parachute_payment_for_relegation;
-use crate::finance::planning::category_finance_scale;
 use crate::models::team::Team;
 use crate::promotion::{MovementType, TeamAttributeDelta};
 
@@ -99,11 +98,36 @@ pub fn apply_attribute_deltas(
     Ok(())
 }
 
-fn promotion_budget_delta_to_cash(team: &Team, budget_delta: f64) -> f64 {
-    let scale = category_finance_scale(&team.categoria);
-    let category_cash_window = (scale.cash_max - scale.cash_min).max(1.0);
+/// Quantos MESES de operação o pacote da promoção paga por ponto de `budget_delta`.
+///
+/// É o valor que a fórmula antiga já entregava, escrito na unidade em que ele existe. Ela
+/// dizia `janela_de_caixa × delta/100 × 0,35`, e a janela é `cash_max − cash_min` = 11 − 1
+/// = **dez meses** de operação por construção: o produto sempre foi `0,035 × delta` meses.
+/// Nada mudou de magnitude aqui — mudou o que dá para ler no código.
+const MESES_POR_PONTO_DE_PROMOCAO: f64 = 0.035;
 
-    category_cash_window * (budget_delta / 100.0) * 0.35
+/// Converte o `budget_delta` do pacote de promoção em dinheiro.
+///
+/// # O rótulo não bate mais com a escala
+///
+/// `budget_delta` é declarado em PONTOS de `budget_index` (+5 a +15 ao subir, −20 a −30 ao
+/// cair). Depois que o índice foi re-derivado sobre a escada de estados, dez pontos perto da
+/// banda `saudavel` valem ~7 meses de operação — e este pacote paga 0,35. **O pacote é ~20×
+/// menor do que o próprio nome dele afirma.**
+///
+/// Isso não é regressão desta mudança: a fórmula antiga nunca leu a escala do índice, só a
+/// janela de caixa, então o pacote sempre valeu 0,035 mês por ponto. O que a re-derivação
+/// fez foi tornar a discrepância visível — antes o índice saturava em 100 e um "delta de 10
+/// pontos" não tinha significado nenhum contra o qual conferir.
+///
+/// Fica na magnitude de hoje **de propósito**. Fazer o delta valer o que ele diz multiplicaria
+/// por vinte a injeção de caixa de toda promoção, que é calibração do anti-snowball
+/// ([`PromotionDiminishConfig`]) e não conserto de unidade.
+fn promotion_budget_delta_to_cash(team: &Team, budget_delta: f64) -> f64 {
+    let mensal =
+        crate::finance::state::custo_operacional_mensal(&team.categoria, team.classe.as_deref());
+
+    mensal * budget_delta * MESES_POR_PONTO_DE_PROMOCAO
 }
 
 /// Parâmetros do retorno decrescente do pacote ECONÔMICO da promoção.

@@ -32,6 +32,9 @@ export function useBriefingData({
   const [breakdownForecast, setBreakdownForecast] = useState(null);
   // IDs das EQUIPES com risco real de quebra na próxima corrida → 🔧 na tabela do campeonato.
   const [breakdownRiskTeams, setBreakdownRiskTeams] = useState(() => new Set());
+  // Modificadores da esteira por piloto (forma, lesão, pressão…) → tooltip da tabela do
+  // campeonato. Buscado de uma vez para o grid inteiro: o hover não pode disparar invoke.
+  const [weekendModifiers, setWeekendModifiers] = useState(() => new Map());
   const [briefingError, setBriefingError] = useState("");
 
   useEffect(() => {
@@ -145,6 +148,29 @@ export function useBriefingData({
     };
   }, [careerId, nextRace?.id]);
 
+  // Prévia dos modificadores de fim de semana do grid (a esteira de `simulation::esteira`).
+  // Determinística e sem gravar nada: é o mesmo grid que a etapa vai rodar.
+  useEffect(() => {
+    let active = true;
+    if (!careerId) return undefined;
+    invoke("get_weekend_modifiers", { careerId })
+      .then((rows) => {
+        if (!active) return;
+        setWeekendModifiers(
+          new Map((Array.isArray(rows) ? rows : []).map((row) => [row.driver_id, row])),
+        );
+      })
+      // Falhar aqui só custa o tooltip, então não sobe pra tela — mas custa CALADO era pior:
+      // comando não registrado, save sem etapa pendente e erro de verdade ficavam todos com a
+      // mesma cara de "o balão não abre".
+      .catch((erro) => {
+        console.warn("[Loop] get_weekend_modifiers falhou:", erro);
+      });
+    return () => {
+      active = false;
+    };
+  }, [careerId, nextRace?.id]);
+
   const briefing = useMemo(
     () =>
       buildBriefingContext({
@@ -244,5 +270,6 @@ export function useBriefingData({
     briefingError,
     breakdownForecast,
     breakdownRiskTeams,
+    weekendModifiers,
   };
 }

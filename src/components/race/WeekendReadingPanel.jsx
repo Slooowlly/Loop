@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../ui/Tooltip";
+
 // A LEITURA DO FIM DE SEMANA — o card que transforma "ele foi mal nesta etapa" em causa.
 //
 // A campanha de calibração vai AUMENTAR a variação que vem do fim de semana. O argumento
@@ -76,13 +78,11 @@ function Camada({ labelKey, layer, t }) {
             {t(`nextRaceTab.weekendReading.bands.${faixa.key}`)}
           </span>
           {tend && (
-            <span
-              style={{ color: faixa.color }}
-              className="text-[13px] leading-none"
-              title={t(`nextRaceTab.weekendReading.trends.${tend.key}`)}
-            >
-              {tend.glyph}
-            </span>
+            <Tooltip texto={t(`nextRaceTab.weekendReading.trends.${tend.key}`)}>
+              <span style={{ color: faixa.color }} className="text-[13px] leading-none">
+                {tend.glyph}
+              </span>
+            </Tooltip>
           )}
         </span>
       </div>

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../../ui/Tooltip";
 import goldTrophy from "../../../assets/utilities/trophies/ouro.png";
 
 // Cabeçalho, legenda e rodapé do Atlas v2 — a moldura em volta dos dados.
@@ -16,19 +17,20 @@ export function AtlasHeader({ title, families, selectedFamily, zoomYears, zoomLa
       </div>
 
       <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
-        <button
-          type="button"
-          aria-pressed={zoomYears != null}
-          title={zoomTitle}
-          onClick={onToggleZoom}
-          className={`rounded-full border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors ${
-            zoomYears != null
-              ? "border-[#f0a04b]/60 bg-[#f0a04b]/15 text-[#f0a04b]"
-              : "border-[#2a3f5c] bg-white/[0.03] text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          {zoomLabel}
-        </button>
+        <Tooltip texto={zoomTitle}>
+          <button
+            type="button"
+            aria-pressed={zoomYears != null}
+            onClick={onToggleZoom}
+            className={`rounded-full border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors ${
+              zoomYears != null
+                ? "border-[#f0a04b]/60 bg-[#f0a04b]/15 text-[#f0a04b]"
+                : "border-[#2a3f5c] bg-white/[0.03] text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {zoomLabel}
+          </button>
+        </Tooltip>
         {families.map((family) => {
           const isActive = family.id === selectedFamily;
           return (
@@ -129,7 +131,6 @@ export function AtlasFooter({ teamCount, bandCount, familyLabel, lastDataYear, u
           type="button"
           data-testid="atlas-v2-back"
           onClick={onBack}
-          title={t("globalTeams.backToStandings")}
           className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-[#2a3f5c] bg-white/[0.04] px-3 py-1.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-slate-300 transition-colors hover:border-[#3a557a] hover:bg-white/[0.08] hover:text-slate-100"
         >
           <span aria-hidden="true" className="text-[14px] leading-none">←</span>

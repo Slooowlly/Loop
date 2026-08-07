@@ -14,10 +14,10 @@ use crate::commands::career_detail::build_driver_detail_payload;
 use crate::commands::career_types::{
     AcceptedSpecialOfferSummary, BriefingPhraseEntry, BriefingPhraseEntryInput,
     BriefingPhraseHistory, BriefingStorySummary, CareerData, CareerResumeContext, CareerResumeView,
-    ContractWarningInfo, CreateCareerResult, DriverDetail, DriverSummary, NextRaceBriefingSummary,
-    PrimaryRivalSummary, RaceReading, RaceReadingCar, RaceReadingSafetyCar, RaceSummary, SaveInfo,
-    SeasonSummary, TeamStanding, TeamSummary, TrackHistorySummary, VerifyDatabaseResponse,
-    WeekendReading,
+    ContractWarningInfo, CreateCareerResult, DriverCareerRankEntry, DriverDetail, DriverSummary,
+    NextRaceBriefingSummary, PrimaryRivalSummary, RaceReading, RaceReadingCar,
+    RaceReadingSafetyCar, RaceSummary, SaveInfo, SeasonSummary, TeamCarPartLevel, TeamCarParts,
+    TeamStanding, TeamSummary, TrackHistorySummary, VerifyDatabaseResponse, WeekendReading,
 };
 use crate::commands::race_history::{
     build_driver_histories, empty_previous_champions, ConstructorChampion, DriverRaceHistory,
@@ -38,6 +38,7 @@ use crate::db::queries::seasons as season_queries;
 use crate::db::queries::special_team_entries as special_entry_queries;
 use crate::db::queries::standings as standings_queries;
 use crate::db::queries::standings::ChampionshipContext;
+use crate::db::queries::team_car as team_car_queries;
 use crate::db::queries::teams as team_queries;
 use crate::event_interest::{
     calculate_expected_event_interest, to_summary, EventInterestContext, EventInterestSummary,
@@ -68,6 +69,8 @@ pub use crate::commands::career_types::CreateCareerInput;
 
 #[path = "career/briefing.rs"]
 mod briefing;
+#[path = "career/champion.rs"]
+mod champion;
 #[path = "career/debug.rs"]
 mod debug;
 #[path = "career/interests.rs"]
@@ -90,9 +93,11 @@ mod vacancies;
 pub(crate) use briefing::{
     build_next_race_briefing_summary, build_primary_rival_summary, empty_next_race_briefing_summary,
 };
+pub(crate) use champion::get_season_champion_payload_in_base_dir;
 pub(crate) use debug::{
     debug_force_player_poach_offer_in_base_dir, debug_poaching_auctions_in_base_dir,
-    debug_prepare_market_scenario_in_base_dir, debug_stamp_player_championship_in_base_dir,
+    debug_prepare_market_scenario_in_base_dir, debug_skip_to_season_finale_in_base_dir,
+    debug_stamp_player_championship_in_base_dir,
 };
 pub(crate) use interests::{get_player_interests_in_base_dir, select_player_interests};
 pub use interests::{PlayerInterests, RivalInterest};
@@ -125,7 +130,9 @@ pub(crate) use queries::{
 };
 pub(crate) use queries::{
     calculate_consecutive_team_tenure, count_calendar_entries,
-    get_calendar_for_category_in_base_dir, get_driver_detail_in_base_dir, get_driver_in_base_dir,
+    get_calendar_for_category_in_base_dir, get_displaced_driver_context_in_base_dir,
+    get_driver_detail_in_base_dir,
+    get_driver_dossier_ranks_in_base_dir, get_driver_in_base_dir,
     get_drivers_by_category_in_base_dir, get_news_in_base_dir, get_player_dossier_in_base_dir,
     get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
     get_race_results_by_category_in_base_dir, toggle_driver_favorite_in_base_dir,
@@ -141,7 +148,8 @@ pub(crate) use season_flow::count_season_calendar_entries;
 pub(crate) use season_flow::{advance_season_in_base_dir, skip_all_pending_races_in_base_dir};
 pub(crate) use standings::{
     get_regular_standings_participant_ids, get_special_driver_standings_from_results,
-    get_teams_standings_in_base_dir, merge_recent_results_fallback,
+    get_teams_car_parts_in_base_dir, get_teams_standings_in_base_dir,
+    merge_recent_results_fallback,
 };
 pub(crate) use vacancies::backfill_team_vacancy;
 #[cfg(test)]

@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
+import Tooltip from "../ui/Tooltip";
 import TeamLogoMark from "../team/TeamLogoMark";
 import RivalMarker from "../driver/RivalMarker";
-import RaceCoursePanel from "./RaceCoursePanel";
 import RaceTelemetryCockpit from "./RaceTelemetryCockpit";
 import { buildMockBreakdowns, MOCK_TELEMETRY } from "./__mockTelemetry";
 import {
@@ -129,6 +129,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
   // Card da repercussão: estado em vez de `group-hover` porque o card mora FORA da
   // faixa (que recorta), então gatilho e painel não são pai/filho.
   const [repercussionOpen, setRepercussionOpen] = useState(false);
+  // A fatura da etapa, buscada pelo comando `get_stage_invoice`. `null` enquanto carrega
+  // ou quando a rodada nao moveu o caixa — a celula cai na decomposicao legada.
+  const [invoice, setInvoice] = useState(null);
 
   function handleSortByLap() {
     setSortByLap(true);
@@ -157,6 +160,24 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
       .finally(() => {
         if (active) setAiLoading(false);
       });
+    return () => {
+      active = false;
+    };
+  }, [careerId, lastRaceId]);
+
+  // A FATURA da etapa: sete linhas físicas com quantidade e preço, os canais de receita
+  // e o custo fixo do ano no rodapé. Vem por comando próprio (e não no payload da
+  // corrida) porque ela é remontada do ledger — o dinheiro que de fato saiu do caixa —,
+  // então uma tela reaberta meses depois lê a mesma fatura.
+  useEffect(() => {
+    let active = true;
+    setInvoice(null);
+    if (!careerId || !lastRaceId) return undefined;
+    invoke("get_stage_invoice", { careerId, raceId: lastRaceId })
+      .then((data) => {
+        if (active && data) setInvoice(data);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
@@ -307,13 +328,14 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
           <div className="relative">
           <div className="glass-light flex items-stretch h-[76px] rounded-2xl overflow-hidden">
             {/* Bloco do clima */}
-            <div
-              className="flex items-center justify-center"
-              style={{ width: "78px", background: "rgba(255,255,255,0.045)", borderRight: "1px solid rgba(255,255,255,0.08)" }}
-              title={weatherLabel(result?.weather)}
-            >
-              <span className="text-[36px] leading-none">{weatherIcon(result?.weather)}</span>
-            </div>
+            <Tooltip texto={weatherLabel(result?.weather)}>
+              <div
+                className="flex items-center justify-center"
+                style={{ width: "78px", background: "rgba(255,255,255,0.045)", borderRight: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                <span className="text-[36px] leading-none">{weatherIcon(result?.weather)}</span>
+              </div>
+            </Tooltip>
             {/* Pista + condição */}
             <div className="flex flex-col justify-center px-6 min-w-0" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
               <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.18em] leading-none mb-1.5">{t("raceResult.header.finalClassification")}</div>
@@ -351,15 +373,16 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
             {/* Vale nas DUAS abas: os dados fake alimentam o cockpit da Telemetria E a UI de
                 quebra do Debrief (chips, 🔧 na tabela, tempo perdido na régua). */}
             {import.meta.env.DEV && (
-              <button
-                type="button"
-                onClick={() => setMockTelem((v) => !v)}
-                style={mockTelem ? { background: "#a855f733", color: "#d6bcfa", border: "0.5px solid #a855f755" } : { border: "0.5px solid rgba(255,255,255,0.12)", color: "#8b949e" }}
-                className="text-[11px] px-3 py-[7px] rounded-lg"
-                title={t("raceResult.dev.mockTitle")}
-              >
-                {mockTelem ? `🧪 ${t("raceResult.dev.fakeOn")}` : `🧪 ${t("raceResult.dev.fakeData")}`}
-              </button>
+              <Tooltip texto={t("raceResult.dev.mockTitle")}>
+                <button
+                  type="button"
+                  onClick={() => setMockTelem((v) => !v)}
+                  style={mockTelem ? { background: "#a855f733", color: "#d6bcfa", border: "0.5px solid #a855f755" } : { border: "0.5px solid rgba(255,255,255,0.12)", color: "#8b949e" }}
+                  className="text-[11px] px-3 py-[7px] rounded-lg"
+                >
+                  {mockTelem ? `🧪 ${t("raceResult.dev.fakeOn")}` : `🧪 ${t("raceResult.dev.fakeData")}`}
+                </button>
+              </Tooltip>
             )}
             <span
               style={{ background: "#0b0f16", border: "0.5px solid rgba(255,255,255,0.08)" }}
@@ -422,14 +445,15 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                       <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-2 text-left uppercase tracking-wider">{t("raceResult.table.team")}</th>
                       <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.laps")}</th>
                       <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-center uppercase tracking-wider">{t("raceResult.table.pits")}</th>
-                      <th
-                        onClick={handleSortByLap}
-                        title={t("raceResult.table.bestLapSortTitle")}
-                        style={{ color: sortByLap ? "#d6bcfa" : "#8b949e" }}
-                        className="text-[11px] font-normal py-2.5 px-1.5 text-right uppercase tracking-wider cursor-pointer select-none hover:text-white"
-                      >
-                        {t("raceResult.table.bestLap")} {sortByLap ? "↓" : ""}
-                      </th>
+                      <Tooltip texto={t("raceResult.table.bestLapSortTitle")}>
+                        <th
+                          onClick={handleSortByLap}
+                          style={{ color: sortByLap ? "#d6bcfa" : "#8b949e" }}
+                          className="text-[11px] font-normal py-2.5 px-1.5 text-right uppercase tracking-wider cursor-pointer select-none hover:text-white"
+                        >
+                          {t("raceResult.table.bestLap")} {sortByLap ? "↓" : ""}
+                        </th>
+                      </Tooltip>
                       <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 px-1 text-right uppercase tracking-wider">{t("raceResult.table.gap")}</th>
                       <th style={{ color: "#8b949e" }} className="text-[11px] font-normal py-2.5 pr-5 text-right uppercase tracking-wider">{t("raceResult.table.points")}</th>
                     </tr>
@@ -470,13 +494,14 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                             style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)", borderLeft: `3px solid ${teamColor}`, paddingLeft: "18px", paddingRight: "8px" }}
                           >
                             {e.is_dnf ? (
-                              <span
-                                title={e.dnf_reason ? capitalizar(e.dnf_reason) : undefined}
-                                style={{ background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)", fontFamily: MONO }}
-                                className={`text-[10px] px-1.5 py-0.5 rounded${e.dnf_reason ? " cursor-help" : ""}`}
-                              >
-                                DNF
-                              </span>
+                              <Tooltip texto={e.dnf_reason ? capitalizar(e.dnf_reason) : undefined}>
+                                <span
+                                  style={{ background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)", fontFamily: MONO }}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded${e.dnf_reason ? " cursor-help" : ""}`}
+                                >
+                                  DNF
+                                </span>
+                              </Tooltip>
                             ) : isPodium ? (
                               <span
                                 style={{
@@ -507,7 +532,9 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                           <td className="text-left px-2 py-2 text-[13px] truncate" style={{ color: txt, borderTop: "0.5px solid rgba(255,255,255,0.05)" }}>
                             {e.pilot_name}
                             {e.has_fastest_lap && (
-                              <span title={t("raceResult.table.fastestLapTitle")} style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
+                              <Tooltip texto={t("raceResult.table.fastestLapTitle")}>
+                                <span style={{ color: "#d6bcfa" }} className="ml-1">⚡</span>
+                              </Tooltip>
                             )}
                             {/* Quebra de peça: a chave inglesa marca quem teve problema e o
                                 rótulo diz o que custou. A peça e a volta ficam no tooltip —
@@ -516,21 +543,22 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                               const list = breakdownsByDriver[e.pilot_id];
                               const { secs, retired } = breakdownCost(list);
                               return (
-                                <span
-                                  title={breakdownTip(list, t)}
-                                  style={{ color: breakdownColor(list) }}
-                                  className="ml-1.5 cursor-help whitespace-nowrap text-[12px]"
-                                >
-                                  🔧
-                                  {secs > 0 && (
-                                    <span style={{ fontFamily: MONO }} className="ml-1 tabular-nums">
-                                      +{secs}s
-                                    </span>
-                                  )}
-                                  {secs === 0 && retired && (
-                                    <span style={{ fontFamily: MONO }} className="ml-1">DNF</span>
-                                  )}
-                                </span>
+                                <Tooltip texto={breakdownTip(list, t)}>
+                                  <span
+                                    style={{ color: breakdownColor(list) }}
+                                    className="ml-1.5 cursor-help whitespace-nowrap text-[12px]"
+                                  >
+                                    🔧
+                                    {secs > 0 && (
+                                      <span style={{ fontFamily: MONO }} className="ml-1 tabular-nums">
+                                        +{secs}s
+                                      </span>
+                                    )}
+                                    {secs === 0 && retired && (
+                                      <span style={{ fontFamily: MONO }} className="ml-1">DNF</span>
+                                    )}
+                                  </span>
+                                </Tooltip>
                               );
                             })()}
                             {/* Sem marcador "você": a linha do jogador já vem realçada em
@@ -573,12 +601,6 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                   custou), com peça e volta no tooltip. Um resumo separado repetia a mesma
                   informação e afastava a consequência de quem a sofreu. O detalhe volta a
                   volta continua na aba Telemetria. */}
-
-              {/* O CURSO da corrida — fica ENTRE a tabela e o engenheiro de propósito: a
-                  tabela diz o que aconteceu, o curso diz o que produziu aquilo, e o
-                  engenheiro comenta em cima dos dois. Some sozinho em corrida sem o dado
-                  de trecho (save antigo ou import do iRacing). */}
-              <RaceCoursePanel result={result} />
 
               {/* Debrief do engenheiro — painel completo (placeholder até a IA pós-corrida) */}
               {evaluation && (
@@ -656,7 +678,7 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
                         </span>
                       </DebriefMetric>
                     )}
-                    <MaintenanceMetric maintenance={maintenance} />
+                    <MaintenanceMetric maintenance={maintenance} invoice={invoice} />
                   </div>
                 </div>
               )}
@@ -793,16 +815,17 @@ function EngineerSpeech({
 
 function DebriefMetric({ label, divider, title, children }) {
   return (
-    <div
-      className={`flex-1 px-5 py-3.5${title ? " cursor-help" : ""}`}
-      title={title}
-      style={divider ? { borderRight: "1px solid rgba(255,255,255,0.06)" } : undefined}
-    >
-      <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{label}</div>
-      <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[19px] mt-2 leading-none">
-        {children}
+    <Tooltip texto={title}>
+      <div
+        className={`flex-1 px-5 py-3.5${title ? " cursor-help" : ""}`}
+        style={divider ? { borderRight: "1px solid rgba(255,255,255,0.06)" } : undefined}
+      >
+        <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{label}</div>
+        <div style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[19px] mt-2 leading-none">
+          {children}
+        </div>
       </div>
-    </div>
+    </Tooltip>
   );
 }
 
@@ -954,18 +977,77 @@ function RepercussionRow({ label, value, hint }) {
 // blocos existirem) caem num bloco sem cabeçalho, no fim.
 const MAINTENANCE_GROUPS = ["carro", "logistica", "equipe", "reparo"];
 
-// Célula "Custos da corrida" da régua: total sempre visível + tooltip com a fatura
-// agrupada em carro / logística / equipe / reparo. A cor é informação: âmbar SÓ quando
-// houve conserto — fim de semana limpo é custo de rotina, não alerta.
-function MaintenanceMetric({ maintenance }) {
+// Ordem dos blocos da FATURA nova. Despesa primeiro, receita por último: a fatura é uma
+// prestação de contas, e o saldo é a última coisa que se lê.
+const INVOICE_BLOCKS = ["corrida", "logistica", "equipe", "reparo", "receita"];
+
+// Quantidade física do expandir: sem casas quando a unidade CONTA coisas (não existe meia
+// pessoa nem meia diária), uma casa quando é medida contínua (litro, km).
+const UNIDADES_CONTAVEIS = ["pessoa", "pessoa_ano", "pessoa_dia", "pessoa_noite", "carro", "ano"];
+function formatQty(q, unit) {
+  return UNIDADES_CONTAVEIS.includes(unit)
+    ? Math.round(q).toLocaleString(currentLang())
+    : q.toFixed(1);
+}
+
+// Preço UNITÁRIO, que é o número mais sensível da fatura: arredondar para o dólar inteiro
+// escreve "$4" onde o litro custa $3,40 e — pior — "$0" onde o quilômetro de revisão custa
+// $0,48. Uma linha que diz "198 km × $0" e cobra $96 é exatamente a falsa precisão que este
+// redesign existe para remover, só que ao contrário. Abaixo de $10 vão duas casas.
+function formatUnitPrice(v) {
+  const n = Math.abs(v || 0);
+  if (n === 0) return "$0";
+  if (n < 10) return `$${(v || 0).toFixed(2)}`;
+  return formatUSD(v);
+}
+
+// O expandir de uma linha: "173 L × $3,40". É o que responde a "esse número é absurdo?" —
+// e é o motivo de o preço, e nunca o total, absorver qualquer ajuste no Rust.
+function InvoiceDetail({ detail, t }) {
+  return (
+    <div className="flex flex-col gap-0.5 mt-0.5 mb-1">
+      {detail.map((d) => (
+        <div key={d.key} className="flex items-center justify-between gap-6 pl-3">
+          <span style={{ color: "#6e7681" }} className="text-[10.5px]">
+            {t(`raceResult.invoice.lines.${d.key}`, { defaultValue: d.key })}
+          </span>
+          <span
+            style={{ color: "#6e7681", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}
+            className="text-[10.5px] whitespace-nowrap"
+          >
+            {formatQty(d.quantity, d.unit)} {t(`raceResult.invoice.units.${d.unit}`, { defaultValue: d.unit })}
+            {" × "}
+            {formatUnitPrice(d.unitPrice)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Célula "Custos da corrida" da régua: total sempre visível + a FATURA no hover — sete
+// linhas físicas, os canais de receita, o conserto se houve e, no pé, o custo fixo do ano.
+// A cor é informação: âmbar SÓ quando houve conserto — fim de semana limpo é custo de
+// rotina, não alerta.
+function MaintenanceMetric({ maintenance, invoice }) {
   const { t } = useTranslation();
-  const total = maintenance?.total ?? 0;
-  const items = Array.isArray(maintenance?.items) ? maintenance.items : [];
-  const hasRepair = (maintenance?.repair_total ?? 0) > 0;
+  // A fatura nova manda quando existe; sem ela (corrida de bloco especial, save antigo) a
+  // célula cai na decomposição legada em vez de sumir.
+  const total = invoice ? invoice.expenseTotal : maintenance?.total ?? 0;
+  const hasRepair = (invoice?.repairTotal ?? maintenance?.repair_total ?? 0) > 0;
   const totalColor = hasRepair ? "#e0a458" : "#c9d1d9";
-  const grouped = MAINTENANCE_GROUPS.map((g) => [g, items.filter((it) => it.group === g)])
+
+  const items = Array.isArray(maintenance?.items) ? maintenance.items : [];
+  const legadoAgrupado = MAINTENANCE_GROUPS.map((g) => [g, items.filter((it) => it.group === g)])
     .concat([[null, items.filter((it) => !MAINTENANCE_GROUPS.includes(it.group))]])
     .filter(([, list]) => list.length > 0);
+
+  const lines = Array.isArray(invoice?.lines) ? invoice.lines : [];
+  const blocos = INVOICE_BLOCKS.map((b) => [b, lines.filter((l) => l.block === b)]).filter(
+    ([, list]) => list.length > 0,
+  );
+  const temConteudo = blocos.length > 0 || legadoAgrupado.length > 0;
+
   return (
     <div className="flex-1 px-5 py-3.5 relative group">
       <div style={{ color: "#6e7681" }} className="text-[10px] uppercase tracking-[0.12em] leading-none">{t("raceResult.metrics.maintenance")}</div>
@@ -974,9 +1056,9 @@ function MaintenanceMetric({ maintenance }) {
         className="text-[19px] mt-2 leading-none inline-flex items-center gap-1.5 cursor-help"
       >
         {formatUSD(total)}
-        {items.length > 0 && <span style={{ color: "#6e7681" }} className="text-[11px]">ⓘ</span>}
+        {temConteudo && <span style={{ color: "#6e7681" }} className="text-[11px]">ⓘ</span>}
       </div>
-      {items.length > 0 && (
+      {temConteudo && (
         <div
           style={{
             background: "rgba(13,19,30,0.97)",
@@ -984,33 +1066,131 @@ function MaintenanceMetric({ maintenance }) {
             boxShadow: "0 16px 40px rgba(0,0,0,0.55)",
             backdropFilter: "blur(8px)",
           }}
-          className="absolute bottom-full right-4 mb-2 z-30 rounded-xl px-4 py-3 min-w-[230px] opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150"
+          // `pointer-events-auto` no hover: a fatura é mais alta que o card e precisa
+          // rolar. Com `pointer-events-none` fixo, o rodapé e os totais existiam no DOM e
+          // eram inalcançáveis — o card é filho do `.group`, então deixá-lo receber o
+          // mouse mantém o hover vivo enquanto o jogador rola dentro dele.
+          className="absolute bottom-full right-4 mb-2 z-30 rounded-xl px-4 py-3 w-[330px] max-h-[62vh] overflow-y-auto opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-150"
         >
           <div style={{ color: "#8b949e" }} className="text-[10px] uppercase tracking-[0.14em] mb-2.5">{t("raceResult.maintenance.invoiceTitle")}</div>
-          <div className="flex flex-col gap-3">
-            {grouped.map(([grupo, list]) => (
-              <div key={grupo ?? "outros"} className="flex flex-col gap-1.5">
-                {grupo && (
-                  <div
-                    style={{ color: grupo === "reparo" ? "#e0a458" : "#6e7681" }}
-                    className="text-[9.5px] uppercase tracking-[0.14em]"
-                  >
-                    {t(`raceResult.maintenance.groups.${grupo}`)}
-                  </div>
-                )}
-                {list.map((it) => (
-                  <div key={it.key} className="flex items-center justify-between gap-6">
-                    <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">{it.label}</span>
-                    <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatUSD(it.cost)}</span>
+
+          {blocos.length > 0 ? (
+            <>
+              <div className="flex flex-col gap-3">
+                {blocos.map(([bloco, list]) => (
+                  <div key={bloco} className="flex flex-col gap-1">
+                    <div
+                      style={{ color: bloco === "reparo" ? "#e0a458" : "#6e7681" }}
+                      className="text-[9.5px] uppercase tracking-[0.14em]"
+                    >
+                      {t(`raceResult.invoice.blocks.${bloco}`)}
+                    </div>
+                    {list.map((l) => (
+                      <div key={l.key}>
+                        <div className="flex items-center justify-between gap-6">
+                          <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">
+                            {t(`raceResult.invoice.lines.${l.key}`, { defaultValue: l.key })}
+                          </span>
+                          <span
+                            style={{
+                              color: bloco === "receita" ? "#4ade80" : "#fff",
+                              fontFamily: MONO,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                            className="text-[12.5px]"
+                          >
+                            {bloco === "receita" ? "+" : ""}{formatUSD(l.total)}
+                          </span>
+                        </div>
+                        {/* `expandable`, não `detail.length`: as linhas que são só
+                            dinheiro (os canais de receita, a peça comprada) carregam um
+                            detalhe sintético só para o total fechar com a soma. Renderizá-lo
+                            escrevia "1 ano × $9.162" embaixo do prêmio da corrida — um
+                            rótulo que o número não cumpre, dentro do expandir que existe
+                            para cumpri-lo. */}
+                        {l.expandable && <InvoiceDetail detail={l.detail} t={t} />}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-3 pt-2.5">
-            <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.maintenance.total")}</span>
-            <span style={{ color: totalColor, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
-          </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="mt-3 pt-2.5 flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-6">
+                  <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.invoice.expense")}</span>
+                  <span style={{ color: totalColor, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">
+                    {formatUSD(invoice.expenseTotal)}
+                  </span>
+                </div>
+                {invoice.incomeTotal > 0 && (
+                  <>
+                    <div className="flex items-center justify-between gap-6">
+                      <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.invoice.income")}</span>
+                      <span style={{ color: "#4ade80", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">
+                        {formatUSD(invoice.incomeTotal)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-6">
+                      <span style={{ color: "#c9d1d9" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.invoice.result")}</span>
+                      <span
+                        style={{
+                          color: invoice.result >= 0 ? "#4ade80" : "#f87171",
+                          fontFamily: MONO,
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                        className="text-[14px]"
+                      >
+                        {formatUSD(invoice.result)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Rodapé da decisão 10: folha e sede não variam por corrida, então elas
+                  não são linha da etapa — só contexto, dito uma vez, no ano inteiro. */}
+              {invoice.fixedCost && (
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="mt-2.5 pt-2.5">
+                  <div className="flex items-center justify-between gap-6">
+                    <span style={{ color: "#6e7681" }} className="text-[10.5px] uppercase tracking-wide">{t("raceResult.invoice.fixedCost")}</span>
+                    <span style={{ color: "#8b949e", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12px]">
+                      {formatUSD(invoice.fixedCostAnnual)}
+                    </span>
+                  </div>
+                  <div style={{ color: "#5a616b" }} className="text-[10px] leading-snug mt-1">
+                    {t("raceResult.invoice.fixedCostNote", { share: formatUSD(invoice.fixedCost.total) })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {legadoAgrupado.map(([grupo, list]) => (
+                  <div key={grupo ?? "outros"} className="flex flex-col gap-1.5">
+                    {grupo && (
+                      <div
+                        style={{ color: grupo === "reparo" ? "#e0a458" : "#6e7681" }}
+                        className="text-[9.5px] uppercase tracking-[0.14em]"
+                      >
+                        {t(`raceResult.maintenance.groups.${grupo}`)}
+                      </div>
+                    )}
+                    {list.map((it) => (
+                      <div key={it.key} className="flex items-center justify-between gap-6">
+                        <span style={{ color: "#c9d1d9" }} className="text-[12.5px]">{it.label}</span>
+                        <span style={{ color: "#fff", fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[12.5px]">{formatUSD(it.cost)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} className="flex items-center justify-between gap-6 mt-3 pt-2.5">
+                <span style={{ color: "#8b949e" }} className="text-[11px] uppercase tracking-wide">{t("raceResult.maintenance.total")}</span>
+                <span style={{ color: totalColor, fontFamily: MONO, fontVariantNumeric: "tabular-nums" }} className="text-[13px]">{formatUSD(total)}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

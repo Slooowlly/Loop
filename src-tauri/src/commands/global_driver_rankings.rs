@@ -8,8 +8,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use crate::commands::career_types::{
-    GlobalDriverRankingLeaders, GlobalDriverRankingPayload, GlobalDriverRankingRow,
-    GlobalDriverTitleCategorySummary, GlobalDriverTitleYearTeam,
+    DriverWorldRank, GlobalDriverRankingLeaders, GlobalDriverRankingPayload,
+    GlobalDriverRankingRow, GlobalDriverTitleCategorySummary, GlobalDriverTitleYearTeam,
 };
 use crate::config::app_config::AppConfig;
 use crate::constants::categories::{
@@ -55,6 +55,11 @@ mod utilitarios;
 // (`get_global_driver_rankings_in_base_dir` e `historical_index_for_driver`).
 pub(crate) use payload::*;
 pub(crate) use pontuacao::*;
+
+// A regra do que CONTA como título é usada também pela ficha do piloto, que
+// lista os campeonatos por ano: o número na ficha e o número na tabela que
+// ordena o mundo têm que sair da mesma régua.
+pub(crate) use titulos::valid_archived_title_count;
 
 // O resto é vocabulário interno: os irmãos enxergam via `use super::*`.
 use aposentados::*;

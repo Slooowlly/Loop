@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronDown } from "lucide-react";
 
 import { categoryLabel } from "../../utils/formatters";
 import i18n from "../../i18n/index.js";
@@ -48,8 +49,17 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [tooltip, setTooltip] = useState(null);
+  const [focusedDateKey, setFocusedDateKey] = useState(null);
   const rootRef = useRef(null);
   const lastCurrentMonthRef = useRef(null);
+
+  // O destaque do dia é um piscar, não um estado: some sozinho para não virar uma
+  // segunda "seleção" competindo com o dia atual.
+  useEffect(() => {
+    if (!focusedDateKey) return undefined;
+    const timer = setTimeout(() => setFocusedDateKey(null), 2600);
+    return () => clearTimeout(timer);
+  }, [focusedDateKey]);
 
   // Reseta o mês selecionado ao trocar de carreira (deixa o auto-pick reescolher).
   useEffect(() => {
@@ -97,6 +107,16 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
   function openMonth(target) {
     setSelectedMonth(target);
     rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Clique numa etapa da lista: leva a grade até o mês dela e pisca o dia.
+  function focusRace(race) {
+    const parsed = parseDisplayDate(race?.display_date);
+    if (!parsed) return;
+    openMonth(parsed.month);
+    // Chave montada com `seasonYear` — é o ano com que a grade é desenhada, então é
+    // o que casa com o data-testid das células.
+    setFocusedDateKey(formatIsoDateKey(seasonYear, parsed.month, parsed.day));
   }
 
   // Meses seguintes ao mês em foco — exibidos em miniatura abaixo (estilo antigo).
@@ -205,6 +225,7 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
                     currentDateParts={currentDateParts}
                     seasonYear={seasonYear}
                     raceArrivalFeedbackActive={raceArrivalFeedbackActive}
+                    highlighted={dateKey != null && dateKey === focusedDateKey}
                     onHover={setTooltip}
                   />
                 );
@@ -221,10 +242,12 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
             <span className="kcal whitespace-nowrap text-xs uppercase italic tracking-[0.14em] text-text-secondary">
               {t("calendar.v2.upcoming")}
             </span>
-            {nextRaceEntry && (
+            {/* "Ver todos" expande a lista — antes chamava `goToday`, o mesmo handler do
+                botão "Hoje", e o clique só trocava o mês da grade sem tocar na lista. */}
+            {upcomingList.length > 5 && !showAllEvents && (
               <button
                 type="button"
-                onClick={goToday}
+                onClick={() => setShowAllEvents(true)}
                 className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.08em] text-accent-primary transition-glass hover:text-accent-hover"
               >
                 {t("calendar.v2.seeAll")}
@@ -242,6 +265,7 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
                     race={race}
                     monthShort={monthShort}
                     isNext={race.id === nextRace?.id}
+                    onSelect={focusRace}
                     t={t}
                   />
                 ))}
@@ -253,7 +277,12 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
                   className="mx-4 mb-4 flex items-center justify-center gap-1.5 rounded-2xl bg-white/[0.05] py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-accent-primary transition-glass hover:bg-white/[0.09]"
                 >
                   {showAllEvents ? t("calendar.v2.seeLess") : t("calendar.v2.seeMore")}
-                  <span className={`transition-transform ${showAllEvents ? "rotate-180" : ""}`}>⌄</span>
+                  <ChevronDown
+                    size={14}
+                    strokeWidth={2.4}
+                    aria-hidden="true"
+                    className={`transition-transform ${showAllEvents ? "rotate-180" : ""}`}
+                  />
                 </button>
               )}
             </>

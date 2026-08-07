@@ -78,7 +78,7 @@ export function categoryLabel(id) {
     toyota_rookie: "Toyota Rookie",
     mazda_amador: "Mazda Cup",
     toyota_amador: "Toyota Cup",
-    bmw_m2: "BMW Cup",
+    bmw_m2: "BMW",
     production_challenger: "Production",
     gt4: "GT4 Series",
     gt3: "GT3 Championship",

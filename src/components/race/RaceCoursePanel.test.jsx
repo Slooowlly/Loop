@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
 
+import { porTooltip } from "../../test/tooltip";
+
 import RaceCoursePanel from "./RaceCoursePanel";
 
 // O recharts não mede nada em jsdom (largura 0 → não renderiza as linhas), então o
@@ -154,7 +156,7 @@ describe("RaceCoursePanel", () => {
     expect(JSON.parse(screen.getByTestId("trace").dataset.yellow)).toEqual([18]);
     // Estava P2 na ordem registrada (índice 1) e terminou P6 — é o número que transforma
     // "perdi posições" em "a amarela me custou posições".
-    const chip = screen.getByTitle(
+    const chip = porTooltip(
       /raceResult\.course\.safetyCarTip:.*"lap":18.*"before":2.*"after":6/,
     );
     expect(chip).toBeTruthy();

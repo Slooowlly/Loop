@@ -62,8 +62,9 @@ const FAVORITES_COUNT: usize = 5;
 /// Quantos entram em PROMESSAS / INCÓGNITAS (o segundo pelotão).
 const PROMISES_COUNT: usize = 5;
 /// Piso de pilotos com dossiê no bundle. A matéria de IA fica rasa quando só há meia
-/// dúzia de nomes para trabalhar — com o grid inteiro pequeno, cobre todo mundo.
-const MIN_PROFILED: usize = 10;
+/// dúzia de nomes para trabalhar, mas com o grid inteiro ela cobre todo mundo e vira
+/// um catálogo — sete é o meio-termo: dá o que escrever sem virar chamada nominal.
+const MIN_PROFILED: usize = 7;
 /// Quantos nomes o FALLBACK cita no pelotão de trás. O bundle da IA pode ser generoso
 /// (é insumo), mas a prosa determinística vira lista se despejar dez nomes.
 const FB_PACK_COUNT: usize = 3;

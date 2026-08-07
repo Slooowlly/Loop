@@ -1,8 +1,9 @@
 //! Comando lazy do boletim de IA.
 //!
 //! Quando o jogador ABRE uma notícia de corrida, o front chama este comando. Ele
-//! lê os fatos curados guardados no fim da corrida, manda ao servidor (que chama
-//! o Gemini) e devolve o boletim — cacheando o resultado. Em qualquer falha,
+//! lê os fatos curados guardados no fim da corrida, manda ao servidor (que escolhe o
+//! provedor — ver `narrative::client`) e devolve o boletim — cacheando o resultado. Em
+//! qualquer falha,
 //! devolve `story: None` e o front cai no texto-template padrão (nunca quebra).
 //!
 //! Este arquivo é só a fachada: os submódulos vivem em `ai_news/` e todos os

@@ -17,7 +17,10 @@ pub struct CategoryConfig {
     pub pilotos_por_equipe: u8,
     pub grid_total: u8,
     pub corridas_por_temporada: u8,
-    pub duracao_corrida_min: u8,
+    /// Duração nominal da prova (min). `u16` porque o Endurance chega a 360 — não cabe em `u8`.
+    /// Vale 0 no Endurance: lá a duração é sorteada por etapa em `resolve_race_duration` e a
+    /// fonte de verdade passa a ser `CalendarEntry::duracao_corrida_min`.
+    pub duracao_corrida_min: u16,
     pub monomarca: bool,
     pub multi_classe: bool,
     pub licenca_necessaria: Option<u8>,

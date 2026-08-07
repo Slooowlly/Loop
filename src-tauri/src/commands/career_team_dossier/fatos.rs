@@ -17,6 +17,18 @@ pub(super) struct TeamRaceFact {
     /// os carros dela). É o que separa um pódio de prata de um de bronze — com
     /// dois carros, a equipe leva o degrau mais alto que conseguiu.
     pub(super) best_position: Option<i32>,
+    /// Semana do ano da corrida (1–47). Junto com `season_year` forma o relógio do
+    /// mundo: a distância entre dois fatos sai de uma subtração, sem parsear data.
+    pub(super) week_of_year: i32,
+    /// Carros da equipe que ABANDONARAM aquela corrida (0, 1 ou 2 — a grade tem
+    /// dois carros por equipe).
+    ///
+    /// Conta carro, e não corrida, de propósito: um fim de semana em que um dos
+    /// dois quebrou é meio prejuízo, não um prejuízo inteiro, e somar por corrida
+    /// apagaria a diferença entre a equipe que perde um carro e a que perde os
+    /// dois. Ele NÃO entra na conta do top 5 — a colocação continua saindo do
+    /// melhor carro, e um abandono do carro reserva não tira o pódio do outro.
+    pub(super) dnfs: i32,
     /// Classe do carro naquela temporada ("mazda", "toyota", "bmw"), vazia nas
     /// categorias monomarca.
     ///
@@ -85,7 +97,9 @@ pub(super) fn load_team_race_facts(
                 NULLIF(TRIM(a.classe), ''),
                 NULLIF(TRIM(t.classe), ''),
                 ''
-            ) AS classe
+            ) AS classe,
+            c.week_of_year,
+            SUM(CASE WHEN r.dnf <> 0 THEN 1 ELSE 0 END) AS dnfs
          FROM race_results r
          JOIN calendar c ON c.id = r.race_id
          JOIN seasons s ON s.id = c.temporada_id
@@ -114,6 +128,8 @@ pub(super) fn load_team_race_facts(
                 podium: row.get::<_, i32>(8)? > 0,
                 best_position: row.get::<_, Option<i32>>(9)?,
                 class: row.get::<_, String>(10)?.to_lowercase(),
+                week_of_year: row.get::<_, Option<i32>>(11)?.unwrap_or(0),
+                dnfs: row.get::<_, Option<i32>>(12)?.unwrap_or(0),
             })
         })
         .map_err(|e| format!("Falha ao consultar histórico real da equipe: {e}"))?;
@@ -186,8 +202,10 @@ pub(super) fn load_constructor_titles_by_team(
         })
         .map_err(|e| format!("Falha ao consultar títulos reais de equipes: {e}"))?;
 
-    let mut best_by_season_category: BTreeMap<String, (i32, i32, String, String, f64, i32, String)> =
-        BTreeMap::new();
+    let mut best_by_season_category: BTreeMap<
+        String,
+        (i32, i32, String, String, f64, i32, String),
+    > = BTreeMap::new();
     for row in rows {
         let (season_id, season_number, season_year, team_id, category, points, wins, class) =
             row.map_err(|e| format!("Falha ao ler títulos reais de equipes: {e}"))?;
@@ -208,7 +226,15 @@ pub(super) fn load_constructor_titles_by_team(
         if replace {
             best_by_season_category.insert(
                 key,
-                (season_number, season_year, team_id, category, points, wins, class),
+                (
+                    season_number,
+                    season_year,
+                    team_id,
+                    category,
+                    points,
+                    wins,
+                    class,
+                ),
             );
         }
     }
@@ -326,7 +352,8 @@ pub(super) struct TeamCard {
 /// as equipes do grupo, e sem isso cada linha seria um id.
 pub(super) fn load_team_cards(conn: &rusqlite::Connection) -> HashMap<String, TeamCard> {
     let mut cards = HashMap::new();
-    let mut stmt = match conn.prepare("SELECT id, nome, cor_primaria, categoria, ativa FROM teams") {
+    let mut stmt = match conn.prepare("SELECT id, nome, cor_primaria, categoria, ativa FROM teams")
+    {
         Ok(stmt) => stmt,
         Err(_) => return cards,
     };

@@ -16,8 +16,14 @@ pub struct FreeAgentRaw {
     pub max_license_level: Option<u8>,
     pub last_championship_position: Option<i32>,
     pub last_championship_total_drivers: Option<i32>,
-    /// Temporadas sem correr = (última temporada arquivada no mundo) − (última do piloto).
+    /// Temporadas sem correr = (última temporada arquivada no mundo) − (última em que
+    /// o piloto COMPETIU de fato).
     /// `None` = nunca correu (rookie). `0` = correu na última temporada (agente fresco).
+    ///
+    /// A linha do arquivo não serve de prova de que o piloto correu: `archive_driver_season`
+    /// grava uma por piloto por temporada, inclusive para quem ficou sem vaga — nesse caso
+    /// com `categoria` vazia e `posicao_campeonato` nula. Sem filtrar por isso a conta dava
+    /// zero para todo mundo e o marcador "parado" nunca aparecia.
     pub seasons_idle: Option<i32>,
 }
 
@@ -89,7 +95,8 @@ pub fn get_free_agents_for_preseason(conn: &Connection) -> Result<Vec<FreeAgentR
                  (SELECT MAX(CAST(season_number AS INTEGER)) FROM driver_season_archive)
                  - (SELECT MAX(CAST(season_number AS INTEGER))
                     FROM driver_season_archive
-                    WHERE piloto_id = d.id)
+                    WHERE piloto_id = d.id
+                      AND COALESCE(categoria, '') <> '')
              ) AS seasons_idle
          FROM drivers d
          WHERE NOT EXISTS (

@@ -14,4 +14,10 @@ pub struct BreakdownMessage {
     pub(crate) text: String,
     /// Detalhe concreto do problema (o `problem_label`), como subtítulo.
     pub(crate) detail: String,
+    /// As peças de áudio a tocar, na ordem — chaves de `src/assets/engenheiro/*.opus`.
+    ///
+    /// VAZIO quando a quebra não merece rádio (leve, de piloto sem vínculo com o jogador) ou
+    /// quando falta gravação do sujeito. O card continua aparecendo: o que se corta é o áudio,
+    /// não a informação. Ver [`crate::engenheiro::quebra`].
+    pub(crate) pecas: Vec<String>,
 }

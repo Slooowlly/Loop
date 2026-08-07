@@ -19,8 +19,9 @@ import { categoryLabel } from "../../utils/formatters";
 import "./NewsMagazineTab.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Construtores e edições agora são REAIS (vindos do backend). Pendentes:
-//   • Texto/boletim da matéria → IA (Gemini) — por enquanto placeholder.
+// Construtores, edições e o boletim da matéria são REAIS (vindos do backend). O
+// boletim vem por IA (`enrich_race_news_ai`); o servidor escolhe o provedor — ver
+// `narrative/client.rs`. Sem boletim gerado, o texto cai no placeholder.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function NewsMagazineTab() {
@@ -35,7 +36,7 @@ function NewsMagazineTab() {
 
   const standings = useTeamsStandings(careerId, category);
   const driverStandings = useDriverStandings(careerId, category);
-  const calendar = useCategoryCalendar(careerId, category);
+  const { calendar, loaded: calendarLoaded } = useCategoryCalendar(careerId, category);
   const worldNotes = useWorldNotes(careerId);
 
   const [edIdx, setEdIdx] = useState(0);
@@ -57,7 +58,10 @@ function NewsMagazineTab() {
   const isPreseason = editions.length === 0;
 
   const bulletin = useRaceBulletin(careerId, season?.id, ed?.rodada);
-  const preview = useSeasonPreview(careerId, category, season?.id, isPreseason);
+  // `isPreseason` só vale depois do calendário voltar — antes disso ele é sempre
+  // `true` e pediria a prévia da temporada em toda abertura da aba, mesmo no meio
+  // de uma temporada já em curso.
+  const preview = useSeasonPreview(careerId, category, season?.id, isPreseason && calendarLoaded);
 
   // Pista de abertura (menor rodada do calendário) — foto e legenda do spread.
   const openingRace = useMemo(() => {
@@ -86,11 +90,25 @@ function NewsMagazineTab() {
   // "livro fechado"). Só recai no livro fechado se nem categoria houver (edge).
   const showPreseason = isPreseason && !!category;
 
+  // Enquanto o calendário não volta, `editions` é vazio e a revista abriria no
+  // spread de pré-temporada — curto — para só depois trocar pela edição da
+  // corrida. É o "pisca" de revista minimizada ao entrar na aba. Segura a
+  // escolha até o dado chegar; a folha em branco reserva a altura.
+  const abrindo = !calendarLoaded;
+
+  const magClass = [
+    "mag",
+    flipping ? "flipping" : "",
+    abrindo ? "mag--abrindo" : ed || showPreseason ? "" : "mag--cover",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="newsmag">
       {/* ═══════════ A REVISTA ═══════════ */}
-      <article className={`mag${flipping ? " flipping" : ""}${ed || showPreseason ? "" : " mag--cover"}`}>
-        {ed ? (
+      <article className={magClass}>
+        {abrindo ? null : ed ? (
           <RaceEditionSpread
             ed={ed}
             year={year}

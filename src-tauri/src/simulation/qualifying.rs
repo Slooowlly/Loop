@@ -1019,6 +1019,7 @@ mod tests {
                         team_name: format!("Equipe {}", equipe + 1),
                         corridas_na_categoria: 40,
                         pressure_error_mult: 1.0,
+                        duelo_de_pista: None,
                     }
                 })
                 .collect()

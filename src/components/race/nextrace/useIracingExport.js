@@ -25,6 +25,13 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
   const [paintBusy, setPaintBusy] = useState(false);
   const [paintError, setPaintError] = useState("");
   const [paintToast, setPaintToast] = useState("");
+  // Modo janela do iRacing: o overlay não aparece por cima de tela cheia exclusiva.
+  // O pedido nasce aqui, na exportação, porque é o único momento em que o jogador
+  // tem o iRacing no lobby (o simulador fechado) e está indo correr.
+  const [showWindowPrompt, setShowWindowPrompt] = useState(false);
+  const [windowBusy, setWindowBusy] = useState(false);
+  const [windowError, setWindowError] = useState("");
+  const [windowToast, setWindowToast] = useState("");
 
   // Decide se a opção "pegar a cor do carro" aparece na Sala de Estratégia: só
   // quando o jogador JÁ conectou ao iRacing (temos o custid — ele correu de verdade,
@@ -106,15 +113,54 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
       dismissToasts();
       setExported(true);
       exportSuccess();
-      // Stack de toasts: "Dados exportados" agora; "Entrar no iRacing" surge logo
-      // abaixo (empurrando o primeiro pra cima). Ambos somem em 15s.
-      toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
-      toastTimers.current.push(setTimeout(() => dismissToasts(), 15000));
+      // O pedido do modo janela entra ANTES do convite de ir ao iRacing: ajustar
+      // depois de o jogador já ter entrado no simulador não adiantaria nada — o
+      // sim reescreve esses arquivos ao fechar. Sem nada a ajustar, segue direto.
+      const modo = await invoke("iracing_modo_janela_status").catch(() => null);
+      if (modo?.deve_perguntar) {
+        setWindowError("");
+        setShowWindowPrompt(true);
+      } else {
+        agendarToastsDeIda();
+      }
     } catch (invokeError) {
       setError(getDisplayError(invokeError, t("nextRaceTab.errors.export")));
     } finally {
       setIsExporting(false);
     }
+  }
+
+  // Stack de toasts: "Dados exportados" agora; "Entrar no iRacing" surge logo
+  // abaixo (empurrando o primeiro pra cima). Ambos somem em 15s.
+  function agendarToastsDeIda() {
+    toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
+    toastTimers.current.push(setTimeout(() => dismissToasts(), 15000));
+  }
+
+  // "Sim, pode ajustar": escreve nos rendererDX11*.ini e só então convida a ir.
+  async function handleWindowModeConfirm() {
+    setWindowBusy(true);
+    setWindowError("");
+    try {
+      await invoke("iracing_modo_janela_aplicar");
+      setShowWindowPrompt(false);
+      setWindowToast(t("nextRaceTab.windowMode.toastDone"));
+      toastTimers.current.push(setTimeout(() => setWindowToast(""), 6000));
+      agendarToastsDeIda();
+    } catch (e) {
+      // Fica no popup com o motivo (simulador aberto, arquivo ausente): é um erro
+      // que o jogador consegue resolver e tentar de novo ali mesmo.
+      setWindowError(getDisplayError(e, t("nextRaceTab.errors.windowMode")));
+    } finally {
+      setWindowBusy(false);
+    }
+  }
+
+  // "Agora não": a exportação continua valendo, só o overlay é que não vai aparecer.
+  function handleWindowModeSkip() {
+    setShowWindowPrompt(false);
+    setWindowError("");
+    agendarToastsDeIda();
   }
 
   // Limpa os toasts pós-exportação e seus timers.
@@ -205,6 +251,12 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
     paintError,
     setPaintError,
     paintToast,
+    showWindowPrompt,
+    windowBusy,
+    windowError,
+    windowToast,
+    handleWindowModeConfirm,
+    handleWindowModeSkip,
     handleGrabPaint,
     handleExport,
     handleGoToIracing,

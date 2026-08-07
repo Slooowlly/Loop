@@ -102,7 +102,12 @@ pub fn iracing_auto_import_if_ready(
     // resultados. Idempotente pelo mesmo motivo do resto deste bloco (só corre depois de
     // um import bem-sucedido). Best-effort: corrida sem dados suficientes devolve Err e é
     // engolido — nunca desfaz o import.
-    let _ = iracing_process_race_result(app.clone());
+    // O Err é engolido de propósito, mas vai pro log: a causa mais provável de "a
+    // dificuldade não mexeu" é o monitor não ter o histórico vivo (app reaberto entre
+    // correr e importar), e sem esta linha isso é invisível.
+    if let Err(e) = iracing_process_race_result(app.clone()) {
+        crate::diagnostico::linha("adaptativo", &format!("Sem ajuste: {e}"));
+    }
 
     let evaluation = crate::commands::race::compute_race_evaluation(&db.conn, &race_result);
 

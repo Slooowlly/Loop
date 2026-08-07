@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import TeamLogoMark from "../../team/TeamLogoMark";
+import Tooltip from "../../ui/Tooltip";
 import {
   WEEKLY_MARKET_MOVEMENT_BADGES,
   RELATION_EMPHASIS,
@@ -43,18 +44,19 @@ export default function WeeklyClosingMovement({ event, color, onSelect }) {
     >
       <div className="flex min-w-0 items-center gap-2.5">
         {movementBadge && (
-          <span
-            aria-label={movementLabel}
-            title={movementLabel}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[13px] font-black leading-none"
-            style={{
-              color: movementBadge.color,
-              background: movementBadge.bg,
-              borderColor: movementBadge.border,
-            }}
-          >
-            {movementBadge.symbol}
-          </span>
+          <Tooltip texto={movementLabel}>
+            <span
+              aria-label={movementLabel}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[13px] font-black leading-none"
+              style={{
+                color: movementBadge.color,
+                background: movementBadge.bg,
+                borderColor: movementBadge.border,
+              }}
+            >
+              {movementBadge.symbol}
+            </span>
+          </Tooltip>
         )}
         {event.championship_position != null && (
           <span
@@ -70,8 +72,9 @@ export default function WeeklyClosingMovement({ event, color, onSelect }) {
         {emphasis &&
           (strong ? (
             // Rival/favorito: raros e significativos → mantêm o rótulo escrito.
+            // E por isso não levam balão: ele repetiria em miúdo a palavra que
+            // já está escrita ao lado do símbolo.
             <span
-              title={emphasisLabel}
               className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-black uppercase leading-none tracking-[0.08em]"
               style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
             >
@@ -81,14 +84,15 @@ export default function WeeklyClosingMovement({ event, color, onSelect }) {
           ) : (
             // "Já correu": comum → só um marcador pequeno com tooltip, pra não
             // roubar largura do nome do piloto.
-            <span
-              title={emphasisLabel}
-              aria-label={emphasisLabel}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black leading-none"
-              style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
-            >
-              {emphasis.symbol}
-            </span>
+            <Tooltip texto={emphasisLabel}>
+              <span
+                aria-label={emphasisLabel}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black leading-none"
+                style={{ color: emphasis.color, background: emphasis.bg, borderColor: emphasis.border }}
+              >
+                {emphasis.symbol}
+              </span>
+            </Tooltip>
           ))}
         {event.team_name && (
           <TeamLogoMark

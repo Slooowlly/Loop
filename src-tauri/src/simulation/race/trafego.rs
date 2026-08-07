@@ -148,23 +148,93 @@ pub fn fracao_do_trecho_na_janela(gap_entrada_ms: f64, fechamento_ms: f64, janel
 
 // ─────────────────────── Ultrapassagem ───────────────────────
 
+// ── Rivalidade dentro da corrida ─────────────────────────────────────────────
+//
+// As faixas altas da escada de rivalidade (`rivalry::intensity_level`) não destravavam
+// NADA: `forte` e `intensa` eram rótulo e importância de manchete, e a percebida só
+// mexia no ritmo pela Pressão de Duelo (`simulation::pressure`). O nível não mudava
+// como os dois se enfrentam, que é onde a rivalidade deveria aparecer.
+//
+// O efeito escolhido é DISPUTA, não acidente: contra o rival o piloto ataca sem ter
+// ritmo para tanto, e cede menos quando é atacado. Isso produz duelo longo em vez de
+// batida — e duelo longo é chegada colada, que o gatilho de fim de temporada lê como
+// rivalidade de `Pista`. A briga se realimenta pela disputa, não pela destruição.
+
+/// Percebida em que a rivalidade começa a mudar o comportamento em pista: `clara`,
+/// o mesmo portão do Nemesis.
+pub const RIVALIDADE_ENTRA_EM: f64 = 40.0;
+/// Percebida em que o efeito satura: `intensa`.
+pub const RIVALIDADE_SATURA_EM: f64 = 80.0;
+/// Quanto de "vantagem de ritmo" a rivalidade empresta a quem não tem nenhuma. É o
+/// que faz o piloto ir para cima mesmo sem carro para isso — no teto, equivale a um
+/// terço da vantagem que satura a ultrapassagem.
+pub const PISO_DE_VANTAGEM_POR_RIVALIDADE: f64 = 0.33;
+/// Quanto a rivalidade endurece a defesa de quem está na frente.
+pub const PESO_DA_RIVALIDADE_NA_DEFESA: f64 = 0.30;
+/// Déficit de ritmo (em pontos) que o piloto aceita ter e mesmo assim atacar o rival.
+pub const DEFICIT_ACEITO_CONTRA_RIVAL: f64 = 1.5;
+
+/// Fator 0..1 de quanto a rivalidade pesa na disputa entre dois pilotos.
+///
+/// Rampa de `clara` (40, fator 0) até `intensa` (80, fator 1). Abaixo de `clara` a
+/// rivalidade não muda nada em pista — ela é memória e manchete, não comportamento.
+pub fn fator_de_rivalidade(percebida: f64) -> f64 {
+    ((percebida - RIVALIDADE_ENTRA_EM) / (RIVALIDADE_SATURA_EM - RIVALIDADE_ENTRA_EM))
+        .clamp(0.0, 1.0)
+}
+
+/// O fator do par, se estes dois são exatamente o duelo de pista um do outro.
+///
+/// O duelo é gravado dos dois lados no setup (jogador → rival mais quente, rival →
+/// jogador), então basta um dos lados apontar para o outro. Exigir o apontamento
+/// evita o falso positivo de dois rivais DO JOGADOR se enfrentando entre si: os dois
+/// têm duelo, mas não um com o outro.
+pub fn fator_de_rivalidade_do_par(a: &SimDriver, b: &SimDriver) -> f64 {
+    let aponta = |de: &SimDriver, para: &SimDriver| {
+        de.duelo_de_pista
+            .as_ref()
+            .filter(|(id, _)| *id == para.id)
+            .map(|(_, percebida)| *percebida)
+    };
+    match aponta(a, b).or_else(|| aponta(b, a)) {
+        Some(percebida) => fator_de_rivalidade(percebida),
+        None => 0.0,
+    }
+}
+
+/// Déficit de ritmo que o atacante tolera para ainda assim tentar passar o rival.
+/// Zero sem rivalidade — o gate normal continua sendo "só ataca quem é mais rápido".
+pub fn margem_de_ataque_por_rivalidade(fator: f64) -> f64 {
+    -DEFICIT_ACEITO_CONTRA_RIVAL * fator.clamp(0.0, 1.0)
+}
+
 /// Chance de o atacante concluir a ultrapassagem nesta tentativa.
 ///
 /// `delta_de_ritmo` é o ritmo LIMPO do atacante menos o do defensor, em pontos (positivo =
 /// atacante mais rápido). `dificuldade` é o `overtaking_difficulty_multiplier` do perfil da
-/// pista: acima de 1 é pista onde não se passa.
+/// pista: acima de 1 é pista onde não se passa. `rivalidade` é o fator 0..1 de
+/// [`fator_de_rivalidade`] — 0 reproduz exatamente o comportamento anterior.
 pub fn prob_de_ultrapassagem(
     delta_de_ritmo: f64,
     racecraft: f64,
     defesa: f64,
     aggression: f64,
     dificuldade: f64,
+    rivalidade: f64,
 ) -> f64 {
-    // Sem vantagem de ritmo, não há de onde tirar a ultrapassagem.
-    if delta_de_ritmo <= 0.0 {
+    let rivalidade = rivalidade.clamp(0.0, 1.0);
+    // Sem vantagem de ritmo, não há de onde tirar a ultrapassagem — a menos que haja
+    // rivalidade, e aí o piloto vai assim mesmo. Tentar não é passar: a chance mora no
+    // piso emprestado, bem abaixo da de quem tem carro para a manobra.
+    let piso = PISO_DE_VANTAGEM_POR_RIVALIDADE * rivalidade;
+    if delta_de_ritmo <= 0.0 && piso <= 0.0 {
         return 0.0;
     }
-    let vantagem = (delta_de_ritmo / DELTA_DE_RITMO_QUE_SATURA).clamp(0.0, 1.0);
+    let vantagem = (delta_de_ritmo / DELTA_DE_RITMO_QUE_SATURA)
+        .clamp(0.0, 1.0)
+        .max(piso);
+    // Contra o rival, cede menos: a defesa vale mais do que valeria contra qualquer outro.
+    let defesa = defesa * (1.0 + PESO_DA_RIVALIDADE_NA_DEFESA * rivalidade);
     let habilidade = ((racecraft - defesa) / 100.0).clamp(-1.0, 1.0);
     let agressivo = (aggression.clamp(0.0, 100.0) - 50.0) / 50.0;
 
@@ -203,6 +273,7 @@ pub fn tentar_ultrapassagem(
     delta_de_ritmo: f64,
     dificuldade: f64,
     incidentes_ligados: bool,
+    rivalidade: f64,
     rng: &mut impl Rng,
 ) -> DesfechoDaTentativa {
     let p = prob_de_ultrapassagem(
@@ -211,6 +282,7 @@ pub fn tentar_ultrapassagem(
         defensor.defesa as f64,
         atacante.aggression as f64,
         dificuldade,
+        rivalidade,
     );
     if rng.gen::<f64>() < p {
         return DesfechoDaTentativa::Concluida;

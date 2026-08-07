@@ -10,4 +10,6 @@ pub use models::{
     EventInterestContext, EventInterestSummary, EventRepercussionSummary, InterestTier,
     RealizedEventInterest,
 };
-pub use public_impact::{compute_public_media_impacts, RaceEventContext};
+pub use public_impact::{
+    compute_public_media_impacts, fame_event_interest_mult, RaceEventContext,
+};

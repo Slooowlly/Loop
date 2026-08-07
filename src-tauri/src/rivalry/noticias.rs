@@ -50,14 +50,28 @@ pub(crate) fn build_rivalry_news_item(
         level = nivel_label
     )
     .to_string();
-    let texto = rust_i18n::t!(
-        "rivalry.news.escalation.text",
-        a = nome_a,
-        b = nome_b,
-        origin = origem,
-        round = rodada
-    )
-    .to_string();
+    // Gatilhos de fim de temporada (`process_teammate_season_rivalry`) não têm rodada:
+    // o fato deles é o placar do ano inteiro. Passam `rodada = 0` e ganham uma frase
+    // com escopo de temporada — citar "na rodada 0" seria mentira de calendário.
+    let escopo_temporada = rodada <= 0;
+    let texto = if escopo_temporada {
+        rust_i18n::t!(
+            "rivalry.news.escalation.text_season",
+            a = nome_a,
+            b = nome_b,
+            origin = origem
+        )
+        .to_string()
+    } else {
+        rust_i18n::t!(
+            "rivalry.news.escalation.text",
+            a = nome_a,
+            b = nome_b,
+            origin = origem,
+            round = rodada
+        )
+        .to_string()
+    };
 
     Some(NewsItem {
         id,
@@ -65,7 +79,7 @@ pub(crate) fn build_rivalry_news_item(
         icone: NewsType::Rivalidade.icone().to_string(),
         titulo,
         texto,
-        rodada: Some(rodada),
+        rodada: if escopo_temporada { None } else { Some(rodada) },
         semana_pretemporada: None,
         temporada,
         categoria_id: Some(categoria_id.to_string()),

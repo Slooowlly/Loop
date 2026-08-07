@@ -23,9 +23,10 @@ const useCareerStore = create((set, get) => ({
   ...createSeasonSlice(set, get),
   ...createPreRaceCacheSlice(set, get),
 
-  // API mínima preservada para reativar o overlay quando houver dados reais.
-  // Mora na raiz do store por ser transversal (nenhum domínio a reivindica).
-  showChampionOverlay: (data = null) => set({ championOverlay: data ?? { demo: true } }),
+  // Abertura direta do overlay com um payload já pronto (quem busca do backend é
+  // `loadSeasonChampionOverlay`, no slice de temporada). Mora na raiz do store por
+  // ser transversal — nenhum domínio reivindica o pop-up. Sem payload, fecha.
+  showChampionOverlay: (data = null) => set({ championOverlay: data ?? null }),
   hideChampionOverlay: () => set({ championOverlay: null }),
 
   // Categoria em exibição na Home → banner do topo acompanha (ver `homeCategory`).

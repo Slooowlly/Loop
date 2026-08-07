@@ -1,6 +1,6 @@
 {
   "productName": "Loop",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "identifier": "com.loop.app",
   "build": {
     "frontendDist": "../dist",
@@ -17,7 +17,8 @@
         "resizable": true,
         "fullscreen": true,
         "maximized": false,
-        "decorations": false
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --use-fake-ui-for-media-stream"
       },
       {
         "label": "overlay",
@@ -34,7 +35,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
-        "focus": false
+        "focus": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --use-fake-ui-for-media-stream"
       },
       {
         "label": "engineer",
@@ -51,7 +53,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
-        "focus": false
+        "focus": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --use-fake-ui-for-media-stream"
       }
     ],
     "security": {

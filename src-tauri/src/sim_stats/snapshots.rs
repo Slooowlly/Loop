@@ -342,6 +342,50 @@ pub(super) fn snapshot_salaries(db_path: &Path) -> Vec<(String, f64)> {
     rows.filter_map(Result::ok).collect()
 }
 
+/// O assento de um piloto da IA num instante: onde ele está, em que degrau, por
+/// quanto, e com que ânimo.
+pub(super) struct SeatSnap {
+    pub(super) team_id: String,
+    /// Tier da categoria do contrato; 99 quando a categoria é desconhecida.
+    pub(super) tier: u8,
+    pub(super) salary: f64,
+    pub(super) motivacao: f64,
+}
+
+/// Assentos ocupados pela IA. Comparado antes/depois da virada, é o que responde
+/// "o desmotivado se mexe mais — e aceita pior?": quem trocou de equipe, quem
+/// desceu de degrau e quanto salário abriu mão, cruzado com a motivação de quem
+/// tomou a decisão. Hoje a resposta esperada é "nenhuma relação", porque o
+/// mercado (`src/market/`) não lê `motivacao` em lugar nenhum — é justamente
+/// esse zero que precisa ficar registrado antes de mexer em qualquer mecânica.
+pub(super) fn snapshot_seats(db_path: &Path) -> HashMap<String, SeatSnap> {
+    let db = Database::open_existing(db_path).expect("db");
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT c.piloto_id, c.equipe_id, c.categoria, c.salario_anual, d.motivacao \
+             FROM contracts c JOIN drivers d ON d.id = c.piloto_id \
+             WHERE c.status = 'Ativo' AND d.is_jogador = 0 AND d.status != 'Aposentado'",
+        )
+        .expect("prepare seats");
+    let rows = stmt
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let categoria: String = row.get(2)?;
+            Ok((
+                id,
+                SeatSnap {
+                    team_id: row.get(1)?,
+                    tier: tier_of(&categoria),
+                    salary: row.get(3)?,
+                    motivacao: row.get(4)?,
+                },
+            ))
+        })
+        .expect("query seats");
+    rows.filter_map(Result::ok).collect()
+}
+
 /// Categoria atual de cada piloto da IA ativo (id → categoria).
 pub(super) fn snapshot_driver_categories(db_path: &Path) -> HashMap<String, String> {
     let db = Database::open_existing(db_path).expect("db");

@@ -28,9 +28,11 @@ use super::{CarSnapshot, IracingTelemetry};
 mod amostrador;
 mod api;
 mod controle_corrida;
+mod estado_agora;
 mod historico;
 mod observacao;
 mod pontuacao;
+mod quali;
 mod quebras;
 mod resultado;
 mod sessao;
@@ -39,6 +41,7 @@ mod tipos;
 
 pub use amostrador::*;
 pub use api::*;
+pub use estado_agora::*;
 pub(crate) use observacao::*;
 pub(crate) use pontuacao::*;
 pub use resultado::*;
@@ -61,10 +64,22 @@ const REPLAY_JUMP_SECS: f64 = 2.0;
 /// (ex.: ao entrar no replay) NÃO é reinício.
 const RESTART_RESET_MAX_SECS: f64 = 10.0;
 const FLAG_CHECKERED: u32 = 0x0000_0001;
+const FLAG_WHITE: u32 = 0x0000_0002;
+const FLAG_YELLOW: u32 = 0x0000_0008;
+const FLAG_RED: u32 = 0x0000_0010;
+const FLAG_BLUE: u32 = 0x0000_0020;
+const FLAG_YELLOW_WAVING: u32 = 0x0000_0100;
 const FLAG_CAUTION: u32 = 0x0000_4000;
 const FLAG_CAUTION_WAVING: u32 = 0x0000_8000;
 const FLAG_BLACK: u32 = 0x0001_0000;
 const FLAG_DISQUALIFY: u32 = 0x0002_0000;
+const FLAG_REPAIR: u32 = 0x0010_0000;
+
+/// De quanto em quanto tempo o [`EstadoAgora`] recolhe uma amostra. O sampler roda a 60 Hz
+/// para o spotter e a pontuação de batida; o estado narrado não precisa disso — a fala mais
+/// curta do engenheiro leva meio segundo, e clonar o vetor de carros 60 vezes por segundo
+/// pagaria caro por uma resolução que ninguém consome.
+const ESTADO_REFRESH_SECS: f64 = 0.25;
 
 // ─── RaceEventEngine ─────────────────────────────────────────────────────────
 /// Quantos eventos manter no log (os mais antigos saem).
@@ -270,6 +285,17 @@ struct RaceMonitor {
     live_cars_count: i32,
     live_session_time: f64,
 
+    // Estado narrado (ver `estado_agora`)
+    /// Telemetria completa mais recente, refrescada a `ESTADO_REFRESH_SECS`. É a fonte do
+    /// [`EstadoAgora`] — guardada inteira porque o retrato precisa do vetor de carros, e
+    /// espelhar duas dúzias de escalares aqui só criaria uma segunda verdade para divergir.
+    ultima_telemetria: Option<IracingTelemetry>,
+    /// `session_time` do último refresh — o estrangulamento do clone.
+    estado_ultimo_refresh: f64,
+    /// Amostras de gap para frente e para trás. É o que separa "ele está a oito décimos"
+    /// de "ele está a oito décimos e vindo" — a segunda é a que muda o que o piloto faz.
+    gap_hist: Vec<estado_agora::AmostraGap>,
+
     // RaceEventEngine
     events: Vec<RaceEvent>,
     prev_session_state: i32,
@@ -445,6 +471,33 @@ struct RaceMonitor {
     /// Log dos avisos pessoais (peça do jogador entrou na zona de risco) — o overlay mostra num
     /// card DISTINTO (voz em 2ª pessoa). Zerado ao instalar um diretor novo.
     player_warning_log: Vec<PlayerWarning>,
+    /// O rádio de RITMO: observador da volta mais rápida (ver `engenheiro::ritmo`) e o log do
+    /// que ele decidiu dizer. Zerados a cada corrida nova, como o log de quebras.
+    ritmo: crate::engenheiro::ritmo::Observador,
+    ritmo_log: Vec<FalaDeRitmo>,
+    /// Última volta em que o rádio de ritmo foi consultado — o observador é POR VOLTA, e o
+    /// tick roda a 60 Hz.
+    ritmo_ultima_volta: i32,
+    /// O engenheiro na CLASSIFICAÇÃO: o observador da sessão, a curva da melhor volta e o log do
+    /// que ele decidiu dizer. Ver `engenheiro::classificacao` e `engenheiro::volta_referencia`.
+    classificacao: crate::engenheiro::classificacao::Observador,
+    /// A fala do observador entra no log como ela sai — peças e texto. Um tipo espelho aqui só
+    /// criaria duas redações da mesma coisa, que é o defeito que a família de quebra já pagou.
+    classificacao_log: Vec<crate::engenheiro::classificacao::Fala>,
+    volta_ref: crate::engenheiro::volta_referencia::VoltaReferencia,
+    /// Bookkeeping da volta de classificação, que é o que o observador NÃO faz — ele decide o
+    /// que dizer, não onde estamos.
+    ///
+    /// `quali_volta` é a última volta cruzada; `quali_saiu_do_box` marca que a volta em curso
+    /// começou saindo do box (é a de preparação); `quali_sujou` marca que a volta em curso
+    /// tocou fora da pista e por isso não serve nem de referência nem de tentativa válida.
+    quali_volta: i32,
+    quali_saiu_do_box: bool,
+    quali_sujou: bool,
+    quali_sessao: i32,
+    /// Latch do conselho de POUPAR o carro (peça nossa no limite + corrida derrubando gente).
+    /// Uma vez por corrida: ele pede mudança de pilotagem, e repetido vira ruído.
+    poupar_avisado: bool,
     /// Latch: um comando de quebra (`!black`/`!dq`) NÃO chegou ao iRacing nesta corrida
     /// (janela não encontrada / foreground recusado). Vira um aviso âmbar único no rádio
     /// ("os comandos não estão chegando; rode o sim em janela/borderless") em vez de a
@@ -492,6 +545,9 @@ impl RaceMonitor {
             live_incident: 0,
             live_cars_count: 0,
             live_session_time: 0.0,
+            ultima_telemetria: None,
+            estado_ultimo_refresh: f64::NEG_INFINITY,
+            gap_hist: Vec::new(),
             events: Vec::new(),
             prev_session_state: 0,
             prev_on_pit_road: false,
@@ -554,6 +610,17 @@ impl RaceMonitor {
             breakdown_alert: [None; 64],
             player_risk_warned: [false; 11],
             player_warning_log: Vec::new(),
+            ritmo: crate::engenheiro::ritmo::Observador::novo(),
+            ritmo_log: Vec::new(),
+            ritmo_ultima_volta: -1,
+            classificacao: crate::engenheiro::classificacao::Observador::novo(),
+            classificacao_log: Vec::new(),
+            volta_ref: crate::engenheiro::volta_referencia::VoltaReferencia::novo(),
+            quali_volta: -1,
+            quali_saiu_do_box: false,
+            quali_sujou: false,
+            quali_sessao: -1,
+            poupar_avisado: false,
             breakdown_prev_on_pit: [false; 64],
             breakdown_log: Vec::new(),
             breakdown_repair_laps: Vec::new(),

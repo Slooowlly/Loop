@@ -1,6 +1,8 @@
 import TeamLogoMark from "../team/TeamLogoMark";
+import Tooltip from "../ui/Tooltip";
 import i18n from "../../i18n/index.js";
 import { titleCategoryLabel } from "./globalDriverFormatters";
+import { comprimeSequenciasDeAnos, formatSequenciaDeAnos } from "../../utils/sequenciaDeAnos";
 
 // Detalhe dos títulos de um piloto, por categoria.
 export function TitleBreakdownDialog({ row, onClose }) {
@@ -114,29 +116,42 @@ export function ChampionshipChampionsDialog({ group, onClose }) {
   );
 }
 
+// Anos seguidos na MESMA casa viram um chip só: o nonacampeão da categoria
+// enfileirava nove chips idênticos — nove vezes a mesma logo — e empurrava os
+// outros campeões da galeria para fora da rolagem. A troca de equipe corta a
+// sequência, senão o intervalo apagaria justamente a mudança de casa.
 function ChampionTitleYears({ champion }) {
   if (champion.yearTeams.length > 0) {
+    const blocos = comprimeSequenciasDeAnos(champion.yearTeams, {
+      ano: (item) => item.ano,
+      serie: (item) => item.equipe ?? "",
+    });
     return (
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {champion.yearTeams.map((yearTeam) => (
-          <span
-            key={yearTeam.ano}
-            title={yearTeam.equipe ?? undefined}
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-black/20 px-2 py-1"
-          >
-            <span className="font-mono text-xs text-text-muted">{yearTeam.ano}</span>
-            {yearTeam.equipe ? (
-              <TeamLogoMark teamName={yearTeam.equipe} color={yearTeam.equipe_cor} size="xs" />
-            ) : null}
-          </span>
-        ))}
+        {blocos.map((bloco, index) => {
+          const equipe = bloco.itens[0];
+          return (
+            // O índice entra na chave porque dois títulos no mesmo ano produzem
+            // dois blocos de rótulo idêntico.
+            <Tooltip key={`${bloco.key}-${index}`} texto={equipe.equipe ?? undefined}>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-black/20 px-2 py-1">
+                <span className="font-mono text-xs text-text-muted">{bloco.label}</span>
+                {equipe.equipe ? (
+                  <TeamLogoMark teamName={equipe.equipe} color={equipe.equipe_cor} size="xs" />
+                ) : null}
+              </span>
+            </Tooltip>
+          );
+        })}
       </div>
     );
   }
 
   return (
     <p className="mt-1 font-mono text-xs text-text-muted">
-      {champion.years.length > 0 ? champion.years.join(", ") : i18n.t("globalDrivers.row.yearsUnavailable")}
+      {champion.years.length > 0
+        ? formatSequenciaDeAnos(champion.years)
+        : i18n.t("globalDrivers.row.yearsUnavailable")}
     </p>
   );
 }

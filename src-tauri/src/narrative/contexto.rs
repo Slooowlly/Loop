@@ -1,5 +1,5 @@
 //! Renderização do CONTEXTO CURADO: o texto de fatos (eixo + destaques + pano de
-//! fundo) que será enviado ao servidor → Gemini.
+//! fundo) que será enviado ao servidor (que escolhe o provedor — ver `client`).
 
 use super::beats::{build_beats, select, Beat, BeatKind};
 use super::tese::{race_thesis_signals, select_race_thesis};

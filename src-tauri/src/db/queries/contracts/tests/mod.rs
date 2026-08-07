@@ -189,6 +189,127 @@ fn test_get_free_agents_for_preseason_ignores_special_contract_history() {
     assert_eq!(driver.last_championship_total_drivers, Some(20));
 }
 
+/// `archive_driver_season` grava uma linha por piloto por temporada — inclusive
+/// para quem ficou sem vaga, e nesse caso com `categoria` vazia e
+/// `posicao_campeonato` nula. Se a conta de temporadas paradas tomar a linha como
+/// prova de que o piloto correu, todo mundo fica com `seasons_idle = 0` e o
+/// marcador de inatividade da vitrine de agentes livres nunca aparece.
+#[test]
+fn test_seasons_idle_ignores_archive_rows_of_seasons_without_a_grid() {
+    let conn = setup_test_db().expect("test db");
+    let arquivar = |piloto: &str, temporada: i32, categoria: &str, posicao: Option<i32>| {
+        conn.execute(
+            "INSERT INTO driver_season_archive (
+                piloto_id, season_number, ano, nome, categoria,
+                posicao_campeonato, pontos, snapshot_json
+             ) VALUES (?1, ?2, ?3, 'Piloto', ?4, ?5, 0.0, ?6)",
+            params![
+                piloto,
+                temporada,
+                2020 + temporada,
+                categoria,
+                posicao,
+                r#"{"total_pilotos":12}"#
+            ],
+        )
+        .expect("insert archive");
+    };
+
+    // P001 correu a temporada 3 e ficou fora da 4 — uma temporada parado.
+    arquivar("P001", 3, "mazda_amador", Some(5));
+    arquivar("P001", 4, "", None);
+    // P002 correu a última temporada arquivada — agente fresco.
+    arquivar("P002", 4, "mazda_amador", Some(2));
+    // P003 nunca competiu: só linhas de temporada sem grid.
+    arquivar("P003", 3, "", None);
+    arquivar("P003", 4, "", None);
+
+    let agentes = get_free_agents_for_preseason(&conn).expect("free agents query");
+    let idle = |id: &str| {
+        agentes
+            .iter()
+            .find(|agent| agent.driver_id == id)
+            .expect("piloto deveria estar entre os agentes livres")
+            .seasons_idle
+    };
+
+    assert_eq!(idle("P001"), Some(1));
+    assert_eq!(idle("P002"), Some(0));
+    assert_eq!(idle("P003"), None);
+}
+
+/// Rescindir encurta a vigencia, senao o contrato segue "valendo" no banco por
+/// temporadas que o piloto nunca cumpriu por aquela equipe — e quem le contrato
+/// por vigencia (curva de mercado, categoria do agente livre) desenha um vinculo
+/// que ja nao existe.
+#[test]
+fn test_rescinding_a_contract_trims_it_to_the_current_season() {
+    let conn = setup_test_db().expect("test db");
+    conn.execute_batch(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO meta (key, value) VALUES ('current_season', '3');",
+    )
+    .expect("meta com temporada corrente");
+    let mut contrato = sample_contract("C001", "P001", "T001", ContractStatus::Ativo);
+    contrato.temporada_inicio = 2;
+    contrato.temporada_fim = 5;
+    insert_contract(&conn, &contrato).expect("insert contract");
+
+    update_contract_status(&conn, "C001", &ContractStatus::Rescindido).expect("rescinde");
+
+    let loaded = get_contract_by_id(&conn, "C001")
+        .expect("query")
+        .expect("contrato");
+    assert_eq!(loaded.status, ContractStatus::Rescindido);
+    assert_eq!(
+        loaded.temporada_fim, 3,
+        "a vigencia para na temporada em que o vinculo acabou",
+    );
+    assert_eq!(loaded.temporada_inicio, 2, "o inicio e historico, nao muda");
+}
+
+/// Contrato ainda nao comecado fica intacto: cortar `temporada_fim` para antes do
+/// inicio inverteria a janela, e uma vigencia de tras para frente e pior que uma
+/// vigencia longa demais.
+#[test]
+fn test_rescinding_a_future_contract_leaves_the_window_alone() {
+    let conn = setup_test_db().expect("test db");
+    conn.execute_batch(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO meta (key, value) VALUES ('current_season', '3');",
+    )
+    .expect("meta com temporada corrente");
+    let mut contrato = sample_contract("C001", "P001", "T001", ContractStatus::Ativo);
+    contrato.temporada_inicio = 4;
+    contrato.temporada_fim = 6;
+    insert_contract(&conn, &contrato).expect("insert contract");
+
+    update_contract_status(&conn, "C001", &ContractStatus::Rescindido).expect("rescinde");
+
+    let loaded = get_contract_by_id(&conn, "C001")
+        .expect("query")
+        .expect("contrato");
+    assert_eq!(loaded.temporada_inicio, 4);
+    assert_eq!(loaded.temporada_fim, 6);
+}
+
+/// Save sem `meta` (ou meio migrado) nao pode derrubar a rescisao: o corte e um
+/// extra, e o status e que e a operacao.
+#[test]
+fn test_rescinding_without_meta_table_still_updates_the_status() {
+    let conn = setup_test_db().expect("test db");
+    let contrato = sample_contract("C001", "P001", "T001", ContractStatus::Ativo);
+    insert_contract(&conn, &contrato).expect("insert contract");
+
+    update_contract_status(&conn, "C001", &ContractStatus::Rescindido).expect("rescinde");
+
+    let loaded = get_contract_by_id(&conn, "C001")
+        .expect("query")
+        .expect("contrato");
+    assert_eq!(loaded.status, ContractStatus::Rescindido);
+    assert_eq!(loaded.temporada_fim, 2, "sem temporada corrente, sem corte");
+}
+
 fn sample_contract(id: &str, piloto_id: &str, equipe_id: &str, status: ContractStatus) -> Contract {
     Contract {
         id: id.to_string(),

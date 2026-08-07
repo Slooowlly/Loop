@@ -57,6 +57,29 @@ pub(super) fn tier_of(cat: &str) -> u8 {
         .unwrap_or(99)
 }
 
+/// Faixa de motivação, para cruzar o ânimo do piloto com a decisão que ele tomou
+/// no mercado. Índice crescente = mais motivado (o BTreeMap sai em ordem).
+pub(super) fn motiv_band(motivacao: f64) -> u8 {
+    match motivacao {
+        m if m < 30.0 => 0,
+        m if m < 50.0 => 1,
+        m if m < 70.0 => 2,
+        m if m < 90.0 => 3,
+        _ => 4,
+    }
+}
+
+/// Rótulo da faixa de motivação.
+pub(super) fn motiv_band_label(band: u8) -> &'static str {
+    match band {
+        0 => "<30",
+        1 => "30-49",
+        2 => "50-69",
+        3 => "70-89",
+        _ => "90+",
+    }
+}
+
 /// Rótulo do tier (nível) para o relatório de funil de carreira.
 pub(super) fn tier_label(tier: u8) -> &'static str {
     match tier {

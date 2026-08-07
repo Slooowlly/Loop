@@ -26,13 +26,6 @@ const WARMUP_VOLTAS_RESTANTES: i32 = 3;
 pub struct OverlayWeather {
     condition: String,     // "clear" | "clouds" | "rain"
     air_temp: Option<i32>, // °C do ar (None = desconhecido ao vivo)
-    /// Arco de chuva da corrida atual (frações 0..1 + tipo de tempo), o mesmo clima
-    /// determinístico que o export gravou. Vazio quando a prova é seca / sem dado — o
-    /// front só mostra a faixa quando há chuva a antecipar.
-    rain_arc: Vec<crate::iracing_sdk::weather::WeatherTimelinePoint>,
-    /// Progresso da corrida AGORA (0..1) para o front marcar o "você está aqui" no arco.
-    /// None fora de corrida ou sem total de voltas conhecido.
-    now_frac: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -717,32 +710,6 @@ pub fn get_overlay_data(
         None
     };
 
-    // Arco de chuva da corrida ATUAL (a próxima pendente da categoria do jogador): trazemos
-    // o MESMO clima determinístico do export pra torre ao vivo, e só quando de fato chove (há
-    // arco a antecipar). `now_frac` = progresso por voltas, só em corrida, p/ o front marcar
-    // o AGORA. Falha silenciosa → sem arco (a torre segue com condição + temperatura).
-    let (rain_arc, weather_now_frac) = {
-        let next = crate::db::queries::seasons::get_active_season(&db.conn)
-            .ok()
-            .flatten()
-            .and_then(|s| {
-                crate::db::queries::calendar::get_next_race(&db.conn, &s.id, &category)
-                    .ok()
-                    .flatten()
-            });
-        match next.and_then(|entry| {
-            crate::commands::iracing::build_race_weather_timeline(&db.conn, &career_id, &entry.id)
-                .ok()
-        }) {
-            Some(tl) if tl.is_wet_race => {
-                let now = (kind == "R" && total_laps > 0)
-                    .then(|| (f64::from(lead_lap) / f64::from(total_laps)).clamp(0.0, 1.0));
-                (tl.points, now)
-            }
-            _ => (Vec::new(), None),
-        }
-    };
-
     let session = OverlaySession {
         kind: kind.to_string(),
         lap: lead_lap,
@@ -754,8 +721,6 @@ pub fn get_overlay_data(
         weather: OverlayWeather {
             condition: wetness_to_condition(tele.track_wetness).to_string(),
             air_temp,
-            rain_arc,
-            now_frac: weather_now_frac,
         },
     };
 

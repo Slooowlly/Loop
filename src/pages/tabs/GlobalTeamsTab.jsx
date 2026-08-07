@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "../../i18n/index.js";
 import GlassCard from "../../components/ui/GlassCard";
+import Tooltip from "../../components/ui/Tooltip";
 import useCareerStore from "../../stores/useCareerStore";
 import { TeamHistoryDrawer } from "../../components/team/history";
 import { TeamHistoryGrid } from "../../components/team/WorldTeamHistoryGrid";
@@ -204,19 +205,22 @@ function GlobalTeamsTab({
             </h3>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              aria-pressed={zoomYears != null}
-              onClick={() => setZoomYears((current) => (current == null ? ZOOM_RECENT_YEARS : null))}
-              title={zoomYears != null ? i18n.t("globalTeams.zoomFullTitle") : i18n.t("globalTeams.zoomRecentTitle", { years: ZOOM_RECENT_YEARS })}
-              className={`mr-1 rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.13em] transition-glass ${
-                zoomYears != null
-                  ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
-                  : "border-white/10 bg-white/[0.04] text-text-muted hover:text-text-primary"
-              }`}
+            <Tooltip
+              texto={zoomYears != null ? i18n.t("globalTeams.zoomFullTitle") : i18n.t("globalTeams.zoomRecentTitle", { years: ZOOM_RECENT_YEARS })}
             >
-              {zoomYears != null ? i18n.t("globalTeams.zoomRecentLabel", { years: ZOOM_RECENT_YEARS }) : i18n.t("globalTeams.zoomAll")}
-            </button>
+              <button
+                type="button"
+                aria-pressed={zoomYears != null}
+                onClick={() => setZoomYears((current) => (current == null ? ZOOM_RECENT_YEARS : null))}
+                className={`mr-1 rounded-full border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.13em] transition-glass ${
+                  zoomYears != null
+                    ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
+                    : "border-white/10 bg-white/[0.04] text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {zoomYears != null ? i18n.t("globalTeams.zoomRecentLabel", { years: ZOOM_RECENT_YEARS }) : i18n.t("globalTeams.zoomAll")}
+              </button>
+            </Tooltip>
             {(payload?.families ?? []).map((item) => (
               <button
                 key={item.id}

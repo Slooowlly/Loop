@@ -37,8 +37,8 @@ fn cria_rivalidade_nova_normalizando_o_par() {
         &event("T020", "T003", TeamRivalryType::Campeonato, 10.0, 20.0),
     )
     .unwrap();
-    // 0.4*10 + 0.6*20 = 16.0
-    assert!((applied.new_perceived - 16.0).abs() < 1e-9);
+    // 0.6*10 + 0.4*20 = 14.0
+    assert!((applied.new_perceived - 14.0).abs() < 1e-9);
     assert!(applied.old_perceived.abs() < 1e-9);
 
     let summ = get_team_rivalries(&conn, "T003").unwrap();
@@ -61,9 +61,9 @@ fn reforco_acumula_nos_dois_eixos_e_preserva_tipo() {
         &event("T001", "T002", TeamRivalryType::Pista, 10.0, 20.0),
     )
     .unwrap();
-    // acumulado h=20, r=40 → perceived = 0.4*20 + 0.6*40 = 32
-    assert!((applied.new_perceived - 32.0).abs() < 1e-9);
-    assert!((applied.old_perceived - 16.0).abs() < 1e-9);
+    // acumulado h=20, r=40 → perceived = 0.6*20 + 0.4*40 = 28
+    assert!((applied.new_perceived - 28.0).abs() < 1e-9);
+    assert!((applied.old_perceived - 14.0).abs() < 1e-9);
 
     let summ = get_team_rivalries(&conn, "T001").unwrap();
     assert_eq!(summ[0].tipo, TeamRivalryType::Mercado);
@@ -221,8 +221,8 @@ fn seed_transfer_astro_assediado_gera_rancor_maximo() {
     let summ = get_team_rivalries(&conn, "T001").unwrap();
     assert_eq!(summ.len(), 1);
     assert_eq!(summ[0].tipo, TeamRivalryType::Mercado);
-    // Astro + poaching: h=8, r=16 → perceived = 0.4*8 + 0.6*16 = 12.8.
-    assert!((summ[0].perceived_intensity - 12.8).abs() < 1e-9);
+    // Astro + poaching: h=8, r=16 → perceived = 0.6*8 + 0.4*16 = 11.2.
+    assert!((summ[0].perceived_intensity - 11.2).abs() < 1e-9);
 }
 
 #[test]
@@ -235,8 +235,8 @@ fn seed_transfer_entre_divisoes_pesa_metade() {
     seed_team_rivalry_from_transfer(&conn, "T001", "T002", &star, true, 1).unwrap();
 
     let summ = get_team_rivalries(&conn, "T001").unwrap();
-    // Metade de (8,16) = (4,8) → perceived = 0.4*4 + 0.6*8 = 6.4.
-    assert!((summ[0].perceived_intensity - 6.4).abs() < 1e-9);
+    // Metade de (8,16) = (4,8) → perceived = 0.6*4 + 0.4*8 = 5.6.
+    assert!((summ[0].perceived_intensity - 5.6).abs() < 1e-9);
 }
 
 #[test]
@@ -249,8 +249,8 @@ fn seed_transfer_reserva_pesa_pouco() {
     seed_team_rivalry_from_transfer(&conn, "T001", "T002", &reserva, false, 1).unwrap();
 
     let summ = get_team_rivalries(&conn, "T001").unwrap();
-    // Reserva: h=1, r=4 → perceived = 0.4*1 + 0.6*4 = 2.8.
-    assert!((summ[0].perceived_intensity - 2.8).abs() < 1e-9);
+    // Reserva: h=1, r=4 → perceived = 0.6*1 + 0.4*4 = 2.2.
+    assert!((summ[0].perceived_intensity - 2.2).abs() < 1e-9);
 }
 
 #[test]
@@ -269,11 +269,11 @@ fn constructor_battle_top3_e_gap_apertado() {
     // Top-3 entre si (T001,T002,T003) formam pares; T004 (4º, gap grande) fica de fora.
     assert_eq!(get_team_rivalries(&conn, "T001").unwrap().len(), 2);
     assert!(get_team_rivalries(&conn, "T004").unwrap().is_empty());
-    // Par 1º×2º decidiu o título → delta reforçado (6,15) → perceived = 11.4.
+    // Par 1º×2º decidiu o título → delta reforçado (6,15) → perceived = 9.6.
     let leader = get_team_rivalries(&conn, "T001").unwrap();
     let vs_t2 = leader.iter().find(|r| r.rival_id == "T002").unwrap();
     assert!(
-        (vs_t2.perceived_intensity - 11.4).abs() < 1e-9,
+        (vs_t2.perceived_intensity - 9.6).abs() < 1e-9,
         "foi {}",
         vs_t2.perceived_intensity
     );
@@ -311,8 +311,8 @@ fn collisions_agrega_por_par_de_times_ignora_companheiro() {
     assert_eq!(summ.len(), 1);
     assert_eq!(summ[0].rival_id, "T002");
     assert_eq!(summ[0].tipo, TeamRivalryType::Pista);
-    // Base (2,6) → perceived = 0.4*2 + 0.6*6 = 4.4.
-    assert!((summ[0].perceived_intensity - 4.4).abs() < 1e-9);
+    // Base (2,6) → perceived = 0.6*2 + 0.4*6 = 3.6.
+    assert!((summ[0].perceived_intensity - 3.6).abs() < 1e-9);
 }
 
 #[test]
@@ -361,8 +361,8 @@ fn bleed_so_transborda_rivalidade_intensa_cross_time() {
     let summ = get_team_rivalries(&conn, "T001").unwrap();
     assert_eq!(summ.len(), 1, "só a rivalidade intensa deve transbordar");
     assert_eq!(summ[0].tipo, TeamRivalryType::Herdada);
-    // Trickle (1,3) → perceived = 0.4*1 + 0.6*3 = 2.2.
-    assert!((summ[0].perceived_intensity - 2.2).abs() < 1e-9);
+    // Trickle (1,3) → perceived = 0.6*1 + 0.4*3 = 1.8.
+    assert!((summ[0].perceived_intensity - 1.8).abs() < 1e-9);
 }
 
 #[test]

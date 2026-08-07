@@ -5,15 +5,19 @@ use tauri::{AppHandle, Manager};
 use crate::commands::career::{
     advance_market_week_in_base_dir, advance_season_in_base_dir, create_career_in_base_dir,
     debug_force_player_poach_offer_in_base_dir, debug_poaching_auctions_in_base_dir,
-    debug_prepare_market_scenario_in_base_dir, debug_stamp_player_championship_in_base_dir,
-    delete_career_in_base_dir, finalize_preseason_in_base_dir,
-    get_briefing_phrase_history_in_base_dir, get_calendar_for_category_in_base_dir,
-    get_driver_detail_in_base_dir, get_driver_in_base_dir, get_drivers_by_category_in_base_dir,
-    get_news_in_base_dir, get_player_dossier_in_base_dir, get_player_interests_in_base_dir,
-    get_player_poach_offer_in_base_dir, get_player_proposals_in_base_dir,
-    get_preseason_free_agents_in_base_dir, get_preseason_state_in_base_dir,
-    get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
-    get_race_results_by_category_in_base_dir, get_teams_standings_in_base_dir,
+    debug_prepare_market_scenario_in_base_dir, debug_skip_to_season_finale_in_base_dir,
+    debug_stamp_player_championship_in_base_dir, delete_career_in_base_dir,
+    finalize_preseason_in_base_dir, get_briefing_phrase_history_in_base_dir,
+    get_calendar_for_category_in_base_dir, get_driver_detail_in_base_dir,
+    get_driver_dossier_ranks_in_base_dir, get_driver_in_base_dir,
+    get_displaced_driver_context_in_base_dir, get_drivers_by_category_in_base_dir,
+    get_news_in_base_dir, get_player_dossier_in_base_dir,
+    get_player_interests_in_base_dir, get_player_poach_offer_in_base_dir,
+    get_player_proposals_in_base_dir, get_preseason_free_agents_in_base_dir,
+    get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
+    get_race_reading_in_base_dir, get_race_results_by_category_in_base_dir,
+    get_season_champion_payload_in_base_dir, get_teams_car_parts_in_base_dir,
+    get_teams_standings_in_base_dir,
     list_saves_in_base_dir, load_career_in_base_dir, persist_resume_context_in_base_dir,
     resolve_player_poach_offer_in_base_dir, respond_to_proposal_in_base_dir,
     save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir, PlayerInterests,
@@ -26,12 +30,14 @@ use crate::commands::career_team_dossier::{
 use crate::commands::career_types::{
     BandChampionsPayload, BriefingPhraseEntryInput, BriefingPhraseHistory, CareerData,
     CareerDraftState, CareerResumeView, CreateCareerInput, CreateCareerResult,
-    CreateHistoricalDraftInput, DriverDetail, DriverSummary, FinalizeHistoricalDraftInput,
-    FreeAgentPreview, GlobalDriverRankingPayload, GlobalTeamHistoryPayload, RaceReading,
-    RaceSummary, SaveInfo, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking,
-    TeamStanding,
+    CreateHistoricalDraftInput, DriverCareerRankEntry, DriverDetail, DriverSummary,
+    DriverWorldRank, FinalizeHistoricalDraftInput, FreeAgentPreview, GlobalDriverRankingPayload,
+    GlobalTeamHistoryPayload, RaceReading, RaceSummary, SaveInfo, SeasonChampionPayload,
+    TeamCarParts, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking, TeamStanding,
 };
-use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
+use crate::commands::global_driver_rankings::{
+    get_driver_world_rank_in_base_dir, get_global_driver_rankings_in_base_dir,
+};
 use crate::commands::global_team_history::{
     get_band_champions_in_base_dir, get_global_team_history_in_base_dir,
 };
@@ -109,6 +115,33 @@ pub async fn advance_season(
 pub async fn skip_all_pending_races(app: AppHandle, career_id: String) -> Result<(), String> {
     let base_dir = app_data_dir(&app)?;
     skip_all_pending_races_in_base_dir(&base_dir, &career_id)
+}
+
+/// Payload da tela "Campeão da Temporada". Sem `category` usa a do jogador; sem
+/// `season_number` usa a temporada ativa (passar o número abre um ano já encerrado).
+/// `None` quando não há etapa disputada — a UI então não abre o pop-up.
+#[tauri::command]
+pub async fn get_season_champion_payload(
+    app: AppHandle,
+    career_id: String,
+    category: Option<String>,
+    season_number: Option<i32>,
+) -> Result<Option<SeasonChampionPayload>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_season_champion_payload_in_base_dir(
+        &base_dir,
+        &career_id,
+        category.as_deref(),
+        season_number,
+    )
+}
+
+/// DEBUG: simula tudo menos a última corrida da categoria do jogador, deixando o save
+/// a um "Avançar calendário" da final da temporada.
+#[tauri::command]
+pub async fn debug_skip_to_season_finale(app: AppHandle, career_id: String) -> Result<(), String> {
+    let base_dir = app_data_dir(&app)?;
+    debug_skip_to_season_finale_in_base_dir(&base_dir, &career_id)
 }
 
 /// DEBUG: prepara o mercado num cenário (agente livre + posição forçada) antes de o
@@ -278,6 +311,18 @@ pub async fn get_teams_standings(
     get_teams_standings_in_base_dir(&base_dir, &career_id, &category)
 }
 
+/// Níveis das 11 peças do carro de cada equipe da categoria — o detalhe que o
+/// `car_level` de `TeamStanding` resume numa média só.
+#[tauri::command]
+pub async fn get_teams_car_parts(
+    app: AppHandle,
+    career_id: String,
+    category: String,
+) -> Result<Vec<TeamCarParts>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_teams_car_parts_in_base_dir(&base_dir, &career_id, &category)
+}
+
 /// Os pilotos de interesse do jogador (1 Nemesis + até 2 Rivais) para decorar os
 /// nomes nas telas com o marcador de rivalidade. Vem do estado acumulado do motor.
 #[tauri::command]
@@ -376,6 +421,18 @@ pub fn get_player_dossier(
     get_player_dossier_in_base_dir(&base_dir, &career_id)
 }
 
+/// O que o jogador já viveu com cada piloto de uma lista: confronto direto,
+/// rivalidade e nêmesis. Ver `DisplacedDriverContext`.
+#[tauri::command]
+pub fn get_displaced_driver_context(
+    app: AppHandle,
+    career_id: String,
+    driver_ids: Vec<String>,
+) -> Result<Vec<crate::commands::career_types::DisplacedDriverContext>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_displaced_driver_context_in_base_dir(&base_dir, &career_id, &driver_ids)
+}
+
 /// A leitura de uma corrida: traçado de posição por trecho, custo do box, trânsito e
 /// safety cars. Ver `RaceReading` e a migração v55.
 #[tauri::command]
@@ -396,6 +453,38 @@ pub async fn get_driver_detail(
 ) -> Result<DriverDetail, String> {
     let base_dir = app_data_dir(&app)?;
     get_driver_detail_in_base_dir(&base_dir, &career_id, &driver_id)
+}
+
+/// Os recordes do dossie de carreira, so quando o jogador liga o toggle.
+///
+/// Mesmo desenho de `get_driver_world_rank`, e pelo mesmo motivo: montar isto
+/// varre `race_results` e o arquivo de temporadas do mundo inteiro. Dentro do
+/// payload da ficha eram 503ms de espera em toda abertura e em toda troca de
+/// piloto — 98% do custo do bloco de historico — para alimentar um toggle que
+/// nasce desligado.
+#[tauri::command]
+pub async fn get_driver_dossier_ranks(
+    app: AppHandle,
+    career_id: String,
+    driver_id: String,
+) -> Result<std::collections::HashMap<String, DriverCareerRankEntry>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_driver_dossier_ranks_in_base_dir(&base_dir, &career_id, &driver_id)
+}
+
+/// Posicao do piloto no ranking mundial, para a marca no topo da ficha.
+///
+/// Comando separado de proposito: `get_driver_detail` responde na hora e a ficha
+/// abre; a posicao no mundo exige rodar o ranking inteiro e chega depois, sem
+/// segurar a tela. Erro aqui nao e erro da ficha — o front so nao desenha a marca.
+#[tauri::command]
+pub async fn get_driver_world_rank(
+    app: AppHandle,
+    career_id: String,
+    driver_id: String,
+) -> Result<Option<DriverWorldRank>, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_driver_world_rank_in_base_dir(&base_dir, &career_id, &driver_id)
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import TeamLogoMark from "../../team/TeamLogoMark";
+import Tooltip from "../../ui/Tooltip";
 import TeamDriverRow from "./TeamDriverRow";
 import { getRankStyle, getTeamMovementBadge } from "../preSeasonFormatters.js";
 
@@ -16,9 +17,9 @@ export default function TeamGridCard({ team, accent, hoveredFreeAgentCat, onOpen
     && (team._categoria === hoveredFreeAgentCat || team.classe === hoveredFreeAgentCat);
   const isDimmed = hoveredFreeAgentCat != null && !matchesHover;
   return (
+    <Tooltip texto={t("preSeason.teamHistoryDblClick")}>
     <article
       onDoubleClick={() => onOpenHistory?.(team)}
-      title={t("preSeason.teamHistoryDblClick")}
       className="glass transition-glass relative cursor-pointer select-none overflow-hidden rounded-xl border p-3 hover:-translate-y-0.5 hover:scale-[1.01]"
       style={{
         borderColor: matchesHover
@@ -72,15 +73,20 @@ export default function TeamGridCard({ team, accent, hoveredFreeAgentCat, onOpen
         <TeamDriverRow
           driverName={team.piloto_1_nome}
           tenureSeasons={team.piloto_1_tenure_seasons}
+          contratoVence={team.piloto_1_contrato_vence}
+          aposentado={team.piloto_1_aposentado}
           accent={accent}
           isPrimarySlot
         />
         <TeamDriverRow
           driverName={team.piloto_2_nome}
           tenureSeasons={team.piloto_2_tenure_seasons}
+          contratoVence={team.piloto_2_contrato_vence}
+          aposentado={team.piloto_2_aposentado}
           accent={accent}
         />
       </div>
     </article>
+    </Tooltip>
   );
 }

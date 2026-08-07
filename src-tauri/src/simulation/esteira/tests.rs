@@ -460,7 +460,10 @@ fn anulacao_por_elo_e_deterministica_e_mensuravel() {
 #[test]
 fn anulacao_em_carreira_viva_mostra_elo_condicional_e_nao_morto() {
     use crate::evolution::growth::SeasonStats;
-    use crate::evolution::motivation::{adjust_end_of_season_motivation, MotivationContext};
+    use crate::evolution::motivation::{
+        adjust_end_of_season_motivation, adjust_offseason_motivation, MotivationContext,
+        OffseasonContext,
+    };
     use rand::{rngs::StdRng, SeedableRng};
     use std::collections::HashSet;
 
@@ -503,14 +506,23 @@ fn anulacao_em_carreira_viva_mostra_elo_condicional_e_nao_morto() {
             };
             let ctx = MotivationContext {
                 was_champion: posicao == 1,
-                was_promoted: posicao <= 2,
-                was_relegated: posicao > total - 3,
-                contract_renewed: posicao <= total / 2,
-                lost_seat: posicao > total - 2,
                 seasons_in_category: temporada + 1,
                 outperformed_machinery: posicao <= 4,
             };
             adjust_end_of_season_motivation(d, &stats, &ctx, &mut rng);
+            // O desfecho do offseason virou um SEGUNDO PASSE no pipeline real (só
+            // depois da promoção e do mercado é que se sabe quem subiu, caiu,
+            // renovou ou ficou sem vaga). Aqui os dois rodam em sequência, que é a
+            // ordem em que o piloto os vive.
+            adjust_offseason_motivation(
+                d,
+                &OffseasonContext {
+                    was_promoted: posicao <= 2,
+                    was_relegated: posicao > total - 3,
+                    contract_renewed: posicao <= total / 2,
+                    lost_seat: posicao > total - 2,
+                },
+            );
         }
     }
 

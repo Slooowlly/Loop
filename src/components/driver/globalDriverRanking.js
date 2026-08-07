@@ -25,6 +25,31 @@ export const DEFAULT_FILTERS = {
   favorites: "all",
 };
 
+// As métricas de carreira que a ficha do piloto sabe apontar para cá. Os ids dos
+// cards de recorde da ficha são os mesmos nomes das colunas do ranking, então a
+// tradução entre as duas telas é só validar que a métrica existe — mas a lista
+// é explícita para que um id desconhecido caia no padrão em vez de ordenar por
+// uma coluna que não existe.
+export const RANKING_METRICS = ["corridas", "vitorias", "podios", "titulos"];
+
+// A categoria só entra no filtro se ela EXISTE entre as opções montadas a partir
+// das linhas. Uma chave de fora dos grupos (categoria agregada, piloto sem
+// categoria) deixaria o `select` com um valor que nenhuma opção representa: a
+// tela filtraria por algo que o jogador não vê escrito em lugar nenhum e não
+// consegue desfazer sem usar o "Limpar filtros".
+export function filterableCategory(options, category) {
+  if (!category) return null;
+  const disponiveis = (options?.categoryGroups ?? []).flatMap((group) =>
+    group.options.map(([value]) => value),
+  );
+  return disponiveis.includes(category) ? category : null;
+}
+
+export function sortForMetric(metric) {
+  if (!metric || !RANKING_METRICS.includes(metric)) return null;
+  return { key: metric, direction: "desc" };
+}
+
 const SORTERS = {
   historical_rank: (row) => row.historical_rank ?? 9999,
   nome: (row) => row.nome ?? "",

@@ -12,7 +12,7 @@ Alvo real é **Windows** — não por acaso: o SDK do iRacing e winapi são Wind
 
 **O código, os comentários e a UI são em português.** Mantenha esse padrão ao escrever código novo.
 
-Docs de referência: [docs/DESIGN.md](docs/DESIGN.md) (retrato completo do domínio), [docs/i18n-translation-spec.md](docs/i18n-translation-spec.md), [docs/divida-tecnica.md](docs/divida-tecnica.md).
+Docs de referência: [docs/DESIGN.md](docs/DESIGN.md) (retrato completo do domínio), [docs/iracing-dados-disponiveis.md](docs/iracing-dados-disponiveis.md) (o que a telemetria entrega, o que não entrega e as armadilhas medidas), [docs/i18n-translation-spec.md](docs/i18n-translation-spec.md), [docs/divida-tecnica.md](docs/divida-tecnica.md).
 
 ## Comandos
 

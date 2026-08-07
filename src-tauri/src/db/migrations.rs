@@ -15,7 +15,7 @@ use seed_incidentes::seed_incident_catalog;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 58;
+const CURRENT_VERSION: u32 = 61;
 
 /// Versão da BASELINE — o piso a partir do qual um save ainda tem caminho de
 /// atualização. Save carimbado abaixo disto veio das migrações incrementais que
@@ -40,6 +40,9 @@ const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
     (56, migrate_v56_faixa_anunciada),
     (57, migrate_v57_leitura_do_fim_de_semana),
     (58, migrate_v58_semeia_carro_das_categorias_especiais),
+    (59, migrate_v59_reconcilia_titulos_de_carreira),
+    (60, migrate_v60_indice_de_resultados_por_piloto),
+    (61, migrate_v61_ledger_com_linhas_fisicas),
 ];
 
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
@@ -368,6 +371,152 @@ fn migrate_v58_semeia_carro_das_categorias_especiais(conn: &Connection) -> Resul
 
     Ok(())
 }
+
+/// v59 — reconcilia `drivers.carreira_titulos` com o arquivo de temporadas.
+///
+/// O crédito do título no fim de temporada estava DEPOIS do filtro
+/// `status != Ativo` em `evolution::pipeline::pilotos`: campeão que chegava na
+/// virada do ano lesionado ou suspenso ganhava a linha de campeão no arquivo
+/// (`archive_driver_season` grava todo mundo, sem filtro de status) e não ganhava
+/// o incremento no contador. O código já foi corrigido, mas save em campo carrega
+/// a diferença — num save de teste, 25 dos 93 campeões estavam com o contador
+/// abaixo do que o próprio arquivo registra.
+///
+/// A reconciliação é uma via só: o contador SOBE até o número de temporadas
+/// campeãs arquivadas, e nunca desce. Piloto histórico pré-gerado tem títulos no
+/// contador sem nenhuma linha de arquivo — baixar seria apagar a história dele
+/// para consertar a de outro.
+///
+/// A régua do que conta como título está COPIADA de `valid_archived_title_count`
+/// (título declarado no snapshot ou P1, mais participação real: corrida disputada
+/// e algum ponto/vitória/pódio/pole). Copiada de propósito: migração é um retrato
+/// congelado da regra que valia quando ela foi escrita, e não pode mudar de
+/// resultado porque a regra viva evoluiu depois.
+fn migrate_v59_reconcilia_titulos_de_carreira(conn: &Connection) -> Result<(), DbError> {
+    // Save anterior à tabela de arquivo (ou banco recém-criado, que roda esta
+    // migração logo depois da baseline) não tem o que reconciliar.
+    let has_archive: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+              WHERE type = 'table' AND name = 'driver_season_archive'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if !has_archive {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "
+        UPDATE drivers
+           SET carreira_titulos = MAX(
+                 carreira_titulos,
+                 (SELECT COUNT(*)
+                    FROM driver_season_archive a
+                   WHERE a.piloto_id = drivers.id
+                     AND COALESCE(
+                           json_extract(a.snapshot_json, '$.titulos'),
+                           CASE WHEN a.posicao_campeonato = 1 THEN 1 ELSE 0 END
+                         ) > 0
+                     AND COALESCE(json_extract(a.snapshot_json, '$.corridas'), 0) > 0
+                     AND (
+                          COALESCE(json_extract(a.snapshot_json, '$.pontos'), 0) > 0
+                       OR COALESCE(json_extract(a.snapshot_json, '$.vitorias'), 0) > 0
+                       OR COALESCE(json_extract(a.snapshot_json, '$.podios'), 0) > 0
+                       OR COALESCE(json_extract(a.snapshot_json, '$.poles'), 0) > 0
+                     ))
+               );
+        ",
+    )?;
+    Ok(())
+}
+
+/// v60 — índice de `race_results` por piloto.
+///
+/// O único índice da tabela era `(race_id, piloto_id)`: serve para "quem correu
+/// esta prova" e não serve para "o que este piloto já correu", porque a coluna
+/// líder é a corrida. Toda consulta por piloto caía em varredura da tabela
+/// inteira — e o ranking mundial faz uma dessas POR PILOTO ao montar o histórico
+/// de lesões inferidas, com dez `LIKE` por linha. Num save de terceira temporada
+/// (610 pilotos, 26.800 resultados) isso sozinho custava ~2,5 s por abertura do
+/// painel; com o índice, 25 ms.
+fn migrate_v60_indice_de_resultados_por_piloto(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_race_results_piloto ON race_results(piloto_id);",
+    )?;
+    Ok(())
+}
+
+/// v61 — o ledger passa a guardar as OITO linhas físicas de despesa.
+///
+/// Até aqui `team_finance_history` guardava dois agregados (`event_operations_cost` e
+/// `structural_maintenance_cost`) produzidos por pesos sobre um orçamento abstrato. Com a
+/// despesa trocada por `economia::evento` + `economia::temporada`, o que sai do caixa é uma
+/// soma de linhas com quantidade e preço — e o dossiê da equipe precisa mostrar EXATAMENTE
+/// essa decomposição, não uma reconstrução.
+///
+/// **É destrutiva de propósito.** As linhas antigas não têm decomposição física: não existe
+/// um valor de "combustível" para extrair delas, porque naquele modelo combustível era 7%
+/// de um orçamento. Preenchê-las com zero deixaria o dossiê somar uma temporada em que sete
+/// das oito linhas valem nada; preenchê-las por rateio inventaria números. As duas saídas
+/// mentem, então a linha antiga é descartada — o histórico financeiro recomeça, e recomeça
+/// verdadeiro.
+///
+/// Os dois agregados CONTINUAM na tabela: eles são a soma das linhas novas, escritos da
+/// mesma origem (`commands::race::despesa::DespesaDaRodada`), e o resto do jogo os lê.
+fn migrate_v61_ledger_com_linhas_fisicas(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch("DROP TABLE IF EXISTS team_finance_history;")?;
+    conn.execute_batch(DDL_TEAM_FINANCE_HISTORY)?;
+    Ok(())
+}
+
+/// O DDL do ledger, num lugar só.
+///
+/// Exposto porque os testes de query montam bancos mínimos à mão, e uma segunda cópia
+/// desta tabela num teste é uma cópia que envelhece sem avisar: a coluna nova entra na
+/// migração, o teste continua verde contra o schema velho, e o `no such column` aparece
+/// em runtime, no save de alguém.
+pub(crate) const DDL_TEAM_FINANCE_HISTORY: &str = "
+         CREATE TABLE IF NOT EXISTS team_finance_history (
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_id                     TEXT NOT NULL,
+            season_number               INTEGER NOT NULL,
+            round                       INTEGER NOT NULL,
+            category                    TEXT NOT NULL DEFAULT '',
+            sponsorship_income          REAL NOT NULL DEFAULT 0.0,
+            result_bonus                REAL NOT NULL DEFAULT 0.0,
+            partial_prize_income        REAL NOT NULL DEFAULT 0.0,
+            constructor_prize_income    REAL NOT NULL DEFAULT 0.0,
+            gate_income                 REAL NOT NULL DEFAULT 0.0,
+            aid_income                  REAL NOT NULL DEFAULT 0.0,
+            salary_expense              REAL NOT NULL DEFAULT 0.0,
+            custo_combustivel           REAL NOT NULL DEFAULT 0.0,
+            custo_pneus                 REAL NOT NULL DEFAULT 0.0,
+            custo_desgaste_de_peca      REAL NOT NULL DEFAULT 0.0,
+            custo_frete                 REAL NOT NULL DEFAULT 0.0,
+            custo_viagem_e_estadia      REAL NOT NULL DEFAULT 0.0,
+            custo_inscricao             REAL NOT NULL DEFAULT 0.0,
+            custo_diarias               REAL NOT NULL DEFAULT 0.0,
+            custo_estrutura             REAL NOT NULL DEFAULT 0.0,
+            event_operations_cost       REAL NOT NULL DEFAULT 0.0,
+            structural_maintenance_cost REAL NOT NULL DEFAULT 0.0,
+            technical_investment_cost   REAL NOT NULL DEFAULT 0.0,
+            debt_service_cost           REAL NOT NULL DEFAULT 0.0,
+            income_total                REAL NOT NULL DEFAULT 0.0,
+            expenses_total              REAL NOT NULL DEFAULT 0.0,
+            net                         REAL NOT NULL DEFAULT 0.0,
+            cash_balance                REAL NOT NULL DEFAULT 0.0,
+            debt_balance                REAL NOT NULL DEFAULT 0.0,
+            created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(team_id, season_number, round),
+            FOREIGN KEY (team_id) REFERENCES teams(id)
+         );
+
+         CREATE INDEX IF NOT EXISTS idx_team_finance_history_team_season
+            ON team_finance_history(team_id, season_number, round);
+";
 
 // ── Helpers de versão ─────────────────────────────────────────────────────────
 
@@ -861,6 +1010,175 @@ mod tests {
         // Quem já tinha carro fica intacto — a migração não reescreve nível nem desgaste.
         assert_eq!(parts("T006"), 1);
         assert_eq!(level("T006"), 4);
+    }
+
+    #[test]
+    fn v59_sobe_o_contador_de_titulos_ate_o_arquivo_e_nunca_desce() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrate_baseline(&conn).expect("baseline");
+        migrate_v54_forma_do_piloto(&conn).expect("v54");
+        migrate_v55_leitura_da_corrida(&conn).expect("v55");
+        migrate_v56_faixa_anunciada(&conn).expect("v56");
+        migrate_v57_leitura_do_fim_de_semana(&conn).expect("v57");
+        migrate_v58_semeia_carro_das_categorias_especiais(&conn).expect("v58");
+        set_schema_version(&conn, 58).expect("carimbo v58");
+
+        conn.execute_batch(
+            "
+            PRAGMA foreign_keys = OFF;
+            INSERT INTO drivers (id, nome, nacionalidade, genero, idade, carreira_titulos)
+            VALUES
+                -- Tricampeão no arquivo, contador defasado (campeão lesionado na virada).
+                ('P001', 'Defasado',  'Brasil', 'M', 30, 2),
+                -- Contador e arquivo já batem: nada a fazer.
+                ('P002', 'Coerente',  'Brasil', 'M', 28, 1),
+                -- Histórico pré-gerado: títulos no contador, nenhuma linha de arquivo.
+                ('P003', 'Pregerado', 'Brasil', 'M', 41, 5);
+
+            INSERT INTO driver_season_archive
+                (piloto_id, season_number, ano, nome, categoria, posicao_campeonato, pontos, snapshot_json)
+            VALUES
+                ('P001', 1, 2023, 'Defasado', 'gt3', 1, 200.0,
+                 '{\"corridas\":10,\"vitorias\":4,\"podios\":7,\"pontos\":200,\"titulos\":1}'),
+                ('P001', 2, 2024, 'Defasado', 'gt3', 1, 210.0,
+                 '{\"corridas\":10,\"vitorias\":3,\"podios\":8,\"pontos\":210,\"titulos\":1}'),
+                ('P001', 3, 2025, 'Defasado', 'gt3', 1, 240.0,
+                 '{\"corridas\":10,\"vitorias\":6,\"podios\":9,\"pontos\":240,\"titulos\":1}'),
+                -- P1 sem ter largado: o grid inteiro ficou zerado e a ordem foi
+                -- desempate. Nao e campeonato, e nao pode virar titulo.
+                ('P001', 4, 2026, 'Defasado', 'gt3', 1, 0.0,
+                 '{\"corridas\":0,\"vitorias\":0,\"podios\":0,\"pontos\":0}'),
+                ('P002', 1, 2024, 'Coerente', 'gt4', 1, 180.0,
+                 '{\"corridas\":10,\"vitorias\":5,\"podios\":8,\"pontos\":180,\"titulos\":1}');
+            PRAGMA foreign_keys = ON;
+            ",
+        )
+        .expect("save v58 com contador defasado");
+
+        run_pending(&conn).expect("upgrade v58 → v59");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        let titulos = |id: &str| -> i64 {
+            conn.query_row(
+                "SELECT carreira_titulos FROM drivers WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .expect("contador de titulos")
+        };
+
+        // Sobe até o arquivo, e a temporada P1-sem-corrida fica de fora.
+        assert_eq!(titulos("P001"), 3);
+        assert_eq!(titulos("P002"), 1);
+        // Nunca desce: o pré-gerado não tem arquivo, e zerá-lo apagaria a
+        // história dele para consertar a de outro.
+        assert_eq!(titulos("P003"), 5);
+    }
+
+    #[test]
+    fn v60_indexa_resultados_por_piloto_e_o_planejador_usa() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrate_baseline(&conn).expect("baseline");
+        migrate_v54_forma_do_piloto(&conn).expect("v54");
+        migrate_v55_leitura_da_corrida(&conn).expect("v55");
+        migrate_v56_faixa_anunciada(&conn).expect("v56");
+        migrate_v57_leitura_do_fim_de_semana(&conn).expect("v57");
+        migrate_v58_semeia_carro_das_categorias_especiais(&conn).expect("v58");
+        migrate_v59_reconcilia_titulos_de_carreira(&conn).expect("v59");
+        set_schema_version(&conn, 59).expect("carimbo v59");
+
+        run_pending(&conn).expect("upgrade v59 → v60");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        // O índice existir não basta: o que importa é o planejador PARAR de varrer
+        // a tabela inteira quando a busca é por piloto — era essa varredura, uma
+        // por piloto, que segurava o ranking mundial.
+        let plano: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN
+                 SELECT dnf_reason FROM race_results WHERE piloto_id = 'P001' AND dnf = 1",
+                [],
+                |row| row.get::<_, String>(3),
+            )
+            .expect("plano da consulta");
+        assert!(
+            plano.contains("idx_race_results_piloto"),
+            "consulta por piloto deveria usar o índice novo, e o plano foi: {plano}"
+        );
+    }
+
+    /// v61 — o ledger ganha as oito linhas físicas, e a linha velha vai embora.
+    ///
+    /// A parte destrutiva é o ponto do teste: uma linha escrita pelo modelo antigo não tem
+    /// decomposição para extrair, e mantê-la faria o dossiê somar uma temporada em que sete
+    /// das oito linhas valem zero. O histórico recomeça — e recomeça verdadeiro.
+    #[test]
+    fn v61_troca_o_ledger_pelas_linhas_fisicas_e_descarta_o_historico_velho() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrate_baseline(&conn).expect("baseline");
+        migrate_v54_forma_do_piloto(&conn).expect("v54");
+        migrate_v55_leitura_da_corrida(&conn).expect("v55");
+        migrate_v56_faixa_anunciada(&conn).expect("v56");
+        migrate_v57_leitura_do_fim_de_semana(&conn).expect("v57");
+        migrate_v58_semeia_carro_das_categorias_especiais(&conn).expect("v58");
+        migrate_v59_reconcilia_titulos_de_carreira(&conn).expect("v59");
+        migrate_v60_indice_de_resultados_por_piloto(&conn).expect("v60");
+        set_schema_version(&conn, 60).expect("carimbo v60");
+
+        // Uma linha do modelo antigo: dois agregados e nenhuma decomposição. A FK para
+        // `teams` fica de lado — o que interessa é haver histórico gravado, não a equipe.
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO team_finance_history
+                (team_id, season_number, round, event_operations_cost)
+             VALUES ('T001', 1, 3, 250000.0);
+             PRAGMA foreign_keys = ON;",
+        )
+        .expect("linha legada");
+
+        run_pending(&conn).expect("upgrade v60 → v61");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        for coluna in [
+            "custo_combustivel",
+            "custo_pneus",
+            "custo_desgaste_de_peca",
+            "custo_frete",
+            "custo_viagem_e_estadia",
+            "custo_inscricao",
+            "custo_diarias",
+            "custo_estrutura",
+        ] {
+            assert!(
+                column_exists(&conn, "team_finance_history", coluna),
+                "coluna '{coluna}' deveria existir depois da v61"
+            );
+        }
+
+        let restantes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM team_finance_history", [], |row| {
+                row.get(0)
+            })
+            .expect("contagem");
+        assert_eq!(
+            restantes, 0,
+            "a linha do modelo antigo não pode sobreviver: ela não tem decomposição física"
+        );
+
+        // O índice tem que voltar junto com a tabela — sem ele o dossiê varre o ledger
+        // inteiro a cada leitura.
+        let plano: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN
+                 SELECT net FROM team_finance_history WHERE team_id = 'T001'",
+                [],
+                |row| row.get::<_, String>(3),
+            )
+            .expect("plano da consulta");
+        assert!(
+            plano.contains("idx_team_finance_history_team_season"),
+            "a consulta por equipe deveria usar o índice, e o plano foi: {plano}"
+        );
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {

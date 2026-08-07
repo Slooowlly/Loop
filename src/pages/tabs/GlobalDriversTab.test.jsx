@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 
 import GlobalDriversTab from "./GlobalDriversTab";
@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("../../components/driver/DriverDetailModal", () => ({
+vi.mock("../../components/driver", () => ({
   default: ({ driverId, onClose }) => (
     <div role="dialog" aria-label={`Ficha ${driverId}`}>
       <button type="button" onClick={onClose}>
@@ -271,7 +271,7 @@ describe("GlobalDriversTab", () => {
     expect(chip).toBeInTheDocument();
     expect(chip).toHaveClass("text-status-green");
     expect(chip.parentElement).toHaveAttribute(
-      "title",
+      "data-tooltip",
       expect.stringContaining("Ganhou 6 de fama"),
     );
   });
@@ -586,7 +586,7 @@ describe("GlobalDriversTab", () => {
 
     // ...and so are the delta badges, now relative to the filtered ranking.
     const selectedDelta = within(selectedRow).getByText("↑1");
-    expect(selectedDelta).toHaveAttribute("title", expect.stringMatching(/neste ranking filtrado/i));
+    expect(selectedDelta).toHaveAttribute("data-tooltip", expect.stringMatching(/neste ranking filtrado/i));
     expect(within(userRow).getByText("↓1")).toBeInTheDocument();
 
     // The global #2 climb is no longer shown as a badge in the filtered view.
@@ -658,11 +658,11 @@ describe("GlobalDriversTab", () => {
     expect(within(table).getByText(/\$250k/i)).toBeInTheDocument();
     const retiredTeamCategory = within(table).getByText(/Há 2 anos \/ GT3/i);
     expect(retiredTeamCategory).toBeInTheDocument();
-    expect(retiredTeamCategory).toHaveAttribute("title", "Aposentado em 2024");
+    expect(retiredTeamCategory).toHaveAttribute("data-tooltip", "Aposentado em 2024");
     expect(within(table).queryByText(/Aposentado \/ GT3/i)).not.toBeInTheDocument();
     expect(within(table).queryByText(/GT3 \/ Aposentado/i)).not.toBeInTheDocument();
     within(table).getAllByText("Aposentado").forEach((status) => {
-      expect(status).not.toHaveAttribute("title");
+      expect(status).not.toHaveAttribute("data-tooltip");
     });
   });
 
@@ -744,9 +744,9 @@ describe("GlobalDriversTab", () => {
     const freeRow = within(table).getByText("Piloto Livre").closest("tr");
 
     expect(within(selectedRow).getByText("↑2")).toHaveClass("text-status-green", "whitespace-nowrap");
-    expect(within(selectedRow).getByText("↑2")).toHaveAttribute("title", "Subiu 2 posições desde a última corrida");
+    expect(within(selectedRow).getByText("↑2")).toHaveAttribute("data-tooltip", "Subiu 2 posições desde a última corrida");
     expect(within(freeRow).getByText("↓1")).toHaveClass("text-status-red", "whitespace-nowrap");
-    expect(within(freeRow).getByText("↓1")).toHaveAttribute("title", "Desceu 1 posição desde a última corrida");
+    expect(within(freeRow).getByText("↓1")).toHaveAttribute("data-tooltip", "Desceu 1 posição desde a última corrida");
   });
 
   it("sorts retired drivers by longest retirement from the team/category column", async () => {
@@ -758,9 +758,133 @@ describe("GlobalDriversTab", () => {
 
     const bodyRows = within(table).getAllByRole("row").slice(1);
     expect(within(bodyRows[0]).getByText("Veterano Distante")).toBeInTheDocument();
-    expect(within(bodyRows[0]).getByText(/Há 10 anos \/ Mazda Rookie/i)).toHaveAttribute("title", "Aposentado em 2016");
+    expect(within(bodyRows[0]).getByText(/Há 10 anos \/ Mazda Rookie/i)).toHaveAttribute("data-tooltip", "Aposentado em 2016");
     expect(within(bodyRows[1]).getByText("Lenda Aposentada")).toBeInTheDocument();
-    expect(within(bodyRows[1]).getByText(/Há 2 anos \/ GT3/i)).toHaveAttribute("title", "Aposentado em 2024");
+    expect(within(bodyRows[1]).getByText(/Há 2 anos \/ GT3/i)).toHaveAttribute("data-tooltip", "Aposentado em 2024");
+  });
+
+  it("abre ja ordenada pela metrica pedida pelo card de recorde da ficha", async () => {
+    render(<GlobalDriversTab selectedDriverId="D001" initialMetric="vitorias" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    const bodyRows = within(table).getAllByRole("row").slice(1);
+
+    // Por vitórias: 12, 7, 4, 2, 1 — a cauda inverte em relação ao índice
+    // histórico (o padrão), que é o que prova que a ordem veio da métrica.
+    expect(within(bodyRows[0]).getByText("Lenda Aposentada")).toBeInTheDocument();
+    expect(within(bodyRows[1]).getByText("Piloto Selecionado")).toBeInTheDocument();
+    expect(within(bodyRows[3]).getByText("Veterano Distante")).toBeInTheDocument();
+    expect(within(bodyRows[4]).getByText("Piloto Usuario")).toBeInTheDocument();
+    // E a coluna ordenada aparece marcada, senão a tela mente sobre por que
+    // está nessa ordem.
+    const cabecalhoVitorias = [...table.querySelectorAll("thead th button")].find((botao) =>
+      botao.textContent.startsWith("Vit."),
+    );
+    expect(cabecalhoVitorias).toHaveTextContent("↓");
+  });
+
+  it("acende a linha do piloto entregue pela rolagem e apaga sozinha", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<GlobalDriversTab selectedDriverId="D001" initialMetric="vitorias" onBack={vi.fn()} />);
+
+      const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+
+      // O halo espera a rolagem assentar antes de acender.
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+
+      const linha = screen.getByTestId("driver-row-glow");
+      // A LINHA inteira, e não a pílula do nome: uma marca de 90px numa linha de
+      // 1200px se perde justamente quando é preciso achá-la.
+      expect(linha.tagName).toBe("TR");
+      expect(linha).toHaveTextContent("Piloto Selecionado");
+      expect(linha).toHaveClass("animate-driver-row-glow");
+      // Só o piloto que chegou.
+      expect(within(table).getAllByTestId("driver-row-glow")).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(2600);
+      });
+
+      expect(screen.queryByTestId("driver-row-glow")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("abre com o filtro de categoria pedido pelo recorte de grid da ficha", async () => {
+    render(
+      <GlobalDriversTab
+        selectedDriverId="D001"
+        initialMetric="vitorias"
+        initialCategory="gt4"
+        onBack={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    expect(screen.getByLabelText(/Categoria/i)).toHaveValue("gt4");
+    // Com a categoria ativa a tabela se parte em "atualmente" e "já passaram".
+    expect(screen.getByText(/Atualmente em GT4/i)).toBeInTheDocument();
+  });
+
+  it("so rola depois de a tabela filtrada existir", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const linhasAoRolar = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn(function registrar() {
+      linhasAoRolar.push({
+        total: document.querySelectorAll("tbody tr[data-driver-id]").length,
+        alvo: this.getAttribute("data-driver-id"),
+      });
+    });
+
+    try {
+      render(
+        <GlobalDriversTab
+          selectedDriverId="D001"
+          initialMetric="vitorias"
+          initialCategory="gt4"
+          onBack={vi.fn()}
+        />,
+      );
+
+      await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+
+      // Duas linhas passam no filtro de GT4, e não as cinco do mundo: medir na
+      // tabela inteira mirava uma posição que a tabela filtrada não tem, e a
+      // página parava muito abaixo do piloto.
+      expect(linhasAoRolar).toEqual([{ total: 2, alvo: "D001" }]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignora categoria que o filtro nao sabe representar", async () => {
+    render(
+      <GlobalDriversTab selectedDriverId="D001" initialCategory="poltrona:vip" onBack={vi.fn()} />,
+    );
+
+    await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    // Um valor fora das opções deixaria o select mostrando vazio e filtrando por
+    // algo que o jogador não consegue desfazer.
+    expect(screen.getByLabelText(/Categoria/i)).toHaveValue("Todas");
+  });
+
+  it("ignora metrica desconhecida e mantem a ordem padrao", async () => {
+    render(<GlobalDriversTab selectedDriverId="D001" initialMetric="poltronas" onBack={vi.fn()} />);
+
+    const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    const bodyRows = within(table).getAllByRole("row").slice(1);
+
+    expect(within(bodyRows[3]).getByText("Piloto Usuario")).toBeInTheDocument();
+    expect(within(bodyRows[4]).getByText("Veterano Distante")).toBeInTheDocument();
   });
 
   it("calls onBack from the hidden tab return action", async () => {

@@ -7,7 +7,7 @@ use winapi::um::memoryapi::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FI
 use super::util::{decode_latin1, read_i32, read_value, type_size, wide_null, IRSDK_MAX_CARS};
 use crate::iracing_sdk::{
     header, parse_track_name, CarSnapshot, IracingError, IracingSession, IracingTelemetry,
-    MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU, STATUS_CONNECTED,
+    MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU, STATUS_CONNECTED, VarDoSdk,
 };
 
 /// `ERROR_FILE_NOT_FOUND` — o mapeamento não existe: o sim está fechado (ou não
@@ -24,6 +24,59 @@ pub fn read_session() -> Result<IracingSession, IracingError> {
 
 pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
     unsafe { with_view(extract_telemetry) }
+}
+
+/// Tudo que o SDK publica nesta build, como ele mesmo se descreve.
+///
+/// Não alimenta nenhuma lógica do jogo — vai para a captura de corrida, uma vez por
+/// gravação. O motivo é simples: `extract_telemetry` casa nomes num `match`, e um nome
+/// que não existe cai no `_ => {}` calado. Sem o inventário, um canal ausente e um
+/// canal zerado são a mesma coisa vista de fora, e a diferença entre os dois muda o
+/// que dá para construir.
+pub fn read_var_inventory() -> Result<Vec<VarDoSdk>, IracingError> {
+    unsafe { with_view(extract_var_inventory) }
+}
+
+/// Lê um `char[]` de tamanho fixo do cabeçalho, cortando no primeiro `NUL`.
+///
+/// # Safety
+/// `ptr` deve apontar para pelo menos `max` bytes válidos.
+unsafe fn texto_fixo(ptr: *const u8, max: usize) -> String {
+    let bytes = std::slice::from_raw_parts(ptr, max);
+    let fim = bytes.iter().position(|&b| b == 0).unwrap_or(max);
+    String::from_utf8_lossy(&bytes[..fim]).into_owned()
+}
+
+/// # Safety
+/// `base` deve ser uma view válida do mapeamento do iRacing.
+unsafe fn extract_var_inventory(base: *const u8) -> Result<Vec<VarDoSdk>, IracingError> {
+    let status = read_i32(base, header::STATUS);
+    if status & STATUS_CONNECTED == 0 {
+        return Err(IracingError::NotConnected(status));
+    }
+    let num_vars = read_i32(base, header::NUM_VARS);
+    let var_header_offset = read_i32(base, header::VAR_HEADER_OFFSET);
+    if num_vars <= 0 || var_header_offset <= 0 {
+        return Err(IracingError::InvalidHeader);
+    }
+
+    let mut saida = Vec::with_capacity(num_vars as usize);
+    for i in 0..num_vars as usize {
+        let head = base.add(var_header_offset as usize + i * header::VAR_HEADER_SIZE);
+        let nome = texto_fixo(head.add(header::VAR_NAME), header::VAR_NAME_MAX);
+        if nome.is_empty() {
+            continue;
+        }
+        saida.push(VarDoSdk {
+            nome,
+            tipo: read_i32(head, header::VAR_TYPE),
+            quantidade: read_i32(head, header::VAR_COUNT).max(1),
+            unidade: texto_fixo(head.add(header::VAR_UNIT), header::VAR_UNIT_MAX),
+            descricao: texto_fixo(head.add(header::VAR_DESC), header::VAR_DESC_MAX),
+        });
+    }
+    saida.sort_by(|a, b| a.nome.cmp(&b.nome));
+    Ok(saida)
 }
 
 /// Abre o mapa de memória, mapeia a view, roda `extract` e garante o
@@ -215,6 +268,15 @@ unsafe fn extract_telemetry(base: *const u8) -> Result<IracingTelemetry, Iracing
                     "CarIdxLastLapTime" => car.last_lap_time = v,
                     "CarIdxBestLapTime" => car.best_lap_time = v,
                     "CarIdxTireCompound" => car.tire_compound = v as i32,
+                    "CarIdxTrackSurfaceMaterial" => car.track_surface_material = v as i32,
+                    "CarIdxRPM" => car.rpm = v,
+                    "CarIdxSteer" => car.steer = v,
+                    "CarIdxSessionFlags" => car.session_flags = v as i32,
+                    "CarIdxPaceLine" => car.pace_line = v as i32,
+                    "CarIdxPaceRow" => car.pace_row = v as i32,
+                    "CarIdxPaceFlags" => car.pace_flags = v as i32,
+                    "CarIdxBestLapNum" => car.best_lap_num = v as i32,
+                    "CarIdxFastRepairsUsed" => car.fast_repairs_used = v as i32,
                     _ => {}
                 }
             }
@@ -269,6 +331,24 @@ unsafe fn extract_telemetry(base: *const u8) -> Result<IracingTelemetry, Iracing
             "SessionTimeTotal" => t.session_time_total = value,
             "SessionTimeRemain" => t.session_time_remain = value,
             "SessionLapsRemainEx" => t.session_laps_remain_ex = value as i32,
+            "CarLeftRight" => t.car_left_right = value as i32,
+            "SessionTick" => t.session_tick = value as i32,
+            "SessionLapsRemain" => t.session_laps_remain = value as i32,
+            "SessionLapsTotal" => t.session_laps_total = value as i32,
+            "PaceMode" => t.pace_mode = value as i32,
+            "PitsOpen" => t.pits_open = value != 0.0,
+            "Precipitation" => t.precipitation = value,
+            "WeatherDeclaredWet" => t.weather_declared_wet = value != 0.0,
+            "TrackTempCrew" => t.track_temp_crew = value,
+            "Skies" => t.skies = value as i32,
+            "FogLevel" => t.fog_level = value,
+            "WindDir" => t.wind_dir = value,
+            "CamCameraNumber" => t.cam_camera_number = value as i32,
+            "CamGroupNumber" => t.cam_group_number = value as i32,
+            "CamCameraState" => t.cam_camera_state = value as i32,
+            "ReplayFrameNum" => t.replay_frame_num = value as i32,
+            "ReplaySessionNum" => t.replay_session_num = value as i32,
+            "ReplaySessionTime" => t.replay_session_time = value,
             _ => {}
         }
     }

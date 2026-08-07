@@ -20,9 +20,11 @@ pub use chat::{send_chat_macro, send_chat_text};
 #[cfg(windows)]
 pub use diagnostico::diagnosticar;
 #[cfg(windows)]
-pub use janela::{focus_iracing_window, force_foreground_window, foreground_is_iracing};
+pub use janela::{
+    focus_iracing_window, force_foreground_window, foreground_is_iracing, simulador_aberto,
+};
 #[cfg(windows)]
-pub use leitura::{read_session, read_telemetry};
+pub use leitura::{read_session, read_telemetry, read_var_inventory};
 
 #[cfg(not(windows))]
 pub use stub::*;

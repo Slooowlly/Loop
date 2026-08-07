@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import TeamLogoMark from "../../team/TeamLogoMark";
+import Tooltip from "../../ui/Tooltip";
 import { subcatColor, shortDestLabel } from "../preSeasonFormatters.js";
 
 export default function FreeAgentCard({ driver, isRookie, onHoverCat }) {
@@ -39,22 +40,22 @@ export default function FreeAgentCard({ driver, isRookie, onHoverCat }) {
         {driver.driver_name}
       </p>
       {isParado && (
-        <span
-          className="shrink-0 rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-[color:var(--text-muted)]"
-          title={t("preSeason.market.freeAgent.idleTooltip", { count: idle })}
-        >
-          {t("preSeason.market.freeAgent.idleShort", { count: idle })}
-        </span>
+        <Tooltip texto={t("preSeason.market.freeAgent.idleTooltip", { count: idle })}>
+          <span className="shrink-0 rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-[color:var(--text-muted)]">
+            {t("preSeason.market.freeAgent.idleShort", { count: idle })}
+          </span>
+        </Tooltip>
       )}
       {/* Etiqueta de destino provável (categoria onde as propostas chegam) — sempre
           visível no canto, mesmo com separador de marca. Substitui a carteira, escondida. */}
-      <span
-        className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
-        style={{ background: `${destColor}1f`, color: destColor }}
-        title={t("preSeason.market.freeAgent.destinationTooltip", { label: destLabel })}
-      >
-        {destLabel}
-      </span>
+      <Tooltip texto={t("preSeason.market.freeAgent.destinationTooltip", { label: destLabel })}>
+        <span
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
+          style={{ background: `${destColor}1f`, color: destColor }}
+        >
+          {destLabel}
+        </span>
+      </Tooltip>
     </div>
   );
 }

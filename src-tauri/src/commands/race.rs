@@ -34,7 +34,7 @@ use crate::finance::economy::{
     GlobalEconomicHealth,
 };
 use crate::finance::events::{apply_crisis_event_if_needed, debt_service_for_state};
-use crate::finance::planning::{calculate_financial_plan, category_finance_scale};
+use crate::finance::planning::{calculate_financial_plan, category_finance_scale_for};
 use crate::finance::state::refresh_team_financial_state;
 use crate::models::driver::Driver;
 use crate::models::injury::Injury;
@@ -51,8 +51,12 @@ use crate::{calendar::CalendarEntry, models::team::Team};
 
 #[path = "race/comum.rs"]
 mod comum;
+#[path = "race/despesa.rs"]
+mod despesa;
 #[path = "race/fatos.rs"]
 mod fatos;
+#[path = "race/fatura.rs"]
+pub mod fatura;
 #[path = "race/financas.rs"]
 mod financas;
 #[path = "race/grade.rs"]
@@ -63,6 +67,8 @@ mod importacao;
 mod manutencao;
 #[path = "race/merito.rs"]
 mod merito;
+#[path = "race/modificadores.rs"]
+mod modificadores;
 #[path = "race/noticias.rs"]
 mod noticias;
 #[path = "race/persistencia.rs"]
@@ -71,9 +77,11 @@ mod persistencia;
 mod simulacao;
 
 pub(crate) use comum::*;
+pub(crate) use despesa::*;
 pub(crate) use financas::*;
 pub(crate) use importacao::*;
 pub(crate) use manutencao::*;
+pub(crate) use modificadores::*;
 pub(crate) use persistencia::*;
 pub(crate) use simulacao::*;
 // Só o próprio race.rs (e os irmãos, via `use super::*`) consomem estes quatro.
@@ -297,6 +305,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
             let cost = compute_repair_cost(
                 repair_severity,
                 &team.categoria,
+                team.classe.as_deref(),
                 team.car_performance,
                 &mut rng,
             );
@@ -319,6 +328,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
                 team,
                 &player_race,
                 race_entry.track_id,
+                race_entry.duracao_corrida_min,
                 get_category_config(&race_entry.categoria)
                     .map(|c| c.corridas_por_temporada as f64)
                     .unwrap_or(12.0),
@@ -498,6 +508,25 @@ pub(crate) fn save_race_screen(career_dir: &Path, race_id: &str, payload: &serde
     if let Ok(s) = serde_json::to_string(payload) {
         let _ = std::fs::write(dir.join(format!("{race_id}.json")), s);
     }
+}
+
+/// A FATURA da etapa que o jogador lê: as sete linhas físicas do fim de semana, os
+/// quatro canais de receita, o conserto se houve e o rodapé do custo fixo do ano.
+///
+/// `None` quando a rodada não moveu o caixa da equipe do jogador (corrida de bloco
+/// especial, carreira sem jogador, corrida nunca disputada) — ver
+/// [`fatura::fatura_da_rodada_in_base_dir`].
+#[tauri::command]
+pub fn get_stage_invoice(
+    app: AppHandle,
+    career_id: String,
+    race_id: String,
+) -> Result<Option<crate::commands::career_types::StageInvoiceDto>, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    fatura::fatura_da_rodada_in_base_dir(&base_dir, &career_id, &race_id)
 }
 
 /// Reabre a tela salva da corrida da rodada `rodada` na categoria. Resolve

@@ -1,5 +1,9 @@
 //! Entrada do ranking global: abre o banco da carreira e monta o payload completo.
 
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::SystemTime;
+
 use super::*;
 
 pub(crate) fn get_global_driver_rankings_in_base_dir(
@@ -7,14 +11,124 @@ pub(crate) fn get_global_driver_rankings_in_base_dir(
     career_id: &str,
     selected_driver_id: Option<&str>,
 ) -> Result<GlobalDriverRankingPayload, String> {
+    let db_path = caminho_do_banco(base_dir, career_id)?;
+    ranking_do_banco(&db_path, selected_driver_id)
+}
+
+fn caminho_do_banco(base_dir: &Path, career_id: &str) -> Result<PathBuf, String> {
     let config = AppConfig::load_or_default(base_dir);
     let db_path = config.saves_dir().join(career_id).join("career.db");
     if !db_path.exists() {
         return Err("Banco da carreira nao encontrado.".to_string());
     }
-    let db = Database::open_existing(&db_path)
+    Ok(db_path)
+}
+
+// ── Memória do último ranking montado ─────────────────────────────────────────
+//
+// A posição de um piloto no mundo só existe em relação aos outros 600+, então
+// não há atalho: cada consulta monta o ranking inteiro. Enquanto o jogador
+// folheia fichas — abrir um piloto, seguir para o companheiro de equipe, voltar
+// — nada é escrito no banco e o resultado é bit a bit o mesmo; recomputar ali é
+// puro desperdício, e é exatamente o intervalo em que a marca do ranking demora
+// a aparecer na ficha.
+//
+// A chave é a ASSINATURA do arquivo (tamanho + mtime do `.db` e do `-wal`, quando
+// existe). Cada comando abre e fecha a sua conexão, e o fechamento faz checkpoint
+// do WAL — então qualquer escrita mexe no arquivo e derruba a entrada. Assinatura
+// ilegível (arquivo sumiu, permissão) desliga o cache em vez de arriscar servir
+// número velho.
+
+type Assinatura = ((u64, Option<SystemTime>), Option<(u64, Option<SystemTime>)>);
+
+struct RankingMemorizado {
+    db_path: PathBuf,
+    assinatura: Assinatura,
+    payload: GlobalDriverRankingPayload,
+}
+
+static MEMORIA: Mutex<Option<RankingMemorizado>> = Mutex::new(None);
+
+fn ranking_do_banco(
+    db_path: &Path,
+    selected_driver_id: Option<&str>,
+) -> Result<GlobalDriverRankingPayload, String> {
+    let assinatura = assinatura_do_banco(db_path);
+
+    if let Some(assinatura) = assinatura.as_ref() {
+        if let Ok(memoria) = MEMORIA.lock() {
+            if let Some(entrada) = memoria.as_ref() {
+                if entrada.db_path == db_path && &entrada.assinatura == assinatura {
+                    let mut payload = entrada.payload.clone();
+                    payload.selected_driver_id = selected_driver_id.map(str::to_string);
+                    return Ok(payload);
+                }
+            }
+        }
+    }
+
+    let db = Database::open_existing(db_path)
         .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
-    build_global_driver_rankings(&db.conn, selected_driver_id)
+    let payload = build_global_driver_rankings(&db.conn, selected_driver_id)?;
+
+    // A assinatura vale a de ANTES da montagem: `open_existing` roda migrações
+    // pendentes e pode escrever no arquivo. Guardar a de depois carimbaria o
+    // estado novo num payload lido do estado velho.
+    if let Some(assinatura) = assinatura {
+        if let Ok(mut memoria) = MEMORIA.lock() {
+            *memoria = Some(RankingMemorizado {
+                db_path: db_path.to_path_buf(),
+                assinatura,
+                payload: payload.clone(),
+            });
+        }
+    }
+
+    Ok(payload)
+}
+
+fn assinatura_do_banco(db_path: &Path) -> Option<Assinatura> {
+    let principal = assinatura_do_arquivo(db_path)?;
+    let wal = db_path.with_extension("db-wal");
+    Some((principal, assinatura_do_arquivo(&wal)))
+}
+
+fn assinatura_do_arquivo(path: &Path) -> Option<(u64, Option<SystemTime>)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()))
+}
+
+/// Índice e posição de UM piloto no ranking mundial.
+///
+/// Roda o ranking inteiro e devolve só a linha pedida: a posição só existe em
+/// relação aos outros, então não há atalho barato — o que este ponto de entrada
+/// evita é atravessar a ponte com as 200+ linhas do painel para exibir quatro
+/// números. `Ok(None)` quando o piloto não tem visibilidade no ranking (sem
+/// história competitiva e fora do grid regular), e a ficha simplesmente não
+/// desenha a marca.
+///
+/// Divide a memória de `ranking_do_banco` com o painel completo: abrir o painel
+/// e depois folhear fichas paga a montagem UMA vez, e cada ficha seguinte
+/// responde na hora enquanto ninguém escrever no banco.
+pub(crate) fn get_driver_world_rank_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+    driver_id: &str,
+) -> Result<Option<DriverWorldRank>, String> {
+    let db_path = caminho_do_banco(base_dir, career_id)?;
+    let payload = ranking_do_banco(&db_path, Some(driver_id))?;
+    let total = payload.rows.len() as i32;
+
+    Ok(payload
+        .rows
+        .into_iter()
+        .find(|row| row.id == driver_id)
+        .map(|row| DriverWorldRank {
+            indice: row.historical_index,
+            posicao: row.historical_rank,
+            total,
+            delta: row.historical_rank_delta,
+        }))
 }
 
 pub(super) fn build_global_driver_rankings(
@@ -30,6 +144,7 @@ pub(super) fn build_global_driver_rankings(
     let team_title_stats_by_driver = load_all_team_champion_title_stats(conn)?;
     let team_lookup = load_team_lookup(conn)?;
     let real_career = RealCareerIndex::load(conn)?;
+    let arquivo = Arquivo::carregar_tudo(conn)?;
     let mut entries = Vec::new();
     let mut seen_driver_ids = HashSet::new();
     let mut retired_by_id: HashMap<String, RetiredDriverSnapshot> =
@@ -46,8 +161,12 @@ pub(super) fn build_global_driver_rankings(
                 // (em vez do agregado de carreira × multiplicador da categoria final, que
                 // inflava a carreira toda no peso da endurance). Vazio sem archive → o
                 // construtor cai no que ele correu de verdade.
-                let archive_stats =
-                    load_archive_category_stats(conn, &driver.id, &team_title_stats_by_driver)?;
+                let archive_stats = load_archive_category_stats(
+                    conn,
+                    &driver.id,
+                    &team_title_stats_by_driver,
+                    &arquivo,
+                )?;
                 entries.push(build_retired_driver_entry_from_driver(
                     retired,
                     &driver,
@@ -66,6 +185,7 @@ pub(super) fn build_global_driver_rankings(
             &team_title_stats_by_driver,
             &team_lookup,
             &real_career,
+            &arquivo,
         )?);
     }
 
@@ -76,7 +196,7 @@ pub(super) fn build_global_driver_rankings(
         // Aposentado sem registro na tabela `drivers` (purgado): histórico por
         // categoria do archive; se não houver, cai no que ele correu de verdade.
         let archive_stats =
-            load_archive_category_stats(conn, &retired.id, &team_title_stats_by_driver)?;
+            load_archive_category_stats(conn, &retired.id, &team_title_stats_by_driver, &arquivo)?;
         entries.push(build_retired_driver_entry(
             retired,
             current_year,

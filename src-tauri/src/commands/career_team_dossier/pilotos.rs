@@ -57,6 +57,7 @@ pub(super) fn load_team_lineup(
     let ocupacao = load_slot_occupancy(conn, team_id)?;
     let mut terms = build_terms(&ocupacao);
     let resultados = load_driver_results(conn, team_id)?;
+    let titulos = load_driver_titles(conn, team_id)?;
 
     // Quem correu pela equipe e nunca apareceu como titular de uma temporada
     // arquivada. Sem isto, um save novo (nada arquivado ainda) mostraria a
@@ -98,6 +99,7 @@ pub(super) fn load_team_lineup(
             // equipe: quem voltou depois de dois anos fora tem duas passagens, e
             // repetir o total nas duas contaria a mesma corrida duas vezes.
             let (races, wins, podiums, best) = tally(&resultados, &term);
+            let titles = count_titles(&titulos, &term);
             let perfil = perfis.get(&term.driver_id);
             TeamHistoryLineupTerm {
                 slot: term.slot,
@@ -111,6 +113,7 @@ pub(super) fn load_team_lineup(
                 races,
                 wins,
                 podiums,
+                titles,
                 best_position: best,
                 is_player: perfil.map(|p| p.is_player).unwrap_or(false),
                 // "Ainda na equipe" e do MANDATO, e nao do piloto: quem trocou
@@ -260,6 +263,20 @@ fn build_terms(ocupacao: &BTreeMap<(i32, i32), String>) -> Vec<Term> {
     terms
 }
 
+/// Titulos de PILOTOS que o piloto ganhou vestindo a equipe, dentro do mandato.
+///
+/// O titulo de construtores da equipe e outro campeonato, e no mesmo ano os dois
+/// podem ter ido para lados diferentes — quem pilotava e o que esta em questao
+/// aqui, entao a fonte e `standings`, e nao o arquivo da equipe.
+fn count_titles(titulos: &[(String, i32)], term: &Term) -> i32 {
+    titulos
+        .iter()
+        .filter(|(driver_id, year)| {
+            driver_id == &term.driver_id && *year >= term.first_year && *year <= term.last_year
+        })
+        .count() as i32
+}
+
 /// Corridas, vitorias, podios e melhor colocacao do piloto dentro do mandato.
 fn tally(resultados: &[(String, i32, i32)], term: &Term) -> (i32, i32, i32, i32) {
     let mut races = 0;
@@ -284,6 +301,37 @@ fn tally(resultados: &[(String, i32, i32)], term: &Term) -> (i32, i32, i32, i32)
         }
     }
     (races, wins, podiums, best)
+}
+
+/// Um registro por titulo de pilotos ganho vestindo esta equipe: `(piloto, ano)`.
+///
+/// Categoria multiclasse tem um campeao por CLASSE, e a tabela pode guardar a
+/// linha do geral e a da classe no mesmo ano — o `GROUP BY` por temporada e
+/// categoria e o que impede um titulo so de virar dois. Duas categorias no mesmo
+/// ano (bloco especial) continuam contando dois, que e o que sao.
+fn load_driver_titles(
+    conn: &rusqlite::Connection,
+    team_id: &str,
+) -> Result<Vec<(String, i32)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT st.piloto_id, s.ano
+             FROM standings st
+             JOIN seasons s ON s.id = st.temporada_id
+             WHERE st.equipe_id = ?1 AND st.posicao = 1
+             GROUP BY st.piloto_id, st.temporada_id, st.categoria",
+        )
+        .map_err(|e| format!("Falha ao preparar títulos dos pilotos da equipe: {e}"))?;
+    let rows = stmt
+        .query_map(rusqlite::params![team_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| format!("Falha ao consultar títulos dos pilotos da equipe: {e}"))?;
+    let mut titulos = Vec::new();
+    for row in rows {
+        titulos.push(row.map_err(|e| format!("Falha ao ler títulos dos pilotos da equipe: {e}"))?);
+    }
+    Ok(titulos)
 }
 
 /// Um registro por resultado do piloto vestindo esta equipe.

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "../i18n/index.js";
 import useCareerStore from "../stores/useCareerStore";
 import { useUpdater } from "../components/system/UpdaterProvider";
+import Tooltip from "../components/ui/Tooltip";
 import { hover, resume as resumeAudio, startAmbient, stopAmbient, whoosh } from "../utils/sfx";
 import menuFlag from "../assets/utilities/menu/flag.webp";
 
@@ -760,38 +761,40 @@ function MainMenu({ intro = false }) {
         className="mm-version"
         style={{ display: "flex", alignItems: "center", gap: 8 }}
       >
-        <button
-          type="button"
-          onClick={handleVersionClick}
-          title={t("updater.betaHint")}
-          className="pointer-events-auto cursor-pointer border-0 bg-transparent p-0 uppercase tracking-[0.22em] text-inherit"
-          style={{ font: "inherit", color: "inherit", letterSpacing: "inherit" }}
-        >
-          v{__APP_VERSION__.replace(/\.0$/, "")} • build {__APP_BUILD__}
-        </button>
-        <button
-          type="button"
-          onClick={checkStable}
-          disabled={checking}
-          aria-label={t("updater.check")}
-          title={t("updater.check")}
-          className="pointer-events-auto flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-inherit opacity-70 transition-opacity hover:opacity-100 disabled:opacity-40"
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={checking ? "animate-spin" : undefined}
+        <Tooltip texto={t("updater.betaHint")}>
+          <button
+            type="button"
+            onClick={handleVersionClick}
+            className="pointer-events-auto cursor-pointer border-0 bg-transparent p-0 uppercase tracking-[0.22em] text-inherit"
+            style={{ font: "inherit", color: "inherit", letterSpacing: "inherit" }}
           >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
-          </svg>
-        </button>
+            v{__APP_VERSION__.replace(/\.0$/, "")} • build {__APP_BUILD__}
+          </button>
+        </Tooltip>
+        <Tooltip texto={t("updater.check")}>
+          <button
+            type="button"
+            onClick={checkStable}
+            disabled={checking}
+            aria-label={t("updater.check")}
+            className="pointer-events-auto flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-inherit opacity-70 transition-opacity hover:opacity-100 disabled:opacity-40"
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={checking ? "animate-spin" : undefined}
+            >
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+          </button>
+        </Tooltip>
       </div>
 
       {intro && !introDone ? (

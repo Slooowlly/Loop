@@ -47,13 +47,13 @@ fn event(a: &str, b: &str, tipo: RivalryType, h: f64, r: f64) -> RivalryEvent {
 #[test]
 fn cria_rivalidade_nova() {
     let conn = setup_db();
-    // h=10, r=20 → perceived = 0.4*10 + 0.6*20 = 16.0
+    // h=10, r=20 → perceived = 0.6*10 + 0.4*20 = 14.0
     let applied = apply_rivalry_event(
         &conn,
         &event("P020", "P003", RivalryType::Colisao, 10.0, 20.0),
     )
     .unwrap();
-    assert!((applied.new_perceived - 16.0).abs() < 1e-9);
+    assert!((applied.new_perceived - 14.0).abs() < 1e-9);
     assert!(applied.old_perceived.abs() < 1e-9);
 
     let summaries = get_pilot_rivalries(&conn, "P003").unwrap();
@@ -71,13 +71,13 @@ fn reforco_acumula_nos_dois_eixos() {
     )
     .unwrap();
     // 2ª aplicação: h=10, r=20 → acumulado h=20, r=40
-    // perceived = 0.4*20 + 0.6*40 = 8 + 24 = 32
+    // perceived = 0.6*20 + 0.4*40 = 12 + 16 = 28
     let applied = apply_rivalry_event(
         &conn,
         &event("P001", "P002", RivalryType::Campeonato, 10.0, 20.0),
     )
     .unwrap();
-    assert!((applied.new_perceived - 32.0).abs() < 1e-9);
+    assert!((applied.new_perceived - 28.0).abs() < 1e-9);
 }
 
 #[test]
@@ -180,8 +180,8 @@ fn hierarchy_rivalry_crise_cria_evento() {
 
     let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
     assert_eq!(summaries.len(), 1);
-    // h=5, r=14 → perceived = 0.4*5 + 0.6*14 = 2 + 8.4 = 10.4
-    assert!((summaries[0].perceived_intensity - 10.4).abs() < 1e-9);
+    // h=5, r=14 → perceived = 0.6*5 + 0.4*14 = 3 + 5.6 = 8.6
+    assert!((summaries[0].perceived_intensity - 8.6).abs() < 1e-9);
 }
 
 #[test]
@@ -202,8 +202,8 @@ fn hierarchy_rivalry_inversao_maior_delta() {
     .unwrap();
 
     let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
-    // h=8, r=18 → perceived = 0.4*8 + 0.6*18 = 3.2 + 10.8 = 14.0
-    assert!((summaries[0].perceived_intensity - 14.0).abs() < 1e-9);
+    // h=8, r=18 → perceived = 0.6*8 + 0.4*18 = 4.8 + 7.2 = 12.0
+    assert!((summaries[0].perceived_intensity - 12.0).abs() < 1e-9);
 }
 
 #[test]
@@ -225,6 +225,45 @@ fn hierarchy_rivalry_estado_estavel_nao_gera_evento() {
     assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
 }
 
+/// TENSÃO É A NOVA PORTA DE ENTRADA. O primeiro degrau custava Reavaliação
+/// (tensão 60), que nenhuma equipe do mundo alcançava — o gatilho existia e
+/// nunca disparava em 27 temporadas de save.
+#[test]
+fn hierarchy_rivalry_tensao_abre_a_porta() {
+    let conn = setup_db();
+    process_hierarchy_rivalry(
+        &conn,
+        "P001",
+        "P002",
+        "competitivo",
+        "tensao",
+        false,
+        "gt3",
+        "T001",
+        5,
+        1,
+    )
+    .unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    // h=2, r=7 → perceived = 0.6*2 + 0.4*7 = 1.2 + 2.8 = 4.0. É o degrau mais
+    // barato de propósito: abre a rivalidade sem já declará-la grave.
+    assert!((summaries[0].perceived_intensity - 4.0).abs() < 1e-9);
+}
+
+/// Descer de Crise para Tensão é a equipe ESFRIANDO. Cobrar o evento na descida
+/// faria a rivalidade renascer justo do clima que melhorou.
+#[test]
+fn hierarchy_rivalry_tensao_so_conta_subindo() {
+    let conn = setup_db();
+    process_hierarchy_rivalry(
+        &conn, "P001", "P002", "crise", "tensao", false, "gt3", "T001", 5, 1,
+    )
+    .unwrap();
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
 #[test]
 fn hierarchy_rivalry_crise_persistente_nao_spam() {
     let conn = setup_db();
@@ -233,6 +272,638 @@ fn hierarchy_rivalry_crise_persistente_nao_spam() {
     )
     .unwrap();
     assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+// ── Fim de temporada: companheiros pelo placar do ano ─────────────────────
+
+/// Cria uma equipe já com o placar do duelo interno da temporada fechado.
+fn equipe_com_placar(
+    conn: &Connection,
+    id: &str,
+    n1: &str,
+    n2: &str,
+    duelos: i32,
+    n2_vencidos: i32,
+) {
+    use crate::constants::teams::get_team_templates;
+    use crate::db::queries::teams::insert_team;
+    use crate::models::team::Team;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    let template = get_team_templates("gt3")[0];
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut team = Team::from_template_with_rng(template, "gt3", id.to_string(), 2024, &mut rng);
+    team.ativa = true;
+    team.hierarquia_n1_id = Some(n1.to_string());
+    team.hierarquia_n2_id = Some(n2.to_string());
+    team.hierarquia_duelos_total = duelos;
+    team.hierarquia_duelos_n2_vencidos = n2_vencidos;
+    insert_team(conn, &team).unwrap();
+}
+
+/// O caminho que de fato produz treta de dupla. O eixo de tensão exige que o N2
+/// leve 40% dos duelos só para parar de cair, e num mundo medido ele leva 22,7% —
+/// o acumulador mora no piso. Aqui o critério é o placar, não o acumulador.
+#[test]
+fn companheiros_placar_equilibrado_cria_rivalidade() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 20, 9); // 45%
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].tipo, RivalryType::Companheiros);
+    // h=4, r=12 → perceived = 0.6*4 + 0.4*12 = 2.4 + 4.8 = 7.2
+    assert!((summaries[0].perceived_intensity - 7.2).abs() < 1e-9);
+}
+
+/// N2 empatando ou virando o ano: a hierarquia da equipe virou ficção, e o evento
+/// pesa mais do que o de uma temporada só incômoda.
+#[test]
+fn companheiros_n2_virando_o_ano_pesa_mais() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 20, 12); // 60%
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    // h=6, r=16 → perceived = 0.6*6 + 0.4*16 = 3.6 + 6.4 = 10.0
+    assert!((summaries[0].perceived_intensity - 10.0).abs() < 1e-9);
+}
+
+/// O caso normal do mundo: o N2 é o segundo piloto e se comporta como tal.
+/// Uma temporada assim não é rivalidade — é hierarquia funcionando.
+#[test]
+fn companheiros_n2_apagado_nao_cria_nada() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 20, 4); // 20%
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Amostra curta não é placar. Dupla que só correu junta 6 vezes (lesão, estreia
+/// no meio do ano, inversão que zerou os contadores) não vira rivalidade por sorte.
+#[test]
+fn companheiros_amostra_curta_nao_conta() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 6, 4); // 67%, mas em 6 duelos
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Categoria especial tem hierarquia efêmera (bloco de convocação) e reset próprio —
+/// o placar dela não é uma temporada de convivência.
+#[test]
+fn companheiros_categoria_especial_fica_de_fora() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 20, 12);
+    conn.execute(
+        "UPDATE teams SET categoria = 'endurance' WHERE id = 'T001'",
+        [],
+    )
+    .unwrap();
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// A manchete é de temporada, não de rodada — não existe "rodada 0".
+#[test]
+fn companheiros_noticia_nao_inventa_rodada() {
+    let conn = setup_db();
+    equipe_com_placar(&conn, "T001", "P001", "P002", 20, 12);
+    // perceived antes = 0.4*15 + 0.6*20 = 18; depois do evento (6/16) = 30 → cruza Inicial
+    apply_rivalry_event(
+        &conn,
+        &event("P001", "P002", RivalryType::Companheiros, 15.0, 20.0),
+    )
+    .unwrap();
+
+    process_teammate_season_rivalry(&conn, 1).unwrap();
+
+    let news = get_news_by_type(&conn, &NewsType::Rivalidade, 10).unwrap();
+    assert_eq!(news.len(), 1);
+    assert_eq!(news[0].team_id.as_deref(), Some("T001"));
+    // Locale-agnóstico de propósito: nenhuma das duas línguas pode citar rodada.
+    // (o `rodada: None` do item não sobrevive ao round-trip — a coluna é NOT NULL
+    // e volta como 0; quem prova o None é `noticia_de_temporada_nao_carrega_rodada`)
+    let texto = &news[0].texto;
+    assert!(
+        !texto.contains("rodada") && !texto.contains("round"),
+        "manchete de temporada nao pode citar rodada: {texto}"
+    );
+}
+
+/// O item montado não carrega rodada — é o que a timeline lê para não ancorar a
+/// manchete num fim de semana que não existiu.
+#[test]
+fn noticia_de_temporada_nao_carrega_rodada() {
+    let applied = RivalryApplied {
+        rivalry_id: "R001".to_string(),
+        old_perceived: 18.0,
+        new_perceived: 30.0,
+    };
+    let item = build_rivalry_news_item(
+        "N001".to_string(),
+        &applied,
+        &RivalryType::Companheiros,
+        "Ana",
+        "Bruno",
+        "gt3",
+        1,
+        0, // sem rodada
+        "P001",
+        "P002",
+        Some("T001"),
+        &std::collections::HashMap::new(),
+    )
+    .expect("cruzou threshold, deve gerar item");
+
+    assert!(item.rodada.is_none());
+    assert!(item.semana_pretemporada.is_none());
+}
+
+// ── Fim de temporada: pista pelo placar de adjacências ────────────────────
+
+/// Grava uma corrida da temporada 1 e as chegadas dos dois pilotos.
+/// `(posicao, dnf)` por piloto — é o par que o gatilho lê.
+fn corrida_com_chegadas(
+    conn: &Connection,
+    rodada: i32,
+    categoria: &str,
+    a: (&str, i32, bool),
+    b: (&str, i32, bool),
+) {
+    let race_id = format!("{categoria}_R{rodada}");
+    conn.execute(
+        "INSERT INTO calendar (id, temporada_id, season_id, rodada, pista, categoria)
+         VALUES (?1, 'S001', 'S001', ?2, 'Interlagos', ?3)",
+        rusqlite::params![race_id, rodada, categoria],
+    )
+    .unwrap();
+
+    for (piloto, posicao, dnf) in [a, b] {
+        conn.execute(
+            "INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_final, dnf)
+             VALUES (?1, ?2, 'T001', ?3, ?4)",
+            rusqlite::params![race_id, piloto, posicao, i32::from(dnf)],
+        )
+        .unwrap();
+    }
+}
+
+/// Cria a equipe que os resultados referenciam (FK de `race_results.equipe_id`).
+fn equipe_generica(conn: &Connection) {
+    equipe_com_placar(conn, "T001", "P001", "P002", 0, 0);
+}
+
+/// O gatilho `Pista` só era aplicado na importação de corrida real do iRacing —
+/// em mundo simulado nunca existiu. Aqui ele nasce do placar de chegadas coladas.
+#[test]
+fn pista_temporada_colada_cria_rivalidade() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=6 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, false));
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].tipo, RivalryType::Pista);
+    // h=3, r=9 → perceived = 0.6*3 + 0.4*9 = 1.8 + 3.6 = 5.4
+    assert!((summaries[0].perceived_intensity - 5.4).abs() < 1e-9);
+}
+
+/// Oito ou mais é a briga da temporada, e pesa mais.
+#[test]
+fn pista_ano_inteiro_colado_pesa_mais() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=8 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, false));
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    // h=5, r=13 → perceived = 0.6*5 + 0.4*13 = 3.0 + 5.2 = 8.2
+    assert!((summaries[0].perceived_intensity - 8.2).abs() < 1e-9);
+}
+
+/// Cinco adjacências é o pelotão andando junto, não uma disputa. O corte foi
+/// medido: ≥5 daria ~17 pares por temporada no mundo inteiro, ≥6 dá ~3.8.
+#[test]
+fn pista_abaixo_do_corte_nao_cria_nada() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=5 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, false));
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// PROXIMIDADE NÃO É ADJACÊNCIA. Duas posições de distância pega o pelotão inteiro
+/// — numa faixa de cinco carros do meio do grid todos estão perto de todos.
+#[test]
+fn pista_duas_posicoes_de_distancia_nao_conta() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=10 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 7, false));
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Abandono não é duelo — quem parou na volta 3 não estava disputando nada.
+#[test]
+fn pista_abandono_nao_conta_como_duelo() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=4 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, false));
+    }
+    for rodada in 5..=8 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, true));
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    // 4 adjacências válidas + 4 abandonos = abaixo do corte de 6
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Um piloto de lmp2 tem linha no calendário regular dele e no da Endurance.
+/// Somar os dois contaria o mesmo domingo duas vezes.
+#[test]
+fn pista_nao_soma_o_mesmo_par_em_duas_categorias() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=4 {
+        corrida_com_chegadas(
+            &conn,
+            rodada,
+            "lmp2",
+            ("P001", 5, false),
+            ("P002", 6, false),
+        );
+    }
+    for rodada in 1..=4 {
+        corrida_com_chegadas(
+            &conn,
+            rodada + 100,
+            "endurance",
+            ("P001", 5, false),
+            ("P002", 6, false),
+        );
+    }
+
+    process_track_season_rivalry(&conn, 1).unwrap();
+
+    // 4 + 4 seria 8 e passaria; cada categoria isolada tem 4 e não passa.
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Só a temporada que acabou. O placar do ano passado já virou rivalidade
+/// (ou já foi decaído) e não pode ser recontado.
+#[test]
+fn pista_ignora_temporadas_anteriores() {
+    let conn = setup_db();
+    equipe_generica(&conn);
+    for rodada in 1..=8 {
+        corrida_com_chegadas(&conn, rodada, "gt3", ("P001", 5, false), ("P002", 6, false));
+    }
+
+    process_track_season_rivalry(&conn, 2).unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+// ── Passo 15: Colisão ─────────────────────────────────────────────────────
+
+fn colisao(
+    a: &str,
+    b: &str,
+    severity: crate::simulation::incidents::IncidentSeverity,
+    positions_lost: i32,
+    is_dnf: bool,
+) -> crate::simulation::incidents::IncidentResult {
+    use crate::simulation::incidents::{IncidentResult, IncidentType};
+    IncidentResult {
+        pilot_id: a.to_string(),
+        incident_type: IncidentType::Collision,
+        severity,
+        segment: String::new(),
+        positions_lost,
+        is_dnf,
+        description: String::new(),
+        linked_pilot_id: Some(b.to_string()),
+        is_two_car_incident: true,
+        injury_risk_multiplier: 1.0,
+        narrative_importance_hint: 0,
+        catalog_id: None,
+        damage_origin_segment: None,
+    }
+}
+
+/// Chegada mínima só com o que o gatilho de colisão lê: quem é e de onde largou.
+fn chegada(pilot_id: &str, grid_position: i32) -> crate::simulation::race::RaceDriverResult {
+    crate::simulation::race::RaceDriverResult {
+        pilot_id: pilot_id.to_string(),
+        pilot_name: pilot_id.to_string(),
+        team_id: "T001".to_string(),
+        team_name: "Team".to_string(),
+        grid_position,
+        finish_position: grid_position,
+        positions_gained: 0,
+        best_lap_time_ms: 0.0,
+        total_race_time_ms: 0.0,
+        gap_to_winner_ms: 0.0,
+        is_dnf: false,
+        dnf_reason: None,
+        dnf_segment: None,
+        incidents_count: 0,
+        incidents: Vec::new(),
+        has_fastest_lap: false,
+        points_earned: 0,
+        is_jogador: false,
+        laps_completed: 0,
+        final_tire_wear: 1.0,
+        final_physical: 1.0,
+        classification_status: crate::simulation::race::ClassificationStatus::Finished,
+        notable_incident: None,
+        dnf_catalog_id: None,
+        damage_origin_segment: None,
+        posicoes_por_segmento: Vec::new(),
+        gaps_para_da_frente_ms: Vec::new(),
+        segmentos_em_ar_sujo: 0,
+        tentativas_ultrapassagem: 0,
+        ultrapassagens_concluidas: 0,
+        tentativas_sofridas: 0,
+        maior_sequencia_preso: 0,
+        volta_da_parada: Vec::new(),
+        posicao_antes_da_parada: Vec::new(),
+        posicao_depois: Vec::new(),
+        estrategia_id: String::new(),
+    }
+}
+
+/// Meio de pelotão, meio de temporada: nada em jogo, peso 1.0.
+fn grid_sem_nada_em_jogo() -> Vec<crate::simulation::race::RaceDriverResult> {
+    vec![chegada("P001", 12), chegada("P002", 13)]
+}
+
+// ── Peso do contexto (ideia 1: nem todo evento vale o mesmo) ──────────────
+
+#[test]
+fn peso_do_contexto_meio_de_pelotao_no_meio_do_ano_nao_pesa() {
+    assert!((peso_do_contexto(12, 5, 20, false) - 1.0).abs() < 1e-9);
+}
+
+/// O LÍDER TOCANDO NUM RETARDATÁRIO NÃO É BATIDA PELA LIDERANÇA. Enquanto o peso
+/// olhava a MELHOR das duas largadas, bastava um dos dois ter largado na frente —
+/// e as rivalidades de colisão saltaram de 12 para 95 no mundo medido.
+#[test]
+fn colisao_do_lider_com_retardatario_nao_pesa_como_briga_da_frente() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 1, false)],
+        &[chegada("P001", 1), chegada("P002", 18)],
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+#[test]
+fn peso_do_contexto_ponta_pesa_mais_que_zona_de_pontos() {
+    let ponta = peso_do_contexto(2, 5, 20, false);
+    let pontos = peso_do_contexto(7, 5, 20, false);
+    assert!((ponta - 1.8).abs() < 1e-9);
+    assert!((pontos - 1.3).abs() < 1e-9);
+    assert!(ponta > pontos);
+}
+
+#[test]
+fn peso_do_contexto_ultimas_rodadas_pesam() {
+    // rodada 18 de 20 já está na janela (> total - 3).
+    assert!((peso_do_contexto(12, 18, 20, false) - 1.4).abs() < 1e-9);
+    assert!((peso_do_contexto(12, 17, 20, false) - 1.0).abs() < 1e-9);
+}
+
+/// O TETO EXISTE PARA UM EVENTO NÃO VIRAR A RIVALIDADE INTEIRA. Sem ele os
+/// fatores se compõem sem limite.
+#[test]
+fn peso_do_contexto_nao_passa_do_teto() {
+    let maximo = peso_do_contexto(1, 20, 20, true);
+    assert!((maximo - 4.0).abs() < 1e-9, "foi {maximo}");
+}
+
+/// O momento decisivo que o sistema não tinha: batida crítica entre dois
+/// candidatos ao título, largando na frente, na última rodada. Antes valia
+/// percebida 12 como qualquer outra; agora nasce Nemesis (>= 40).
+#[test]
+fn colisao_decisiva_nasce_como_nemesis() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+    for (id, pontos) in [("P001", 200.0), ("P002", 198.0)] {
+        conn.execute(
+            "UPDATE drivers SET categoria_atual = 'gt3', temp_pontos = ?2 WHERE id = ?1",
+            rusqlite::params![id, pontos],
+        )
+        .unwrap();
+    }
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Critical, 0, true)],
+        &[chegada("P001", 1), chegada("P002", 2)],
+        "gt3",
+        20,
+        20,
+        1,
+    )
+    .unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    // (7,18) × 4.0 = (28,72) → perceived = 0.6*28 + 0.4*72 = 16.8 + 28.8 = 45.6
+    let perceived = summaries[0].perceived_intensity;
+    assert!((perceived - 45.6).abs() < 1e-9, "foi {perceived}");
+    assert_eq!(
+        crate::rivalry::intensity_level(perceived),
+        RivalryIntensityLevel::Clara
+    );
+}
+
+/// ESTAR NA ZONA DE PONTOS NÃO É "ALGO EM JOGO". Com o portão em `peso > 1.0` a
+/// limpeza da colisão era desfeita: o ×1.3 do top-8 sozinho liberava quase todo
+/// encostão, e as rivalidades de colisão voltaram de 12 para 96 no mundo medido.
+#[test]
+fn colisao_leve_no_top8_sem_mais_nada_continua_barrada() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 1, false)],
+        &[chegada("P001", 5), chegada("P002", 6)], // top-8 → peso 1.3
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// Um toque de leve entre os dois candidatos ao título na decisão não é roçada
+/// de roda — é o toque do ano, e abre ficha mesmo sem história prévia.
+#[test]
+fn colisao_leve_com_titulo_em_jogo_abre_ficha() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+    for (id, pontos) in [("P001", 200.0), ("P002", 198.0)] {
+        conn.execute(
+            "UPDATE drivers SET categoria_atual = 'gt3', temp_pontos = ?2 WHERE id = ?1",
+            rusqlite::params![id, pontos],
+        )
+        .unwrap();
+    }
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 1, false)],
+        &[chegada("P001", 1), chegada("P002", 2)],
+        "gt3",
+        20,
+        20,
+        1,
+    )
+    .unwrap();
+
+    assert_eq!(get_pilot_rivalries(&conn, "P001").unwrap().len(), 1);
+}
+
+/// UM TOQUE LEVE NÃO ABRE FICHA. Era a maior fonte de ruído do sistema: 43 das 83
+/// rivalidades de um mundo medido vinham de colisão, quase todas de um encostão
+/// isolado que vale percebida ~5 e nunca cresce nem some.
+#[test]
+fn colisao_leve_sozinha_nao_cria_rivalidade() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 1, false)],
+        &grid_sem_nada_em_jogo(),
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    assert!(get_pilot_rivalries(&conn, "P001").unwrap().is_empty());
+}
+
+/// O primeiro encostão é corrida; o encostão entre dois que já têm história é
+/// capítulo. Sobre rivalidade existente a faixa leve conta normalmente.
+#[test]
+fn colisao_leve_reforca_rivalidade_existente() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+    apply_rivalry_event(
+        &conn,
+        &event("P001", "P002", RivalryType::Campeonato, 10.0, 10.0),
+    )
+    .unwrap();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 1, false)],
+        &grid_sem_nada_em_jogo(),
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    // (10,10) + leve (2,8) = (12,18) → perceived = 0.6*12 + 0.4*18 = 7.2 + 7.2 = 14.4
+    assert!((summaries[0].perceived_intensity - 14.4).abs() < 1e-9);
+    // O tipo original é preservado — o encostão não reescreve a origem.
+    assert_eq!(summaries[0].tipo, RivalryType::Campeonato);
+}
+
+/// Incidente de verdade continua abrindo ficha do zero: abandono, toque grave ou
+/// perda de 3+ posições não são roçada de roda.
+#[test]
+fn colisao_grave_ainda_cria_do_zero() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 4, false)],
+        &grid_sem_nada_em_jogo(),
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    assert_eq!(summaries.len(), 1);
+    // h=3, r=10 → perceived = 0.6*3 + 0.4*10 = 1.8 + 4.0 = 5.8
+    assert!((summaries[0].perceived_intensity - 5.8).abs() < 1e-9);
+}
+
+/// Abandono por colisão cria do zero mesmo com severidade baixa — o que decide é
+/// a consequência, não o rótulo do toque.
+#[test]
+fn colisao_com_abandono_cria_do_zero() {
+    use crate::simulation::incidents::IncidentSeverity;
+    let conn = setup_db();
+
+    process_collisions_rivalry(
+        &conn,
+        &[colisao("P001", "P002", IncidentSeverity::Minor, 0, true)],
+        &grid_sem_nada_em_jogo(),
+        "gt3",
+        5,
+        20,
+        1,
+    )
+    .unwrap();
+
+    let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
+    // h=5, r=14 → perceived = 0.6*5 + 0.4*14 = 3.0 + 5.6 = 8.6
+    assert!((summaries[0].perceived_intensity - 8.6).abs() < 1e-9);
 }
 
 // ── Passo 7: Campeonato ───────────────────────────────────────────────────
@@ -255,8 +926,23 @@ fn championship_rivalry_ultimas_rodadas_gap_pequeno() {
 
     let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
     assert_eq!(summaries.len(), 1);
-    // h=4, r=10 → perceived = 0.4*4 + 0.6*10 = 1.6 + 6.0 = 7.6
-    assert!((summaries[0].perceived_intensity - 7.6).abs() < 1e-9);
+    // Peso da disputa: gap 5 (≤5 → ×1.6) e o par envolve o líder (×1.3) = 2.08;
+    // rodada 8 de 10 ainda não é a decisão, então não leva o ×1.5.
+    // (4,10) × 2.08 = (8.32, 20.8) → perceived = 0.6*8.32 + 0.4*20.8 = 13.312
+    let perceived = summaries[0].perceived_intensity;
+    assert!((perceived - 13.312).abs() < 1e-9, "foi {perceived}");
+}
+
+/// A MESMA JANELA DE RODADAS ESCONDIA DISPUTAS MUITO DIFERENTES: 18 pontos de
+/// vantagem na antepenúltima e empate técnico na última valiam igual.
+#[test]
+fn peso_da_disputa_separa_briga_de_tabela() {
+    // Empate técnico pelo título na última rodada: teto.
+    assert!((peso_da_disputa(2.0, true, 10, 10) - 2.5).abs() < 1e-9);
+    // Folga de 18 pontos entre 2º e 3º no meio da janela: nada.
+    assert!((peso_da_disputa(18.0, false, 8, 10) - 1.0).abs() < 1e-9);
+    // Aperto sem ser pela liderança pesa, mas menos.
+    assert!((peso_da_disputa(3.0, false, 8, 10) - 1.6).abs() < 1e-9);
 }
 
 #[test]

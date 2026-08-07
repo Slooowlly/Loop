@@ -5,7 +5,7 @@ import FlagIcon from "../../ui/FlagIcon";
 import { BOND_LEVEL_COLORS } from "../preSeasonFormatters.js";
 
 // Contrato — documento A4 de assinatura.
-export default function ContractModal({ offer, playerName, isSigning, isAdvancingWeek, onClose, onSign }) {
+export default function ContractModal({ offer, playerName, isSigning, isAdvancingWeek, signError, onClose, onSign }) {
   const { t } = useTranslation();
   const accent = offer.team_color || "#58a6ff";
   const countryLabel = extractNationalityLabel(offer.team_country) || offer.team_country || "";
@@ -214,6 +214,17 @@ export default function ContractModal({ offer, playerName, isSigning, isAdvancin
         </div>
 
         {/* ── Rodapé de ações ── */}
+        {/* A recusa do backend fica NA folha: é o único lugar onde o jogador está olhando
+            no instante em que acha que assinou. */}
+        {signError && (
+          <div
+            data-testid="contract-sign-error"
+            className="shrink-0 border-t px-6 py-3 text-center text-body-sm font-semibold"
+            style={{ borderColor: hair, color: "var(--status-red)", background: "rgba(248,81,73,0.08)" }}
+          >
+            {signError}
+          </div>
+        )}
         <div className="flex shrink-0 gap-3 border-t border-white/10 bg-black/30 px-6 py-4">
           <button
             type="button"

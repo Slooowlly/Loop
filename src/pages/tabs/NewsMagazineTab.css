@@ -33,6 +33,17 @@
 .newsmag .spread{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;column-gap:62px;align-items:start;transition:opacity .2s ease}
 .newsmag .mag.flipping .spread{opacity:0}
 
+/* ── Abertura da aba ──
+   O spread só é escolhido depois que o calendário volta (ver NewsMagazineTab.jsx).
+   Até lá a revista fica em branco COM a altura de um spread reservada — sem isso
+   ela aparecia curta e crescia alguns frames depois, o "pisca" de minimizada.
+   O piso segue valendo com o spread montado, para o crescimento ser só de baixo.
+   Sem `fill-mode` no fade: com ele a opacidade final ficaria travada e o
+   `.flipping` (troca de edição) não conseguiria mais apagar a página. */
+.newsmag .mag:not(.mag--cover){min-height:clamp(520px,72vh,820px)}
+.newsmag .spread{animation:nm-abre-pagina .26s ease-out}
+@keyframes nm-abre-pagina{from{opacity:0}to{opacity:1}}
+
 /* ── Capa fechada: temporada sem corridas → livro fechado + logo da categoria ── */
 .newsmag .mag--cover{
   padding:20px 40px;
@@ -59,9 +70,16 @@
   background-size:15px 15px;outline:1px solid rgba(255,255,255,0.25);margin-bottom:14px}
 
 .newsmag .kicker{font-family:'OswaldNM';font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--nm-accent2)}
-.newsmag .display{font-family:'Anton';font-weight:400;text-transform:uppercase;line-height:.86;transform:skewX(-6deg);transform-origin:left;margin:6px 0 4px}
-.newsmag .display .l1{display:block;font-size:60px;color:#fff;letter-spacing:.5px}
-.newsmag .display .l2{display:block;font-size:27px;color:var(--nm-accent);letter-spacing:.5px;margin-top:6px}
+.newsmag .display{font-family:'Anton';font-weight:400;text-transform:uppercase;transform:skewX(-6deg);transform-origin:left;margin:6px 0 4px}
+/* Entrelinha por linha, não no bloco: a manchete pode fechar (uma palavra por linha),
+   mas o OLHO é prosa — em .86 as linhas se sobrepõem assim que ele passa de uma. */
+.newsmag .display .l1{display:block;font-size:60px;line-height:.92;color:#fff;letter-spacing:.5px;overflow-wrap:break-word}
+.newsmag .display .l2{display:block;font-size:26px;line-height:1.18;color:var(--nm-accent);letter-spacing:.5px;margin-top:12px}
+/* Manchete/olho longos: o corpo cai pra caber sem virar um muro de tipo. */
+.newsmag .display--dense .l1{font-size:46px}
+.newsmag .display--dense .l2{font-size:22px;margin-top:10px}
+.newsmag .display--xdense .l1{font-size:38px}
+.newsmag .display--xdense .l2{font-size:19px;margin-top:9px}
 .newsmag .ai-tag{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-family:'OswaldNM';font-weight:600;
   font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-accent);
   background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.30);border-radius:6px;padding:5px 10px}
@@ -77,6 +95,8 @@
 .newsmag .lead-para b{color:#fff}
 
 .newsmag .prose-cols{columns:2;column-gap:24px;margin-top:14px}
+/* Continuação da matéria na página direita, quando o texto é longo demais para a esquerda. */
+.newsmag .prose-cont{margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
 .newsmag .r-grid{display:grid;grid-template-columns:1fr 0.92fr;gap:22px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)}
 .newsmag .r-grid-single{grid-template-columns:1fr}
 .newsmag .subhead{font-family:'OswaldNM';font-weight:700;font-size:14px;letter-spacing:.04em;color:var(--nm-accent2);
@@ -93,6 +113,10 @@
 .newsmag .nm-toggle-btn.active{background:var(--nm-accent);color:#0a0e14}
 .newsmag .nm-toggle-btn:not(.active):hover{color:var(--nm-text2)}
 .newsmag .page p{font-size:13px;line-height:1.7;color:#c1cad4;margin-bottom:11px;break-inside:avoid}
+/* No corpo da matéria o parágrafo PODE partir entre as colunas — senão a quebra só
+   cai entre parágrafos e uma matéria de 3 blocos desiguais fica 1 | 2, com a coluna
+   da esquerda pela metade. Órfãs/viúvas seguram o mínimo de 2 linhas de cada lado. */
+.newsmag .prose-cols p{break-inside:auto;orphans:2;widows:2}
 .newsmag .prose-cols .pull{break-inside:avoid}
 .newsmag .pull{font-family:'OswaldNM';font-weight:600;font-size:17px;line-height:1.3;color:#eef3f8;
   border-left:3px solid var(--nm-accent);padding:4px 0 4px 14px;margin:10px 0}
@@ -192,6 +216,8 @@
   .newsmag .r-grid{grid-template-columns:1fr}
   .newsmag .res-list--split{columns:1}
   .newsmag .display .l1{font-size:48px}.newsmag .display .l2{font-size:22px}
+  .newsmag .display--dense .l1{font-size:40px}.newsmag .display--dense .l2{font-size:20px}
+  .newsmag .display--xdense .l1{font-size:34px}.newsmag .display--xdense .l2{font-size:18px}
   .newsmag .mb-split{grid-template-columns:1fr}
   .newsmag .mb-list{border-right:none;border-bottom:1px solid rgba(255,255,255,0.09);max-height:220px}
 }

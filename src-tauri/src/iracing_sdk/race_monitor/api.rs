@@ -56,10 +56,33 @@ pub fn peek_breakdown_log() -> Vec<BreakdownOutcome> {
     lock().breakdown_log.clone()
 }
 
+/// O número do carro do JOGADOR nesta sessão, se ele estiver identificado.
+///
+/// Existe para o rádio da grade poder EXCLUIR a linha dele do feed: a quebra do carro do jogador
+/// entra no mesmo `breakdown_log` que a dos outros (é ela que manda o `!black`/`!dq`), e falar
+/// dela ali sairia em 3ª pessoa — o jogador ouvindo falarem de si como de um estranho. O desfecho
+/// dele sai pelo canal de avisos, em 2ª pessoa.
+pub fn player_car_number() -> Option<u32> {
+    lock().player_car_number()
+}
+
 /// Espia (sem drenar) os AVISOS pessoais do jogador (peça entrou na zona de risco) — pro
 /// overlay do rádio mostrar num card DISTINTO. Leitura pura, acumulativa durante a corrida.
 pub fn peek_player_warnings() -> Vec<PlayerWarning> {
     lock().player_warning_log.clone()
+}
+
+/// Espia (sem drenar) o log do RÁDIO DE RITMO — a volta mais rápida da corrida e a
+/// aproximação dela. Leitura pura, acumulativa durante a corrida, como o log de quebras.
+pub fn peek_ritmo_log() -> Vec<FalaDeRitmo> {
+    lock().ritmo_log.clone()
+}
+
+/// Espia (sem drenar) o log do engenheiro na CLASSIFICAÇÃO — a despedida antes da volta lançada
+/// e o comentário da volta que morreu. Canal SEPARADO dos outros pelo mesmo motivo de sempre:
+/// os logs crescem em ritmos próprios e um id só embaralharia os cursores do overlay.
+pub fn peek_classificacao_log() -> Vec<crate::engenheiro::classificacao::Fala> {
+    lock().classificacao_log.clone()
 }
 
 /// `true` se algum comando de quebra falhou em chegar ao iRacing nesta corrida (janela não
@@ -118,6 +141,23 @@ pub fn poll() -> RaceStatus {
         attempts: m.attempts.clone(),
         events: m.events.clone(),
     }
+}
+
+/// O retrato da corrida NESTE instante, com as contas já fechadas — a fonte do
+/// engenheiro do push-to-talk e de qualquer fala que precise responder "e agora?".
+///
+/// Diferente do [`poll`], que é diagnóstico de batida, e do [`get_history`], que é a
+/// corrida inteira: aqui é só o presente, pequeno o bastante para caber num prompt.
+pub fn estado_agora() -> EstadoAgora {
+    start_sampler();
+    lock().montar_estado_agora()
+}
+
+/// A ordem da corrida agora: `(posição geral, número do carro)`. Ver
+/// [`Monitor::ordem_agora`](super::MonitorState::ordem_agora).
+pub fn ordem_agora() -> Vec<(i32, i32)> {
+    start_sampler();
+    lock().ordem_agora()
 }
 
 /// Lê o histórico volta a volta acumulado (race trace + ritmo) para o painel

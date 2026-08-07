@@ -107,6 +107,9 @@ fn demo_tour(real_names: &[String]) -> Vec<BreakdownMessage> {
                     severity: sev.to_string(),
                     text: format!("{name} {frase}"),
                     detail: demo_causa(part).to_string(),
+                    // O tour do demo é para POSICIONAR o overlay, não para ouvi-lo: as frases
+                    // ciclam a cada segundo e o áudio viraria uma sobreposição contínua.
+                    pecas: Vec::new(),
                 });
             }
         }
@@ -119,6 +122,7 @@ fn demo_tour(real_names: &[String]) -> Vec<BreakdownMessage> {
             severity: "dnf".to_string(),
             text: dnf_frase(&name, part_com_artigo("gearbox"), v),
             detail: String::new(),
+            pecas: Vec::new(),
         });
     }
     out

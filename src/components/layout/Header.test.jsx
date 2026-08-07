@@ -300,10 +300,47 @@ describe("Header", () => {
 
     render(<Header activeTab="standings" onTabChange={vi.fn()} />);
 
+    // Fim do campeonato: o primeiro clique é o desvio pelas Notícias.
+    fireEvent.click(screen.getByRole("button", { name: /ver o fechamento do ano/i }));
     fireEvent.click(screen.getByRole("button", { name: /avançar para pré-temporada/i }));
 
     expect(mockAdvanceSeason).toHaveBeenCalledTimes(1);
     expect(mockRunConvocationWindow).not.toHaveBeenCalled();
     expect(mockFinishSpecialBlock).not.toHaveBeenCalled();
+  });
+
+  it("gasta o primeiro clique de fim de temporada abrindo as Notícias do encerramento", () => {
+    mockState.nextRace = null;
+    mockState.season = { ...mockState.season, fase: "Encerramento" };
+    mockState.temporalSummary = {
+      current_display_date: "2026-11-21",
+      next_event_display_date: null,
+      days_until_next_event: null,
+      pending_in_phase: 0,
+    };
+    const onTabChange = vi.fn();
+
+    render(<Header activeTab="standings" onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /ver o fechamento do ano/i }));
+
+    expect(onTabChange).toHaveBeenCalledWith("news");
+    expect(mockAdvanceSeason).not.toHaveBeenCalled();
+
+    // Segundo clique: agora sim o mercado.
+    fireEvent.click(screen.getByRole("button", { name: /avançar para pré-temporada/i }));
+
+    expect(mockAdvanceSeason).toHaveBeenCalledTimes(1);
+  });
+
+  it("não desvia pelas Notícias quando ainda há corrida no calendário", () => {
+    const onTabChange = vi.fn();
+
+    render(<Header activeTab="calendar" onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /avançar calendário/i }));
+
+    expect(onTabChange).not.toHaveBeenCalledWith("news");
+    expect(mockStartCalendarAdvance).toHaveBeenCalledTimes(1);
   });
 });

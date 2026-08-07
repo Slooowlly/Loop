@@ -3,10 +3,17 @@
 
 use super::*;
 
+/// Abre a janela na FOTO: o grid como a temporada terminou, sem ninguém dispensado
+/// ainda. As pré-passes (o que esvazia assentos) caem ao sair da semana 1, em
+/// `advance_week` — ver `MARKET_SIGNINGS_START_WEEK`.
+///
+/// `_rng` sobrou da época em que as pré-passes rodavam aqui. Fica na assinatura porque
+/// a abertura é justamente onde um sorteio novo entraria, e trocá-la mexeria em ~18
+/// callsites por nada.
 pub fn initialize_preseason(
     conn: &Connection,
     season_number: i32,
-    rng: &mut impl Rng,
+    _rng: &mut impl Rng,
 ) -> Result<PreSeasonPlan, String> {
     let season_id = get_season_id_by_number(conn, season_number)?
         .ok_or_else(|| format!("Temporada {season_number} nao encontrada"))?;
@@ -14,10 +21,9 @@ pub fn initialize_preseason(
     repair_missing_licenses_for_current_categories(conn)?;
     assign_seasonal_team_attributes(conn, season_number, &season_id)?;
 
-    // Contratos ativos ANTES das pré-passes — p/ detectar as DISPENSAS (terminaram e
-    // não foram renovados) e narrá-las no feed da 1ª semana.
+    // Contratos ativos na FOTO (semana 1) — as pré-passes só caem ao sair dela.
     let contracts_before = contract_queries::get_all_active_regular_contracts(conn)
-        .map_err(|e| format!("Falha ao carregar contratos antes das pre-passes: {e}"))?;
+        .map_err(|e| format!("Falha ao carregar contratos da foto do grid: {e}"))?;
 
     // Snapshot das categorias ANTES das pré-passes (que limpam o categoria_atual dos
     // dispensados) — origem p/ inferir promovido/rebaixado nas assinaturas da escada.
@@ -44,23 +50,19 @@ pub fn initialize_preseason(
         })
         .collect();
 
-    // ── PRÉ-PASSES REAIS (sem rollback-replay): expira contratos que terminaram,
-    // renova (slam-aware) e rebaixa por mérito — aplicadas DE VERDADE no banco. ──
-    let prepass_report = crate::market::pipeline::run_market_prepasses(conn, season_number, rng)
-        .map_err(|e| format!("Falha ao aplicar pre-passes do mercado: {e}"))?;
+    // ── As PRÉ-PASSES não rodam aqui. ──────────────────────────────────────────────
+    // Elas expiram contratos, renovam (slam-aware), rebaixam por mérito e resolvem o
+    // assédio — ou seja, esvaziam assentos. Rodando na abertura, a semana 1 já nasceria
+    // com o grid furado e o jogador nunca veria a foto de como a temporada terminou. Por
+    // isso caem ao SAIR da semana 1 (`advance_week`), com o feed narrando a mudança.
+    //
+    // O mercado ao vivo é a escada paginada conduzida por advance_week: da
+    // `signings_start_week` em diante cada semana preenche vagas em todos os tiers e
+    // oferta ao jogador. A pré-temporada fecha quando não há mais o que preencher.
 
-    // Feed da 1ª semana: dispensas (×) + promoções/rebaixamentos por mérito (↑/↓), que
-    // acontecem nas pré-passes e antes ficavam invisíveis.
-    let mut pending_departures =
-        build_departure_events(conn, season_number, &contracts_before, &previous_team)?;
-    pending_departures.extend(merit_move_events(&prepass_report, &previous_team));
-
-    // O mercado ao vivo é a escada paginada conduzida por advance_week (sem motor de
-    // janela persistido): cada semana preenche vagas em todos os tiers e oferta vagas
-    // ao jogador. A pré-temporada fecha quando não há mais o que preencher.
-
-    // O jogador já tem time se saiu da pré-passe com contrato regular ativo
-    // (renovou / contrato plurianual); senão é agente livre dentro da janela.
+    // Na foto o jogador tem time se tem contrato regular ativo — inclusive um que vence
+    // nesta virada (ainda não expirou). Ele só descobre que ficou de fora na semana 2,
+    // junto com o resto do grid, que é exatamente a intenção.
     let player_has_team = driver_queries::get_player_driver(conn)
         .ok()
         .and_then(|player| {
@@ -81,23 +83,29 @@ pub fn initialize_preseason(
         player_has_pending_proposals: false,
         player_has_team,
         current_display_date: None,
+        signings_start_week: i32::from(MARKET_SIGNINGS_START_WEEK),
+        player_interest_forecast: None,
     };
     refresh_preseason_state_display_date(conn, &season_id, &mut state)?;
 
-    // Quebra de contrato do jogador (Fase 2b.3): se um time claramente melhor cobiça o
-    // jogador CONTRATADO, guarda o leilão pra ele ver e decidir. Raro; None quase sempre.
-    let player_poach_offer =
-        crate::market::pipeline::compute_player_poach_offer(conn, season_number)?;
-
-    Ok(PreSeasonPlan {
+    let mut plan = PreSeasonPlan {
         state,
         planned_events: Vec::new(),
         executed_weeks: Vec::new(),
-        pending_departures,
+        pending_departures: Vec::new(),
+        pending_renewals: Vec::new(),
+        prepasses_applied: false,
+        movements_applied: false,
         category_snapshot,
         previous_team,
-        player_poach_offer,
-    })
+        // A quebra de contrato do jogador (Fase 2b.3) depende de quem sobrou com
+        // assento, então só é computada junto das pré-passes, ao sair da semana 1.
+        player_poach_offer: None,
+    };
+    // Expectativa da semana 1: as vagas ainda não existem, então a faixa sai dos
+    // contratos que VENCEM. Ver `refresh_player_interest_forecast`.
+    refresh_player_interest_forecast(conn, &mut plan, season_number, &contracts_before)?;
+    Ok(plan)
 }
 
 /// Tamanho do aporte de última chance, como fração do caixa-médio da categoria.
@@ -109,7 +117,7 @@ pub(super) const LAST_CHANCE_PACKAGE_FACTOR: f64 = 0.25;
 /// abate a maior parte da dívida e reforça o caixa. Não recalcula o estado
 /// financeiro (o chamador o faz).
 pub(super) fn apply_last_chance_package(team: &mut crate::models::team::Team) {
-    let scale = category_finance_scale(&team.categoria);
+    let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
     let package = scale.expected_cash_midpoint() * LAST_CHANCE_PACKAGE_FACTOR;
     // 70% do pacote abate dívida, 30% vira capital de giro.
     team.debt_balance = (team.debt_balance - package * 0.70).max(0.0);

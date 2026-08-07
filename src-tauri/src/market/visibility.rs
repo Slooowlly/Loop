@@ -70,6 +70,12 @@ pub fn calculate_visibility(
 /// - 25 e 85 correspondem a boundaries canônicos das tags "Discreto" e "Queridinho da Mídia"
 /// - 60 é convenção interna que divide a faixa neutra (26–84, sem tag visual)
 ///   em dois subníveis de mercado, sem contradizer o sistema de labels.
+///
+/// NOTA: o teto do `Defeito` subiu de 25 para 32 em `driver_tags.rs` (o defeito
+/// do rookie nascia em `U{25..=32}` e a tag nunca disparava). O boundary de 25
+/// AQUI ficou onde estava de proposito: mover o tier de mercado mexeria em
+/// salario e patrocinio, que e outra conversa. As duas escalas se encostam nos
+/// extremos e nao precisam coincidir no meio.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarketVisibilityTier {
     Baixa,     // 0..=25  — pouca presença pública (Invisível/Discreto)

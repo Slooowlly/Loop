@@ -106,7 +106,9 @@ vi.mock("./tabs/atlas", () => ({
   ),
 }));
 
-vi.mock("./tabs/MyTeamTab", () => ({
+// O Dashboard importa o SELETOR de versão (./tabs/myteam), não a v1 direto — o mock
+// tem de casar com esse caminho, senão a aba real monta no teste sem ninguém notar.
+vi.mock("./tabs/myteam", () => ({
   default: ({ onOpenTeamRecords }) => (
     <div>
       <div>Minha equipe</div>
@@ -259,7 +261,7 @@ describe("Dashboard", () => {
     vi.useRealTimers();
   });
 
-  it("opens News after dismissing a fresh season finale", () => {
+  it("lands on Home after dismissing a fresh season finale", () => {
     mockState.showRaceBriefing = false;
 
     const { rerender } = render(<Dashboard />);
@@ -274,7 +276,9 @@ describe("Dashboard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Continuar debriefing/i }));
 
-    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "news");
+    // O fim do campeonato cai na Home — é lá que o pop-up de Campeão da Temporada
+    // abre. As notícias de encerramento vêm no primeiro clique de "Avançar".
+    expect(screen.getByTestId("main-layout")).toHaveAttribute("data-active-tab", "standings");
     expect(mockState.dismissResult).toHaveBeenCalledTimes(1);
   });
 

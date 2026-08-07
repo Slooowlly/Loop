@@ -9,6 +9,7 @@ import EngineerBriefingPanel from "../../components/race/EngineerBriefingPanel";
 import NextRaceEmptyState from "../../components/race/NextRaceEmptyState";
 import NextRaceExportToasts from "../../components/race/NextRaceExportToasts";
 import NextRacePaintPrompt from "../../components/race/NextRacePaintPrompt";
+import NextRaceWindowModePrompt from "../../components/race/NextRaceWindowModePrompt";
 import PodiumFavoritesPanel from "../../components/race/PodiumFavoritesPanel";
 import NextRaceHeader from "../../components/race/nextrace/NextRaceHeader";
 import { getDisplayError } from "../../components/race/nextrace/nextRaceHelpers";
@@ -68,7 +69,13 @@ function NextRaceTab() {
   const hasPendingRegularRaces =
     isLegacyPhase && phase === "BlocoRegular" && (temporalSummary?.pending_in_phase ?? 0) > 0;
 
-  const { briefing, isLoadingBriefing, breakdownForecast, breakdownRiskTeams } = useBriefingData({
+  const {
+    briefing,
+    isLoadingBriefing,
+    breakdownForecast,
+    breakdownRiskTeams,
+    weekendModifiers,
+  } = useBriefingData({
     careerId,
     player,
     playerTeam,
@@ -237,6 +244,22 @@ function NextRaceTab() {
         }}
       />
 
+      {/* Popup: pôr o iRacing em modo janela, logo após exportar a etapa */}
+      <NextRaceWindowModePrompt
+        open={iracing.showWindowPrompt}
+        busy={iracing.windowBusy}
+        error={iracing.windowError}
+        onConfirm={iracing.handleWindowModeConfirm}
+        onCancel={iracing.handleWindowModeSkip}
+      />
+
+      {/* Toast de confirmação do modo janela */}
+      {iracing.windowToast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-white shadow-2xl">
+          {iracing.windowToast}
+        </div>
+      )}
+
       {/* Toast de confirmação da pintura */}
       {iracing.paintToast && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-white shadow-2xl">
@@ -326,6 +349,7 @@ function NextRaceTab() {
             constructorsTable={briefing.constructorsTable}
             playerTeamId={briefing.playerTeamId}
             breakdownRiskTeams={breakdownRiskTeams}
+            weekendModifiers={weekendModifiers}
             hoveredDriverId={hoveredDriverId}
           />
 

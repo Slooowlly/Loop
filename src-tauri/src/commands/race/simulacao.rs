@@ -159,12 +159,28 @@ pub(super) fn preroll_simulated_breakdowns(
     algum_carro_lido.then_some(out)
 }
 
-pub(super) fn simulate_category_race_with_mode(
-    db: &mut Database,
+/// O grid de uma etapa com a **esteira de modificadores já aplicada**, mais o que o resto do
+/// fim de semana precisa e que sai da mesma leitura de banco (categoria, temporada, equipes).
+///
+/// Existe porque a prévia de modificadores da Sala de Estratégia
+/// ([`super::modificadores::get_weekend_modifiers`]) precisa do MESMO grid que a corrida vai
+/// rodar. Montar um grid paralelo lá seria um espelho — e o módulo `simulation::esteira`
+/// documenta o que espelho sem guarda faz: deriva em silêncio.
+pub(crate) struct GridDaCorrida {
+    pub category: &'static CategoryConfig,
+    pub active_season: Season,
+    pub teams: Vec<Team>,
+    pub esteira: crate::simulation::esteira::ResultadoDaEsteira,
+}
+
+/// Monta o grid da etapa: lê equipes e pilotos, resolve pressão, lesão e duelo, e passa tudo
+/// pela esteira de modificadores. **Não grava nada** — nem a forma que a esteira avança, que
+/// volta dentro de [`GridDaCorrida::esteira`] para quem chamou decidir se persiste.
+pub(crate) fn preparar_grid_da_corrida(
+    db: &Database,
     race_entry: &CalendarEntry,
-    advance_player_round: bool,
     persistence_mode: RacePersistenceMode,
-) -> Result<(RaceResult, Vec<Injury>), String> {
+) -> Result<GridDaCorrida, String> {
     let category = get_category_config(&race_entry.categoria)
         .ok_or_else(|| "Categoria da corrida nao encontrada.".to_string())?;
     let active_season = season_queries::get_active_season(&db.conn)
@@ -266,6 +282,12 @@ pub(super) fn simulate_category_race_with_mode(
     // dois vão brigar de verdade (gate de pace). Substitui o antigo bônus fixo de skill
     // (+2/+1), que não passava pela máquina de resiliência. Só vale com o jogador nesta
     // corrida. Mapa driver_id -> (percebida do par com o jogador, pace do oponente p/ o gate).
+    // Mesmo duelo, outra pergunta. O mapa acima diz "quanto pesa e contra que ritmo",
+    // que é o que a PRESSÃO precisa. Este diz "contra QUEM", que é o que a DISPUTA
+    // precisa: o motor de ultrapassagem só pode tratar o rival diferente se souber
+    // identificá-lo do outro lado do para-choque.
+    let mut duelo_de_pista_by_driver: std::collections::HashMap<String, (String, f64)> =
+        std::collections::HashMap::new();
     let duel_by_driver: std::collections::HashMap<String, (f64, f64)> = {
         let mut m = std::collections::HashMap::new();
         if let Some(player) = driver_pool.iter().find(|d| d.is_jogador) {
@@ -282,6 +304,7 @@ pub(super) fn simulate_category_race_with_mode(
             // Lado do jogador: sente o duelo contra o rival presente mais quente (o Nemesis
             // se estiver na corrida). Guardamos a percebida e o pace desse rival.
             let mut player_strongest: Option<(f64, f64)> = None;
+            let mut rival_mais_quente: Option<(String, f64)> = None;
             for r in interests.nemesis.into_iter().chain(interests.rivais) {
                 // Só rivais realmente presentes nesta corrida.
                 let Some(&rival_skill) = base_skill.get(&r.driver_id) else {
@@ -289,12 +312,18 @@ pub(super) fn simulate_category_race_with_mode(
                 };
                 // Lado do rival: sente o duelo contra o jogador.
                 m.insert(r.driver_id.clone(), (r.perceived, player_skill));
+                duelo_de_pista_by_driver
+                    .insert(r.driver_id.clone(), (player_id.clone(), r.perceived));
                 if player_strongest.map_or(true, |(p, _)| r.perceived > p) {
                     player_strongest = Some((r.perceived, rival_skill));
+                    rival_mais_quente = Some((r.driver_id.clone(), r.perceived));
                 }
             }
             if let Some(info) = player_strongest {
-                m.insert(player_id, info);
+                m.insert(player_id.clone(), info);
+            }
+            if let Some(par) = rival_mais_quente {
+                duelo_de_pista_by_driver.insert(player_id, par);
             }
         }
         m
@@ -320,7 +349,6 @@ pub(super) fn simulate_category_race_with_mode(
     let mut orphaned_drivers = Vec::new();
     let mut base: Vec<SimDriver> = Vec::new();
     let mut contextos: Vec<crate::simulation::esteira::ContextoDoPiloto> = Vec::new();
-    let mut pilotos_na_ordem: Vec<&Driver> = Vec::new();
     let mut estado_de_forma: Vec<f64> = Vec::new();
 
     let comprimento_da_pista_km = crate::constants::tracks::get_track(race_entry.track_id)
@@ -382,13 +410,11 @@ pub(super) fn simulate_category_race_with_mode(
                 experiencia: driver.atributos.experiencia,
             }),
         });
-        base.push(SimDriver::from_driver_team_and_track(
-            driver,
-            team,
-            race_entry.track_id,
-        ));
+        let mut sim_driver =
+            SimDriver::from_driver_team_and_track(driver, team, race_entry.track_id);
+        sim_driver.duelo_de_pista = duelo_de_pista_by_driver.get(&driver.id).cloned();
+        base.push(sim_driver);
         estado_de_forma.push(driver.forma);
-        pilotos_na_ordem.push(driver);
     }
 
     if !orphaned_drivers.is_empty() {
@@ -411,12 +437,34 @@ pub(super) fn simulate_category_race_with_mode(
         &crate::simulation::forma::EscalasDeForma::default(),
     );
 
-    // A FORMA é devolvida pela função, não gravada por ela: a persistência é do comando. Isso
+    Ok(GridDaCorrida {
+        category,
+        active_season,
+        teams,
+        esteira,
+    })
+}
+
+pub(super) fn simulate_category_race_with_mode(
+    db: &mut Database,
+    race_entry: &CalendarEntry,
+    advance_player_round: bool,
+    persistence_mode: RacePersistenceMode,
+) -> Result<(RaceResult, Vec<Injury>), String> {
+    let GridDaCorrida {
+        category,
+        active_season,
+        teams,
+        esteira,
+    } = preparar_grid_da_corrida(db, race_entry, persistence_mode)?;
+
+    // A FORMA é devolvida pela esteira, não gravada por ela: a persistência é do comando. Isso
     // tirou o `if persistence_mode` do meio da simulação — o rascunho histórico agora não
-    // grava porque ninguém o manda gravar, e não porque a simulação verifica um modo.
+    // grava porque ninguém o manda gravar, e não porque a simulação verifica um modo. É também
+    // o que deixa a PRÉVIA rodar a mesma esteira sem avançar a forma de ninguém.
     if persistence_mode == RacePersistenceMode::Playable {
-        for (driver, estado) in pilotos_na_ordem.iter().zip(&esteira.estado_de_forma) {
-            driver_queries::update_driver_forma(&db.conn, &driver.id, *estado)
+        for (sim_driver, estado) in esteira.grid.iter().zip(&esteira.estado_de_forma) {
+            driver_queries::update_driver_forma(&db.conn, &sim_driver.id, *estado)
                 .map_err(|e| format!("Falha ao gravar a forma do piloto: {e}"))?;
         }
     }

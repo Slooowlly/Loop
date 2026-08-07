@@ -8,8 +8,10 @@
 //    tenta se firmar: se estava vindo da "Home", tolera só 2 pulos seguidos antes
 //    de desistir e voltar pra "Home". Assim que o jogador lê uma vez, o modo
 //    "Notícias" se firma e volta ao limite normal (3).
-//  - Em FINAL DE CAMPEONATO, sempre cai em "Notícias" — sem contar como leitura
-//    nem como pulo (é um override, não afeta o aprendizado).
+//  - Em FINAL DE CAMPEONATO, sempre cai na "Home" — sem contar como leitura nem
+//    como pulo (é um override, não afeta o aprendizado). É lá que o pop-up de
+//    Campeão da Temporada abre, e ele é a cena do fim do ano; as notícias do
+//    encerramento entram depois, no primeiro clique de "Avançar" (ver Header).
 //
 // O estado é persistido por carreira no localStorage, então sobrevive a fechar e
 // reabrir o app dentro de uma mesma temporada.
@@ -82,13 +84,13 @@ function applySeasonRollover(state, season) {
 }
 
 // Decide a aba pós-corrida e se ela deve ser avaliada quanto à leitura.
-// `isFinale` força Notícias sem avaliação. Persiste qualquer virada de temporada.
+// `isFinale` força a Home sem avaliação. Persiste qualquer virada de temporada.
 export function resolvePostRaceLanding(careerId, season, isFinale) {
   const state = applySeasonRollover(readLandingState(careerId, season), season);
   writeLandingState(careerId, state);
 
   if (isFinale) {
-    return { tab: NEWS_TAB, evaluate: false };
+    return { tab: HOME_TAB, evaluate: false };
   }
   const tab = state.mode === HOME_TAB ? HOME_TAB : NEWS_TAB;
   return { tab, evaluate: tab === NEWS_TAB };

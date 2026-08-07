@@ -42,6 +42,25 @@ pub(super) fn cached_teams(row: &ai_story::AiStoryRow) -> Option<serde_json::Val
     }
 }
 
+/// A matéria pronta guardada na linha, se houver uma legível. Vive numa função porque o
+/// cache é consultado DUAS vezes — antes e depois de esperar a vez em `narrative::em_voo`
+/// — e as duas leituras precisam decidir igual.
+pub(super) fn resultado_do_cache(
+    row: Option<&ai_story::AiStoryRow>,
+) -> Option<SeasonPreviewResult> {
+    let row = row?;
+    let bruto = row.story.as_ref()?;
+    let c = serde_json::from_str::<CachedPreview>(bruto).ok()?;
+    Some(SeasonPreviewResult {
+        headline: Some(c.headline),
+        standfirst: Some(c.standfirst),
+        body: Some(c.body),
+        source: "ai".to_string(),
+        status: "cached".to_string(),
+        teams: cached_teams(row),
+    })
+}
+
 /// A linha foi gravada dentro da janela de backoff? `created_at` é o timestamp Unix em
 /// texto; linha sem carimbo legível conta como antiga (tenta de novo).
 pub(super) fn recent_attempt(row: &ai_story::AiStoryRow) -> bool {
@@ -119,19 +138,19 @@ fn gerar_preview(
 
         // Cache → reabrir a revista não regenera (sem custo, sem cooldown). As cores das
         // equipes vêm da própria linha, então nem os fatos precisam ser montados.
-        if let Some(row) = &cached_row {
-            if let Some(raw) = &row.story {
-                if let Ok(c) = serde_json::from_str::<CachedPreview>(raw) {
-                    return Ok(SeasonPreviewResult {
-                        headline: Some(c.headline),
-                        standfirst: Some(c.standfirst),
-                        body: Some(c.body),
-                        source: "ai".to_string(),
-                        status: "cached".to_string(),
-                        teams: cached_teams(row),
-                    });
-                }
-            }
+        if let Some(pronta) = resultado_do_cache(cached_row.as_ref()) {
+            return Ok(pronta);
+        }
+
+        // Miss não garante que ninguém está gerando: o pré-aquecimento de abertura do save
+        // (`spawn_prewarm_season_preview`) entra por aqui também. Espera a vez e relê ANTES
+        // de `build_preview_data`, que varre o grid inteiro — ver `narrative::em_voo`.
+        let _passe = crate::narrative::em_voo::aguardar_vez(
+            crate::narrative::em_voo::chave_previa_temporada(career_id, &cache_key),
+        );
+        let cached_row = ai_story::get_story(&db.conn, &cache_key).ok().flatten();
+        if let Some(pronta) = resultado_do_cache(cached_row.as_ref()) {
+            return Ok(pronta);
         }
 
         let Some(data) = build_preview_data(&db.conn, base_dir, career_id) else {

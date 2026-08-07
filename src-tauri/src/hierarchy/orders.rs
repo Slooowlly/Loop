@@ -128,8 +128,7 @@ pub fn n2_win_rate(duelos_total: i32, duelos_n2_vencidos: i32) -> f64 {
 /// Regras base (aplicadas antes do clamp):
 /// - N2 venceu o duelo: +3
 /// - N1 venceu o duelo: -2
-/// - Decaimento natural por corrida: -1 (sempre)
-/// - Sem duelo válido: apenas -1
+/// - Sem duelo válido: -1 (só aí incide o decaimento)
 ///
 /// Bônus de sequência (aplicados só quando o threshold é atingido exatamente):
 /// - N2 com 3 seguidas: +10
@@ -137,8 +136,25 @@ pub fn n2_win_rate(duelos_total: i32, duelos_n2_vencidos: i32) -> f64 {
 /// - N1 com 3 seguidas: -8
 ///
 /// Resultado final é clampado em [0, 100].
+///
+/// O DECAIMENTO SAIU DAS CORRIDAS DISPUTADAS, e essa é a diferença entre este
+/// eixo medir disputa ou medir o tempo passando.
+///
+/// Antes o -1 incidia sempre, inclusive quando o N2 vencia. Com o N2 ganhando
+/// uma fração `p` dos duelos, a variação esperada por corrida era `5p - 3`: zero
+/// em p = 0,6, negativa abaixo disso. Ou seja, o segundo piloto precisava bater
+/// o primeiro em MAIS DE 60% das corridas só para a tensão não cair — e como ela
+/// tem piso em zero, todo par equilibrado morava no chão. Num save de 27
+/// temporadas isso deu 101 de 102 equipes em "estável" com tensão média 0,1, a
+/// maior sequência do N2 do mundo inteiro em 3, e nenhuma rivalidade de
+/// companheiros jamais criada — o gatilho existia e nunca disparava.
+///
+/// Agora o equilíbrio fica em p = 0,4: um par 50/50 sobe devagar, e é isso que
+/// "os dois estão brigando" deveria significar. O decaimento continua existindo
+/// para a corrida em que não houve duelo (lesão, ausência), que é onde ele de
+/// fato representa uma disputa que esfriou por falta de disputa.
 pub fn update_tensao(team: &mut Team, duel: &DuelResult) {
-    let mut delta: f64 = -1.0; // decaimento natural sempre presente
+    let mut delta: f64 = 0.0;
 
     if duel.valid {
         match &duel.vencedor {
@@ -146,6 +162,8 @@ pub fn update_tensao(team: &mut Team, duel: &DuelResult) {
             Some(DuelWinner::N1) => delta -= 2.0,
             None => {}
         }
+    } else {
+        delta -= 1.0;
     }
 
     // Bônus de sequência — apenas quando o limiar é atingido exatamente
@@ -853,8 +871,34 @@ mod tests {
         let mut team = sample_team("P001", "P002");
         team.hierarquia_tensao = 20.0;
         update_tensao(&mut team, &duel(DuelWinner::N2));
-        // +3 - 1 = +2
-        assert_eq!(team.hierarquia_tensao, 22.0);
+        // +3, sem decaimento: a corrida foi disputada.
+        assert_eq!(team.hierarquia_tensao, 23.0);
+    }
+
+    /// O QUE ESTAVA QUEBRADO, em uma linha de aritmética.
+    ///
+    /// Com o -1 incidindo em toda corrida, um par 50/50 perdia 0,5 de tensão por
+    /// rodada — e com piso em zero, morava no chão para sempre. Num save de 27
+    /// temporadas isso deu 101 de 102 equipes em "estável" e nenhuma rivalidade
+    /// de companheiros jamais criada.
+    #[test]
+    fn a_balanced_pairing_now_builds_tension_instead_of_bleeding_it() {
+        let mut team = sample_team("P001", "P002");
+        team.hierarquia_tensao = 20.0;
+
+        // Dez corridas, cinco para cada lado. As sequências ficam em 1 o tempo
+        // todo, então nenhum bônus entra e sobra só a regra base.
+        for rodada in 0..10 {
+            let vencedor = if rodada % 2 == 0 {
+                DuelWinner::N2
+            } else {
+                DuelWinner::N1
+            };
+            update_tensao(&mut team, &duel(vencedor));
+        }
+
+        // 5*(+3) + 5*(-2) = +5. Antes seria -5, e a equipe teria descido.
+        assert_eq!(team.hierarquia_tensao, 25.0);
     }
 
     #[test]
@@ -862,8 +906,8 @@ mod tests {
         let mut team = sample_team("P001", "P002");
         team.hierarquia_tensao = 20.0;
         update_tensao(&mut team, &duel(DuelWinner::N1));
-        // -2 - 1 = -3
-        assert_eq!(team.hierarquia_tensao, 17.0);
+        // -2, sem decaimento.
+        assert_eq!(team.hierarquia_tensao, 18.0);
     }
 
     #[test]
@@ -887,7 +931,7 @@ mod tests {
         let mut team = sample_team("P001", "P002");
         team.hierarquia_tensao = 99.0;
         team.hierarquia_sequencia_n2 = 3;
-        // +3 - 1 + 10 = +12 → 111 → clampado em 100
+        // +3 + 10 = +13 → 112 → clampado em 100
         update_tensao(&mut team, &duel(DuelWinner::N2));
         assert_eq!(team.hierarquia_tensao, 100.0);
     }
@@ -898,8 +942,8 @@ mod tests {
         team.hierarquia_tensao = 30.0;
         team.hierarquia_sequencia_n2 = 3;
         update_tensao(&mut team, &duel(DuelWinner::N2));
-        // +3 - 1 + 10 = +12
-        assert_eq!(team.hierarquia_tensao, 42.0);
+        // +3 + 10 = +13
+        assert_eq!(team.hierarquia_tensao, 43.0);
     }
 
     #[test]
@@ -908,8 +952,8 @@ mod tests {
         team.hierarquia_tensao = 30.0;
         team.hierarquia_sequencia_n2 = 5;
         update_tensao(&mut team, &duel(DuelWinner::N2));
-        // +3 - 1 + 15 = +17
-        assert_eq!(team.hierarquia_tensao, 47.0);
+        // +3 + 15 = +18
+        assert_eq!(team.hierarquia_tensao, 48.0);
     }
 
     #[test]
@@ -918,8 +962,8 @@ mod tests {
         team.hierarquia_tensao = 40.0;
         team.hierarquia_sequencia_n1 = 3;
         update_tensao(&mut team, &duel(DuelWinner::N1));
-        // -2 - 1 - 8 = -11
-        assert_eq!(team.hierarquia_tensao, 29.0);
+        // -2 - 8 = -10
+        assert_eq!(team.hierarquia_tensao, 30.0);
     }
 
     #[test]
@@ -929,8 +973,8 @@ mod tests {
         team.hierarquia_tensao = 30.0;
         team.hierarquia_sequencia_n2 = 4;
         update_tensao(&mut team, &duel(DuelWinner::N2));
-        // +3 - 1 = +2 (sem bônus)
-        assert_eq!(team.hierarquia_tensao, 32.0);
+        // +3 (sem bônus)
+        assert_eq!(team.hierarquia_tensao, 33.0);
     }
 
     // ── Passo 8 ───────────────────────────────────────────────────────────────

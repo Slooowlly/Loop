@@ -27,6 +27,21 @@ pub(super) const FOCUS_GAP: u8 = 3;
 /// ONDE gastar em vez de subir tudo.
 pub const CADENCIA_DE_UPGRADE: usize = 4;
 
+/// Etapas de uma temporada típica, para converter desgaste por corrida em reposições por ano
+/// na conta de sustentação. Não precisa casar com o calendário real de cada categoria: é a
+/// régua da PRUDÊNCIA do cérebro, não uma cobrança.
+const ETAPAS_DE_REFERENCIA: f64 = 12.0;
+
+/// Quantas temporadas de reposição da peça o time exige ter no bolso, ALÉM do P&D, para
+/// aceitar subir um nível. É o botão da prudência: 0 devolve o comportamento míope antigo
+/// (sobe tudo que cabe hoje), valores altos travam o desenvolvimento no caixa de guerra.
+const TEMPORADAS_DE_SUSTENTACAO: f64 = 1.0;
+
+/// Reposições esperadas de uma peça ao longo de uma temporada de referência.
+fn reposicoes_por_temporada(part: PartType) -> f64 {
+    ETAPAS_DE_REFERENCIA * wear_per_race(part)
+}
+
 /// Quantos upgrades o time pode instalar NESTA corrida, dado quantas etapas ainda restam na
 /// temporada. `0` fora da janela, `1` na janela.
 ///
@@ -169,9 +184,13 @@ pub fn decide_maintenance_with_limits(
     // modula quais pistas entram na demanda; o DNA do time (em `decide_car_maintenance`)
     // sustenta o pico que a média do calendário lavaria.
     let demand_peaked = demand_spread(demand) >= DEMAND_PEAK_THRESHOLD;
+    // O teto da peça RELEVANTE é o de DESENVOLVIMENTO, não o natural da categoria: a parede
+    // acima do teto é transponível por quem tem caixa (design §6), e é o único destino que o
+    // superávit tem. Quem segura não é este limite, é `upgrade_cost` — que já explode acima do
+    // teto — e a reposição, que passa a custar o preço do nível novo para sempre.
     let part_cap = |pt: PartType| -> u8 {
         if !demand_peaked || part_relevance(pt, demand) >= rel_threshold {
-            ceiling
+            crate::car::cost::development_ceiling(ceiling)
         } else {
             ceiling.saturating_sub(FOCUS_GAP).max(1)
         }
@@ -277,7 +296,16 @@ pub fn decide_maintenance_with_limits(
         }
         let new_level = current_target(&plan, car, pt) + 1;
         let up_cost = upgrade_cost(category_id, pt, new_level);
-        if budget >= up_cost {
+        // SUSTENTAÇÃO: subir de nível não é pagar o P&D uma vez, é assumir a reposição daquele
+        // nível para sempre — e acima do teto ela sobe +59%, +94%, +129% a cada degrau. Sem
+        // esta trava o cérebro compra o nível que cabe HOJE e quebra na conta de amanhã: a
+        // parede vira armadilha em vez de escolha, e o grid inteiro se endivida subindo (medido
+        // em `commands::race::tests::medicao_financeira`). O design pede o contrário — "o
+        // orçamento define ONDE CADA TIME PARA" —, e é esta conta que faz o time parar.
+        let sustentacao = reposicoes_por_temporada(pt)
+            * crate::car::cost::part_cost(category_id, pt, new_level)
+            * TEMPORADAS_DE_SUSTENTACAO;
+        if budget >= up_cost + sustentacao {
             plan.target_levels.insert(pt, new_level);
             plan.actions.entry(pt).or_insert(PartAction::Replace);
             budget -= up_cost;
@@ -309,7 +337,12 @@ pub fn decide_car_maintenance(
     upcoming_track_ids: &[u32],
     max_upgrades: Option<u32>,
 ) -> CarMaintenancePlan {
-    let budget = calculate_financial_plan(team).spending_power.max(0.0);
+    // FATIA DA TEMPORADA, não o cofre inteiro. `spending_power` é grandeza ANUAL — caixa +
+    // receita projetada + crédito disponível, menos os compromissos do ano. Entregá-la como
+    // orçamento de UMA corrida, 12 vezes por ano, é autorizar o cérebro a comprometer ~12× os
+    // meios do time, e é o motivo real de "dinheiro não ser restrição sentida": a trava
+    // efetiva não era o orçamento, era só "tem caixa ou não tem".
+    let budget = (calculate_financial_plan(team).spending_power / ETAPAS_DE_REFERENCIA).max(0.0);
     // Demanda efetiva = calendário misturado com o DNA persistente do time. É o que faz o
     // foco EMERGIR: a média do calendário sozinha lava pra balanceado; o DNA sustenta o pico.
     let calendar_demand = maintenance_demand(upcoming_track_ids);

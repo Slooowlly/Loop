@@ -1,0 +1,87 @@
+[
+  {
+    "caso": "ritmo",
+    "intencao": "Ritmo",
+    "linhas": [
+      "Posição: 5º de 24",
+      "Volta: 8 de 20",
+      "Faltam: 12 voltas",
+      "À frente: Rodrigues, a um e dois de você",
+      "Atrás: Silva, a oito décimos de você",
+      "Última volta: 1:32,8",
+      "Melhor volta: 1:32,4",
+      "Comparação: 0,4 segundos acima da sua melhor"
+    ]
+  },
+  {
+    "caso": "carro",
+    "intencao": "Carro",
+    "linhas": [
+      "Posição: 5º de 24",
+      "Volta: 8 de 20",
+      "Faltam: 12 voltas",
+      "À frente: Rodrigues, a três segundos e meio de você",
+      "Reparo OBRIGATÓRIO pendente: 18,5 s de box",
+      "Reparo opcional disponível: 32,0 s de box",
+      "Reparos rápidos já usados: 1"
+    ]
+  },
+  {
+    "caso": "geral",
+    "intencao": "Geral",
+    "linhas": [
+      "Posição: 5º de 24",
+      "Volta: 8 de 20",
+      "Faltam: 12 voltas",
+      "Bandeira: Bandeira amarela",
+      "Seu pneu: seco, com 8 voltas de uso",
+      "À frente: Rodrigues, a um e dois de você · ritmo 1:33,1 · você é 0,3 segundos por volta mais rápido · aproximando 0,3 segundos por volta · encosta em 4 voltas no ritmo atual",
+      "Atrás: Silva, a oito décimos de você · ritmo 1:33,1 · você é 0,3 segundos por volta mais rápido · aproximando 0,3 segundos por volta · encosta em 4 voltas no ritmo atual",
+      "Combustível: 24,0 litros no tanque",
+      "Consumo: 1,8 litros por volta",
+      "Autonomia: 13 voltas",
+      "Saldo: sobra para 1 volta além do fim — dá para terminar sem parar",
+      "Última volta: 1:32,8",
+      "Melhor volta: 1:32,4",
+      "Comparação: 0,4 segundos acima da sua melhor",
+      "Carro: sem reparo pendente",
+      "Incidentes: 2 pontos na sessão",
+      "Pista: seca",
+      "Temperatura: pista 32,0 °C, ar 24,0 °C"
+    ]
+  },
+  {
+    "caso": "frente_trafego",
+    "intencao": "Frente",
+    "linhas": [
+      "Posição: 5º de 24",
+      "Volta: 8 de 20",
+      "Faltam: 12 voltas",
+      "À frente: Rodrigues, a um e dois de você · uma volta à parte · ritmo 1:33,1 · você é 0,3 segundos por volta mais rápido · aproximando 0,3 segundos por volta · encosta em 4 voltas no ritmo atual"
+    ]
+  },
+  {
+    "caso": "combustivel_apertado",
+    "intencao": "Geral",
+    "linhas": [
+      "Saldo: FALTA combustível para 2 voltas — vai precisar parar",
+      "Posição: 5º de 24",
+      "Volta: 8 de 20",
+      "Faltam: por volta de 8 voltas (prova por TEMPO — o número é estimativa, diga-o como aproximação)",
+      "Pneu: o iRacing não informa o composto nesta categoria",
+      "À frente: Rodrigues, a dois segundos de você · ritmo 1:33,1 · você é 0,3 segundos por volta mais rápido · aproximando 0,3 segundos por volta · encosta em 4 voltas no ritmo atual",
+      "Atrás: não estou vendo o carro de trás agora.",
+      "Combustível: 24,0 litros no tanque",
+      "Consumo: 1,8 litros por volta",
+      "Autonomia: 6 voltas",
+      "Última volta: 1:32,8",
+      "Melhor volta: 1:32,4",
+      "Comparação: 0,4 segundos acima da sua melhor",
+      "Carro: sem reparo pendente",
+      "Bandeira: nenhuma bandeira ativa",
+      "Incidentes: 2 pontos na sessão",
+      "Pista: seca",
+      "Temperatura: pista 32,0 °C, ar 24,0 °C"
+    ]
+  }
+]

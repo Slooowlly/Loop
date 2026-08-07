@@ -1,11 +1,11 @@
 use crate::constants::categories::get_category_config;
-use crate::finance::planning::{calculate_financial_plan, category_finance_scale};
+use crate::finance::planning::{calculate_financial_plan, category_finance_scale_for};
 use crate::models::team::Team;
 
 pub fn calculate_salary_ceiling(team: &Team) -> f64 {
     let base = category_salary_base(&team.categoria);
     let plan = calculate_financial_plan(team);
-    let scale = category_finance_scale(&team.categoria);
+    let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
     let spending_ratio = (plan.spending_power / scale.operating_cost_midpoint()).clamp(-0.5, 2.5);
     let reputation_factor = 0.85 + team.reputacao.clamp(0.0, 100.0) / 260.0;
     let money_factor = (0.75 + spending_ratio * 0.45).clamp(0.35, 1.85);

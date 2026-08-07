@@ -6,6 +6,15 @@ use super::*;
 
 #[derive(Default)]
 pub(super) struct Totals {
+    // ── Fama e público, lidos do save no fim de cada run (ver experimento::fama) ──
+    /// Mídia (0–100) de cada piloto COM ASSENTO, por categoria.
+    pub(super) fama_por_categoria: HashMap<String, Vec<f64>>,
+    /// Atração de público de cada equipe ativa, por categoria — a grandeza que a
+    /// bilheteria rateia.
+    pub(super) atracao_por_categoria: HashMap<String, Vec<f64>>,
+    /// Presença pública do lineup por equipe — a entrada do termo de fama do patrocínio.
+    pub(super) presenca_por_categoria: HashMap<String, Vec<f64>>,
+
     // Denominador: pilotos-temporada observados (soma de pilotos ativos no início de cada temporada)
     pub(super) driver_seasons: u64,
     // Evolução (apenas sobreviventes presentes antes e depois)
@@ -63,6 +72,25 @@ pub(super) struct Totals {
     pub(super) motiv_retire_n: u64,
     pub(super) motiv_retire_overall_sum: f64,
     pub(super) motiv_retire_good: u64,
+    // Idade de quem se aposenta por desmotivação, por faixa. O jovem que desiste
+    // é o caso que não fecha: carreira toda pela frente e nenhuma paciência extra.
+    pub(super) motiv_retire_by_age: BTreeMap<&'static str, u64>,
+    // Agentes livres (Ativo, sem contrato) no início de cada temporada:
+    // [n, soma_idade, soma_overall].
+    pub(super) free_agents_by_season: BTreeMap<usize, [f64; 3]>,
+    // Há quantas temporadas CONSECUTIVAS cada agente livre está sem assento (topo
+    // agrupado em 6+). É a medida que decide o quanto a aposentadoria do órfão pode
+    // afrouxar: quase tudo na 1ª = o mercado recicla e a regra sobra; cauda gorda
+    // em 3+ = acúmulo real, e a regra está segurando o mundo.
+    pub(super) free_streak_hist: BTreeMap<u32, u64>,
+    // Trajetória da motivação por ÍNDICE DE TEMPORADA dentro da run (agrupado
+    // entre runs): [soma, n, travados_no_teto, abaixo_de_20]. A média de todas as
+    // temporadas juntas esconde catraca — se o valor sai de 75 e sobe até saturar
+    // em 100, só a trajetória mostra.
+    pub(super) motiv_by_season: BTreeMap<usize, [f64; 4]>,
+    // Decisão de mercado cruzada com o ânimo de quem decidiu, por faixa de
+    // motivação: [n, trocou_de_equipe, desceu_de_tier, soma_do_delta_salarial_%].
+    pub(super) mercado_by_motiv: BTreeMap<u8, [f64; 4]>,
 
     // ── Equipes ──
     pub(super) team_seasons: u64,

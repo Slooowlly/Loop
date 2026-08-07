@@ -29,11 +29,29 @@ pub enum Compound {
 }
 
 impl Compound {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Compound::Dry => "seco",
             Compound::Wet => "chuva",
             Compound::Unknown => "indefinido",
+        }
+    }
+
+    /// O composto a partir do índice cru do SDK (`CarIdxTireCompound`).
+    ///
+    /// O índice é 0-based **por série**, e a tradução só é possível porque o iRacing tem
+    /// exatamente dois compostos — seco e chuva, nessa ordem. Numa série que um dia
+    /// oferecesse três, o `1` deixaria de ser chuva e esta função passaria a mentir; por
+    /// isso qualquer índice fora de `0..=1` volta como [`Compound::Unknown`] em vez de ser
+    /// chutado para o mais próximo.
+    ///
+    /// `-1` é o "não informado" do SDK — acontece em carro mono-composto, onde o campo
+    /// nunca é preenchido.
+    pub const fn from_indice(indice: i32) -> Self {
+        match indice {
+            0 => Compound::Dry,
+            1 => Compound::Wet,
+            _ => Compound::Unknown,
         }
     }
 }

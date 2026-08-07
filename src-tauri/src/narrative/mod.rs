@@ -5,7 +5,7 @@
 //! Transforma o resultado de uma corrida em "beats" (pedaços de história já
 //! avaliados, cada um com um peso). Em seguida filtra pelo limiar de relevância
 //! e renderiza um CONTEXTO CURADO — denso em narrativa, enxuto em dados — que é
-//! o que será enviado ao servidor → Gemini.
+//! o que será enviado ao servidor (que escolhe o provedor — ver `client`).
 //!
 //! Filosofia: a inteligência de "o que é interessante" mora AQUI, não na IA.
 //! A IA só redige em cima dos fatos que escolhermos (zero invenção de resultado).
@@ -25,6 +25,7 @@ mod incidentes;
 mod tese;
 
 pub mod client;
+pub mod em_voo;
 
 #[cfg(test)]
 mod tests;

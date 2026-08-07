@@ -42,4 +42,8 @@ pub(crate) mod header {
     pub const VAR_COUNT: usize = 8; // i32: nº de entradas (1 = escalar; arrays CarIdx* = nº de carros)
     pub const VAR_NAME: usize = 16; // char[32]: nome da variável
     pub const VAR_NAME_MAX: usize = 32;
+    pub const VAR_DESC: usize = 48; // char[64]: descrição da variável
+    pub const VAR_DESC_MAX: usize = 64;
+    pub const VAR_UNIT: usize = 112; // char[32]: unidade ("m/s", "rad", "irsdk_TrkSurf"…)
+    pub const VAR_UNIT_MAX: usize = 32;
 }

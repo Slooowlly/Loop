@@ -191,7 +191,11 @@ pub const CONTACT_COST_FRACTION: f64 = 0.10;
 
 /// Peças que um contato de disputa castiga, na ordem em que os contatos as visitam. Roda-a-roda
 /// é lateral e de aero dianteiro; a suspensão entra porque entra em tudo.
-const CONTACT_HIT_PARTS: [PartType; 3] = [PartType::FrontWing, PartType::Sidepods, PartType::Suspension];
+const CONTACT_HIT_PARTS: [PartType; 3] = [
+    PartType::FrontWing,
+    PartType::Sidepods,
+    PartType::Suspension,
+];
 
 /// O que os contatos de disputa fizeram com o carro, para a fatura da rodada.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -251,7 +255,10 @@ mod tests {
         let mut car = Car::uniform(5); // tudo novo
         let d = apply_contact_wear(&mut car, "gt3", 3);
 
-        assert!(d.destroyed.is_empty(), "peça nova não se destrói num encostão");
+        assert!(
+            d.destroyed.is_empty(),
+            "peça nova não se destrói num encostão"
+        );
         // Três contatos = um em cada peça do rodízio.
         for pt in CONTACT_HIT_PARTS {
             let w = car.part(pt).unwrap().wear;
@@ -290,7 +297,10 @@ mod tests {
         // Não é reparada aqui — quem troca é o cérebro de manutenção, a débito.
         assert!((car.part(PartType::FrontWing).unwrap().wear - 0.90).abs() < 1e-9);
         // E não é cobrada aqui: a troca forçada cobra o preço CHEIO. Cobrar duplicaria.
-        assert_eq!(d.cost, 0.0, "peça destruída não pode ser cobrada duas vezes");
+        assert_eq!(
+            d.cost, 0.0,
+            "peça destruída não pode ser cobrada duas vezes"
+        );
     }
 
     #[test]
@@ -298,7 +308,10 @@ mod tests {
         let mut car = Car::uniform(5);
         let antes = car.clone();
 
-        assert_eq!(apply_contact_wear(&mut car, "gt3", 0), ContactDamage::default());
+        assert_eq!(
+            apply_contact_wear(&mut car, "gt3", 0),
+            ContactDamage::default()
+        );
         assert_eq!(car, antes);
     }
 

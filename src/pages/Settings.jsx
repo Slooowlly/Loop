@@ -7,7 +7,10 @@ import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
 import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
 import IracingDiagnosticoPanel from "../components/iracing/IracingDiagnosticoPanel";
+import PttEngenheiroSettings from "../components/iracing/PttEngenheiroSettings";
 import { useOverlayFlags } from "../overlay/useOverlayFlags";
+import { estaLigada as vozSpotterLigada, falar as falarSpotter, ligar as ligarVozSpotter } from "../lib/spotterVoice";
+import { definirVolume, volumeRadio } from "../lib/volumeRadio";
 import useCareerStore from "../stores/useCareerStore";
 import { useTranslation } from "react-i18next";
 
@@ -35,6 +38,37 @@ function Settings() {
   // Estado do "automático" (flag do RaceControl) e trava anti-duplo-clique.
   const [autoYellow, setAutoYellow] = useState(false);
   const [yellowBusy, setYellowBusy] = useState(false);
+
+  // Spotter: o Loop cala o nativo do iRacing enquanto está aberto e o devolve ao
+  // fechar. O interruptor NÃO passa pelo `handleToggle` genérico: a preferência e o
+  // `app.ini` precisam mudar juntos, e quem faz as duas coisas é o comando dedicado.
+  const [spotterStatus, setSpotterStatus] = useState(null);
+  const [spotterBusy, setSpotterBusy] = useState(false);
+  async function toggleSpotter() {
+    if (spotterBusy || !config) return;
+    const next = !config.spotter_takeover;
+    setSpotterBusy(true);
+    setConfig({ ...config, spotter_takeover: next });
+    try {
+      setSpotterStatus(await invoke("iracing_spotter_set", { enabled: next }));
+    } catch (err) {
+      // O interruptor NÃO volta: o backend grava a preferência antes de tocar no
+      // `app.ini`, então ela está salva mesmo quando a escrita falha (sim aberto,
+      // arquivo ausente). Voltar aqui faria a tela discordar do disco. O erro
+      // aparece, e o boot seguinte tenta de novo.
+      setErrorMessage(String(err));
+      invoke("iracing_spotter_status").then(setSpotterStatus).catch(() => {});
+    } finally {
+      setSpotterBusy(false);
+    }
+  }
+
+  // Voz do spotter. Mora no localStorage, não no config do backend: é preferência
+  // de saída de áudio desta máquina, e o Rust não tem nada a decidir sobre ela.
+  const [spotterVoz, setSpotterVoz] = useState(vozSpotterLigada);
+  // Mesma história: preferência de saída de áudio DESTA máquina, e vale para as duas
+  // bocas do rádio — o spotter e o engenheiro são a mesma pessoa.
+  const [volumeRad, setVolumeRad] = useState(volumeRadio);
 
   // Teste de comando de chat de TEXTO LIVRE (ex.: !black #1 20) — caminho
   // parametrizado que NÃO depende de macro no app.ini. Só pra validar.
@@ -167,6 +201,7 @@ function Settings() {
     })();
     invoke("iracing_auto_yellow_enabled").then((v) => setAutoYellow(Boolean(v))).catch(() => {});
     invoke("overlay_demo_enabled").then((v) => setRadioDemo(Boolean(v))).catch(() => {});
+    invoke("iracing_spotter_status").then(setSpotterStatus).catch(() => {});
   }, []);
 
   // Poll do status da gravação de debug (contagem de frames enquanto grava).
@@ -447,6 +482,110 @@ function Settings() {
               </div>
             </div>
           )}
+
+          {/* Spotter do Loop — cala o nativo do iRacing (voice/text da seção [SPCC] do
+              app.ini) e o devolve ao fechar o Loop. Desabilitado quando não há app.ini. */}
+          <div
+            className={`flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5 ${
+              spotterStatus?.app_ini_found && !spotterBusy
+                ? "cursor-pointer"
+                : "cursor-default opacity-55"
+            }`}
+            onClick={spotterStatus?.app_ini_found && !spotterBusy ? toggleSpotter : undefined}
+          >
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.spotter.label")}</p>
+              <p className="text-[11px] text-text-secondary">
+                {!spotterStatus?.app_ini_found
+                  ? t("settings.spotter.semAppIni")
+                  : config.spotter_takeover
+                    ? t("settings.spotter.on")
+                    : t("settings.spotter.off")}
+              </p>
+            </div>
+            <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.spotter_takeover ? "bg-accent-primary" : "bg-white/10"}`}>
+              <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.spotter_takeover ? "translate-x-5" : "translate-x-0"}`} />
+            </div>
+          </div>
+
+          {/* Voz do spotter + botão de ouvir agora. O teste automático sai ao sentar no
+              carro, mas quem quer conferir a saída de áudio ANTES de abrir o simulador
+              não deveria ter que entrar numa sessão pra isso. */}
+          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
+            <div
+              className="min-w-0 flex-1 cursor-pointer"
+              onClick={() => {
+                const next = !spotterVoz;
+                setSpotterVoz(next);
+                ligarVozSpotter(next);
+              }}
+            >
+              <p className="text-[13px] font-medium text-text-primary">
+                {t("settings.spotterVoz.label")}
+              </p>
+              <p className="text-[11px] text-text-secondary">
+                {spotterVoz ? t("settings.spotterVoz.on") : t("settings.spotterVoz.off")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => falarSpotter("teste", { forcar: true })}
+              className="shrink-0 cursor-pointer rounded-lg bg-white/10 px-4 py-2 text-[12px] font-semibold text-text-primary transition-glass hover:bg-white/20"
+            >
+              {t("settings.spotterVoz.testar")}
+            </button>
+            <div
+              className={`h-6 w-11 shrink-0 cursor-pointer rounded-full p-1 transition-all ${spotterVoz ? "bg-accent-primary" : "bg-white/10"}`}
+              onClick={() => {
+                const next = !spotterVoz;
+                setSpotterVoz(next);
+                ligarVozSpotter(next);
+              }}
+            >
+              <div className={`h-4 w-4 rounded-full bg-white transition-all ${spotterVoz ? "translate-x-5" : "translate-x-0"}`} />
+            </div>
+          </div>
+
+          {/* Volume do rádio — UM controle para as duas bocas. O acervo sai da cadeia em
+              quase escala cheia (RMS 0,175, pico 0,97), que é o nível certo dentro do
+              arquivo e ensurdecedor tocado a ganho 1 por cima do jogo. Quanto atenuar
+              depende do fone e do volume do simulador, então é do jogador. */}
+          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-text-primary">
+                {t("settings.volumeRadio.label")}
+              </p>
+              <p className="text-[11px] text-text-secondary">
+                {t("settings.volumeRadio.hint")}
+              </p>
+            </div>
+            <span className="w-10 shrink-0 text-right text-[12px] font-semibold tabular-nums text-text-secondary">
+              {Math.round(volumeRad * 100)}%
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={Math.round(volumeRad * 100)}
+              aria-label={t("settings.volumeRadio.label")}
+              onChange={(e) => {
+                const v = Number(e.target.value) / 100;
+                setVolumeRad(v);
+                definirVolume(v);
+              }}
+              // Solta o botão e ouve: escolher volume sem referência é chute, e a peça de
+              // teste é a mesma que o jogador vai ouvir na pista.
+              onMouseUp={() => falarSpotter("teste", { forcar: true })}
+              onKeyUp={() => falarSpotter("teste", { forcar: true })}
+              className="h-1.5 w-32 shrink-0 cursor-pointer appearance-none rounded-full bg-white/10 accent-accent-primary"
+            />
+          </div>
+
+          {/* Engenheiro por rádio (push-to-talk): voz, botão e microfone. Fica logo abaixo
+              da voz do spotter porque são a mesma pessoa — o que os separa é quem começa
+              a conversa. */}
+          <PttEngenheiroSettings />
 
           {/* Bandeira amarela automática — liga/desliga o disparo (a macro já foi instalada ao abrir a tela) */}
           <div

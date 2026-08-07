@@ -52,26 +52,31 @@ export function useDriverStandings(careerId, category) {
 }
 
 // ── Calendário real (para montar as edições das corridas disputadas) ──
+// Devolve `loaded` junto porque calendário vazio é ambíguo: pode ser "ainda não
+// voltou" ou "temporada sem corrida disputada" — e os dois abrem spreads
+// diferentes. Sem essa distinção a revista abre no spread errado por alguns
+// frames ao entrar na aba.
 export function useCategoryCalendar(careerId, category) {
-  const [calendar, setCalendar] = useState([]);
+  const [state, setState] = useState({ calendar: [], loaded: false });
   useEffect(() => {
     let mounted = true;
     if (!careerId || !category) {
-      setCalendar([]);
+      setState({ calendar: [], loaded: true });
       return undefined;
     }
+    setState({ calendar: [], loaded: false });
     invoke("get_calendar_for_category", { careerId, category })
       .then((rows) => {
-        if (mounted) setCalendar(Array.isArray(rows) ? rows : []);
+        if (mounted) setState({ calendar: Array.isArray(rows) ? rows : [], loaded: true });
       })
       .catch(() => {
-        if (mounted) setCalendar([]);
+        if (mounted) setState({ calendar: [], loaded: true });
       });
     return () => {
       mounted = false;
     };
   }, [careerId, category]);
-  return calendar;
+  return state;
 }
 
 // ── Rodapé "notícias do mundo": notinhas sobre ex-equipes e ex-companheiros do

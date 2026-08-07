@@ -51,6 +51,18 @@ pub fn iracing_poll_race() -> RaceStatus {
     race_monitor::poll()
 }
 
+/// O retrato da corrida NESTE instante, com as contas já fechadas: posição, quem está
+/// à frente e atrás com gap e tendência, quanto falta, saldo de combustível, dano,
+/// bandeira e pista.
+///
+/// É a superfície do engenheiro falado — quem consome redige, não calcula. Ao contrário
+/// do [`iracing_poll_race`], que é diagnóstico de batida, e do
+/// [`iracing_get_race_history`], que carrega a corrida inteira.
+#[tauri::command]
+pub fn iracing_estado_agora() -> EstadoAgora {
+    race_monitor::estado_agora()
+}
+
 /// Zera o Monitor de Corrida para começar um novo teste.
 #[tauri::command]
 pub fn iracing_reset_race() {

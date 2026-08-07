@@ -39,13 +39,31 @@ pub fn check_retirement(
     // A regra é o que o automobilismo faz de verdade: quem tem talento recebe outro assento e não
     // pendura o capacete na primeira sequência ruim; quem não tem, sai. Um fracasso deixa de ser
     // terminal para quem tem com o que voltar.
-    let temporadas_para_desistir = if skill >= 70.0 {
+    // A IDADE compra paciência junto com o talento, e os dois SOMAM porque são
+    // motivos independentes: talento dá alternativa, juventude dá tempo. O ramo
+    // não olhava idade nenhuma — um piloto de 22 anos pendurava o capacete no
+    // mesmo prazo de um de 38 —, e o harness mostrou o tamanho do buraco: das 123
+    // desistências por desmotivação em 5 carreiras × 15 temporadas, 44 (36%) eram
+    // de pilotos com menos de 29 anos, e a faixa 25–28, o auge de uma carreira,
+    // era a MAIOR de todas com 24%.
+    //
+    // Veterano desistir fecha; jovem desistir não. Quem tem carreira inteira pela
+    // frente insiste — e quando não vinga, sai pela porta que já existe para isso
+    // (o órfão ocioso, mais abaixo), não por desânimo.
+    let paciencia_por_talento = if skill >= 70.0 {
         4
     } else if skill >= 55.0 {
         3
     } else {
         2
     };
+    let paciencia_por_idade = match age {
+        ..=23 => 3,
+        24..=27 => 2,
+        28..=31 => 1,
+        _ => 0,
+    };
+    let temporadas_para_desistir = paciencia_por_talento + paciencia_por_idade;
     if driver.motivacao < 20.0 && consecutive_low_motivation_seasons >= temporadas_para_desistir {
         return RetirementResult {
             should_retire: true,
@@ -122,7 +140,15 @@ pub fn process_retirement(driver: &mut Driver) {
 /// fracos/veteranos, baixa para os bons. Uma jovem promessa (≤21 e skill ≥55) é
 /// preservada (ainda pode ser resgatada na próxima janela): chance 0.
 pub fn idle_orphan_retirement_chance(age: u32, skill: f64) -> f64 {
-    if age <= 21 && skill >= 55.0 {
+    // NINGUÉM desiste da carreira aos 22 anos por não ter achado vaga — é cedo
+    // demais, e sem assento não há o que cansar. A isenção antiga (≤21 E skill
+    // ≥55) quase nunca alcançava esta população: o harness mediu o pool de livres
+    // com idade média entre 19,5 e 23,9 e overall entre 40 e 51, ou seja, jovens
+    // DEMAIS para desistir e fracos DEMAIS para serem protegidos pelo talento.
+    //
+    // Não vira agente livre eterno porque a isenção só ADIA: o piloto envelhece
+    // dentro do pool e volta a rolar o dado ao cruzar a faixa.
+    if age <= 22 {
         return 0.0;
     }
     let base: f64 = if skill < 45.0 {
@@ -139,7 +165,16 @@ pub fn idle_orphan_retirement_chance(age: u32, skill: f64) -> f64 {
     } else {
         0.0
     };
-    (base + age_bonus).min(0.95)
+    let bruto = (base + age_bonus).min(0.95);
+    // Dos 23 aos 27 ainda se insiste: a chance existe, mas pela metade. O teto de
+    // 40 agentes livres do `closed_system_playable_world_has_no_orphans_and_drivers_raced`
+    // é o que impede afrouxar mais que isto — no draft histórico (25 anos) sobra
+    // bem menos folga que no mundo jogável.
+    if age <= 27 {
+        bruto * 0.5
+    } else {
+        bruto
+    }
 }
 
 /// Chance de uma lesão GRAVE encerrar a carreira no meio da temporada. Base baixa
@@ -188,9 +223,10 @@ mod tests {
     #[test]
     fn test_low_motivation_retirement() {
         let mut rng = StdRng::seed_from_u64(3);
-        // Idade 31: fora de qualquer faixa de aposentadoria por idade, então o único desfecho
-        // possível aqui é o desânimo — o que isola o ramo sob teste.
-        let fraco = sample_driver(31, 40.0, 10.0);
+        // Idade 33: fora de qualquer faixa de aposentadoria por idade (que começa aos 36) E
+        // fora da paciência por juventude (que zera aos 32), então o único desfecho possível
+        // aqui é o desânimo puro — o que isola o ramo sob teste.
+        let fraco = sample_driver(33, 40.0, 10.0);
 
         let result = check_retirement(&fraco, 2, false, &mut rng);
 
@@ -210,9 +246,11 @@ mod tests {
     #[test]
     fn desanimo_descarta_o_fraco_antes_do_craque() {
         let mut rng = StdRng::seed_from_u64(7);
-        let craque = sample_driver(31, 80.0, 10.0);
-        let mediano = sample_driver(31, 60.0, 10.0);
-        let fraco = sample_driver(31, 40.0, 10.0);
+        // Todos aos 33: idade onde a paciência por juventude já zerou, isolando o eixo do
+        // talento — que é o que este teste guarda.
+        let craque = sample_driver(33, 80.0, 10.0);
+        let mediano = sample_driver(33, 60.0, 10.0);
+        let fraco = sample_driver(33, 40.0, 10.0);
 
         // Duas temporadas ruins: só o fraco desiste.
         assert!(check_retirement(&fraco, 2, false, &mut rng).should_retire);
@@ -225,6 +263,34 @@ mod tests {
 
         // Quatro: nem o talento segura mais.
         assert!(check_retirement(&craque, 4, false, &mut rng).should_retire);
+    }
+
+    /// **Juventude compra paciência**, pelo mesmo motivo que o talento compra: quem
+    /// tem carreira pela frente insiste. Mesmo skill, idades diferentes — o que o
+    /// teste guarda é a ordem, não os limiares.
+    ///
+    /// O ramo de desânimo não olhava idade nenhuma, e o harness mediu o resultado:
+    /// 36% das desistências por desmotivação eram de pilotos com menos de 29 anos,
+    /// com a faixa 25–28 sendo a maior de todas.
+    #[test]
+    fn desanimo_descarta_o_veterano_antes_do_jovem() {
+        let mut rng = StdRng::seed_from_u64(11);
+        let jovem = sample_driver(22, 40.0, 10.0);
+        let em_ascensao = sample_driver(26, 40.0, 10.0);
+        let maduro = sample_driver(30, 40.0, 10.0);
+        let veterano = sample_driver(34, 40.0, 10.0);
+
+        // Duas temporadas ruins: só quem já não tem tempo pela frente desiste.
+        assert!(check_retirement(&veterano, 2, false, &mut rng).should_retire);
+        assert!(!check_retirement(&maduro, 2, false, &mut rng).should_retire);
+        assert!(!check_retirement(&em_ascensao, 2, false, &mut rng).should_retire);
+        assert!(!check_retirement(&jovem, 2, false, &mut rng).should_retire);
+
+        // O jovem aguenta mais que todos, e por margem larga.
+        assert!(check_retirement(&maduro, 3, false, &mut rng).should_retire);
+        assert!(check_retirement(&em_ascensao, 4, false, &mut rng).should_retire);
+        assert!(!check_retirement(&jovem, 4, false, &mut rng).should_retire);
+        assert!(check_retirement(&jovem, 5, false, &mut rng).should_retire);
     }
 
     fn sample_driver(age: u32, skill: f64, motivation: f64) -> Driver {
@@ -299,16 +365,24 @@ mod tests {
 
     #[test]
     fn test_idle_orphan_retirement_scales_and_protects_young_talent() {
-        // Jovem promessa (≤21 e skill ≥55): nunca forçado a aposentar.
+        // Até os 22 ninguém desiste por falta de vaga, INCLUSIVE o fraco. A proteção
+        // antiga exigia skill ≥55 e por isso não alcançava quem de fato fica livre:
+        // o pool medido tem idade média ~21 e overall ~45.
         assert_eq!(idle_orphan_retirement_chance(20, 70.0), 0.0);
-        assert_eq!(idle_orphan_retirement_chance(21, 55.0), 0.0);
+        assert_eq!(idle_orphan_retirement_chance(22, 30.0), 0.0);
         // Fraco aposenta muito mais que um bom piloto na mesma idade.
         assert!(idle_orphan_retirement_chance(25, 30.0) > idle_orphan_retirement_chance(25, 75.0));
         // A idade aumenta a chance para o mesmo skill.
         assert!(idle_orphan_retirement_chance(35, 40.0) > idle_orphan_retirement_chance(24, 40.0));
-        // Lanterna jovem (skill baixo, fora da proteção) tem chance alta — é o caso
-        // do "Oliver" depois que A+B pararem de encaixá-lo em categorias acima.
-        assert!(idle_orphan_retirement_chance(24, 28.0) >= 0.5);
+        // Dos 23 aos 27 ainda se insiste: metade da chance que o mesmo perfil teria
+        // depois dos 28. A isenção ADIA, não anula — por isso o pool não vira eterno.
+        let jovem = idle_orphan_retirement_chance(25, 30.0);
+        let maduro = idle_orphan_retirement_chance(29, 30.0);
+        assert!(jovem > 0.0, "dos 23 aos 27 a chance existe");
+        assert!(
+            jovem < maduro * 0.75,
+            "insistir aos 25 tem de custar bem menos que aos 29: {jovem} vs {maduro}"
+        );
     }
 
     #[test]

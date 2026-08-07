@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { CATEGORY_SERIES, CATEGORY_TIER_LABEL } from "./standingsLadder";
 import { categoryLabel } from "../../utils/formatters";
+import Tooltip from "../ui/Tooltip";
 
 // Cabeçalho da classificação: escolhe a SÉRIE (linha de carro) por um dropdown
 // agrupado por acesso e o TIER dentro dela pelas setas ▲▼. O estado do menu é local
@@ -75,28 +76,30 @@ function SeriesNavigator({
     <div className="flex items-center justify-between gap-4">
       <div>
         {/* Série (linha de carro): dropdown agrupado troca de linha. */}
-        <button
-          type="button"
-          ref={triggerRef}
-          onClick={toggleMenu}
-          disabled={navLocked}
-          aria-haspopup="listbox"
-          aria-expanded={menuOpen}
-          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary transition-colors hover:enabled:text-text-primary disabled:cursor-default disabled:opacity-70"
-          title={t("standings.series.changeLine")}
-        >
-          <span className="kfx whitespace-nowrap">{currentSeries.label}</span>
-          {!navLocked ? (
-            <span
-              className={[
-                "text-[9px] text-text-muted transition-transform",
-                menuOpen ? "rotate-180" : "",
-              ].join(" ")}
-            >
-              ▾
-            </span>
-          ) : null}
-        </button>
+        <Tooltip texto={t("standings.series.changeLine")}>
+          <button
+            type="button"
+            ref={triggerRef}
+            onClick={toggleMenu}
+            disabled={navLocked}
+            data-testid="series-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={menuOpen}
+            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-accent-primary transition-colors hover:enabled:text-text-primary disabled:cursor-default disabled:opacity-70"
+          >
+            <span className="kfx whitespace-nowrap">{currentSeries.label}</span>
+            {!navLocked ? (
+              <span
+                className={[
+                  "text-[9px] text-text-muted transition-transform",
+                  menuOpen ? "rotate-180" : "",
+                ].join(" ")}
+              >
+                ▾
+              </span>
+            ) : null}
+          </button>
+        </Tooltip>
         {menuOpen && menuPos && !navLocked
           ? createPortal(
               <div
@@ -177,24 +180,28 @@ function SeriesNavigator({
         {/* Tier dentro da série: setas verticais sobem/descem o nível. */}
         <div className="mt-1.5 flex items-center gap-2">
           <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={onTierUp}
-              disabled={!hasTierAbove}
-              className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-              title={t("standings.series.tierUp")}
-            >
-              ▲
-            </button>
-            <button
-              type="button"
-              onClick={onTierDown}
-              disabled={!hasTierBelow}
-              className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
-              title={t("standings.series.tierDown")}
-            >
-              ▼
-            </button>
+            <Tooltip texto={t("standings.series.tierUp")}>
+              <button
+                type="button"
+                onClick={onTierUp}
+                disabled={!hasTierAbove}
+                aria-label={t("standings.series.tierUp")}
+                className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
+              >
+                ▲
+              </button>
+            </Tooltip>
+            <Tooltip texto={t("standings.series.tierDown")}>
+              <button
+                type="button"
+                onClick={onTierDown}
+                disabled={!hasTierBelow}
+                aria-label={t("standings.series.tierDown")}
+                className="text-[10px] leading-[1.1] transition-colors disabled:cursor-default disabled:opacity-20 text-text-muted hover:enabled:text-text-primary"
+              >
+                ▼
+              </button>
+            </Tooltip>
           </div>
           <h2 className="kfx text-2xl font-semibold text-text-primary">
             {CATEGORY_TIER_LABEL[viewCategory] ?? categoryLabel(viewCategory)}

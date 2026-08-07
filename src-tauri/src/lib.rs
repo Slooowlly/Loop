@@ -166,6 +166,8 @@ mod constants;
 mod convocation;
 mod db;
 mod diagnostico;
+mod economia;
+mod engenheiro;
 mod event_interest;
 mod evolution;
 mod fame;
@@ -352,6 +354,18 @@ pub fn run() {
             // ativam sozinhos, sem toggle.
             iracing_sdk::race_monitor::start_watching();
 
+            // Spotter: põe o `app.ini` do iRacing de acordo com a preferência. Isto
+            // é RECONCILIAÇÃO, não só aplicação — se a execução anterior morreu sem
+            // devolver a voz do spotter nativo, o original guardado continua válido e
+            // volta daqui a uma sessão (ou agora, se o jogador desligou a opção).
+            // Ver `iracing_sdk::spotter_control`.
+            //
+            // Não é fatal: sem iRacing instalado o `app.ini` não existe, e isso não
+            // pode impedir o Loop de abrir.
+            if let Err(error) = iracing_sdk::spotter_control::sincronizar(config.spotter_takeover) {
+                diagnostico::linha("spotter", &format!("sincronizar no boot falhou: {error}"));
+            }
+
             // Overlays de monitor: click-through por PADRÃO (o mouse vai pro jogo).
             // Definido uma vez aqui; o hover (vigia de cursor) alterna pra arrastar.
             if let Some(overlay) = app.get_webview_window("overlay") {
@@ -409,6 +423,13 @@ pub fn run() {
                     // com o sim ainda aberto perde o bloco `history` (o dado já derivado:
                     // voltas, setores, posições) e o arquivo fica sem o trailer do gzip.
                     finalizar_captura_em_curso();
+                    // Devolve a voz do spotter nativo. Sem isto, quem fecha o Loop e vai
+                    // correr online fica sem spotter e tem que reativar à mão no iRacing.
+                    // Idempotente: `CloseRequested` e `Destroyed` chegam os dois, e o
+                    // segundo não acha mais estado guardado.
+                    if let Err(error) = iracing_sdk::spotter_control::devolver() {
+                        eprintln!("[spotter] falha ao devolver o spotter nativo: {error}");
+                    }
                     match snapshot_from_window(window) {
                         Ok(snapshot) => {
                             if let Err(error) = persist_window_snapshot(&base_dir, &snapshot) {
@@ -434,6 +455,8 @@ pub fn run() {
             commands::career_commands::load_career,
             commands::career_commands::advance_season,
             commands::career_commands::skip_all_pending_races,
+            commands::career_commands::get_season_champion_payload,
+            commands::career_commands::debug_skip_to_season_finale,
             commands::career_commands::advance_market_week,
             commands::career_commands::get_preseason_state,
             commands::career_commands::finalize_preseason,
@@ -451,6 +474,7 @@ pub fn run() {
             commands::career_commands::list_saves,
             commands::career_commands::get_drivers_by_category,
             commands::career_commands::get_teams_standings,
+            commands::career_commands::get_teams_car_parts,
             commands::career_commands::get_player_interests,
             commands::career_commands::get_team_history_dossier,
             commands::career_commands::get_team_records_ranking,
@@ -460,8 +484,11 @@ pub fn run() {
             commands::career_commands::get_calendar_for_category,
             commands::career_commands::get_driver,
             commands::career_commands::get_driver_detail,
+            commands::career_commands::get_driver_dossier_ranks,
             commands::career_commands::get_player_dossier,
+            commands::career_commands::get_displaced_driver_context,
             commands::career_commands::get_race_reading,
+            commands::career_commands::get_driver_world_rank,
             commands::career_commands::get_global_driver_rankings,
             commands::career_commands::toggle_driver_favorite,
             commands::career_commands::get_transfer_window_state,
@@ -481,9 +508,11 @@ pub fn run() {
             commands::season_preview::enrich_season_preview_ai,
             commands::race::simulate_race_weekend,
             commands::race::get_saved_race_screen,
+            commands::race::get_stage_invoice,
             commands::race::get_race_breakdowns,
             commands::iracing::get_breakdown_forecast,
             commands::iracing::get_grid_breakdown_risk,
+            commands::race::get_weekend_modifiers,
             commands::race::simulate_special_block,
             commands::iracing::iracing_read_session,
             commands::iracing::iracing_read_telemetry,
@@ -494,6 +523,21 @@ pub fn run() {
             commands::iracing::iracing_log_enviar,
             commands::iracing::iracing_player_custid,
             commands::iracing::iracing_poll_race,
+            commands::iracing::iracing_estado_agora,
+            commands::engenheiro::engenheiro_responder,
+            commands::ptt::ptt_set_gatilho,
+            commands::ptt::ptt_gatilho_atual,
+            commands::ptt::ptt_esta_apertado,
+            commands::ptt_voz::ptt_transcrever,
+            commands::ptt_voz::ptt_responder,
+            commands::ptt_voz::ptt_aquecer,
+            commands::engenheiro::engenheiro_catalogo,
+            commands::engenheiro::engenheiro_dossie,
+            commands::engenheiro::engenheiro_dossie_completo,
+            commands::engenheiro::engenheiro_classificar,
+            commands::engenheiro::engenheiro_momento_quente,
+            commands::engenheiro::engenheiro_ocasiao,
+            commands::engenheiro::voz_propria::engenheiro_voz_propria,
             commands::iracing::iracing_reset_race,
             commands::iracing::iracing_connected,
             commands::iracing::iracing_get_race_history,
@@ -531,6 +575,19 @@ pub fn run() {
             commands::iracing::iracing_arm_test_breakdown_grid,
             commands::iracing::iracing_set_auto_yellow,
             commands::iracing::iracing_auto_yellow_enabled,
+            commands::iracing::iracing_spotter_status,
+            commands::iracing::iracing_spotter_set,
+            commands::iracing::iracing_spotter_restore,
+            commands::iracing::iracing_spotter_vizinhanca,
+            commands::iracing::iracing_modo_janela_status,
+            commands::iracing::iracing_modo_janela_aplicar,
+            // POC de latência do TTS (docs/tts-poc-latencia.md). Vive fora do jogo:
+            // nenhuma tela de carreira invoca isso.
+            commands::tts_poc::tts_poc_falar,
+            commands::tts_poc::tts_poc_cancelar,
+            commands::tts_poc::tts_poc_log_registrar,
+            commands::tts_poc::tts_poc_log_ler,
+            commands::tts_poc::tts_poc_log_caminho,
             commands::window::minimize_window,
             commands::window::start_window_drag,
             commands::window::toggle_maximize_window,
@@ -581,6 +638,7 @@ pub fn run() {
             commands::overlay_window::overlay_demo_enabled,
             commands::overlay::get_overlay_data,
             commands::overlay::get_breakdown_feed,
+            commands::overlay::get_pace_feed,
             commands::overlay::overlay_demo_messages,
             commands::overlay::get_player_warnings,
             commands::overlay::iracing_chat_blocked,

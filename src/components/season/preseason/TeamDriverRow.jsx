@@ -1,7 +1,15 @@
 import { useTranslation } from "react-i18next";
+import Tooltip from "../../ui/Tooltip";
 import { formatTenureCounter } from "../preSeasonFormatters.js";
 
-export default function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot = false, accent = "#58a6ff" }) {
+export default function TeamDriverRow({
+  driverName,
+  tenureSeasons,
+  contratoVence = false,
+  aposentado = false,
+  isPrimarySlot = false,
+  accent = "#58a6ff",
+}) {
   const { t } = useTranslation();
   const isOpenSlot = !driverName;
 
@@ -27,10 +35,35 @@ export default function TeamDriverRow({ driverName, tenureSeasons, isPrimarySlot
   const pipCount = Math.min(Math.max(tenureSeasons ?? 0, 0), 5);
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
-      <div className="flex min-w-0 flex-1 items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <p className={`truncate leading-[1.1] ${isPrimarySlot ? "text-[15px] font-bold text-[color:var(--text-primary)]" : "text-[14px] font-semibold text-[color:var(--text-primary)]"}`}>
             {driverName}
         </p>
+        {/* Aposentado ainda sentado: correu a temporada inteira e pendura o capacete na
+            virada. Vem antes do contrato vencendo porque decide o assento sozinho — quem
+            se aposenta sai independentemente de quanto contrato ainda tinha. */}
+        {aposentado ? (
+          <Tooltip texto={t("preSeason.roster.retiring")}>
+            <span
+              className="shrink-0 text-[11px] leading-none"
+              aria-label={t("preSeason.roster.retiring")}
+            >
+              {"\u{1F6AA}"}
+            </span>
+          </Tooltip>
+        ) : null}
+        {/* Contrato vencendo: só aparece na foto da semana 1, quando o assento ainda
+            está ocupado mas pode sumir na virada. Depois das pré-passes o campo é falso. */}
+        {contratoVence && !aposentado && (
+          <Tooltip texto={t("preSeason.roster.contractExpiring")}>
+            <span
+              className="shrink-0 text-[11px] leading-none"
+              aria-label={t("preSeason.roster.contractExpiring")}
+            >
+              {"\u{1F4C4}"}
+            </span>
+          </Tooltip>
+        )}
       </div>
       {tenureCounter && (
         tenureCounter.isNewcomer ? (

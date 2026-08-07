@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import useCareerStore from "../../stores/useCareerStore";
+import Tooltip from "../ui/Tooltip";
 
 const buttonClass =
   "flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary transition-glass hover:bg-white/8 hover:text-text-primary";
@@ -190,15 +191,16 @@ function WindowControlsDrawer() {
               style={{ pointerEvents: isOpen ? "auto" : "none" }}
             >
               <div className="glass-strong flex items-center gap-0.5 rounded-2xl border border-white/12 px-1.5 py-1.5">
-                <div
-                  role="button"
-                  aria-label={t("windowControls.drag")}
-                  title={t("windowControls.dragHint")}
-                  onMouseDown={handleStartDrag}
-                  className={`${buttonClass} cursor-grab active:cursor-grabbing`}
-                >
-                  <span className="block text-[13px] leading-none">⠿</span>
-                </div>
+                <Tooltip texto={t("windowControls.dragHint")}>
+                  <div
+                    role="button"
+                    aria-label={t("windowControls.drag")}
+                    onMouseDown={handleStartDrag}
+                    className={`${buttonClass} cursor-grab active:cursor-grabbing`}
+                  >
+                    <span className="block text-[13px] leading-none">⠿</span>
+                  </div>
+                </Tooltip>
                 <button type="button" className={buttonClass} onClick={handleMinimize}>
                   <span className="block -translate-y-[1px] text-[11px]">&minus;</span>
                 </button>

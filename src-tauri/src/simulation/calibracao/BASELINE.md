@@ -721,6 +721,10 @@ atributos em correlacionados com o skill (`consistencia` ±10, `racecraft` ±8, 
 `smoothness` = 100 − `aggression` ±10. **Sete atributos saíam do talento aqui quando no jogo são
 livres** — e eram exatamente os eixos que D e G fortaleceram.
 
+> As faixas acima são as de quando este baseline foi medido. Os eixos de estilo foram alargados
+> depois (`aggression` 20–85, `confianca` 35–75) para o espectro deixar de nascer todo no meio; o
+> efeito no agregado foi nulo — nenhuma métrica saiu ou entrou de faixa por causa disso.
+
 E um erro na direção oposta, que o relato não previu: a `consistencia`, que o jogo AMARRA ao skill,
 estava solta aqui. O teste `campo_nao_e_uma_escada_perfeita` exigia ρ < 0,75 — ele estava
 asseverando o bug.

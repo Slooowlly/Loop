@@ -25,6 +25,10 @@ impl RaceMonitor {
         self.breakdown_log.clear();
         self.player_risk_warned = [false; 11];
         self.player_warning_log.clear();
+        self.poupar_avisado = false;
+        self.ritmo.reiniciar();
+        self.ritmo_log.clear();
+        self.ritmo_ultima_volta = -1;
         self.attempts.push(Attempt {
             number: self.current_attempt,
             status: "active".to_string(),

@@ -14,9 +14,9 @@
 use crate::finance::planning::category_finance_scale;
 
 /// Fração do custo operacional médio paga ao ÚLTIMO colocado.
-const PRIZE_BASE_FACTOR: f64 = 0.15;
+pub(crate) const PRIZE_BASE_FACTOR: f64 = 0.15;
 /// Fração adicional concedida linearmente até o 1º colocado.
-const PRIZE_SLOPE_FACTOR: f64 = 0.50;
+pub(crate) const PRIZE_SLOPE_FACTOR: f64 = 0.50;
 
 /// Prêmio de construtores (em dinheiro do jogo) para uma equipe que terminou
 /// em `position` (1 = campeão) num grupo de campeonato com `grid_size` equipes.
@@ -24,6 +24,26 @@ const PRIZE_SLOPE_FACTOR: f64 = 0.50;
 /// Escala pela categoria: categorias mais caras pagam prêmios maiores, na mesma
 /// proporção em que seus custos são maiores.
 pub fn constructor_prize(category: &str, position: i32, grid_size: i32) -> f64 {
+    constructor_prize_with(
+        category,
+        position,
+        grid_size,
+        PRIZE_BASE_FACTOR,
+        PRIZE_SLOPE_FACTOR,
+    )
+}
+
+/// Igual a [`constructor_prize`], com os dois fatores explícitos. Existe para o harness de
+/// calibração (`commands::race::tests::medicao_financeira`) varrer o peso do prêmio de
+/// fechamento sem recompilar — a produção usa as constantes acima. Mesmo padrão de
+/// [`crate::car::crash::apply_contact_wear_with`].
+pub fn constructor_prize_with(
+    category: &str,
+    position: i32,
+    grid_size: i32,
+    base_factor: f64,
+    slope_factor: f64,
+) -> f64 {
     if grid_size <= 0 || position <= 0 || position > grid_size {
         return 0.0;
     }
@@ -37,7 +57,7 @@ pub fn constructor_prize(category: &str, position: i32, grid_size: i32) -> f64 {
         (grid_size - position) as f64 / (grid_size - 1) as f64
     };
 
-    operating * (PRIZE_BASE_FACTOR + PRIZE_SLOPE_FACTOR * frac)
+    operating * (base_factor + slope_factor * frac)
 }
 
 #[cfg(test)]

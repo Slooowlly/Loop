@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../ui/Tooltip";
+
 function StepIndicator({ currentStep, steps }) {
   const { t } = useTranslation();
   return (
@@ -31,15 +33,16 @@ function StepIndicator({ currentStep, steps }) {
                   style={{ width: isDone ? "100%" : isActive ? "72%" : "24%" }}
                 />
               </div>
-              <p
-                className={[
-                  "truncate text-[10px] uppercase tracking-[0.18em]",
-                  isActive ? "text-text-primary" : "text-text-secondary",
-                ].join(" ")}
-                title={step}
-              >
-                {step}
-              </p>
+              <Tooltip texto={step} soSeCortado>
+                <p
+                  className={[
+                    "truncate text-[10px] uppercase tracking-[0.18em]",
+                    isActive ? "text-text-primary" : "text-text-secondary",
+                  ].join(" ")}
+                >
+                  {step}
+                </p>
+              </Tooltip>
             </div>
           );
         })}

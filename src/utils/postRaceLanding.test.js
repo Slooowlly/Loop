@@ -62,22 +62,19 @@ describe("resolvePostRaceLanding", () => {
     expect(resolvePostRaceLanding(CAREER, 1, false).tab).toBe(NEWS_TAB);
   });
 
-  it("no final de campeonato força Notícias sem avaliar nem mudar o modo", () => {
-    // Leva para Home.
-    resolvePostRaceLanding(CAREER, 1, false);
-    recordNewsSkip(CAREER, 1);
-    recordNewsSkip(CAREER, 1);
-    recordNewsSkip(CAREER, 1);
-    expect(resolvePostRaceLanding(CAREER, 1, false).tab).toBe(HOME_TAB);
+  it("no final de campeonato força Home sem avaliar nem mudar o modo", () => {
+    // Modo Notícias firmado (carreira nova).
+    expect(resolvePostRaceLanding(CAREER, 1, false).tab).toBe(NEWS_TAB);
 
-    // Final de campeonato: Notícias forçada, sem avaliação.
+    // Final de campeonato: Home forçada (é onde o pop-up de campeão abre), sem
+    // avaliação — o override não conta como leitura nem como pulo.
     expect(resolvePostRaceLanding(CAREER, 1, true)).toEqual({
-      tab: NEWS_TAB,
+      tab: HOME_TAB,
       evaluate: false,
     });
 
-    // Não firmou nada: corrida regular seguinte volta a cair em Home.
-    expect(resolvePostRaceLanding(CAREER, 1, false).tab).toBe(HOME_TAB);
+    // Não mexeu no aprendizado: a corrida regular seguinte volta a cair em Notícias.
+    expect(resolvePostRaceLanding(CAREER, 1, false).tab).toBe(NEWS_TAB);
   });
 
   it("na virada de temporada, vindo de Home, tenta Notícias com tolerância 2", () => {

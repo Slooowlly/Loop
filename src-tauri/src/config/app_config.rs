@@ -50,6 +50,13 @@ fn modo_vr_padrao() -> String {
     "auto".to_string()
 }
 
+/// Padrão do `spotter_takeover`. Função porque `#[serde(default)]` de bool daria
+/// `false`, e um `config.json` gravado antes desta chave existir viria com o Loop
+/// mudo — o oposto da intenção.
+fn spotter_padrao() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -91,6 +98,17 @@ pub struct AppConfig {
     #[serde(default)]
     pub monitor_overlay_in_vr: bool,
 
+    /// O Loop assume o papel de spotter, calando o nativo do iRacing (`voice` e
+    /// `text` da seção `[SPCC]` do `app.ini`) enquanto está aberto.
+    ///
+    /// Padrão LIGADO: duas vozes falando por cima uma da outra é pior que uma, e a
+    /// voz que o jogador escolheu ao instalar o Loop é a do Loop.
+    ///
+    /// O `app.ini` é devolvido ao fechar — ver
+    /// [`crate::iracing_sdk::spotter_control`]. Desligar aqui devolve na hora.
+    #[serde(default = "spotter_padrao")]
+    pub spotter_takeover: bool,
+
     // Window state
     pub window_width: u32,
     pub window_height: u32,
@@ -113,6 +131,7 @@ impl Default for AppConfig {
             telemetry_enabled: None,
             vr_overlay_mode: modo_vr_padrao(),
             monitor_overlay_in_vr: false,
+            spotter_takeover: spotter_padrao(),
             window_width: 1280,
             window_height: 720,
             window_maximized: false,

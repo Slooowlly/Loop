@@ -66,6 +66,10 @@ pub struct TeamFinanceHistoryEntry {
     pub partial_prize_income: f64,
     pub aid_income: f64,
     pub salary_expense: f64,
+    /// As OITO linhas físicas da despesa desta rodada. `event_operations_cost` é a soma das
+    /// sete de etapa e `structural_maintenance_cost` é `linhas.estrutura` — os agregados
+    /// continuam gravados porque o resto do jogo os lê, mas saíram da mesma origem.
+    pub linhas: crate::finance::cashflow::LinhasDaDespesa,
     pub event_operations_cost: f64,
     pub structural_maintenance_cost: f64,
     pub technical_investment_cost: f64,
@@ -96,13 +100,19 @@ pub fn insert_team_finance_history(
         "INSERT OR REPLACE INTO team_finance_history (
             team_id, season_number, round, category,
             sponsorship_income, gate_income, result_bonus, partial_prize_income, aid_income,
-            salary_expense, event_operations_cost, structural_maintenance_cost,
+            salary_expense,
+            custo_combustivel, custo_pneus, custo_desgaste_de_peca, custo_frete,
+            custo_viagem_e_estadia, custo_inscricao, custo_diarias, custo_estrutura,
+            event_operations_cost, structural_maintenance_cost,
             technical_investment_cost, debt_service_cost,
             income_total, expenses_total, net, cash_balance, debt_balance
         ) VALUES (
             :team_id, :season_number, :round, :category,
             :sponsorship_income, :gate_income, :result_bonus, :partial_prize_income, :aid_income,
-            :salary_expense, :event_operations_cost, :structural_maintenance_cost,
+            :salary_expense,
+            :custo_combustivel, :custo_pneus, :custo_desgaste_de_peca, :custo_frete,
+            :custo_viagem_e_estadia, :custo_inscricao, :custo_diarias, :custo_estrutura,
+            :event_operations_cost, :structural_maintenance_cost,
             :technical_investment_cost, :debt_service_cost,
             :income_total, :expenses_total, :net, :cash_balance, :debt_balance
         )",
@@ -117,6 +127,14 @@ pub fn insert_team_finance_history(
             ":partial_prize_income": context.partial_prize_income,
             ":aid_income": context.aid_income,
             ":salary_expense": context.salary_expense,
+            ":custo_combustivel": context.linhas.combustivel,
+            ":custo_pneus": context.linhas.pneus,
+            ":custo_desgaste_de_peca": context.linhas.desgaste_de_peca,
+            ":custo_frete": context.linhas.frete,
+            ":custo_viagem_e_estadia": context.linhas.viagem_e_estadia,
+            ":custo_inscricao": context.linhas.inscricao,
+            ":custo_diarias": context.linhas.diarias,
+            ":custo_estrutura": context.linhas.estrutura,
             ":event_operations_cost": context.event_operations_cost,
             ":structural_maintenance_cost": context.structural_maintenance_cost,
             ":technical_investment_cost": context.technical_investment_cost,
@@ -144,7 +162,9 @@ pub fn get_team_finance_history_recent(
                 salary_expense, event_operations_cost, structural_maintenance_cost,
                 technical_investment_cost, debt_service_cost,
                 income_total, expenses_total, net, cash_balance, debt_balance,
-                constructor_prize_income, gate_income
+                constructor_prize_income, gate_income,
+                custo_combustivel, custo_pneus, custo_desgaste_de_peca, custo_frete,
+                custo_viagem_e_estadia, custo_inscricao, custo_diarias, custo_estrutura
          FROM team_finance_history
          WHERE team_id = ?1
          ORDER BY season_number DESC, round DESC
@@ -171,6 +191,16 @@ pub fn get_team_finance_history_recent(
             debt_balance: row.get(16)?,
             constructor_prize_income: row.get(17)?,
             gate_income: row.get(18)?,
+            linhas: crate::finance::cashflow::LinhasDaDespesa {
+                combustivel: row.get(19)?,
+                pneus: row.get(20)?,
+                desgaste_de_peca: row.get(21)?,
+                frete: row.get(22)?,
+                viagem_e_estadia: row.get(23)?,
+                inscricao: row.get(24)?,
+                diarias: row.get(25)?,
+                estrutura: row.get(26)?,
+            },
         })
     })?;
     let mut entries = Vec::new();

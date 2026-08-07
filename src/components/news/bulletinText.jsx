@@ -56,14 +56,39 @@ export function renderBulletinParagraph(text, mentionDrivers, teams, hoveredDriv
   });
 }
 
+// Quebra o corpo da matéria em parágrafos crus (sem renderizar) — quem precisa
+// distribuir o texto entre as páginas do spread parte daqui.
+export function splitBulletinParagraphs(body) {
+  return (body || "")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+// Renderiza uma lista de parágrafos já separada. `keyPrefix` evita colisão de key
+// quando a mesma matéria é renderizada em dois blocos (esquerda e continuação).
+export function renderBulletinParagraphs(
+  paragraphs,
+  mentionDrivers,
+  teams,
+  hoveredDriverId,
+  onHover,
+  keyPrefix = "p",
+) {
+  return paragraphs.map((para, i) => (
+    <p key={`${keyPrefix}-${i}`}>
+      {renderBulletinParagraph(para, mentionDrivers, teams, hoveredDriverId, onHover)}
+    </p>
+  ));
+}
+
 // Quebra o corpo da matéria em parágrafos e renderiza cada um com as duas camadas.
 export function renderBulletinBody(body, mentionDrivers, teams, hoveredDriverId, onHover) {
-  return body
-    .split(/\n\s*\n/)
-    .filter(Boolean)
-    .map((para, i) => (
-      <p key={i}>
-        {renderBulletinParagraph(para, mentionDrivers, teams, hoveredDriverId, onHover)}
-      </p>
-    ));
+  return renderBulletinParagraphs(
+    splitBulletinParagraphs(body),
+    mentionDrivers,
+    teams,
+    hoveredDriverId,
+    onHover,
+  );
 }

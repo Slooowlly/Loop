@@ -10,6 +10,22 @@ pub struct GlobalDriverRankingPayload {
     pub leaders: GlobalDriverRankingLeaders,
 }
 
+/// A posição de UM piloto no ranking mundial, para a ficha.
+///
+/// A tabela global manda 200+ linhas com títulos por categoria aninhados dentro;
+/// a ficha precisa de quatro números. O índice sai da MESMA régua e da mesma
+/// ordenação do painel completo — se a ficha calculasse o seu próprio, os dois
+/// números discordariam na primeira vez que a régua mudasse.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriverWorldRank {
+    pub indice: f64,
+    pub posicao: i32,
+    /// Quantos pilotos entram na conta — o denominador de "12º de 240".
+    pub total: i32,
+    /// Quantas posições ele subiu (+) ou caiu (-) desde a última corrida.
+    pub delta: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalDriverRankingLeaders {
     pub historical_index_driver_id: Option<String>,

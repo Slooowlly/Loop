@@ -3,7 +3,6 @@ pub mod economy;
 pub mod events;
 pub mod focus;
 pub mod morale;
-pub mod operacao;
 pub mod planning;
 pub mod prize;
 pub mod reputation;

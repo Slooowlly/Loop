@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::imp;
-use super::{DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry};
+use super::{DiagnosticoIracing, IracingError, IracingSession, IracingTelemetry, VarDoSdk};
 
 /// Quantos ticks de telemetria o sampler já observou desde o boot.
 ///
@@ -44,6 +44,16 @@ pub fn read_session() -> Result<IracingSession, IracingError> {
 /// [`IracingError::NotRunning`] se o sim não estiver aberto.
 pub fn read_telemetry() -> Result<IracingTelemetry, IracingError> {
     imp::read_telemetry()
+}
+
+/// Inventário do que o SDK publica nesta build: nome, tipo, quantidade, unidade e
+/// descrição de cada variável, como o próprio cabeçalho as declara.
+///
+/// Não serve à lógica do jogo — vai para a captura de corrida. É a única forma de
+/// distinguir "esse canal não existe nesta versão do iRacing" de "esse canal existe e
+/// vem zerado", que da telemetria pura são indistinguíveis.
+pub fn read_var_inventory() -> Result<Vec<VarDoSdk>, IracingError> {
+    imp::read_var_inventory()
 }
 
 /// Dispara um MACRO de chat do iRacing (1-15) via broadcast do Windows. O texto

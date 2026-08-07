@@ -9,6 +9,7 @@ pub(super) fn build_current_driver_entry(
     team_title_stats_by_driver: &TeamTitleStatsByDriver,
     team_lookup: &TeamLookup,
     real_career: &RealCareerIndex,
+    arquivo: &Arquivo,
 ) -> Result<RankingEntry, String> {
     let contract = contract_queries::get_active_regular_contract_for_pilot(conn, &driver.id)
         .map_err(|e| format!("Falha ao buscar contrato regular ativo do piloto: {e}"))?;
@@ -21,12 +22,14 @@ pub(super) fn build_current_driver_entry(
         .as_ref()
         .and_then(|value| regular_category(Some(&value.categoria), value.classe.as_deref()))
         .or_else(|| regular_category(driver.categoria_atual.as_deref(), None));
+    let linhas_do_arquivo = arquivo.linhas(&driver.id);
     let stats_by_category = load_driver_category_stats(
         conn,
         driver,
         category.as_deref(),
         team_title_stats_by_driver,
         real_career,
+        arquivo,
     )?;
     let historical_index = compute_historical_index(&stats_by_category);
     let injuries = injury_queries::count_injuries_by_severity_for_pilot(conn, &driver.id)
@@ -47,12 +50,12 @@ pub(super) fn build_current_driver_entry(
         category.as_deref(),
         &extra_historical_categories,
     );
-    let debut_year = active_driver_debut_year(conn, driver, current_year)?;
+    let debut_year = active_driver_debut_year(driver, current_year, linhas_do_arquivo);
     let career_years = active_driver_career_years(driver, &total, debut_year, current_year);
 
     let fama = driver.atributos.midia.clamp(0.0, 100.0).round() as i32;
     let carisma = driver.atributos.carisma.clamp(0.0, 100.0).round() as i32;
-    let fama_delta = latest_archived_media(conn, &driver.id)?
+    let fama_delta = latest_archived_media(linhas_do_arquivo)
         .map(|previous| fama - previous.clamp(0.0, 100.0).round() as i32)
         .filter(|delta| *delta != 0);
 

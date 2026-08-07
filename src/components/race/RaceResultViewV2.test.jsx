@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+
+import { porTooltip, todosPorTooltip } from "../../test/tooltip";
 import { invoke } from "@tauri-apps/api/core";
 
 import RaceResultViewV2 from "./RaceResultViewV2";
@@ -140,7 +142,7 @@ describe("RaceResultViewV2 — quebra de peça no debrief", () => {
   });
 
   /// O marcador de quebra da linha de um piloto, achado pelo tooltip (que é único por piloto).
-  const marcador = (trechoDoTooltip) => screen.getAllByTitle(trechoDoTooltip)[0];
+  const marcador = (trechoDoTooltip) => porTooltip(trechoDoTooltip);
 
   it("põe o custo da quebra na linha do piloto, não num painel à parte", async () => {
     mockInvoke({ breakdowns: BREAKDOWNS });
@@ -161,7 +163,7 @@ describe("RaceResultViewV2 — quebra de peça no debrief", () => {
     renderView();
 
     await waitFor(() => expect(marcador(/Câmbio/)).toBeInTheDocument());
-    const tooltip = marcador(/Câmbio/).getAttribute("title");
+    const tooltip = marcador(/Câmbio/).getAttribute("data-tooltip");
     expect(tooltip).toContain("V12 · Câmbio");
     // O backend manda em minúscula (a frase entra no meio da notícia); a tela sobe a inicial.
     expect(tooltip).toContain("Câmbio perdeu a 3ª marcha");
@@ -184,7 +186,7 @@ describe("RaceResultViewV2 — quebra de peça no debrief", () => {
     // Título EXATO: o badge da posição, não o marcador de quebra (que também diz "DNF" e
     // carrega o tooltip longo com peça e volta).
     await waitFor(() =>
-      expect(screen.getByTitle("Motor fundiu por superaquecimento")).toHaveTextContent("DNF"),
+      expect(porTooltip("Motor fundiu por superaquecimento")).toHaveTextContent("DNF"),
     );
   });
 
@@ -228,7 +230,7 @@ describe("RaceResultViewV2 — quebra de peça no debrief", () => {
     // A régua já renderizou (prova que a tela montou), e nada de quebra aparece.
     await waitFor(() => expect(screen.getByText("incidentes")).toBeInTheDocument());
     expect(screen.queryByText("perdido no box")).not.toBeInTheDocument();
-    expect(screen.queryAllByTitle(/V\d+ ·/)).toHaveLength(0);
+    expect(todosPorTooltip(/V\d+ ·/)).toHaveLength(0);
   });
 });
 

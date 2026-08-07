@@ -15,9 +15,10 @@ pub struct WearConditions {
     pub track_pha: (f64, f64, f64),
     /// Clima da rodada (mesma `WeatherStory` que o iRacing roda).
     pub weather: crate::car::breakdown::Weather,
-    /// Duração da corrida (min) da categoria. Acima do gate de enduro, o desgaste de peça (→
+    /// Duração REAL da etapa (min) — `CalendarEntry::duracao_corrida_min`, não a constante da
+    /// categoria (que vale 0 no Endurance). Acima do gate de enduro, o desgaste de peça (→
     /// custo) sobe pra grade toda; parada real alivia. Sprint (≤ gate) → sem efeito.
-    pub duracao_min: u8,
+    pub duracao_min: u16,
 }
 
 impl WearConditions {
@@ -31,11 +32,11 @@ impl WearConditions {
         }
     }
 
-    /// Resolve a partir da pista corrida + clima da rodada + duração da categoria.
+    /// Resolve a partir da pista corrida + clima da rodada + duração REAL da etapa.
     pub fn from_race(
         track_id: u32,
         weather: crate::car::breakdown::Weather,
-        duracao_min: u8,
+        duracao_min: u16,
     ) -> Self {
         Self {
             track_pha: maintenance_demand(&[track_id]),
@@ -114,11 +115,18 @@ pub fn maintain_team_car_pits(
             .unwrap_or_else(|| seed_car(&team.car_category_key(), 0.5)),
     };
 
-    // Um carro NUNCA pode estar acima do teto da EQUIPE (classe + natureza) — regride a ele
-    // ao entrar na categoria. Sem isto, um time REBAIXADO carregaria o carro alto da
-    // categoria anterior pra sempre (Replace mantém o nível; o teto só bloqueia upgrade,
-    // não reposição), e uma privateer promovida manteria o nível de fábrica.
-    let ceiling = team.car_ceiling();
+    // Um carro NUNCA pode estar acima do que a categoria da EQUIPE admite (classe + natureza)
+    // — regride a ele ao entrar na categoria. Sem isto, um time REBAIXADO carregaria o carro
+    // alto da categoria anterior pra sempre (Replace mantém o nível; o teto só bloqueia
+    // upgrade, não reposição), e uma privateer promovida manteria o nível de fábrica.
+    //
+    // O corte é no teto de DESENVOLVIMENTO, não no natural: acima do teto natural existe a
+    // parede, que é território legítimo de quem sangra dinheiro (design §6). Cortar no natural
+    // fazia o clamp desfazer, na corrida seguinte, todo upgrade que a parede permitisse — era
+    // o segundo lugar onde a parede virava cap rígido. Quem chega rebaixado com um carro alto
+    // ainda cai para o topo da parede da categoria nova, e passa a pagar a reposição daquele
+    // nível numa economia menor: o carro herdado vira despesa, não privilégio.
+    let ceiling = crate::car::cost::development_ceiling(team.car_ceiling());
     for part in car.parts.iter_mut() {
         if part.level > ceiling {
             part.level = ceiling;
@@ -164,8 +172,7 @@ pub fn maintain_team_car_pits(
     // Cota de DESENVOLVIMENTO desta corrida: conta as etapas que ainda restam na temporada
     // (a lista INTEIRA, não a cortada pelo horizonte — a cadência é do calendário, não da
     // miopia do time). Fora da janela o time faz manutenção e não sobe nível nenhum.
-    let max_upgrades =
-        upgrades_permitidos_nesta_corrida(&team.id, all_upcoming_track_ids.len());
+    let max_upgrades = upgrades_permitidos_nesta_corrida(&team.id, all_upcoming_track_ids.len());
 
     let mut plan = decide_car_maintenance(team, &car, category_id, window, Some(max_upgrades));
     // Grave/DNF = troca OBRIGATÓRIA, mesmo se o cérebro não teve caixa (nem sempre por Replace: o

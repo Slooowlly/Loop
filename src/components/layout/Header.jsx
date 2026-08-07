@@ -19,6 +19,7 @@ import { trackCountryLabel } from "../../utils/trackCountry";
 import { CLIMA_BANNER, weatherEmoji, weatherLabel as climaLabel } from "../../utils/weather";
 import GlassButton from "../ui/GlassButton";
 import FlagIcon from "../ui/FlagIcon";
+import Tooltip from "../ui/Tooltip";
 import TeamLogoMark from "../team/TeamLogoMark";
 import TabNavigation from "./TabNavigation";
 
@@ -43,6 +44,11 @@ function Header({ activeTab, onTabChange }) {
   const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
   const closeRaceBriefing = useCareerStore((state) => state.closeRaceBriefing);
   const [seasonChampion, setSeasonChampion] = useState(null);
+  // Temporada cujo "Avançar" já desviou pelas Notícias. Só no FIM DO CAMPEONATO o
+  // botão gasta um clique levando o jogador ao fechamento do ano antes de abrir o
+  // mercado — sem isso, quem vem no piloto automático pula as notícias de
+  // encerramento sem ver. Um clique por temporada; o segundo avança de verdade.
+  const [newsDetourSeason, setNewsDetourSeason] = useState(null);
   // Banner da PRÓXIMA corrida de uma categoria que NÃO é a do jogador (o jogador
   // trocou de série/tier na tabela da Home). `null` quando estamos na categoria do
   // jogador (o banner usa `nextRace` do store). { race, totalRodadas, countdownDays,
@@ -69,6 +75,20 @@ function Header({ activeTab, onTabChange }) {
     !isFreeAgent &&
     hasPendingLegacyRegularRaces
   );
+  // O clique que encerra o ano e abre o mercado. É o único que ganha o desvio de
+  // uma volta pelas Notícias (ver `newsDetourSeason`).
+  const isSeasonEndAdvance =
+    !canAdvanceCalendar &&
+    !isFreeAgent &&
+    !isLegacyPhase &&
+    (phase === "Encerramento" || (hasNoPendingRace && phase === "Temporada"));
+  // Quem já está na aba de Notícias não precisa ser levado até lá — o desvio existe
+  // para quem avançaria sem passar por elas.
+  const seasonEndNeedsNewsDetour =
+    isSeasonEndAdvance &&
+    season?.numero != null &&
+    newsDetourSeason !== season.numero &&
+    activeTab !== "news";
   // No Home (standings), com uma corrida marcada, o botão "Avançar calendário"
   // vive DENTRO do banner cinematográfico — então escondemos o duplicado da barra
   // superior (deixando só o cartão de data à direita). Nos demais casos/abas, o
@@ -191,6 +211,14 @@ function Header({ activeTab, onTabChange }) {
 
   async function handleAdvanceSeason() {
     try {
+      // Fim do campeonato: o primeiro clique só leva às Notícias do encerramento.
+      // O jogador volta a clicar em "Avançar" e aí sim entra no mercado.
+      if (seasonEndNeedsNewsDetour) {
+        setNewsDetourSeason(season.numero);
+        onTabChange?.("news");
+        return;
+      }
+
       if (isFreeAgent && hasNoPendingRace) {
         await skipAllPendingRaces?.();
         return;
@@ -220,6 +248,11 @@ function Header({ activeTab, onTabChange }) {
 
     if (canAdvanceCalendar) {
       return t("nav.advance.calendar");
+    }
+
+    // O clique do desvio anuncia o que faz: ler o fechamento do ano, não avançar.
+    if (seasonEndNeedsNewsDetour) {
+      return t("nav.advance.seasonNews");
     }
 
     if (isFreeAgent && hasNoPendingRace) {
@@ -260,22 +293,23 @@ function Header({ activeTab, onTabChange }) {
         <div className="mx-auto flex w-full max-w-[1680px] items-center">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {!showRaceBriefing && (
-              <button
-                type="button"
-                onClick={() => setLeaveConfirm(true)}
-                className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
-                title={t("nav.exitToMenu")}
-              >
-                <img
-                  src="/utilities/Logo%20sem%20fundo.webp"
-                  alt="LOOP"
-                  data-testid="header-app-logo"
-                  className="h-7 w-auto shrink-0 object-contain"
-                />
-                <span className="kfx relative -top-[1px] truncate text-base font-black uppercase tracking-[0.16em] text-text-primary">
-                  LOOP
-                </span>
-              </button>
+              <Tooltip texto={t("nav.exitToMenu")}>
+                <button
+                  type="button"
+                  onClick={() => setLeaveConfirm(true)}
+                  className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
+                >
+                  <img
+                    src="/utilities/Logo%20sem%20fundo.webp"
+                    alt="LOOP"
+                    data-testid="header-app-logo"
+                    className="h-7 w-auto shrink-0 object-contain"
+                  />
+                  <span className="kfx relative -top-[1px] truncate text-base font-black uppercase tracking-[0.16em] text-text-primary">
+                    LOOP
+                  </span>
+                </button>
+              </Tooltip>
             )}
           </div>
 
@@ -491,10 +525,9 @@ function NextRaceBanner({
                 : i18n.t("raceBanner.raceN", { round: nextRace.rodada })}
             </p>
 
-            <h2
-              className="mt-2 break-words text-[clamp(1.9rem,4vw,2.9rem)] font-extrabold uppercase leading-[1.02] tracking-[-0.01em] text-white [text-shadow:0_2px_18px_rgba(0,0,0,0.55)]"
-              title={trackName}
-            >
+            {/* Sem tooltip: o nome quebra linha em vez de cortar, então o balão
+                só repetiria em miúdo o que já está em 2,9rem na tela. */}
+            <h2 className="mt-2 break-words text-[clamp(1.9rem,4vw,2.9rem)] font-extrabold uppercase leading-[1.02] tracking-[-0.01em] text-white [text-shadow:0_2px_18px_rgba(0,0,0,0.55)]">
               {trackName}
             </h2>
 

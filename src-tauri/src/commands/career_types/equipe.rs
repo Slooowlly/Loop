@@ -83,6 +83,29 @@ pub struct TeamSummary {
     pub presenca_publica: f64,
 }
 
+/// As 11 peças do carro de UMA equipe, em nível bruto (1–10).
+///
+/// Existe porque `TeamStanding.car_level` é a MÉDIA das onze — e média esconde
+/// exatamente o que o comparativo precisa mostrar: duas equipes em "Nível 4" podem
+/// ter chassis 9 / motor 1 e chassis 4 / motor 4. O desgaste não vem junto de
+/// propósito: aqui a pergunta é o investimento da equipe, não o estado da unidade
+/// instalada nesta etapa.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamCarParts {
+    pub team_id: String,
+    pub nome: String,
+    pub nome_curto: String,
+    pub cor_primaria: String,
+    /// Chave estável da peça (`chassis`, `engine`, …) na ordem de `PartType::ALL`.
+    pub parts: Vec<TeamCarPartLevel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamCarPartLevel {
+    pub key: String,
+    pub level: u8,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamStanding {
     pub posicao: i32,
@@ -107,10 +130,30 @@ pub struct TeamStanding {
     pub founded_year: i32,
     pub pontos: i32,
     pub vitorias: i32,
+    /// Id do ocupante de cada assento. O nome já basta para desenhar a linha; o id é
+    /// o que deixa o grid ABRIR o piloto — a ficha rápida do card pede o dossiê por
+    /// id, e sem ele o nome no grid seria o único lugar do mercado onde clicar num
+    /// piloto não leva a lugar nenhum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub piloto_1_id: Option<String>,
     pub piloto_1_nome: Option<String>,
     pub piloto_1_tenure_seasons: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub piloto_2_id: Option<String>,
     pub piloto_2_nome: Option<String>,
     pub piloto_2_tenure_seasons: Option<i32>,
+    /// Contrato do ocupante termina nesta virada. Só é verdadeiro na semana 1 da janela
+    /// (a foto, antes de as pré-passes expirarem os contratos); fora dela vem falso.
+    #[serde(default)]
+    pub piloto_1_contrato_vence: bool,
+    #[serde(default)]
+    pub piloto_2_contrato_vence: bool,
+    /// Ocupante já aposentado, ainda no assento porque a semana 1 é a foto do fim da
+    /// temporada. Ele desocupa na semana 2, com evento no feed.
+    #[serde(default)]
+    pub piloto_1_aposentado: bool,
+    #[serde(default)]
+    pub piloto_2_aposentado: bool,
     pub trofeus: Vec<TrophyInfo>,
     pub classe: Option<String>,
     pub temp_posicao: i32,
@@ -123,6 +166,14 @@ pub struct TeamStanding {
     pub historico_podios: i32,
     #[serde(default)]
     pub historico_titulos_construtores: i32,
+    /// Títulos e vitórias da equipe NA CATEGORIA em que ela corre agora (soma do
+    /// arquivo de temporadas / dos resultados). O acumulado de carreira acima mistura
+    /// escalões: uma equipe com 5 títulos de Mazda Rookie apareceria no grid do GT3
+    /// como pentacampeã, o que não diz nada sobre o assento que o jogador está olhando.
+    #[serde(default)]
+    pub categoria_titulos: i32,
+    #[serde(default)]
+    pub categoria_vitorias: i32,
 }
 
 /// Resposta do comando `get_team_finance_report`: a divisão financeira REAL da equipe,
@@ -148,8 +199,13 @@ pub struct TeamFinanceReport {
     pub grid_size: i32,
 }
 
-/// As 9 linhas reais de receita/despesa + totais. Serve tanto para a última rodada
-/// quanto para o acumulado da temporada.
+/// As linhas reais de receita/despesa + totais. Serve tanto para a última rodada quanto
+/// para o acumulado da temporada.
+///
+/// A DESPESA vem decomposta nas oito linhas físicas que o caixa debitou — a mesma forma
+/// que a fatura do pós-corrida mostra. Os agregados `event_operations_cost` e
+/// `structural_maintenance_cost` continuam aqui porque a tela ainda os lê, e são a soma
+/// das linhas: não existe número neste struct que tenha vindo de uma segunda conta.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TeamFinanceRound {
     pub season_number: i32,
@@ -162,6 +218,18 @@ pub struct TeamFinanceRound {
     pub partial_prize_income: f64,
     pub aid_income: f64,
     pub salary_expense: f64,
+    // ── As oito linhas físicas da despesa ────────────────────────────────────────────
+    pub custo_combustivel: f64,
+    pub custo_pneus: f64,
+    /// Revisão mecânica amortizada por quilômetro — não é a compra de peça de reposição,
+    /// que continua em `technical_investment_cost`.
+    pub custo_desgaste_de_peca: f64,
+    pub custo_frete: f64,
+    pub custo_viagem_e_estadia: f64,
+    pub custo_inscricao: f64,
+    pub custo_diarias: f64,
+    /// Rateio desta rodada nos recorrentes do ano, sem a folha de pilotos.
+    pub custo_estrutura: f64,
     pub event_operations_cost: f64,
     pub structural_maintenance_cost: f64,
     pub technical_investment_cost: f64,
@@ -381,9 +449,48 @@ pub struct TeamHistoryChampionshipLine {
 pub struct TeamHistoryMovement {
     pub promotions: i32,
     pub relegations: i32,
+    /// A mesma repartição de `time_lines`, achatada numa linha. Só o v1 lê.
     pub time_by_category: String,
-    pub best_category: String,
-    pub hardest_category: String,
+    /// Categoria mais alta que a equipe alcançou.
+    pub peak_category: String,
+    /// Onde ela passou mais temporadas. Substituem "melhor / mais difícil
+    /// categoria", que saíam da taxa de vitória e empatavam entre si em quem
+    /// correu numa categoria só.
+    pub home_category: String,
+    pub time_lines: Vec<TeamHistoryCategoryTime>,
+    /// A escada INTEIRA do recorte, pisada ou não — a pirâmide.
+    pub ladder: Vec<TeamHistoryLadderRung>,
+}
+
+/// Quanto tempo a equipe passou numa categoria e o que fez lá, somando as idas.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryCategoryTime {
+    pub category: String,
+    pub category_id: String,
+    /// Degrau da categoria. As linhas vêm ordenadas do topo para a base, como a
+    /// pirâmide — os dois blocos falam da mesma escada.
+    pub tier: i32,
+    pub seasons: i32,
+    pub races: i32,
+    pub wins: i32,
+    pub podiums: i32,
+}
+
+/// Um degrau da escada do recorte, do ponto de vista desta equipe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryLadderRung {
+    pub category: String,
+    pub category_id: String,
+    pub tier: i32,
+    /// A equipe correu aqui em algum momento.
+    pub visited: bool,
+    /// É o degrau mais alto que ela alcançou.
+    pub is_peak: bool,
+    /// É onde ela está agora.
+    pub is_current: bool,
+    pub seasons: i32,
+    /// "2024" ou "2024-2026". Vazio no degrau nunca pisado.
+    pub years: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -443,6 +550,10 @@ pub struct TeamHistoryLineupTerm {
     pub races: i32,
     pub wins: i32,
     pub podiums: i32,
+    /// Títulos de PILOTOS ganhos vestindo esta equipe, dentro da passagem. É o
+    /// campeonato do piloto, e não o de construtores da equipe: os dois podem
+    /// ter ido para lados diferentes no mesmo ano.
+    pub titles: i32,
     /// Melhor colocação que o piloto tirou nesta passagem. Zero quando nenhuma
     /// corrida dele teve classificação.
     pub best_position: i32,
@@ -523,6 +634,12 @@ pub struct TeamHistorySeasonResult {
     /// temporada inteira ali tem uma história a contar que um gráfico só de
     /// pódios desenha como tela vazia.
     pub fifths: i32,
+    /// Carros que abandonaram na temporada, somando os dois da equipe.
+    ///
+    /// A unidade é CARRO, e não corrida: as colocações acima saem do melhor
+    /// carro do fim de semana, o abandono conta cada um que não terminou. Por
+    /// isso ele pode passar do número de corridas e não entra no top 5.
+    pub dnfs: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,9 +693,66 @@ pub struct TeamHistoryIdentity {
     pub heritage: String,
     pub profile: String,
     pub summary: String,
+    /// Números que sustentam o `profile`. O rótulo sozinho contradizia o cabeçalho
+    /// ("Dominante" ao lado de 0 títulos) porque o denominador ficava invisível —
+    /// com o lastro à vista a afirmação vira auditável.
+    pub profile_races: i32,
+    pub profile_wins: i32,
+    pub profile_podiums: i32,
     pub rival: TeamHistoryRival,
     pub symbol_driver: String,
     pub symbol_driver_detail: String,
+    /// Nacionalidade do piloto símbolo, para a bandeira ao lado do nome.
+    pub symbol_driver_nationality: String,
+    /// Os números do símbolo pela equipe, soltos além da prosa de `detail` — a
+    /// tela desenha cada um como métrica, e frase não dá para alinhar em coluna.
+    pub symbol_driver_races: i32,
+    pub symbol_driver_wins: i32,
+    pub symbol_driver_podiums: i32,
+    /// Intervalo de anos do piloto símbolo pela equipe ("2024" ou "2024–2026").
+    /// Vazio quando não há símbolo.
+    pub symbol_driver_years: String,
+    /// `true` se o símbolo ainda tem contrato regular ativo com a equipe. Um símbolo
+    /// que saiu é história diferente de um que ficou — e a aba precisa distinguir.
+    pub symbol_driver_active: bool,
+    /// Circuito em que a equipe historicamente vai melhor, e o que a castiga.
+    /// `None` quando não há pistas repetidas o bastante para a leitura significar algo.
+    pub best_track: Option<TeamHistoryTrackAffinity>,
+    pub worst_track: Option<TeamHistoryTrackAffinity>,
+    /// Como a equipe monta o grid: forma gente ou compra pronto. `None` quando
+    /// passaram poucos pilotos para a leitura significar alguma coisa.
+    pub recruitment: Option<TeamHistoryRecruitment>,
+}
+
+/// DNA de recrutamento: separa a equipe-escola da equipe-mercado, que os rótulos
+/// de desempenho não distinguem — as duas podem ganhar igual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryRecruitment {
+    /// Rótulo já traduzido: Escola / Mercado / Mista.
+    pub profile: String,
+    /// Pilotos distintos que já correram pela equipe no recorte.
+    pub drivers: i32,
+    /// Quantos chegaram estreando (até um ano de carreira nas costas).
+    pub rookies: i32,
+    /// Média de anos de carreira que o piloto tinha ao chegar na equipe.
+    pub average_experience: f64,
+    /// Fatia de estreantes da equipe, 0–100.
+    pub rookie_share: f64,
+    /// A mesma fatia no RESTO do grid do recorte. É a régua: numa categoria de
+    /// entrada todo mundo estreia, então "forma gente" só significa alguma coisa
+    /// comparado com os vizinhos.
+    pub field_rookie_share: f64,
+}
+
+/// Afinidade da equipe com um circuito: quantas vezes correu lá e como andou.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryTrackAffinity {
+    pub track: String,
+    pub races: i32,
+    /// Média da MELHOR colocação da equipe em cada corrida naquele circuito.
+    pub average_position: f64,
+    /// Melhor colocação absoluta que a equipe já tirou ali.
+    pub best_position: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,6 +760,37 @@ pub struct TeamHistoryRival {
     pub name: String,
     pub current_category: String,
     pub note: String,
+    /// Cor primária do rival — o brasão da tela cai nela quando não há arquivo.
+    pub color: String,
+    /// De onde a rivalidade NASCEU segundo o motor de `rivalry::team`, já traduzida
+    /// (tabela, mercado, pista, herdada dos pilotos). `None` quando não há rivalidade
+    /// registrada e o rival veio da heurística de confronto compartilhado.
+    pub origin_kind: Option<String>,
+    /// Eixos 0–100 do motor de rivalidade. `None` no fallback heurístico.
+    pub historical_intensity: Option<f64>,
+    pub recent_activity: Option<f64>,
+    pub perceived_intensity: Option<f64>,
+    /// Confronto direto no recorte: corridas em que a equipe do dossiê terminou à
+    /// frente do rival, e o inverso. A comparação é entre as MELHORES colocações
+    /// de cada uma na corrida, então não há empate.
+    pub head_to_head_wins: i32,
+    pub head_to_head_losses: i32,
+    /// A última vez que as duas se encontraram na pista.
+    pub last_meeting: Option<TeamHistoryRivalMeeting>,
+}
+
+/// Um encontro entre as duas equipes: quando foi e como terminou.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryRivalMeeting {
+    pub year: i32,
+    pub round: i32,
+    /// Melhor colocação da equipe do dossiê naquela corrida.
+    pub position: i32,
+    /// A do rival.
+    pub rival_position: i32,
+    /// Semanas de calendário entre o encontro e a corrida mais recente do mundo.
+    /// "Temporada 3, rodada 5" não diz se foi ontem ou há três anos; isto diz.
+    pub weeks_ago: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -602,6 +807,81 @@ pub struct TeamHistoryManagement {
     pub healthy_years_detail: String,
     pub efficiency_detail: String,
     pub investment_detail: String,
+    /// Livro-caixa agregado da equipe. `None` em save sem rodada registrada — o
+    /// front cai no estado honesto em vez de desenhar uma curva de um ponto só.
+    pub ledger: Option<TeamHistoryLedger>,
+}
+
+/// Livro-caixa da equipe, lido de `team_finance_history` — a tabela que grava uma
+/// linha por rodada para TODA equipe do grid, não só a do jogador.
+///
+/// É o que faz a aba Gestão falar de história. Os campos de prosa acima nasceram
+/// lendo `teams.cash_balance`/`debt_balance`, ou seja, a linha de HOJE, e vestiam
+/// rótulo de superlativo: "maior saldo histórico" era o caixa atual e "pior crise"
+/// era só a ausência de dívida agora. Aqui pico, fundo do poço e temporadas no azul
+/// vêm do histórico de verdade, com a temporada em que aconteceram.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryLedger {
+    /// Temporadas distintas com pelo menos uma rodada gravada.
+    pub seasons: i32,
+    /// Rodadas gravadas no total.
+    pub rounds: i32,
+    pub first_season: i32,
+    pub last_season: i32,
+    pub peak_cash: f64,
+    pub peak_cash_season: i32,
+    pub peak_cash_round: i32,
+    /// Maior dívida já registrada. 0 quando a equipe nunca deveu — e aí é um fato,
+    /// não a ignorância de quem só olhou o saldo de hoje.
+    pub worst_debt: f64,
+    pub worst_debt_season: i32,
+    pub worst_debt_round: i32,
+    /// Temporadas cuja ÚLTIMA rodada fechou sem dívida.
+    pub healthy_seasons: i32,
+    /// Temporadas com livro-caixa rodada a rodada — a JANELA da repartição abaixo,
+    /// que é mais curta que a história. As temporadas de backstory gravam só o
+    /// prêmio de construtores, sem nenhuma das outras nove linhas, e entrariam na
+    /// soma como uma equipe que fatura sem gastar nada. 0 = nenhuma temporada
+    /// medida, e a aba omite o gráfico de fluxo.
+    pub flow_seasons: i32,
+    pub flow_first_season: i32,
+    pub flow_last_season: i32,
+    /// Por que não há repartição, quando `flow_seasons` é 0. Vazio quando há.
+    ///
+    /// Sem isto o bloco simplesmente sumia da aba, e sumir é o pior estado possível:
+    /// o jogador não distingue "essa equipe não tem economia de rodada" de "o
+    /// gráfico quebrou". As duas causas reais são diferentes e merecem frases
+    /// diferentes — calendário especial não movimenta caixa por rodada, e carreira
+    /// recém-criada ainda não correu.
+    pub flow_note: String,
+    /// Receita e custo repartidos por linha nas temporadas medidas, do maior para o
+    /// menor. É o que caracteriza a equipe: viver de patrocínio ou de premiação,
+    /// folha pesada ou investimento técnico.
+    pub income_total: f64,
+    pub expenses_total: f64,
+    pub income_lines: Vec<TeamHistoryLedgerLine>,
+    pub expense_lines: Vec<TeamHistoryLedgerLine>,
+    pub cash_curve: Vec<TeamHistoryCashPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryLedgerLine {
+    /// Nome da coluna em `team_finance_history` (`sponsorship_income`...). Casa com
+    /// as chaves de `myTeamTab.finance.lines.*` que o front já usa na aba My Team —
+    /// os rótulos ficam de um lado só da fronteira.
+    pub id: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamHistoryCashPoint {
+    pub season_number: i32,
+    pub round: i32,
+    pub cash_balance: f64,
+    pub debt_balance: f64,
+    /// Rodada de encerramento (creditou prêmio de construtores): o degrau de fim de
+    /// ano na curva.
+    pub is_season_close: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -639,9 +919,15 @@ pub struct TeamHistoryTitleCategory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamHistoryCategoryStep {
     pub category: String,
+    pub category_id: String,
+    /// "2024" ou "2024-2026", já formatado. Os dois inteiros abaixo existem para
+    /// a faixa ano a ano, que precisa posicionar a passagem numa régua.
     pub years: String,
+    pub start_year: i32,
+    pub end_year: i32,
     pub detail: String,
     pub color: String,
     /// "start" | "promotion" | "relegation" | "same" — marcador da escada.
     pub movement: String,
+    pub tier: i32,
 }

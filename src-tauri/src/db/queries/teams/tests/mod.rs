@@ -23,38 +23,27 @@ fn test_insert_and_get_team() {
     assert_eq!(loaded.stats_vitorias, 0);
 }
 
+/// O ledger, com o DDL DE PRODUÇÃO. Uma segunda cópia da tabela aqui envelheceria em
+/// silêncio: a coluna nova entraria na migração, o teste continuaria verde contra o schema
+/// velho e o `no such column` só apareceria em runtime.
 fn create_finance_history_table(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE team_finance_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                team_id TEXT NOT NULL,
-                season_number INTEGER NOT NULL,
-                round INTEGER NOT NULL,
-                category TEXT NOT NULL DEFAULT '',
-                sponsorship_income REAL NOT NULL DEFAULT 0.0,
-                gate_income REAL NOT NULL DEFAULT 0.0,
-                result_bonus REAL NOT NULL DEFAULT 0.0,
-                partial_prize_income REAL NOT NULL DEFAULT 0.0,
-                aid_income REAL NOT NULL DEFAULT 0.0,
-                salary_expense REAL NOT NULL DEFAULT 0.0,
-                event_operations_cost REAL NOT NULL DEFAULT 0.0,
-                structural_maintenance_cost REAL NOT NULL DEFAULT 0.0,
-                technical_investment_cost REAL NOT NULL DEFAULT 0.0,
-                debt_service_cost REAL NOT NULL DEFAULT 0.0,
-                income_total REAL NOT NULL DEFAULT 0.0,
-                expenses_total REAL NOT NULL DEFAULT 0.0,
-                net REAL NOT NULL DEFAULT 0.0,
-                cash_balance REAL NOT NULL DEFAULT 0.0,
-                debt_balance REAL NOT NULL DEFAULT 0.0,
-                constructor_prize_income REAL NOT NULL DEFAULT 0.0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                UNIQUE(team_id, season_number, round)
-            );",
-    )
-    .expect("create team_finance_history table");
+    conn.execute_batch(crate::db::migrations::DDL_TEAM_FINANCE_HISTORY)
+        .expect("create team_finance_history table");
 }
 
+/// As oito linhas somam exatamente os dois agregados — é a invariante que o ledger existe
+/// para carregar, e o fixture não pode desmenti-la.
 fn sample_finance_context() -> TeamRoundFinanceContext {
+    let linhas = crate::finance::cashflow::LinhasDaDespesa {
+        combustivel: 3_000.0,
+        pneus: 6_500.0,
+        desgaste_de_peca: 2_500.0,
+        frete: 7_000.0,
+        viagem_e_estadia: 4_000.0,
+        inscricao: 800.0,
+        diarias: 1_200.0,
+        estrutura: 12_000.0,
+    };
     TeamRoundFinanceContext {
         sponsorship_income: 100_000.0,
         gate_income: 15_000.0,
@@ -62,10 +51,11 @@ fn sample_finance_context() -> TeamRoundFinanceContext {
         partial_prize_income: 5_000.0,
         aid_income: 0.0,
         salary_expense: 60_000.0,
-        event_operations_cost: 25_000.0,
-        structural_maintenance_cost: 12_000.0,
+        event_operations_cost: linhas.total_da_etapa(),
+        structural_maintenance_cost: linhas.estrutura,
         technical_investment_cost: 8_000.0,
         debt_service_cost: 3_000.0,
+        linhas,
     }
 }
 
@@ -106,6 +96,39 @@ fn test_insert_and_read_team_finance_history_roundtrip() {
     assert_eq!(entries[0].net, 17_000.0);
     assert_eq!(entries[0].cash_balance, 517_000.0);
     assert_eq!(entries[1].cash_balance, 537_000.0);
+    // As oito linhas atravessam o banco intactas — é para isso que a coluna existe.
+    assert_eq!(entries[0].linhas, context.linhas);
+}
+
+/// **A invariante do ledger.** As oito linhas gravadas somam exatamente os dois agregados
+/// que a rodada debitou. Se um dia elas divergirem, o dossiê vai mostrar uma decomposição
+/// que não fecha com o caixa — que é precisamente o defeito que o redesign existe para
+/// tirar do jogo.
+#[test]
+fn as_oito_linhas_gravadas_somam_o_que_saiu_do_caixa() {
+    let conn = setup_test_db().expect("test db");
+    create_finance_history_table(&conn);
+    let mut team = sample_team("gt3", "T001");
+    insert_team(&conn, &team).expect("insert team");
+
+    let context = sample_finance_context();
+    let summary = RoundCashflowSummary {
+        income: 125_000.0,
+        expenses: 108_000.0,
+        net: 17_000.0,
+    };
+    team.cash_balance = 517_000.0;
+    insert_team_finance_history(&conn, &team, &context, &summary, 1, 3).expect("insert");
+
+    let lido = get_team_finance_history_recent(&conn, "T001", 10).expect("read history");
+    let entry = lido.first().expect("uma linha");
+
+    assert_eq!(entry.linhas.total_da_etapa(), entry.event_operations_cost);
+    assert_eq!(entry.linhas.estrutura, entry.structural_maintenance_cost);
+    assert_eq!(
+        entry.linhas.total(),
+        entry.event_operations_cost + entry.structural_maintenance_cost
+    );
 }
 
 #[test]

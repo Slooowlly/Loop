@@ -4,7 +4,11 @@ import i18n from "../../i18n/index.js";
 // valores atuais e devolve as mudanças por `onChange(chave, valor)`.
 export function FilterBar({ filters, options, onChange, onReset }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+    // Nove colunas, e não oito: os seis seletores + o par de idades ocupavam a
+    // grade inteira e empurravam o "Limpar filtros" para uma segunda linha que
+    // era quase toda vazia. Com a coluna extra ele cabe na mesma fileira, e o
+    // `items-end` alinha o botão pela base dos campos.
+    <div className="grid items-end gap-x-3 gap-y-2 md:grid-cols-2 xl:grid-cols-9">
       <FilterSelect
         label={i18n.t("globalDrivers.filter.status")}
         value={filters.status}
@@ -74,7 +78,7 @@ export function FilterBar({ filters, options, onChange, onReset }) {
       <button
         type="button"
         onClick={onReset}
-        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary transition-glass hover:text-text-primary xl:col-start-8"
+        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary transition-glass hover:text-text-primary"
       >
         Limpar filtros
       </button>
@@ -90,7 +94,7 @@ function FilterSelect({ label, value, onChange, options = [], groups = null }) {
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-white/10 bg-app-card px-3 py-2 text-xs normal-case tracking-normal text-text-primary outline-none transition-glass focus:border-accent-primary/60"
+        className="mt-1.5 w-full rounded-xl border border-white/10 bg-app-card px-3 py-2 text-xs normal-case tracking-normal text-text-primary outline-none transition-glass focus:border-accent-primary/60"
       >
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue} className="bg-app-card text-text-primary">
@@ -121,7 +125,7 @@ function FilterInput({ label, value, onChange }) {
         min="0"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs normal-case tracking-normal text-text-primary outline-none transition-glass focus:border-accent-primary/60"
+        className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs normal-case tracking-normal text-text-primary outline-none transition-glass focus:border-accent-primary/60"
       />
     </label>
   );

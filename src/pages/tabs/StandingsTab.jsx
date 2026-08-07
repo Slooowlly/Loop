@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
 import i18n from "../../i18n/index.js";
-import DriverDetailModal from "../../components/driver/DriverDetailModal";
+import DriverDetailModal from "../../components/driver";
 import DriverStandingsTable from "../../components/standings/DriverStandingsTable";
 import SeriesNavigator from "../../components/standings/SeriesNavigator";
 import TeamStandingsPanel from "../../components/standings/TeamStandingsPanel";
@@ -90,8 +90,20 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
 
   const activeDriverId = hoveredDriverId ?? selectedDriverId;
   const activeDriver = driverStandings.find((d) => d.id === activeDriverId) ?? null;
-  const selectedTeamId = activeDriver?.equipe_id ?? null;
-  const selectedTeamColor = activeDriver?.equipe_cor ?? null;
+  // A equipe em foco é UMA para as duas tabelas, e pode ser apontada dos dois
+  // lados: pelo piloto sob o cursor na tabela de pilotos ou pela própria equipe
+  // sob o cursor no painel de construtores. Sem o segundo caminho, a pergunta
+  // "quem são os dois carros desta equipe?" obrigava a varrer a tabela de
+  // pilotos com o dedo — e ela tem 20 linhas e não é ordenada por equipe.
+  //
+  // A equipe apontada à mão ganha do piloto: quando o cursor está no painel de
+  // construtores, é dali que a intenção vem.
+  const [hoveredTeamId, setHoveredTeamId] = useState(null);
+  const hoveredTeam = hoveredTeamId
+    ? (teamStandings.find((team) => team.id === hoveredTeamId) ?? null)
+    : null;
+  const selectedTeamId = hoveredTeam?.id ?? activeDriver?.equipe_id ?? null;
+  const selectedTeamColor = hoveredTeam?.cor_primaria ?? activeDriver?.equipe_cor ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Só mostra o placeholder de carregamento se o fetch demorar de verdade —
@@ -168,6 +180,14 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
   function openTeamDossier(team) {
     setSelectedHistoryTeam(team);
     setActiveHistoryTab("records");
+  }
+
+  // Porta de entrada de quem só tem o id — o dossiê do piloto, por exemplo. A
+  // equipe da tabela vem completa (posição, pontos, cor da temporada); a de fora
+  // vem com o mínimo, e o resto o `get_team_history_dossier` preenche.
+  function openTeamDossierPorId(equipe) {
+    if (!equipe?.id) return;
+    openTeamDossier(teamStandings.find((linha) => linha.id === equipe.id) ?? equipe);
   }
 
   function handleTeamClick(team) {
@@ -320,6 +340,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
             <DriverStandingsTable
               sections={driverStandingSections}
               specialClassGroups={specialClassGroups}
+              leadClassId={currentSeries.classId}
               totalRodadas={totalRodadas}
               completedRounds={completedRounds}
               currentRound={season?.rodada_atual}
@@ -342,6 +363,9 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
           specialClassGroups={specialClassGroups}
           showSpecialPendingNotice={showSpecialPendingNotice}
           selectedHistoryTeamId={selectedHistoryTeam?.id ?? null}
+          highlightedTeamId={selectedTeamId}
+          highlightedTeamColor={selectedTeamColor}
+          onTeamHover={setHoveredTeamId}
           onTeamDossierOpen={handleTeamClick}
           onTeamGlobalHistoryOpen={handleTeamDoubleClick}
         />
@@ -352,6 +376,13 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
           driverId={selectedDriverId}
           driverIds={driverStandings.map((driver) => driver.id)}
           onSelectDriver={setSelectedDriverId}
+          onOpenTeam={openTeamDossierPorId}
+          onOpenRanking={
+            onOpenGlobalDrivers
+              ? ({ metric, driverId, category }) =>
+                  onOpenGlobalDrivers(driverId, { metric, category })
+              : null
+          }
           onClose={() => setSelectedDriverId(null)}
         />
       ) : null}

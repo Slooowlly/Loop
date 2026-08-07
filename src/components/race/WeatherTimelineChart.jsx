@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 
+import Tooltip from "../ui/Tooltip";
+
 // Tipo de tempo (event_type do backend) → cor, ícone e rótulo. Tons da esquerda
 // (encoberto/parcial) propositalmente FRIOS (azulados) p/ não "vazar" amarelo no começo.
 const COND = {
@@ -142,19 +144,19 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
       {/* Marcações (pós-corrida) + extremos */}
       <div className="relative mt-1 h-6">
         {markers.map((m, i) => (
-          <div
-            key={i}
-            className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
-            style={{ left: `${clampPct(m.frac * 100)}%` }}
-            title={m.label || ""}
-          >
-            <span className={`text-[11px] leading-none ${m.isPlayer ? "" : "opacity-60"}`}>▾</span>
-            {typeof m.icon === "string" && m.icon.startsWith("/") ? (
-              <img src={m.icon} alt="" className="h-4 w-4 object-contain" />
-            ) : (
-              <span className="text-[12px] leading-none">{m.icon}</span>
-            )}
-          </div>
+          <Tooltip key={i} texto={m.label || ""}>
+            <div
+              className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
+              style={{ left: `${clampPct(m.frac * 100)}%` }}
+            >
+              <span className={`text-[11px] leading-none ${m.isPlayer ? "" : "opacity-60"}`}>▾</span>
+              {typeof m.icon === "string" && m.icon.startsWith("/") ? (
+                <img src={m.icon} alt="" className="h-4 w-4 object-contain" />
+              ) : (
+                <span className="text-[12px] leading-none">{m.icon}</span>
+              )}
+            </div>
+          </Tooltip>
         ))}
       </div>
       <div className="flex items-center justify-between text-[12px] font-bold text-gray-400">

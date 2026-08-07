@@ -4,10 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import "./EngineerRadio.css";
-import { useBreakdownFeed, usePlayerWarnings, useChatSendBlocked } from "./useBreakdownFeed";
+import { useBreakdownFeed, usePaceFeed, usePlayerWarnings, useChatSendBlocked } from "./useBreakdownFeed";
 import TowerCanvasView from "./TowerCanvasView";
 import { OVERLAY_MOCK } from "./overlayMockData";
 import { estaNoTauri } from "../lib/tauri";
+import { anunciar, pausasDoRadio } from "../lib/engenheiroVoz";
 
 // Overlay do RÁDIO DA EQUIPE: um card central, texto simples, como se o engenheiro
 // avisasse por rádio sobre problemas de peça na grade (quebra ao vivo). Mostra UMA
@@ -20,6 +21,23 @@ const FACTORY_POS = { x: 653, y: 195 };
 const HOVER_W = 600; // caixa arrastável (px lógicos) reportada ao vigia de cursor
 const HOVER_H = 150;
 
+// A mensagem mais RECENTE entre dois feeds independentes.
+//
+// Não dá para comparar `id`: cada feed tem o próprio cursor, e o id 3 de um não é mais novo
+// que o id 7 do outro. O que os ordena é a chegada — cada hook devolve uma mensagem nova
+// exatamente uma vez, então guardar a última a mudar é a ordenação correta.
+function useMaisRecente(...fontes) {
+  const [atual, setAtual] = useState(null);
+  const anteriores = useRef([]);
+  useEffect(() => {
+    const nova = fontes.find((m, i) => m && m !== anteriores.current[i]);
+    anteriores.current = fontes;
+    if (nova) setAtual(nova);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, fontes);
+  return atual;
+}
+
 // Deixa o detalhe (causa, que vem em minúsculo) apresentável na MESMA linha: só a 1ª
 // maiúscula, sem ponto final — direto. Ex.: "câmbio quebrou" -> "Câmbio quebrou".
 function capDetail(s) {
@@ -28,7 +46,7 @@ function capDetail(s) {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
 }
 
-// Card de UMA mensagem. `message = { id, severity, text, detail }` ou null.
+// Card de UMA mensagem. `message = { id, severity, text, detail, pecas }` ou null.
 // `windowed` = ancora no topo-esquerda (janela pequena arrastável) em vez de fixo-centro.
 export function EngineerRadioCard({ message, holdMs = 6000, windowed = false }) {
   const { t } = useTranslation();
@@ -42,6 +60,15 @@ export function EngineerRadioCard({ message, holdMs = 6000, windowed = false }) 
     setVisible(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setVisible(false), holdMs);
+    // A FALA sai junto com o card, e sai daqui e não do hook do feed: quem decide se a
+    // quebra merece rádio é o Rust (`pecas` vem vazio quando não merece), e quem sabe que a
+    // mensagem apareceu na tela é este componente. Falha de áudio não derruba o card.
+    //
+    // `anunciar` e não `falarPecas`: isto é fala NÃO SOLICITADA e ela ESPERA a vez. Com
+    // `falarPecas` a quebra cortaria o anúncio da volta mais rápida no meio da palavra.
+    if (message.pecas?.length) {
+      anunciar(message.pecas, { pausasMs: pausasDoRadio(message.pecas) }).catch(() => {});
+    }
     return () => clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message?.id, holdMs]);
@@ -112,6 +139,11 @@ export function PlayerWarningCard({ message, holdMs = 8000, windowed = false }) 
     setVisible(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setVisible(false), holdMs);
+    // O aviso sobre o NOSSO carro é uma frase inteira numa peça só — `pausasDoRadio` de uma
+    // peça devolve lista vazia, e é isso mesmo: não há junção para pausar.
+    if (message.pecas?.length) {
+      anunciar(message.pecas, { pausasMs: pausasDoRadio(message.pecas) }).catch(() => {});
+    }
     return () => clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message?.id, holdMs]);
@@ -241,7 +273,13 @@ export function EngineerRadioLive() {
     return () => clearInterval(t);
   }, [demo]);
 
-  const liveMessage = useBreakdownFeed(demo ? null : careerId); // no demo, pausa o feed real
+  const quebra = useBreakdownFeed(demo ? null : careerId); // no demo, pausa o feed real
+  const ritmo = usePaceFeed(demo ? null : careerId); // volta mais rápida da corrida
+  // Dois canais, um card. Cada hook tem cursor próprio (os feeds crescem em ritmos diferentes
+  // e um id só embaralharia os dois), então a arbitragem é aqui: vale a mensagem que CHEGOU
+  // por último. Elas quase nunca colidem — a quebra sai ~33 vezes por corrida e o ritmo umas
+  // poucas —, e quando colidem a mais nova é a que o piloto ainda não ouviu.
+  const liveMessage = useMaisRecente(quebra, ritmo);
   const warning = usePlayerWarnings(!demo && Boolean(careerId)); // aviso pessoal real
   const chatBlocked = useChatSendBlocked(!demo && Boolean(careerId)); // comandos não chegam ao sim
   const pool = demoMsgs.length ? demoMsgs : MOCK_MESSAGES;
@@ -257,6 +295,15 @@ export function EngineerRadioLive() {
     if (!estaNoTauri()) return undefined;
     const w = getCurrentWindow();
     const cleanups = [];
+    // `listen` é assíncrono e esta limpeza é síncrona: sem a bandeira, uma desmontagem
+    // que aconteça antes de a promessa resolver deixa `cleanups` vazio e o ouvinte órfão.
+    // Aqui o efeito é benigno (dois `setHover` idênticos), mas o padrão é o mesmo que fez
+    // cada toque no botão do push-to-talk virar duas perguntas.
+    let morto = false;
+    const registrar = (fn) => {
+      if (morto) fn();
+      else cleanups.push(fn);
+    };
     (async () => {
       try {
         const raw = localStorage.getItem(POS_KEY);
@@ -283,13 +330,16 @@ export function EngineerRadioLive() {
         /* onMoved indisponível */
       }
       try {
-        cleanups.push(await listen("engineer-hover", (e) => setHover(Boolean(e.payload))));
+        registrar(await listen("engineer-hover", (e) => setHover(Boolean(e.payload))));
       } catch {
         /* listen indisponível */
       }
     })();
     invoke("engineer_set_hover_rect", { width: HOVER_W, height: HOVER_H }).catch(() => {});
-    return () => cleanups.forEach((fn) => fn && fn());
+    return () => {
+      morto = true;
+      cleanups.forEach((fn) => fn && fn());
+    };
   }, []);
 
   const startDrag = () =>
@@ -365,6 +415,7 @@ export function EngineerRadioPreview() {
     return () => clearInterval(t);
   }, []);
 
+
   // Marca `flash` na linha do piloto da mensagem ATUAL (o resto apaga) — demonstra a
   // sincronia: o rádio anuncia e a mesma pessoa pisca na torre. A severidade define a cor
   // do flash (âmbar/vermelho/preto), então casa o alert/flag do carro com a mensagem.
@@ -407,6 +458,7 @@ export function EngineerRadioPreview() {
         />
       </div>
       <EngineerRadioCard message={current} holdMs={3800} />
+
     </div>
   );
 }

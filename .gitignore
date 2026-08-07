@@ -49,3 +49,22 @@ src-tauri/__codex_tmp_*
 
 # Career saves (dados do jogador, não sobem ao repo)
 app_data/
+
+# Masters WAV dos acervos de voz — o repo carrega o Opus, que é o que o app importa.
+#
+# São 3.994 peças. Em PCM 24 kHz mono dá 328 MB; em Opus 32 kbps, 29 MB. E WAV não
+# delta-comprime: cada regravação de uma peça somaria o arquivo inteiro ao histórico para
+# sempre, num acervo que cresce a cada fala nova.
+#
+# Os masters continuam no DISCO — só não no git. Quem os tem roda `engenheiro-auditar.mjs`
+# (que mede forma de onda e precisa do PCM); quem não os tem builda e joga normalmente.
+# Gerar peça nova: `engenheiro-pack.mjs`/`spotter-pack.mjs` grava o WAV, e
+# `scripts/audio-para-opus.mjs` produz o Opus que vai para o commit.
+src/assets/engenheiro/*.wav
+src/assets/spotter/*.wav
+
+# Áudio de audição das POCs de TTS. O ACHADO da POC são os logs (`*.jsonl`, `*.json`) e a
+# prosa em `docs/*.md`, e esses sobem. O áudio é o material de escuta que levou ao achado:
+# 234 arquivos, 29 MB, regeráveis pelos scripts em `scripts/tts-poc/` e `scripts/scribe-poc/`.
+docs/tts-poc/**/*.wav
+docs/scribe-poc/**/*.wav

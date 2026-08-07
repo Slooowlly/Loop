@@ -46,6 +46,7 @@ fn make_driver(
         team_name: format!("Team {id}"),
         corridas_na_categoria: 10,
         pressure_error_mult: 1.0,
+        duelo_de_pista: None,
     }
 }
 

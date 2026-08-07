@@ -20,7 +20,7 @@
 //! | Grupo | Atributos | Como |
 //! |---|---|---|
 //! | Correlacionados com o skill | `consistencia` ±10, `racecraft` ±8, `defesa` ±8, `ritmo_classificacao` ±12 | `correlated_stat` |
-//! | Independentes do talento | `gestao_pneus`, `habilidade_largada`, `adaptabilidade`, `mentalidade` 40–70; `fator_chuva`, `aggression` 30–70; `confianca` 50–70 | `roll_stat` |
+//! | Independentes do talento | `gestao_pneus`, `habilidade_largada`, `adaptabilidade`, `mentalidade` 40–70; `fator_chuva` 30–70; `aggression` 20–85; `confianca` 35–75 | `roll_stat` |
 //! | Ancorado na agressividade | `smoothness` = 100 − `aggression` ±10 | `inverse_correlated_stat` |
 //!
 //! **Isto foi um defeito real desta peça**, corrigido só no A6. Sete atributos saíam do talento
@@ -233,8 +233,11 @@ pub fn gerar_campo(perfil: &PerfilCampo, pilotos: usize, semente: u64) -> Vec<Si
             a.adaptabilidade = independente(40.0, 70.0, &mut rng);
             a.mentalidade = independente(40.0, 70.0, &mut rng);
             a.fator_chuva = independente(30.0, 70.0, &mut rng);
-            a.aggression = independente(30.0, 70.0, &mut rng);
-            a.confianca = independente(50.0, 70.0, &mut rng);
+            // Faixas LARGAS nos eixos de estilo, acompanhando a geração real: a
+            // régua tem que medir o mundo que existe, e o mundo passou a ter
+            // piloto cauteloso e piloto beligerante no mesmo grid.
+            a.aggression = independente(20.0, 85.0, &mut rng);
+            a.confianca = independente(35.0, 75.0, &mut rng);
 
             // --- Ancorado na agressividade, não no talento ---
             a.smoothness = inverso_da_agressividade(a.aggression, &mut rng);

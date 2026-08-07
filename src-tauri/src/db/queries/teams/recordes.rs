@@ -1,8 +1,56 @@
 //! Recordes agregados de equipe por categoria (títulos, vitórias, dobradinhas).
 
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection};
 
 use crate::db::connection::DbError;
+
+/// Títulos de construtores de TODAS as equipes de uma categoria, de uma consulta só.
+///
+/// A versão por equipe (`get_team_category_constructor_titles`) serve ao dossiê, que
+/// olha uma equipe de cada vez. O grid da pré-temporada olha o grid inteiro — chamar
+/// aquela em laço custaria uma consulta por equipe por categoria.
+pub fn get_category_constructor_titles_by_team(
+    conn: &Connection,
+    categoria: &str,
+) -> Result<HashMap<String, i32>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT team_id, COALESCE(SUM(titulos_construtores), 0) FROM team_season_archive
+         WHERE categoria = ?1 GROUP BY team_id",
+    )?;
+    let rows = stmt.query_map(params![categoria], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i32>(1)?))
+    })?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (team_id, total) = row?;
+        map.insert(team_id, total);
+    }
+    Ok(map)
+}
+
+/// Vitórias de TODAS as equipes de uma categoria, de uma consulta só.
+pub fn get_category_wins_by_team(
+    conn: &Connection,
+    categoria: &str,
+) -> Result<HashMap<String, i32>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.equipe_id, COUNT(*) FROM race_results r
+         JOIN calendar c ON r.race_id = c.id
+         WHERE c.categoria = ?1 AND r.posicao_final = 1 AND r.equipe_id IS NOT NULL
+         GROUP BY r.equipe_id",
+    )?;
+    let rows = stmt.query_map(params![categoria], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i32>(1)?))
+    })?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (team_id, total) = row?;
+        map.insert(team_id, total);
+    }
+    Ok(map)
+}
 
 /// Total de títulos de CONSTRUTORES de uma equipe na categoria (soma do arquivo).
 pub fn get_team_category_constructor_titles(

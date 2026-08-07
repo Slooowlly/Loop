@@ -134,6 +134,13 @@ pub fn force_foreground_window(hwnd_raw: isize) {
     }
 }
 
+/// `true` se o SIMULADOR está aberto agora. A UI/launcher (score 1) NÃO conta —
+/// a distinção importa para quem escreve nos `.ini` do iRacing: quem os reescreve
+/// ao fechar é o simulador, então com só o lobby aberto a escrita vale.
+pub fn simulador_aberto() -> bool {
+    find_iracing_janela().is_some_and(|(_, score)| score >= 2)
+}
+
 /// `true` se a janela em foco agora tem "iracing" no título.
 pub fn foreground_is_iracing() -> bool {
     use winapi::um::winuser::{GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW};

@@ -166,7 +166,13 @@ export function buildFreeAgentsByBand(preseasonFreeAgents, selectedCat) {
       const ia = a.seasons_idle ?? 0;
       const ib = b.seasons_idle ?? 0;
       if (ia !== ib) return ia - ib;
-      // 3) Por nome.
+      // 3) Pelo último campeonato: o 3º de 12 vem acima do 10º de 12. A lista é uma
+      //    fila de contratação, e sem isso ela alternava bom e ruim sem critério
+      //    visível. Quem não tem resultado (rookie) cai pro fim do próprio grupo.
+      const posA = a.last_championship_position ?? 999;
+      const posB = b.last_championship_position ?? 999;
+      if (posA !== posB) return posA - posB;
+      // 4) Por nome.
       return (a.driver_name ?? "").localeCompare(b.driver_name ?? "");
     }),
   );
@@ -197,6 +203,14 @@ export function buildDisplacedByCategory(displacedVeterans) {
       category,
       color: subcatColor(category),
       label: subcatLabel(category),
-      drivers,
+      // Do melhor colocado para o pior. Sem isso a ordem é a que o backend
+      // devolveu, e um 6º/12 aparece depois de um 11º/12 — a lista fica sem
+      // nenhuma leitura possível de cima para baixo.
+      drivers: [...drivers].sort((a, b) => {
+        const posA = a.last_championship_position ?? 999;
+        const posB = b.last_championship_position ?? 999;
+        if (posA !== posB) return posA - posB;
+        return (a.driver_name ?? "").localeCompare(b.driver_name ?? "");
+      }),
     }));
 }

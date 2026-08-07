@@ -27,7 +27,7 @@ const SUBCAT_LABELS = {
   mazda_rookie: "Mazda Rookie",
   toyota_amador: "Toyota Cup",
   toyota_rookie: "Toyota Rookie",
-  bmw_m2: "BMW Cup",
+  bmw_m2: "BMW",
   production_challenger: "Production",
   gt3: "GT3 Championship",
   gt4: "GT4 Championship",
@@ -272,6 +272,15 @@ const WEEKLY_MARKET_MOVEMENT_BADGES = {
     color: "#f2cc60",
     bg: "rgba(242,204,96,0.13)",
     border: "rgba(242,204,96,0.36)",
+  },
+  // Aposentadoria: sai do grid e n\u00e3o volta, ent\u00e3o tem selo pr\u00f3prio em vez de virar
+  // "saiu da equipe" \u2014 quem se aposenta n\u00e3o est\u00e1 no mercado da semana seguinte.
+  retirement: {
+    label: "Aposentadoria",
+    symbol: "\u2691",
+    color: "#a9b1ba",
+    bg: "rgba(169,177,186,0.11)",
+    border: "rgba(169,177,186,0.32)",
   },
   promotion: {
     label: "Promoção",

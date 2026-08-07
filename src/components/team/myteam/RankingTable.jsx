@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import GlassCard from "../../ui/GlassCard";
+import Tooltip from "../../ui/Tooltip";
 import TeamLogoMark from "../TeamLogoMark";
 import { formatMoney } from "../../../utils/formatters";
 import {
@@ -67,16 +68,17 @@ function RankingTable({ teams, playerTeam, historyTeamId, onTeamHistoryOpen }) {
                       size="sm"
                       testId="ranking-team-logo"
                     />
-                    <button
-                      type="button"
-                      data-testid="ranking-team-name"
-                      onDoubleClick={() => onTeamHistoryOpen?.(team)}
-                      className="rounded-lg text-left transition-glass hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-accent-primary/45"
-                      style={{ color: team.cor_primaria ?? "#f0f6fc" }}
-                      title={t("myTeamTab.ranking.doubleClickHint")}
-                    >
-                      {team.nome}
-                    </button>
+                    <Tooltip texto={t("myTeamTab.ranking.doubleClickHint")}>
+                      <button
+                        type="button"
+                        data-testid="ranking-team-name"
+                        onDoubleClick={() => onTeamHistoryOpen?.(team)}
+                        className="rounded-lg text-left transition-glass hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-accent-primary/45"
+                        style={{ color: team.cor_primaria ?? "#f0f6fc" }}
+                      >
+                        {team.nome}
+                      </button>
+                    </Tooltip>
                   </div>
                 </td>
                 <td className="px-4 py-3 font-mono">{formatMoney(team.cash_balance ?? 0)}</td>

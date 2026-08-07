@@ -83,7 +83,7 @@ export function formatCategoryLabel(categoryId) {
     toyota_rookie: "Toyota Rookie",
     mazda_amador: "Mazda Cup",
     toyota_amador: "Toyota Cup",
-    bmw_m2: "BMW Cup",
+    bmw_m2: "BMW",
     production_challenger: "Production",
     gt4: "GT4",
     gt3: "GT3",
@@ -156,4 +156,69 @@ export function formatYearsAverage(value) {
 export function formatBestSeason(season) {
   if (!season) return "-";
   return `${season.ano}, ${formatCategoryLabel(season.categoria)}`;
+}
+
+// A temporada com o resultado dela colado. "2009, GT3" diz onde ele estava;
+// "2009, GT3 · P11" diz o que aconteceu — e sem isso a pior temporada da carreira
+// é indistinguível de uma linha qualquer da escada de categorias.
+export function formatSeasonWithResult(season) {
+  const base = formatBestSeason(season);
+  if (!season?.posicao_campeonato) return base;
+  return `${base} · P${season.posicao_campeonato}`;
+}
+
+// Um marco que é uma temporada inteira, e não um número de corrida. Sem ele o
+// piloto que nunca foi campeão veria "-" numa coluna onde todo o resto diz
+// "Nunca". Vai sem o resultado de propósito: a colocação de um título é sempre
+// P1, e repetir isso em toda ficha de campeão é ruído.
+export function formatSeasonMilestone(season) {
+  if (!season) return i18n.t("driverDetail.history.milestoneNever");
+  return formatBestSeason(season);
+}
+
+// Uma sequência contada em corridas, com o período entre parênteses quando ele é
+// conhecido — a mesma forma que `formatUnemploymentYears` usa para os anos sem
+// assento. O período importa mais no jejum do que no auge: "24" é um número,
+// "24 (2012–2016)" é uma travessia. O valor fica nu quando não há período, para
+// não destoar do "Maior sequência de vitórias" logo acima.
+export function formatStreakRaces(count, startYear, endYear) {
+  const total = Number(count) || 0;
+  if (total <= 0 || !startYear) return String(total);
+  const period = !endYear || endYear === startYear ? `${startYear}` : `${startYear}–${endYear}`;
+  return i18n.t("driverDetail.history.streakWithPeriod", { count: total, period });
+}
+
+// Taxa de abandono. `null` (nenhuma largada) vira "-" em vez de "0%", que se
+// leria como "nunca abandona" — um estreante que ainda não correu não é o piloto
+// mais confiável do grid.
+export function formatRetirementRate(value) {
+  if (value === null || value === undefined) return "-";
+  const rate = Number(value);
+  if (!Number.isFinite(rate)) return "-";
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}%`;
+}
+
+export function formatAverageGrid(value) {
+  if (value === null || value === undefined) return "-";
+  const grid = Number(value);
+  if (!Number.isFinite(grid)) return "-";
+  return `P${Number.isInteger(grid) ? grid : grid.toFixed(1)}`;
+}
+
+// A média do mundo, para o número que sozinho não diz nada. "1,5%" não responde
+// se ele é confiável; "1,5% · média 4,2%" responde. Some quando não há
+// referência, em vez de virar "média -".
+export function formatWorldAverage(value, formatter = String) {
+  if (value === null || value === undefined) return null;
+  return i18n.t("driverDetail.history.worldAverage", { value: formatter(value) });
+}
+
+// O placar de um duelo com companheiro de equipe: "Fulano 6-2".
+export function formatDuel(duel) {
+  if (!duel?.nome) return "-";
+  const placar = i18n.t("driverDetail.history.duelRecord", {
+    wins: duel.vitorias ?? 0,
+    losses: duel.derrotas ?? 0,
+  });
+  return `${duel.nome} ${placar}`;
 }

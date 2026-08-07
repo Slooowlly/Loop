@@ -1,18 +1,30 @@
 //! Eventos especiais na ficha do piloto: participacoes, campanhas agregadas e o ranking global dessas metricas.
 
+use rusqlite::OptionalExtension;
+
 use super::*;
 
+/// O bloco de especiais e, junto, o detalhe que abre no hover das linhas dele.
+///
+/// Os dois saem da MESMA leitura de contratos e campanhas: separar em duas
+/// funcoes publicas custaria as consultas duas vezes para desenhar a mesma lista.
 pub(super) fn build_special_events_block(
     conn: &Connection,
     driver_id: &str,
-) -> Result<DriverCareerSpecialEventsBlock, String> {
+) -> Result<
+    (
+        DriverCareerSpecialEventsBlock,
+        HashMap<String, Vec<DriverCareerDetailEntry>>,
+    ),
+    String,
+> {
     if !sqlite_table_exists(conn, "contracts")? {
-        return Ok(DriverCareerSpecialEventsBlock::default());
+        return Ok((DriverCareerSpecialEventsBlock::default(), HashMap::new()));
     }
 
     let contracts = load_special_contract_rows(conn, driver_id)?;
     if contracts.is_empty() {
-        return Ok(DriverCareerSpecialEventsBlock::default());
+        return Ok((DriverCareerSpecialEventsBlock::default(), HashMap::new()));
     }
 
     let campaigns = load_special_campaign_aggregates(conn, driver_id, &contracts)?;
@@ -52,16 +64,109 @@ pub(super) fn build_special_events_block(
         .collect();
     let ultimo_evento = timeline.iter().max_by_key(|item| item.ano).cloned();
 
-    Ok(DriverCareerSpecialEventsBlock {
-        participacoes: contracts.len() as i32,
-        convocacoes: contracts.len() as i32,
-        vitorias,
-        podios,
-        rankings,
-        melhor_campanha,
-        ultimo_evento,
-        timeline,
-    })
+    let cores = load_special_team_colors(conn, &contracts)?;
+    let mut detalhes: HashMap<String, Vec<DriverCareerDetailEntry>> = HashMap::new();
+    // Participacoes e convocacoes contam os MESMOS contratos — o painel e um so,
+    // porque inventar dois recortes de uma lista identica seria mentira.
+    detalhes.insert(
+        "especiais".to_string(),
+        contracts
+            .iter()
+            .map(|contract| DriverCareerDetailEntry {
+                periodo: Some(contract.year.to_string()),
+                categoria: timeline_division_key(
+                    &contract.category,
+                    contract.class_name.as_deref(),
+                ),
+                equipe: contract.team_name.clone(),
+                equipe_cor: cores.get(&contract.team_id).cloned(),
+                equipe_id: cores
+                    .contains_key(&contract.team_id)
+                    .then(|| contract.team_id.clone()),
+                ..Default::default()
+            })
+            .collect(),
+    );
+    detalhes.insert(
+        "especiais_vitorias".to_string(),
+        campaigns
+            .iter()
+            .filter(|campaign| campaign.wins > 0)
+            .map(|campaign| DriverCareerDetailEntry {
+                periodo: Some(campaign.year.to_string()),
+                categoria: timeline_division_key(
+                    &campaign.category,
+                    campaign.class_name.as_deref(),
+                ),
+                equipe: campaign.team_name.clone(),
+                equipe_cor: campaign
+                    .team_name
+                    .as_ref()
+                    .and_then(|nome| {
+                        contracts
+                            .iter()
+                            .find(|contract| contract.team_name.as_ref() == Some(nome))
+                    })
+                    .and_then(|contract| cores.get(&contract.team_id).cloned()),
+                equipe_id: campaign
+                    .team_name
+                    .as_ref()
+                    .and_then(|nome| {
+                        contracts
+                            .iter()
+                            .find(|contract| contract.team_name.as_ref() == Some(nome))
+                    })
+                    .filter(|contract| cores.contains_key(&contract.team_id))
+                    .map(|contract| contract.team_id.clone()),
+                contagem: Some(campaign.wins),
+                resumo: Some(format!("{} pts", campaign.points)),
+                ..Default::default()
+            })
+            .collect(),
+    );
+    detalhes.retain(|_, linhas| !linhas.is_empty());
+
+    Ok((
+        DriverCareerSpecialEventsBlock {
+            participacoes: contracts.len() as i32,
+            convocacoes: contracts.len() as i32,
+            vitorias,
+            podios,
+            rankings,
+            melhor_campanha,
+            ultimo_evento,
+            timeline,
+        },
+        detalhes,
+    ))
+}
+
+/// A cor de cada equipe de evento especial. Le so a cor: o nome ja veio no
+/// contrato, e montar a equipe inteira exigiria o schema todo de `teams`.
+fn load_special_team_colors(
+    conn: &Connection,
+    contracts: &[SpecialContractRow],
+) -> Result<HashMap<String, String>, String> {
+    let mut cores = HashMap::new();
+    let mut stmt = match conn.prepare("SELECT cor_primaria FROM teams WHERE id = ?1") {
+        Ok(stmt) => stmt,
+        Err(_) => return Ok(cores),
+    };
+    for contract in contracts {
+        if contract.team_id.trim().is_empty() || cores.contains_key(&contract.team_id) {
+            continue;
+        }
+        let cor = stmt
+            .query_row(rusqlite::params![contract.team_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .map_err(|e| format!("Falha ao carregar cor de equipe especial: {e}"))?;
+        if let Some(cor) = cor {
+            cores.insert(contract.team_id.clone(), cor);
+        }
+    }
+    Ok(cores)
 }
 
 pub(super) fn sqlite_table_exists(conn: &Connection, table_name: &str) -> Result<bool, String> {

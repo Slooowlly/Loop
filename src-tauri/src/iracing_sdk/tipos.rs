@@ -170,9 +170,74 @@ pub struct IracingTelemetry {
     /// "ilimitado" (32767) e quem quiser um total precisa estimar por tempo/ritmo.
     /// -1/0 quando indisponível.
     pub session_laps_remain_ex: i32,
+    /// Vizinhança LATERAL do carro do jogador (`CarLeftRight`, irsdk_CarLeftRight):
+    /// 0 Off, 1 Clear, 2 CarLeft, 3 CarRight, 4 CarLeftRight (três largos), 5
+    /// 2CarsLeft, 6 2CarsRight. É a ÚNICA fonte que o SDK dá sobre quem está do
+    /// lado — os `CarIdx*` só contam a posição na volta, que a 200 km/h não
+    /// distingue "colado ao seu lado" de "meio carro à frente". Base do spotter
+    /// (ver [`crate::iracing_sdk::spotter`]).
+    pub car_left_right: i32,
+    // ─────────── Contexto de SESSÃO (ver `docs/spotter-obstaculo.md`) ───────────
+    /// Tick do sim (`SessionTick`). Relógio monotônico da simulação, imune às pausas
+    /// que o `session_time` sofre — é por ele que se prova que um frame não foi pulado.
+    pub session_tick: i32,
+    /// Voltas restantes (`SessionLapsRemain`) e total (`SessionLapsTotal`). O irmão
+    /// `session_laps_remain_ex` é o que vale; estes dois entram como conferência.
+    pub session_laps_remain: i32,
+    pub session_laps_total: i32,
+    /// Estado da FORMAÇÃO (`PaceMode`, irsdk_PaceMode): fila simples, dupla, ou nenhuma.
+    ///
+    /// Junto com `session_state`, é o que impede o defeito que a primeira análise
+    /// encontrou: onze carros imóveis no grid são onze "carros parados na pista" se
+    /// ninguém disser em que momento da corrida a gente está.
+    pub pace_mode: i32,
+    /// Boxes abertos (`PitsOpen`).
+    pub pits_open: bool,
+    /// Chuva caindo agora (`Precipitation`, fração) e se a prova foi DECLARADA molhada
+    /// (`WeatherDeclaredWet`). O ritmo normal de um trecho depende disso — sem eles, um
+    /// carro em ritmo de chuva parece um carro com problema.
+    pub precipitation: f64,
+    pub weather_declared_wet: bool,
+    /// Temperatura da pista medida pela equipe (`TrackTempCrew`), céu (`Skies`),
+    /// neblina (`FogLevel`) e direção do vento (`WindDir`, rad).
+    pub track_temp_crew: f64,
+    pub skies: i32,
+    pub fog_level: f64,
+    pub wind_dir: f64,
+    /// Câmera e replay (`CamCameraNumber`, `CamGroupNumber`, `CamCameraState`,
+    /// `ReplayFrameNum`, `ReplaySessionNum`, `ReplaySessionTime`).
+    ///
+    /// NÃO entram em detector nenhum, e é de propósito: servem para achar o instante no
+    /// replay depois. Uma captura que diz "o carro 7 ficou a 2 km/h por 1,8 s" não
+    /// distingue batida de engarrafamento; com o número do frame do replay, distingue —
+    /// basta olhar. É o par olho-a-olho do dado, e custa alguns bytes por frame.
+    pub cam_camera_number: i32,
+    pub cam_group_number: i32,
+    pub cam_camera_state: i32,
+    pub replay_frame_num: i32,
+    pub replay_session_num: i32,
+    pub replay_session_time: f64,
     /// Snapshot de TODOS os carros na sessão (lido das variáveis de array
     /// `CarIdx*`). Só os carros presentes (no mundo) entram aqui.
     pub cars: Vec<CarSnapshot>,
+}
+
+/// Uma variável que o SDK está publicando NESTA build, como ele mesmo a descreve.
+///
+/// O cabeçalho do iRacing é auto-descritivo: nome, tipo, quantidade, unidade e uma
+/// frase. Ler isso vale mais que qualquer lista que a gente escreva à mão, porque
+/// responde a pergunta que uma lista não responde — "esse canal existe aqui?". Um
+/// `CarIdx*` que a gente lê e vem sempre zerado é indistinguível de um canal ausente
+/// olhando só a telemetria; no inventário, a diferença é literal.
+#[derive(Debug, Clone, Serialize)]
+pub struct VarDoSdk {
+    pub nome: String,
+    /// `irsdk_VarType`: 0 char, 1 bool, 2 int, 3 bitField, 4 float, 5 double.
+    pub tipo: i32,
+    /// 1 = escalar; nos arrays `CarIdx*` é o número de carros.
+    pub quantidade: i32,
+    pub unidade: String,
+    pub descricao: String,
 }
 
 /// Limiar de `TrackWetness` a partir do qual a pista conta como MOLHADA para fins de
@@ -211,8 +276,13 @@ pub struct CarSnapshot {
     /// Marcha (`CarIdxGear`).
     pub gear: i32,
     /// Tempo atrás do líder em segundos (`CarIdxF2Time`) — o gap AO LÍDER. Só é
-    /// confiável em sessões hosted/multiplayer; em corrida de IA costuma vir 0.
-    /// NÃO usar como proximidade entre carros (ver `est_time`).
+    /// confiável em sessões hosted/multiplayer.
+    ///
+    /// **NÃO usar como proximidade entre carros** (ver `est_time`). Em corrida de IA
+    /// ele às vezes vem 0 (23% das amostras de carro numa captura medida) e, quando
+    /// vem populado, é pior: só é reescrito na passagem pela linha, e a diferença
+    /// entre dois carros mistura a diferença de VOLTAS. Medido numa corrida real de
+    /// IA, com o carro à frente a 40 s de pista, essa diferença dizia 0,165 s.
     pub f2_time: f64,
     /// Tempo estimado até a posição atual na pista (`CarIdxEstTime`, segundos desde a
     /// linha). Populado em qualquer sessão (inclusive IA). A diferença de `est_time`
@@ -228,6 +298,41 @@ pub struct CarSnapshot {
     /// É a MESMA info que o RaceLab mostra — e vem preenchida inclusive pra IA e ANTES
     /// da largada (assim que os carros escolhem o pneu). O mapa índice→nome é por série.
     pub tire_compound: i32,
+
+    // ─────────── Contexto de OBSTÁCULO (ver `docs/spotter-obstaculo.md`) ───────────
+    /// EM QUE o carro está pisando (`CarIdxTrackSurfaceMaterial`, irsdk_TrkSurf):
+    /// asfalto, concreto, grama, terra, areia, brita… -1 = ausente.
+    ///
+    /// É o canal que separa situações que o `track_surface` mistura. "Fora da pista"
+    /// sozinho é ambíguo: pisar a zebra numa área asfaltada e enterrar o carro na brita
+    /// dão o mesmo `OffTrack`, e só um dos dois vira um obstáculo parado no caminho de
+    /// quem vem atrás. Sem o material, ou o aviso dispara em todo limite de pista da
+    /// corrida, ou é calibrado tão alto que perde o acidente.
+    pub track_surface_material: i32,
+    /// Rotação do motor do carro (`CarIdxRPM`). Distingue motor vivo de motor morto num
+    /// carro imóvel — a diferença entre "vai voltar" e "vai ficar aí".
+    pub rpm: f64,
+    /// Ângulo de volante do carro (`CarIdxSteer`, rad). Manobra anormal e recuperação.
+    pub steer: f64,
+    /// Bandeiras DAQUELE carro (`CarIdxSessionFlags`, bitfield irsdk_Flags).
+    ///
+    /// Serve para PRETA e REPARO, e mais nada. A aposta era que a amarela local viesse
+    /// por aqui; medido em Okayama, não vem: numa corrida de 17 min com duas amarelas e
+    /// 41 carros, o canal só assume quatro valores — `0x40000` (servicável, o basal de
+    /// todo mundo), `0x140000` (servicável + reparo, só o jogador guinchado), `0x50000`
+    /// (servicável + preta, um carro só) e `0x0`. Nenhum bit de amarela chega aqui.
+    /// A amarela existe apenas no `session_flags` global.
+    pub session_flags: i32,
+    /// Fila de formação (`CarIdxPaceLine`): -1 fora de formação.
+    pub pace_line: i32,
+    /// Linha da formação (`CarIdxPaceRow`): -1 fora de formação.
+    pub pace_row: i32,
+    /// Estado individual na formação (`CarIdxPaceFlags`, irsdk_PaceFlags).
+    pub pace_flags: i32,
+    /// Em que volta o carro fez a melhor (`CarIdxBestLapNum`).
+    pub best_lap_num: i32,
+    /// Reparos rápidos já usados (`CarIdxFastRepairsUsed`).
+    pub fast_repairs_used: i32,
 }
 
 impl Default for CarSnapshot {
@@ -249,6 +354,15 @@ impl Default for CarSnapshot {
             last_lap_time: 0.0,
             best_lap_time: 0.0,
             tire_compound: -1,
+            track_surface_material: -1,
+            rpm: 0.0,
+            steer: 0.0,
+            session_flags: 0,
+            pace_line: -1,
+            pace_row: -1,
+            pace_flags: 0,
+            best_lap_num: -1,
+            fast_repairs_used: 0,
         }
     }
 }

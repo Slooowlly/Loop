@@ -50,30 +50,8 @@ pub struct YellowMacroStatus {
     pub macro_text: String,
 }
 
-/// Caminhos candidatos do `app.ini`. Primeiro o caminho RESOLVIDO pela Known
-/// Folder API (robusto a OneDrive/idioma/relocação); depois heurísticas por env
-/// var como rede de segurança.
-fn candidate_paths() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(iracing) = super::paths::iracing_dir() {
-        out.push(iracing.join("app.ini"));
-    }
-    if let Ok(up) = std::env::var("USERPROFILE") {
-        let base = PathBuf::from(&up);
-        for docs in [
-            "Documents",
-            "OneDrive/Documents",
-            "OneDrive/Documentos",
-            "Documentos",
-        ] {
-            out.push(base.join(docs).join("iRacing").join("app.ini"));
-        }
-    }
-    out
-}
-
 fn find_app_ini() -> Option<PathBuf> {
-    candidate_paths().into_iter().find(|p| p.is_file())
+    super::paths::app_ini_path()
 }
 
 fn file_name_str(app_ini: &Path) -> &str {

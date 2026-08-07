@@ -48,12 +48,91 @@ pub(super) fn build_career_history_block(
             .iter()
             .find(|race| race.is_dnf)
             .map(|race| race.race_index),
+        // O arquivo ja vem ordenado por temporada, entao o primeiro titulo e a
+        // primeira linha que a regra do ranking mundial aceita como campeonato.
+        primeiro_titulo: seasons
+            .iter()
+            .find(|season| archived_season_is_title(season))
+            .map(season_block),
     };
 
+    // Os anos da sequencia saem do numero da temporada, e nao do arquivo do
+    // piloto: uma sequencia pode terminar na temporada EM CURSO, que ainda nao
+    // foi arquivada — e era justamente essa que ficaria sem ano.
+    let season_years = load_season_years(conn)?;
+    let ano_da = |numero: Option<i32>| numero.and_then(|n| season_years.get(&n).copied());
+    let (streak, streak_first, streak_last) = longest_win_streak_span(&races);
+    let (podium_streak, podium_streak_first, podium_streak_last) =
+        longest_podium_streak_span(&races);
     let auge = DriverCareerPeakBlock {
         melhor_temporada: best_career_season(&active_seasons),
-        maior_sequencia_vitorias: longest_win_streak(&races),
+        maior_sequencia_vitorias: streak,
+        sequencia_ano_inicio: ano_da(streak_first),
+        sequencia_ano_fim: ano_da(streak_last),
+        maior_sequencia_podios: podium_streak,
+        sequencia_podios_ano_inicio: ano_da(podium_streak_first),
+        sequencia_podios_ano_fim: ano_da(podium_streak_last),
+        temporadas_no_top3: active_seasons
+            .iter()
+            .filter(|season| matches!(season.posicao_campeonato, Some(posicao) if posicao <= 3))
+            .count() as i32,
     };
+
+    let (drought, drought_first, drought_last) = longest_winless_streak_span(&races);
+    let (podium_drought, podium_first, podium_last) = longest_podiumless_streak_span(&races);
+    let queda = DriverCareerDroughtBlock {
+        maior_seca_vitorias: drought,
+        seca_ano_inicio: ano_da(drought_first),
+        seca_ano_fim: ano_da(drought_last),
+        maior_seca_podios: podium_drought,
+        seca_podios_ano_inicio: ano_da(podium_first),
+        seca_podios_ano_fim: ano_da(podium_last),
+        pior_temporada: worst_career_season(&active_seasons),
+        temporadas_sem_podio: active_seasons
+            .iter()
+            .filter(|season| season.podios == 0)
+            .count() as i32,
+    };
+
+    // O denominador e o corrida-a-corrida, e nao `presenca.corridas` (que soma o
+    // arquivo): a taxa precisa contar abandonos e largadas na MESMA fonte, senao
+    // a temporada em curso entra no numerador e fica de fora do denominador.
+    let abandonos = races.iter().filter(|race| race.is_dnf).count() as i32;
+    let corridas = races.len() as i32;
+    let confiabilidade = DriverCareerReliabilityBlock {
+        abandonos,
+        corridas,
+        taxa_abandono: (corridas > 0).then(|| {
+            let raw = abandonos as f64 * 100.0 / corridas as f64;
+            (raw * 10.0).round() / 10.0
+        }),
+        maior_sequencia_chegadas: longest_finish_streak(&races),
+    };
+
+    let sabado = build_qualifying_block(&races);
+    let duelos = build_teammate_block(conn, driver_id)?;
+    let referencias = build_benchmark_block(conn)?;
+    // Os especiais vem ANTES do detalhe porque trazem as linhas do proprio hover
+    // junto com o bloco — sao a mesma leitura de contratos e campanhas.
+    let (eventos_especiais, detalhes_especiais) = build_special_events_block(conn, driver_id)?;
+    let mut detalhes = build_career_details(
+        conn,
+        driver_id,
+        &seasons,
+        &races,
+        &active_seasons,
+        &auge,
+        &queda,
+        &confiabilidade,
+        &duelos,
+    )?;
+    detalhes.extend(detalhes_especiais);
+    // Os recordes saem VAZIOS daqui de proposito. Eles custam uma varredura do
+    // mundo inteiro (ver `build_dossier_ranks`) e alimentam um toggle desligado
+    // por padrao; a ficha os busca em `get_driver_dossier_ranks` quando — e se —
+    // o jogador ligar. O campo continua no payload porque o front usa o que
+    // estiver aqui como ponto de partida.
+    let recordes = HashMap::new();
 
     let mobility_counts = count_category_mobility(&active_seasons);
     let team_summary = summarize_team_mobility(&races);
@@ -70,12 +149,18 @@ pub(super) fn build_career_history_block(
         moderadas: injury_counts.moderadas,
         graves: injury_counts.graves,
     };
-    let eventos_especiais = build_special_events_block(conn, driver_id)?;
 
     Ok(DriverCareerHistoryBlock {
         presenca,
         primeiros_marcos,
         auge,
+        queda,
+        confiabilidade,
+        sabado,
+        duelos,
+        referencias,
+        detalhes,
+        recordes,
         mobilidade,
         lesoes,
         eventos_especiais,
@@ -135,6 +220,68 @@ pub(super) fn format_year_period(start: i32, end: i32) -> String {
     }
 }
 
+/// Uma linha do arquivo de temporada a partir da coluna `base`, na ordem
+/// `season_number, ano, categoria, posicao_campeonato, pontos, snapshot_json`.
+///
+/// Existe porque a ficha do piloto e o ranking do mundo leem o MESMO arquivo:
+/// quase tudo (corridas, vitorias, podios, classe, equipe) mora dentro do
+/// `snapshot_json`, e duas leituras diferentes dele divergiriam em silencio.
+pub(super) fn season_archive_row_from(
+    row: &rusqlite::Row,
+    base: usize,
+) -> rusqlite::Result<CareerSeasonArchiveRow> {
+    let snapshot_json: String = row.get(base + 5)?;
+    let snapshot: serde_json::Value = serde_json::from_str(&snapshot_json).unwrap_or_default();
+    let categoria: String = row.get(base + 2)?;
+    Ok(CareerSeasonArchiveRow {
+        season_number: row.get(base)?,
+        ano: row.get(base + 1)?,
+        categoria: snapshot
+            .get("categoria")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(categoria.as_str())
+            .to_string(),
+        classe: snapshot
+            .get("classe")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        posicao_campeonato: row.get(base + 3)?,
+        pontos: snapshot
+            .get("pontos")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(row.get(base + 4)?),
+        corridas: snapshot
+            .get("corridas")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0) as i32,
+        vitorias: snapshot
+            .get("vitorias")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0) as i32,
+        podios: snapshot
+            .get("podios")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0) as i32,
+        poles: snapshot
+            .get("poles")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0) as i32,
+        titulos: snapshot
+            .get("titulos")
+            .and_then(serde_json::Value::as_i64)
+            .map(|value| value as i32),
+        equipe_id: snapshot
+            .get("team_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    })
+}
+
 pub(super) fn load_career_season_archive_rows(
     conn: &Connection,
     driver_id: &str,
@@ -149,36 +296,7 @@ pub(super) fn load_career_season_archive_rows(
         .map_err(|e| format!("Falha ao preparar historico de temporadas do piloto: {e}"))?;
     let mapped = stmt
         .query_map(rusqlite::params![driver_id], |row| {
-            let snapshot_json: String = row.get(5)?;
-            let snapshot: serde_json::Value =
-                serde_json::from_str(&snapshot_json).unwrap_or_default();
-            let categoria: String = row.get(2)?;
-            Ok(CareerSeasonArchiveRow {
-                ano: row.get(1)?,
-                categoria: snapshot
-                    .get("categoria")
-                    .and_then(serde_json::Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or(categoria.as_str())
-                    .to_string(),
-                posicao_campeonato: row.get(3)?,
-                pontos: snapshot
-                    .get("pontos")
-                    .and_then(serde_json::Value::as_f64)
-                    .unwrap_or(row.get(4)?),
-                corridas: snapshot
-                    .get("corridas")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0) as i32,
-                vitorias: snapshot
-                    .get("vitorias")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0) as i32,
-                podios: snapshot
-                    .get("podios")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0) as i32,
-            })
+            season_archive_row_from(row, 0)
         })
         .map_err(|e| format!("Falha ao consultar historico de temporadas do piloto: {e}"))?;
 
@@ -199,7 +317,15 @@ pub(super) fn load_career_race_history_rows(
                 COALESCE(s.numero, 0) AS season_number,
                 COALESCE(NULLIF(r.equipe_id, ''), '-') AS equipe_id,
                 r.posicao_final,
-                r.dnf
+                r.dnf,
+                COALESCE(r.posicao_largada, 0),
+                COALESCE(r.fastest_lap, 0),
+                r.race_id,
+                COALESCE(s.ano, 0),
+                COALESCE(c.rodada, 0),
+                COALESCE(NULLIF(c.track_name, ''), NULLIF(c.pista, '')),
+                NULLIF(c.categoria, ''),
+                NULLIF(c.data, '')
              FROM race_results r
              INNER JOIN calendar c ON c.id = r.race_id
              LEFT JOIN seasons s ON s.id = COALESCE(c.season_id, c.temporada_id)
@@ -209,28 +335,112 @@ pub(super) fn load_career_race_history_rows(
         .map_err(|e| format!("Falha ao preparar historico corrida-a-corrida: {e}"))?;
     let mapped = stmt
         .query_map(rusqlite::params![driver_id], |row| {
-            Ok((
-                row.get::<_, i32>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i32>(2)?,
-                row.get::<_, i32>(3)? != 0,
-            ))
+            Ok(CareerRaceHistoryRow {
+                // O indice real e carimbado depois, na ordem da consulta.
+                race_index: 0,
+                season_number: row.get(0)?,
+                team_id: row.get(1)?,
+                position: row.get(2)?,
+                is_dnf: row.get::<_, i32>(3)? != 0,
+                grid_position: row.get(4)?,
+                has_fastest_lap: row.get::<_, i32>(5)? != 0,
+                race_id: row.get(6)?,
+                ano: row.get(7)?,
+                rodada: row.get(8)?,
+                pista: row.get(9)?,
+                categoria: row.get(10)?,
+                data: row.get(11)?,
+            })
         })
         .map_err(|e| format!("Falha ao consultar historico corrida-a-corrida: {e}"))?;
 
     let mut rows = Vec::new();
     for (index, row) in mapped.enumerate() {
-        let (season_number, team_id, position, is_dnf) =
-            row.map_err(|e| format!("Falha ao ler historico corrida-a-corrida: {e}"))?;
-        rows.push(CareerRaceHistoryRow {
-            race_index: index as i32 + 1,
-            season_number,
-            team_id,
-            position,
-            is_dnf,
-        });
+        let mut row = row.map_err(|e| format!("Falha ao ler historico corrida-a-corrida: {e}"))?;
+        row.race_index = index as i32 + 1;
+        rows.push(row);
     }
     Ok(rows)
+}
+
+/// O sabado da carreira, lido do corrida-a-corrida.
+///
+/// Grid `0` e corrida sem largada registrada: fica de fora da media e nao conta
+/// pole. Inventar uma pole a partir de dado ausente seria pior que nao ter o
+/// card.
+pub(super) fn build_qualifying_block(
+    races: &[CareerRaceHistoryRow],
+) -> DriverCareerQualifyingBlock {
+    let com_grid: Vec<&CareerRaceHistoryRow> =
+        races.iter().filter(|race| race.grid_position > 0).collect();
+    let poles = com_grid
+        .iter()
+        .filter(|race| race.grid_position == 1)
+        .count() as i32;
+
+    DriverCareerQualifyingBlock {
+        poles,
+        poles_convertidas: com_grid
+            .iter()
+            .filter(|race| race.grid_position == 1 && !race.is_dnf && race.position == 1)
+            .count() as i32,
+        grid_medio: (!com_grid.is_empty()).then(|| {
+            let soma: i32 = com_grid.iter().map(|race| race.grid_position).sum();
+            let media = soma as f64 / com_grid.len() as f64;
+            (media * 10.0).round() / 10.0
+        }),
+        voltas_rapidas: races.iter().filter(|race| race.has_fastest_lap).count() as i32,
+    }
+}
+
+/// As medias do mundo para os numeros que sozinhos nao dizem nada.
+///
+/// Sao agregados de UMA consulta cada, sobre a tabela inteira de resultados —
+/// nao uma media das medias por piloto. A diferenca entre as duas e pequena e o
+/// custo nao e: a ficha abre a cada clique numa linha do ranking.
+pub(super) fn build_benchmark_block(
+    conn: &Connection,
+) -> Result<DriverCareerBenchmarkBlock, String> {
+    let (largadas, abandonos, grid_soma, grid_contagem) = conn
+        .query_row(
+            "SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN dnf <> 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN posicao_largada > 0 THEN posicao_largada ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN posicao_largada > 0 THEN 1 ELSE 0 END), 0)
+             FROM race_results",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .map_err(|e| format!("Falha ao consultar referencias do mundo: {e}"))?;
+
+    let arredonda = |valor: f64| (valor * 10.0).round() / 10.0;
+    Ok(DriverCareerBenchmarkBlock {
+        taxa_abandono: (largadas > 0)
+            .then(|| arredonda(abandonos as f64 * 100.0 / largadas as f64)),
+        grid_medio: (grid_contagem > 0).then(|| arredonda(grid_soma as f64 / grid_contagem as f64)),
+    })
+}
+
+/// Uma temporada arquivada como o bloco que a ficha desenha. Melhor temporada,
+/// pior temporada e primeiro titulo sao a MESMA coisa vista de angulos
+/// diferentes, entao saem todas por aqui.
+pub(super) fn season_block(season: &CareerSeasonArchiveRow) -> DriverBestSeasonBlock {
+    DriverBestSeasonBlock {
+        ano: season.ano,
+        categoria: season.categoria.clone(),
+        posicao_campeonato: season.posicao_campeonato,
+        pontos: season.pontos.round() as i32,
+        vitorias: season.vitorias,
+        podios: season.podios,
+    }
 }
 
 pub(super) fn best_career_season(
@@ -246,14 +456,33 @@ pub(super) fn best_career_season(
                 .then_with(|| a.vitorias.cmp(&b.vitorias))
                 .then_with(|| a.podios.cmp(&b.podios))
         })
-        .map(|season| DriverBestSeasonBlock {
-            ano: season.ano,
-            categoria: season.categoria.clone(),
-            posicao_campeonato: season.posicao_campeonato,
-            pontos: season.pontos.round() as i32,
-            vitorias: season.vitorias,
-            podios: season.podios,
+        .map(season_block)
+}
+
+/// A pior temporada da carreira, pela MESMA regra que elege a melhor — so que
+/// pegando o minimo.
+///
+/// Com UMA temporada so devolve `None` de proposito: a melhor e a pior seriam a
+/// mesma linha, e o card diria duas vezes a mesma coisa com sinais opostos.
+/// Chamar a temporada de estreia de um novato de "a pior da carreira" e ruido,
+/// nao informacao.
+pub(super) fn worst_career_season(
+    seasons: &[&CareerSeasonArchiveRow],
+) -> Option<DriverBestSeasonBlock> {
+    if seasons.len() < 2 {
+        return None;
+    }
+    seasons
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            best_season_score(a)
+                .cmp(&best_season_score(b))
+                .then_with(|| a.pontos.total_cmp(&b.pontos))
+                .then_with(|| a.vitorias.cmp(&b.vitorias))
+                .then_with(|| a.podios.cmp(&b.podios))
         })
+        .map(season_block)
 }
 
 pub(super) fn best_season_score(season: &CareerSeasonArchiveRow) -> i32 {
@@ -264,18 +493,114 @@ pub(super) fn best_season_score(season: &CareerSeasonArchiveRow) -> i32 {
     position_score + season.vitorias * 15 + season.podios * 5 + season.pontos.round() as i32
 }
 
-pub(super) fn longest_win_streak(races: &[CareerRaceHistoryRow]) -> i32 {
+/// Maior sequencia de vitorias e as temporadas em que ela aconteceu.
+///
+/// A sequencia e contada em CORRIDAS consecutivas, nao dentro de uma temporada:
+/// vencer as duas ultimas do ano e as duas primeiras do seguinte e uma sequencia
+/// de quatro, e por isso o intervalo devolve inicio e fim (que podem ser a mesma
+/// temporada). Em empate fica a PRIMEIRA — a marca e a mesma, e a primeira vez
+/// e a que conta como o momento em que ele fez aquilo.
+pub(super) fn longest_win_streak_span(
+    races: &[CareerRaceHistoryRow],
+) -> (i32, Option<i32>, Option<i32>) {
+    longest_streak_span(races, |race| !race.is_dnf && race.position == 1)
+}
+
+/// Maior JEJUM de vitorias, em corridas consecutivas sem vencer.
+///
+/// E o espelho exato do auge — mesma varredura, condicao invertida — e tem que
+/// ser, senao as duas marcas nao sao comparaveis. Um DNF conta como corrida sem
+/// vitoria: ele largou e nao venceu, e a seca e sobre isso.
+pub(super) fn longest_winless_streak_span(
+    races: &[CareerRaceHistoryRow],
+) -> (i32, Option<i32>, Option<i32>) {
+    longest_streak_span(races, |race| race.is_dnf || race.position != 1)
+}
+
+/// Maior sequencia de PODIOS consecutivos. O espelho do jejum de podios: as
+/// duas marcas so significam alguma coisa lado a lado.
+pub(super) fn longest_podium_streak_span(
+    races: &[CareerRaceHistoryRow],
+) -> (i32, Option<i32>, Option<i32>) {
+    longest_streak_span(races, |race| !race.is_dnf && race.position <= 3)
+}
+
+/// Maior jejum de PODIOS, em corridas consecutivas sem subir ao podio.
+///
+/// Mede uma queda mais funda que a de vitorias, e e a marca que serve para quem
+/// nao e vencedor: um piloto de meio de grid passa a carreira inteira sem vencer,
+/// e dizer que ele esta em jejum de vitorias ha 130 corridas nao informa nada.
+pub(super) fn longest_podiumless_streak_span(
+    races: &[CareerRaceHistoryRow],
+) -> (i32, Option<i32>, Option<i32>) {
+    longest_streak_span(races, |race| race.is_dnf || race.position > 3)
+}
+
+/// Maior sequencia de corridas COMPLETADAS, sem abandono no meio.
+pub(super) fn longest_finish_streak(races: &[CareerRaceHistoryRow]) -> i32 {
+    longest_streak_span(races, |race| !race.is_dnf).0
+}
+
+/// A maior sequencia de corridas consecutivas que satisfazem `matches`, e as
+/// temporadas em que ela comecou e terminou.
+///
+/// A contagem e em CORRIDAS, nao dentro da temporada: uma sequencia atravessa a
+/// virada do ano, e por isso o retorno traz o par de temporadas (que podem ser a
+/// mesma). Em empate fica a PRIMEIRA — a marca e identica, e a primeira vez e a
+/// que conta como o momento em que ele fez aquilo.
+fn longest_streak_span<F>(
+    races: &[CareerRaceHistoryRow],
+    matches: F,
+) -> (i32, Option<i32>, Option<i32>)
+where
+    F: Fn(&CareerRaceHistoryRow) -> bool,
+{
     let mut current = 0;
+    let mut current_start: Option<i32> = None;
     let mut best = 0;
+    let mut best_start: Option<i32> = None;
+    let mut best_end: Option<i32> = None;
+
     for race in races {
-        if !race.is_dnf && race.position == 1 {
+        if matches(race) {
             current += 1;
-            best = best.max(current);
+            if current == 1 {
+                current_start = Some(race.season_number);
+            }
+            if current > best {
+                best = current;
+                best_start = current_start;
+                best_end = Some(race.season_number);
+            }
         } else {
             current = 0;
+            current_start = None;
         }
     }
-    best
+
+    (best, best_start, best_end)
+}
+
+pub(super) fn longest_win_streak(races: &[CareerRaceHistoryRow]) -> i32 {
+    longest_win_streak_span(races).0
+}
+
+/// Numero da temporada -> ano. Cobre tambem a temporada em curso, que ainda nao
+/// tem linha no arquivo do piloto mas ja tem corridas em `race_results`.
+pub(super) fn load_season_years(conn: &Connection) -> Result<HashMap<i32, i32>, String> {
+    let mut stmt = conn
+        .prepare("SELECT numero, ano FROM seasons")
+        .map_err(|e| format!("Falha ao preparar anos das temporadas: {e}"))?;
+    let mapped = stmt
+        .query_map([], |row| Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?)))
+        .map_err(|e| format!("Falha ao consultar anos das temporadas: {e}"))?;
+
+    let mut years = HashMap::new();
+    for row in mapped {
+        let (numero, ano) = row.map_err(|e| format!("Falha ao ler ano de temporada: {e}"))?;
+        years.insert(numero, ano);
+    }
+    Ok(years)
 }
 
 pub(super) fn count_category_mobility(seasons: &[&CareerSeasonArchiveRow]) -> (i32, i32) {

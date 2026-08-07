@@ -42,6 +42,11 @@ pub fn update_config(app: AppHandle, new_config: AppConfig) -> Result<(), String
     crate::commands::vr_overlay::set_vr_mode(&current_config.vr_overlay_mode);
     crate::commands::vr_overlay::set_monitor_in_vr(current_config.monitor_overlay_in_vr);
 
+    // `spotter_takeover` NÃO é mesclado aqui de propósito: quem escreve essa chave é
+    // `iracing_spotter_set`, que também precisa sincronizar o `app.ini` do iRacing.
+    // Mesclar aqui deixaria a preferência e o arquivo divergirem sempre que a tela de
+    // Configurações salvasse qualquer outra coisa.
+
     // last_career, window_state e base_dir são preservados de current_config ou atualizados via eventos específicos.
 
     // Reflete a troca de idioma no locale do backend na hora (sem exigir restart).

@@ -554,14 +554,7 @@ pub fn ajuste_fim_de_semana_com_escalas(
     // Ver `CORRELACAO_ENTRE_TRIMS` para o número e para o que ele custou descobrir.
     let forma_pontos = forma_em_pontos_com_escala(estado_forma, escalas.forma);
     let acerto = |trim| {
-        acerto_fim_de_semana_por_canal(
-            temporada,
-            rodada,
-            team_id,
-            driver_id,
-            escalas.acerto,
-            trim,
-        )
+        acerto_fim_de_semana_por_canal(temporada, rodada, team_id, driver_id, escalas.acerto, trim)
     };
 
     AjusteFimDeSemana {

@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 
+import Tooltip from "../ui/Tooltip";
+
 function ResultBadge({ result }) {
   const { t } = useTranslation();
   if (!result) {
@@ -43,11 +45,12 @@ function ResultBadge({ result }) {
   return (
     <span className="inline-flex items-center gap-1">
       {content}
-      <span
-        className="h-3 w-1.5 rounded-full border border-[#bc8cff]/35 bg-[#bc8cff] shadow-[0_0_12px_rgba(188,140,255,0.55)]"
-        title={t("standings.fastestLap")}
-        aria-label={t("standings.fastestLap")}
-      />
+      <Tooltip texto={t("standings.fastestLap")}>
+        <span
+          className="h-3 w-1.5 rounded-full border border-[#bc8cff]/35 bg-[#bc8cff] shadow-[0_0_12px_rgba(188,140,255,0.55)]"
+          aria-label={t("standings.fastestLap")}
+        />
+      </Tooltip>
     </span>
   );
 }
