@@ -13,7 +13,6 @@ use crate::economia::evento::{
     custo_de_eventos_da_temporada, fatura_da_etapa, COMBUSTIVEL, PNEUS, VIAGEM,
 };
 use crate::economia::tipos::EntradaDaEtapa;
-use crate::finance::planning::category_finance_scale;
 
 /// Uma linha da tabela de bandas. Tudo por ETAPA TÍPICA: equipe mediana, dois carros,
 /// pista média, distância continental, prova completa.

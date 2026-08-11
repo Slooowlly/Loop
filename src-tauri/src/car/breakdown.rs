@@ -13,7 +13,7 @@
 //! `docs/superpowers/specs/2026-07-18-car-breakdown-system.md` §3, §4, §7, §11.
 #![allow(dead_code)] // Fase 2: cérebro puro; o wiring ao vivo (disparo + aviso) vem na Fase 3.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::car::wear::wear_per_lap;
 use crate::car::{Car, PartType};
@@ -43,51 +43,28 @@ const HAZARD_WALL: f64 = 0.45;
 const WEAR_NOISE: f64 = 0.30;
 /// Botão global da taxa do grid (análogo ao `IRACER_SALARY_SHARE`).
 const GLOBAL: f64 = 1.0;
-/// TETO do mult combinado de condições (pista × clima) por peça/volta. Sem isto, dia quente
-/// e úmido em pista peaked chega a ~2× e consome ~65% da vida do motor numa corrida só —
-/// esvaziando a grade. O teto poda só a CAUDA brutal: o neutro (~1.0) não muda, e a economia
-/// continua respondendo às condições. Aplicado igual no risco ao vivo E na economia.
-const CONDITIONS_MAX_MULT: f64 = 1.5;
 
-/// Mult combinado de condições (pista × clima) de uma peça, já com o [`CONDITIONS_MAX_MULT`].
-/// Fonte ÚNICA da poda — usado pelo risco ao vivo ([`LiveBreakdown::advance_lap_at`]) e pela
-/// economia ([`conditions_wear_mults`]) pra os dois ficarem sincronizados.
-fn conditions_mult(
-    pt: PartType,
-    track_pha: (f64, f64, f64),
-    mean_align: f64,
-    weather: Weather,
-) -> f64 {
-    (track_wear_mult(pt, track_pha, mean_align) * weather_wear_mult(pt, weather))
-        .min(CONDITIONS_MAX_MULT)
-}
+// O TETO das condições e o multiplicador combinado moram em `condicoes` — ver o cabeçalho
+// de lá. Ficam importados mais abaixo, junto da declaração do módulo.
 
 /// Numa manutenção em box (enduro), troca a peça acima deste desgaste. Ver [`roll_race_breakdowns_cfg`].
 const SERVICE_WEAR_FLOOR: f64 = 0.60;
 
-// ───────────────────────── Enduro (corridas longas) ─────────────────────────
-// Objetivo: em corrida longa o grid NÃO esvazia (DNF raro), mas a peça CUSTA muito mais —
-// e o custo escala da metade pro fim da corrida. Uma parada REAL (pneu/combustível) alivia
-// o gasto. Ver design: docs/superpowers/specs/2026-07-18-car-breakdown-system.md (enduro).
-
-/// Corrida acima desta duração (min) é ENDURO — ativa a severidade abrandada, a rampa de
-/// desgaste no fim e o custo/parada. Abaixo disto, sprint: tudo se comporta como antes.
-pub const ENDURO_DURATION_GATE_MIN: f64 = 40.0;
-/// Fração da fatia de DNF que PERMANECE DNF no enduro (o resto vira Grave = pit longo). Com
-/// 0.25, o motor cai de ~38% → ~9,5% de DNF: os carros pingam no box mas cruzam a bandeira.
-const ENDURO_DNF_SCALE: f64 = 0.25;
-/// Desgaste EXTRA por volta no clímax do enduro (progresso→1): +80% no fim (rampa 1.8×). Começa
-/// na METADE da corrida (progresso 0.5) e sobe linear — é o carro se arrastando nas últimas horas.
-const ENDURO_LATE_RAMP_EXTRA: f64 = 0.80;
-/// Inclinação do sobrecusto de peça do enduro por unidade de `(duração−gate)/gate`. Com 2.0,
-/// uma corrida de 60 min (over=0.5) custa 2.0× o desgaste-base de peças; 80 min → 3.0×.
-const ENDURO_COST_K: f64 = 2.0;
-/// Alívio de gasto de peça por PARADA REAL (pneu/combustível) no enduro.
-const ENDURO_PIT_RELIEF: f64 = 0.10;
-/// Teto do alívio acumulado (3+ paradas → −30% do sobrecusto).
-const ENDURO_RELIEF_CAP: f64 = 0.30;
-/// Duração média de um stint (min) pra MODELAR as paradas da IA (o jogador usa o pit REAL).
-const ENDURO_STINT_MIN: f64 = 30.0;
+// ──────────── Enduro (corridas longas): um arquivo só das regras dele ────────────
+mod enduro;
+// `DuracaoDeProva` e `ENDURO_DURATION_GATE_MIN` ainda não têm consumidor fora do módulo: o
+// tipo existe para os call sites de `commands/` migrarem para ele (ver o doc dele), e o gate
+// é referência de documentação. Ficam re-exportados porque a fronteira pública do sistema de
+// quebra é esta, não o submódulo.
+#[allow(unused_imports)]
+pub use enduro::{
+    enduro_economy_wear_mult, enduro_pit_relief, is_enduro_duration, modeled_ai_pits,
+    DuracaoDeProva, ENDURO_DURATION_GATE_MIN,
+};
+use enduro::{enduro_late_ramp, ENDURO_DNF_SCALE};
+// Os testes de enduro seguem em `breakdown/tests`, com os do resto do sistema.
+#[cfg(test)]
+use enduro::ENDURO_LATE_RAMP_EXTRA;
 
 /// Canais da RNG determinística (descorrelaciona as rolagens do mesmo `(peça, volta)`).
 const CH_NOISE: u64 = 1;
@@ -103,7 +80,14 @@ const FAILURE_MODES: u8 = 3;
 // ───────────────────────── Tipos de saída ─────────────────────────
 
 /// Gravidade da quebra → o comando de admin que ela vira no iRacing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+///
+/// Vocabulário FECHADO, e o mesmo dos dois lados da ponte: as variantes serializam exatamente
+/// como [`Severity::key`] ("light"/"heavy"/"dnf"), que é o que o React já lê e o que a coluna
+/// `race_breakdowns.severity` já guarda. Era `String` comparada por literal (`== "dnf"`) na
+/// borda inteira — monitor, importação, rádio e notícia —, onde um typo compilava, serializava
+/// e falhava calado. Agora só o compilador escreve essas chaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     /// Penalidade curta no box (`!black`), tempo próprio da peça.
     Light,
@@ -132,6 +116,18 @@ impl Severity {
             "dnf" => Some(Severity::Dnf),
             _ => None,
         }
+    }
+
+    /// A quebra tira o carro da corrida (`!dq`)? O predicado que a borda inteira comparava
+    /// por literal.
+    pub fn e_abandono(self) -> bool {
+        self == Severity::Dnf
+    }
+
+    /// A quebra custou caro — abandono ou parada longa. Separa "o carro sofreu de verdade" de
+    /// "perdeu rendimento", que é o corte que a notícia e o boletim usam.
+    pub fn e_severa(self) -> bool {
+        matches!(self, Severity::Heavy | Severity::Dnf)
     }
 }
 
@@ -358,221 +354,48 @@ fn per_lap_hazard(pt: PartType, wear: f64) -> f64 {
     (base * fragility(pt) * GLOBAL).clamp(0.0, 1.0)
 }
 
-// ───────────────────────── Influência da pista (qual peça sofre) ─────────────────────────
-
-/// Força "média" do efeito da pista (~±35% nas pistas mais peaked). Calibrável.
-const TRACK_STRESS_K: f64 = 1.4;
-
-/// Alinhamento (centrado) da peça com a demanda PHA da pista: positivo = a peça puxa PARA o
-/// atributo que a pista cobra (é estressada ali); negativo = puxa pra longe. Ambos os vetores
-/// em frações centradas em 1/3, então pista equilibrada → ~0 para todas as peças.
-fn track_alignment(pt: PartType, track_pha: (f64, f64, f64)) -> f64 {
-    let dir = |(p, h, a): (f64, f64, f64)| {
-        let t = p + h + a;
-        if t > 0.0 {
-            (p / t, h / t, a / t)
-        } else {
-            (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
-        }
-    };
-    let (pp, ph, pa) = dir(pt.pha_per_level());
-    let (dp, dh, da) = dir(track_pha);
-    let t = 1.0 / 3.0;
-    (pp - t) * (dp - t) + (ph - t) * (dh - t) + (pa - t) * (da - t)
-}
-
-/// Multiplicador de desgaste POR VOLTA da peça nesta pista, **centrado em ~1.0** (subtraindo
-/// o `mean_align` das 11 peças) pra não inflar a taxa total do grid: peça alinhada com a
-/// pista gasta mais (chega na zona de perigo antes), a contrária gasta menos. Clampado pra
-/// não explodir em pistas extremas. É assim que a pista decide QUAL peça tende a quebrar.
-fn track_wear_mult(pt: PartType, track_pha: (f64, f64, f64), mean_align: f64) -> f64 {
-    let a = track_alignment(pt, track_pha) - mean_align;
-    (1.0 + TRACK_STRESS_K * a).clamp(0.6, 1.5)
-}
-
-// ────────────────── Influência do CLIMA (chuva/calor/umidade/vento) ──────────────────
-
-/// Condições de clima da corrida que modulam o desgaste. Faixas REAIS do iRacing: temp
-/// [18,32] °C, umidade [0,100] %, vento [2,48] km/h. Fonte única = a `WeatherStory` (mesma
-/// que o iRacing roda), resolvida por corrida.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Weather {
-    /// Molhado da pista, 0..1 (da chuva).
-    pub wetness: f64,
-    /// Temperatura do ar, °C (18..32).
-    pub temperature: f64,
-    /// Umidade relativa, 0..100 %.
-    pub humidity: f64,
-    /// Velocidade do vento, km/h (2..48).
-    pub wind_kmh: f64,
-}
-
-impl Weather {
-    /// Clima NEUTRO → todos os mults = 1.0 (temp no meio da faixa, vento típico, seco).
-    pub const NEUTRAL: Weather = Weather {
-        wetness: 0.0,
-        temperature: TEMP_MID_C,
-        humidity: 45.0,
-        wind_kmh: WIND_TYPICAL_KMH,
-    };
-}
-
-/// Chuva: +% de risco na ELETRÔNICA (curto/sensores). Cheio no aguaceiro (wetness=1).
-const RAIN_ELEC_STRESS: f64 = 0.60;
-/// Chuva ALIVIA a térmica: −% no motor/arrefecimento (o carro esfria).
-const RAIN_THERMAL_RELIEF: f64 = 0.25;
-/// Faixa REAL de temperatura do iRacing (°C). O modelo é CENTRADO no MEIO: dia frio alivia
-/// a térmica, dia quente a agrava — a média da temporada fica ~neutra (não infla a economia).
-const TEMP_MIN_C: f64 = 18.0;
-const TEMP_MID_C: f64 = 25.0;
-const TEMP_MAX_C: f64 = 32.0;
-/// Estresse térmico no motor/arrefecimento no dia mais QUENTE (32 °C) — agora ALCANÇÁVEL.
-const HEAT_THERMAL_STRESS: f64 = 0.40;
-/// Alívio térmico no dia mais FRIO (18 °C).
-const COOL_THERMAL_RELIEF: f64 = 0.20;
-/// A umidade AMPLIFICA o estresse do calor (ar úmido refrigera pior). A 100 %, o estresse
-/// térmico fica ×(1 + este fator). Só morde o lado QUENTE — dia frio úmido não vira alívio.
-const HUMIDITY_THERMAL_BOOST: f64 = 0.50;
-/// Vento: estressa suspensão + asas (instabilidade + carga aero flutuante). Centrado na
-/// MÉDIA do vento sorteado (`generate_wind` seco ~25 km/h) pra não inflar a economia na média;
-/// acima estressa, abaixo alivia de leve.
-const WIND_TYPICAL_KMH: f64 = 25.0;
-const WIND_MAX_KMH: f64 = 48.0;
-const WIND_STRESS: f64 = 0.15;
-
-/// Carga térmica ASSINADA da temperatura: +1 no calor máx (32°), 0 no meio (25°), −1 no
-/// frio máx (18°). Multiplicada por STRESS (calor) ou RELIEF (frio).
-fn thermal_load(temperature: f64) -> f64 {
-    if temperature >= TEMP_MID_C {
-        ((temperature - TEMP_MID_C) / (TEMP_MAX_C - TEMP_MID_C)).clamp(0.0, 1.0)
-    } else {
-        -((TEMP_MID_C - temperature) / (TEMP_MID_C - TEMP_MIN_C)).clamp(0.0, 1.0)
-    }
-}
-
-/// Carga de vento CENTRADA no vento típico: >0 acima (estressa), <0 abaixo (alivia leve).
-fn wind_load(wind_kmh: f64) -> f64 {
-    ((wind_kmh - WIND_TYPICAL_KMH) / (WIND_MAX_KMH - WIND_TYPICAL_KMH)).clamp(-1.0, 1.0)
-}
-
-/// Multiplicador de desgaste por volta pelo CLIMA. Chuva: eletrônica ↑, motor/arrefecimento ↓
-/// (resfria). Temperatura CENTRADA: dia quente agrava a térmica, frio alivia; a **umidade
-/// amplifica o calor** (o dia quente+úmido é o matador de motor). Vento estressa suspensão +
-/// asas. Centrado → não infla a economia na média; só redistribui e cria variância real.
-fn weather_wear_mult(pt: PartType, weather: Weather) -> f64 {
-    let w = weather.wetness.clamp(0.0, 1.0);
-    let hum = (weather.humidity / 100.0).clamp(0.0, 1.0);
-    let thermal = thermal_load(weather.temperature);
-    // Calor (thermal ≥ 0) é amplificado pela umidade; frio (thermal < 0) é alívio puro.
-    let thermal_term = if thermal >= 0.0 {
-        thermal * HEAT_THERMAL_STRESS * (1.0 + hum * HUMIDITY_THERMAL_BOOST)
-    } else {
-        thermal * COOL_THERMAL_RELIEF
-    };
-    let wind = wind_load(weather.wind_kmh);
-    match pt {
-        PartType::Electronics => 1.0 + w * RAIN_ELEC_STRESS,
-        PartType::Engine | PartType::Cooling => {
-            (1.0 - w * RAIN_THERMAL_RELIEF) * (1.0 + thermal_term)
-        }
-        PartType::Suspension | PartType::FrontWing | PartType::RearWing => 1.0 + wind * WIND_STRESS,
-        _ => 1.0,
-    }
-}
-
-/// Multiplicador de desgaste POR CORRIDA de cada peça pelas condições REAIS da rodada
-/// (pista × clima), a MESMA física do risco de quebra ao vivo. Alimenta a **economia**: o
-/// desgaste que PERSISTE no carro passa a responder à pista (qual peça sofre) e ao clima
-/// (chuva → eletrônica; calor → térmica) daquela corrida — pra **grade toda**, de modo que o
-/// cérebro de manutenção reaja a corridas brutais. O estilo de pilotagem (só o jogador)
-/// multiplica isto por fora. Corrida neutra (pista equilibrada, seco, ≤25 °C) → todos ~1.0,
-/// e a economia calibrada não muda. `mean_align` é subtraído dentro de [`track_wear_mult`]
-/// pra a pista só REDISTRIBUIR (não inflar o total); só o calor infla.
-pub fn conditions_wear_mults(
-    track_pha: (f64, f64, f64),
-    weather: Weather,
-) -> std::collections::HashMap<PartType, f64> {
-    let mean_align = PartType::ALL
-        .iter()
-        .map(|&p| track_alignment(p, track_pha))
-        .sum::<f64>()
-        / PartType::ALL.len() as f64;
-    PartType::ALL
-        .iter()
-        .map(|&pt| (pt, conditions_mult(pt, track_pha, mean_align, weather)))
-        .collect()
-}
+// ──────────── Condições da rodada (pista × clima): um arquivo só delas ────────────
+mod condicoes;
+use condicoes::{conditions_mult, track_alignment};
+pub use condicoes::{conditions_wear_mults, Weather};
+// Os testes de condições continuam morando em `breakdown/tests`, junto dos do resto do
+// sistema, e alcançam os internos daqui por este caminho.
+#[cfg(test)]
+use condicoes::{track_wear_mult, weather_wear_mult, WIND_TYPICAL_KMH};
 
 // ───────────────────────── Enduro: rampa de fim + economia ─────────────────────────
 
-/// A corrida é ENDURO pela duração (min)? Gate único usado no risco ao vivo E na economia.
-pub fn is_enduro_duration(duracao_min: u16) -> bool {
-    duracao_min as f64 > ENDURO_DURATION_GATE_MIN
-}
-
-/// Multiplicador de desgaste POR VOLTA pela fase da corrida no enduro: 1.0 até a metade
-/// (`progress ≤ 0.5`) e sobe linear até `1 + ENDURO_LATE_RAMP_EXTRA` no fim (`progress = 1`).
-/// Fora do enduro o chamador não aplica isto. É o "principalmente da metade pro fim": as peças
-/// se cansam no clímax → mais reparos no box no fim da corrida longa.
-fn enduro_late_ramp(progress: f64) -> f64 {
-    let t = ((progress - 0.5) * 2.0).clamp(0.0, 1.0);
-    1.0 + ENDURO_LATE_RAMP_EXTRA * t
-}
-
-/// Sobrecusto de desgaste de peça do enduro pela duração (acima do gate), ANTES do alívio de
-/// parada. Contínuo no gate (40 min → 0). Ex.: 60 min → 1.0 (over 0.5 × K 2.0); 80 min → 3.0.
-fn enduro_surcharge(duracao_min: u16) -> f64 {
-    let over =
-        ((duracao_min as f64) - ENDURO_DURATION_GATE_MIN).max(0.0) / ENDURO_DURATION_GATE_MIN;
-    ENDURO_COST_K * over
-}
-
-/// Alívio de gasto de peça por PARADA REAL no enduro: 10%/parada, teto 30% (3+ paradas).
-pub fn enduro_pit_relief(genuine_pits: u32) -> f64 {
-    (ENDURO_PIT_RELIEF * genuine_pits as f64).min(ENDURO_RELIEF_CAP)
-}
-
-/// Paradas MODELADAS da IA pela duração (o jogador usa o pit REAL do SDK). Um stint dura
-/// ~[`ENDURO_STINT_MIN`] min → uma corrida de 60 min ≈ 2 paradas. 0 fora do enduro.
-pub fn modeled_ai_pits(duracao_min: u16) -> u32 {
-    if !is_enduro_duration(duracao_min) {
-        return 0;
-    }
-    ((duracao_min as f64) / ENDURO_STINT_MIN).floor().max(0.0) as u32
-}
-
-/// Multiplicador de desgaste (→ CUSTO) da corrida na ECONOMIA da grade toda: 1.0 no sprint;
-/// no enduro sobe com a duração ([`enduro_surcharge`]) e é aliviado por paradas reais
-/// ([`enduro_pit_relief`]). O sobrecusto persiste no desgaste → as peças chegam ao fim da vida
-/// mais cedo → mais trocas ao longo da temporada de enduro (a conta que o usuário pediu). Uma
-/// parada nunca leva abaixo de 1.0 (o alívio só corta o sobrecusto, não o desgaste-base).
-pub fn enduro_economy_wear_mult(duracao_min: u16, genuine_pits: u32) -> f64 {
-    if !is_enduro_duration(duracao_min) {
-        return 1.0;
-    }
-    1.0 + enduro_surcharge(duracao_min) * (1.0 - enduro_pit_relief(genuine_pits))
-}
-
-// ───────────────────────── Proteção do JOGADOR (só o jogador) ─────────────────────────
+// ─────────────── Proteção do JOGADOR (aposentada, viva só em teste) ───────────────
+//
+// **Este mecanismo foi substituído e não roda mais em produção.** Quem faz o papel dele
+// hoje é `car::wear::reliability_life_mult`: a "proteção via manutenção" do jogador virou a
+// confiabilidade do pit crew do time, que vale igual para a IA (variedade no grid) e entra
+// na vida efetiva da peça em vez de aliviar o desgaste de entrada. O próprio doc de
+// `reliability_life_mult` registra a substituição.
+//
+// O que sobrou aqui é só o que os testes de `breakdown/tests` ainda exercitam, e o
+// `#[cfg(test)]` é o que garante isso: um caller de produção novo passa a não compilar, em
+// vez de ressuscitar o mecanismo em silêncio. A calibração que o comentário antigo prometia
+// ("o número final se calibra contra o desgaste real de time pobre no wiring") deixou de
+// fazer sentido junto com o mecanismo — não é medição pendente, é medição cancelada.
 
 /// Alívio MÁXIMO de desgaste de entrada do carro do jogador (no time mais fraco possível).
-/// Botão da proteção — a IA NUNCA recebe isto. Primeiro corte: com `0.05`, num teste de
-/// frota pobre, o jogador quebra ~8.6%/corrida vs ~15.8% do poor-AI (≈metade). O número
-/// FINAL se calibra contra o desgaste REAL de time pobre no wiring (frota sintética é
-/// hipersensível à distribuição de entrada).
+/// Primeiro e único corte: com `0.05`, num teste de frota pobre, o jogador quebrava
+/// ~8,6%/corrida contra ~15,8% do poor-AI.
+#[cfg(test)]
 const PLAYER_MAX_RELIEF: f64 = 0.05;
 
-/// Fração de alívio no desgaste de entrada do carro do JOGADOR — a equipe dele cuida melhor
-/// do carro. Escala com a FRAQUEZA do time (via `pit_crew_quality` 0-100): time forte
-/// (crew alto) → ~0 (chances IDÊNTICAS à IA); time pobre (crew baixo) → alívio maior. É
-/// "via manutenção", não desconto mágico no risco. Só o jogador chama isto.
+/// Fração de alívio no desgaste de entrada do carro do JOGADOR, escalando com a FRAQUEZA do
+/// time (via `pit_crew_quality` 0-100): time forte → ~0; time pobre → alívio maior.
+#[cfg(test)]
 fn player_wear_relief(pit_crew_quality: f64) -> f64 {
     let weakness = 1.0 - pit_crew_quality.clamp(0.0, 100.0) / 100.0;
     PLAYER_MAX_RELIEF * weakness
 }
 
 /// Cópia do carro do JOGADOR com o desgaste aliviado pela proteção (ver [`player_wear_relief`]).
-/// O wiring aplica isto ANTES do pré-roll, só para o carro do jogador.
+/// Sem consumidor em produção — ver o bloco acima.
+#[cfg(test)]
 pub fn player_protected_car(car: &Car, pit_crew_quality: f64) -> Car {
     let keep = 1.0 - player_wear_relief(pit_crew_quality);
     let mut c = car.clone();
@@ -1146,131 +969,9 @@ pub fn forecast_breakdown_risk(
 }
 
 // ───────────────────────── Diretor do disparo ao vivo ─────────────────────────
-
-/// Orquestra o disparo AO VIVO na grade toda: guarda um [`LiveBreakdown`] por carro (pelo
-/// NÚMERO no iRacing) e, quando o monitor avisa que um carro completou uma volta, avança o
-/// estado dele com o clima daquela volta e devolve os [`BreakdownEvent`] que aconteceram —
-/// o monitor então dispara `ev.command(car_number)` (`!black`/`!dq`) e registra. Puro e
-/// testável; a fiação viva (verde→montar a grade; volta→`on_lap`→`send_chat_text`) fica no
-/// `race_monitor`. Idempotente por volta: só avança pra frente (reprocessar a mesma volta
-/// não dispara de novo).
-/// `Clone` porque o monitor guarda uma cópia PRISTINA do diretor no instante da instalação: ao
-/// reiniciar a corrida, o estado de desgaste que as voltas da tentativa abandonada consumiram
-/// tem de ser jogado fora, e a única forma honesta de fazer isso é voltar ao que foi montado.
-#[derive(Debug, Default, Clone)]
-pub struct BreakdownDirector {
-    cars: std::collections::HashMap<u32, DirectorCar>,
-}
-
-#[derive(Debug, Clone)]
-struct DirectorCar {
-    live: LiveBreakdown,
-    /// Última volta já processada deste carro (dedupe).
-    last_lap: u32,
-    /// Voltas de parada no box (enduro) — troca de peças gastas.
-    service_laps: Vec<u32>,
-}
-
-impl BreakdownDirector {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Nenhum carro montado (grade não carregada) → o monitor não dispara nada.
-    pub fn is_empty(&self) -> bool {
-        self.cars.is_empty()
-    }
-
-    /// Registra um carro do grid pelo número no iRacing (o `LiveBreakdown` já vem com o
-    /// desgaste de entrada + proteção do jogador aplicados). `service_laps` vazio em sprints.
-    pub fn add_car(&mut self, car_number: u32, live: LiveBreakdown, service_laps: Vec<u32>) {
-        self.cars.insert(
-            car_number,
-            DirectorCar {
-                live,
-                last_lap: 0,
-                service_laps,
-            },
-        );
-    }
-
-    /// Troca a sorte de TODOS os carros montados (ver [`LiveBreakdown::reroll_luck`]). O monitor
-    /// chama isto ao restaurar o diretor num reinício de sessão, pra a corrida refeita não ser a
-    /// repetição peça-por-peça, volta-por-volta da que o jogador jogou fora.
-    pub fn reroll_luck(&mut self, salt: u64) {
-        for car in self.cars.values_mut() {
-            car.live.reroll_luck(salt);
-        }
-    }
-
-    /// Peças de `car_number` atualmente na janela de risco (ver [`LiveBreakdown::parts_in_danger`]).
-    /// Vazio se o carro não está montado.
-    pub fn car_parts_in_danger(&self, car_number: u32) -> Vec<(usize, PartType, f64)> {
-        self.cars
-            .get(&car_number)
-            .map(|c| c.live.parts_in_danger())
-            .unwrap_or_default()
-    }
-
-    /// Marca a volta de PARTIDA de um carro já montado (evita processar as voltas anteriores).
-    /// Útil quando a grade é montada com a corrida já em andamento — a avaliação começa da
-    /// PRÓXIMA volta cruzada, não retroage.
-    pub fn prime_lap(&mut self, car_number: u32, lap: u32) {
-        if let Some(car) = self.cars.get_mut(&car_number) {
-            car.last_lap = lap;
-        }
-    }
-
-    /// O carro `car_number` completou a volta `lap` (1-based). Avança o estado dele até essa
-    /// volta com `weather` (o clima vivo do momento) e devolve os eventos de quebra que
-    /// aconteceram. Volta ≤ já processada → nada (dedupe). Carro fora (DNF) → nada.
-    pub fn on_lap(&mut self, car_number: u32, lap: u32, weather: Weather) -> Vec<BreakdownEvent> {
-        self.on_lap_at(car_number, lap, weather, 0.0)
-    }
-
-    /// Igual a [`BreakdownDirector::on_lap`], com o `progress` (0..1) da corrida — o enduro usa
-    /// pra a rampa de desgaste do fim. O monitor passa o progresso VIVO (tempo de sessão); as
-    /// voltas em atraso reaproveitam o mesmo progresso (aproximação suave, a rampa é contínua).
-    pub fn on_lap_at(
-        &mut self,
-        car_number: u32,
-        lap: u32,
-        weather: Weather,
-        progress: f64,
-    ) -> Vec<BreakdownEvent> {
-        self.on_lap_at_cfg(car_number, lap, weather, progress, true)
-    }
-
-    /// Igual a [`BreakdownDirector::on_lap_at`], com o interruptor da FALHA (ver
-    /// [`LiveBreakdown::advance_lap_at_cfg`]). O monitor passa `allow_break = false` na
-    /// classificatória e na carência de largada: as voltas são avançadas (o carro gasta), mas
-    /// nenhuma peça larga.
-    pub fn on_lap_at_cfg(
-        &mut self,
-        car_number: u32,
-        lap: u32,
-        weather: Weather,
-        progress: f64,
-        allow_break: bool,
-    ) -> Vec<BreakdownEvent> {
-        let mut out = Vec::new();
-        if let Some(car) = self.cars.get_mut(&car_number) {
-            while car.last_lap < lap && !car.live.is_out() {
-                car.last_lap += 1;
-                if car.service_laps.contains(&car.last_lap) {
-                    car.live.service_pit();
-                }
-                out.extend(car.live.advance_lap_at_cfg(
-                    car.last_lap,
-                    weather,
-                    progress,
-                    allow_break,
-                ));
-            }
-        }
-        out
-    }
-}
+// O papel com estado (a grade inteira, volta a volta) mora num arquivo só dele.
+mod diretor;
+pub use diretor::BreakdownDirector;
 
 #[cfg(test)]
 #[path = "breakdown/tests/mod.rs"]

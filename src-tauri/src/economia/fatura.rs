@@ -451,7 +451,10 @@ pub fn fatura_visivel(entrada: &EntradaDaFatura<'_>) -> FaturaVisivel {
         &mut linhas,
         V_PECA_DE_REPOSICAO,
         BlocoDaFatura::Corrida,
-        vec![valor_sem_grandeza(V_PECA_DE_REPOSICAO, entrada.peca_comprada)],
+        vec![valor_sem_grandeza(
+            V_PECA_DE_REPOSICAO,
+            entrada.peca_comprada,
+        )],
     );
 
     // ── LOGÍSTICA: o que custou levar a operação até a pista ─────────────────────────
@@ -914,7 +917,13 @@ mod tests {
         let (etapa, temporada) = entrada_gt3();
         let f = fatura(&etapa, &temporada, receita_qualquer());
 
-        for chave in [V_COMBUSTIVEL, V_PNEUS, V_REVISAO_MECANICA, V_FRETE, V_DIARIAS] {
+        for chave in [
+            V_COMBUSTIVEL,
+            V_PNEUS,
+            V_REVISAO_MECANICA,
+            V_FRETE,
+            V_DIARIAS,
+        ] {
             let linha = f.linha(chave).unwrap_or_else(|| panic!("linha {chave}"));
             assert!(linha.tem_detalhe(), "{chave} perdeu o expandir");
         }

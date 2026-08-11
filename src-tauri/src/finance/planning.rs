@@ -84,12 +84,13 @@ pub fn category_finance_scale(category: &str) -> CategoryFinanceScale {
 pub fn category_finance_scale_for(category: &str, classe: Option<&str>) -> CategoryFinanceScale {
     let classe = classe.filter(|c| !c.is_empty()).or_else(|| {
         // Campeonato multi-classe consultado sem classe: usa a de referência em vez de
-        // cair no fallback genérico da âncora, que devolveria um bmw_m2.
-        match category {
-            "endurance" => Some("gt3"),
-            "production_challenger" => Some("bmw"),
-            _ => None,
-        }
+        // cair no fallback genérico da âncora, que devolveria um bmw_m2. A pergunta aqui é
+        // "quanto custa OPERAR", então a resposta é a divisão TÍPICA — ver
+        // `economia::divisao`, onde as duas respostas possíveis moram lado a lado.
+        crate::economia::divisao::classe_de_referencia(
+            category,
+            crate::economia::divisao::ClasseDeReferencia::Tipica,
+        )
     });
     let (cash_min, cash_max) = category_cash_scale(category, classe);
     let (operating_cost_min, operating_cost_max) =
@@ -132,7 +133,16 @@ pub fn representative_division_for_tier(tier: u8) -> (&'static str, Option<&'sta
         3 => ("gt4", None),
         4 => ("gt3", None),
         5 => ("lmp2", None),
-        _ => ("endurance", Some("lmp2")), // tier 6
+        // Tier 6: a pergunta é "quanto se PAGA", então a resposta é o ÁPICE — ver
+        // `economia::divisao`, que guarda esta escolha ao lado da outra (a TÍPICA, que
+        // `category_finance_scale_for` usa) em vez de deixá-las espalhadas.
+        _ => (
+            "endurance",
+            crate::economia::divisao::classe_de_referencia(
+                "endurance",
+                crate::economia::divisao::ClasseDeReferencia::Apice,
+            ),
+        ),
     }
 }
 
@@ -659,9 +669,8 @@ mod tests {
              de outro caso, não de ser apagado"
         );
         assert!(
-            (derive_budget_index_from_money(&em_crise)
-                - derive_budget_index_from_money(&estavel))
-            .abs()
+            (derive_budget_index_from_money(&em_crise) - derive_budget_index_from_money(&estavel))
+                .abs()
                 < 0.001,
             "o índice seguiu o poder de gasto: as duas equipes têm o mesmo dinheiro e o \
              mesmo custo, e só diferem na postura de crédito"

@@ -70,6 +70,26 @@ impl TeamFocus {
             _ => TeamFocus::MeioDeGrid,
         }
     }
+
+    /// Quanto do excedente de caixa este foco converte em investimento na offseason (0–1).
+    ///
+    /// É a alavanca do foco sobre [`crate::economia::desenvolvimento`]: 1,0 investe a fração
+    /// cheia dos parâmetros, 0,0 é uma equipe que decidiu segurar caixa. Os números vêm do
+    /// harness de economia, que dirigiu os dois modelos de offseason lado a lado.
+    ///
+    /// Celeiro investe MENOS que o meio de grid mesmo com caixa: ele põe o dinheiro em
+    /// piloto, não em galpão. Sobrevivência quase não investe — é o que dá ao foco uma
+    /// consequência financeira em vez de ser só um rótulo na ficha.
+    pub fn apetite_de_investimento(&self) -> f64 {
+        match self {
+            TeamFocus::Dinastia => 1.00,
+            TeamFocus::ProjetoDeTitulo => 0.90,
+            TeamFocus::MeioDeGrid => 0.70,
+            TeamFocus::Celeiro => 0.50,
+            TeamFocus::Reconstrucao => 0.45,
+            TeamFocus::Sobrevivencia => 0.15,
+        }
+    }
 }
 
 /// O foco "natural" que o estado atual do time pede (antes da histerese).

@@ -1487,6 +1487,42 @@ fn gate_de_enduro_por_duracao() {
     assert!(is_enduro_duration(60));
 }
 
+/// A sentinela `duracao_corrida_min = 0` não constrói uma [`DuracaoDeProva`]. É o que
+/// impede o próximo call site de repetir o erro que tratou uma prova de 6 horas como
+/// sprint: a forma `u16` responde `false` para o zero, a forma tipada se recusa a existir.
+#[test]
+fn a_sentinela_de_duracao_nao_constroi_o_tipo() {
+    use crate::car::breakdown::DuracaoDeProva;
+
+    assert!(
+        DuracaoDeProva::nova(0).is_none(),
+        "0 é a SENTINELA, não sprint"
+    );
+    assert_eq!(
+        DuracaoDeProva::nova(360).map(DuracaoDeProva::minutos),
+        Some(360)
+    );
+
+    // A forma tipada e a forma livre concordam em tudo que NÃO é a sentinela — a migração
+    // dos call sites de `commands/` não pode mudar número nenhum.
+    for min in [1u16, 15, 30, 40, 41, 60, 80, 120, 180, 240, 360] {
+        let d = DuracaoDeProva::nova(min).expect("não é sentinela");
+        assert_eq!(d.e_enduro(), is_enduro_duration(min), "{min} min");
+        assert_eq!(
+            d.paradas_modeladas_da_ia(),
+            crate::car::breakdown::modeled_ai_pits(min),
+            "{min} min"
+        );
+        for pits in [0u32, 1, 4, 12] {
+            assert_eq!(
+                d.mult_de_desgaste_na_economia(pits),
+                enduro_economy_wear_mult(min, pits),
+                "{min} min com {pits} paradas"
+            );
+        }
+    }
+}
+
 #[test]
 fn sprint_nao_tem_sobrecusto_de_peca() {
     for d in [0u16, 15, 25, 30, 40] {
@@ -1497,8 +1533,11 @@ fn sprint_nao_tem_sobrecusto_de_peca() {
     }
 }
 
+/// O sobrecusto escala com a duração **até o joelho** de `ENDURO_SURCHARGE_CAP`, que cai
+/// exatamente em 80 min. Os dois pontos da calibração original (60 e 80) ficam abaixo ou
+/// sobre o joelho, então nenhum deles se moveu quando o teto entrou.
 #[test]
-fn enduro_custa_mais_e_escala_com_a_duracao() {
+fn enduro_custa_mais_e_escala_com_a_duracao_ate_o_joelho() {
     let m60 = enduro_economy_wear_mult(60, 0);
     let m80 = enduro_economy_wear_mult(80, 0);
     assert!(
@@ -1506,8 +1545,18 @@ fn enduro_custa_mais_e_escala_com_a_duracao() {
         "60min sem parada deveria ser 2.0×, deu {m60}"
     );
     assert!(
+        (m80 - 3.0).abs() < 1e-9,
+        "80min sem parada deveria ser 3.0× (o joelho), deu {m80}"
+    );
+    assert!(
         m80 > m60,
         "corrida mais longa deveria custar mais ({m80} vs {m60})"
+    );
+    // Passado o joelho, o sobrecusto para. Isso é o teto trabalhando, não um bug de
+    // arredondamento: ver `o_teto_do_sobrecusto_sai_da_peca_mais_fragil`.
+    assert!(
+        (enduro_economy_wear_mult(360, 0) - m80).abs() < 1e-9,
+        "acima do joelho o sobrecusto não cresce mais"
     );
 }
 
@@ -1624,4 +1673,153 @@ fn categoria_spec_ignora_a_tenda_de_nivel() {
         breaks(5, false),
         "sem tenda (spec), o nível é irrelevante"
     );
+}
+
+// ───────────────────── O sobrecusto de enduro nas durações REAIS ─────────────────────
+
+/// **Nenhuma duração real do calendário consome mais que uma VIDA de peça numa prova só.**
+///
+/// `enduro_surcharge` era linear e sem clamp, e o comentário dela exemplificava só 60 e
+/// 80 min. Só que quem sorteia a duração do Endurance é
+/// `calendar::montagem::resolve_race_duration`, entre **120, 180, 240 e 360** — faixa que
+/// nunca apareceu na calibração. O que se media antes do teto, com as paradas que a IA
+/// modela pela própria duração:
+///
+/// | duração | paradas modeladas | multiplicador SEM teto | vidas de motor | hoje |
+/// |---|---|---|---|---|
+/// | 60 min  | 2  | 1,80×  | 0,60 | 1,80× |
+/// | 120 min | 4  | 3,80×  | 1,27 | 2,40× |
+/// | 180 min | 6  | 5,90×  | 1,97 | 2,40× |
+/// | 240 min | 8  | 8,00×  | 2,67 | 2,40× |
+/// | 360 min | 12 | 12,20× | 4,07 | 2,40× |
+///
+/// "Vidas consumidas" é `wear_per_race × multiplicador` contra o motor (durabilidade 3, a
+/// peça mais curta junto de câmbio, freios e suspensão): acima de 1,0 a prova gastava a peça
+/// inteira e jogava fora o excedente, porque `part.wear` não satura — a peça saía da corrida
+/// com 400% de desgaste, e qualquer decisão de manutenção seguinte (esticar, degradar,
+/// aguentar mais uma) deixava de existir.
+///
+/// O teto de `ENDURO_SURCHARGE_CAP` fecha isso. Ele achata as quatro durações reais no mesmo
+/// multiplicador, e esse achatamento é consequência do invariante e não escolha: a menor
+/// delas já pedia 3,8×. Diferenciar 120 de 360 de novo (por exemplo trocando o linear por
+/// uma saturante com teto mais alto na vida de peça) continua sendo decisão de balanceamento
+/// e pede o harness de economia.
+#[test]
+fn sobrecusto_de_enduro_nas_duracoes_reais_do_calendario() {
+    use crate::car::breakdown::{enduro_economy_wear_mult, modeled_ai_pits};
+    use crate::car::wear::wear_per_race;
+
+    let mult_de = |min: u16| enduro_economy_wear_mult(min, modeled_ai_pits(min));
+    let vidas_de_motor = |min: u16| wear_per_race(PartType::Engine) * mult_de(min);
+
+    // Sprint não paga nada: o gate é o que separa os dois mundos.
+    assert_eq!(mult_de(30), 1.0);
+    assert_eq!(mult_de(40), 1.0, "o gate é exclusivo (> 40, não >=)");
+
+    // Abaixo do joelho (80 min) nada mudou — os pontos da calibração original seguem de pé.
+    assert!((mult_de(60) - 1.80).abs() < 0.01, "{:.2}", mult_de(60));
+
+    // As durações que o calendário de Endurance realmente sorteia: todas no teto, e o teto
+    // é o alívio de 4 paradas ou mais aplicado sobre o sobrecusto máximo.
+    for duracao in [120u16, 180, 240, 360] {
+        let obtido = mult_de(duracao);
+        assert!(
+            (obtido - 2.40).abs() < 0.01,
+            "multiplicador de {duracao} min mudou: {obtido:.2}"
+        );
+    }
+
+    // O INVARIANTE, e é ele que o teto existe para garantir: nem a prova de 6 horas, nem a
+    // prova de 6 horas sem parada nenhuma, gasta mais que uma peça inteira.
+    for duracao in [60u16, 120, 180, 240, 360, 600, u16::MAX] {
+        assert!(
+            vidas_de_motor(duracao) <= 1.0,
+            "{duracao} min consome {:.2} vidas de motor",
+            vidas_de_motor(duracao)
+        );
+        assert!(
+            wear_per_race(PartType::Engine) * enduro_economy_wear_mult(duracao, 0) <= 1.0,
+            "{duracao} min SEM parada consome {:.2} vidas de motor",
+            wear_per_race(PartType::Engine) * enduro_economy_wear_mult(duracao, 0)
+        );
+    }
+
+    // O alívio de parada continua sem alcançar as provas longas: ele satura em 3 paradas
+    // enquanto uma prova de 6 horas modela 12. Não é o alívio que segura o desgaste.
+    assert_eq!(
+        crate::car::breakdown::enduro_pit_relief(modeled_ai_pits(360)),
+        crate::car::breakdown::enduro_pit_relief(modeled_ai_pits(120)),
+        "12 paradas aliviam o mesmo que 4 — o teto de alívio foi calibrado para 60-80 min"
+    );
+}
+
+/// O teto do sobrecusto **é derivado**, não escolhido: ele é o maior valor que mantém uma
+/// prova dentro de uma vida de peça, e quem manda nisso é a peça de menor durabilidade.
+///
+/// Se alguém baixar a durabilidade mínima de 3 para 2, o teto de hoje deixa de respeitar o
+/// invariante — e é aqui que isso aparece, em vez de reabrir o desgaste sem fim no Endurance.
+#[test]
+fn o_teto_do_sobrecusto_sai_da_peca_mais_fragil() {
+    use crate::car::breakdown::enduro_economy_wear_mult;
+    use crate::car::wear::wear_per_race;
+
+    let pior = PartType::ALL
+        .iter()
+        .map(|&pt| wear_per_race(pt))
+        .fold(0.0f64, f64::max);
+    assert!(
+        (pior - 1.0 / 3.0).abs() < 1e-9,
+        "a peça mais frágil mudou de durabilidade: {pior}"
+    );
+    // O multiplicador MÁXIMO possível (prova infinita, zero paradas) × a peça mais frágil.
+    let mult_maximo = enduro_economy_wear_mult(u16::MAX, 0);
+    assert!(
+        mult_maximo * pior <= 1.0,
+        "o teto deixa a peça mais frágil gastar {:.2} vidas numa prova",
+        mult_maximo * pior
+    );
+    // E o teto está APERTADO nesse invariante: quem quiser afrouxá-lo precisa mexer aqui.
+    assert!(
+        (mult_maximo * pior - 1.0).abs() < 1e-9,
+        "o teto deixou de ser o maior que cabe no invariante ({:.4} vidas)",
+        mult_maximo * pior
+    );
+}
+
+/// O VOCABULÁRIO DA SEVERIDADE NO FIO.
+///
+/// A severidade da quebra cruza a ponte em três DTOs (`BreakdownOutcome`, `RaceBreakdownRow` →
+/// `RaceBreakdownView`) e o React compara o valor por literal (`b.severity === "dnf"`). Enquanto
+/// isto era `String`, o acordo entre os dois lados não estava escrito em lugar nenhum. Agora
+/// está: serde e `key()` têm que dizer a mesma coisa, e essa coisa é minúscula.
+#[test]
+fn a_severidade_serializa_com_a_mesma_chave_que_key() {
+    for sev in [Severity::Light, Severity::Heavy, Severity::Dnf] {
+        let fio = serde_json::to_string(&sev).unwrap();
+        assert_eq!(
+            fio,
+            format!("\"{}\"", sev.key()),
+            "serde e key() divergiram para {sev:?}"
+        );
+        // E o caminho de volta fecha o ciclo — é o que o `from_key` do banco assume.
+        assert_eq!(serde_json::from_str::<Severity>(&fio).unwrap(), sev);
+        assert_eq!(Severity::from_key(sev.key()), Some(sev));
+    }
+    // As chaves são exatamente as três que o front conhece.
+    assert_eq!(
+        [Severity::Light, Severity::Heavy, Severity::Dnf].map(|s| s.key()),
+        ["light", "heavy", "dnf"]
+    );
+}
+
+/// Os dois predicados que substituíram as comparações por literal na borda.
+#[test]
+fn abandono_e_severa_cobrem_o_que_a_borda_perguntava() {
+    assert!(Severity::Dnf.e_abandono());
+    assert!(!Severity::Heavy.e_abandono());
+    assert!(!Severity::Light.e_abandono());
+    // "severa" é o corte da notícia e do boletim: abandono OU parada longa.
+    assert!(Severity::Dnf.e_severa());
+    assert!(Severity::Heavy.e_severa());
+    assert!(!Severity::Light.e_severa());
 }

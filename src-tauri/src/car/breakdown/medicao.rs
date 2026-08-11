@@ -36,7 +36,8 @@ fn mede_quebras_por_corrida() {
             // modelo de quebra.
             let mut car = Car::uniform(5);
             for (i, peca) in car.parts.iter_mut().enumerate() {
-                peca.wear = f64::from((u32::from(c) * 37 + i as u32 * 61 + corrida * 7) % 100) / 100.0;
+                peca.wear =
+                    f64::from((u32::from(c) * 37 + i as u32 * 61 + corrida * 7) % 100) / 100.0;
             }
             let semente = u64::from(corrida) * 1_000 + u64::from(c);
             dir.add_car(
@@ -69,11 +70,16 @@ fn mede_quebras_por_corrida() {
     }
 
     let n = f64::from(CORRIDAS);
-    println!("\n── quebras por corrida ({CORRIDAS} corridas × {CARROS} carros × {VOLTAS} voltas) ──");
+    println!(
+        "\n── quebras por corrida ({CORRIDAS} corridas × {CARROS} carros × {VOLTAS} voltas) ──"
+    );
     println!("  leves      {:>6.2} por corrida", f64::from(leve) / n);
     println!("  graves     {:>6.2} por corrida", f64::from(grave) / n);
     println!("  abandonos  {:>6.2} por corrida", f64::from(dnf) / n);
-    println!("  TOTAL      {:>6.2} por corrida", f64::from(leve + grave + dnf) / n);
+    println!(
+        "  TOTAL      {:>6.2} por corrida",
+        f64::from(leve + grave + dnf) / n
+    );
     println!(
         "  corridas com 3+ abandonos: {:.0}%  (pior corrida: {pior_dnf} abandonos, \
          {pior_total} falas)",

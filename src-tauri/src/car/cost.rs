@@ -77,13 +77,25 @@ pub fn category_ceiling(category_id: &str) -> u8 {
 /// classe correspondente. Sem isto, um GT4 do Endurance corria com teto 8 — carro melhor
 /// que o de um GT3 do sprint (7) — e o Endurance inteiro herdava o teto do LMP2.
 pub fn category_ceiling_for(category_id: &str, class_id: Option<&str>) -> u8 {
-    let class_id = class_id.filter(|classe| !classe.is_empty());
-    match (category_base(category_id), class_id) {
+    let base = category_base(category_id);
+    let class_id = class_id.filter(|classe| !classe.is_empty()).or_else(|| {
+        // Multi-classe consultado sem classe (grid sintético/legado): a pergunta aqui é
+        // "até onde a PEÇA sobe", e o teto de uma categoria é o do carro mais capaz que ela
+        // admite — logo, o ÁPICE. Resolvido por `economia::divisao` para que esta escolha
+        // fique ao lado da outra (a TÍPICA, que a escala financeira usa) em vez de ser um
+        // número solto: para o Endurance isto devolve `lmp2`, ou seja, o teto histórico 8.
+        crate::economia::divisao::classe_de_referencia(
+            base,
+            crate::economia::divisao::ClasseDeReferencia::Apice,
+        )
+    });
+    match (base, class_id) {
         ("endurance", Some("gt4")) => 6,
         ("endurance", Some("gt3")) => 7,
-        ("endurance", Some("lmp2")) => 8,
-        // Endurance sem classe é grid sintético/legado: mantém o teto histórico.
-        ("endurance", None) => 8,
+        // O `None` não é alcançável enquanto `economia::divisao` responder pelo Endurance;
+        // fica escrito junto com o ápice para que, se um dia deixar de responder, o teto do
+        // Endurance caia no 8 histórico e não no fallback genérico lá embaixo.
+        ("endurance", Some("lmp2") | None) => 8,
         ("mazda_rookie" | "toyota_rookie", _) => 1,
         ("mazda_amador" | "toyota_amador", _) => 2,
         ("bmw_m2", _) => 3,

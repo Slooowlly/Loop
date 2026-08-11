@@ -45,6 +45,26 @@ fn style_factor(score: f64) -> f64 {
 }
 
 // ───────────────────────── Limiares de detecção (CALIBRAR na pista) ─────────────────────────
+//
+// **Os oito números abaixo nunca foram confrontados com telemetria real, e decidem dinheiro.**
+// Eles são o primeiro corte, escritos por plausibilidade mecânica; o que sai deles entra em
+// [`style_factor`] e vira até +30% de desgaste extra por corrida no carro DO JOGADOR (a IA
+// não paga estilo). Um limiar mal posto não erra pouco: ele muda de regime. `HARD_BRAKE` em
+// 0,90 num carro cujo pedal satura antes disso classifica toda frenagem como forte e o
+// jogador paga a multa cheia sem ter feito nada; `STEER_JERK_RAD` em 0,15 rad por tique
+// depende da razão de direção do carro e da taxa de amostragem, que variam por série.
+//
+// **O que falta é captura, não análise.** A medição pendente é uma corrida real de cada
+// carro-base do jogo, gravando os campos que [`StyleSample`] consome (acelerador, freio, RPM
+// contra o redline, marcha, ângulo de volante, aceleração vertical) e olhando a DISTRIBUIÇÃO
+// de cada um: o limiar certo é o percentil que separa o piloto que castiga o carro do que só
+// está andando rápido, e esse percentil não é dedutível do código. Ver
+// `docs/iracing-dados-disponiveis.md` para o que a telemetria entrega, e cuidado com nome de
+// variável errado — o SDK devolve zero em silêncio, e um limiar nunca cruzado é
+// indistinguível de um piloto suave.
+//
+// `os_limiares_do_estilo_seguem_no_primeiro_corte` trava os valores: enquanto a captura não
+// vem, uma mudança neles precisa ser deliberada.
 
 /// Fração do redline pra considerar "colado no limitador".
 const LIMITER_FRAC: f64 = 0.98;
@@ -320,6 +340,44 @@ impl StyleAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Os oito limiares de detecção seguem no primeiro corte, e o jogador paga por eles.**
+    ///
+    /// Este teste não valida nada — ele TRAVA. Os números aqui nunca foram confrontados com
+    /// telemetria real (ver o bloco de comentários junto das constantes), e a consequência
+    /// deles é dinheiro: até `MAX_FACTOR` de desgaste extra por corrida, só para o jogador.
+    /// Enquanto a captura não vem, mexer em qualquer um tem de ser um ato deliberado que
+    /// passa por aqui, e não um ajuste de passagem.
+    ///
+    /// Quando a captura existir, o que ela precisa produzir é a DISTRIBUIÇÃO de cada canal
+    /// numa corrida real por carro-base — o limiar certo é o percentil que separa castigar o
+    /// carro de andar rápido.
+    #[test]
+    fn os_limiares_do_estilo_seguem_no_primeiro_corte() {
+        for (nome, valor, esperado) in [
+            ("LIMITER_FRAC", LIMITER_FRAC, 0.98),
+            ("HIGH_RPM_FRAC", HIGH_RPM_FRAC, 0.90),
+            ("SHORT_SHIFT_FRAC", SHORT_SHIFT_FRAC, 0.90),
+            ("SHIFT_LIMITER_FRAC", SHIFT_LIMITER_FRAC, 0.97),
+            ("BRAKE_ACTIVE", BRAKE_ACTIVE, 0.05),
+            ("HARD_BRAKE", HARD_BRAKE, 0.90),
+            ("STEER_JERK_RAD", STEER_JERK_RAD, 0.15),
+            ("KERB_G", KERB_G, 20.0),
+        ] {
+            assert_eq!(
+                valor, esperado,
+                "{nome} mudou sem captura de telemetria que justifique"
+            );
+        }
+        // A consequência que torna isso caro: a multa máxima é +30% de desgaste.
+        assert_eq!(MAX_FACTOR, 1.30);
+        assert_eq!(MIN_FACTOR, 0.75);
+        // E a zona morta é a única proteção do piloto médio contra um limiar mal posto:
+        // abaixo dela nenhum abuso é cobrado.
+        assert_eq!(style_factor(ABUSE_DEAD_ZONE), 1.0);
+        assert_eq!(style_factor(0.0), 1.0);
+        assert!(style_factor(ABUSE_DEAD_ZONE + 0.01) > 1.0);
+    }
 
     /// Constrói uma amostra "normal" (rotação média, sem freio forte, volante parado).
     fn cruise() -> StyleSample {

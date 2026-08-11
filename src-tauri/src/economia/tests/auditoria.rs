@@ -177,7 +177,9 @@ fn relatorio_contaminacao_de_fluxo_no_budget_index() {
             saturados_novo += 1;
         }
     }
-    println!("\n  saturados em 100 — VELHO: {saturados}/{amostras}   NOVO: {saturados_novo}/{amostras}");
+    println!(
+        "\n  saturados em 100 — VELHO: {saturados}/{amostras}   NOVO: {saturados_novo}/{amostras}"
+    );
 }
 
 /// **A fórmula VELHA de `budget_index`, congelada.**
@@ -325,10 +327,7 @@ fn relatorio_distribuicao_do_budget_index() {
         let equipes =
             crate::models::team::generate_teams_for_category(categoria, 2026, &mut gerador);
         let velhos: Vec<f64> = equipes.iter().map(budget_index_legado).collect();
-        let novos: Vec<f64> = equipes
-            .iter()
-            .map(derive_budget_index_from_money)
-            .collect();
+        let novos: Vec<f64> = equipes.iter().map(derive_budget_index_from_money).collect();
         let (vmin, _, _, _, vmax) = quartis(velhos.clone());
         let (nmin, _, _, _, nmax) = quartis(novos.clone());
         println!(

@@ -177,6 +177,65 @@ mod tests {
         assert_eq!(PartType::ALL.len(), 11);
     }
 
+    /// **Os números do carro continuam sendo os do GPRO, e são eles que definem o tradeoff
+    /// desempenho × confiabilidade do jogo inteiro.**
+    ///
+    /// [`PartType::durability`] e [`PartType::pha_per_level`] vieram do modelo do GPRO por
+    /// aproximação (nível 9 ÷ 9), não de nenhuma medição do Loop. Junto com
+    /// `car::wear::level_durability_mult` (a tenda) e `car::sim_bridge::CAR_PERF_MAX`, eles
+    /// decidem quanto ritmo um nível compra e quanta vida ele cobra — a decisão central do
+    /// Sistema de Nível do Carro.
+    ///
+    /// **O que falta é uma varredura**, e ela não cabe aqui: medir isto é rodar temporadas
+    /// variando cada coeficiente e olhando a distribuição de resultado e de quebra, que é o
+    /// que `simulation::calibracao::varredura` faz para os knobs da corrida. Enquanto esses
+    /// coeficientes não forem knobs de lá, o teste trava os valores para que a mudança seja
+    /// deliberada, e trava também as duas amarrações que já existem e que uma edição
+    /// distraída romperia:
+    ///
+    /// 1. A **durabilidade mínima 3** é o que ancora `ENDURO_SURCHARGE_CAP` — baixá-la deixa
+    ///    uma prova de enduro consumir mais de uma vida de peça de novo.
+    /// 2. A durabilidade entra em `wear_per_race` como `1/durabilidade`, então ela é a
+    ///    unidade da economia inteira de peça, não só do risco de quebra.
+    #[test]
+    fn os_coeficientes_do_carro_seguem_herdados_do_gpro() {
+        let durabilidades: Vec<u8> = PartType::ALL.iter().map(|p| p.durability()).collect();
+        assert_eq!(durabilidades, vec![5, 3, 3, 4, 5, 4, 5, 3, 3, 3, 6]);
+        assert_eq!(
+            durabilidades.iter().copied().min(),
+            Some(3),
+            "a durabilidade mínima ancora o teto do sobrecusto de enduro"
+        );
+
+        // O somatório PHA de cada peça — a "força" que um nível dela compra. É o que uma
+        // varredura mediria, e o que uma edição distraída moveria sem perceber.
+        let soma_pha = |pt: PartType| {
+            let (p, h, a) = pt.pha_per_level();
+            p + h + a
+        };
+        let total: f64 = PartType::ALL.iter().map(|&p| soma_pha(p)).sum();
+        assert!(
+            (total - 40.31).abs() < 0.01,
+            "o PHA total por nível mudou: {total:.2}"
+        );
+        // O motor é a peça que mais compra ritmo, e a lataria a que menos — a hierarquia que
+        // o modelo do GPRO trouxe e que a escolha de upgrade do cérebro de manutenção segue.
+        assert_eq!(
+            PartType::ALL
+                .iter()
+                .copied()
+                .max_by(|a, b| soma_pha(*a).total_cmp(&soma_pha(*b))),
+            Some(PartType::Engine)
+        );
+        assert_eq!(
+            PartType::ALL
+                .iter()
+                .copied()
+                .min_by(|a, b| soma_pha(*a).total_cmp(&soma_pha(*b))),
+            Some(PartType::Sidepods)
+        );
+    }
+
     #[test]
     fn motor_e_viesado_para_power() {
         let (p, h, a) = PartType::Engine.pha_per_level();
