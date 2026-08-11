@@ -20,7 +20,7 @@ pub(crate) fn get_team_finance_report_in_base_dir(
     const HISTORY_WINDOW: i64 = 200;
 
     let category = category.trim().to_lowercase();
-    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
 
     let entries = team_queries::get_team_finance_history_recent(&db.conn, team_id, HISTORY_WINDOW)
         .map_err(|e| format!("Falha ao carregar historico financeiro da equipe: {e}"))?;

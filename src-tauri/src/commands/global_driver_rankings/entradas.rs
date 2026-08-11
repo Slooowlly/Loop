@@ -36,7 +36,7 @@ pub(super) fn build_current_driver_entry(
         .map_err(|e| format!("Falha ao contar lesoes do piloto: {e}"))?;
     let active_injury_type = injury_queries::get_active_injury_for_pilot(conn, &driver.id)
         .map_err(|e| format!("Falha ao buscar lesao ativa do piloto: {e}"))?
-        .map(|injury| injury.injury_type.as_str().to_string());
+        .map(|injury| injury.injury_type);
     let total = total_stats(&stats_by_category);
     let (status, status_tone) = driver_status_label(driver, contract.is_some());
     let mut extra_historical_categories = load_contract_categories(conn, &driver.id)?;

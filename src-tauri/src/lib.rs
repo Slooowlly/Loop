@@ -12,7 +12,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 // i18n do backend: carrega os locales de src-tauri/locales/*.yml em tempo de
 // compilação. Locale ativo é global (1 usuário/1 idioma), setado do
@@ -184,6 +184,7 @@ mod promotion;
 mod public_presence;
 mod race_eval;
 mod race_signals;
+mod radio_registro;
 mod rivalry;
 mod simulation;
 mod telemetry;
@@ -305,9 +306,16 @@ pub fn run() {
             // Log em arquivo ANTES de tudo: o app é GUI sem console, então sem
             // isto qualquer falha de boot na máquina do jogador é invisível.
             diagnostico::init(&base_dir);
+            // Registro do RÁDIO: pasta própria, uma linha por fala. Aqui em cima pelo mesmo
+            // motivo do log — o amostrador roda sem `AppHandle` e só enxerga o estático.
+            radio_registro::init(&base_dir);
             // Gravador de corrida: fixa a pasta antes do sampler, que roda sem AppHandle
             // e abre/fecha as capturas sozinho pelas bordas de conexão do sim.
             iracing_sdk::race_capture::init(&base_dir);
+            // Preferências do módulo do iRacing (custid do jogador, bandeira automática):
+            // mesma razão do gravador — o amostrador roda sem AppHandle e só enxerga o
+            // estático. Antes do sampler, senão a primeira leitura cai em %TEMP%.
+            iracing_sdk::prefs::init(&base_dir);
 
             let mut config = config::app_config::AppConfig::load_or_default(&base_dir);
 
@@ -363,6 +371,26 @@ pub fn run() {
             }
 
             app.manage(ResizeDebounceState::default());
+
+            // Punição por voltar destruído da classificação: sai da preferência gravada,
+            // e não mais de uma variável de ambiente que morria a cada reinício. Antes
+            // do `start_watching`, para o primeiro fim de semana já valer.
+            iracing_sdk::race_monitor::set_quali_wreck_penalty(config.quali_wreck_penalty);
+
+            // Empurrão dos anúncios do spotter: o evento nasce no amostrador a 60 Hz e
+            // ia ao front SÓ por polling, que o navegador estrangula quando a janela do
+            // webview está coberta pelo simulador — que é o tempo todo, em corrida. Aqui
+            // ele sai por evento, no instante em que é confirmado. O poll continua vivo
+            // como rede: os ids são monotônicos e o front descarta o que já viu.
+            //
+            // Vai para TODAS as janelas: quem toca áudio é a principal, e amarrar este
+            // módulo à topologia de janelas por nome já se mostrou frágil (ver `ptt`).
+            {
+                let handle = app.handle().clone();
+                iracing_sdk::spotter::registrar_emissor(move |evento| {
+                    let _ = handle.emit("spotter-evento", evento);
+                });
+            }
 
             // Liga o "vigia" do iRacing já no boot: ocioso (1 Hz) enquanto o sim
             // está fechado, 60 Hz quando conecta. Assim telemetria/monitor/custid
@@ -504,7 +532,6 @@ pub fn run() {
             commands::career_commands::get_race_results_by_category,
             commands::career_commands::get_previous_champions,
             commands::career_commands::get_calendar_for_category,
-            commands::career_commands::get_driver,
             commands::career_commands::get_driver_detail,
             commands::career_commands::get_driver_dossier_ranks,
             commands::career_commands::get_player_dossier,
@@ -513,6 +540,7 @@ pub fn run() {
             commands::career_commands::get_driver_world_rank,
             commands::career_commands::get_global_driver_rankings,
             commands::career_commands::toggle_driver_favorite,
+            commands::career_commands::get_season_market_board,
             commands::career_commands::get_transfer_window_state,
             commands::career_commands::advance_transfer_window,
             commands::career_commands::get_global_team_history,
@@ -542,6 +570,9 @@ pub fn run() {
             commands::iracing::iracing_log_ler,
             commands::iracing::iracing_log_caminho,
             commands::iracing::iracing_log_revelar,
+            commands::iracing::radio_registrar,
+            commands::iracing::radio_log_caminho,
+            commands::iracing::radio_log_revelar,
             commands::iracing::iracing_log_enviar,
             commands::iracing::iracing_player_custid,
             commands::iracing::iracing_poll_race,
@@ -583,6 +614,7 @@ pub fn run() {
             commands::iracing::iracing_apply_player_paint,
             commands::iracing::iracing_auto_paint_player,
             commands::iracing::iracing_apply_market_paint,
+            commands::iracing::iracing_desfazer_pinturas,
             commands::iracing::iracing_save_race_history,
             commands::iracing::iracing_list_saved_races,
             commands::iracing::iracing_load_saved_race,
@@ -601,6 +633,8 @@ pub fn run() {
             commands::iracing::iracing_spotter_restore,
             commands::iracing::iracing_spotter_vizinhanca,
             commands::iracing::iracing_modo_janela_aplicar,
+            commands::iracing::iracing_modo_janela_status,
+            commands::iracing::iracing_modo_janela_restaurar,
             // POC de latência do TTS (docs/tts-poc-latencia.md). Vive fora do jogo:
             // nenhuma tela de carreira invoca isso.
             commands::tts_poc::tts_poc_falar,
@@ -610,9 +644,7 @@ pub fn run() {
             commands::tts_poc::tts_poc_log_caminho,
             commands::window::minimize_window,
             commands::window::start_window_drag,
-            commands::window::toggle_maximize_window,
             commands::window::close_window,
-            commands::window::get_window_maximized,
             commands::window::toggle_fullscreen_window,
             commands::window::get_window_fullscreen,
             commands::save::flush_save,

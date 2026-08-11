@@ -225,6 +225,9 @@ fn gerar_preview(
                 {
                     eprintln!("[season-preview] Falha ao marcar tentativa: {e:?}");
                 }
+                if !matches!(err, StoryError::RateLimited) {
+                    eprintln!("[season-preview] Prévia de temporada falhou: {err:?}");
+                }
                 let fb = deterministic_article(&data);
                 Ok(SeasonPreviewResult {
                     headline: Some(fb.headline),

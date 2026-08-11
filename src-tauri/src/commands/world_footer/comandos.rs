@@ -151,11 +151,14 @@ pub async fn enrich_world_footer_ai(
                 source: "template".to_string(),
                 status: "rate_limited".to_string(),
             }),
-            Err(_) => Ok(WorldFooterAiResult {
-                notes: None,
-                source: "template".to_string(),
-                status: "error".to_string(),
-            }),
+            Err(err) => {
+                eprintln!("[narrative] Rodapé do mundo falhou: {err:?}");
+                Ok(WorldFooterAiResult {
+                    notes: None,
+                    source: "template".to_string(),
+                    status: "error".to_string(),
+                })
+            }
         }
     })
     .await

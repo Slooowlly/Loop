@@ -6,14 +6,13 @@
 //! Fachada: a montagem do dossie vive aqui; as pecas moram nos submodulos de
 //! `career_team_dossier/`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use rusqlite::OptionalExtension;
 
 use crate::commands::career::{
-    get_teams_standings_in_base_dir, open_career_resources_for_category_read,
-    open_career_resources_read_only,
+    get_teams_standings_in_base_dir, open_career_resources_read_only,
 };
 use crate::commands::career_types::{
     TeamFinanceCashPoint, TeamFinanceReport, TeamFinanceRound, TeamHistoryCashPoint,

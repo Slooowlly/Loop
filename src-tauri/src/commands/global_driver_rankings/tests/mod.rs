@@ -557,7 +557,7 @@ fn injured_active_driver_keeps_active_status_label() {
     assert_eq!(row.status, "Ativo");
     assert_eq!(row.status_tone, "active");
     assert!(row.is_lesionado);
-    assert_eq!(row.lesao_ativa_tipo.as_deref(), Some("Moderada"));
+    assert_eq!(row.lesao_ativa_tipo, Some(InjuryType::Moderada));
 }
 
 #[test]
@@ -1972,7 +1972,7 @@ fn payload_includes_historical_categories_and_active_injury_tag() {
     let payload = build_global_driver_rankings(&conn, None).expect("payload");
     let row = payload.rows.iter().find(|row| row.id == "D_HIST").unwrap();
 
-    assert_eq!(row.lesao_ativa_tipo.as_deref(), Some("Grave"));
+    assert_eq!(row.lesao_ativa_tipo, Some(InjuryType::Grave));
     assert!(row.is_lesionado);
     assert!(row.categorias_historicas.contains(&"gt4".to_string()));
     assert!(row

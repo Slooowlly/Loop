@@ -12,8 +12,6 @@
 
 use std::collections::HashSet;
 
-use rusqlite::OptionalExtension;
-
 use super::*;
 
 /// O sentido em que o numero e "melhor". Abandono e jejum sao os casos em que
