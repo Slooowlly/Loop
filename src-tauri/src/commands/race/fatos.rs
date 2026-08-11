@@ -303,8 +303,6 @@ pub(super) fn rivalry_arc_beats(
                 kind: crate::narrative::BeatKind::RivalidadeArco,
                 weight,
                 text: s,
-                driver_id: Some(a.clone()),
-                team_name: None,
             });
         }
     }

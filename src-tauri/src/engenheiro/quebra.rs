@@ -456,15 +456,28 @@ pub fn montar_duplo(a: &Contexto, b: &Contexto) -> Option<Fala> {
     let chave_b = nomes::chave_sobrenome(sob_b)?;
 
     let trecho = dupla_frases(&a.severidade)[a.variante % 3];
-    Some(Fala {
-        pecas: vec![
-            chave_a,
-            CONJUNCAO.0.to_string(),
-            chave_b,
-            chave_dupla(&a.severidade, a.variante),
-        ],
-        texto: format!("{sob_a} e {sob_b} {trecho}."),
-    })
+    let mut pecas = vec![
+        chave_a,
+        CONJUNCAO.0.to_string(),
+        chave_b,
+        chave_dupla(&a.severidade, a.variante),
+    ];
+    let mut texto = format!("{sob_a} e {sob_b} {trecho}.");
+
+    // O comentário de atrito sai no cruzamento EXATO do limiar, e a fusão engolia esse
+    // cruzamento: duas quebras na mesma volta viram uma fala só, então a contagem pulava de
+    // 3 para 5 e a fala nunca saía naquela corrida. Aqui a dupla também é candidata — basta
+    // que UM dos dois abandonos seja o que cruzou.
+    let cruzou = [a, b]
+        .into_iter()
+        .find_map(|c| coda(Vinculo::Nenhum, &c.severidade, c.variante, c.abandonos_ate_aqui));
+    if let Some((k, t)) = cruzou {
+        pecas.push(k.to_string());
+        texto.push(' ');
+        texto.push_str(t);
+    }
+
+    Some(Fala { pecas, texto })
 }
 
 /// Trecho de ABANDONO — 3 opções, com a peça já embutida.

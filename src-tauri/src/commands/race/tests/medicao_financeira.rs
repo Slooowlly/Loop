@@ -69,7 +69,7 @@ use crate::finance::rescue::apply_team_sale;
 use crate::finance::salary::calculate_offer_salary_from_money;
 use crate::finance::state::{
     choose_season_strategy, derive_financial_state, financial_health_score, meses_de_operacao,
-    refresh_team_financial_state, refresh_team_financial_state_com, FaixasDeMeses,
+    refresh_team_financial_state_com, FaixasDeMeses,
 };
 use crate::finance::strategy::{apply_elite_resource_floor, designate_elite_teams};
 use crate::market::car_maintenance::{

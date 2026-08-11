@@ -147,7 +147,12 @@ fn base64(bytes: &[u8]) -> String {
 
 /// O caminho de volta, para gravar em disco o que o servidor mandou. Ignora tudo o que não
 /// pertence ao alfabeto — inclusive o preenchimento e quebras de linha.
-fn decodificar_base64(texto: &str) -> Result<Vec<u8>, ()> {
+///
+/// Visível ao crate porque o [`crate::radio_registro`] guarda em disco o áudio das falas do
+/// modelo pelo mesmo caminho: elas chegam em base64 e são a única fala do rádio que acontece
+/// uma vez e nunca mais. Um segundo decodificador escrito noutro arquivo seria um segundo
+/// alfabeto para manter.
+pub(crate) fn decodificar_base64(texto: &str) -> Result<Vec<u8>, ()> {
     let mut bytes = Vec::with_capacity(texto.len() / 4 * 3);
     let mut acumulado: u32 = 0;
     let mut bits = 0u32;

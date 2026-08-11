@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Motor de contexto narrativo do boletim de IA.
 //!
 //! Transforma o resultado de uma corrida em "beats" (pedaços de história já
@@ -30,8 +28,8 @@ pub mod em_voo;
 #[cfg(test)]
 mod tests;
 
+// Só o que o resto do crate consome de fato. `consulta`, `incidentes` e `tese` são
+// internos ao motor: os dois primeiros só expõem itens `pub(crate)` (o glob não
+// reexportava nada) e a tese é consumida por `contexto.rs` via caminho direto.
 pub use beats::*;
-pub use consulta::*;
 pub use contexto::*;
-pub use incidentes::*;
-pub use tese::*;

@@ -404,6 +404,21 @@ pub fn engenheiro_ocasiao(
         }
     }
 
+    // Os FATOS que subiram, no registro do rádio. É a única forma de ler depois o que produziu
+    // uma fala longa: o texto dela é escrito pelo servidor, e sem as linhas não há como saber
+    // se ele inventou ou se nós mandamos. O `\n` mantém uma linha por fato no arquivo JSONL.
+    crate::radio_registro::registrar(&crate::radio_registro::Registro {
+        canal: "ocasiao".to_string(),
+        fase: "decidida".to_string(),
+        texto: linhas.join("\n"),
+        detalhe: Some(serde_json::json!({
+            "ocasiao": nome,
+            "fatos": linhas.len(),
+            "tratamento": como_chamar(&extras),
+        })),
+        ..Default::default()
+    });
+
     Some(OcasiaoEngenheiro {
         ocasiao: nome,
         linhas,

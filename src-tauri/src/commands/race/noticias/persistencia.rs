@@ -55,7 +55,7 @@ pub(crate) fn persist_race_news(
                 extra_context_facts,
             );
 
-        let ctx = crate::narrative::build_race_context(
+        let facts = crate::narrative::build_race_context(
             race_result,
             &crate::narrative::RaceContextInput {
                 category_name,
@@ -91,7 +91,7 @@ pub(crate) fn persist_race_news(
         let teams_json = serde_json::Value::Object(team_colors).to_string();
 
         if let Err(e) =
-            crate::db::queries::ai_story::store_race_facts(conn, &news_id, &ctx.facts, &teams_json)
+            crate::db::queries::ai_story::store_race_facts(conn, &news_id, &facts, &teams_json)
         {
             eprintln!("[narrative] Falha ao guardar fatos do boletim de IA: {e:?}");
         }

@@ -198,6 +198,109 @@ fn a_ocasiao_nao_e_momento_quente() {
     assert_eq!(quente(&e), None);
 }
 
+/// Os RÓTULOS que vão para o registro do rádio. Eles são o vocabulário com que o arquivo é
+/// lido meses depois, e nada mais do código depende deles — então é aqui, e só aqui, que um
+/// renomeio acidental é pego.
+#[test]
+fn o_rotulo_do_portao_nomeia_cada_estado() {
+    use crate::engenheiro::momento::estado_do_portao;
+
+    assert_eq!(estado_do_portao(&correndo()), ("aberto", None));
+
+    let mut e = correndo();
+    e.volta = 1;
+    assert_eq!(estado_do_portao(&e), ("largada", None));
+
+    let mut e = correndo();
+    e.frente = Some(vizinho("James Cooper", 0.4));
+    assert_eq!(estado_do_portao(&e), ("duelo", None));
+
+    let mut e = correndo();
+    e.bandeira = "Última volta".to_string();
+    assert_eq!(estado_do_portao(&e), ("ultima_volta", None));
+
+    // A formação é os dois ao mesmo tempo: portão aberto E ocasião — e é exatamente esse par
+    // que descreve o rádio da classificação, onde a queixa nasceu.
+    let mut e = correndo();
+    e.em_formacao = true;
+    assert_eq!(estado_do_portao(&e), ("aberto", Some("antes_da_largada")));
+
+    let mut e = correndo();
+    e.bandeira = "Bandeirada".to_string();
+    assert_eq!(
+        estado_do_portao(&e),
+        ("aberto", Some("depois_da_bandeirada"))
+    );
+}
+
+/// O TREMOR não vira linha. Este é o teste que justifica a máquina de estado existir: o gap de
+/// dois carros em briga cruza o limiar de um segundo para os dois lados várias vezes seguidas, e
+/// sem confirmação cada travessia escreveria duas linhas de um décimo — a soma de tempo calado
+/// viraria ruído e as viradas de verdade se perderiam no meio delas.
+#[test]
+fn o_portao_so_vira_depois_de_se_sustentar() {
+    use crate::engenheiro::momento::{virar, Portao};
+    use std::time::{Duration, Instant};
+
+    let mut estado: Option<Portao> = None;
+    let t0 = Instant::now();
+    let em = |ms: u64| t0 + Duration::from_millis(ms);
+    let aberto = ("aberto", None);
+    let duelo = ("duelo", None);
+
+    // A primeira leitura escreve a ABERTURA, sem `de` e sem duração. Sem esta linha, uma sessão
+    // que nunca vira (a classificatória é assim) sai do arquivo sem dizer em que estado o rádio
+    // esteve, e foi o que aconteceu na medição de 11/08/2026.
+    let abertura = virar(&mut estado, aberto, true, em(0)).expect("a abertura da sessão");
+    assert!(abertura.de.is_none());
+    assert!(abertura.durou_s.is_none());
+    // E ela sai UMA vez: a segunda leitura do mesmo estado não repete a abertura.
+    assert!(virar(&mut estado, aberto, true, em(50)).is_none());
+
+    // Tremor: duelo, aberto, duelo, aberto. Nenhum se sustenta, nenhuma linha sai.
+    for (i, leitura) in [duelo, aberto, duelo, aberto].into_iter().enumerate() {
+        let ms = 100 + i as u64 * 100;
+        assert!(
+            virar(&mut estado, leitura, true, em(ms)).is_none(),
+            "leitura em {ms} ms não devia virar"
+        );
+    }
+
+    // Agora o duelo se firma: três leituras seguidas, e a virada sai UMA vez.
+    assert!(virar(&mut estado, duelo, true, em(1_000)).is_none());
+    assert!(virar(&mut estado, duelo, true, em(1_125)).is_none());
+    let v = virar(&mut estado, duelo, true, em(1_250)).expect("a virada confirmada");
+    assert_eq!(v.de, Some(aberto));
+    // O tempo conta até a PRIMEIRA leitura do estado novo (1,0 s), e não até a confirmação: o
+    // outro jeito daria a cada estado 0,4 s a menos do que ele durou.
+    assert_eq!(v.durou_s, Some(1.0));
+
+    // Confirmada, ela não se repete enquanto o estado não mudar de novo.
+    assert!(virar(&mut estado, duelo, true, em(2_000)).is_none());
+
+    // Desconectar esquece tudo, e não escreve nada: sair da sessão não é uma virada do rádio.
+    assert!(virar(&mut estado, aberto, false, em(3_000)).is_none());
+    // Reconectar abre de novo, com `de` nulo — é uma sessão nova, e a duração do estado anterior
+    // não atravessa o intervalo em que o sim esteve fechado.
+    let reabre = virar(&mut estado, aberto, true, em(3_100)).expect("a abertura da nova sessão");
+    assert!(reabre.de.is_none());
+}
+
+/// A transição sem `init()` do registro não pode explodir nem escrever nada — é o caso de todo
+/// teste desta suíte, e o amostrador chama esta função oito vezes por segundo.
+#[test]
+fn a_transicao_sem_registro_aberto_e_inofensiva() {
+    use crate::engenheiro::momento::registrar_transicao;
+
+    let mut e = correndo();
+    registrar_transicao(&e);
+    // Desconectar esquece o estado em vez de virar rótulo: sem isso, sair da sessão produziria
+    // uma virada falsa para "aberto" a cada vez.
+    e.conectado = false;
+    registrar_transicao(&e);
+    assert!(crate::radio_registro::caminho().is_none());
+}
+
 #[test]
 fn gap_invalido_nao_inventa_duelo() {
     // `-1` é "não sei", e `NaN` é o mesmo. Nenhum dos dois é proximidade — tratá-los como

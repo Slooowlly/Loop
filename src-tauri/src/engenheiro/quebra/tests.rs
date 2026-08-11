@@ -455,3 +455,51 @@ fn nenhum_trecho_tem_pontuacao_no_meio() {
         }
     }
 }
+
+/// A fusão engolia o comentário de atrito.
+///
+/// Duas quebras na mesma volta viram uma fala só. Quando o cruzamento do limiar caía
+/// justamente nesse par, a contagem pulava de 3 para 5 e a fala nunca saía na corrida
+/// inteira — o comentário existe para marcar o momento em que a prova vira assunto por si,
+/// e era exatamente nesse momento que ele sumia.
+#[test]
+fn a_dupla_tambem_comenta_o_atrito_quando_o_limiar_cruza_nela() {
+    let mut a = base();
+    a.severidade = "dnf".into();
+    a.abandonos_ate_aqui = ABANDONOS_PARA_COMENTAR + 1;
+    let mut b = outro("Marco Bianchi");
+    b.severidade = "dnf".into();
+    b.abandonos_ate_aqui = ABANDONOS_PARA_COMENTAR + 2;
+
+    let f = montar_duplo(&a, &b).expect("devia juntar");
+
+    assert!(
+        f.pecas.iter().any(|p| p.starts_with("co_atrito")),
+        "a coda de atrito não entrou na fala dupla: {:?}",
+        f.pecas
+    );
+    assert!(
+        f.texto.contains("devorando") || f.texto.contains("abandonos") || f.texto.contains("caindo"),
+        "o texto do card não recebeu a coda: {}",
+        f.texto
+    );
+}
+
+/// E não sai fora do cruzamento: o comentário é de uma vez só.
+#[test]
+fn a_dupla_longe_do_limiar_nao_comenta_atrito() {
+    let mut a = base();
+    a.severidade = "dnf".into();
+    a.abandonos_ate_aqui = 1;
+    let mut b = outro("Marco Bianchi");
+    b.severidade = "dnf".into();
+    b.abandonos_ate_aqui = 2;
+
+    let f = montar_duplo(&a, &b).expect("devia juntar");
+
+    assert!(
+        !f.pecas.iter().any(|p| p.starts_with("co_atrito")),
+        "comentou atrito com dois abandonos: {:?}",
+        f.pecas
+    );
+}

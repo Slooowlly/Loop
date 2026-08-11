@@ -92,15 +92,7 @@ pub(crate) fn persist_race_result_tx(
         // `resolve_race_duration`. Com a constante, `is_enduro_duration(0)` dava falso e a ÚNICA
         // categoria que deveria disparar o enduro nunca disparava. Etapa sem duração gravada
         // (save antigo) → cai na constante da categoria; sem categoria → 30 (sprint/neutro).
-        let duracao_min: u16 = u16::try_from(race_entry.duracao_corrida_min)
-            .ok()
-            .filter(|&d| d > 0)
-            .or_else(|| {
-                crate::constants::categories::get_category_config(&race_entry.categoria)
-                    .map(|c| c.duracao_corrida_min)
-                    .filter(|&d| d > 0)
-            })
-            .unwrap_or(30);
+        let duracao_min: u16 = race_entry.duracao_efetiva_min();
         let wear_conditions = crate::market::car_maintenance::WearConditions::from_race(
             race_entry.track_id,
             weather,

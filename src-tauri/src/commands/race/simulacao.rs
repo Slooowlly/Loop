@@ -65,7 +65,6 @@ pub(super) fn preroll_simulated_breakdowns(
     conn: &rusqlite::Connection,
     career_id: &str,
     race_entry: &CalendarEntry,
-    category: &CategoryConfig,
     total_laps: i32,
     sim_drivers: &[SimDriver],
     teams: &[Team],
@@ -87,7 +86,10 @@ pub(super) fn preroll_simulated_breakdowns(
     );
     let track_pha = maintenance_demand(&[race_entry.track_id]);
     // Enduro: severidade abrandada (o grid não esvazia) + rampa de desgaste no fim.
-    let is_enduro = is_enduro_duration(category.duracao_corrida_min);
+    // Duração da ETAPA, não a constante da categoria: no Endurance ela é a sentinela 0 e o
+    // gate dava falso. A simulação offline e o disparo ao vivo do iRacing precisam da MESMA
+    // resposta aqui, senão as duas metades do mundo divergem justo na prova longa.
+    let is_enduro = is_enduro_duration(race_entry.duracao_efetiva_min());
     // Tenda de durabilidade por nível só em categoria GERIDA (teto ≥ 3); spec fica de fora.
     let apply_tent = crate::car::cost::category_ceiling(&race_entry.categoria) > 2;
     let laps = total_laps.max(1) as u32;
@@ -147,7 +149,7 @@ pub(super) fn preroll_simulated_breakdowns(
                     part: ev.part.as_str().to_string(),
                     problem: ev.problem,
                     lap: ev.lap,
-                    severity: ev.severity.key().to_string(),
+                    severity: ev.severity,
                     penalty_secs: ev.penalty_secs,
                     forced: ev.forced,
                     label,
@@ -530,7 +532,6 @@ pub(super) fn simulate_category_race_with_mode(
             &db.conn,
             &career_id_from_db(db),
             race_entry,
-            category,
             ctx.total_laps,
             &sim_drivers,
             &teams,

@@ -1,4 +1,11 @@
-#![allow(dead_code)]
+//! DTOs de notícia que cruzam a ponte para o React.
+//!
+//! O `#![allow(dead_code)]` de arquivo saiu em 11/08/2026: ele escondia item morto de
+//! verdade atrás de uma permissão genérica. As conversões LENIENTES (`from_str`, que
+//! devolviam `Corrida`/`Media` para qualquer valor desconhecido) não tinham um único call
+//! site — todo mundo já usa a estrita, que devolve `Err` e faz o dado corrompido
+//! aparecer. Foram removidas: um fallback silencioso que ninguém usa é só uma armadilha
+//! esperando o próximo a chegar.
 
 use serde::{Deserialize, Serialize};
 
@@ -59,25 +66,6 @@ impl NewsType {
         }
     }
 
-    pub fn from_str(value: &str) -> Self {
-        match value {
-            "Incidente" => Self::Incidente,
-            "Mercado" => Self::Mercado,
-            "Promocao" => Self::Promocao,
-            "Rebaixamento" => Self::Rebaixamento,
-            "Aposentadoria" => Self::Aposentadoria,
-            "Rookies" => Self::Rookies,
-            "Hierarquia" => Self::Hierarquia,
-            "Milestone" => Self::Milestone,
-            "Lesao" => Self::Lesao,
-            "Evolucao" => Self::Evolucao,
-            "PreTemporada" => Self::PreTemporada,
-            "Rivalidade" => Self::Rivalidade,
-            "FramingSazonal" => Self::FramingSazonal,
-            _ => Self::Corrida,
-        }
-    }
-
     pub fn from_str_strict(value: &str) -> Result<Self, String> {
         match value.trim() {
             "Corrida" => Ok(Self::Corrida),
@@ -133,15 +121,6 @@ impl NewsImportance {
             NewsImportance::Media => "Media",
             NewsImportance::Alta => "Alta",
             NewsImportance::Destaque => "Destaque",
-        }
-    }
-
-    pub fn from_str(value: &str) -> Self {
-        match value {
-            "Baixa" => Self::Baixa,
-            "Alta" => Self::Alta,
-            "Destaque" => Self::Destaque,
-            _ => Self::Media,
         }
     }
 

@@ -157,7 +157,7 @@ pub fn poupar_frase(variante: usize) -> (&'static str, &'static str) {
 /// e num momento em que o jogador não está pilotando (o carro já está parado no muro ou na
 /// pré-largada). Sortear redação aqui só multiplicaria gravação sem ninguém perceber.
 ///
-/// Duas frases nas do lockout, como no [`poupar_frase`], e pelo mesmo motivo: elas têm
+/// Duas frases em quase todas, como no [`poupar_frase`], e pelo mesmo motivo: elas têm
 /// diagnóstico e consequência, e a pausa entre frases é o respiro certo. O gerador vai
 /// acusar silêncio interno; aqui ele é intencional.
 ///
@@ -166,17 +166,33 @@ pub fn poupar_frase(variante: usize) -> (&'static str, &'static str) {
 pub fn quali_frase(chave: &str) -> Option<&'static str> {
     Some(match chave {
         // Dentro da quali, no instante da batida — o fim de semana mudou agora.
+        //
+        // Terminam em RETICÊNCIAS, e não em ponto. Não é enfeite de texto: o ponto final faz o
+        // modelo cravar a última sílaba e o gerador apara o silêncio das bordas logo em
+        // seguida, então a fala acabava num corte seco — que soa como áudio truncado, e não
+        // como alguém desanimado. A reticência deixa a voz morrer, que é o tom certo para a
+        // frase que encerra o fim de semana do piloto.
         "meu_quali_grave" => {
-            "Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás."
+            "Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás..."
         }
         "meu_quali_destruido" => {
-            "O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui."
+            "O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui..."
         }
         "meu_quali_catastrofico" => {
-            "Você está inteiro? O carro ficou na parede. Hoje a gente não corre."
+            "Você está inteiro? O carro ficou na parede. Hoje a gente não corre..."
         }
         // Na largada, reafirmando a consequência.
-        "meu_quali_eol" => "Remendamos o que deu. Você larga lá de trás.",
+        // Esta é a fala que evita o "bug": o jogador cravou um bom tempo e se vê em último no
+        // grid. Sem o MOTIVO dito na hora, o castigo vira defeito aos olhos dele. O motivo é
+        // de automobilismo, não de menu — mexer no carro depois da classificação quebra o
+        // parque fechado, e quem quebra larga do fim.
+        //
+        // 7,6 s, bem acima dos 4,5 s que o `engenheiro-pack.mjs` considera suspeitos. Aqui é
+        // aceito: o carro está PARADO na pré-largada, nada disputa o rádio, e encurtar
+        // custaria justamente a explicação que a fala existe para dar.
+        "meu_quali_eol" => {
+            "Largamos em último porque tivemos que mexer no carro e quebrar o parque fechado. Tenta não bater na próxima classificação, por favor."
+        }
         "meu_quali_dq" => "O carro não tem conserto a tempo. Você não larga hoje.",
         _ => return None,
     })
@@ -236,14 +252,20 @@ mod tests {
             assert!(chaves.contains(chave), "falta {chave} no catálogo");
             let texto = quali_frase(chave).expect("toda chave tem redação");
             assert!(!texto.is_empty());
-            // A voz da EQUIPE: "você" ou o nós que inclui o piloto ("vamos", "a gente",
-            // "nosso"). O defeito que esta família combate é falar do jogador como de um
-            // estranho, e qualquer uma dessas marcas prova que não é o caso.
+            // A voz da EQUIPE: ou fala COM o piloto ("você", "tenta"), ou o inclui no nós.
+            // O defeito que esta família combate é falar do jogador como de um estranho.
+            //
+            // O nós, em português, mora na DESINÊNCIA do verbo — "largamos", "tivemos" —, e
+            // não num pronome; procurar só pronome reprovava redação correta.
             let baixo = texto.to_lowercase();
+            let nos_no_verbo = baixo
+                .split(|c: char| !c.is_alphabetic())
+                .any(|p| p.len() > 4 && p.ends_with("mos"));
+            let com_o_piloto = ["você", "tenta", "seu ", "sua ", "a gente", "nosso"]
+                .iter()
+                .any(|m| baixo.contains(m));
             assert!(
-                ["você", "vamos", "a gente", "nosso"]
-                    .iter()
-                    .any(|m| baixo.contains(m)),
+                nos_no_verbo || com_o_piloto,
                 "{chave} tem de falar COM o piloto, não sobre ele: {texto}"
             );
         }

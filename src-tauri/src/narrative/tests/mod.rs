@@ -1,4 +1,8 @@
 use super::*;
+// `incidentes` e `tese` são internos ao motor e não são reexportados pelo `mod.rs`
+// (nada fora de `narrative/` os consome). O teste alcança os dois pelo caminho direto.
+use super::incidentes::{incident_weight, worst_non_dnf_incident_per_pilot};
+use super::tese::{select_race_thesis, RaceThesis, RaceThesisSignals};
 use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
 
 /// Fatos + tese resolvem nos dois locales, com interpolação (sem `%{...}` cru).
@@ -286,8 +290,6 @@ fn beat(kind: BeatKind, weight: f64) -> Beat {
         kind,
         weight,
         text: "x".to_string(),
-        driver_id: None,
-        team_name: None,
     }
 }
 

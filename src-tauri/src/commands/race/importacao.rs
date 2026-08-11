@@ -162,7 +162,7 @@ pub(crate) fn import_iracing_race_result(
             .and_then(|player| {
                 breakdowns
                     .iter()
-                    .find(|b| b.severity == "dnf" && b.driver_id == player.pilot_id)
+                    .find(|b| b.severity.e_abandono() && b.driver_id == player.pilot_id)
                     .map(|b| b.label.clone())
             });
         if let Some(label) = player_break_label {
@@ -191,7 +191,7 @@ pub(crate) fn import_iracing_race_result(
     // de graça: `dnf_catalog_id` aponta pra uma entry `Mechanical` do catálogo (fonte do join) e a
     // frase do problema vira o `dnf_reason` (a narrativa cita a peça). Só carimba quem o iRacing
     // também marcou como DNF — nunca fabrica um abandono que não aconteceu.
-    if breakdowns.iter().any(|b| b.severity == "dnf") {
+    if breakdowns.iter().any(|b| b.severity.e_abandono()) {
         let mech_id: Option<String> = db
             .conn
             .query_row(
@@ -200,7 +200,7 @@ pub(crate) fn import_iracing_race_result(
                 |r| r.get::<_, String>(0),
             )
             .ok();
-        for b in breakdowns.iter().filter(|b| b.severity == "dnf") {
+        for b in breakdowns.iter().filter(|b| b.severity.e_abandono()) {
             if let Some(dr) = result
                 .race_results
                 .iter_mut()
@@ -242,14 +242,16 @@ pub(crate) fn import_iracing_race_result(
         let mut map: HashMap<String, Vec<(crate::car::PartType, crate::car::breakdown::Severity)>> =
             HashMap::new();
         for row in &breakdowns {
-            let (Some(pt), Some(sev), Some(team)) = (
+            // A severidade já vem tipada da linha; só a peça ainda é chave textual.
+            let (Some(pt), Some(team)) = (
                 crate::car::PartType::from_str(&row.part),
-                crate::car::breakdown::Severity::from_key(&row.severity),
                 driver_team.get(row.driver_id.as_str()),
             ) else {
                 continue;
             };
-            map.entry(team.to_string()).or_default().push((pt, sev));
+            map.entry(team.to_string())
+                .or_default()
+                .push((pt, row.severity));
         }
         map
     };
@@ -439,12 +441,23 @@ pub(crate) fn import_iracing_race_result(
                 let direction = ImpactDirection::from_str(dir);
                 total += apply_crash_damage(&mut car, &team.categoria, severity, direction).cost;
             }
-            let _ = team_car::upsert_team_car(&db.conn, &player_team_id, &car);
+            // As duas escritas abaixo eram `let _ =`, e o resultado da corrida JÁ estava
+            // persistido quando elas rodavam: uma falha aqui sumia com o dano do carro e
+            // com o débito do caixa sem deixar rastro, e a inconsistência só apareceria
+            // rodadas depois, como um carro bom demais e um caixa alto demais.
+            warn_if_side_effect_fails(
+                team_car::upsert_team_car(&db.conn, &player_team_id, &car)
+                    .map_err(|e| e.to_string()),
+                "persistir o carro danificado do jogador após a batida",
+            );
             let cost = total.round();
             if cost > 0.0 {
                 team.cash_balance -= cost;
                 team.last_round_expenses += cost;
-                let _ = team_queries::update_team(&db.conn, &team);
+                warn_if_side_effect_fails(
+                    team_queries::update_team(&db.conn, &team).map_err(|e| e.to_string()),
+                    "debitar o conserto do caixa da equipe",
+                );
                 repair_cost = cost;
                 repair_count = bump_repair_count(career_dir, active_season.numero);
                 repair_message =

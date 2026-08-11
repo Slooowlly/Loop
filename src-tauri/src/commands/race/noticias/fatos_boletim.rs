@@ -178,7 +178,7 @@ pub(super) fn montar_fatos_do_boletim(
     if let Some(rid) = &race_id_for_breakdowns {
         if let Ok(bds) = crate::db::queries::race_breakdowns::get_breakdowns_for_race(conn, rid) {
             let mut count = 0;
-            for b in bds.iter().filter(|b| b.severity != "dnf") {
+            for b in bds.iter().filter(|b| !b.severity.e_abandono()) {
                 if count >= 6 {
                     break;
                 }
@@ -192,7 +192,7 @@ pub(super) fn montar_fatos_do_boletim(
                 let part_name = crate::car::PartType::from_str(&b.part)
                     .map(|pt| pt.display_name(category_id).to_string())
                     .unwrap_or_else(|| b.part.clone());
-                let grav = if b.severity == "heavy" {
+                let grav = if b.severity == crate::car::breakdown::Severity::Heavy {
                     rust_i18n::t!("briefing.ctx.severity_heavy")
                 } else {
                     rust_i18n::t!("briefing.ctx.severity_light")

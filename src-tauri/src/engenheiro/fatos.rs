@@ -18,6 +18,26 @@
 //! Não é desperdício de contexto — é o que um engenheiro de verdade sabe de cor a corrida
 //! inteira. Sem isso, a resposta a "quanto de combustível?" sai sem saber se faltam duas
 //! ou vinte voltas, que é justamente o que torna o número útil.
+//!
+//! ## Por que as linhas são em PT cru, e não `rust_i18n`
+//!
+//! Decisão registrada em 11/08/2026, depois de a vistoria apontar a diferença: em
+//! `commands::ai_news::fatos` todo fato passa por `rust_i18n::t!`, e aqui não passa
+//! nenhum. É deliberado, por três motivos que valem só para o rádio:
+//!
+//! 1. **Estas linhas não são texto de UI.** Ninguém as lê na tela. Elas são o INSUMO que
+//!    sobe ao servidor em `ptt_responder`, junto com o `lang` do jogador — quem escolhe o
+//!    idioma da fala é o prompt de lá, sobre fatos que ele só precisa copiar. Traduzir o
+//!    insumo não muda o que o piloto ouve; muda apenas em que língua o modelo lê "P4".
+//! 2. **O acervo gravado é monolíngue.** As peças `.opus` do caminho gravado (o que toca
+//!    quando o catálogo cobre a pergunta) foram sintetizadas numa voz PT-BR única. Não
+//!    existe acervo en-US, então o rádio já é PT por construção no caminho principal.
+//! 3. **Aqui a forma do número É a fala.** `n1` escreve `1,2` com vírgula e `voltas`
+//!    resolve o singular porque o modelo lê em voz alta o que estiver escrito. Essas
+//!    regras são de português falado e não sobrevivem a uma tabela de tradução.
+//!
+//! Se um dia existir acervo de voz em outro idioma, a mudança começa pelo acervo, não por
+//! aqui — e aí este bloco é o lugar de registrar a virada.
 
 use crate::iracing_sdk::race_monitor::{EstadoAgora, Vizinho};
 use crate::iracing_sdk::tire_strategy::Compound;

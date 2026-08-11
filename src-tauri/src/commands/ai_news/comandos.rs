@@ -2,6 +2,90 @@
 
 use super::*;
 
+/// O pedágio que os três comandos de IA pagavam palavra por palavra antes de fazer
+/// qualquer coisa: `app_data_dir` → config → `install_id` → pasta da carreira → banco.
+/// Cada endpoint novo recopiava o ritual e escrevia a SUA versão da mensagem de erro,
+/// então o mesmo `app_data_dir` ausente aparecia com três textos diferentes no log.
+struct PreparoIa {
+    /// Identificador da instalação — é por ele que o servidor aplica cooldown e teto de
+    /// gasto. O `get_or_create` persiste no config, então o app inteiro conta como um só.
+    install_id: String,
+    lang: String,
+    /// `.../saves/<career_id>`. O debrief precisa dela para achar a tela salva da corrida.
+    career_dir: std::path::PathBuf,
+    db: Database,
+}
+
+/// O config do app, que é onde moram o idioma, o `install_id` e a pasta de saves.
+fn config_do_app(app: &tauri::AppHandle) -> Result<AppConfig, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+    Ok(AppConfig::load_or_default(&base_dir))
+}
+
+/// Abre o banco de uma carreira e devolve também a pasta dela.
+fn abrir_carreira(
+    config: &AppConfig,
+    career_id: &str,
+) -> Result<(std::path::PathBuf, Database), String> {
+    let career_dir = config.saves_dir().join(career_id);
+    let db = Database::open_existing(&career_dir.join("career.db"))
+        .map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    Ok((career_dir, db))
+}
+
+/// A preparação completa de quem VAI falar com o servidor. Os comandos que só leem o
+/// banco (engajamento, resolução de `news_id`) usam `abrir_carreira` direto: criar
+/// `install_id` grava no config, e isso é efeito colateral que não cabe a eles.
+fn preparar_ia(app: &tauri::AppHandle, career_id: &str) -> Result<PreparoIa, String> {
+    let mut config = config_do_app(app)?;
+    let install_id = config.get_or_create_install_id();
+    let lang = config.language.clone();
+    let (career_dir, db) = abrir_carreira(&config, career_id)?;
+    Ok(PreparoIa {
+        install_id,
+        lang,
+        career_dir,
+        db,
+    })
+}
+
+/// O que sobrou de uma consulta ao cache protegida pela trava de geração.
+enum Vez<T> {
+    /// Alguém já gerou (antes, ou enquanto esperávamos a vez).
+    Cacheado(T),
+    /// Ninguém gerou: o passe é o direito exclusivo de gerar esta chave, e vale
+    /// enquanto ele estiver vivo.
+    Gerar(crate::narrative::em_voo::Passe),
+}
+
+/// O contrato do `narrative::em_voo` numa chamada só: lê o cache; se não tiver, pega o
+/// passe e RELÊ — a geração que acabou de sair enquanto esperávamos já gravou o texto.
+/// Sem a releitura a trava não serve para nada, e ela estava recopiada em cada comando.
+///
+/// `usar_cache == false` é o reroll de debug: regenerar é o pedido, então nenhuma das
+/// duas leituras acontece e o passe só serializa contra quem estiver gerando agora.
+fn cache_ou_passe<T>(
+    chave: String,
+    usar_cache: bool,
+    mut ler_cache: impl FnMut() -> Option<T>,
+) -> Vez<T> {
+    if usar_cache {
+        if let Some(pronto) = ler_cache() {
+            return Vez::Cacheado(pronto);
+        }
+    }
+    let passe = crate::narrative::em_voo::aguardar_vez(chave);
+    if usar_cache {
+        if let Some(pronto) = ler_cache() {
+            return Vez::Cacheado(pronto);
+        }
+    }
+    Vez::Gerar(passe)
+}
+
 #[tauri::command]
 pub async fn enrich_race_news_ai(
     app: tauri::AppHandle,
@@ -13,19 +97,8 @@ pub async fn enrich_race_news_ai(
     // PRINCIPAL do Tauri se rodasse síncrono — a janela inteira congela ("não está
     // respondendo") enquanto o servidor gera.
     tauri::async_runtime::spawn_blocking(move || {
-        let base_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-        // Idioma + install_id vêm do config do app (get_or_create persiste o id).
-        let mut config = AppConfig::load_or_default(&base_dir);
-        let install_id = config.get_or_create_install_id();
-        let lang = config.language.clone();
-
-        let db_path = config.saves_dir().join(&career_id).join("career.db");
-        let db =
-            Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+        let preparo = preparar_ia(&app, &career_id)?;
+        let db = &preparo.db;
 
         let row = ai_story::get_story(&db.conn, &news_id)
             .map_err(|e| format!("Falha ao ler cache do boletim: {e:?}"))?;
@@ -35,7 +108,7 @@ pub async fn enrich_race_news_ai(
         let Some(row) = row else {
             return Ok(AiNewsResult {
                 story: None,
-                status: "unavailable".to_string(),
+                status: AiStatus::Unavailable,
                 teams: None,
             });
         };
@@ -46,53 +119,62 @@ pub async fn enrich_race_news_ai(
             .as_deref()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
 
-        // Já gerado antes → devolve do cache (instantâneo, sem tocar no servidor).
-        if let Some(story) = row.story {
-            return Ok(AiNewsResult {
-                story: Some(story),
-                status: "cached".to_string(),
-                teams,
-            });
-        }
-
         // Cache vazio na 1ª leitura NÃO quer dizer que ninguém está gerando: o
         // pré-aquecimento do fim da corrida pode estar no servidor agora mesmo com esta
         // notícia. Espera a vez e RELÊ — ver `narrative::em_voo`.
-        let _passe = crate::narrative::em_voo::aguardar_vez(
+        let _passe = match cache_ou_passe(
             crate::narrative::em_voo::chave_boletim(&career_id, &news_id),
-        );
-        if let Ok(Some(recente)) = ai_story::get_story(&db.conn, &news_id) {
-            if let Some(story) = recente.story {
+            true,
+            || {
+                ai_story::get_story(&db.conn, &news_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.story)
+            },
+        ) {
+            Vez::Cacheado(story) => {
                 return Ok(AiNewsResult {
                     story: Some(story),
-                    status: "cached".to_string(),
+                    status: AiStatus::Cached,
                     teams,
-                });
+                })
             }
-        }
+            Vez::Gerar(passe) => passe,
+        };
 
         // 1ª vez: gera no servidor e cacheia.
-        match client::fetch_story(&row.facts, &lang, &install_id, reading_seconds) {
+        match client::fetch_story(
+            &row.facts,
+            &preparo.lang,
+            &preparo.install_id,
+            reading_seconds,
+        ) {
             Ok(story) => {
                 if let Err(e) = ai_story::set_story(&db.conn, &news_id, &story) {
                     eprintln!("[narrative] Falha ao cachear boletim: {e:?}");
                 }
                 Ok(AiNewsResult {
                     story: Some(story),
-                    status: "ok".to_string(),
+                    status: AiStatus::Ok,
                     teams,
                 })
             }
             Err(StoryError::RateLimited) => Ok(AiNewsResult {
                 story: None,
-                status: "rate_limited".to_string(),
+                status: AiStatus::RateLimited,
                 teams,
             }),
-            Err(_) => Ok(AiNewsResult {
-                story: None,
-                status: "error".to_string(),
-                teams,
-            }),
+            // O motivo vinha embrulhado em `StoryError::{Server,Network}` e era
+            // descartado aqui — um 5xx (os DOIS provedores caídos) e uma queda de rede
+            // chegavam ao jogador como o mesmo "erro" mudo, sem rastro no loop.log.
+            Err(err) => {
+                eprintln!("[narrative] Boletim de IA falhou: {err:?}");
+                Ok(AiNewsResult {
+                    story: None,
+                    status: AiStatus::Error,
+                    teams,
+                })
+            }
         }
     })
     .await
@@ -114,18 +196,8 @@ pub async fn pre_race_briefing_ai(
     // async + spawn_blocking: ver enrich_race_news_ai — fetch bloqueante fora da main.
     tauri::async_runtime::spawn_blocking(move || {
         let force = force.unwrap_or(false);
-        let base_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-        let mut config = AppConfig::load_or_default(&base_dir);
-        let install_id = config.get_or_create_install_id();
-        let lang = config.language.clone();
-
-        let db_path = config.saves_dir().join(&career_id).join("career.db");
-        let db =
-            Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+        let preparo = preparar_ia(&app, &career_id)?;
+        let db = &preparo.db;
 
         // Cache por etapa → reentrar na tela não regenera (sem custo, sem cooldown).
         // No reroll de debug (force) ignoramos o cache e regeramos pelo servidor.
@@ -135,7 +207,7 @@ pub async fn pre_race_briefing_ai(
                     headline: Some(row.headline),
                     narrative: Some(row.narrative),
                     team_voice: Some(row.team_voice),
-                    status: "cached".to_string(),
+                    status: AiStatus::Cached,
                 });
             }
 
@@ -151,7 +223,7 @@ pub async fn pre_race_briefing_ai(
                     headline: None,
                     narrative: None,
                     team_voice: None,
-                    status: "engagement_template".to_string(),
+                    status: AiStatus::EngagementTemplate,
                 });
             }
         }
@@ -160,26 +232,28 @@ pub async fn pre_race_briefing_ai(
         // e a Sala dispara justamente quando o prefetch ainda não voltou (servidor frio).
         // Espera a vez e relê — ver `narrative::em_voo`. No reroll (`force`) o passe só
         // serializa: regenerar é o pedido, então não relemos o cache.
-        let _passe = crate::narrative::em_voo::aguardar_vez(
+        let _passe = match cache_ou_passe(
             crate::narrative::em_voo::chave_pre_corrida(&career_id, &race_id),
-        );
-        if !force {
-            if let Ok(Some(row)) = ai_pre_race::get_pre_race(&db.conn, &race_id) {
+            !force,
+            || ai_pre_race::get_pre_race(&db.conn, &race_id).ok().flatten(),
+        ) {
+            Vez::Cacheado(row) => {
                 return Ok(PreRaceAiResult {
                     headline: Some(row.headline),
                     narrative: Some(row.narrative),
                     team_voice: Some(row.team_voice),
-                    status: "cached".to_string(),
-                });
+                    status: AiStatus::Cached,
+                })
             }
-        }
+            Vez::Gerar(passe) => passe,
+        };
 
         if facts.trim().is_empty() {
             return Ok(PreRaceAiResult {
                 headline: None,
                 narrative: None,
                 team_voice: None,
-                status: "unavailable".to_string(),
+                status: AiStatus::Unavailable,
             });
         }
 
@@ -195,7 +269,7 @@ pub async fn pre_race_briefing_ai(
             }
         };
 
-        match client::fetch_pre_race_briefing(&facts, &lang, &install_id, force) {
+        match client::fetch_pre_race_briefing(&facts, &preparo.lang, &preparo.install_id, force) {
             Ok(b) => {
                 // O corpo cinematográfico é guardado na coluna `narrative` do cache.
                 if let Err(e) = ai_pre_race::set_pre_race(
@@ -211,21 +285,24 @@ pub async fn pre_race_briefing_ai(
                     headline: Some(b.headline),
                     narrative: Some(b.body),
                     team_voice: Some(b.team_voice),
-                    status: "ok".to_string(),
+                    status: AiStatus::Ok,
                 })
             }
             Err(StoryError::RateLimited) => Ok(PreRaceAiResult {
                 headline: None,
                 narrative: None,
                 team_voice: None,
-                status: "rate_limited".to_string(),
+                status: AiStatus::RateLimited,
             }),
-            Err(_) => Ok(PreRaceAiResult {
-                headline: None,
-                narrative: None,
-                team_voice: None,
-                status: "error".to_string(),
-            }),
+            Err(err) => {
+                eprintln!("[narrative] Prévia pré-corrida falhou: {err:?}");
+                Ok(PreRaceAiResult {
+                    headline: None,
+                    narrative: None,
+                    team_voice: None,
+                    status: AiStatus::Error,
+                })
+            }
         }
     })
     .await
@@ -242,13 +319,7 @@ pub fn report_pre_race_engagement(
     career_id: String,
     read: bool,
 ) -> Result<i64, String> {
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let (_dir, db) = abrir_carreira(&config_do_app(&app)?, &career_id)?;
 
     let streak = meta::get_meta_value(&db.conn, PRE_RACE_STREAK_KEY)
         .ok()
@@ -278,55 +349,40 @@ pub async fn post_race_debrief_ai(
     // olhando a janela congelada até o servidor responder.
     tauri::async_runtime::spawn_blocking(move || {
         let force = force.unwrap_or(false);
-        let base_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-        let mut config = AppConfig::load_or_default(&base_dir);
-        let install_id = config.get_or_create_install_id();
-        let lang = config.language.clone();
-
-        let career_dir = config.saves_dir().join(&career_id);
-        let db_path = career_dir.join("career.db");
-        let db =
-            Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-        if !force {
-            if let Ok(Some(row)) = ai_post_race::get_post_race(&db.conn, &race_id) {
-                return Ok(PostRaceAiResult {
-                    headline: Some(row.headline),
-                    body: Some(row.body),
-                    status: "cached".to_string(),
-                });
-            }
-        }
+        let preparo = preparar_ia(&app, &career_id)?;
+        let db = &preparo.db;
 
         // Antes de montar os fatos (que varrem o resultado inteiro): espera uma geração
         // desta etapa que já esteja em voo e relê — ver `narrative::em_voo`.
-        let _passe = crate::narrative::em_voo::aguardar_vez(
+        let _passe = match cache_ou_passe(
             crate::narrative::em_voo::chave_pos_corrida(&career_id, &race_id),
-        );
-        if !force {
-            if let Ok(Some(row)) = ai_post_race::get_post_race(&db.conn, &race_id) {
+            !force,
+            || {
+                ai_post_race::get_post_race(&db.conn, &race_id)
+                    .ok()
+                    .flatten()
+            },
+        ) {
+            Vez::Cacheado(row) => {
                 return Ok(PostRaceAiResult {
                     headline: Some(row.headline),
                     body: Some(row.body),
-                    status: "cached".to_string(),
-                });
+                    status: AiStatus::Cached,
+                })
             }
-        }
+            Vez::Gerar(passe) => passe,
+        };
 
-        let facts = build_post_race_facts(&db.conn, &career_dir, &race_id);
+        let facts = build_post_race_facts(&db.conn, &preparo.career_dir, &race_id);
         if facts.trim().is_empty() {
             return Ok(PostRaceAiResult {
                 headline: None,
                 body: None,
-                status: "unavailable".to_string(),
+                status: AiStatus::Unavailable,
             });
         }
 
-        match client::fetch_post_race_debrief(&facts, &lang, &install_id, force) {
+        match client::fetch_post_race_debrief(&facts, &preparo.lang, &preparo.install_id, force) {
             Ok(d) => {
                 if let Err(e) =
                     ai_post_race::set_post_race(&db.conn, &race_id, &d.headline, &d.body)
@@ -336,19 +392,22 @@ pub async fn post_race_debrief_ai(
                 Ok(PostRaceAiResult {
                     headline: Some(d.headline),
                     body: Some(d.body),
-                    status: "ok".to_string(),
+                    status: AiStatus::Ok,
                 })
             }
             Err(StoryError::RateLimited) => Ok(PostRaceAiResult {
                 headline: None,
                 body: None,
-                status: "rate_limited".to_string(),
+                status: AiStatus::RateLimited,
             }),
-            Err(_) => Ok(PostRaceAiResult {
-                headline: None,
-                body: None,
-                status: "error".to_string(),
-            }),
+            Err(err) => {
+                eprintln!("[narrative] Debrief pós-corrida falhou: {err:?}");
+                Ok(PostRaceAiResult {
+                    headline: None,
+                    body: None,
+                    status: AiStatus::Error,
+                })
+            }
         }
     })
     .await
@@ -370,13 +429,7 @@ pub fn player_race_news_id(
     season_id: String,
     rodada: i32,
 ) -> Result<Option<String>, String> {
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let (_dir, db) = abrir_carreira(&config_do_app(&app)?, &career_id)?;
 
     // Se a tabela ai_race_story ainda não existe (save sem nenhum boletim), a query
     // falha — tratamos como "sem boletim" em vez de erro.

@@ -48,8 +48,6 @@ pub struct Beat {
     pub weight: f64,
     /// Frase factual pronta. A IA redige em cima disto (e traduz pro idioma do jogador).
     pub text: String,
-    pub driver_id: Option<String>,
-    pub team_name: Option<String>,
 }
 
 impl Beat {
@@ -99,8 +97,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                 extra = extra.as_str()
             )
             .to_string(),
-            driver_id: Some(w.pilot_id.clone()),
-            team_name: Some(w.team_name.clone()),
         });
     }
 
@@ -117,8 +113,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                     team = d.team_name.as_str()
                 )
                 .to_string(),
-                driver_id: Some(d.pilot_id.clone()),
-                team_name: Some(d.team_name.clone()),
             });
         }
     }
@@ -141,8 +135,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                         gained = d.positions_gained
                     )
                     .to_string(),
-                    driver_id: Some(d.pilot_id.clone()),
-                    team_name: Some(d.team_name.clone()),
                 });
             }
         }
@@ -164,8 +156,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                     team = d.team_name.as_str()
                 )
                 .to_string(),
-                driver_id: Some(d.pilot_id.clone()),
-                team_name: Some(d.team_name.clone()),
             });
         }
     }
@@ -183,8 +173,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                     finish = p.finish_position
                 )
                 .to_string(),
-                driver_id: Some(p.pilot_id.clone()),
-                team_name: Some(p.team_name.clone()),
             });
         }
     }
@@ -225,8 +213,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                 link = link.as_str()
             )
             .to_string(),
-            driver_id: Some(d.pilot_id.clone()),
-            team_name: Some(d.team_name.clone()),
         });
     }
 
@@ -267,8 +253,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
             kind: BeatKind::Acidente,
             weight: incident_weight(inc, d.is_jogador),
             text,
-            driver_id: Some(d.pilot_id.clone()),
-            team_name: Some(d.team_name.clone()),
         });
     }
 
@@ -314,8 +298,6 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
                 status = status.as_str()
             )
             .to_string(),
-            driver_id: Some(p.pilot_id.clone()),
-            team_name: Some(p.team_name.clone()),
         });
     }
 

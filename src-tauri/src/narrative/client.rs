@@ -21,18 +21,32 @@
 use serde::Deserialize;
 use std::time::Duration;
 
-const SERVER_URL: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/race-story";
+/// O host do servidor, em UM lugar só.
+///
+/// Estava copiado em quatro arquivos (aqui, `commands/ptt_voz`, `telemetry` e
+/// `diagnostico`): trocar de região ou de projeto virava caça manual, e esquecer um
+/// arquivo quebrava só aquele recurso — em silêncio, porque cada um falha sozinho.
+///
+/// É macro e não `const` porque `concat!` só come literal. Assim cada endpoint segue
+/// sendo `&'static str` resolvido na compilação, sem `format!` em tempo de execução, e
+/// quem mora fora deste módulo escreve `crate::narrative::client::host_do_servidor!()`.
+macro_rules! host_do_servidor {
+    () => {
+        "https://iracer-news-124606451488.southamerica-east1.run.app"
+    };
+}
+pub(crate) use host_do_servidor;
+
+const SERVER_URL: &str = concat!(host_do_servidor!(), "/race-story");
 /// Endpoint da prévia pré-corrida (narrativa + voz da equipe, curtas).
-const PRE_RACE_URL: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/pre-race";
+const PRE_RACE_URL: &str = concat!(host_do_servidor!(), "/pre-race");
 /// Endpoint do debrief pós-corrida (voz única do engenheiro → piloto, com calor).
-const POST_RACE_URL: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/post-race";
+const POST_RACE_URL: &str = concat!(host_do_servidor!(), "/post-race");
 /// Endpoint do rodapé "Do mundo do Grid" (reescrita jornalística das notinhas).
-const WORLD_NOTES_URL: &str =
-    "https://iracer-news-124606451488.southamerica-east1.run.app/world-notes";
+const WORLD_NOTES_URL: &str = concat!(host_do_servidor!(), "/world-notes");
 /// Endpoint da matéria "O Que Esperar" (prévia de temporada). Ver
 /// `docs/season-preview-design.md` e `docs/season-preview-endpoint.md`.
-const SEASON_PREVIEW_URL: &str =
-    "https://iracer-news-124606451488.southamerica-east1.run.app/season-preview";
+const SEASON_PREVIEW_URL: &str = concat!(host_do_servidor!(), "/season-preview");
 /// Comprimento-alvo da prévia, em palavras. Vai no payload (`target_words`) porque a
 /// matéria é a peça principal da aba e o bundle hoje carrega uns dez dossiês. Já foi
 /// 700–900, e no playtest ninguém terminava de ler; 450–600 ainda dá tratamento próprio
@@ -53,7 +67,7 @@ pub(crate) const APP_SECRET: &str =
 // ia salvar; aumentá-lo permite soltar o orçamento da cadeia lá do outro lado.
 const TIMEOUT_SECS: u64 = 45;
 /// Raiz do serviço — usada só pelo aquecimento (`spawn_warmup`), que não pede geração.
-const BASE_URL: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/";
+const BASE_URL: &str = concat!(host_do_servidor!(), "/");
 /// Intervalo mínimo entre aquecimentos. O gatilho vive no poll da torre (2 Hz), então
 /// sem freio seriam centenas de requisições por corrida; o Cloud Run segura o container
 /// vivo por alguns minutos depois da última chamada, e cinco minutos cobrem essa janela.
@@ -95,7 +109,12 @@ pub fn spawn_warmup() {
     });
 }
 
+/// O texto de `Server` e `Network` é lido em produção pelo `eprintln!("{err:?}")` dos
+/// callsites em `commands/{ai_news,world_footer,season_preview}` — é o que separa, no
+/// loop.log, "os dois provedores caíram" de "a máquina está sem rede". O `dead_code`
+/// não conta leitura via `Debug` derivado, daí o allow pontual.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum StoryError {
     /// 429 — cooldown de 10 min ou teto diário. Cai no template, silencioso.
     RateLimited,
@@ -148,7 +167,13 @@ pub(crate) fn aparar_frase_incompleta(texto: &str) -> String {
 /// (rótulos em linguagem de universo — ver `narrative.context` nos locales), mas os
 /// fatos ficam PERSISTIDOS no save: um save antigo continua enviando a redação velha.
 /// Cada entrada é (frase, substituto neutro). Ordem: da mais longa pra mais curta,
-/// senão a curta come um pedaço da longa e deixa palavra pendurada.
+/// senão a curta come um pedaço da longa e deixa palavra pendurada — invariante preso
+/// por teste, e não pela mão de quem acrescentar a próxima.
+///
+/// **O que faria esta camada sair:** migrar os fatos JÁ PERSISTIDOS (`ai_race_story.facts`
+/// e o cache da pré-corrida) para a redação nova. Enquanto um save antigo puder mandar a
+/// redação velha ao servidor, tirar o filtro é reabrir o vazamento — a lista só encolhe
+/// depois da migração, nunca antes.
 const FRASES_META: [(&str, &str); 9] = [
     ("piloto acompanhado pelo leitor", "piloto"),
     ("piloto acompanhada pelo leitor", "piloto"),
@@ -237,18 +262,26 @@ fn rede_de_ia_bloqueada() -> bool {
     cfg!(test) || std::env::var("LOOP_SEM_IA").is_ok()
 }
 
-/// Envia os fatos curados ao servidor e devolve o boletim redigido no idioma
-/// pedido. Em QUALQUER erro, o chamador deve cair no template (notícia genérica)
-/// — o boletim de IA nunca pode quebrar a tela.
-pub fn fetch_story(
-    facts: &str,
-    lang: &str,
-    install_id: &str,
-    reading_seconds: Option<f64>,
-) -> Result<String, StoryError> {
-    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+/// O POST que os cinco endpoints fazem igual: guard de rede, cliente com o timeout do
+/// cold start, segredo no header, e o mapa de status para [`StoryError`].
+///
+/// Existia copiado cinco vezes, e a cópia era o risco: um endpoint novo nascia de um
+/// exemplar escolhido a esmo, e se o exemplar fosse o errado ele vinha sem o guard de
+/// rede (a suíte passa a gastar chamada de verdade — foi assim que 2.731 usuários falsos
+/// apareceram no Firestore) ou sem o mapeamento de 429 (o cooldown do servidor vira
+/// "erro" genérico e o app tenta de novo em vez de esperar).
+///
+/// A limpeza do texto NÃO entra aqui: `remover_vazamento_meta` e
+/// `aparar_frase_incompleta` valem por CAMPO, e cada resposta tem os seus.
+fn postar_ao_servidor<T: serde::de::DeserializeOwned>(
+    url: &str,
+    corpo: &serde_json::Value,
+) -> Result<T, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suíte de testes não gasta chamada de verdade.
     if rede_de_ia_bloqueada() {
-        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+        return Err(StoryError::Network(
+            "rede de IA bloqueada (teste)".to_string(),
+        ));
     }
 
     let client = reqwest::blocking::Client::builder()
@@ -256,17 +289,10 @@ pub fn fetch_story(
         .build()
         .map_err(|e| StoryError::Network(e.to_string()))?;
 
-    let body = serde_json::json!({
-        "facts": facts,
-        "lang": lang,
-        "install_id": install_id,
-        "reading_seconds": reading_seconds,
-    });
-
     let resp = client
-        .post(SERVER_URL)
+        .post(url)
         .header("x-app-secret", APP_SECRET)
-        .json(&body)
+        .json(corpo)
         .send()
         .map_err(|e| StoryError::Network(e.to_string()))?;
 
@@ -279,7 +305,27 @@ pub fn fetch_story(
         });
     }
 
-    let parsed: StoryResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
+    resp.json::<T>()
+        .map_err(|e| StoryError::Server(e.to_string()))
+}
+
+/// Envia os fatos curados ao servidor e devolve o boletim redigido no idioma
+/// pedido. Em QUALQUER erro, o chamador deve cair no template (notícia genérica)
+/// — o boletim de IA nunca pode quebrar a tela.
+pub fn fetch_story(
+    facts: &str,
+    lang: &str,
+    install_id: &str,
+    reading_seconds: Option<f64>,
+) -> Result<String, StoryError> {
+    let body = serde_json::json!({
+        "facts": facts,
+        "lang": lang,
+        "install_id": install_id,
+        "reading_seconds": reading_seconds,
+    });
+
+    let parsed: StoryResponse = postar_ao_servidor(SERVER_URL, &body)?;
 
     let story = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.story));
     if story.is_empty() {
@@ -310,16 +356,6 @@ pub fn fetch_pre_race_briefing(
     install_id: &str,
     force: bool,
 ) -> Result<PreRaceBriefing, StoryError> {
-    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
-    if rede_de_ia_bloqueada() {
-        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
-        .build()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
     let body = serde_json::json!({
         "facts": facts,
         "lang": lang,
@@ -328,23 +364,7 @@ pub fn fetch_pre_race_briefing(
         "force": force,
     });
 
-    let resp = client
-        .post(PRE_RACE_URL)
-        .header("x-app-secret", APP_SECRET)
-        .json(&body)
-        .send()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 => StoryError::Unauthorized,
-            429 => StoryError::RateLimited,
-            other => StoryError::Server(format!("HTTP {other}")),
-        });
-    }
-
-    let parsed: PreRaceResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
+    let parsed: PreRaceResponse = postar_ao_servidor(PRE_RACE_URL, &body)?;
 
     let headline = remover_vazamento_meta(&parsed.headline);
     let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
@@ -379,16 +399,6 @@ pub fn fetch_post_race_debrief(
     install_id: &str,
     force: bool,
 ) -> Result<PostRaceDebrief, StoryError> {
-    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
-    if rede_de_ia_bloqueada() {
-        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
-        .build()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
     let body = serde_json::json!({
         "facts": facts,
         "lang": lang,
@@ -396,23 +406,7 @@ pub fn fetch_post_race_debrief(
         "force": force,
     });
 
-    let resp = client
-        .post(POST_RACE_URL)
-        .header("x-app-secret", APP_SECRET)
-        .json(&body)
-        .send()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 => StoryError::Unauthorized,
-            429 => StoryError::RateLimited,
-            other => StoryError::Server(format!("HTTP {other}")),
-        });
-    }
-
-    let parsed: PostRaceResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
+    let parsed: PostRaceResponse = postar_ao_servidor(POST_RACE_URL, &body)?;
 
     let headline = remover_vazamento_meta(&parsed.headline);
     let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
@@ -444,16 +438,6 @@ pub fn fetch_season_preview(
     lang: &str,
     install_id: &str,
 ) -> Result<SeasonPreview, StoryError> {
-    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
-    if rede_de_ia_bloqueada() {
-        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
-        .build()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
     let body = serde_json::json!({
         "facts": facts,
         "lang": lang,
@@ -461,24 +445,7 @@ pub fn fetch_season_preview(
         "target_words": { "min": SEASON_PREVIEW_TARGET_WORDS.0, "max": SEASON_PREVIEW_TARGET_WORDS.1 },
     });
 
-    let resp = client
-        .post(SEASON_PREVIEW_URL)
-        .header("x-app-secret", APP_SECRET)
-        .json(&body)
-        .send()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 => StoryError::Unauthorized,
-            429 => StoryError::RateLimited,
-            other => StoryError::Server(format!("HTTP {other}")),
-        });
-    }
-
-    let parsed: SeasonPreviewResponse =
-        resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
+    let parsed: SeasonPreviewResponse = postar_ao_servidor(SEASON_PREVIEW_URL, &body)?;
 
     let headline = remover_vazamento_meta(&parsed.headline);
     let standfirst = remover_vazamento_meta(&parsed.standfirst);
@@ -509,39 +476,13 @@ pub fn fetch_world_notes(
     lang: &str,
     install_id: &str,
 ) -> Result<Vec<String>, StoryError> {
-    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
-    if rede_de_ia_bloqueada() {
-        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
-        .build()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
     let body = serde_json::json!({
         "facts": facts,
         "lang": lang,
         "install_id": install_id,
     });
 
-    let resp = client
-        .post(WORLD_NOTES_URL)
-        .header("x-app-secret", APP_SECRET)
-        .json(&body)
-        .send()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 => StoryError::Unauthorized,
-            429 => StoryError::RateLimited,
-            other => StoryError::Server(format!("HTTP {other}")),
-        });
-    }
-
-    let parsed: WorldNotesResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
+    let parsed: WorldNotesResponse = postar_ao_servidor(WORLD_NOTES_URL, &body)?;
 
     let notes: Vec<String> = parsed
         .notes
@@ -583,6 +524,26 @@ mod tests {
         assert!(bloqueado(&fetch_world_notes("fatos", "pt-BR", "id")));
     }
 
+    /// Guard estrutural do próprio arquivo: nenhuma função pode montar um POST por
+    /// conta própria.
+    ///
+    /// O teste acima prova que os CINCO endpoints de hoje estão cobertos. Este prova a
+    /// regra que faz o de amanhã nascer coberto: se o `.post(...)` só existe dentro de
+    /// `postar_ao_servidor`, um endpoint novo não tem como esquecer o guard de rede nem
+    /// o mapeamento de 429 — ele não tem outro caminho para a rede.
+    #[test]
+    fn so_o_helper_monta_requisicao_para_o_servidor() {
+        let fonte = include_str!("client.rs");
+        // Só o código de produção: o bloco de teste cita `.post(` no texto das mensagens.
+        let producao = fonte.split("#[cfg(test)]").next().unwrap_or(fonte);
+        let posts = producao.matches(".post(").count();
+        assert_eq!(
+            posts, 1,
+            "achei {posts} chamadas a `.post(` neste arquivo; só `postar_ao_servidor` \
+             pode montar requisição. Um caminho novo para o servidor tem de passar por ele."
+        );
+    }
+
     /// O caso real que motivou o filtro: o modelo colou o rótulo interno como aposto.
     #[test]
     fn vazamento_em_aposto_cai_com_o_aposto_inteiro() {
@@ -619,6 +580,24 @@ mod tests {
         let limpo =
             remover_vazamento_meta("For Carlos Magno, the driver followed by the reader, it ended early.");
         assert!(!limpo.to_lowercase().contains("reader"), "{limpo}");
+    }
+
+    /// A ORDEM da lista é o que faz o filtro funcionar, e mantê-la à mão é frágil: quem
+    /// acrescentar uma frase curta no topo faz a longa nunca casar, e o vazamento volta
+    /// com meia frase pendurada ("piloto acompanhado pelo leitor" vira "piloto pelo
+    /// leitor"). O invariante é este: nenhuma entrada pode estar CONTIDA numa entrada
+    /// posterior.
+    #[test]
+    fn a_lista_de_meta_linguagem_vai_da_mais_longa_para_a_mais_curta() {
+        for (i, (curta, _)) in FRASES_META.iter().enumerate() {
+            for (longa, _) in FRASES_META.iter().skip(i + 1) {
+                assert!(
+                    !longa.contains(curta),
+                    "'{curta}' aparece antes de '{longa}', que a contém: a curta casaria \
+                     primeiro e deixaria o resto da longa no texto. Suba a mais longa."
+                );
+            }
+        }
     }
 
     /// Texto limpo (com acento e pontuação normais) atravessa o filtro intacto.

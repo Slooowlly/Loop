@@ -27,19 +27,13 @@ pub struct RaceContextInput<'a> {
     pub context_facts: &'a [String],
 }
 
-/// Resultado: o contexto curado pronto pra enviar, + alguns sinais úteis.
-#[derive(Debug, Clone)]
-pub struct RaceContext {
-    /// Texto de fatos enviado ao servidor (campo `facts`).
-    pub facts: String,
-    /// Quantos beats sobreviveram ao limiar (proxy da "densidade" da corrida).
-    pub beat_count: usize,
-    /// Se o nosso piloto entrou nos fatos.
-    pub has_player: bool,
-}
-
 /// Renderiza o contexto curado final a partir do resultado + metadados.
-pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> RaceContext {
+///
+/// Devolve só o texto de fatos que vai ao servidor (campo `facts` do payload). A
+/// struct anterior carregava também `beat_count` e `has_player`; nenhum dos dois
+/// tinha leitor, nem em produção nem em teste, e a curadoria que eles descreviam
+/// mora inteira em [`select`].
+pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> String {
     let mut beats = build_beats(result, input.incidents);
     // Lesões da corrida entram como beats de drama (já vêm renderizadas).
     for injury_text in input.injuries {
@@ -47,8 +41,6 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
             kind: BeatKind::Lesao,
             weight: 50.0,
             text: injury_text.clone(),
-            driver_id: None,
-            team_name: None,
         });
     }
     beats.extend(input.career_beats.iter().cloned());
@@ -140,9 +132,5 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     // instrução mais recente que o modelo lê antes de escrever.
     facts.push_str(&rust_i18n::t!("narrative.context.size_directive").to_string());
 
-    RaceContext {
-        facts: facts.trim_end().to_string(),
-        beat_count: selected.len(),
-        has_player,
-    }
+    facts.trim_end().to_string()
 }

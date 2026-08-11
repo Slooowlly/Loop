@@ -605,8 +605,8 @@ pub struct RaceBreakdownView {
     /// Nome legível da peça na categoria (Motor/Câmbio/Asa dianteira…).
     pub part_name: String,
     pub lap: u32,
-    /// "light" | "heavy" | "dnf".
-    pub severity: String,
+    /// Gravidade da quebra; serializa como "light" | "heavy" | "dnf".
+    pub severity: crate::car::breakdown::Severity,
     /// Segundos perdidos no box; `null` = DNF.
     pub penalty_secs: Option<u32>,
     /// Frase do problema concreto (ex.: "motor fundiu por superaquecimento").

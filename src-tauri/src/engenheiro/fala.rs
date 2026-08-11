@@ -49,9 +49,16 @@
 //! (maiúscula no começo, ponto no fim), que é verificável por teste em vez de ser uma
 //! coleção de exceções.
 //!
-//! O custo é o número de arquivos, e o número de arquivos é barato. O acervo completo tem
-//! **1.056 peças e ~25 mil caracteres** — 2,5% do milhão gratuito mensal da Cloud TTS, gerado
-//! uma vez. É por isso que fundir é acessível: o que ele gasta não é o recurso escasso.
+//! O custo é o número de arquivos, e o número de arquivos continua barato. Medido em
+//! 11/08/2026: o acervo tem **3.948 peças, ~110 mil caracteres e 373 MB** em disco — 11%
+//! do milhão gratuito mensal da Cloud TTS, gerado uma vez. (O cabeçalho dizia 1.056 peças
+//! e ~25 mil caracteres, número de quando o acervo nasceu; a família de tempo de volta
+//! sozinha tem 2.101 peças hoje. Decisões de escala vinham sendo tomadas em cima do
+//! número velho.)
+//!
+//! O que a medição nova muda: a conta da Cloud TTS segue folgada, então fundir continua
+//! acessível. O que passou a doer é o DISCO e o clone do repositório — 373 MB de binário
+//! versionado. Esse é o eixo a vigiar numa próxima leva, não o custo de síntese.
 //!
 //! ## A exceção: a família de QUEBRA é montada por peças
 //!

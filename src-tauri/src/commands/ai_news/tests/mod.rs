@@ -263,6 +263,193 @@ fn anuncio_neutro_ou_resultado_esperado_nao_rende_frase() {
     assert_eq!(caso_do_anuncio(-5, Assessment::Dentro), None);
 }
 
+// ─── Montagem completa do fact bundle ───────────────────────────────────────────
+
+/// Diretório temporário só deste teste.
+fn dir_temporario(rotulo: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("relógio")
+        .as_nanos();
+    std::env::temp_dir().join(format!("loop_ainews_{rotulo}_{nanos}"))
+}
+
+/// A tela salva do pós-corrida, do jeito que o jogo grava em `race_screens/<race_id>.json`.
+fn tela_salva(race_id: &str, dnf: bool, chegada: i32) -> serde_json::Value {
+    let piloto = json!({
+        "pilot_id": "P001",
+        "pilot_name": "Piloto Um",
+        "team_id": "T001",
+        "team_name": "Equipe Um",
+        "grid_position": 6,
+        "finish_position": chegada,
+        "positions_gained": 6 - chegada,
+        "best_lap_time_ms": 91_500.0,
+        "total_race_time_ms": 2_800_000.0,
+        "gap_to_winner_ms": 12_400.0,
+        "is_dnf": dnf,
+        "dnf_reason": if dnf { json!("motor fundiu por superaquecimento") } else { json!(null) },
+        "dnf_segment": json!(null),
+        "has_fastest_lap": false,
+        "points_earned": 10,
+        "is_jogador": true,
+        "laps_completed": 30,
+        "final_tire_wear": 0.4,
+        "final_physical": 0.8,
+        "classification_status": if dnf { "Dnf" } else { "Finished" },
+    });
+
+    json!({
+        "race_id": race_id,
+        "race_result": {
+            "qualifying_results": [],
+            "race_results": [piloto],
+            "pole_sitter_id": "P002",
+            "winner_id": "P002",
+            "fastest_lap_id": "P002",
+            "total_laps": 30,
+            "weather": "Ensolarado",
+            "track_name": "Interlagos",
+        },
+    })
+}
+
+/// O modo de falha que este teste fecha é a montagem inteira devolver vazio ou perder um
+/// bloco em silêncio: o fact bundle é texto, ninguém o valida em runtime, e o único sinal
+/// de regressão seria ler o boletim gerado e achar estranho.
+#[test]
+#[serial]
+fn o_fact_bundle_do_pos_corrida_sai_com_cenario_eixo_e_resultado() {
+    pt();
+    let dir = dir_temporario("bundle");
+    std::fs::create_dir_all(dir.join("race_screens")).expect("pasta");
+    std::fs::write(
+        dir.join("race_screens").join("C001.json"),
+        serde_json::to_string(&tela_salva("C001", false, 3)).expect("json"),
+    )
+    .expect("gravar tela");
+
+    let conn = rusqlite::Connection::open_in_memory().expect("banco");
+    crate::db::migrations::run_all(&conn).expect("migrações");
+
+    let fatos = build_post_race_facts(&conn, &dir, "C001");
+
+    assert!(
+        !fatos.is_empty(),
+        "a montagem inteira não pode devolver vazio com uma tela salva válida"
+    );
+    assert!(
+        fatos.contains("Interlagos"),
+        "o cenário precisa citar a pista, e o texto foi:\n{fatos}"
+    );
+    assert!(
+        fatos.contains("EIXO DO DEBRIEF"),
+        "o bundle é organizado em torno de uma tese; sem eixo o servidor não tem o que \
+         desenvolver. Texto:\n{fatos}"
+    );
+    assert!(
+        fatos.contains("SEU RESULTADO"),
+        "o bloco de resultado é o núcleo factual e não pode sumir. Texto:\n{fatos}"
+    );
+    assert!(
+        fatos.contains("Largou em P6"),
+        "a posição de largada é fato de resultado. Texto:\n{fatos}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Abandono muda o EIXO: a história deixa de ser a posição e passa a ser o abandono.
+#[test]
+#[serial]
+fn o_abandono_troca_a_tese_do_bundle() {
+    pt();
+    let dir = dir_temporario("bundle_dnf");
+    std::fs::create_dir_all(dir.join("race_screens")).expect("pasta");
+    std::fs::write(
+        dir.join("race_screens").join("C002.json"),
+        serde_json::to_string(&tela_salva("C002", true, 20)).expect("json"),
+    )
+    .expect("gravar tela");
+
+    let conn = rusqlite::Connection::open_in_memory().expect("banco");
+    crate::db::migrations::run_all(&conn).expect("migrações");
+
+    let fatos = build_post_race_facts(&conn, &dir, "C002");
+
+    assert!(!fatos.is_empty());
+    assert!(
+        fatos.contains("motor fundiu por superaquecimento"),
+        "a causa do abandono é o fato central e precisa chegar ao servidor. Texto:\n{fatos}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Sem tela salva não há o que contar: string vazia é o contrato com o chamador, que cai
+/// no template determinístico.
+#[test]
+#[serial]
+fn sem_tela_salva_o_bundle_sai_vazio() {
+    pt();
+    let dir = dir_temporario("bundle_ausente");
+    std::fs::create_dir_all(&dir).expect("pasta");
+
+    let conn = rusqlite::Connection::open_in_memory().expect("banco");
+    crate::db::migrations::run_all(&conn).expect("migrações");
+
+    assert_eq!(build_post_race_facts(&conn, &dir, "C999"), "");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Tela salva corrompida (JSON quebrado ou sem `race_result`) também cai no template, em
+/// vez de subir erro para a tela do jogador.
+#[test]
+#[serial]
+fn tela_salva_corrompida_nao_derruba_a_montagem() {
+    pt();
+    let dir = dir_temporario("bundle_corrompido");
+    std::fs::create_dir_all(dir.join("race_screens")).expect("pasta");
+    std::fs::write(dir.join("race_screens").join("C003.json"), "{ isto não é json")
+        .expect("gravar lixo");
+    std::fs::write(
+        dir.join("race_screens").join("C004.json"),
+        r#"{"race_id":"C004"}"#,
+    )
+    .expect("gravar sem race_result");
+
+    let conn = rusqlite::Connection::open_in_memory().expect("banco");
+    crate::db::migrations::run_all(&conn).expect("migrações");
+
+    assert_eq!(build_post_race_facts(&conn, &dir, "C003"), "");
+    assert_eq!(build_post_race_facts(&conn, &dir, "C004"), "");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// O vocabulário de status que cruza a ponte para o React. O enum existe justamente para
+/// travar esta lista; o teste prende a SERIALIZAÇÃO, que é o que o front lê.
+#[test]
+fn o_vocabulario_de_status_da_ia_e_estavel_no_json() {
+    let esperado = [
+        (AiStatus::Ok, "\"ok\""),
+        (AiStatus::Cached, "\"cached\""),
+        (AiStatus::Unavailable, "\"unavailable\""),
+        (AiStatus::RateLimited, "\"rate_limited\""),
+        (AiStatus::Error, "\"error\""),
+        (AiStatus::EngagementTemplate, "\"engagement_template\""),
+    ];
+
+    for (variante, json_esperado) in esperado {
+        assert_eq!(
+            serde_json::to_string(&variante).expect("serializar"),
+            json_esperado,
+            "o front lê estas strings; mudar uma delas quebra a ponte em silêncio"
+        );
+    }
+}
+
 /// A frase depende do SINAL do anúncio, não da magnitude: +1 e +6 contam a mesma história
 /// ("estava a favor"). A magnitude é assunto da tela, que mostra faixa por camada.
 #[test]

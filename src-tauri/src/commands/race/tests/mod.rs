@@ -632,13 +632,13 @@ fn corrida_simulada_grava_a_peca_que_quebrou_e_o_tempo_perdido() {
         assert!(!row.part.is_empty(), "quebra sem peça culpada");
         assert!(!row.label.is_empty(), "quebra sem descrição do problema");
         assert!(row.lap >= 1, "quebra sem volta");
-        match row.severity.as_str() {
-            "dnf" => assert!(row.penalty_secs.is_none(), "DNF não tem tempo de box"),
-            "light" | "heavy" => assert!(
+        use crate::car::breakdown::Severity;
+        match row.severity {
+            Severity::Dnf => assert!(row.penalty_secs.is_none(), "DNF não tem tempo de box"),
+            Severity::Light | Severity::Heavy => assert!(
                 row.penalty_secs.unwrap_or(0) > 0,
                 "penalidade de box tem que custar tempo"
             ),
-            other => panic!("severidade inesperada: {other}"),
         }
     }
 
@@ -655,7 +655,7 @@ fn corrida_simulada_grava_a_peca_que_quebrou_e_o_tempo_perdido() {
     }
 
     // Quem abandonou POR quebra tem que sair da corrida com a frase da peça como motivo.
-    for row in rows.iter().filter(|r| r.severity == "dnf") {
+    for row in rows.iter().filter(|r| r.severity.e_abandono()) {
         let entry = result
             .race_results
             .iter()
