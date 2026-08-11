@@ -2,7 +2,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::mapeamento::{collect_contracts, contract_from_row};
+use super::mapeamento::{collect_contracts, colunas_select_contract, contract_from_row};
 use crate::constants::categories::get_category_config;
 use crate::db::connection::DbError;
 use crate::models::contract::Contract;
@@ -12,11 +12,12 @@ pub fn get_active_especial_contracts_by_category(
     conn: &Connection,
     categoria: &str,
 ) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE status = 'Ativo' AND tipo = 'Especial' AND categoria = ?1
          ORDER BY equipe_nome, papel ASC, piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![categoria], contract_from_row)?;
     collect_contracts(mapped)
 }
@@ -57,12 +58,13 @@ pub fn get_active_especial_contract_for_pilot(
     conn: &Connection,
     piloto_id: &str,
 ) -> Result<Option<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo' AND tipo = 'Especial'
          ORDER BY temporada_inicio DESC, created_at DESC
          LIMIT 1",
-    )?;
+        colunas_select_contract()
+    ))?;
     let contract = stmt
         .query_row(params![piloto_id], contract_from_row)
         .optional()?;

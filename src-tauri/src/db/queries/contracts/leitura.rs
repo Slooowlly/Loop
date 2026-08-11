@@ -2,12 +2,15 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::mapeamento::{collect_contracts, contract_from_row};
+use super::mapeamento::{collect_contracts, colunas_select_contract, contract_from_row};
 use crate::db::connection::DbError;
 use crate::models::contract::Contract;
 
 pub fn get_contract_by_id(conn: &Connection, id: &str) -> Result<Option<Contract>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM contracts WHERE id = ?1")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts WHERE id = ?1",
+        colunas_select_contract()
+    ))?;
     let contract = stmt.query_row(params![id], contract_from_row).optional()?;
     Ok(contract)
 }
@@ -20,12 +23,13 @@ pub fn get_active_contract_for_pilot(
     conn: &Connection,
     piloto_id: &str,
 ) -> Result<Option<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo'
          ORDER BY temporada_inicio DESC, created_at DESC
          LIMIT 1",
-    )?;
+        colunas_select_contract()
+    ))?;
     let contract = stmt
         .query_row(params![piloto_id], contract_from_row)
         .optional()?;
@@ -36,11 +40,12 @@ pub fn get_contracts_for_pilot(
     conn: &Connection,
     piloto_id: &str,
 ) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE piloto_id = ?1
          ORDER BY temporada_inicio DESC, created_at DESC",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![piloto_id], contract_from_row)?;
     collect_contracts(mapped)
 }
@@ -74,31 +79,34 @@ pub fn get_active_contracts_for_team(
     conn: &Connection,
     equipe_id: &str,
 ) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE equipe_id = ?1 AND status = 'Ativo'
          ORDER BY papel ASC, piloto_nome ASC",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![equipe_id], contract_from_row)?;
     collect_contracts(mapped)
 }
 
 pub fn get_all_active_contracts(conn: &Connection) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE status = 'Ativo'
          ORDER BY categoria, equipe_nome, piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map([], contract_from_row)?;
     collect_contracts(mapped)
 }
 
 pub fn get_all_active_regular_contracts(conn: &Connection) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE status = 'Ativo' AND tipo = 'Regular'
          ORDER BY categoria, equipe_nome, piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map([], contract_from_row)?;
     collect_contracts(mapped)
 }
@@ -107,21 +115,23 @@ pub fn get_active_regular_contracts_by_team(
     conn: &Connection,
     team_id: &str,
 ) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE status = 'Ativo' AND tipo = 'Regular' AND equipe_id = ?1
          ORDER BY piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![team_id], contract_from_row)?;
     collect_contracts(mapped)
 }
 
 pub fn get_expiring_contracts(conn: &Connection, temporada: i32) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE status = 'Ativo' AND CAST(temporada_fim AS INTEGER) = ?1
          ORDER BY categoria, equipe_nome, piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![temporada], contract_from_row)?;
     collect_contracts(mapped)
 }
@@ -130,11 +140,12 @@ pub fn get_contracts_by_category(
     conn: &Connection,
     categoria: &str,
 ) -> Result<Vec<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE categoria = ?1
          ORDER BY equipe_nome, piloto_nome",
-    )?;
+        colunas_select_contract()
+    ))?;
     let mapped = stmt.query_map(params![categoria], contract_from_row)?;
     collect_contracts(mapped)
 }
@@ -182,12 +193,13 @@ pub fn get_active_regular_contract_for_pilot(
     conn: &Connection,
     piloto_id: &str,
 ) -> Result<Option<Contract>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM contracts
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo' AND tipo = 'Regular'
          ORDER BY temporada_inicio DESC, created_at DESC
          LIMIT 1",
-    )?;
+        colunas_select_contract()
+    ))?;
     let contract = stmt
         .query_row(params![piloto_id], contract_from_row)
         .optional()?;

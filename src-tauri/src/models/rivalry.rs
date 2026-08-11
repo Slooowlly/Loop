@@ -103,7 +103,26 @@ pub fn rivalry_lifecycle(historical: f64, recent: f64) -> RivalryLifecycle {
 
 // ── Normalização do par ───────────────────────────────────────────────────────
 
-/// Par de IDs sempre com o menor em `piloto1_id`.
+/// A REGRA de normalização de par, sem falar de piloto nem de equipe: dois ids viram
+/// uma tupla com o menor primeiro, e ids iguais não formam par.
+///
+/// É o que garante que "A x B" e "B x A" caiam na mesma linha do banco, e ela vale para
+/// qualquer par de entidades — o motor de rivalidade de EQUIPE usa a mesma. Existe
+/// separada dos tipos nomeados porque, enquanto era só `NormalizedPair`, o motor de
+/// equipe passava ids de time nos campos `piloto1_id`/`piloto2_id` com a dependência
+/// documentada só em comentário: funcionava, e quebrava na primeira refatoração do par.
+pub fn ordered_pair(a: &str, b: &str) -> Option<(String, String)> {
+    if a == b {
+        return None;
+    }
+    if a < b {
+        Some((a.to_string(), b.to_string()))
+    } else {
+        Some((b.to_string(), a.to_string()))
+    }
+}
+
+/// Par de IDs de PILOTO sempre com o menor em `piloto1_id`.
 /// Retorna `None` se os dois IDs forem iguais.
 pub struct NormalizedPair {
     pub piloto1_id: String,
@@ -111,20 +130,20 @@ pub struct NormalizedPair {
 }
 
 pub fn normalize_pair(a: &str, b: &str) -> Option<NormalizedPair> {
-    if a == b {
-        return None;
-    }
-    if a < b {
-        Some(NormalizedPair {
-            piloto1_id: a.to_string(),
-            piloto2_id: b.to_string(),
-        })
-    } else {
-        Some(NormalizedPair {
-            piloto1_id: b.to_string(),
-            piloto2_id: a.to_string(),
-        })
-    }
+    ordered_pair(a, b).map(|(piloto1_id, piloto2_id)| NormalizedPair {
+        piloto1_id,
+        piloto2_id,
+    })
+}
+
+/// ...e o par de EQUIPES, com os campos que dizem o que carregam.
+pub struct NormalizedTeamPair {
+    pub team1_id: String,
+    pub team2_id: String,
+}
+
+pub fn normalize_team_pair(a: &str, b: &str) -> Option<NormalizedTeamPair> {
+    ordered_pair(a, b).map(|(team1_id, team2_id)| NormalizedTeamPair { team1_id, team2_id })
 }
 
 // ── Testes ────────────────────────────────────────────────────────────────────

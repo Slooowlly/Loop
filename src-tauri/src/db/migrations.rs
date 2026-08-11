@@ -1,4 +1,7 @@
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
+// Só a suíte de baixo usa `.optional()`; no build da lib o trait fica sem consumidor.
+#[cfg(test)]
+use rusqlite::OptionalExtension;
 
 use crate::db::connection::DbError;
 
@@ -15,7 +18,7 @@ use seed_incidentes::seed_incident_catalog;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 61;
+const CURRENT_VERSION: u32 = 63;
 
 /// Versão da BASELINE — o piso a partir do qual um save ainda tem caminho de
 /// atualização. Save carimbado abaixo disto veio das migrações incrementais que
@@ -43,6 +46,8 @@ const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
     (59, migrate_v59_reconcilia_titulos_de_carreira),
     (60, migrate_v60_indice_de_resultados_por_piloto),
     (61, migrate_v61_ledger_com_linhas_fisicas),
+    (62, migrate_v62_tabelas_de_query_sob_as_migracoes),
+    (63, migrate_v63_indice_de_resultados_por_equipe),
 ];
 
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
@@ -517,6 +522,110 @@ pub(crate) const DDL_TEAM_FINANCE_HISTORY: &str = "
          CREATE INDEX IF NOT EXISTS idx_team_finance_history_team_season
             ON team_finance_history(team_id, season_number, round);
 ";
+
+/// v62 — as tabelas que nasciam só pelo `ensure_table` das queries entram nas migrações.
+///
+/// Doze tabelas (caches de IA, marcos e recordes, nêmesis, episódios de rivalidade)
+/// eram criadas fora do array `MIGRATIONS`, sob demanda, pelo próprio módulo de query.
+/// Isso deixava o schema com DOIS canais de criação e nenhum guard: a trava do
+/// schema-ouro só enxerga o que `run_all` produz, então mudança de coluna nessas
+/// tabelas passava sem nenhum teste. O drift já existia de verdade — `team_car` tinha a
+/// coluna `unit_seed` só do lado do `ensure_table`, invisível para a baseline.
+///
+/// O conserto tem duas metades e as duas importam:
+///
+/// 1. O DDL passou a viver numa constante `pub(crate)` por módulo de query, e aqui
+///    executamos EXATAMENTE essas constantes. Uma fonte de verdade textual, dois
+///    executores (a migração, para o save; o `ensure_table`, para as conexões de teste
+///    in-memory que não migram).
+/// 2. Com as tabelas dentro de `run_all`, o schema-ouro passa a travá-las.
+///
+/// **Não destrói nada.** Todo o DDL é `IF NOT EXISTS` e as colunas tardias entram por
+/// `ALTER` guardado por `PRAGMA table_info`. Num save que já usou qualquer um desses
+/// caches, a migração é no-op e os dados continuam onde estavam; num save que nunca
+/// abriu a revista de notícias, ela cria as tabelas vazias — exatamente o que o
+/// primeiro `ensure_table` faria.
+fn migrate_v62_tabelas_de_query_sob_as_migracoes(conn: &Connection) -> Result<(), DbError> {
+    use crate::db::queries;
+
+    for ddl in [
+        queries::ai_post_race::DDL_AI_POST_RACE_DEBRIEF,
+        queries::ai_pre_race::DDL_AI_PRE_RACE_BRIEFING,
+        queries::ai_story::DDL_AI_RACE_STORY,
+        queries::ai_world_notes::DDL_AI_WORLD_NOTES,
+        queries::milestones::DDL_RECORD_MILESTONES,
+        queries::milestones::DDL_TRACK_LAP_RECORDS,
+        queries::milestones::DDL_CATEGORY_SCALAR_RECORDS,
+        queries::player_nemesis::DDL_PLAYER_NEMESIS,
+        queries::race_breakdowns::DDL_RACE_BREAKDOWNS,
+        queries::rivalry_episodes::DDL_RIVALRY_EPISODES,
+        queries::team_car::DDL_TEAM_CAR,
+    ] {
+        conn.execute_batch(ddl)?;
+    }
+
+    // Colunas que nasceram depois da tabela e viviam em `ALTER` idempotente do lado da
+    // query. Aqui elas passam a existir por migração, que é o único lado que o
+    // schema-ouro enxerga.
+    add_column_if_missing(conn, "team_car", "unit_seed", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(
+        conn,
+        "ai_pre_race_briefing",
+        "headline",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_column_if_missing(conn, "ai_race_story", "teams_json", "TEXT")?;
+    add_column_if_missing(
+        conn,
+        "record_milestones",
+        "context",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    Ok(())
+}
+
+/// v63 — índice de `race_results` por equipe.
+///
+/// Mesma história da v60, do outro lado da tabela. `race_results` é a maior do save
+/// (26.800 linhas numa terceira temporada) e tinha índice por corrida e por piloto; toda
+/// consulta por EQUIPE varria a tabela inteira. E são várias, todas na mesma tela: vitórias
+/// da categoria por equipe, dobradinhas, recordes e o dossiê da equipe
+/// (`queries::teams::recordes`, `queries::race_history::recordes`).
+fn migrate_v63_indice_de_resultados_por_equipe(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_race_results_equipe ON race_results(equipe_id);",
+    )?;
+    Ok(())
+}
+
+// ── Helpers de schema ─────────────────────────────────────────────────────────
+
+/// `ALTER TABLE ... ADD COLUMN` guardado por `PRAGMA table_info`.
+///
+/// A alternativa que o código usava era `let _ = conn.execute("ALTER TABLE ...")`, que
+/// engole o "duplicate column name" e, junto com ele, qualquer erro real (banco somente
+/// leitura, disco cheio). Aqui a coluna existente é um no-op explícito e o resto propaga.
+pub(crate) fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definicao: &str,
+) -> Result<(), DbError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info(\"{table}\")"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let nome: String = row.get(1)?;
+        if nome == column {
+            return Ok(());
+        }
+    }
+    drop(rows);
+    drop(stmt);
+    conn.execute_batch(&format!(
+        "ALTER TABLE \"{table}\" ADD COLUMN {column} {definicao};"
+    ))?;
+    Ok(())
+}
 
 // ── Helpers de versão ─────────────────────────────────────────────────────────
 
@@ -1179,6 +1288,209 @@ mod tests {
             plano.contains("idx_team_finance_history_team_season"),
             "a consulta por equipe deveria usar o índice, e o plano foi: {plano}"
         );
+    }
+
+    /// Sobe um banco até a v61 pelas migrações, do jeito que um save em campo chegou lá.
+    fn banco_na_v61() -> Connection {
+        let conn = Connection::open_in_memory().expect("db");
+        migrate_baseline(&conn).expect("baseline");
+        migrate_v54_forma_do_piloto(&conn).expect("v54");
+        migrate_v55_leitura_da_corrida(&conn).expect("v55");
+        migrate_v56_faixa_anunciada(&conn).expect("v56");
+        migrate_v57_leitura_do_fim_de_semana(&conn).expect("v57");
+        migrate_v58_semeia_carro_das_categorias_especiais(&conn).expect("v58");
+        migrate_v59_reconcilia_titulos_de_carreira(&conn).expect("v59");
+        migrate_v60_indice_de_resultados_por_piloto(&conn).expect("v60");
+        migrate_v61_ledger_com_linhas_fisicas(&conn).expect("v61");
+        set_schema_version(&conn, 61).expect("carimbo v61");
+        conn
+    }
+
+    fn table_exists(conn: &Connection, table: &str) -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            rusqlite::params![table],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+            > 0
+    }
+
+    /// v62, save que NUNCA usou os caches: as tabelas nascem vazias na migração.
+    #[test]
+    fn v62_cria_as_tabelas_que_nasciam_fora_das_migracoes() {
+        let conn = banco_na_v61();
+
+        // Antes: a baseline não conhece nenhuma delas — quem criava era o `ensure_table`
+        // do módulo de query, na primeira leitura.
+        assert!(!table_exists(&conn, "ai_race_story"));
+        assert!(!table_exists(&conn, "record_milestones"));
+        assert!(!table_exists(&conn, "player_nemesis"));
+
+        run_pending(&conn).expect("upgrade v61 → v62");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        for tabela in [
+            "ai_post_race_debrief",
+            "ai_pre_race_briefing",
+            "ai_race_story",
+            "ai_world_notes",
+            "record_milestones",
+            "track_lap_records",
+            "category_scalar_records",
+            "player_nemesis",
+            "race_breakdowns",
+            "rivalry_episodes",
+            "team_car",
+        ] {
+            assert!(
+                table_exists(&conn, tabela),
+                "'{tabela}' deveria existir depois da v62"
+            );
+        }
+
+        // O drift que motivou a migração: `unit_seed` só existia do lado do `ensure_table`.
+        assert!(
+            column_exists(&conn, "team_car", "unit_seed"),
+            "a coluna que vivia só no ensure_table precisa entrar pela migração"
+        );
+    }
+
+    /// v62, save que JÁ usou os caches: nada é recriado e nenhum dado se perde.
+    ///
+    /// Este é o caso real de quem já jogou — as tabelas existem porque o `ensure_table`
+    /// as criou na primeira notícia aberta, com dado dentro. A migração não pode ser
+    /// destrutiva ali.
+    #[test]
+    fn v62_preserva_o_que_o_ensure_table_ja_tinha_criado() {
+        let conn = banco_na_v61();
+
+        // O estado de um save em campo: as tabelas criadas sob demanda pelas queries,
+        // já com conteúdo, inclusive a coluna tardia do `team_car`.
+        crate::db::queries::ai_story::store_race_facts(&conn, "N001", "{\"a\":1}", "{}")
+            .expect("fatos");
+        crate::db::queries::player_nemesis::set_current_nemesis(&conn, Some("D042"))
+            .expect("nemesis");
+        // Uma leitura do carro basta para o `ensure_table` acrescentar `unit_seed` — é assim
+        // que a coluna chegou aos saves em campo, antes de existir migração para ela.
+        crate::db::queries::team_car::get_team_car(&conn, "T001").expect("leitura do carro");
+        conn.execute_batch(
+            "INSERT INTO team_car (team_id, part_type, level, wear, spent, unit_seed)
+             VALUES ('T001', 'engine', 5, 0.25, 1, 987);",
+        )
+        .expect("carro");
+
+        run_pending(&conn).expect("upgrade v61 → v62");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        let fatos: String = conn
+            .query_row(
+                "SELECT facts FROM ai_race_story WHERE news_id = 'N001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fatos sobreviveram");
+        assert_eq!(fatos, "{\"a\":1}");
+
+        let nemesis =
+            crate::db::queries::player_nemesis::get_current_nemesis(&conn).expect("nemesis");
+        assert_eq!(nemesis.as_deref(), Some("D042"));
+
+        let (nivel, semente): (i64, i64) = conn
+            .query_row(
+                "SELECT level, unit_seed FROM team_car WHERE team_id = 'T001'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("carro sobreviveu");
+        assert_eq!((nivel, semente), (5, 987));
+    }
+
+    /// A v62 é idempotente: rodar de novo num banco já migrado não muda nada.
+    #[test]
+    fn v62_roda_duas_vezes_sem_efeito_colateral() {
+        let conn = banco_na_v61();
+        run_pending(&conn).expect("upgrade v61 → v62");
+        migrate_v62_tabelas_de_query_sob_as_migracoes(&conn).expect("reaplicar v62");
+
+        let colunas: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('team_car') WHERE name = 'unit_seed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("contagem de colunas");
+        assert_eq!(colunas, 1, "o ALTER guardado não pode duplicar a coluna");
+    }
+
+    /// v63 — o planejador precisa PARAR de varrer `race_results` na consulta por equipe.
+    #[test]
+    fn v63_indexa_resultados_por_equipe_e_o_planejador_usa() {
+        let conn = banco_na_v61();
+        run_pending(&conn).expect("upgrade v61 → atual");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        let plano: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN
+                 SELECT posicao_final FROM race_results WHERE equipe_id = 'T001'",
+                [],
+                |row| row.get::<_, String>(3),
+            )
+            .expect("plano da consulta");
+        assert!(
+            plano.contains("idx_race_results_equipe"),
+            "consulta por equipe deveria usar o índice novo, e o plano foi: {plano}"
+        );
+    }
+
+    /// As duas tabelas que a baseline TAMBÉM declara não podem divergir da constante que a
+    /// v62 executa. Enquanto a baseline for um retrato congelado, o texto vive em dois
+    /// lugares; este teste é o guard que impede os dois de se separarem em silêncio.
+    #[test]
+    fn ddl_das_queries_bate_com_o_da_baseline_nas_tabelas_duplicadas() {
+        let pela_baseline = Connection::open_in_memory().expect("db baseline");
+        pela_baseline
+            .execute_batch(BASELINE_DDL)
+            .expect("baseline ddl");
+
+        let pelas_constantes = Connection::open_in_memory().expect("db constantes");
+        pelas_constantes
+            .execute_batch(crate::db::queries::team_car::DDL_TEAM_CAR)
+            .expect("ddl team_car");
+        pelas_constantes
+            .execute_batch(crate::db::queries::race_breakdowns::DDL_RACE_BREAKDOWNS)
+            .expect("ddl race_breakdowns");
+
+        for tabela in ["team_car", "race_breakdowns"] {
+            assert_eq!(
+                colunas_de(&pela_baseline, tabela),
+                colunas_de(&pelas_constantes, tabela),
+                "o DDL de '{tabela}' divergiu entre a baseline e a constante do módulo de query"
+            );
+        }
+    }
+
+    /// `(nome, tipo, notnull, default, pk)` de cada coluna, ordenado por nome.
+    fn colunas_de(conn: &Connection, tabela: &str) -> Vec<(String, String, i64, String, i64)> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info(\"{tabela}\")"))
+            .expect("table_info");
+        let mut linhas: Vec<(String, String, i64, String, i64)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .expect("query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("linhas");
+        linhas.sort();
+        linhas
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {

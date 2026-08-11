@@ -1,9 +1,9 @@
 //! Gerador parcial (Etapa 10 / migração v34).
 //!
 //! Produz APENAS production_challenger e endurance para a janela restante do ano.
-//! Janelas canônicas (mesmo offset do gerador completo):
-//!   production_challenger: woy_end = 47  →  sw_end = 51
-//!   endurance:             woy_end = 45  →  sw_end = 49
+//! Janelas canônicas (as mesmas de `FULL_SEASON_WINDOWS` no gerador completo):
+//!   production_challenger: woy_end = 44  →  sw_end = 48
+//!   endurance:             woy_end = 46  →  sw_end = 50
 //!
 //! Regra de degradação (aplicada independentemente a cada divisão):
 //!   (a) contagem-alvo (10 prod / 6 end) + espaçamento canônico (prod≥3 sw, end≥5 sw);
@@ -24,8 +24,8 @@ use crate::db::queries::calendar as cal_queries;
 use crate::generators::ids::{next_ids, IdType};
 use crate::models::enums::SeasonPhase;
 
-const PARTIAL_PROD_WOY_END: i32 = 47; // = sw 51
-const PARTIAL_END_WOY_END: i32 = 45; // = sw 49
+const PARTIAL_PROD_WOY_END: i32 = 44; // = sw 48
+const PARTIAL_END_WOY_END: i32 = 46; // = sw 50
 
 /// `true` se N rounds cabem em [from_woy, to_woy] com o espaçamento mínimo dado.
 fn partial_fits(n: usize, from_woy: i32, to_woy: i32, min_spacing: i32) -> bool {
@@ -70,7 +70,7 @@ pub(super) fn partial_compute_count(
 }
 
 /// Gera entradas parciais para production_challenger e endurance nas semanas
-/// restantes `[max(from_season_week, 10), 51]`.
+/// restantes, cada divisão até o seu fim canônico (prod sw 48, endurance sw 50).
 ///
 /// Função pura e determinística para o mesmo `seed`.
 /// IDs são placeholders sequenciais (PS00001…); o wrapper DB substitui pelos IDs reais.
@@ -102,7 +102,7 @@ pub(crate) fn build_partial_special_divisions(
     if prod_warn {
         eprintln!(
             "[v34 partial] AVISO: production_challenger: {prod_count} rodada(s) na janela \
-             sw {from_sw}–51 (mínimo esperado: 3)"
+             sw {from_sw}–48 (mínimo esperado: 3)"
         );
     }
     if prod_count > 0 {
@@ -120,9 +120,9 @@ pub(crate) fn build_partial_special_divisions(
         )?;
         for entry in &mut entries {
             let sw = entry.week_of_year + 4;
-            if !(10..=51).contains(&sw) {
+            if !(10..=48).contains(&sw) {
                 return Err(format!(
-                    "season_week {sw} fora de 10–51 para production_challenger (parcial, \
+                    "season_week {sw} fora de 10–48 para production_challenger (parcial, \
                      week_of_year={})",
                     entry.week_of_year
                 ));
@@ -137,7 +137,7 @@ pub(crate) fn build_partial_special_divisions(
     if end_warn {
         eprintln!(
             "[v34 partial] AVISO: endurance: {end_count} rodada(s) na janela \
-             sw {from_sw}–49 (mínimo esperado: 2)"
+             sw {from_sw}–50 (mínimo esperado: 2)"
         );
     }
     if end_count > 0 {
@@ -155,9 +155,9 @@ pub(crate) fn build_partial_special_divisions(
         )?;
         for entry in &mut entries {
             let sw = entry.week_of_year + 4;
-            if !(10..=49).contains(&sw) {
+            if !(10..=50).contains(&sw) {
                 return Err(format!(
-                    "season_week {sw} fora de 10–49 para endurance (parcial, \
+                    "season_week {sw} fora de 10–50 para endurance (parcial, \
                      week_of_year={})",
                     entry.week_of_year
                 ));

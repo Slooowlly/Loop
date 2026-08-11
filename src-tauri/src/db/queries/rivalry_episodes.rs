@@ -4,16 +4,19 @@
 //! por eixo). Aqui guardamos um registro por corrida em que dois rivais interagiram
 //! (capítulo): rodada, pista, tipo de interação, quem levou a melhor, uma frase e a
 //! intensidade no momento. Isso permite ao boletim recapitular o arco (origem, número
-//! de capítulos, retrospecto direto, revanche, fase). Tabela criada de forma
-//! idempotente — não depende do sistema de migrações versionadas.
+//! de capítulos, retrospecto direto, revanche, fase).
+//!
+//! A tabela nasceu fora das migrações e entrou nelas na v62; o `ensure_table` daqui
+//! reaplica a MESMA constante de DDL, de forma idempotente, para as conexões de teste que
+//! não migram. Mudança de coluna agora passa pelo schema-ouro.
 
 use rusqlite::{params, Connection};
 
 use crate::db::connection::DbError;
 
-fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS rivalry_episodes (
+/// DDL da tabela, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_RIVALRY_EPISODES: &str = "
+    CREATE TABLE IF NOT EXISTS rivalry_episodes (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             piloto1_id  TEXT NOT NULL,
             piloto2_id  TEXT NOT NULL,
@@ -29,8 +32,11 @@ fn ensure_table(conn: &Connection) -> Result<(), DbError> {
             created_at  TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_rivalry_episodes_pair
-            ON rivalry_episodes(piloto1_id, piloto2_id);",
-    )?;
+            ON rivalry_episodes(piloto1_id, piloto2_id);
+";
+
+fn ensure_table(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(DDL_RIVALRY_EPISODES)?;
     Ok(())
 }
 

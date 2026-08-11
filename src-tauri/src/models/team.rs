@@ -361,6 +361,16 @@ impl Team {
     }
 }
 
+/// Gera o conjunto de equipes persistentes de uma categoria a partir dos templates.
+///
+/// **Isto é geração de MUNDO morando na camada de modelo, e o lugar dela é `generators/`.**
+/// Não toca no banco — é a outra metade da mesma exceção que tirou o SQL de licenças de
+/// `models/license.rs`: model declara a forma de uma equipe, quem POVOA o mundo é o
+/// gerador. Os três call sites já vivem lá (`generators/world/genesis.rs`,
+/// `generators/world/historico.rs`) mais a auditoria de economia.
+///
+/// A mudança ficou pendente porque mover a função exige editar `generators/world/*`, que é
+/// de outra frente; ela é uma troca de `mod` e três `use`, sem mudança de assinatura.
 pub fn generate_teams_for_category<F>(
     category_id: &str,
     temporada: i32,

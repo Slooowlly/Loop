@@ -3,6 +3,42 @@
 
 use super::*;
 
+/// As colunas que o `calendar_from_row` lê — a projeção que substitui o `SELECT *`.
+///
+/// Inclui os pares legado/atual que o mapeador consulta em cascata (`season_id` com
+/// `temporada_id`, `track_name` com `pista`, `duracao_corrida_min` com `duracao`): a
+/// leitura tolerante só funciona se as duas colunas vierem na linha.
+pub(crate) const COLUNAS_CALENDAR: &[&str] = &[
+    "id",
+    "season_id",
+    "temporada_id",
+    "categoria",
+    "rodada",
+    "nome",
+    "track_id",
+    "track_name",
+    "pista",
+    "track_config",
+    "clima",
+    "temperatura",
+    "voltas",
+    "duracao_corrida_min",
+    "duracao",
+    "duracao_classificacao_min",
+    "status",
+    "horario",
+    "week_of_year",
+    "season_phase",
+    "data",
+    "thematic_slot",
+    "season_week",
+];
+
+pub(crate) fn colunas_select_calendar() -> &'static str {
+    static SQL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SQL.get_or_init(|| COLUNAS_CALENDAR.join(", "))
+}
+
 pub(crate) fn calendar_entry_season_week(entry: &CalendarEntry) -> i32 {
     entry
         .season_week

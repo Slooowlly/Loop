@@ -9,6 +9,11 @@ use crate::models::enums::{RainGroup, TrackType};
 // Cada entrada é um evento (venue + layout) que o jogador possui.
 // `gratuita` preserva a curadoria anterior do conteúdo-base gratuito.
 // ─────────────────────────────────────────────────────────────────────────────
+/// Única pista do catálogo com iluminação artificial: Charlotte Motor Speedway
+/// - Roval 2025. Fonte única do id — quem precisa saber "esta etapa pode correr
+/// no escuro" consome daqui, nunca repete o literal.
+pub const LIT_TRACK_ID: u32 = 554;
+
 pub(super) static TRACKS: &[TrackInfo] = &[
     // ── Adelaide Street Circuit ──────────────────────────────────────────────
     TrackInfo {

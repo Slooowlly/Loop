@@ -326,8 +326,13 @@ pub fn get_feeder_categories(id: &str) -> Vec<&'static str> {
     }
 }
 
+/// As divisões que rodam na FASE ESPECIAL do calendário. Fonte única: quem precisa
+/// ITERAR as especiais lê daqui em vez de repetir o par literal (o par estava copiado
+/// em quatro lugares, e uma especial nova exigia lembrar de todos).
+pub const SPECIAL_PHASE_CATEGORIES: [&str; 2] = ["production_challenger", "endurance"];
+
 pub fn is_especial(cat_id: &str) -> bool {
-    matches!(cat_id, "production_challenger" | "endurance")
+    SPECIAL_PHASE_CATEGORIES.contains(&cat_id)
 }
 
 pub fn runs_in_special_phase(cat_id: &str) -> bool {

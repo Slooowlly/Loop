@@ -17,11 +17,37 @@ const ROOKIE_PRODIGY_CHANCE_PERCENT: u8 = 5;
 const ROOKIE_COMMON_FLAW_MAX: u8 = 32;
 const ROOKIE_HEAVY_FLAW_MAX: u8 = 24;
 
+/// Geração avulsa, com o ano do mundo tirado do RELÓGIO DA MÁQUINA.
+///
+/// Só serve a quem gera um piloto solto sem ter a temporada em mãos (o comando de
+/// debug e os testes deste crate). Todo gerador de MUNDO passa o ano explicitamente
+/// por [`generate_for_category_in_year`] — ver a nota em
+/// [`crate::generators::driver_helpers::career_start_year_from_age`].
 pub fn generate_for_category(
     category_id: &str,
     category_tier: u8,
     difficulty: &str,
     count: usize,
+    existing_names: &mut HashSet<String>,
+    rng: &mut impl Rng,
+) -> Vec<Driver> {
+    generate_for_category_in_year(
+        category_id,
+        category_tier,
+        difficulty,
+        count,
+        crate::common::time::current_year(),
+        existing_names,
+        rng,
+    )
+}
+
+pub fn generate_for_category_in_year(
+    category_id: &str,
+    category_tier: u8,
+    difficulty: &str,
+    count: usize,
+    world_year: u32,
     existing_names: &mut HashSet<String>,
     rng: &mut impl Rng,
 ) -> Vec<Driver> {
@@ -31,6 +57,7 @@ pub fn generate_for_category(
         category_tier,
         difficulty,
         count,
+        world_year,
         existing_names,
         &mut || {
             let id = format!("PGEN-{}-{:03}", category_id, generated);
@@ -46,6 +73,7 @@ pub(crate) fn generate_for_category_with_id_factory<F, R>(
     category_tier: u8,
     difficulty: &str,
     count: usize,
+    world_year: u32,
     existing_names: &mut HashSet<String>,
     id_factory: &mut F,
     rng: &mut R,
@@ -127,7 +155,7 @@ where
             + potential_headroom(desenvolvimento as f64, idade) * rng.gen_range(0.85..=1.15))
         .min(POTENTIAL_HARD_MAX);
 
-        let ano_inicio = career_start_year_from_age(idade);
+        let ano_inicio = career_start_year_from_age(world_year, idade);
         let mut driver = Driver::new(
             id_factory(),
             identity.nome_completo,
@@ -528,6 +556,7 @@ mod tests {
                 0,
                 "medio",
                 12,
+                2024,
                 &mut existing_names,
                 &mut || {
                     let id = format!("P{next_id:03}");

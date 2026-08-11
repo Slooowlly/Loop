@@ -134,19 +134,21 @@ pub(crate) fn latest_completed_display_date_for_season_week(
     season_id: &str,
     season_week: i32,
 ) -> Result<Option<String>, DbError> {
-    conn.query_row(
+    // A régua season_week ↔ week_of_year mora em `models::temporal` e vem daqui em SQL, para
+    // não existir uma segunda aritmética escrita à mão dentro da query.
+    let sql = format!(
         "SELECT data
          FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND status = 'Concluida'
-           AND COALESCE(season_week, week_of_year + 4) = ?2
+           AND {} = ?2
          ORDER BY data DESC
          LIMIT 1",
-        params![season_id, season_week],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(Into::into)
+        crate::models::temporal::SQL_SEASON_WEEK_DERIVADA
+    );
+    conn.query_row(&sql, params![season_id, season_week], |row| row.get(0))
+        .optional()
+        .map_err(Into::into)
 }
 
 pub(crate) fn latest_completed_display_date_for_legacy_week(

@@ -1,5 +1,6 @@
 pub mod cars;
 pub mod categories;
+pub mod flags_experimentais;
 pub mod geografia;
 pub mod historical_timeline;
 pub mod scoring;
@@ -26,33 +27,52 @@ pub fn category_tier_label(nivel: &str) -> String {
 }
 
 /// Rótulo de display de país (i18n, com bandeira) a partir do `pais` cru de
-/// `tracks.rs`/`teams.rs`. Cobre as variantes legadas do dado (com/sem emoji e acento).
-/// A fonte fica como token: `track_hemisphere` casa o `pais` cru. Fallback = valor cru.
+/// `tracks.rs`/`teams.rs`. A fonte fica como token: `track_hemisphere` casa o `pais` cru.
+/// Fallback = valor cru — país fora da tabela nunca vira rótulo inventado.
+///
+/// A entrada passa por [`geografia::normalizar_pais`], a MESMA dobra que resolve
+/// coordenada e continente. Antes esta função mantinha a própria lista de variantes
+/// ("🇫🇷 França" | "França" | "Franca"), o que dava dois lugares para lembrar a cada país
+/// novo e um modo de falha silencioso: o país sumia do i18n e voltava cru na tela sem
+/// ninguém notar. Agora a chave é uma por país, e o guard
+/// `todo_pais_do_catalogo_tem_rotulo_i18n` cobra a cobertura contra o catálogo real.
 pub fn country_label(pais: &str) -> String {
-    let key = match pais.trim() {
-        "🇦🇹 Áustria" | "Áustria" | "Austria" => "austria",
-        "🇦🇺 Austrália" | "Austrália" | "Australia" => "australia",
-        "🇧🇪 Bélgica" | "Bélgica" => "belgium",
-        "🇧🇷 Brasil" | "Brasil" => "brazil",
-        "🇨🇦 Canadá" | "Canadá" | "Canada" => "canada",
-        "🇩🇪 Alemanha" | "Alemanha" => "germany",
-        "🇪🇸 Espanha" | "Espanha" => "spain",
-        "🇫🇷 França" | "França" | "Franca" => "france",
-        "🇬🇧 Reino Unido" | "Reino Unido" => "uk",
-        "🇭🇺 Hungria" | "Hungria" => "hungary",
-        "🇮🇹 Itália" | "Itália" | "Italia" => "italy",
-        "🇯🇵 Japão" | "Japão" | "Japao" => "japan",
-        "🇲🇽 México" | "México" => "mexico",
-        "🇳🇱 Holanda" | "Holanda" => "netherlands",
-        "🇳🇴 Noruega" | "Noruega" => "norway",
-        "🇵🇹 Portugal" | "Portugal" => "portugal",
-        "🇺🇸 EUA" | "EUA" => "usa",
-        "🇨🇭 Suíça" | "Suíça" | "Suica" => "switzerland",
-        "🇹🇼 Taiwan" | "Taiwan" => "taiwan",
-        _ => return pais.to_string(),
+    match country_key(pais) {
+        Some(key) => {
+            let full = format!("country.{key}");
+            rust_i18n::t!(&full).to_string()
+        }
+        None => pais.to_string(),
+    }
+}
+
+/// A chave i18n do país, ou `None` se ele não estiver na tabela. Separada de
+/// [`country_label`] para o guard conseguir distinguir "não tem chave" de "a tradução é
+/// igual ao valor cru" — que é o caso de Taiwan e Portugal nos dois idiomas.
+fn country_key(pais: &str) -> Option<&'static str> {
+    let key = match geografia::normalizar_pais(pais).as_str() {
+        "austria" => "austria",
+        "australia" => "australia",
+        "belgica" => "belgium",
+        "brasil" => "brazil",
+        "canada" => "canada",
+        "alemanha" => "germany",
+        "espanha" => "spain",
+        "franca" => "france",
+        "reino unido" => "uk",
+        "hungria" => "hungary",
+        "italia" => "italy",
+        "japao" => "japan",
+        "mexico" => "mexico",
+        "holanda" => "netherlands",
+        "noruega" => "norway",
+        "portugal" => "portugal",
+        "eua" => "usa",
+        "suica" => "switzerland",
+        "taiwan" => "taiwan",
+        _ => return None,
     };
-    let full = format!("country.{key}");
-    rust_i18n::t!(&full).to_string()
+    Some(key)
 }
 
 #[cfg(test)]
@@ -80,5 +100,27 @@ mod i18n_label_tests {
         assert_eq!(country_label("Desconhecido"), "Desconhecido"); // fallback = valor cru
 
         rust_i18n::set_locale("pt-BR"); // restaura
+    }
+
+    /// GUARD irmão do `todo_pais_do_catalogo_esta_no_mapa` de `geografia`: todo país que
+    /// aparece em `constants/tracks` ou `constants/teams` precisa ter chave i18n. Sem
+    /// isto, país novo no catálogo volta cru na tela — em português, para quem joga em
+    /// inglês — e ninguém percebe, porque o fallback não faz barulho.
+    #[test]
+    fn todo_pais_do_catalogo_tem_rotulo_i18n() {
+        let mut faltando: Vec<String> = Vec::new();
+        for track in tracks::get_all_tracks() {
+            if country_key(track.pais).is_none() {
+                faltando.push(format!("pista: {}", track.pais));
+            }
+        }
+        for equipe in teams::get_all_team_templates() {
+            if country_key(equipe.pais_sede).is_none() {
+                faltando.push(format!("equipe: {}", equipe.pais_sede));
+            }
+        }
+        faltando.sort();
+        faltando.dedup();
+        assert!(faltando.is_empty(), "países sem chave i18n: {faltando:?}");
     }
 }

@@ -1,21 +1,25 @@
 //! Cache do DEBRIEF pós-corrida gerado por IA (voz do engenheiro → piloto), mostrado
 //! na tela de classificação final. Chave = `race_id` (um debrief por etapa). Assim
-//! reentrar/reabrir a tela não regenera (sem custo e sem esbarrar no cooldown). A
-//! tabela é criada de forma idempotente — não depende do sistema de migrações.
+//! reentrar/reabrir a tela não regenera (sem custo e sem esbarrar no cooldown). A tabela
+//! nasceu fora das migrações e entrou nelas na v62; o `ensure_table` reaplica o MESMO DDL,
+//! de forma idempotente, para conexões de teste in-memory que não migram.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
+/// DDL da tabela, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_AI_POST_RACE_DEBRIEF: &str = "
+    CREATE TABLE IF NOT EXISTS ai_post_race_debrief (
+        race_id    TEXT PRIMARY KEY,
+        headline   TEXT NOT NULL DEFAULT '',
+        body       TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT ''
+    );
+";
+
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS ai_post_race_debrief (
-            race_id    TEXT PRIMARY KEY,
-            headline   TEXT NOT NULL DEFAULT '',
-            body       TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT ''
-        );",
-    )?;
+    conn.execute_batch(DDL_AI_POST_RACE_DEBRIEF)?;
     Ok(())
 }
 

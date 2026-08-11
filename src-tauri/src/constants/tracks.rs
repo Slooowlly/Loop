@@ -14,6 +14,7 @@ mod dados;
 mod tipos;
 
 pub use consultas::*;
+pub use dados::LIT_TRACK_ID;
 pub use tipos::*;
 
 #[cfg(test)]

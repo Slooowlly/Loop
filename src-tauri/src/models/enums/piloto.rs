@@ -172,22 +172,52 @@ impl DriverHierarchyRole {
 
 // ── Tipo de lesão ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Gravidade da lesão. **Duas grafias, cada uma com o seu dono:**
+///
+/// - [`InjuryType::as_str`] é a grafia do BANCO ("Leve"/"Moderada"/"Grave"/"Critica"). É
+///   valor de coluna gravado desde a primeira versão e não se mexe nele.
+/// - [`InjuryType::chave`] — e o serde — é a grafia do FIO ("light"/"moderate"/"severe"/
+///   "critical"). O frontend recebia a grafia do banco e mapeava "Leve"→"light" por conta
+///   própria, incluindo o "Critica" sem acento: uma correção de acentuação no backend
+///   apagava a gravidade da lesão em silêncio. A tradução agora acontece na borda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum InjuryType {
+    #[serde(rename = "light")]
     Leve,
+    #[serde(rename = "moderate")]
     Moderada,
+    #[serde(rename = "severe")]
     Grave,
+    #[serde(rename = "critical")]
     Critica,
 }
 
 impl InjuryType {
-    pub fn as_str(&self) -> &str {
+    /// A grafia do BANCO — o que está gravado na coluna `injuries.type`.
+    pub fn as_str(&self) -> &'static str {
         match self {
             InjuryType::Leve => "Leve",
             InjuryType::Moderada => "Moderada",
             InjuryType::Grave => "Grave",
             InjuryType::Critica => "Critica",
         }
+    }
+
+    /// A chave do FIO — estável, sem acento e sem prosa, casada com o serde acima e com as
+    /// chaves i18n que o frontend já usa (`…injurySeverity.light`, `.moderate`, …).
+    pub fn chave(&self) -> &'static str {
+        match self {
+            InjuryType::Leve => "light",
+            InjuryType::Moderada => "moderate",
+            InjuryType::Grave => "severe",
+            InjuryType::Critica => "critical",
+        }
+    }
+
+    /// Lesão que tira o piloto de circulação de verdade (o selo 🚑 da classificação).
+    pub fn e_seria(&self) -> bool {
+        matches!(self, InjuryType::Grave | InjuryType::Critica)
     }
 
     pub fn from_str(s: &str) -> Self {
@@ -209,5 +239,59 @@ impl InjuryType {
             "Critica" => Ok(InjuryType::Critica),
             other => Err(format!("InjuryType inválido: '{other}'")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_lesao {
+    use super::InjuryType;
+
+    const TODAS: [InjuryType; 4] = [
+        InjuryType::Leve,
+        InjuryType::Moderada,
+        InjuryType::Grave,
+        InjuryType::Critica,
+    ];
+
+    /// AS DUAS GRAFIAS NÃO PODEM SE MISTURAR.
+    ///
+    /// A do banco vai para a coluna e volta pelo parser estrito; a do fio vai para o React,
+    /// que a usa como sufixo de chave i18n. Era uma só, em português, e o frontend traduzia
+    /// "Leve"→"light" por conta própria — inclusive o "Critica" sem acento. Corrigir a
+    /// acentuação do backend teria apagado a gravidade da lesão na tela, sem erro nenhum.
+    #[test]
+    fn a_grafia_do_banco_e_a_do_fio_seguem_separadas() {
+        for tipo in TODAS {
+            // Banco: em português, com a grafia gravada desde sempre, e o parser fecha o ciclo.
+            assert_eq!(InjuryType::from_str_strict(tipo.as_str()), Ok(tipo));
+            // Fio: chave estável, sem acento e sem prosa — e serde diz o MESMO que `chave()`.
+            assert_eq!(
+                serde_json::to_string(&tipo).unwrap(),
+                format!("\"{}\"", tipo.chave())
+            );
+            assert!(
+                tipo.chave().is_ascii() && tipo.chave() == tipo.chave().to_lowercase(),
+                "chave de fio com acento ou maiúscula: {}",
+                tipo.chave()
+            );
+        }
+        assert_eq!(
+            TODAS.map(|t| t.chave()),
+            ["light", "moderate", "severe", "critical"]
+        );
+        assert_eq!(
+            TODAS.map(|t| t.as_str()),
+            ["Leve", "Moderada", "Grave", "Critica"]
+        );
+    }
+
+    /// O corte do selo 🚑 da classificação, que o frontend guardava como um `Set` de palavras
+    /// em português.
+    #[test]
+    fn lesao_seria_e_grave_ou_critica() {
+        assert!(!InjuryType::Leve.e_seria());
+        assert!(!InjuryType::Moderada.e_seria());
+        assert!(InjuryType::Grave.e_seria());
+        assert!(InjuryType::Critica.e_seria());
     }
 }

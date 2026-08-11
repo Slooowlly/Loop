@@ -1,3 +1,24 @@
+tabela ai_post_race_debrief
+  coluna body | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna headline | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna race_id | tipo=TEXT | notnull=0 | default=- | pk=1
+tabela ai_pre_race_briefing
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna headline | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna narrative | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna race_id | tipo=TEXT | notnull=0 | default=- | pk=1
+  coluna team_voice | tipo=TEXT | notnull=1 | default=- | pk=0
+tabela ai_race_story
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna facts | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna news_id | tipo=TEXT | notnull=0 | default=- | pk=1
+  coluna story | tipo=TEXT | notnull=0 | default=- | pk=0
+  coluna teams_json | tipo=TEXT | notnull=0 | default=- | pk=0
+tabela ai_world_notes
+  coluna cache_key | tipo=TEXT | notnull=0 | default=- | pk=1
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna notes_json | tipo=TEXT | notnull=1 | default=- | pk=0
 tabela calendar
   coluna categoria | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna clima | tipo=TEXT | notnull=1 | default='Seco' | pk=0
@@ -27,6 +48,15 @@ tabela calendar
   indice idx_calendar_categoria | unique=0 | origem=c | parcial=0 | colunas=categoria
   indice idx_calendar_season_id | unique=0 | origem=c | parcial=0 | colunas=season_id
   indice idx_calendar_temporada | unique=0 | origem=c | parcial=0 | colunas=temporada_id
+tabela category_scalar_records
+  coluna categoria | tipo=TEXT | notnull=1 | default=- | pk=1
+  coluna context | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna kind | tipo=TEXT | notnull=1 | default=- | pk=2
+  coluna round | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna season_number | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna subject_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna subject_name | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna value | tipo=INTEGER | notnull=1 | default=- | pk=0
 tabela config
   coluna key | tipo=TEXT | notnull=0 | default=- | pk=1
   coluna value | tipo=TEXT | notnull=1 | default=- | pk=0
@@ -216,6 +246,9 @@ tabela news
   coluna titulo | tipo=TEXT | notnull=1 | default=- | pk=0
   indice idx_news_lida | unique=0 | origem=c | parcial=0 | colunas=lida
   indice idx_news_temporada | unique=0 | origem=c | parcial=0 | colunas=temporada_id
+tabela player_nemesis
+  coluna id | tipo=INTEGER | notnull=0 | default=- | pk=1
+  coluna rival_id | tipo=TEXT | notnull=0 | default=- | pk=0
 tabela player_race_telemetry
   coluna battle_fraction | tipo=REAL | notnull=1 | default=-1.0 | pk=0
   coluna consistency | tipo=REAL | notnull=1 | default=-1.0 | pk=0
@@ -283,6 +316,7 @@ tabela race_results
   coluna trafego_json | tipo=TEXT | notnull=1 | default='{}' | pk=0
   coluna ultrapassagens_concluidas | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna voltas_completadas | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  indice idx_race_results_equipe | unique=0 | origem=c | parcial=0 | colunas=equipe_id
   indice idx_race_results_piloto | unique=0 | origem=c | parcial=0 | colunas=piloto_id
   indice idx_race_results_unique_race_pilot | unique=1 | origem=c | parcial=0 | colunas=race_id,piloto_id
 tabela race_safety_cars
@@ -304,6 +338,20 @@ tabela races
   coluna status | tipo=TEXT | notnull=1 | default='Pendente' | pk=0
   coluna temporada_id | tipo=TEXT | notnull=1 | default=- | pk=0
   indice idx_races_temporada | unique=0 | origem=c | parcial=0 | colunas=temporada_id
+tabela record_milestones
+  coluna ano | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna categoria | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna context | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna id | tipo=TEXT | notnull=0 | default=- | pk=1
+  coluna metric | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna pilot_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna pilot_name | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna previous_value | tipo=INTEGER | notnull=0 | default=- | pk=0
+  coluna round | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna season_number | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna value | tipo=INTEGER | notnull=1 | default=- | pk=0
+  indice idx_record_milestones_cat | unique=0 | origem=c | parcial=0 | colunas=categoria,season_number
 tabela retired
   coluna categoria_final | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna estatisticas | tipo=TEXT | notnull=1 | default='{}' | pk=0
@@ -325,6 +373,21 @@ tabela rivalries
   indice idx_rivalries_pair_unique | unique=1 | origem=c | parcial=0 | colunas=piloto1_id,piloto2_id
   indice idx_rivalries_piloto1 | unique=0 | origem=c | parcial=0 | colunas=piloto1_id
   indice idx_rivalries_piloto2 | unique=0 | origem=c | parcial=0 | colunas=piloto2_id
+tabela rivalry_episodes
+  coluna ano | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna categoria | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna id | tipo=INTEGER | notnull=0 | default=- | pk=1
+  coluna interaction | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna perceived | tipo=REAL | notnull=1 | default=0.0 | pk=0
+  coluna piloto1_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna piloto2_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna rodada | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna summary | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna temporada | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna track_name | tipo=TEXT | notnull=1 | default='' | pk=0
+  coluna winner_id | tipo=TEXT | notnull=0 | default=- | pk=0
+  indice idx_rivalry_episodes_pair | unique=0 | origem=c | parcial=0 | colunas=piloto1_id,piloto2_id
 tabela seasons
   coluna ano | tipo=INTEGER | notnull=1 | default=- | pk=0
   coluna created_at | tipo=TEXT | notnull=1 | default='' | pk=0
@@ -410,6 +473,7 @@ tabela team_car
   coluna part_type | tipo=TEXT | notnull=1 | default=- | pk=2
   coluna spent | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna team_id | tipo=TEXT | notnull=1 | default=- | pk=1
+  coluna unit_seed | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna wear | tipo=REAL | notnull=1 | default=0.0 | pk=0
 tabela team_collapse_streak
   coluna streak | tipo=INTEGER | notnull=1 | default=0 | pk=0
@@ -580,6 +644,14 @@ tabela track_dnf_history
   coluna season_num | tipo=INTEGER | notnull=1 | default=- | pk=0
   coluna track_name | tipo=TEXT | notnull=1 | default=- | pk=0
   indice idx_track_dnf_piloto_track | unique=0 | origem=c | parcial=0 | colunas=piloto_id,track_name
+tabela track_lap_records
+  coluna categoria | tipo=TEXT | notnull=1 | default=- | pk=1
+  coluna lap_ms | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna pilot_id | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna pilot_name | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna round | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna season_number | tipo=INTEGER | notnull=1 | default=- | pk=0
+  coluna track_name | tipo=TEXT | notnull=1 | default=- | pk=2
 tabela transfer_window
   coluna season_number | tipo=INTEGER | notnull=0 | default=- | pk=1
   coluna state_json | tipo=TEXT | notnull=1 | default=- | pk=0

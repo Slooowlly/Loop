@@ -17,47 +17,70 @@ pub fn get_free_tracks() -> Vec<&'static TrackInfo> {
     TRACKS.iter().filter(|track| track.gratuita).collect()
 }
 
-/// Fallback de TESTE: quando a pista pedida é conteúdo PAGO (que o jogador pode
-/// não possuir), devolve uma pista GRÁTIS determinística no lugar, para o export
-/// conseguir rodar mesmo sem a pista real. Pistas já grátis (e a própria escolha)
-/// passam intactas.
+/// Substituta da pista pedida quando ela não está no conjunto POSSUÍDO, dado esse
+/// conjunto explicitamente. Pista possuída (e a própria escolha) passa intacta.
 ///
 /// A escolha é determinística e INDEPENDENTE de ordem (`track_id % pool`): a mesma
-/// pista paga sempre mapeia para a mesma free em todo export — o import compara o
-/// resultado do iRacing contra a pista que foi de fato exportada, então o mapa
-/// precisa ser estável entre exports. Prefere free do mesmo tipo (road/roval).
+/// pista de fora sempre mapeia para a mesma substituta em todo export — o import compara
+/// o resultado do iRacing contra a pista que foi de fato exportada, então o mapa precisa
+/// ser estável entre exports. Prefere substituta do mesmo tipo (road/roval).
 ///
-/// TODO(design final): trocar por "pistas que o jogador realmente possui" em vez
-/// de substituir todo conteúdo pago — ver backlog de posse de pistas.
-pub fn free_or_substitute(track_id: u32) -> Option<&'static TrackInfo> {
+/// `possuidas` vazio devolve a original: sem dado de posse, o certo é não substituir
+/// nada, e não substituir tudo.
+pub fn substituta_para_posse(
+    track_id: u32,
+    possuidas: &[&'static TrackInfo],
+) -> Option<&'static TrackInfo> {
     let original = get_track(track_id);
-    if let Some(track) = original {
-        if track.gratuita {
-            return Some(track);
-        }
+    if let Some(possuida) = possuidas.iter().find(|t| t.track_id == track_id) {
+        return Some(possuida);
     }
-
-    let free = get_free_tracks();
-    if free.is_empty() {
+    if possuidas.is_empty() {
         return original;
     }
 
-    // Prefere manter o tipo (road/roval) da pista original; se não houver free do
-    // mesmo tipo, cai para o pool free inteiro.
+    // Prefere manter o tipo (road/roval) da pista original; se não houver possuída do
+    // mesmo tipo, cai para o conjunto inteiro.
     let pool: Vec<&'static TrackInfo> = match original.map(|t| t.tipo) {
         Some(tipo) => {
-            let same: Vec<&'static TrackInfo> =
-                free.iter().copied().filter(|t| t.tipo == tipo).collect();
+            let same: Vec<&'static TrackInfo> = possuidas
+                .iter()
+                .copied()
+                .filter(|t| t.tipo == tipo)
+                .collect();
             if same.is_empty() {
-                free
+                possuidas.to_vec()
             } else {
                 same
             }
         }
-        None => free,
+        None => possuidas.to_vec(),
     };
 
     Some(pool[(track_id as usize) % pool.len()])
+}
+
+/// Fallback do EXPORT: substitui todo conteúdo PAGO por uma pista grátis.
+///
+/// **Verdito do D-06 (11/08/2026): aproximação assumida, bloqueada por falta de dado.**
+/// O correto é substituir pelo que o jogador REALMENTE possui, e a regra já está escrita
+/// para isso em [`substituta_para_posse`] — o que falta é o conjunto. Não existe, em
+/// lugar nenhum do save nem da configuração, uma lista de pistas possuídas: o app não
+/// consulta o entitlement do iRacing, não há tela para o jogador marcar o que tem, e o
+/// próprio catálogo de `dados.rs` já é a posse cravada de um usuário específico, de
+/// julho de 2026 (é o que o cabeçalho de lá diz: "cada entrada é um evento que o
+/// jogador possui"). Enquanto isso, `gratuita` é o único recorte defensável: conteúdo
+/// grátis todo mundo tem.
+///
+/// O que falta para fechar: a lista de posse persistida por save (ou por instalação) e a
+/// UI que a preenche. No dia em que existir, esta função vira uma chamada a
+/// [`substituta_para_posse`] passando essa lista, e o call site do export
+/// (`commands/iracing/temporada.rs`) é o único lugar a mudar.
+pub fn free_or_substitute(track_id: u32) -> Option<&'static TrackInfo> {
+    match get_track(track_id) {
+        Some(track) if track.gratuita => Some(track),
+        _ => substituta_para_posse(track_id, &get_free_tracks()),
+    }
 }
 
 pub fn get_tracks_for_tier(tier: u8) -> Vec<&'static TrackInfo> {
@@ -89,18 +112,15 @@ pub fn get_rain_chance(track_id: u32) -> f64 {
 // Le Mans (268), Nürburgring 24h (252), Spa Endurance (525).
 const LONG_QUALI_TRACK_IDS: &[u32] = &[249, 268, 252, 525];
 
+/// Duração da quali da pista do catálogo. Delega para `duracao_classificacao_para`:
+/// a regra mora num lugar só, senão mudar o corte de 5 km numa e esquecer a outra
+/// desalinha o export do iRacing e a simulação.
 pub fn get_qualifying_duration(track_id: u32) -> u8 {
     let Some(track) = get_track(track_id) else {
         return 15;
     };
 
-    if LONG_QUALI_TRACK_IDS.contains(&track.track_id) {
-        20
-    } else if track.comprimento_km > 5.0 {
-        18
-    } else {
-        15
-    }
+    duracao_classificacao_para(track.comprimento_km, track.track_id) as u8
 }
 
 pub fn duracao_classificacao_para(comprimento_km: f64, track_id: u32) -> u32 {

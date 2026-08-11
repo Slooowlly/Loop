@@ -339,12 +339,30 @@ fn test_weekday_policy_gt4_thursday_and_gt3_friday() {
     }
 }
 
+/// `#[serial]` + locale fixo: a mensagem de erro passou a sair do `rust-i18n`, e o
+/// locale é estado global do processo — sem fixar, este teste passa a depender de qual
+/// idioma o teste anterior deixou ligado.
 #[test]
+#[serial_test::serial]
 fn test_lmp2_standalone_calendar_is_not_generated() {
+    let anterior = rust_i18n::locale().to_string();
+    rust_i18n::set_locale("pt-BR");
     let mut rng = StdRng::seed_from_u64(144);
     let err = generate_calendar_for_category_with_year("S001", 2028, "lmp2", &mut rng)
         .expect_err("lmp2 standalone calendar should not be generated");
-    assert!(err.contains("classe da Endurance"));
+    assert!(
+        err.contains("classe da Endurance"),
+        "erro inesperado: {err}"
+    );
+
+    rust_i18n::set_locale("en-US");
+    let err_en = generate_calendar_for_category_with_year("S001", 2028, "lmp2", &mut rng)
+        .expect_err("lmp2 standalone calendar should not be generated");
+    assert!(
+        err_en.contains("Endurance class"),
+        "erro inesperado: {err_en}"
+    );
+    rust_i18n::set_locale(&anterior);
 
     let calendars = generate_all_calendars("S001", &mut rng).expect("all calendars");
     assert!(!calendars.contains_key("lmp2"));

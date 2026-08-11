@@ -1,41 +1,141 @@
 #![allow(dead_code)]
 
+use std::sync::OnceLock;
+
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 use crate::models::driver::{Driver, DriverAttributes, DriverCareerStats, DriverSeasonStats};
 use crate::models::enums::{DriverStatus, PrimaryPersonality, SecondaryPersonality};
 
+/// As colunas de `drivers`, uma vez só.
+///
+/// Antes esta lista existia à mão em quatro lugares — a lista da `INSERT`, a lista de
+/// binds dela, o `SET` da `UPDATE` e o `SELECT *` — e a paridade entre elas não era
+/// verificada por nada além de rodar o jogo. Campo novo de piloto exigia acertar os
+/// quatro, e errar um só produzia coluna gravada como `NULL` ou leitura em branco, sem
+/// erro de compilação.
+///
+/// Agora a `INSERT`, a `UPDATE` e todo `SELECT` de piloto são GERADOS daqui, e o teste
+/// `a_lista_de_colunas_bate_com_o_schema_real` compara a lista com o `PRAGMA table_info`
+/// do schema das migrações nos dois sentidos. Sobra um único ponto manual: o
+/// `named_params!` que dá valor a cada bind — e ali a divergência não é silenciosa, porque
+/// nome que não existe na SQL é erro do rusqlite e coluna sem valor cai no `NOT NULL`.
+///
+/// A ORDEM não importa para o banco (tudo é por nome), mas é a mesma da tabela, o que
+/// deixa a comparação com o `table_info` legível quando o teste acusa diferença.
+pub(crate) const COLUNAS_DRIVER: &[&str] = &[
+    "id",
+    "nome",
+    "is_jogador",
+    "idade",
+    "nacionalidade",
+    "genero",
+    "categoria_atual",
+    "categoria_especial_ativa",
+    "status",
+    "personalidade_primaria",
+    "personalidade_secundaria",
+    "ano_inicio_carreira",
+    "skill",
+    "consistencia",
+    "racecraft",
+    "defesa",
+    "ritmo_classificacao",
+    "gestao_pneus",
+    "habilidade_largada",
+    "adaptabilidade",
+    "fator_chuva",
+    "fitness",
+    "experiencia",
+    "desenvolvimento",
+    "aggression",
+    "smoothness",
+    "midia",
+    "carisma",
+    "mentalidade",
+    "confianca",
+    "potencial",
+    "temp_pontos",
+    "temp_vitorias",
+    "temp_podios",
+    "temp_poles",
+    "temp_corridas",
+    "temp_dnfs",
+    "temp_posicao_media",
+    "carreira_pontos_total",
+    "carreira_vitorias",
+    "carreira_podios",
+    "carreira_poles",
+    "carreira_corridas",
+    "carreira_temporadas",
+    "carreira_titulos",
+    "carreira_dnfs",
+    "motivacao",
+    "forma",
+    "historico_circuitos",
+    "ultimos_resultados",
+    "melhor_resultado_temp",
+    "temporadas_na_categoria",
+    "corridas_na_categoria",
+    "temporadas_motivacao_baixa",
+];
+
+/// `id, nome, is_jogador, ...` — a projeção que substitui o `SELECT *`.
+///
+/// Com `*`, remover ou renomear uma coluna só estourava em runtime, no save de alguém,
+/// dentro do `row.get("nome_da_coluna")` do `driver_from_row`. Nomeando as colunas, a
+/// mesma quebra aparece na primeira consulta preparada, e o teste de schema a pega antes.
+fn colunas_select() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| COLUNAS_DRIVER.join(", "))
+}
+
+/// A mesma projeção qualificada por um alias de tabela (`d.id, d.nome, ...`), para as
+/// consultas que fazem junção e antes usavam `SELECT d.*`.
+fn colunas_select_com_alias(alias: &str) -> String {
+    COLUNAS_DRIVER
+        .iter()
+        .map(|coluna| format!("{alias}.{coluna}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn sql_insert_driver() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| {
+        let binds = COLUNAS_DRIVER
+            .iter()
+            .map(|coluna| format!(":{coluna}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "INSERT INTO drivers ({}) VALUES ({binds})",
+            COLUNAS_DRIVER.join(", ")
+        )
+    })
+}
+
+/// `UPDATE` de piloto inteiro. O `id` sai do `SET` (é a chave) e entra só no `WHERE`.
+fn sql_update_driver() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| {
+        let sets = COLUNAS_DRIVER
+            .iter()
+            .filter(|coluna| **coluna != "id")
+            .map(|coluna| format!("{coluna} = :{coluna}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("UPDATE drivers SET {sets} WHERE id = :id")
+    })
+}
+
 pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> {
     let historico = serialize_json_field(&driver.historico_circuitos, "historico_circuitos")?;
     let ultimos = serialize_json_field(&driver.ultimos_resultados, "ultimos_resultados")?;
 
     conn.execute(
-        "INSERT INTO drivers (
-            id, nome, is_jogador, idade, nacionalidade, genero, categoria_atual,
-            categoria_especial_ativa, status, personalidade_primaria, personalidade_secundaria,
-            ano_inicio_carreira, skill, consistencia, racecraft, defesa, ritmo_classificacao,
-            gestao_pneus, habilidade_largada, adaptabilidade, fator_chuva, fitness, experiencia,
-            desenvolvimento, aggression, smoothness, midia, carisma, mentalidade, confianca, potencial,
-            temp_pontos, temp_vitorias, temp_podios, temp_poles, temp_corridas, temp_dnfs,
-            temp_posicao_media, carreira_pontos_total, carreira_vitorias, carreira_podios,
-            carreira_poles, carreira_corridas, carreira_temporadas, carreira_titulos,
-            carreira_dnfs, motivacao, forma, historico_circuitos, ultimos_resultados,
-            melhor_resultado_temp, temporadas_na_categoria, corridas_na_categoria,
-            temporadas_motivacao_baixa
-        ) VALUES (
-            :id, :nome, :is_jogador, :idade, :nacionalidade, :genero, :categoria_atual,
-            :categoria_especial_ativa, :status, :personalidade_primaria, :personalidade_secundaria,
-            :ano_inicio_carreira, :skill, :consistencia, :racecraft, :defesa, :ritmo_classificacao,
-            :gestao_pneus, :habilidade_largada, :adaptabilidade, :fator_chuva, :fitness, :experiencia,
-            :desenvolvimento, :aggression, :smoothness, :midia, :carisma, :mentalidade, :confianca, :potencial,
-            :temp_pontos, :temp_vitorias, :temp_podios, :temp_poles, :temp_corridas, :temp_dnfs,
-            :temp_posicao_media, :carreira_pontos_total, :carreira_vitorias, :carreira_podios,
-            :carreira_poles, :carreira_corridas, :carreira_temporadas, :carreira_titulos,
-            :carreira_dnfs, :motivacao, :forma, :historico_circuitos, :ultimos_resultados,
-            :melhor_resultado_temp, :temporadas_na_categoria, :corridas_na_categoria,
-            :temporadas_motivacao_baixa
-        )",
+        sql_insert_driver(),
         rusqlite::named_params! {
             ":id": &driver.id,
             ":nome": &driver.nome,
@@ -97,7 +197,10 @@ pub fn insert_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
 }
 
 pub fn get_driver(conn: &Connection, id: &str) -> Result<Driver, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM drivers WHERE id = ?1")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE id = ?1",
+        colunas_select()
+    ))?;
     stmt.query_row(rusqlite::params![id], driver_from_row)
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
@@ -108,7 +211,10 @@ pub fn get_driver(conn: &Connection, id: &str) -> Result<Driver, DbError> {
 }
 
 pub fn get_driver_by_name(conn: &Connection, nome: &str) -> Result<Driver, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM drivers WHERE nome = ?1 LIMIT 1")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE nome = ?1 LIMIT 1",
+        colunas_select()
+    ))?;
     stmt.query_row(rusqlite::params![nome], driver_from_row)
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
@@ -119,14 +225,19 @@ pub fn get_driver_by_name(conn: &Connection, nome: &str) -> Result<Driver, DbErr
 }
 
 pub fn get_all_drivers(conn: &Connection) -> Result<Vec<Driver>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM drivers ORDER BY nome")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers ORDER BY nome",
+        colunas_select()
+    ))?;
     let rows = stmt.query_map([], driver_from_row)?;
     collect_drivers(rows)
 }
 
 pub fn get_drivers_by_category(conn: &Connection, categoria: &str) -> Result<Vec<Driver>, DbError> {
-    let mut stmt =
-        conn.prepare("SELECT * FROM drivers WHERE categoria_atual = ?1 ORDER BY nome")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE categoria_atual = ?1 ORDER BY nome",
+        colunas_select()
+    ))?;
     let rows = stmt.query_map(rusqlite::params![categoria], driver_from_row)?;
     collect_drivers(rows)
 }
@@ -135,18 +246,24 @@ pub fn get_drivers_by_active_category(
     conn: &Connection,
     categoria: &str,
 ) -> Result<Vec<Driver>, DbError> {
-    let sql = if matches!(categoria, "production_challenger" | "endurance") {
-        "SELECT * FROM drivers WHERE categoria_especial_ativa = ?1 ORDER BY nome"
+    let filtro = if matches!(categoria, "production_challenger" | "endurance") {
+        "categoria_especial_ativa = ?1"
     } else {
-        "SELECT * FROM drivers WHERE categoria_atual = ?1 AND categoria_especial_ativa IS NULL ORDER BY nome"
+        "categoria_atual = ?1 AND categoria_especial_ativa IS NULL"
     };
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE {filtro} ORDER BY nome",
+        colunas_select()
+    ))?;
     let rows = stmt.query_map(rusqlite::params![categoria], driver_from_row)?;
     collect_drivers(rows)
 }
 
 pub fn get_drivers_by_status(conn: &Connection, status: &str) -> Result<Vec<Driver>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM drivers WHERE status = ?1 ORDER BY nome")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE status = ?1 ORDER BY nome",
+        colunas_select()
+    ))?;
     let rows = stmt.query_map(rusqlite::params![status], driver_from_row)?;
     collect_drivers(rows)
 }
@@ -162,7 +279,10 @@ pub fn get_player_driver(conn: &Connection) -> Result<Driver, DbError> {
             "Piloto do jogador nao encontrado".to_string(),
         )),
         1 => {
-            let mut stmt = conn.prepare("SELECT * FROM drivers WHERE is_jogador = 1")?;
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM drivers WHERE is_jogador = 1",
+                colunas_select()
+            ))?;
             stmt.query_row([], driver_from_row)
                 .map_err(map_driver_query_error)
         }
@@ -173,16 +293,17 @@ pub fn get_player_driver(conn: &Connection) -> Result<Driver, DbError> {
 }
 
 pub fn get_free_drivers(conn: &Connection) -> Result<Vec<Driver>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM drivers WHERE categoria_atual IS NULL AND status = 'Ativo' ORDER BY nome",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers WHERE categoria_atual IS NULL AND status = 'Ativo' ORDER BY nome",
+        colunas_select()
+    ))?;
     let rows = stmt.query_map([], driver_from_row)?;
     collect_drivers(rows)
 }
 
 pub fn get_drivers_without_active_contract(conn: &Connection) -> Result<Vec<Driver>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT d.* FROM drivers d
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM drivers d
          WHERE d.status = 'Ativo'
            AND NOT EXISTS (
                SELECT 1 FROM contracts c
@@ -193,7 +314,8 @@ pub fn get_drivers_without_active_contract(conn: &Connection) -> Result<Vec<Driv
                WHERE c.piloto_id = d.id AND c.status = 'Ativo' AND c.tipo = 'Especial'
            )
          ORDER BY d.nome",
-    )?;
+        colunas_select_com_alias("d")
+    ))?;
     let rows = stmt.query_map([], driver_from_row)?;
     collect_drivers(rows)
 }
@@ -203,26 +325,7 @@ pub fn update_driver(conn: &Connection, driver: &Driver) -> Result<(), DbError> 
     let ultimos = serialize_json_field(&driver.ultimos_resultados, "ultimos_resultados")?;
 
     conn.execute(
-        "UPDATE drivers SET
-            nome = :nome, is_jogador = :is_jogador, idade = :idade,
-            nacionalidade = :nacionalidade, genero = :genero, categoria_atual = :categoria_atual,
-            categoria_especial_ativa = :categoria_especial_ativa, status = :status,
-            personalidade_primaria = :personalidade_primaria, personalidade_secundaria = :personalidade_secundaria,
-            ano_inicio_carreira = :ano_inicio_carreira, skill = :skill, consistencia = :consistencia,
-            racecraft = :racecraft, defesa = :defesa, ritmo_classificacao = :ritmo_classificacao,
-            gestao_pneus = :gestao_pneus, habilidade_largada = :habilidade_largada, adaptabilidade = :adaptabilidade,
-            fator_chuva = :fator_chuva, fitness = :fitness, experiencia = :experiencia, desenvolvimento = :desenvolvimento,
-            aggression = :aggression, smoothness = :smoothness, midia = :midia, carisma = :carisma, mentalidade = :mentalidade,
-            confianca = :confianca, potencial = :potencial, temp_pontos = :temp_pontos, temp_vitorias = :temp_vitorias,
-            temp_podios = :temp_podios, temp_poles = :temp_poles, temp_corridas = :temp_corridas,
-            temp_dnfs = :temp_dnfs, temp_posicao_media = :temp_posicao_media,
-            carreira_pontos_total = :carreira_pontos_total, carreira_vitorias = :carreira_vitorias,
-            carreira_podios = :carreira_podios, carreira_poles = :carreira_poles, carreira_corridas = :carreira_corridas,
-            carreira_temporadas = :carreira_temporadas, carreira_titulos = :carreira_titulos, carreira_dnfs = :carreira_dnfs,
-            motivacao = :motivacao, forma = :forma, historico_circuitos = :historico_circuitos, ultimos_resultados = :ultimos_resultados,
-            melhor_resultado_temp = :melhor_resultado_temp, temporadas_na_categoria = :temporadas_na_categoria,
-            corridas_na_categoria = :corridas_na_categoria, temporadas_motivacao_baixa = :temporadas_motivacao_baixa
-        WHERE id = :id",
+        sql_update_driver(),
         rusqlite::named_params! {
             ":id": &driver.id, ":nome": &driver.nome, ":is_jogador": driver.is_jogador as i64,
             ":idade": driver.idade as i64, ":nacionalidade": &driver.nacionalidade, ":genero": &driver.genero,
@@ -860,6 +963,95 @@ mod tests {
         assert!(err.to_string().contains("exatamente 1 piloto do jogador"));
     }
 
+    /// Prova a afirmação que vivia como `TODO(migration)` em `models/driver.rs`: todo campo
+    /// de `DriverAttributes` tem coluna no schema e sobrevive à ida e volta pelo banco.
+    ///
+    /// Roda contra o schema REAL (`migrations::run_all`), não contra o DDL de bancada do
+    /// `setup_test_db` — o DDL de bancada é uma cópia à mão e pode divergir da baseline sem
+    /// que ninguém perceba, que é justamente o buraco que este teste fecha.
+    ///
+    /// Cada atributo recebe um valor DISTINTO. Com todos iguais, uma troca de duas colunas
+    /// na `INSERT` ou na `driver_from_row` passaria despercebida.
+    #[test]
+    fn todo_atributo_do_piloto_tem_coluna_e_volta_igual_do_banco() {
+        let conn = Connection::open_in_memory().expect("banco em memória");
+        crate::db::migrations::run_all(&conn).expect("schema real");
+
+        let mut driver = sample_driver("P_ATRIBUTOS");
+        let esperado = DriverAttributes {
+            skill: 1.5,
+            consistencia: 2.5,
+            racecraft: 3.5,
+            defesa: 4.5,
+            ritmo_classificacao: 5.5,
+            gestao_pneus: 6.5,
+            habilidade_largada: 7.5,
+            adaptabilidade: 8.5,
+            fator_chuva: 9.5,
+            fitness: 10.5,
+            experiencia: 11.5,
+            desenvolvimento: 12.5,
+            aggression: 13.5,
+            smoothness: 14.5,
+            midia: 15.5,
+            carisma: 16.5,
+            mentalidade: 17.5,
+            confianca: 18.5,
+            potencial: 19.5,
+        };
+        driver.atributos = esperado.clone();
+
+        insert_driver(&conn, &driver).expect("gravar piloto");
+        let lido = get_driver(&conn, &driver.id).expect("ler piloto");
+
+        assert_eq!(lido.atributos.skill, esperado.skill, "skill");
+        assert_eq!(
+            lido.atributos.consistencia, esperado.consistencia,
+            "consistencia"
+        );
+        assert_eq!(lido.atributos.racecraft, esperado.racecraft, "racecraft");
+        assert_eq!(lido.atributos.defesa, esperado.defesa, "defesa");
+        assert_eq!(
+            lido.atributos.ritmo_classificacao, esperado.ritmo_classificacao,
+            "ritmo_classificacao"
+        );
+        assert_eq!(
+            lido.atributos.gestao_pneus, esperado.gestao_pneus,
+            "gestao_pneus"
+        );
+        assert_eq!(
+            lido.atributos.habilidade_largada, esperado.habilidade_largada,
+            "habilidade_largada"
+        );
+        assert_eq!(
+            lido.atributos.adaptabilidade, esperado.adaptabilidade,
+            "adaptabilidade"
+        );
+        assert_eq!(
+            lido.atributos.fator_chuva, esperado.fator_chuva,
+            "fator_chuva"
+        );
+        assert_eq!(lido.atributos.fitness, esperado.fitness, "fitness");
+        assert_eq!(
+            lido.atributos.experiencia, esperado.experiencia,
+            "experiencia"
+        );
+        assert_eq!(
+            lido.atributos.desenvolvimento, esperado.desenvolvimento,
+            "desenvolvimento"
+        );
+        assert_eq!(lido.atributos.aggression, esperado.aggression, "aggression");
+        assert_eq!(lido.atributos.smoothness, esperado.smoothness, "smoothness");
+        assert_eq!(lido.atributos.midia, esperado.midia, "midia");
+        assert_eq!(lido.atributos.carisma, esperado.carisma, "carisma");
+        assert_eq!(
+            lido.atributos.mentalidade, esperado.mentalidade,
+            "mentalidade"
+        );
+        assert_eq!(lido.atributos.confianca, esperado.confianca, "confianca");
+        assert_eq!(lido.atributos.potencial, esperado.potencial, "potencial");
+    }
+
     fn sample_driver(id: &str) -> Driver {
         let mut driver = Driver::new(
             id.to_string(),
@@ -873,66 +1065,179 @@ mod tests {
         driver
     }
 
+    /// Banco de teste com o schema REAL das migrações.
+    ///
+    /// Aqui existia uma quinta cópia à mão das 54 colunas — um `CREATE TABLE drivers`
+    /// de bancada. Ela podia divergir da baseline sem que nada acusasse, e um teste que
+    /// roda contra um schema que não é o do jogo prova menos do que aparenta.
     fn setup_test_db() -> Result<Connection, DbError> {
         let conn = Connection::open_in_memory()?;
-        conn.execute_batch(
-            "CREATE TABLE drivers (
-                id TEXT PRIMARY KEY,
-                nome TEXT NOT NULL,
-                is_jogador INTEGER NOT NULL DEFAULT 0,
-                idade INTEGER NOT NULL,
-                nacionalidade TEXT NOT NULL,
-                genero TEXT NOT NULL,
-                categoria_atual TEXT,
-                categoria_especial_ativa TEXT,
-                status TEXT NOT NULL DEFAULT 'Ativo',
-                personalidade_primaria TEXT,
-                personalidade_secundaria TEXT,
-                ano_inicio_carreira INTEGER NOT NULL,
-                skill REAL NOT NULL DEFAULT 50.0,
-                consistencia REAL NOT NULL DEFAULT 50.0,
-                racecraft REAL NOT NULL DEFAULT 50.0,
-                defesa REAL NOT NULL DEFAULT 50.0,
-                ritmo_classificacao REAL NOT NULL DEFAULT 50.0,
-                gestao_pneus REAL NOT NULL DEFAULT 50.0,
-                habilidade_largada REAL NOT NULL DEFAULT 50.0,
-                adaptabilidade REAL NOT NULL DEFAULT 50.0,
-                fator_chuva REAL NOT NULL DEFAULT 50.0,
-                fitness REAL NOT NULL DEFAULT 50.0,
-                experiencia REAL NOT NULL DEFAULT 50.0,
-                desenvolvimento REAL NOT NULL DEFAULT 50.0,
-                aggression REAL NOT NULL DEFAULT 50.0,
-                smoothness REAL NOT NULL DEFAULT 50.0,
-                midia REAL NOT NULL DEFAULT 50.0,
-                carisma REAL NOT NULL DEFAULT 50.0,
-                mentalidade REAL NOT NULL DEFAULT 50.0,
-                confianca REAL NOT NULL DEFAULT 50.0,
-                potencial REAL NOT NULL DEFAULT 0.0,
-                temp_pontos REAL NOT NULL DEFAULT 0.0,
-                temp_vitorias INTEGER NOT NULL DEFAULT 0,
-                temp_podios INTEGER NOT NULL DEFAULT 0,
-                temp_poles INTEGER NOT NULL DEFAULT 0,
-                temp_corridas INTEGER NOT NULL DEFAULT 0,
-                temp_dnfs INTEGER NOT NULL DEFAULT 0,
-                temp_posicao_media REAL NOT NULL DEFAULT 0.0,
-                carreira_pontos_total REAL NOT NULL DEFAULT 0.0,
-                carreira_vitorias INTEGER NOT NULL DEFAULT 0,
-                carreira_podios INTEGER NOT NULL DEFAULT 0,
-                carreira_poles INTEGER NOT NULL DEFAULT 0,
-                carreira_corridas INTEGER NOT NULL DEFAULT 0,
-                carreira_temporadas INTEGER NOT NULL DEFAULT 0,
-                carreira_titulos INTEGER NOT NULL DEFAULT 0,
-                carreira_dnfs INTEGER NOT NULL DEFAULT 0,
-                motivacao REAL NOT NULL DEFAULT 70.0,
-                forma REAL NOT NULL DEFAULT 0.0,
-                historico_circuitos TEXT NOT NULL DEFAULT '{}',
-                ultimos_resultados TEXT NOT NULL DEFAULT '[]',
-                melhor_resultado_temp INTEGER,
-                temporadas_na_categoria INTEGER NOT NULL DEFAULT 0,
-                corridas_na_categoria INTEGER NOT NULL DEFAULT 0,
-                temporadas_motivacao_baixa INTEGER NOT NULL DEFAULT 0
-            );",
-        )?;
+        crate::db::migrations::run_all(&conn)?;
         Ok(conn)
+    }
+
+    /// O guard que fecha o A6.4: a lista central e a tabela real não podem divergir.
+    ///
+    /// Compara nos DOIS sentidos, porque as duas falhas são diferentes e as duas doem:
+    /// coluna no schema e fora da lista nunca é lida nem gravada (campo que some em
+    /// silêncio); coluna na lista e fora do schema derruba toda consulta de piloto no
+    /// primeiro `prepare`.
+    #[test]
+    fn a_lista_de_colunas_bate_com_o_schema_real() {
+        let conn = setup_test_db().expect("schema real");
+
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info('drivers')")
+            .expect("table_info");
+        let no_schema: std::collections::BTreeSet<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("nomes");
+
+        let na_lista: std::collections::BTreeSet<String> =
+            COLUNAS_DRIVER.iter().map(|c| c.to_string()).collect();
+
+        let so_no_schema: Vec<&String> = no_schema.difference(&na_lista).collect();
+        let so_na_lista: Vec<&String> = na_lista.difference(&no_schema).collect();
+        assert!(
+            so_no_schema.is_empty(),
+            "colunas no schema e fora de COLUNAS_DRIVER (não são gravadas nem lidas): {so_no_schema:?}"
+        );
+        assert!(
+            so_na_lista.is_empty(),
+            "colunas em COLUNAS_DRIVER e fora do schema (derrubam todo SELECT de piloto): {so_na_lista:?}"
+        );
+        assert_eq!(
+            COLUNAS_DRIVER.len(),
+            na_lista.len(),
+            "COLUNAS_DRIVER tem nome repetido"
+        );
+    }
+
+    /// A ida e volta do piloto INTEIRO, campo a campo, com valor distinto em cada um.
+    ///
+    /// O teste dos atributos ao lado cobre os 19 do bloco `DriverAttributes`. Este cobre o
+    /// resto — identidade, estado de carreira, estatísticas de temporada e de carreira —
+    /// que é justamente onde a `INSERT` gerada, o `named_params!` à mão e o
+    /// `driver_from_row` precisam concordar. Valores distintos porque, com todos iguais,
+    /// uma troca de duas colunas passaria batida.
+    #[test]
+    fn o_piloto_inteiro_sobrevive_a_ida_e_volta_pelo_banco() {
+        let conn = setup_test_db().expect("schema real");
+
+        let mut driver = sample_driver("P_INTEIRO");
+        driver.nome = "Piloto Completo".to_string();
+        driver.is_jogador = true;
+        driver.idade = 31;
+        driver.nacionalidade = "pt".to_string();
+        driver.genero = "F".to_string();
+        driver.categoria_atual = Some("gt3".to_string());
+        driver.categoria_especial_ativa = Some("endurance".to_string());
+        driver.status = DriverStatus::Ativo;
+        driver.personalidade_primaria = Some(PrimaryPersonality::Mercenario);
+        driver.personalidade_secundaria = Some(SecondaryPersonality::CabecaQuente);
+        driver.ano_inicio_carreira = 2019;
+        driver.stats_temporada = DriverSeasonStats {
+            pontos: 101.0,
+            vitorias: 2,
+            podios: 3,
+            poles: 4,
+            corridas: 5,
+            dnfs: 6,
+            posicao_media: 7.5,
+        };
+        driver.stats_carreira = DriverCareerStats {
+            pontos_total: 202.0,
+            vitorias: 8,
+            podios: 9,
+            poles: 10,
+            corridas: 11,
+            temporadas: 12,
+            titulos: 13,
+            dnfs: 14,
+        };
+        driver.motivacao = 63.5;
+        driver.forma = -1.25;
+        driver.historico_circuitos = serde_json::json!({ "interlagos": 3 });
+        driver.ultimos_resultados = serde_json::json!([1, 4, 9]);
+        driver.melhor_resultado_temp = Some(2);
+        driver.temporadas_na_categoria = 15;
+        driver.corridas_na_categoria = 16;
+        driver.temporadas_motivacao_baixa = 17;
+
+        insert_driver(&conn, &driver).expect("gravar");
+        let lido = get_driver(&conn, &driver.id).expect("ler");
+
+        assert_eq!(lido.nome, driver.nome);
+        assert_eq!(lido.is_jogador, driver.is_jogador);
+        assert_eq!(lido.idade, driver.idade);
+        assert_eq!(lido.nacionalidade, driver.nacionalidade);
+        assert_eq!(lido.genero, driver.genero);
+        assert_eq!(lido.categoria_atual, driver.categoria_atual);
+        assert_eq!(
+            lido.categoria_especial_ativa,
+            driver.categoria_especial_ativa
+        );
+        assert_eq!(lido.status.as_str(), driver.status.as_str());
+        assert_eq!(
+            lido.personalidade_primaria.as_ref().map(|p| p.as_str()),
+            driver.personalidade_primaria.as_ref().map(|p| p.as_str())
+        );
+        assert_eq!(
+            lido.personalidade_secundaria.as_ref().map(|p| p.as_str()),
+            driver.personalidade_secundaria.as_ref().map(|p| p.as_str())
+        );
+        assert_eq!(lido.ano_inicio_carreira, driver.ano_inicio_carreira);
+        assert_eq!(lido.stats_temporada.pontos, 101.0);
+        assert_eq!(lido.stats_temporada.vitorias, 2);
+        assert_eq!(lido.stats_temporada.podios, 3);
+        assert_eq!(lido.stats_temporada.poles, 4);
+        assert_eq!(lido.stats_temporada.corridas, 5);
+        assert_eq!(lido.stats_temporada.dnfs, 6);
+        assert_eq!(lido.stats_temporada.posicao_media, 7.5);
+        assert_eq!(lido.stats_carreira.pontos_total, 202.0);
+        assert_eq!(lido.stats_carreira.vitorias, 8);
+        assert_eq!(lido.stats_carreira.podios, 9);
+        assert_eq!(lido.stats_carreira.poles, 10);
+        assert_eq!(lido.stats_carreira.corridas, 11);
+        assert_eq!(lido.stats_carreira.temporadas, 12);
+        assert_eq!(lido.stats_carreira.titulos, 13);
+        assert_eq!(lido.stats_carreira.dnfs, 14);
+        assert_eq!(lido.motivacao, 63.5);
+        assert_eq!(lido.forma, -1.25);
+        assert_eq!(lido.historico_circuitos, driver.historico_circuitos);
+        assert_eq!(lido.ultimos_resultados, driver.ultimos_resultados);
+        assert_eq!(lido.melhor_resultado_temp, Some(2));
+        assert_eq!(lido.temporadas_na_categoria, 15);
+        assert_eq!(lido.corridas_na_categoria, 16);
+        assert_eq!(lido.temporadas_motivacao_baixa, 17);
+    }
+
+    /// A `UPDATE` gerada escreve TODAS as colunas mutáveis, não só as que alguém lembrou.
+    #[test]
+    fn o_update_de_piloto_inteiro_reescreve_todos_os_campos() {
+        let conn = setup_test_db().expect("schema real");
+        let driver = sample_driver("P_UPDATE");
+        insert_driver(&conn, &driver).expect("gravar");
+
+        let mut alterado = driver.clone();
+        alterado.nome = "Outro Nome".to_string();
+        alterado.idade = 44;
+        alterado.motivacao = 12.5;
+        alterado.forma = 0.75;
+        alterado.atributos.skill = 88.5;
+        alterado.stats_carreira.titulos = 3;
+        alterado.temporadas_motivacao_baixa = 9;
+        update_driver(&conn, &alterado).expect("atualizar");
+
+        let lido = get_driver(&conn, &driver.id).expect("ler");
+        assert_eq!(lido.nome, "Outro Nome");
+        assert_eq!(lido.idade, 44);
+        assert_eq!(lido.motivacao, 12.5);
+        assert_eq!(lido.forma, 0.75);
+        assert_eq!(lido.atributos.skill, 88.5);
+        assert_eq!(lido.stats_carreira.titulos, 3);
+        assert_eq!(lido.temporadas_motivacao_baixa, 9);
     }
 }

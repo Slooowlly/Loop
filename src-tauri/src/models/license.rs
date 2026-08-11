@@ -1,10 +1,17 @@
+//! A REGRA da escada de licenças: qual nível cada divisão exige e qual ela concede.
+//!
+//! O SQL que este arquivo continha mudou-se para [`crate::db::queries::licenses`] — model
+//! declara, `db/queries` grava, que é o padrão do resto do projeto. O que sobrou aqui são
+//! as decisões (`endurance/lmp2` exige 5) e as funções de fachada que combinam regra e
+//! persistência para os call sites do mercado.
+
 use rusqlite::Connection;
 
-use crate::common::time::current_timestamp;
 use crate::constants::categories::{
     competitive_division_key, competitive_division_label, get_category_config,
     is_valid_competitive_division,
 };
+use crate::db::queries::licenses;
 
 /// Licença mínima exigida pela divisão competitiva composta `categoria + classe`.
 ///
@@ -108,19 +115,11 @@ pub fn grant_driver_license_for_division_if_needed(
         return Ok(());
     }
 
-    conn.execute(
-        "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
-         SELECT ?1, ?2, ?3, ?4, 0
-         WHERE NOT EXISTS (
-             SELECT 1 FROM licenses WHERE piloto_id = ?1 AND CAST(nivel AS INTEGER) >= ?5
-         )",
-        rusqlite::params![
-            driver_id,
-            required_level.to_string(),
-            competitive_division_key(category_id, class),
-            current_timestamp(),
-            required_level as i64,
-        ],
+    licenses::concede_nivel_se_faltar(
+        conn,
+        driver_id,
+        required_level,
+        &competitive_division_key(category_id, class),
     )
     .map_err(|e| format!("Falha ao conceder licenca emergencial para '{driver_id}': {e}"))?;
     Ok(())
@@ -139,14 +138,8 @@ pub fn driver_has_required_license_level(
     driver_id: &str,
     required_level: u8,
 ) -> Result<bool, String> {
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM licenses WHERE piloto_id = ?1 AND CAST(nivel AS INTEGER) >= ?2",
-            rusqlite::params![driver_id, required_level as i64],
-            |row| row.get(0),
-        )
-        .map_err(|e| format!("Falha ao verificar licenca do piloto '{driver_id}': {e}"))?;
-    Ok(count > 0)
+    licenses::tem_nivel_minimo(conn, driver_id, required_level)
+        .map_err(|e| format!("Falha ao verificar licenca do piloto '{driver_id}': {e}"))
 }
 
 pub fn driver_has_required_license_for_category(
@@ -196,57 +189,21 @@ pub fn grant_driver_license_for_category_if_needed(
         return Ok(());
     }
 
-    conn.execute(
-        "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
-         SELECT ?1, ?2, ?3, ?4, 0
-         WHERE NOT EXISTS (
-             SELECT 1 FROM licenses WHERE piloto_id = ?1 AND CAST(nivel AS INTEGER) >= ?5
-         )",
-        rusqlite::params![
-            driver_id,
-            required_level.to_string(),
-            category_id,
-            current_timestamp(),
-            required_level as i64,
-        ],
-    )
-    .map_err(|e| format!("Falha ao conceder licenca emergencial para '{driver_id}': {e}"))?;
+    licenses::concede_nivel_se_faltar(conn, driver_id, required_level, category_id)
+        .map_err(|e| format!("Falha ao conceder licenca emergencial para '{driver_id}': {e}"))?;
     Ok(())
 }
 
+/// Reparo de licenças de saves legados.
+///
+/// A implementação mudou-se inteira para [`crate::db::queries::licenses`]: era um laço que
+/// lia pilotos e escrevia licenças, do começo ao fim, dentro da camada de modelo. Esta
+/// função continua existindo como fachada porque os quatro call sites vivem em `market/`,
+/// que não é escopo desta frente — na integração eles apontam direto para
+/// `db::queries::licenses::repara_licencas_das_categorias_atuais` e este wrapper sai.
 pub fn repair_missing_licenses_for_current_categories(conn: &Connection) -> Result<usize, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, categoria_atual
-             FROM drivers
-             WHERE status = 'Ativo' AND categoria_atual IS NOT NULL",
-        )
-        .map_err(|e| format!("Falha ao preparar reparo de licencas legadas: {e}"))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| format!("Falha ao ler pilotos para reparo de licencas: {e}"))?;
-
-    let mut categorized_drivers = Vec::new();
-    for row in rows {
-        categorized_drivers
-            .push(row.map_err(|e| format!("Falha ao mapear piloto para reparo de licencas: {e}"))?);
-    }
-
-    let mut repaired = 0;
-    for (driver_id, category_id) in categorized_drivers {
-        let Some(required_level) = required_license_for_category(&category_id) else {
-            continue;
-        };
-        if driver_has_required_license_level(conn, &driver_id, required_level)? {
-            continue;
-        }
-        grant_driver_license_for_category_if_needed(conn, &driver_id, &category_id)?;
-        repaired += 1;
-    }
-
-    Ok(repaired)
+    licenses::repara_licencas_das_categorias_atuais(conn)
+        .map_err(|e| format!("Falha ao reparar licencas legadas: {e}"))
 }
 
 #[cfg(test)]

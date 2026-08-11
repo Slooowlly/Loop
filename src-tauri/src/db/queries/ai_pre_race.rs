@@ -1,28 +1,35 @@
 //! Cache da PRÉVIA pré-corrida gerada por IA (narrativa + voz da equipe, curtas),
 //! mostrada na Sala de Estratégia. Chave = `race_id` (uma prévia por etapa). Assim
-//! reentrar na tela não regenera (sem custo e sem esbarrar no cooldown). A tabela
-//! é criada de forma idempotente — não depende do sistema de migrações.
+//! reentrar na tela não regenera (sem custo e sem esbarrar no cooldown). A tabela nasceu
+//! fora das migrações e entrou nelas na v62; o `ensure_table` reaplica o MESMO DDL, de
+//! forma idempotente, para conexões de teste in-memory que não migram.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
-fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS ai_pre_race_briefing (
-            race_id    TEXT PRIMARY KEY,
-            headline   TEXT NOT NULL DEFAULT '',
-            narrative  TEXT NOT NULL,
-            team_voice TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT ''
-        );",
-    )?;
-    // Migração: tabelas criadas antes da manchete cinematográfica não têm a coluna
-    // `headline`. ALTER falha se já existe — ignoramos o erro nesse caso.
-    let _ = conn.execute(
-        "ALTER TABLE ai_pre_race_briefing ADD COLUMN headline TEXT NOT NULL DEFAULT ''",
-        [],
+/// DDL da tabela, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_AI_PRE_RACE_BRIEFING: &str = "
+    CREATE TABLE IF NOT EXISTS ai_pre_race_briefing (
+        race_id    TEXT PRIMARY KEY,
+        headline   TEXT NOT NULL DEFAULT '',
+        narrative  TEXT NOT NULL,
+        team_voice TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT ''
     );
+";
+
+fn ensure_table(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(DDL_AI_PRE_RACE_BRIEFING)?;
+    // Tabelas criadas antes da manchete cinematográfica não têm a coluna `headline`.
+    // Guardado por PRAGMA em vez de ALTER com erro engolido: erro engolido esconde
+    // também a falha de disco.
+    crate::db::migrations::add_column_if_missing(
+        conn,
+        "ai_pre_race_briefing",
+        "headline",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     Ok(())
 }
 

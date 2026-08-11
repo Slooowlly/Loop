@@ -8,11 +8,12 @@ pub fn get_calendar(
     season_id: &str,
     categoria: &str,
 ) -> Result<Vec<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1 AND categoria = ?2
          ORDER BY rodada ASC",
-    )?;
+        colunas_select_calendar()
+    ))?;
     let mapped = stmt.query_map(params![season_id, categoria], calendar_from_row)?;
     collect_entries(mapped)
 }
@@ -22,14 +23,20 @@ pub fn get_next_race(
     season_id: &str,
     categoria: &str,
 ) -> Result<Option<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    // A ordenação é pela régua da temporada, que mora em `models::temporal`. A aritmética
+    // solta que vivia aqui jogava as semanas de dezembro (woy 49–52) para 53–56, ou seja,
+    // para o FIM da lista, quando elas são o começo da temporada.
+    let sql = format!(
+        "SELECT {colunas} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND categoria = ?2
            AND status = 'Pendente'
-         ORDER BY COALESCE(season_week, week_of_year + 4) ASC, data ASC, rodada ASC
+         ORDER BY {regua} ASC, data ASC, rodada ASC
          LIMIT 1",
-    )?;
+        colunas = colunas_select_calendar(),
+        regua = crate::models::temporal::SQL_SEASON_WEEK_DERIVADA
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let entry = stmt
         .query_row(params![season_id, categoria], calendar_from_row)
         .optional()?;
@@ -40,7 +47,10 @@ pub fn get_calendar_entry_by_id(
     conn: &Connection,
     id: &str,
 ) -> Result<Option<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM calendar WHERE id = ?1")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar WHERE id = ?1",
+        colunas_select_calendar()
+    ))?;
     let entry = stmt.query_row(params![id], calendar_from_row).optional()?;
     Ok(entry)
 }
@@ -49,12 +59,13 @@ pub fn get_pending_races(
     conn: &Connection,
     season_id: &str,
 ) -> Result<Vec<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND status = 'Pendente'
          ORDER BY categoria ASC, rodada ASC",
-    )?;
+        colunas_select_calendar()
+    ))?;
     let mapped = stmt.query_map(params![season_id], calendar_from_row)?;
     collect_entries(mapped)
 }
@@ -64,13 +75,14 @@ pub fn get_pending_races_for_category(
     season_id: &str,
     category_id: &str,
 ) -> Result<Vec<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND categoria = ?2
            AND status = 'Pendente'
          ORDER BY rodada ASC",
-    )?;
+        colunas_select_calendar()
+    ))?;
     let mapped = stmt.query_map(params![season_id, category_id], calendar_from_row)?;
     collect_entries(mapped)
 }
@@ -83,15 +95,16 @@ pub fn get_pending_races_up_to_week(
     category_id: &str,
     target_week: i32,
 ) -> Result<Vec<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND categoria = ?2
            AND status = 'Pendente'
            AND week_of_year > 0
            AND COALESCE(season_week, week_of_year + 4) <= ?3
          ORDER BY COALESCE(season_week, week_of_year + 4) ASC, rodada ASC",
-    )?;
+        colunas_select_calendar()
+    ))?;
     let mapped = stmt.query_map(
         params![season_id, category_id, target_week],
         calendar_from_row,
@@ -155,14 +168,15 @@ pub fn get_next_any_race_in_phase(
     season_id: &str,
     phase: &SeasonPhase,
 ) -> Result<Option<CalendarEntry>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM calendar
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM calendar
          WHERE COALESCE(season_id, temporada_id) = ?1
            AND season_phase = ?2
            AND status = 'Pendente'
          ORDER BY COALESCE(season_week, week_of_year + 4) ASC, data ASC
          LIMIT 1",
-    )?;
+        colunas_select_calendar()
+    ))?;
     let entry = stmt
         .query_row(params![season_id, phase.as_str()], calendar_from_row)
         .optional()?;

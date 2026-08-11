@@ -16,8 +16,9 @@ const SCHEDULE_HOURS: [&str; 5] = ["10:00", "12:00", "14:00", "16:00", "18:00"];
 /// pro iRacing vem de `weather::night_start_hour`, atrelada à estação).
 const NIGHT_SCHEDULE_HOUR: &str = "21:00";
 
-/// Pista com iluminação (Charlotte Roval) — preferida para a corrida noturna.
-const LIT_TRACK_ID: u32 = 556;
+/// Pista com iluminação (Charlotte Roval) - preferida para a corrida noturna.
+/// O id vem do catálogo (`constants/tracks/dados.rs`).
+use crate::constants::tracks::LIT_TRACK_ID;
 
 /// Uma etapa é noturna quando começa às 20h ou depois (distingue do 18h diurno).
 pub fn is_night_horario(horario: &str) -> bool {
@@ -64,6 +65,19 @@ pub(crate) fn ensure_night_race<R: Rng>(entries: &mut [CalendarEntry], tier: u8,
     entries[chosen].horario = NIGHT_SCHEDULE_HOUR.to_string();
 }
 
+/// Nome da etapa — o que vai GRAVADO na coluna `nome` da tabela `calendar`.
+///
+/// Sai do `rust-i18n` e não de um `format!("Rodada {}")` cru: um jogador em en-US
+/// criava a temporada e o banco guardava "Rodada 3" para sempre. Prosa persistida nasce
+/// no locale ATIVO da geração, que é a convenção do resto do motor (o motivo de
+/// abandono faz igual — ver a nota das listas de palavra-chave em `race_signals`).
+///
+/// O espelho desta função vive em `db::queries::calendar::mapeamento`, como fallback
+/// para linha legada sem `nome`; se mudar o formato aqui, mude lá também.
+pub(crate) fn nome_da_etapa(rodada: i32, nome_curto: &str) -> String {
+    rust_i18n::t!("calendar.round_name", round = rodada, track = nome_curto).to_string()
+}
+
 pub(crate) fn build_calendar_entry<R: Rng>(
     id: String,
     season_id: &str,
@@ -89,7 +103,7 @@ pub(crate) fn build_calendar_entry<R: Rng>(
         season_id: season_id.to_string(),
         categoria: categoria.to_string(),
         rodada,
-        nome: format!("Rodada {} - {}", rodada, track.nome_curto),
+        nome: nome_da_etapa(rodada, track.nome_curto),
         track_id: track.track_id,
         track_name,
         track_config,
@@ -120,14 +134,17 @@ pub(crate) fn random_weather(rain_track_id: u32, rng: &mut impl Rng) -> WeatherC
         return WeatherCondition::Dry;
     }
 
-    let intensity = rng.gen::<f64>();
-    if intensity < 0.40 {
-        WeatherCondition::Damp
-    } else if intensity < 0.80 {
-        WeatherCondition::Wet
-    } else {
-        WeatherCondition::HeavyRain
+    // A distribuição é a oficial de `constants::scoring` — os cortes viviam copiados
+    // aqui e recalibrar num lugar deixava o outro para trás. Um único sorteio, os
+    // mesmos limites de antes.
+    let mut intensity = rng.gen::<f64>();
+    for (condition, weight) in crate::constants::scoring::RAIN_INTENSITY_DISTRIBUTION {
+        if intensity < weight {
+            return condition;
+        }
+        intensity -= weight;
     }
+    WeatherCondition::HeavyRain
 }
 
 /// Placeholder de temperatura na criação do calendário — a temperatura DEFINITIVA

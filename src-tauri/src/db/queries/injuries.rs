@@ -151,10 +151,12 @@ pub fn get_active_injuries_without_category(conn: &Connection) -> Result<Vec<Inj
     Ok(injuries)
 }
 
+/// Gravidade da lesão ATIVA por piloto, já tipada. Devolve o enum e não a string da coluna:
+/// quem consome isto manda a gravidade para a UI, e lá ela precisa ser chave, não prosa.
 pub fn get_active_injury_types_by_pilot(
     conn: &Connection,
     pilot_ids: &[String],
-) -> Result<HashMap<String, String>, DbError> {
+) -> Result<HashMap<String, InjuryType>, DbError> {
     if pilot_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -169,8 +171,8 @@ pub fn get_active_injury_types_by_pilot(
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(pilot_ids.iter()), |row| {
-        let injury_type = row.get::<_, String>(1)?;
-        InjuryType::from_str_strict(&injury_type).map_err(rusqlite::Error::InvalidParameterName)?;
+        let injury_type = InjuryType::from_str_strict(&row.get::<_, String>(1)?)
+            .map_err(rusqlite::Error::InvalidParameterName)?;
         Ok((row.get::<_, String>(0)?, injury_type))
     })?;
 
@@ -362,71 +364,87 @@ fn count_legacy_inferred_injuries_by_severity_for_pilot(
         ""
     };
 
+    // O SQL só filtra o que é barato e indexado (`idx_race_results_piloto`, v60): os
+    // abandonos DESTE piloto. A classificação por severidade acontece em Rust, sobre a
+    // mesma tabela de radicais — antes eram dez `LIKE` repetidos em três blocos `CASE`,
+    // três cópias da mesma regra que só se conferiam lendo SQL lado a lado.
     let sql = format!(
-        "WITH legacy_candidates AS (
-            SELECT LOWER(COALESCE(r.dnf_reason, '')) AS reason
-            FROM race_results r
-            WHERE r.piloto_id = ?1
-              AND r.dnf = 1
-              AND (
-                LOWER(COALESCE(r.dnf_reason, '')) LIKE '%colis%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%contato%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%batid%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%rodou%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%barreira%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%impact%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%capot%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%suspens%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%acident%'
-                OR LOWER(COALESCE(r.dnf_reason, '')) LIKE '%escap%'
-              )
-              {explicit_injury_exclusion}
-         )
-         SELECT
-            COALESCE(SUM(CASE
-                WHEN reason NOT LIKE '%barreira%'
-                 AND reason NOT LIKE '%impact%'
-                 AND reason NOT LIKE '%capot%'
-                 AND reason NOT LIKE '%forte%'
-                 AND reason NOT LIKE '%colis%'
-                 AND reason NOT LIKE '%contato%'
-                 AND reason NOT LIKE '%batid%'
-                 AND reason NOT LIKE '%rodou%'
-                 AND reason NOT LIKE '%suspens%'
-                 AND reason NOT LIKE '%acident%'
-                THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE
-                WHEN reason NOT LIKE '%barreira%'
-                 AND reason NOT LIKE '%impact%'
-                 AND reason NOT LIKE '%capot%'
-                 AND reason NOT LIKE '%forte%'
-                 AND (
-                    reason LIKE '%colis%'
-                    OR reason LIKE '%contato%'
-                    OR reason LIKE '%batid%'
-                    OR reason LIKE '%rodou%'
-                    OR reason LIKE '%suspens%'
-                    OR reason LIKE '%acident%'
-                 )
-                THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE
-                WHEN reason LIKE '%barreira%'
-                  OR reason LIKE '%impact%'
-                  OR reason LIKE '%capot%'
-                  OR reason LIKE '%forte%'
-                THEN 1 ELSE 0 END), 0)
-         FROM legacy_candidates"
+        "SELECT LOWER(COALESCE(r.dnf_reason, '')) AS reason
+           FROM race_results r
+          WHERE r.piloto_id = ?1
+            AND r.dnf = 1
+            AND COALESCE(r.dnf_reason, '') <> ''
+            {explicit_injury_exclusion}"
     );
 
-    let counts = conn.query_row(&sql, params![pilot_id], |row| {
-        Ok(InjurySeverityCounts {
-            leves: row.get(0)?,
-            moderadas: row.get(1)?,
-            graves: row.get(2)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&sql)?;
+    let motivos = stmt
+        .query_map(params![pilot_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut counts = InjurySeverityCounts::default();
+    for motivo in &motivos {
+        match classificar_abandono_legado(motivo) {
+            Some(Severidade::Leve) => counts.leves += 1,
+            Some(Severidade::Moderada) => counts.moderadas += 1,
+            Some(Severidade::Grave) => counts.graves += 1,
+            None => {}
+        }
+    }
 
     Ok(counts)
+}
+
+/// Severidade inferida de um abandono legado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Severidade {
+    Leve,
+    Moderada,
+    Grave,
+}
+
+/// Só um abandono que casa um destes radicais entra na inferência. Um abandono mecânico
+/// ("motor fundiu") não vira lesão nenhuma. `forte` fica FORA desta lista de propósito: ele
+/// agrava um abandono que já é candidato, e sozinho não qualifica ("chuva forte" não é
+/// batida). Era assim no SQL original e é assim aqui.
+const RADICAIS_CANDIDATOS: [&str; 10] = [
+    "colis", "contato", "batid", "rodou", "barreira", "impact", "capot", "suspens", "acident",
+    "escap",
+];
+
+/// Radicais que marcam um abandono GRAVE (impacto duro contra algo).
+const RADICAIS_GRAVES: [&str; 4] = ["barreira", "impact", "capot", "forte"];
+
+/// Radicais que marcam contato entre carros ou perda de controle — abandono MODERADO,
+/// quando nenhum radical grave está presente.
+const RADICAIS_MODERADOS: [&str; 6] = ["colis", "contato", "batid", "rodou", "suspens", "acident"];
+
+/// Infere a severidade da lesão a partir da frase de abandono de um save legado.
+///
+/// Isto é ARQUEOLOGIA, não regra de jogo: existe porque saves anteriores à tabela
+/// `injuries` só guardaram a prosa do abandono, e o ranking mundial precisa de um
+/// histórico plausível para eles. Lesão de save novo vem da tabela, com severidade
+/// explícita, e nunca passa por aqui.
+///
+/// O texto casado é sempre PT: `dnf_reason` nasce de `car::breakdown::problem_text` (frases
+/// `&'static str` em português) ou da coluna `description` do `incident_catalog`, semeada
+/// pela baseline também em português. Nenhum dos dois passa por `rust_i18n`, então o idioma
+/// do jogador não muda o que está gravado — e um radical só casa se a frase gravada mudar.
+/// O teste `os_textos_reais_do_jogo_caem_nas_severidades_esperadas` é quem prende as duas
+/// pontas.
+fn classificar_abandono_legado(motivo_minusculo: &str) -> Option<Severidade> {
+    let contem = |radicais: &[&str]| radicais.iter().any(|r| motivo_minusculo.contains(r));
+
+    if !contem(&RADICAIS_CANDIDATOS) {
+        return None;
+    }
+    if contem(&RADICAIS_GRAVES) {
+        return Some(Severidade::Grave);
+    }
+    if contem(&RADICAIS_MODERADOS) {
+        return Some(Severidade::Moderada);
+    }
+    Some(Severidade::Leve)
 }
 
 fn stable_hash(value: &str) -> u64 {
@@ -860,5 +878,88 @@ mod tests {
         let counts = count_injuries_by_severity_for_pilot(&conn, "P001").unwrap();
 
         assert_eq!(counts, InjurySeverityCounts::default());
+    }
+
+    /// A inferência legada casa RADICAL contra a prosa gravada em `dnf_reason`. As frases
+    /// vêm de dois lugares reais do jogo, e este teste prende os dois: se a redação do
+    /// catálogo de incidentes ou de `car::breakdown::problem_text` mudar, a inferência para
+    /// de reconhecer o abandono e o histórico do ranking mundial esvazia em silêncio.
+    #[test]
+    fn os_textos_reais_do_jogo_caem_nas_severidades_esperadas() {
+        // Descrições do `incident_catalog` (semeado pela baseline, em PT) e frases de
+        // quebra de `car::breakdown::problem_text`.
+        let casos: [(&str, Option<Severidade>); 9] = [
+            ("erro fatal – bateu na barreira", Some(Severidade::Grave)),
+            ("p1 abandona após colisão", Some(Severidade::Moderada)),
+            ("p1 perde 3 posicoes em colisao", Some(Severidade::Moderada)),
+            (
+                "p1 rodou e não conseguiu religar o motor",
+                Some(Severidade::Moderada),
+            ),
+            ("p1 abandona após erro de pilotagem", None),
+            ("motor fundiu por superaquecimento", None),
+            ("câmbio quebrou", None),
+            ("perda total de freio", None),
+            // `forte` sozinho não qualifica: agrava um abandono que já é candidato.
+            ("chuva forte na reta", None),
+        ];
+
+        for (frase, esperado) in casos {
+            assert_eq!(
+                classificar_abandono_legado(frase),
+                esperado,
+                "classificação inesperada para '{frase}'"
+            );
+        }
+    }
+
+    /// O agravante `forte` sobe para grave um abandono que já é candidato.
+    #[test]
+    fn forte_agrava_um_candidato_em_vez_de_qualificar_sozinho() {
+        assert_eq!(
+            classificar_abandono_legado("contato forte na entrada da curva"),
+            Some(Severidade::Grave)
+        );
+        assert_eq!(
+            classificar_abandono_legado("contato leve na entrada da curva"),
+            Some(Severidade::Moderada)
+        );
+    }
+
+    /// Fronteira registrada: o radical `suspens` está entre os moderados, então uma quebra
+    /// de suspensão conta como lesão. É o comportamento que já existia; fica escrito aqui
+    /// para que a mudança, se vier, seja deliberada.
+    #[test]
+    fn quebra_de_suspensao_conta_como_moderada_por_causa_do_radical() {
+        assert_eq!(
+            classificar_abandono_legado("suspensão quebrou no zebra"),
+            Some(Severidade::Moderada)
+        );
+    }
+
+    /// A contagem legada continua lendo do banco e ignorando abandono mecânico.
+    #[test]
+    fn a_contagem_legada_le_do_banco_e_ignora_abandono_mecanico() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO race_results (race_id, piloto_id, equipe_id, posicao_largada,
+                                       posicao_final, pontos, dnf, dnf_reason)
+             VALUES ('C1', 'P001', 'T1', 5, 20, 0, 1, 'P001 abandona após colisão'),
+                    ('C2', 'P001', 'T1', 5, 20, 0, 1, 'Erro fatal – bateu na barreira'),
+                    ('C3', 'P001', 'T1', 5, 20, 0, 1, 'motor fundiu por superaquecimento'),
+                    ('C4', 'P001', 'T1', 5, 10, 1, 0, NULL);",
+        )
+        .unwrap();
+
+        let counts =
+            count_legacy_inferred_injuries_by_severity_for_pilot(&conn, "P001", true).unwrap();
+
+        assert_eq!(
+            counts.moderadas, 1,
+            "a colisão deveria contar como moderada"
+        );
+        assert_eq!(counts.graves, 1, "a barreira deveria contar como grave");
+        assert_eq!(counts.leves, 0, "nenhum abandono leve neste cenário");
     }
 }

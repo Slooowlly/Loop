@@ -41,6 +41,23 @@ pub fn season_week_to_calendar_year(season_week: u8, season_year: i32) -> Result
     }
 }
 
+/// A MESMA régua de `week_of_year_to_season_week`, escrita em SQL.
+///
+/// Existe porque o calendário guarda `season_week` NULL em linhas antigas e as consultas
+/// precisam derivar a semana da temporada dentro do próprio SELECT. A versão anterior
+/// embutia `COALESCE(season_week, week_of_year + 4)` direto na query: a aritmética só vale
+/// na faixa 1–47 e, para dezembro (woy 49–52), produzia 53–56, que nunca casa com a semana
+/// consultada — a linha simplesmente não era encontrada, sem erro nenhum.
+///
+/// A terra de ninguém da semana 48 vira `NULL` aqui, que é o equivalente SQL do `Err` do
+/// conversor: não casa com nada. O teste `a_regua_em_sql_bate_com_a_regua_em_rust` compara
+/// as duas implementações em toda a faixa 1–52 e é o que impede elas de se separarem.
+pub const SQL_SEASON_WEEK_DERIVADA: &str = "COALESCE(season_week, CASE
+        WHEN week_of_year BETWEEN 49 AND 52 THEN week_of_year - 48
+        WHEN week_of_year BETWEEN 1 AND 47 THEN week_of_year + 4
+        ELSE NULL
+    END)";
+
 /// Converte week_of_year (1–52, exceto 48) em season_week (1–51).
 ///
 /// O parâmetro `phase` existe para futura validação com dados legados — ele NÃO
@@ -151,6 +168,70 @@ mod temporal_tests {
         assert!(week_of_year_to_season_week(0, &SeasonPhase::Temporada).is_err());
         assert!(week_of_year_to_season_week(53, &SeasonPhase::Temporada).is_err());
         assert!(week_of_year_to_season_week(100, &SeasonPhase::Temporada).is_err());
+    }
+
+    // ── paridade entre a régua em Rust e a régua em SQL ───────────────────────
+
+    /// As consultas do calendário derivam `season_week` dentro do SELECT quando a coluna é
+    /// NULL (linha antiga). Essa derivação é uma SEGUNDA implementação da régua, e este
+    /// teste é o que impede as duas de divergirem: para toda week_of_year de 1 a 52, o
+    /// SQLite tem de devolver exatamente o que o conversor devolve, e NULL exatamente onde
+    /// o conversor devolve erro.
+    #[test]
+    fn a_regua_em_sql_bate_com_a_regua_em_rust() {
+        let conn = rusqlite::Connection::open_in_memory().expect("banco em memória");
+        conn.execute_batch(
+            "CREATE TABLE calendar (season_week INTEGER, week_of_year INTEGER);",
+        )
+        .expect("tabela");
+
+        let sql = format!("SELECT {SQL_SEASON_WEEK_DERIVADA} FROM calendar");
+
+        for woy in 1u8..=52 {
+            conn.execute("DELETE FROM calendar", []).expect("limpar");
+            conn.execute(
+                "INSERT INTO calendar (season_week, week_of_year) VALUES (NULL, ?1)",
+                rusqlite::params![woy as i64],
+            )
+            .expect("linha");
+
+            let derivada: Option<i64> = conn
+                .query_row(&sql, [], |row| row.get(0))
+                .expect("derivação em SQL");
+
+            match week_of_year_to_season_week(woy, &SeasonPhase::BlocoRegular) {
+                Ok(esperado) => assert_eq!(
+                    derivada,
+                    Some(esperado as i64),
+                    "a régua em SQL divergiu da régua em Rust na week_of_year {woy}"
+                ),
+                Err(_) => assert_eq!(
+                    derivada, None,
+                    "week_of_year {woy} é erro em Rust e precisa ser NULL em SQL"
+                ),
+            }
+        }
+    }
+
+    /// Quando a coluna `season_week` está preenchida, ela manda — a derivação é só o
+    /// fallback da linha antiga.
+    #[test]
+    fn a_coluna_preenchida_tem_precedencia_sobre_a_derivacao() {
+        let conn = rusqlite::Connection::open_in_memory().expect("banco em memória");
+        conn.execute_batch(
+            "CREATE TABLE calendar (season_week INTEGER, week_of_year INTEGER);
+             INSERT INTO calendar (season_week, week_of_year) VALUES (7, 40);",
+        )
+        .expect("tabela");
+
+        let derivada: Option<i64> = conn
+            .query_row(
+                &format!("SELECT {SQL_SEASON_WEEK_DERIVADA} FROM calendar"),
+                [],
+                |row| row.get(0),
+            )
+            .expect("derivação");
+        assert_eq!(derivada, Some(7));
     }
 
     // ── round-trip para todas as 51 semanas ───────────────────────────────────

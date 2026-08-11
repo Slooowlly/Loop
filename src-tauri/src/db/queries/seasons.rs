@@ -1,10 +1,33 @@
 #![allow(dead_code)]
 
+use std::sync::OnceLock;
+
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 use crate::models::enums::{SeasonPhase, SeasonStatus};
 use crate::models::season::Season;
+
+/// As colunas de `seasons` que o `season_from_row` lê, nomeadas uma vez só.
+///
+/// O `SELECT *` que estava aqui lia por nome, então remover ou renomear coluna não
+/// quebrava nada em tempo de compilação nem nos testes de schema: estourava em runtime,
+/// dentro do `row.get`, no save de quem estivesse jogando.
+const COLUNAS_SEASON: &[&str] = &[
+    "id",
+    "numero",
+    "ano",
+    "status",
+    "rodada_atual",
+    "fase",
+    "created_at",
+    "updated_at",
+];
+
+fn colunas_select() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| COLUNAS_SEASON.join(", "))
+}
 
 pub fn insert_season(conn: &Connection, season: &Season) -> Result<(), DbError> {
     conn.execute(
@@ -28,17 +51,21 @@ pub fn insert_season(conn: &Connection, season: &Season) -> Result<(), DbError> 
 }
 
 pub fn get_season_by_id(conn: &Connection, id: &str) -> Result<Option<Season>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM seasons WHERE id = ?1")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM seasons WHERE id = ?1",
+        colunas_select()
+    ))?;
     let season = stmt.query_row(params![id], season_from_row).optional()?;
     Ok(season)
 }
 
 pub fn get_active_season(conn: &Connection) -> Result<Option<Season>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT * FROM seasons
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM seasons
          WHERE status IN ('EmAndamento', 'Ativa')
          ORDER BY numero DESC",
-    )?;
+        colunas_select()
+    ))?;
     let mapped = stmt.query_map([], season_from_row)?;
     let mut seasons = Vec::new();
     for row in mapped {
@@ -86,7 +113,10 @@ pub fn finalize_season(conn: &Connection, id: &str) -> Result<(), DbError> {
 }
 
 pub fn get_all_seasons(conn: &Connection) -> Result<Vec<Season>, DbError> {
-    let mut stmt = conn.prepare("SELECT * FROM seasons ORDER BY numero ASC")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM seasons ORDER BY numero ASC",
+        colunas_select()
+    ))?;
     let mapped = stmt.query_map([], season_from_row)?;
     let mut seasons = Vec::new();
     for row in mapped {

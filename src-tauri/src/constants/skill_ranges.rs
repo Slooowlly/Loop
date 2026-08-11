@@ -1,16 +1,10 @@
-#![allow(dead_code)]
-
 use crate::constants::categories::get_category_config;
 
-// NOTA: driver.rs usa tier_base_range() com valores diferentes:
-//   tier 0: 20-48 (spec: 25-70)
-//   tier 1: 28-56 (spec: 35-70)
-//   tier 2: 38-65 (spec: 45-75)
-//   tier 3: 48-75 (spec: 55-80)
-//   tier 4: 58-85 (spec: 65-85)
-// driver.rs também usa Facil/Normal/Dificil/Elite em difficulty_bias()
-// Essas inconsistências serão resolvidas quando driver.rs for atualizado
-// para consumir as constantes deste módulo.
+// Fonte ÚNICA das faixas de skill por tier. A segunda fonte que existia em
+// driver.rs (`tier_base_range`, com valores próprios, e `difficulty_bias` com outra
+// escala de dificuldade) não existe mais: a geração de piloto
+// (`models/driver_generation.rs`), o crescimento (`evolution/growth.rs`) e a escada
+// do mercado (`market/pipeline/consolidacao.rs`) leem daqui.
 
 pub struct SkillRangeConfig {
     pub tier: u8,
@@ -64,6 +58,10 @@ pub fn get_skill_range_by_tier(tier: u8) -> Option<&'static SkillRangeConfig> {
     SKILL_RANGES.iter().find(|range| range.tier == tier)
 }
 
+/// Faixa pelo id da categoria. Hoje só os testes chamam — o código de produção
+/// resolve o tier antes e usa `get_skill_range_by_tier`. O allow é PONTUAL de
+/// propósito: no arquivo inteiro ele esconderia a próxima função a ficar órfã.
+#[allow(dead_code)]
 pub fn get_skill_range(category_id: &str) -> Option<&'static SkillRangeConfig> {
     let tier = get_category_config(category_id)?.tier.min(4);
     get_skill_range_by_tier(tier)

@@ -2,6 +2,16 @@
 
 use crate::models::team::Team;
 
+/// Faixa histórica que o draft simula e o ano em que o mundo fica JOGÁVEL.
+///
+/// `PLAYABLE_START_YEAR` é o único início de mundo do jogo: vale tanto para a carreira
+/// que nasce do draft histórico (que simula `HISTORY_START_YEAR..=HISTORY_END_YEAR`
+/// antes de entregar o volante) quanto para a carreira regular, que começa direto nele.
+/// Estavam divergentes por literal solto — o draft em 2026 e a carreira regular em 2024.
+pub const HISTORY_START_YEAR: i32 = 2000;
+pub const HISTORY_END_YEAR: i32 = 2025;
+pub const PLAYABLE_START_YEAR: i32 = 2026;
+
 pub fn category_start_year(category_id: &str) -> i32 {
     match category_id {
         "gt3" => 1999,
@@ -36,6 +46,20 @@ pub fn is_team_active_in_year(team: &Team, year: i32) -> bool {
     team.ativa && year >= team_start_year(team)
 }
 
+/// A DIVISÃO da equipe (categoria + classe) já corre neste ano — ignorando o ano de
+/// fundação da equipe.
+///
+/// Serve ao lado do MERCADO, que é outra pergunta que `is_team_active_in_year`. Quem
+/// vai ao grid é a equipe fundada; quem tem elenco a manter é toda equipe de um
+/// campeonato que está rodando. A geração histórica escala N1/N2 em TODAS as equipes
+/// do mundo, inclusive as que só entram no campeonato anos depois — se o mercado usar
+/// o ano de fundação para decidir o que manter, essas equipes viram um ralo de mão
+/// única: perdem piloto por fim de contrato e nunca repõem, e ficam anos com meio
+/// elenco até a fundação chegar.
+pub fn is_team_division_active_in_year(team: &Team, year: i32) -> bool {
+    team.ativa && year >= class_start_year(&team.categoria, team.classe.as_deref())
+}
+
 pub fn team_start_year(team: &Team) -> i32 {
     team.ano_fundacao
         .max(category_start_year(&team.categoria))
@@ -68,6 +92,24 @@ pub fn historical_team_foundation_year(
     base_year + (rank_ratio * f64::from(max_offset)).round() as i32
 }
 
+/// Piso e teto de `car_performance` de uma MARCA com hierarquia real, para o mundo
+/// histórico não nascer com a Acura acima da Ferrari.
+///
+/// **Só existe para gt3, e isso é limitação declarada, não pendência esquecida.** A
+/// razão é o próprio catálogo: gt3 é a ÚNICA categoria cujos templates são marcas reais
+/// (Ferrari, Porsche, Mercedes-AMG, BMW, Audi...). gt4, lmp2 e endurance são nomes de
+/// EQUIPE — uns fictícios (Waypoint, Northstar, Farpoint), outros reais mas sem
+/// hierarquia de marca a preservar (Jota Sport, United Autosports, Rahal Letterman).
+/// Não há, nesses grids, um "todo mundo sabe que a X é mais forte que a Y" para
+/// proteger, e inventar uma ordem seria decisão de produto disfarçada de constante.
+///
+/// Consequência aceita: fora de gt3 a hierarquia do mundo histórico sai do sorteio de
+/// `car_performance` do template, e varia por save. **Se um dia essas categorias
+/// ganharem templates de marca real, a banda precisa vir junto** — o guard
+/// `a_cobertura_de_bandas_e_so_gt3_e_esta_congelada` quebra quando o elenco muda.
+///
+/// As faixas em si não têm medição por trás: são a leitura de hierarquia de marca do
+/// desenho, cravadas por substring do nome do template.
 pub fn historical_team_performance_band(team_name: &str, category_id: &str) -> Option<(f64, f64)> {
     if category_id != "gt3" {
         return None;
@@ -192,6 +234,26 @@ mod tests {
     }
 
     #[test]
+    fn division_activity_ignores_the_team_foundation_year() {
+        // Obsidian: equipe de gt3 que só entra no campeonato em 2004, numa categoria
+        // que roda desde 1999. Ela não vai ao grid em 2001 — mas o campeonato dela
+        // está rodando, então o mercado tem de manter o elenco dela.
+        let late_gt3 = test_team("gt3", None, 2004);
+        assert!(!is_team_active_in_year(&late_gt3, 2001));
+        assert!(is_team_division_active_in_year(&late_gt3, 2001));
+
+        // Divisão que ainda não existe: nem grid, nem mercado.
+        let rookie = test_team("mazda_rookie", None, 2020);
+        assert!(!is_team_division_active_in_year(&rookie, 2019));
+        assert!(is_team_division_active_in_year(&rookie, 2020));
+
+        // Multiclasse respeita o ano de entrada da CLASSE, não o da categoria.
+        let endurance_gt4 = test_team("endurance", Some("gt4"), 1990);
+        assert!(!is_team_division_active_in_year(&endurance_gt4, 2006));
+        assert!(is_team_division_active_in_year(&endurance_gt4, 2007));
+    }
+
+    #[test]
     fn team_foundation_can_delay_activity_after_category_and_class_exist() {
         let late_gt3 = test_team("endurance", Some("gt3"), 2008);
         assert!(!is_team_active_in_year(&late_gt3, 2007));
@@ -228,6 +290,55 @@ mod tests {
             historical_team_performance_band("McLaren", "gt3"),
             Some((13.8, 15.7))
         );
+    }
+
+    /// GUARD da limitação declarada no cabeçalho de `historical_team_performance_band`:
+    /// a banda cobre gt3 e mais nada, e dentro de gt3 cobre exatamente as marcas reais.
+    ///
+    /// Congela as duas listas de propósito. Template novo em gt3 — marca ou nome de
+    /// fantasia — quebra aqui e força alguém a dizer se ele tem hierarquia a proteger;
+    /// template de MARCA REAL em gt4/lmp2/endurance também quebra, e é o gatilho para
+    /// estender a cobertura em vez de deixar a categoria nascer sem hierarquia.
+    #[test]
+    fn a_cobertura_de_bandas_e_so_gt3_e_esta_congelada() {
+        const COM_BANDA_EM_GT3: &[&str] = &[
+            "Acura",
+            "Aston Martin",
+            "Audi",
+            "BMW",
+            "Chevrolet",
+            "Ferrari",
+            "Ford Mustang",
+            "Lamborghini",
+            "McLaren",
+            "Mercedes-AMG",
+            "Porsche",
+        ];
+
+        let mut com_banda: Vec<&str> = get_team_templates("gt3")
+            .into_iter()
+            .filter(|t| historical_team_performance_band(t.nome, "gt3").is_some())
+            .map(|t| t.nome)
+            .collect();
+        com_banda.sort_unstable();
+        assert_eq!(
+            com_banda, COM_BANDA_EM_GT3,
+            "mudou o elenco de marcas com banda em gt3 — decida se o template novo tem \
+             hierarquia de marca a proteger antes de mexer nesta lista"
+        );
+
+        // Fora de gt3 a função devolve `None` para TODO template, inclusive os de nome
+        // real: é a limitação declarada, e o teste existe para ela não passar batida.
+        for categoria in ["gt4", "lmp2", "endurance", "bmw_m2", "mazda_rookie"] {
+            for template in get_team_templates(categoria) {
+                assert!(
+                    historical_team_performance_band(template.nome, categoria).is_none(),
+                    "{categoria}/{} ganhou banda: se a categoria passou a ter marca real, \
+                     estenda a cobertura e atualize o cabeçalho da função",
+                    template.nome
+                );
+            }
+        }
     }
 
     #[test]

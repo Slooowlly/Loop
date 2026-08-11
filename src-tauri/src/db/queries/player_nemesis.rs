@@ -3,20 +3,24 @@
 //! Sem isso, o Nemesis seria só o par de maior intensidade a cada leitura e trocaria
 //! toda semana quando dois rivais ficassem parelhos no topo. Guardamos quem reina; a
 //! seleção só destitui o reinante quando outro o supera por uma margem. Uma linha só
-//! (singleton). Tabela criada de forma idempotente — não depende das migrações
-//! versionadas (mesmo padrão de `rivalry_episodes`).
+//! (singleton). A tabela nasceu fora das migrações e entrou nelas na v62; o
+//! `ensure_table` reaplica o MESMO DDL, de forma idempotente, para conexões de teste
+//! in-memory que não migram.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
+/// DDL da tabela, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_PLAYER_NEMESIS: &str = "
+    CREATE TABLE IF NOT EXISTS player_nemesis (
+        id       INTEGER PRIMARY KEY CHECK (id = 1),
+        rival_id TEXT
+    );
+";
+
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS player_nemesis (
-            id       INTEGER PRIMARY KEY CHECK (id = 1),
-            rival_id TEXT
-        );",
-    )?;
+    conn.execute_batch(DDL_PLAYER_NEMESIS)?;
     Ok(())
 }
 

@@ -57,9 +57,22 @@ pub const BONUS_OVERALL_3RD: u8 = 1;
 
 pub struct DifficultyConfig {
     pub id: &'static str,
-    pub nome: &'static str,
     pub skill_min_ia: u8,
     pub skill_max_ia: u8,
+}
+
+impl DifficultyConfig {
+    /// Rótulo de display da dificuldade, no locale ativo.
+    ///
+    /// Era um campo `nome: &'static str` com "Fácil", "Médio", "Difícil" e "Lendário"
+    /// cravados fora do `rust-i18n` — texto de tela em português que só não vazou para o
+    /// jogador em en-US porque nada, hoje, lê o campo (o wizard tem as próprias chaves no
+    /// i18n do front). Virou método para que o primeiro consumidor Rust não recrie o
+    /// vazamento sem perceber.
+    pub fn nome(&self) -> String {
+        let full = format!("calendar.difficulty.{}", self.id);
+        rust_i18n::t!(&full).to_string()
+    }
 }
 
 pub struct WeatherPenalty {
@@ -71,25 +84,21 @@ pub struct WeatherPenalty {
 static DIFFICULTIES: [DifficultyConfig; 4] = [
     DifficultyConfig {
         id: "facil",
-        nome: "Fácil",
         skill_min_ia: 20,
         skill_max_ia: 60,
     },
     DifficultyConfig {
         id: "medio",
-        nome: "Médio",
         skill_min_ia: 30,
         skill_max_ia: 80,
     },
     DifficultyConfig {
         id: "dificil",
-        nome: "Difícil",
         skill_min_ia: 50,
         skill_max_ia: 90,
     },
     DifficultyConfig {
         id: "lendario",
-        nome: "Lendário",
         skill_min_ia: 70,
         skill_max_ia: 100,
     },
@@ -208,5 +217,22 @@ mod tests {
         let config = get_difficulty_config("lendario").expect("lendario should exist");
         assert_eq!(config.skill_min_ia, 70);
         assert_eq!(config.skill_max_ia, 100);
+    }
+
+    /// As quatro dificuldades têm rótulo nos dois idiomas. `#[serial]`: locale global.
+    #[test]
+    #[serial_test::serial]
+    fn o_rotulo_de_dificuldade_traduz_pelo_locale() {
+        let anterior = rust_i18n::locale().to_string();
+
+        rust_i18n::set_locale("pt-BR");
+        let pt: Vec<String> = get_all_difficulties().iter().map(|d| d.nome()).collect();
+        assert_eq!(pt, ["Fácil", "Médio", "Difícil", "Lendário"]);
+
+        rust_i18n::set_locale("en-US");
+        let en: Vec<String> = get_all_difficulties().iter().map(|d| d.nome()).collect();
+        assert_eq!(en, ["Easy", "Medium", "Hard", "Legendary"]);
+
+        rust_i18n::set_locale(&anterior);
     }
 }

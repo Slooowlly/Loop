@@ -31,7 +31,7 @@ pub fn generate_calendar_for_category_with_year(
     rng: &mut impl Rng,
 ) -> Result<Vec<CalendarEntry>, String> {
     if categoria == "lmp2" {
-        return Err("LMP2 e uma classe da Endurance; use o calendario de endurance".to_string());
+        return Err(rust_i18n::t!("calendar.error.lmp2_is_endurance_class").to_string());
     }
 
     let phase = if runs_in_special_phase(categoria) {
@@ -175,6 +175,13 @@ pub fn generate_and_insert_special_calendars(
             .map_err(|e| format!("Falha ao gerar IDs de corrida: {e}"))?;
         let mut ids_iter = ids.into_iter();
 
+        // A fábrica de ids é `FnMut() -> String` e não pode devolver `Result`, então a
+        // falta de id vira uma marca lida depois da chamada. Era um `expect("race id")`:
+        // o dia em que a contagem reservada (`corridas_por_temporada`) deixar de bater
+        // com a que o gerador consome — pool temático menor, rodada extra, o que for —
+        // isso derrubava o app no meio da criação de temporada, em vez de devolver erro
+        // para a tela.
+        let mut ids_esgotaram = false;
         let entries = generate_calendar_for_category_with_constraints(
             season_id,
             season_year,
@@ -183,9 +190,21 @@ pub fn generate_and_insert_special_calendars(
             special_week_end,
             SeasonPhase::BlocoEspecial,
             &HashMap::new(),
-            &mut || ids_iter.next().expect("race id"),
+            &mut || match ids_iter.next() {
+                Some(id) => id,
+                None => {
+                    ids_esgotaram = true;
+                    String::new()
+                }
+            },
             rng,
         )?;
+        if ids_esgotaram {
+            return Err(format!(
+                "IDs de corrida insuficientes para {}: {total} reservados e o gerador pediu mais",
+                category.id
+            ));
+        }
         all_entries.extend(entries);
     }
 
@@ -246,8 +265,9 @@ where
         return Ok(Vec::new());
     }
 
-    let config = get_category_config(categoria)
-        .ok_or_else(|| format!("Categoria desconhecida: {categoria}"))?;
+    let config = get_category_config(categoria).ok_or_else(|| {
+        rust_i18n::t!("calendar.error.unknown_category", category = categoria).to_string()
+    })?;
     let total = count as i32;
     let season_number = parse_season_number(season_id);
     let themed = generator::resolve_thematic_pool(categoria, season_number, count, rng);
@@ -255,10 +275,13 @@ where
     let ordered_tracks: Vec<(&'static TrackInfo, ThematicSlot)> = if let Some(pool) = themed {
         let available_count = pool.candidate_ids.len() + pool.visitor_id.map_or(0, |_| 1);
         if available_count < count {
-            return Err(format!(
-                "Pool temático insuficiente para {categoria}: {available_count} disponíveis, \
-                 {count} necessárias"
-            ));
+            return Err(rust_i18n::t!(
+                "calendar.error.not_enough_themed_tracks",
+                category = categoria,
+                available = available_count,
+                needed = count
+            )
+            .to_string());
         }
         select_tracks_themed(
             &pool,
@@ -271,9 +294,9 @@ where
     } else {
         let eligible_tracks = get_tracks_for_tier(config.tier);
         if eligible_tracks.len() < count {
-            return Err(format!(
-                "Pistas insuficientes para gerar calendario de {categoria}"
-            ));
+            return Err(
+                rust_i18n::t!("calendar.error.not_enough_tracks", category = categoria).to_string(),
+            );
         }
         select_tracks(config, &eligible_tracks, banned_tracks_by_round, rng)?
             .into_iter()
@@ -325,8 +348,9 @@ where
     F: FnMut() -> String,
     R: Rng,
 {
-    let config = get_category_config(categoria)
-        .ok_or_else(|| format!("Categoria desconhecida: {categoria}"))?;
+    let config = get_category_config(categoria).ok_or_else(|| {
+        rust_i18n::t!("calendar.error.unknown_category", category = categoria).to_string()
+    })?;
 
     let total = config.corridas_por_temporada as i32;
     let season_number = parse_season_number(season_id);
@@ -340,10 +364,13 @@ where
     let ordered_tracks: Vec<(&'static TrackInfo, ThematicSlot)> = if let Some(pool) = themed {
         let available_count = pool.candidate_ids.len() + pool.visitor_id.map_or(0, |_| 1);
         if available_count < config.corridas_por_temporada as usize {
-            return Err(format!(
-                "Pool temático insuficiente para {categoria}: {available_count} disponíveis, {} necessárias",
-                config.corridas_por_temporada
-            ));
+            return Err(rust_i18n::t!(
+                "calendar.error.not_enough_themed_tracks",
+                category = categoria,
+                available = available_count,
+                needed = config.corridas_por_temporada
+            )
+            .to_string());
         }
         select_tracks_themed(
             &pool,
@@ -356,9 +383,9 @@ where
     } else {
         let eligible_tracks = get_tracks_for_tier(config.tier);
         if eligible_tracks.len() < config.corridas_por_temporada as usize {
-            return Err(format!(
-                "Pistas insuficientes para gerar calendario de {categoria}"
-            ));
+            return Err(
+                rust_i18n::t!("calendar.error.not_enough_tracks", category = categoria).to_string(),
+            );
         }
         select_tracks(config, &eligible_tracks, banned_tracks_by_round, rng)?
             .into_iter()

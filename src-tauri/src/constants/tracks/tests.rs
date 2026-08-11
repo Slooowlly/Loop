@@ -42,6 +42,46 @@ fn free_or_substitute_prefers_same_track_type() {
     assert_eq!(sub.tipo, TrackType::Road);
 }
 
+/// A regra de substituição já opera sobre um conjunto de POSSE arbitrário — hoje ela
+/// recebe as grátis, mas a lógica não sabe disso. É o que sobra do D-06 pronto para o
+/// dia em que a lista de posse existir; ver o cabeçalho de `free_or_substitute`.
+#[test]
+fn substituta_para_posse_respeita_o_conjunto_recebido() {
+    let possuidas: Vec<&'static TrackInfo> = [451, 202, 440]
+        .iter()
+        .map(|id| get_track(*id).expect("pista do catálogo"))
+        .collect();
+
+    // Pista de fora do conjunto → substituída por uma DE DENTRO dele.
+    let sub = substituta_para_posse(580, &possuidas).expect("substituta");
+    assert!(
+        possuidas.iter().any(|t| t.track_id == sub.track_id),
+        "a substituta {} não está no conjunto possuído",
+        sub.track_id
+    );
+    // Determinística entre chamadas — o import depende disso.
+    assert_eq!(
+        sub.track_id,
+        substituta_para_posse(580, &possuidas)
+            .expect("estável")
+            .track_id
+    );
+
+    // Pista de dentro do conjunto passa intacta, mesmo sendo conteúdo pago em geral.
+    assert_eq!(
+        substituta_para_posse(451, &possuidas)
+            .expect("possuída")
+            .track_id,
+        451
+    );
+
+    // Sem dado de posse não se substitui nada: devolve a original.
+    assert_eq!(
+        substituta_para_posse(580, &[]).expect("original").track_id,
+        580
+    );
+}
+
 #[test]
 fn current_free_road_tracks_are_in_catalog() {
     for track_id in [202, 440, 449, 451, 489, 515] {

@@ -2,55 +2,61 @@
 //! na temporada X". Os recordes em si são derivados de `race_results` a cada consulta
 //! (`race_history::get_category_records`), mas isso não guarda QUANDO um recorde foi
 //! batido. Esta tabela registra esse instante, para notícias de "recorde quebrado" com
-//! data e para o rodapé do mundo. Tabela criada de forma idempotente (fora do sistema
-//! de migrações), no molde de `ai_pre_race`.
+//! data e para o rodapé do mundo. As três tabelas nasceram fora das migrações e entraram
+//! nelas na v62; o `ensure_table` reaplica o MESMO DDL, de forma idempotente, para
+//! conexões de teste in-memory que não migram.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
-fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS record_milestones (
-            id              TEXT PRIMARY KEY,
-            categoria       TEXT NOT NULL,
-            metric          TEXT NOT NULL,
-            pilot_id        TEXT NOT NULL,
-            pilot_name      TEXT NOT NULL,
-            value           INTEGER NOT NULL,
-            previous_value  INTEGER,
-            context         TEXT NOT NULL DEFAULT '',
-            season_number   INTEGER NOT NULL,
-            ano             INTEGER NOT NULL,
-            round           INTEGER NOT NULL,
-            created_at      TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_record_milestones_cat
-            ON record_milestones(categoria, season_number DESC);",
-    )?;
-    // Migração: tabelas criadas antes da coluna `context` (recorde por pista) não a
-    // têm. ALTER falha se já existe — ignoramos nesse caso.
-    let _ = conn.execute(
-        "ALTER TABLE record_milestones ADD COLUMN context TEXT NOT NULL DEFAULT ''",
-        [],
+/// DDL dos marcos, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_RECORD_MILESTONES: &str = "
+    CREATE TABLE IF NOT EXISTS record_milestones (
+        id              TEXT PRIMARY KEY,
+        categoria       TEXT NOT NULL,
+        metric          TEXT NOT NULL,
+        pilot_id        TEXT NOT NULL,
+        pilot_name      TEXT NOT NULL,
+        value           INTEGER NOT NULL,
+        previous_value  INTEGER,
+        context         TEXT NOT NULL DEFAULT '',
+        season_number   INTEGER NOT NULL,
+        ano             INTEGER NOT NULL,
+        round           INTEGER NOT NULL,
+        created_at      TEXT NOT NULL DEFAULT ''
     );
-    // Fonte da verdade do RECORDE DE VOLTA por (categoria, pista): o tempo de volta
-    // NÃO é persistido no histórico (`race_results.fastest_lap` é só um booleano), então
-    // guardamos o recorde aqui, atualizado a cada corrida. O marco (em `record_milestones`)
-    // só é emitido quando um recorde EXISTENTE é superado — o inaugural fica guardado
-    // aqui em silêncio.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS track_lap_records (
-            categoria     TEXT NOT NULL,
-            track_name    TEXT NOT NULL,
-            pilot_id      TEXT NOT NULL,
-            pilot_name    TEXT NOT NULL,
-            lap_ms        INTEGER NOT NULL,
-            season_number INTEGER NOT NULL,
-            round         INTEGER NOT NULL,
-            PRIMARY KEY (categoria, track_name)
-        );",
+    CREATE INDEX IF NOT EXISTS idx_record_milestones_cat
+        ON record_milestones(categoria, season_number DESC);
+";
+
+/// Fonte da verdade do RECORDE DE VOLTA por (categoria, pista): o tempo de volta NÃO é
+/// persistido no histórico (`race_results.fastest_lap` é só um booleano), então guardamos o
+/// recorde aqui, atualizado a cada corrida. O marco (em `record_milestones`) só é emitido
+/// quando um recorde EXISTENTE é superado — o inaugural fica guardado aqui em silêncio.
+pub(crate) const DDL_TRACK_LAP_RECORDS: &str = "
+    CREATE TABLE IF NOT EXISTS track_lap_records (
+        categoria     TEXT NOT NULL,
+        track_name    TEXT NOT NULL,
+        pilot_id      TEXT NOT NULL,
+        pilot_name    TEXT NOT NULL,
+        lap_ms        INTEGER NOT NULL,
+        season_number INTEGER NOT NULL,
+        round         INTEGER NOT NULL,
+        PRIMARY KEY (categoria, track_name)
+    );
+";
+
+fn ensure_table(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(DDL_RECORD_MILESTONES)?;
+    // Tabelas criadas antes da coluna `context` (recorde por pista) não a têm.
+    crate::db::migrations::add_column_if_missing(
+        conn,
+        "record_milestones",
+        "context",
+        "TEXT NOT NULL DEFAULT ''",
     )?;
+    conn.execute_batch(DDL_TRACK_LAP_RECORDS)?;
     Ok(())
 }
 
@@ -58,20 +64,22 @@ fn ensure_table(conn: &Connection) -> Result<(), DbError> {
 /// "campeão" que vive aqui e é atualizado incrementalmente. Serve para recordes que não
 /// são reconstruíveis de `race_results` de forma barata (idade no evento, gap do
 /// campeonato, dupla mais longeva, etc.) ou cujo "atual" precisa ser lembrado.
+pub(crate) const DDL_CATEGORY_SCALAR_RECORDS: &str = "
+    CREATE TABLE IF NOT EXISTS category_scalar_records (
+        categoria     TEXT NOT NULL,
+        kind          TEXT NOT NULL,
+        subject_id    TEXT NOT NULL,
+        subject_name  TEXT NOT NULL,
+        value         INTEGER NOT NULL,
+        context       TEXT NOT NULL DEFAULT '',
+        season_number INTEGER NOT NULL,
+        round         INTEGER NOT NULL,
+        PRIMARY KEY (categoria, kind)
+    );
+";
+
 fn ensure_scalar_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS category_scalar_records (
-            categoria     TEXT NOT NULL,
-            kind          TEXT NOT NULL,
-            subject_id    TEXT NOT NULL,
-            subject_name  TEXT NOT NULL,
-            value         INTEGER NOT NULL,
-            context       TEXT NOT NULL DEFAULT '',
-            season_number INTEGER NOT NULL,
-            round         INTEGER NOT NULL,
-            PRIMARY KEY (categoria, kind)
-        );",
-    )?;
+    conn.execute_batch(DDL_CATEGORY_SCALAR_RECORDS)?;
     Ok(())
 }
 

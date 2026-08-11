@@ -258,6 +258,21 @@ CREATE INDEX IF NOT EXISTS idx_calendar_temporada ON calendar(temporada_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_season_id ON calendar(season_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_categoria ON calendar(categoria);
 
+-- `races` está MORTA. A fonte de verdade de uma corrida é `calendar`, e só ela.
+--
+-- As duas tabelas descrevem o mesmo conceito, e por um tempo o código escreveu nas duas.
+-- A última escrita de produção saiu no commit e7e91d4, de 05/05/2026; desde então nenhuma
+-- consulta do jogo lê, escreve ou junta com ela — as únicas menções que sobraram no
+-- repositório são fixtures de teste que semeiam a linha junto com a de `calendar`.
+-- `race_results.race_id` aponta para `calendar.id`.
+--
+-- Quem for escrever consulta nova: use `calendar`. O guard
+-- `scripts/tests/races-tabela-morta.test.mjs` falha se código de produção voltar a tocar
+-- nesta tabela.
+--
+-- Por que ela continua aqui: o `DROP TABLE` apaga dado de save em campo e não tem volta.
+-- O que ele apagaria já é redundante com `calendar`, mas a decisão de destruir é do dono
+-- do jogo, não desta limpeza. Fica declarada e travada até alguém decidir o contrário.
 CREATE TABLE IF NOT EXISTS races (
     id           TEXT PRIMARY KEY,
     temporada_id TEXT NOT NULL,

@@ -3,13 +3,15 @@
 // Este módulo declara a linguagem do gerador temático:
 // famílias de campeonato, regiões geográficas e pools curados de pistas.
 //
-// Os pools são declarativos: expressam a intenção temática completa,
-// incluindo tracks ainda ausentes do DB (marcadas com // TODO).
-// Ao wiring no gerador real, filtrar com get_track(id).is_some()
-// para operar apenas com tracks existentes no catálogo atual.
+// Os pools são declarativos: expressam a intenção temática de cada família.
+// Conferido em 11/08/2026 — todo id citado nos pools existe em
+// `constants::tracks::dados`, e não há mais nenhuma pista pendente marcada.
+// O filtro `get_track(id).is_some()` continua aplicado na montagem dos pools
+// (`resolve_thematic_pool` e as funções de região), como rede para o dia em que
+// o catálogo perder uma entrada.
 //
-// O algoritmo principal de geração permanece em calendar/mod.rs.
-// Este módulo prepara a matéria-prima para o próximo passo.
+// O gerador já consome isto: `calendar/geracao.rs` chama `resolve_thematic_pool`
+// nas duas rotas de geração, e `calendar/selecao.rs` recebe o `ThematicPool`.
 
 // ── Família de campeonato ─────────────────────────────────────────────────────
 
@@ -552,6 +554,62 @@ pub(crate) fn resolve_thematic_pool<R: rand::Rng>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GUARD do D-07 (venues ausentes do banco), fechado em 11/08/2026: TODO id citado
+    /// nos pools existe no catálogo.
+    ///
+    /// Os pools nasceram declarativos, expressando a intenção temática inteira, com as
+    /// pistas ainda ausentes marcadas por comentário `// TODO` — o que envelhece mal: o
+    /// comentário some no primeiro refactor e o id fantasma passa a ser filtrado em
+    /// silêncio por `get_track(id).is_some()`, encolhendo o pool sem avisar ninguém.
+    /// Aqui o buraco vira falha de teste, e o filtro volta a ser só rede de segurança.
+    #[test]
+    fn todo_id_dos_pools_existe_no_catalogo() {
+        let regionais: Vec<(&str, Vec<u32>)> = [
+            CalendarRegion::Usa,
+            CalendarRegion::Europa,
+            CalendarRegion::JapaoOceania,
+        ]
+        .iter()
+        .flat_map(|&r| {
+            [
+                ("free_tracks_for_region", free_tracks_for_region(r).to_vec()),
+                (
+                    "strong_free_tracks_for_region",
+                    strong_free_tracks_for_region(r).to_vec(),
+                ),
+            ]
+        })
+        .collect();
+
+        let curados: Vec<(&str, Vec<u32>)> = vec![
+            ("production_free_mix", production_free_mix_pool().to_vec()),
+            ("gt4_curated", gt4_curated_pool().to_vec()),
+            ("gt3_curated", gt3_curated_pool().to_vec()),
+            ("lmp2_curated", lmp2_curated_pool().to_vec()),
+            ("endurance_curated", endurance_curated_pool().to_vec()),
+            ("strong_production", strong_production_tracks().to_vec()),
+            ("strong_gt4", strong_gt4_tracks().to_vec()),
+            ("strong_gt3", strong_gt3_tracks().to_vec()),
+            ("strong_lmp2", strong_lmp2_tracks().to_vec()),
+            ("strong_endurance", strong_endurance_tracks().to_vec()),
+        ];
+
+        let mut ausentes: Vec<String> = Vec::new();
+        for (nome, ids) in regionais.into_iter().chain(curados) {
+            for id in ids {
+                if crate::constants::tracks::get_track(id).is_none() {
+                    ausentes.push(format!("{nome}: {id}"));
+                }
+            }
+        }
+        ausentes.sort();
+        ausentes.dedup();
+        assert!(
+            ausentes.is_empty(),
+            "ids de pool que não existem em `constants::tracks::dados`: {ausentes:?}"
+        );
+    }
 
     #[test]
     fn rookie_never_gets_japao_oceania() {

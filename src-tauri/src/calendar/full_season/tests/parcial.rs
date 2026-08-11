@@ -44,10 +44,10 @@ fn partial_inicio_normal_gera_alvo_completo() {
 
 #[test]
 fn partial_meio_do_ano_degrada() {
-    // from_sw=40: janela reduzida. prod span=47-(40-4)=47-36=11 → 3*9=27>11 → tenta mín
-    // prod mín 3: 3*2=6≤11 ok → 3 rounds.
-    // end span=45-(40-4)=45-36=9 → 5*5=25>9 → tenta mín
-    // end mín 2: 5*1=5≤9 ok → 2 rounds.
+    // from_sw=40: janela reduzida. prod span=44-(40-4)=44-36=8 → 3*9=27>8 → tenta mín
+    // prod mín 3: 3*2=6≤8 ok → 3 rounds.
+    // end span=46-(40-4)=46-36=10 → 5*5=25>10 → tenta mín
+    // end mín 2: 5*1=5≤10 ok → 2 rounds.
     let entries = build_partial_special_divisions("S001", 2027, 40, 99).unwrap();
     let prod = entries
         .iter()
@@ -63,33 +63,31 @@ fn partial_meio_do_ano_degrada() {
 
 #[test]
 fn partial_fim_do_ano_gera_menos_que_minimo() {
-    // from_sw=49: end span = 45-(49-4)=45-45=0 → end=1 (1 round cabe com span=0).
-    // prod span = 47-(49-4)=47-45=2 → prod max=1+2/2=2; 3*2=6>2 → tenta mín 3: 3*2=6>2
-    //   → tenta relaxado: 2*2=4>2 → o que couber: 1+2/2=2; warn
+    // from_sw=49: end span = 46-(49-4)=46-45=1 → nem o mínimo relaxado cabe → max=1+1/3=1.
+    // prod span = 44-(49-4)=44-45<0 → janela vencida → 0 rounds.
     let entries = build_partial_special_divisions("S001", 2027, 49, 1).unwrap();
     let end = entries
         .iter()
         .filter(|e| e.categoria == "endurance")
         .count();
-    // end span = 45 - (49-4) = 0 → max_count(0, relax=3) = 1
     assert_eq!(end, 1, "from_sw=49: endurance deve ter 1 rodada no máximo");
-    // prod deve ter ≤ 2 (ou 0 se from_sw>47)
+    // prod já passou do woy_end canônico (44 = sw 48)
     let prod = entries
         .iter()
         .filter(|e| e.categoria == "production_challenger")
         .count();
-    assert!(prod <= 2, "from_sw=49: production deve ter ≤ 2 rodadas");
+    assert_eq!(prod, 0, "from_sw=49: production já saiu da janela canônica");
 }
 
 #[test]
 fn partial_alem_da_janela_end_zero_entries() {
-    // from_sw=51: end span = 45-(51-4)=45-47<0 → 0 rounds de endurance
+    // from_sw=51: end span = 46-(51-4)=46-47<0 → 0 rounds de endurance
     let entries = build_partial_special_divisions("S001", 2027, 51, 7).unwrap();
     let end = entries
         .iter()
         .filter(|e| e.categoria == "endurance")
         .count();
-    assert_eq!(end, 0, "from_sw>49: endurance deve ter 0 entradas");
+    assert_eq!(end, 0, "from_sw>50: endurance deve ter 0 entradas");
 }
 
 #[test]
@@ -100,9 +98,9 @@ fn partial_season_week_em_range_valido() {
         for entry in &entries {
             let sw = entry.season_week.unwrap();
             let max_sw = if entry.categoria == "endurance" {
-                49
+                50
             } else {
-                51
+                48
             };
             assert!(
                 sw >= from_sw && sw <= max_sw,

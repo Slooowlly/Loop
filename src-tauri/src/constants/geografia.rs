@@ -77,7 +77,7 @@ const RAIO_DA_TERRA_KM: f64 = 6_371.0;
 
 /// Coordenada de referência de um país, se ele estiver no mapa.
 pub fn coordenadas(pais: &str) -> Option<(f64, f64)> {
-    let alvo = normalizar(pais);
+    let alvo = normalizar_pais(pais);
     if alvo.is_empty() {
         return None;
     }
@@ -98,7 +98,7 @@ pub fn distancia_entre_paises_km(origem: &str, destino: &str) -> Option<f64> {
 
 /// Os dois países são o mesmo? Tolera bandeira, acento e caixa.
 pub fn mesmo_pais(a: &str, b: &str) -> bool {
-    let (a, b) = (normalizar(a), normalizar(b));
+    let (a, b) = (normalizar_pais(a), normalizar_pais(b));
     !a.is_empty() && a == b
 }
 
@@ -108,67 +108,62 @@ pub fn mesmo_pais(a: &str, b: &str) -> bool {
 ///
 /// É a classificação GROSSA, e existe só como queda de [`distancia_entre_paises_km`]: quando
 /// um dos dois países não tem coordenada, a única coisa que ainda dá para dizer é se a viagem
-/// atravessa oceano. Compara por `contains` sobre o nome cru, com as variantes acentuadas e
-/// sem acento lado a lado, porque é assim que o dado real vem — e porque este era o critério
-/// exato do modelo de despesa antigo, que continua rodando no harness como base de comparação.
+/// atravessa oceano.
+///
+/// A comparação passa por [`normalizar_pais`], como todo o resto do módulo. Antes era
+/// `contains` sobre o nome cru, com a variante acentuada e a sem acento listadas lado a lado
+/// — o que obrigava a Oceania a ser testada primeiro, porque "Austrália" CONTÉM "Austria"
+/// depois de tirado o acento, e na ordem natural a Austrália caía na Europa. Com igualdade
+/// sobre a forma dobrada, cada país aparece uma vez só e a ordem deixa de importar.
 pub fn continente(pais: &str) -> Option<&'static str> {
     const EUROPA: &[&str] = &[
-        "Áustria",
-        "Austria",
-        "Bélgica",
-        "Belgica",
-        "Alemanha",
-        "Espanha",
-        "França",
-        "Franca",
-        "Reino Unido",
-        "Hungria",
-        "Itália",
-        "Italia",
-        "Holanda",
-        "Noruega",
-        "Portugal",
-        "Suíça",
-        "Suica",
-        "Finlândia",
-        "Finlandia",
-        "Suécia",
-        "Suecia",
-        "Dinamarca",
-        "Polônia",
-        "Polonia",
-        "Irlanda",
-        "República Tcheca",
-        "Republica Tcheca",
+        "austria",
+        "belgica",
+        "alemanha",
+        "espanha",
+        "franca",
+        "reino unido",
+        "hungria",
+        "italia",
+        "holanda",
+        "noruega",
+        "portugal",
+        "suica",
+        "finlandia",
+        "suecia",
+        "dinamarca",
+        "polonia",
+        "irlanda",
+        "republica tcheca",
     ];
-    const AMERICA_NORTE: &[&str] = &["EUA", "Canadá", "Canada", "México", "Mexico"];
-    const AMERICA_SUL: &[&str] = &["Brasil", "Argentina"];
+    const AMERICA_NORTE: &[&str] = &["eua", "canada", "mexico"];
+    const AMERICA_SUL: &[&str] = &["brasil", "argentina"];
     const ASIA: &[&str] = &[
-        "Japão",
-        "Japao",
-        "Taiwan",
-        "China",
-        "Coreia do Sul",
-        "Emirados",
-        "Bahrein",
-        "Catar",
-        "Índia",
-        "India",
+        "japao",
+        "taiwan",
+        "china",
+        "coreia do sul",
+        "emirados",
+        "bahrein",
+        "catar",
+        "india",
     ];
-    const OCEANIA: &[&str] = &["Austrália", "Australia", "Nova Zelândia", "Nova Zelandia"];
-    const AFRICA: &[&str] = &["África do Sul", "Africa do Sul"];
+    const OCEANIA: &[&str] = &["australia", "nova zelandia"];
+    const AFRICA: &[&str] = &["africa do sul"];
 
-    // A Oceania vem primeiro de propósito: "Austrália" contém "Austria" sem acento, e na
-    // ordem inversa a Austrália cairia na Europa.
+    let alvo = normalizar_pais(pais);
+    if alvo.is_empty() {
+        return None;
+    }
     for (nomes, nome_continente) in [
-        (OCEANIA, "oceania"),
         (EUROPA, "europa"),
         (AMERICA_NORTE, "america_norte"),
         (AMERICA_SUL, "america_sul"),
         (ASIA, "asia"),
+        (OCEANIA, "oceania"),
         (AFRICA, "africa"),
     ] {
-        if nomes.iter().any(|n| pais.contains(n)) {
+        if nomes.contains(&alvo.as_str()) {
             return Some(nome_continente);
         }
     }
@@ -185,7 +180,13 @@ fn haversine_km(lat_a: f64, lon_a: f64, lat_b: f64, lon_b: f64) -> f64 {
 
 /// Derruba bandeira emoji, acento e caixa. Sem o dobramento de acento "Japão" e "Japao"
 /// seriam países diferentes, e o dado real tem os dois.
-fn normalizar(pais: &str) -> String {
+///
+/// **É A normalização de nome de país do crate.** Fica pública porque o dado cru chega em
+/// três formatos (com bandeira, sem bandeira, sem acento) e antes cada consumidor mantinha
+/// a própria lista de variantes: [`continente`] aqui e `constants::country_label` lá.
+/// País novo no catálogo exigia lembrar dos dois, e o esquecimento falhava calado — o país
+/// simplesmente sumia da classificação.
+pub fn normalizar_pais(pais: &str) -> String {
     pais.chars()
         .filter_map(|c| match c {
             'á' | 'à' | 'â' | 'ã' | 'ä' | 'Á' | 'À' | 'Â' | 'Ã' | 'Ä' => Some('a'),

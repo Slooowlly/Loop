@@ -19,8 +19,13 @@ fn category_tier_of(categoria: &str) -> u8 {
         .unwrap_or(0)
 }
 
-// TODO(migration): o schema atual já cobre todos os campos persistidos do Módulo 10.
-// Se no futuro tags visíveis ou metadados de geração forem persistidos, novas colunas seriam necessárias.
+// Todo campo desta struct tem coluna na tabela `drivers` e sobrevive à ida e volta pelo banco.
+// Quem prova é `todo_atributo_do_piloto_tem_coluna_e_volta_igual_do_banco`, em
+// `db/queries/drivers.rs`: monta um piloto com um valor distinto por atributo, grava e relê
+// contra o schema real das migrações. Campo novo aqui sem coluna lá derruba esse teste.
+//
+// O que continua FORA do banco, de propósito: as tags visíveis (`driver_tags`, derivadas na
+// leitura) e os metadados de geração. Persistir qualquer um dos dois pede coluna nova.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverAttributes {
@@ -324,6 +329,7 @@ impl Driver {
         category_tier: u8,
         difficulty: &str,
         count: usize,
+        world_year: u32,
         existing_names: &mut HashSet<String>,
         id_factory: &mut F,
         rng: &mut R,
@@ -337,6 +343,7 @@ impl Driver {
             category_tier,
             difficulty,
             count,
+            world_year,
             existing_names,
             id_factory,
             rng,

@@ -2,26 +2,29 @@
 //!
 //! Guarda os FATOS curados (gerados no fim da corrida, quando o `RaceResult`
 //! está em mãos) e o BOLETIM já redigido pelo servidor (preenchido sob demanda,
-//! no 1º abrir da notícia). A tabela é criada de forma idempotente — não depende
-//! do sistema de migrações versionadas.
+//! no 1º abrir da notícia). A tabela nasceu fora das migrações e entrou nelas na
+//! v62; o `ensure_table` reaplica o MESMO DDL, de forma idempotente, para conexões
+//! de teste in-memory que não migram.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::connection::DbError;
 
+/// DDL da tabela, num lugar só — a migração v62 executa esta MESMA constante.
+pub(crate) const DDL_AI_RACE_STORY: &str = "
+    CREATE TABLE IF NOT EXISTS ai_race_story (
+        news_id    TEXT PRIMARY KEY,
+        facts      TEXT NOT NULL,
+        story      TEXT,
+        created_at TEXT NOT NULL DEFAULT ''
+    );
+";
+
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS ai_race_story (
-            news_id    TEXT PRIMARY KEY,
-            facts      TEXT NOT NULL,
-            story      TEXT,
-            created_at TEXT NOT NULL DEFAULT ''
-        );",
-    )?;
-    // `teams_json` (mapa nome da equipe → cor primária, p/ o front colorir os nomes
-    // no boletim) foi adicionada depois do schema inicial. ALTER idempotente: em DBs
-    // que já têm a coluna o erro "duplicate column" é ignorado de propósito.
-    let _ = conn.execute("ALTER TABLE ai_race_story ADD COLUMN teams_json TEXT", []);
+    conn.execute_batch(DDL_AI_RACE_STORY)?;
+    // `teams_json` (mapa nome da equipe → cor primária, p/ o front colorir os nomes no
+    // boletim) foi adicionada depois do schema inicial. Guardado por PRAGMA.
+    crate::db::migrations::add_column_if_missing(conn, "ai_race_story", "teams_json", "TEXT")?;
     Ok(())
 }
 

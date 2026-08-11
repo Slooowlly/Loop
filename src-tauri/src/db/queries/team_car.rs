@@ -1,9 +1,9 @@
 //! Persistência do estado do carro por time (Sistema de Nível do Carro).
 //!
 //! Uma linha por `(team_id, part_type)` com nível, desgaste e esgotamento. O carro é
-//! carregado/salvo como unidade (as 11 peças). A tabela é criada pela migration v48;
-//! `ensure_table` reaplica de forma idempotente para conexões de teste in-memory que não
-//! rodam migrações. Ver design em
+//! carregado/salvo como unidade (as 11 peças). A tabela é criada pelas migrações (baseline
+//! v53 + coluna `unit_seed` na v62); `ensure_table` reaplica o MESMO DDL de forma idempotente
+//! para conexões de teste in-memory que não rodam migrações. Ver design em
 //! `docs/superpowers/specs/2026-07-17-car-level-system-design.md`.
 
 use std::collections::HashMap;
@@ -13,39 +13,34 @@ use rusqlite::{params, Connection};
 use crate::car::{Car, CarPart, PartType};
 use crate::db::connection::DbError;
 
-fn ensure_table(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS team_car (
-            team_id    TEXT NOT NULL,
-            part_type  TEXT NOT NULL,
-            level      INTEGER NOT NULL DEFAULT 1,
-            wear       REAL NOT NULL DEFAULT 0.0,
-            spent      INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (team_id, part_type)
-        );",
-    )?;
-    // Identidade da unidade (redesign 2026-07-22 §4.1). Coluna idempotente aqui em vez de na
-    // migração central, pra não colidir com WIP. `0` = não semeado → o carregador deriva o
-    // fallback determinístico por tipo. Bancos existentes ganham a coluna via ALTER guardado.
-    if !table_has_column(conn, "team_car", "unit_seed")? {
-        conn.execute_batch(
-            "ALTER TABLE team_car ADD COLUMN unit_seed INTEGER NOT NULL DEFAULT 0;",
-        )?;
-    }
-    Ok(())
-}
+/// DDL da tabela, num lugar só.
+///
+/// A migração v62 executa esta MESMA constante: enquanto o DDL vivia em duas cópias
+/// textuais (aqui e na baseline), a coluna `unit_seed` existia de um lado só. Ver
+/// `db::migrations::migrate_v62_tabelas_de_query_sob_as_migracoes`.
+pub(crate) const DDL_TEAM_CAR: &str = "
+    CREATE TABLE IF NOT EXISTS team_car (
+        team_id    TEXT NOT NULL,
+        part_type  TEXT NOT NULL,
+        level      INTEGER NOT NULL DEFAULT 1,
+        wear       REAL NOT NULL DEFAULT 0.0,
+        spent      INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (team_id, part_type)
+    );
+";
 
-/// A coluna existe? (`PRAGMA table_info`).
-fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, DbError> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == column {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+fn ensure_table(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(DDL_TEAM_CAR)?;
+    // Identidade da unidade (redesign 2026-07-22 §4.1). `0` = não semeado → o carregador
+    // deriva o fallback determinístico por tipo. A v62 aplica o mesmo ALTER guardado nos
+    // saves em campo; isto aqui segura as conexões de teste in-memory que não migram.
+    crate::db::migrations::add_column_if_missing(
+        conn,
+        "team_car",
+        "unit_seed",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    Ok(())
 }
 
 /// Carrega o carro de um time. `None` se o time ainda não tem carro persistido.

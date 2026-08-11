@@ -1,9 +1,87 @@
 //! Mapeamento de linha → `Team` e helpers compartilhados pelos submódulos.
 
+use std::sync::OnceLock;
+
 use rusqlite::Connection;
 
 use crate::db::connection::DbError;
 use crate::models::team::{Team, TeamHierarchyClimate};
+
+/// As colunas que o `team_from_row` lê — a projeção que substitui o `SELECT *`.
+///
+/// É a lista do MAPEADOR, não a da tabela: `car_build_profile` existe em `teams` e não é
+/// lida aqui (o perfil de construção do carro vive na `team_car`), então fica de fora de
+/// propósito. O guard `a_projecao_de_equipe_existe_no_schema_real` prova que toda coluna
+/// desta lista existe na tabela; o que a tabela tem a mais é escolha, não esquecimento.
+pub(super) const COLUNAS_TEAM: &[&str] = &[
+    "id",
+    "nome",
+    "nome_curto",
+    "cor_primaria",
+    "cor_secundaria",
+    "pais_sede",
+    "ano_fundacao",
+    "categoria",
+    "ativa",
+    "marca",
+    "classe",
+    "piloto_1_id",
+    "piloto_2_id",
+    "car_performance",
+    "confiabilidade",
+    "pit_strategy_risk",
+    "pit_crew_quality",
+    "budget",
+    "cash_balance",
+    "debt_balance",
+    "financial_state",
+    "season_strategy",
+    "last_round_income",
+    "last_round_expenses",
+    "last_round_net",
+    "parachute_payment_remaining",
+    "facilities",
+    "engineering",
+    "reputacao",
+    "morale",
+    "aerodinamica",
+    "motor",
+    "chassi",
+    "hierarquia_n1_id",
+    "hierarquia_n2_id",
+    "hierarquia_status",
+    "hierarquia_tensao",
+    "hierarquia_duelos_total",
+    "hierarquia_duelos_n2_vencidos",
+    "hierarquia_sequencia_n2",
+    "hierarquia_sequencia_n1",
+    "hierarquia_inversoes_temporada",
+    "stats_vitorias",
+    "stats_podios",
+    "stats_poles",
+    "stats_pontos",
+    "stats_melhor_resultado",
+    "historico_vitorias",
+    "historico_podios",
+    "historico_poles",
+    "historico_pontos",
+    "historico_titulos_pilotos",
+    "carreira_titulos",
+    "temporada_atual",
+    "created_at",
+    "updated_at",
+    "is_player_team",
+    "parent_team_id",
+    "aceita_rookies",
+    "meta_posicao",
+    "temp_posicao",
+    "categoria_anterior",
+];
+
+pub(super) fn colunas_select_team() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| COLUNAS_TEAM.join(", "))
+}
 
 /// Anexa o carro (tabela `team_car`) a cada time carregado — o Sistema de Nível do Carro.
 /// Times sem carro persistido (saves antigos, pré-seed) ficam com `car: None` (o sim cai

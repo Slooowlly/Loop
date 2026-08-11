@@ -1,10 +1,40 @@
 //! Mapeamento de linhas do SQLite para `Contract` e parsers auxiliares.
 
+use std::sync::OnceLock;
+
 use rusqlite::types::ValueRef;
 
 use crate::db::connection::DbError;
 use crate::models::contract::Contract;
 use crate::models::enums::{ContractStatus, ContractType, TeamRole};
+
+/// As colunas que o `contract_from_row` lê — a projeção que substitui o `SELECT *`.
+///
+/// `salario` entra junto de `salario_anual` porque o mapeador ainda cai nela como
+/// fallback de save antigo. `clausulas` fica de fora: existe na tabela e ninguém lê.
+pub(super) const COLUNAS_CONTRACT: &[&str] = &[
+    "id",
+    "piloto_id",
+    "piloto_nome",
+    "equipe_id",
+    "equipe_nome",
+    "temporada_inicio",
+    "duracao_anos",
+    "temporada_fim",
+    "salario",
+    "salario_anual",
+    "papel",
+    "status",
+    "tipo",
+    "categoria",
+    "classe",
+    "created_at",
+];
+
+pub(super) fn colunas_select_contract() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| COLUNAS_CONTRACT.join(", "))
+}
 
 pub(super) fn collect_contracts(
     mapped: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<Contract>>,

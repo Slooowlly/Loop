@@ -129,6 +129,26 @@ pub struct AppConfig {
     #[serde(default = "pintura_automatica_padrao")]
     pub auto_paint_car: bool,
 
+    /// Voltar destruído da CLASSIFICAÇÃO custa a corrida: "grave" larga do fim do grid
+    /// (`!eol`), "destruído" ou pior não larga (`!dq`). O iRacing devolve o carro
+    /// inteiro, então a consequência é regra nossa, imposta por comando de admin.
+    ///
+    /// Padrão DESLIGADO, e o motivo é honesto: o comando da faixa do meio (`!eol`) ainda
+    /// não foi confirmado numa etapa de verdade contra IA. Se ele não pegar, o castigo
+    /// some em silêncio, e é melhor isso acontecer num teste do que na carreira de quem
+    /// joga. Ligar é decisão do jogador enquanto a medição não fecha.
+    ///
+    /// Antes isto era a variável de ambiente `IRACER_QUALI_WRECK`, que morria a cada
+    /// reinício e não aparecia em lugar nenhum. A variável continua valendo como
+    /// ATALHO de teste na pista (ver `testar-quali-destruida.cmd`): presente no ambiente,
+    /// ela liga a regra independentemente desta chave.
+    ///
+    /// PENDENTE: os limiares que graduam os tiers (severidade da batida e segundos de
+    /// reparo obrigatório) nasceram sem calibração registrada, e ainda não existe
+    /// interruptor na tela de Configurações — hoje só se liga editando o `config.json`.
+    #[serde(default)]
+    pub quali_wreck_penalty: bool,
+
     // Window state
     pub window_width: u32,
     pub window_height: u32,
@@ -153,6 +173,7 @@ impl Default for AppConfig {
             monitor_overlay_in_vr: false,
             spotter_takeover: spotter_padrao(),
             auto_paint_car: pintura_automatica_padrao(),
+            quali_wreck_penalty: false,
             window_width: 1280,
             window_height: 720,
             window_maximized: false,
@@ -209,7 +230,19 @@ impl AppConfig {
         }
         let id = uuid::Uuid::new_v4().to_string();
         self.install_id = Some(id.clone());
-        let _ = self.save();
+        // Falha de gravação aqui é silenciosa por natureza (não há tela para mostrar), e
+        // tem consequência: sem persistir, um install_id novo nasce a cada abertura e o
+        // cooldown do servidor de boletins de IA reseta junto. Vai para o log de
+        // diagnóstico, que é onde esse tipo de coisa é investigável depois.
+        if let Err(erro) = self.save() {
+            crate::diagnostico::linha(
+                "config",
+                &format!(
+                    "falha ao persistir o install_id novo: {erro}. O cooldown do servidor \
+                     de IA vai recomeçar na próxima abertura."
+                ),
+            );
+        }
         id
     }
 

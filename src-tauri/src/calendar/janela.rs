@@ -107,21 +107,44 @@ pub(crate) fn season_date_window(year: i32, phase: SeasonPhase) -> (NaiveDate, N
     }
 }
 
+/// Queda de data quando `year`/`month` não formam uma data válida.
+///
+/// Só é alcançável com ano fora da faixa do `chrono` (~±262 mil anos), que o jogo não
+/// produz — mas estas funções montam a JANELA DA TEMPORADA, no caminho de criação de
+/// carreira, e ali um `expect` derruba o app inteiro. Uma data de queda deixa o
+/// calendário sair torto em vez de não sair.
+fn data_de_queda(year: i32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year, 1, 1).unwrap_or_default()
+}
+
 pub(crate) fn nth_weekday_of_month(year: i32, month: u32, weekday: Weekday, nth: u32) -> NaiveDate {
-    let first_day = NaiveDate::from_ymd_opt(year, month, 1).expect("valid month");
+    let Some(first_day) = NaiveDate::from_ymd_opt(year, month.clamp(1, 12), 1) else {
+        return data_de_queda(year);
+    };
     let offset = (7 + weekday.num_days_from_monday() as i64
         - first_day.weekday().num_days_from_monday() as i64)
         % 7;
     let day = 1 + offset as u32 + (nth.saturating_sub(1) * 7);
+    // Passou do fim do mês (5ª ocorrência num mês que só tem 4) → cai para o último dia.
     NaiveDate::from_ymd_opt(year, month, day)
         .or_else(|| last_day_of_month(year, month))
-        .expect("valid nth weekday fallback")
+        .unwrap_or(first_day)
 }
 
 pub(crate) fn last_weekday_of_month(year: i32, month: u32, weekday: Weekday) -> NaiveDate {
-    let mut current = last_day_of_month(year, month).expect("valid last day");
-    while current.weekday() != weekday {
-        current = current.pred_opt().expect("previous day within month");
+    let Some(mut current) = last_day_of_month(year, month) else {
+        return data_de_queda(year);
+    };
+    // Sete passos bastam para achar qualquer dia da semana; o laço limitado troca o
+    // `expect` do `pred_opt` por parada garantida.
+    for _ in 0..7 {
+        if current.weekday() == weekday {
+            return current;
+        }
+        match current.pred_opt() {
+            Some(anterior) => current = anterior,
+            None => return current,
+        }
     }
     current
 }
