@@ -14,10 +14,19 @@ import {
 } from "./globalDriverFormatters";
 
 export const DEFAULT_SORT = { key: "historical_index", direction: "desc" };
+
+// O "sem recorte" dos três filtros de lista. Era a palavra "Todos"/"Todas" — o mesmo
+// valor servia de estado e de texto na tela ao mesmo tempo, então o filtro dependia do
+// idioma: em inglês o seletor mostrava "All", guardava "Todos", e a comparação passava a
+// procurar um piloto cujo status literal fosse "Todos". Aqui o estado é uma chave neutra,
+// igual à que os filtros de campeão/lesão/favorito já usavam no mesmo objeto, e o rótulo
+// vive no i18n, que é onde ele muda de idioma.
+export const FILTRO_TODOS = "all";
+
 export const DEFAULT_FILTERS = {
-  status: "Todos",
-  category: "Todas",
-  nationality: "Todas",
+  status: FILTRO_TODOS,
+  category: FILTRO_TODOS,
+  nationality: FILTRO_TODOS,
   minAge: "",
   maxAge: "",
   champions: "all",
@@ -88,9 +97,9 @@ export function filterRows(rows, filters) {
   const maxAge = parseOptionalNumber(filters.maxAge);
 
   return rows.filter((row) => {
-    if (filters.status !== "Todos" && row.status !== filters.status) return false;
-    if (filters.category !== "Todas" && !rowCategories(row).includes(filters.category)) return false;
-    if (filters.nationality !== "Todas" && nationalityKey(row.nacionalidade) !== filters.nationality) return false;
+    if (filters.status !== FILTRO_TODOS && row.status !== filters.status) return false;
+    if (filters.category !== FILTRO_TODOS && !rowCategories(row).includes(filters.category)) return false;
+    if (filters.nationality !== FILTRO_TODOS && nationalityKey(row.nacionalidade) !== filters.nationality) return false;
     if (filters.champions === "champions" && (row.titulos ?? 0) <= 0) return false;
     if (filters.injured === "injured" && !row.is_lesionado) return false;
     if (filters.favorites === "only" && !row.is_favorito) return false;
@@ -127,7 +136,7 @@ function previousGlobalRank(row) {
 }
 
 export function buildTableSections(rows, selectedCategory) {
-  if (selectedCategory === "Todas") {
+  if (selectedCategory === FILTRO_TODOS) {
     return [{ key: "all", label: null, rows }];
   }
 
@@ -142,15 +151,22 @@ export function buildTableSections(rows, selectedCategory) {
     }
   });
 
+  // Os dois cabeçalhos saem daqui prontos porque a seção é o corte, e o corte é o que
+  // eles anunciam. O texto vem do i18n: eram frases em português cravadas no módulo, e
+  // uma delas ("Ja passaram por") tinha perdido o acento pelo caminho.
   return [
     {
       key: "current",
-      label: currentRows.length > 0 ? `Atualmente em ${categoryLabel(selectedCategory)}` : null,
+      label: currentRows.length > 0
+        ? i18n.t("globalDrivers.section.currentlyIn", { category: categoryLabel(selectedCategory) })
+        : null,
       rows: currentRows,
     },
     {
       key: "past",
-      label: pastRows.length > 0 ? `Ja passaram por ${categoryLabel(selectedCategory)}` : null,
+      label: pastRows.length > 0
+        ? i18n.t("globalDrivers.section.passedThrough", { category: categoryLabel(selectedCategory) })
+        : null,
       rows: pastRows,
     },
   ].filter((section) => section.rows.length > 0);
@@ -167,7 +183,7 @@ export function buildFilterOptions(rows) {
 // Marcas de entrada (Mazda/Toyota: rookie -> championship -> production), depois BMW,
 // e as classes de carro juntando pista + endurance da mesma classe (GT4, GT3, LMP2).
 // Categorias agregadas/genéricas (endurance/production "geral") e SemCategoria ficam de
-// fora do filtro de propósito — esses pilotos continuam visíveis em "Todas".
+// fora do filtro de propósito — esses pilotos continuam visíveis sem recorte.
 const CATEGORY_GROUP_DEFS = [
   { key: "mazda", label: "Mazda", members: ["mazda_rookie", "mazda_amador", "production_challenger:mazda"] },
   { key: "toyota", label: "Toyota", members: ["toyota_rookie", "toyota_amador", "production_challenger:toyota"] },

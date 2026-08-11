@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import i18n from "../i18n/index.js";
+import useSaves from "../hooks/useSaves";
 import useCareerStore from "../stores/useCareerStore";
 import { useUpdater } from "../components/system/UpdaterProvider";
 import Tooltip from "../components/ui/Tooltip";
@@ -221,7 +221,9 @@ function MainMenu({ intro = false }) {
   const panelRef = useRef(null);
   const menuRef = useRef(null);
 
-  const [saves, setSaves] = useState([]);
+  // Lista de saves (mais recente primeiro) para "Continuar" e o submenu "Carregar", mais
+  // a exclusão. Os dois `invoke` moravam aqui inline; ver `hooks/useSaves.js`.
+  const { saves, erro: erroDeSaves, excluir, limparErro } = useSaves();
   const [entered, setEntered] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [logoStep, setLogoStep] = useState(0); // intro: 0 inicial, 1 zoom-in, 2 zoom-out
@@ -259,6 +261,7 @@ function MainMenu({ intro = false }) {
     const btn = ev.currentTarget.getBoundingClientRect();
     setPanelAnchor(btn.top - (stage ? stage.top : 0));
     setConfirmDel(null);
+    limparErro();
     setPanel(which);
   }
 
@@ -294,23 +297,6 @@ function MainMenu({ intro = false }) {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // Navega no meio da animacao (zoom ainda em movimento), nao no fim.
   const CUT_MS = prefersReduced ? 0 : Math.round(CFG.anim * 1000 * 0.5);
-
-  // Lista de saves (mais recente primeiro) para "Continuar" e o submenu "Carregar".
-  function refreshSaves() {
-    invoke("list_saves")
-      .then((list) => {
-        if (!Array.isArray(list)) return;
-        const sorted = [...list].sort(
-          (a, b) => new Date(b.last_played || 0) - new Date(a.last_played || 0),
-        );
-        setSaves(sorted);
-      })
-      .catch(() => {});
-  }
-  useEffect(() => {
-    refreshSaves();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Liga a foto so depois do 1o paint pra a transicao (fade + zoom lento) disparar.
   useEffect(() => {
@@ -571,14 +557,13 @@ function MainMenu({ intro = false }) {
     if (recentSave) enterCareer(recentSave.career_id);
   }
 
+  // Exclusão de carreira: a ação mais destrutiva da interface. A confirmação só some
+  // quando o backend confirma o apagamento — antes, o `catch` era vazio e o diálogo
+  // fechava do mesmo jeito, então uma exclusão que falhou tinha exatamente a mesma cara
+  // de uma que deu certo, com a carreira reaparecendo na lista logo em seguida.
   async function deleteSave(careerId) {
-    try {
-      await invoke("delete_career", { careerId });
-    } catch {
-      /* ignore */
-    }
-    setConfirmDel(null);
-    refreshSaves();
+    const apagou = await excluir(careerId);
+    if (apagou) setConfirmDel(null);
   }
 
   const recentSave = saves[0] || null;
@@ -710,6 +695,14 @@ function MainMenu({ intro = false }) {
           <div className="mm-panel-head">
             <span className="mm-panel-title">{t("menu.loadSave")}</span>
           </div>
+
+          {/* Falha de exclusão. Aparece no painel, ao lado da carreira que continua
+              lá — é o único jeito de a tela não mentir sobre o que aconteceu. */}
+          {erroDeSaves ? (
+            <p className="mm-panel-error" role="alert">
+              {t("menu.deleteFailed")}
+            </p>
+          ) : null}
 
           {saves.length === 0 ? (
             <div className="mm-panel-empty">

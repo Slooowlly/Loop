@@ -38,40 +38,13 @@ import { pisoDeAbertura } from "../../ui/aberturaDePainel.js";
 import { getCategoryColor } from "../../../utils/categoryColors";
 import { getVividTeamColor } from "../../../utils/teamColors";
 import { comprimeSequenciasDeAnos } from "../../../utils/sequenciaDeAnos";
-import {
-  formatMoneyCompact,
-  formatSalary,
-  formatSalaryAnnual,
-  formatSignedMoney,
-} from "../../../utils/formatters";
+import { formatSalary, formatSalaryAnnual } from "../../../utils/formatters";
 import { PlayerSkillSection } from "../detalhes/PlayerSkillSection.jsx";
 import { technicalToneClass } from "../detalhes/primitivos.jsx";
 import { DossierDetailTooltip } from "./DossierDetailTooltip.jsx";
 import { CurvaDeCampeonato } from "./CurvaDeCampeonato.jsx";
-import {
-  AlvosDeTemporada,
-  CURVA_FITA,
-  FechoDoBalao,
-  HachuraDefs,
-  LinhaDoBalao,
-  MINIMO_PARA_O_GRAFICO,
-  MolduraDeFundo,
-  MolduraDeRodape,
-  SerieKey,
-  TrocaTooltip,
-  PonteSobreOVao,
-  ancoraDoBalao,
-  caminhoDaFaixa,
-  colunasDeCategoria,
-  faixasDeDiferenca,
-  faixasSemVinculo,
-  geometriaDaCurva,
-  partirNoPresente,
-  pontesSemVinculo,
-  segmentosContinuos,
-  trocasDeEquipe,
-  verticesDaSerie,
-} from "./curvaDeCarreira.jsx";
+import { CURVA_MERCADO, CURVA_PAGO, MarketCurve } from "./CurvaDeMercado.jsx";
+import { DuelTimeline, MiniTimeline } from "./FaixaDeConfronto.jsx";
 import {
   formatAttributeName,
   formatAverage,
@@ -94,6 +67,22 @@ import {
   formatWorldAverage,
   formatYearsAverage,
 } from "../detalhes/formatadores.js";
+import {
+  DUEL_LOSS_COLOR,
+  DUEL_WIN_COLOR,
+  MEDAL_COLORS,
+  TONE_HEX,
+  corDoSaldo,
+  finishColor,
+  formataSaldo,
+  groupTitlesByTeam,
+  listaDeAnos,
+  naRegua,
+  ordenarPorNivel,
+  primeiroNome,
+  sequenciaAtual,
+  tendenciaDeValor,
+} from "./driverDetailV2Logic";
 
 // Ficha do piloto v2.
 //
@@ -119,8 +108,6 @@ import {
 //     quatro, e o rail cobrava 184px de largura para desenhar quatro palavras.
 //     As abas voltaram a ser pílulas horizontais, que é o que o v1 já acertava.
 //
-// Para voltar ao v1 basta mudar DRIVER_DETAIL_VERSION em ../index.js. Nenhum
-// arquivo do v1 é editado por este redesenho.
 // O Histórico abre primeiro, e é também a primeira pílula: a ficha é aberta para
 // julgar um piloto, e quem ele é ao longo da carreira pesa mais que como ele foi
 // nas últimas cinco corridas. Deixar a aba padrão fora da primeira posição faria
@@ -133,17 +120,6 @@ const DEFAULT_SECTION = DRIVER_SECTIONS[0];
 // conteúdo que o payload não tem.
 const RETIRED_SECTIONS = ["historico"];
 
-// Cores das colocações — as MESMAS do dossiê de equipe, de propósito: uma
-// vitória tem que ser da mesma cor nas duas telas. Ouro reaproveita o amarelo de
-// status que a UI já usa para vitória; prata e bronze são metal, não estado.
-const MEDAL_COLORS = {
-  first: "#f2c46d",
-  second: "#c2ccd8",
-  third: "#c07f4a",
-  nearMiss: "#46586d",
-  dnf: "#f85149",
-};
-
 const METRIC_ICONS = {
   corridas: Flag,
   vitorias: Crown,
@@ -151,9 +127,9 @@ const METRIC_ICONS = {
   titulos: Award,
 };
 
-// Tom do momento atual. O mapa mora aqui porque o v1 exporta o dele junto de uma
-// árvore de componentes inteira, e importar aquilo arrastaria o v1 para dentro
-// do v2 por uma linha de cor.
+// Tom do momento atual. As chaves (`forte`, `estavel`, `em_baixa`) vêm do
+// backend e viram sufixo da chave `driverDetail.momentBuilder.<chave>` — mudar
+// uma delas aqui exige mudar a chave de i18n do mesmo nome.
 const MOMENT_TONES = {
   forte: { key: "forte", color: "#3fb950" },
   estavel: { key: "estavel", color: "#d29922" },
@@ -1758,14 +1734,6 @@ function TechnicalAxis({ item }) {
   );
 }
 
-// Payload antigo (save aberto por build anterior) não traz a régua nem a mediana:
-// o que falta simplesmente não é desenhado, em vez de virar uma barra zerada —
-// que se leria como "este piloto é zero em ritmo".
-function naRegua(valor) {
-  const numero = Number(valor);
-  return Number.isFinite(numero) ? Math.max(0, Math.min(numero, 100)) : null;
-}
-
 // ESTILO em bloco próprio, e não como mais uma coluna da leitura técnica.
 //
 // Agressividade, suavidade e confiança não têm lado bom: um piloto agressivo
@@ -1900,23 +1868,6 @@ function StyleAxis({ item }) {
 // poucas opacas ("Alien", "Camaleão", "Atleta") não pagam a redundância das
 // outras doze. O painel encolheu para o tamanho do conteúdo em vez de tentar
 // preencher a largura: era daí que vinha o ar de inacabado, não da falta de dado.
-const TRAIT_LEVEL_ORDER = ["elite", "qualidade_alta", "qualidade", "defeito", "defeito_grave"];
-
-// Nível desconhecido (payload antigo) vai para o fim do PRÓPRIO grupo, nunca
-// para a frente: o backend já entrega qualidades e defeitos separados, e é essa
-// separação — não o nível — que decide de que lado da fita o traço cai.
-function ordenarPorNivel(tags, tone) {
-  return tags
-    .map((tag, indice) => ({ tag, tone, indice }))
-    .sort((a, b) => {
-      const nivelA = TRAIT_LEVEL_ORDER.indexOf(a.tag.level);
-      const nivelB = TRAIT_LEVEL_ORDER.indexOf(b.tag.level);
-      const rankA = nivelA < 0 ? TRAIT_LEVEL_ORDER.length : nivelA;
-      const rankB = nivelB < 0 ? TRAIT_LEVEL_ORDER.length : nivelB;
-      return rankA - rankB || a.indice - b.indice;
-    });
-}
-
 function TraitStrip({ competitivo, onFocarEixo }) {
   const { t } = useTranslation();
   const qualidades = Array.isArray(competitivo?.qualidades) ? competitivo.qualidades : [];
@@ -2427,14 +2378,6 @@ function RecentFormStrip({ seasons, entries, context }) {
   );
 }
 
-function finishColor(dnf, finish) {
-  if (dnf) return MEDAL_COLORS.dnf;
-  if (finish === 1) return MEDAL_COLORS.first;
-  if (finish === 2) return MEDAL_COLORS.second;
-  if (finish === 3) return MEDAL_COLORS.third;
-  return MEDAL_COLORS.nearMiss;
-}
-
 // ────────────────────────────── Histórico ──────────────────────────────
 
 function HistorySection({ detail, onAbrirEquipe, onAbrirRanking, careerId }) {
@@ -2622,33 +2565,6 @@ function SeletorDeEscopo({ escopo, onEscopo }) {
       })}
     </div>
   );
-}
-
-// Os títulos por equipe, da dinastia mais recente para a mais antiga, com os
-// anos em ordem decrescente dentro de cada uma.
-//
-// O agrupamento é por EQUIPE, e não por período: um piloto que venceu por A, foi
-// para B e voltou para A tem as três passagens somadas na linha de A. É uma
-// perda de informação assumida — o que o card responde é "com quem ele construiu
-// isso", e a cronologia completa está logo abaixo, na escada de categorias.
-function groupTitlesByTeam(titles) {
-  if (!Array.isArray(titles) || !titles.length) return [];
-  const groups = new Map();
-  for (const entry of titles) {
-    const key = entry?.equipe ?? "";
-    if (!groups.has(key)) {
-      groups.set(key, { key: key || "sem-equipe", equipe: entry?.equipe ?? null, anos: [] });
-    }
-    const group = groups.get(key);
-    if (Number.isFinite(entry?.ano)) group.anos.push(entry.ano);
-  }
-  return [...groups.values()]
-    .map((group) => ({
-      ...group,
-      anos: [...group.anos].sort((a, b) => b - a),
-      blocos: comprimeSequenciasDeAnos([...group.anos].sort((a, b) => b - a)),
-    }))
-    .sort((left, right) => (right.anos[0] ?? 0) - (left.anos[0] ?? 0));
 }
 
 // Card de número de carreira: valor, barra de posição e o rank por extenso. A
@@ -3184,9 +3100,6 @@ const RIVAL_ORIGIN_KEYS = {
   Pista: "pista",
 };
 
-const DUEL_WIN_COLOR = "#3fb950";
-const DUEL_LOSS_COLOR = "#f85149";
-
 // A ABA TEM UMA COR SÓ.
 //
 // O card e a listrinha da linha se pintavam com a cor da equipe DO RIVAL, para
@@ -3271,10 +3184,6 @@ function RivalsSection({ detail, onSelectDriver }) {
       )}
     </section>
   );
-}
-
-function primeiroNome(nome) {
-  return String(nome || "").trim().split(/\s+/)[0] || "";
 }
 
 function RivalHero({ rival, dono, onSelectDriver }) {
@@ -3646,262 +3555,6 @@ function TeammateSpell({ dupla, dono, rival }) {
   );
 }
 
-// Anos consecutivos viram intervalo: "2024–2026" em vez de "2024, 2025, 2026".
-// Três anos seguidos são um PERÍODO, e listá-los item a item conta como três
-// fatos o que é um só.
-function listaDeAnos(anos) {
-  const ordenados = [...new Set(anos)].sort((a, b) => a - b);
-  const blocos = [];
-  ordenados.forEach((ano) => {
-    const ultimo = blocos[blocos.length - 1];
-    if (ultimo && ano === ultimo.fim + 1) {
-      ultimo.fim = ano;
-      return;
-    }
-    blocos.push({ inicio: ano, fim: ano });
-  });
-  return blocos
-    .map(({ inicio, fim }) => (inicio === fim ? `${inicio}` : `${inicio}–${fim}`))
-    .join(", ");
-}
-
-// A sequência CORRENTE, lida de trás para frente.
-//
-// Corrida que não decidiu nada (abandono de um dos dois) é transparente em vez
-// de quebrar a série: uma sequência de cinco vitórias com um motor quebrado no
-// meio continua sendo domínio, e chamá-la de "duas e depois duas" seria deixar o
-// azar reescrever a história.
-function sequenciaAtual(encontros) {
-  let vencedor = null;
-  let total = 0;
-  for (let indice = encontros.length - 1; indice >= 0; indice -= 1) {
-    const atual = encontros[indice].vencedor;
-    if (atual !== "piloto" && atual !== "rival") continue;
-    if (!vencedor) {
-      vencedor = atual;
-      total = 1;
-      continue;
-    }
-    if (atual !== vencedor) break;
-    total += 1;
-  }
-  return vencedor ? { vencedor, total } : null;
-}
-
-// A FAIXA DO CONFRONTO: uma marca por corrida dividida, na ordem em que
-// aconteceram, agrupadas por temporada.
-//
-// O placar diz QUANTO ("36 a 29") e a faixa diz QUANDO — se a vantagem é antiga e
-// virou, se é uma sequência recente, se um ano inteiro foi de mão única. Nenhum
-// par de números conta isso, e é a coisa mais interessante que a aba tem para
-// mostrar sobre duas pessoas que correm juntas há sete anos.
-//
-// A colocação de cada um saiu: "P6 contra P1" faz o olho comparar dois números
-// para chegar na única coisa que importa, que é quem ganhou o dia. A cor da marca
-// já é essa resposta, e o nome de quem venceu fica em cima.
-function DuelTimeline({ rival, dono }) {
-  const { t } = useTranslation();
-  const encontros = Array.isArray(rival.encontros) ? rival.encontros : [];
-  // O último encontro é o estado de repouso da legenda: é o fato mais recente, e
-  // quem não passar o mouse em nada leva daqui a última vez que se cruzaram.
-  const [emFoco, setEmFoco] = useState(null);
-  if (!encontros.length) return null;
-
-  const destaque = encontros[emFoco ?? encontros.length - 1] ?? encontros[encontros.length - 1];
-  const temporadas = agrupaPorTemporada(encontros);
-  const vencedorLabel =
-    destaque.vencedor === "piloto"
-      ? dono
-      : destaque.vencedor === "rival"
-        ? primeiroNome(rival.nome)
-        : t("driverDetail.rivals.noWinner");
-  const vencedorCor =
-    destaque.vencedor === "piloto"
-      ? DUEL_WIN_COLOR
-      : destaque.vencedor === "rival"
-        ? DUEL_LOSS_COLOR
-        : undefined;
-
-  const colunas = colunasDoConfronto(encontros);
-  const gapDestaque = Number.isFinite(destaque.gap) ? destaque.gap : null;
-
-  return (
-    <div className="mt-3.5" data-testid="driver-detail-duel-timeline">
-      {/* A legenda vem ANTES do gráfico, e não depois: ela é o que o gráfico
-          está dizendo, e legenda embaixo obriga o olho a descer para saber o
-          que acabou de tocar. */}
-      <div className="flex items-baseline justify-between gap-3 text-[11px] leading-4">
-        <span className="min-w-0 truncate text-text-secondary">
-          {t("driverDetail.rivals.meetingStamp", {
-            track: destaque.pista,
-            year: destaque.ano,
-          })}
-        </span>
-        <strong
-          className="shrink-0 font-semibold"
-          style={vencedorCor ? { color: vencedorCor } : undefined}
-          data-testid="driver-detail-duel-winner"
-        >
-          {vencedorLabel}
-          {gapDestaque === null ? null : (
-            <span className="ml-1.5 font-mono font-normal text-text-muted">
-              {t("driverDetail.rivals.gapValue", { value: Math.abs(gapDestaque).toFixed(1) })}
-            </span>
-          )}
-        </strong>
-      </div>
-
-      <svg
-        viewBox={`0 0 ${colunas.length} ${DUEL_CHART.altura}`}
-        preserveAspectRatio="none"
-        className="mt-1.5 h-[46px] w-full"
-        onMouseLeave={() => setEmFoco(null)}
-        aria-hidden="true"
-      >
-        <DuelGapBand colunas={colunas} />
-        {colunas.map((coluna) => (
-          <rect
-            key={coluna.indice}
-            // A área de toque é a COLUNA INTEIRA, e não a barra: uma corrida de
-            // três décimos desenha três pixels de barra, e caçar três pixels com
-            // o ponteiro não é interação, é teste de pontaria.
-            data-duel-mark={coluna.vencedor}
-            data-em-foco={emFoco === coluna.indice || undefined}
-            onMouseEnter={() => setEmFoco(coluna.indice)}
-            x={coluna.indice}
-            y={0}
-            width={1}
-            height={DUEL_CHART.altura}
-            fill="transparent"
-          />
-        ))}
-      </svg>
-
-      {/* Os anos embaixo, com a largura de cada bloco proporcional às corridas
-          daquele ano: um ano de 20 encontros ocupa o dobro de um de 10, então a
-          própria largura já conta quanto os dois se cruzaram — sem eixo. */}
-      <div className="flex">
-        {temporadas.map((temporada) => (
-          <span
-            key={`${temporada.season_number}-${temporada.ano}`}
-            data-duel-season={temporada.ano}
-            className="min-w-0 truncate text-center text-[10px] leading-3 text-text-muted"
-            style={{ flex: temporada.corridas.length }}
-          >
-            {temporada.ano || temporada.season_number}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// A geometria do gráfico, em unidades do `viewBox`. O SVG estica na
-// horizontal (`preserveAspectRatio="none"`) e mantém a altura, então uma unidade
-// vertical é sempre a mesma coisa e uma horizontal é "uma corrida", qualquer que
-// seja a largura do card.
-const DUEL_CHART = {
-  altura: 40,
-  gapCentro: 20,
-  gapAmplitude: 17,
-  // Uma corrida decidida por um décimo tem que aparecer. Sem piso ela viraria
-  // uma linha de zero pixel e o dia sumiria do gráfico.
-  pisoDaBarra: 3,
-};
-
-// Uma barra por corrida, divergindo da linha central.
-//
-// O lado sai de quem venceu e a altura, do tempo entre os dois. Antes eram
-// marcas de altura igual, e "ele me ganhou por três décimos vinte vezes" e "ele
-// me tomou uma volta" desenhavam exatamente a mesma coisa.
-function DuelGapBand({ colunas }) {
-  const { gapCentro, gapAmplitude, pisoDaBarra } = DUEL_CHART;
-  const maiorGap = Math.max(...colunas.map((coluna) => Math.abs(coluna.gap ?? 0)), 0);
-
-  const altura = (gap) => {
-    if (!maiorGap || !Number.isFinite(gap)) return pisoDaBarra;
-    // RAIZ e não proporção direta: uma corrida em que alguém tomou uma volta
-    // vale 40s e achataria as outras quarenta e quatro contra a linha central.
-    // A raiz preserva a ordem e devolve as pequenas ao campo visível — o valor
-    // exato quem dá é a legenda, aqui em cima.
-    const escala = Math.sqrt(Math.abs(gap) / maiorGap);
-    return Math.max(pisoDaBarra, escala * gapAmplitude);
-  };
-
-  return (
-    <g data-duel-band="gap">
-      <line
-        x1={0}
-        x2={colunas.length}
-        y1={gapCentro}
-        y2={gapCentro}
-        stroke="rgba(255,255,255,0.1)"
-        vectorEffect="non-scaling-stroke"
-      />
-      {colunas.map((coluna) => {
-        if (coluna.vencedor !== "piloto" && coluna.vencedor !== "rival") {
-          // Corrida que não decidiu nada vira um traço sobre a linha central:
-          // ela aconteceu, e some do gráfico se não desenhar nada.
-          return (
-            <rect
-              key={coluna.indice}
-              x={coluna.indice + 0.15}
-              y={gapCentro - 0.75}
-              width={0.7}
-              height={1.5}
-              fill="rgba(255,255,255,0.16)"
-            />
-          );
-        }
-        const venceu = coluna.vencedor === "piloto";
-        const h = altura(coluna.gap);
-        return (
-          <rect
-            key={coluna.indice}
-            x={coluna.indice + 0.15}
-            y={venceu ? gapCentro - h : gapCentro}
-            width={0.7}
-            height={h}
-            fill={venceu ? DUEL_WIN_COLOR : DUEL_LOSS_COLOR}
-            opacity={0.85}
-          />
-        );
-      })}
-    </g>
-  );
-}
-
-// Cada corrida com o índice que a legenda usa para saber qual coluna está sob o
-// ponteiro, e o gap normalizado para `null` quando não dá para medir.
-function colunasDoConfronto(encontros) {
-  return encontros.map((encontro, indice) => ({
-    indice,
-    vencedor: encontro.vencedor,
-    gap: Number.isFinite(encontro.gap) ? encontro.gap : null,
-  }));
-}
-
-// Os encontros já chegam em ordem cronológica do backend; aqui eles só ganham a
-// quebra por temporada e o índice original, que é o que a legenda usa para saber
-// qual marca está sob o ponteiro.
-function agrupaPorTemporada(encontros) {
-  const temporadas = [];
-  encontros.forEach((encontro, indice) => {
-    const ultima = temporadas[temporadas.length - 1];
-    const corrida = { ...encontro, indice };
-    if (ultima && ultima.season_number === encontro.season_number) {
-      ultima.corridas.push(corrida);
-      return;
-    }
-    temporadas.push({
-      season_number: encontro.season_number,
-      ano: encontro.ano,
-      corridas: [corrida],
-    });
-  });
-  return temporadas;
-}
-
 function RivalLevelChip({ nivel }) {
   const { t } = useTranslation();
   const chave = RIVAL_LEVEL_COLORS[nivel] ? nivel : "atrito_leve";
@@ -3920,58 +3573,6 @@ function RivalLevelChip({ nivel }) {
       }}
     >
       {t(`driverDetail.rivals.levels.${chave}`)}
-    </span>
-  );
-}
-
-// A faixa da linha: sem legenda, sem ano e sem hover — nesse tamanho ela é uma
-// FORMA, não um gráfico de consulta.
-//
-// DOZE corridas, e não vinte: com quarenta e cinco marcas em 96px cada uma some
-// abaixo de dois pixels e as três linhas viram a mesma textura vermelha. O
-// recorte curto é o que ainda descreve a relação, e é ele que faz um rival
-// parecer diferente do outro na lista.
-const MINI_TIMELINE_RACES = 12;
-
-// Saldo zero não é vitória nem derrota, e pintá-lo de verde ou vermelho seria
-// dar lado a um empate. O sinal explícito no positivo porque "+8" e "8" contam
-// coisas diferentes numa coluna onde o vizinho é negativo.
-function corDoSaldo(saldo) {
-  if (saldo > 0) return DUEL_WIN_COLOR;
-  if (saldo < 0) return DUEL_LOSS_COLOR;
-  return undefined;
-}
-
-function formataSaldo(saldo) {
-  if (saldo > 0) return `+${saldo}`;
-  // Sinal de menos tipográfico e não hífen: numa coluna monoespaçada o hífen
-  // fica alto e curto demais e se lê como travessão de intervalo.
-  if (saldo < 0) return `−${Math.abs(saldo)}`;
-  return "0";
-}
-
-function MiniTimeline({ encontros }) {
-  const lista = Array.isArray(encontros) ? encontros.slice(-MINI_TIMELINE_RACES) : [];
-  if (!lista.length) return null;
-
-  return (
-    <span className="hidden w-24 shrink-0 gap-px sm:flex" aria-hidden="true">
-      {lista.map((corrida, indice) => (
-        <span
-          key={`${corrida.season_number}-${corrida.rodada}-${indice}`}
-          data-duel-mark={corrida.vencedor}
-          className="h-2 min-w-[2px] flex-1 rounded-[1px]"
-          style={{
-            backgroundColor:
-              corrida.vencedor === "piloto"
-                ? DUEL_WIN_COLOR
-                : corrida.vencedor === "rival"
-                  ? DUEL_LOSS_COLOR
-                  : "rgba(255,255,255,0.14)",
-            opacity: 0.82,
-          }}
-        />
-      ))}
     </span>
   );
 }
@@ -4421,22 +4022,6 @@ function ValorDeMercado({ market, curva }) {
 // Sai de `valor_mercado` ponto a ponto e não do salário estimado: os dois
 // divergem quando mídia ou desenvolvimento mudam, e um "+18%" tirado do proxy
 // seria uma precisão sobre a coisa errada.
-function tendenciaDeValor(curva) {
-  if (!Array.isArray(curva)) return null;
-  const medidos = curva.filter((ponto) => !ponto.futuro && Number.isFinite(ponto.valor_mercado));
-  if (medidos.length < 2) return null;
-
-  const atual = medidos[medidos.length - 1];
-  const anterior = medidos[medidos.length - 2];
-  if (!(anterior.valor_mercado > 0)) return null;
-
-  const variacao = atual.valor_mercado / anterior.valor_mercado - 1;
-  // Abaixo de 1% a seta viraria ruído: não foi o piloto que mudou, foi o
-  // arredondamento.
-  if (Math.abs(variacao) < 0.01) return null;
-  return { variacao, ano: anterior.ano, base: anterior.valor_mercado };
-}
-
 function TendenciaDeValor({ tendencia }) {
   const { t } = useTranslation();
   const subiu = tendencia.variacao > 0;
@@ -4561,652 +4146,6 @@ function BarraDeSalario({ chave, rotulo, valor, maximo, cor }) {
   );
 }
 
-// ── Curva de mercado ──
-//
-// As duas séries são a MESMA unidade (dólar por ano), então dividem um eixo só —
-// salário contratado contra o que o modelo diz que ele valia. O que se lê não são
-// as linhas, é a distância entre elas: os anos em que ele correu por menos do que
-// valia. O selo "Pechincha" do card ao lado é o último ponto deste gráfico.
-//
-// Paleta validada contra a superfície #0f1c2b (banda de luminosidade, piso de
-// croma, separação sob daltonismo e contraste) — não trocar sem revalidar.
-const CURVA_PAGO = "#388bfd";
-const CURVA_MERCADO = "#db6d28";
-
-// A moldura do gráfico — colunas de categoria, hachura do ano sem contrato,
-// fita de equipes, réguas de troca — mora em `curvaDeCarreira.jsx`, dividida
-// com a curva de campeonato do Histórico. O que sobra aqui é a SÉRIE.
-
-// Os dois lados da faixa de diferença, nomeados porque a moldura é genérica: ela
-// desenha a distância entre duas leituras quaisquer, e quem diz quais são é cada
-// gráfico.
-const LER_CONTRATO = (ponto) => ponto.salario_contrato;
-const LER_MERCADO = (ponto) => ponto.salario_mercado;
-
-function MarketCurve({ pontos }) {
-  const { t } = useTranslation();
-  const [emFoco, setEmFoco] = useState(null);
-  const [trocaEmFoco, setTrocaEmFoco] = useState(null);
-  // `null` é "o jogador ainda não escolheu" — e só nesse estado a curva decide
-  // sozinha entre desenho e tabela. Uma vez que ele aperta o botão, a escolha
-  // dele manda, inclusive ao abrir a ficha do piloto seguinte.
-  const [tabela, setTabela] = useState(null);
-
-  // Um ponto só não é uma curva — e o par de números de hoje já está nos cards
-  // logo abaixo. Duas temporadas é o mínimo para haver trajetória.
-  if (!Array.isArray(pontos) || pontos.length < 2) return null;
-
-  const geo = geometriaDaCurva(pontos);
-  // `x` é a régua da MOLDURA (centro da coluna do ano: rótulo, fita, alvos de
-  // hover); `xSerie` é a da SÉRIE (fim do ano, onde o número fechou). As duas
-  // coincidem só na temporada em curso, que ainda não terminou.
-  const { w, h, padE, padD, padT, alturaPlot, x, xSerie, passo } = geo;
-
-  const valores = pontos.flatMap((p) =>
-    [p.salario_mercado, p.salario_contrato].filter((v) => Number.isFinite(v) && v > 0),
-  );
-  if (!valores.length) return null;
-
-  const escala = escalaLog(valores);
-  const y = (valor) => padT + alturaPlot * (1 - escala.fracao(valor));
-
-  const foco = emFoco === null ? null : pontos[emFoco];
-  // Os dois lados se partem por motivos diferentes, então são contados
-  // separadamente: falta de arquivo quebra a laranja, ano sem equipe quebra a
-  // azul. Uma nota só, genérica, deixaria o jogador adivinhando qual é qual.
-  //
-  // Temporada futura fica fora da conta: ali a laranja não falta, ela ainda não
-  // existe — contá-la mandaria o jogador procurar um arquivo perdido que nunca
-  // foi escrito.
-  const semDado = pontos.filter(
-    (p) => !p.futuro && !Number.isFinite(p.salario_mercado),
-  ).length;
-  // A fronteira do que já aconteceu — o índice do PRIMEIRO ano ainda por correr,
-  // e não o do último cumprido: com o ponto no começo da coluna, o traço que sai
-  // do ano N cobre a coluna de N, então é do ponto do primeiro ano contratado em
-  // diante que o desenho vira promessa. `-1` quando a curva é toda passado, e é
-  // ele que apaga a régua do "hoje" e o traço fantasma junto.
-  const primeiroFuturo = pontos.findIndex((p) => p.futuro);
-  const inicioDoFuturo = primeiroFuturo >= 1 ? primeiroFuturo : -1;
-  // O que rompe o vínculo aqui é a falta de SALÁRIO: o ano sem contrato é
-  // exatamente o ano sem a série azul, e as duas marcas têm de nascer do mesmo
-  // teste para nunca discordarem sobre onde o vão começa.
-  const temContratoNoAno = (p) => Number.isFinite(p.salario_contrato);
-  const faixas = faixasSemVinculo(pontos, geo, temContratoNoAno);
-  const colunas = colunasDeCategoria(pontos, geo);
-  const trocas = trocasDeEquipe(pontos, (p) => p.salario_contrato);
-  const trocaAberta = trocas.find((troca) => troca.indice === trocaEmFoco) ?? null;
-  // O rótulo direto se prende à última temporada que TEM aquele número, e não à
-  // última do eixo — senão a série que acaba antes fica sem ponta rotulada.
-  const pontas = pontasRotuladas(pontos, y);
-
-  // Abaixo de três temporadas cumpridas o gráfico não tem o que desenhar: dois
-  // pontos numa moldura dimensionada para uma carreira inteira leem-se como
-  // "faltou informação", quando na verdade a informação está toda ali. A tabela
-  // diz os mesmos números sem prometer uma trajetória que ainda não existe.
-  //
-  // Conta ANOS ANTERIORES: a temporada em curso está no meio e as assinadas
-  // ainda não aconteceram — nenhuma das duas é histórico.
-  const anosDePassado = pontos.filter((p) => !p.futuro && !p.atual).length;
-  const emTabela = tabela ?? anosDePassado < MINIMO_PARA_O_GRAFICO;
-
-  return (
-    <div className="mt-3 rounded-xl bg-[#0f1c2b] px-4 py-3.5" data-testid="driver-detail-market-curve">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5">
-        <span className="text-xs font-semibold text-text-secondary">
-          {t("driverDetail.market.curve.title")}
-        </span>
-        <div className="flex items-center gap-3">
-          <SerieKey cor={CURVA_PAGO} label={t("driverDetail.market.curve.paid")} />
-          <SerieKey cor={CURVA_MERCADO} label={t("driverDetail.market.curve.worth")} />
-          {/* O gráfico nunca é o único caminho para o número: a tabela é o
-              mesmo dado sem depender de cor nem de hover. */}
-          <button
-            type="button"
-            // A escolha automática é um PADRÃO, não uma trava: o gráfico de três
-            // pontos continua alcançável para quem quiser vê-lo.
-            onClick={() => setTabela(!emTabela)}
-            className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
-            data-testid="driver-detail-curve-toggle"
-          >
-            {t(emTabela ? "driverDetail.market.curve.showChart" : "driverDetail.market.curve.showTable")}
-          </button>
-        </div>
-      </div>
-
-      {emTabela ? (
-        <CurvaEmTabela pontos={pontos} />
-      ) : (
-        <>
-          {/* `relative` porque o balão é HTML posicionado em PORCENTAGEM sobre o
-              SVG: o gráfico escala com a largura do modal, e uma posição em
-              pixels descolaria do ponto assim que a janela mudasse de tamanho. */}
-          <div className="relative mt-2">
-          <svg
-            viewBox={`0 0 ${w} ${h}`}
-            className="w-full"
-            role="img"
-            aria-label={t("driverDetail.market.curve.title")}
-            onMouseLeave={() => {
-              setEmFoco(null);
-              setTrocaEmFoco(null);
-            }}
-          >
-            <HachuraDefs />
-
-            <MolduraDeFundo
-              geo={geo}
-              colunas={colunas}
-              faixas={faixas}
-              trocas={trocas}
-              trocaEmFoco={trocaEmFoco}
-              rotuloSemVinculo={t("driverDetail.market.curve.noContract")}
-              reguaDoEixo={escala.marcas.map((marca) => (
-                <g key={marca}>
-                  <line
-                    x1={padE}
-                    x2={w - padD}
-                    y1={y(marca)}
-                    y2={y(marca)}
-                    stroke="rgba(255,255,255,0.07)"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x={padE - 8}
-                    y={y(marca) + 3}
-                    textAnchor="end"
-                    className="fill-[#6e7681] font-mono text-[9px] tabular-nums"
-                  >
-                    {formatMoneyCompact(marca)}
-                  </text>
-                </g>
-              ))}
-            />
-
-            {/* A faixa entre as duas linhas: é ela que carrega a leitura. Some
-                quando não há contrato para comparar naquele ano. */}
-            {faixasDeDiferenca(pontos, LER_MERCADO, LER_CONTRATO).map((faixa) => (
-              <path
-                key={`faixa-${faixa.inicio}`}
-                d={caminhoDaFaixa(faixa.trecho, geo, y, faixa.inicio, LER_MERCADO, LER_CONTRATO)}
-                fill={CURVA_MERCADO}
-                opacity="0.1"
-              />
-            ))}
-
-            {segmentosContinuos(pontos, LER_CONTRATO)
-              .flatMap((trecho) => partirNoPresente(trecho, inicioDoFuturo))
-              .map((trecho) => (
-                <polyline
-                  key={`pago-${trecho.inicio}-${trecho.futuro}`}
-                  data-serie="pago"
-                  data-futuro={trecho.futuro ? "" : undefined}
-                  points={verticesDaSerie(trecho, geo, y, LER_CONTRATO)}
-                  fill="none"
-                  stroke={CURVA_PAGO}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  // Fantasma, e não pontilhado: o tracejado já é o vocabulário do
-                  // vão sem contrato, e reusá-lo aqui diria "não houve salário"
-                  // sobre anos que têm salário assinado. O que muda no futuro é a
-                  // certeza, não a existência — e certeza se desenha com peso.
-                  opacity={trecho.futuro ? 0.4 : 1}
-                />
-              ))}
-
-            {segmentosContinuos(pontos, LER_MERCADO).map((trecho) => (
-              <polyline
-                key={`mercado-${trecho.inicio}`}
-                data-serie="mercado"
-                points={verticesDaSerie(trecho, geo, y, LER_MERCADO)}
-                fill="none"
-                stroke={CURVA_MERCADO}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-
-            {/* A ponte que atravessa o vão, ligando os dois pontos azuis das
-                margens — e que muda de estilo conforme o chão que pisa.
-
-                Pontilhada sobre a hachura: ali não houve salário, e um traço
-                cheio teria de inventar o valor de cada ponto do caminho. Cheia
-                fora dela, porque fora dela houve contrato e a série não tem
-                motivo para se esconder — a linha do dinheiro é uma só, e era
-                pontilhar ano pago que estava errado.
-
-                Vem depois das séries e antes dos marcadores: passa por cima da
-                laranja quando cruza com ela, e por baixo das bolinhas. */}
-            {pontesSemVinculo(faixas, pontos, LER_CONTRATO).map((ponte) => (
-              <PonteSobreOVao key={`ponte-${ponte.de}`} ponte={ponte} x={xSerie} y={y} cor={CURVA_PAGO} />
-            ))}
-
-            {/* A régua do presente. Sem ela o traço fantasma seria só uma linha
-                mais fraca sem motivo declarado; com ela o gráfico ganha um
-                antes e um depois, e o leitor entende de graça por que a laranja
-                não acompanha — dali para frente não há com o que comparar. */}
-            {inicioDoFuturo >= 0 ? (
-              <g data-marca="hoje">
-                <line
-                  x1={xSerie(inicioDoFuturo)}
-                  x2={xSerie(inicioDoFuturo)}
-                  y1={padT}
-                  y2={padT + alturaPlot}
-                  stroke="rgba(255,255,255,0.18)"
-                  strokeWidth="1"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={xSerie(inicioDoFuturo) + 5}
-                  y={padT + 7}
-                  className="fill-[#6e7681] text-[8px] uppercase tracking-[0.12em]"
-                >
-                  {t("driverDetail.market.curve.today")}
-                </text>
-              </g>
-            ) : null}
-
-            {pontos.map((ponto, indice) => (
-              <g key={ponto.season_number}>
-                {Number.isFinite(ponto.salario_contrato) ? (
-                  <circle
-                    cx={xSerie(indice)}
-                    cy={y(ponto.salario_contrato)}
-                    r={ponto.atual || indice === emFoco ? 4.5 : 3}
-                    // Marcador vazado no futuro: mesma posição, mesmo tamanho, e
-                    // ainda assim ninguém confunde com temporada cumprida.
-                    fill={ponto.futuro ? "#0f1c2b" : CURVA_PAGO}
-                    stroke={ponto.futuro ? CURVA_PAGO : "#0f1c2b"}
-                    strokeWidth="2"
-                    data-futuro={ponto.futuro ? "" : undefined}
-                  />
-                ) : null}
-                {Number.isFinite(ponto.salario_mercado) ? (
-                  <circle
-                    cx={xSerie(indice)}
-                    cy={y(ponto.salario_mercado)}
-                    r={ponto.atual || indice === emFoco ? 4.5 : 3}
-                    fill={CURVA_MERCADO}
-                    stroke="#0f1c2b"
-                    strokeWidth="2"
-                  />
-                ) : null}
-              </g>
-            ))}
-
-            {/* Rótulo direto só na ponta: um número em cada ponto viraria ruído,
-                e o resto é alcançável pelo hover e pela tabela. */}
-            {pontas.map((ponta) => (
-              <text
-                key={ponta.serie}
-                data-rotulo="ponta"
-                x={xSerie(ponta.indice)}
-                y={ponta.y}
-                // Ancorado à direita do ponto, sobre a coluna do próprio ano.
-                // Com o marcador no começo do ano é ali que sobra espaço — à
-                // esquerda o número cairia por cima da linha que chega nele.
-                textAnchor="start"
-                className={`${ponta.classe} font-mono text-[10px] font-semibold tabular-nums`}
-              >
-                {formatMoneyCompact(ponta.valor)}
-              </text>
-            ))}
-
-            <MolduraDeRodape
-              geo={geo}
-              pontos={pontos}
-              trocas={trocas}
-              emFoco={emFoco}
-              setTrocaEmFoco={setTrocaEmFoco}
-            />
-
-            <AlvosDeTemporada geo={geo} pontos={pontos} emFoco={emFoco} setEmFoco={setEmFoco} />
-          </svg>
-
-            {foco ? (
-              <CurvaTooltip
-                ponto={foco}
-                ancora={ancoraDoBalao(
-                  [foco.salario_contrato, foco.salario_mercado]
-                    .filter((valor) => Number.isFinite(valor))
-                    .map(y),
-                  emFoco,
-                  { x: xSerie, w, h },
-                )}
-              />
-            ) : null}
-
-            {trocaAberta ? (
-              <TrocaTooltip
-                troca={trocaAberta}
-                // Preso na fita, e não na altura do ponto: a marca vive no
-                // rodapé, e um balão subindo até a curva apontaria para o nada.
-                // A margem de 14% impede que ele saia pela borda do cartão nas
-                // trocas do primeiro e do último ano.
-                esquerda={`${Math.min(86, Math.max(14, ((x(trocaAberta.indice) - passo / 2) / w) * 100))}%`}
-                topo={`${(CURVA_FITA.y / h) * 100}%`}
-                formatarValor={formatMoneyCompact}
-                rodape={<DeltaDaTroca troca={trocaAberta} />}
-              />
-            ) : null}
-          </div>
-
-          {/* O que sobrou da legenda: uma chave só, e só às vezes.
-
-              A chave de categoria virou o nome escrito na própria coluna — em
-              pé onde não cabe deitado — e a de troca de equipe deixou de
-              existir junto com o losango: duas emendas de chip não pedem
-              tradução. Sobra a do traço fantasma, que a régua do "hoje" localiza
-              mas não explica.
-
-              A linha inteira só nasce quando há o que dizer. Uma borda superior
-              sobre nada era o rodapé anunciando uma seção vazia. */}
-          {inicioDoFuturo >= 0 ? (
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/[0.06] pt-2 text-[10px] text-text-muted">
-              <span className="flex items-center gap-1.5" data-chave="futuro">
-                <span
-                  className="h-0.5 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: CURVA_PAGO, opacity: 0.4 }}
-                />
-                {t("driverDetail.market.curve.contracted")}
-              </span>
-            </div>
-          ) : null}
-
-          {/* Sobra aqui só o que o desenho NÃO consegue mostrar: ano sem arquivo
-              não tem faixa nem ponto — não há onde ancorar a marca. O ano sem
-              contrato saiu desta nota porque virou faixa no gráfico, e a
-              explicação de como a laranja é reconstruída saiu porque era
-              metodologia, não leitura: quem abre a ficha quer ver a diferença,
-              não a procedência da linha.
-
-              Fora do quadro relativo de propósito: é ele que dá ao balão a
-              altura contra a qual se alinhar, e a nota inflando esse quadro
-              deslocaria o `bottom: 0` do balão para baixo do gráfico. */}
-          {semDado > 0 ? (
-            <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              {t("driverDetail.market.curve.missing", { count: semDado })}
-            </p>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}
-
-function CurvaTooltip({ ponto, ancora }) {
-  const { t } = useTranslation();
-  // A diferença só existe com os dois lados na mão.
-  const diferenca =
-    Number.isFinite(ponto.salario_contrato) && Number.isFinite(ponto.salario_mercado)
-      ? ponto.salario_mercado - ponto.salario_contrato
-      : null;
-
-  return (
-    <div
-      // `pointer-events-none` é o que impede o balão de roubar o hover do alvo
-      // que o abriu — sem isso ele pisca ao se posicionar sob o cursor.
-      className="pointer-events-none absolute z-10 w-max max-w-[240px] rounded-lg border border-white/10 bg-[#0b1622] px-3 py-2 shadow-xl shadow-black/50"
-      style={{ left: ancora.esquerda, ...ancora.vertical, transform: ancora.transform }}
-      data-testid="driver-detail-curve-tooltip"
-    >
-      <div className="flex items-center gap-2">
-        <TeamLogoMark
-          teamName={ponto.equipe_nome}
-          size="xs"
-          halo
-          testId="driver-detail-curve-tooltip-logo"
-        />
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-primary">
-          {ponto.equipe_nome || t("driverDetail.market.curve.noTeam")}
-        </span>
-        {/* Categoria colada no ano: sem ela o balão diz um salário sem dizer em
-            que degrau ele foi pago. */}
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-text-muted">
-          {[ponto.categoria ? formatCategoryLabel(ponto.categoria) : null, ponto.ano]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-      </div>
-
-      <div className="mt-1.5 space-y-1">
-        <LinhaDoBalao
-          cor={CURVA_PAGO}
-          label={t("driverDetail.market.curve.paid")}
-          valor={
-            // Um traço não diz nada; "sem contrato" diz que o buraco é o dado.
-            Number.isFinite(ponto.salario_contrato)
-              ? formatSalary(ponto.salario_contrato)
-              : t("driverDetail.market.curve.noContract")
-          }
-        />
-        <LinhaDoBalao
-          cor={CURVA_MERCADO}
-          label={t("driverDetail.market.curve.worth")}
-          valor={
-            Number.isFinite(ponto.salario_mercado)
-              ? formatSalary(ponto.salario_mercado)
-              // Temporada que ainda não aconteceu não tem arquivo faltando — ela
-              // não tem arquivo ainda, e chamar isso de lacuna mandaria o jogador
-              // caçar um dado perdido que não existe.
-              : t(
-                  ponto.futuro
-                    ? "driverDetail.market.curve.notYet"
-                    : "driverDetail.market.curve.noArchive",
-                )
-          }
-        />
-      </div>
-
-      {diferenca !== null ? (
-        <p
-          // Centralizado porque é fecho, não mais um item da lista: alinhado à
-          // esquerda ele entrava na coluna dos rótulos acima e lia como a quarta
-          // linha do mesmo bloco.
-          className="mt-1.5 border-t border-white/[0.08] pt-1.5 text-center text-[10px]"
-          style={{ color: diferenca >= 0 ? TONE_HEX.success : TONE_HEX.warning }}
-        >
-          {t("driverDetail.market.curve.gapValue", { value: formatSignedMoney(diferenca) })}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-// O fecho do balão da troca de equipe: o que mudou no salário ao mudar de casa.
-// É a pergunta seguinte à troca, e a resposta já está nos dois chips.
-function DeltaDaTroca({ troca }) {
-  const { t } = useTranslation();
-  const diferenca =
-    Number.isFinite(troca.valorDe) && Number.isFinite(troca.valorPara)
-      ? troca.valorPara - troca.valorDe
-      : null;
-  if (diferenca === null) return null;
-
-  return (
-    <FechoDoBalao cor={diferenca >= 0 ? TONE_HEX.success : TONE_HEX.warning}>
-      {t("driverDetail.market.curve.salaryDelta", { value: formatSignedMoney(diferenca) })}
-    </FechoDoBalao>
-  );
-}
-
-// O mesmo dado sem cor e sem hover — o caminho de leitura que não depende de
-// enxergar a diferença entre azul e laranja.
-function CurvaEmTabela({ pontos }) {
-  const { t } = useTranslation();
-  return (
-    <div className="mt-2 max-h-52 overflow-y-auto" data-testid="driver-detail-curve-table">
-      <table className="w-full text-[11px]">
-        <thead>
-          <tr className="text-text-muted">
-            <th className="py-1 text-left font-medium">{t("driverDetail.market.curve.season")}</th>
-            <th className="py-1 text-left font-medium">{t("driverDetail.market.curve.category")}</th>
-            <th className="py-1 text-left font-medium">{t("driverDetail.market.curve.team")}</th>
-            <th className="py-1 text-right font-medium">{t("driverDetail.market.curve.paid")}</th>
-            <th className="py-1 text-right font-medium">{t("driverDetail.market.curve.worth")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...pontos].reverse().map((ponto) => (
-            <tr key={ponto.season_number} className="border-t border-white/[0.06]">
-              <td className="py-1 font-mono tabular-nums text-text-secondary">{ponto.ano}</td>
-              {/* A tabela é o caminho sem cor: aqui a categoria precisa estar
-                  escrita, não pintada como na trilha do gráfico. */}
-              <td
-                className="py-1 text-[10px] uppercase tracking-[0.06em]"
-                style={{ color: getCategoryColor(ponto.categoria) }}
-              >
-                {ponto.categoria ? formatCategoryLabel(ponto.categoria) : "-"}
-              </td>
-              <td className="py-1 text-text-secondary">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <TeamLogoMark
-                    teamName={ponto.equipe_nome}
-                    size="xs"
-                    testId="driver-detail-curve-row-logo"
-                  />
-                  <span className="min-w-0 truncate">
-                    {ponto.equipe_nome || t("driverDetail.market.curve.noTeam")}
-                  </span>
-                </span>
-              </td>
-              {/* A tabela é o caminho de leitura que não depende de ver a linha
-                  se partir — então é aqui que a lacuna precisa se nomear. */}
-              <td className="py-1 text-right font-mono tabular-nums text-text-primary">
-                {Number.isFinite(ponto.salario_contrato) ? (
-                  formatSalary(ponto.salario_contrato)
-                ) : (
-                  <span className="font-sans text-text-muted">
-                    {t("driverDetail.market.curve.noContract")}
-                  </span>
-                )}
-              </td>
-              <td className="py-1 text-right font-mono tabular-nums text-text-primary">
-                {Number.isFinite(ponto.salario_mercado) ? (
-                  formatSalary(ponto.salario_mercado)
-                ) : (
-                  <span className="font-sans text-text-muted">
-                    {t(
-                      ponto.futuro
-                        ? "driverDetail.market.curve.notYet"
-                        : "driverDetail.market.curve.noArchive",
-                    )}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// Eixo logarítmico, e não linear, porque carreira em dinheiro é multiplicativa.
-//
-// Um piloto sai de $18k na base e chega a $1,3M na categoria de cima — duas
-// ordens de grandeza. Numa régua linear os primeiros anos viram um fio colado no
-// zero, e é justamente lá que mora a leitura mais forte do gráfico: em 2022 ele
-// ganhava $42k valendo $118k, quase o triplo, e a distância entre as linhas
-// desaparecia. No log, a mesma RAZÃO desenha a mesma distância em qualquer altura
-// do eixo — que é exatamente o que "ganhou metade do que valia" quer dizer.
-//
-// As marcas seguem a escada 1-3-10, o padrão de eixo log: $30k, $100k, $300k, $1M.
-//
-// Essa escada é a certa para uma carreira inteira e é CEGA para uma curta: entre
-// $12k e $25k não existe potência de 3 nem de 10, e o eixo saía sem marca
-// nenhuma — 62px de calha vazia à esquerda e nada contra o que medir a altura
-// das linhas. Como a escala se auto-ajusta ao próprio dado, um degrau de $1k
-// desenhava um abismo e não havia como o leitor saber disso.
-//
-// Abaixo de meia ordem de grandeza a régua vira LINEAR. Num vão tão curto o log
-// é visualmente indistinguível do linear (a curvatura só aparece ao longo de
-// décadas), então marcas redondas e igualmente espaçadas são honestas e sempre
-// existem — que é justamente o que a escada 1-3-10 não garante.
-const VAO_LINEAR = 0.5;
-
-function escalaLog(valores) {
-  const piso = Math.max(1, Math.min(...valores) / 1.2);
-  const teto = Math.max(...valores) * 1.2;
-  const lo = Math.log10(piso);
-  const hi = Math.log10(teto);
-  const vao = Math.max(hi - lo, 0.0001);
-
-  return {
-    marcas: vao < VAO_LINEAR ? marcasLineares(piso, teto) : marcasEmDecadas(piso, teto),
-    fracao: (valor) => (Math.log10(Math.max(valor, piso)) - lo) / vao,
-  };
-}
-
-function marcasEmDecadas(piso, teto) {
-  const marcas = [];
-  for (let expoente = Math.floor(Math.log10(piso)); expoente <= Math.ceil(Math.log10(teto)); expoente += 1) {
-    for (const passo of [1, 3]) {
-      const marca = passo * 10 ** expoente;
-      if (marca >= piso && marca <= teto) marcas.push(marca);
-    }
-  }
-  return marcas;
-}
-
-// Três marcas é o alvo: menos que isso não é régua, mais polui um gráfico de
-// 150px de altura. O 2,5 fica de fora da escada de propósito — com valores na
-// casa dos milhares ele produz passos que o formato compacto arredonda para o
-// mesmo rótulo ($12,5k e $13k viram os dois "$13k"), e duas linhas com a mesma
-// etiqueta são piores do que nenhuma.
-function marcasLineares(piso, teto) {
-  const bruto = (teto - piso) / 3;
-  const magnitude = 10 ** Math.floor(Math.log10(bruto));
-  const passo = ([1, 2, 5, 10].find((m) => m * magnitude >= bruto) ?? 10) * magnitude;
-
-  const marcas = [];
-  for (let valor = Math.ceil(piso / passo) * passo; valor <= teto; valor += passo) {
-    marcas.push(valor);
-  }
-  // Rede de segurança do arredondamento: em faixas de centenas o passo pode
-  // cair abaixo da resolução do rótulo compacto. Sobrevive uma marca por texto.
-  const vistos = new Set();
-  return marcas.filter((marca) => {
-    const rotulo = formatMoneyCompact(marca);
-    if (vistos.has(rotulo)) return false;
-    vistos.add(rotulo);
-    return true;
-  });
-}
-
-// A ponta de cada série, empurrada para longe da outra quando as duas terminam
-// na mesma altura. Com posição fixa (uma sempre acima, outra sempre abaixo) os
-// dois números se sobrepunham sempre que as linhas se encontravam no fim.
-function pontasRotuladas(pontos, y) {
-  const ultimaDe = (ler) => {
-    for (let i = pontos.length - 1; i >= 0; i -= 1) {
-      if (Number.isFinite(ler(pontos[i]))) return { indice: i, valor: ler(pontos[i]) };
-    }
-    return null;
-  };
-
-  const pago = ultimaDe((p) => p.salario_contrato);
-  const mercado = ultimaDe((p) => p.salario_mercado);
-  const pontas = [];
-  if (pago) pontas.push({ serie: "pago", classe: "fill-[#388bfd]", ...pago });
-  if (mercado) pontas.push({ serie: "mercado", classe: "fill-[#db6d28]", ...mercado });
-
-  const colidem =
-    pontas.length === 2 &&
-    pontas[0].indice === pontas[1].indice &&
-    Math.abs(y(pontas[0].valor) - y(pontas[1].valor)) < 16;
-
-  return pontas.map((ponta) => {
-    const alto = pontas.length === 2 && ponta.valor >= Math.max(...pontas.map((p) => p.valor));
-    // Colidindo, cada uma foge para o seu lado; separadas, ambas ficam acima do
-    // ponto, que é onde sobra espaço em um gráfico que termina subindo.
-    const deslocamento = colidem ? (alto ? -10 : 17) : -9;
-    return { ...ponta, y: y(ponta.valor) + deslocamento };
-  });
-}
-
 // Sem contrato não há comparação a fazer — o estimado vira o único número e o
 // selo some em vez de dizer "na faixa" contra nada.
 //
@@ -5221,17 +4160,6 @@ function seloDeSalario(estimado, pago) {
   if (razao <= 0.85) return { chave: "inflado", tom: "warning" };
   return { chave: "faixa", tom: "neutral" };
 }
-
-// Os mesmos tons de `technicalToneClass`, em hex — o que se pinta com `style`
-// (barra, marcador, faixa de fase) não pode sair de uma classe do Tailwind.
-const TONE_HEX = {
-  danger: "#f85149",
-  warning: "#d29922",
-  neutral: "#8b949e",
-  info: "#58a6ff",
-  success: "#3fb950",
-  elite: "#bc8cff",
-};
 
 function StardomMeter({ eixo, label, value, level, tone }) {
   const color = TONE_HEX[tone] || TONE_HEX.neutral;
@@ -5364,7 +4292,7 @@ function BlockLabel({ children }) {
   );
 }
 
-// Casca de seção para os blocos importados do v1 que esperam um
+// Casca de seção para os blocos importados de ../detalhes/ que esperam um
 // `SectionComponent` com título próprio.
 function Block({ title, children }) {
   return (

@@ -12,6 +12,7 @@ import EngineerVrWriter from "./overlay/EngineerVrWriter";
 import OverlayPositionPanel from "./overlay/OverlayPositionPanel";
 import OverlayMonitorAuto from "./overlay/OverlayMonitorAuto";
 import SpotterVoiceAuto from "./overlay/SpotterVoiceAuto";
+import EngenheiroVozAuto from "./overlay/EngenheiroVozAuto";
 import EngenheiroPttAuto from "./overlay/EngenheiroPttAuto";
 import PoachAuctionHost from "./components/season/PoachAuctionHost";
 import SeasonChampionOverlay from "./components/season/SeasonChampionOverlay";
@@ -64,6 +65,7 @@ function App() {
         <OverlayPositionPanel />
         <OverlayMonitorAuto />
         <SpotterVoiceAuto />
+        <EngenheiroVozAuto />
         <EngenheiroPttAuto />
         <PoachAuctionHost />
         <SeasonChampionOverlay />

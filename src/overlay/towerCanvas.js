@@ -12,29 +12,31 @@ import { buildTowerSections, isTeammate, playerTeam } from "./towerRows";
 import { rowKey } from "./towerAnimation";
 import { DEFAULT_THEME } from "./towerThemes";
 import { tireCompoundDryWet } from "./tireCompounds";
+import { categoryLogoFile, categoryLogoSrc } from "../utils/categoryLogos";
 
-// Categoria do EVENTO -> nome exibido + arquivo do logo (public/utilities/categorias/recortadas).
-const CATEGORY_META = {
-  gt3: { name: "GT3", logo: "GT3" },
-  gt4: { name: "GT4", logo: "GT4" },
-  lmp2: { name: "LMP2", logo: "LMP2" },
-  endurance: { name: "ENDURANCE", logo: "ENDURANCE" },
-  production_challenger: { name: "PRODUCTION", logo: "PRODUCTION" },
-  production: { name: "PRODUCTION", logo: "PRODUCTION" },
-  bmw_m2: { name: "BMW M2", logo: "M2 CUP" },
-  toyota_amador: { name: "GR CUP", logo: "GR CUP" },
-  mazda_amador: { name: "MX5 CUP", logo: "MX5 CUP" },
-  toyota_rookie: { name: "GR ROOKIE", logo: "GR ROOKIE" },
-  mazda_rookie: { name: "MX5 ROOKIE", logo: "MX5 ROOKIE" },
+// Categoria do EVENTO -> nome exibido na faixa da torre. O ARQUIVO do brasão não mora aqui:
+// vem do dicionário único de `utils/categoryLogos.js`, o mesmo que o atlas, a pré-temporada,
+// a convocação e o calendário usam. Só o nome é próprio da torre, porque ela mostra o rótulo
+// curto que cabe na largura do painel ("GR CUP", e não "Toyota Cup Principal").
+const CATEGORY_NAME = {
+  gt3: "GT3",
+  gt4: "GT4",
+  lmp2: "LMP2",
+  endurance: "ENDURANCE",
+  production_challenger: "PRODUCTION",
+  production: "PRODUCTION",
+  bmw_m2: "BMW M2",
+  toyota_amador: "GR CUP",
+  mazda_amador: "MX5 CUP",
+  toyota_rookie: "GR ROOKIE",
+  mazda_rookie: "MX5 ROOKIE",
 };
 
 function categoryMeta(id) {
-  return CATEGORY_META[id] || { name: String(id || "").toUpperCase(), logo: null };
-}
-
-function categoryLogoSrc(id) {
-  const m = categoryMeta(id);
-  return m.logo ? `/utilities/categorias/recortadas/${encodeURIComponent(m.logo)}.webp` : null;
+  return {
+    name: CATEGORY_NAME[id] || String(id || "").toUpperCase(),
+    logo: categoryLogoFile(id),
+  };
 }
 
 // O layout é todo pensado em unidades LÓGICAS (512×1024). Pra deixar o texto

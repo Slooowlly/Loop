@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { invoke } from "@tauri-apps/api/core";
 import GlassSelect from "../components/ui/GlassSelect";
 import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
@@ -11,7 +10,11 @@ import PttEngenheiroSettings from "../components/iracing/PttEngenheiroSettings";
 import { useOverlayFlags } from "../overlay/useOverlayFlags";
 import { estaLigada as vozSpotterLigada, falar as falarSpotter, ligar as ligarVozSpotter } from "../lib/spotterVoice";
 import { definirVolume, volumeRadio } from "../lib/volumeRadio";
-import useCareerStore from "../stores/useCareerStore";
+import useConfiguracaoDoApp from "../hooks/useConfiguracaoDoApp";
+import useFerramentasDeDebug from "../hooks/useFerramentasDeDebug";
+import useRaceControl from "../hooks/useRaceControl";
+import useSaves from "../hooks/useSaves";
+import useSpotterNativo from "../hooks/useSpotterNativo";
 import { useTranslation } from "react-i18next";
 
 // Fundo da tela: "particles" (campo de partículas, igual ao menu) ou "glass"
@@ -22,46 +25,69 @@ function Settings() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [navigating, setNavigating] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  // Os três blocos de dados da tela vivem em hooks próprios: config do app, Race Control
+  // e as ferramentas de bancada. O componente ficou com o desenho e com o que é só dele.
+  const {
+    config,
+    setConfig,
+    loading,
+    saving,
+    errorMessage,
+    setErrorMessage,
+    handleToggle,
+    handleChange,
+  } = useConfiguracaoDoApp();
+  const {
+    yellowStatus,
+    yellowMsg,
+    autoYellow,
+    yellowBusy,
+    raceControlOn,
+    toggleRaceControl,
+    chatText,
+    setChatText,
+    chatMsg,
+    chatBusy,
+    sendChatTest,
+  } = useRaceControl(t);
+  const {
+    capture,
+    captureMsg,
+    toggleCapture,
+    radioDemo,
+    toggleRadioDemo,
+    armBusy,
+    armMsg,
+    armBreakdown,
+    armBreakdownGrid,
+  } = useFerramentasDeDebug(t);
 
-  // Race Control: macro de bandeira amarela (edita o app.ini do iRacing).
-  // Estado AO VIVO do pipeline de overlay — o que diz se o iRacing está em VR agora.
-  const overlayFlags = useOverlayFlags();
-  const [yellowStatus, setYellowStatus] = useState(null);
-  const [yellowMsg, setYellowMsg] = useState("");
+  const [navigating, setNavigating] = useState(false);
   const [debugMenuOpen, setDebugMenuOpen] = useState(false);
 
-  // Estado do "automático" (flag do RaceControl) e trava anti-duplo-clique.
-  const [autoYellow, setAutoYellow] = useState(false);
-  const [yellowBusy, setYellowBusy] = useState(false);
+  // Estado AO VIVO do pipeline de overlay — o que diz se o iRacing está em VR agora.
+  const overlayFlags = useOverlayFlags();
 
-  // Spotter: o Loop cala o nativo do iRacing enquanto está aberto e o devolve ao
-  // fechar. O interruptor NÃO passa pelo `handleToggle` genérico: a preferência e o
-  // `app.ini` precisam mudar juntos, e quem faz as duas coisas é o comando dedicado.
-  const [spotterStatus, setSpotterStatus] = useState(null);
-  const [spotterBusy, setSpotterBusy] = useState(false);
+  // Spotter: o Loop cala o nativo do iRacing enquanto está aberto e o devolve ao fechar.
+  // A ponte (status + escrita no app.ini) mora em `hooks/useSpotterNativo`; aqui fica só
+  // o eco otimista no config da tela, que é o que o interruptor desenha.
+  const {
+    ocupado: spotterBusy,
+    disponivel: spotterDisponivel,
+    alternar: alternarSpotter,
+  } = useSpotterNativo();
+
   async function toggleSpotter() {
     if (spotterBusy || !config) return;
     const next = !config.spotter_takeover;
-    setSpotterBusy(true);
     setConfig({ ...config, spotter_takeover: next });
-    try {
-      setSpotterStatus(await invoke("iracing_spotter_set", { enabled: next }));
-    } catch (err) {
-      // O interruptor NÃO volta: o backend grava a preferência antes de tocar no
-      // `app.ini`, então ela está salva mesmo quando a escrita falha (sim aberto,
-      // arquivo ausente). Voltar aqui faria a tela discordar do disco. O erro
-      // aparece, e o boot seguinte tenta de novo.
-      setErrorMessage(String(err));
-      invoke("iracing_spotter_status").then(setSpotterStatus).catch(() => {});
-    } finally {
-      setSpotterBusy(false);
-    }
+    const falha = await alternarSpotter(next);
+    if (falha) setErrorMessage(falha);
   }
+
+  // Só para decidir o destino do botão de baixo (menu vs. primeira carreira). Sem
+  // carregar ao montar: a lista é lida no clique, que é quando a resposta importa.
+  const { recarregar: recarregarSaves } = useSaves({ carregarAoMontar: false });
 
   // Voz do spotter. Mora no localStorage, não no config do backend: é preferência
   // de saída de áudio desta máquina, e o Rust não tem nada a decidir sobre ela.
@@ -69,151 +95,6 @@ function Settings() {
   // Mesma história: preferência de saída de áudio DESTA máquina, e vale para as duas
   // bocas do rádio — o spotter e o engenheiro são a mesma pessoa.
   const [volumeRad, setVolumeRad] = useState(volumeRadio);
-
-  // Teste de comando de chat de TEXTO LIVRE (ex.: !black #1 20) — caminho
-  // parametrizado que NÃO depende de macro no app.ini. Só pra validar.
-  const [chatText, setChatText] = useState("!black #1 20");
-  const [chatMsg, setChatMsg] = useState("");
-  const [chatBusy, setChatBusy] = useState(false);
-  async function sendChatTest() {
-    const text = chatText.trim();
-    if (chatBusy || !text) return;
-    setChatBusy(true);
-    setChatMsg("");
-    try {
-      await invoke("iracing_send_chat_text", { text });
-      setChatMsg(t("settings.debug.chatSent", { text }));
-    } catch (err) {
-      setChatMsg(String(err));
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  // Teste do DISPARO AO VIVO da quebra: arma uma falha garantida no carro do jogador
-  // (motor na parede) pra próxima volta cruzada. Ao passar pela linha, o monitor manda o
-  // !black/!dq sozinho — valida o pipeline ponta a ponta (detecção de volta + disparo).
-  const [armBusy, setArmBusy] = useState(false);
-  const [armMsg, setArmMsg] = useState("");
-
-  // Demo do overlay de RÁDIO: liga um card de exemplo ciclando na tela (pra achar/posicionar
-  // o overlay sem esperar uma quebra real). Estado mora no backend (vale pra janela do rádio).
-  const [radioDemo, setRadioDemo] = useState(false);
-  async function toggleRadioDemo() {
-    const next = !radioDemo;
-    setRadioDemo(next);
-    try {
-      await invoke("overlay_set_demo", { on: next });
-    } catch {
-      /* ignora */
-    }
-  }
-
-  // Gravador de corrida (DEBUG): salva a telemetria crua + YAML + histórico num arquivo, pra
-  // calibrar o app com dados reais de pista. Só pra dev — não vai pro fluxo comercial.
-  const [capture, setCapture] = useState({ active: false, frames: 0, dir: "" });
-  const [captureMsg, setCaptureMsg] = useState("");
-  async function refreshCapture() {
-    try {
-      setCapture(await invoke("race_capture_status"));
-    } catch {
-      /* ignora */
-    }
-  }
-  async function toggleCapture() {
-    try {
-      if (capture.active) {
-        const path = await invoke("race_capture_stop");
-        setCaptureMsg(path ? t("settings.debug.captureSaved", { path }) : t("settings.debug.captureStopped"));
-      } else {
-        const path = await invoke("race_capture_start");
-        setCaptureMsg(t("settings.debug.capturing", { path }));
-      }
-      await refreshCapture();
-    } catch (err) {
-      setCaptureMsg(String(err));
-    }
-  }
-  async function armBreakdown() {
-    if (armBusy) return;
-    setArmBusy(true);
-    setArmMsg("");
-    try {
-      const ok = await invoke("iracing_arm_test_breakdown");
-      setArmMsg(
-        ok
-          ? t("settings.debug.armedMyCar")
-          : t("settings.debug.armFailed"),
-      );
-    } catch (err) {
-      setArmMsg(String(err));
-    } finally {
-      setArmBusy(false);
-    }
-  }
-  async function armBreakdownGrid() {
-    if (armBusy) return;
-    setArmBusy(true);
-    setArmMsg("");
-    try {
-      await invoke("iracing_arm_test_breakdown_grid");
-      setArmMsg(t("settings.debug.armedGrid"));
-    } catch (err) {
-      setArmMsg(String(err));
-    } finally {
-      setArmBusy(false);
-    }
-  }
-
-  // A macro já é instalada sozinha ao abrir as Configurações (useEffect abaixo);
-  // aqui o toggle só liga/desliga o disparo automático da bandeira.
-  const raceControlOn = Boolean(yellowStatus?.installed && autoYellow);
-  async function toggleRaceControl() {
-    if (yellowBusy || !yellowStatus?.installed) return;
-    const next = !autoYellow;
-    setYellowBusy(true);
-    setAutoYellow(next);
-    try {
-      await invoke("iracing_set_auto_yellow", { enabled: next });
-    } catch (err) {
-      setAutoYellow(!next);
-      setYellowMsg(String(err));
-    } finally {
-      setYellowBusy(false);
-    }
-  }
-
-  // Ao abrir as Configurações, garante a macro de bandeira instalada no app.ini.
-  // Assim, quando o jogador for correr, ela já está pronta — sem ele precisar
-  // ativar nada nem saber o que é "macro". (O iRacing reescreve o app.ini ao
-  // fechar, então o ideal é o sim estar fechado neste momento.)
-  useEffect(() => {
-    (async () => {
-      try {
-        let status = await invoke("iracing_yellow_macro_status");
-        if (status?.app_ini_found && !status.installed) {
-          status = await invoke("iracing_install_yellow_macro");
-        }
-        setYellowStatus(status);
-      } catch (err) {
-        console.error("Falha ao preparar a macro de bandeira:", err);
-      }
-    })();
-    invoke("iracing_auto_yellow_enabled").then((v) => setAutoYellow(Boolean(v))).catch(() => {});
-    invoke("overlay_demo_enabled").then((v) => setRadioDemo(Boolean(v))).catch(() => {});
-    invoke("iracing_spotter_status").then(setSpotterStatus).catch(() => {});
-  }, []);
-
-  // Poll do status da gravação de debug (contagem de frames enquanto grava).
-  useEffect(() => {
-    refreshCapture();
-    const t = setInterval(refreshCapture, 2000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    loadConfig();
-  }, []);
 
   // Rola ate a secao pedida pelos atalhos do menu (navigate state.section).
   useEffect(() => {
@@ -225,48 +106,6 @@ function Settings() {
     }, 60);
     return () => clearTimeout(id);
   }, [loading, location.state]);
-
-  async function loadConfig() {
-    try {
-      const cfg = await invoke("get_config");
-      setConfig(cfg);
-    } catch (err) {
-      console.error("Falha ao carregar config:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveConfig(newCfg) {
-    setSaving(true);
-    setErrorMessage("");
-    try {
-      await invoke("update_config", { newConfig: newCfg });
-    } catch (err) {
-      console.error("Falha ao salvar config:", err);
-      setErrorMessage(err.toString());
-      loadConfig();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const handleToggle = (field) => {
-    const newCfg = { ...config, [field]: !config[field] };
-    setConfig(newCfg);
-    saveConfig(newCfg);
-  };
-
-  const handleChange = (field, value) => {
-    const newCfg = { ...config, [field]: value };
-    setConfig(newCfg);
-    saveConfig(newCfg);
-    // Reflete a troca de idioma no store na hora (decide fallback PT vs "erro"
-    // localizado nas telas de narrativa), sem exigir reload da carreira.
-    if (field === "language") {
-      useCareerStore.getState().setLanguage(value);
-    }
-  };
 
   if (loading || !config) {
     // Só o fundo (tela cheia, sem texto piscando nem colapsar) até o config carregar.
@@ -487,16 +326,14 @@ function Settings() {
               app.ini) e o devolve ao fechar o Loop. Desabilitado quando não há app.ini. */}
           <div
             className={`flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5 ${
-              spotterStatus?.app_ini_found && !spotterBusy
-                ? "cursor-pointer"
-                : "cursor-default opacity-55"
+              spotterDisponivel && !spotterBusy ? "cursor-pointer" : "cursor-default opacity-55"
             }`}
-            onClick={spotterStatus?.app_ini_found && !spotterBusy ? toggleSpotter : undefined}
+            onClick={spotterDisponivel && !spotterBusy ? toggleSpotter : undefined}
           >
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">{t("settings.spotter.label")}</p>
               <p className="text-[11px] text-text-secondary">
-                {!spotterStatus?.app_ini_found
+                {!spotterDisponivel
                   ? t("settings.spotter.semAppIni")
                   : config.spotter_takeover
                     ? t("settings.spotter.on")
@@ -828,8 +665,11 @@ function Settings() {
           <GlassButton
             variant="primary"
             onClick={async () => {
-              const saves = await invoke("list_saves").catch(() => []);
-              if (saves.length > 0) {
+              // Falha de leitura vira `null` e cai no ramo "tem carreira" — levar ao menu
+              // é o destino seguro: lá o jogador vê a lista de verdade em vez de ser
+              // empurrado para criar uma carreira que talvez já exista.
+              const saves = await recarregarSaves();
+              if (saves == null || saves.length > 0) {
                 setNavigating(true);
                 setTimeout(() => navigate("/menu"), 700);
               } else {

@@ -3,7 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
 import { buildBriefingContext } from "../../../pages/tabs/nextRaceContext";
+import { buscarDadosDaPreCorrida } from "../../../stores/career/preRaceFetch";
 import { readCachedPreRaceStandings } from "./nextRaceHelpers";
+
+// O retrato da etapa chega em arrays (é o que o store guarda); a tela quer busca por
+// chave. A conversão é aqui, e não no fetch, porque Set/Map não sobrevivem ao cache.
+const paraConjuntoDeEquipes = (ids) => new Set(Array.isArray(ids) ? ids : []);
+const paraMapaDeModificadores = (linhas) =>
+  new Map((Array.isArray(linhas) ? linhas : []).map((linha) => [linha.driver_id, linha]));
 
 // Contexto do briefing da próxima etapa: standings da categoria, histórico de frases,
 // previsão de quebra e as equipes em risco. Devolve o briefing já montado.
@@ -29,12 +36,18 @@ export function useBriefingData({
   // Já temos standings em cache desta etapa → abre sem o "Montando análise".
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(() => !readCachedPreRaceStandings());
   // Previsão de risco de quebra do carro (aviso pré-corrida — Peça 3 / Feature 1).
-  const [breakdownForecast, setBreakdownForecast] = useState(null);
+  const [breakdownForecast, setBreakdownForecast] = useState(
+    () => readCachedPreRaceStandings()?.breakdownForecast ?? null,
+  );
   // IDs das EQUIPES com risco real de quebra na próxima corrida → 🔧 na tabela do campeonato.
-  const [breakdownRiskTeams, setBreakdownRiskTeams] = useState(() => new Set());
+  const [breakdownRiskTeams, setBreakdownRiskTeams] = useState(() =>
+    paraConjuntoDeEquipes(readCachedPreRaceStandings()?.breakdownRiskTeamIds),
+  );
   // Modificadores da esteira por piloto (forma, lesão, pressão…) → tooltip da tabela do
   // campeonato. Buscado de uma vez para o grid inteiro: o hover não pode disparar invoke.
-  const [weekendModifiers, setWeekendModifiers] = useState(() => new Map());
+  const [weekendModifiers, setWeekendModifiers] = useState(() =>
+    paraMapaDeModificadores(readCachedPreRaceStandings()?.weekendModifierRows),
+  );
   const [briefingError, setBriefingError] = useState("");
 
   useEffect(() => {
@@ -51,16 +64,25 @@ export function useBriefingData({
         return;
       }
 
-      // O prefetch (animação de avanço) já buscou os standings desta etapa e guardou na
+      // Aplica o retrato da etapa venha ele do cache ou da busca — os dois caminhos
+      // devolvem exatamente a mesma forma, porque saem do mesmo módulo (`preRaceFetch`).
+      function aplicarRetrato(retrato) {
+        setDriverStandings(retrato.driverStandings);
+        setTeamStandings(retrato.teamStandings);
+        setBriefingPhraseHistory(retrato.phraseHistory);
+        setBreakdownForecast(retrato.breakdownForecast ?? null);
+        setBreakdownRiskTeams(paraConjuntoDeEquipes(retrato.breakdownRiskTeamIds));
+        setWeekendModifiers(paraMapaDeModificadores(retrato.weekendModifierRows));
+        setBriefingError("");
+      }
+
+      // O prefetch (animação de avanço) já buscou o retrato desta etapa e guardou na
       // store. A pré-corrida é estática até a corrida rodar, então usamos o cache direto
       // e evitamos re-disparar os comandos pesados — a Sala abre os Favoritos na hora.
       const cached = readCachedPreRaceStandings();
       if (cached) {
         if (active) {
-          setDriverStandings(cached.driverStandings);
-          setTeamStandings(cached.teamStandings);
-          setBriefingPhraseHistory(cached.phraseHistory);
-          setBriefingError("");
+          aplicarRetrato(cached);
           setIsLoadingBriefing(false);
         }
         return;
@@ -70,29 +92,16 @@ export function useBriefingData({
       setBriefingError("");
 
       try {
-        const [drivers, teams, phraseHistory] = await Promise.all([
-          invoke("get_drivers_by_category", {
-            careerId,
-            category: playerTeam.categoria,
-          }),
-          invoke("get_teams_standings", {
-            careerId,
-            category: playerTeam.categoria,
-          }),
-          invoke("get_briefing_phrase_history", {
-            careerId,
-          }).catch(() => ({ season_number: 0, entries: [] })),
-        ]);
+        // MESMA função que o pré-carregamento usa. Espelhar a lista de comandos à mão
+        // aqui era o que deixava o cache incompleto em silêncio quando a Sala crescia.
+        const retrato = await buscarDadosDaPreCorrida({
+          careerId,
+          categoria: playerTeam.categoria,
+        });
 
         if (!active) return;
 
-        setDriverStandings(Array.isArray(drivers) ? drivers : []);
-        setTeamStandings(Array.isArray(teams) ? teams : []);
-        setBriefingPhraseHistory(
-          phraseHistory && Array.isArray(phraseHistory.entries)
-            ? phraseHistory
-            : { season_number: 0, entries: [] },
-        );
+        aplicarRetrato(retrato);
       } catch (invokeError) {
         if (!active) return;
 
@@ -120,56 +129,9 @@ export function useBriefingData({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [careerId, nextRace?.id, playerTeam?.categoria]);
 
-  // Previsão de risco de quebra da próxima corrida (Monte Carlo sobre o desgaste real do carro).
-  useEffect(() => {
-    let active = true;
-    if (!careerId) return undefined;
-    invoke("get_breakdown_forecast", { careerId })
-      .then((f) => {
-        if (active) setBreakdownForecast(f && f.available ? f : null);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [careerId, nextRace?.id]);
-
-  // Equipes com risco real de quebra na próxima corrida (marcador 🔧 na tabela do campeonato).
-  useEffect(() => {
-    let active = true;
-    if (!careerId) return undefined;
-    invoke("get_grid_breakdown_risk", { careerId })
-      .then((ids) => {
-        if (active) setBreakdownRiskTeams(new Set(Array.isArray(ids) ? ids : []));
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [careerId, nextRace?.id]);
-
-  // Prévia dos modificadores de fim de semana do grid (a esteira de `simulation::esteira`).
-  // Determinística e sem gravar nada: é o mesmo grid que a etapa vai rodar.
-  useEffect(() => {
-    let active = true;
-    if (!careerId) return undefined;
-    invoke("get_weekend_modifiers", { careerId })
-      .then((rows) => {
-        if (!active) return;
-        setWeekendModifiers(
-          new Map((Array.isArray(rows) ? rows : []).map((row) => [row.driver_id, row])),
-        );
-      })
-      // Falhar aqui só custa o tooltip, então não sobe pra tela — mas custa CALADO era pior:
-      // comando não registrado, save sem etapa pendente e erro de verdade ficavam todos com a
-      // mesma cara de "o balão não abre".
-      .catch((erro) => {
-        console.warn("[Loop] get_weekend_modifiers falhou:", erro);
-      });
-    return () => {
-      active = false;
-    };
-  }, [careerId, nextRace?.id]);
+  // A previsão de quebra, o marcador 🔧 do grid e os modificadores da esteira NÃO têm
+  // effect próprio: os três vêm no mesmo retrato do `buscarDadosDaPreCorrida` acima.
+  // Enquanto tinham, eles ficavam de fora do pré-carregamento e chegavam depois da tela.
 
   const briefing = useMemo(
     () =>

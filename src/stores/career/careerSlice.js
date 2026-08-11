@@ -8,6 +8,7 @@ import {
   buildPreseasonUiState,
   buildResumeUiState,
   buildTemporalUiState,
+  contextoDeTelaLimpo,
   deriveAcceptedSpecialOffer,
   deriveAcceptedSpecialOfferFromWindow,
   getErrorMessage,
@@ -20,6 +21,7 @@ export const createCareerSlice = (set, get) => ({
   loadCareer: async (careerId) => {
     const isSwitchingCareer = Boolean(get().careerId && get().careerId !== careerId);
     set({
+      ...contextoDeTelaLimpo(),
       isLoading: true,
       isSimulating: false,
       isCalendarAdvancing: false,
@@ -29,18 +31,6 @@ export const createCareerSlice = (set, get) => ({
       showRaceBriefing: false,
       lastRaceResult: null,
       otherCategoriesResult: null,
-      showEndOfSeason: false,
-      showPreseason: false,
-      endOfSeasonResult: null,
-      preseasonState: null,
-      preseasonWeeks: [],
-      playerProposals: [],
-      preseasonFreeAgents: [],
-      showConvocation: false,
-      convocationResult: null,
-      specialWindowState: null,
-      playerSpecialOffers: [],
-      acceptedSpecialOffer: null,
       ...(isSwitchingCareer
         ? { championOverlay: null }
         : {}),
@@ -61,14 +51,7 @@ export const createCareerSlice = (set, get) => ({
         data.resume_context,
       ).catch((error) => {
         console.error("Erro ao restaurar contexto salvo da carreira:", error);
-        return {
-          showEndOfSeason: false,
-          showPreseason: false,
-          endOfSeasonResult: null,
-          preseasonState: null,
-          preseasonWeeks: [],
-          playerProposals: [],
-        };
+        return contextoDeTelaLimpo();
       });
 
       let preseasonPhaseState = {};

@@ -27,6 +27,7 @@ import { pausasDoRadio } from "./pausasDoRadio";
 import { aoMudarVolume, aplicarEm, volumeRadio } from "./volumeRadio";
 import { aoFalar as aoFalarSpotter, estaFalando as spotterFalando } from "./spotterVoice";
 import { comLimite } from "./filaDeCarga";
+import { registrar as registrarRadio } from "./radioRegistro";
 
 // Opus, não WAV. O acervo tem 3.943 peças: em PCM 24 kHz são 328 MB de repositório, e WAV não
 // delta-comprime — cada regravação somaria o arquivo inteiro ao histórico, para sempre. Os WAV
@@ -121,17 +122,24 @@ export function definirPortao(fn) {
  * mais.
  */
 async function esperarMomentoCalmo(ate) {
-  if (!portao) return;
+  const t0 = Date.now();
+  // O que o portão devolveu na PRIMEIRA recusa. Vai ao registro: sem o motivo, uma fala que
+  // esperou oito segundos e outra que saiu na hora são a mesma linha no arquivo, e o portão do
+  // momento fica sem prova nenhuma de ter funcionado.
+  let motivo = null;
+  if (!portao) return { esperou_ms: 0, motivo };
   while (Date.now() < ate) {
     let quente = false;
     try {
-      quente = Boolean(await portao());
+      quente = await portao();
     } catch {
-      return; // sem resposta do portão, o rádio fala: calar por engano é pior
+      return { esperou_ms: Date.now() - t0, motivo }; // sem resposta do portão, o rádio fala
     }
-    if (!quente) return;
+    if (!quente) return { esperou_ms: Date.now() - t0, motivo };
+    if (motivo === null) motivo = typeof quente === "string" ? quente : true;
     await dormir(Math.min(RECONFERE_MOMENTO_MS, Math.max(0, ate - Date.now())));
   }
+  return { esperou_ms: Date.now() - t0, motivo };
 }
 
 // ─── Nível ───────────────────────────────────────────────────────────────────
@@ -346,7 +354,17 @@ export function cancelar() {
 function descartarFila() {
   if (!fila.length) return;
   descartados += fila.length;
-  for (const item of fila) item.resolve(false);
+  for (const item of fila) {
+    // Jogada fora porque o piloto perguntou algo. É descarte legítimo e é o mais invisível de
+    // todos: nada no áudio indica que existiram três notícias, e o contador global não diz
+    // QUAIS eram.
+    registrarRadio(item.canal ?? "engenheiro", {
+      chaves: item.chaves ?? [],
+      texto: item.texto ?? "",
+      desfecho: "pergunta",
+    });
+    item.resolve(false);
+  }
   fila = [];
 }
 
@@ -389,8 +407,13 @@ function esperarSpotter() {
  * Toca um buffer e resolve com o que aconteceu:
  * `"fim"` (tocou inteiro), `"cancelado"` (outra pergunta chegou), `"cedeu"` (o spotter
  * abriu o canal no meio e esta frase precisa ser repetida).
+ *
+ * `medida` é um objeto de SAÍDA: quem passa um recebe de volta `tocado_s`, o tempo que o som
+ * de fato saiu. Vai por parâmetro em vez de virar valor de retorno porque o retorno é uma
+ * string comparada em três lugares — trocá-lo por um objeto renderia a mesma informação com
+ * uma refatoração no caminho de áudio, que é onde menos vale mexer por conforto.
  */
-function tocarBuffer(buf, minhaVez, { pelaCadeia = false } = {}) {
+function tocarBuffer(buf, minhaVez, { pelaCadeia = false, medida = null } = {}) {
   const c = contexto();
   if (!c) return Promise.resolve("cancelado");
 
@@ -399,11 +422,15 @@ function tocarBuffer(buf, minhaVez, { pelaCadeia = false } = {}) {
     fonte.buffer = buf;
     fonte.connect(pelaCadeia ? entradaRadio : master);
 
+    // Relógio de PAREDE: o áudio continua saindo quando o JS da janela coberta é estrangulado,
+    // e é justamente nesse caso que a medida vale.
+    const inicio = performance.now();
     let resolvido = false;
     const terminar = (motivo) => {
       if (resolvido) return;
       resolvido = true;
       desassinar();
+      if (medida) medida.tocado_s = Math.round((performance.now() - inicio) / 10) / 100;
       if (fonteAtual === fonte) fonteAtual = null;
       resolve(motivo);
     };
@@ -436,12 +463,15 @@ function tocarBuffer(buf, minhaVez, { pelaCadeia = false } = {}) {
  * `pausasMs` sobrepõe a pausa padrão junção a junção — é o que a fala de quebra usa, porque
  * lá as peças são fragmentos de oração e não frases (ver [`pausasDoRadio`]).
  */
-export async function falarPecas(chaves, { pausasMs = null } = {}) {
-  if (!estaLigada()) return false;
+export async function falarPecas(chaves, { pausasMs = null, canal = "resposta", texto = "" } = {}) {
+  if (!estaLigada()) {
+    registrarRadio(canal, { chaves, texto, desfecho: "voz_desligada" });
+    return false;
+  }
   sequencia += 1;
   pararFonte();
   descartarFila();
-  return tocarSequencia(chaves, pausasMs, sequencia);
+  return tocarSequencia(chaves, pausasMs, sequencia, { canal, texto });
 }
 
 /**
@@ -454,14 +484,18 @@ export async function falarPecas(chaves, { pausasMs = null } = {}) {
  * com três quebras seguidas, dizer todas em fila daria vinte segundos falando de coisas que o
  * piloto já passou. Vale contar quantas caíram — [`anunciosDescartados`].
  */
-export function anunciar(chaves, { pausasMs = null } = {}) {
-  if (!estaLigada()) return Promise.resolve(false);
+export function anunciar(chaves, { pausasMs = null, canal = "engenheiro", texto = "" } = {}) {
+  if (!estaLigada()) {
+    registrarRadio(canal, { chaves, texto, desfecho: "voz_desligada" });
+    return Promise.resolve(false);
+  }
   if (fila.length >= FILA_MAX) {
     descartados += 1;
+    registrarRadio(canal, { chaves, texto, desfecho: "fila_cheia" });
     return Promise.resolve(false);
   }
   return new Promise((resolve) => {
-    fila.push({ chaves, pausasMs, resolve, entrou: Date.now() });
+    fila.push({ chaves, pausasMs, resolve, entrou: Date.now(), canal, texto });
     bombear();
   });
 }
@@ -476,7 +510,7 @@ async function bombear() {
       // removido ficaria fora do descarte por validade e fora do esvaziamento que uma
       // pergunta do piloto provoca.
       const item = fila[0];
-      await esperarMomentoCalmo(item.entrou + VALIDADE_ANUNCIO_MS);
+      const espera = await esperarMomentoCalmo(item.entrou + VALIDADE_ANUNCIO_MS);
       await esperarCanalLivre();
       // Uma pergunta do piloto esvazia a fila, e ela pode ter chegado durante a espera. Se
       // a cabeça mudou, este item já foi resolvido por quem a esvaziou — recomeça.
@@ -488,24 +522,38 @@ async function bombear() {
       // regras têm de concordar na borda, senão a espera contradiz o descarte.
       if (Date.now() - item.entrou >= VALIDADE_ANUNCIO_MS) {
         descartados += 1;
+        // Morreu na fila. O `motivo` diz se foi o portão do momento que a segurou até vencer ou
+        // se foi o canal ocupado — são dois problemas diferentes e a correção de cada um é outra.
+        registrarRadio(item.canal ?? "engenheiro", {
+          chaves: item.chaves ?? [],
+          texto: item.texto ?? "",
+          desfecho: espera.motivo ? "suprimida" : "validade",
+          detalhe: { esperou_ms: Date.now() - item.entrou, motivo: espera.motivo },
+        });
         item.resolve(false);
         continue;
       }
       sequencia += 1;
       // SEM `pararFonte()`: o canal está livre por construção, e chamá-lo aqui reintroduziria
       // exatamente o corte que esta fila existe para evitar.
+      const meta = {
+        canal: item.canal ?? "engenheiro",
+        texto: item.texto ?? "",
+        espera_ms: espera.esperou_ms || undefined,
+        motivo: espera.motivo ?? undefined,
+      };
       if (item.audioB64) {
         // Áudio do modelo. Segura o canal na mão, porque `tocarRemoto` não o faz — quem
         // decide se corta ou se espera é sempre o chamador, e aqui o chamador é a fila.
         geracaoAtiva = sequencia;
         const minhaVez = sequencia;
         try {
-          item.resolve(await tocarRemoto(item.audioB64, item.mime, minhaVez));
+          item.resolve(await tocarRemoto(item.audioB64, item.mime, minhaVez, meta));
         } finally {
           liberarCanal(minhaVez);
         }
       } else {
-        item.resolve(await tocarSequencia(item.chaves, item.pausasMs, sequencia));
+        item.resolve(await tocarSequencia(item.chaves, item.pausasMs, sequencia, meta));
       }
     }
   } finally {
@@ -533,8 +581,26 @@ function liberarCanal(minhaVez) {
 }
 
 /** O laço de tocar, comum à resposta e ao anúncio. Quem decide se corta é o chamador. */
-async function tocarSequencia(chaves, pausasMs, minhaVez) {
+async function tocarSequencia(chaves, pausasMs, minhaVez, meta = null) {
   geracaoAtiva = minhaVez;
+  // Registrado no COMEÇO, e não no fim: é o instante em que o som saiu que casa com a decisão
+  // do Rust, e uma fala de sete segundos registrada no fim aparece sete segundos depois do que
+  // o jogador ouviu. Quem não completa ganha a segunda linha, com o desfecho.
+  const canal = meta?.canal ?? "engenheiro";
+  let completou = false;
+  // `comecou` separa dois desfechos que o `completou` sozinho confunde: a fala que soou e foi
+  // cortada no meio, e a que nunca chegou a soar porque uma pergunta do piloto passou na frente.
+  let comecou = false;
+  // Onde a fala parou, quando ela para no meio: a peça que estava no ar e quanto dela soou. Uma
+  // resposta são ~dez frases, e "cortada" sem isto não diz se o piloto ouviu nove ou uma.
+  let pecaNoAr = -1;
+  const medida = {};
+  // Quando o som saiu, para o FECHAMENTO poder dizer quanto tempo esta fala ocupou o canal. A
+  // duração de uma fala de peças não é conhecida no começo: são várias gravações, com pausas
+  // entre elas e com as esperas que o spotter impõe no meio. Sem isto, uma quebra na grade e um
+  // aviso de bandeira contam zero segundo na ocupação do canal — e a ocupação é justamente o
+  // número que diz se o rádio está falando demais.
+  let comecouEm = 0;
   // Puxa a sequência inteira já, em vez de esperar cada peça chegar na sua vez: são
   // poucas (uma resposta tem uma dezena), e assim a peça 2 decodifica enquanto a 1 toca.
   // Sem `await` de propósito — o loop abaixo espera a peça de que precisa, e esperar
@@ -550,14 +616,43 @@ async function tocarSequencia(chaves, pausasMs, minhaVez) {
       for (;;) {
         await esperarSpotter();
         if (sequencia !== minhaVez) return false;
-        const motivo = await tocarBuffer(buf, minhaVez);
+        if (i === 0 && cessoes === 0) {
+          comecou = true;
+          comecouEm = performance.now();
+          registrarRadio(canal, {
+            chaves,
+            texto: meta?.texto ?? "",
+            desfecho: "ok",
+            detalhe: {
+              pecas: chaves.length,
+              espera_ms: meta?.espera_ms,
+              motivo: meta?.motivo,
+            },
+          });
+        }
+        pecaNoAr = i;
+        const motivo = await tocarBuffer(buf, minhaVez, { medida });
         if (motivo === "cancelado") return false;
         if (motivo === "fim") break;
-        // "cedeu": repete, até o teto. Estourou o teto, sai por cima — melhor duas vozes
-        // por um segundo que uma resposta que nunca chega.
+        // "cedeu": repete, até o teto. Estourou o teto, sai por cima, porque duas vozes por um
+        // segundo é melhor que uma resposta que nunca chega.
+        //
+        // A linha é da PEÇA que cedeu, e não da sequência: aqui o que recomeça é a frase, não a
+        // fala inteira, e sem a chave específica ficaria impossível saber onde a resposta travou.
+        registrarRadio(canal, {
+          chaves: [chaves[i]],
+          desfecho: "cedeu",
+          detalhe: {
+            peca: i,
+            pecas: chaves.length,
+            cessao: cessoes + 1,
+            tocado_s: medida.tocado_s,
+            por: "spotter",
+          },
+        });
         cessoes += 1;
         if (cessoes >= CESSOES_MAX) {
-          const ultima = await tocarBuffer(buf, minhaVez);
+          const ultima = await tocarBuffer(buf, minhaVez, { medida });
           if (ultima === "cancelado") return false;
           break;
         }
@@ -568,8 +663,40 @@ async function tocarSequencia(chaves, pausasMs, minhaVez) {
         if (sequencia !== minhaVez) return false;
       }
     }
+    completou = true;
     return true;
   } finally {
+    // A fala que começou e não terminou. É o desfecho que explica um rádio com meia frase, e
+    // sem esta linha ele fica idêntico no arquivo a uma fala que saiu inteira.
+    const noAr_s = comecouEm ? Math.round((performance.now() - comecouEm) / 10) / 100 : undefined;
+    if (!completou) {
+      registrarRadio(canal, {
+        chaves,
+        texto: meta?.texto ?? "",
+        desfecho: comecou ? "cortada" : "atropelada",
+        detalhe: {
+          // A peça é o índice DENTRO da sequência registrada no começo, e é o que permite ler no
+          // arquivo a metade que o jogador ouviu sem ter de adivinhar pelas durações.
+          peca: pecaNoAr >= 0 ? pecaNoAr : undefined,
+          pecas: chaves.length,
+          // Duas medidas diferentes, e as duas importam: `dur_s` é o canal ocupado do começo até
+          // aqui, `tocado_s` é só a última peça — uma resposta que morreu na nona frase ocupou o
+          // rádio por oito segundos e perdeu meio.
+          dur_s: noAr_s,
+          tocado_s: medida.tocado_s,
+        },
+      });
+    } else if (comecouEm) {
+      // O FECHAMENTO da fala que saiu inteira. Linha própria porque a de abertura sai no instante
+      // em que o som começa (é ela que casa com a decisão do Rust) e a duração só existe agora.
+      // O leitor não a mostra na lista: ela serve ao resumo, e repeti-la ali seria contar cada
+      // fala duas vezes.
+      registrarRadio(canal, {
+        chaves,
+        desfecho: "fim",
+        detalhe: { pecas: chaves.length, dur_s: noAr_s },
+      });
+    }
     // Solta o canal mesmo no caminho do `return false`. Sem o `finally`, uma resposta
     // atropelada deixaria a fila de anúncios travada para sempre — e o sintoma seria o rádio
     // emudecendo de vez depois de um push-to-talk, que ninguém ligaria à causa.
@@ -687,8 +814,13 @@ export function ultimoRender() {
  * sem repetir uma frase inteira e longa, então a resposta do modelo simplesmente ESPERA
  * o canal abrir antes de começar, e se o spotter cortar no meio ela recomeça uma vez só.
  */
-export async function falarRemoto(audioB64, mime = "audio/mpeg") {
-  if (!estaLigada()) return false;
+export async function falarRemoto(audioB64, mime = "audio/mpeg", { canal = "resposta", texto = "" } = {}) {
+  if (!estaLigada()) {
+    // A fala do MODELO descartada por voz desligada é a mais cara do rádio: o servidor já
+    // cobrou a redação e a síntese. Sem linha, ela desaparece depois de paga.
+    registrarRadio(canal, { texto, desfecho: "voz_desligada" });
+    return false;
+  }
   sequencia += 1;
   const minhaVez = sequencia;
   pararFonte();
@@ -698,7 +830,7 @@ export async function falarRemoto(audioB64, mime = "audio/mpeg") {
   // fácil de um anúncio atropelar.
   geracaoAtiva = minhaVez;
   try {
-    return await tocarRemoto(audioB64, mime, minhaVez);
+    return await tocarRemoto(audioB64, mime, minhaVez, { canal, texto });
   } finally {
     liberarCanal(minhaVez);
   }
@@ -710,14 +842,18 @@ export async function falarRemoto(audioB64, mime = "audio/mpeg") {
  * Está separado pelo mesmo motivo que [`tocarSequencia`]: quem decide se corta ou se espera
  * é o chamador. Aqui dentro só se decodifica, nivela e toca.
  */
-async function tocarRemoto(audioB64, mime, minhaVez) {
+async function tocarRemoto(audioB64, mime, minhaVez, meta = null) {
+  const canal = meta?.canal ?? "resposta";
   const c = contexto();
   if (!c) return false;
   let buf;
   try {
     buf = await c.decodeAudioData(bytesDeBase64(audioB64).buffer);
   } catch {
-    return false; // áudio ilegível: quem chamou toca o "não sei"
+    // Áudio ilegível. O servidor cobrou a síntese e o jogador não ouviu nada — é o desfecho
+    // que precisa de nome próprio, senão a fala simplesmente não aparece em lugar nenhum.
+    registrarRadio(canal, { texto: meta?.texto ?? "", desfecho: "sem_audio" });
+    return false;
   }
   if (sequencia !== minhaVez) return false;
   void mime; // o decodificador do Chromium reconhece pelo conteúdo; o tipo vai junto p/ log
@@ -727,17 +863,69 @@ async function tocarRemoto(audioB64, mime, minhaVez) {
   const pronto = await processarComoPeca(buf);
   if (sequencia !== minhaVez) return false;
   const paraTocar = pronto ?? buf;
-  const opcoes = { pelaCadeia: !pronto };
+  const medida = {};
+  const opcoes = { pelaCadeia: !pronto, medida };
+  // A DURAÇÃO da fala longa. É o número que o rádio na classificação mais precisa: dez
+  // segundos de dossiê lido em cima de uma volta de preparação é o defeito inteiro, e sem
+  // isto ele continua sendo impressão de quem ouviu.
+  const detalhe = {
+    dur_s: Math.round(paraTocar.duration * 100) / 100,
+    espera_ms: meta?.espera_ms,
+    motivo: meta?.motivo,
+  };
 
   for (let tentativa = 0; tentativa < 2; tentativa += 1) {
     await esperarSpotter();
     if (sequencia !== minhaVez) return false;
+    // A REPETIÇÃO tem linha própria, e ela é a que explica o rádio da classificação: quando o
+    // spotter abre o canal no meio, esta fala não continua de onde parou, ela começa de novo do
+    // zero. Sem esta linha, dezesseis segundos de dossiê tocados duas vezes aparecem no arquivo
+    // como dezesseis segundos tocados uma vez, e a diferença é tudo o que o jogador ouviu.
+    registrarRadio(canal, {
+      texto: meta?.texto ?? "",
+      desfecho: tentativa === 0 ? "ok" : "repetida",
+      detalhe: tentativa === 0 ? detalhe : { ...detalhe, tentativa },
+    });
     const motivo = await tocarBuffer(paraTocar, minhaVez, opcoes);
     if (motivo === "fim") return true;
-    if (motivo === "cancelado") return false;
+    if (motivo === "cedeu") {
+      // O spotter passou na frente. Fica registrado quanto desta fala tinha saído até aqui: é o
+      // par (cedeu, repetida) que mostra o dossiê recomeçando.
+      registrarRadio(canal, {
+        texto: meta?.texto ?? "",
+        desfecho: "cedeu",
+        detalhe: { ...detalhe, tocado_s: medida.tocado_s, tentativa, por: "spotter" },
+      });
+    }
+    if (motivo === "cancelado") {
+      registrarRadio(canal, {
+        texto: meta?.texto ?? "",
+        desfecho: "cortada",
+        // Quanto dos dez segundos de dossiê o jogador ouviu antes de a fala morrer. Aqui é a
+        // medida mais importante do rádio inteiro: a fala longa é a única que dura o bastante
+        // para ser cortada pela metade sem ninguém notar no meio de uma volta.
+        detalhe: { ...detalhe, tocado_s: medida.tocado_s },
+      });
+      return false;
+    }
   }
-  // Cedeu duas vezes: sai por cima na terceira, pelo mesmo motivo do teto acima.
-  return (await tocarBuffer(paraTocar, minhaVez, opcoes)) === "fim";
+  // Cedeu duas vezes: sai por cima na terceira, pelo mesmo motivo do teto acima. A linha diz
+  // `por_cima`, porque aqui o rádio tem duas vozes ao mesmo tempo de propósito — e isso precisa
+  // ser reconhecível no arquivo, senão vira "o spotter estava ininteligível" sem causa.
+  registrarRadio(canal, {
+    texto: meta?.texto ?? "",
+    desfecho: "repetida",
+    detalhe: { ...detalhe, tentativa: 2, por_cima: true },
+  });
+  const fim = (await tocarBuffer(paraTocar, minhaVez, opcoes)) === "fim";
+  if (!fim) {
+    registrarRadio(canal, {
+      texto: meta?.texto ?? "",
+      desfecho: "cortada",
+      detalhe: { ...detalhe, tocado_s: medida.tocado_s },
+    });
+  }
+  return fim;
 }
 
 /**
@@ -748,14 +936,21 @@ async function tocarRemoto(audioB64, mime, minhaVez) {
  * demais. A diferença com [`falarRemoto`] é toda a semântica — lá o piloto perguntou e a
  * resposta corta; aqui ninguém pediu, e quem não foi pedido espera.
  */
-export function anunciarRemoto(audioB64, mime = "audio/mpeg") {
-  if (!estaLigada() || !audioB64) return Promise.resolve(false);
+export function anunciarRemoto(audioB64, mime = "audio/mpeg", { canal = "ocasiao", texto = "" } = {}) {
+  if (!estaLigada() || !audioB64) {
+    registrarRadio(canal, {
+      texto,
+      desfecho: audioB64 ? "voz_desligada" : "sem_audio",
+    });
+    return Promise.resolve(false);
+  }
   if (fila.length >= FILA_MAX) {
     descartados += 1;
+    registrarRadio(canal, { texto, desfecho: "fila_cheia" });
     return Promise.resolve(false);
   }
   return new Promise((resolve) => {
-    fila.push({ audioB64, mime, resolve, entrou: Date.now() });
+    fila.push({ audioB64, mime, resolve, entrou: Date.now(), canal, texto });
     bombear();
   });
 }

@@ -27,7 +27,7 @@ import {
   buildTeamHistoryDossier,
   operationHealthTone,
   orderTeamsForHistoryNavigation,
-} from "../TeamHistoryDrawer";
+} from "../teamHistoryDossier";
 import i18n from "../../../i18n/index.js";
 import { getCategoryColor } from "../../../utils/categoryColors";
 import { getVividTeamColor } from "../../../utils/teamColors";
@@ -43,30 +43,51 @@ import {
   lerModoEvolucao,
   lerVistaEvolucao,
 } from "./evolutionPreferences.js";
+import {
+  BEST_DRIVERS_LIMIT,
+  BEST_RANK_COLORS,
+  MEDAL_COLORS,
+  PLACEMENT_COLORS,
+  bestDriversRanking,
+  campanhaTemDados,
+  corDeTextoSobre,
+  curvaTemDados,
+  placementInk,
+  placementTone,
+  temporadasDisputadas,
+} from "./teamHistoryV2Logic";
+import {
+  CHIP_GAP,
+  CHIP_HEIGHT,
+  CHIP_MIN_STEP,
+  chaveDaRodada,
+  chipWidth,
+  dicaDeTexto,
+  formatMeetingAge,
+  rotuloFaixa,
+  seasonTooltip,
+} from "./teamHistoryV2Labels";
 
-// Dossiê de equipe v2.
+// Dossiê de equipe.
 //
-// Mesmos dados do v1 (get_team_history_dossier, mesmo `buildTeamHistoryDossier`) —
-// o que muda é a composição. O v1 era um painel de borda de 720px com abas em
-// pílula e uma lista label/valor; aqui a tela abre CENTRALIZADA e larga, com:
+// Os dados vêm de get_team_history_dossier e são normalizados por
+// `buildTeamHistoryDossier` (../teamHistoryDossier.js). A tela abre CENTRALIZADA
+// e larga, com:
 //
-//   • cabeçalho-herói com os números-âncora sempre visíveis (no v1 eles só
-//     apareciam se você estivesse na seção certa);
+//   • cabeçalho-herói com os números-âncora sempre visíveis;
 //   • seções numa coluna lateral, liberando a largura toda para o conteúdo;
 //   • records como cards com barra de posição e média do grupo — o rank deixa
 //     de ser um número entre parênteses e vira a informação com mais peso;
 //   • trajetória por temporada e marcos ancorados no MESMO eixo de anos.
 //
-// Para voltar ao v1 basta mudar TEAM_HISTORY_VERSION em ../history/index.js.
-// Nenhum arquivo do v1 é editado por este redesenho.
 // Ícones vêm do lucide-react: traço de 1.5px numa grade de 24, igual para os
 // onze. Os SVGs desenhados à mão que estavam aqui variavam de espessura entre si
 // e ficavam sujos a 12px, que é o tamanho em que a maioria aparece.
-// Os IDs divergem dos rótulos de propósito. `sport` é a aba que hoje se chama
+// Os IDs divergem dos rótulos de propósito. `sport` é a seção que hoje se chama
 // "Identidade" (o retrato esportivo virou o retrato da equipe) e `identity` é a
-// que se chama "Rival". Renomear os ids arrastaria o v1, o estado persistido de
-// aba e os testes por uma troca que é só de vocabulário — o rótulo mora no i18n,
-// que é onde ele deve morar.
+// que se chama "Rival". Renomear os ids arrastaria o estado persistido de seção
+// e os testes por uma troca que é só de vocabulário — o rótulo mora no i18n, que
+// é onde ele deve morar.
 const TEAM_HISTORY_SECTIONS = [
   { id: "records", Icon: Trophy },
   { id: "sport", Icon: Fingerprint },
@@ -861,14 +882,6 @@ function RecordCard({ record, onOpen = null }) {
 // O abandono é o único VERMELHO da faixa, e é o vermelho de estado que o app já
 // usa para erro. Ele não é uma colocação — é o oposto de uma — e por isso é a
 // única entrada que não tem parentesco com as outras.
-const MEDAL_COLORS = {
-  first: "#f2c46d",
-  second: "#c2ccd8",
-  third: "#c07f4a",
-  nearMiss: "#46586d",
-  dnf: "#ef4444",
-};
-
 // Altura da área de plotagem da faixa e as marcas do eixo Y, em % do top 5.
 // Três marcas: sem a de 50% a barra não tem meio de referência; com mais que
 // isso a grade compete com as colunas.
@@ -894,79 +907,10 @@ const TRAJECTORY_WINDOW_YEARS = 15;
 // temporada que quase foi, e é a diferença entre "não competiu" e "faltou pouco".
 //
 // O eixo vai de 0 a 100%: coluna cheia é top 5 em toda corrida do ano.
-// Tooltip da coluna, em linhas.
 //
-// A versão anterior era uma frase única com tudo separado por "·", incluindo as
-// colocações zeradas ("0× 2º") — ilegível justamente onde o jogador para o mouse
-// para entender a barra. Aqui cada coisa tem sua linha, e só aparece o que
-// aconteceu: a lista de colocações espelha os blocos desenhados, de cima para
-// baixo, na mesma ordem — com a mesma cor do bloco ao lado do texto.
-//
-// Sai estruturado, e não como string de `\n`, porque quem desenha é o balão do
-// app (`TrajectoryTooltip`) e não o `title` do sistema. O `texto` continua
-// existindo por baixo: é o nome acessível da coluna, para quem lê por leitor de
-// tela e para o teste.
-function seasonTooltip(t, { row, races, topFive, steps, dnfs }) {
-  const base = "myTeamTab.history.records.seasonTooltip";
-  const header = row.category ? `${row.year} · ${row.category}` : String(row.year);
-  const hasPosition = row.position && row.position !== "—";
-  const meta = hasPosition
-    ? t(`${base}.meta`, { position: row.position, races, topFive })
-    : t(`${base}.metaNoPosition`, { races, topFive });
-  const linhas = steps.length
-    ? steps.map((step) => ({
-        id: step.id,
-        color: step.color,
-        // Na tela, só a contagem: o quadradinho ao lado JÁ é a colocação, na
-        // mesma cor do bloco da barra e da legenda embaixo do gráfico. Repetir
-        // "1º" ao lado do ouro é dizer duas vezes a mesma coisa num balão que
-        // tem quatro linhas.
-        //
-        // `value` e não `count`: `count` é palavra reservada do i18next e ligaria
-        // a máquina de plural, mandando procurar chaves `..._one`/`..._other`.
-        texto: t(`${base}.countShort`, { value: step.count }),
-        // Para o leitor de tela a cor não existe — ali a colocação continua
-        // escrita por extenso.
-        textoAcessivel: t(`${base}.count`, {
-          value: step.count,
-          label: t(`myTeamTab.history.records.medals.${step.id}`),
-        }),
-      }))
-    : [{ id: "empty", color: null, texto: t(`${base}.empty`) }];
-  // O abandono entra por último e SÓ quando existe. Ele guarda o rótulo "DNF"
-  // porque não é uma colocação: as linhas de cima contam onde a equipe terminou,
-  // esta conta o fim de semana em que ela não terminou — e a unidade é CARRO,
-  // não corrida (os dois carros podem abandonar no mesmo domingo).
-  if (dnfs > 0) {
-    linhas.push({
-      id: "dnf",
-      color: MEDAL_COLORS.dnf,
-      texto: t(`${base}.count`, { value: dnfs, label: t("myTeamTab.history.records.medals.dnf") }),
-    });
-  }
-  return montarDica(header, meta, linhas);
-}
-
-// O par header/meta das temporadas fora do recorte vem colado num só valor de
-// i18n, separado por "\n" — herança de quando o balão era o do sistema. Separar
-// aqui evita duplicar a chave só para mudar quem desenha.
-function dicaDeTexto(texto) {
-  const [header, ...resto] = String(texto).split("\n");
-  return montarDica(header, resto.join(" ").trim(), []);
-}
-
-function montarDica(header, meta, linhas) {
-  return {
-    header,
-    meta,
-    linhas,
-    texto: [
-      header,
-      meta,
-      ...(linhas.length ? ["", ...linhas.map((linha) => linha.textoAcessivel ?? linha.texto)] : []),
-    ].join("\n"),
-  };
-}
+// A dica da coluna sai estruturada, e não como string de `\n`, porque quem desenha é
+// o balão do app (`TrajectoryTooltip`) e não o `title` do sistema — o texto dela é
+// montado em [teamHistoryV2Labels.js].
 
 // O balão da coluna, no estilo do app.
 //
@@ -1393,30 +1337,6 @@ function SeasonTrajectory({
 // Cor de uma colocação, na mesma paleta dos degraus da faixa de Records: ouro,
 // prata, bronze, o "quase" apagado e dois tons de fundo para o resto. Um número
 // só muda de significado entre as telas se mudar de cor — então não muda.
-const PLACEMENT_COLORS = {
-  first: MEDAL_COLORS.first,
-  second: MEDAL_COLORS.second,
-  third: MEDAL_COLORS.third,
-  nearMiss: MEDAL_COLORS.nearMiss,
-  topTen: "#22303f",
-  outside: "#141f2c",
-};
-
-function placementTone(position) {
-  if (position === 1) return PLACEMENT_COLORS.first;
-  if (position === 2) return PLACEMENT_COLORS.second;
-  if (position === 3) return PLACEMENT_COLORS.third;
-  if (position >= 4 && position <= 5) return PLACEMENT_COLORS.nearMiss;
-  if (position >= 6 && position <= 10) return PLACEMENT_COLORS.topTen;
-  return PLACEMENT_COLORS.outside;
-}
-
-// Texto legível sobre o quadrado: os tons claros (ouro, prata, bronze) precisam
-// de tinta escura, os escuros de tinta clara.
-function placementInk(position) {
-  return position >= 1 && position <= 3 ? "#0b1524" : "#8fa3bb";
-}
-
 // Fita de forma recente: as últimas corridas, da mais antiga à mais nova.
 //
 // É o único bloco do dossiê que fala do PRESENTE. Todo o resto é história
@@ -1510,10 +1430,6 @@ const RUN_FIELD_STROKE = "#3a4d63";
 // Se há campanha para desenhar. Mora fora do componente porque o seletor de
 // vistas precisa saber disso ANTES de escolher o que renderizar — e uma segunda
 // cópia da regra derivaria da primeira no primeiro save antigo que aparecesse.
-function campanhaTemDados(run) {
-  return (Array.isArray(run?.rounds) ? run.rounds.length : 0) >= 2 && Boolean(run?.lines?.length);
-}
-
 // Campanha do campeonato: a pontuação ACUMULADA rodada a rodada, da equipe do
 // dossiê contra todas as outras do mesmo campeonato.
 //
@@ -1921,30 +1837,6 @@ const CURVE_YEAR_Y = 168;
 // a linha não passar por dentro do marcador — sem isso, com quatro temporadas
 // seguidas na mesma posição, o ponto some dentro do próprio traço.
 const CURVE_SURFACE = "#0f1c2b";
-// Chip de posição sobre o ponto. Largura estimada pelo número de caracteres —
-// "P1" e "P12" não podem dividir a mesma caixa fixa.
-const CHIP_HEIGHT = 17;
-const CHIP_GAP = 13;
-function chipWidth(texto) {
-  return 12 + String(texto).length * 6.4;
-}
-// Abaixo desta distância entre temporadas os chips começam a se encostar, e a
-// etiqueta que devia acelerar a leitura vira uma tarja. Aí só os títulos e a
-// última temporada fechada continuam rotulados.
-const CHIP_MIN_STEP = 52;
-
-function temporadasDisputadas(seasons) {
-  return (Array.isArray(seasons) ? seasons : []).filter((row) => Number(row.races) > 0);
-}
-
-// Se há curva para desenhar: duas temporadas disputadas, e pelo menos uma com
-// colocação conhecida. Mesmo papel do `campanhaTemDados` — o seletor de vistas
-// pergunta antes de desenhar.
-function curvaTemDados(seasons) {
-  const rows = temporadasDisputadas(seasons);
-  return rows.length >= 2 && rows.some((row) => /\d/.test(String(row.position ?? "")));
-}
-
 // Curva de campeonato: a posição FINAL por temporada.
 //
 // Não repete a faixa de top 5 de Records: aquela mede corrida a corrida, esta
@@ -2338,22 +2230,6 @@ function ChampionshipCurve({ seasons, seletor = null, seletorModo = null, modo =
 // Fatia mínima, em % do total, para o número caber dentro da barra. Abaixo
 // disso a caixa tem menos que a largura de "1 (1%)" e o texto sai cortado.
 const FAIXA_MIN_ROTULO = 5;
-
-function rotuloFaixa(t, faixa) {
-  return t("myTeamTab.history.sport.spreadValue", { value: faixa.value, percent: faixa.percent });
-}
-
-// Preto sobre ouro e prata, branco sobre os azuis escuros. A paleta das faixas
-// vai de #f2c46d a #141f2c, e um texto de cor fixa some em metade delas.
-function corDeTextoSobre(hex) {
-  const cor = String(hex).replace("#", "");
-  if (cor.length !== 6) return "#eaf1f8";
-  const r = parseInt(cor.slice(0, 2), 16);
-  const g = parseInt(cor.slice(2, 4), 16);
-  const b = parseInt(cor.slice(4, 6), 16);
-  const luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminancia > 0.6 ? "#0d1622" : "#eaf1f8";
-}
 
 function ResultSpread({ spread }) {
   const { t } = useTranslation();
@@ -2752,84 +2628,6 @@ function LineupColumn({ itens, pilotoAceso = null, onAcenderPiloto = null }) {
 // Quantos nomes o pódio da casa aguenta. Dez é o corte clássico de tabela de
 // recordes, e numa equipe antiga ele alcança quem correu na década anterior — a
 // galeria acima lista todo mundo, mas em ordem de ano, onde ninguém compara.
-const BEST_DRIVERS_LIMIT = 10;
-
-// Cor da posição no ranking: as três primeiras na mesma paleta de medalha que os
-// degraus de Records usam, o resto apagado. Um número só muda de significado
-// entre as telas se mudar de cor — então não muda.
-const BEST_RANK_COLORS = [MEDAL_COLORS.first, MEDAL_COLORS.second, MEDAL_COLORS.third];
-
-// O ranking dos pilotos que vestiram a equipe.
-//
-// A galeria logo acima conta a SUCESSÃO — quem veio depois de quem, em duas
-// colunas. Ela não responde quem foi o melhor: os números estão lá, espalhados
-// por oito linhas em ordem de ano, e comparar dois deles é trabalho do leitor.
-// Aqui a ordem é a resposta.
-//
-// A conta é por PILOTO, e não por passagem: quem saiu e voltou tem dois mandatos
-// na galeria (é assim que a sucessão se lê), mas um só currículo pela casa —
-// somar os dois é o que impede a mesma pessoa de aparecer duas vezes no pódio,
-// cada metade abaixo de quem ela na verdade supera.
-function bestDriversRanking(lineup) {
-  const porPiloto = new Map();
-  for (const term of lineup) {
-    // Contrato anunciado que nunca virou pista não entra: o titular de hoje sem
-    // corrida aparece na galeria (é onde se confere quem está no carro), mas um
-    // ranking de quem correu não tem o que fazer com quem não correu.
-    if (!(term.races > 0)) continue;
-    const acumulado = porPiloto.get(term.driverId);
-    if (!acumulado) {
-      porPiloto.set(term.driverId, {
-        driverId: term.driverId,
-        name: term.name,
-        nationality: term.nationality,
-        isPlayer: term.isPlayer,
-        stillHere: term.stillHere,
-        races: term.races,
-        titles: term.titles,
-        wins: term.wins,
-        podiums: term.podiums,
-        bestPosition: term.bestPosition,
-        firstYear: term.firstYear,
-        lastYear: term.lastYear,
-      });
-      continue;
-    }
-    acumulado.races += term.races;
-    acumulado.titles += term.titles;
-    acumulado.wins += term.wins;
-    acumulado.podiums += term.podiums;
-    // Zero é "nunca teve colocação", e não a melhor delas.
-    if (term.bestPosition > 0 && (acumulado.bestPosition === 0 || term.bestPosition < acumulado.bestPosition)) {
-      acumulado.bestPosition = term.bestPosition;
-    }
-    acumulado.stillHere = acumulado.stillHere || term.stillHere;
-    acumulado.nationality = acumulado.nationality || term.nationality;
-    if (term.firstYear && term.firstYear < acumulado.firstYear) acumulado.firstYear = term.firstYear;
-    if (term.lastYear && term.lastYear > acumulado.lastYear) acumulado.lastYear = term.lastYear;
-  }
-
-  // TÍTULO primeiro, e não vitória. Vencer domingo e vencer o ano não são a
-  // mesma moeda em escala diferente: um campeão da casa com seis vitórias vale
-  // mais para a história dela que um piloto de quinze vitórias que nunca levou
-  // o campeonato — e era exatamente isso que a lista dizia ao contrário.
-  // Nenhum peso relativo resolveria: quantas vitórias valem um título é uma
-  // pergunta sem resposta, e a ordem lexicográfica não precisa dela.
-  return [...porPiloto.values()].sort((a, b) => {
-    if (b.titles !== a.titles) return b.titles - a.titles;
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    if (b.podiums !== a.podiums) return b.podiums - a.podiums;
-    // A melhor colocação não é mais coluna, mas continua desempatando: entre dois
-    // pilotos sem pódio, quem chegou em quarto fez mais que quem nunca passou de
-    // décimo, e sem isso o fundo da tabela sairia em ordem alfabética.
-    const melhorA = a.bestPosition > 0 ? a.bestPosition : Number.POSITIVE_INFINITY;
-    const melhorB = b.bestPosition > 0 ? b.bestPosition : Number.POSITIVE_INFINITY;
-    if (melhorA !== melhorB) return melhorA - melhorB;
-    if (b.races !== a.races) return b.races - a.races;
-    return a.name.localeCompare(b.name);
-  });
-}
-
 // As três colunas de números do ranking, na ordem em que desempatam a lista.
 // Largura fixa e conteúdo alinhado à direita: é o que faz a coluna se ler de
 // cima para baixo, que é a leitura que o bloco existe para dar.
@@ -3098,18 +2896,6 @@ function ChampionshipEvolution({ run, seasons, rodadaAcesa = null, onAcenderRoda
 // Os títulos de grupo são o nível que faltava. Os rótulos de bloco continuam
 // exatamente onde estavam, agora lendo como subtítulo do grupo em vez de
 // competirem entre si.
-// Chave do elo entre a campanha e a fita: ano + rodada. As duas desenham as
-// MESMAS corridas — a campanha somadas contra o grid, a fita uma a uma — e a
-// rodada é o que elas têm em comum. O ano entra junto porque a fita atravessa
-// temporadas e a campanha é de uma só; sem ele, a rodada 3 do ano passado
-// acenderia a rodada 3 deste.
-function chaveDaRodada(year, round) {
-  const ano = Number(year);
-  const rodada = Number(round);
-  if (!Number.isFinite(ano) || !Number.isFinite(rodada)) return null;
-  return `${ano}-${rodada}`;
-}
-
 function SportArranged({ dossier }) {
   const { t } = useTranslation();
   // A rodada sob o cursor, compartilhada pelo gráfico da campanha e pela fita de
@@ -3369,20 +3155,6 @@ function IdentitySection({ dossier }) {
       )}
     </section>
   );
-}
-
-// Idade do último encontro em linguagem de calendário. A fonte é em SEMANAS
-// porque é assim que o mundo do Loop marca o tempo (`week_of_year`), e a escada
-// sobe conforme a distância: semanas viram meses, meses viram anos. `null` só
-// acontece em payload antigo, e aí o card cala em vez de inventar "há 0 semanas".
-function formatMeetingAge(t, weeksAgo) {
-  if (weeksAgo == null) return t("myTeamTab.history.identity.rivalAgeUnknown");
-  if (weeksAgo <= 1) return t("myTeamTab.history.identity.rivalAgeNow");
-  if (weeksAgo < 9) return t("myTeamTab.history.identity.rivalAgeWeeks", { count: weeksAgo });
-  if (weeksAgo < 52) {
-    return t("myTeamTab.history.identity.rivalAgeMonths", { count: Math.round(weeksAgo / 4.33) });
-  }
-  return t("myTeamTab.history.identity.rivalAgeYears", { count: Math.floor(weeksAgo / 52) });
 }
 
 // Métrica de card: rótulo em cima, número em mono embaixo. É a mesma anatomia do
@@ -4087,7 +3859,8 @@ function ManagementSection({ dossier }) {
   const { t } = useTranslation();
   // A saúde da operação é o único bloco que muda de cor por conteúdo — vermelho
   // para pressionada/crise, amarelo para estável, verde para saudável. A regra é
-  // a mesma do v1, importada em vez de recopiada.
+  // a mesma que monta a frase (../teamHistoryDossier.js), importada em vez de
+  // recopiada.
   const tone = operationHealthTone(dossier.management.operationHealth);
   const ledger = dossier.management.ledger;
   return (

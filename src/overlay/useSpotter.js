@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { estaNoTauri } from "../lib/tauri";
 
 // Vizinhança LATERAL do carro (`iracing_spotter_vizinhanca`): quem está à esquerda,
@@ -59,25 +60,64 @@ export function useSpotterVizinhanca({ intervalMs = 120, active = true } = {}) {
 //
 // Quem decide o que realmente soa é a camada de voz, que conhece prioridade e o que
 // ainda está tocando. Aqui só se entrega tudo o que chegou.
+// Além do poll, o Rust EMPURRA cada anúncio no instante em que confirma (evento
+// `spotter-evento`, registrado em `lib.rs`). O empurrão é o caminho normal: em corrida
+// a janela do webview fica coberta pelo simulador e o navegador estrangula o
+// `setInterval`, atrasando ou perdendo a fala. O poll fica como rede.
+//
+// Os dois caminhos passam pelo MESMO cursor por id, então o que chega em dobro é
+// descartado uma vez só — quem vier segundo já não é maior que o visto.
+export const EVENTO_SPOTTER = "spotter-evento";
+
 export function useNovosAnuncios(estado) {
   const [eventos, setEventos] = useState([]);
   const vistoRef = useRef(-1);
   const ancoradoRef = useRef(false);
 
-  useEffect(() => {
-    const lista = estado?.eventos;
-    if (!Array.isArray(lista) || lista.length === 0) return;
-    const ultimo = lista[lista.length - 1];
-    if (!ancoradoRef.current) {
-      ancoradoRef.current = true;
-      vistoRef.current = ultimo.id;
-      return;
-    }
-    const novos = lista.filter((e) => e.id > vistoRef.current);
+  // Filtra pelo cursor e entrega o que sobrou. Devolve os aceitos para quem precisa
+  // saber se algo passou.
+  const entregar = useCallback((lista) => {
+    const novos = lista.filter((e) => e && e.id > vistoRef.current);
     if (novos.length === 0) return;
     vistoRef.current = novos[novos.length - 1].id;
     setEventos(novos);
-  }, [estado]);
+  }, []);
+
+  useEffect(() => {
+    const lista = estado?.eventos;
+    if (!Array.isArray(lista) || lista.length === 0) return;
+    if (!ancoradoRef.current) {
+      // 1ª leitura só ancora o cursor: nada do que aconteceu antes de a tela abrir
+      // deve soar agora.
+      ancoradoRef.current = true;
+      vistoRef.current = lista[lista.length - 1].id;
+      return;
+    }
+    entregar(lista);
+  }, [estado, entregar]);
+
+  useEffect(() => {
+    if (!estaNoTauri()) return undefined;
+    let parar = null;
+    let morto = false;
+    listen(EVENTO_SPOTTER, ({ payload }) => {
+      // O empurrão é sempre ao vivo — ele também ANCORA, senão um anúncio que chegasse
+      // antes do primeiro poll ficaria preso esperando a âncora que nunca veio.
+      ancoradoRef.current = true;
+      entregar([payload]);
+    })
+      .then((un) => {
+        if (morto) un();
+        else parar = un;
+      })
+      .catch(() => {
+        /* sem ponte — o poll continua respondendo */
+      });
+    return () => {
+      morto = true;
+      if (parar) parar();
+    };
+  }, [entregar]);
 
   return eventos;
 }

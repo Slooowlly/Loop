@@ -1,4 +1,5 @@
 import i18n from "../../i18n/index.js";
+import { FILTRO_TODOS } from "./globalDriverRanking";
 
 // Barra de filtros do ranking global de pilotos. Sem estado próprio: recebe os
 // valores atuais e devolve as mudanças por `onChange(chave, valor)`.
@@ -14,7 +15,7 @@ export function FilterBar({ filters, options, onChange, onReset }) {
         value={filters.status}
         onChange={(value) => onChange("status", value)}
         options={[
-          ["Todos", i18n.t("globalDrivers.filter.all")],
+          [FILTRO_TODOS, i18n.t("globalDrivers.filter.all")],
           ["Ativo", i18n.t("globalDrivers.filter.statusActive")],
           ["Livre", i18n.t("globalDrivers.filter.statusFree")],
           ["Aposentado", i18n.t("globalDrivers.filter.statusRetired")],
@@ -24,7 +25,7 @@ export function FilterBar({ filters, options, onChange, onReset }) {
         label={i18n.t("globalDrivers.filter.category")}
         value={filters.category}
         onChange={(value) => onChange("category", value)}
-        options={[["Todas", i18n.t("globalDrivers.filter.allF")]]}
+        options={[[FILTRO_TODOS, i18n.t("globalDrivers.filter.allF")]]}
         groups={options.categoryGroups}
       />
       <FilterSelect
@@ -32,7 +33,7 @@ export function FilterBar({ filters, options, onChange, onReset }) {
         value={filters.nationality}
         onChange={(value) => onChange("nationality", value)}
         options={[
-          ["Todas", i18n.t("globalDrivers.filter.allF")],
+          [FILTRO_TODOS, i18n.t("globalDrivers.filter.allF")],
           ...options.nationalities.map(({ code, label }) => [code, label]),
         ]}
       />

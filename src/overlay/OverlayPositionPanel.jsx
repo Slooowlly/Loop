@@ -2,6 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { estaNoTauri } from "../lib/tauri";
+import {
+  TARGETS,
+  loadDefaults,
+  loadPose,
+  loadRecenterKey,
+  loadRecenterPad,
+  loadTargetName,
+  posePayload,
+  poseEq,
+  savePose,
+} from "./overlayPose";
 
 // Painel de POSIÇÃO do overlay de VR. Deixa você:
 //   • escolher o ALVO: TORRE (timing) ou RÁDIO (card do engenheiro) — cada um é um quad
@@ -17,138 +28,17 @@ import { estaNoTauri } from "../lib/tauri";
 // Dica de uso no Pico + Virtual Desktop: com o desktop visível no VD dá pra ver o
 // painel do app e o overlay ao mesmo tempo — posiciona uma vez e fica gravado.
 
-const TARGET_KEY = "vrOverlayPanelTarget"; // último alvo escolhido (torre/rádio)
-
-// Cada ALVO tem seus comandos, chaves de storage e padrões de fábrica próprios. Os
-// factory espelham os defaults da layer/Rust de cada painel (torre = cockpit; rádio =
-// head-locked, menor e mais perto).
-const TARGETS = {
-  tower: {
-    label: "overlay.positionPanel.targetTower",
-    setPose: "vr_overlay_set_pose",
-    getPose: "vr_overlay_get_pose",
-    recenter: "vr_overlay_recenter",
-    setRecenterKey: "vr_overlay_set_recenter_key",
-    poseKey: "vrOverlayPose",
-    defaultKey: "vrOverlayDefault",
-    recenterKeyStore: "vrOverlayRecenterKey",
-    recenterPadStore: "vrOverlayRecenterPad",
-    alvo: "overlay", // nome do alvo no vigia de volante (Rust)
-    factory: { lockMode: 1, x: 0, y: 0.61, z: -1.29, yaw: 0, pitch: 30, scale: 1.7, visible: true },
-  },
-  radio: {
-    label: "overlay.positionPanel.targetRadio",
-    setPose: "vr_engineer_set_pose",
-    getPose: "vr_engineer_get_pose",
-    recenter: "vr_engineer_recenter",
-    setRecenterKey: "vr_engineer_set_recenter_key",
-    poseKey: "vrEngineerPose",
-    defaultKey: "vrEngineerDefault",
-    recenterKeyStore: "vrEngineerRecenterKey",
-    recenterPadStore: "vrEngineerRecenterPad",
-    alvo: "engineer",
-    // Padrão de fábrica = pose ajustada pelo usuário (cockpit-lock, pequeno e perto).
-    factory: { lockMode: 1, x: 0, y: 0.22, z: -0.73, yaw: 0, pitch: 10, scale: 0.26, visible: true },
-  },
-};
-
-function loadTargetName() {
-  try {
-    const raw = localStorage.getItem(TARGET_KEY);
-    if (raw === "radio" || raw === "tower") return raw;
-  } catch {
-    /* ignora */
-  }
-  return "tower";
-}
-
-// Carrega a tecla de recentro salva ({ vk, label }) ou null, do alvo dado.
-function loadRecenterKey(cfg) {
-  try {
-    const raw = localStorage.getItem(cfg.recenterKeyStore);
-    if (raw) {
-      const k = JSON.parse(raw);
-      if (k && typeof k.vk === "number" && k.vk > 0) return k;
-    }
-  } catch {
-    /* ignora storage corrompido */
-  }
-  return null;
-}
-
-// Botão de volante salvo ({ dispositivo, botao }) ou null. Dispositivo e botão são
-// índices do Windows — 0 é válido nos dois, então o teste é por tipo, não por verdade.
-function loadRecenterPad(cfg) {
-  try {
-    const raw = localStorage.getItem(cfg.recenterPadStore);
-    if (raw) {
-      const b = JSON.parse(raw);
-      if (b && Number.isInteger(b.dispositivo) && Number.isInteger(b.botao)) return b;
-    }
-  } catch {
-    /* ignora storage corrompido */
-  }
-  return null;
-}
-
-// O "padrão" efetivo do alvo: o que o usuário fixou, ou os de fábrica se nunca fixou.
-function loadDefaults(cfg) {
-  try {
-    const raw = localStorage.getItem(cfg.defaultKey);
-    if (raw) return { ...cfg.factory, ...JSON.parse(raw) };
-  } catch {
-    /* ignora storage corrompido */
-  }
-  return { ...cfg.factory };
-}
-
-function loadPose(cfg) {
-  try {
-    const raw = localStorage.getItem(cfg.poseKey);
-    if (raw) return { ...loadDefaults(cfg), ...JSON.parse(raw) };
-  } catch {
-    /* ignora storage corrompido */
-  }
-  return loadDefaults(cfg);
-}
+// A persistência da pose mora em `./overlayPose.js`, com teste espelho: chaves de storage,
+// poses de fábrica, leitura tolerante a storage corrompido e a igualdade tolerante de f32.
+// O que fica aqui é o componente: estado, sliders e os `invoke` de ida e volta.
 
 function push(cfg, pose) {
   if (!estaNoTauri()) return;
-  invoke(cfg.setPose, {
-    lockMode: pose.lockMode,
-    x: pose.x,
-    y: pose.y,
-    z: pose.z,
-    yaw: pose.yaw,
-    pitch: pose.pitch,
-    scale: pose.scale,
-    visible: pose.visible,
-  }).catch(() => {});
+  invoke(cfg.setPose, posePayload(pose)).catch(() => {});
 }
 
-function save(cfg, pose) {
-  try {
-    localStorage.setItem(cfg.poseKey, JSON.stringify(pose));
-  } catch {
-    /* storage cheio/indisponível: sem persistência, tudo bem */
-  }
-}
-
-// Igualdade tolerante (a layer devolve f32; o app guarda f64).
-function poseEq(a, b) {
-  if (!a || !b) return false;
-  const near = (x, y) => Math.abs(x - y) < 1e-3;
-  return (
-    a.lockMode === b.lockMode &&
-    a.visible === b.visible &&
-    near(a.x, b.x) &&
-    near(a.y, b.y) &&
-    near(a.z, b.z) &&
-    near(a.yaw, b.yaw) &&
-    near(a.pitch ?? 0, b.pitch ?? 0) &&
-    near(a.scale, b.scale)
-  );
-}
+// Alias local: o corpo do componente chama `save(cfg, pose)` em cinco pontos.
+const save = savePose;
 
 function Slider({ label, value, min, max, step, unit, onChange }) {
   return (

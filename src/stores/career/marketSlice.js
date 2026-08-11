@@ -5,6 +5,7 @@ import {
   applyCareerData,
   buildTemporalUiState,
   buildWeeksFromNews,
+  contextoDeTelaLimpo,
   getErrorMessage,
   loadTemporalSummary,
 } from "./helpers";
@@ -259,12 +260,7 @@ export const createMarketSlice = (set, get) => ({
       set({
         ...applyCareerData(data),
         ...buildTemporalUiState(temporalSummary),
-        showPreseason: false,
-        showEndOfSeason: false,
-        preseasonState: null,
-        preseasonWeeks: [],
-        playerProposals: [],
-        endOfSeasonResult: null,
+        ...contextoDeTelaLimpo(),
         lastRaceResult: null,
         otherCategoriesResult: null,
         isAdvancing: false,

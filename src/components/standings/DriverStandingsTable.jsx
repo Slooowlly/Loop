@@ -10,7 +10,9 @@ import ResultBadge from "./ResultBadge";
 import { SpecialClassHeader } from "./SpecialStandingNotices";
 import { getReadableTeamColor, podiumClass } from "./standingsFormatting";
 
-const SEVERE_INJURY_TYPES = new Set(["Grave", "Critica"]);
+// Gravidades de lesão que valem o selo da ambulância. As chaves são as do enum `InjuryType`
+// no backend — antes eram a grafia do banco ("Grave"/"Critica"), que casava por acaso.
+const SEVERE_INJURY_TYPES = new Set(["severe", "critical"]);
 
 // Piso da coluna de rodada: o selo do ResultBadge tem 40px (`w-10`) mais os 2px de
 // respiro de cada lado da célula.

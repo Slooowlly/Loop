@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { buildBriefingContext } from "../../pages/tabs/nextRaceContext";
+import { buscarDadosDaPreCorrida } from "./preRaceFetch";
 
 // Slice de CACHE PRÉ-CORRIDA: prévia por IA (`preRaceAi`) e standings da etapa
 // (`preRaceStandings`), ambos chaveados por `raceId`.
@@ -20,38 +21,21 @@ export const createPreRaceCacheSlice = (set, get) => ({
     if (preRaceAi?.raceId === raceId && preRaceStandings?.raceId === raceId) return;
 
     try {
-      const [drivers, teams, phraseHistory, forecast] = await Promise.all([
-        invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
-        invoke("get_teams_standings", { careerId, category: playerTeam.categoria }),
-        invoke("get_briefing_phrase_history", { careerId }).catch(() => ({
-          season_number: 0,
-          entries: [],
-        })),
-        invoke("get_breakdown_forecast", { careerId }).catch(() => null),
-      ]);
+      // A lista de comandos mora em `preRaceFetch` — a Sala de Estratégia lê a mesma, e
+      // um guard estrutural impede as duas de divergirem.
+      const retrato = await buscarDadosDaPreCorrida({
+        careerId,
+        categoria: playerTeam.categoria,
+      });
+      const { driverStandings, teamStandings, phraseHistory, breakdownForecast } = retrato;
 
       // Outra etapa pode ter virado a corrente enquanto buscávamos — aborta se mudou.
       if (get().nextRace?.id !== raceId) return;
 
-      const driverStandings = Array.isArray(drivers) ? drivers : [];
-      const teamStandings = Array.isArray(teams) ? teams : [];
-      const normalizedPhraseHistory =
-        phraseHistory && Array.isArray(phraseHistory.entries)
-          ? phraseHistory
-          : { season_number: 0, entries: [] };
-      const normalizedForecast = forecast && forecast.available ? forecast : null;
-
-      // Guarda os standings já buscados para a Sala de Estratégia abrir os Favoritos na
-      // hora, sem re-disparar get_drivers_by_category/get_teams_standings ao montar.
-      set({
-        preRaceStandings: {
-          raceId,
-          driverStandings,
-          teamStandings,
-          phraseHistory: normalizedPhraseHistory,
-          breakdownForecast: normalizedForecast,
-        },
-      });
+      // Guarda o retrato INTEIRO da etapa para a Sala de Estratégia abrir na hora, sem
+      // re-disparar nenhum dos comandos ao montar. Guardar só parte dele era o que
+      // deixava o marcador de quebra e o balão de modificadores chegando depois da tela.
+      set({ preRaceStandings: { raceId, ...retrato } });
 
       // A IA já pode estar em cache desta etapa (só faltavam os standings): não regenera.
       if (preRaceAi?.raceId === raceId) return;
@@ -64,9 +48,9 @@ export const createPreRaceCacheSlice = (set, get) => ({
         nextRaceBriefing,
         driverStandings,
         teamStandings,
-        briefingPhraseHistory: normalizedPhraseHistory,
+        briefingPhraseHistory: phraseHistory,
         playerInterests: get().playerInterests,
-        breakdownForecast: normalizedForecast,
+        breakdownForecast,
       });
       if (!aiFacts || !aiFacts.trim()) return;
 

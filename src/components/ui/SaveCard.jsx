@@ -34,22 +34,22 @@ function SaveCard({ save, onLoad, onDelete, onBackups, loading = false }) {
           <div className="grid gap-3 pt-2 sm:grid-cols-2">
             <div className="glass-light rounded-2xl p-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                Temporada
+                {t("saveCard.season")}
               </p>
               <p className="mt-2 text-sm text-text-primary">{formatSurfaceSeasonLabel(save)}</p>
             </div>
             <div className="glass-light rounded-2xl p-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                Dificuldade
+                {t("saveCard.difficulty")}
               </p>
               <p className="mt-2 text-sm text-text-primary">{difficultyLabel(save.difficulty)}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
-            <span>Último jogo: {formatDateTime(save.last_played)}</span>
-            <span>Criado: {formatDateTime(save.created)}</span>
-            <span>{save.total_races} corridas no calendário</span>
+            <span>{t("saveCard.lastPlayed", { when: formatDateTime(save.last_played) })}</span>
+            <span>{t("saveCard.created", { when: formatDateTime(save.created) })}</span>
+            <span>{t("saveCard.racesInCalendar", { count: save.total_races })}</span>
           </div>
         </div>
 

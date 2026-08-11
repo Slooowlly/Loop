@@ -1,10 +1,50 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { initialState } from "./state";
+
 // Funções puras (e alguns fetches sem estado) compartilhadas pelos slices do
 // store de carreira. Nada aqui toca `set`/`get` — os slices é que decidem.
 
 export function getErrorMessage(error, fallback) {
   return typeof error === "string" ? error : error?.toString?.() ?? fallback;
+}
+
+// As chaves que descrevem ONDE O JOGADOR ESTÁ: qual tela de sobreposição está aberta e
+// com que dados. Toda troca de contexto (carregar outra carreira, virar a temporada,
+// entrar/sair do mercado, restaurar um save) precisa zerar o conjunto INTEIRO, senão um
+// pedaço do contexto anterior sobrevive à troca e reaparece na tela nova.
+//
+// A lista existia copiada à mão em quatro lugares, com omissões silenciosas: os ramos de
+// `buildResumeUiState` e o fallback de erro do `loadCareer` esqueciam `preseasonFreeAgents`
+// (e o fallback esquecia também as ofertas do bloco especial), então a lista de agentes
+// livres da carreira ANTERIOR continuava viva depois da troca.
+export const CHAVES_DE_CONTEXTO_DE_TELA = [
+  "showEndOfSeason",
+  "showPreseason",
+  "showConvocation",
+  "endOfSeasonResult",
+  "preseasonState",
+  "preseasonWeeks",
+  "playerProposals",
+  "preseasonFreeAgents",
+  "convocationResult",
+  "specialWindowState",
+  "playerSpecialOffers",
+  "acceptedSpecialOffer",
+];
+
+/// Estado de contexto zerado, com os MESMOS valores do boot.
+///
+/// Os valores saem do `initialState` de propósito: chave nova no estado entra aqui de
+/// graça, e o valor de reset nunca diverge do valor inicial. `extras` sobrescreve o que o
+/// chamador precisa deixar diferente (por exemplo, a tela que ele está justamente abrindo).
+export function contextoDeTelaLimpo(extras = {}) {
+  const limpo = {};
+  for (const chave of CHAVES_DE_CONTEXTO_DE_TELA) {
+    const valor = initialState[chave];
+    limpo[chave] = Array.isArray(valor) ? [] : valor;
+  }
+  return { ...limpo, ...extras };
 }
 
 export function applyCareerData(data) {
@@ -169,46 +209,21 @@ export function deriveAcceptedSpecialOfferFromWindow(windowState) {
 
 export async function buildResumeUiState(careerId, resumeContext) {
   if (!careerId || !resumeContext?.active_view) {
-    return {
-      showEndOfSeason: false,
-      showPreseason: false,
-      endOfSeasonResult: null,
-      preseasonState: null,
-      preseasonWeeks: [],
-      playerProposals: [],
-      preseasonFreeAgents: [],
-      playerSpecialOffers: [],
-      acceptedSpecialOffer: null,
-    };
+    return contextoDeTelaLimpo();
   }
 
   if (resumeContext.active_view === "end_of_season" && resumeContext.end_of_season_result) {
-    return {
+    return contextoDeTelaLimpo({
       showEndOfSeason: true,
-      showPreseason: false,
       endOfSeasonResult: resumeContext.end_of_season_result,
-      preseasonState: null,
-      preseasonWeeks: [],
-      playerProposals: [],
-      playerSpecialOffers: [],
-      acceptedSpecialOffer: null,
-    };
+    });
   }
 
   if (resumeContext.active_view === "preseason") {
     return buildPreseasonUiState(careerId);
   }
 
-  return {
-    showEndOfSeason: false,
-    showPreseason: false,
-    endOfSeasonResult: null,
-    preseasonState: null,
-    preseasonWeeks: [],
-    playerProposals: [],
-    playerSpecialOffers: [],
-    acceptedSpecialOffer: null,
-  };
+  return contextoDeTelaLimpo();
 }
 
 export async function buildPreseasonUiState(careerId) {
@@ -224,15 +239,13 @@ export async function buildPreseasonUiState(careerId) {
     limit: 400,
   });
 
-  return {
-    showEndOfSeason: false,
+  return contextoDeTelaLimpo({
     showPreseason: true,
-    endOfSeasonResult: null,
     preseasonState: state,
     preseasonWeeks: buildWeeksFromNews(news),
     playerProposals: proposals,
     preseasonFreeAgents: freeAgents,
-  };
+  });
 }
 
 export async function loadTemporalSummary(careerId, season, playerTeam) {

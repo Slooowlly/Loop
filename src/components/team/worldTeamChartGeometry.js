@@ -1,9 +1,9 @@
-// Geometria e normalização do atlas histórico de equipes (GlobalTeamsTab).
+// Geometria e normalização do atlas histórico de equipes.
 //
 // Tudo aqui é PURO: recebe o payload de `get_global_team_history` (ou pedaços dele) e
-// devolve números/estilos. Vive fora do tab porque é compartilhado por ele, pelo
-// WorldTeamHistoryGrid e pelo YearWindowScrubber — manter aqui evita ciclo de import
-// entre os três módulos.
+// devolve números/estilos. Vive fora da aba porque é compartilhado por ela e pelos
+// componentes de v2/ (atlasV2Geometry, AtlasChart, AtlasRankings,
+// AtlasChampionsPanel) — manter aqui evita ciclo de import entre eles.
 
 export const DEFAULT_FAMILY = "mazda";
 export const DEFAULT_WINDOW_SIZE = 20;

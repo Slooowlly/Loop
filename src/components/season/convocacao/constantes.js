@@ -3,10 +3,9 @@ export const CATEGORY_LABELS = {
   endurance: "Endurance",
 };
 
-export const CATEGORY_LOGOS = {
-  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.webp",
-  endurance: "/utilities/categorias/recortadas/ENDURANCE.webp",
-};
+// O bloco especial só tem estas duas categorias, mas o brasão vem do dicionário único
+// (`utils/categoryLogos.js`) — assim uma categoria especial nova já nasce com arte aqui.
+export { CATEGORY_LOGOS_RECORTADOS as CATEGORY_LOGOS } from "../../../utils/categoryLogos";
 
 export const CATEGORY_COLORS = {
   all: "rgba(255,255,255,0.35)",

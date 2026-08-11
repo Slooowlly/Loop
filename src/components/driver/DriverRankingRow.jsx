@@ -13,6 +13,19 @@ import {
   teamCategoryLabel,
 } from "./globalDriverFormatters";
 
+// Gravidades de lesão que o backend manda (`lesao_ativa_tipo`, o enum `InjuryType`). O valor
+// que chegava aqui era a grafia do BANCO e ia CRU pro tooltip — português fixo, fora do i18n.
+const INJURY_SEVERITIES = new Set(["light", "moderate", "severe", "critical"]);
+
+// Rótulo da gravidade da lesão no idioma ativo. Gravidade que não conhecemos (save antigo,
+// cache velho) some do tooltip em vez de aparecer como chave técnica.
+function injurySeverityLabel(severity) {
+  if (!severity || !INJURY_SEVERITIES.has(severity)) {
+    return null;
+  }
+  return i18n.t(`globalDrivers.row.injurySeverity.${severity}`);
+}
+
 // Cabeçalho clicável de uma coluna do ranking. O marcador mostra a direção atual.
 export function SortableHeader({ label, sortKey, sort, onSort, className = "px-4 py-3" }) {
   const active = sort.key === sortKey;
@@ -96,7 +109,7 @@ export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDr
           ) : null}
           {row.is_lesionado ? (
             <Tooltip
-              texto={row.lesao_ativa_tipo ? i18n.t("globalDrivers.row.injuredType", { type: row.lesao_ativa_tipo }) : i18n.t("globalDrivers.row.injured")}
+              texto={injurySeverityLabel(row.lesao_ativa_tipo) ? i18n.t("globalDrivers.row.injuredType", { type: injurySeverityLabel(row.lesao_ativa_tipo) }) : i18n.t("globalDrivers.row.injured")}
             >
               <span className="rounded-full border border-status-red/25 bg-status-red/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-status-red">
                 Lesionado
@@ -174,7 +187,7 @@ function TitleMetricCell({ row, onOpenTitles }) {
     <td className="px-4 py-3 font-mono text-text-primary">
       <button
         type="button"
-        aria-label={`Ver titulos de ${row.nome}`}
+        aria-label={i18n.t("globalDrivers.row.viewTitlesAria", { name: row.nome })}
         onClick={(event) => {
           event.stopPropagation();
           onOpenTitles(row);

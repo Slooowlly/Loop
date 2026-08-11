@@ -336,7 +336,13 @@ export function criarOrquestrador({
       // ela ganha uma segunda frase inteira atrás. Cada junção pede um respiro diferente,
       // e 160 ms para todas soa como leitura de lista.
       const pecas = empurrar ? [...resposta.pecas, chaveFoco()] : resposta.pecas;
-      await voz.falarPecas(pecas, { pausasMs: voz.pausasDoRadio(pecas) });
+      // A pergunta vai ao registro do rádio junto: uma resposta sem a pergunta é metade da
+      // conversa, e é a metade que não deixa julgar se ele respondeu o que foi perguntado.
+      await voz.falarPecas(pecas, {
+        pausasMs: voz.pausasDoRadio(pecas),
+        canal: "resposta",
+        texto: transcricao ? `[${transcricao}]` : "",
+      });
       passo("falou", empurrar ? "peças gravadas + empurrão" : "peças gravadas");
       if (geracao === minhaVez) ir(OCIOSO);
       return;
@@ -388,7 +394,10 @@ export function criarOrquestrador({
 
     // `audio_b64`, e não `audioB64`: o serde do Rust serializa os campos como estão
     // escritos, e a ponte do Tauri não renomeia a VOLTA — só os argumentos de ida.
-    const ok = await voz.falarRemoto(falada.audio_b64, falada.mime);
+    const ok = await voz.falarRemoto(falada.audio_b64, falada.mime, {
+      canal: "resposta",
+      texto: falada.texto ?? "",
+    });
     if (geracao !== minhaVez) return;
     // O áudio chegou mas não tocou (ilegível, ou o contexto morreu). Desistir aqui é o
     // que separa "o engenheiro disse que não sabe" de "o engenheiro emudeceu".

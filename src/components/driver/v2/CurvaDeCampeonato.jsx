@@ -795,7 +795,7 @@ function CampeonatoEmTabela({ pontos }) {
 // Contar a expectativa junto, e não só o resultado, é o que impede a linha
 // laranja de sair pelo rodapé nos anos em que ele salvou um carro ruim — que são
 // exatamente os anos que o gráfico existe para mostrar.
-function escalaDePosicao(pontos) {
+export function escalaDePosicao(pontos) {
   const valores = pontos.flatMap((ponto) =>
     [ponto.posicao, ponto.esperado].filter((valor) => Number.isFinite(valor) && valor > 0),
   );
@@ -815,7 +815,7 @@ function escalaDePosicao(pontos) {
 // P1 SEMPRE, e depois passos redondos. O primeiro lugar não é uma marca a mais
 // da régua: é a referência contra a qual todo o resto do gráfico é lido, e um
 // eixo que começa em P5 obriga o leitor a descobrir sozinho onde fica o topo.
-function marcasDePosicao(teto) {
+export function marcasDePosicao(teto) {
   const passo = [1, 2, 5, 10, 20].find((valor) => teto / valor <= 5) ?? 25;
   const marcas = [1];
   for (let valor = passo; valor <= teto; valor += passo) {
@@ -833,7 +833,7 @@ function marcasDePosicao(teto) {
 // As bordas mandam mais que a preferência. Encostado no teto do eixo o rótulo
 // sairia pela borda do cartão — e encostar no teto é justamente o que acontece
 // no ano que mais merece o número, o do título.
-function rotuloVaiAcima(altura, y, ponto, { padT, alturaPlot }) {
+export function rotuloVaiAcima(altura, y, ponto, { padT, alturaPlot }) {
   const alturaEsperada = Number.isFinite(ponto.esperado) ? y(ponto.esperado) : null;
   const acima = alturaEsperada === null || alturaEsperada >= altura;
   if (acima && altura - padT < 12) return false;

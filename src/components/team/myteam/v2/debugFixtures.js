@@ -315,7 +315,7 @@ function buildDrivers(team, knobs, random) {
       equipe_id: team.id,
       is_jogador: false,
       is_estreante: true,
-      lesao_ativa_tipo: knobs.tension > 60 ? "contusao" : null,
+      lesao_ativa_tipo: knobs.tension > 60 ? "moderate" : null,
       pontos: Math.round(strength * 34 + random() * 8),
       vitorias: 0,
       podios: Math.round(strength * 3),

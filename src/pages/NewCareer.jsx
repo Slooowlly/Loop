@@ -1,6 +1,5 @@
 ﻿import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { currentLang } from "../i18n/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -15,6 +14,7 @@ import CategoryCard from "../components/wizard/CategoryCard";
 import DifficultyCard from "../components/wizard/DifficultyCard";
 import StepIndicator from "../components/wizard/StepIndicator";
 import TeamCard from "../components/wizard/TeamCard";
+import useCareerDraft from "../hooks/useCareerDraft";
 import useCareerStore from "../stores/useCareerStore";
 import { extractNationalityLabel } from "../utils/formatters";
 import {
@@ -60,26 +60,30 @@ function NewCareer() {
   const [loading, setLoading] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [error, setError] = useState("");
-  const [draftState, setDraftState] = useState(null);
+  // Os cinco comandos do rascunho vivem em `hooks/useCareerDraft`; aqui fica o formulário.
+  const {
+    draftState,
+    setDraftState,
+    carregar: carregarDraft,
+    lerProgresso: lerProgressoDoDraft,
+    gerar: gerarDraft,
+    gravarIdentidade: gravarIdentidadeDoDraft,
+    finalizar: finalizarDraft,
+    descartar: descartarDraft,
+  } = useCareerDraft();
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDraft() {
-      try {
-        const state = await invoke("get_career_draft");
-        if (cancelled || !state?.exists) return;
-        applyDraftState(state, { resume: true });
-      } catch {
-        // Draft lookup is opportunistic; creation still works if no draft can be resumed.
-      }
-    }
-
-    loadDraft();
+    carregarDraft().then((state) => {
+      if (cancelled || !state) return;
+      applyDraftState(state, { resume: true });
+    });
 
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -98,31 +102,11 @@ function NewCareer() {
   useEffect(() => {
     if (!loading) return undefined;
 
-    let cancelled = false;
+    void lerProgressoDoDraft();
+    const timer = window.setInterval(lerProgressoDoDraft, DRAFT_PROGRESS_POLL_MS);
 
-    async function pollDraftProgress() {
-      try {
-        const state = await invoke("get_career_draft");
-        if (cancelled || !state?.exists) return;
-        setDraftState((current) => ({
-          ...(current ?? state),
-          progress_year: state.progress_year ?? current?.progress_year ?? null,
-          error: state.error ?? current?.error ?? null,
-          lifecycle_status: state.lifecycle_status ?? current?.lifecycle_status,
-        }));
-      } catch {
-        // Progress polling is best-effort while the blocking generation command runs.
-      }
-    }
-
-    pollDraftProgress();
-    const timer = window.setInterval(pollDraftProgress, DRAFT_PROGRESS_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [loading]);
+    return () => window.clearInterval(timer);
+  }, [loading, lerProgressoDoDraft]);
 
   const draftCategories = STARTING_CATEGORIES.filter((category) =>
     draftState?.categories?.includes(category.id),
@@ -174,10 +158,7 @@ function NewCareer() {
   function updateForm(patch) {
     const shouldDiscardDraft = shouldDiscardDraftForPatch(formData, patch, draftState);
     if (shouldDiscardDraft) {
-      invoke("discard_career_draft").catch(() => {
-        // The next generation/finalization call will surface persistent cleanup errors.
-      });
-      setDraftState(null);
+      void descartarDraft();
     }
 
     setFormData((current) => ({
@@ -218,36 +199,17 @@ function NewCareer() {
     return "";
   }
 
-  /// Grava no draft a identidade que está na tela. O mundo simulado não depende
-  /// dela, então isto substitui o descarte que existia antes: o jogador corrige o
-  /// próprio nome e as temporadas já simuladas continuam de pé.
-  async function persistDraftIdentity({ strict = false } = {}) {
-    if (!draftState?.career_id || draftState.lifecycle_status !== "draft") return;
-
-    const name = formData.playerName.trim();
-    if (!name) return;
-
-    const unchanged =
-      name === (draftState.player_name ?? "").trim() &&
-      formData.nationality === (draftState.player_nationality ?? "") &&
-      Number(formData.age) === Number(draftState.player_age);
-    if (unchanged) return;
-
-    try {
-      const state = await invoke("update_career_draft_identity", {
-        input: {
-          career_id: draftState.career_id,
-          player_name: name,
-          player_nationality: formData.nationality,
-          player_age: Number(formData.age),
-        },
-      });
-      if (state?.exists) setDraftState(state);
-    } catch (invokeError) {
-      // Na finalização o erro precisa aparecer: seguir adiante criaria a carreira
-      // com a identidade antiga. Na navegação entre passos é só perda de rascunho.
-      if (strict) throw invokeError;
-    }
+  /// Grava no draft a identidade que está na tela. A decisão de subir ou engolir o erro
+  /// (`strict`) mora no hook — ver `useCareerDraft.gravarIdentidade`.
+  function persistDraftIdentity({ strict = false } = {}) {
+    return gravarIdentidadeDoDraft(
+      {
+        playerName: formData.playerName,
+        nationality: formData.nationality,
+        age: formData.age,
+      },
+      { strict },
+    );
   }
 
   function handleNext() {
@@ -277,13 +239,11 @@ function NewCareer() {
     setLoading(true);
 
     try {
-      const state = await invoke("create_historical_career_draft", {
-        input: {
-          player_name: formData.playerName.trim(),
-          player_nationality: formData.nationality,
-          player_age: Number(formData.age),
-          difficulty: formData.difficulty,
-        },
+      const state = await gerarDraft({
+        playerName: formData.playerName.trim(),
+        nationality: formData.nationality,
+        age: formData.age,
+        difficulty: formData.difficulty,
       });
 
       applyDraftState(state);
@@ -310,12 +270,9 @@ function NewCareer() {
       // A finalização lê o nome do meta.json do draft. Garantir a gravação aqui
       // impede que a carreira nasça com a identidade da geração original.
       await persistDraftIdentity({ strict: true });
-      const result = await invoke("finalize_career_draft", {
-        input: {
-          career_id: draftState.career_id,
-          category: formData.category,
-          team_id: formData.teamId,
-        },
+      const result = await finalizarDraft({
+        category: formData.category,
+        teamId: formData.teamId,
       });
 
       await loadCareer(result.career_id);
@@ -332,11 +289,7 @@ function NewCareer() {
   async function handleResetWizard() {
     setError("");
     if (draftState?.exists) {
-      try {
-        await invoke("discard_career_draft");
-      } catch {
-        // If discard fails, keep the UI reset local and let the next get/create surface errors.
-      }
+      await descartarDraft();
     }
     setStep(1);
     setFormData(INITIAL_FORM);

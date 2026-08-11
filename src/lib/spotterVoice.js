@@ -16,6 +16,7 @@
 
 import { aoMudarVolume, aplicarEm, volumeRadio } from "./volumeRadio";
 import { comLimite } from "./filaDeCarga";
+import { registrar as registrarRadio } from "./radioRegistro";
 
 const ARQUIVOS = import.meta.glob("../assets/spotter/*.opus", {
   eager: true,
@@ -131,6 +132,19 @@ let ctx = null;
 let master = null;
 let atual = null; // fonte tocando agora
 let prioridadeAtual = 0; // prioridade do que está tocando
+// Que fala está no ar. Existe só para o REGISTRO: `cortar()` acontece longe de quem escolheu a
+// chave, e sem isto a fala interrompida entraria na linha do tempo sem nome — que é justamente
+// a linha que se quer ler quando o rádio atropela alguma coisa.
+let chaveAtual = null;
+// Quando a fala no ar começou (`performance.now()`) e quanto ela tinha para durar. O par existe
+// para a linha do CORTE poder dizer o quanto o jogador ouviu: a duração registrada no início é a
+// pretendida, e "mais nova ganha" faz com que ela quase nunca seja a que soou. Sem estes dois
+// números, uma frase cortada no primeiro décimo e uma cortada na última sílaba são a mesma linha.
+//
+// Relógio de PAREDE e não `AudioContext.currentTime`: o áudio segue soando quando o JS da janela
+// coberta é estrangulado, e é justamente aí que a medida importa.
+let inicioAtual = 0;
+let duracaoAtual = 0;
 let adiada = null; // { chave, prio, ate } — a fala que perdeu a vez
 // A fala que já foi ESCOLHIDA para tocar e ainda está no `await` da decodificação:
 // { seq, prio, chave }. Existe porque entre decidir tocar e o som sair há um ponto de
@@ -289,6 +303,24 @@ function cortar() {
   } catch {
     /* já terminou */
   }
+  // A fala interrompida NO MEIO. É o desfecho que mais interessa medir aqui: "mais nova ganha"
+  // é a regra do spotter, e é ela que decide o que o jogador não chegou a ouvir inteiro.
+  if (chaveAtual) {
+    const tocado = Math.max(0, (performance.now() - inicioAtual) / 1000);
+    registrarRadio("spotter", {
+      chaves: [chaveAtual],
+      desfecho: "cortada",
+      detalhe: {
+        tocado_s: Math.round(tocado * 100) / 100,
+        dur_s: duracaoAtual,
+        // O que NÃO soou. É a diferença entre o mecanismo funcionando e informação perdida:
+        // cortar o último décimo de um "esquerda" é a regra fazendo o seu trabalho, cortar 1,4 s
+        // de uma fala de 1,6 s é um aviso que o jogador não recebeu.
+        restou_s: Math.max(0, Math.round((duracaoAtual - tocado) * 100) / 100),
+      },
+    });
+    chaveAtual = null;
+  }
   atual = null;
   avisarOuvintes();
 }
@@ -330,18 +362,34 @@ function adiar(chave) {
  * dentro da validade.
  */
 export async function falar(chave, { forcar = false } = {}) {
-  if (!forcar && !estaLigada()) return false;
+  if (!forcar && !estaLigada()) {
+    // A voz DESLIGADA descarta a fala antes de qualquer decisão do canal. Sem esta linha, a
+    // decisão que o Rust registrou aparece na leitura como fala perdida — e "o rádio está
+    // engolindo falas" é o diagnóstico errado para "a voz está no zero".
+    registrarRadio("spotter", { chaves: [chave], desfecho: "voz_desligada" });
+    return false;
+  }
 
   // Cedeu a vez ao que está TOCANDO: guarda e sai. `atual` só é limpo no `onended`,
   // então "há algo tocando" é uma pergunta que a própria fonte responde.
   if (!forcar && atual && prioridade(chave) < prioridadeAtual) {
     adiar(chave);
+    registrarRadio("spotter", {
+      chaves: [chave],
+      desfecho: "adiada",
+      detalhe: { cedeu_a: chaveAtual, prio: prioridade(chave), prio_no_ar: prioridadeAtual },
+    });
     return false;
   }
   // Cedeu a vez ao que está DECODIFICANDO. Vale a mesma regra da interrupção:
   // prioridade menor não atropela — espera a vez na fila de adiadas.
   if (!forcar && decidida && prioridade(chave) < decidida.prio) {
     adiar(chave);
+    registrarRadio("spotter", {
+      chaves: [chave],
+      desfecho: "adiada",
+      detalhe: { cedeu_a: decidida.chave, prio: prioridade(chave), prio_no_ar: decidida.prio },
+    });
     return false;
   }
   // O contrário: esta fala toma a vez de uma menos urgente que ainda decodificava. A
@@ -360,10 +408,20 @@ export async function falar(chave, { forcar = false } = {}) {
   // Alguém de prioridade IGUAL OU MAIOR entrou depois de mim enquanto eu decodificava
   // (as menores nem chegam aqui — viram adiadas na entrada). Ela é a informação mais
   // recente e mais urgente; desistir é o certo.
-  if (decidida?.seq !== minhaVez) return false;
+  if (decidida?.seq !== minhaVez) {
+    registrarRadio("spotter", {
+      chaves: [variacao],
+      desfecho: "atropelada",
+      detalhe: { por: decidida?.chave ?? null },
+    });
+    return false;
+  }
   if (!buf || !c) {
     // A fala escolhida não tem como tocar; solta a vez para não represar as próximas.
     decidida = null;
+    // Peça sem gravação, ou contexto de áudio indisponível. Aparece como fala muda na linha do
+    // tempo, e é o único desfecho aqui que é bug e não decisão.
+    registrarRadio("spotter", { chaves: [variacao], desfecho: "sem_audio" });
     return false;
   }
   // A que estava na espera é esta mesma — não precisa mais esperar. Uma fala de OUTRA
@@ -379,16 +437,37 @@ export async function falar(chave, { forcar = false } = {}) {
     if (atual !== fonte) return;
     atual = null;
     prioridadeAtual = 0;
+    chaveAtual = null;
     avisarOuvintes();
     // A vez de quem cedeu — se ainda valer. Fora da validade, some em silêncio: um
     // aviso de obstáculo entregue depois do obstáculo é ruído, não informação.
     const espera = adiada;
     adiada = null;
     if (aindaVale(espera)) falar(espera.chave);
+    else if (espera) {
+      // Venceu esperando. Some do áudio, não do arquivo: uma sessão cheia destas linhas diz
+      // que o canal está saturado, e é a única evidência disso que existe.
+      registrarRadio("spotter", { chaves: [espera.chave], desfecho: "validade" });
+    }
   };
   fonte.start();
   atual = fonte;
+  chaveAtual = variacao;
+  inicioAtual = performance.now();
+  duracaoAtual = Math.round(buf.duration * 100) / 100;
   prioridadeAtual = forcar ? 0 : prioridade(chave);
+  // TOCOU. A variação é a que soou, e a duração vem do próprio buffer — é o número que
+  // transforma uma lista de falas em ocupação do canal.
+  registrarRadio("spotter", {
+    chaves: [variacao],
+    desfecho: "ok",
+    detalhe: {
+      base: chave,
+      dur_s: duracaoAtual,
+      prio: forcar ? 0 : prioridade(chave),
+      forcada: forcar || undefined,
+    },
+  });
   avisarOuvintes();
   return true;
 }

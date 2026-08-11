@@ -4,6 +4,9 @@ import { RADIO_VR_W, RADIO_VR_H, drawRadioCard } from "./radioCanvas";
 // Preview no NAVEGADOR do canvas do rádio VR (`#radio-canvas`) — só pra inspecionar o
 // layout (centralização, fundo opaco cobrindo texto atrás, card de aviso âmbar). Cada
 // canvas é desenhado sobre um "texto do iRacing" fake pra conferir a opacidade.
+//
+// i18n-ignore-file: bancada de inspeção, alcançada só pelo hash `#radio-canvas`. O jogador
+// nunca chega aqui, e traduzir o rótulo de uma régua de layout seria trabalho puro.
 
 const SAMPLES = [
   { severity: "light", text: "Matthias DeSmet apresenta um problema no motor", detail: "superaquecimento" },

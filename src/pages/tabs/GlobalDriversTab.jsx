@@ -25,6 +25,7 @@ import { statusFilterLabel, defaultDirection } from "../../components/driver/glo
 import {
   DEFAULT_FILTERS,
   DEFAULT_SORT,
+  FILTRO_TODOS,
   buildChampionshipChampionSections,
   buildFilterOptions,
   buildFocusedDriverRanks,
@@ -185,7 +186,7 @@ function GlobalDriversTab({ selectedDriverId, initialMetric = null, initialCateg
   );
   const filteredRows = useMemo(() => filterRows(rows, filters), [rows, filters]);
   const relativeRankById = useMemo(
-    () => buildRelativeRanks(filteredRows, filters.status !== "Todos"),
+    () => buildRelativeRanks(filteredRows, filters.status !== FILTRO_TODOS),
     [filteredRows, filters.status],
   );
   const sortedRows = useMemo(() => sortRows(filteredRows, sort), [filteredRows, sort]);
@@ -298,7 +299,7 @@ function GlobalDriversTab({ selectedDriverId, initialMetric = null, initialCateg
           onClick={onBack}
           className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10 hover:text-text-primary"
         >
-          Voltar para Classificacao
+          {t("globalDrivers.backToStandings")}
         </button>
       </header>
 
@@ -341,10 +342,12 @@ function GlobalDriversTab({ selectedDriverId, initialMetric = null, initialCateg
               <h3 className="mt-1 text-xl font-semibold text-text-primary">{t("globalDrivers.worldRankingDrivers")}</h3>
             </div>
             <div className="text-right">
-              <p className="text-sm text-text-secondary">{`${filteredRows.length} de ${rows.length} pilotos`}</p>
+              <p className="text-sm text-text-secondary">
+                {t("globalDrivers.countOfDrivers", { shown: filteredRows.length, total: rows.length })}
+              </p>
               {relativeRankById ? (
                 <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-accent-primary">
-                  {`# recalculado entre ${statusFilterLabel(filters.status)}`}
+                  {t("globalDrivers.rankRecalculated", { scope: statusFilterLabel(filters.status) })}
                 </p>
               ) : null}
             </div>

@@ -10,13 +10,12 @@ import i18n from "../../i18n/index.js";
 import { buildWeatherNarrative, buildWeatherSummary, isWetWeather } from "./raceTrackContext";
 import { formatAudience } from "./raceEventContext";
 
-// Tipo/gravidade canônico da lesão (`lesao_ativa_tipo`) → chave i18n da gravidade.
-const INJURY_SEVERITY_KEY = {
-  Leve: "light",
-  Moderada: "moderate",
-  Grave: "severe",
-  Critica: "critical",
-};
+// Gravidades de lesão que o backend manda (`lesao_ativa_tipo`, o enum `InjuryType`). Aqui
+// era um mapa de "Leve"/"Moderada"/"Grave"/"Critica" — a grafia do BANCO — para chave i18n,
+// com o "Critica" sem acento incluído: corrigir a acentuação lá apagava a gravidade aqui, em
+// silêncio. Hoje o backend já manda a chave, e esta lista existe só para separar gravidade
+// conhecida de valor estranho (save antigo, cache velho).
+const INJURY_SEVERITIES = new Set(["light", "moderate", "severe", "critical"]);
 
 // Cor/rótulo do nível de risco de quebra (card da Sala de Estratégia).
 export function riskColor(level) {
@@ -242,14 +241,14 @@ export function buildRaceFactsBundle({
     ? { ...nemesisRaw, in_grid: orderedDrivers.some((d) => d.id === nemesisRaw.driver_id) }
     : null;
 
-  // Lesão ATIVA do jogador (carrega da classificação/summary — `lesao_ativa_tipo`, que é o
-  // TIPO/gravidade canônico: "Leve"/"Moderada"/"Grave"/"Critica"). Corre machucado → o
-  // briefing avisa (o debrief no backend fecha o loop se levar dano na corrida). Traduzimos a
-  // gravidade pro idioma ativo; tipo desconhecido cai no rótulo cru.
+  // Lesão ATIVA do jogador (carrega da classificação/summary — `lesao_ativa_tipo`, a chave de
+  // gravidade: "light"/"moderate"/"severe"/"critical"). Corre machucado → o briefing avisa (o
+  // debrief no backend fecha o loop se levar dano na corrida). Traduzimos a gravidade pro
+  // idioma ativo; chave desconhecida cai no valor cru em vez de sumir com o fato.
   const injuryType = playerStanding?.lesao_ativa_tipo ?? player?.lesao_ativa_tipo ?? null;
   const injurySeverityLabel = injuryType
-    ? INJURY_SEVERITY_KEY[injuryType]
-      ? i18n.t(`raceContext.facts.injurySeverity.${INJURY_SEVERITY_KEY[injuryType]}`)
+    ? INJURY_SEVERITIES.has(injuryType)
+      ? i18n.t(`raceContext.facts.injurySeverity.${injuryType}`)
       : injuryType
     : null;
 

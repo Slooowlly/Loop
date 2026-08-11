@@ -4,9 +4,15 @@ import { MemoryRouter } from "react-router-dom";
 import Settings from "./Settings";
 
 const mockInvoke = vi.fn();
+const mockNavigate = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args) => mockInvoke(...args),
+}));
+
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal()),
+  useNavigate: () => mockNavigate,
 }));
 
 vi.mock("../components/ui/ParticleBackdrop", () => ({
@@ -59,10 +65,14 @@ const readOnlyCommands = new Set([
   "iracing_auto_yellow_enabled",
   "overlay_demo_enabled",
   "race_capture_status",
+  "iracing_spotter_status",
+  "list_saves",
 ]);
 
 let radioDemoEnabled;
 let captureFixture;
+let spotterStatusFixture;
+let savesFixture;
 
 function renderSettings() {
   return render(
@@ -98,7 +108,10 @@ describe("Settings debug menu", () => {
   beforeEach(() => {
     radioDemoEnabled = false;
     captureFixture = idleCaptureFixture;
+    spotterStatusFixture = { app_ini_found: true, enabled: false };
+    savesFixture = [{ career_id: "C1", player_name: "Ana" }];
 
+    mockNavigate.mockReset();
     mockInvoke.mockReset();
     mockInvoke.mockImplementation(async (command) => {
       if (!readOnlyCommands.has(command)) {
@@ -109,6 +122,8 @@ describe("Settings debug menu", () => {
       if (command === "iracing_auto_yellow_enabled") return true;
       if (command === "overlay_demo_enabled") return radioDemoEnabled;
       if (command === "race_capture_status") return { ...captureFixture };
+      if (command === "iracing_spotter_status") return { ...spotterStatusFixture };
+      if (command === "list_saves") return savesFixture;
       return null;
     });
   });

@@ -304,7 +304,7 @@ function StandingsTab({ onOpenGlobalDrivers = null, onOpenGlobalTeams = null, on
         <p className="text-sm uppercase tracking-[0.22em] text-accent-primary">Dashboard</p>
         <h2 className="mt-3 text-3xl font-semibold text-text-primary">{t("standings.loading")}</h2>
         <p className="mt-3 text-sm text-text-secondary">
-          Buscando pilotos, construtores e resultados da categoria atual.
+          {t("standings.loadingDetail")}
         </p>
       </GlassCard>
     );

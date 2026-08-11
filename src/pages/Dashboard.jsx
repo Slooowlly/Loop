@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
+import useIracingFocoAutomatico from "../hooks/useIracingFocoAutomatico";
 import MainLayout from "../components/layout/MainLayout";
 import RaceResultViewV2 from "../components/race/RaceResultViewV2";
 import ConvocationView from "../components/season/ConvocationView";
@@ -16,6 +16,7 @@ import {
   resolvePostRaceLanding,
 } from "../utils/postRaceLanding";
 import CalendarTabRedesign from "./tabs/CalendarTabRedesign";
+import CarreiraTab from "./tabs/carreira";
 import MyTeamTab from "./tabs/myteam";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
@@ -27,6 +28,22 @@ import TeamRecordsTab from "./tabs/TeamRecordsTab";
 // Ao chegar o dia da corrida: a célula da PISTA pulsa por ~1s no calendário,
 // anunciando que vai abrir, e só então entra a sala de estratégia (com fade).
 const RACE_ARRIVAL_FEEDBACK_MS = 1000;
+
+// Os flashes dos atalhos de DEBUG (Ctrl+M/L/K), deliberadamente FORA do `t()`.
+//
+// São texto de UI, e o padrão do projeto é i18n obrigatório — mas estas três frases só
+// aparecem para quem conhece um atalho não documentado, existem para o desenvolvimento e
+// vão sair do build comercial junto com os atalhos. Traduzi-las poluiria o dicionário do
+// jogador com prosa que ele nunca vai ler, e a chave sobreviveria ao atalho.
+//
+// Estão juntas aqui, e não espalhadas pelos handlers, para o dia da remoção ser um `grep`
+// só. O guard de i18n não as pega por serem argumento de função; este bloco é o registro
+// da decisão. // i18n-ignore
+const FLASH_DEBUG = {
+  pularAteOMercado: "⏭️ DEBUG: pulando corridas → mercado…",
+  pularAteAUltima: "⏭️ DEBUG: pulando até a última corrida…",
+  semTemporadaComCorridas: "🏆 DEBUG: nenhuma temporada com corridas para mostrar",
+};
 
 function Dashboard() {
   const isLoaded = useCareerStore((state) => state.isLoaded);
@@ -116,16 +133,11 @@ function Dashboard() {
     const resultHandle = setInterval(() => {
       pollIracingResult?.();
     }, 4000);
-    // Gatilho inverso: se o iRacing acabou de fechar, traz nossa janela à frente.
-    // Checagem leve (atomic no backend), então roda mais rápido que o import.
-    const focusHandle = setInterval(() => {
-      invoke("iracing_focus_self_if_closed").catch(() => {});
-    }, 1500);
-    return () => {
-      clearInterval(resultHandle);
-      clearInterval(focusHandle);
-    };
+    return () => clearInterval(resultHandle);
   }, [careerId, pollIracingResult]);
+
+  // Gatilho inverso: se o iRacing acabou de fechar, traz nossa janela à frente.
+  useIracingFocoAutomatico(Boolean(careerId));
 
   // Cancela uma avaliação de leitura em andamento (timer + estado).
   function cancelNewsReadEval() {
@@ -171,7 +183,7 @@ function Dashboard() {
       }
 
       event.preventDefault();
-      setDebugSkipFlash("⏭️ DEBUG: pulando corridas → mercado…");
+      setDebugSkipFlash(FLASH_DEBUG.pularAteOMercado);
       Promise.resolve(s.skipAllPendingRaces?.())
         .then(() => setDebugSkipFlash(""))
         .catch((err) => {
@@ -209,7 +221,7 @@ function Dashboard() {
       }
 
       event.preventDefault();
-      setDebugSkipFlash("⏭️ DEBUG: pulando até a última corrida…");
+      setDebugSkipFlash(FLASH_DEBUG.pularAteAUltima);
       Promise.resolve(s.debugSkipToSeasonFinale?.())
         .then(() => setDebugSkipFlash(""))
         .catch((err) => {
@@ -239,7 +251,7 @@ function Dashboard() {
       Promise.resolve(s.debugShowLastSeasonChampion?.())
         .then((payload) => {
           if (payload) return;
-          setDebugSkipFlash("🏆 DEBUG: nenhuma temporada com corridas para mostrar");
+          setDebugSkipFlash(FLASH_DEBUG.semTemporadaComCorridas);
           setTimeout(() => setDebugSkipFlash(""), 2500);
         })
         .catch((err) => {
@@ -338,6 +350,8 @@ function Dashboard() {
         );
       case "news":
         return <NewsMagazineTab />;
+      case "carreira":
+        return <CarreiraTab />;
       case "my-team":
         return <MyTeamTab onOpenTeamRecords={openTeamRecords} />;
       case "calendar":

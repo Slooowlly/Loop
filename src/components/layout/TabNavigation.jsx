@@ -1,9 +1,14 @@
 import { useTranslation } from "react-i18next";
 
 // labelKey resolvido no render (i18n) — não congela no idioma do boot.
+// A ordem é a do zoom: o mundo (Home), o que o mundo diz (Notícias), eu
+// (Carreira), a minha equipe, o que vem (Calendário). "Carreira" entrou no meio,
+// e não no fim, porque ela é sobre o protagonista: encostada no Calendário ela se
+// leria como mais uma consulta de agenda.
 const tabs = [
   { id: "standings", labelKey: "nav.tab.standings" },
   { id: "news", labelKey: "nav.tab.news" },
+  { id: "carreira", labelKey: "nav.tab.carreira" },
   { id: "my-team", labelKey: "nav.tab.myTeam" },
   { id: "calendar", labelKey: "nav.tab.calendar" },
 ];

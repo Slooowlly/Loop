@@ -75,7 +75,7 @@ const rows = [
     status_tone: "dimmed",
     is_jogador: false,
     is_lesionado: true,
-    lesao_ativa_tipo: "Moderada",
+    lesao_ativa_tipo: "moderate",
     equipe_nome: null,
     equipe_cor_primaria: null,
     categoria_atual: "mazda_rookie",
@@ -305,20 +305,20 @@ describe("GlobalDriversTab", () => {
     expect(within(focusCard).getByText("Corridas")).toBeInTheDocument();
     expect(within(focusCard).getByText("42")).toBeInTheDocument();
     expect(within(focusCard).getAllByText(/Top #2/i).length).toBeGreaterThan(0);
-    expect(within(focusCard).getAllByText("Vitorias").length).toBeGreaterThan(0);
-    expect(within(focusCard).getAllByText("Titulos").length).toBeGreaterThan(0);
-    expect(within(focusCard).getByText("Podios")).toBeInTheDocument();
+    expect(within(focusCard).getAllByText("Vitórias").length).toBeGreaterThan(0);
+    expect(within(focusCard).getAllByText("Títulos").length).toBeGreaterThan(0);
+    expect(within(focusCard).getByText("Pódios")).toBeInTheDocument();
     expect(within(focusCard).getAllByText("Carreira").length).toBeGreaterThan(0);
     expect(within(focusCard).getByText("Seu piloto")).toBeInTheDocument();
     expect(within(focusCard).getByRole("heading", { name: "Piloto Usuario" })).toBeInTheDocument();
     expect(within(focusCard).getByText(/Rank #4/i)).toBeInTheDocument();
     expect(within(focusCard).getByText("220,0")).toBeInTheDocument();
-    expect(screen.getByText(/Campeoes por campeonato/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Ver campeoes de GT3/i })).toHaveTextContent("GT3");
-    expect(screen.getByRole("button", { name: /Ver campeoes de GT3/i })).toHaveTextContent("1");
-    expect(screen.getByRole("button", { name: /Ver campeoes de Production\/Mazda/i })).toHaveTextContent("Production/Mazda");
+    expect(screen.getByText(/Campeões por campeonato/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ver campeões de GT3/i })).toHaveTextContent("GT3");
+    expect(screen.getByRole("button", { name: /Ver campeões de GT3/i })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: /Ver campeões de Production\/Mazda/i })).toHaveTextContent("Production/Mazda");
     expect(screen.getByText(/Eventos especiais/i)).toBeInTheDocument();
-    const championshipButtons = screen.getAllByRole("button", { name: /Ver campeoes de/i });
+    const championshipButtons = screen.getAllByRole("button", { name: /Ver campeões de/i });
     expect(championshipButtons.map((button) => button.textContent)).toEqual([
       "GT3Lenda Aposentada1",
       "GT4Piloto Selecionado1",
@@ -357,17 +357,17 @@ describe("GlobalDriversTab", () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
 
     await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
-    fireEvent.click(screen.getByRole("button", { name: /Ver campeoes de GT3/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Ver campeões de GT3/i }));
 
-    const dialog = screen.getByRole("dialog", { name: /Campeoes de GT3/i });
+    const dialog = screen.getByRole("dialog", { name: /Campeões de GT3/i });
     expect(dialog).toHaveClass("max-h-[85vh]", "overflow-hidden");
-    expect(within(dialog).getByText(/1 campeao/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 campeão/i)).toBeInTheDocument();
     expect(within(dialog).getByText("Lenda Aposentada")).toBeInTheDocument();
-    expect(within(dialog).getByText("2 titulos")).toBeInTheDocument();
+    expect(within(dialog).getByText("2 títulos")).toBeInTheDocument();
     expect(within(dialog).getByText("2024, 2023")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Fechar campeoes/i }));
-    expect(screen.queryByRole("dialog", { name: /Campeoes de GT3/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Fechar campeões/i }));
+    expect(screen.queryByRole("dialog", { name: /Campeões de GT3/i })).not.toBeInTheDocument();
   });
 
   it("shows the champion's team logo next to each title year", async () => {
@@ -393,9 +393,9 @@ describe("GlobalDriversTab", () => {
 
     render(<GlobalDriversTab selectedDriverId="D001" onBack={vi.fn()} />);
     await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
-    fireEvent.click(screen.getByRole("button", { name: /Ver campeoes de GT3/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Ver campeões de GT3/i }));
 
-    const dialog = screen.getByRole("dialog", { name: /Campeoes de GT3/i });
+    const dialog = screen.getByRole("dialog", { name: /Campeões de GT3/i });
     // Each year is now a chip with the champion team's logo, not a comma-joined string.
     expect(within(dialog).getByText("2024")).toBeInTheDocument();
     expect(within(dialog).getByText("2023")).toBeInTheDocument();
@@ -414,35 +414,35 @@ describe("GlobalDriversTab", () => {
     expect(within(table).getByText("Piloto Livre")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Selecionado")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "Todos" } });
+    fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: "all" } });
     fireEvent.change(screen.getByLabelText(/Categoria/i), { target: { value: "gt4" } });
     expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
     expect(within(table).getByText("Lenda Aposentada")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Usuario")).not.toBeInTheDocument();
     expect(within(table).getByText(/Atualmente em GT4/i)).toBeInTheDocument();
-    expect(within(table).getByText(/Ja passaram por GT4/i)).toBeInTheDocument();
+    expect(within(table).getByText(/Já passaram por GT4/i)).toBeInTheDocument();
 
     const categoryRows = within(table).getAllByRole("row");
     const selectedIndex = categoryRows.findIndex((row) => within(row).queryByText("Piloto Selecionado"));
-    const pastGroupIndex = categoryRows.findIndex((row) => within(row).queryByText(/Ja passaram por GT4/i));
+    const pastGroupIndex = categoryRows.findIndex((row) => within(row).queryByText(/Já passaram por GT4/i));
     const retiredIndex = categoryRows.findIndex((row) => within(row).queryByText("Lenda Aposentada"));
     expect(selectedIndex).toBeGreaterThan(-1);
     expect(pastGroupIndex).toBeGreaterThan(selectedIndex);
     expect(retiredIndex).toBeGreaterThan(pastGroupIndex);
 
-    fireEvent.change(screen.getByLabelText(/Categoria/i), { target: { value: "Todas" } });
+    fireEvent.change(screen.getByLabelText(/Categoria/i), { target: { value: "all" } });
     // O filtro agora agrupa por país (código), uma entrada por nacionalidade.
     fireEvent.change(screen.getByLabelText(/Nacionalidade/i), { target: { value: "br" } });
     expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
     expect(within(table).getByText("Piloto Usuario")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Livre")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Nacionalidade/i), { target: { value: "Todas" } });
-    fireEvent.change(screen.getByLabelText(/Campeões/i), { target: { value: "champions" } });
+    fireEvent.change(screen.getByLabelText(/Nacionalidade/i), { target: { value: "all" } });
+    fireEvent.change(screen.getByLabelText("Campeões"), { target: { value: "champions" } });
     expect(within(table).getByText("Piloto Selecionado")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Usuario")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Campeões/i), { target: { value: "all" } });
+    fireEvent.change(screen.getByLabelText("Campeões"), { target: { value: "all" } });
     fireEvent.change(screen.getByLabelText(/Lesionados/i), { target: { value: "injured" } });
     expect(within(table).getByText("Piloto Livre")).toBeInTheDocument();
     expect(within(table).queryByText("Piloto Selecionado")).not.toBeInTheDocument();
@@ -602,7 +602,7 @@ describe("GlobalDriversTab", () => {
 
     const bodyRows = within(table).getAllByRole("row").slice(1);
     const currentSectionIndex = bodyRows.findIndex((row) => within(row).queryByText(/Atualmente em Mazda Rookie/i));
-    const pastSectionIndex = bodyRows.findIndex((row) => within(row).queryByText(/Ja passaram por Mazda Rookie/i));
+    const pastSectionIndex = bodyRows.findIndex((row) => within(row).queryByText(/Já passaram por Mazda Rookie/i));
     const userIndex = bodyRows.findIndex((row) => within(row).queryByText("Piloto Usuario"));
     const freeIndex = bodyRows.findIndex((row) => within(row).queryByText("Piloto Livre"));
     const retiredIndex = bodyRows.findIndex((row) => within(row).queryByText("Veterano Distante"));
@@ -707,17 +707,17 @@ describe("GlobalDriversTab", () => {
     const table = await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
     const retiredRow = within(table).getByText("Lenda Aposentada").closest("tr");
 
-    fireEvent.click(within(retiredRow).getByRole("button", { name: /Ver titulos de Lenda Aposentada/i }));
+    fireEvent.click(within(retiredRow).getByRole("button", { name: /Ver títulos de Lenda Aposentada/i }));
 
-    const dialog = screen.getByRole("dialog", { name: /Titulos de Lenda Aposentada/i });
+    const dialog = screen.getByRole("dialog", { name: /Títulos de Lenda Aposentada/i });
     expect(within(dialog).getByText(/Total: 3/i)).toBeInTheDocument();
     expect(within(dialog).getByText("GT3")).toBeInTheDocument();
-    expect(within(dialog).getByText("2 titulos")).toBeInTheDocument();
+    expect(within(dialog).getByText("2 títulos")).toBeInTheDocument();
     expect(within(dialog).getByText("Production/Mazda")).toBeInTheDocument();
-    expect(within(dialog).getByText("1 titulo")).toBeInTheDocument();
+    expect(within(dialog).getByText("1 título")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Fechar titulos/i }));
-    expect(screen.queryByRole("dialog", { name: /Titulos de Lenda Aposentada/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Fechar títulos/i }));
+    expect(screen.queryByRole("dialog", { name: /Títulos de Lenda Aposentada/i })).not.toBeInTheDocument();
   });
 
   it("opens the driver detail modal when double-clicking a driver row and highlights it", async () => {
@@ -874,7 +874,7 @@ describe("GlobalDriversTab", () => {
     await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
     // Um valor fora das opções deixaria o select mostrando vazio e filtrando por
     // algo que o jogador não consegue desfazer.
-    expect(screen.getByLabelText(/Categoria/i)).toHaveValue("Todas");
+    expect(screen.getByLabelText(/Categoria/i)).toHaveValue("all");
   });
 
   it("ignora metrica desconhecida e mantem a ordem padrao", async () => {
@@ -892,7 +892,7 @@ describe("GlobalDriversTab", () => {
     render(<GlobalDriversTab selectedDriverId="D001" onBack={onBack} />);
 
     await screen.findByText(/Panorama global de pilotos/i);
-    fireEvent.click(await screen.findByRole("button", { name: /Voltar para Classificacao/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Voltar para Classificação/i }));
 
     expect(onBack).toHaveBeenCalledTimes(1);
   });

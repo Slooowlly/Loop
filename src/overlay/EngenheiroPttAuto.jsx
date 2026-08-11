@@ -97,7 +97,14 @@ export default function EngenheiroPttAuto() {
           ocasiao: oc.ocasiao,
           tratamento: oc.tratamento ?? null,
         });
-        if (!parado) voz.anunciarRemoto(falada.audio_b64, falada.mime);
+        // O texto vai ao registro do rádio junto com o áudio: é a fala mais longa do sistema e
+        // a única escrita pelo servidor, então sem isto ela seria a única que não dá para reler.
+        if (!parado) {
+          voz.anunciarRemoto(falada.audio_b64, falada.mime, {
+            canal: "ocasiao",
+            texto: falada.texto ?? "",
+          });
+        }
       } catch {
         // O trinco já fechou lá no Rust, de propósito: uma ocasião perdida custa uma fala,
         // e um trinco que só fechasse no sucesso custaria uma ida ao servidor por poll
@@ -133,9 +140,14 @@ export default function EngenheiroPttAuto() {
     };
     empurrar();
     // A associação pode mudar noutra tela; `storage` cobre outra janela, e o evento
-    // próprio cobre a mesma.
+    // próprio (`loop:ptt-gatilho`, disparado por `salvarGatilho`) cobre a mesma.
+    //
+    // O filtro é pelo TIPO antes da chave: só o `storage` tem `key`, e ele dispara para
+    // qualquer chave do domínio. Cobrar `e.key` do evento próprio — que é um `Event` cru,
+    // sem chave nenhuma — descartava justo o caminho da mesma janela, que é o do jogador
+    // trocando a tecla nas Configurações.
     const aoTrocar = (e) => {
-      if (!e || e.key === GATILHO_STORE) empurrar();
+      if (!e || e.type !== "storage" || e.key === GATILHO_STORE) empurrar();
     };
     window.addEventListener("storage", aoTrocar);
     window.addEventListener("loop:ptt-gatilho", aoTrocar);

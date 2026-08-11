@@ -4,11 +4,17 @@
 import { ordinal } from "../../i18n/format.js";
 import i18n from "../../i18n/index.js";
 import { formatMoneyCompact } from "../../utils/formatters";
+import { CATEGORY_LOGOS_RECORTADOS } from "../../utils/categoryLogos";
 
 // ─── Category Definitions ─────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  { id: "all",        label: "Todas",      color: "rgba(255,255,255,0.35)" },
+  // A entrada "sem recorte" não tem `label`: os rótulos das outras são nomes próprios
+  // (Mazda, GT3, Endurance), que não mudam de idioma, e este era a única palavra em
+  // português da tabela — duplicada, porque os dois cabeçalhos que desenham a régua já
+  // pediam `preSeason.filters.all` ao i18n para este id. Sem o campo, quem esquecer o
+  // caso especial mostra vazio em vez de mostrar português dentro do inglês.
+  { id: "all",        color: "rgba(255,255,255,0.35)" },
   { id: "mazda",      dbIds: ["mazda_rookie", "mazda_amador"],   label: "Mazda",      color: "#F01010" },
   { id: "toyota",     dbIds: ["toyota_rookie", "toyota_amador"], label: "Toyota",     color: "#FF1010" },
   { id: "bmw",        dbIds: ["bmw_m2"],                         label: "BMW",        color: "#F00010" },
@@ -35,20 +41,9 @@ const SUBCAT_LABELS = {
   endurance: "Endurance Championship",
 };
 
-const SUBCAT_LOGOS = {
-  mazda: "/utilities/categorias/recortadas/MX5%20CUP.webp",
-  mazda_amador: "/utilities/categorias/recortadas/MX5%20CUP.webp",
-  mazda_rookie: "/utilities/categorias/recortadas/MX5%20ROOKIE.webp",
-  toyota: "/utilities/categorias/recortadas/GR%20CUP.webp",
-  toyota_amador: "/utilities/categorias/recortadas/GR%20CUP.webp",
-  toyota_rookie: "/utilities/categorias/recortadas/GR%20ROOKIE.webp",
-  bmw: "/utilities/categorias/recortadas/M2%20CUP.webp",
-  bmw_m2: "/utilities/categorias/recortadas/M2%20CUP.webp",
-  gt4: "/utilities/categorias/recortadas/GT4.webp",
-  gt3: "/utilities/categorias/recortadas/GT3.webp",
-  production_challenger: "/utilities/categorias/recortadas/PRODUCTION.webp",
-  endurance: "/utilities/categorias/recortadas/ENDURANCE.webp",
-};
+// Brasão da subcategoria: o dicionário é o mesmo de todas as telas
+// (`utils/categoryLogos.js`), na variante recortada.
+const SUBCAT_LOGOS = CATEGORY_LOGOS_RECORTADOS;
 
 const DEFAULT_LOGO_FIT = {
   frameClassName: "h-40 lg:h-44",

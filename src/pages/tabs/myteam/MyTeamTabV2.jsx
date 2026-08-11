@@ -16,8 +16,7 @@ import { lineupDossier } from "../../../components/team/myteam/v2/gridMetrics";
 import useCareerStore from "../../../stores/useCareerStore";
 import i18n from "../../../i18n/index.js";
 
-// Aba Minha Equipe v2. A v1 (`src/pages/tabs/MyTeamTab.jsx`) segue intacta — o
-// rollback é trocar `MY_TEAM_VERSION` em ./index.js.
+// Aba Minha Equipe. A v1 que ela substituiu foi removida em 11/08/2026.
 //
 // A busca de dados é IDÊNTICA à da v1: os mesmos três comandos, nenhum campo novo
 // pedido ao backend. O que mudou é a leitura — a tela desce em horizontes (agora →

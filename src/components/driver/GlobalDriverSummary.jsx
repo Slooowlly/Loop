@@ -137,7 +137,7 @@ export function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
                   <button
                     key={group.key}
                     type="button"
-                    aria-label={`Ver campeoes de ${group.label}`}
+                    aria-label={i18n.t("globalDrivers.viewChampionsAria", { group: group.label })}
                     onClick={() => onOpenChampionship(group)}
                     className="flex min-h-20 items-center justify-between gap-4 rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-left transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10"
                   >
@@ -157,7 +157,7 @@ export function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
           ))
         ) : (
           <p className="rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-sm text-text-secondary">
-            Sem campeoes registrados.
+            {i18n.t("globalDrivers.noChampionsRecorded")}
           </p>
         )}
       </div>

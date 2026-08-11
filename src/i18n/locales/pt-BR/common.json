@@ -266,7 +266,8 @@
       "standings": "Home",
       "news": "Notícias",
       "myTeam": "Minha Equipe",
-      "calendar": "Calendário"
+      "calendar": "Calendário",
+      "carreira": "Carreira"
     },
     "date": "Data",
     "back": "Voltar",
@@ -409,6 +410,7 @@
     "delete": "Excluir",
     "cancel": "Cancelar",
     "deleteSaveAria": "Deletar save",
+    "deleteFailed": "Não foi possível excluir a carreira. Ela continua na lista.",
     "relative": {
       "today": "Hoje",
       "yesterday": "Ontem",
@@ -470,15 +472,18 @@
       },
       "title": "Troféu de {{type}}",
       "titleDefending": "Troféu de {{type}} · campeão defensor"
-    }
+    },
+    "loadingDetail": "Buscando pilotos, construtores e resultados da categoria atual."
   },
   "globalDrivers": {
     "notLoaded": "Carreira não carregada.",
-    "loadError": "Nao foi possivel carregar o panorama de pilotos.",
+    "loadError": "Não foi possível carregar o panorama de pilotos.",
     "summaryAria": "Resumo do ranking mundial",
     "rankingAria": "Ranking mundial de pilotos",
     "yourDriverAria": "Seu piloto no ranking mundial",
-    "allContracts": "Todos os contratos e historicos",
+    "allContracts": "Todos os contratos e históricos",
+    "countOfDrivers": "{{shown}} de {{total}} pilotos",
+    "rankRecalculated": "# recalculado entre {{scope}}",
     "col": {
       "driver": "Piloto",
       "status": "Status",
@@ -487,23 +492,23 @@
       "career": "Carreira",
       "salaryYear": "Salário/ano",
       "fame": "Fama",
-      "index": "Indice",
-      "titles": "Titulos",
+      "index": "Índice",
+      "titles": "Títulos",
       "wins": "Vit.",
       "podiums": "Pod.",
       "poles": "Poles",
       "points": "Pts",
       "races": "Corr.",
       "dnfs": "DNFs",
-      "injuries": "Lesoes"
+      "injuries": "Lesões"
     },
     "stat": {
-      "index": "Indice",
+      "index": "Índice",
       "races": "Corridas",
-      "wins": "Vitorias",
-      "podiums": "Podios",
+      "wins": "Vitórias",
+      "podiums": "Pódios",
       "career": "Carreira",
-      "titles": "Titulos"
+      "titles": "Títulos"
     },
     "tab": {
       "history": "Histórico",
@@ -527,15 +532,26 @@
       "statusRetired": "Aposentados",
       "onlyChampions": "Apenas campeões",
       "onlyInjured": "Apenas lesionados",
-      "onlyFavorites": "Apenas favoritos"
+      "onlyFavorites": "Apenas favoritos",
+      "scopeActive": "pilotos ativos",
+      "scopeFree": "pilotos livres",
+      "scopeRetired": "pilotos aposentados",
+      "scopeFiltered": "pilotos filtrados"
     },
     "row": {
       "injured": "Lesionado",
       "injuredType": "Lesionado: {{type}}",
+      "injurySeverity": {
+        "light": "Leve",
+        "moderate": "Moderada",
+        "severe": "Grave",
+        "critical": "Crítica"
+      },
       "removeFavorite": "Remover dos favoritos",
       "addFavorite": "Favoritar piloto",
       "noNames": "Sem nomes",
-      "yearsUnavailable": "Anos indisponiveis"
+      "yearsUnavailable": "Anos indisponiveis",
+      "viewTitlesAria": "Ver títulos de {{name}}"
     },
     "podium": {
       "none": "Nenhum pódio",
@@ -562,26 +578,30 @@
       "deltaTitle_other": "{{direction}} {{count}} posições{{scope}} desde a última corrida"
     },
     "champions": {
-      "eyebrow": "Campeoes",
-      "title": "Campeoes por campeonato",
-      "ofGroup": "Campeoes de {{group}}",
-      "close": "Fechar campeoes",
-      "titlesCount_one": "{{count}} titulo",
-      "titlesCount_other": "{{count}} titulos",
-      "championsCount_one": "{{count}} campeao",
-      "championsCount_other": "{{count}} campeoes"
+      "eyebrow": "Campeões",
+      "title": "Campeões por campeonato",
+      "ofGroup": "Campeões de {{group}}",
+      "close": "Fechar campeões",
+      "titlesCount_one": "{{count}} título",
+      "titlesCount_other": "{{count}} títulos",
+      "championsCount_one": "{{count}} campeão",
+      "championsCount_other": "{{count}} campeões"
     },
     "titles": {
-      "eyebrow": "Titulos",
-      "ofDriver": "Titulos de {{name}}",
+      "eyebrow": "Títulos",
+      "ofDriver": "Títulos de {{name}}",
       "total": "Total: {{count}}",
-      "close": "Fechar titulos"
+      "close": "Fechar títulos"
     },
     "retiredYears": "Há {{count}} anos",
     "retiredIn": "Aposentado em {{year}}",
     "retired": "Aposentado",
     "specialEvents": "Eventos especiais",
-    "backToStandings": "Voltar para Classificacao",
+    "section": {
+      "currentlyIn": "Atualmente em {{category}}",
+      "passedThrough": "Já passaram por {{category}}"
+    },
+    "backToStandings": "Voltar para Classificação",
     "loadingEyebrow": "Panorama global de pilotos",
     "loadingTitle": "Montando ranking mundial",
     "loadingDesc": "Reunindo pilotos ativos, livres e aposentados.",
@@ -589,24 +609,19 @@
     "worldRanking": "Ranking mundial",
     "globalPanorama": "Panorama global de pilotos",
     "worldRankingDrivers": "Ranking mundial de pilotos",
-    "yourDriver": "Seu piloto"
+    "yourDriver": "Seu piloto",
+    "viewChampionsAria": "Ver campeões de {{group}}",
+    "noChampionsRecorded": "Sem campeões registrados."
   },
   "globalTeams": {
-    "notLoaded": "Carreira nao carregada.",
-    "loadError": "Nao foi possivel carregar o historico mundial de equipes.",
+    "notLoaded": "Carreira não carregada.",
+    "loadError": "Não foi possível carregar o histórico mundial de equipes.",
     "backToStandings": "Voltar para Classificação",
     "familyWindow": "{{family}}: janela {{start}}-{{end}}",
     "zoomFullTitle": "Ver a linha do tempo inteira",
     "zoomRecentTitle": "Ver só os últimos {{years}} anos",
     "zoomRecentLabel": "Últimos {{years}} anos",
     "zoomAll": "Tudo",
-    "moveWindow": "Mover janela historica",
-    "start": "inicio",
-    "end": "fim",
-    "visibleWindow": "Janela visivel: {{start}}-{{end}}",
-    "currentChampion": "Campeão vigente",
-    "eyebrow": "Equipes mundiais",
-    "worldTeamHistory": "Histórico mundial de equipes",
     "historicAtlas": "Atlas histórico",
     "buildingWorldTeamHistory": "Montando histórico mundial de equipes",
     "bandNotStarted": "{{band}} ainda não existia",
@@ -939,23 +954,23 @@
   },
   "briefing": {
     "expectation": {
-      "p1-controlled-1": "Chega como a principal referência da etapa, embalado pela sequência mais solida entre os nomes da frente.",
+      "p1-controlled-1": "Chega como a principal referência da etapa, embalado pela sequência mais sólida entre os nomes da frente.",
       "p1-controlled-2": "Abre o fim de semana como parametro do grid, sustentado por uma fase que vem entregando controle e pontos grandes.",
       "p1-charging-1": "Puxa a fila dos favoritos com moral alta, trazendo ritmo recente de quem sabe controlar a ponta do fim de semana.",
-      "p1-charging-2": "Assume o papel de homem a ser batido nesta etapa, apoiado por uma tendência forte de crescimento nas ultimas corridas.",
+      "p1-charging-2": "Assume o papel de homem a ser batido nesta etapa, apoiado por uma tendência forte de crescimento nas últimas corridas.",
       "p1-volatile-1": "Segue como a referência natural da etapa, mas o paddock quer ver essa velocidade virar uma corrida limpa do inicio ao fim.",
       "p1-volatile-2": "Ainda chega como nome central da frente, embora carregue um recado claro: transformar ritmo em execução sem erros.",
       "p1-stable-1": "Entra na etapa como eixo da disputa, com campanha estável o bastante para ditar o tom dos carros da frente.",
       "p1-stable-2": "Continua sendo a referência mais confiavel do grid, mesmo sem abrir uma margem absoluta sobre os perseguidores imediatos.",
       "p1-baseline-1": "Chega como o nome de maior peso esportivo da etapa, com leitura de campeonato suficiente para comandar a frente.",
-      "p1-baseline-2": "Parte como referência natural do fim de semana, apoiado pelo conjunto mais forte entre pontuacao, ritmo e presenca na frente.",
+      "p1-baseline-2": "Parte como referência natural do fim de semana, apoiado pelo conjunto mais forte entre pontuação, ritmo e presença na frente.",
       "p2-controlled-1": "Entra no fim de semana com leitura clara de primeira fila, sustentado por resultados fortes e pouca margem para erro.",
       "p2-controlled-2": "Chega como perseguidor direto mais consistente da etapa, com pacote real para empurrar o favorito desde a largada.",
       "p2-charging-1": "Aparece como o nome mais pronto para atacar a frente, embalado por uma curva recente de crescimento bem visivel.",
       "p2-charging-2": "Traz argumento real para pressionar pela ponta, com forma em alta e ritmo de quem pode mexer na hierarquia da etapa.",
       "p2-volatile-1": "Tem velocidade para andar na primeira fila, mas ainda precisa converter esse teto de performance em um domingo limpo.",
       "p2-volatile-2": "Chega com leitura de ataque real a frente, desde que consiga estabilizar uma campanha que ainda alterna picos e escapes.",
-      "p2-stable-1": "Sustenta uma candidatura forte a primeira fila, apoiado por regularidade recente e presenca constante no bloco da frente.",
+      "p2-stable-1": "Sustenta uma candidatura forte a primeira fila, apoiado por regularidade recente e presença constante no bloco da frente.",
       "p2-stable-2": "Entra como perseguidor credenciado da etapa, com consistência suficiente para pressionar o topo se encaixar a classificação.",
       "p2-baseline-1": "Comeca o fim de semana como nome firme de primeira fila, carregando material para incomodar os carros da frente.",
       "p2-baseline-2": "Abre a etapa com credencial real de ataque, apoiado por um pacote que o mantem perto dos lideres do campeonato.",
@@ -966,16 +981,16 @@
       "p3-volatile-1": "Tem teto para se meter no pódio, mas a leitura do paddock ainda passa por transformar velocidade em constancia.",
       "p3-volatile-2": "Surge com potencial de top 3, embora ainda carregue uma dose de instabilidade que pede corrida bem executada.",
       "p3-stable-1": "A consistência recente o mantem no radar do pódio, mesmo sem o mesmo teto bruto dos dois nomes mais fortes.",
-      "p3-stable-2": "Chega como presenca firme no bloco da frente, com repertorio suficiente para sustentar uma corrida de pódio.",
+      "p3-stable-2": "Chega como presença firme no bloco da frente, com repertório suficiente para sustentar uma corrida de pódio.",
       "p3-baseline-1": "Parte como candidato legitimo ao pódio, com campanha forte o bastante para andar na mesma conversa dos favoritos.",
-      "p3-baseline-2": "Abre a etapa dentro do recorte de pódio, apoiado por um conjunto solido de pontos, ritmo e presenca na frente.",
+      "p3-baseline-2": "Abre a etapa dentro do recorte de pódio, apoiado por um conjunto sólido de pontos, ritmo e presença na frente.",
       "p4-controlled-1": "Aparece como ameaca real ao top 5, com base recente suficientemente limpa para punir qualquer erro a frente.",
-      "p4-controlled-2": "Chega um degrau abaixo do bloco de pódio, mas com consistencia para roubar pontos pesados se a corrida abrir.",
+      "p4-controlled-2": "Chega um degrau abaixo do bloco de pódio, mas com consistência para roubar pontos pesados se a corrida abrir.",
       "p4-charging-1": "Vem em ascensao e entra como nome perigoso para atravessar o top 5 caso a prova saia do roteiro esperado.",
       "p4-charging-2": "A curva recente de crescimento o coloca como uma ameaca concreta aos nomes mais estabelecidos da frente.",
       "p4-volatile-1": "Tem velocidade para se infiltrar no bloco alto da etapa, mas ainda carrega uma leitura de risco maior que os rivais diretos.",
       "p4-volatile-2": "Surge como carta agressiva do grid: teto interessante, embora a execução ainda oscile demais para confiar cegamente.",
-      "p4-stable-1": "Ocupa o segundo pelotao da frente com consistencia, pronto para capitalizar qualquer corrida quebrada entre os favoritos.",
+      "p4-stable-1": "Ocupa o segundo pelotão da frente com consistência, pronto para capitalizar qualquer corrida quebrada entre os favoritos.",
       "p4-stable-2": "Mantem perfil forte de ameaca secundaria, sustentado por regularidade suficiente para somar muito se a etapa embaralhar.",
       "p4-baseline-1": "Entra como nome perigoso para esticar a disputa do top 5, especialmente se o fim de semana abrir espaço na frente.",
       "p4-baseline-2": "Abre a etapa como ameaca secundaria bem posicionada, com pacote para transformar caos em pontos grandes.",
@@ -1941,31 +1956,14 @@
     "errors": {
       "load": "Não foi possível carregar os dados da equipe."
     },
-    "command": {
-      "eyebrow": "Central de gestão",
-      "position": "Posição"
-    },
     "team": {
       "fallbackName": "Equipe"
     },
     "drivers": {
-      "eyebrow": "Dupla de pilotos",
-      "title": "Contratos e peso na folha",
-      "salaryRole": "Salário {{role}}",
-      "perYear": "/ano",
-      "payrollWeight": "Peso na folha",
       "noDriverData": "Piloto ainda sem dados detalhados"
     },
     "garage": {
-      "eyebrow": "Política interna",
-      "title": "Clima da garagem",
-      "tension": "Tensão interna",
       "moraleWarning": "Tensão alta já pesa na moral da equipe no fim da temporada.",
-      "n1": "Piloto nº 1",
-      "n2": "Piloto nº 2",
-      "invertedNote": "A ordem da garagem virou no meio da temporada.",
-      "inversions_one": "{{count}} inversão nesta temporada",
-      "inversions_other": "{{count}} inversões nesta temporada",
       "climate": {
         "estavel": "Estável",
         "competitivo": "Competitivo",
@@ -1976,8 +1974,6 @@
       }
     },
     "tech": {
-      "eyebrow": "Operação técnica",
-      "title": "Eixos técnicos",
       "axes": {
         "development": "Desenvolvimento",
         "reliability": "Confiabilidade",
@@ -2012,45 +2008,6 @@
       }
     },
     "finance": {
-      "eyebrow": "Rodada atual + acumulado",
-      "title": "Dossiê financeiro",
-      "kpi": {
-        "cash": "Caixa",
-        "cashCaption": "Saldo da operação",
-        "roundResult": "Resultado rodada",
-        "roundResultCaption": "Última rodada",
-        "debt": "Dívida",
-        "debtCaption": "Passivo atual",
-        "salaryCeiling": "Teto salarial",
-        "salaryCeilingCaption": "Máx. por piloto",
-        "spendingPower": "Poder de gasto",
-        "spendingPowerCaption": "Margem projetada"
-      },
-      "period": {
-        "current": "atual",
-        "perRound": "/rodada",
-        "perYear": "/ano",
-        "season": "temporada"
-      },
-      "legend": {
-        "intro": "As etiquetas indicam o horizonte de cada número: ",
-        "perRound": "/rodada",
-        "perRoundDesc": " é o fluxo de uma corrida, ",
-        "perYear": "/ano",
-        "perYearDesc": " é o salário por piloto e ",
-        "season": "temporada",
-        "seasonDesc": " é a projeção do ano inteiro."
-      },
-      "incomeTitle": "Entradas da rodada",
-      "expenseTitle": "Saídas da rodada",
-      "salaryHint": "{{value}}/ano",
-      "ledgerEmpty": "Sem rodada registrada ainda.",
-      "presence": {
-        "eyebrow": "Presença pública",
-        "label": "Perfil de audiência",
-        "caption": "0–100, do lineup ativo",
-        "explainer": "A mídia da sua dupla define o perfil público da equipe — o piloto mais midiático pesa 70%, o companheiro 30%. Esse número multiplica o patrocínio de cada rodada: contratar um rosto conhecido é receita, não só vitrine."
-      },
       "lines": {
         "sponsorship_income": "Patrocínios",
         "gate_income": "Bilheteria",
@@ -2080,45 +2037,7 @@
         "survival": "Sobrevivência"
       }
     },
-    "projection": {
-      "eyebrow": "Se a temporada terminasse agora",
-      "title": "Projeção de fim de temporada",
-      "ofGrid": " de {{count}}",
-      "seasonToDate": "Temporada até aqui",
-      "estimatedPrize": "Prêmio estimado",
-      "estimatedPrizeCaption": "Pela posição atual",
-      "annualProjection": "Projeção anual",
-      "verdictGreen": "No ritmo atual você fecha a temporada no verde — {{value}} contando o prêmio de construtores.",
-      "verdictRed": "No ritmo atual você fecha a temporada no vermelho — {{value}} mesmo com o prêmio de construtores."
-    },
-    "cash": {
-      "eyebrow": "Caixa ao fim de cada rodada",
-      "title": "Histórico de caixa",
-      "realBadge": "Real",
-      "strategy": "Estratégia da temporada:",
-      "openingCash": "Caixa antes da rodada",
-      "income": "Entradas",
-      "expenses": "Saídas",
-      "debt": "Dívida",
-      "currentCash": "Caixa atual",
-      "seasonCloseTitle": "Encerramento — prêmio de construtores (caixa {{value}})",
-      "barTitle": "{{label}}: {{value}}",
-      "empty": "Sem histórico de caixa ainda. Cada corrida disputada acrescenta uma rodada aqui.",
-      "hideSecondary": "Ocultar indicadores secundários",
-      "showSecondary": "Ver indicadores secundários",
-      "peakCash": "Pico de caixa",
-      "worstStretch": "Pior trecho",
-      "avgPerRound": "Média por rodada",
-      "annualPayroll": "Folha anual",
-      "parachute": "Auxílio de rebaixamento restante: {{value}}"
-    },
     "risk": {
-      "title": "Painel de risco financeiro",
-      "quickRead": "Leitura rápida",
-      "liquidBalance": "Saldo líquido",
-      "liquidBalanceCaption": "Caixa descontando a dívida",
-      "roundMargin": "Margem da rodada",
-      "roundMarginCaption": "Resultado dividido pelas entradas",
       "runway": "Fôlego operacional",
       "runwayStable": "Estável",
       "runwayStableCaption": "Rodada positiva preserva o caixa",
@@ -2127,16 +2046,7 @@
       "runwayRounds_other": "{{count}} rodadas",
       "runwayRoundsCaption": "Estimativa no ritmo atual"
     },
-    "cost": {
-      "title": "Distribuição dos custos acumulados",
-      "rounds": "{{count}} rodadas",
-      "rounds_one": "{{count}} rodada",
-      "rounds_other": "{{count}} rodadas",
-      "empty": "Sem custos registrados nesta temporada ainda. O gráfico é preenchido a cada corrida disputada.",
-      "center": "Custos"
-    },
     "executive": {
-      "title": "Leitura executiva",
       "roundPositive": "Rodada positiva",
       "roundNegative": "Rodada negativa",
       "gainDetail": "Ganho de {{value}} na última rodada",
@@ -2150,15 +2060,10 @@
       "payrollDetail": "{{value}} do teto"
     },
     "ranking": {
-      "eyebrow": "Comparativo de gestão e performance",
-      "title": "Ranking da categoria",
       "columns": {
-        "team": "Equipe",
-        "money": "Dinheiro",
         "carLevel": "Nível do carro",
         "reliability": "Confiabilidade",
-        "pitCrew": "Pit crew",
-        "points": "Pontos"
+        "pitCrew": "Pit crew"
       },
       "tiers": {
         "car": {
@@ -2207,7 +2112,6 @@
         "title": "Records históricos",
         "compareIntro": "Comparativo em ",
         "compareOutro": ". Só as corridas desta categoria entram na conta — o histórico completo da equipe continua nas outras abas.",
-        "milestones": "Marcos da história",
         "titleGallery": "Galeria de títulos",
         "titleCampaign": "{{points}} pts · {{wins}} vitórias",
         "titleChampionCol": "Campeão de pilotos",
@@ -2243,14 +2147,7 @@
         "openRanking": "Ver todas as equipes por {{metric}}"
       },
       "sport": {
-        "title": "Resumo esportivo",
         "seasonsPlayed": "Temporadas disputadas",
-        "withinScope": "Dentro de {{scope}}.",
-        "currentStreak": "Sequência atual",
-        "bestStreak": "Melhor sequência",
-        "podiumRate": "Taxa de pódio",
-        "winRate": "Taxa de vitória",
-        "seasonBySeason": "Temporada a temporada",
         "recentForm": "Forma recente",
         "formRound": "{{year}} · R{{round}}",
         "formMoved": "agora na {{category}}",
@@ -2271,10 +2168,7 @@
         },
         "cols": {
           "year": "Ano",
-          "category": "Categoria",
-          "pos": "Pos",
           "wins": "V",
-          "podiums": "P",
           "points": "Pts"
         },
         "reliability": "Confiabilidade",
@@ -2335,14 +2229,8 @@
       },
       "loading": "Carregando histórico real da equipe...",
       "identity": {
-        "title": "Identidade da equipe",
         "profileLabel": "Perfil histórico",
-        "originLabel": "Categoria de origem",
-        "originDetail": "Onde a equipe construiu sua primeira base esportiva.",
-        "currentLabel": "Categoria atual",
-        "currentDetail": "Contexto em que tenta consolidar reputação e legado.",
         "rivalLabel": "Maior rival histórico",
-        "rivalToday": "Hoje em {{category}}.",
         "symbolLabel": "Piloto símbolo",
         "erasLabel": "Eras da equipe",
         "tile": {
@@ -2388,13 +2276,10 @@
         "trackDetail_other": "{{count}} corridas · média {{average}}º · melhor {{best}}º"
       },
       "management": {
-        "title": "Gestão e dinheiro",
         "operationHealth": "Saúde da operação",
         "peakCash": "Maior saldo histórico",
         "worstCrisis": "Pior crise financeira",
         "healthyYears": "Temporadas saudáveis",
-        "recordBalance": "Saldo recorde",
-        "recordBalanceDetail": "Melhor folga já registrada pela operação.",
         "biggestInvestment": "Pacote técnico",
         "boardChanges": "Mudanças de diretoria",
         "cashCurve": "Curva de caixa",
@@ -2408,19 +2293,12 @@
         "flowCoverage": "Reservas e dívida"
       },
       "categories": {
-        "title": "Movimento por categorias",
         "promotions": "Promoções",
         "relegations": "Rebaixamentos",
         "timeByCategory": "Tempo por categoria",
         "bestCategory": "Melhor categoria",
         "hardestCategory": "Categoria mais difícil",
         "ladder": "A escada da equipe",
-        "movement": {
-          "promotion": "Promoção",
-          "relegation": "Rebaixamento",
-          "start": "Estreia",
-          "same": "Manteve o nível"
-        },
         "peakCategory": "Teto alcançado",
         "homeCategory": "Degrau de casa",
         "trajectory": "Trajetória ano a ano",
@@ -2441,9 +2319,6 @@
         "trajectoryYear": "{{year}} · {{category}}",
         "trajectoryOutside": "{{year}} · {{category}} — fora deste recorte",
         "trajectoryEmpty": "{{year}} — sem corrida"
-      },
-      "timeline": {
-        "title": "Momentos-chave"
       },
       "defaults": {
         "dash": "—",
@@ -2500,6 +2375,149 @@
         "endurance": "Grupo Endurance",
         "default": "Grupo da categoria"
       }
+    }
+  },
+  "carreiraTab": {
+    "loading": "Carregando a sua carreira...",
+    "errors": {
+      "load": "Não foi possível carregar a sua carreira.",
+      "retry": "Tentar de novo",
+      "noPlayer": "Nenhum piloto do jogador nesta carreira."
+    },
+    "sections": {
+      "piloto": "Meu piloto",
+      "historia": "História",
+      "trofeus": "Troféus",
+      "rivais": "Rivais",
+      "mercado": "Mercado"
+    },
+    "header": {
+      "championship": "Campeonato",
+      "motivation": "Motivação",
+      "injuredFor_one": "Lesionado por {{count}} corrida",
+      "injuredFor_other": "Lesionado por {{count}} corridas"
+    },
+    "piloto": {
+      "now": "Como você está",
+      "points": "Pontos",
+      "recentAverage": "Média recente",
+      "license": "Licença",
+      "injuryFallback": "Lesão em recuperação",
+      "injuryDetail": "Faltam {{remaining}} de {{total}} corridas para a recuperação.",
+      "injuryWhere": "Aconteceu em {{track}}",
+      "arc": "Arco da carreira",
+      "experience": "Experiência",
+      "development": "Desenvolvimento",
+      "headroom": "Margem até o teto",
+      "arcEmpty": "Ainda não há arco de carreira medido.",
+      "personality": "Personalidade",
+      "stardom": "Estrelato",
+      "charisma": "Carisma",
+      "technicalRead": "Leitura técnica",
+      "gridReference": "Grid {{value}}"
+    },
+    "historia": {
+      "summary": "A carreira em números",
+      "seasons": "Temporadas",
+      "races": "Corridas",
+      "categories": "Categorias",
+      "teams": "Equipes",
+      "promotions": "Promoções",
+      "demotions": "Rebaixamentos",
+      "idleYears": "Sem assento",
+      "ladder": "A escada percorrida",
+      "curve": "Onde você fechou cada temporada",
+      "seasonTable": "Temporada por temporada",
+      "debut": "Estreia em {{year}} pela {{team}}",
+      "unknownTeam": "Equipe desconhecida",
+      "colYear": "Ano",
+      "colCategory": "Categoria",
+      "colTeam": "Equipe",
+      "colPosition": "Posição",
+      "colRaces": "Corridas",
+      "colWins": "Vitórias",
+      "colPodiums": "Pódios",
+      "colPoints": "Pontos",
+      "inProgress": "Em curso",
+      "empty": "Nenhuma temporada registrada ainda."
+    },
+    "trofeus": {
+      "shelf": "Títulos",
+      "titlesWithoutDetail_one": "{{count}} título de campeão, sem o registro do ano.",
+      "titlesWithoutDetail_other": "{{count}} títulos de campeão, sem o registro dos anos.",
+      "noTitles": "Nenhum título ainda. A prateleira está esperando.",
+      "career": "O acervo da carreira",
+      "starts": "Largadas",
+      "wins": "Vitórias",
+      "podiums": "Pódios",
+      "poles": "Poles",
+      "polesConverted_one": "{{count}} virou vitória",
+      "polesConverted_other": "{{count}} viraram vitória",
+      "fastestLaps": "Voltas mais rápidas",
+      "points": "Pontos",
+      "bestFinish": "Melhor resultado: P{{position}}",
+      "reliability": "{{dnfs}} abandonos ({{rate}}% das largadas). Maior sequência de chegadas: {{streak}}.",
+      "firsts": "As primeiras vezes",
+      "firstPodium": "Primeiro pódio",
+      "firstWin": "Primeira vitória",
+      "firstTitle": "Primeiro título",
+      "firstDnf": "Primeiro abandono",
+      "peak": "O auge",
+      "bestSeason": "Melhor temporada",
+      "winStreak": "Maior sequência de vitórias",
+      "podiumStreak": "Maior sequência de pódios",
+      "top3Seasons": "Temporadas no pódio do campeonato",
+      "special": "Eventos especiais",
+      "specialEntries": "Participações",
+      "specialCallups": "Convocações",
+      "milestones": "Marcos"
+    },
+    "rivais": {
+      "title": "Quem corre contra você",
+      "count_one": "{{count}} rivalidade",
+      "count_other": "{{count}} rivalidades",
+      "empty": "Ainda ninguém. Rivalidade nasce de um toque na pista, de uma briga por título ou de dividir o mesmo box.",
+      "nemesis": "Nemesis",
+      "rival": "Rival",
+      "noTeam": "Sem equipe",
+      "otherGrid": "Não dividem mais o grid",
+      "raceScore": "Placar na corrida",
+      "meetings": "Encontros",
+      "meetingsValue_one": "{{count}} corrida no mesmo grid",
+      "meetingsValue_other": "{{count}} corridas no mesmo grid",
+      "qualiScore": "Placar no sábado",
+      "intensity": "Intensidade",
+      "origin": "Como nasceu",
+      "averageGap": "Gap médio",
+      "gapBehind": "{{value}}s atrás dele",
+      "gapAhead": "{{value}}s à frente dele",
+      "teammate": "Mesmo box",
+      "teammateValue": "{{team}}, {{years}} — {{wins}} a {{losses}}"
+    },
+    "mercado": {
+      "contract": "Meu contrato",
+      "lastYear": "Último ano de contrato. É agora que o assédio compensa.",
+      "yearsLeft_one": "Resta {{count}} temporada de contrato.",
+      "yearsLeft_other": "Restam {{count}} temporadas de contrato.",
+      "freeAgent": "Você está sem contrato.",
+      "value": "Quanto você vale",
+      "marketValue": "Valor de mercado",
+      "valueRank": "{{position}}º de {{total}} no grid",
+      "estimatedSalary": "Salário de mercado",
+      "underpaid": "{{value}} acima do que você ganha",
+      "overpaid": "{{value}} abaixo do que você ganha",
+      "transferChance": "Chance de transferência",
+      "noValue": "Sem avaliação de mercado no momento.",
+      "watching": "Quem está de olho em você",
+      "watchingIntro_one": "{{count}} equipe cobiça o seu nome pelo apelo comercial.",
+      "watchingIntro_other": "{{count}} equipes cobiçam o seu nome pelo apelo comercial.",
+      "noWatchers": "Ninguém de olho por enquanto. Interesse ativo nasce da fama.",
+      "openSeats": "Vagas abertas no mundo",
+      "seatsCount": "{{eligible}} para você, de {{total}}",
+      "car": "Carro {{value}}",
+      "outOfTier": "Fora da sua faixa",
+      "noLicense": "Sem a licença",
+      "noSeats": "Nenhum assento aberto no mundo agora."
     }
   },
   "endOfSeason": {
@@ -2634,7 +2652,7 @@
       "pilotOpen": "Piloto {{slot}} em aberto"
     },
     "decision": {
-      "title": "Sua decisao",
+      "title": "Sua decisão",
       "highlightLabel": "Convocação em destaque",
       "empty": "Nenhuma vaga especial aceita ate agora."
     },
@@ -2883,7 +2901,6 @@
       "habilidade": "Habilidade"
     },
     "profile": {
-      "sectionTitle": "Perfil",
       "loading": "Carregando dados do piloto...",
       "loadError": "Erro ao carregar piloto.",
       "closeButton": "Fechar",
@@ -2901,11 +2918,8 @@
       "empty": "Sem traços públicos visíveis."
     },
     "prosCons": {
-      "strengths": "Pontos fortes",
-      "attention": "Atenção",
       "noStrengths": "Sem qualidades visíveis.",
-      "balanced": "Piloto equilibrado, sem fraquezas gritantes.",
-      "noWeaknesses": "Sem defeitos visíveis."
+      "balanced": "Piloto equilibrado, sem fraquezas gritantes."
     },
     "injury": {
       "title": "Lesão ativa",
@@ -2925,20 +2939,12 @@
       "next": "Próximo"
     },
     "moment": {
-      "title": "Momento Atual",
-      "recentForm": "Forma recente",
-      "recentAverage": "Média recente",
-      "formStatus": "Status de forma",
-      "trend": "Tendência",
       "contractStatus": "Situação contratual",
       "team": "Equipe",
-      "role": "Função",
       "salary": "Salário",
-      "expiresIn": "Expira em",
       "expiresValue_one": "{{count}} ano",
       "expiresValue_other": "{{count}} anos",
-      "term": "Vigência",
-      "noContract": "Sem contrato ativo no momento."
+      "term": "Vigência"
     },
     "attributes": {
       "skill": "Velocidade",
@@ -2966,41 +2972,22 @@
       "sem_dados": "Sem dados"
     },
     "summary": {
-      "title": "Resumo Atual",
       "now": "Agora",
-      "seasonRead": "leitura da temporada atual",
-      "championship": "Campeonato",
       "recentAverage": "Média recente",
       "wins": "Vitórias",
       "podiums": "Pódios",
-      "top10": "Top 10",
       "points": "Pontos",
       "recentFormTitle": "Forma Recente",
-      "rookieBadge": "ESTREANTE",
-      "races": "corridas",
-      "noFormHistory": "Sem histórico de forma",
       "formStartsAfter": "A leitura começa depois da primeira largada.",
-      "insufficientTitle": "Dados insuficientes",
       "insufficientBody": "Ainda falta volume recente para desenhar a tendência.",
-      "offGrid": "Fora do grid",
       "noTeamLastSeason": "Sem time na temporada passada",
       "noRacesLastSeason": "Sem corridas na temporada passada",
       "noTeamLastSeasonBody": "O piloto ficou fora do grid no último ano, então não há forma recente para comparar.",
       "noRacesLastSeasonBody": "O piloto não disputou provas no último ano, então a forma recente ficou suspensa.",
-      "recentTrend": "Tendência recente",
-      "recentLast": "Últimas {{count}} corridas",
-      "position": "Posição",
-      "chartAria": "Gráfico de forma recente",
-      "best": "melhor",
       "worst": "pior",
-      "metricBest": "Melhor",
-      "metricAverage": "Média",
-      "metricDnfs": "DNFs",
-      "newOnGrid": "Novo no grid",
       "rookie": "Estreante",
       "unknownExpectation": "Expectativa desconhecida",
       "noCompetitivePast": "Sem passado competitivo para comparar.",
-      "unavailableForRookie": "Indisponível para estreante",
       "noCompetitivePastRead": "Sem passado competitivo para sustentar esta leitura.",
       "pointsShort_one": "{{count}} ponto",
       "pointsShort_other": "{{count}} pontos",
@@ -3014,26 +3001,11 @@
       "podiumsCount_other": "{{count}} pódios",
       "driverProfile": "Perfil do piloto"
     },
-    "quality": {
-      "title": "Mapa de Qualidade",
-      "technicalRead": "Leitura técnica",
-      "noTechnicalRead": "Sem leitura técnica disponível.",
-      "driverBase": "Base do piloto",
-      "careerRaces": "Corridas carreira",
-      "careerWins": "Vitórias carreira",
-      "careerPodiums": "Pódios carreira",
-      "titles": "Títulos"
-    },
     "performance": {
-      "title": "Leitura de Desempenho",
       "vsExpected": "Contra o esperado",
       "delivered": "Entregue",
-      "expectedByPackage": "Esperado pelo pacote",
-      "difference": "Diferença",
-      "carTeam": "Carro/equipe",
       "internalCompare": "Comparativo interno",
       "teammate": "Companheiro",
-      "noComparisonContext": "Sem contexto suficiente para comparar o desempenho.",
       "deliveredShort": "P{{position}} entregue",
       "expectedShort": "P{{position}} esperado",
       "duelAhead_one": "Abre {{count}} ponto de vantagem",
@@ -3100,15 +3072,9 @@
       "wins": "Vitórias",
       "podiums": "Pódios",
       "titles": "Títulos",
-      "trajectory": "Trajetória",
-      "debutYear": "Ano de estreia",
-      "status": "Status",
       "champion": "Campeão",
-      "noTitle": "Sem título",
-      "timeline": "Linha do tempo",
       "debutTeam": "Equipe de estreia",
       "notIdentified": "Não identificada",
-      "noCategories": "Sem categorias visíveis por enquanto.",
       "groupPresence": "PRESENÇA",
       "groupFirstMarks": "PRIMEIROS MARCOS",
       "groupPeak": "AUGE",
@@ -3126,7 +3092,6 @@
       "firstPodium": "Primeiro pódio",
       "firstDnf": "Primeiro DNF",
       "bestSeason": "Melhor temporada",
-      "bestChampionship": "Melhor campeonato",
       "longestWinStreak": "Maior sequência de vitórias",
       "longestWinless": "Maior jejum de vitórias",
       "longestPodiumless": "Maior jejum de pódios",
@@ -3147,7 +3112,6 @@
       "callUps": "Convocações",
       "bestCampaign": "Melhor campanha",
       "lastEvent": "Último evento",
-      "noSpecialEvents": "Sem eventos especiais registrados.",
       "milestoneNever": "Nunca",
       "milestoneRace": "{{value}}ª corrida",
       "yearsAverage_one": "{{value}} ano",
@@ -3216,14 +3180,6 @@
       }
     },
     "rivals": {
-      "title": "Rivais",
-      "noRivals": "Sem rivalidades consolidadas para este piloto.",
-      "mainRival": "Rival principal",
-      "name": "Nome",
-      "type": "Tipo",
-      "historyLabel": "Histórico",
-      "recent": "Recente",
-      "noMainRival": "Ainda não há rival principal para comparar.",
       "memory": "Memória",
       "heat": "Calor agora",
       "levels": {
@@ -3260,23 +3216,14 @@
       "emptyBody": "Rivalidade nasce de um toque na pista, de uma briga por título ou de dividir o mesmo box."
     },
     "stardom": {
-      "title": "Estrelato",
       "fame": "Fama",
-      "charisma": "Carisma",
-      "blurbPre": "A ",
-      "blurbFame": "fama",
-      "blurbMid": " é a moeda pública que atrai patrocínio à equipe; o",
-      "blurbCharisma": "carisma",
-      "blurbPost": " decide o quanto ela sobe num bom resultado e o quanto resiste num jejum."
+      "charisma": "Carisma"
     },
     "market": {
-      "title": "Contrato e Mercado",
       "role": "Papel",
       "remaining": "Restante",
       "market": "Mercado",
       "marketValue": "Valor: {{value}}",
-      "salaryRange": "Faixa salarial: {{value}}",
-      "transferChance": "Chance de troca: {{value}}%",
       "noMarketSignals": "Sem sinais fortes de mercado no momento.",
       "freeAgent": "Sem contrato ativo — está livre para assinar com qualquer equipe na próxima janela.",
       "transferMeter": "Chance de troca",
@@ -4374,7 +4321,10 @@
     "lap": "Volta",
     "rival": "Rival",
     "ahead": "à frente",
-    "behind": "atrás"
+    "behind": "atrás",
+    "bestMoment": "Melhor momento",
+    "costliestMistake": "Erro mais caro",
+    "markerTip": "{{glyph}} {{label}} — volta {{lap}}"
   },
   "startingCompounds": {
     "header": "Composto de largada",
@@ -4464,5 +4414,12 @@
       "toyota": "Toyota",
       "bmw": "BMW"
     }
+  },
+  "saveCard": {
+    "season": "Temporada",
+    "difficulty": "Dificuldade",
+    "lastPlayed": "Último jogo: {{when}}",
+    "created": "Criado: {{when}}",
+    "racesInCalendar": "{{count}} corridas no calendário"
   }
 }

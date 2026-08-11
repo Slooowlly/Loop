@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import i18n from "../../i18n/index.js";
-import useCareerStore from "../../stores/useCareerStore";
 import useExitToMenu from "../../hooks/useExitToMenu";
 import LeaveToMenuModal from "./LeaveToMenuModal";
+import useBannerDaEtapa from "./useBannerDaEtapa";
+import useFluxoDeAvanco from "./useFluxoDeAvanco";
 import {
   categoryLabel,
   extractNationalityCode,
@@ -13,7 +13,6 @@ import {
   formatNextRaceCountdown,
   formatSurfaceSeasonLabel,
 } from "../../utils/formatters";
-import { isLegacySeasonPhase } from "../../utils/seasonPhases";
 import { getBannerImageFocus, getBannerImageSrc } from "../../utils/trackBanners";
 import { trackCountryLabel } from "../../utils/trackCountry";
 import { CLIMA_BANNER, weatherEmoji, weatherLabel as climaLabel } from "../../utils/weather";
@@ -25,267 +24,41 @@ import TabNavigation from "./TabNavigation";
 
 function Header({ activeTab, onTabChange }) {
   const { t } = useTranslation();
-  const careerId = useCareerStore((state) => state.careerId);
-  const playerTeam = useCareerStore((state) => state.playerTeam);
-  const season = useCareerStore((state) => state.season);
-  const nextRace = useCareerStore((state) => state.nextRace);
-  const homeCategory = useCareerStore((state) => state.homeCategory);
-  const temporalSummary = useCareerStore((state) => state.temporalSummary);
-  const calendarDisplayDate = useCareerStore((state) => state.calendarDisplayDate);
-  const displayDaysUntilNextEvent = useCareerStore((state) => state.displayDaysUntilNextEvent);
-  const isCalendarAdvancing = useCareerStore((state) => state.isCalendarAdvancing);
-  const isAdvancing = useCareerStore((state) => state.isAdvancing);
-  const isConvocating = useCareerStore((state) => state.isConvocating);
-  const showRaceBriefing = useCareerStore((state) => state.showRaceBriefing);
-  const startCalendarAdvance = useCareerStore((state) => state.startCalendarAdvance);
-  const advanceSeason = useCareerStore((state) => state.advanceSeason);
-  const skipAllPendingRaces = useCareerStore((state) => state.skipAllPendingRaces);
-  const runConvocationWindow = useCareerStore((state) => state.runConvocationWindow);
-  const finishSpecialBlock = useCareerStore((state) => state.finishSpecialBlock);
-  const closeRaceBriefing = useCareerStore((state) => state.closeRaceBriefing);
-  const [seasonChampion, setSeasonChampion] = useState(null);
-  // Temporada cujo "Avançar" já desviou pelas Notícias. Só no FIM DO CAMPEONATO o
-  // botão gasta um clique levando o jogador ao fechamento do ano antes de abrir o
-  // mercado — sem isso, quem vem no piloto automático pula as notícias de
-  // encerramento sem ver. Um clique por temporada; o segundo avança de verdade.
-  const [newsDetourSeason, setNewsDetourSeason] = useState(null);
-  // Banner da PRÓXIMA corrida de uma categoria que NÃO é a do jogador (o jogador
-  // trocou de série/tier na tabela da Home). `null` quando estamos na categoria do
-  // jogador (o banner usa `nextRace` do store). { race, totalRodadas, countdownDays,
-  // pending } quando é outra categoria.
-  const [categoryRace, setCategoryRace] = useState(null);
+  // Todo o fluxo de temporada por trás do botão "Avançar" (sete destinos, decididos por
+  // fase + etapa pendente + equipe + aba) mora em `useFluxoDeAvanco`. O cabeçalho desenha.
+  const {
+    season,
+    playerTeam,
+    nextRace,
+    showRaceBriefing,
+    visibleDate,
+    visibleCountdown,
+    viewingOwnCategory,
+    viewedCategory,
+    isFreeAgent,
+    hasNoPendingRace,
+    bannerOwnsAdvance,
+    avancoEmCurso,
+    avancar,
+    rotuloDoAvanco,
+    fecharBriefing,
+  } = useFluxoDeAvanco({ activeTab, onTabChange });
+
+  // As duas leituras de ponte do banner: o campeão do ano encerrado e a próxima etapa de
+  // OUTRA categoria, quando o jogador abre uma série que não é a dele na tabela da Home.
+  const { seasonChampion, categoryRace } = useBannerDaEtapa({
+    activeTab,
+    showRaceBriefing,
+    viewingOwnCategory,
+    viewedCategory,
+    visibleDate,
+    hasNoPendingRace,
+    playerCategory: playerTeam?.categoria ?? null,
+  });
 
   // Clicar no chip da equipe abre direto a pergunta de sair (salvando ou não).
   const { isSaving, exit, saveAndExit } = useExitToMenu();
   const [leaveConfirm, setLeaveConfirm] = useState(false);
-
-  const visibleDate = calendarDisplayDate ?? temporalSummary?.current_display_date;
-  const visibleCountdown = displayDaysUntilNextEvent ?? temporalSummary?.days_until_next_event;
-  const hasNoPendingRace = !nextRace;
-  const isFreeAgent = !playerTeam;
-  // Categoria em exibição na Home: a do jogador (padrão) ou outra que ele abriu na
-  // tabela. Quando é a do jogador, o banner segue lendo `nextRace` do store.
-  const viewingOwnCategory = !homeCategory || homeCategory === playerTeam?.categoria;
-  const viewedCategory = homeCategory ?? playerTeam?.categoria ?? null;
-  const phase = season?.fase;
-  const isLegacyPhase = isLegacySeasonPhase(phase);
-  const hasPendingLegacyRegularRaces =
-    isLegacyPhase && phase === "BlocoRegular" && (temporalSummary?.pending_in_phase ?? 0) > 0;
-  const canAdvanceCalendar = Boolean(nextRace) || (
-    !isFreeAgent &&
-    hasPendingLegacyRegularRaces
-  );
-  // O clique que encerra o ano e abre o mercado. É o único que ganha o desvio de
-  // uma volta pelas Notícias (ver `newsDetourSeason`).
-  const isSeasonEndAdvance =
-    !canAdvanceCalendar &&
-    !isFreeAgent &&
-    !isLegacyPhase &&
-    (phase === "Encerramento" || (hasNoPendingRace && phase === "Temporada"));
-  // Quem já está na aba de Notícias não precisa ser levado até lá — o desvio existe
-  // para quem avançaria sem passar por elas.
-  const seasonEndNeedsNewsDetour =
-    isSeasonEndAdvance &&
-    season?.numero != null &&
-    newsDetourSeason !== season.numero &&
-    activeTab !== "news";
-  // No Home (standings), com uma corrida marcada, o botão "Avançar calendário"
-  // vive DENTRO do banner cinematográfico — então escondemos o duplicado da barra
-  // superior (deixando só o cartão de data à direita). Nos demais casos/abas, o
-  // botão da barra continua sendo o controle universal.
-  // O banner só "dona" o botão Avançar quando é a próxima corrida DO JOGADOR. Vendo
-  // outra categoria, o banner é informativo (sem botão) e o botão global volta à barra.
-  const bannerOwnsAdvance =
-    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace) && viewingOwnCategory;
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadSeasonChampion() {
-      if (!careerId || !playerTeam?.categoria || !hasNoPendingRace) {
-        if (mounted) {
-          setSeasonChampion(null);
-        }
-        return;
-      }
-
-      try {
-        const standings = await invoke("get_drivers_by_category", {
-          careerId,
-          category: playerTeam.categoria,
-        });
-
-        if (!mounted) return;
-
-        const champion = Array.isArray(standings)
-          ? standings.find((driver) => driver?.posicao_campeonato === 1) ?? standings[0] ?? null
-          : null;
-
-        setSeasonChampion(champion);
-      } catch (error) {
-        console.error("Erro ao carregar campeão da temporada para o header:", error);
-        if (mounted) {
-          setSeasonChampion(null);
-        }
-      }
-    }
-
-    loadSeasonChampion();
-
-    return () => {
-      mounted = false;
-    };
-  }, [careerId, playerTeam?.categoria, hasNoPendingRace, season?.ano]);
-
-  // Quando o jogador abre OUTRA categoria na tabela da Home, busca o calendário dela
-  // e deriva a próxima corrida (1ª pendente) + total de etapas + contagem regressiva
-  // (relativa à data atual do jogador). O comando `get_calendar_for_category` já
-  // devolve tudo que o banner precisa (pista, clima, temperatura, data, rodada).
-  // As outras categorias correm em LOCKSTEP com o jogador, então quase sempre há uma
-  // corrida pendente na mesma janela; sem pendente (fim de temporada) mostramos a
-  // última etapa sem contagem regressiva.
-  useEffect(() => {
-    let mounted = true;
-
-    if (
-      !careerId ||
-      viewingOwnCategory ||
-      !viewedCategory ||
-      activeTab !== "standings" ||
-      showRaceBriefing
-    ) {
-      setCategoryRace(null);
-      return undefined;
-    }
-
-    invoke("get_calendar_for_category", { careerId, category: viewedCategory })
-      .then((entries) => {
-        if (!mounted) return;
-        const list = Array.isArray(entries) ? entries : [];
-        const pending = list.find((entry) => entry.status === "Pendente") ?? null;
-        const race = pending ?? list[list.length - 1] ?? null;
-        if (!race) {
-          setCategoryRace(null);
-          return;
-        }
-        setCategoryRace({
-          race,
-          totalRodadas: list.length,
-          countdownDays: pending
-            ? daysBetweenDisplayDates(visibleDate, pending.display_date)
-            : null,
-          pending: Boolean(pending),
-        });
-      })
-      .catch(() => {
-        if (mounted) setCategoryRace(null);
-      });
-
-    return () => {
-      mounted = false;
-    };
-    // `visibleDate` + `rodada_atual` mudam a cada avanço → recalcula ao reabrir a Home.
-  }, [
-    careerId,
-    viewedCategory,
-    viewingOwnCategory,
-    activeTab,
-    showRaceBriefing,
-    visibleDate,
-    season?.ano,
-    season?.rodada_atual,
-  ]);
-
-  function handleNextRace() {
-    // Leva o jogador para o Calendário (com fade) para ele ver a animação dos
-    // dias passando — MAS só quando há dias a passar. Se a corrida é HOJE, avançar
-    // abre direto a sala de estratégia; piscar o calendário antes seria ruim.
-    const daysUntilRace = Number(visibleCountdown);
-    if (Number.isFinite(daysUntilRace) && daysUntilRace > 0) {
-      onTabChange?.("calendar");
-    }
-    void Promise.resolve(startCalendarAdvance?.()).catch((error) => {
-      console.error("Erro ao avançar calendário pelo header:", error);
-    });
-  }
-
-  async function handleAdvanceSeason() {
-    try {
-      // Fim do campeonato: o primeiro clique só leva às Notícias do encerramento.
-      // O jogador volta a clicar em "Avançar" e aí sim entra no mercado.
-      if (seasonEndNeedsNewsDetour) {
-        setNewsDetourSeason(season.numero);
-        onTabChange?.("news");
-        return;
-      }
-
-      if (isFreeAgent && hasNoPendingRace) {
-        await skipAllPendingRaces?.();
-        return;
-      }
-
-      // LEGADO 9D: convocação e bloco especial só existem para saves pré-v33 em voo.
-      if (isLegacyPhase && hasNoPendingRace && phase === "BlocoRegular") {
-        await runConvocationWindow?.();
-        return;
-      }
-
-      if (isLegacyPhase && hasNoPendingRace && phase === "BlocoEspecial") {
-        await finishSpecialBlock?.();
-        return;
-      }
-
-      await advanceSeason?.();
-    } catch (error) {
-      console.error("Erro ao avançar temporada pelo header:", error);
-    }
-  }
-
-  function getAdvanceButtonLabel() {
-    if (isCalendarAdvancing || isAdvancing || isConvocating) {
-      return t("nav.advance.advancing");
-    }
-
-    if (canAdvanceCalendar) {
-      return t("nav.advance.calendar");
-    }
-
-    // O clique do desvio anuncia o que faz: ler o fechamento do ano, não avançar.
-    if (seasonEndNeedsNewsDetour) {
-      return t("nav.advance.seasonNews");
-    }
-
-    if (isFreeAgent && hasNoPendingRace) {
-      return t("nav.advance.skipSeason");
-    }
-
-    // LEGADO 9D: estes labels só aparecem em saves pré-v33 em voo.
-    if (isLegacyPhase && hasNoPendingRace && phase === "BlocoRegular") {
-      return t("nav.advance.toCallup");
-    }
-
-    if (isLegacyPhase && hasNoPendingRace && phase === "BlocoEspecial") {
-      return t("nav.advance.skipSpecial");
-    }
-
-    if (isLegacyPhase && hasNoPendingRace && phase === "PosEspecial") {
-      return t("nav.advance.endSeason");
-    }
-
-    if (phase === "Encerramento" || (hasNoPendingRace && phase === "Temporada")) {
-      return t("nav.advance.toPreseason");
-    }
-
-    if (phase === "PreTemporada") {
-      return t("nav.advance.openMarket");
-    }
-
-    return t("nav.advance.advanceSeason");
-  }
-
-  function handleBackToBriefingOrigin() {
-    closeRaceBriefing?.();
-  }
 
   return (
     <header className="relative z-20 flex flex-col">
@@ -343,18 +116,18 @@ function Header({ activeTab, onTabChange }) {
                 <GlassButton
                   variant="primary"
                   className="rounded-full px-5 py-2.5"
-                  onClick={handleBackToBriefingOrigin}
+                  onClick={fecharBriefing}
                 >
                   {t("nav.back")}
                 </GlassButton>
               ) : bannerOwnsAdvance ? null : (
                 <GlassButton
                   variant="primary"
-                  disabled={isCalendarAdvancing || isAdvancing || isConvocating}
+                  disabled={avancoEmCurso}
                   className="rounded-full px-5 py-2.5"
-                  onClick={canAdvanceCalendar ? handleNextRace : handleAdvanceSeason}
+                  onClick={avancar}
                 >
-                  {getAdvanceButtonLabel()}
+                  {rotuloDoAvanco()}
                 </GlassButton>
               )}
             </div>
@@ -383,9 +156,9 @@ function Header({ activeTab, onTabChange }) {
             championship={categoryLabel(playerTeam?.categoria)}
             totalRodadas={season?.total_rodadas ?? null}
             countdownDays={visibleCountdown}
-            onAdvance={handleNextRace}
-            advanceLabel={getAdvanceButtonLabel()}
-            advanceDisabled={isCalendarAdvancing || isAdvancing || isConvocating}
+            onAdvance={avancar}
+            advanceLabel={rotuloDoAvanco()}
+            advanceDisabled={avancoEmCurso}
           />
         ) : (
           <div className="flex min-h-[110px] items-stretch h-[14vh]">
@@ -458,7 +231,7 @@ function SeasonFinishedBanner({ season, category, champion }) {
 // Banner cinematográfico da próxima corrida (Home). Protagonista da tela: imagem
 // ampla do circuito ao fundo, gradientes escuros para legibilidade, dados 100%
 // dinâmicos (mesmas variáveis do bloco antigo) e o botão "Avançar calendário"
-// reaproveitando o handler existente (onAdvance = handleNextRace).
+// reaproveitando o handler existente (onAdvance = o `avancar` de `useFluxoDeAvanco`).
 function NextRaceBanner({
   nextRace,
   championship,
@@ -680,21 +453,6 @@ function formatBannerDate(displayDate) {
   const [, year, month, day] = match;
   const monthLabel = BANNER_MONTHS_PT[Number(month) - 1] ?? month;
   return `${day} ${monthLabel} ${year}`;
-}
-
-// Dias entre duas datas YYYY-MM-DD (usa UTC para não sofrer com fuso). Usado para a
-// contagem regressiva do banner de OUTRA categoria, cuja próxima corrida é lida do
-// calendário — para a categoria do jogador a contagem já vem pronta do store.
-function daysBetweenDisplayDates(from, to) {
-  const parse = (value) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
-    if (!match) return null;
-    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  };
-  const a = parse(from);
-  const b = parse(to);
-  if (a == null || b == null) return null;
-  return Math.round((b - a) / 86400000);
 }
 
 // Contagem regressiva curtíssima ("EM 7 DIAS") a partir dos mesmos dados do header.

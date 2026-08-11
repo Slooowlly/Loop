@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { AXIS_TICK, BAD, GOOD, GRID, YELLOW } from "../../utils/chartTheme";
+import i18n from "../../i18n/index.js";
 
 // Race trace COMPARTILHADO (posição/gap por volta, uma linha por carro), usado pelo
 // pós-corrida da carreira, pelo pós real do iRacing e pelo overlay ao vivo. O MIOLO é
@@ -90,8 +91,10 @@ function RaceTraceChart({
   yellowLaps = [],
   bestLap = 0,
   mistakeLap = 0,
-  bestLabel = "Melhor momento",
-  mistakeLabel = "Erro mais caro",
+  // Rótulos das duas linhas verticais. Vêm do i18n em vez de literal PT: nenhuma das quatro
+  // telas que montam este gráfico passa a prop, então o default é o que o jogador SEMPRE lê.
+  bestLabel = i18n.t("raceCharts.bestMoment"),
+  mistakeLabel = i18n.t("raceCharts.costliestMistake"),
   playerPins = [],
   bestLapPin = null,
   tickFontSize = 11,
@@ -130,7 +133,12 @@ function RaceTraceChart({
             strokeDasharray="4 3"
             strokeOpacity={0.9}
             label={(props) => (
-              <MarkerLabel {...props} glyph="★" color={GOOD} tip={`★ ${bestLabel} — volta ${bestLap}`} />
+              <MarkerLabel
+                {...props}
+                glyph="★"
+                color={GOOD}
+                tip={i18n.t("raceCharts.markerTip", { glyph: "★", label: bestLabel, lap: bestLap })}
+              />
             )}
           />
         )}
@@ -141,7 +149,13 @@ function RaceTraceChart({
             strokeDasharray="4 3"
             strokeOpacity={0.9}
             label={(props) => (
-              <MarkerLabel {...props} glyph="✕" color={BAD} tip={`✕ ${mistakeLabel} — volta ${mistakeLap}`} fontSize={12} />
+              <MarkerLabel
+                {...props}
+                glyph="✕"
+                color={BAD}
+                tip={i18n.t("raceCharts.markerTip", { glyph: "✕", label: mistakeLabel, lap: mistakeLap })}
+                fontSize={12}
+              />
             )}
           />
         )}

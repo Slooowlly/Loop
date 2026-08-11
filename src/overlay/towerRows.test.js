@@ -94,9 +94,18 @@ describe("orderClasses (ordem canônica)", () => {
     expect(labels(cs)).toEqual(["bmw", "toyota", "mazda"]);
   });
 
-  it("classe desconhecida vai pro fim, mantendo ordem de entrada", () => {
+  it("classe desconhecida vai pro fim, em ordem alfabética", () => {
     const cs = orderClasses([cls("xyz", []), cls("gt3", []), cls("abc", [])]);
-    expect(labels(cs)).toEqual(["gt3", "xyz", "abc"]);
+    expect(labels(cs)).toEqual(["gt3", "abc", "xyz"]);
+  });
+
+  // A torre da classificatória tremia porque TODAS as classes eram desconhecidas: elas
+  // empatavam no mesmo rank e a ordem caía na que o backend mandou, que mudava a cada
+  // poll. Duas leituras da mesma prova, em ordens diferentes, têm que dar no mesmo.
+  it("prova fora do Loop: a ordem não depende de como o backend mandou", () => {
+    const a = orderClasses([cls("ferrari296", []), cls("porsche992", []), cls("bmwm4", [])]);
+    const b = orderClasses([cls("bmwm4", []), cls("ferrari296", []), cls("porsche992", [])]);
+    expect(labels(a)).toEqual(labels(b));
   });
 
   it("buildTowerSections já entrega ordenado", () => {

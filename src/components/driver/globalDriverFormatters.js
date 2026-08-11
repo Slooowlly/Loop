@@ -18,13 +18,19 @@ export function defaultDirection(key) {
   return key === "nome" || key === "status" || key === "historical_rank" ? "asc" : "desc";
 }
 
+// O escopo do "# recalculado entre ...", em prosa. A CHAVE do filtro é o status que o Rust
+// emite ("Ativo"/"Livre"/"Aposentado") e não muda com o idioma; só o rótulo é traduzido.
+//
+// Este trecho ficou em português cru até 11/08/2026: como o arquivo é `.js`, o auditor de
+// i18n (que varre só `.jsx`) nunca o enxergou, e o jogador em en-US lia "pilotos ativos"
+// no meio de uma tela em inglês.
 export function statusFilterLabel(status) {
-  const labels = {
-    Ativo: "pilotos ativos",
-    Livre: "pilotos livres",
-    Aposentado: "pilotos aposentados",
+  const chaves = {
+    Ativo: "globalDrivers.filter.scopeActive",
+    Livre: "globalDrivers.filter.scopeFree",
+    Aposentado: "globalDrivers.filter.scopeRetired",
   };
-  return labels[status] ?? "pilotos filtrados";
+  return i18n.t(chaves[status] ?? "globalDrivers.filter.scopeFiltered");
 }
 
 export function statusClass(status) {

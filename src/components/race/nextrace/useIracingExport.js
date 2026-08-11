@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
@@ -26,6 +26,19 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
   // `dismissToasts` da exportação. Limpo ali, o toast ficaria preso na tela.
   const paintTimer = useRef(null);
   const [paintToast, setPaintToast] = useState("");
+
+  // Desmontagem: os dois conjuntos de timers morrem juntos. Separá-los é o que faz o
+  // aviso da pintura sobreviver ao `dismissToasts`, mas ninguém sobrevive à saída da
+  // aba — um `setTimeout` pendente aqui dispara um `setState` num hook que não existe
+  // mais, e a aba da próxima corrida é montada de novo a cada visita à Sala.
+  useEffect(
+    () => () => {
+      toastTimers.current.forEach(clearTimeout);
+      toastTimers.current = [];
+      clearTimeout(paintTimer.current);
+    },
+    [],
+  );
 
   // Pinta o carro do jogador na cor da equipe junto com a exportação da etapa. Sem
   // pergunta: o arquivo é local (só ele vê essa cor), a cor é a da carreira, e o

@@ -1,16 +1,15 @@
 # Minha Equipe — componentes do v2
 
-Componentes do redesenho da aba Minha Equipe (`src/pages/tabs/myteam/MyTeamTabV2.jsx`).
+Componentes da aba Minha Equipe (`src/pages/tabs/myteam/MyTeamTabV2.jsx`).
 
-Regra: **nada aqui dentro pode ser importado pelo v1.** Os componentes da aba
-atual vivem um nível acima (`src/components/team/myteam/`) e não devem ser
-editados durante o redesenho — é isso que mantém o rollback barato: basta voltar
-`MY_TEAM_VERSION` para `1` em `src/pages/tabs/myteam/index.js`.
+O nome "v2" é histórico: durante o redesenho o v1 vivia um nível acima
+(`CommandHeader`, `CostChart`, `DriverPanel`, `FinanceDossier`, `GaragePanel`,
+`RankingTable`, `TechPanel`) e servia de rollback, e a regra era não editá-lo. O
+v1 foi removido em 11/08/2026 — `src/pages/tabs/myteam/index.js` é apenas o ponto
+de entrada hoje.
 
-Reaproveitar código do v1 é permitido, desde que por importação (ex.:
-`teamMetrics.js`, que é cálculo puro e não desenha nada). Se for preciso mudar o
-comportamento de um módulo compartilhado, copie-o para cá em vez de alterar o
-original.
+O que sobreviveu um nível acima é o que nunca foi do v1: `../teamMetrics.js`
+(cálculo puro) e `../../teamFinanceLabels.js`.
 
 ## O que mudou em relação ao v1
 

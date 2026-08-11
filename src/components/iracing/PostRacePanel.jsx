@@ -9,7 +9,13 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  // Apelidado porque o `Tooltip` do app também entra neste arquivo, logo abaixo. Os dois
+  // importados com o mesmo nome é erro de módulo ES; o bundler engolia, o segundo import
+  // vencia, e o `<Tooltip content={<BattleTooltip />} />` do gráfico de batalha virava o
+  // tooltip do app recebendo uma prop que ele não conhece — o balão do gráfico não abria e
+  // nada acusava. Corrigido em 11/08/2026, quando o teste do painel não conseguiu nem
+  // compilar o arquivo.
+  Tooltip as ChartTooltip,
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
@@ -571,7 +577,7 @@ function PostRacePanel() {
                           width={44}
                           tickFormatter={(v) => `${Math.abs(v)}s`}
                         />
-                        <Tooltip content={<BattleTooltip />} />
+                        <ChartTooltip content={<BattleTooltip />} />
                         <ReferenceLine y={0} stroke={PLAYER_COLOR} strokeOpacity={0.7} />
                         <Line
                           type="monotone"

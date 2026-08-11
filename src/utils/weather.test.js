@@ -1,6 +1,5 @@
 import i18n from "../i18n/index.js";
 import { weatherLabel as labelCalendario } from "./calendarShared";
-import { weatherLabel as labelResultado } from "../components/race/raceresult/helpers";
 import { CLIMA_BANNER, weatherEmoji, weatherLabel } from "./weather";
 
 const idiomaOriginal = i18n.language;
@@ -23,23 +22,12 @@ describe("weatherLabel", () => {
     expect(weatherLabel("HeavyRain", CLIMA_BANNER)).toBe("Chuva Forte");
   });
 
-  it("usa a copy em caixa baixa no resultado de corrida", () => {
-    expect(labelResultado("HeavyRain")).toBe("Chuva forte");
-    expect(labelResultado("Wet")).toBe("Chuva");
-    expect(labelResultado("Damp")).toBe("Úmido");
-    expect(labelResultado("Dry")).toBe("Seco");
-  });
-
-  // A regressão que este arquivo trava: a versão do resultado tinha a prosa PT
-  // hardcoded e vazava para en-US. Como o arquivo é .js, o hook de pre-commit
-  // (que só olha .jsx) não pegava.
-  it("traduz o resultado de corrida em en-US", async () => {
-    await i18n.changeLanguage("en-US");
-    expect(labelResultado("HeavyRain")).toBe("Heavy rain");
-    expect(labelResultado("Wet")).toBe("Rain");
-    expect(labelResultado("Damp")).toBe("Damp");
-    expect(labelResultado("Dry")).toBe("Dry");
-  });
+  // Havia aqui um par de casos sobre `weatherLabel` de `race/raceresult/helpers.js`, a versão
+  // em caixa baixa da tela de resultado V1. A árvore V1 inteira saiu do repositório em
+  // 11/08/2026 (Dashboard usa RaceResultViewV2 desde sempre e nada mais importava aquele
+  // módulo), então os dois casos protegiam código que não existe mais. A regressão que eles
+  // travavam — prosa PT hardcoded num arquivo `.js`, fora do alcance do hook de pre-commit —
+  // continua coberta pelo caso de en-US logo abaixo e pelo auditor de i18n.
 
   it("traduz o calendário em en-US", async () => {
     await i18n.changeLanguage("en-US");

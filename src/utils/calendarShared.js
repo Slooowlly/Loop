@@ -1,19 +1,12 @@
 // Helpers puros compartilhados pelo calendário.
 import { getTrackThumbnailSrc } from "./trackImages";
 import { CLIMA_CALENDARIO, weatherLabel as climaLabel } from "./weather";
+import { CATEGORY_LOGOS_COM_MOLDURA } from "./categoryLogos";
 
-export const CATEGORY_LOGOS = {
-  mazda_rookie: "/utilities/categorias/MX5%20ROOKIE.webp",
-  toyota_rookie: "/utilities/categorias/GR%20ROOKIE.webp",
-  mazda_amador: "/utilities/categorias/MX5%20CUP.webp",
-  toyota_amador: "/utilities/categorias/GR%20CUP.webp",
-  bmw_m2: "/utilities/categorias/M2%20CUP.webp",
-  production_challenger: "/utilities/categorias/PRODUCTION.webp",
-  gt4: "/utilities/categorias/GT4.webp",
-  gt3: "/utilities/categorias/GT3.webp",
-  lmp2: "/utilities/categorias/LMP2.webp",
-  endurance: "/utilities/categorias/ENDURANCE.webp",
-};
+// O calendário usa a arte COM moldura: aqui o selo é grande o bastante para a moldura virar
+// acabamento, e não o desperdício de quadro que ela vira num selo de 20px. O dicionário
+// categoria → arquivo é o mesmo de todas as telas (`utils/categoryLogos.js`).
+export const CATEGORY_LOGOS = CATEGORY_LOGOS_COM_MOLDURA;
 
 export const ALL_CALENDAR_CATEGORIES = [
   "mazda_rookie",

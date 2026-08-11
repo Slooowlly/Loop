@@ -26,7 +26,7 @@ const HOVER_H = 150;
 // Não dá para comparar `id`: cada feed tem o próprio cursor, e o id 3 de um não é mais novo
 // que o id 7 do outro. O que os ordena é a chegada — cada hook devolve uma mensagem nova
 // exatamente uma vez, então guardar a última a mudar é a ordenação correta.
-function useMaisRecente(...fontes) {
+export function useMaisRecente(...fontes) {
   const [atual, setAtual] = useState(null);
   const anteriores = useRef([]);
   useEffect(() => {
@@ -48,7 +48,7 @@ function capDetail(s) {
 
 // Card de UMA mensagem. `message = { id, severity, text, detail, pecas }` ou null.
 // `windowed` = ancora no topo-esquerda (janela pequena arrastável) em vez de fixo-centro.
-export function EngineerRadioCard({ message, holdMs = 6000, windowed = false }) {
+export function EngineerRadioCard({ message, holdMs = 6000, windowed = false, mudo = false }) {
   const { t } = useTranslation();
   const [shown, setShown] = useState(null);
   const [visible, setVisible] = useState(false);
@@ -66,12 +66,19 @@ export function EngineerRadioCard({ message, holdMs = 6000, windowed = false }) 
     //
     // `anunciar` e não `falarPecas`: isto é fala NÃO SOLICITADA e ela ESPERA a vez. Com
     // `falarPecas` a quebra cortaria o anúncio da volta mais rápida no meio da palavra.
-    if (message.pecas?.length) {
-      anunciar(message.pecas, { pausasMs: pausasDoRadio(message.pecas) }).catch(() => {});
+    if (!mudo && message.pecas?.length) {
+      // `canal` e `texto` vão junto para o REGISTRO DO RÁDIO. O card tem o texto exato que o
+      // Rust redigiu, e é o único ponto do caminho em que a fala e a frase escrita estão na
+      // mesma mão — no áudio elas já são só chaves de peça.
+      anunciar(message.pecas, {
+        pausasMs: pausasDoRadio(message.pecas),
+        canal: message.severity === "pace" ? "ritmo" : "quebra",
+        texto: message.text ?? "",
+      }).catch(() => {});
     }
     return () => clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message?.id, holdMs]);
+  }, [message?.id, holdMs, mudo]);
 
   if (!shown) return null;
   const sev = shown.severity === "dnf" ? "dnf" : shown.severity === "heavy" ? "heavy" : "light";
@@ -127,7 +134,7 @@ function RevealWords({ text, delayStep = 42, startDelay = 0 }) {
 // Card do AVISO PESSOAL (peça do jogador na zona de risco): interface DISTINTA do rádio —
 // moldura âmbar pulsante, ícone de atenção, voz em 2ª pessoa, no alto da tela. Mesmo
 // mecanismo de fade/hold do card de rádio. Fica mais tempo (é um alerta acionável).
-export function PlayerWarningCard({ message, holdMs = 8000, windowed = false }) {
+export function PlayerWarningCard({ message, holdMs = 8000, windowed = false, mudo = false }) {
   const { t } = useTranslation();
   const [shown, setShown] = useState(null);
   const [visible, setVisible] = useState(false);
@@ -141,12 +148,16 @@ export function PlayerWarningCard({ message, holdMs = 8000, windowed = false }) 
     timer.current = setTimeout(() => setVisible(false), holdMs);
     // O aviso sobre o NOSSO carro é uma frase inteira numa peça só — `pausasDoRadio` de uma
     // peça devolve lista vazia, e é isso mesmo: não há junção para pausar.
-    if (message.pecas?.length) {
-      anunciar(message.pecas, { pausasMs: pausasDoRadio(message.pecas) }).catch(() => {});
+    if (!mudo && message.pecas?.length) {
+      anunciar(message.pecas, {
+        pausasMs: pausasDoRadio(message.pecas),
+        canal: "aviso",
+        texto: message.text ?? "",
+      }).catch(() => {});
     }
     return () => clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message?.id, holdMs]);
+  }, [message?.id, holdMs, mudo]);
 
   if (!shown) return null;
   return (
@@ -367,8 +378,18 @@ export function EngineerRadioLive() {
           zIndex: 9,
         }}
       />
-      <EngineerRadioCard message={demo ? demoMessage : liveMessage} holdMs={demo ? 6600 : 6000} windowed />
-      <PlayerWarningCard message={demo ? demoWarning : warning} windowed />
+      {/* `mudo` fora do demo: AO VIVO quem fala é a janela principal (`EngenheiroVozAuto`).
+          A política de autoplay exige um gesto do usuário para o contexto de áudio sair de
+          "suspended", e esta janela nasce sem foco e clique-atravessa — ela nunca recebe um
+          clique. É a mesma razão pela qual o spotter e o push-to-talk moram lá. No DEMO a
+          fala continua saindo daqui: ali o jogador está com a janela na frente, clicando. */}
+      <EngineerRadioCard
+        message={demo ? demoMessage : liveMessage}
+        holdMs={demo ? 6600 : 6000}
+        mudo={!demo}
+        windowed
+      />
+      <PlayerWarningCard message={demo ? demoWarning : warning} mudo={!demo} windowed />
       <ChatBlockedBanner blocked={chatBlocked} windowed />
     </div>
   );

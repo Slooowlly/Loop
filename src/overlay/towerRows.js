@@ -72,17 +72,28 @@ export function createTowerWindow() {
 //   • endurance:  LMP2 > GT3 > GT4
 //   • production: BMW  > Toyota > Mazda
 // Uma corrida é só de UM tipo, então a mesma lista serve pros dois. Classe
-// desconhecida vai pro fim, mantendo a ordem de entrada (sort estável).
+// desconhecida vai pro fim, em ordem alfabética.
 const CLASS_ORDER = ["lmp2", "gt3", "gt4", "bmw", "toyota", "mazda", "prod", "production"];
 
+function classKey(cls) {
+  return String(cls.id ?? cls.label ?? "").toLowerCase();
+}
+
 function classRank(cls) {
-  const key = String(cls.id ?? cls.label ?? "").toLowerCase();
-  const i = CLASS_ORDER.indexOf(key);
+  const i = CLASS_ORDER.indexOf(classKey(cls));
   return i < 0 ? CLASS_ORDER.length : i;
 }
 
+// O desempate alfabético entre as desconhecidas é o que impede a torre de tremer: numa
+// prova que não é do Loop nenhuma classe está na CLASS_ORDER, todas empatam no mesmo rank
+// e o sort estável devolvia a ordem em que o backend mandou. Como aquela ordem vinha da
+// iteração de um HashMap refeito a cada poll, os blocos de classe trocavam de lugar ~1x/s
+// e a grade inteira ficava subindo e descendo. O backend já manda ordenado; isto aqui
+// garante que a torre não dependa disso.
 export function orderClasses(classes) {
-  return [...classes].sort((a, b) => classRank(a) - classRank(b));
+  return [...classes].sort(
+    (a, b) => classRank(a) - classRank(b) || classKey(a).localeCompare(classKey(b)),
+  );
 }
 
 export function totalCars(data) {
